@@ -108,11 +108,20 @@ export const TRASH_PAGE_SIZE = 50
  */
 export const MAX_BATCH_TASKS = 100
 
-/** The changes a batch can make. One operation for the whole batch, so a mixed request has no order to guess. */
-export const TASK_BATCH_OPS = ['complete', 'delete', 'move', 'priority', 'star', 'tag'] as const
-export type TaskBatchOp = (typeof TASK_BATCH_OPS)[number]
+/**
+ * The changes a batch request can make. One operation for the whole batch, so a mixed request has no
+ * order to guess.
+ *
+ * `due` is the page-level "move every overdue row to today" gesture; the selection bar offers the
+ * other six. `value` on a due batch is the day to land on — absent means the end of the reader's
+ * own today — and the write touches `due_at` alone, never `planned_for`.
+ */
+export const TASK_BATCH_OPS = ['complete', 'delete', 'move', 'priority', 'star', 'tag', 'due'] as const
+export type TaskBatchRequestOp = (typeof TASK_BATCH_OPS)[number]
+/** The operations the selection bar offers; `due` is the banner's own gesture. */
+export type TaskBatchOp = Exclude<TaskBatchRequestOp, 'due'>
 
-export function isTaskBatchOp(value: unknown): value is TaskBatchOp {
+export function isTaskBatchRequestOp(value: unknown): value is TaskBatchRequestOp {
   return typeof value === 'string' && (TASK_BATCH_OPS as readonly string[]).includes(value)
 }
 

@@ -109,7 +109,7 @@ import type {
 import type {
   RemindOffset,
   SnoozeMinutes,
-  TaskBatchOp,
+  TaskBatchRequestOp,
   TaskBatchResult,
   TaskList,
   TaskPage,
@@ -1191,7 +1191,7 @@ export const api = {
      * with the reason. A row from another account is `not found`, exactly as it would be on its own
      * route, so a partial answer never tells the caller which ids exist elsewhere.
      */
-    batch: (body: { ids: string[], op: TaskBatchOp, value?: string | string[] | null }) =>
+    batch: (body: { ids: string[], op: TaskBatchRequestOp, value?: string | string[] | null }) =>
       request<TaskBatchResult>('/api/todos/batch', { method: 'POST', body }),
 
     /**

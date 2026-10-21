@@ -35,7 +35,7 @@ import {
   MAX_TASKS_PER_QUERY,
   REMIND_OFFSETS,
   isSnoozeMinutes,
-  isTaskBatchOp,
+  isTaskBatchRequestOp,
   isTaskSort,
   isTaskStatsBucket,
   isTaskView,
@@ -632,8 +632,8 @@ todoRoutes.post('/batch', async (c) => {
   const s = store(c)
   const settings = await s.getSettings()
   const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
-  if (!isTaskBatchOp(body.op)) {
-    throw ApiError.badRequest('A batch operation must be complete, delete, move, priority, star or tag.')
+  if (!isTaskBatchRequestOp(body.op)) {
+    throw ApiError.badRequest('A batch operation must be complete, delete, move, priority, star, tag or due.')
   }
   const op = body.op
   const ids = batchIds(body.ids)
@@ -644,6 +644,7 @@ todoRoutes.post('/batch', async (c) => {
   let priority: TaskPriority = 'medium'
   let starred = true
   let tagAdd: string[] = []
+  let dueAt: number | null = null
   switch (op) {
     case 'move':
       if (body.value === undefined) throw ApiError.badRequest('A move needs a list id, or null for the inbox.')
@@ -662,6 +663,17 @@ todoRoutes.post('/batch', async (c) => {
       tagAdd = normalizeTagNames(body.value)
       if (!tagAdd.length) throw ApiError.badRequest('A tag batch needs at least one tag name.')
       break
+    case 'due': {
+      // The banner's gesture: absent value means "the end of the reader's today", which is the one
+      // instant that is both not overdue and still inside today. An explicit value uses the same
+      // grammar a single task's due date does, so a day or a date-time both read as they always do.
+      const target = body.value === undefined || body.value === null || body.value === ''
+        ? parseLocalTime(localDate(Date.now(), settings.timezone), settings.timezone)
+        : parseDue(body.value, settings.timezone)
+      if (target === null) throw ApiError.badRequest('A due batch needs a day like 2026-01-31.')
+      dueAt = target
+      break
+    }
     default:
       break
   }
@@ -714,6 +726,14 @@ todoRoutes.post('/batch', async (c) => {
           // `setTaskTags` replaces, so the row's own words go back in front of the new ones: the bar's
           // action is "add a tag", not "set this row's whole vocabulary".
           await s.setTaskTags(id, [...existing.tags.map((tag) => tag.name), ...tagAdd])
+          break
+        case 'due':
+          // Only `due_at` moves. `planned_for` is the reader's own pick and stays exactly where it was,
+          // which is why this goes through a partial patch rather than a read-modify-write of the row.
+          if (!(await s.updateTask(id, { dueAt: dueAt as number }, settings.timezone, expectedRev))) {
+            failed.push({ id, reason: 'not found' })
+            continue
+          }
           break
       }
       done.push(id)

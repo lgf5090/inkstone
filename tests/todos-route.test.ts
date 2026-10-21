@@ -7,6 +7,7 @@ import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings, Env } from '../src/worker/env'
 import { todoRoutes, WRITE_BUDGET_PER_MINUTE } from '../src/worker/routes/todos'
 import { todoFeedRoutes } from '../src/worker/routes/todo-feeds'
+import { localDate, parseLocalTime } from '../src/shared/assistant-time'
 import { LIMITS } from '../src/shared/constants'
 import { AssistantStore } from '../src/worker/assistant/store'
 import {
@@ -417,6 +418,28 @@ describe('a batch of tasks', () => {
     expect(detail.task).toMatchObject({ listId: list.id, priority: 'urgent', starred: true })
     // Tagging adds the word instead of replacing the vocabulary the row already carried.
     expect(detail.task.tags.map((tag) => tag.name).sort()).toEqual(['Home', 'Work'])
+  })
+
+  it('moves overdue rows to the end of today without touching their plan', async () => {
+    const overdue = await create({ title: 'Late invoice', dueAt: Date.parse('2020-01-01T09:00:00Z') })
+    expect((await send('POST', `/${overdue.id}/plan`, { date: '2026-10-20' })).status).toBe(200)
+
+    const response = await send('POST', '/batch', { ids: [overdue.id], op: 'due' })
+    expect(response.status).toBe(200)
+    expect(await json<TaskBatchResult>(response)).toEqual({ done: [overdue.id], failed: [] })
+
+    const detail = await json<{ task: TodoTask }>(await send('GET', `/${overdue.id}`))
+    // The plan is a separate fact: shifting the due date must not move the row into or out of today.
+    expect(detail.task.plannedFor).toBe('2026-10-20')
+    const today = localDate(Date.now(), 'UTC')
+    expect(detail.task.dueAt).toBe(parseLocalTime(today, 'UTC'))
+  })
+
+  it('takes an explicit day for a due batch', async () => {
+    const task = await create({ title: 'Later', dueAt: Date.parse('2020-01-01T09:00:00Z') })
+    expect((await send('POST', '/batch', { ids: [task.id], op: 'due', value: '2030-01-02' })).status).toBe(200)
+    const detail = await json<{ task: TodoTask }>(await send('GET', `/${task.id}`))
+    expect(detail.task.dueAt).toBe(parseLocalTime('2030-01-02', 'UTC'))
   })
 })
 

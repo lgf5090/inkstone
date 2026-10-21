@@ -15,6 +15,10 @@ import { initI18n, t } from '../../lib/i18n'
 import { renderElement, stubBreakpoint, type RenderedElement } from '../../lib/test-render'
 import type { TaskCounts, TodoTask } from '@shared/todos/model'
 
+// This checkout's `node_modules` is a junction outside the Vite root, so the KaTeX stylesheet that
+// the note export helpers inline is refused before a test can run. Nothing here exports a note.
+vi.mock('katex/dist/katex.min.css?inline', () => ({ default: '' }))
+
 interface ListParams {
   view?: string
   q?: string
@@ -57,19 +61,26 @@ function row(id: string, title: string, extra: Partial<TodoTask> = {}): TodoTask
 const service = vi.hoisted(() => ({
   requests: [] as ListParams[],
   plans: [] as { id: string, date: string | null }[],
-  /** The today page's rows, the open shelf the picker searches, and the wider shelf a plan reads. */
+  batches: [] as { ids: string[], op: string }[],
+  /** The today page's rows, the open shelf the picker searches, the wider shelf a plan reads, and
+   *  the overdue page the shift banner names. */
   pageRows: [] as TodoTask[],
   candidates: [] as TodoTask[],
   shelf: [] as TodoTask[],
+  overdueRows: [] as TodoTask[],
   answer(params: ListParams): Record<string, unknown> {
     service.requests.push(params)
-    const rows = params.q ? service.candidates : params.view === 'open' ? service.shelf : service.pageRows
+    const rows = params.q
+      ? service.candidates
+      : params.view === 'open'
+        ? service.shelf
+        : params.view === 'overdue' ? service.overdueRows : service.pageRows
     const limit = Number(params.limit ?? 0)
     const offset = Number(params.offset ?? 0)
     return {
       tasks: rows.slice(offset, offset + limit),
       total: rows.length,
-      counts: counts(service.pageRows.length),
+      counts: { ...counts(service.pageRows.length), overdue: service.overdueRows.length },
       dayEnd: Date.now() + 3_600_000,
       timezone: 'UTC',
     }
@@ -84,6 +95,10 @@ vi.mock('../../lib/api', () => ({
         service.plans.push({ id, date })
         const found = [...service.candidates, ...service.pageRows].find((task) => task.id === id) ?? row(id, id)
         return { task: { ...found, plannedFor: date } }
+      },
+      batch: async (body: { ids: string[], op: string }) => {
+        service.batches.push({ ids: body.ids, op: body.op })
+        return { done: body.ids, failed: [] }
       },
       lists: async () => ({ lists: [] }),
       tags: async () => ({ tags: [] }),
@@ -128,8 +143,10 @@ beforeEach(async () => {
   await initI18n()
   service.requests.length = 0
   service.plans.length = 0
+  service.batches.length = 0
   service.pageRows = []
   service.candidates = []
+  service.overdueRows = []
   useTodos.setState(original, true)
 })
 
@@ -264,5 +281,28 @@ describe('the today screen', () => {
       { id: 'free', date: today },
     ])
     expect(container.querySelector('[data-today-suggestion]')).toBeNull()
+  })
+
+  it('shifts every overdue row to today from the banner', async () => {
+    stubBreakpoint(true)
+    service.overdueRows = [
+      row('late-1', 'Pay rent', { dueAt: Date.now() - 86_400_000 }),
+      row('late-2', 'Send invoice', { dueAt: Date.now() - 3_600_000 }),
+    ]
+    service.pageRows = [...service.overdueRows]
+
+    const container = await mount('/todo?view=today')
+    const shift = container.querySelector<HTMLButtonElement>('[data-todo-overdue-shift]')
+    expect(shift, 'the today screen offers no overdue shift').not.toBeNull()
+    // The count on the button is the count the press acts on.
+    expect(shift!.textContent).toContain('2')
+
+    await act(async () => {
+      shift!.click()
+      await Promise.resolve()
+    })
+    await settle()
+
+    expect(service.batches).toEqual([{ ids: ['late-1', 'late-2'], op: 'due' }])
   })
 })
