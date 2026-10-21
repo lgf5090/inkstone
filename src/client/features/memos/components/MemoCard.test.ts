@@ -122,6 +122,15 @@ beforeEach(async () => {
   useUi.setState({ toasts: [] })
   vi.clearAllMocks()
   api.spaces.list.mockResolvedValue({ spaces: [] })
+  api.preferences.get.mockResolvedValue({
+    defaultVisibility: 'private',
+    enableDoubleClickEdit: true,
+    saveMediaMetadata: true,
+    reactions: [],
+    tagRules: [],
+    enableLinkPreview: true,
+    enableReverseGeocoding: false,
+  })
 })
 
 afterEach(() => {

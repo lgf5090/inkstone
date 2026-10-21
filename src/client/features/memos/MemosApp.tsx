@@ -15,6 +15,7 @@ import { MemoAttachmentsPage } from './pages/MemoAttachmentsPage'
 import { MemoCalendarPage } from './pages/MemoCalendarPage'
 import { MemoExplorePage } from './pages/MemoExplorePage'
 import { MemoInboxPage } from './pages/MemoInboxPage'
+import { MemoMapPage } from './pages/MemoMapPage'
 import { MemoSettingsPage } from './pages/MemoSettingsPage'
 import { MemoPlaceholderPage } from './pages/MemoPlaceholderPage'
 import { MemoViewsPage } from './pages/MemoViewsPage'
@@ -263,7 +264,7 @@ export function MemosApp(): ReactElement {
   } else if (route.kind === 'calendar') {
     content = <MemoCalendarPage onOpenMemo={openMemo} />
   } else if (route.kind === 'map') {
-    content = <MemoPlaceholderPage kind="map" />
+    content = <MemoMapPage onOpenMemo={openMemo} />
   } else {
     content = <MemoPlaceholderPage kind="notFound" />
   }

@@ -82,10 +82,19 @@ export async function prepareMemoAttachment(
   options: PrepareMemoAttachmentOptions,
 ): Promise<PreparedMemoAttachment> {
   if (!isRasterImage(file)) return { file, thumbnail: null, metadata: null }
-  const optimized = await optimizeImageFile(file)
+  if (typeof createImageBitmap !== 'function') return { file, thumbnail: null, metadata: null }
+  let optimized = file
+  try {
+    optimized = await optimizeImageFile(file)
+  } catch (error) {
+    console.info('[inkstone] Memo image optimization fell back to the original file', error)
+  }
   const [rawExif, thumbnail] = await Promise.all([
     options.saveMediaMetadata ? readExif(file) : Promise.resolve(null),
-    createThumbnail(optimized),
+    createThumbnail(optimized).catch((error: unknown) => {
+      console.info('[inkstone] Memo thumbnail could not be created', error)
+      return null
+    }),
   ])
   const metadata = options.saveMediaMetadata
     ? normalizeExifMetadata(

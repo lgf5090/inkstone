@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactElement } from 'react'
-import { CalendarClock, Eye, EyeOff, Maximize2, Minimize2, Paperclip } from 'lucide-react'
+import { CalendarClock, Eye, EyeOff, MapPin, Maximize2, Minimize2, Paperclip, X } from 'lucide-react'
 import {
   MEMO_ATTACHMENT_MAX_BYTES,
   MEMO_CONTENT_MAX_BYTES,
@@ -10,6 +10,7 @@ import {
   type Memo,
   type MemoAttachment,
   type MemoCreateInput,
+  type MemoLocation,
   type MemoPatchInput,
   type MemoVisibility,
 } from '@shared/memos/types'
@@ -24,11 +25,15 @@ import { useSession } from '../../../store/session'
 import { useUi } from '../../../store/ui'
 import { memosApi } from '../api'
 import { memoErrorMessage } from '../errors'
+import { prepareMemoAttachment } from '../image-metadata'
+import { memoPlaceLabel } from '../location'
 import { loadMemoDraft, useMemos } from '../state'
 import { useMemoDraft } from '../use-memo-draft'
+import { useMemoPreferences } from '../use-memo-preferences'
 import { useMemoSpaces } from '../use-memo-spaces'
 import { attachmentMarkdown } from './memo-editor-format'
 import { memoDateValue, memoLocalTimestamp, memoTimeValue } from './memo-time'
+import { LocationPicker } from './LocationPicker'
 import { MemoBody } from './MemoBody'
 import { MemoEditor, type MemoEditorHandle } from './MemoEditor'
 
@@ -40,6 +45,13 @@ const VISIBILITY_KEYS: Record<MemoVisibility, MessageKey> = {
 
 const INBOX_DRAFT_SCOPE = 'inbox'
 const MEGABYTE = 1024 * 1024
+
+function sameLocation(first: MemoLocation | null, second: MemoLocation | null): boolean {
+  if (!first || !second) return first === second
+  return first.latitude === second.latitude
+    && first.longitude === second.longitude
+    && first.placeholder === second.placeholder
+}
 
 export function memoComposerDraftScope(spaceId: string | null | undefined): string {
   return `new:${spaceId ?? INBOX_DRAFT_SCOPE}`
@@ -77,6 +89,7 @@ export function MemoComposer({
   ).current
   const revRef = useRef(memo?.rev ?? 0)
   const spaces = useMemoSpaces()
+  const { preferences } = useMemoPreferences()
   const editorRef = useRef<MemoEditorHandle>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const uploadKey = useRef(0)
@@ -92,6 +105,10 @@ export function MemoComposer({
   const [space, setSpace] = useState<string | null>(
     memo?.spaceId ?? spaceId ?? restored?.spaceId ?? null,
   )
+  const [location, setLocation] = useState<MemoLocation | null>(
+    memo?.location ?? restored?.location ?? null,
+  )
+  const [locationOpen, setLocationOpen] = useState(false)
   const [attachmentIds, setAttachmentIds] = useState<string[]>(restored?.attachmentIds ?? [])
   const [createdAt, setCreatedAt] = useState(startingCreatedAt)
   const [saving, setSaving] = useState(false)
@@ -122,6 +139,7 @@ export function MemoComposer({
     enabled: !editing,
     value: text,
     attachmentIds,
+    location,
     spaceId: space,
     visibility,
   })
@@ -164,7 +182,15 @@ export function MemoComposer({
   const uploadOne = async (file: File): Promise<void> => {
     let attachment: MemoAttachment | null = null
     try {
-      const uploaded = await memosApi.attachments.upload({ file, memoId: memo?.id ?? null })
+      const prepared = await prepareMemoAttachment(file, {
+        saveMediaMetadata: preferences.saveMediaMetadata,
+      })
+      const uploaded = await memosApi.attachments.upload({
+        file: prepared.file,
+        thumbnail: prepared.thumbnail,
+        metadata: prepared.metadata,
+        memoId: memo?.id ?? null,
+      })
       attachment = uploaded
       appendSnippet(attachmentMarkdown(uploaded))
       attachmentIdsRef.current = [...attachmentIdsRef.current, uploaded.id]
@@ -226,12 +252,14 @@ export function MemoComposer({
       if (visibility !== memo.visibility) input.visibility = visibility
       if (space !== memo.spaceId) input.spaceId = space
       if (createdAt !== memo.createdAt) input.createdAt = createdAt
+      if (!sameLocation(location, memo.location)) input.location = location
       saved = await state.patch(memo.id, input)
     } else {
       const input: MemoCreateInput = {
         content: text,
         visibility,
         spaceId: space,
+        location,
         createdAt,
       }
       if (attachmentIdsRef.current.length > 0) input.attachmentIds = attachmentIdsRef.current
@@ -262,6 +290,7 @@ export function MemoComposer({
       attachmentIdsRef.current = []
       setAttachmentIds([])
       setCreatedAt(Math.floor(Date.now() / 1000))
+      setLocation(null)
       setAttempted(false)
       setShowPreview(false)
     }
@@ -279,6 +308,7 @@ export function MemoComposer({
     setVisibility(conflictHere.memo.visibility)
     setSpace(conflictHere.memo.spaceId)
     setCreatedAt(conflictHere.memo.createdAt)
+    setLocation(conflictHere.memo.location)
     revRef.current = conflictHere.memo.rev
     clearConflict()
   }
@@ -418,6 +448,14 @@ export function MemoComposer({
         ) : null}
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
           <IconButton
+            label={t('memos.composer.location')}
+            size="sm"
+            active={Boolean(location)}
+            onClick={() => setLocationOpen(true)}
+          >
+            <MapPin size={14} />
+          </IconButton>
+          <IconButton
             label={t('memos.composer.attach')}
             size="sm"
             disabled={saving}
@@ -458,6 +496,15 @@ export function MemoComposer({
           </Button>
         </div>
       </div>
+      {location ? (
+        <div className="mt-1 flex min-w-0 items-center gap-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+          <MapPin size={11} aria-hidden="true" />
+          <span className="min-w-0 truncate">{memoPlaceLabel(location)}</span>
+          <IconButton label={t('memos.composer.location_clear')} size="xs" onClick={() => setLocation(null)}>
+            <X size={11} />
+          </IconButton>
+        </div>
+      ) : null}
       <input
         ref={fileInputRef}
         type="file"
@@ -483,6 +530,15 @@ export function MemoComposer({
     </form>
   )
 
+  const locationPicker = locationOpen ? (
+    <LocationPicker
+      value={location}
+      onChange={setLocation}
+      onClose={() => setLocationOpen(false)}
+      enableReverseGeocode={preferences.enableReverseGeocoding}
+    />
+  ) : null
+
   if (focusMode) {
     return (
       <Modal
@@ -493,8 +549,9 @@ export function MemoComposer({
         width={720}
       >
         {form}
+        {locationPicker}
       </Modal>
     )
   }
-  return form
+  return <>{form}{locationPicker}</>
 }

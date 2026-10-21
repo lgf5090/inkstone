@@ -90,6 +90,8 @@ export const EN_US_MEMOS_CORE = {
     "memos.composer.link": "Link",
     "memos.composer.heading_level": "Heading {level}",
     "memos.composer.attach": "Attach files",
+    "memos.composer.location": "Add location",
+    "memos.composer.location_clear": "Remove location",
     "memos.composer.uploading": "Uploading {name}…",
     "memos.composer.uploading_hint": "Wait for uploads to finish before saving.",
     "memos.composer.upload_failed": "Could not upload {name}.",

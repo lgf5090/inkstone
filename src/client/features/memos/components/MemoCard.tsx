@@ -1,5 +1,5 @@
 import { useMemo, type MouseEvent, type ReactElement } from 'react'
-import { MessageCircle, Pin } from 'lucide-react'
+import { MessageCircle, MapPin, Pin } from 'lucide-react'
 import { MEMOS_APP_PATH } from '@shared/memos/constants'
 import type { Memo, MemoOrderField, MemoTagRule, MemoVisibility } from '@shared/memos/types'
 import { Badge } from '../../../components/primitives'
@@ -7,6 +7,7 @@ import { TagChip } from '../../../components/TagChip'
 import { cn } from '../../../lib/cn'
 import { t, type MessageKey } from '../../../lib/i18n'
 import { fullTime, shortTime } from '../../../lib/time'
+import { memoPlaceLabel } from '../location'
 import { memoTagRuleBlursContent, memoTagRulesByTag } from '../tag-rules'
 import { useMemoTaskToggle } from '../use-memo-task-toggle'
 import { MemoAttachments } from './MemoAttachments'
@@ -115,6 +116,12 @@ export function MemoCard({
         {isNew ? <Badge tone="accent">{t('memos.card.new')}</Badge> : null}
         <Badge tone={VISIBILITY_TONES[memo.visibility]}>{t(VISIBILITY_KEYS[memo.visibility])}</Badge>
         {spaceName ? <Badge>{spaceName}</Badge> : null}
+        {memo.location ? (
+          <span className="inline-flex min-w-0 items-center gap-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+            <MapPin size={10} aria-hidden="true" />
+            <span className="max-w-40 truncate">{memoPlaceLabel(memo.location)}</span>
+          </span>
+        ) : null}
         <div className="ml-auto flex shrink-0 items-center gap-1">
           <MemoCardActions memo={memo} onEdit={memo.state === 'normal' ? onStartEdit : undefined} />
         </div>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactElement } from 'react'
-import { ArrowLeft, Pin, X } from 'lucide-react'
+import { ArrowLeft, MapPin, Pin, X } from 'lucide-react'
 import type { MemoVisibility } from '@shared/memos/types'
 import { Badge, Button, IconButton } from '../../../components/primitives'
 import { Empty, LoadingBlock } from '../../../components/feedback'
@@ -7,6 +7,7 @@ import { TagChip } from '../../../components/TagChip'
 import { cn } from '../../../lib/cn'
 import { t, type MessageKey } from '../../../lib/i18n'
 import { fullTime } from '../../../lib/time'
+import { memoPlaceLabel } from '../location'
 import { parseMemoOutline } from '../memo-outline'
 import { memoTagRuleBlursContent, memoTagRulesByTag } from '../tag-rules'
 import { useMemos } from '../state'
@@ -150,6 +151,12 @@ export function MemoDetail({
           {isNew ? <Badge tone="accent">{t('memos.card.new')}</Badge> : null}
           <Badge tone={VISIBILITY_TONES[memo.visibility]}>{t(VISIBILITY_KEYS[memo.visibility])}</Badge>
           {spaceName ? <Badge>{spaceName}</Badge> : null}
+          {memo.location ? (
+            <span className="inline-flex min-w-0 items-center gap-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+              <MapPin size={10} aria-hidden="true" />
+              <span className="max-w-60 truncate">{memoPlaceLabel(memo.location)}</span>
+            </span>
+          ) : null}
           <div className="ml-auto flex shrink-0 items-center gap-1">
             <MemoCardActions
               memo={memo}

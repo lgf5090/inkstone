@@ -13,6 +13,7 @@ export interface MemoDraftOptions {
   enabled: boolean
   value: string
   attachmentIds?: readonly string[]
+  location?: MemoDraftInput['location']
   spaceId?: string | null
   visibility?: MemoDraftInput['visibility']
 }
@@ -22,7 +23,7 @@ export interface MemoDraftHandle {
 }
 
 export function useMemoDraft(options: MemoDraftOptions): MemoDraftHandle {
-  const { userId, scope, enabled, value, attachmentIds, spaceId, visibility } = options
+  const { userId, scope, enabled, value, attachmentIds, location, spaceId, visibility } = options
   const debouncerRef = useRef<MemoDraftDebouncer<MemoDraftInput> | null>(null)
 
   useEffect(() => {
@@ -59,10 +60,11 @@ export function useMemoDraft(options: MemoDraftOptions): MemoDraftHandle {
     debouncer.schedule({
       content: value,
       attachmentIds: [...(attachmentIds ?? [])],
+      location: location ?? null,
       spaceId: spaceId ?? null,
       visibility,
     })
-  }, [attachmentIds, enabled, scope, spaceId, userId, value, visibility])
+  }, [attachmentIds, enabled, location, scope, spaceId, userId, value, visibility])
 
   const clearDraft = useCallback((): void => {
     debouncerRef.current?.cancel()

@@ -90,6 +90,8 @@ export const ZH_CN_MEMOS_CORE = {
     "memos.composer.link": "链接",
     "memos.composer.heading_level": "标题 {level}",
     "memos.composer.attach": "添加附件",
+    "memos.composer.location": "添加位置",
+    "memos.composer.location_clear": "移除位置",
     "memos.composer.uploading": "正在上传 {name}…",
     "memos.composer.uploading_hint": "请等待上传完成后再保存。",
     "memos.composer.upload_failed": "{name} 上传失败。",
