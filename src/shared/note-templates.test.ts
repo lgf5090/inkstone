@@ -104,8 +104,13 @@ describe('built-in template catalog', () => {
       expect(zh[key], key).toBeTruthy()
     }
     for (const def of BUILTIN_TEMPLATE_DEFS) {
-      expect(en[def.contentKey], def.contentKey).toContain('{{title}}')
+      // The invariant is "a built-in note names its own title", not "every built-in spells it the same way":
+      // the app's own templates interpolate `{{title}}`, while a Templater template asks the engine with
+      // `tp.file.title`. A Templater body run through the create path is never pre-interpolated, so writing
+      // `{{title}}` into one would leave those eight characters in the reader's note.
       expect(en[def.contentKey], def.contentKey).toMatch(/^---\r?\n/)
+      const namesItsTitle = en[def.contentKey].includes('{{title}}') || en[def.contentKey].includes('tp.file.title')
+      expect(namesItsTitle, def.contentKey).toBe(true)
     }
   })
 })
