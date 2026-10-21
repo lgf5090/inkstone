@@ -31,6 +31,7 @@ import { readerDiscoveryRoutes } from './routes/reader-discovery'
 import { rssRoutes } from './routes/rss'
 import { subscriptionRoutes } from './routes/subscriptions'
 import { todoRoutes } from './routes/todos'
+import { todoAttachmentRoutes } from './routes/todo-attachments'
 import { todoImportRoutes } from './routes/todo-import'
 import { todoFeedRoutes } from './routes/todo-feeds'
 import { subscriptionInboundRoutes } from './routes/subscriptions-inbound'
@@ -120,6 +121,9 @@ export function createApp() {
   // Before `/api/todos`: Hono matches in registration order and that router owns `/:id`, so the
   // import path has to be claimed first or it would read as the id of a task called "import".
   app.route('/api/todos/import', todoImportRoutes)
+  // The attachment surface names a task too, so it is claimed before the task router as well; its
+  // paths carry the extra `/attachments` segment, which the task router would never match.
+  app.route('/api/todos', todoAttachmentRoutes)
   app.route('/api/todos', todoRoutes)
   app.route('/api/assistant', assistantRoutes)
   app.route('/api/excalidraw/ai', aiProxyRoutes)

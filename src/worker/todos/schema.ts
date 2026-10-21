@@ -8,6 +8,10 @@
  * `todos_tasks` is the task list the assistant's tools have always written, under the name this module
  * owns. A database that predates the rename still holds its rows in `chat_tasks`; `migrateTaskTable`
  * copies them across once and drops the old table, so the two names never both hold live data.
+ *
+ * The attachment link's reads and writes live at the bottom of this file rather than in its route:
+ * `tests/worker-layering.test.ts` keeps SQL out of every route, and this module already owns the
+ * `todos_*` declarations those statements are bound against.
  */
 
 export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
@@ -144,6 +148,19 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_todos_steps_task
      ON todos_steps(user_id, task_id, position)`,
 
+  // A task's files, one link row each. The bytes and their metadata stay in `attachments`, exactly
+  // where a note's uploads already put them; this table only says which task shows which file, so a
+  // file may be named by more than one task and removing one link never removes the file. Nothing
+  // cascades here (no table in this schema declares a foreign key), so trashing or purging a task
+  // leaves both the links and the file alone — the same rule the notes side has always followed.
+  `CREATE TABLE IF NOT EXISTS todos_attachments (
+    user_id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    attachment_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, task_id, attachment_id)
+  )`,
+
   `CREATE TABLE IF NOT EXISTS todos_tags (
     user_id TEXT NOT NULL,
     id TEXT NOT NULL,
@@ -190,6 +207,7 @@ export const TODOS_REQUIRED_TABLES: readonly string[] = [
   'todos_reminders',
   'todos_lists',
   'todos_steps',
+  'todos_attachments',
   'todos_tags',
   'todos_tag_links',
   'todos_feeds',
@@ -229,7 +247,103 @@ export const TODOS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>>
   todos_reminders: ['user_id', 'id', 'task_id', 'remind_at', 'fired_at', 'created_at'],
   todos_lists: ['user_id', 'id', 'name', 'icon', 'color', 'position', 'archived_at', 'parent_id', 'created_at', 'updated_at'],
   todos_steps: ['user_id', 'id', 'task_id', 'text', 'done', 'position', 'created_at'],
+  todos_attachments: ['user_id', 'task_id', 'attachment_id', 'created_at'],
   todos_tags: ['user_id', 'id', 'name', 'color', 'created_at', 'updated_at'],
   todos_tag_links: ['user_id', 'task_id', 'tag_id', 'created_at'],
   todos_feeds: ['slug', 'user_id', 'password_hash', 'expires_at', 'revoked_at', 'created_at'],
+}
+
+// ------------------------------------------------------------- task attachments
+
+/** One file a task shows, as the listing reads it: the attachment row, never the bytes. */
+export interface TodoAttachmentRow {
+  id: string
+  filename: string
+  mime: string
+  size: number
+  width: number | null
+  height: number | null
+  created_at: number
+}
+
+/**
+ * Whether a task is one this account still has.
+ *
+ * `deleted_at IS NULL` is `TASK_LIVE_PREDICATE`'s rule, restated rather than imported: this module is
+ * loaded during schema boot, and pulling the assistant's store in here for one constant would put the
+ * whole store on that path. A trashed task is not an upload, list or detach target.
+ */
+export async function todoTaskIsLive(
+  db: D1Database,
+  userId: string,
+  taskId: string,
+): Promise<boolean> {
+  const row = await db.prepare(
+    `SELECT 1 AS live FROM todos_tasks
+      WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL`,
+  ).bind(userId, taskId).first<{ live: number }>()
+  return Boolean(row)
+}
+
+/**
+ * The files a live task shows, newest first.
+ *
+ * The join is also the tenant check: a link row whose attachment belongs to another account (or whose
+ * file was deleted through `/api/files`) simply does not surface, and `note_id` stays unread because a
+ * task attachment is not a note attachment.
+ */
+export async function listTodoAttachments(
+  db: D1Database,
+  userId: string,
+  taskId: string,
+): Promise<TodoAttachmentRow[]> {
+  const { results } = await db.prepare(
+    `SELECT a.id, a.filename, a.mime, a.size, a.width, a.height, a.created_at
+       FROM todos_attachments ta
+       JOIN attachments a ON a.id = ta.attachment_id AND a.user_id = ta.user_id
+      WHERE ta.user_id = ?1 AND ta.task_id = ?2
+      ORDER BY ta.created_at DESC, ta.attachment_id DESC`,
+  ).bind(userId, taskId).all<TodoAttachmentRow>()
+  return results ?? []
+}
+
+/**
+ * Record that a task shows a file, without moving or copying the file.
+ *
+ * The insert selects from `attachments` under the same account, so a link cannot be minted for a row
+ * this account does not own. `false` means the attachment row was already gone; the caller rolls the
+ * upload back rather than leaving a file nothing names.
+ */
+export async function linkTodoAttachment(
+  db: D1Database,
+  userId: string,
+  taskId: string,
+  attachmentId: string,
+  createdAt: number,
+): Promise<boolean> {
+  const result = await db.prepare(
+    `INSERT INTO todos_attachments (user_id, task_id, attachment_id, created_at)
+     SELECT ?1, ?2, ?3, ?4
+      WHERE EXISTS (SELECT 1 FROM attachments WHERE id = ?3 AND user_id = ?1)`,
+  ).bind(userId, taskId, attachmentId, createdAt).run()
+  return (result.meta?.changes ?? 0) > 0
+}
+
+/**
+ * Drop one task's link to a file.
+ *
+ * The whole key is the predicate, so another task's link to the same file is untouched and the file
+ * itself is not deleted — unlinking is not deleting, exactly as removing a note's mention is not.
+ */
+export async function unlinkTodoAttachment(
+  db: D1Database,
+  userId: string,
+  taskId: string,
+  attachmentId: string,
+): Promise<boolean> {
+  const result = await db.prepare(
+    `DELETE FROM todos_attachments
+      WHERE user_id = ?1 AND task_id = ?2 AND attachment_id = ?3`,
+  ).bind(userId, taskId, attachmentId).run()
+  return (result.meta?.changes ?? 0) > 0
 }
