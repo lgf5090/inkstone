@@ -32,7 +32,7 @@ import momentZhCnSource from 'moment/locale/zh-cn.js?raw'
 import type { QuickJSContext, QuickJSHandle } from 'quickjs-emscripten-core'
 import type { TemplateRunContext } from '../protocol'
 import type { VmMarshalling } from './host-bindings'
-import { MAX_LOG_CHARS, MAX_LOG_LINES } from './limits'
+import { MAX_LOG_CHARS, MAX_LOG_LINES } from '../limits'
 
 /**
  * The namespace, as one self-contained expression.
@@ -70,6 +70,15 @@ const PRELUDE = `(() => {
   const stamp = (epoch) => (typeof epoch === 'number' && isFinite(epoch)
     ? moment(epoch).format('YYYYMMDDHHMMSS') : '')
 
+  // What the run was told about itself before any template text ran: the instant the page took, and the
+  // reader's language. Installed with the snapshot, because a template must not be able to move either.
+  const run = { startedAt: 0, locale: '' }
+
+  // Upstream reads a live clock; this port reads the one instant the page took, which is what
+  // \`TemplateRunContext.startedAt\` exists for — without it two commands in one template can straddle
+  // midnight and disagree about today.
+  const nowMoment = () => (run.startedAt ? moment(run.startedAt) : moment())
+
   const basenameOf = (path) => {
     const text = String(path ?? '')
     return text.slice(text.lastIndexOf('/') + 1)
@@ -100,6 +109,26 @@ const PRELUDE = `(() => {
     const type = target[0] === '^' ? 'block-id' : 'heading'
     return { path, subpath: { type, target: type === 'block-id' ? target.slice(1) : target } }
   }
+
+  // Obsidian's \`getAllTags\` answers a note's tags with their \`#\` still on them, and null when it has
+  // none. The snapshot carries the names bare — computed host-side off the body and the frontmatter the
+  // same way Obsidian does — so this only puts the mark back and keeps upstream's null.
+  const withTagMark = (name) => {
+    const text = String(name)
+    return text[0] === '#' ? text : '#' + text
+  }
+
+  const getAllTags = (cache) => {
+    const names = cache && Array.isArray(cache.tags) ? cache.tags : null
+    if (!names || names.length === 0) return null
+    return names.map(withTagMark)
+  }
+
+  // Upstream's inclusion guard, at the same number: \`InternalModuleFile.ts\` counts depth per run and
+  // throws past ten, and its spec pins both the tenth level and the eleventh.
+  const DEPTH_LIMIT = 10
+
+  const LINK_PATTERN = /^\\[\\[(.*)\\]\\]$/
 
   // The run's own note table, filled by TypeScript from the snapshot. It is data, not objects: entries are
   // looked up by path and hydrated on demand, so asking for one folder does not build twenty thousand files.
@@ -213,29 +242,80 @@ const PRELUDE = `(() => {
   const findByTitle = (title) => {
     const wanted = normalizePath(title)
     if (!wanted) return null
-    const nameOf = (path) => basenameOf(withoutExtension(path))
-    const withExtension = wanted.endsWith('.md') ? wanted : wanted + '.md'
-    const direct = index.notes.find((note) => note.path === wanted || note.path === withExtension)
-    if (direct) return fileOf(direct)
-    const byName = index.notes.find((note) => nameOf(note.path) === nameOf(wanted))
-    if (byName) return fileOf(byName)
-    const byTitle = index.notes.find((note) => note.title === nameOf(wanted))
-    if (byTitle) return fileOf(byTitle)
-    // A library template is addressable as a file too, which is how \`include\` and \`find_tfile\` reach a
-    // template by the name the reader gave it. The records arrive from TypeScript already in file shape.
-    const asTemplate = index.templates.find((template) => template.name === wanted || withoutExtension(template.name) === wanted)
-    return asTemplate ? fileOf(asTemplate) : null
+    // Library templates are searched by the same three readings, in their own list and after the notes, so
+    // a row and a template that read the same name resolve to the note. The index the run arrived with
+    // normally holds the projected \`Templates/<name>.md\` row already; the separate list is what keeps a
+    // template addressable when the page left it out of the index but sent its body.
+    const found = matchEntry(index.notes, wanted) ?? matchEntry(index.templates, wanted)
+    return found ? fileOf(found) : null
   }
 
-  const findFolder = (title) => {
-    const wanted = normalizePath(title)
-    const entry = index.folders.find((folder) => folder.path === wanted || folder.name === wanted)
-    return entry ? folderOf(entry) : null
+  const matchEntry = (entries, wanted) => {
+    const nameOf = (path) => basenameOf(withoutExtension(path))
+    const withExtension = wanted.endsWith('.md') ? wanted : wanted + '.md'
+    return entries.find((entry) => entry.path === wanted || entry.path === withExtension)
+      ?? entries.find((entry) => nameOf(entry.path) === nameOf(wanted))
+      ?? entries.find((entry) => entry.title === nameOf(wanted))
+  }
+
+  // \`tp.file.exists()\` and \`tp.file.find_tfile()\` with no argument: upstream hands the argument to
+  // Obsidian's \`normalizePath\`, which throws on anything that is not a string. The empty string is left
+  // alone, because upstream normalizes it and then genuinely looks for nothing and finds nothing.
+  const requirePath = (member, value) => {
+    if (typeof value !== 'string') throw hostError('path-invalid', 'tp.' + member)
+    return normalizePath(value)
+  }
+
+  // Reading a file that is not the run's own target: the snapshot answers for the note it was made around,
+  // the library template goes through \`template.read\` so the run's capabilities are still applied to it,
+  // and everything else is the page's to read.
+  const readByPath = async (path) => {
+    if (target() && target().path === path) return fileModule.content
+    const template = index.templates.find((one) => one.path === path)
+    const answer = await callHost(template ? 'template.read' : 'note.read', [template ? template.title : path])
+    if (!answer || typeof answer !== 'object' || typeof answer.content !== 'string') {
+      throw hostError('note-not-found', path)
+    }
+    return answer.content
+  }
+
+  // How deep the current \`tp.file.include\` chain is. One counter per run, the way upstream holds it on
+  // the module rather than passing it down.
+  let includeDepth = 0
+
+  // \`tp.file.include\`: upstream resolves the link, reads the file and then *parses the result again* so
+  // the commands inside it run. Re-parsing is the page's job — the worker never holds the parser — and no
+  // host method asks for a nested run, so this answers the stored text and nothing else. A subpath
+  // (\`#Heading\`, \`#^block\`) needs the note's parse positions, which the snapshot does not carry either,
+  // so it is refused rather than answered with the whole file.
+  const includeFile = async (include_link) => {
+    if (includeDepth >= DEPTH_LIMIT) throw hostError('template-recursion', 'tp.file.include')
+    includeDepth += 1
+    try {
+      const path = include_link instanceof TFile
+        ? requirePath('file.include', include_link.path)
+        : includePathOf(include_link)
+      return await readByPath(path)
+    } finally {
+      includeDepth -= 1
+    }
+  }
+
+  const includePathOf = (include_link) => {
+    const text = String(include_link ?? '')
+    const match = LINK_PATTERN.exec(text)
+    if (match === null) throw hostError('path-invalid', 'tp.file.include')
+    const { path, subpath } = parseLinktext(match[1])
+    if (subpath) throw hostError('not-supported', 'tp.file.include.subpath')
+    const wanted = normalizePath(path)
+    const found = findByTitle(wanted)
+    if (!found) throw hostError('note-not-found', text)
+    return found.path
   }
 
   const hooks = []
 
-  const config = { run_mode: 0, target_file: null, active_file: null, template_file: null, static: true }
+  const config = { run_mode: 0, target_file: null, active_file: null, template_file: null }
 
   // The cancel rules differ per call and come from upstream: prompt and suggester yield null,
   // multi_suggester yields an empty list. A template that never mentions cancellation still has to get the
@@ -252,44 +332,53 @@ const PRELUDE = `(() => {
     }
   }
 
-  const option = (options, key) => (options && typeof options === 'object' ? options[key] : undefined)
+  // Display text is what the wire carries, so the page is sent labels and the answer is mapped back to the
+  // item by position. Two items shown identically resolve to the first, which is what upstream's suggester
+  // does with a duplicate row too.
+  const labelsOf = (text_items, list) => list.map((item, position) => (typeof text_items === 'function'
+    ? String(text_items(item))
+    : String((text_items ?? [])[position] ?? item)))
 
-  const suggester = async (textItems, items, options, throwOnCancel) => {
+  const labelOf = (list, labels, item) => {
+    const position = list.indexOf(item)
+    return position === -1 ? String(item) : labels[position]
+  }
+
+  // \`tp.system.suggester(text_items, items, throw_on_cancel = false, placeholder = "", limit?,
+  // default_value?)\` — the positional order and the defaults are upstream's, and the answer is the *item*,
+  // not the row the reader clicked.
+  const suggester = async (text_items, items, throw_on_cancel = false, placeholder = '', limit, default_value) => {
     const list = Array.isArray(items) ? items : []
-    const labels = list.map((item, position) => (typeof textItems === 'function'
-      ? String(textItems(item))
-      : String((textItems ?? [])[position] ?? item)))
-    // The wire carries strings, so the page is sent the display text and the answer is mapped back by
-    // position. Two items shown identically resolve to the first, which is what upstream's suggester does
-    // with a duplicate row too.
+    const labels = labelsOf(text_items, list)
     const answer = await settle(callHost('system.suggester', [{
       kind: 'suggest',
-      title: String(option(options, 'placeholder') ?? labels[0] ?? ''),
+      title: '',
       values: labels,
-      limit: typeof option(options, 'limit') === 'number' ? option(options, 'limit') : undefined,
-      placeholder: option(options, 'placeholder') === undefined ? undefined : String(option(options, 'placeholder')),
-      throwOnCancel: throwOnCancel === true,
-    }]), throwOnCancel === true, null)
+      limit: typeof limit === 'number' ? limit : undefined,
+      placeholder: String(placeholder),
+      defaultValue: default_value === undefined ? undefined : labelOf(list, labels, default_value),
+      throwOnCancel: throw_on_cancel === true,
+    }]), throw_on_cancel === true, null)
     if (typeof answer !== 'string') return answer
     const position = labels.indexOf(answer)
     return position === -1 ? answer : list[position]
   }
 
-  const multiSuggester = async (textItems, items, options, defaultPicks) => {
+  // \`tp.system.multi_suggester(text_items, items, throw_on_cancel = false, title = "", limit?,
+  // default_values?)\`. Upstream's fourth argument is a heading here and a placeholder for the single
+  // suggester, so the two are not interchangeable and each keeps its own field.
+  const multiSuggester = async (text_items, items, throw_on_cancel = false, title = '', limit, default_values) => {
     const list = Array.isArray(items) ? items : []
-    const labels = list.map((item, position) => (typeof textItems === 'function'
-      ? String(textItems(item))
-      : String((textItems ?? [])[position] ?? item)))
-    const picks = Array.isArray(defaultPicks) ? defaultPicks.map(String) : undefined
+    const labels = labelsOf(text_items, list)
+    const picks = Array.isArray(default_values) ? default_values.map((one) => labelOf(list, labels, one)) : undefined
     const answer = await settle(callHost('system.multiSuggester', [{
       kind: 'multi-suggest',
-      title: String(option(options, 'placeholder') ?? labels[0] ?? ''),
+      title: String(title),
       values: labels,
-      limit: typeof option(options, 'limit') === 'number' ? option(options, 'limit') : undefined,
-      placeholder: option(options, 'placeholder') === undefined ? undefined : String(option(options, 'placeholder')),
+      limit: typeof limit === 'number' ? limit : undefined,
       defaultPicks: picks,
-      throwOnCancel: false,
-    }]), false, [])
+      throwOnCancel: throw_on_cancel === true,
+    }]), throw_on_cancel === true, [])
     if (answer === null || answer === undefined) return []
     const chosen = Array.isArray(answer) ? answer : [answer]
     return chosen.map((one) => {
@@ -323,64 +412,185 @@ const PRELUDE = `(() => {
   const cursorMarker = (order) => '<%' + ' tp.file.cursor(' + (order === undefined ? '' : order) + ') %>'
 
   const target = () => config.target_file
+
+  // The basename the note has in the snapshot, which is what upstream's \`tp.file.title\` reads. The install
+  // prefers the title the page froze for the run, because a note being created has no row to read from yet.
   const titleOf = () => (target() ? target().basename : '')
-  const dateOf = (key, format, fallback) => moment(target() ? target().stat[key] : fallback, 'YYYYMMDDHHMMSS').format(format ?? 'YYYY-MM-DD HH:mm')
+
+  // Upstream formats the note's own times and never falls back to the clock: with no target there is no
+  // time to report, and answering \`Date.now()\` would be the invented data this layer may not print.
+  const stamped = (member, key, format) => {
+    const file = target()
+    if (!file) throw hostError('note-not-found', 'tp.file.' + member)
+    return moment(file.stat[key], 'YYYYMMDDHHMMSS').format(format)
+  }
 
   const fileModule = {
+    // Frozen at install, from the title the page decided before anything ran. Upstream reads
+    // \`target_file.basename\` once, and its spec pins that a template renaming its own note still prints the
+    // old title twice; a rename inside the run goes to the page and must not reach back in here.
     title: '',
     content: '',
-    tags: () => (target() ? target().tags.slice() : []),
+    // An array, not a function: upstream's \`tags\` is a value on the object, and an array printed by a
+    // template is its comma join — which is how \`#tag1,#tag2\` reaches the note, and how a note with no
+    // tags prints nothing at all.
+    tags: [],
     cursor: cursorMarker,
-    creation_date: (format) => dateOf('ctime', format, Date.now()),
-    last_modified_date: (format) => dateOf('mtime', format, Date.now()),
-    name: () => titleOf(),
-    basename: () => titleOf(),
-    folder: (absolute) => {
+    creation_date: (format = 'YYYY-MM-DD HH:mm') => stamped('creation_date', 'ctime', format),
+    last_modified_date: (format = 'YYYY-MM-DD HH:mm') => stamped('last_modified_date', 'mtime', format),
+    // A note at the vault root has no folder to name, and upstream answers the empty string for it rather
+    // than the root's own label.
+    folder: (absolute = false) => {
       const parent = target() ? target().parent : null
       if (!parent) return ''
-      return absolute === true ? parent.path : parent.name
+      return absolute ? parent.path : parent.name
     },
-    find_tfile: findByTitle,
-    find_tfolder: findFolder,
+    // \`tp.file.path(true)\` is the vault-relative path, which this app has. The absolute half is not a
+    // difference of degree: there is no vault directory on a disk, so the port answers the vault root as
+    // \`/\` and the reference panel says so.
+    path: (relative = false) => {
+      const file = target()
+      if (!file) throw hostError('note-not-found', 'tp.file.path')
+      return relative ? file.path : '/' + file.path
+    },
+    exists: async (filepath) => {
+      const answer = await callHost('note.exists', [requirePath('file.exists', filepath)])
+      if (typeof answer !== 'boolean') throw hostError('render-failed', 'note.exists')
+      return answer
+    },
+    find_tfile: (filename) => findByTitle(requirePath('file.find_tfile', filename)),
+    include: includeFile,
+    // The selection lives in the editor, and the frozen host method list carries no way to read it back —
+    // \`cursor.append\` only writes. So this names the refusal instead of answering the whole note, which is
+    // the plausible-looking wrong answer this layer exists to avoid.
+    selection: () => {
+      throw hostError('not-supported', 'tp.file.selection')
+    },
+  }
+
+  // Derived from Templater 2.26.0 (AGPL-3.0-only)
+  // src/core/functions/internal_functions/date/InternalModuleDate.ts, with Inkstone adaptations. The only
+  // deliberate change is where "now" comes from: the run's own instant rather than the live clock.
+  const dateModule = {
+    now: (format = 'YYYY-MM-DD', offset, reference, reference_format) => {
+      let duration
+      if (typeof offset === 'string') duration = moment.duration(offset)
+      else if (typeof offset === 'number') duration = moment.duration(offset, 'days')
+      return referenceOf(reference, reference_format, 'tp.date.now').add(duration).format(format)
+    },
+    tomorrow: (format = 'YYYY-MM-DD') => nowMoment().add(1, 'days').format(format),
+    yesterday: (format = 'YYYY-MM-DD') => nowMoment().add(-1, 'days').format(format),
+    weekday: (format = 'YYYY-MM-DD', weekday, reference, reference_format) => {
+      // \`weekday\` takes no default, exactly as upstream: called with nothing, moment answers the getter
+      // with a number and the \`.format\` after it is a TypeError — the parse error upstream's spec pins.
+      // It is also locale-dependent, so this follows whichever locale the install selected.
+      return referenceOf(reference, reference_format, 'tp.date.weekday').weekday(weekday).format(format)
+    },
+  }
+
+  const referenceOf = (reference, reference_format, member) => {
+    if (!reference) return nowMoment()
+    // Upstream's own guard: a reference that will not read with the format it was given is a mistake in the
+    // template, and a wrong date is worse than a failed run.
+    if (!moment(reference, reference_format).isValid()) throw hostError('render-failed', member + '.reference')
+    return moment(reference, reference_format)
+  }
+
+  const frontmatter = {}
+
+  const webModule = {
+    daily_quote: async (language) => {
+      const answer = await callHost('web.dailyQuote', [quoteLanguage(language)])
+      const record = answer && typeof answer === 'object' ? answer : null
+      if (!record || typeof record.quote !== 'string' || typeof record.author !== 'string') {
+        throw hostError('web-request-failed', 'web.dailyQuote')
+      }
+      return '> [!quote] ' + record.quote + '\\n> \\u2014 ' + record.author
+    },
+    // The first parameter is required here the way it is required upstream, although upstream's own
+    // reference writes \`size?\`: the implementation is what a template runs, so it stays, and a missing
+    // size simply leaves no size on the link.
+    random_picture: async (size, query, include_size = false) => {
+      const answer = await callHost('web.randomPicture', [query === undefined ? null : String(query)])
+      const photo = answer && typeof answer === 'object' ? answer : null
+      if (!photo || typeof photo.full !== 'string' || typeof photo.photog !== 'string' || typeof photo.photogUrl !== 'string') {
+        throw hostError('web-request-failed', 'web.randomPicture')
+      }
+      let url = photo.full
+      if (size && !include_size) {
+        const wanted = String(size)
+        if (wanted.includes('x')) {
+          const parts = wanted.split('x')
+          url = url.concat('&w=' + parts[0] + '&h=' + parts[1])
+        } else {
+          url = url.concat('&w=' + wanted)
+        }
+      }
+      const alt = 'photo by ' + photo.photog + '(' + photo.photogUrl + ') on Unsplash'
+      return include_size ? '![' + alt + '|' + String(size) + '](' + url + ')' : '![' + alt + '](' + url + ')'
+    },
+    // GET only, two parameters, and the second is a dot-separated walk into the response — upstream's
+    // \`request(url, path?)\`. Upstream's outer catch flattens every failure to one sentence; here the
+    // host's own code travels instead, and only the walk is reported by this layer.
+    request: async (url, path) => {
+      const answer = await callHost('web.request', [{ url: String(url ?? '') }])
+      const data = jsonFromResponse(answer)
+      if (!path || !data) return data
+      return String(path).split('.').reduce((node, key) => {
+        if (node && Object.prototype.hasOwnProperty.call(node, key)) return node[key]
+        throw hostError('path-invalid', String(path))
+      }, data)
+    },
+  }
+
+  // Upstream's order: an explicit argument wins, then the reader's language, then English. The database
+  // each code selects lives behind the page's proxy, which is also where an unregistered language falls
+  // back to English, because that is where the URLs are.
+  const quoteLanguage = (language) => {
+    const given = typeof language === 'string' ? language.trim().toLowerCase() : ''
+    if (given) return given
+    const locale = typeof run.locale === 'string' ? run.locale.trim().toLowerCase() : ''
+    return locale || 'en'
+  }
+
+  // The proxy answers \`{ status, ok, contentType, text }\`, so the body is \`text\` and the JSON is read
+  // here, which is what upstream's \`response.json\` was for. A status outside 2xx is a failure: upstream's
+  // own test is inverted and never fires, and the port plan records that this port is stricter on purpose.
+  const jsonFromResponse = (answer) => {
+    const response = answer && typeof answer === 'object' ? answer : null
+    if (!response) throw hostError('web-request-failed', 'web.request')
+    const status = typeof response.status === 'number' ? response.status : 0
+    if (status < 200 || status > 299) throw hostError('web-request-failed', String(status))
+    if (typeof response.text !== 'string') throw hostError('web-request-failed', 'web.request')
+    try {
+      return JSON.parse(response.text)
+    } catch {
+      throw hostError('web-request-failed', 'json')
+    }
   }
 
   const tp = {
     file: fileModule,
-    // \`date\` and \`frontmatter\` are created and deliberately left empty: their bodies are the ported
-    // module work, which installs onto these very objects through the handles this expression returns. A
-    // template calling \`tp.date.now()\` before that layer exists gets a TypeError naming the missing
-    // function, which is a report rather than a silently wrong date.
-    date: {},
-    frontmatter: {},
+    date: dateModule,
+    frontmatter,
     system: {
-      prompt: (text, defaultValue, throwOnCancel, multiLine, selectDefaultValue) => settle(callHost('system.prompt', [{
+      // \`tp.system.prompt(prompt_text, default_value, throw_on_cancel = false, multi_line = false,
+      // select_default_value = false)\`: upstream's own order. Only the last three have defaults, and the
+      // dialog itself is the page's — this is the argument list a template is written against.
+      prompt: (prompt_text, default_value, throw_on_cancel = false, multi_line = false, select_default_value = false) => settle(callHost('system.prompt', [{
         kind: 'text',
-        title: text === undefined ? '' : String(text),
+        title: prompt_text === undefined ? '' : String(prompt_text),
         values: [],
-        defaultValue: defaultValue === undefined ? undefined : String(defaultValue),
-        multiLine: multiLine === true,
-        selectDefaultValue: selectDefaultValue === true,
-        throwOnCancel: throwOnCancel === true,
-      }]), throwOnCancel === true, null),
+        defaultValue: default_value === undefined ? undefined : String(default_value),
+        multiLine: multi_line === true,
+        selectDefaultValue: select_default_value === true,
+        throwOnCancel: throw_on_cancel === true,
+      }]), throw_on_cancel === true, null),
       suggester,
       multi_suggester: multiSuggester,
-      // Upstream's own spelling is \`multi_suggester\`; the camelCase name is what the frozen host method
-      // list calls, and templates written against either should reach the same dialog.
-      multiSuggester,
       clipboard: () => callHost('system.clipboard', []),
-      now: () => moment().format('HH:mm:ss'),
     },
-    web: {
-      url_request: (url) => callHost('web.request', [{ url: String(url ?? '') }]),
-      url_read: (url) => callHost('web.request', [{ url: String(url ?? '') }]),
-      request: (request) => callHost('web.request', [request ?? {}]),
-      daily_quote: () => callHost('web.dailyQuote', []),
-      random_picture: (weight, height, query) => callHost('web.randomPicture', [
-        typeof weight === 'number' ? weight : null,
-        typeof height === 'number' ? height : null,
-        query === undefined ? null : String(query),
-      ]),
-    },
+    web: webModule,
     user: userNamespace,
     hooks: {
       on_all_templates_executed: (callback) => {
@@ -423,7 +633,25 @@ const PRELUDE = `(() => {
   // The two compatibility façades. Their members are the ported module work; the objects exist here so
   // those modules have somewhere to be installed and so \`tp.app === app\` and \`tp.obsidian === obsidian\`
   // hold, which is what the upstream documentation's own examples assume.
-  const obsidian = { TFile, TFolder, normalizePath, parseLinktext, Notice: noticeUnsupported }
+  //
+  // Everything the app genuinely offers is on the table; anything else answers a call that throws, because
+  // a template reading \`tp.obsidian.MarkdownView\` would otherwise get \`undefined\` and fail somewhere far
+  // away from the reason. The name in the error is the member the template wrote.
+  const obsidianMembers = { TFile, TFolder, normalizePath, parseLinktext, getAllTags, Notice: noticeUnsupported }
+
+  const obsidian = new Proxy(obsidianMembers, {
+    get(members, key) {
+      if (Object.prototype.hasOwnProperty.call(members, key)) return members[key]
+      // Same rule the user-script namespace follows: a symbol is the engine probing the object, and a
+      // \`then\` that looks like a method turns \`await tp.obsidian\` into a call that never returns.
+      if (typeof key === 'symbol') return undefined
+      if (key === 'then' || key === 'catch' || key === 'finally') return undefined
+      return function obsidianMember() {
+        throw hostError('not-supported', 'tp.obsidian.' + String(key))
+      }
+    },
+  })
+
   const app = { vault: {}, metadataCache: {}, workspace: {}, fileManager: {} }
 
   tp.obsidian = obsidian
@@ -436,6 +664,8 @@ const PRELUDE = `(() => {
   // installs an empty run and makes \`tp.config.target_file\` null. So it is parsed first and loudly.
   const install = (encoded) => {
     const data = typeof encoded === 'string' ? JSON.parse(encoded) : encoded
+    run.startedAt = typeof data.startedAt === 'number' ? data.startedAt : 0
+    run.locale = typeof data.locale === 'string' ? data.locale : ''
     index.notes = Array.isArray(data.notes) ? data.notes : []
     index.folders = Array.isArray(data.folders) ? data.folders : []
     index.templates = Array.isArray(data.templates) ? data.templates : []
@@ -443,13 +673,37 @@ const PRELUDE = `(() => {
     index.active = data.active ?? null
     index.template = data.template ?? null
     config.run_mode = typeof data.runMode === 'number' ? data.runMode : 0
-    config.static = data.dynamic !== true
     config.target_file = hydrate(index.target)
     config.active_file = hydrate(index.active)
     config.template_file = hydrate(index.template)
-    fileModule.title = titleOf()
+    // The frozen title: the page decides it before anything runs, because a create-new note has no row yet
+    // and a renamed one must still answer what it was called when the template opened. Falling back to the
+    // target's own basename is the case where the page had nothing to say.
+    fileModule.title = typeof data.frozenTitle === 'string' && data.frozenTitle ? data.frozenTitle : titleOf()
     fileModule.content = typeof data.targetContent === 'string' ? data.targetContent : ''
+    fileModule.tags = target() ? target().tags.map(withTagMark) : []
+    fillFrontmatter()
     return true
+  }
+
+  // \`tp.frontmatter\` is the target's parsed frontmatter, key for key, and nothing else — upstream builds
+  // it from the metadata cache of exactly that file, so a key a note does not have is \`undefined\` and a
+  // template printing it writes the word out.
+  const fillFrontmatter = () => {
+    const source = target() && target().frontmatter && typeof target().frontmatter === 'object'
+      ? target().frontmatter
+      : {}
+    for (const key of Object.keys(frontmatter)) delete frontmatter[key]
+    for (const key of Object.keys(source)) {
+      // \`defineProperty\` rather than an assignment, because that is what the \`Object.fromEntries\` upstream
+      // uses does: a note whose frontmatter has a \`__proto__\` key gets a key, not a new prototype.
+      Object.defineProperty(frontmatter, key, {
+        value: source[key],
+        writable: true,
+        enumerable: true,
+        configurable: true,
+      })
+    }
   }
   return { install, hydrate, jsonToValue, hostError, TFile, TFolder, tp, app, obsidian, hooks, config }
 })()`
@@ -575,13 +829,18 @@ export function createBootstrap(options: BootstrapOptions): Bootstrap {
       const payload = context.newString(JSON.stringify({
         notes: snapshot.index,
         folders: snapshot.folders,
-        templates: snapshot.libraryTemplates.map(virtualTemplate),
+        templates: snapshot.libraryTemplates.map((template) => virtualTemplate(template, snapshot.index)),
         target: withPath(snapshot.target, snapshot.index),
         active: withPath(snapshot.active, snapshot.index),
-        template: virtualTemplate(snapshot.template),
+        template: virtualTemplate(snapshot.template, snapshot.index),
         runMode: runModeNumber(snapshot.mode),
-        dynamic: snapshot.mode === 'dynamic-processor',
         targetContent: snapshot.target?.content ?? '',
+        // Three things the prelude cannot derive for itself: the instant every date in the run is measured
+        // from, the title the page froze before anything ran, and the reader's language, which is what an
+        // argument-less `tp.web.daily_quote` resolves to.
+        startedAt: snapshot.startedAt,
+        frozenTitle: snapshot.frozenTitle,
+        locale: snapshot.locale,
       }))
       // `install` returns `true`; the handle is this side's to free, and the result of a failed install is
       // a run that never starts, which the caller reports.
@@ -711,27 +970,28 @@ function withPath(ref: { id: string; title: string } | null, index: TemplateRunC
  * A library template as the virtual file the port's D4 describes.
  *
  * Upstream addresses templates as files — `tp.config.template_file`, `include`, `find_tfile` by name — and
- * Inkstone keeps them as rows. The translation happens here, once, so the classes inside the interpreter
- * only ever see one shape. The name is not a vault path and is not dressed up as one: it is the template's
- * own name with the extension the library stores it under.
+ * Inkstone keeps them as rows. The path is not invented here: it is read back from the run's own index,
+ * which `context/file-wrapper.ts` already projected as `Templates/<name>.md`. Asking the index the same way
+ * `withPath` does for a note is what keeps one row answering one path to `tp.config.template_file`, to
+ * `find_tfile` and to `include` — three readers that would otherwise disagree, and a template that is
+ * addressed by a path `note.read` cannot find is a template that cannot be included.
+ *
+ * `name`, `basename` and `extension` are left out because `TFile` derives all three from the path, and a
+ * second spelling of the same split is a second thing to keep in step.
  */
-function virtualTemplate(template: { id: string; name: string; content: string } | null): Record<string, unknown> | null {
+function virtualTemplate(
+  template: { id: string; name: string; content: string } | null,
+  index: TemplateRunContext['index'],
+): Record<string, unknown> | null {
   if (!template) return null
-  const dot = template.name.lastIndexOf('.')
-  const named = dot > 0
-  // A library row's name is the file name when it already has an extension, and gets `.md` when it does
-  // not, so `tp.config.template_file.name` reads like the `<name>.md` the ported documentation shows.
-  const file = named ? template.name : `${template.name}.md`
+  const found = index.find((entry) => entry.id === template.id)
   return {
     id: template.id,
-    title: named ? template.name.slice(0, dot) : template.name,
-    path: file,
-    name: file,
-    basename: named ? template.name.slice(0, dot) : template.name,
-    extension: named ? template.name.slice(dot + 1) : 'md',
+    title: found?.title ?? template.name,
+    path: found?.path ?? `${template.name}.md`,
     content: template.content,
-    createdAt: 0,
-    updatedAt: 0,
+    createdAt: found?.createdAt ?? 0,
+    updatedAt: found?.updatedAt ?? 0,
   }
 }
 
@@ -744,6 +1004,8 @@ function describe(value: unknown): string {
   try {
     return JSON.stringify(value) ?? 'null'
   } catch {
+    // A circular value (which a VM object can be) has no JSON form, and the log line still has to say
+    // something about what the template passed in.
     return String(value)
   }
 }

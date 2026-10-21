@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { EN_US_MESSAGES } from '@shared/locales/en-US'
 import { ZH_CN_MESSAGES } from '@shared/locales/zh-CN'
-import { HOST_METHODS, HOST_METHOD_CAPABILITY, type Capabilities } from './protocol'
+import {
+  CAPABILITY_PROFILES,
+  capabilitiesFor,
+  HOST_METHODS,
+  HOST_METHOD_CAPABILITY,
+  type CapabilityProfile,
+  type Capabilities,
+} from './protocol'
 import { TEMPLATER_ERROR_CODES, TEMPLATER_ERROR_MESSAGES, TemplaterError, isTemplaterErrorCode, templaterErrorCode, templaterErrorDetail } from './errors'
 
 // The catalogs are typed to include note-template content keys, which live in a separate lazily-loaded
@@ -9,16 +16,10 @@ import { TEMPLATER_ERROR_CODES, TEMPLATER_ERROR_MESSAGES, TemplaterError, isTemp
 const en = EN_US_MESSAGES as unknown as Record<string, string>
 const zh = ZH_CN_MESSAGES as unknown as Record<string, string>
 
-const CAPABILITY_KEYS = Object.keys({
-  writeActiveNote: true,
-  createNotes: true,
-  moveNotes: true,
-  readOtherNotes: true,
-  prompt: true,
-  web: true,
-  userScripts: true,
-  clipboard: true,
-} as Capabilities)
+// The eight rights, read off the shipped table rather than spelled out again here: a test that restates
+// the shape cannot notice when the shape and the table part company.
+const PROFILE_KEYS: CapabilityProfile[] = ['local', 'community', 'preview', 'dynamic', 'startup']
+const CAPABILITY_KEYS = Object.keys(CAPABILITY_PROFILES.local)
 
 describe('templater error codes', () => {
   it('names every code in both locale resources', () => {
@@ -83,5 +84,78 @@ describe('host method surface', () => {
 
   it('keeps the two lists the same size, so a new method cannot arrive ungated', () => {
     expect(Object.keys(HOST_METHOD_CAPABILITY).length).toBe(HOST_METHODS.length)
+  })
+})
+
+describe('capability profiles', () => {
+  it('answers every profile with every capability', () => {
+    for (const profile of PROFILE_KEYS) {
+      expect(Object.keys(CAPABILITY_PROFILES[profile]).sort()).toEqual([...CAPABILITY_KEYS].sort())
+    }
+  })
+
+  /**
+   * The approved matrix, plan §D15, one row per profile.
+   *
+   * Stated as a table rather than a list of `expect(...)` calls because the row is the decision: when
+   * someone widens a profile, the diff shows which column of which surface moved, and a reviewer can
+   * check that against the plan without re-deriving the policy from the source. This is also the only
+   * place the policy is written twice on purpose — the page's settings screen and the worker's gate read
+   * one table, so a second copy of the numbers belongs here and nowhere else in `src`.
+   */
+  const MATRIX: Record<CapabilityProfile, Capabilities> = {
+    local: { writeActiveNote: true, createNotes: true, moveNotes: true, readOtherNotes: true, prompt: true, web: true, userScripts: true, clipboard: true },
+    community: { writeActiveNote: false, createNotes: false, moveNotes: false, readOtherNotes: false, prompt: true, web: false, userScripts: false, clipboard: false },
+    preview: { writeActiveNote: false, createNotes: false, moveNotes: false, readOtherNotes: false, prompt: true, web: false, userScripts: false, clipboard: false },
+    dynamic: { writeActiveNote: false, createNotes: false, moveNotes: false, readOtherNotes: false, prompt: true, web: false, userScripts: false, clipboard: false },
+    startup: { writeActiveNote: true, createNotes: true, moveNotes: true, readOtherNotes: true, prompt: false, web: false, userScripts: true, clipboard: false },
+  }
+
+  it('matches the approved capability matrix cell for cell', () => {
+    for (const profile of PROFILE_KEYS) {
+      expect(CAPABILITY_PROFILES[profile], profile).toEqual(MATRIX[profile])
+    }
+  })
+
+  it('lets the reader own everything and a stranger nothing that leaves the note', () => {
+    expect(Object.values(CAPABILITY_PROFILES.local).every(Boolean)).toBe(true)
+    // A gallery template used without importing it: it may ask, and it may produce text. Nothing else.
+    const granted = Object.entries(CAPABILITY_PROFILES.community).filter(([, on]) => on).map(([name]) => name)
+    expect(granted).toEqual(['prompt'])
+  })
+
+  it('keeps an unattended run from asking, reaching out or reading the clipboard', () => {
+    // Startup templates run with nobody at the keyboard, so a prompt would hang the launch and a network
+    // call would be the reader's data leaving on a schedule they did not just press.
+    const capabilities = CAPABILITY_PROFILES.startup
+    expect(capabilities.prompt).toBe(false)
+    expect(capabilities.web).toBe(false)
+    expect(capabilities.clipboard).toBe(false)
+    expect(capabilities.writeActiveNote).toBe(true)
+    expect(capabilities.userScripts).toBe(true)
+    // …while the one thing an unattended template is actually asked to do — file today's daily note when
+    // the app opens — stays allowed, because the reader put it there.
+    expect(capabilities.createNotes).toBe(true)
+  })
+
+  it('keeps preview and dynamic passes from writing, going online or reading the rest of the vault', () => {
+    for (const profile of ['preview', 'dynamic'] as CapabilityProfile[]) {
+      const capabilities = CAPABILITY_PROFILES[profile]
+      expect(capabilities.writeActiveNote, profile).toBe(false)
+      expect(capabilities.createNotes, profile).toBe(false)
+      expect(capabilities.moveNotes, profile).toBe(false)
+      expect(capabilities.web, profile).toBe(false)
+      expect(capabilities.clipboard, profile).toBe(false)
+      expect(capabilities.userScripts, profile).toBe(false)
+      expect(capabilities.readOtherNotes, profile).toBe(false)
+      // …while still allowing the one visible interaction an author needs when testing their own template.
+      expect(capabilities.prompt, profile).toBe(true)
+    }
+  })
+
+  it('hands out a copy, so a host cannot edit the table', () => {
+    const capabilities = capabilitiesFor('preview')
+    capabilities.writeActiveNote = true
+    expect(CAPABILITY_PROFILES.preview.writeActiveNote).toBe(false)
   })
 })

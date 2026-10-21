@@ -15,7 +15,7 @@
 import type { HostResult, RunRequest, WorkerMessage, WorkerRequest } from '../protocol'
 import { TemplateRun } from './vm'
 import { readRunId, validateHostReply, validateRunRequest } from './protocol'
-import { HOOKS_WAIT_MS } from './limits'
+import { HOOKS_WAIT_MS } from '../limits'
 
 /** The part of a dedicated worker this thread needs, as a type this file can own. */
 export interface WorkerScope {

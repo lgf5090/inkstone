@@ -12,14 +12,14 @@
  * answer to a host call is installed once, by `configureTemplater`, because it is the capability gate: two
  * different handlers would mean two different policies in one notebook.
  */
-import type { ProgramSource, TemplateRunContext } from './protocol'
-import { MAX_COMMANDS } from './worker/limits'
+import { capabilitiesFor, type ProgramSource, type TemplateRunContext } from './protocol'
+import { MAX_COMMANDS } from './limits'
 import { createTemplaterClient, type HostCallHandler, type TemplaterClient, type TemplaterRunOutcome, type WorkerPort } from './worker/client'
-import { capabilitiesFor, methodAllowed } from './worker/protocol'
+import { methodAllowed } from './worker/protocol'
 
 export type { TemplaterRunOutcome, HostCallHandler }
 export { capabilitiesFor, methodAllowed }
-export { TEMPLATER_LIMITS } from './worker/limits'
+export { TEMPLATER_LIMITS } from './limits'
 export { isHostMethod } from './worker/protocol'
 
 /** What the page has to provide before any template can run. */

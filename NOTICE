@@ -16,12 +16,14 @@ Inkstone is offered as a network service, so §13 of the license applies: every 
 |---|---|---|---|---|
 | Templater template engine (`tp.*` modules, template reference texts, ported test cases) | [SilentVoid13/Templater](https://github.com/SilentVoid13/Templater) (`templater-obsidian`) | 2.26.0 | AGPL-3.0-only | listed per file in its header |
 
-Every file that carries copied or adapted text from the upstream project states its origin in a header comment of the form:
+Every file that carries copied or adapted text from the upstream project states its origin in a comment of this form, at the file header or at the ported section:
 
 ```
-源自 Templater 2.26.0（AGPL-3.0-only）src/<path>，含 Inkstone 适配修改
+// Derived from Templater 2.26.0 (AGPL-3.0-only) src/<path>, with Inkstone adaptations.
 ```
 
-Files that only follow the upstream *documented behaviour* without copying its text carry the opposite statement instead, so a reader can always tell derivation from independent implementation. This table lists the components, not the individual files; the per-file headers are authoritative.
+The statement is in English because this repository holds every source comment to English (`scripts/check-i18n.mjs`); reader-facing Chinese lives in the locale catalogs, and a licence notice is not reader-facing copy.
+
+Files that only follow the upstream *documented behaviour* without copying its text carry the opposite statement instead, so a reader can always tell derivation from independent implementation. This table lists the components, not the individual files; the per-file statements are authoritative.
 
 The `AGPL-3.0-only` license of the upstream project also covers anything redistributed with Inkstone that came from it, so removing a derived file does not remove the obligation for a build that already shipped it.

@@ -7,11 +7,12 @@
  * within budget, a deadline inside the clamp) and rejected as a failure code rather than throwing inside
  * the worker's own event handler, where a thrown value would kill the thread every other run shares.
  *
- * Second, the profile table. `TemplateRunContext.capabilities` is a *name* (`'community'`), while
- * `HOST_METHOD_CAPABILITY` is keyed by the eight booleans a call is checked against. Only the worker can
- * resolve one into the other on the way in, because the alternative is trusting the page to have done it
- * — and the page is the same code that compiled an untrusted template. So the resolution happens here and
- * is re-checked on every call, in `host-bindings.ts`, against the run's own copy.
+ * Second, the gate. `TemplateRunContext.capabilities` is a *name* (`'community'`), while
+ * `HOST_METHOD_CAPABILITY` is keyed by the eight booleans a call is checked against. The name is resolved
+ * into rights inside the worker (`vm.ts`, through `capabilitiesFor` in the contract), because the
+ * alternative is trusting the page to have decided them first — and the page is the same code that
+ * compiled an untrusted template. Every call is then re-checked here, in `host-bindings.ts`, against the
+ * run's own copy.
  *
  * Runs are addressed by `runId` and calls by `callId`, both carried on every message in both directions.
  * That is the deliberate break from `../../dataview/js.ts`, whose `ask()` keeps one reply slot per worker:
@@ -20,10 +21,10 @@
  * replies must be matched rather than assumed, which is what `callId` and the pending map are for.
  */
 import {
+  CAPABILITY_PROFILES,
   HOST_METHODS,
   HOST_METHOD_CAPABILITY,
   type Capabilities,
-  type CapabilityProfile,
   type HostCall,
   type HostMethod,
   type HostResult,
@@ -37,7 +38,7 @@ import {
   MAX_PROGRAM_BYTES,
   MAX_RUN_DEADLINE_MS,
   MIN_RUN_DEADLINE_MS,
-} from './limits'
+} from '../limits'
 
 /** The modes the interpreter can be told it is in; anything else is a message this build cannot read. */
 const RUN_MODES: readonly string[] = [
@@ -50,78 +51,11 @@ const RUN_MODES: readonly string[] = [
 ]
 
 /** The profiles, for the same reason: a name that is not one of these has no table and no rights. */
-const PROFILES: readonly string[] = ['local', 'community', 'preview', 'dynamic', 'startup']
+const PROFILES: readonly string[] = Object.keys(CAPABILITY_PROFILES)
 
-/**
- * The eight rights, resolved from the five names.
- *
- * The rows follow the port plan's D15 matrix, which is the reviewed policy: a community template pulled
- * from the gallery may ask the reader questions and read the note it is being applied to, and nothing
- * else; only the reader's own templates get the write, network and user-script paths.
- *
- * Two rows are narrower than the plan's table and say so here rather than in a code comment someone has
- * to trust: `web` is on for `local` only as the *ceiling* — the reader's `webRequestsEnabled` setting is
- * applied by the page host on the call, because the worker cannot see settings it was not given. And
- * `startup` gets neither `createNotes` nor `moveNotes`: a template that runs by itself on launch, with no
- * reader watching, should not be the one deciding that a note exists or that another one moved.
- */
-const PROFILES_TABLE: Record<CapabilityProfile, Capabilities> = {
-  local: {
-    writeActiveNote: true,
-    createNotes: true,
-    moveNotes: true,
-    readOtherNotes: true,
-    prompt: true,
-    web: true,
-    userScripts: true,
-    clipboard: true,
-  },
-  community: {
-    writeActiveNote: false,
-    createNotes: false,
-    moveNotes: false,
-    readOtherNotes: false,
-    prompt: true,
-    web: false,
-    userScripts: false,
-    clipboard: false,
-  },
-  preview: {
-    writeActiveNote: false,
-    createNotes: false,
-    moveNotes: false,
-    readOtherNotes: false,
-    prompt: true,
-    web: false,
-    userScripts: false,
-    clipboard: false,
-  },
-  dynamic: {
-    writeActiveNote: false,
-    createNotes: false,
-    moveNotes: false,
-    readOtherNotes: false,
-    prompt: true,
-    web: false,
-    userScripts: false,
-    clipboard: false,
-  },
-  startup: {
-    writeActiveNote: true,
-    createNotes: false,
-    moveNotes: false,
-    readOtherNotes: true,
-    prompt: false,
-    web: false,
-    userScripts: true,
-    clipboard: false,
-  },
-}
-
-/** The closed set, so a profile name from a message can be turned into rights without inventing any. */
-export function capabilitiesFor(profile: CapabilityProfile): Capabilities {
-  return PROFILES_TABLE[profile]
-}
+// The rights themselves are the contract's, not this file's: see `CAPABILITY_PROFILES` in
+// `../protocol.ts`, where the method-to-right table beside it lives. A copy of the matrix on the worker
+// side is one drift away from a gate that disagrees with the page's settings screen.
 
 /** Whether one capability is granted; kept apart from the gate below so the table has one door. */
 export function methodCapability(method: HostMethod): keyof Capabilities {

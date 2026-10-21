@@ -7922,4 +7922,8 @@ console.log(\`Hello, \${name}!\`)
     "templater.error.path_invalid": "模板请求的路径无法使用",
     "templater.error.not_supported": "模板用到了本应用不提供的能力",
     "templater.error.render_failed": "模板运行失败",
+    "templater.notice.template_frontmatter_invalid": "模板的属性不是可读的 YAML，已按原文写进笔记正文",
+    "templater.notice.note_frontmatter_invalid": "这篇笔记的属性读不出来，模板的属性没有合并进去",
+    "templater.notice.insertion_clamped": "模板插入的位置和这次运行要求的位置不一样",
+    "templater.notice.output_discarded": "启动时运行的模板不写入内容，它的输出已被丢弃",
 } as const satisfies Record<BaseMessageKey, string>;

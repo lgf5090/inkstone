@@ -40,14 +40,14 @@ import baseVariant from '@jitl/quickjs-wasmfile-release-sync'
 import wasmAsset from '@jitl/quickjs-wasmfile-release-sync/wasm?url'
 import { createBootstrap, type Bootstrap } from './bootstrap'
 import { createHostBindings, type HostBindings } from './host-bindings'
-import { capabilitiesFor } from './protocol'
+import { capabilitiesFor } from '../protocol'
 import {
   DEFAULT_RUN_DEADLINE_MS,
   HOOKS_DEADLINE_MS,
   MAX_OUTPUT_CHARS,
   RUNTIME_MEMORY_BYTES,
   STACK_BYTES,
-} from './limits'
+} from '../limits'
 
 /** The program's own file name, which every reported stack frame is matched against. */
 const PROGRAM_NAME = 'template.js'

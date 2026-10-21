@@ -5,8 +5,9 @@
  * every capability it touches — the note it is writing into, the folder it is asking for, the modal it
  * is waiting on — arrives as a message. This file is the shape of those messages and nothing else: it
  * imports no store, no DOM, no editor, and must stay that way, because both sides of the boundary
- * compile it. The page side lives in `../host` and the worker side in `../worker`; neither may reach
- * into the other.
+ * compile it. The page side lives in `./host` and the worker side in `./worker`; neither may reach into
+ * the other, which is why the numbers both sides enforce are in `./limits.ts` beside this file rather
+ * than inside one half.
  *
  * Two choices are worth their reason. Runs are addressed by an id rather than one-worker-per-run
  * because a template waits on the reader (`tp.system.prompt`) while another template can be starting
@@ -246,6 +247,96 @@ export const HOST_METHOD_CAPABILITY: Record<HostMethod, keyof Capabilities> = {
   'app.commands': 'writeActiveNote',
   'hooks.register': 'writeActiveNote',
   'cursor.append': 'writeActiveNote',
+}
+
+/**
+ * The eight rights, resolved from the five names a run can be started under.
+ *
+ * This sits beside {@link HOST_METHOD_CAPABILITY} rather than in either side's own file because the two
+ * tables are one policy: a row here and a row there drift, and they had (a startup row that grants
+ * writing notes on one side and refuses creating them on the other). One file, one table, and both sides
+ * read the same object.
+ *
+ * The rows are the port plan's D15 matrix, which is the reviewed policy: a community template pulled from
+ * the gallery may ask the reader questions and read the note it is being applied to, and nothing else;
+ * only the reader's own templates get the write, network and user-script paths.
+ *
+ * Four cells look surprising and are deliberate, so they are stated here rather than left to the table:
+ *
+ * - A community template may open a prompt. Upstream's interactive templates are built on
+ *   `tp.system.suggester`, and refusing it would silently drop half of what people share. A modal is also
+ *   the one part of a run the reader *sees*: it cannot take a note or a file out, it can only ask. What it
+ *   may not do is reach the clipboard, another note, the network or the disk.
+ * - Preview and dynamic-command runs read only the note in front of them. Reading other notes is what
+ *   would turn a gallery template into a way to copy a private vault out one note at a time, and a preview
+ *   is no licence for that.
+ * - `startup` writes and creates, because the classic unattended template is the one that files today's
+ *   daily note when the app opens, and the reader scheduled it themselves. It may not ask a question,
+ *   reach the network or read the clipboard, because nobody is in the room to answer for those.
+ * - `web` is on for `local` as the *ceiling* only: the reader's `webRequestsEnabled` setting is applied by
+ *   the page host on the call, which is the side that can see settings.
+ */
+export const CAPABILITY_PROFILES: Record<CapabilityProfile, Capabilities> = {
+  local: {
+    writeActiveNote: true,
+    createNotes: true,
+    moveNotes: true,
+    readOtherNotes: true,
+    prompt: true,
+    web: true,
+    userScripts: true,
+    clipboard: true,
+  },
+  community: {
+    writeActiveNote: false,
+    createNotes: false,
+    moveNotes: false,
+    readOtherNotes: false,
+    prompt: true,
+    web: false,
+    userScripts: false,
+    clipboard: false,
+  },
+  preview: {
+    writeActiveNote: false,
+    createNotes: false,
+    moveNotes: false,
+    readOtherNotes: false,
+    prompt: true,
+    web: false,
+    userScripts: false,
+    clipboard: false,
+  },
+  dynamic: {
+    writeActiveNote: false,
+    createNotes: false,
+    moveNotes: false,
+    readOtherNotes: false,
+    prompt: true,
+    web: false,
+    userScripts: false,
+    clipboard: false,
+  },
+  startup: {
+    writeActiveNote: true,
+    createNotes: true,
+    moveNotes: true,
+    readOtherNotes: true,
+    prompt: false,
+    web: false,
+    userScripts: true,
+    clipboard: false,
+  },
+}
+
+/**
+ * A copy, so a host that mutates what it got cannot change the policy for the next run.
+ *
+ * The worker resolves the run's profile *name* through this on the way in — the alternative would be
+ * trusting the page that compiled an untrusted template to have decided its rights first.
+ */
+export function capabilitiesFor(profile: CapabilityProfile): Capabilities {
+  return { ...CAPABILITY_PROFILES[profile] }
 }
 
 /**

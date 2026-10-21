@@ -1,10 +1,13 @@
 /**
- * Every number the interpreter is allowed to enforce, in one place.
+ * Every number a template run is allowed to cost, in one place.
  *
  * A template is someone else's code, and the run that executes it has to stop on its own terms rather
  * than on the reader's patience. Each limit below answers one concrete attack or one concrete accident:
  * a loop that never ends, a program that fills the heap, a recursion that fills the stack, a template
  * that renders a megabyte into a note, a program that spams the host with calls.
+ *
+ * They live beside `protocol.ts` because both halves enforce them: the worker stops the program, the
+ * page refuses the write, and a ceiling the two sides disagree about is a ceiling neither of them means.
  *
  * They are constants, not settings. A reader choosing "how long may my template run" would be a setting;
  * a reader choosing "how much memory may untrusted code take" is not a choice anyone should make, and

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { RunRequest, TemplateRunContext, WorkerMessage } from '../protocol'
 import { TemplateRun } from './vm'
-import { RUNTIME_MEMORY_BYTES } from './limits'
+import { RUNTIME_MEMORY_BYTES } from '../limits'
 
 /**
  * The heap ceiling, on its own.

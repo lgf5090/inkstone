@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { Folder, Note, NoteTemplate } from '@shared/types'
-import type { Capabilities, CapabilityProfile, RunMode } from '../protocol'
+import type { RunMode } from '../protocol'
 import {
-  CAPABILITY_PROFILES,
   RUN_MODE_NUMBERS,
-  capabilitiesFor,
   frozenTitleFor,
   resolveRunRules,
   runModeNumber,
@@ -13,9 +11,7 @@ import { buildNoteIndex } from './note-index'
 import { buildRunSnapshot } from './snapshot'
 import { noteIndexEntry } from './file-wrapper'
 
-const PROFILE_KEYS: CapabilityProfile[] = ['local', 'community', 'preview', 'dynamic', 'startup']
 const MODES: RunMode[] = ['create-new', 'append-active', 'overwrite-file', 'overwrite-active', 'dynamic-processor', 'startup']
-const CAPABILITY_KEYS = Object.keys(CAPABILITY_PROFILES.local)
 
 function note(overrides: Partial<Note> & { id: string }): Note {
   return {
@@ -65,74 +61,6 @@ const folder: Folder = {
 }
 
 const emptyIndex = buildNoteIndex({ notes: [], folders: [] })
-
-describe('capability profiles', () => {
-  it('answers every profile with every capability', () => {
-    for (const profile of PROFILE_KEYS) {
-      expect(Object.keys(CAPABILITY_PROFILES[profile]).sort()).toEqual([...CAPABILITY_KEYS].sort())
-    }
-  })
-
-  /**
-   * The approved matrix, plan §D15, one row per profile.
-   *
-   * Stated as a table rather than a list of `expect(...)` calls because the row is the decision: when
-   * someone widens a profile, the diff shows which column of which surface moved, and a reviewer can
-   * check that against the plan without re-deriving the policy from the source.
-   */
-  const MATRIX: Record<CapabilityProfile, Capabilities> = {
-    local: { writeActiveNote: true, createNotes: true, moveNotes: true, readOtherNotes: true, prompt: true, web: true, userScripts: true, clipboard: true },
-    community: { writeActiveNote: false, createNotes: false, moveNotes: false, readOtherNotes: false, prompt: true, web: false, userScripts: false, clipboard: false },
-    preview: { writeActiveNote: false, createNotes: false, moveNotes: false, readOtherNotes: false, prompt: true, web: false, userScripts: false, clipboard: false },
-    dynamic: { writeActiveNote: false, createNotes: false, moveNotes: false, readOtherNotes: false, prompt: true, web: false, userScripts: false, clipboard: false },
-    startup: { writeActiveNote: true, createNotes: true, moveNotes: true, readOtherNotes: true, prompt: false, web: false, userScripts: true, clipboard: false },
-  }
-
-  it('matches the approved capability matrix cell for cell', () => {
-    for (const profile of PROFILE_KEYS) {
-      expect(CAPABILITY_PROFILES[profile], profile).toEqual(MATRIX[profile])
-    }
-  })
-
-  it('lets the reader own everything and a stranger nothing that leaves the note', () => {
-    expect(Object.values(CAPABILITY_PROFILES.local).every(Boolean)).toBe(true)
-    // A gallery template used without importing it: it may ask, and it may produce text. Nothing else.
-    const granted = Object.entries(CAPABILITY_PROFILES.community).filter(([, on]) => on).map(([name]) => name)
-    expect(granted).toEqual(['prompt'])
-  })
-
-  it('keeps an unattended run from asking, reaching out or reading the clipboard', () => {
-    // Startup templates run with nobody at the keyboard, so a prompt would hang the launch and a network
-    // call would be the reader's data leaving on a schedule they did not just press.
-    const capabilities = CAPABILITY_PROFILES.startup
-    expect(capabilities.prompt).toBe(false)
-    expect(capabilities.web).toBe(false)
-    expect(capabilities.clipboard).toBe(false)
-    expect(capabilities.writeActiveNote).toBe(true)
-    expect(capabilities.userScripts).toBe(true)
-  })
-
-  it('keeps preview and dynamic passes from writing, going online or reading the rest of the vault', () => {
-    for (const profile of ['preview', 'dynamic'] as CapabilityProfile[]) {
-      const capabilities = CAPABILITY_PROFILES[profile]
-      expect(capabilities.writeActiveNote, profile).toBe(false)
-      expect(capabilities.createNotes, profile).toBe(false)
-      expect(capabilities.moveNotes, profile).toBe(false)
-      expect(capabilities.web, profile).toBe(false)
-      expect(capabilities.clipboard, profile).toBe(false)
-      expect(capabilities.userScripts, profile).toBe(false)
-      expect(capabilities.readOtherNotes, profile).toBe(false)
-      // …while still allowing the one visible interaction an author needs when testing their own template.
-      expect(capabilities.prompt, profile).toBe(true)
-    }
-  })
-
-  it('hands out a copy, so a host cannot edit the table', () => {
-    const capabilities = capabilitiesFor('preview')
-    capabilities.writeActiveNote = true
-    expect(CAPABILITY_PROFILES.preview.writeActiveNote).toBe(false)
-  })
-})
 
 describe('run mode', () => {
   it('numbers the six modes the way upstream enumerates them', () => {

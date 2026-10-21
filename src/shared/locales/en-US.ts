@@ -7921,6 +7921,10 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     "templater.error.path_invalid": "The path the template asked for is not usable",
     "templater.error.not_supported": "The template uses something this app does not offer",
     "templater.error.render_failed": "The template could not be run",
+    "templater.notice.template_frontmatter_invalid": "The template's properties did not read as YAML, so they were written into the note as text",
+    "templater.notice.note_frontmatter_invalid": "This note's properties could not be read, so the template's properties were not merged in",
+    "templater.notice.insertion_clamped": "The template was inserted at a different place in the note than the run asked for",
+    "templater.notice.output_discarded": "A template that runs at startup does not write anything, so its output was discarded",
 } as const;
 export type BaseMessageKey = keyof typeof EN_US_MESSAGES;
 export type MessageKey = BaseMessageKey | NoteTemplateContentKey;

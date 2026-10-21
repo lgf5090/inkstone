@@ -13,87 +13,9 @@
  * the store what the note is called after a rename would print the new name and break that test.
  */
 import type { Note, NoteTemplate } from '@shared/types'
-import type { Capabilities, CapabilityProfile, RunMode, RunNoteRef } from '../protocol'
+import { capabilitiesFor, type Capabilities, type CapabilityProfile, type RunMode, type RunNoteRef } from '../protocol'
 import { runNoteRef, templateRunRef } from './file-wrapper'
 import type { NoteIndex } from './note-index'
-
-/**
- * What each profile lets a run do, copied from the approved matrix (plan §D15) rather than re-derived.
- *
- * The names are the policy, so a reader's setting screen and the capability gate read the same table
- * instead of two lists of eight booleans that can drift.
- *
- * Two columns of that matrix look surprising and are deliberate, which is why they are stated here
- * rather than left to the table:
- *
- * - A community template may open a prompt. Upstream's interactive templates are built on
- *   `tp.system.suggester`, and refusing it would silently drop half of what people share. A modal is
- *   also the one part of a run the reader *sees*: it cannot take a note or a file out, it can only ask.
- *   What it may not do is reach the clipboard, another note, the network or the disk.
- * - Preview and dynamic-command runs read only the note in front of them. Reading other notes is what
- *   would turn a gallery template into a way to copy a private vault out one note at a time, and a
- *   preview is no licence for that.
- *
- * `startup` is a template the reader scheduled themselves, so it writes — but it runs with nobody in
- * the room, so it may not ask a question, reach the network, or read the clipboard.
- */
-export const CAPABILITY_PROFILES: Record<CapabilityProfile, Capabilities> = {
-  local: {
-    writeActiveNote: true,
-    createNotes: true,
-    moveNotes: true,
-    readOtherNotes: true,
-    prompt: true,
-    web: true,
-    userScripts: true,
-    clipboard: true,
-  },
-  community: {
-    writeActiveNote: false,
-    createNotes: false,
-    moveNotes: false,
-    readOtherNotes: false,
-    prompt: true,
-    web: false,
-    userScripts: false,
-    clipboard: false,
-  },
-  preview: {
-    writeActiveNote: false,
-    createNotes: false,
-    moveNotes: false,
-    readOtherNotes: false,
-    prompt: true,
-    web: false,
-    userScripts: false,
-    clipboard: false,
-  },
-  dynamic: {
-    writeActiveNote: false,
-    createNotes: false,
-    moveNotes: false,
-    readOtherNotes: false,
-    prompt: true,
-    web: false,
-    userScripts: false,
-    clipboard: false,
-  },
-  startup: {
-    writeActiveNote: true,
-    createNotes: true,
-    moveNotes: true,
-    readOtherNotes: true,
-    prompt: false,
-    web: false,
-    userScripts: true,
-    clipboard: false,
-  },
-}
-
-/** A copy, so a host that mutates what it got cannot change the table for the next run. */
-export function capabilitiesFor(profile: CapabilityProfile): Capabilities {
-  return { ...CAPABILITY_PROFILES[profile] }
-}
 
 /**
  * The numbers upstream's `tp.config.run_mode` returns, in `src/core/Templater.ts:32`'s order:

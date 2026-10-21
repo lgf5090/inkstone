@@ -21,7 +21,7 @@
  * only that run is cancelled. Killing a sibling run for a slow one would be the wrong medicine.
  */
 import type { HostCall, HostResult, RunRequest, WorkerMessage, WorkerRequest } from '../protocol'
-import { IDLE_GUARD_MS, MAX_RUN_WALL_MS } from './limits'
+import { IDLE_GUARD_MS, MAX_RUN_WALL_MS } from '../limits'
 
 /** The part of a `Worker` this client needs, so a test can hand it a scripted pair instead. */
 export interface WorkerPort {

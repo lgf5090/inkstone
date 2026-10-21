@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { HostResult, RunRequest, TemplateRunContext, WorkerMessage } from '../protocol'
 import { TemplateRun } from './vm'
-import { DEFAULT_RUN_DEADLINE_MS, MAX_OUTPUT_CHARS, MIN_RUN_DEADLINE_MS } from './limits'
+import { DEFAULT_RUN_DEADLINE_MS, MAX_OUTPUT_CHARS, MIN_RUN_DEADLINE_MS } from '../limits'
 
 /**
  * The harness: a real interpreter, a scripted page.

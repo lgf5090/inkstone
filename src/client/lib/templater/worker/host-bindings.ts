@@ -48,7 +48,7 @@ import {
   MAX_HOST_RESULT_CHARS,
   MAX_OUTSTANDING_HOST_CALLS,
   MAX_PROMPT_ANSWER_CHARS,
-} from './limits'
+} from '../limits'
 
 /** What `bootstrap.ts` gives the door: the marshalling helpers its own prelude closed over. */
 export interface VmMarshalling {
