@@ -99,8 +99,9 @@ describe('the to-do container', () => {
       t('todo.view.starred'),
       t('todo.view.plan'),
       t('todo.view.completed'),
+      t('todo.action.ask_assistant'),
     ])
-    // Today's work is the only number the phone's bar carries: three badges on four tabs is noise.
+    // Today's work is the only number the phone's bar carries: more badges across the views is noise.
     const badged = tabs.filter((tab) => /\d/.test(tab.textContent ?? ''))
     expect(badged.map((tab) => tab.getAttribute('aria-label'))).toEqual([t('todo.view.plan')])
   })

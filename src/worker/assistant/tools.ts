@@ -34,6 +34,7 @@ import {
   parseRepeatRule,
   remindAtFor,
   type RemindOffset,
+  type RepeatRule,
   type TaskCounts,
   type TaskStep,
   type TaskTag,
@@ -241,6 +242,67 @@ function dueMillis(value: unknown, ctx: ToolContext): number | null | undefined 
   return parsed
 }
 
+function plannedDay(value: unknown): string | null | undefined {
+  if (value === undefined) return undefined
+  if (value === null || value === '') return null
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new ToolError('A planned day must be YYYY-MM-DD.')
+  }
+  return value
+}
+
+function repeatRule(args: Record<string, unknown>, allowNone: boolean): RepeatRule | null | undefined {  const freq = args.repeat
+  if (freq === undefined) {
+    if (args.repeatDays !== undefined || args.repeatMonthly !== undefined || args.repeatInterval !== undefined) {
+      throw new ToolError('Name the repeat frequency with the days or interval that narrow it.')
+    }
+    return undefined
+  }
+  if (allowNone && freq === 'none') return null
+  if (typeof freq !== 'string' || !REPEAT_FREQUENCIES.includes(freq as (typeof REPEAT_FREQUENCIES)[number])) {
+    throw new ToolError('A repeat frequency must be one of the known rhythms.')
+  }
+  const interval = args.repeatInterval === undefined ? 1 : Number(args.repeatInterval)
+  if (!Number.isInteger(interval) || interval < 1 || interval > 99) {
+    throw new ToolError('A repeat interval must be a whole number between 1 and 99.')
+  }
+  let weekdays: number[] | undefined
+  if (typeof args.repeatDays === 'string' && args.repeatDays.trim()) {
+    const days = args.repeatDays.split(',').map((entry) => Number(entry.trim()))
+    if (!days.every((day) => Number.isInteger(day) && day >= 0 && day <= 6)) {
+      throw new ToolError('Repeat days are weekdays from 0 (Sunday) to 6 (Saturday).')
+    }
+    weekdays = [...new Set(days)].sort((a, b) => a - b)
+  }
+  if (weekdays && freq !== 'weekly') throw new ToolError('Repeat days only narrow a weekly rhythm.')
+  const monthly = args.repeatMonthly
+  if (monthly !== undefined && monthly !== 'day' && monthly !== 'lastDay') {
+    throw new ToolError('A monthly rhythm lands on the same day or the last day.')
+  }
+  if (monthly !== undefined && freq !== 'monthly') throw new ToolError('That monthly choice only narrows a monthly rhythm.')
+  const rule = parseRepeatRule({
+    freq,
+    interval,
+    ...(weekdays ? { weekdays } : {}),
+    ...(monthly ? { monthlyMode: monthly } : {}),
+  })
+  if (!rule) throw new ToolError('That repeat rule is not one the app can store.')
+  return rule
+}
+
+function reminderInstants(value: unknown, ctx: ToolContext): number[] | undefined {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value)) throw new ToolError('Reminders must be a list of local date-times.')
+  if (value.length > MAX_REMINDERS_PER_TASK) throw new ToolError(`A task can carry at most ${MAX_REMINDERS_PER_TASK} reminders.`)
+  const times = value.map((entry) => {
+    if (typeof entry !== 'string') throw new ToolError('Each reminder must be YYYY-MM-DDTHH:MM.')
+    const parsed = parseLocalTime(entry, ctx.timezone)
+    if (parsed === null) throw new ToolError(`Could not understand the reminder "${entry.slice(0, 40)}".`)
+    return parsed
+  })
+  return [...new Set(times)].sort((left, right) => left - right)
+}
+
 /**
  * A task as the model sees it.
  *
@@ -257,6 +319,7 @@ function presentTask(task: TodoTask): Record<string, unknown> {
     due_at: task.dueAt,
     starred: task.starred,
     list_id: task.listId,
+    ...(task.reminders?.length ? { reminders: task.reminders } : {}),
     ...(task.tags.length ? { tags: task.tags.map((tag) => tag.name) } : {}),
     ...(task.repeat ? { repeat: task.repeat.interval > 1 ? `${task.repeat.freq} x${task.repeat.interval}` : task.repeat.freq } : {}),
     ...(task.remindAt !== null ? { remind_at: task.remindAt } : {}),
@@ -466,17 +529,27 @@ export const TASK_TOOLS: ToolDefinition[] = [
       description: { type: 'string', description: 'Optional longer note.', maxLength: 2000, optional: true },
       priority: { type: 'string', enum: TASK_PRIORITIES, description: 'Defaults to medium.', optional: true },
       due: localDateField('When it is due.'),
+      start: localDateField('When it becomes available; pass null for none.', true),
+      planned: { type: 'string', description: 'Plan it for a day in My Day, YYYY-MM-DD; null clears it.', maxLength: 10, optional: true, nullable: true },
       list: { type: 'string', description: 'List name or id. Call list_task_lists first if unsure what exists.', maxLength: 200, optional: true },
       project: { type: 'string', description: 'Project name or id.', maxLength: 200, optional: true },
       tags: { type: 'array', items: 'string', maxItems: MAX_TAGS_PER_TASK, description: 'Tag names. One that does not exist yet is created.', optional: true },
       steps: { type: 'array', items: 'string', maxItems: 20, maxLength: MAX_STEP_TEXT_CHARS, description: 'Sub-tasks, in order.', optional: true },
       repeat: { type: 'string', enum: REPEAT_FREQUENCIES, description: 'How often it comes back. Leave it out for a one-off.', optional: true },
+      repeatInterval: { type: 'integer', minimum: 1, maximum: 99, description: 'Occurrences every N weeks, months or years. Defaults to 1.', optional: true },
+      repeatDays: { type: 'string', description: 'For a weekly rhythm: comma-separated weekdays, 0=Sunday to 6=Saturday.', maxLength: 20, optional: true },
+      repeatMonthly: { type: 'string', enum: ['day', 'lastDay'], description: 'For a monthly rhythm: the same day or the last day.', optional: true },
       remind: { type: 'string', enum: REMIND_OFFSETS, description: 'When to remind the reader, relative to the due time. Defaults to none.', optional: true },
+      reminders: { type: 'array', items: 'string', maxItems: MAX_REMINDERS_PER_TASK, description: 'Absolute reminders as local YYYY-MM-DDTHH:MM values. Replaces remind when given.', optional: true },
       starred: { type: 'boolean', description: 'Mark it as one to keep in sight.', optional: true },
       note: { type: 'string', description: 'The id of a note this task came from.', maxLength: 26, optional: true },
     },
     async run(args, ctx) {
       const dueAt = dueMillis(args.due, ctx) ?? null
+      const startAt = dueMillis(args.start, ctx) ?? null
+      const planned = plannedDay(args.planned)
+      const repeat = repeatRule(args, false)
+      const reminders = reminderInstants(args.reminders, ctx)
       const listId = await resolveListId(args.list, ctx)
       const noteId = typeof args.note === 'string' && args.note.trim() ? await resolveNoteId(args.note, ctx) : null
       const task = await ctx.store.createTask({
@@ -484,18 +557,23 @@ export const TASK_TOOLS: ToolDefinition[] = [
         description: typeof args.description === 'string' ? args.description : '',
         priority: args.priority as TaskPriority | undefined,
         dueAt,
+        startAt,
         projectId: (await resolveProjectIdOrThrow(args.project, ctx)) ?? null,
         listId,
         starred: args.starred === true,
-        repeat: parseRepeatRule(args.repeat ? { freq: args.repeat, interval: 1 } : null),
-        remindAt: remindAtFor(dueAt, (args.remind as RemindOffset | undefined) ?? 'none'),
+        repeat: repeat ?? null,
+        ...(reminders !== undefined
+          ? { reminders }
+          : { remindAt: remindAtFor(dueAt, (args.remind as RemindOffset | undefined) ?? 'none') }),
         noteId,
         conversationId: ctx.conversationId ?? null,
         tags: Array.isArray(args.tags) ? args.tags as string[] : undefined,
         steps: Array.isArray(args.steps) ? args.steps as string[] : undefined,
       })
-      await ctx.store.recordActivity('task.created', task.title)
-      return { created: presentTask(task) }
+      if (planned !== undefined) await ctx.store.planTask(task.id, planned)
+      const saved = planned !== undefined ? await ctx.store.getTask(task.id) ?? task : task
+      await ctx.store.recordActivity('task.created', saved.title)
+      return { created: presentTask(saved) }
     },
   }),
   tool({
@@ -607,7 +685,7 @@ export const TASK_TOOLS: ToolDefinition[] = [
     name: 'update_task',
     permission: 'write',
     maxCallsPerTurn: 5,
-    description: 'Change a task: title, note, status, priority, due date, list, tags, star, repeat or reminder.',
+    description: 'Change a task: title, note, status, priority, due or start date, My Day plan, list, tags, star, repeat or reminder.',
     fields: {
       task: { type: 'string', description: 'Task id, or a title that matches exactly one task.', minLength: 1, maxLength: 300 },
       title: { type: 'string', minLength: 1, maxLength: MAX_TASK_TITLE_CHARS, optional: true },
@@ -615,38 +693,70 @@ export const TASK_TOOLS: ToolDefinition[] = [
       status: { type: 'string', enum: TASK_STATUSES, optional: true },
       priority: { type: 'string', enum: TASK_PRIORITIES, optional: true },
       due: localDateField('New due date; pass null to clear it.', true),
+      start: localDateField('New start date; pass null to clear it.', true),
+      planned: { type: 'string', description: 'Move it to a day in My Day (YYYY-MM-DD); null clears the plan.', maxLength: 10, optional: true, nullable: true },
       list: { type: 'string', description: 'List name or id; null moves it to the inbox.', maxLength: 200, optional: true, nullable: true },
       project: { type: 'string', description: 'Project name or id; null clears it.', maxLength: 200, optional: true, nullable: true },
       tags: { type: 'array', items: 'string', maxItems: MAX_TAGS_PER_TASK, description: 'The task\'s tags, replacing the ones it has.', optional: true },
       repeat: { type: 'string', enum: [...REPEAT_FREQUENCIES, 'none'], description: 'Set or clear how often it repeats.', optional: true },
+      repeatInterval: { type: 'integer', minimum: 1, maximum: 99, description: 'Occurrences every N weeks, months or years. Defaults to 1.', optional: true },
+      repeatDays: { type: 'string', description: 'For a weekly rhythm: comma-separated weekdays, 0=Sunday to 6=Saturday.', maxLength: 20, optional: true },
+      repeatMonthly: { type: 'string', enum: ['day', 'lastDay'], description: 'For a monthly rhythm: the same day or the last day.', optional: true },
       remind: { type: 'string', enum: REMIND_OFFSETS, description: 'Set or clear the reminder.', optional: true },
+      reminders: { type: 'array', items: 'string', maxItems: MAX_REMINDERS_PER_TASK, description: 'Replace the pending reminders with these local YYYY-MM-DDTHH:MM values.', optional: true },
       starred: { type: 'boolean', optional: true },
       note: { type: 'string', description: 'The id of a note this task came from; null clears it.', maxLength: 26, optional: true, nullable: true },
     },
     async run(args, ctx) {
       const task = await resolveTaskOrThrow(args.task, ctx)
       const dueAt = dueMillis(args.due, ctx)
+      const startAt = dueMillis(args.start, ctx)
+      const planned = plannedDay(args.planned)
+      const repeat = repeatRule(args, true)
+      const reminders = reminderInstants(args.reminders, ctx)
       const updated = await ctx.store.updateTask(task.id, {
         ...(args.title !== undefined ? { title: String(args.title) } : {}),
         ...(args.description !== undefined ? { description: String(args.description) } : {}),
         ...(args.status !== undefined ? { status: args.status as Task['status'] } : {}),
         ...(args.priority !== undefined ? { priority: args.priority as Task['priority'] } : {}),
         ...(dueAt !== undefined ? { dueAt } : {}),
+        ...(startAt !== undefined ? { startAt } : {}),
         ...(args.list !== undefined ? { listId: await resolveListId(args.list, ctx) } : {}),
         ...(args.project !== undefined ? { projectId: (await resolveProjectIdOrThrow(args.project, ctx)) ?? null } : {}),
         ...(args.tags !== undefined ? { tags: args.tags as string[] } : {}),
-        ...(args.repeat !== undefined
-          ? { repeat: args.repeat === 'none' ? null : parseRepeatRule({ freq: args.repeat, interval: 1 }) }
-          : {}),
-        ...(args.remind !== undefined
-          ? { remindAt: remindAtFor(dueAt === undefined ? task.dueAt : dueAt, args.remind as RemindOffset) }
-          : {}),
+        ...(repeat !== undefined ? { repeat } : {}),
+        ...(reminders !== undefined
+          ? { reminders }
+          : args.remind !== undefined
+            ? { remindAt: remindAtFor(dueAt === undefined ? task.dueAt : dueAt, args.remind as RemindOffset) }
+            : {}),
         ...(args.starred !== undefined ? { starred: args.starred === true } : {}),
         ...(args.note !== undefined
           ? { noteId: typeof args.note === 'string' && args.note.trim() ? await resolveNoteId(args.note, ctx) : null }
           : {}),
       })
+      if (planned !== undefined && updated) {
+        const plannedTask = await ctx.store.planTask(updated.id, planned)
+        return { updated: plannedTask ? presentTask(plannedTask) : null }
+      }
       return { updated: updated ? presentTask(updated) : null }
+    },
+  }),
+  tool({
+    name: 'plan_task',
+    permission: 'write',
+    maxCallsPerTurn: 5,
+    description: 'Put a task on a day in the reader\'s My Day, or clear that plan by passing null. This does not change the due date.',
+    fields: {
+      task: { type: 'string', description: 'Task id, or a title that matches exactly one task.', minLength: 1, maxLength: 300 },
+      day: { type: 'string', description: 'The day to plan it for, YYYY-MM-DD; null clears the plan.', maxLength: 10, nullable: true },
+    },
+    async run(args, ctx) {
+      const task = await resolveTaskOrThrow(args.task, ctx)
+      const day = args.day === null || args.day === '' ? null : String(args.day)
+      if (day !== null && !/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new ToolError('A planned day must be YYYY-MM-DD.')
+      const planned = await ctx.store.planTask(task.id, day)
+      return { planned: planned ? presentTask(planned) : null }
     },
   }),
   tool({
@@ -695,6 +805,62 @@ export const TASK_TOOLS: ToolDefinition[] = [
       const updated = await ctx.store.snoozeTask(task.id, remindAt)
       if (!updated) throw new ToolError('This task no longer exists.')
       return { snoozed: presentTask(updated), remind_at: remindAt }
+    },
+  }),
+  tool({
+    name: 'move_task',
+    permission: 'write',
+    maxCallsPerTurn: 5,
+    description: 'Move a task within its list, or into another list. Name the task it should land before; null puts it at the end. A list alone appends it there.',
+    fields: {
+      task: { type: 'string', description: 'Task id, or a title that matches exactly one task.', minLength: 1, maxLength: 300 },
+      before: { type: 'string', description: 'The task it should land before; null means the end.', maxLength: 300, optional: true, nullable: true },
+      list: { type: 'string', description: 'Move it to this list; null is the inbox.', maxLength: 200, optional: true, nullable: true },
+    },
+    async run(args, ctx) {
+      if (args.before === undefined && args.list === undefined) {
+        throw new ToolError('Name a list, a task to land before, or both.')
+      }
+      const task = await resolveTaskOrThrow(args.task, ctx)
+      const beforeId = typeof args.before === 'string' ? (await resolveTaskOrThrow(args.before, ctx)).id : null
+      const listId = args.list === undefined ? undefined : args.list === null ? null : await resolveListId(args.list, ctx)
+      const moved = await ctx.store.moveTask(task.id, {
+        beforeId,
+        ...(listId !== undefined ? { listId } : {}),
+      })
+      return { moved: moved ? presentTask(moved) : null }
+    },
+  }),
+  tool({
+    name: 'list_trash',
+    permission: 'read',
+    maxCallsPerTurn: 2,
+    description: 'List tasks in the trash, newest deletion first, so one can be restored by id.',
+    fields: {
+      limit: { type: 'integer', minimum: 1, maximum: 50, description: 'How many rows to return. Defaults to 20.', optional: true },
+    },
+    async run(args, ctx) {
+      const limit = typeof args.limit === 'number' ? Math.min(50, Math.max(1, Math.trunc(args.limit))) : 20
+      const page = await ctx.store.listTrash({ limit })
+      return {
+        count: page.tasks.length,
+        total: page.total,
+        tasks: page.tasks.map((task) => ({ ...presentTask(task), deleted_at: task.deletedAt ?? null })),
+      }
+    },
+  }),
+  tool({
+    name: 'restore_task',
+    permission: 'write',
+    maxCallsPerTurn: 5,
+    description: 'Restore one task from the trash by its id. Call list_trash first to find the exact id.',
+    fields: {
+      id: { type: 'string', description: 'The trashed task id.', minLength: 1, maxLength: 64 },
+    },
+    async run(args, ctx) {
+      const restored = await ctx.store.restoreTask(String(args.id))
+      if (!restored) throw new ToolError('No trashed task has that id.')
+      return { restored: presentTask(restored) }
     },
   }),
   tool({
@@ -794,12 +960,13 @@ export const TASK_TOOLS: ToolDefinition[] = [
     name: 'update_task_list',
     permission: 'write',
     maxCallsPerTurn: 3,
-    description: 'Change a to-do list: its name, colour or icon. Use list_task_lists first if unsure which list it is.',
+    description: 'Change a to-do list: its name, colour, icon or archive state. Use list_task_lists first if unsure which list it is.',
     fields: {
       list: { type: 'string', description: 'List name or id.', minLength: 1, maxLength: 200 },
       name: { type: 'string', minLength: 1, maxLength: MAX_LIST_NAME_CHARS, optional: true },
       color: { type: 'string', description: 'A hex colour; null clears it.', maxLength: 7, optional: true, nullable: true },
       icon: { type: 'string', description: 'One emoji or an icon name; null clears it.', maxLength: 40, optional: true, nullable: true },
+      archived: { type: 'boolean', description: 'Archive the list (true) or put it back (false).', optional: true },
     },
     async run(args, ctx) {
       const listId = await resolveListId(args.list, ctx)
@@ -821,6 +988,7 @@ export const TASK_TOOLS: ToolDefinition[] = [
         ...(args.name !== undefined ? { name: String(args.name) } : {}),
         ...(color !== undefined ? { color } : {}),
         ...(icon !== undefined ? { icon } : {}),
+        ...(args.archived !== undefined ? { archivedAt: args.archived === true ? Date.now() : null } : {}),
       }
       if (!Object.keys(patch).length) throw new ToolError('Name a new name, colour or icon to change.')
       const list = await ctx.store.updateTaskList(listId, patch)

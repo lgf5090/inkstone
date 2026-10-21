@@ -41,6 +41,7 @@ import type {
   MessageFeedback,
 } from '@shared/assistant'
 import type { AssistantSkill } from '@shared/assistant'
+import type { TodoAssistantContext } from '@shared/todos/assistant-context'
 import { DEBOUNCE } from '@shared/constants'
 import { formatBytes } from '@shared/byte-format'
 import { MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_CHAT_ATTACHMENTS, AUDIO_SEND_MAX_BYTES, MAX_TURN_SCOPES, MAX_TURN_TOOLS, CONVERSATION_PAGE_SIZE, MESSAGE_PAGE_SIZE, attachmentModality, audioFormatFor, modelWire, protocolCarriesAudio, type AssistantModelModality, type AttachmentSense, type AssistantTurnScope, type ChatAttachment, type AssistantSkillInput, type SkillImportResult, type AssistantMcpToolMode } from '@shared/assistant'
@@ -309,8 +310,14 @@ interface AssistantState {
    */
   noteContextOn: boolean
   folderContextOn: boolean
+  todoContext: TodoAssistantContext | null
+  todoContextOn: boolean
+  dockSurface: 'notebook' | 'todos'
   setNoteContext: (on: boolean) => void
   setFolderContext: (on: boolean) => void
+  setTodoContext: (value: TodoAssistantContext | null) => void
+  setTodoContextOn: (on: boolean) => void
+  setDockSurface: (surface: 'notebook' | 'todos') => void
   /**
    * Text the composer has been asked to start from — a quote of a turn.
    *
@@ -1447,6 +1454,9 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   compareTurn: null,
   noteContextOn: true,
   folderContextOn: true,
+  todoContext: null,
+  todoContextOn: true,
+  dockSurface: 'notebook',
   composerSeed: null,
   pending: [],
   skills: [],
@@ -2089,7 +2099,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     // A comparison is this thread's choice: leaving it armed would spend a second model's tokens on the
     // next thread without anyone asking. The answer already on screen keeps its thread's id, so it is
     // simply not drawn here — the same rule the live turn follows when the reader walks away mid-reply.
-    set({ activeId: id, messages: [], messagesReady: false, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: false, canvasOpen: false, activeArtifactId: null, ephemeral: false, compareOn: false, compareModelId: null, messagesBefore: null, messagesHasMore: false, messagesLoadingMore: false, messagesHasNewer: false, focusMessageId: focus })
+    set({ activeId: id, messages: [], messagesReady: false, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, noteContextOn: true, folderContextOn: true, todoContextOn: true, artifacts: [], artifactsReady: false, canvasOpen: false, activeArtifactId: null, ephemeral: false, compareOn: false, compareModelId: null, messagesBefore: null, messagesHasMore: false, messagesLoadingMore: false, messagesHasNewer: false, focusMessageId: focus })
     if (!id) {
       set({ messagesReady: true, messagesError: null, artifactsReady: true })
       return
@@ -2176,7 +2186,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     // The pins go with the thread they were added to. They are "this turn's" by definition — the row the
     // composer draws is the record of what this question was asked about — so a new conversation that
     // inherited them would answer a question nobody asked, in a folder nobody named.
-    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, turn: null, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null, ephemeral: false, compareOn: false, compareModelId: null, turnTools: [], turnScopes: [] })
+    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, turn: null, noteContextOn: true, folderContextOn: true, todoContextOn: true, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null, ephemeral: false, compareOn: false, compareModelId: null, turnTools: [], turnScopes: [] })
   },
 
   /**
@@ -2189,7 +2199,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     const live = get().turn
     if (live && !live.done) return
     stopRemoteStreamWatch()
-    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, turn: null, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null, ephemeral: true, compareOn: false, compareModelId: null })
+    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, turn: null, noteContextOn: true, folderContextOn: true, todoContextOn: true, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null, ephemeral: true, compareOn: false, compareModelId: null })
   },
 
   attachFiles: async (files) => {
@@ -2403,6 +2413,12 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   setCompareModelId: (value) => set({ compareModelId: value }),
 
   setNoteContext: (on) => set({ noteContextOn: on }),
+
+  setTodoContext: (value) => set({ todoContext: value }),
+
+  setTodoContextOn: (on) => set({ todoContextOn: on }),
+
+  setDockSurface: (surface) => set({ dockSurface: surface }),
 
   setFolderContext: (on) => set({ folderContextOn: on }),
 
@@ -2619,8 +2635,9 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
           tools: state.turnTools,
           scopes: state.turnScopes,
           ...(retry || continuing ? {} : {
-            ...(state.noteContextOn && ui.activeNoteId ? { contextNoteId: ui.activeNoteId } : {}),
-            ...(state.folderContextOn && ui.folderId ? { contextFolderId: ui.folderId } : {}),
+            ...(state.dockSurface === 'notebook' && state.noteContextOn && ui.activeNoteId ? { contextNoteId: ui.activeNoteId } : {}),
+            ...(state.dockSurface === 'notebook' && state.folderContextOn && ui.folderId ? { contextFolderId: ui.folderId } : {}),
+            ...(state.dockSurface === 'todos' && state.todoContextOn && state.todoContext ? { contextTodo: state.todoContext } : {}),
             // Where this thread began. The worker records it once and never re-labels the thread, so a
             // later turn asked beside another note leaves the origin alone.
             //
@@ -2628,7 +2645,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
             // open afterwards is not. `startChatAboutNote` pins exactly one note scope on a fresh thread,
             // so that chip is the record of the request, and the open page stays the fallback for a thread
             // begun beside a note without the command.
-            ...(originNoteId ? { noteId: originNoteId } : {}),
+            ...(state.dockSurface === 'notebook' && originNoteId ? { noteId: originNoteId } : {}),
           }),
           webSearch: state.webSearch,
           // Only when this turn is the one that makes the conversation: the flag is read at creation and

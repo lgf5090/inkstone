@@ -1904,14 +1904,22 @@ function ContextStrip() {
   const folderName = useNotes((state) => (folderId ? state.folders.find((folder) => folder.id === folderId)?.name : undefined))
   const noteOn = useAssistant((state) => state.noteContextOn)
   const folderOn = useAssistant((state) => state.folderContextOn)
+  const dockSurface = useAssistant((state) => state.dockSurface)
+  const todoContext = useAssistant((state) => state.todoContext)
+  const todoOn = useAssistant((state) => state.todoContextOn)
   const setNoteContext = useAssistant((state) => state.setNoteContext)
   const setFolderContext = useAssistant((state) => state.setFolderContext)
+  const setTodoContextOn = useAssistant((state) => state.setTodoContextOn)
   const chips: Array<{ id: string, icon: React.ReactNode, label: string, onRemove: () => void }> = []
   if (activeNoteId && noteOn) {
     chips.push({ id: 'note', icon: <FileText size={12} />, label: noteTitle || t('assistant.context.note'), onRemove: () => setNoteContext(false) })
   }
   if (folderId && folderOn) {
     chips.push({ id: 'folder', icon: <FolderOpen size={12} />, label: folderName || t('assistant.context.folder'), onRemove: () => setFolderContext(false) })
+  }
+  if (dockSurface === 'todos' && todoContext && todoOn) {
+    const label = todoContext.taskTitle ?? todoContext.listName ?? todoContext.tagName ?? t('todo.view.board')
+    chips.push({ id: 'todo', icon: <ListChecks size={12} />, label, onRemove: () => setTodoContextOn(false) })
   }
   if (!chips.length) return null
   return (

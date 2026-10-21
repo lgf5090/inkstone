@@ -19,6 +19,8 @@ import { contextBudgetFor, customParamBody, MAX_CHAT_ATTACHMENTS, MAX_CONVERSATI
 import { hasHistoricalIntent, memoryTokenBudget } from '@shared/assistant-memory'
 import { ATTACHMENT_MARKER, expandChatAttachments, type AttachmentPayload } from './attachments'
 import { resolveNoteMentions } from './note-mentions'
+import { renderTodoContext } from './todo-context'
+import type { TodoAssistantContext } from '@shared/todos/assistant-context'
 import { loadExternalTools, type ExternalToolsResult } from './mcp-tools'
 import { buildSystemPrompt, namingPrompt, offlineAnswer, promptCatalog, summarizerPrompt } from '@shared/assistant-prompt'
 import { describeLocalTime, localDayBounds } from '@shared/assistant-time'
@@ -210,6 +212,7 @@ export interface TurnInput {
    */
   contextNoteId?: string
   contextFolderId?: string
+  contextTodo?: TodoAssistantContext
   /**
    * The note this thread began beside.
    *
@@ -361,6 +364,7 @@ export class AssistantRunner {
   /** What the reader had on screen, held for the turn so the prompt and the scope agree. */
   private contextNoteId: string | null = null
   private contextFolderId: string | null = null
+  private contextTodo: TodoAssistantContext | null = null
   private contextPromise: Promise<{ openNote: { id: string, title: string } | null, browsingFolder: string | null }> | null = null
   /** Set with the conversation, before anything asks for the scope or the prompt. */
   private conversationProjectId: string | null = null
@@ -432,6 +436,7 @@ export class AssistantRunner {
     this.contextNoteId = isValidId(input.contextNoteId ?? '') ? input.contextNoteId! : null
     this.originNoteId = isValidId(input.originNoteId ?? '') ? input.originNoteId! : null
     this.contextFolderId = isValidId(input.contextFolderId ?? '') ? input.contextFolderId! : null
+    this.contextTodo = input.contextTodo ?? null
     let conversation = input.conversationId ? await this.store.getConversation(input.conversationId) : null
     // The project comes from the row that was just read, so a conversation moved between projects is
     // answered under the one it is in now.
@@ -1589,7 +1594,9 @@ export class AssistantRunner {
     }
     if (lastUser) {
       const block = await resolveNoteMentions(this.deps.env.DB, this.store.userId, lastUser.content, await this.noteScope())
-      if (block) lastUser.content = `${lastUser.content}\n\n${block}`
+      const todo = this.contextTodo ? renderTodoContext(this.contextTodo) : ''
+      const carried = [block, todo].filter(Boolean).join('\n\n')
+      if (carried) lastUser.content = `${lastUser.content}\n\n${carried}`
     }
     return entries
   }

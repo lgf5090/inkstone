@@ -9,6 +9,7 @@
 
 import { CLIENT_HEADER } from '@shared/constants'
 import type { AssistantTurnScope, ChatStreamEvent } from '@shared/assistant'
+import type { TodoAssistantContext } from '@shared/todos/assistant-context'
 import { ApiError, CLIENT_ID, routeApiError } from '../../lib/api'
 import { getLocale, t } from '../../lib/i18n'
 
@@ -25,6 +26,7 @@ export interface StreamTurnInput {
   contextNoteId?: string
   /** The folder the notebook was filtered to, as a hint about what they were looking at. */
   contextFolderId?: string
+  contextTodo?: TodoAssistantContext
   /** The note this thread is being started from, recorded on the conversation the first time. */
   noteId?: string
   retry?: boolean
@@ -97,6 +99,7 @@ export async function streamAssistantTurn(
         ...(input.scopes?.length ? { scopes: input.scopes } : {}),
         ...(input.contextNoteId ? { contextNoteId: input.contextNoteId } : {}),
         ...(input.contextFolderId ? { contextFolderId: input.contextFolderId } : {}),
+        ...(input.contextTodo ? { contextTodo: input.contextTodo } : {}),
         ...(input.noteId ? { noteId: input.noteId } : {}),
         ...(input.webSearch ? { webSearch: true } : {}),
         ...(input.modelId ? { modelId: input.modelId } : {}),

@@ -15,7 +15,9 @@
  * drawn as a chip the reader can take off, because a context they cannot see is one they cannot correct.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowUpRight, Plus, Sparkles, X } from 'lucide-react'
+import { ArrowUpRight, ListChecks, Plus, Sparkles, X } from 'lucide-react'
+import type { MessageKey } from '@shared/locales/en-US'
+import type { TodoAssistantContext } from '@shared/todos/assistant-context'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
@@ -39,7 +41,29 @@ import {
 import { buildWriteDiff, WriteDiffSummary, WriteDiffView } from './editor-ai-diff'
 import { saveReplyAsNote } from './save-to-note'
 
-export function AssistantDock() {
+export type AssistantDockSurface = 'notebook' | 'todos'
+
+const TODO_VIEW_LABELS: Record<string, MessageKey> = {
+  board: 'todo.view.board',
+  today: 'todo.view.today',
+  plan: 'todo.view.plan',
+  calendar: 'todo.view.calendar',
+  starred: 'todo.view.starred',
+  completed: 'todo.view.completed',
+  list: 'todo.view.list',
+  tag: 'todo.view.tag',
+  stats: 'todo.view.stats',
+}
+
+function todoLabel(context: TodoAssistantContext): string {
+  if (context.taskTitle) return context.taskTitle
+  if (context.listName) return context.listName
+  if (context.tagName) return context.tagName
+  const key = TODO_VIEW_LABELS[context.view]
+  return key ? t(key) : t('todo.view.board')
+}
+
+export function AssistantDock({ surface = 'notebook' }: { surface?: AssistantDockSurface }) {
   const bootstrap = useAssistant((state) => state.bootstrap)
   const loaded = useAssistant((state) => state.loaded)
   const agentName = useAssistant((state) => state.settings?.agentName)
@@ -52,6 +76,10 @@ export function AssistantDock() {
   const stop = useAssistant((state) => state.stop)
   const newConversation = useAssistant((state) => state.newConversation)
   const setNoteContext = useAssistant((state) => state.setNoteContext)
+  const setFolderContext = useAssistant((state) => state.setFolderContext)
+  const todo = useAssistant((state) => state.todoContext)
+  const todoOn = useAssistant((state) => state.todoContextOn)
+  const setTodoContextOn = useAssistant((state) => state.setTodoContextOn)
   const sendOnEnter = useAssistant((state) => state.settings?.sendOnEnter ?? true)
   const blocked = useAssistant((state) => !state.settings?.activeModelId && !state.settings?.offlineMode)
   const fileIndex = useAssistant((state) => state.fileIndex)
@@ -65,9 +93,14 @@ export function AssistantDock() {
   }, [bootstrap])
 
   useEffect(() => {
-    // The panel exists to ask about this page, so opening it points the next turn at the page.
-    setNoteContext(true)
-  }, [setNoteContext])
+    useAssistant.getState().setDockSurface(surface)
+    if (surface === 'notebook') {
+      setNoteContext(true)
+      return
+    }
+    setNoteContext(false)
+    setFolderContext(false)
+  }, [surface, setNoteContext, setFolderContext])
 
   const streaming = (!!turn && !turn.done) || remoteStreaming
   const turnHere = turn && turn.conversationId === (activeId ?? null) ? turn : null
@@ -81,11 +114,12 @@ export function AssistantDock() {
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight
   }, [messages.length, turnHere?.text, turnHere?.tools.length])
 
-  const suggestions = useMemo(() => [
-    'assistant.dock.suggest_summary',
-    'assistant.dock.suggest_questions',
-    'assistant.dock.suggest_next',
-  ] as const, [])
+  const suggestions = useMemo(() => (
+    surface === 'todos'
+      ? ['assistant.dock.suggest_todo_focus', 'assistant.dock.suggest_todo_plan', 'assistant.dock.suggest_todo_review'] as const
+      : ['assistant.dock.suggest_summary', 'assistant.dock.suggest_questions', 'assistant.dock.suggest_next'] as const
+  ), [surface])
+  const hint = surface === 'todos' ? t('assistant.dock.hint_todo') : t('assistant.dock.hint')
 
   return (
     <aside
@@ -148,7 +182,7 @@ export function AssistantDock() {
         ) : empty ? (
           <div className="flex flex-col gap-3 px-3 py-6">
             <p className="text-[length:var(--text-12)] leading-relaxed text-[var(--text-tertiary)]">
-              {t('assistant.dock.hint')}
+              {hint}
             </p>
             <ul className="flex flex-col gap-1">
               {suggestions.map((key) => (
@@ -201,6 +235,22 @@ export function AssistantDock() {
         )}
       </div>
 
+      {surface === 'todos' && todo && todoOn && (
+        <div role="group" aria-label={t('assistant.context.title')} className="flex flex-wrap items-center gap-1 px-3 pt-1.5">
+          <span className="inline-flex min-w-0 items-center gap-1 rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+            <span aria-hidden className="shrink-0 text-[var(--text-quaternary)]"><ListChecks size={12} /></span>
+            <span className="max-w-[220px] truncate">{todoLabel(todo)}</span>
+            <button
+              type="button"
+              aria-label={t('assistant.context.remove', { name: todoLabel(todo) })}
+              onClick={() => setTodoContextOn(false)}
+              className="relative shrink-0 p-0.5 text-[var(--text-quaternary)] transition-colors hover:text-[var(--text-secondary)]"
+            >
+              <X size={11} />
+            </button>
+          </span>
+        </div>
+      )}
       <ChatComposer
         streaming={streaming}
         sendOnEnter={sendOnEnter}

@@ -499,8 +499,8 @@ describe('the way in', () => {
     stubBreakpoint(false)
     const phone = await mount('/todo')
     const tabs = phone.querySelector(`nav[aria-label="${t('todo.app.navigation')}"]`)
-    expect(tabs?.querySelectorAll('button')).toHaveLength(4)
-    expect(tabs?.textContent, 'statistics took a fifth phone tab').not.toContain(t('todo.view.stats'))
+    expect(tabs?.querySelectorAll('button')).toHaveLength(5)
+    expect(tabs?.textContent, 'the assistant is the fifth phone tab, not statistics').not.toContain(t('todo.view.stats'))
 
     const entry = [...phone.querySelectorAll('button')]
       .find((node) => node.getAttribute('aria-label') === t('todo.view.stats'))

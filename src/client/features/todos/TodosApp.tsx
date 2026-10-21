@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { CalendarRange, ChartNoAxesColumn, Filter, ListChecks, Plus, Search, Settings2, Sun, X } from 'lucide-react'
+import { CalendarRange, ChartNoAxesColumn, Filter, ListChecks, Plus, Search, Settings2, Sparkles, Sun, X } from 'lucide-react'
 import type { SavedTodoFilter } from '@shared/types'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
@@ -19,7 +19,11 @@ import { IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
 import { LoadingBlock } from '../../components/feedback'
 import { useSession } from '../../store/session'
+import { useUi } from '../../store/ui'
+import { useAssistant } from '../chat/assistant-store'
+import { AssistantDock } from '../chat/AssistantDock'
 import { useTodos } from './store'
+import { buildTodoAssistantContext } from './assistant-context'
 import { BatchBar } from './BatchBar'
 import { TaskEditor } from './TaskEditor'
 import { useViewTitle } from './TaskViews'
@@ -30,6 +34,27 @@ type Page = 'main' | 'lists'
 
 /** The empty list a settings object without the field reads as; one instance, so the selector is stable. */
 const NO_SAVED_FILTERS: SavedTodoFilter[] = []
+
+const TODO_WRITE_TOOLS = new Set([
+  'create_task',
+  'create_tasks_from_note',
+  'update_task',
+  'complete_task',
+  'snooze_task',
+  'rename_task_tag',
+  'create_task_list',
+  'update_task_list',
+  'add_task_step',
+  'check_task_step',
+  'delete_task',
+  'delete_task_tag',
+  'delete_task_list',
+  'delete_completed_tasks',
+  'delete_task_step',
+  'plan_task',
+  'move_task',
+  'restore_task',
+])
 
 function useWide(): boolean {
   const [wide, setWide] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches)
@@ -58,6 +83,15 @@ export function TodosApp() {
   const counts = useTodos((state) => state.counts)
   const lists = useTodos((state) => state.lists)
   const tags = useTodos((state) => state.tags)
+  const tasks = useTodos((state) => state.tasks)
+  const completed = useTodos((state) => state.completed)
+  const draft = useTodos((state) => state.draft)
+  const editorOpen = useTodos((state) => state.editorOpen)
+  const timezone = useTodos((state) => state.timezone)
+  const dueFrom = useTodos((state) => state.dueFrom)
+  const dueTo = useTodos((state) => state.dueTo)
+  const assistantDockOpen = useUi((state) => state.assistantDockOpen)
+  const assistantTurn = useAssistant((state) => state.turn)
   const applySavedFilter = useTodos((state) => state.applySavedFilter)
   const savedFilters = useSession((state) => state.settings.todo.savedFilters) ?? NO_SAVED_FILTERS
   const updateSettings = useSession((state) => state.updateSettings)
@@ -69,14 +103,50 @@ export function TodosApp() {
   const [searchOpen, setSearchOpen] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
+  const lastAssistantScreen = useRef<string | null>(null)
+  const refreshedTurn = useRef<number | null>(null)
+  const assistantScreen = `${view}|${listId ?? ''}|${tagId ?? ''}|${query}|${dueFrom ?? ''}|${dueTo ?? ''}|${editorOpen ? draft?.id ?? 'new' : ''}`
 
   useEffect(() => {
     // The address names the screen, so it is read here before anything is drawn: a cold load of
     // `/todo?view=plan`, or of one task's own address, has to open on the view or the panel it names
     // rather than flash the board and wait for the reader to put it back.
     useTodos.getState().syncFromAddress()
-    if (useTodos.getState().status === 'idle') void load()
+    void load()
   }, [load])
+
+  useEffect(() => {
+    const context = buildTodoAssistantContext({
+      view,
+      listId,
+      tagId,
+      query,
+      dueFrom,
+      dueTo,
+      lists,
+      tags,
+      tasks,
+      completed,
+      draft,
+      editorOpen,
+      timezone,
+    })
+    const assistant = useAssistant.getState()
+    assistant.setTodoContext(context)
+    if (lastAssistantScreen.current !== assistantScreen) {
+      lastAssistantScreen.current = assistantScreen
+      assistant.setTodoContextOn(true)
+    }
+  }, [assistantScreen, completed, draft, editorOpen, dueFrom, dueTo, listId, lists, query, tagId, tags, tasks, timezone, view])
+
+  useEffect(() => {
+    if (!assistantTurn?.done || assistantTurn.token === undefined) return
+    if (refreshedTurn.current === assistantTurn.token) return
+    refreshedTurn.current = assistantTurn.token
+    if (assistantTurn.tools.some((tool) => TODO_WRITE_TOOLS.has(tool.name) && tool.status === 'success')) {
+      void useTodos.getState().load()
+    }
+  }, [assistantTurn])
 
   const openList = (target: { listId?: string; tagId?: string }): void => {
     setPage('main')
@@ -165,6 +235,17 @@ export function TodosApp() {
           /* A finger's height: on a phone this is the only way to reach a search at all. */
           <IconButton label={t('todo.action.search')} size="sm" className="size-11" onClick={() => setSearchOpen(true)}>
             <Search size={15} />
+          </IconButton>
+        )}
+        {wide && !IS_DEMO_MODE && (
+          <IconButton
+            label={t('todo.action.ask_assistant')}
+            size="sm"
+            className="size-11 md:size-6"
+            active={assistantDockOpen}
+            onClick={() => useUi.getState().setAssistantDock(!assistantDockOpen)}
+          >
+            <Sparkles size={15} />
           </IconButton>
         )}
         {/* "My Day" is the fifth surface, and the phone's bottom bar has four tabs already: it is
@@ -349,6 +430,7 @@ export function TodosApp() {
           {page === 'main' && view !== 'stats' && view !== 'calendar' && <TodoFilters />}
           {status === 'loading' && !counts ? <LoadingBlock /> : content}
         </div>
+        {assistantDockOpen && !IS_DEMO_MODE && <AssistantDock surface="todos" />}
       </div>
 
       {/* Above the phone tabs and below the listing, so the bar is the last thing the thumb passes on
@@ -386,6 +468,13 @@ export function TodosApp() {
                 />
               )
             })}
+            <MobileTab
+              icon={<Sparkles size={18} />}
+              label={t('todo.action.ask_assistant')}
+              active={assistantDockOpen}
+              badge={0}
+              onClick={() => useUi.getState().setAssistantDock(!assistantDockOpen)}
+            />
           </nav>
         </>
       )}

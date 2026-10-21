@@ -1025,7 +1025,6 @@ const allowed = new Map([
   ]],
   ["src/client/features/chat/AssistantDock.tsx", [
     "/**\n * The assistant, docked beside the note.\n *\n * Asking about what you are writing used to mean leaving the page: the chat tab replaces the notebook,\n * so \"is this paragraph clear?\" cost a reader the paragraph. The dock is the same conversation in a\n * column of the notebook's own frame — same store, same composer, same replies — so the thread that\n * answers a question about this note is the thread they can come back to later.\n *\n * It is deliberately not a second assistant. There is one active conversation, and the chat tab and this\n * panel are two windows onto it: switching between them keeps the answer that is streaming, because the\n * turn lives in the store rather than in either surface.\n *\n * The note on screen is the context by default. That is the whole point of the panel, so it is switched\n * on when the panel opens rather than inherited from whatever the chat tab was last set to — and it is\n * drawn as a chip the reader can take off, because a context they cannot see is one they cannot correct.\n */",
-    "// The panel exists to ask about this page, so opening it points the next turn at the page.",
     "// The answer a selection-request is waiting for. Read only once the turn is over: a paragraph still",
     "// being written is not something to paste into a note.",
     "// A column beside the note on a wide screen, and a bottom sheet on a phone: the same panel, but a",
@@ -11498,7 +11497,7 @@ const allowed = new Map([
     "// The sidebar calls the board \"All\" and puts starred above it; the phone calls the board \"Board\" and",
     "// leads with it. Those are two different readings of one list of surfaces, so both directions are",
     "// pinned: a registry that quietly reordered them would look right in one layout and wrong in the other.",
-    "// Today's work is the only number the phone's bar carries: three badges on four tabs is noise.",
+    "// Today's work is the only number the phone's bar carries: more badges across the views is noise.",
   ]],
   ["src/client/features/todos/trash-panel.test.ts", [
     "/**\n * The trash screen: the rows a delete hid, and the two doors out.\n *\n * The server is stubbed at the API boundary, so the assertions are about the requests the screen makes:\n * restoring asks the store for the same id the delete stamped, and purging asks first — a permanent\n * delete is the one gesture in this feature that cannot be taken back.\n */",

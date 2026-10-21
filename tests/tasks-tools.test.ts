@@ -745,3 +745,110 @@ describe('task_stats', () => {
     expect(result.summary.completed).toBe(0)
   })
 })
+
+describe('planning and repeat details', () => {
+  it('plans a task for a day and clears the plan with null', async () => {
+    const task = await store.createTask({ title: 'Plan me' })
+    const tools = executor()
+
+    await tools.execute('plan_task', { task: task.id, day: today() }, 'call-1')
+    expect((await store.getTask(task.id))?.plannedFor).toBe(today())
+
+    await tools.execute('plan_task', { task: task.id, day: null }, 'call-2')
+    expect((await store.getTask(task.id))?.plannedFor).toBeNull()
+  })
+
+  it('creates a task with a start, a My Day plan and named weekdays', async () => {
+    const created = await executor().execute('create_task', {
+      title: 'Every other Monday and Wednesday',
+      start: '2026-10-20T09:00',
+      planned: today(),
+      repeat: 'weekly',
+      repeatInterval: 2,
+      repeatDays: '3,1,3',
+    }, 'call-1') as { created: { id: string } }
+
+    const task = await store.getTask(created.created.id)
+    expect(task?.plannedFor).toBe(today())
+    expect(task?.startAt).not.toBeNull()
+    expect(task?.repeat).toEqual({ freq: 'weekly', interval: 2, weekdays: [1, 3] })
+  })
+
+  it('updates the plan and a monthly last-day rhythm together', async () => {
+    const task = await store.createTask({ title: 'Month end' })
+
+    await executor().execute('update_task', {
+      task: task.id,
+      planned: today(),
+      start: '2026-10-20T09:00',
+      repeat: 'monthly',
+      repeatMonthly: 'lastDay',
+    }, 'call-1')
+
+    const updated = await store.getTask(task.id)
+    expect(updated?.plannedFor).toBe(today())
+    expect(updated?.startAt).not.toBeNull()
+    expect(updated?.repeat).toEqual({ freq: 'monthly', interval: 1, monthlyMode: 'lastDay' })
+  })
+
+  it('refuses weekdays on a rhythm that is not weekly', async () => {
+    await expect(executor().execute('create_task', {
+      title: 'Bad rhythm',
+      repeat: 'daily',
+      repeatDays: '1,2',
+    }, 'call-1')).rejects.toThrow(/only narrow a weekly/)
+  })
+})
+
+describe('moving, trash and alarms', () => {
+  it('moves a task before another and into a list', async () => {
+    const list = await store.createTaskList({ name: 'Work' })
+    const first = await store.createTask({ title: 'First', listId: list.id })
+    await store.createTask({ title: 'Second', listId: list.id })
+    const third = await store.createTask({ title: 'Third', listId: list.id })
+
+    await executor().execute('move_task', { task: third.id, before: first.id }, 'call-1')
+    const moved = await store.listTasks({ view: 'all', listId: list.id })
+    expect(moved.slice(0, 2).map((task) => task.id)).toEqual([third.id, first.id])
+
+    await executor().execute('move_task', { task: first.id, list: null }, 'call-2')
+    expect((await store.getTask(first.id))?.listId).toBeNull()
+  })
+
+  it('lists the trash by id and restores the row', async () => {
+    const task = await store.createTask({ title: 'Bring me back' })
+    await store.deleteTask(task.id)
+
+    const trash = await executor().execute('list_trash', {}, 'call-1') as { total: number, tasks: { id: string }[] }
+    expect(trash.total).toBe(1)
+    expect(trash.tasks[0]?.id).toBe(task.id)
+
+    await executor().execute('restore_task', { id: task.id }, 'call-2')
+    expect(await store.getTask(task.id)).not.toBeNull()
+  })
+
+  it('creates and replaces several absolute reminders', async () => {
+    const created = await executor().execute('create_task', {
+      title: 'Two alarms',
+      due: '2026-10-22T15:00',
+      reminders: ['2026-10-22T14:30', '2026-10-22T14:00'],
+    }, 'call-1') as { created: { id: string } }
+    const task = await store.getTask(created.created.id)
+    expect(task?.reminders).toHaveLength(2)
+    expect(task!.reminders![0]).toBeLessThan(task!.reminders![1]!)
+
+    await executor().execute('update_task', {
+      task: task!.id,
+      reminders: ['2026-10-22T14:15'],
+    }, 'call-2')
+    expect((await store.getTask(task!.id))?.reminders).toHaveLength(1)
+  })
+
+  it('archives a list and puts it back', async () => {
+    const list = await store.createTaskList({ name: 'Someday' })
+    await executor().execute('update_task_list', { list: list.id, archived: true }, 'call-1')
+    expect((await store.listTaskLists({ archived: true })).find((entry) => entry.id === list.id)?.archivedAt).not.toBeNull()
+    await executor().execute('update_task_list', { list: list.id, archived: false }, 'call-2')
+    expect((await store.listTaskLists()).find((entry) => entry.id === list.id)?.archivedAt).toBeNull()
+  })
+})
