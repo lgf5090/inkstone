@@ -263,6 +263,48 @@ describe('attachments', () => {
   })
 })
 
+describe('stats, shares and public data', () => {
+  it('encodes the stats query', async () => {
+    const fetchMock = stubFetch({
+      total: 0,
+      archived: 0,
+      comments: 0,
+      attachmentBytes: 0,
+      tagCounts: {},
+      typeCounts: { link: 0, code: 0, todo: 0, undo: 0 },
+      dayCounts: {},
+    })
+    await memosApi.stats.get({ spaceId: 'space1', from: 10, to: 20, tz: 'UTC', timeBasis: 'updated' })
+    expect(callOf(fetchMock)[0]).toBe('/api/memos/stats?spaceId=space1&from=10&to=20&tz=UTC&timeBasis=updated')
+  })
+
+  it('lists, creates and removes shares', async () => {
+    const fetchMock = stubFetch({ shares: [] })
+    await memosApi.shares.list('memo1')
+    await memosApi.shares.create('memo1', { expiresAt: 123 })
+    await memosApi.shares.delete('memo1', 'share/1')
+    expect(callOf(fetchMock, 0)[0]).toBe('/api/memos/memo1/shares')
+    expect(callOf(fetchMock, 1)).toEqual(['/api/memos/memo1/shares', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ expiresAt: 123 }),
+    })])
+    expect(callOf(fetchMock, 2)[0]).toBe('/api/memos/memo1/shares/share%2F1')
+    expect(callOf(fetchMock, 2)[1].method).toBe('DELETE')
+  })
+
+  it('reads public explore, profiles, detail and shares', async () => {
+    const fetchMock = stubFetch({ items: [], nextCursor: null })
+    await memosApi.publicMemos.explore({ cursor: 'c', limit: 20 })
+    await memosApi.publicMemos.userMemos('alice/name', { limit: 16 })
+    await memosApi.publicMemos.userMemo('alice/name', 'memo/1')
+    await memosApi.publicMemos.share('share/token')
+    expect(callOf(fetchMock, 0)[0]).toBe('/api/memos/public/explore?cursor=c&limit=20')
+    expect(callOf(fetchMock, 1)[0]).toBe('/api/memos/public/users/alice%2Fname/memos?limit=16')
+    expect(callOf(fetchMock, 2)[0]).toBe('/api/memos/public/users/alice%2Fname/memos/memo%2F1')
+    expect(callOf(fetchMock, 3)[0]).toBe('/api/memos/public/shares/share%2Ftoken')
+  })
+})
+
 describe('failures', () => {
   it('throws the shared ApiError for a refused memo request', async () => {
     stubFetch({ error: { code: 'memo_not_found', message: 'Memo not found' } }, 404)

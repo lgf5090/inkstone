@@ -14,8 +14,11 @@ import type {
   MemoReactionInput,
   MemoReactionSummary,
   MemoRelation,
+  MemoShare,
+  MemoShareCreateInput,
   MemoSpace,
   MemoSpaceInput,
+  MemoStats,
   MemoView,
   MemoViewInput,
   MemoViewValidation,
@@ -68,6 +71,20 @@ export interface MemoAttachmentPruneResult {
 }
 
 export type MemoSpaceDeleteMode = 'unfile' | 'delete'
+
+export interface MemoStatsQuery {
+  spaceId?: string | null
+  from?: number
+  to?: number
+  tz?: string
+  timeBasis?: 'created' | 'updated'
+}
+
+export interface MemoPublicQuery {
+  cursor?: string | null
+  limit?: number
+  tz?: string
+}
 
 export function memoRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   return request<T>(`${MEMOS_API_PREFIX}${path}`, options)
@@ -225,8 +242,7 @@ export const memosApi = {
   },
 
   attachments: {
-    list(query: MemoAttachmentQuery = {}, signal?: AbortSignal): Promise<MemoAttachmentPage> {
-      return memoRequest<MemoAttachmentPage>(
+    list(query: MemoAttachmentQuery = {}, signal?: AbortSignal): Promise<MemoAttachmentPage> {      return memoRequest<MemoAttachmentPage>(
         `/attachments${queryString({
           scope: query.scope,
           memoId: query.memoId,
@@ -261,6 +277,75 @@ export const memosApi = {
 
     prune(): Promise<MemoAttachmentPruneResult> {
       return memoRequest<MemoAttachmentPruneResult>('/attachments/prune', { method: 'POST' })
+    },
+  },
+
+  stats: {
+    get(query: MemoStatsQuery = {}, signal?: AbortSignal): Promise<MemoStats> {
+      return memoRequest<MemoStats>(
+        `/stats${queryString({
+          spaceId: query.spaceId,
+          from: query.from,
+          to: query.to,
+          tz: query.tz,
+          timeBasis: query.timeBasis,
+        })}`,
+        { signal },
+      )
+    },
+  },
+
+  shares: {
+    list(memoId: string, signal?: AbortSignal): Promise<{ shares: MemoShare[] }> {
+      return memoRequest<{ shares: MemoShare[] }>(`/${encodeURIComponent(memoId)}/shares`, { signal })
+    },
+
+    create(memoId: string, input: MemoShareCreateInput): Promise<MemoShare> {
+      return memoRequest<MemoShare>(`/${encodeURIComponent(memoId)}/shares`, {
+        method: 'POST',
+        body: input,
+      })
+    },
+
+    delete(memoId: string, shareId: string): Promise<{ ok: true }> {
+      return memoRequest<{ ok: true }>(
+        `/${encodeURIComponent(memoId)}/shares/${encodeURIComponent(shareId)}`,
+        { method: 'DELETE' },
+      )
+    },
+  },
+
+  publicMemos: {
+    explore(query: MemoPublicQuery = {}, signal?: AbortSignal): Promise<MemoListResponse> {
+      return memoRequest<MemoListResponse>(
+        `/public/explore${queryString({ cursor: query.cursor, limit: query.limit, tz: query.tz })}`,
+        { signal },
+      )
+    },
+
+    userMemos(username: string, query: MemoPublicQuery = {}, signal?: AbortSignal): Promise<MemoListResponse> {
+      return memoRequest<MemoListResponse>(
+        `/public/users/${encodeURIComponent(username)}/memos${queryString({
+          cursor: query.cursor,
+          limit: query.limit,
+          tz: query.tz,
+        })}`,
+        { signal },
+      )
+    },
+
+    userMemo(username: string, id: string, signal?: AbortSignal): Promise<Memo> {
+      return memoRequest<Memo>(
+        `/public/users/${encodeURIComponent(username)}/memos/${encodeURIComponent(id)}`,
+        { signal },
+      )
+    },
+
+    share(token: string, signal?: AbortSignal): Promise<Memo> {
+      return memoRequest<Memo>(
+        `/public/shares/${encodeURIComponent(token)}`,
+        { signal },
+      )
     },
   },
 }
