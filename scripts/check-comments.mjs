@@ -9128,6 +9128,10 @@ const allowed = new Map([
     "/* A choice that already asks for its day every time has no second behaviour to offer, so the\n            row appears only where the switch would change what the palette lists. */",
     "/** What each editor action does, in the reader's words rather than in code names. */",
     "/** A step's note name, with the library's own names offered beside it — the same list the run asks from. */",
+    "// A Templater body picked by a Template choice is the one case where this editor has to say out loud",
+    "// what will happen: the choice writes the text as it is, so the reader would otherwise meet literal",
+    "// `<% tp.file.title %>` in a note and read that as a broken template. Routing it to the engine is the",
+    "// other half of this card and is not wired yet — see plan §D16 / card P9-6.",
   ]],
   ["src/client/features/quickadd/choice-list.tsx", [
     "/**\n * The choice library as a list the author can actually run and rearrange.\n *\n * Rows are the tree the store keeps, flattened in `position` order; a collapsed group hides its\n * children without touching the data. Ordering is `place(id, parentId, index)`, so a drop into a group\n * and a nudge down the list go through the one function that refuses cycles, self-parenting and too\n * deep a nest — the editor never invents a second rule about what a legal tree is.\n */",

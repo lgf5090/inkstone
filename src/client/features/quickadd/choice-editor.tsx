@@ -49,6 +49,7 @@ import { t, useLocale } from '../../lib/i18n'
 import { inertFormat } from '../../lib/quickadd/format'
 import { previewRuntime } from '../../lib/quickadd/preview'
 import { useNoteTemplates } from '../../store/note-templates'
+import { isTemplaterTemplate } from '../templates/template-engine'
 import { useQuickAdd } from '../../store/quickadd'
 import { NoteNameInput, useNoteCandidates } from './note-name-input'
 import { QuickAddTokenHelp } from './token-help'
@@ -365,6 +366,14 @@ function TemplateFields({ draft, patch, renderFormat }: {
 }) {
   const templates = useNoteTemplates((state) => state.templates)
   const categories = useNoteTemplates((state) => state.categories)
+  // A Templater body picked by a Template choice is the one case where this editor has to say out loud
+  // what will happen: the choice writes the text as it is, so the reader would otherwise meet literal
+  // `<% tp.file.title %>` in a note and read that as a broken template. Routing it to the engine is the
+  // other half of this card and is not wired yet — see plan §D16 / card P9-6.
+  const picked = draft.templatePick === 'fixed' && draft.templateId
+    ? templates.find((one) => one.id === draft.templateId) ?? null
+    : null
+  const templaterBody = picked !== null && isTemplaterTemplate(picked)
   return (
     <div className="space-y-3 border-t border-[var(--border-subtle)] pt-3">
       <SettingRow title={t('quickadd.field_mode')}>
@@ -394,7 +403,9 @@ function TemplateFields({ draft, patch, renderFormat }: {
         </Field>
       )}
       {draft.templatePick === 'fixed' && (
-        <Field label={t('quickadd.field_template')} hint={t('quickadd.field_template_hint')}>
+        <Field label={t('quickadd.field_template')} hint={templaterBody
+          ? <span className="text-[var(--warning)]">{t('quickadd.field_template_templater')}</span>
+          : t('quickadd.field_template_hint')}>
           <Select
             aria-label={t('quickadd.field_template')}
             value={draft.templateId ?? ''}

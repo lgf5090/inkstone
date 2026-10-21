@@ -1433,6 +1433,7 @@ export const ZH_CN_MESSAGES = {
     "quickadd.selection_no": "总是询问",
     "quickadd.selection_yes": "总是用选中文字",
     "quickadd.field_template_hint": "来自笔记模板库",
+    "quickadd.field_template_templater": "这篇模板含有模板引擎命令。该选项只把文本原样写入、不会执行命令，所以笔记里会出现 <% … %> 而不是执行结果。",
     "quickadd.field_template_pick": "用哪个模板",
     "quickadd.template_pick_fixed": "用下面指定的",
     "quickadd.template_pick_ask": "每次运行时询问",
