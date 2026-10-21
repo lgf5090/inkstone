@@ -7645,6 +7645,7 @@ console.log(\`Hello, \${name}!\`)
     "todo.toast.deleted": "已删除待办",
     "todo.toast.restored": "已恢复待办",
     "todo.toast.completed": "已完成待办",
+    "todo.toast.created": "已添加待办",
     "todo.toast.moved": "已移动待办",
     "todo.toast.priority": "已修改优先级",
     "todo.toast.batch_completed": "已完成 {count} 个待办",

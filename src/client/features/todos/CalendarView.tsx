@@ -58,8 +58,9 @@ function monthTitle(date: Date): string {
 }
 
 function dayLabel(key: string, count: number): string {
-  const date = formatDateKey(key)
-  return count > 0 ? t('todo.calendar.day_aria', { date, count }) : date
+  // The count is always spoken, including zero: a screen reader should not have to infer an empty day
+  // from a label that suddenly loses half of its shape.
+  return t('todo.calendar.day_aria', { date: formatDateKey(key), count })
 }
 
 function CalendarDay({ cell, tasks, weekday, focusable, tall, onActivate, onFocus }: {

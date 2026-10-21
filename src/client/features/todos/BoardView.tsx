@@ -13,6 +13,7 @@ import { getLocale, t } from '../../lib/i18n'
 import { useDropState } from '../../lib/drop-state'
 import { KanbanIconBadge } from '../../lib/markdown/kanban/ui/kanban-icon-badge'
 import { useTodos, listNamed, quickAddDraft, remindOffsetOf } from './store'
+import { useUi } from '../../store/ui'
 import { TodoPageFooter } from './TodoPageFooter'
 import { Input } from '../../components/form'
 import { listIconFor, priorityLabel, repeatLabel } from './todo-ui'
@@ -283,11 +284,14 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
     setDraft('')
     setAdding(null)
     stopVoice()
-    await createTask({
+    // A card shows at most three rows, so a new undated task usually lands below the fold: without this
+    // the reader gets no acknowledgement at all for a save that did work. The toast is that receipt.
+    const created = await createTask({
       ...body,
       title,
       ...(remind !== 'none' ? { remind } : {}),
     })
+    if (created) useUi.getState().toast({ title: t('todo.toast.created'), tone: 'success' })
   }
 
   return (
