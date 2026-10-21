@@ -10767,6 +10767,10 @@ const allowed = new Map([
     "// A reader who asked the system to reduce motion gets a ring that appears rather than one that spins.",
     "/** What the ring is a picture of, for the reader who cannot see it. */",
     "/* One slice is not a proportion, it is the whole thing, and the number under it already says so. */",
+    "/**\n * When the money actually left, one tile per day.\n *\n * The month chart above answers \"how heavy was this month\"; this answers the other question a reader of a\n * subscription list has — whether the year is a steady drip or a handful of days when everything charges at\n * once. The tiles are the note calendar's own: the ramp, the week alignment, and the rule that a quiet day\n * is a bare tile rather than a shaded one, all stay in one implementation instead of two that can drift.\n *\n * The grid is decoration to a screen reader, so the same sentence is said twice — once visible, under the\n * grid, for everyone — and every day that charged something is listed beside it.\n */",
+    "// Every tile keeps an outline, not only the charged ones: the ramp is mixed into the card's",
+    "// own surface, so a quiet week would otherwise be four floating squares with nothing to",
+    "// read their spacing against.",
   ]],
   ["src/client/features/subscriptions/PaymentDialog.tsx", [
     "/**\n * Correcting one receipt.\n *\n * Only the four fields a receipt actually carries are editable. The period it bought is not one of them:\n * moving a receipt's dates would silently move the subscription's expiry with it, and a reader fixing a\n * typo in an amount should not have to reason about that.\n */",
@@ -10956,6 +10960,12 @@ const allowed = new Map([
     "// The picture is decoration once the numbers are written out; reading both would say everything twice.",
     "// The fixture's ceiling is ¥200 against a ¥300 peak, so the line sits two thirds up the plot.",
     "// The numbers stay written out beside it: a canvas a reader cannot see is not where the figures live.",
+    "/** The grid is built from the real clock, so the fixture's days are counted back from today. */",
+    "// Whole columns of seven, at least the window's worth: the strip aligns its first column to the start",
+    "// of the week, so it can lead with days from before the window rather than a ragged half column.",
+    "/** A charged tile names its amount in its tooltip; a quiet one only names the day. */",
+    "// The ramp is mixed into the card's own surface, so an unoutlined quiet tile is invisible and the grid",
+    "// stops being a grid — the spacing is the part that carries \"nothing happened this week\".",
   ]],
   ["src/client/features/subscriptions/store.ts", [
     "/**\n * The subscription app's state, and the only place it is written.\n *\n * Two rules shape it. A mutation never guesses what the server did — every write answers with the\n * subscription it produced, and that answer replaces the row in place, so a screen and a database\n * cannot disagree about a date the server rolled forward. And a write that moves money reloads the\n * bundle instead of patching the overview by hand: the dashboard's totals are a year of receipts\n * aggregated in the account's time zone, and a second implementation of that arithmetic in the browser\n * is a second answer waiting to be wrong.\n */",
@@ -20082,6 +20092,7 @@ const allowed = new Map([
     "// Normalised rather than echoed: a ceiling of zero is not a ceiling, and a dashboard that printed",
     "// \"/ 0\" beside a number it does not enforce would be showing a limit it does not apply.",
     "/**\n * The categories the reader capped, each with what its year has cost.\n *\n * A cap on a category nobody spent in this year is still said, at zero: the reader asked whether the\n * ceiling is holding, and silence would read as \"nothing to report\" either way.\n */",
+    "/**\n * The last `days` calendar days of spending, oldest first, for the heat grid.\n *\n * Days with no receipt are left out rather than drawn as an explicit zero: the grid is half a year of days\n * and a reader who paid for nothing on a Tuesday gains nothing from being told so. The day is the reader's\n * own calendar day and not UTC — a charge that lands at one in the morning in Shanghai belongs to the day\n * they remember it happening.\n */",
   ]],
   ["src/shared/subscriptions/format.ts", [
     "/**\n * Display arithmetic that has one right answer, kept out of the components.\n *\n * Nothing here holds copy. A unit's name, a countdown's sentence and a status pill's word are interface\n * strings and belong to the locale catalogs; what this module decides is the *shape* — which symbol a\n * currency wears, which of three countdown states a number of days means, how much of a billing period\n * has elapsed. That split is what lets the same rules be tested without a language.\n */",
@@ -20213,6 +20224,9 @@ const allowed = new Map([
     "/**\n * The ceilings an account set for its own categories.\n *\n * Keys stay the names as the registry spells them, so renaming a category leaves its ceiling unmatched\n * rather than quietly moved onto the new name. A blank name or an unreadable number is dropped: a ceiling\n * the app cannot enforce would still be printed beside the spending, and a number that means nothing is\n * worse than no number.\n */",
     "/** The categories the reader capped, each with where its year stands against that cap. */",
     "/**\n * How many calendar months the dashboard's trend is drawn across.\n *\n * Twelve, not six: the question a subscription reader asks of a trend is whether this year is heavier than\n * last one, and a window shorter than a year cannot show the month that charges once a year at all.\n */",
+    "/**\n * How many weeks the day-by-day heat grid covers, and the window the day buckets are built for.\n *\n * Half a year: long enough that a quarterly or annual charge appears more than once, short enough that a\n * week reads as a week rather than as one pixel in a wall. The server cuts its buckets at this number, so\n * the grid can never draw weeks whose data was never sent.\n */",
+    "/** One day's receipts, in the total currency. Only days that charged something are listed. */",
+    "/** The last `HEAT_WEEKS` weeks, day by day, for the grid that shows when the money actually left. */",
   ]],
   ["src/shared/subscriptions/notify-copy.ts", [
     "/**\n * Which catalog a notification body is written from, and the two helpers that assemble one.\n *\n * The language is the account's, stored on its settings row: the scheduler runs on a cron tick with no\n * request behind it, so there is nobody to ask. `fill` is deliberately smaller than the interface's\n * formatter — two placeholders and no plural rules, because the only number these sentences carry is a\n * day count and both languages write that the same way.\n */",
@@ -22340,6 +22354,8 @@ const allowed = new Map([
     "// their own list never shows.",
     "// Eight of each, the same number the dashboard's own list and ring draw: a model asked \"what does",
     "// the app show\" must not be handed a shorter answer than the reader sees.",
+    "// Only the days that charged something, which for one person is a dozen or so rows rather than",
+    "// 182 — the same picture the heat grid paints, for a reader who asks in words.",
   ]],
   ["src/worker/assistant/upstream.ts", [
     "/** A JSON Schema object, built by `toolSchemaFor` from the tool's own declared parameters. */",
@@ -27639,6 +27655,7 @@ const allowed = new Map([
     "// Half past midnight on the first of June in Shanghai is still the 31st of May in UTC, and the",
     "// reader is the one whose year is running out.",
     "/**\n * The ceilings a reader names for their own categories, and the year each one is measured against.\n *\n * Two separate promises: what goes into the account's settings is only what the app can enforce with, and\n * what comes out of the dashboard lists every ceiling — including the one whose category has spent nothing.\n */",
+    "/**\n * The day-level buckets behind the heat grid.\n *\n * The window and the day boundary are the two things a reader cannot see from a picture of squares, so\n * both are pinned: a charge that lands at one in the morning belongs to the day they remember, and a day\n * outside the window must not be drawn at all.\n */",
   ]],
   ["tests/subscriptions-identity.test.ts", [
     "/**\n * The rules that decide what a label looks like, and the split that decides what a label is.\n *\n * Both are pure and both are load-bearing in ways a route test cannot see: the split is what the rail,\n * the aggregate and the registry must agree on, and the tier order is what makes a reader's own choice\n * outrank a default without the default having to be written down first.\n */",
@@ -27712,6 +27729,8 @@ const allowed = new Map([
     "// One ceiling named in a save must not be read as the other one being given up.",
     "// A second save is the map again rather than a merge: leaving a name out is the reader removing its ceiling.",
     "// The account keeps what it had rather than half-adopting what did not land.",
+    "// One charged day — the opening receipt — and the window's own calendar day is what the unit tests",
+    "// over `dailySpend` pin, so this only checks the field is wired and converted.",
   ]],
   ["tests/subscriptions-scheduler.test.ts", [
     "/* The one binding a double cannot describe structurally: only `idFromName`/`get` are ever reached here. */",

@@ -157,6 +157,9 @@ describe('the bundle', () => {
     expect(bundle.channels.every((channel: any) => channel.configured === false)).toBe(true)
     expect(bundle.overview.active.total).toBe(1)
     expect(bundle.overview.months).toHaveLength(TREND_MONTHS)
+    // One charged day — the opening receipt — and the window's own calendar day is what the unit tests
+    // over `dailySpend` pin, so this only checks the field is wired and converted.
+    expect(bundle.overview.daily).toEqual([{ date: expect.any(String), amount: 60 }])
     expect(bundle.overview.timezone).toBe('Asia/Shanghai')
   })
 

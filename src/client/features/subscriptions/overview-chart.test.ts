@@ -11,6 +11,7 @@ import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { SubscriptionOverview } from '@shared/subscriptions/model'
+import { HEAT_WEEKS } from '@shared/subscriptions/model'
 import { formatAmount } from '@shared/subscriptions/format'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
@@ -30,6 +31,7 @@ function overview(overrides: Partial<SubscriptionOverview> = {}): SubscriptionOv
     byType: [],
     byCategory: [],
     months: MONTHS.map((month, index) => ({ month, amount: AMOUNTS[index] })),
+    daily: [],
     timezone: 'Asia/Shanghai',
     scheduler: null,
     history: [],
@@ -262,5 +264,52 @@ describe('the share rings', () => {
     expect(rings()).toHaveLength(0)
     expect(list()).toBeNull()
     expect(document.body.textContent).toContain('Nothing charged this year')
+  })
+})
+
+describe('the spending heat grid', () => {
+  /** The grid is built from the real clock, so the fixture's days are counted back from today. */
+  const dayKey = (back: number): string => {
+    const date = new Date()
+    date.setDate(date.getDate() - back)
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  }
+  const cells = () => [...document.querySelectorAll<HTMLElement>('[data-heat-grid] span')]
+  /** A charged tile names its amount in its tooltip; a quiet one only names the day. */
+  const charged = () => cells().filter((cell) => (cell.getAttribute('title') ?? '').includes('¥'))
+  const summary = () => document.querySelector('[data-heat-summary]')?.textContent?.replace(/\s+/g, ' ').trim() ?? ''
+
+  it('lays whole weeks of tiles across the window and marks only the days that charged', () => {
+    mountChart({ daily: [{ date: dayKey(0), amount: 60 }, { date: dayKey(3), amount: 240 }] })
+    const found = cells()
+    // Whole columns of seven, at least the window's worth: the strip aligns its first column to the start
+    // of the week, so it can lead with days from before the window rather than a ragged half column.
+    expect(found.length % 7).toBe(0)
+    expect(found.length).toBeGreaterThanOrEqual(HEAT_WEEKS * 7)
+    expect(charged()).toHaveLength(2)
+    // The ramp is mixed into the card's own surface, so an unoutlined quiet tile is invisible and the grid
+    // stops being a grid — the spacing is the part that carries "nothing happened this week".
+    expect(found.every((cell) => /ring-inset/.test(cell.className))).toBe(true)
+    expect(summary()).toContain(String(HEAT_WEEKS))
+    expect(summary()).toContain('2')
+    expect(summary()).toContain('¥300.00')
+    expect(summary()).toContain(`${dayKey(3)} ¥240.00`)
+  })
+
+  it('lists the charged days for a reader who cannot see the tiles', () => {
+    mountChart({ daily: [{ date: dayKey(1), amount: 12 }] })
+    const list = [...document.querySelectorAll('[data-heat-days] li')]
+    expect(list).toHaveLength(1)
+    expect(list[0]!.textContent).toContain(dayKey(1))
+    expect(list[0]!.textContent).toContain('¥12.00')
+  })
+
+  it('says so when nothing charged, rather than drawing an empty wall', () => {
+    mountChart({ daily: [] })
+    expect(cells().length % 7).toBe(0)
+    expect(charged()).toHaveLength(0)
+    expect(cells().every((cell) => /ring-inset/.test(cell.className))).toBe(true)
+    expect(document.querySelector('[data-heat-days]')).toBeNull()
+    expect(summary()).toContain(String(HEAT_WEEKS))
   })
 })

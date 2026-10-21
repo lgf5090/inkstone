@@ -16,13 +16,16 @@ import { useMemo } from 'react'
 import type { ChartConfiguration } from 'chart.js'
 import { ArrowDownRight, ArrowUpRight, Minus } from 'lucide-react'
 import { cn } from '../../lib/cn'
-import { t } from '../../lib/i18n'
+import { t, useLocale } from '../../lib/i18n'
 import { Button } from '../../components/primitives'
 import { Empty, LoadingBlock } from '../../components/feedback'
 import { ChartCanvas, type ChartColors } from '../../components/chart-canvas'
+import { heatCell } from '../../components/activity-calendar/heat-cell'
+import { buildStripWeeks } from '../../components/activity-calendar/strip'
 import { formatAmount } from '@shared/subscriptions/format'
-import { formatLocalDate } from '@shared/subscriptions/time'
-import type { ExpenseShare, LabelKind, SubscriptionOverview } from '@shared/subscriptions/model'
+import { formatLocalDate, MS_PER_DAY } from '@shared/subscriptions/time'
+import { weekStartFor } from '../../lib/time'
+import { HEAT_WEEKS, roundMoney, type DayExpense, type ExpenseShare, type LabelKind, type SubscriptionOverview } from '@shared/subscriptions/model'
 import { iconComponentOf } from './label-icons'
 import { CurrencyFlag } from './currency-flag'
 import { useLabelIdentity } from './label-identity'
@@ -200,6 +203,11 @@ export function OverviewView({
       <Card className="mt-3">
         <CardTitle>{t('subscriptions.overview.trend_title')}</CardTitle>
         <TrendChart months={overview.months} currency={currency} budget={overview.budget.limit} />
+      </Card>
+
+      <Card className="mt-3">
+        <CardTitle>{t('subscriptions.overview.heat_title')}</CardTitle>
+        <SpendHeatmap daily={overview.daily} currency={currency} weeks={HEAT_WEEKS} />
       </Card>
 
       <div className="mt-3 grid gap-3 lg:grid-cols-2">
@@ -487,6 +495,74 @@ function TrendChart({ months, currency, budget }: {
           </li>
         ))}
       </ul>
+    </div>
+  )
+}
+
+/**
+ * When the money actually left, one tile per day.
+ *
+ * The month chart above answers "how heavy was this month"; this answers the other question a reader of a
+ * subscription list has — whether the year is a steady drip or a handful of days when everything charges at
+ * once. The tiles are the note calendar's own: the ramp, the week alignment, and the rule that a quiet day
+ * is a bare tile rather than a shaded one, all stay in one implementation instead of two that can drift.
+ *
+ * The grid is decoration to a screen reader, so the same sentence is said twice — once visible, under the
+ * grid, for everyone — and every day that charged something is listed beside it.
+ */
+function SpendHeatmap({ daily, currency, weeks }: {
+  daily: readonly DayExpense[]
+  currency: string
+  weeks: number
+}): ReactElement {
+  const locale = useLocale()
+  const amounts = useMemo(() => new Map(daily.map((day) => [day.date, day.amount])), [daily])
+  const grid = useMemo(() => {
+    const end = new Date()
+    const start = new Date(end.getTime() - (weeks * 7 - 1) * MS_PER_DAY)
+    return buildStripWeeks(amounts, { range: { start, end }, weekStart: weekStartFor(locale) })
+  }, [amounts, weeks, locale])
+  const total = roundMoney(daily.reduce((sum, day) => sum + day.amount, 0))
+  const busiest = daily.reduce<DayExpense | null>((top, day) => (!top || day.amount > top.amount ? day : top), null)
+  return (
+    <div className="mt-2">
+      <div className="flex gap-[var(--sp-0-5)] overflow-x-auto no-scrollbar" aria-hidden="true" data-heat-grid="">
+        {grid.map((week) => (
+          <div key={week[0]!.key} className="flex min-w-0 flex-1 flex-col gap-[var(--sp-0-5)]">
+            {week.map((cell) => (
+              <span
+                key={cell.key}
+                // Every tile keeps an outline, not only the charged ones: the ramp is mixed into the card's
+                // own surface, so a quiet week would otherwise be four floating squares with nothing to
+                // read their spacing against.
+                className={cn(
+                  'aspect-square w-full rounded-[var(--r-2)] ring-1 ring-inset',
+                  cell.count > 0 ? 'ring-[var(--border-strong)]' : 'ring-[var(--border-subtle)]',
+                )}
+                style={heatCell(cell.level)}
+                title={cell.count > 0 ? `${cell.key} ${formatAmount(cell.count, currency)}` : cell.key}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+      <p className="mt-2 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]" data-heat-summary="">
+        {daily.length === 0
+          ? t('subscriptions.overview.heat_empty', { weeks })
+          : t('subscriptions.overview.heat_summary', {
+            weeks,
+            days: daily.length,
+            amount: formatAmount(total, currency),
+            busiest: busiest ? `${busiest.date} ${formatAmount(busiest.amount, currency)}` : '',
+          })}
+      </p>
+      {daily.length > 0 && (
+        <ul className="sr-only" data-heat-days="">
+          {daily.map((day) => (
+            <li key={day.date}>{day.date} · {formatAmount(day.amount, currency)}</li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
