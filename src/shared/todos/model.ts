@@ -20,11 +20,23 @@ export type RepeatFrequency = (typeof REPEAT_FREQUENCIES)[number]
  * `interval` is in units of `freq` — every 2 weeks is `{ freq: 'weekly', interval: 2 }` — and the
  * next occurrence is counted from the due date rather than from the moment the reader ticked it,
  * so finishing a weekly report on Thursday does not move it to Thursday for good.
+ *
+ * `weekdays` narrows a weekly rhythm to the days named — `[1, 3, 5]` is every Monday, Wednesday and
+ * Friday — and is only read when `freq` is weekly. `monthlyMode` chooses which day a monthly rhythm
+ * lands on: the due date's own day (`day`, the default), the last day of the month, or the same
+ * nth weekday the due date sits on.
  */
 export interface RepeatRule {
   freq: RepeatFrequency
   interval: number
+  /** Weekly only: 0 = Sunday … 6 = Saturday, ascending and deduplicated. */
+  weekdays?: number[]
+  /** Monthly only: which day of the month the next occurrence lands on. */
+  monthlyMode?: RepeatMonthlyMode
 }
+
+export const REPEAT_MONTHLY_MODES = ['day', 'lastDay', 'nthWeekday'] as const
+export type RepeatMonthlyMode = (typeof REPEAT_MONTHLY_MODES)[number]
 
 export const MIN_REPEAT_INTERVAL = 1
 export const MAX_REPEAT_INTERVAL = 99
@@ -386,11 +398,34 @@ export function isRepeatFrequency(value: unknown): value is RepeatFrequency {
   return typeof value === 'string' && (REPEAT_FREQUENCIES as readonly string[]).includes(value)
 }
 
+function isRepeatMonthlyMode(value: unknown): value is RepeatMonthlyMode {
+  return typeof value === 'string' && (REPEAT_MONTHLY_MODES as readonly string[]).includes(value)
+}
+
+/**
+ * The weekdays a weekly rule names, or null when the list is not one this app wrote.
+ *
+ * A day outside 0–6 or a value that is not a whole number makes the list unreadable rather than being
+ * dropped: silently losing one of "every Monday and Friday" leaves a rule the reader never asked for.
+ * Duplicates are one day, and the order is the week's, so two devices that store the same set agree.
+ */
+function normalizeWeekdays(value: unknown): number[] | null {
+  if (!Array.isArray(value)) return null
+  const days = new Set<number>()
+  for (const entry of value) {
+    if (typeof entry !== 'number' || !Number.isInteger(entry) || entry < 0 || entry > 6) return null
+    days.add(entry)
+  }
+  return [...days].sort((a, b) => a - b)
+}
+
 /**
  * Reads a stored repeat rule.
  *
  * Returns null rather than throwing: a row written by an older build, or by a hand-edited backup,
  * must not take the whole listing down with it. An unknown shape simply means "does not repeat".
+ * A modifier that does not belong to the rule's frequency is left out instead of refusing the rule:
+ * an extra field is not a reason to forget the rhythm the reader did write.
  */
 export function parseRepeatRule(value: unknown): RepeatRule | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
@@ -400,7 +435,15 @@ export function parseRepeatRule(value: unknown): RepeatRule | null {
     ? Math.trunc(raw.interval)
     : 1
   if (interval < MIN_REPEAT_INTERVAL || interval > MAX_REPEAT_INTERVAL) return null
-  return { freq: raw.freq, interval }
+  const weekdays = raw.weekdays === undefined ? null : normalizeWeekdays(raw.weekdays)
+  if (raw.weekdays !== undefined && weekdays === null) return null
+  if (raw.monthlyMode !== undefined && !isRepeatMonthlyMode(raw.monthlyMode)) return null
+  const rule: RepeatRule = { freq: raw.freq, interval }
+  if (raw.freq === 'weekly' && weekdays?.length) rule.weekdays = weekdays
+  if (raw.freq === 'monthly' && raw.monthlyMode !== undefined && raw.monthlyMode !== 'day') {
+    rule.monthlyMode = raw.monthlyMode
+  }
+  return rule
 }
 
 function shiftDays(year: number, month: number, day: number, days: number): { year: number; month: number; day: number } {
@@ -416,23 +459,72 @@ function shiftMonths(year: number, month: number, day: number, months: number): 
   return { year: nextYear, month: nextMonth, day: Math.min(day, daysInMonth(nextYear, nextMonth)) }
 }
 
+/** The weekday of the first day of a month, 0 = Sunday, as the calendar rather than the machine reads it. */
+function weekdayOf(year: number, month: number, day: number): number {
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay()
+}
+
+/**
+ * The next day in a weekly rhythm that names several weekdays.
+ *
+ * The occurrence's own week is the one the due date sits in, Monday-first; the days still ahead of it
+ * in that week come first, then the days of the week `interval` weeks later. A Sunday due date is the
+ * last day of its week, so the following Monday is already the next week — which is what a calendar
+ * says, even though it is only one day away.
+ */
+function nextWeekdayOn(parts: { year: number; month: number; day: number }, interval: number, weekdays: readonly number[]): { year: number; month: number; day: number } {
+  const dueWeekday = weekdayOf(parts.year, parts.month, parts.day)
+  const daysSinceMonday = (dueWeekday + 6) % 7
+  for (let step = 1; step <= interval * 7 + 7; step += 1) {
+    if (!weekdays.includes((dueWeekday + step) % 7)) continue
+    const weeksAhead = Math.floor((daysSinceMonday + step) / 7)
+    if (weeksAhead !== 0 && weeksAhead !== interval) continue
+    return shiftDays(parts.year, parts.month, parts.day, step)
+  }
+  // Unreachable with a non-empty weekday list: one interval plus a full week always contains one.
+  return shiftDays(parts.year, parts.month, parts.day, interval * 7)
+}
+
+/** The nth (1–5) weekday of a month, falling back to the month's last one when it has only four. */
+function nthWeekdayOfMonth(year: number, month: number, weekday: number, nth: number): number {
+  const first = weekdayOf(year, month, 1)
+  const day = 1 + (weekday - first + 7) % 7 + (nth - 1) * 7
+  return day <= daysInMonth(year, month) ? day : day - 7
+}
+
 /**
  * The due time of the next occurrence, in the reader's own calendar.
  *
  * The arithmetic happens on wall-clock parts and goes back through `zonedTimeToUtc`, so a weekly
  * task due at 09:00 stays at 09:00 across a daylight-saving change instead of drifting to 08:00.
  * A month that lacks the day (the 31st, or 29 February) clamps to its last day.
+ *
+ * A weekly rule that names weekdays walks them in order inside its own week and then in the week an
+ * interval away; a monthly rule can instead land on the month's last day or on the same nth weekday
+ * the due date sits on. Both keep the wall-clock hour of the due date.
  */
 export function nextOccurrence(dueAt: number, rule: RepeatRule, timeZone: string): number {
   const parts = getZonedParts(new Date(dueAt), timeZone)
   const interval = Math.min(MAX_REPEAT_INTERVAL, Math.max(MIN_REPEAT_INTERVAL, Math.trunc(rule.interval)))
-  const next = rule.freq === 'daily'
-    ? shiftDays(parts.year, parts.month, parts.day, interval)
-    : rule.freq === 'weekly'
-      ? shiftDays(parts.year, parts.month, parts.day, interval * 7)
-      : rule.freq === 'monthly'
-        ? shiftMonths(parts.year, parts.month, parts.day, interval)
-        : shiftMonths(parts.year, parts.month, parts.day, interval * 12)
+  let next: { year: number; month: number; day: number }
+  if (rule.freq === 'daily') {
+    next = shiftDays(parts.year, parts.month, parts.day, interval)
+  } else if (rule.freq === 'weekly') {
+    next = rule.weekdays?.length
+      ? nextWeekdayOn(parts, interval, rule.weekdays)
+      : shiftDays(parts.year, parts.month, parts.day, interval * 7)
+  } else if (rule.freq === 'monthly' && rule.monthlyMode === 'lastDay') {
+    const target = shiftMonths(parts.year, parts.month, 1, interval)
+    next = { ...target, day: daysInMonth(target.year, target.month) }
+  } else if (rule.freq === 'monthly' && rule.monthlyMode === 'nthWeekday') {
+    const target = shiftMonths(parts.year, parts.month, 1, interval)
+    const nth = Math.ceil(parts.day / 7)
+    next = { ...target, day: nthWeekdayOfMonth(target.year, target.month, weekdayOf(parts.year, parts.month, parts.day), nth) }
+  } else if (rule.freq === 'monthly') {
+    next = shiftMonths(parts.year, parts.month, parts.day, interval)
+  } else {
+    next = shiftMonths(parts.year, parts.month, parts.day, interval * 12)
+  }
   return zonedTimeToUtc(next.year, next.month, next.day, parts.hour, parts.minute, timeZone).getTime()
 }
 

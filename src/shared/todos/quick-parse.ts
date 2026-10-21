@@ -247,16 +247,23 @@ export function parseQuickAdd(input: string, now: number, timeZone: string): Qui
   })
 
   // Repeat before the single-date pass, because `mei zhou wu` names both a rhythm and a weekday, and the
-  // generic rhythm pattern alone would eat the `mei zhou` and leave the `wu` stranded in the title.
+  // generic rhythm pattern alone would eat the `mei zhou` and leave the `wu` stranded in the title. A
+  // list — `mei zhou yi san wu`, or the same days separated by a comma — is one rule with several
+  // weekdays, and the due date is the first of them that is still ahead.
   const today = getZonedParts(new Date(now), timeZone)
 
-  consume('repeat', /\u6bcf(?:\u9694)?\s*(\d{1,2}|[\u4e00-\u4e5d\u5341])?\s*(?:\u4e2a)?(\u5468|\u661f\u671f|\u793c\u62dc)\s*([0-9\u4e00-\u516d\u65e5\u5929])(?!\s*[\u3001,\u548c\u53ca]?\s*[0-9\u4e00-\u516d\u65e5\u5929])/, (match) => {
-    const weekday = WEEKDAY_BY_CHAR[match[3]!]
-    if (weekday === undefined) return false
+  consume('repeat', /\u6bcf(?:\u9694)?\s*(\d{1,2}|[\u4e00-\u4e5d\u5341])?\s*(?:\u4e2a)?(\u5468|\u661f\u671f|\u793c\u62dc)\s*((?:(?:\u5468|\u661f\u671f|\u793c\u62dc)?[0-9\u4e00-\u516d\u65e5\u5929])+(?:\s*[\u3001,\u548c\u53ca]\s*(?:(?:\u5468|\u661f\u671f|\u793c\u62dc)?[0-9\u4e00-\u516d\u65e5\u5929])+)*)/, (match) => {
+    const days = new Set<number>()
+    for (const character of match[3]!) {
+      const weekday = WEEKDAY_BY_CHAR[character]
+      if (weekday !== undefined) days.add(weekday)
+    }
+    if (!days.size) return false
     const interval = match[1] ? readCount(match[1]) : 1
     if (interval === null || interval < MIN_REPEAT_INTERVAL) return false
-    repeat = { freq: 'weekly', interval: Math.min(interval, MAX_REPEAT_INTERVAL) }
-    draft.dayShift = nextWeekdayShift(today, weekday, timeZone)
+    const weekdays = [...days].sort((a, b) => a - b)
+    repeat = { freq: 'weekly', interval: Math.min(interval, MAX_REPEAT_INTERVAL), weekdays }
+    draft.dayShift = Math.min(...weekdays.map((weekday) => nextWeekdayShift(today, weekday, timeZone)))
     return true
   })
   consume('repeat', /\u6bcf(\u5929|\u65e5)/, () => {

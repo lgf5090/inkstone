@@ -9,6 +9,7 @@ import {
   remindAtFor,
   taskListProgress,
   toggledStatus,
+  type RepeatRule,
 } from '../src/shared/todos/model'
 
 const HOUR = 60 * 60 * 1000
@@ -23,6 +24,16 @@ describe('a stored repeat rule', () => {
     expect(parseRepeatRule({ freq: 'weekly', interval: 2 })).toEqual({ freq: 'weekly', interval: 2 })
   })
 
+  it('reads a weekly rule that names its weekdays', () => {
+    expect(parseRepeatRule({ freq: 'weekly', interval: 1, weekdays: [5, 1, 3, 3] }))
+      .toEqual({ freq: 'weekly', interval: 1, weekdays: [1, 3, 5] })
+  })
+
+  it('reads a monthly rule that lands on the last day', () => {
+    expect(parseRepeatRule({ freq: 'monthly', interval: 1, monthlyMode: 'lastDay' }))
+      .toEqual({ freq: 'monthly', interval: 1, monthlyMode: 'lastDay' })
+  })
+
   it('defaults a missing interval to one', () => {
     expect(parseRepeatRule({ freq: 'daily' })).toEqual({ freq: 'daily', interval: 1 })
   })
@@ -33,6 +44,9 @@ describe('a stored repeat rule', () => {
     expect(parseRepeatRule({ freq: 'hourly', interval: 1 })).toBeNull()
     expect(parseRepeatRule({ freq: 'daily', interval: 0 })).toBeNull()
     expect(parseRepeatRule({ freq: 'daily', interval: 1000 })).toBeNull()
+    expect(parseRepeatRule({ freq: 'weekly', weekdays: [1, 7] })).toBeNull()
+    expect(parseRepeatRule({ freq: 'weekly', weekdays: ['mon'] })).toBeNull()
+    expect(parseRepeatRule({ freq: 'monthly', monthlyMode: 'nthBusinessDay' })).toBeNull()
   })
 })
 
@@ -50,6 +64,34 @@ describe('the next occurrence of a repeating task', () => {
   it('clamps a month that lacks the day', () => {
     const due = utc('2026-01-31T10:00:00Z')
     expect(nextOccurrence(due, { freq: 'monthly', interval: 1 }, 'UTC')).toBe(utc('2026-02-28T10:00:00Z'))
+  })
+
+  it('walks to the next named weekday inside the week', () => {
+    const rule: RepeatRule = { freq: 'weekly', interval: 1, weekdays: [1, 3, 5] }
+    // Friday 23 October 2026 → the following Monday, because the week's other days are behind it.
+    expect(nextOccurrence(utc('2026-10-23T09:00:00Z'), rule, 'UTC')).toBe(utc('2026-10-26T09:00:00Z'))
+    expect(nextOccurrence(utc('2026-10-19T09:00:00Z'), rule, 'UTC')).toBe(utc('2026-10-21T09:00:00Z'))
+    expect(nextOccurrence(utc('2026-10-21T09:00:00Z'), rule, 'UTC')).toBe(utc('2026-10-23T09:00:00Z'))
+    expect(nextOccurrence(utc('2026-10-24T09:00:00Z'), rule, 'UTC')).toBe(utc('2026-10-26T09:00:00Z'))
+  })
+
+  it('skips the weeks an interval passes over', () => {
+    const rule: RepeatRule = { freq: 'weekly', interval: 2, weekdays: [1, 3, 5] }
+    expect(nextOccurrence(utc('2026-10-23T09:00:00Z'), rule, 'UTC')).toBe(utc('2026-11-02T09:00:00Z'))
+    // Wednesday of the same week still belongs to the occurrence's own week.
+    expect(nextOccurrence(utc('2026-10-19T09:00:00Z'), rule, 'UTC')).toBe(utc('2026-10-21T09:00:00Z'))
+  })
+
+  it('lands on the last day of every month', () => {
+    const rule: RepeatRule = { freq: 'monthly', interval: 1, monthlyMode: 'lastDay' }
+    expect(nextOccurrence(utc('2026-01-15T10:00:00Z'), rule, 'UTC')).toBe(utc('2026-02-28T10:00:00Z'))
+    expect(nextOccurrence(utc('2026-01-31T10:00:00Z'), rule, 'UTC')).toBe(utc('2026-02-28T10:00:00Z'))
+  })
+
+  it('keeps the same nth weekday of the month', () => {
+    const rule: RepeatRule = { freq: 'monthly', interval: 1, monthlyMode: 'nthWeekday' }
+    // The third Wednesday of January 2026 is the 21st; February's third Wednesday is the 18th.
+    expect(nextOccurrence(utc('2026-01-21T10:00:00Z'), rule, 'UTC')).toBe(utc('2026-02-18T10:00:00Z'))
   })
 
   it('keeps a leap day out of a year that has none', () => {

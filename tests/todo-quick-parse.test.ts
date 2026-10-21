@@ -70,7 +70,7 @@ it('dedupes and caps tags through the same rule the store enforces', () => {
 
 it('turns a named weekday into the coming one and a weekly rhythm', () => {
   const parsed = parse('\u6bcf\u5468\u4e94 \u5199\u5468\u62a5')
-  expect(parsed.repeat).toEqual({ freq: 'weekly', interval: 1 })
+  expect(parsed.repeat).toEqual({ freq: 'weekly', interval: 1, weekdays: [5] })
   expect(wallClock(parsed.dueAt)).toBe('2026-10-23 23:59')
   expect(parsed.title).toBe('\u5199\u5468\u62a5')
 })
@@ -86,10 +86,23 @@ it('reads an interval rhythm in either spelling and clamps the count', () => {
   expect(parse('\u6bcf\u6708\u5e95 \u4ea4\u62a5\u8868').repeat).toBeNull()
 })
 
-it('refuses a rhythm that names two weekdays instead of guessing one', () => {
-  const parsed = parse('\u6bcf\u5468\u4e09\u3001\u4e94 \u6253\u5361')
-  expect(parsed.repeat).toBeNull()
-  expect(parsed.title).toContain('\u6bcf\u5468\u4e09')
+it('reads a weekday list as one weekly rule instead of refusing it', () => {
+  const parsed = parse('\u6bcf\u5468\u4e00\u4e09\u4e94 \u6668\u8dd1')
+  expect(parsed.repeat).toEqual({ freq: 'weekly', interval: 1, weekdays: [1, 3, 5] })
+  // Today is Tuesday, so the coming selected day is Wednesday.
+  expect(wallClock(parsed.dueAt)).toBe('2026-10-21 23:59')
+  expect(parsed.title).toBe('\u6668\u8dd1')
+
+  const spaced = parse('\u6bcf\u5468\u4e09\u3001\u4e94 \u6253\u5361')
+  expect(spaced.repeat).toEqual({ freq: 'weekly', interval: 1, weekdays: [3, 5] })
+  expect(spaced.title).toBe('\u6253\u5361')
+})
+
+it('keeps the interval beside a weekday list', () => {
+  const parsed = parse('\u6bcf2\u5468\u5468\u4e00\u3001\u5468\u4e09 \u7ad9\u4f1a')
+  expect(parsed.repeat).toEqual({ freq: 'weekly', interval: 2, weekdays: [1, 3] })
+  expect(wallClock(parsed.dueAt)).toBe('2026-10-21 23:59')
+  expect(parsed.title).toBe('\u7ad9\u4f1a')
 })
 
 it('reads an absolute day, rolling a passed month-day into next year', () => {

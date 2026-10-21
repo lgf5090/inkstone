@@ -24,6 +24,7 @@ import { useTodos, remindOffsetOf } from './store'
 import { dueValue } from './todo-ui'
 import { openConversationInChat, startChatAboutTask } from '../chat/start-chat'
 import { parseLocalTime } from '@shared/assistant-time'
+import type { MessageKey } from '@shared/locales/en-US'
 import {
   MAX_REMINDERS_PER_TASK,
   REPEAT_FREQUENCIES,
@@ -36,6 +37,21 @@ import {
 } from '@shared/todos/model'
 
 const PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const
+
+/**
+ * The weekday buttons, Monday first as a calendar reads. The values are the rule's own: 0 is Sunday.
+ * The labels are the assistant's weekday names, which are already translated and short enough for a
+ * row of seven.
+ */
+const WEEKDAY_CHOICES: readonly { day: number, label: MessageKey }[] = [
+  { day: 1, label: 'assistant.weekday.1' },
+  { day: 2, label: 'assistant.weekday.2' },
+  { day: 3, label: 'assistant.weekday.3' },
+  { day: 4, label: 'assistant.weekday.4' },
+  { day: 5, label: 'assistant.weekday.5' },
+  { day: 6, label: 'assistant.weekday.6' },
+  { day: 0, label: 'assistant.weekday.7' },
+]
 
 export function TaskEditor() {
   const open = useTodos((state) => state.editorOpen)
@@ -69,6 +85,9 @@ export function TaskEditor() {
   const [listId, setListId] = useState('')
   const [repeat, setRepeat] = useState<'none' | RepeatFrequency>('none')
   const [interval, setInterval] = useState(1)
+  /** The named weekdays of a weekly rule, and which day a monthly rule lands on. */
+  const [weekdays, setWeekdays] = useState<number[]>([])
+  const [monthlyMode, setMonthlyMode] = useState<'day' | 'lastDay'>('day')
   /**
    * The preset picker is an "add" control, not the value: the list on the right of it is what the task
    * saves. The select stays in the form because it is the fastest way to add the common four, and its
@@ -99,6 +118,8 @@ export function TaskEditor() {
     setListId(task?.listId ?? source.listId ?? '')
     setRepeat(task?.repeat?.freq ?? source.repeat?.freq ?? 'none')
     setInterval(task?.repeat?.interval ?? source.repeat?.interval ?? 1)
+    setWeekdays(task?.repeat?.weekdays ?? source.repeat?.weekdays ?? [])
+    setMonthlyMode(task?.repeat?.monthlyMode === 'lastDay' ? 'lastDay' : 'day')
     // An existing task brings its pending list; a quick-add draft brings one instant. The select shows
     // the preset that instant equals, so a line typed as "15 minutes before" arrives with the same
     // words in the panel, while the list below is what will actually be saved.
@@ -136,7 +157,12 @@ export function TaskEditor() {
       dueAt: dueText ? dueText : null,
       startAt: startText ? startText : null,
       listId: listId || null,
-      repeat: repeat === 'none' ? null : { freq: repeat, interval: Math.max(1, Math.min(99, interval)) },
+      repeat: repeat === 'none' ? null : {
+        freq: repeat,
+        interval: Math.max(1, Math.min(99, interval)),
+        ...(repeat === 'weekly' && weekdays.length ? { weekdays: [...weekdays].sort((a, b) => a - b) } : {}),
+        ...(repeat === 'monthly' && monthlyMode === 'lastDay' ? { monthlyMode } : {}),
+      },
       reminders,
       tags: tagNames,
     }
@@ -302,21 +328,56 @@ export function TaskEditor() {
             </Select>
           </Field>
           <Field label={t('todo.task.repeat_label')}>
-            <div className="flex items-center gap-1.5">
-              <Select value={repeat} onChange={(event) => setRepeat(event.target.value as 'none' | RepeatFrequency)}>
-                <option value="none">{t('todo.repeat.none')}</option>
-                {REPEAT_FREQUENCIES.map((entry) => <option key={entry} value={entry}>{t(`todo.repeat.${entry}`)}</option>)}
-              </Select>
-              {repeat !== 'none' && (
-                <Input
-                  type="number"
-                  min={1}
-                  max={99}
-                  value={interval}
-                  aria-label={t('todo.repeat.every', { count: interval, unit: '' })}
-                  onChange={(event) => setInterval(Number(event.target.value) || 1)}
-                  className="w-16"
-                />
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center gap-1.5">
+                <Select value={repeat} onChange={(event) => setRepeat(event.target.value as 'none' | RepeatFrequency)}>
+                  <option value="none">{t('todo.repeat.none')}</option>
+                  {REPEAT_FREQUENCIES.map((entry) => <option key={entry} value={entry}>{t(`todo.repeat.${entry}`)}</option>)}
+                </Select>
+                {repeat !== 'none' && (
+                  <Input
+                    type="number"
+                    min={1}
+                    max={99}
+                    value={interval}
+                    aria-label={t('todo.repeat.every', { count: interval, unit: '' })}
+                    onChange={(event) => setInterval(Number(event.target.value) || 1)}
+                    className="w-16"
+                  />
+                )}
+              </div>
+              {/* No day picked is the plain "every N weeks" rhythm; picking days narrows it to those
+                  days, which is what "every Monday, Wednesday and Friday" is. */}
+              {repeat === 'weekly' && (
+                <div role="group" aria-label={t('todo.repeat.weekdays')} className="flex flex-wrap items-center gap-1">
+                  {WEEKDAY_CHOICES.map((choice) => {
+                    const active = weekdays.includes(choice.day)
+                    return (
+                      <button
+                        key={choice.day}
+                        type="button"
+                        aria-pressed={active}
+                        aria-label={t(choice.label)}
+                        onClick={() => setWeekdays((current) => (active
+                          ? current.filter((day) => day !== choice.day)
+                          : [...current, choice.day]))}
+                        className="flex size-7 items-center justify-center rounded-[var(--r-sm)] border border-[var(--border-subtle)] text-[length:var(--text-11)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] aria-pressed:border-[var(--accent)] aria-pressed:bg-[var(--accent-soft)] aria-pressed:text-[var(--accent-on-soft)]"
+                      >
+                        {t(choice.label)}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+              {repeat === 'monthly' && (
+                <Select
+                  value={monthlyMode}
+                  aria-label={t('todo.task.repeat_label')}
+                  onChange={(event) => setMonthlyMode(event.target.value === 'lastDay' ? 'lastDay' : 'day')}
+                >
+                  <option value="day">{t('todo.repeat.monthly_day')}</option>
+                  <option value="lastDay">{t('todo.repeat.last_day')}</option>
+                </Select>
               )}
             </div>
           </Field>
