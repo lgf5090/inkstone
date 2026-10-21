@@ -1,9 +1,10 @@
 import { useState, type ReactElement } from 'react'
-import { Download, FileText, Music } from 'lucide-react'
 import type { MemoAttachment } from '@shared/memos/types'
 import { cn } from '../../../lib/cn'
 import { t } from '../../../lib/i18n'
-import { formatBytes } from '../../../lib/time'
+import { attachmentDimensions, isAudioAttachment, isImageAttachment, isVideoAttachment, mediaMetadataLines, motionVideoUrl } from '../media'
+import { AttachmentAudio, AttachmentDocument, AttachmentMotionBadge, AttachmentUnavailable, AttachmentVideo, useAttachmentImageSource } from './AttachmentMedia'
+import { MemoLightbox } from './MemoLightbox'
 
 export interface MemoAttachmentsProps {
   attachments: MemoAttachment[]
@@ -11,120 +12,135 @@ export interface MemoAttachmentsProps {
   className?: string
 }
 
-function isImage(attachment: MemoAttachment): boolean {
-  return attachment.mime.startsWith('image/') && !attachment.mime.startsWith('image/svg')
-}
-
-function isVideo(attachment: MemoAttachment): boolean {
-  return attachment.mime.startsWith('video/')
-}
-
-function isAudio(attachment: MemoAttachment): boolean {
-  return attachment.mime.startsWith('audio/')
-}
-
-function AttachmentImage({ attachment, className }: { attachment: MemoAttachment; className?: string }): ReactElement {
-  const [src, setSrc] = useState(attachment.thumbnailUrl ?? attachment.url)
+function GalleryImage({ attachment, index, compact, multiple, onOpen }: {
+  attachment: MemoAttachment
+  index: number
+  compact: boolean
+  multiple: boolean
+  onOpen: (index: number) => void
+}): ReactElement {
+  const source = useAttachmentImageSource(attachment)
+  const caption = compact ? [] : mediaMetadataLines(attachment)
+  if (source.failed) {
+    return (
+      <AttachmentUnavailable
+        attachment={attachment}
+        message={t('memos.media.image_failed')}
+        className="min-w-0"
+      />
+    )
+  }
+  const motion = motionVideoUrl(attachment)
+  const dimensions = attachmentDimensions(attachment)
   return (
-    <img
-      src={src}
-      alt={attachment.filename}
-      loading="lazy"
-      decoding="async"
-      className={className}
-      onError={() => {
-        if (src !== attachment.url) setSrc(attachment.url)
-      }}
-    />
+    <figure className="min-w-0">
+      <button
+        type="button"
+        onClick={(event) => {
+          event.currentTarget.focus()
+          onOpen(index)
+        }}
+        aria-label={t(motion ? 'memos.media.open_live_photo' : 'memos.media.open_image', { name: attachment.filename })}
+        className="group relative block w-full overflow-hidden rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+      >
+        <img
+          src={source.src}
+          alt={attachment.filename}
+          width={dimensions.width}
+          height={dimensions.height}
+          loading="lazy"
+          decoding="async"
+          onError={source.onError}
+          className={cn(
+            'w-full',
+            multiple ? 'aspect-square object-cover' : compact ? 'max-h-56 object-contain' : 'max-h-[420px] object-contain',
+          )}
+        />
+        {motion ? (
+          <AttachmentMotionBadge />
+        ) : null}
+      </button>
+      {caption.length > 0 ? (
+        <figcaption
+          title={caption.join(' · ')}
+          className="mt-1 truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]"
+        >
+          {caption.join(' · ')}
+        </figcaption>
+      ) : null}
+    </figure>
   )
 }
 
-function FileRow({ attachment }: { attachment: MemoAttachment }): ReactElement {
+function GalleryVideo({ attachment, compact, multiple }: {
+  attachment: MemoAttachment
+  compact: boolean
+  multiple: boolean
+}): ReactElement {
+  const caption = compact ? [] : mediaMetadataLines(attachment)
   return (
-    <a
-      href={attachment.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      aria-label={t('memos.attachments.download', { name: attachment.filename })}
-      className={cn(
-        'flex min-h-10 items-center gap-2 rounded-[var(--r-sm)] border border-[var(--border-subtle)] px-2 py-1.5',
-        'text-[length:var(--text-11-5)] text-[var(--text-secondary)] transition-colors',
-        'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] md:min-h-0',
-      )}
-    >
-      <FileText size={13} aria-hidden="true" className="shrink-0 text-[var(--text-quaternary)]" />
-      <span className="min-w-0 flex-1 truncate">{attachment.filename}</span>
-      <span className="shrink-0 text-[length:var(--text-10-5)] tabular text-[var(--text-quaternary)]">
-        {formatBytes(attachment.size)}
-      </span>
-      <Download size={12} aria-hidden="true" className="shrink-0 text-[var(--text-quaternary)]" />
-    </a>
-  )
-}
-
-function AudioRow({ attachment }: { attachment: MemoAttachment }): ReactElement {
-  return (
-    <div className="rounded-[var(--r-sm)] border border-[var(--border-subtle)] p-2">
-      <div className="flex items-center gap-2 text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
-        <Music size={13} aria-hidden="true" className="shrink-0 text-[var(--text-quaternary)]" />
-        <span className="min-w-0 flex-1 truncate">{attachment.filename}</span>
-        <span className="shrink-0 text-[length:var(--text-10-5)] tabular text-[var(--text-quaternary)]">
-          {formatBytes(attachment.size)}
-        </span>
-      </div>
-      <audio controls preload="none" src={attachment.url} aria-label={attachment.filename} className="mt-1 w-full" />
+    <div className="min-w-0">
+      <AttachmentVideo
+        attachment={attachment}
+        className={cn(multiple ? 'aspect-square object-contain' : compact ? 'max-h-56 object-contain' : 'max-h-[420px] object-contain')}
+      />
+      {caption.length > 0 ? (
+        <p title={caption.join(' · ')} className="mt-1 truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+          {caption.join(' · ')}
+        </p>
+      ) : null}
     </div>
   )
 }
 
 export function MemoAttachments({ attachments, compact = false, className }: MemoAttachmentsProps): ReactElement | null {
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
   if (attachments.length === 0) return null
   const shown = compact ? attachments.slice(0, 4) : attachments
   const remaining = attachments.length - shown.length
-  const images = shown.filter(isImage)
-  const videos = shown.filter(isVideo)
-  const audios = shown.filter(isAudio)
-  const files = shown.filter((attachment) => !isImage(attachment) && !isVideo(attachment) && !isAudio(attachment))
-  const media = [...images, ...videos]
+  const images = shown.filter(isImageAttachment)
+  const media = shown.filter((attachment) => isImageAttachment(attachment) || isVideoAttachment(attachment))
+  const audios = shown.filter(isAudioAttachment)
+  const files = shown.filter((attachment) => !isImageAttachment(attachment) && !isVideoAttachment(attachment) && !isAudioAttachment(attachment))
+  const multiple = media.length > 1
   return (
-    <div className={cn('space-y-1.5', className)}>
+    <div className={cn('space-y-1.5', className)} data-memo-attachments="">
       {media.length > 0 ? (
-        <div className={cn('grid gap-1.5', media.length > 1 ? 'grid-cols-2' : 'grid-cols-1', !compact && 'sm:grid-cols-2')}>
+        <div className={cn(multiple ? 'grid grid-cols-2 gap-1.5' : 'space-y-1.5', multiple && !compact && 'sm:grid-cols-3')}>
           {media.map((attachment) => (
-            isVideo(attachment) ? (
-              <video
+            isVideoAttachment(attachment) ? (
+              <GalleryVideo
                 key={attachment.id}
-                src={attachment.url}
-                controls
-                preload="metadata"
-                aria-label={attachment.filename}
-                className={cn('w-full rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-inset)]', compact ? 'aspect-square object-cover' : 'max-h-[420px] object-contain')}
+                attachment={attachment}
+                compact={compact}
+                multiple={multiple}
               />
             ) : (
-              <a
+              <GalleryImage
                 key={attachment.id}
-                href={attachment.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label={t('memos.attachments.open', { name: attachment.filename })}
-                className="block min-w-0 overflow-hidden rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-inset)]"
-              >
-                <AttachmentImage
-                  attachment={attachment}
-                  className={cn('w-full', compact ? 'aspect-square object-cover' : 'max-h-[420px] object-contain')}
-                />
-              </a>
+                attachment={attachment}
+                index={images.indexOf(attachment)}
+                compact={compact}
+                multiple={multiple}
+                onOpen={setLightboxIndex}
+              />
             )
           ))}
         </div>
       ) : null}
-      {audios.map((attachment) => <AudioRow key={attachment.id} attachment={attachment} />)}
-      {files.map((attachment) => <FileRow key={attachment.id} attachment={attachment} />)}
+      {audios.map((attachment) => <AttachmentAudio key={attachment.id} attachment={attachment} />)}
+      {files.map((attachment) => <AttachmentDocument key={attachment.id} attachment={attachment} />)}
       {remaining > 0 ? (
         <p className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
           {t('memos.attachments.more', { count: remaining })}
         </p>
       ) : null}
+      <MemoLightbox
+        images={images}
+        index={lightboxIndex}
+        onIndexChange={setLightboxIndex}
+        onClose={() => setLightboxIndex(null)}
+      />
     </div>
   )
 }
