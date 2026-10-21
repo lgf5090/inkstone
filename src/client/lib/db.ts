@@ -614,7 +614,8 @@ export const localDb = {
     return update<OutboxItem[]>(
       userScopedKey(KEY.outbox),
       (current) => normalizeOutbox(current)
-        .map((item) => item.entityId === entityId &&
+        .map((item) => item.entity === 'note' &&
+            item.entityId === entityId &&
             item.dependsOnWriteId === sourceWriteId &&
             item.payload.rev === expectedRev
           ? { ...item, dependsOnWriteId: undefined, payload: { ...item.payload, rev: nextRev } }
