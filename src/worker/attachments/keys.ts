@@ -13,6 +13,14 @@ export function attachmentObjectKey(row: StoredAttachmentKey): string {
   return `${row.user_id}/${row.id}.${extensionFor(row.mime, row.filename)}`
 }
 
+export function memoAttachmentObjectKey(row: StoredAttachmentKey): string {
+  return `memo/${row.user_id}/${row.id}.${extensionFor(row.mime, row.filename)}`
+}
+
+export function memoThumbnailObjectKey(row: StoredAttachmentKey): string {
+  return `memo/${row.user_id}/${row.id}-thumb.${extensionFor(row.mime, row.filename)}`
+}
+
 export function attachmentCleanupTarget(storage: AttachmentObjectStorage, key: string): string {
   return `${storage}:${key}`
 }
