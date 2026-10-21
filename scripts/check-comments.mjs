@@ -679,9 +679,11 @@ const allowed = new Map([
   ["src/client/editor/diagram-templates.test.ts", [
     "// A slice chart's value-column name has nowhere to live in its config, so the table → JSON → table",
     "// round trip cannot carry it back; every other kind comes home byte for byte.",
+    "// The fence attribute only says the block was recognised; the reader that turns the body into a",
+    "// picture is the one that can call a starter body broken, so the promise the template list makes",
+    "// is kept here rather than at the markdown layer.",
   ]],
   ["src/client/editor/diagram-templates.ts", [
-    "/**\n * The starter bodies behind the editor toolbar's diagram submenus, as data: one row per entry, each\n * carrying the label it is offered under and the text written into the new fence.\n *\n * Every body here has to be something the block's own reader accepts, so the lists are asserted against\n * those readers in `diagram-templates.test.ts` rather than trusted — a template that inserts a fence the\n * block then reports as broken is worse than no template at all.\n */",
     "/**\n * The chart bodies are tables rather than Chart.js options, because a table is what an author edits in\n * place: the first cell names the type, the header row is the x axis, and every row is one series. The\n * block's own toolbar converts any of them to JSON when the full option set is needed. None carries a\n * colour on purpose — a chart with no colours of its own is painted from the note's accent and repaints\n * when the accent or the theme changes.\n */",
     "// A slice chart is one row per slice, not one column per slice: the categories live in the first",
     "// column and the second header cell names the value column.",
@@ -690,6 +692,7 @@ const allowed = new Map([
     "/**\n * The starter queries behind the toolbar's Dataview submenu. Every body is a query the parser accepts\n * and the index can answer with nothing indexed yet — an empty result, not an error — because a\n * template that inserts a block reporting itself broken is worse than no template.\n */",
     "/** The DML starter: the shortest program that shows the `dv` object is working. */",
     "/**\n * The starter queries behind the toolbar's Tasks submenu. Each body is an instruction set the\n * engine accepts and that answers with an empty list rather than an error while nothing is indexed,\n * because a template that inserts a block reporting itself broken is worse than no template.\n */",
+    "/**\n * The starter bodies behind the editor toolbar's diagram submenus, as data: one row per entry, each\n * carrying the label it is offered under and the text written into the new fence.\n *\n * Every body here has to be something the block's own reader accepts, so the lists are asserted against\n * those readers in `diagram-templates.test.ts` rather than trusted — a template that inserts a fence the\n * block then reports as broken is worse than no template at all.\n *\n * The Mermaid rows are the documentation site's own first example for each type that still fits a\n * starter's size, one per diagram type the engine registers. Taking them from there rather than writing\n * fresh snippets means the menu ships bodies the renderer is itself tested against, and that a type\n * cannot be offered in the menu without existing on that page.\n */",
   ]],
   ["src/client/editor/dragger/block-menu.tsx", [
     "/** Where the pointer asked for the block menu, and which block it was pointing at. */",

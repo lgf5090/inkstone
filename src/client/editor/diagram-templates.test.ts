@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { render } from 'pele'
 import { CHART_TEMPLATES, EXCALIDRAW_TEMPLATES, KANBAN_TEMPLATES, MERMAID_TEMPLATES, MINDMAP_TEMPLATES } from './diagram-templates'
 import { CHART_SLICE_KINDS, convertChartBody, detectChartMode, readChartTable } from '../lib/markdown/chart'
 import { parseKanbanBody } from '../lib/markdown/kanban/body'
@@ -27,9 +28,18 @@ describe('every diagram template', () => {
 })
 
 describe('the mermaid templates', () => {
-  it.each(MERMAID_TEMPLATES)('$id becomes a mermaid block', (template) => {
+  it.each(MERMAID_TEMPLATES)('$id becomes a mermaid block the engine draws', (template) => {
     const html = renderMarkdown(`\`\`\`mermaid\n${template.body}\n\`\`\`\n`).html
     expect(html).toContain('data-mermaid')
+    // The fence attribute only says the block was recognised; the reader that turns the body into a
+    // picture is the one that can call a starter body broken, so the promise the template list makes
+    // is kept here rather than at the markdown layer.
+    expect(() => render(template.body, { idPrefix: `t-${template.id}` })).not.toThrow()
+    expect(render(template.body, { idPrefix: `t-${template.id}` }).svg).toContain('<svg')
+  })
+
+  it('offers one entry per diagram type the engine registers', () => {
+    expect(MERMAID_TEMPLATES.map((template) => template.id)).toHaveLength(33)
   })
 })
 

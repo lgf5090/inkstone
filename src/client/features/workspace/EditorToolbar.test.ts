@@ -102,7 +102,7 @@ describe('editor toolbar interactions', () => {
     })))
     await act(() => toolbarButton(t('workspace.code_and_diagrams')).click())
     const parents: Array<[string, number]> = [
-      [t('workspace.mermaid_diagram'), 14],
+      [t('workspace.mermaid_diagram'), 33],
       [t('workspace.chartjs_diagram'), 7],
       [t('workspace.mind_map'), 2],
       [t('workspace.kanban_board'), 2],
