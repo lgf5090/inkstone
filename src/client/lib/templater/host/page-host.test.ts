@@ -1035,8 +1035,8 @@ describe('cursor.append', () => {
  */
 describe('createTarget', () => {
   it('answers the title and folder a path files into, creating the chain it names', async () => {
-    const { host, store } = started('local')
-    const target = await host.createTarget('run-1', 'Journal/2026/Today.md')
+    const { host, store, context } = started('local')
+    const target = await host.createTarget(context, 'Journal/2026/Today.md')
     if (!target.ok) throw new Error(`refused: ${target.code} ${target.detail}`)
     expect(target.title).toBe('Today')
     expect(store.folders.find((folder) => folder.id === target.folderId)?.name).toBe('2026')
@@ -1044,16 +1044,16 @@ describe('createTarget', () => {
   })
 
   it('refuses a taken path and a traversal without touching the tree', async () => {
-    const { host, store } = started('local')
+    const { host, store, context } = started('local')
     const folders = store.folders.length
-    expect(await host.createTarget('run-1', 'Target.md')).toEqual({ ok: false, code: 'note-conflict', detail: 'Target.md' })
-    expect(await host.createTarget('run-1', '../Secret.md')).toEqual({ ok: false, code: 'path-invalid', detail: 'escape' })
+    expect(await host.createTarget(context, 'Target.md')).toEqual({ ok: false, code: 'note-conflict', detail: 'Target.md' })
+    expect(await host.createTarget(context, '../Secret.md')).toEqual({ ok: false, code: 'path-invalid', detail: 'escape' })
     expect(store.folders.length).toBe(folders)
   })
 
   it('answers the destination `note.create` then uses, so the two cannot drift', async () => {
-    const { host, store } = started('local')
-    const target = await host.createTarget('run-1', 'Journal/Today.md')
+    const { host, store, context } = started('local')
+    const target = await host.createTarget(context, 'Journal/Today.md')
     if (!target.ok) throw new Error(`refused: ${target.code} ${target.detail}`)
     const created = answered(await ask(host, 'note.create', ['Journal/Today.md', 'body'])) as { path: string; title: string }
     expect(created).toMatchObject({ path: 'Journal/Today.md', title: 'Today' })
@@ -1061,8 +1061,21 @@ describe('createTarget', () => {
     expect(row?.folderId).toBe(target.folderId)
   })
 
-  it('refuses a run the page never registered', async () => {
-    const { host } = started('local')
-    expect(await host.createTarget('gone', 'Journal/Today.md')).toEqual({ ok: false, code: 'render-failed', detail: 'run:gone' })
+  it('answers a run the page has already released, because the pipeline applies after the render', async () => {
+    // The reader's own "new note from a Templater template" is applied from `host/run-template.ts` once
+    // `renderTemplate` has returned, and the door releases the run in its `finally`. Measured in a real
+    // browser on 2026-10-21: the destination came back as `render-failed` and no note was made. A released
+    // run is not a refusal.
+    const { host, context } = started('local')
+    host.endRun(context.runId)
+    const target = await host.createTarget(context, 'Journal/Today.md')
+    if (!target.ok) throw new Error(`refused: ${target.code} ${target.detail}`)
+    expect(target.title).toBe('Today')
+  })
+
+  it('refuses a path that escapes the tree whatever the run was registered as', async () => {
+    const { host, context } = started('local')
+    expect(await host.createTarget({ ...context, runId: 'never-registered' }, '../Secret.md'))
+      .toEqual({ ok: false, code: 'path-invalid', detail: 'escape' })
   })
 })

@@ -65,7 +65,7 @@ async function templaterPorts(): Promise<RunTemplatePorts> {
     render: (args) => door.renderTemplate(args),
     notes: { write: hosts.ports.notes.write, create: hosts.ports.notes.create },
     editor: { open: hosts.ports.editor.open },
-    createTarget: (runId, path) => hosts.page.createTarget(runId, path),
+    createTarget: (context, path) => hosts.page.createTarget(context, path),
     // The caret group travels on the existing insert signal: it is the only channel that still works when
     // the note's editor has not mounted yet, which is every note this run has just created.
     requestCarets: (noteId, carets) => {

@@ -84,12 +84,12 @@ export interface RunTemplatePorts {
    *
    * The folder tree and the title rules are the data layer's, so the split is asked of it rather than
    * redone here — this module has no path logic, and a second copy of one is how a traversal gets through.
-   * The run's id goes with the path because the page host is what owns that logic, and it resolves a path
-   * against *its* run: the folders this run already made and the rows it already wrote have to be visible
-   * to the second create, or a template that files two notes into one new folder would be told the folder
-   * is taken.
+   * The run's *context* goes with the path because the page host is what owns that logic, and it resolves a
+   * path against the run: the folders it already made and the rows it already wrote have to be visible. The
+   * context rather than the id alone, because this is asked after the render returned and the page released
+   * the run — the reader's own request to file a new note is not a call a released run may refuse.
    */
-  createTarget(runId: string, path: string): Promise<
+  createTarget(context: TemplateRunContext, path: string): Promise<
     | { ok: true; title: string; folderId: string | null }
     | { ok: false; code: TemplaterErrorCode; detail: string }
   >
@@ -142,7 +142,7 @@ export async function runTemplateOnNote(input: RunTemplateInput, ports: RunTempl
   if (!rendered.ok) return rendered
   const planned = planWrite(writeRequest(input, asked, rendered.context, rendered.output))
   if (!planned.ok) return { ok: false, code: planned.code, detail: planned.detail }
-  return apply(planned.plan, asked, activeOnScreen(input), rendered.context.runId, ports)
+  return apply(planned.plan, asked, activeOnScreen(input), rendered.context, ports)
 }
 
 /**
@@ -258,11 +258,11 @@ function writeRequest(
  * `subjectOf` already refused a run that could not say what it writes, and matching it again at the write is
  * what keeps every branch reading a row or a destination it was actually given.
  */
-async function apply(plan: WritePlan, subject: Subject, onScreen: boolean, runId: string, ports: RunTemplatePorts): Promise<RunTemplateResult> {
+async function apply(plan: WritePlan, subject: Subject, onScreen: boolean, context: TemplateRunContext, ports: RunTemplatePorts): Promise<RunTemplateResult> {
   if (plan.kind === 'discard') return reported(plan, null, false, ports)
   if (plan.kind === 'create') {
     if (subject.kind !== 'create') return fail('path-invalid', 'empty')
-    return applyCreate(plan, subject.path, runId, ports)
+    return applyCreate(plan, subject.path, context, ports)
   }
   if (subject.kind !== 'note') return fail('note-not-found', plan.mode)
   return applyWrite(plan, subject.note, onScreen, ports)
@@ -284,8 +284,8 @@ async function applyWrite(plan: WritePlan, note: Note, onScreen: boolean, ports:
  * module refuses to make. A refusal here therefore leaves no row at all, and `./store-port.ts`'s create is
  * already the one call that both makes the row and reports a title taken in the meantime.
  */
-async function applyCreate(plan: WritePlan, path: string, runId: string, ports: RunTemplatePorts): Promise<RunTemplateResult> {
-  const destination = await ports.createTarget(runId, path)
+async function applyCreate(plan: WritePlan, path: string, context: TemplateRunContext, ports: RunTemplatePorts): Promise<RunTemplateResult> {
+  const destination = await ports.createTarget(context, path)
   if (!destination.ok) return destination
   const created = await ports.notes.create({ title: destination.title, content: plan.content, folderId: destination.folderId })
   if (!created.ok) return fail(writeCode(created.reason), path)

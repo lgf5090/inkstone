@@ -38,8 +38,8 @@ vi.mock('../../lib/templater', () => ({
     engine.installs += 1
     return {
       page: {
-        async createTarget(runId: string, path: string) {
-          engine.targets.push({ runId, path })
+        async createTarget(context: { runId: string }, path: string) {
+          engine.targets.push({ runId: context.runId, path })
           return { ok: true as const, title: path.split('/').pop()!.replace(/\.md$/i, ''), folderId: 'f-journal' }
         },
       },

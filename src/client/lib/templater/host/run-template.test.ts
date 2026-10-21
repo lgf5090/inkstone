@@ -108,6 +108,8 @@ interface Fake {
   opened: string[]
   /** The arguments the door was handed, so a test can read the context the run started with. */
   renders: { program: ProgramSource; context: TemplateRunContext; deadlineMs: number }[]
+  /** The context each destination request carried — the same object the render was started with. */
+  targetContexts: TemplateRunContext[]
   /** What the next render answers with; the default hands the template text back. */
   outcome: NestedRenderOutcome | null
   writeRefusal: PageHostFailure | null
@@ -128,6 +130,7 @@ function fakes(): Fake {
     carets: [],
     opened: [],
     renders: [],
+    targetContexts: [],
     outcome: null,
     writeRefusal: null,
     createRefusal: null,
@@ -167,10 +170,12 @@ function fakes(): Fake {
         return script.openAnswer
       },
     },
-    async createTarget(runId, path) {
-      // The page host resolves a path against *its* run, so an id that is not the run's own would come back
-      // refused in production; a fake that accepted anything would let that through.
-      if (!runId.startsWith('run-')) throw new Error(`createTarget was asked for the wrong run: ${runId}`)
+    async createTarget(context, path) {
+      // The page host resolves a path against the run that started, so a caller that hands over somebody
+      // else's context — or an id alone, which is what it used to hand over — would be refused in production.
+      // Measured in a real browser: after the render released the run, the create came back `render-failed`.
+      if (!context.runId.startsWith('run-')) throw new Error(`createTarget was asked for the wrong run: ${context.runId}`)
+      script.targetContexts.push(context)
       script.calls.push('createTarget')
       if (script.targetRefusal !== null) return script.targetRefusal
       const segments = path.split('/')
@@ -216,6 +221,9 @@ describe('runTemplateOnNote create-new', () => {
     // One write, not two: there is no second call that could fail against an empty note.
     expect(fake.calls).toEqual(['render', 'createTarget', 'notes.create', 'editor.open'])
     expect(fake.writes).toEqual([])
+    // The destination is asked for with the context this run was rendered under, not with an id the page has
+    // already released — that release is what made a real browser refuse the reader's own create.
+    expect(fake.targetContexts).toEqual([fake.renders[0]!.context])
   })
 
   it('asks the workspace to show the created note and land its carets there', async () => {

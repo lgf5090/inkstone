@@ -202,8 +202,14 @@ export interface PageHost {
    * the write pipeline is how a traversal or a double name gets through. The pipeline needs it *before* it
    * creates, because it creates the row with the finished document already in it — `note.create` takes path
    * and text together and cannot be asked in two halves.
+   *
+   * It travels with the run's context rather than with its id alone, because the pipeline applies its plan
+   * after the render has released the run: an id is not enough to answer for a run that is already over, and
+   * the reader's own create-from-template command is not a call to refuse. The registration is used while it
+   * lasts, and a destination resolved from the context the run started with is the same answer either way —
+   * one pipeline run asks for one destination, so nothing has to carry between two calls.
    */
-  createTarget: (runId: string, path: string) => Promise<CreateTarget>
+  createTarget: (context: TemplateRunContext, path: string) => Promise<CreateTarget>
 }
 
 /**
@@ -238,7 +244,7 @@ export function createPageHost(deps: PageHostDeps): PageHost {
   function beginRun(context: TemplateRunContext): void {
     // A second registration for one id is the page re-using it, not two runs sharing it: keeping the newer
     // context is what keeps the newer run's calls answerable, and the older run is already over.
-    runs.set(context.runId, { context, index: null, written: new Map(), createdFolders: new Map() })
+    runs.set(context.runId, liveRunFor(context))
     while (runs.size > MAX_TRACKED_RUNS) {
       const oldest = runs.keys().next()
       if (oldest.done === true || oldest.value === context.runId) break
@@ -257,6 +263,11 @@ export function createPageHost(deps: PageHostDeps): PageHost {
       endRun(childRunId)
       deps.nested.cancel(childRunId)
     }
+  }
+
+  /** The scratch one run needs to answer its own calls: its context, and nothing carried in from outside. */
+  function liveRunFor(context: TemplateRunContext): LiveRun {
+    return { context, index: null, written: new Map(), createdFolders: new Map() }
   }
 
   /** The run's index, built once per run rather than once per call. */
@@ -701,12 +712,10 @@ export function createPageHost(deps: PageHostDeps): PageHost {
     return { ok: true, value: parentId }
   }
 
-  async function createTarget(runId: string, path: string): Promise<CreateTarget> {
-    const run = runs.get(runId)
-    if (run === undefined) return { ok: false, code: 'render-failed', detail: `run:${runId}` }
+  async function createTarget(context: TemplateRunContext, path: string): Promise<CreateTarget> {
     const checked = validateNotePath(path)
     if (!checked.ok) return { ok: false, code: 'path-invalid', detail: checked.reason }
-    return targetFor(run, checked.path)
+    return targetFor(runs.get(context.runId) ?? liveRunFor(context), checked.path)
   }
 
   return Object.assign(onHostCall, { beginRun, endRun, liveRuns: () => runs.size, createTarget })
