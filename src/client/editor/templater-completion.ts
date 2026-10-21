@@ -1,0 +1,324 @@
+/**
+ * Templater completion for the note editor.
+ *
+ * The registry in `lib/templater/reference` is the only list of names this file reads. The syntax-reference
+ * panel and these tooltips are two surfaces a reader compares, and a second table of function names is
+ * precisely how they start disagreeing, so every row here is built from `REFERENCE_ENTRIES` and
+ * `REFERENCE_MODULES` at request time.
+ *
+ * A member is offered only when the registry documents that exact path (`tp.file.rename`), which is what
+ * keeps `tp.user.` and `tp.frontmatter.` from inventing members: the names under those are the reader's own
+ * scripts and the note's own keys, so nothing here can enumerate them, and the module's own description says
+ * the list cannot be closed.
+ *
+ * Documentation depth follows the reader's `templater.intellisenseRender` setting. It arrives as a closure
+ * because this module must not reach for the settings store, and reading it per request is what makes a
+ * change land on the next keystroke instead of on the next editor rebuild.
+ *
+ * The document is never scanned whole. The question "is the caret inside a command" is answered by one
+ * `parseTemplate` call over a bounded window ending at the caret, which is also the only text the typed path
+ * is matched against — the same engine a run uses, so a `%>` inside a string and a tag that is still open
+ * mid-typing are read the way the interpreter reads them.
+ */
+import type { Completion, CompletionContext, CompletionResult, CompletionSource } from '@codemirror/autocomplete'
+import type { EditorState } from '@codemirror/state'
+import { DEFAULT_SETTINGS, TEMPLATER_INTELLISENSE_RENDER } from '@shared/constants'
+import type { TemplaterIntellisenseRender } from '@shared/types'
+import { truncateText } from '@shared/text-utils'
+import { t } from '../lib/i18n'
+import { parseTemplate } from '../lib/templater/engine/parser'
+import { capabilitiesFor, type CapabilityProfile, type Capabilities } from '../lib/templater/protocol'
+import {
+  REFERENCE_ENTRIES,
+  REFERENCE_MODULES,
+  referenceIsAvailable,
+  referenceModuleDoc,
+  type ReferenceDocEntry,
+  type ReferenceModuleDoc,
+} from '../lib/templater/reference/registry'
+
+/**
+ * How far back from the caret an open command may be traced.
+ *
+ * A command body longer than this is a miss rather than a wrong answer: the window would start inside it,
+ * the parse would find no `<%` left open, and the tooltip would simply not come.
+ */
+const TAG_WINDOW_CHARACTERS = 2_000
+
+/** The rows live in a fixed-width tooltip whose detail column cannot wrap, so prose is clipped here. */
+const DETAIL_MAX_CHARACTERS = 48
+
+/** `tp`, `tp.file`, `tp.file.ren`: the chain the caret sits at the end of, and nothing before it. */
+const ACCESS_PATH = /(?:^|[^.\w$])tp((?:\.[\w$]+)*)\.?$/
+
+/** What is being completed: the modules, or the members of one named module. */
+interface TypedPath {
+  /** Null while the module itself is the thing being typed. */
+  module: string | null
+  /** The part of the name already in the note: the replacement range starts here. */
+  partial: string
+}
+
+/**
+ * The shape a completion leaves behind, read off the registry's signature.
+ *
+ * `no-args` and `with-args` both arrive as a call; only where the caret lands differs, and a value must not
+ * grow parentheses it cannot be called with.
+ */
+type CallShape = 'value' | 'no-args' | 'with-args'
+
+export interface TemplaterCompletionOptions {
+  /** The reader's `templater.intellisenseRender`, read on every request. */
+  intellisenseRender: () => string
+  /** Whether completion is offered at all. Defaults to on: the switch belongs to the caller. */
+  enabled?: () => boolean
+  /**
+   * Which capability profile a run of this note would get.
+   *
+   * Optional because the note editor already knows it is the reader's own note. Where it is given — a
+   * community template in the template editor — a member the profile would refuse is still completed, since
+   * the reader is writing rather than running, and is marked in the documentation panel instead.
+   */
+  profile?: () => CapabilityProfile
+}
+
+/** The shipped default, taken from the settings table rather than restated here. */
+const FALLBACK_RENDER = DEFAULT_SETTINGS.templater.intellisenseRender
+
+/** An unreadable stored value falls back to the default rather than silencing the documentation. */
+function renderLevel(raw: string): TemplaterIntellisenseRender {
+  const known = TEMPLATER_INTELLISENSE_RENDER as readonly string[]
+  return known.includes(raw) ? raw as TemplaterIntellisenseRender : FALLBACK_RENDER
+}
+
+/**
+ * The text between a bounded window and the caret, when the caret sits inside an unclosed command.
+ *
+ * The window stops at the caret on purpose: a command still open there is exactly what the engine reports as
+ * `parse-unclosed`, and its left-to-right walk is what decides whether an earlier `<%` — one inside a string,
+ * or one a previous command already closed — counts. Deciding that here instead would be a second parser.
+ */
+function commandWindow(state: EditorState, pos: number): string | null {
+  const window = state.sliceDoc(Math.max(0, pos - TAG_WINDOW_CHARACTERS), pos)
+  if (!window.includes('<%')) return null
+  const parse = parseTemplate(window)
+  if (parse.ok) return null
+  return parse.failure.code === 'parse-unclosed' ? window : null
+}
+
+/** Which list the caret is asking for, or nothing when the text there is not a `tp` chain. */
+function pathBeforeCaret(text: string): TypedPath | null {
+  const matched = ACCESS_PATH.exec(text)
+  if (!matched) return null
+  const segments = (matched[1] ?? '').split('.').filter(Boolean)
+  // The match runs to the caret, so a trailing dot can only be the one the reader just typed.
+  const afterDot = text.endsWith('.')
+  if (segments.length === 0) return afterDot ? { module: null, partial: '' } : null
+  if (segments.length === 1) {
+    return afterDot
+      ? { module: segments[0]!, partial: '' }
+      : { module: null, partial: segments[0]! }
+  }
+  if (segments.length === 2 && !afterDot) return { module: segments[0]!, partial: segments[1]! }
+  // Past two segments the registry has nothing to say: `tp.app.vault.` reaches into the façade's members,
+  // which are being ported one at a time and are not a list this file may write.
+  return null
+}
+
+/** The path a member row would have to document for its name to be insertable text. */
+function memberPath(entry: ReferenceDocEntry): string {
+  return `tp.${entry.module}.${entry.name}`
+}
+
+/**
+ * Whether the registry documents this exact member.
+ *
+ * `tp.frontmatter.<key>` and `tp.user.<script_name>` are placeholders for a name only the reader has, and
+ * `moment(input?)` documents the module itself rather than `tp.moment.moment`; none of the three is text a
+ * completion may write into a note.
+ */
+function isDocumentedMember(entry: ReferenceDocEntry): boolean {
+  return entry.signature.startsWith(memberPath(entry))
+}
+
+/** The entry documenting the module as a value — `tp.moment` is moment's function, not a namespace. */
+function selfEntry(module: string): ReferenceDocEntry | null {
+  return REFERENCE_ENTRIES.find((entry) => entry.module === module && entry.name === module) ?? null
+}
+
+/**
+ * Whether the registry documents a callable, and whether it takes anything.
+ *
+ * Read off the parenthesis in the signature rather than off the path, because `moment(input?)` documents
+ * `tp.moment` itself and still describes a call.
+ */
+function callShapeOf(entry: ReferenceDocEntry): CallShape {
+  const open = entry.signature.indexOf('(')
+  if (open === -1) return 'value'
+  return entry.signature.slice(open + 1).trimStart().startsWith(')') ? 'no-args' : 'with-args'
+}
+
+/** One block per line: the tooltip's own element keeps no whitespace, so newlines alone would collapse. */
+function infoBlock(lines: readonly string[], codeLines: ReadonlySet<number>): Node {
+  const block = document.createDocumentFragment()
+  lines.forEach((line, index) => {
+    const row = document.createElement(codeLines.has(index) ? 'code' : 'div')
+    row.textContent = line
+    block.append(row)
+  })
+  return block
+}
+
+/** A member's documentation: the call, then whatever the reader's level asks for. */
+function memberLines(
+  entry: ReferenceDocEntry,
+  module: ReferenceModuleDoc,
+  level: TemplaterIntellisenseRender,
+  capabilities: Capabilities | null,
+): { lines: string[], code: Set<number> } {
+  const lines = [entry.signature]
+  const code = new Set([0])
+  // A dynamic module's blurb is the caveat that the list below it is not a boundary, so it leads.
+  if (module.dynamic) lines.push(t(module.descriptionKey))
+  lines.push(t(entry.descriptionKey))
+  for (const arg of entry.args) lines.push(`${arg.name}: ${t(arg.descriptionKey)}`)
+  if (entry.returnsKey) lines.push(t(entry.returnsKey))
+  if (level >= '2') {
+    for (const example of entry.examples) {
+      code.add(lines.length)
+      lines.push(example)
+    }
+  }
+  // The levels are single digits, so comparing them as strings is the order they are documented in.
+  if (level >= '3' && !module.dynamic) lines.push(t(module.descriptionKey))
+  if (capabilities && !referenceIsAvailable(entry, capabilities)) lines.push(t('templater.error.capability_blocked'))
+  return { lines, code }
+}
+
+function moduleLines(
+  module: ReferenceModuleDoc,
+  self: ReferenceDocEntry | null,
+  level: TemplaterIntellisenseRender,
+): { lines: string[], code: Set<number> } {
+  const lines = [self ? self.signature : `tp.${module.module}`, t(module.descriptionKey)]
+  const code = new Set([0])
+  if (!self) return { lines, code }
+  for (const arg of self.args) lines.push(`${arg.name}: ${t(arg.descriptionKey)}`)
+  if (self.returnsKey) lines.push(t(self.returnsKey))
+  if (level >= '2') {
+    for (const example of self.examples) {
+      code.add(lines.length)
+      lines.push(example)
+    }
+  }
+  return { lines, code }
+}
+
+/**
+ * Replace the typed part of the path and put the caret where the reader's next keystroke belongs.
+ *
+ * A function arrives in call form. A parenthesis already sitting after the caret — the one `closeBrackets()`
+ * paired when the reader typed `(` — is adopted instead of doubled, which is the same trap
+ * `wikiLinkSource` documents for `]]`.
+ */
+function applyMember(name: string, shape: CallShape): NonNullable<Completion['apply']> {
+  return (view, _completion, from, to) => {
+    const caret = to ?? from
+    const adopts = shape !== 'value' && view.state.sliceDoc(caret, caret + 1) === '('
+    const insert = adopts || shape === 'value' ? name : `${name}()`
+    // Offsets count from the start of the replacement: the partial name in front of the caret is gone by
+    // the time the anchor is read, so adding to the caret would land that many characters too far.
+    const onArguments = adopts || shape === 'with-args'
+    view.dispatch({
+      changes: { from, to: caret, insert },
+      selection: { anchor: onArguments ? from + name.length + 1 : from + insert.length },
+      userEvent: 'input.complete',
+      scrollIntoView: true,
+    })
+  }
+}
+
+/** A module keeps the chain going: the dot is what the next list hangs on. */
+function applyModule(name: string): NonNullable<Completion['apply']> {
+  return (view, _completion, from, to) => {
+    const caret = to ?? from
+    const insert = `${name}.`
+    view.dispatch({
+      changes: { from, to: caret, insert },
+      selection: { anchor: from + insert.length },
+      userEvent: 'input.complete',
+      scrollIntoView: true,
+    })
+  }
+}
+
+/** The modules the registry publishes, in the order the panel lists them. */
+function moduleRows(level: TemplaterIntellisenseRender, documented: boolean): Completion[] {
+  return REFERENCE_MODULES.map((module, index): Completion => {
+    const self = selfEntry(module.module)
+    const shape = self ? callShapeOf(self) : 'value'
+    return {
+      label: module.module,
+      type: 'namespace',
+      detail: documented ? truncateText(t(module.descriptionKey), DETAIL_MAX_CHARACTERS) : undefined,
+      // Assembled when the panel opens rather than per keystroke: a row the reader never selects is
+      // documentation they never read.
+      info: documented ? () => {
+        const built = moduleLines(module, self, level)
+        return infoBlock(built.lines, built.code)
+      } : undefined,
+      boost: REFERENCE_MODULES.length - index,
+      apply: self && shape !== 'value' ? applyMember(self.name, shape) : applyModule(module.module),
+    }
+  })
+}
+
+function memberRows(
+  module: ReferenceModuleDoc,
+  level: TemplaterIntellisenseRender,
+  documented: boolean,
+  capabilities: Capabilities | null,
+): Completion[] {
+  const entries = REFERENCE_ENTRIES.filter((entry) => entry.module === module.module && isDocumentedMember(entry))
+  return entries.map((entry, index): Completion => {
+    const shape = callShapeOf(entry)
+    return {
+      label: entry.name,
+      type: shape === 'value' ? 'property' : 'function',
+      detail: documented ? truncateText(t(entry.descriptionKey), DETAIL_MAX_CHARACTERS) : undefined,
+      info: documented ? () => {
+        const built = memberLines(entry, module, level, capabilities)
+        return infoBlock(built.lines, built.code)
+      } : undefined,
+      boost: entries.length - index,
+      apply: applyMember(entry.name, shape),
+    }
+  })
+}
+
+/**
+ * The completion source, ready for `autocompletion({ override: [...] })`.
+ *
+ * A factory with closures rather than a constant, mirroring `templaterHighlight`: the editor is configured
+ * once, and every reader setting has to be read when a list is actually asked for.
+ */
+export function templaterCompletion(options: TemplaterCompletionOptions): CompletionSource {
+  const enabled = options.enabled ?? (() => true)
+  return (context: CompletionContext): CompletionResult | null => {
+    if (!enabled()) return null
+    const window = commandWindow(context.state, context.pos)
+    if (window === null) return null
+    const path = pathBeforeCaret(window)
+    if (path === null) return null
+    const level = renderLevel(options.intellisenseRender())
+    const documented = level !== '0'
+    const module = path.module === null ? null : referenceModuleDoc(path.module)
+    if (path.module !== null && !module) return null
+    const capabilities = options.profile ? capabilitiesFor(options.profile()) : null
+    const rows = module ? memberRows(module, level, documented, capabilities) : moduleRows(level, documented)
+    if (rows.length === 0) return null
+    // CodeMirror's own matcher filters these: the lists are the registry's, small and already ordered, so
+    // a second ranking path here would only be another thing to keep in step with the panel.
+    return { from: context.pos - path.partial.length, options: rows, validFor: /^[\w$]*$/ }
+  }
+}

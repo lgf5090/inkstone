@@ -21,6 +21,8 @@ import { editorKeymap } from './shortcuts';
 import { liveBlockContextMenu, liveLinkGesture, livePreview } from './live-preview';
 // Aliased: the prop that carries the reader's switch is named for what it turns on.
 import { templaterHighlight as templaterHighlightExt } from './templater';
+import { templaterCompletion } from './templater-completion';
+import { DEFAULT_SETTINGS } from '@shared/constants';
 import { linkHoverExtension, linkHoverFacet } from './link-hover-plugin';
 import { runRenderedLinkGesture, runSourceLinkGesture } from '../features/links/use-link-editor';
 import { registerLinkEditorNote } from '../features/links/store';
@@ -71,6 +73,12 @@ export interface CodeEditorProps {
      * a note's body (the canvas) leaves it off.
      */
     templaterHighlight?: boolean;
+    /**
+     * How much the template completions may say about themselves — the reader's `intellisenseRender` level.
+     *
+     * A string rather than the setting object because this component owns no view of the settings store.
+     */
+    templaterIntellisenseRender?: string;
     placeholder?: string;
     className?: string;
 }
@@ -82,7 +90,7 @@ export function DeferredCodeEditor({ visible, ...props }: CodeEditorProps & { vi
     // Preserve undo history across mode changes once editing has started.
     return visible || initialized ? <CodeEditor {...props}/> : null;
 }
-export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHeadings, onChange, settings, sources, handlers, onReady, onScroll, onCursorLine, onSelectionChange, onRequestContextMenu, templaterHighlight = false, placeholder = t("editor.start_writing"), className, }: CodeEditorProps) {
+export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHeadings, onChange, settings, sources, handlers, onReady, onScroll, onCursorLine, onSelectionChange, onRequestContextMenu, templaterHighlight = false, templaterIntellisenseRender = DEFAULT_SETTINGS.templater.intellisenseRender, placeholder = t("editor.start_writing"), className, }: CodeEditorProps) {
     const hostRef = useRef<HTMLDivElement>(null);
     const [tagMenu, setTagMenu] = useState<TagMenuRequest | null>(null);
     const [blockMenu, setBlockMenu] = useState<DraggerBlockMenuRequest | null>(null);
@@ -90,8 +98,8 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
     tagMenuRef.current = setTagMenu;
     const viewRef = useRef<EditorView | null>(null);
 
-    const cbRef = useRef({ onChange, onScroll, onCursorLine, onSelectionChange, sources, handlers, onHeadings, noteTitle, onRequestContextMenu, templaterHighlight });
-    cbRef.current = { onChange, onScroll, onCursorLine, onSelectionChange, sources, handlers, onHeadings, noteTitle, onRequestContextMenu, templaterHighlight };
+    const cbRef = useRef({ onChange, onScroll, onCursorLine, onSelectionChange, sources, handlers, onHeadings, noteTitle, onRequestContextMenu, templaterHighlight, templaterIntellisenseRender });
+    cbRef.current = { onChange, onScroll, onCursorLine, onSelectionChange, sources, handlers, onHeadings, noteTitle, onRequestContextMenu, templaterHighlight, templaterIntellisenseRender };
     const { hover, handlePin } = useLinkHoverHost(noteId ?? null);
     const longPress = useLongPress((point, target) => {
         // A long press on a handle is the phone's version of right-clicking it: the block's own menu,
@@ -195,6 +203,7 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
                     containerDirectiveSource,
                     emojiSource,
                     taskFieldSource,
+                    templaterCompletion({ intellisenseRender: () => cbRef.current.templaterIntellisenseRender }),
                 ],
                 activateOnTyping: true,
                 closeOnBlur: true,
