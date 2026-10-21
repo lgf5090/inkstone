@@ -1255,6 +1255,13 @@ async function readTool(
 ) {
   return safeTool(async () => {
     requireScope(ctx, options.auth, scope)
+    // The to-do read switch withholds the scope itself rather than inventing a second refusal: a key
+    // minted before the switch, or before the account turned it off, is answered exactly as a key that
+    // never carried `todos:read`. Notes keep their own premise — reads are what that endpoint is for.
+    if (scope === MCP_SCOPES.todoRead) {
+      const preferences = await getMcpPreferencesCached(options.env.DB, options.auth.userId)
+      if (!preferences.todoReadEnabled) throw ApiError.forbidden(`OAuth scope required: ${scope}`)
+    }
     return structuredData(await callback())
   })
 }

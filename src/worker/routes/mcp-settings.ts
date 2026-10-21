@@ -68,10 +68,11 @@ mcpSettingsRoutes.put('/', async (c) => {
     enabled?: boolean
     writeEnabled?: boolean
     trashEnabled?: boolean
+    todoReadEnabled?: boolean
     disabledTools?: unknown
   }>(c, JSON_BODY_LIMITS.settings)
 
-  for (const key of ['enabled', 'writeEnabled', 'trashEnabled'] as const) {
+  for (const key of ['enabled', 'writeEnabled', 'trashEnabled', 'todoReadEnabled'] as const) {
     if (body[key] !== undefined && typeof body[key] !== 'boolean') {
       throw ApiError.badRequest(`${key} must be a boolean`)
     }
@@ -84,6 +85,7 @@ mcpSettingsRoutes.put('/', async (c) => {
   const preferences = await updateMcpPreferences(c.env.DB, user.id, {
     ...(body.writeEnabled !== undefined ? { writeEnabled: body.writeEnabled } : {}),
     ...(body.trashEnabled !== undefined ? { trashEnabled: body.trashEnabled } : {}),
+    ...(body.todoReadEnabled !== undefined ? { todoReadEnabled: body.todoReadEnabled } : {}),
     ...(body.disabledTools !== undefined ? { disabledTools: disabledToolsFrom(c, body.disabledTools) } : {}),
   })
   return c.json({

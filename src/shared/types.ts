@@ -1150,6 +1150,13 @@ export interface McpPreferences {
   writeEnabled: boolean
   trashEnabled: boolean
   /**
+   * Whether a key may read tasks at all.
+   *
+   * Absent reads as on: a payload from an older server, or the demo, predates the switch — and on is the
+   * default the column carries, so a reader who has never seen the switch keeps what keys already had.
+   */
+  todoReadEnabled?: boolean
+  /**
    * The server's own tools the reader has switched off, by the name the server registers them under.
    *
    * Kept as the switched-off set rather than the enabled one so that a tool a later build adds arrives

@@ -53,6 +53,7 @@ describe('grantedMcpScopes', () => {
     const scopes = grantedMcpScopes(MCP_SUPPORTED_SCOPES, {
       writeEnabled: false,
       trashEnabled: false,
+      todoReadEnabled: true,
       disabledTools: [],
       updatedAt: 0,
     })
@@ -65,6 +66,7 @@ describe('grantedMcpScopes', () => {
     expect(grantedMcpScopes(MCP_SUPPORTED_SCOPES, {
       writeEnabled: true,
       trashEnabled: false,
+      todoReadEnabled: true,
       disabledTools: [],
       updatedAt: 0,
     })).toEqual([MCP_SCOPES.read, MCP_SCOPES.write, MCP_SCOPES.todoRead, MCP_SCOPES.todoWrite])

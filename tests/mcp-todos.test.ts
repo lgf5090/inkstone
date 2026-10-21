@@ -18,6 +18,7 @@ import { AssistantStore } from '../src/worker/assistant/store'
 import { createInkstoneMcpServer } from '../src/worker/mcp/server'
 import { createMcpApiKey, verifyMcpApiKey } from '../src/worker/mcp/api-keys'
 import {
+  getMcpPreferences,
   grantedMcpScopes,
   MCP_NOTE_SCOPES,
   MCP_SCOPES,
@@ -72,11 +73,12 @@ beforeEach(async () => {
   seedUser(OTHER)
 })
 
-/** The account's own MCP switches, which gate every write whatever scope a key carries. */
-async function switchPreferences(write: boolean, trash: boolean): Promise<void> {
+/** The account's own MCP switches: the two that gate writes, and the one that gates to-do reads. */
+async function switchPreferences(write: boolean, trash: boolean, todoRead = true): Promise<void> {
   await putMcpPreferences(env.DB, USER, {
     writeEnabled: write,
     trashEnabled: trash,
+    todoReadEnabled: todoRead,
     disabledTools: [],
     updatedAt: Date.now(),
   })
@@ -204,6 +206,58 @@ describe('the to-do tools answer under scopes of their own', () => {
     const outcome = await callTool(READ, 'get_todo', { task_id: task.id })
     expect(outcome.ok).toBe(true)
     expect(outcome.body).toMatchObject({ task: { id: task.id, title: 'File the return' } })
+  })
+})
+
+describe('to-do reads answer to an account switch of their own', () => {
+  it('refuses every read while the switch is off, in the shape a missing scope has', async () => {
+    const task = await store.createTask({ title: 'Not for the agent' })
+    await switchPreferences(true, true, false)
+
+    const withoutScope = await failureOf([MCP_SCOPES.read], 'list_todos')
+    for (const [name, args] of [
+      ['list_todos', {}],
+      ['get_todo', { task_id: task.id }],
+      ['list_todo_lists', {}],
+    ] as const) {
+      const refused = await failureOf(READ, name, args)
+      // A key that carries the scope but whose account has the switch off is refused exactly as a key
+      // that never carried it: the scope is withheld, not answered with a second kind of error.
+      expect({ name, ...refused }).toEqual({ name, ...withoutScope })
+    }
+  })
+
+  it('answers again as soon as the switch is back on', async () => {
+    await switchPreferences(true, true, false)
+    expect((await callTool(READ, 'list_todos')).ok).toBe(false)
+
+    await switchPreferences(true, true, true)
+    // The same isolate and the same cached preferences: flipping the switch has to drop the cached answer.
+    const outcome = await callTool(READ, 'list_todos')
+    expect(outcome.ok).toBe(true)
+  })
+
+  it('leaves to-do writes and deletes to their own switches', async () => {
+    await switchPreferences(true, true, false)
+
+    const created = await callTool(WRITE, 'create_todo', {
+      operation_id: 'op-read-off-write-on',
+      title: 'Still writable',
+    })
+    expect(created.ok).toBe(true)
+    const id = (created.body as { task: Record<string, unknown> }).task.id as string
+
+    const deleted = await callTool(DANGER, 'delete_todo', {
+      operation_id: 'op-read-off-delete-on',
+      task_id: id,
+    })
+    expect(deleted.ok).toBe(true)
+    expect(await store.getTask(id)).toBeNull()
+  })
+
+  it('reads by default for an account that never touched the switch', async () => {
+    expect((await getMcpPreferences(env.DB, USER)).todoReadEnabled).toBe(true)
+    expect((await callTool(READ, 'list_todos')).ok).toBe(true)
   })
 })
 
@@ -511,10 +565,16 @@ describe('no key grows because the to-do family exists', () => {
 
     // The account switches still decide: a write the reader has not switched on cannot be asked for.
     await putMcpPreferences(env.DB, USER, {
-      writeEnabled: false, trashEnabled: false, disabledTools: [], updatedAt: Date.now(),
+      writeEnabled: false, trashEnabled: false, todoReadEnabled: true, disabledTools: [], updatedAt: Date.now(),
     })
     const refused = await createMcpApiKey(env.DB, USER, 'greedy', [MCP_SCOPES.todoWrite, MCP_SCOPES.todoDanger])
     expect(refused.record.scopes).toEqual([MCP_SCOPES.read])
+  })
+
+  it('withholds todos:read from a new key while the account switch is off', async () => {
+    await switchPreferences(false, false, false)
+    const reading = await createMcpApiKey(env.DB, USER, 'reader', [MCP_SCOPES.todoRead])
+    expect(reading.record.scopes).toEqual([MCP_SCOPES.read])
   })
 
   it('leaves a key stored before the family existed carrying exactly what it stored', async () => {
@@ -529,7 +589,7 @@ describe('no key grows because the to-do family exists', () => {
   })
 
   it('keeps the note ceiling handing out no to-do scope, and the full ceiling naming each one it may', () => {
-    const open = { writeEnabled: true, trashEnabled: true, disabledTools: [], updatedAt: 0 }
+    const open = { writeEnabled: true, trashEnabled: true, todoReadEnabled: true, disabledTools: [], updatedAt: 0 }
     expect(grantedMcpScopes(MCP_NOTE_SCOPES, open))
       .toEqual([MCP_SCOPES.read, MCP_SCOPES.write, MCP_SCOPES.trash])
     expect(grantedMcpScopes(MCP_SUPPORTED_SCOPES, open)).toEqual([
@@ -538,5 +598,8 @@ describe('no key grows because the to-do family exists', () => {
     ])
     expect(grantedMcpScopes(MCP_SUPPORTED_SCOPES, { ...open, writeEnabled: false, trashEnabled: false }))
       .toEqual([MCP_SCOPES.read, MCP_SCOPES.todoRead])
+    // The read switch withholds its scope alone; the writes still answer to the two switches above.
+    expect(grantedMcpScopes(MCP_SUPPORTED_SCOPES, { ...open, todoReadEnabled: false }))
+      .toEqual([MCP_SCOPES.read, MCP_SCOPES.write, MCP_SCOPES.trash, MCP_SCOPES.todoWrite, MCP_SCOPES.todoDanger])
   })
 })

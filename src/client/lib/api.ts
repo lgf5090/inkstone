@@ -992,6 +992,8 @@ export const api = {
       enabled?: boolean
       writeEnabled?: boolean
       trashEnabled?: boolean
+      /** Whether a key may read tasks at all. */
+      todoReadEnabled?: boolean
       /** The server's own tools to switch off, by the name it registers them under. */
       disabledTools?: string[]
     }) => request<{
