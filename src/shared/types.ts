@@ -565,6 +565,17 @@ export interface SavedTodoFilter {
 export interface TodoSettings {
   defaultRemind: RemindOffset | null
   /**
+   * A day's completion target, or null when the reader keeps none.
+   *
+   * Zero and an empty field both mean "off", and the settings merge stores that as null so there is
+   * one spelling for no goal. Optional in the type for the same reason {@link savedFilters} is: a
+   * settings object written by hand, or by a build before this field, may leave it out; the merge
+   * fills it in, and every read of account settings goes through that merge.
+   */
+  dailyGoal?: number | null
+  /** A week's completion target; {@link dailyGoal} says how off is spelled. */
+  weeklyGoal?: number | null
+  /**
    * The filter lines kept under a name.
    *
    * Optional in the type because a settings object written by hand (or by a build before this field)

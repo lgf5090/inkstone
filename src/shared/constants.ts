@@ -480,6 +480,8 @@ export const DEFAULT_SETTINGS: UserSettings = {
   },
   todo: {
     defaultRemind: null,
+    dailyGoal: null,
+    weeklyGoal: null,
     savedFilters: [],
   },
 }
@@ -510,6 +512,15 @@ export const TODO_TAG_LIST_MAX = 8
 export const TODO_SAVED_FILTER_MAX = 30
 export const TODO_SAVED_FILTER_NAME_MAX = 60
 export const TODO_SAVED_FILTER_QUERY_MAX = 200
+
+/**
+ * The range a daily or weekly goal may name, in whole tasks.
+ *
+ * A goal is a nudge rather than a workload plan, and a three-digit ceiling is already more finished
+ * tasks than one day or week holds for a person. It is also the field's own `min`/`max`, so the
+ * number the reader types and the number the merge keeps share one edge.
+ */
+export const TODO_GOAL_RANGE = [0, 999] as const
 
 export const PROPERTY_NAME_MAX = 60
 export const PROPERTY_LIST_MAX = 80
@@ -818,6 +829,8 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.notes.syncTitleToFrontMatter = booleanValue(notes.syncTitleToFrontMatter, base.notes.syncTitleToFrontMatter)
   base.notes.syncFrontMatterTitle = booleanValue(notes.syncFrontMatterTitle, base.notes.syncFrontMatterTitle)
   base.todo.defaultRemind = todoRemindOffset(todo.defaultRemind)
+  base.todo.dailyGoal = todoGoal(todo.dailyGoal)
+  base.todo.weeklyGoal = todoGoal(todo.weeklyGoal)
   base.todo.savedFilters = savedTodoFilters(todo.savedFilters)
 
   base.appearance.theme = enumValue(appearance.theme, THEMES, base.appearance.theme)
@@ -1504,6 +1517,23 @@ export function normalizeTodoTags(value: unknown): string {
 function todoRemindOffset(value: unknown): TodoSettings['defaultRemind'] {
   if (value === 'due' || value === '15m' || value === '1h' || value === '1d') return value
   return null
+}
+
+/**
+ * A stored daily or weekly goal: a whole count inside `TODO_GOAL_RANGE`, or null for no goal.
+ *
+ * Zero, a negative number, an empty field and anything that is not a finite number all read as
+ * "off": a goal of nothing is not a goal, and one spelling for that is what keeps every reader of
+ * the settings from testing two shapes. A fraction is rounded because a goal counts tasks, and an
+ * over-long number is held to the same ceiling the field offers.
+ */
+function todoGoal(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value))
+    return null
+  const rounded = Math.round(value)
+  if (rounded <= TODO_GOAL_RANGE[0])
+    return null
+  return Math.min(TODO_GOAL_RANGE[1], rounded)
 }
 
 function sameFlatRecord(a: Record<string, unknown>, b: Record<string, unknown>): boolean {

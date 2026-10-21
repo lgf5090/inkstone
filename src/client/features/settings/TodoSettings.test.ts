@@ -2,7 +2,7 @@ import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AssistantSettings, Automation } from '@shared/assistant'
 import { computeNextRun } from '@shared/assistant-schedule'
-import { DEFAULT_SETTINGS } from '@shared/constants'
+import { DEFAULT_SETTINGS, mergeSettings, mergeSettingsPatch } from '@shared/constants'
 import { initI18n, t } from '../../lib/i18n'
 import { ApiError } from '../../lib/api'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
@@ -19,7 +19,16 @@ import { TodoSettings } from './TodoSettings'
  * switch that would create a duplicate routine on the next press.
  */
 
-const { settingsMock, saveSettingsMock, automationsMock, createMock, updateMock, feedListMock, importCsvMock } = vi.hoisted(() => ({
+const {
+  settingsMock,
+  saveSettingsMock,
+  automationsMock,
+  createMock,
+  updateMock,
+  feedListMock,
+  importCsvMock,
+  updateSettingsMock,
+} = vi.hoisted(() => ({
   settingsMock: vi.fn(),
   saveSettingsMock: vi.fn(),
   automationsMock: vi.fn(),
@@ -27,6 +36,7 @@ const { settingsMock, saveSettingsMock, automationsMock, createMock, updateMock,
   updateMock: vi.fn(),
   feedListMock: vi.fn(),
   importCsvMock: vi.fn(),
+  updateSettingsMock: vi.fn(),
 }))
 
 vi.mock('../../lib/api', async (importOriginal) => {
@@ -97,6 +107,21 @@ function timeInput(): HTMLInputElement {
   return node
 }
 
+function goalField(label: string): HTMLInputElement {
+  const node = view?.container.querySelector<HTMLInputElement>(`input[type="number"][aria-label="${label}"]`)
+  if (!node) throw new Error(`the ${label} field is not rendered`)
+  return node
+}
+
+/** Hand a value to the field the way typing would, and let the row's state land. */
+async function enterGoal(label: string, value: string): Promise<void> {
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(goalField(label), value)
+    goalField(label).dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await settle()
+}
+
 async function toggle(): Promise<void> {
   await act(async () => {
     switchControl().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
@@ -123,9 +148,10 @@ beforeEach(async () => {
     automation: automation({ id, ...body }),
   }))
   feedListMock.mockReset().mockResolvedValue({ feeds: [] })
+  updateSettingsMock.mockReset()
   useSession.setState({
-    settings: { ...DEFAULT_SETTINGS, todo: { defaultRemind: null } },
-    updateSettings: async () => undefined,
+    settings: DEFAULT_SETTINGS,
+    updateSettings: updateSettingsMock,
   })
 })
 
@@ -235,5 +261,57 @@ describe('the daily-plan row', () => {
 
     expect(importCsvMock).toHaveBeenCalledWith(file, 'skip')
     expect(view?.container.textContent).toContain(t('settings.todo_import_result', { created: 2, updated: 1, skipped: 3 }))
+  })
+})
+
+describe('the stored goals', () => {
+  it('keeps a goal inside the range and reads zero, a negative number and an empty field as none', () => {
+    expect(mergeSettings({ todo: { dailyGoal: 3, weeklyGoal: 12 } }).todo)
+      .toMatchObject({ dailyGoal: 3, weeklyGoal: 12 })
+    expect(mergeSettings({ todo: { dailyGoal: 0, weeklyGoal: -4 } }).todo)
+      .toMatchObject({ dailyGoal: null, weeklyGoal: null })
+    expect(mergeSettings({ todo: { dailyGoal: null, weeklyGoal: undefined } }).todo)
+      .toMatchObject({ dailyGoal: null, weeklyGoal: null })
+    // A field the reader left empty arrives as an empty string, not as a number.
+    expect(mergeSettings({ todo: { dailyGoal: '', weeklyGoal: '8' } }).todo)
+      .toMatchObject({ dailyGoal: null, weeklyGoal: null })
+  })
+
+  it('caps a goal at the field ceiling and rounds a fraction to a whole task', () => {
+    expect(mergeSettings({ todo: { dailyGoal: 1200, weeklyGoal: 999.6 } }).todo)
+      .toMatchObject({ dailyGoal: 999, weeklyGoal: 999 })
+    expect(mergeSettings({ todo: { dailyGoal: 2.6 } }).todo.dailyGoal).toBe(3)
+  })
+
+  it('merges a patch into the stored goals and lets a later patch turn one off', () => {
+    const stored = mergeSettings({ todo: { dailyGoal: 4, weeklyGoal: 20 } })
+    const patched = mergeSettingsPatch(stored, { todo: { dailyGoal: 6 } })
+    expect(patched.todo).toMatchObject({ dailyGoal: 6, weeklyGoal: 20 })
+    const off = mergeSettingsPatch(patched, { todo: { dailyGoal: 0 } })
+    expect(off.todo).toMatchObject({ dailyGoal: null, weeklyGoal: 20 })
+  })
+})
+
+describe('the goal rows', () => {
+  it('saves each whole count through the account settings and turns a goal off when its field is emptied', async () => {
+    await render()
+    expect([goalField(t('todo.goal.daily')).min, goalField(t('todo.goal.daily')).max]).toEqual(['0', '999'])
+    expect([goalField(t('todo.goal.weekly')).min, goalField(t('todo.goal.weekly')).max]).toEqual(['0', '999'])
+
+    await enterGoal(t('todo.goal.daily'), '3')
+    expect(updateSettingsMock).toHaveBeenLastCalledWith({ todo: { dailyGoal: 3 } })
+    await enterGoal(t('todo.goal.weekly'), '12')
+    expect(updateSettingsMock).toHaveBeenLastCalledWith({ todo: { weeklyGoal: 12 } })
+
+    await enterGoal(t('todo.goal.daily'), '')
+    expect(updateSettingsMock).toHaveBeenLastCalledWith({ todo: { dailyGoal: null } })
+  })
+
+  it('holds a typed count to the ceiling the settings merge applies', async () => {
+    await render()
+    await enterGoal(t('todo.goal.weekly'), '1200')
+    expect(updateSettingsMock).toHaveBeenLastCalledWith({ todo: { weeklyGoal: 999 } })
+    await enterGoal(t('todo.goal.daily'), '-3')
+    expect(updateSettingsMock).toHaveBeenLastCalledWith({ todo: { dailyGoal: null } })
   })
 })

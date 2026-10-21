@@ -1,5 +1,6 @@
 /**
- * The to-do settings page: the zone its days are read in, and the reminder a new task starts with.
+ * The to-do settings page: the zone its days are read in, the reminder a new task starts with, and
+ * the daily and weekly goals the statistics screen measures against.
  *
  * The worker answers `dayEnd` and every due-date comparison from a single stored zone, because "today" is
  * a span in the reader's own day rather than something a browser can compute once it is a thousand
@@ -19,7 +20,7 @@ import { useEffect, useId, useMemo, useState } from 'react'
 import { X } from 'lucide-react'
 import type { AssistantSettings, Automation } from '@shared/assistant'
 import { isValidTimeZone } from '@shared/assistant-schedule'
-import { TODO_SAVED_FILTER_MAX, TODO_SAVED_FILTER_NAME_MAX, TODO_SAVED_FILTER_QUERY_MAX } from '@shared/constants'
+import { TODO_GOAL_RANGE, TODO_SAVED_FILTER_MAX, TODO_SAVED_FILTER_NAME_MAX, TODO_SAVED_FILTER_QUERY_MAX } from '@shared/constants'
 import { REMIND_OFFSETS, type RemindOffset } from '@shared/todos/model'
 import type { SavedTodoFilter } from '@shared/types'
 import { t, translateApiError } from '../../lib/i18n'
@@ -56,6 +57,8 @@ export function TodoSettings() {
   const digestHintId = useId()
   const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone
   const defaultRemind = useSession((state) => state.settings.todo.defaultRemind)
+  const dailyGoal = useSession((state) => state.settings.todo.dailyGoal) ?? null
+  const weeklyGoal = useSession((state) => state.settings.todo.weeklyGoal) ?? null
   const updateSettings = useSession((state) => state.updateSettings)
 
   useEffect(() => {
@@ -262,10 +265,71 @@ export function TodoSettings() {
           ))}
         </Select>
       </SettingRow>
+      <SettingRow
+        title={t('settings.todo_goals')}
+        description={t('settings.todo_goals_hint')}
+      >
+        <div className="flex items-center gap-2">
+          <GoalInput
+            label={t('todo.goal.daily')}
+            value={dailyGoal}
+            onChange={(value) => updateSettings({ todo: { dailyGoal: value } })}
+          />
+          <GoalInput
+            label={t('todo.goal.weekly')}
+            value={weeklyGoal}
+            onChange={(value) => updateSettings({ todo: { weeklyGoal: value } })}
+          />
+        </div>
+      </SettingRow>
       <SavedFiltersRow />
       <FeedSettings />
       <TodoImportRow />
     </div>
+  )
+}
+
+/**
+ * One of the two goals: a whole count inside `TODO_GOAL_RANGE`, where an empty field or zero leaves
+ * the goal off.
+ *
+ * The field keeps what is being typed while it has focus. Writing every keystroke straight back into
+ * the stored setting would let the merge rewrite a half-typed number under the caret — a leading zero
+ * vanishing, or a fraction snapping — so the draft is dropped on blur, when the stored count is the
+ * one the reader should see.
+ */
+function GoalInput({ label, value, onChange }: {
+  label: string
+  value: number | null
+  onChange: (value: number | null) => void
+}) {
+  const [draft, setDraft] = useState<string | null>(null)
+  const shown = draft ?? (value === null ? '' : String(value))
+  return (
+    <Input
+      type="number"
+      inputMode="numeric"
+      min={TODO_GOAL_RANGE[0]}
+      max={TODO_GOAL_RANGE[1]}
+      aria-label={label}
+      value={shown}
+      onChange={(event) => {
+        const text = event.target.value
+        setDraft(text)
+        if (text === '') {
+          onChange(null)
+          return
+        }
+        const parsed = Number(text)
+        if (!Number.isFinite(parsed)) return
+        const rounded = Math.round(parsed)
+        // The merge applies the same edges; the field stops a spinner from ever showing a count it
+        // would not keep.
+        onChange(rounded <= TODO_GOAL_RANGE[0] ? null : Math.min(TODO_GOAL_RANGE[1], rounded))
+      }}
+      onBlur={() => setDraft(null)}
+      className="w-24 tabular-nums"
+    />
   )
 }
 
