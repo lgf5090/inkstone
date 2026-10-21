@@ -21,6 +21,7 @@ import type {
   PropertyFormatChoice,
   PropertyProgressChoice,
   SavedDataviewQuery,
+  SavedTodoFilter,
   SidebarTab,
   SkinTone,
   TodoSettings,
@@ -479,6 +480,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   },
   todo: {
     defaultRemind: null,
+    savedFilters: [],
   },
 }
 
@@ -497,6 +499,17 @@ export const RSS_LINE_HEIGHT_RANGE = [1.4, 2.4] as const
 export const RSS_REFRESH_INTERVALS = [0, 5, 15, 30, 60, 240, 720] as const
 
 export const TODO_TAG_LIST_MAX = 8
+
+/**
+ * The saved filter lines one account may keep.
+ *
+ * A saved filter is a shortcut to a screen the reader already has; a few dozen is more than a sidebar
+ * can show without becoming a second list of views. The name and line ceilings are the settings
+ * blob's own budget, and match the lengths the settings row's fields accept.
+ */
+export const TODO_SAVED_FILTER_MAX = 30
+export const TODO_SAVED_FILTER_NAME_MAX = 60
+export const TODO_SAVED_FILTER_QUERY_MAX = 200
 
 export const PROPERTY_NAME_MAX = 60
 export const PROPERTY_LIST_MAX = 80
@@ -805,6 +818,7 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.notes.syncTitleToFrontMatter = booleanValue(notes.syncTitleToFrontMatter, base.notes.syncTitleToFrontMatter)
   base.notes.syncFrontMatterTitle = booleanValue(notes.syncFrontMatterTitle, base.notes.syncFrontMatterTitle)
   base.todo.defaultRemind = todoRemindOffset(todo.defaultRemind)
+  base.todo.savedFilters = savedTodoFilters(todo.savedFilters)
 
   base.appearance.theme = enumValue(appearance.theme, THEMES, base.appearance.theme)
   base.appearance.language = enumValue(
@@ -1280,6 +1294,35 @@ function savedDataviewQueries(value: unknown): SavedDataviewQuery[] {
   return out
 }
 
+/**
+ * The saved filter lines, as the account keeps them.
+ *
+ * A line with no name or no query is not a filter anyone can reopen, so it is dropped rather than kept
+ * as a blank row. The id is a local identifier like a saved query's: a shape-matching one is kept so a
+ * rename is one entry, and a stray one is derived from the name and the line. The ceilings are what
+ * keep a few dozen shortcuts from turning the settings blob into a library.
+ */
+function savedTodoFilters(value: unknown): SavedTodoFilter[] {
+  if (!Array.isArray(value)) return []
+  const out: SavedTodoFilter[] = []
+  const seen = new Set<string>()
+  for (const item of value) {
+    const record = asRecord(item)
+    const name = trimmedText(record.name, TODO_SAVED_FILTER_NAME_MAX)
+    const query = typeof record.query === 'string'
+      ? record.query.trim().slice(0, TODO_SAVED_FILTER_QUERY_MAX)
+      : ''
+    if (!name || !query) continue
+    const id = /^[a-z0-9][a-z0-9-]{3,63}$/i.test(String(record.id ?? '')) ? String(record.id).toLowerCase() : ''
+    const key = id || `${name}\u0000${query}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push({ id: key, name, query })
+    if (out.length >= TODO_SAVED_FILTER_MAX) break
+  }
+  return out
+}
+
 function halfStepInRange(value: unknown, range: readonly [number, number], fallback: number): number {
   const clamped = numberInRange(value, range[0], range[1], fallback)
   return Math.round(clamped * 2) / 2
@@ -1533,7 +1576,7 @@ function cloneDefaultSettings(): UserSettings {
       savedQueries: [],
     },
     rss: { ...DEFAULT_SETTINGS.rss },
-    todo: { ...DEFAULT_SETTINGS.todo },
+    todo: { ...DEFAULT_SETTINGS.todo, savedFilters: [] },
   }
 }
 

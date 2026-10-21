@@ -16,13 +16,17 @@
  * without a reminder of its own.
  */
 import { useEffect, useId, useMemo, useState } from 'react'
+import { X } from 'lucide-react'
 import type { AssistantSettings, Automation } from '@shared/assistant'
 import { isValidTimeZone } from '@shared/assistant-schedule'
+import { TODO_SAVED_FILTER_MAX, TODO_SAVED_FILTER_NAME_MAX, TODO_SAVED_FILTER_QUERY_MAX } from '@shared/constants'
 import { REMIND_OFFSETS, type RemindOffset } from '@shared/todos/model'
+import type { SavedTodoFilter } from '@shared/types'
 import { t, translateApiError } from '../../lib/i18n'
 import { api, ApiError } from '../../lib/api'
-import { Button } from '../../components/primitives'
-import { Input, Select, SettingRow, Switch } from '../../components/form'
+import { randomLocalId } from '../../lib/random-id'
+import { Button, IconButton } from '../../components/primitives'
+import { commitOnEnter, Input, Select, SettingRow, Switch } from '../../components/form'
 import { LoadingBlock } from '../../components/feedback'
 import { useSession } from '../../store/session'
 import { FeedSettings } from './FeedSettings'
@@ -258,9 +262,105 @@ export function TodoSettings() {
           ))}
         </Select>
       </SettingRow>
+      <SavedFiltersRow />
       <FeedSettings />
       <TodoImportRow />
     </div>
+  )
+}
+
+/** The empty list a settings object without the field reads as; one instance, so the selector is stable. */
+const NO_SAVED_FILTERS: SavedTodoFilter[] = []
+
+/**
+ * The saved filter lines: a name, the line itself, and what is already kept.
+ *
+ * A saved filter is a screen the to-do sidebar can reopen, so the row keeps the line exactly as it was
+ * typed — the grammar is read when the sidebar opens it, not when it is saved. Both halves are
+ * required: a line with no name is a row nobody can pick out, and a name with no line opens an
+ * unfiltered screen. The list is the same one the sidebar draws, with the same delete action, because
+ * a shortcut removed in one place must not linger in the other.
+ */
+function SavedFiltersRow() {
+  const saved = useSession((state) => state.settings.todo.savedFilters) ?? NO_SAVED_FILTERS
+  const updateSettings = useSession((state) => state.updateSettings)
+  const [name, setName] = useState('')
+  const [query, setQuery] = useState('')
+  const nameId = useId()
+  const queryId = useId()
+  const canSave = name.trim() !== '' && query.trim() !== '' && saved.length < TODO_SAVED_FILTER_MAX
+
+  /** Writes the whole list, because the settings merge stores a list rather than a row. */
+  const add = (): void => {
+    if (!canSave) return
+    updateSettings({
+      todo: {
+        savedFilters: [...saved, { id: randomLocalId('filter'), name: name.trim(), query: query.trim() }],
+      },
+    })
+    setName('')
+    setQuery('')
+  }
+
+  const remove = (id: string): void => {
+    updateSettings({ todo: { savedFilters: saved.filter((entry) => entry.id !== id) } })
+  }
+
+  return (
+    <SettingRow
+      title={t('settings.todo_saved_filters')}
+      description={(
+        <div className="flex flex-col gap-1">
+          <span>{t('settings.todo_saved_filters_hint')}</span>
+          <code className="break-words text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+            {t('settings.todo_saved_filters_syntax')}
+          </code>
+        </div>
+      )}
+    >
+      <div className="flex w-full max-w-[460px] flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            id={nameId}
+            aria-label={t('settings.todo_saved_filter_name')}
+            maxLength={TODO_SAVED_FILTER_NAME_MAX}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            className="min-w-0 flex-1"
+          />
+          <Input
+            id={queryId}
+            aria-label={t('settings.todo_saved_filter_query')}
+            placeholder={t('settings.todo_saved_filters_syntax')}
+            maxLength={TODO_SAVED_FILTER_QUERY_MAX}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => { commitOnEnter(event, add) }}
+            className="min-w-0 flex-[2]"
+          />
+          <Button size="sm" disabled={!canSave} onClick={add}>{t('settings.todo_saved_filter_add')}</Button>
+        </div>
+        {saved.length === 0 ? (
+          <p className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('settings.todo_saved_filter_empty')}</p>
+        ) : (
+          <ul aria-label={t('settings.todo_saved_filters')} className="flex flex-col gap-1">
+            {saved.map((entry) => (
+              <li key={entry.id} className="flex min-h-8 items-center gap-2 rounded-[var(--r-sm)] border border-[var(--border-subtle)] px-2">
+                <span className="min-w-0 shrink-0 truncate text-[length:var(--text-12)] text-[var(--text-primary)]">{entry.name}</span>
+                <code className="min-w-0 flex-1 truncate text-[length:var(--text-11)] text-[var(--text-quaternary)]">{entry.query}</code>
+                <IconButton
+                  label={t('todo.saved_filter.delete', { name: entry.name })}
+                  size="xs"
+                  onClick={() => remove(entry.id)}
+                >
+                  <X size={12} />
+                </IconButton>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </SettingRow>
   )
 }
 

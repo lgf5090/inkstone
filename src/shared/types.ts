@@ -543,6 +543,19 @@ export interface UserSettings {
 }
 
 /**
+ * A filter line kept under a name, so the to-do sidebar can reopen it.
+ *
+ * `query` is the line exactly as the reader typed it in the search box, not the parameters it was read
+ * into: the grammar can grow without rewriting what was saved. `id` is stable so a rename or a
+ * reorder does not look like a delete plus an insert to the account snapshot.
+ */
+export interface SavedTodoFilter {
+  id: string
+  name: string
+  query: string
+}
+
+/**
  * The to-do app's own preferences.
  *
  * `defaultRemind` is a rule for tasks not yet written, so it stores an offset rather than an instant:
@@ -551,6 +564,14 @@ export interface UserSettings {
  */
 export interface TodoSettings {
   defaultRemind: RemindOffset | null
+  /**
+   * The filter lines kept under a name.
+   *
+   * Optional in the type because a settings object written by hand (or by a build before this field)
+   * may leave it out; `mergeSettings` always fills it in, and every read of account settings goes
+   * through that merge.
+   */
+  savedFilters?: SavedTodoFilter[]
 }
 
 /** Where an article's pictures come from. `relay` keeps the reader's browser off the author's host. */

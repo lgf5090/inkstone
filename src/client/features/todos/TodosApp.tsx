@@ -8,7 +8,8 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { CalendarRange, ChartNoAxesColumn, ListChecks, Plus, Search, Settings2, Sun } from 'lucide-react'
+import { CalendarRange, ChartNoAxesColumn, Filter, ListChecks, Plus, Search, Settings2, Sun, X } from 'lucide-react'
+import type { SavedTodoFilter } from '@shared/types'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { IS_DEMO_MODE } from '../../lib/runtime'
@@ -16,6 +17,7 @@ import { isEditableTarget } from '../../lib/hotkeys'
 import { IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
 import { LoadingBlock } from '../../components/feedback'
+import { useSession } from '../../store/session'
 import { useTodos } from './store'
 import { BatchBar } from './BatchBar'
 import { TaskEditor } from './TaskEditor'
@@ -24,6 +26,9 @@ import { TodoFilters } from './TodoFilters'
 import { TodoContent, surfaceBadge, surfacesFor } from './views/registry'
 
 type Page = 'main' | 'lists'
+
+/** The empty list a settings object without the field reads as; one instance, so the selector is stable. */
+const NO_SAVED_FILTERS: SavedTodoFilter[] = []
 
 function useWide(): boolean {
   const [wide, setWide] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches)
@@ -52,6 +57,9 @@ export function TodosApp() {
   const counts = useTodos((state) => state.counts)
   const lists = useTodos((state) => state.lists)
   const tags = useTodos((state) => state.tags)
+  const applySavedFilter = useTodos((state) => state.applySavedFilter)
+  const savedFilters = useSession((state) => state.settings.todo.savedFilters) ?? NO_SAVED_FILTERS
+  const updateSettings = useSession((state) => state.updateSettings)
   const title = useViewTitle()
   const [page, setPage] = useState<Page>('main')
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -78,6 +86,11 @@ export function TodosApp() {
   const newTask = (): void => {
     const preset = view === 'list' && listId && listId !== 'inbox' ? listId : null
     openEditor({ listId: preset })
+  }
+
+  /** Removes one saved filter from the account settings the sidebar reads back. */
+  const removeSavedFilter = (id: string): void => {
+    updateSettings({ todo: { savedFilters: savedFilters.filter((entry) => entry.id !== id) } })
   }
 
   useEffect(() => {
@@ -267,6 +280,42 @@ export function TodosApp() {
               onClick={() => openList({ tagId: tag.id })}
             />
           ))}
+        </div>
+      )}
+
+      {/* A saved filter is a screen of its own, so opening one starts from the board and the line
+          decides everything else. The × is the same delete the settings row offers: one list, two
+          doors, so a shortcut removed in either place is gone from both. */}
+      {savedFilters.length > 0 && (
+        <div className="flex flex-col gap-0.5">
+          <span className="px-2 pb-1 text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">{t('todo.saved_filters')}</span>
+          {savedFilters.map((filter) => {
+            const active = view === 'board' && query === filter.query
+            return (
+              <div key={filter.id} className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => applySavedFilter(filter)}
+                  aria-current={active ? 'page' : undefined}
+                  title={filter.query}
+                  className={cn(
+                    'flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-[var(--r-md)] px-2 text-left text-[length:var(--text-12-5)]',
+                    active ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+                  )}
+                >
+                  <span className="flex size-4 shrink-0 items-center justify-center"><Filter size={12} /></span>
+                  <span className="min-w-0 flex-1 truncate">{filter.name}</span>
+                </button>
+                <IconButton
+                  label={t('todo.saved_filter.delete', { name: filter.name })}
+                  size="xs"
+                  onClick={() => removeSavedFilter(filter.id)}
+                >
+                  <X size={12} />
+                </IconButton>
+              </div>
+            )
+          })}
         </div>
       )}
 

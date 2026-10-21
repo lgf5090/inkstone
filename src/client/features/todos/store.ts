@@ -26,6 +26,7 @@ import { parseLocalTime } from '@shared/assistant-time'
 import { useUi } from '../../store/ui'
 import { parseQuickAdd } from '@shared/todos/quick-parse'
 import { parseTodoFilter, type TodoFilterQuery } from '@shared/todos/filter-query'
+import type { SavedTodoFilter } from '@shared/types'
 import type { MessageKey } from '@shared/locales/en-US'
 import {
   isSnoozeMinutes,
@@ -170,6 +171,14 @@ interface TodosState {
 
   setView: (view: TodoView, target?: { listId?: string; tagId?: string }) => void
   setQuery: (query: string) => void
+  /**
+   * Open a saved filter line as its own screen: the board, narrowed by the line.
+   *
+   * The saved line is the whole question, so the screen it was opened from — a list, a tag, a due
+   * window — is left behind rather than stacked under it: two filters that happened to be on screen at
+   * once is not a saved filter, and a reader who opens one twice must land in the same place.
+   */
+  applySavedFilter: (filter: SavedTodoFilter) => void
   /** The order the listing is read in; the address carries it and the server applies it. */
   setSort: (sort: TaskSort | null) => void
   /** A due window in local wall time; both bounds null is the range cleared back to "any date". */
@@ -1193,6 +1202,25 @@ export const useTodos = create<TodosState>((set, get) => ({
     set({ query })
     replaceTodoAddress(viewSelection(get()))
     scheduleListing(get)
+  },
+
+  // Opening a saved filter is a deliberate move, so it gets a history entry and asks for its own page
+  // rather than being dropped onto the rows of the screen it was opened from.
+  applySavedFilter: (filter) => {
+    set({
+      view: 'board',
+      listId: null,
+      tagId: null,
+      query: filter.query,
+      dueFrom: null,
+      dueTo: null,
+      completedFrom: null,
+      completedTo: null,
+      selectedId: null,
+      selectedIds: new Set<string>(),
+    })
+    pushTodoAddress(viewSelection(get()))
+    void get().load()
   },
 
   // An order or a date window is a deliberate move, so it gets the same history entry a view change
