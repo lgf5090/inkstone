@@ -1924,6 +1924,39 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
      ON todos_tasks(user_id, list_id, position)`,
     ],
   },
+  {
+    // The task's own icon, or null while it wears its list's.
+    //
+    // A list has carried one since lists existed, and a task that names none reads the list's — the
+    // fallback the inbox gets today. Nullable with no default because "the reader placed nothing here"
+    // and "the reader kept the list's" are different rows, and only one of them is an absence. The
+    // colour below arrives in its own version because the migration ledger counts one column per
+    // version: they reach the reader as one feature but travel one migration at a time. A fresh
+    // database already carries both from the table declaration, so the guard is the icon column
+    // alone; a database that somehow holds one and not the other is completed from that declaration
+    // by `repairMissingColumns`.
+    version: 126,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'icon' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN icon TEXT`,
+    ],
+  },
+  {
+    // The task's own colour, or null while it wears its list's.
+    //
+    // The second half of the face the icon started: an icon with no colour is half a look, and the
+    // editor that sets one sets both. Its own version rather than a second statement above because
+    // the migration ledger counts one new column per version — one feature, two migrations. The
+    // guard is the colour column because a database that ran 126 already carries the icon, and a
+    // fresh database carries both from the table declaration; only a database skipped by 126 needs
+    // this one, and `repairMissingColumns` closes the gap if it ever holds the icon without the
+    // colour.
+    version: 127,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'color' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN color TEXT`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

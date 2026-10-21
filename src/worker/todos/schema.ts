@@ -38,6 +38,13 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
     created_on TEXT,
     project_id TEXT,
     list_id TEXT,
+    -- The task's own face: an icon in the lists' format ('lucide:<Name>' or a single emoji) and one
+    -- of the palette's 24 colours, or NULL while the task wears its list's. Nullable with no default
+    -- because "the reader placed nothing here" and "the reader kept the list's" are different rows,
+    -- and only one of them is an absence. Migrations 126 and 127 carry the two columns to databases
+    -- built before these lines existed, one column per version as the ledger counts them.
+    icon TEXT,
+    color TEXT,
     starred INTEGER NOT NULL DEFAULT 0,
     repeat_rule TEXT,
     -- Superseded by todos_reminders (pending removal). The pair is emptied by migrateTaskReminders and no code
@@ -280,7 +287,7 @@ export const TODOS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>>
   todos_tasks: [
     'user_id', 'id', 'title', 'description', 'status', 'priority', 'position', 'due_at', 'start_at', 'completed_at',
     'completed_on', 'created_on',
-    'project_id', 'list_id', 'starred', 'repeat_rule', 'remind_at', 'reminded_at', 'planned_for', 'note_id',
+    'project_id', 'list_id', 'icon', 'color', 'starred', 'repeat_rule', 'remind_at', 'reminded_at', 'planned_for', 'note_id',
     'conversation_id', 'created_at', 'updated_at', 'rev', 'deleted_at',
   ],
   todos_reminders: ['user_id', 'id', 'task_id', 'remind_at', 'fired_at', 'created_at'],
