@@ -73,6 +73,8 @@ export interface TaskDraft {
   listId?: string | null
   /** An instant, or a local `YYYY-MM-DD[THH:MM]` the server reads in the reader's timezone. */
   dueAt?: number | string | null
+  /** When the work starts, in either of the two shapes `dueAt` takes. */
+  startAt?: number | string | null
   priority?: TodoTask['priority']
   starred?: boolean
   tags?: string[]

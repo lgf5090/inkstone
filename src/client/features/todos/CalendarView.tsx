@@ -35,7 +35,18 @@ import {
 } from '../../lib/time'
 import { useTodos } from './store'
 import { TODO_DRAG_TYPE, isTodoTaskDrag, readTodoTaskDrag } from './TaskCard'
-import { allDayTasksForDay, dayChips, spansForWeek, timeBlocksForDay, type SpanBar } from './calendar-layout'
+import {
+  allDayTasksForDay,
+  dayChips,
+  spansForWeek,
+  timeBlocksForDay,
+  HOUR_H,
+  minuteForSlot,
+  slotCountFor,
+  slotHeightFor,
+  type CalendarZoom,
+  type SpanBar,
+} from './calendar-layout'
 import { DayAgenda } from './DayAgenda'
 
 type CalendarMode = 'month' | 'week'
@@ -47,7 +58,6 @@ const WEEK_LENGTH = 7
 /** The date row a month cell reserves above its chips, and the height of one bar lane. */
 const DAY_HEADER_H = 26
 const LANE_H = 18
-const HOUR_H = 44
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour)
 
 interface WeekDayCell {
@@ -89,6 +99,11 @@ function dayLabel(key: string, count: number): string {
 
 function pad2(value: number): string {
   return value < 10 ? `0${value}` : String(value)
+}
+
+/** A minute of the day as the clock reads it, for the instants a slot or a selection names. */
+function mmClock(minute: number): string {
+  return `${pad2(Math.floor(minute / 60))}:${pad2(minute % 60)}`
 }
 
 /** The colour a task wears: its list's, or the neutral the inbox gets. */
@@ -364,10 +379,11 @@ function MonthWeek({ cells, tasks, lists, timezone, compact, almanac, display, d
  * The week, drawn against the clock.
  *
  * The all-day strip is a row of its own, because a task with no time is not "at 00:00" — it is due that
- * day. Below it, every hour is a real button, so a press on the 14:00 slot of Thursday files a task at
- * 14:00 rather than asking the reader to type the time afterwards.
+ * day. Below it, every slot is a real button, so a press on the 14:00 slot of Thursday files a task at
+ * 14:00 rather than asking the reader to type the time afterwards. The slots divide the same 24 hours
+ * either by the hour or by the half, which is a reading preference and not a second calendar.
  */
-function WeekTimeGrid({ week, tasks, lists, timezone, todayKey, now, dragEnabled, onOpenDay, onAdd, onOpenTask, onReschedule }: {
+function WeekTimeGrid({ week, tasks, lists, timezone, todayKey, now, dragEnabled, zoom, onOpenDay, onAdd, onOpenTask, onReschedule }: {
   week: readonly WeekDayCell[]
   tasks: readonly TodoTask[]
   lists: readonly TaskList[]
@@ -375,8 +391,9 @@ function WeekTimeGrid({ week, tasks, lists, timezone, todayKey, now, dragEnabled
   todayKey: string
   now: number
   dragEnabled: boolean
+  zoom: CalendarZoom
   onOpenDay: (key: string) => void
-  onAdd: (key: string, hour: number) => void
+  onAdd: (key: string, minute: number) => void
   onOpenTask: (task: TodoTask) => void
   /** `null` makes the task all-day; a number lands it at that hour. */
   onReschedule: (taskId: string, dayKey: string, hour: number | null) => void
@@ -465,7 +482,10 @@ function WeekTimeGrid({ week, tasks, lists, timezone, todayKey, now, dragEnabled
         })}
       </div>
       <div ref={scroller} className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
-        <div className="grid grid-cols-[40px_repeat(7,minmax(0,1fr))]" style={{ height: 24 * HOUR_H }}>
+        <div
+          className="grid grid-cols-[40px_repeat(7,minmax(0,1fr))]"
+          style={{ height: 24 * HOUR_H, '--slot-h': `${slotHeightFor(zoom)}px` } as React.CSSProperties}
+        >
           <div aria-hidden="true">
             {HOURS.map((hour) => (
               <div key={hour} className="relative h-11 pr-1 text-right text-[length:var(--text-9)] tabular text-[var(--text-quaternary)]">
@@ -496,13 +516,13 @@ function WeekTimeGrid({ week, tasks, lists, timezone, todayKey, now, dragEnabled
                   if (dragged) onReschedule(dragged, day.key, hour)
                 }}
               >
-                {HOURS.map((hour) => (
+                {Array.from({ length: slotCountFor(zoom) }, (_, index) => minuteForSlot(zoom, index)).map((minute) => (
                   <button
-                    key={hour}
+                    key={minute}
                     type="button"
-                    aria-label={t('todo.calendar.add_at', { date: formatDateKey(day.key), time: `${pad2(hour)}:00` })}
-                    onClick={() => onAdd(day.key, hour)}
-                    className="block h-11 w-full border-b border-[var(--border-subtle)]/60 transition-colors hover:bg-[var(--bg-hover)] focus-visible:bg-[var(--accent-soft)] focus-visible:outline-none"
+                    aria-label={t('todo.calendar.add_at', { date: formatDateKey(day.key), time: mmClock(minute) })}
+                    onClick={() => onAdd(day.key, minute)}
+                    className="block h-[var(--slot-h)] w-full border-b border-[var(--border-subtle)]/60 transition-colors hover:bg-[var(--bg-hover)] focus-visible:bg-[var(--accent-soft)] focus-visible:outline-none"
                   />
                 ))}
                 {day.key === todayKey && (
@@ -565,6 +585,12 @@ export function CalendarView() {
   const todayKey = useMemo(() => localDate(Date.now(), timezone), [timezone])
 
   const [mode, setMode] = useState<CalendarMode>('month')
+  /**
+   * How finely the week's hour axis is divided. A reading of the axis, not a setting: it is not
+   * persisted and does not travel with the account, so switching a device cannot surprise the reader
+   * with a week redrawn at a granularity they never chose here.
+   */
+  const [zoom, setZoom] = useState<CalendarZoom>('hour')
   const [anchor, setAnchor] = useState(() => new Date())
   const [tasks, setTasks] = useState<TodoTask[]>([])
   const [status, setStatus] = useState<LoadState>('loading')
@@ -658,10 +684,20 @@ export function CalendarView() {
 
   const retry = (): void => setReloadToken((token) => token + 1)
   const openDay = (key: string): void => setAgendaKey(key)
-  const addOnDay = (key: string, hour?: number): void => {
+  /**
+   * Opens the editor on a day, on one minute of it, or on a range the week's axis selected.
+   *
+   * A bare day and a lone minute are the two presses the axis has always answered; a range carries
+   * both ends so the editor opens with the start already named rather than asking for it after.
+   */
+  const addOnDay = useCallback((key: string, startMinute?: number, endMinute?: number): void => {
     setAgendaKey(null)
-    openEditor({ dueAt: hour === undefined ? key : `${key}T${pad2(hour)}:00` })
-  }
+    if (startMinute !== undefined && endMinute !== undefined) {
+      openEditor({ startAt: `${key}T${mmClock(startMinute)}`, dueAt: `${key}T${mmClock(endMinute)}` })
+      return
+    }
+    openEditor({ dueAt: startMinute === undefined ? key : `${key}T${mmClock(startMinute)}` })
+  }, [openEditor])
   const openTask = (task: TodoTask): void => openEditor({ id: task.id })
 
   const completeTask = async (task: TodoTask): Promise<void> => {
@@ -766,6 +802,7 @@ export function CalendarView() {
               todayKey={todayKey}
               now={Date.now()}
               dragEnabled={finePointer}
+              zoom={zoom}
               onOpenDay={openDay}
               onAdd={addOnDay}
               onOpenTask={openTask}
@@ -790,6 +827,18 @@ export function CalendarView() {
               { value: 'week', label: t('preview.kanban_calendar_week') },
             ]}
           />
+          {mode === 'week' && (
+            <Segmented
+              value={zoom}
+              onChange={setZoom}
+              size="md"
+              label={t('todo.calendar.zoom')}
+              options={[
+                { value: 'hour', label: t('todo.calendar.zoom_hour') },
+                { value: 'half', label: t('todo.calendar.zoom_half') },
+              ]}
+            />
+          )}
           <Button variant="secondary" onClick={goToday}>{t('preview.kanban_today')}</Button>
           <IconButton label={t('todo.calendar.previous')} size="sm" className="size-11 md:size-7" onClick={() => move(-1)}>
             <ChevronLeft size={15} />

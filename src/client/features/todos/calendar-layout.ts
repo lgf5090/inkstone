@@ -31,6 +31,67 @@ export interface TimeBlock {
 
 const DAY_END_MINUTE = 'T23:59'
 
+/** The pixel height of one hour on the week axis; a day column is always 24 of these. */
+export const HOUR_H = 44
+
+/** The two granularities the week's hour axis can be drawn at. */
+export type CalendarZoom = 'hour' | 'half'
+
+/** How many slot buttons a day column has at this granularity. */
+export function slotCountFor(zoom: CalendarZoom): number {
+  return zoom === 'half' ? 48 : 24
+}
+
+/** The minute of midnight a slot button stands for. */
+export function minuteForSlot(zoom: CalendarZoom, index: number): number {
+  return index * (zoom === 'half' ? 30 : 60)
+}
+
+/** The height of one slot button: the column is a fixed 24 hours tall, so the slots share it. */
+export function slotHeightFor(zoom: CalendarZoom): number {
+  return (24 * HOUR_H) / slotCountFor(zoom)
+}
+
+/** A minute of the day, clamped into the day and floored, as a pointer position reads it. */
+export function minuteFromPointer(offsetY: number, columnHeight: number): number {
+  if (!(columnHeight > 0)) return 0
+  return Math.max(0, Math.min(1439, Math.floor((offsetY / columnHeight) * 1440)))
+}
+
+/** A minute snapped down to the granularity's step, never below midnight. */
+export function snapMinute(minute: number, zoom: CalendarZoom): number {
+  const step = zoom === 'half' ? 30 : 60
+  return Math.max(0, Math.floor(minute / step) * step)
+}
+
+/** The shortest range a drag can create, whatever the granularity. */
+const MIN_SELECTION_MINUTES = 30
+
+/**
+ * The selection a drag across one column produced, or null when there is nothing to open.
+ *
+ * Both ends snap to the granularity, the earlier end becomes the start, and the range is floored at
+ * half an hour because a selection thinner than that is a click wearing a drag's clothes. A minute
+ * outside the day is a drag that left the column, which this view does not create from.
+ */
+export function selectionFromDrag({ zoom, fromMinute, toMinute }: {
+  zoom: CalendarZoom
+  fromMinute: number
+  toMinute: number
+}): { startMinute: number, endMinute: number } | null {
+  if (fromMinute < 0 || fromMinute > 1439 || toMinute < 0 || toMinute > 1439) return null
+  let start = snapMinute(fromMinute, zoom)
+  let end = snapMinute(toMinute, zoom)
+  if (end < start) {
+    const swap = start
+    start = end
+    end = swap
+  }
+  end = Math.max(end, start + MIN_SELECTION_MINUTES)
+  if (end > 1439) return null
+  return { startMinute: start, endMinute: end }
+}
+
 /** The day a task starts on: the start date it names, or its due date when it names none. */
 export function taskStartKey(task: TodoTask, timezone: string): string | null {
   const instant = task.startAt ?? task.dueAt
