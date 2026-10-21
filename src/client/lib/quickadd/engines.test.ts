@@ -45,6 +45,20 @@ vi.mock('../../features/quickadd/prompt-queue', () => ({
   subscribeQuickAddPrompts: () => () => {},
 }))
 
+// The sink itself belongs to the to-do store, which these engine cases do not need to load: what
+// the capture owes it is the formatted line and a failure that speaks when the line has no task in it.
+const todoSink = vi.hoisted(() => ({
+  calls: [] as string[],
+  result: { id: 'todo-1', title: 'Buy milk' } as { id: string; title: string } | null,
+}))
+
+vi.mock('./todo-sink', () => ({
+  createTodoFromQuickAdd: async (text: string) => {
+    todoSink.calls.push(text)
+    return todoSink.result
+  },
+}))
+
 beforeAll(async () => {
   await initI18n()
   // The script step runs in a Worker for real; here the same code-runner core answers on the
@@ -255,6 +269,8 @@ beforeEach(() => {
   answers.requests = []
   answers.pages = []
   answers.destinations = []
+  todoSink.calls = []
+  todoSink.result = { id: 'todo-1', title: 'Buy milk' }
 })
 
 function captureOn(title: string, over: Partial<QuickAddCaptureChoice> = {}): QuickAddCaptureChoice {
@@ -745,6 +761,43 @@ describe('capturing into a note', () => {
     if (status.kind === 'failed') expect(status.reason).toBe(t('quickadd.error_editor_unavailable'))
     expect(fake.lineInserts).toEqual([])
     expect(fake.content('Inbox')).toBe('one\ntwo\n')
+  })
+})
+
+describe('filing a capture as a task', () => {
+  it('hands the formatted line to the to-do app and never touches a note', async () => {
+    const fake = harness({ Inbox: 'today\n' })
+    answers.queue = [['Buy milk tomorrow #errands']]
+
+    const status = await runCaptureChoice(captureOn('Inbox', { task: true, destination: 'todo' }), fake.port)
+
+    expect(status.kind).toBe('task')
+    // The checkbox the note would have carried is not part of what the parser reads.
+    expect(todoSink.calls).toEqual(['Buy milk tomorrow #errands'])
+    expect(fake.content('Inbox'), 'a task capture wrote into the note').toBe('today\n')
+  })
+
+  it('refuses a line with no title instead of filing an empty task', async () => {
+    const fake = harness({ Inbox: 'today\n' })
+    todoSink.result = null
+    answers.queue = [['   ']]
+
+    const status = await runCaptureChoice(captureOn('Inbox', { task: true, destination: 'todo' }), fake.port)
+
+    expect(status.kind).toBe('failed')
+    expect(status.kind === 'failed' ? status.reason : '').toBe(t('quickadd.error_todo_failed'))
+    expect(fake.content('Inbox')).toBe('today\n')
+  })
+
+  it('keeps writing the note when no destination was chosen', async () => {
+    const fake = harness({ Inbox: 'today\n' })
+    answers.queue = [['a line']]
+
+    const status = await runCaptureChoice(captureOn('Inbox', { task: true }), fake.port)
+
+    expect(status.kind).toBe('written')
+    expect(todoSink.calls).toEqual([])
+    expect(fake.content('Inbox')).toBe('today\n- [ ] a line\n')
   })
 })
 

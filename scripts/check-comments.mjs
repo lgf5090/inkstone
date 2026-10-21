@@ -17880,6 +17880,10 @@ const allowed = new Map([
     "/**\n * A list keeps the shape it has: `nums: [1, 2]` with a third number stays a list of numbers, and the\n * whole list goes back to text if any one element cannot be read as that type — a half-coerced list is\n * two shapes in one property.\n */",
     "/**\n * The note a run asks for when the target names a folder instead of a note.\n *\n * The rows are the same \"name (folder)\" lines the settings field shows, narrowed to the folder the\n * author wrote — `Journal/` offers what sits in `Journal`, and an empty target offers everything.\n * A typed answer is confined to that folder, so a scoped target cannot be walked out of it.\n */",
     "/**\n * The notes a filter target points at.\n *\n * `folder:` matches the folder and everything under it, which is what the app's own `folder:` search\n * does; a bare `Journal/` target stays the stricter \"direct children\" question, because there the\n * slash is pointing at a shelf, not a subtree. Several tags are an \"any of them\", and a property is\n * answered by the same server scan `{{FIELD:}}` uses, so the two can never disagree about which\n * notes carry a value.\n */",
+    "// A task is not a note. The line is formatted exactly as the capture would have formatted it,",
+    "// without the checkbox the note would have carried, and then filed by the to-do app's own parser.",
+    "// No target is resolved and no note is created, read or written — a choice that files tasks must",
+    "// not leave an empty note behind when its destination was never a note at all.",
   ]],
   ["src/client/lib/quickadd/context.ts", [
     "/**\n * The seams a choice run needs from the rest of the app, as plain interfaces.\n *\n * The engines are written against these rather than against the note store, the router or the editor\n * directly: that is what lets a capture into a heading be tested with a two-line note and a fake\n * write, and what keeps a bad format from ever reaching a write. The app-backed implementation lives\n * in `runner.ts`.\n */",
@@ -17934,6 +17938,7 @@ const allowed = new Map([
     "// A tag is one word, so `#idea for this` stays a note name someone typed rather than a query.",
     "/** Whether the field is holding a question rather than a name, so a name list would only mislead. */",
     "/**\n * The rows a “what should the note be called?” question shows: one per title, each saying where that\n * title already lives. The answer stays a bare title — this app resolves a note by its name — so a\n * title found in several places lists them all rather than pretending to pick one, and a copy sitting\n * at the root is named by the same word the sidebar uses for it. A title only ever seen at the root\n * gets no suffix: there is nothing left to tell apart.\n *\n * Where one place holds several notes with the same title, the place says how many. The row cannot\n * point at one of them — the app has one address per name and resolves to the most recently touched —\n * so the count is the honest part: it tells the reader that picking this row writes into one of N.\n */",
+    "/** The run filed a task instead of writing a note. */",
   ]],
   ["src/client/lib/quickadd/date-pattern.test.ts", [
     "// 2026-01-01 is a Thursday, so it belongs to week 1 of 2026; 8 October is 40 weeks later.",
@@ -17998,6 +18003,9 @@ const allowed = new Map([
     "/** What the editor step is told back: a test that wants a refusal sets it. */",
     "/** The notes a `property:` scan is told to return, and the scans it was asked for. */",
     "/** What a `property:` target's server scan answers; a test sets it. */",
+    "// The sink itself belongs to the to-do store, which these engine cases do not need to load: what",
+    "// the capture owes it is the formatted line and a failure that speaks when the line has no task in it.",
+    "// The checkbox the note would have carried is not part of what the parser reads.",
   ]],
   ["src/client/lib/quickadd/format.ts", [
     "/**\n * The QuickAdd format engine: one `{{ token }}` pass at a time, in the order the language promises.\n *\n * Two rules shape everything below. First, a stage replaces its own tokens and copies the rest of\n * the text verbatim, so an answer that happens to look like a token cannot be expanded a second\n * time — the failure the reference plugin hit when a note was literally named `{{value}}`. Second,\n * the stages run in a fixed order (globals → escapes → macros → includes → dates → prompts → data →\n * current-file tokens), so text injected by an earlier stage *can* be expanded by a later one,\n * which is what makes a global snippet or an included template useful.\n */",
@@ -18193,6 +18201,7 @@ const allowed = new Map([
     "// refusal is its own answer rather than an empty paste.",
     "// The same scan the `{{FIELD:}}` suggestion runs: the schema has no property index, so the server",
     "// reads note text. Only the newest few hundred notes are looked at, which is the same window.",
+    "// A filed task is a success like a written note, and its summary already names the task.",
   ]],
   ["src/client/lib/quickadd/runtime.ts", [
     "/**\n * Builds the format engine's runtime out of the app seams, and owns the one behaviour the engine\n * cannot decide for itself: when a run asks its questions one at a time and when it asks them all on\n * a single page.\n *\n * A run's clock is fixed here, once. `{{DATE}}` in a name, a folder and a body has to agree even when\n * the reader spends a minute at a prompt, and a choice whose day origin is a specific note measures\n * every date token from that note's day instead.\n */",
@@ -18270,6 +18279,12 @@ const allowed = new Map([
     "/**\n * A template dropped into a note that exists: its properties merge into that note's own block and its\n * text lands where the drop says. A caret drop reads the editor, because that is where the reader's\n * unsaved typing and their selection live; every other drop works from the note as stored.\n */",
     "// The note is already on screen, so there is nothing to open; only a caret drop reads the editor.",
     "/**\n * What the run asks for a name when the choice has no name format of its own. The rows say where each\n * existing title already lives, because two notes called `Standup` in two folders are one row apiece\n * and only the folder tells the reader which one they are about to write into.\n */",
+  ]],
+  ["src/client/lib/quickadd/todo-sink.test.ts", [
+    "/**\n * The adapter that turns one quick-add line into a task.\n *\n * The parse itself belongs to the board's `quickAddDraft` and is tested there; what this file pins is\n * the part the capture engine relies on: the title decides whether there is a task at all, and the\n * store's own `createTask` is the writer — no second request path, no note, no optimistic row of its\n * own. The store is replaced for the run so the case does not need a server.\n */",
+  ]],
+  ["src/client/lib/quickadd/todo-sink.ts", [
+    "/**\n * One quick-add line filed as a to-do instead of a note.\n *\n * The parse is the board's own `quickAddDraft`, so a due date, a priority, a tag and a list name mean\n * exactly what they mean in the board's quick-add field — two parsers would drift the day one learned\n * a word the other did not. The reminder is carried the way the board carries it: the parser answers\n * an instant, the store stores an offset from the due date, and `remindOffsetOf` is the one place that\n * translation lives. A line with no title is not a task; the caller turns the null into a visible\n * failure rather than dropping what the reader typed.\n */",
   ]],
   ["src/client/lib/quickadd/token-grammar.test.ts", [
     "// The reference reads `{{DATE:YYYY[Q}}` as a format with a stray bracket. Dropping the token is",
@@ -19902,6 +19917,7 @@ const allowed = new Map([
     "/** Where the template lands when this choice writes into the note the reader is in. */",
     "/**\n   * A second palette command that asks which day the run measures its dates from. Absent means the\n   * choice has one command, which is what every record written before this field means.\n   */",
     "/**\n * What an editor step does to the note on screen. `pasteWithFormat` from the reference has no twin\n * here: this app has no rich-text paste to reach for, and its “paste as link” is an app command a\n * `command` step can already name.\n */",
+    "/**\n   * Where a capture that adds to the task list files its line.\n   *\n   * Absent reads as `'note'`, which is what every choice stored before this field existed did: the\n   * line is written into the note as `- [ ] …`. `'todo'` files it in the to-do app instead, parsed\n   * by the board's own quick-add grammar, and the note is never resolved or touched. The field is\n   * additive on purpose — an older reader ignores it and keeps writing the note it always wrote.\n   */",
   ]],
   ["src/shared/reasoning.ts", [
     "/**\n * What each model's own thinking switch is called, and which of its rungs a level lands on.\n *\n * One reader-facing level has to become different fields on different services, and getting that wrong is\n * not cosmetic: a field an endpoint does not know is refused outright by OpenAI's own service, Anthropic's\n * newest models reject the budget form its older ones require, and a `thinkingBudget` is not what a 3.x\n * Gemini reads as `thinkingLevel`. This file is the only place that knows what a level is called wherever\n * the model lives, and both sides of the app read it: the worker to build the request, the settings\n * screens to offer a model the levels its own service has rather than a list of five that may not fit.\n *\n * The dialect is decided from the endpoint and then from the model id, because the endpoint names the\n * vendor in most cases (its own host) and the model id names it when the endpoint is a gateway serving\n * several vendors (SiliconFlow, Together, Fireworks …). A reader can also pin it on the provider, which is\n * the only way to say what a custom gateway or a proxy is, and the pin wins over both readings.\n *\n * The rules below are each service's documentation as it stands today. Those pages could not be opened\n * from the build machine — Anthropic and Google answer this network with certificate errors and OpenAI's\n * model cards were unreachable — so they were read through their search-index excerpts; the DeepSeek\n * behaviour is the exception and was measured against a live key. Where a rule is model-specific rather\n * than vendor-wide it is applied only where it was read, and the comment beside it says so.\n */",

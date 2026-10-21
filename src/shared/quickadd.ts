@@ -144,6 +144,15 @@ export interface QuickAddCaptureChoice extends QuickAddChoiceBase {
   orderBy: { by: QuickAddOrderKey; direction: QuickAddDirection; dateFormat: string; unparseable: QuickAddUnparseablePolicy }
   format: { enabled: boolean; format: string }
   task: boolean
+  /**
+   * Where a capture that adds to the task list files its line.
+   *
+   * Absent reads as `'note'`, which is what every choice stored before this field existed did: the
+   * line is written into the note as `- [ ] …`. `'todo'` files it in the to-do app instead, parsed
+   * by the board's own quick-add grammar, and the note is never resolved or touched. The field is
+   * additive on purpose — an older reader ignores it and keeps writing the note it always wrote.
+   */
+  destination?: 'note' | 'todo'
   eachLine: boolean
   useSelectionAsValue: boolean | null
   openAfter: boolean

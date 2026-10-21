@@ -190,6 +190,8 @@ export interface FieldValueFilter {
 export type QuickAddRunStatus =
   /** The run wrote something. */
   | { kind: 'written'; noteId: string; created: boolean; summary: string }
+  /** The run filed a task instead of writing a note. */
+  | { kind: 'task'; taskId: string; summary: string }
   /** The run wrote nothing because there was nothing to write. */
   | { kind: 'empty'; noteId?: string }
   /** The reader cancelled a prompt, or a required answer was missing. */

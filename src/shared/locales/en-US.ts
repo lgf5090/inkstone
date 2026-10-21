@@ -1565,6 +1565,8 @@ export const EN_US_MESSAGES = {
     "quickadd.error_note_exists": "“{title}” already exists",
     "quickadd.error_template_missing": "The template this choice uses is no longer in the library",
     "quickadd.error_write_refused": "The note could not be saved",
+    "quickadd.todo_created": "Task “{title}” created",
+    "quickadd.error_todo_failed": "No task was created: the line has no title",
     "quickadd.prompt_heading": "Which heading should this go under?",
     "quickadd.prompt_property": "Which property?",
     "quickadd.error_target_missing": "The note to capture into has no name",

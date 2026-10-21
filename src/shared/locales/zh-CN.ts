@@ -1565,6 +1565,8 @@ export const ZH_CN_MESSAGES = {
     "quickadd.error_note_exists": "「{title}」已经存在",
     "quickadd.error_template_missing": "这个选项用的模板已不在模板库里",
     "quickadd.error_write_refused": "笔记保存失败",
+    "quickadd.todo_created": "已建待办「{title}」",
+    "quickadd.error_todo_failed": "没能建出待办：这一行没有标题",
     "quickadd.prompt_heading": "放到哪个标题下面？",
     "quickadd.prompt_property": "哪个属性？",
     "quickadd.error_target_missing": "要捕捉到的笔记没有名字",
