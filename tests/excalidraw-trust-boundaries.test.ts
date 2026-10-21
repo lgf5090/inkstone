@@ -21,10 +21,12 @@ describe('the drawing module keeps its trust boundaries where they were put', ()
     expect(source).not.toContain("excalidraw-library-install")
   })
 
-  it('keeps the mermaid preview at the strict security level', () => {
+  it('draws the text-to-diagram preview with nothing that reaches past the page', () => {
     const source = read(TTD)
-    expect(source).toContain("securityLevel: 'strict'")
-    expect(source).not.toContain("securityLevel: 'loose'")
+    expect(source).toContain('links: false')
+    expect(source).toContain('images: false')
+    expect(source).not.toMatch(/\blinks:\s*true/)
+    expect(source).not.toMatch(/\bimages:\s*true/)
   })
 
   it('escapes the formula source when the compiler fails instead of injecting it', () => {

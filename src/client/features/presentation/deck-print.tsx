@@ -308,7 +308,7 @@ async function prepareDeckSheet(root: HTMLElement, dark: boolean): Promise<void>
     // exporter's does. The pages register their own fence bodies, so a board and a map can read the
     // bodies they were built from (P-01).
     await renderMath(root)
-    await renderPendingMermaid(root, dark)
+    await renderPendingMermaid(root)
     // The printed page is laid out at the design canvas's own size, so a map drawn into it is drawn
     // for the box the show measured it in.
     await renderStaticMindmaps(root, { dark, locale: getLocale() })

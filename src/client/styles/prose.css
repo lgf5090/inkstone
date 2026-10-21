@@ -2095,7 +2095,9 @@
   padding: 14px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--r-lg);
-  background: var(--bg-inset);
+  /* The diagram's own node fills are `--pele-bg`, so the block is painted with it too: a shape
+     filled with the page's inset grey on a cream block reads as a mistake in either direction. */
+  background: var(--pele-bg);
   display: flex;
   justify-content: center;
   overflow-x: auto;

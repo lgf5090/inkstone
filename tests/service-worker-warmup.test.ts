@@ -130,7 +130,7 @@ function buildServiceWorker() {
     }),
     'assets/excalidraw-6.js': chunk('assets/excalidraw-6.js'),
     'assets/notes-4.js': chunk('assets/notes-4.js'),
-    'assets/mermaid-5.js': chunk('assets/mermaid-5.js'),
+    'assets/pele-5.js': chunk('assets/pele-5.js'),
     'vendor/excalidraw/excalidraw.production.min.js':
       asset('vendor/excalidraw/excalidraw.production.min.js', 'engine'),
     'vendor/excalidraw/fonts/Xiaolai/Xiaolai-Regular-abc.woff2':
@@ -264,7 +264,7 @@ it('keeps the drawing engine out of the background download but warms ordinary c
   expect(worker.fetched).toContain('/assets/notes-4.js')
   expect(worker.fetched).toContain('/assets/excalidraw-6.js')
   expect(worker.fetched).toContain('/inkstone-markdown-demo.svg')
-  expect(worker.fetched).not.toContain('/assets/mermaid-5.js')
+  expect(worker.fetched).not.toContain('/assets/pele-5.js')
   expect(worker.fetched.filter((path) => path.startsWith('/vendor/excalidraw/'))).toEqual([])
 
   expect((await worker.shellCache()).size).toBe(12)

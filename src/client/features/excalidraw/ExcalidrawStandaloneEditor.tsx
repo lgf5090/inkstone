@@ -812,7 +812,6 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                     isOpen={aiModalOpen}
                     onClose={() => setAiModalOpen(false)}
                     onInsert={handleInsertDiagramFromModal}
-                    theme={theme}
                     initialTab={aiModalTab}
                 />
             </div>

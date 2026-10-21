@@ -199,7 +199,7 @@ function isCoreLazyChunk(chunk: BuildChunk): boolean {
  * The generated service worker splits the bundle three ways: the shell it must have to boot
  * (`CORE_URLS`), everything it may serve offline (`ALL_OFFLINE_URLS`), and the subset of the latter it
  * downloads ahead of time (`WARMUP_URLS`). `ON_DEMAND_PATTERN` is what keeps the third set small — the
- * diagram engines (mermaid's per-shape chunks, cytoscape behind the graph, the CodeMirror language
+ * diagram engines (Pele's per-type chunks, the CodeMirror language
  * bundles) are named there because they are hundreds of kilobytes each and most accounts never open one,
  * so warming them would spend everyone's bandwidth for a few people's benefit. The cost of being on that
  * list is that the first offline visit to a note using one of them shows its source instead of the
@@ -226,7 +226,7 @@ function isCoreLazyChunk(chunk: BuildChunk): boolean {
  * used to carry silently fell out of the exclusion.
  */
 function onDemandSource(extraNames: readonly string[]): string {
-  const fixed = ['mermaid', 'diagram', 'cytoscape', 'langium', 'vscode-', 'auto-', 'mind-elixir', 'vendor/excalidraw', '/rss/']
+  const fixed = ['pele', 'diagram', 'auto-', 'mind-elixir', 'vendor/excalidraw', '/rss/']
   const escaped = extraNames.map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
   return [...fixed, ...escaped].join('|')
 }

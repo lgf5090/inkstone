@@ -5061,6 +5061,7 @@ const allowed = new Map([
     "// A refused clipboard has to be said out loud: this button answers with a \"copied\" toast and a check",
     "// mark, and on the failure path it used to do neither, so the reader had no way to tell a refused",
     "// write from a copy they had not looked at yet. The success toast stays where the write put it.",
+    "/**\n * The preview of whatever text is on the editor, drawn for its natural size: the stage owns the\n * zoom, so the diagram is never re-flowed to fit a box here.\n *\n * `links: false, images: false` is the same boundary the previous engine was configured with under\n * its strict level: a diagram pasted into this box is not given anchors to follow or addresses to\n * fetch. The shared SVG pass still runs over the result, so this is the first of two layers.\n */",
   ]],
   ["src/client/features/excalidraw/chrome.test.ts", [
     "/* */",
@@ -12387,6 +12388,8 @@ const allowed = new Map([
     "// page has no script to answer.",
     "/** Grace period before an object URL is revoked or a spent print frame is pulled from the page. */",
     "/** Ceiling on how long a print frame is waited on before it is printed whether or not it has said it loaded. */",
+    "// A diagram is coloured entirely by CSS variables, so the page an export lands on has to carry the",
+    "// ramp itself: without it every shape falls back to the engine's defaults, light and dark alike.",
   ]],
   ["src/client/lib/folder-prefs.ts", [
     "// Persistence only: the caller has already replaced `currentPreferences` and notified every listener",
@@ -14018,6 +14021,8 @@ const allowed = new Map([
   ["src/client/lib/markdown/enhance.test.ts", [
     "// The second pass used to swap the shared config for its own, which re-allowed the",
     "// form controls and attributes the renderer deliberately forbids.",
+    "// The fence body is the reader's text, so the engine is asked for a picture and nothing that",
+    "// reaches past the page: no anchors to follow, no addresses to fetch a picture from.",
   ]],
   ["src/client/lib/markdown/enhance.ts", [
     "/**\n * How many lines this block folds beyond: its own `collapse=` when it wrote one (0 meaning it never\n * folds), otherwise the preview's setting. A block states its own preference because the note is\n * what a reader shares, while the setting is only this account's default.\n */",
@@ -14079,6 +14084,13 @@ const allowed = new Map([
     "/**\n * The prose whitelist strips inline styles, so the geometry a reader configured arrives as data\n * attributes and is painted here. An export keeps the stylesheet defaults instead.\n */",
     "/**\n     * How this surface treats a `dataview` query block. `live` means the caller mounts the answer itself\n     * with `renderDataviewBlocks`, because it has the note store and can wait for bodies; `source` shows\n     * the query text, which is what a surface that must not read other notes — a share page, a printed\n     * sheet — or one with no room for a table — a note card — owes the reader instead of a placeholder\n     * that never resolves.\n     */",
     "/**\n     * How this surface treats ```excalidraw blocks. 'live' means the caller mounts a writable canvas\n     * itself from the committed markup, so this pass must leave the placeholder alone; 'source' shows\n     * the scene text. Required rather than optional for the reason the mind map channel gives: a\n     * surface that forgets it leaves every block saying \"Loading drawing...\" forever, and nothing else\n     * on that surface will ever touch it.\n     */",
+    "/**\n * Labels are measured on a canvas rather than in the page, so a diagram drawn while the prose\n * webfont is still in flight keeps the widths of its fallback for good. One shared wait covers\n * every block; a surface without the font API gets no wait at all.\n */",
+    "/** What a diagram is laid out for: the box inside the block's padding and the type it is set in. */",
+    "/**\n * A block that is not on screen yet has no width to be drawn for, and is left at its natural\n * size to be scaled by CSS — the way it has always been scaled down when the column narrows.\n */",
+    "/**\n * The drawing depends on the width and the faces it was measured in, but not on the theme:\n * Pele paints with CSS variables, so one SVG serves light and dark alike.\n */",
+    "// `links: false, images: false` is the boundary the previous engine was configured with under",
+    "// its strict security level: a fence in a note is text the reader types, not a thing the page",
+    "// follows a link in or fetches a picture for. The shared SVG pass still runs over the result.",
   ]],
   ["src/client/lib/markdown/excalidraw/body.ts", [
     "/**\n * A scene arrives from note text, which is the one input in this app that is never authored by the\n * person reading it: an imported vault, a pasted board, a shared note. Every limit below exists\n * because the renderer turns each element into roughjs work on the main thread and each file into a\n * dataURL that travels back out through the note body, so an unbounded scene is a denial of service\n * against the browser tab. An \"embeddable\" element is worse still: it is an iframe whose src the\n * note chose.\n */",
@@ -18872,6 +18884,10 @@ const allowed = new Map([
   ["src/client/styles/kanban.css", [
     "/* Only the kanban differences from the shared `.block-btn` recipe in prose.css: a\n   fixed square box, an accent hover and a ring instead of a tint on keyboard\n   focus, because these buttons sit on a board background that already tints. */",
   ]],
+  ["src/client/styles/pele.css", [
+    "/*\n * The diagram engine paints with these and nothing else: every colour a Mermaid block shows is a\n * `--pele-*` custom property resolved by the page, which is why switching themes never redraws a\n * diagram. Both ramps are copied from the engine's own documentation site rather than derived from\n * our tokens — the eight series colours are chosen to stay apart at any size, and re-picking them\n * from the accent would trade that for a palette the layouts were never measured against.\n *\n * Light is the unconditional default so a document with no `data-theme` at all — an exported note,\n * a printed handout — still gets a complete ramp instead of the engine's built-in fallbacks.\n */",
+    "/*\n * `.pele-on-dark` is for a surface that is a dark panel whatever the app's theme is — the\n * text-to-diagram stage is one — so it asks for the ramp directly instead of through `data-theme`.\n */",
+  ]],
   ["src/client/styles/presentation.css", [
     "/* The printed page is the design canvas, and every sheet stamps these with its own numbers on\n   `[data-deck-print]`. They are declared here as well so a page drawn before that style lands — or a\n   reader with the sheet's stylesheet blocked — gets a page of the right shape rather than a zero-wide\n   one, and so the token gate can see a definition for a name the sheet writes from a template. */",
   ]],
@@ -18948,6 +18964,7 @@ const allowed = new Map([
     "/* An embedded conversation: a transcript, not a document. Roles are told apart by a left edge and a\n   label, because the note's own prose is what should stay the loudest thing on the page. */",
     "/* The label of a quoted turn opens that turn: a note arguing with one exchange should not land the\n   reader at the top of a long thread and leave them to find it. */",
     "/*\n * WCAG 2.5.8 wants 24 by 24 CSS pixels of target, and a task box is painted at 1.05em (17 at the\n * default prose size) because a taller box would push every line of the list apart. So the drawn box\n * stays and the tappable area grows around it — the same invisible overlay `.ink-tap-pad` uses, here\n * on `::before` because `::after` is the check mark. It reaches into the first pixels of the label,\n * which is prose rather than a control, and a query row's own neighbour is 8px further out.\n */",
+    "/* The diagram's own node fills are `--pele-bg`, so the block is painted with it too: a shape\n     filled with the page's inset grey on a cream block reads as a mistake in either direction. */",
   ]],
   ["src/client/styles/reading.css", [
     "/**\n * The reading surface.\n *\n * Two things here are not decoration and are worth the comments, because both look like a bug in the\n * other direction when they are changed: the column geometry that turns flowing text into pages, and\n * the HUD's habit of floating over the page instead of reserving a row.\n */",
@@ -27916,6 +27933,7 @@ const allowed = new Map([
     "// The directory names are part of the URL space pdfjs builds, so only their own files serve.",
     "/**\n * A file the dev server cannot watch is one save that does not hot-reload, not a dead server.\n *\n * chokidar emits `error` when `fs.watch` answers EBUSY (Windows locks a file while an editor, an\n * agent harness or an archiver is renaming it into place). EventEmitter treats an unhandled `error`\n * as fatal, so the dev server used to exit mid-keystroke and the next page load read as a start-up\n * failure. The listener is the fix; `server.watch.ignored` below keeps the known writers out of the\n * tree so the warning stays rare.\n */",
     "/*\n       * Windows reports EBUSY for a path that is being renamed into place, and chokidar treats that\n       * as a fatal error: one atomic save anywhere under the project used to end the dev server with\n       * an uncaught FSWatcher exception, which the person in front of the screen experiences as\n       * \"Inkstone did not start\". Editors and agent harnesses write through a locked temp directory\n       * next to the target; browser profiles and Wrangler's local state are locked for as long as\n       * they run. None of them is source to reload, so they are kept out of the watched tree.\n       */",
+    "/**\n * Pele ships its own build: the 33 diagram entries are thin files over 89 chunks named by content\n * hash and shared between types, so there is no per-type name to hand the bundler. Left alone, every\n * one of those hashes becomes an app chunk name, and the service worker decides what to download\n * ahead of time by name — unnamed, the whole engine joins the background download of every account,\n * which is the one thing the on-demand list exists to keep out. One named chunk instead: a reader who\n * opens any diagram pays the engine once, and nobody else pays it at all.\n */",
   ]],
   ["vitest.config.ts", [
     "// The suite's own tail decides this number. Measured over a full parallel run of every file:",

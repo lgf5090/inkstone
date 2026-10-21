@@ -906,7 +906,6 @@ export const EN_US_MESSAGES = {
     "markdown.could_not_load_embedded_content": "Could not load embedded content",
     "markdown.danger": "Danger",
     "markdown.details": "Details",
-    "markdown.diagram_rendering_timed_out_check_the_diagram_or_try_again_later": "Diagram rendering timed out. Check the diagram or try again later",
     "markdown.diagram_rendering_timed_out_while_loading": "Diagram rendering timed out while loading",
     "markdown.embed_nesting_limit_reached": "Embed nesting limit reached",
     "markdown.embedded_content_is_too_large": "Embedded content is too large",

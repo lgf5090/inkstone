@@ -350,7 +350,7 @@ function useSlideDiagrams({ hostRef, html, dark, onRendered, onSettled, instantC
         // The account's own display preferences, honoured here rather than assumed: the enhancement
         // chain that painted this page may have written the fence's source into the block, and drawing
         // on top of that is what turns a turned-off setting into a diagram the room never asked for.
-        if (mermaid) await renderPendingMermaid(host, dark)
+        if (mermaid) await renderPendingMermaid(host)
         if (chart && !cancelled) await renderPendingCharts(host, dark, { instant: instantCharts })
       } finally {
         // Settled means "this canvas is done with the page", not "the page has pictures": a diagram that

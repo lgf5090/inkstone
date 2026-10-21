@@ -906,7 +906,6 @@ export const ZH_CN_MESSAGES = {
     "markdown.could_not_load_embedded_content": "嵌入内容无法加载",
     "markdown.danger": "危险",
     "markdown.details": "详情",
-    "markdown.diagram_rendering_timed_out_check_the_diagram_or_try_again_later": "图表绘制超时，请检查图表内容或稍后重试",
     "markdown.diagram_rendering_timed_out_while_loading": "图表组件加载超时",
     "markdown.embed_nesting_limit_reached": "嵌入层级过深",
     "markdown.embedded_content_is_too_large": "嵌入内容过大",

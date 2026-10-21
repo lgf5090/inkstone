@@ -33,7 +33,6 @@ export interface TextToDiagramModalProps {
   isOpen: boolean;
   onClose: () => void;
   onInsert: (elements: any[]) => void;
-  theme?: 'dark' | 'light';
   initialTab?: 'ai' | 'mermaid';
   initialMermaidCode?: string;
 }
@@ -62,58 +61,37 @@ const DEFAULT_MERMAID = `graph TD\n    A[Start] --> B(Work)\n    B --> C{Done?}\
  * with the reader's operating system and not with the theme they chose. It is kept because it is what
  * the stage renders today; making the stage follow the app's theme is a separate decision.
  */
-const DIAGRAM_STAGE_CLASS = 'bg-[#23272e] dark:bg-[#1e2227]';
+const DIAGRAM_STAGE_CLASS = 'pele-on-dark bg-[#23272e] dark:bg-[#1e2227]';
 
-let mermaidApi: any = null;
 let renderSeq = 0;
 
-async function getMermaidInstance(isDark: boolean) {
-  if (!mermaidApi) {
-    const mod = await import('mermaid');
-    mermaidApi = mod.default;
-  }
-  mermaidApi.initialize({
-    startOnLoad: false,
-    theme: isDark ? 'dark' : 'default',
-    securityLevel: 'strict',
-    suppressErrorRendering: true,
-    fontFamily: 'system-ui, -apple-system, sans-serif',
-    themeVariables: {
-      fontSize: '13px',
-      background: 'transparent',
-    },
-  });
-  return mermaidApi;
-}
-
-async function renderSvgSafe(code: string, isDark: boolean): Promise<string> {
+/**
+ * The preview of whatever text is on the editor, drawn for its natural size: the stage owns the
+ * zoom, so the diagram is never re-flowed to fit a box here.
+ *
+ * `links: false, images: false` is the same boundary the previous engine was configured with under
+ * its strict level: a diagram pasted into this box is not given anchors to follow or addresses to
+ * fetch. The shared SVG pass still runs over the result, so this is the first of two layers.
+ */
+async function renderSvgSafe(code: string): Promise<string> {
   if (!code.trim() || typeof document === 'undefined') return '';
-  const m = await getMermaidInstance(isDark);
-  const host = document.createElement('div');
-  host.style.position = 'fixed';
-  host.style.top = '-9999px';
-  host.style.left = '-9999px';
-  host.style.visibility = 'hidden';
-  host.style.pointerEvents = 'none';
-  document.body.appendChild(host);
-  try {
-    const { svg } = await m.render(`ink-ttd-mermaid-${++renderSeq}`, code.trim(), host);
-    return svg;
-  } finally {
-    host.remove();
-  }
+  const { renderAsync } = await import('pele/lazy');
+  const { svg } = await renderAsync(code.trim(), {
+    idPrefix: `ink-ttd-${++renderSeq}`,
+    links: false,
+    images: false,
+  });
+  return svg;
 }
 
 export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
   isOpen,
   onClose,
   onInsert,
-  theme = 'dark',
   initialTab = 'ai',
   initialMermaidCode = '',
 }) => {
   const toast = useUi((s) => s.toast);
-  const isDark = theme === 'dark';
 
   const [activeTab, setActiveTab] = useState<'ai' | 'mermaid'>(initialTab);
   const [mermaidCode, setMermaidCode] = useState(initialMermaidCode || DEFAULT_MERMAID);
@@ -188,7 +166,7 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
       }
       setIsRendering(true);
       try {
-        const svg = await renderSvgSafe(code, isDark);
+        const svg = await renderSvgSafe(code);
         setPreviewSvg(svg);
         setPreviewError(null);
       } catch (err: unknown) {
@@ -198,7 +176,7 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
         setIsRendering(false);
       }
     },
-    [isDark],
+    [],
   );
 
   useEffect(() => {

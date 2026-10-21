@@ -212,7 +212,7 @@ export function MarkdownBody({
     if (!node) return
     const revision = revisionRef.current
     const isCurrent = () => revisionRef.current === revision && host.current === node
-    if (mermaid) void renderPendingMermaid(node, dark, { isCurrent })
+    if (mermaid) void renderPendingMermaid(node, { isCurrent })
     if (chart) void renderPendingCharts(node, dark)
   }, [settled, dark, mermaid, chart])
 
@@ -274,7 +274,7 @@ export function MarkdownBody({
       if (block && node) {
         const revision = ++revisionRef.current
         resetMermaidNode(block)
-        void renderPendingMermaid(node, dark, {
+        void renderPendingMermaid(node, {
           isCurrent: () => revisionRef.current === revision && host.current === node,
         })
       }

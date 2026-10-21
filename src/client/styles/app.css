@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @import './tokens.css';
+@import './pele.css';
 @import './editor.css';
 @import './prose.css';
 @import './kanban.css';

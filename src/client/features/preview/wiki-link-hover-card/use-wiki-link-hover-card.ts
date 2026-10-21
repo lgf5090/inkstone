@@ -256,22 +256,21 @@ function usePinnedMermaid(opts: {
   pinned: boolean
   status: 'loading' | 'ready' | 'missing' | 'error'
   html: string
-  dark: boolean
   mermaidEnabled: boolean
   cardRef: RefObject<HTMLDivElement | null>
 }): void {
-  const { pinned, status, html, dark, mermaidEnabled, cardRef } = opts
+  const { pinned, status, html, mermaidEnabled, cardRef } = opts
   useEffect(() => {
     if (!pinned || status !== 'ready' || !html || !mermaidEnabled) return
     const body = cardRef.current?.querySelector<HTMLElement>('.wiki-hover-body')
     if (!body) return
     let cancelled = false
     const isCurrent = () => !cancelled && body.isConnected
-    void renderPendingMermaid(body, dark, { isCurrent })
+    void renderPendingMermaid(body, { isCurrent })
     return () => {
       cancelled = true
     }
-  }, [pinned, status, html, dark, mermaidEnabled, cardRef])
+  }, [pinned, status, html, mermaidEnabled, cardRef])
 }
 
 export function useWikiLinkHoverCard(props: WikiLinkHoverCardProps) {
@@ -282,7 +281,7 @@ export function useWikiLinkHoverCard(props: WikiLinkHoverCardProps) {
   const { cardRef, position } = useCardPositioning(card, pinned, onClose)
   const describedBy = useCardAccessibility(card)
   const { pinnedRect, beginDrag, beginResize } = useCardPinnedGeometry(pinnedInit, onGeometryChange, cardRef)
-  usePinnedMermaid({ pinned, status, html, dark, mermaidEnabled: preview.mermaid, cardRef })
+  usePinnedMermaid({ pinned, status, html, mermaidEnabled: preview.mermaid, cardRef })
   const resolve = useCallback((link: HTMLElement) => resolveNestedCandidate(link, card, depth, path, preview.linkHoverLinks), [card, depth, path, preview.linkHoverLinks])
   const machine = useLinkHover({
     resolve,

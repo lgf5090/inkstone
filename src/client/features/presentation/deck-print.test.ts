@@ -21,11 +21,8 @@ vi.mock('./deck-image', () => ({
 // The sheet's four drawing passes each reach for a vendor jsdom cannot run. They are replaced by
 // markers that record the call, so "the sheet ran the pass" is an assertion rather than a guess out
 // of what the block looks like afterwards.
-vi.mock('mermaid', () => ({
-  default: {
-    initialize: () => { },
-    render: (_id: string, source: string) => Promise.resolve({ svg: `<svg class="stub-diagram"><desc>${source}</desc></svg>` }),
-  },
+vi.mock('pele/lazy', () => ({
+  renderAsync: (source: string) => Promise.resolve({ svg: `<svg class="stub-diagram"><desc>${source}</desc></svg>` }),
 }))
 
 vi.mock('chart.js/auto', () => ({

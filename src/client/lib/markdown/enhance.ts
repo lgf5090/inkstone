@@ -396,71 +396,74 @@ function showMathSource(target: HTMLElement, source?: string, display?: boolean)
     target.classList.add('math-source');
     target.textContent = display ? `$$\n${source}\n$$` : `$${source}$`;
 }
-type MermaidApi = typeof import('mermaid').default;
-type MermaidTheme = 'dark' | 'default';
-const MERMAID_LOAD_TIMEOUT_MS = 15000;
-const MERMAID_RENDER_TIMEOUT_MS = 10000;
-const MERMAID_CANCELLED = Symbol('mermaid-cancelled');
-let mermaidPromise: Promise<MermaidApi> | null = null;
-let mermaidTheme: 'dark' | 'default' | null = null;
-let mermaidSeq = 0;
-let mermaidRenderQueue: Promise<void> = Promise.resolve();
-const mermaidCache = new Map<string, string>();
-async function getMermaid(): Promise<MermaidApi> {
-    if (!mermaidPromise) {
-        const loading = withTimeout(import('mermaid').then((mod) => mod.default), MERMAID_LOAD_TIMEOUT_MS, t("markdown.diagram_rendering_timed_out_while_loading"));
-        mermaidPromise = loading;
+type PeleEngine = typeof import('pele/lazy');
+const PELE_LOAD_TIMEOUT_MS = 15000;
+const PELE_CACHE_ENTRIES = 60;
+let pelePromise: Promise<PeleEngine> | null = null;
+let peleSeq = 0;
+let peleFontsSettled: Promise<void> | null = null;
+const peleCache = new Map<string, string>();
+async function getPele(): Promise<PeleEngine> {
+    if (!pelePromise) {
+        const loading = withTimeout(import('pele/lazy'), PELE_LOAD_TIMEOUT_MS, t("markdown.diagram_rendering_timed_out_while_loading"));
+        pelePromise = loading;
         void loading.catch((err) => {
-            if (mermaidPromise === loading)
-                mermaidPromise = null;
+            if (pelePromise === loading)
+                pelePromise = null;
             console.warn(t("markdown.inkstone_diagram_rendering_failed_to_load"), err);
         });
     }
-    return mermaidPromise;
+    return pelePromise;
 }
-function initializeMermaid(mermaid: MermaidApi, theme: MermaidTheme): void {
-    if (mermaidTheme !== theme) {
-        mermaidTheme = theme;
-        mermaid.initialize({
-            startOnLoad: false,
-            theme,
-            securityLevel: 'strict',
-            suppressErrorRendering: true,
-            fontFamily: getComputedStyle(document.documentElement).getPropertyValue('--font-ui').trim() ||
-                'system-ui, sans-serif',
-            themeVariables: {
-                fontSize: '13px',
-                background: 'transparent',
-            },
-        });
+/**
+ * Labels are measured on a canvas rather than in the page, so a diagram drawn while the prose
+ * webfont is still in flight keeps the widths of its fallback for good. One shared wait covers
+ * every block; a surface without the font API gets no wait at all.
+ */
+function fontsSettled(): Promise<void> {
+    if (!peleFontsSettled) {
+        peleFontsSettled = document.fonts
+            ? document.fonts.ready.then(() => undefined)
+            : Promise.resolve();
     }
+    return peleFontsSettled;
 }
-function createMermaidRenderHost(): HTMLDivElement {
-    const host = document.createElement('div');
-    host.dataset.mermaidRenderHost = '1';
-    host.setAttribute('aria-hidden', 'true');
-    Object.assign(host.style, {
-        position: 'fixed',
-        top: '0',
-        left: '0',
-        width: '100vw',
-        visibility: 'hidden',
-        pointerEvents: 'none',
-        zIndex: '-1',
-    });
-    document.body.append(host);
-    return host;
+/** What a diagram is laid out for: the box inside the block's padding and the type it is set in. */
+interface DiagramGeometry {
+    room: number | undefined;
+    font: string | undefined;
+    mono: string | undefined;
 }
-function mermaidKey(source: string, dark: boolean): string {
-    return `${dark ? 'dark' : 'light'}\u0000${source}`;
+/**
+ * A block that is not on screen yet has no width to be drawn for, and is left at its natural
+ * size to be scaled by CSS — the way it has always been scaled down when the column narrows.
+ */
+function diagramGeometry(node: HTMLElement): DiagramGeometry {
+    const view = node.ownerDocument?.defaultView;
+    if (!view)
+        return { room: undefined, font: undefined, mono: undefined };
+    const style = view.getComputedStyle(node);
+    const room = node.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0);
+    return {
+        room: room > 0 ? room : undefined,
+        font: style.fontFamily.trim() || undefined,
+        mono: style.getPropertyValue('--font-mono').trim() || undefined,
+    };
 }
-function hydrateCachedMermaid(root: HTMLElement, dark: boolean): void {
+/**
+ * The drawing depends on the width and the faces it was measured in, but not on the theme:
+ * Pele paints with CSS variables, so one SVG serves light and dark alike.
+ */
+function mermaidKey(source: string, geometry: DiagramGeometry): string {
+    return `${geometry.room ?? 'auto'}\u0000${geometry.font ?? ''}\u0000${geometry.mono ?? ''}\u0000${source}`;
+}
+function hydrateCachedMermaid(root: HTMLElement): void {
     root.querySelectorAll<HTMLElement>('[data-mermaid]').forEach((node) => {
-        if (node.dataset.rendered === currentSignature(node, dark))
+        if (node.dataset.rendered === currentSignature(node))
             return;
-        const cached = mermaidCache.get(mermaidKey(mermaidSource(node), dark));
+        const cached = peleCache.get(mermaidKey(mermaidSource(node), diagramGeometry(node)));
         if (cached)
-            applyMermaidSvg(node, cached, dark);
+            applyMermaidSvg(node, cached);
     });
 }
 function showMermaidSource(root: HTMLElement): void {
@@ -478,34 +481,29 @@ export interface MermaidRenderHooks<T = unknown> {
     beforeUpdate?: () => T;
     afterUpdate?: (snapshot: T) => void;
 }
-export async function renderPendingMermaid<T = unknown>(root: HTMLElement | Document, dark: boolean, hooks: MermaidRenderHooks<T> = {}): Promise<void> {
+export async function renderPendingMermaid<T = unknown>(root: HTMLElement | Document, hooks: MermaidRenderHooks<T> = {}): Promise<void> {
     const isCurrent = () => hooks.isCurrent?.() !== false;
     const pending = [...root.querySelectorAll<HTMLElement>('[data-mermaid]')]
-        .filter((node) => node.dataset.rendered !== currentSignature(node, dark))
+        .filter((node) => node.dataset.rendered !== currentSignature(node))
         .map((node) => {
         const source = mermaidSource(node);
-        return { node, source, key: mermaidKey(source, dark) };
+        return { node, source };
     });
-    for (const { node, source, key } of pending) {
+    for (const { node, source } of pending) {
         if (!isCurrent())
             return;
         try {
-            const svg = await queueMermaidRender(key, source, dark, () => {
-                return (isCurrent() &&
-                    root.contains(node) &&
-                    mermaidSource(node) === source &&
-                    node.dataset.rendered !== currentSignature(node, dark));
-            });
+            const svg = await drawMermaid(source, node);
             if (!isCurrent() ||
                 !root.contains(node) ||
                 mermaidSource(node) !== source ||
-                node.dataset.rendered === currentSignature(node, dark)) {
+                node.dataset.rendered === currentSignature(node)) {
                 continue;
             }
-            updateMermaidNode(hooks, () => applyMermaidSvg(node, svg, dark));
+            updateMermaidNode(hooks, () => applyMermaidSvg(node, svg));
         }
         catch (err) {
-            if (err === MERMAID_CANCELLED || !isCurrent() || !root.contains(node))
+            if (!isCurrent() || !root.contains(node))
                 return;
             if (mermaidSource(node) !== source)
                 continue;
@@ -513,36 +511,34 @@ export async function renderPendingMermaid<T = unknown>(root: HTMLElement | Docu
         }
     }
 }
-function queueMermaidRender(key: string, source: string, dark: boolean, isCurrent: () => boolean): Promise<string> {
-    const task = mermaidRenderQueue.then(async () => {
-        const cached = mermaidCache.get(key);
-        if (cached)
-            return cached;
-        if (!isCurrent())
-            throw MERMAID_CANCELLED;
-        const mermaid = await getMermaid();
-        if (!isCurrent())
-            throw MERMAID_CANCELLED;
-        initializeMermaid(mermaid, dark ? 'dark' : 'default');
-        const renderHost = createMermaidRenderHost();
-        try {
-            const { svg } = await withTimeout(mermaid.render(`ink-mermaid-${++mermaidSeq}`, source, renderHost), MERMAID_RENDER_TIMEOUT_MS, t("markdown.diagram_rendering_timed_out_check_the_diagram_or_try_again_later"));
-            const sanitized = sanitizeSvg(svg);
-            remember(mermaidCache, key, sanitized, 60);
-            return sanitized;
-        }
-        finally {
-            renderHost.remove();
-        }
+async function drawMermaid(source: string, node: HTMLElement): Promise<string> {
+    const geometry = diagramGeometry(node);
+    const key = mermaidKey(source, geometry);
+    const cached = peleCache.get(key);
+    if (cached)
+        return cached;
+    const pele = await getPele();
+    await fontsSettled();
+    // `links: false, images: false` is the boundary the previous engine was configured with under
+    // its strict security level: a fence in a note is text the reader types, not a thing the page
+    // follows a link in or fetches a picture for. The shared SVG pass still runs over the result.
+    const { svg } = await pele.renderAsync(source, {
+        idPrefix: `ink-pele-${++peleSeq}`,
+        fontFamily: geometry.font,
+        fontFamilyMono: geometry.mono,
+        maxWidth: geometry.room,
+        links: false,
+        images: false,
     });
-    mermaidRenderQueue = task.then(() => undefined, () => undefined);
-    return task;
+    const sanitized = sanitizeSvg(svg);
+    remember(peleCache, key, sanitized, PELE_CACHE_ENTRIES);
+    return sanitized;
 }
-function applyMermaidSvg(node: HTMLElement, svg: string, dark: boolean): void {
+function applyMermaidSvg(node: HTMLElement, svg: string): void {
     node.innerHTML = svg;
     node.classList.remove('loading', 'mermaid-source', 'has-error');
     node.setAttribute('aria-busy', 'false');
-    node.dataset.rendered = currentSignature(node, dark);
+    node.dataset.rendered = currentSignature(node);
 }
 function showMermaidError(node: HTMLElement, err: unknown, source: string): void {
     const wrap = document.createElement('div');
@@ -581,9 +577,9 @@ function updateMermaidNode<T>(hooks: MermaidRenderHooks<T>, update: () => void):
     update();
     hooks.afterUpdate?.(snapshot);
 }
-function currentSignature(node: HTMLElement, dark: boolean): string {
+function currentSignature(node: HTMLElement): string {
     const source = mermaidSource(node);
-    return `${dark ? 'd' : 'l'}:${source.length}:${shortHash(source)}`;
+    return `${source.length}:${shortHash(source)}`;
 }
 function mermaidSource(node: HTMLElement): string {
     return decodeDataValue(node.dataset.mermaid);
@@ -1012,10 +1008,10 @@ export async function enhancePreview(root: HTMLElement, options: EnhanceOptions)
     else if (options.kanban === 'source')
         showKanbanSourceAll(root);
     if (options.mermaid) {
-        hydrateCachedMermaid(root, options.dark);
-        const hasPendingDiagram = [...root.querySelectorAll<HTMLElement>('[data-mermaid]')].some((node) => node.dataset.rendered !== currentSignature(node, options.dark));
+        hydrateCachedMermaid(root);
+        const hasPendingDiagram = [...root.querySelectorAll<HTMLElement>('[data-mermaid]')].some((node) => node.dataset.rendered !== currentSignature(node));
         if (hasPendingDiagram)
-            void getMermaid().catch(() => { });
+            void getPele().catch(() => { });
     }
     else {
         showMermaidSource(root);
@@ -1049,11 +1045,6 @@ export async function enhancePreview(root: HTMLElement, options: EnhanceOptions)
     applyExampleSplits(root);
     applyPanelColumnTracks(root);
     applyMediaLayouts(root);
-}
-export function invalidateMermaidTheme(root: HTMLElement | null): void {
-    root?.querySelectorAll<HTMLElement>('[data-mermaid]').forEach((node) => {
-        delete node.dataset.rendered;
-    });
 }
 function escapeHtml(text: string): string {
     return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

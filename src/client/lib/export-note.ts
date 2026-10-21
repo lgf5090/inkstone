@@ -7,6 +7,9 @@ import { renderStaticKanbans } from './markdown/kanban/static'
 // document's CSP (`style-src 'self' 'unsafe-inline'`, `font-src 'self' data:`), which
 // refuses the CDN stylesheet, and the bundled url()s resolve to our own /assets/fonts.
 import katexPrintCss from 'katex/dist/katex.min.css?inline'
+// A diagram is coloured entirely by CSS variables, so the page an export lands on has to carry the
+// ramp itself: without it every shape falls back to the engine's defaults, light and dark alike.
+import diagramPrintCss from '../styles/pele.css?inline'
 
 // Pinned so an exported document cannot silently load a different stylesheet: the hash
 // is the sha384 of node_modules/katex/dist/katex.min.css for the version in package.json.
@@ -138,7 +141,7 @@ async function prepareExportBody(note: { title: string; content: string }): Prom
   await inlinePrivateImages(doc)
   // `false` because the exported page is always the light scheme.
   await renderMath(doc)
-  await renderPendingMermaid(doc, false)
+  await renderPendingMermaid(doc)
   await renderPendingCharts(doc.body, false, { instant: true })
   bakeChartsToImages(doc.body)
   // A board is a React root, and an exported document has no script to mount one with, so the fence
@@ -243,6 +246,7 @@ function htmlDocument(title: string, bodyHtml: string, language: string, mathSty
 <title>${safeTitle}</title>
 ${mathStylesheet}
 <style>
+${diagramPrintCss}
 :root { color-scheme: light; }
 * { box-sizing: border-box; }
 body { margin: 0 auto; max-width: 46rem; padding: 2.5rem 1.75rem; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; font-size: 16px; line-height: 1.75; color: #1f2328; background: #fff; }

@@ -28,14 +28,11 @@ const SLIDE_STATE: PresenterSlideState = {
 // Only the diagram vendor is stubbed — what these cases ask is whether this surface puts its slides
 // through the enhancement at all, not what mermaid draws. The rest of the chain runs for real.
 const mermaidStub = vi.hoisted(() => ({
-  render: vi.fn(async (_id: string, source: string) => ({ svg: `<svg class="stub-diagram"><desc>${source}</desc></svg>` })),
+  renderAsync: vi.fn(async (source: string) => ({ svg: `<svg class="stub-diagram"><desc>${source}</desc></svg>` })),
 }))
 
-vi.mock('mermaid', () => ({
-  default: {
-    initialize: () => { },
-    render: (id: string, source: string) => mermaidStub.render(id, source),
-  },
+vi.mock('pele/lazy', () => ({
+  renderAsync: (source: string) => mermaidStub.renderAsync(source),
 }))
 
 // Chart.js is a canvas library jsdom cannot run, so the constructor is replaced by one that records

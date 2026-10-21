@@ -10,11 +10,8 @@ const MERMAID_SVG = [
   '</svg>',
 ].join('')
 
-vi.mock('mermaid', () => ({
-  default: {
-    initialize: vi.fn(),
-    render: vi.fn(async () => ({ svg: MERMAID_SVG })),
-  },
+vi.mock('pele/lazy', () => ({
+  renderAsync: vi.fn(async () => ({ svg: MERMAID_SVG })),
 }))
 
 const exportSource = readFileSync('src/client/lib/export-note.ts', 'utf8')

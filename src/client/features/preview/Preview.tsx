@@ -218,7 +218,7 @@ export const Preview = memo(function Preview({
     if (!host || !preview.mermaid) return
 
     const revision = ++mermaidRevisionRef.current
-    void renderPendingMermaid<PreviewViewport | null>(host, theme === 'dark', {
+    void renderPendingMermaid<PreviewViewport | null>(host, {
       isCurrent: () => revision === mermaidRevisionRef.current && hostRef.current === host,
       beforeUpdate: () => {
         const scroller = scrollerRef.current
@@ -232,7 +232,7 @@ export const Preview = memo(function Preview({
         onRendered?.()
       },
     })
-  }, [onRendered, scrollerRef, preview.mermaid, theme])
+  }, [onRendered, scrollerRef, preview.mermaid])
 
   // Charts draw on the live host rather than in the staged copy: a canvas is pixels and an instance, and
   // neither survives the serialization and cloning the swap does.

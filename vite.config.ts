@@ -18,7 +18,7 @@ const preservesOnDemandBoundary = (id: string) => {
   const path = normalizeModuleId(id)
   // Keep optional preview renderers and their language modules behind dynamic-import boundaries.
   return (
-    /\/node_modules\/(?:mermaid|@mermaid-js\/[^/]+|cytoscape|cytoscape-cose-bilkent|elkjs|dagre-d3-es|d3-[^/]+|mind-elixir|@zsviczian)\//.test(
+    /\/node_modules\/(?:pele|dagre-d3-es|d3-[^/]+|mind-elixir|@zsviczian)\//.test(
       path,
     ) ||
     /\/node_modules\/@lezer\/(?!common\/|highlight\/|lr\/|markdown\/)/.test(path) ||
@@ -272,10 +272,20 @@ const pdfjsVendorPlugin = (): Plugin => {
   }
 }
 
+/**
+ * Pele ships its own build: the 33 diagram entries are thin files over 89 chunks named by content
+ * hash and shared between types, so there is no per-type name to hand the bundler. Left alone, every
+ * one of those hashes becomes an app chunk name, and the service worker decides what to download
+ * ahead of time by name — unnamed, the whole engine joins the background download of every account,
+ * which is the one thing the on-demand list exists to keep out. One named chunk instead: a reader who
+ * opens any diagram pays the engine once, and nobody else pays it at all.
+ */
+const getDiagramChunkName = (id: string) =>
+  normalizeModuleId(id).includes('/node_modules/pele/') ? 'pele' : null
+
 const getVendorChunkName = (id: string) => {
 
   if (!id.includes('node_modules') || preservesOnDemandBoundary(id)) return null
-
   const path = normalizeModuleId(id)
 
   if (path.includes('/katex/') && !path.includes('.css')) return 'vendor-katex'
@@ -409,6 +419,10 @@ const config: UserConfigFnPromise = async ({ mode, command }) => ({
               name: 'vendor-icons',
               test: isLucideModule,
               priority: 25,
+            },
+            {
+              name: getDiagramChunkName,
+              priority: 22,
             },
             {
               name: getVendorChunkName,

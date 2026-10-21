@@ -119,7 +119,7 @@ entry here before it merges.
   already locked is refused before it can spend the shared budget, and a lock that
   has been served clears that counter, so sustained probing cannot keep a slug
   locked indefinitely.
-- **Pinned rendering chain.** `dompurify`, `mermaid`, `katex`, `markdown-it` and `prismjs`
+- **Pinned rendering chain.** `dompurify`, `pele`, `katex`, `markdown-it` and `prismjs`
   are held to exact versions, and every `resolved` entry in `package-lock.json` points at
   `registry.npmjs.org` with an integrity hash. `tests/platform-contract.test.ts` fails if
   either stops being true, so replacing the sanitiser cannot happen silently through a

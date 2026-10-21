@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-const MERMAID_FIXTURE = [
+const DIAGRAM_FIXTURE = [
   '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 100 50">',
   '<style>#c1 .node rect{fill:red}</style>',
   '<defs><marker id="ar" refX="4" refY="2" markerWidth="6" markerHeight="6"><path d="M0 0L4 4"></path></marker></defs>',
@@ -15,11 +15,8 @@ const MERMAID_FIXTURE = [
   '</svg>',
 ].join('')
 
-vi.mock('mermaid', () => ({
-  default: {
-    initialize: vi.fn(),
-    render: vi.fn(async () => ({ svg: MERMAID_FIXTURE })),
-  },
+vi.mock('pele/lazy', () => ({
+  renderAsync: vi.fn(async () => ({ svg: DIAGRAM_FIXTURE })),
 }))
 
 vi.mock('../katex-loader', () => ({
@@ -42,11 +39,21 @@ async function renderDiagram(source: string): Promise<HTMLElement> {
   node.dataset.mermaid = source
   root.append(node)
   document.body.append(root)
-  await renderPendingMermaid(root, false)
+  await renderPendingMermaid(root)
   return node
 }
 
 describe('mermaid output', () => {
+  // The fence body is the reader's text, so the engine is asked for a picture and nothing that
+  // reaches past the page: no anchors to follow, no addresses to fetch a picture from.
+  it('draws the diagram without links or images from the note', async () => {
+    await renderDiagram('graph TD;A-->B;')
+    const { renderAsync } = await import('pele/lazy')
+    const options = vi.mocked(renderAsync).mock.calls.at(-1)?.[1]
+    expect(options?.links).toBe(false)
+    expect(options?.images).toBe(false)
+  })
+
   it('strips executable payloads from renderer output before injection', async () => {
     const node = await renderDiagram('graph TD;A-->B;')
     const html = node.innerHTML

@@ -49,7 +49,7 @@ export function usePresenterSlideMedia(options: {
         codeBlockCollapseLines: 0,
       })
       if (cancelled) return
-      if (preview.mermaid) await renderPendingMermaid(host, dark)
+      if (preview.mermaid) await renderPendingMermaid(host)
       // `enhancePreview` only decides whether a chart block is *allowed* to be drawn; the drawing is a
       // pass of its own, and the projector's canvas runs it. A presenter pane that skipped it would
       // show the room a chart and its own copy a fenced block — the two surfaces the speaker is

@@ -64,7 +64,7 @@ it('keeps lockfile sources on the pinned registries with content hashes', () => 
 it('pins the sanitising and rendering chain to exact versions', () => {
   const pkg = JSON.parse(read('../package.json')) as { dependencies: Record<string, string> }
   const pinned = [
-    'dompurify', 'mermaid', 'katex', 'markdown-it', 'markdown-it-anchor',
+    'dompurify', 'pele', 'katex', 'markdown-it', 'markdown-it-anchor',
     'markdown-it-footnote', 'markdown-it-mark', 'markdown-it-task-lists', 'prismjs',
   ]
   for (const name of pinned) {

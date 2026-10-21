@@ -94,7 +94,7 @@ class RenderedBlock extends WidgetType {
             // whatever surface it is read on.
             enhanceBlockToolbars(host, blockToolbarOptions());
             mountJsonViews(host, view);
-            if (alive && settings.mermaid) await renderPendingMermaid(host, dark, { isCurrent: () => alive });
+            if (alive && settings.mermaid) await renderPendingMermaid(host, { isCurrent: () => alive });
             if (alive && settings.chart) await renderPendingCharts(host, dark);
             // A query block answers from other notes, so it is filled on this live host after the rest of
             // the enhancement chain — and `this.file.name` inside it means the note being edited.
