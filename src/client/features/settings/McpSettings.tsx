@@ -29,6 +29,7 @@ type BusyAction =
   | 'global'
   | 'write'
   | 'trash'
+  | 'todoRead'
   | 'tools'
   | 'revoke'
   | 'keyCreate'
@@ -419,6 +420,17 @@ export function McpSettings() {
             onChange={(trashEnabled) => void savePreference('trash', { trashEnabled })}
           />
         </SettingRow>
+        {/* A second data domain, so it gets its own switch rather than riding the note endpoint's premise
+            that reading is what it is for. Absent reads as on, which is what a payload from an older
+            server means and what every key that already carried todos:read was allowed to do. */}
+        <SettingRow title={t('settings.mcp_todo_read_access')} description={t('settings.mcp_todo_read_access_desc')}>
+          <Switch
+            checked={preferences.todoReadEnabled !== false}
+            disabled={displayOnly || !info.enabled || Boolean(busy)}
+            label={t('settings.mcp_todo_read_access')}
+            onChange={(todoReadEnabled) => void savePreference('todoRead', { todoReadEnabled })}
+          />
+        </SettingRow>
       </section>
 
       <section>
@@ -743,14 +755,16 @@ function clientSnippets(info: McpSettingsInfo): Array<{ id: string; name: string
  * The permissions a key may be denied.
  *
  * `notes:read` is the floor every key stands on, so it is not offered. `todos:read` is not a floor but a
- * second data domain, and this is the only place a reader can ask for it: a key minted with "whatever this
- * account allows" stays on notes, and the server refuses a to-do scope that was never named by name.
+ * second data domain: it is offered only while the account's to-do read switch is on, and this is the only
+ * place a reader can ask for it — a key minted with "whatever this account allows" stays on notes, and the
+ * server refuses a to-do scope that was never named by name.
  */
 const KEY_SCOPE_CHOICES = ['notes:write', 'notes:trash', 'todos:read', 'todos:write', 'todos:danger'] as const
 
 function scopeAllowed(scope: string, preferences: McpSettingsInfo['preferences']): boolean {
   if (scope === 'notes:write' || scope === 'todos:write') return preferences.writeEnabled
   if (scope === 'notes:trash' || scope === 'todos:danger') return preferences.trashEnabled
+  if (scope === 'todos:read') return preferences.todoReadEnabled !== false
   return true
 }
 
