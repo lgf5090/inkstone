@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { CalendarMinus, Check, MoreHorizontal, Star } from 'lucide-react'
+import { CalendarMinus, Check, CircleDot, MoreHorizontal, Star } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { Menu, type MenuItem } from '../../components/overlay'
@@ -36,6 +36,7 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
 }) {
   const toggle = useTodos((state) => state.toggleTask)
   const snooze = useTodos((state) => state.snoozeTask)
+  const updateTask = useTodos((state) => state.updateTask)
   const selectionMode = useTodos((state) => state.selectedIds.size > 0)
   const selected = useTodos((state) => state.selectedIds.has(task.id))
   const toggleSelected = useTodos((state) => state.toggleSelected)
@@ -87,15 +88,37 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
     onOpen()
   }
   // The same four durations the editor and the notification row offer, so "10 minutes" means one
-  // thing wherever the reader reads it.
-  const snoozeItems: MenuItem[] = SNOOZE_MINUTES.map((minutes) => ({
+  // thing wherever the reader reads it. The status rows come first, and the rule between them is
+  // what keeps "start this" from reading as one more snooze preset.
+  const statusItems: MenuItem[] = task.status === 'in_progress'
+    ? [{
+        id: 'status-todo',
+        label: t('todo.status.mark_todo'),
+        onSelect: () => {
+          setMenuOpen(false)
+          void updateTask(task.id, { status: 'todo' })
+        },
+      }]
+    : task.status === 'todo'
+      ? [{
+          id: 'status-in-progress',
+          label: t('todo.status.mark_in_progress'),
+          onSelect: () => {
+            setMenuOpen(false)
+            void updateTask(task.id, { status: 'in_progress' })
+          },
+        }]
+      : []
+  const snoozeItems: MenuItem[] = SNOOZE_MINUTES.map((minutes, index) => ({
     id: `snooze-${minutes}`,
     label: snoozeLabel(minutes),
+    separatorBefore: index === 0 && statusItems.length > 0,
     onSelect: () => {
       setMenuOpen(false)
       void snooze(task.id, minutes)
     },
   }))
+  const menuItems = [...statusItems, ...snoozeItems]
 
   return (
     <article
@@ -185,6 +208,14 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
           </span>
         )}
         <span className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+          {/* A status the reader can set has to be one they can see. The word carries it; the dot is
+              only the accent that makes a started row findable at a glance. */}
+          {task.status === 'in_progress' && (
+            <span className="inline-flex items-center gap-1 text-[length:var(--text-11)] text-[var(--accent)]">
+              <CircleDot size={12} aria-hidden="true" />
+              {t('todo.status.in_progress')}
+            </span>
+          )}
           {due && (
             <span
               className={cn(
@@ -267,17 +298,17 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
           <button
             ref={menuRef}
             type="button"
-            aria-label={`${t('todo.snooze.label')}: ${task.title}`}
+            aria-label={`${t('todo.task.actions')}: ${task.title}`}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((value) => !value)}
-            className="flex size-9 items-center justify-center rounded-full text-[var(--text-quaternary)] transition-colors hover:text-[var(--text-secondary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] md:size-7"
+            className="flex size-11 items-center justify-center rounded-full text-[var(--text-quaternary)] transition-colors hover:text-[var(--text-secondary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] md:size-7"
           >
             <MoreHorizontal size={14} />
           </button>
         )}
       </span>
-      <Menu anchor={menuRef} open={menuOpen} onClose={() => setMenuOpen(false)} items={snoozeItems} align="end" width={184} label={t('todo.snooze.label')} />
+      <Menu anchor={menuRef} open={menuOpen} onClose={() => setMenuOpen(false)} items={menuItems} align="end" width={184} label={t('todo.task.actions')} />
     </article>
   )
 }
