@@ -5,7 +5,7 @@
  * Selection is a mode a pointer enters and leaves: Command/Ctrl-click on a wide window, a long press on
  * a phone. The bar is what makes the mode legible — it names how many rows are picked and every action
  * it offers is the batch endpoint, once, with exactly those ids. The delete undo is checked here too,
- * because a batch is the one write whose inverse has to rebuild more than one row.
+ * because a batch is the one write whose inverse has to bring more than one row back from the trash.
  *
  * The store is stubbed at the API boundary, so every assertion below is about the request the client
  * actually made rather than about a fetch that never landed.
@@ -19,11 +19,12 @@ import type { TaskCounts, TaskList, TaskTag, TodoTask } from '@shared/todos/mode
 
 const service = vi.hoisted(() => ({
   tasks: [] as TodoTask[],
+  trashed: new Map<string, TodoTask>(),
   lists: [] as TaskList[],
   tags: [] as TaskTag[],
   /** Every batch request, in the order the client made it. */
   batches: [] as { ids: string[]; op: string; value?: unknown }[],
-  creates: [] as Record<string, unknown>[],
+  restores: [] as string[],
 }))
 
 vi.mock('../../lib/api', () => ({
@@ -45,13 +46,21 @@ vi.mock('../../lib/api', () => ({
       batch: async (body: { ids: string[]; op: string; value?: unknown }) => {
         service.batches.push(body)
         // The fake server applies the one operation this file exercises through the bar; a completion
-        // leaves the row in place because the real route does too (it only changes status).
-        if (body.op === 'delete') service.tasks = service.tasks.filter((task) => !body.ids.includes(task.id))
+        // leaves the row in place because the real route does too (it only changes status). A delete
+        // stamps the row into the trash, where a restore can bring the same one back.
+        if (body.op === 'delete') {
+          for (const task of service.tasks.filter((entry) => body.ids.includes(entry.id))) {
+            service.trashed.set(task.id, task)
+          }
+          service.tasks = service.tasks.filter((task) => !body.ids.includes(task.id))
+        }
         return { done: body.ids, failed: [] }
       },
-      create: async (body: Record<string, unknown>) => {
-        service.creates.push(body)
-        const task = row(`restored-${service.creates.length}`, String(body.title ?? ''), body as Partial<TodoTask>)
+      restore: async (id: string) => {
+        service.restores.push(id)
+        const task = service.trashed.get(id)
+        if (!task) throw new Error('not found')
+        service.trashed.delete(id)
         service.tasks.push(task)
         return { task }
       },
@@ -107,10 +116,11 @@ beforeEach(async () => {
   window.history.replaceState(null, '', '/todo?view=plan')
   await initI18n()
   service.tasks = [row('a', 'First'), row('b', 'Second')]
+  service.trashed.clear()
   service.lists = [list('L1', 'Work')]
   service.tags = [tag('tag-1', 'Focus')]
   service.batches.length = 0
-  service.creates.length = 0
+  service.restores.length = 0
   useTodos.setState(original, true)
   useUi.setState({ toasts: [] })
 })
@@ -219,10 +229,11 @@ describe('entering selection', () => {
 })
 
 describe('a batch that deleted rows', () => {
-  it('recreates every deleted task when the reader takes the step back', async () => {
+  it('restores every deleted task when the reader takes the step back', async () => {
+    service.tasks = [row('a', 'First', { listId: 'L1', tags: [tag('tag-1', 'Focus')] }), row('b', 'Second')]
     useTodos.setState({
       status: 'ready',
-      tasks: [row('a', 'First', { listId: 'L1', tags: [tag('tag-1', 'Focus')] }), row('b', 'Second')],
+      tasks: service.tasks,
       total: 2,
       selectedIds: new Set(['a', 'b']),
     })
@@ -238,9 +249,9 @@ describe('a batch that deleted rows', () => {
 
     await useTodos.getState().undoLast()
 
-    // One step back, rebuilt wholesale: a batch undo is one entry on the single-step rail, not a stack.
-    expect(service.creates.map((body) => body.title)).toEqual(['First', 'Second'])
-    expect(service.creates[0]?.tags).toEqual(['Focus'])
+    // One step back: both ids are restored, not re-created, and the rows keep their tags.
+    expect(service.restores).toEqual(['a', 'b'])
     expect(useTodos.getState().tasks.map((task) => task.title).sort()).toEqual(['First', 'Second'])
+    expect(useTodos.getState().tasks.find((task) => task.id === 'a')?.tags.map((entry) => entry.name)).toEqual(['Focus'])
   })
 })

@@ -169,12 +169,13 @@ interface TodosState {
   updateTask: (id: string, patch: Record<string, unknown>) => Promise<TodoTask | null>
   toggleTask: (task: TodoTask) => Promise<void>
   removeTask: (id: string) => Promise<boolean>
-  restoreTask: (snapshot: TaskDraft) => Promise<void>
+  /** Put a trashed task back by id and re-read the listing; answers whether the server took it. */
+  restoreTask: (id: string) => Promise<boolean>
   /**
    * Apply one change to every selected row and re-read the listing.
    *
    * Answers with the server's own done/failed split so a caller can say what happened to each half; a
-   * partial answer is surfaced rather than hidden. A delete offers one undo that rebuilds every row it
+   * partial answer is surfaced rather than hidden. A delete offers one undo that restores every id it
    * removed, because the rail holds one step and a batch is one step.
    */
   batchTasks: (op: TaskBatchOp, value?: string | string[] | null) => Promise<TaskBatchResult | null>
@@ -238,23 +239,6 @@ function offerUndo(
     action: { label: t('todo.action.undo'), run: () => { void get().undoLast() } },
     duration: UNDO_WINDOW_MS,
   })
-}
-
-/** The fields a deleted row needs to be created again, read before the row leaves the store. */
-function removedSnapshot(task: TodoTask): TaskDraft {
-  return {
-    title: task.title,
-    description: task.description,
-    priority: task.priority,
-    starred: task.starred,
-    dueAt: task.dueAt,
-    listId: task.listId,
-    repeat: task.repeat,
-    reminders: task.reminders ?? [],
-    tags: task.tags.map((tag) => tag.name),
-    noteId: task.noteId,
-    conversationId: task.conversationId,
-  }
 }
 
 /** The list a typed name points at, or null. A name that matches nothing is not a list to create. */
@@ -867,10 +851,6 @@ export const useTodos = create<TodosState>((set, get) => ({
   },
 
   removeTask: async (id) => {
-    // The snapshot has to be read before the row leaves the store; it is what the undo creates.
-    const removed = get().tasks.find((entry) => entry.id === id)
-      ?? get().completed.find((entry) => entry.id === id)
-      ?? null
     try {
       await api.todos.remove(id)
       set((state) => ({
@@ -882,11 +862,11 @@ export const useTodos = create<TodosState>((set, get) => ({
           : state.selectedIds,
       }))
       void get().refreshCounts()
-      if (removed) {
-        offerUndo(set, get, t('todo.toast.deleted'), async () => {
-          await get().restoreTask(removedSnapshot(removed))
-        })
-      }
+      // The delete only stamps the row, so the step back is the server's restore of the same id —
+      // not a re-creation that would lose steps and mint a second row.
+      offerUndo(set, get, t('todo.toast.deleted'), async () => {
+        await get().restoreTask(id)
+      })
       return true
     } catch (error) {
       toastError(error)
@@ -894,10 +874,17 @@ export const useTodos = create<TodosState>((set, get) => ({
     }
   },
 
-  /** Re-creates a deleted task from the snapshot the reader still has on screen. */
-  restoreTask: async (snapshot) => {
-    const restored = await get().createTask(snapshot)
-    if (restored) useUi.getState().toast({ title: t('todo.toast.restored'), tone: 'success' })
+  /** The way back from the trash, shared by the delete undo and the trash screen. */
+  restoreTask: async (id) => {
+    try {
+      await api.todos.restore(id)
+      useUi.getState().toast({ title: t('todo.toast.restored'), tone: 'success' })
+      await get().load()
+      return true
+    } catch (error) {
+      toastError(error)
+      return false
+    }
   },
 
   /**
@@ -908,22 +895,14 @@ export const useTodos = create<TodosState>((set, get) => ({
    * has never seen. The server already answers which rows it changed and which it did not, and both
    * halves are reported: a toast that said "done" over a partly failed batch would be a lie.
    *
-   * A delete leaves one undo on the rail. It rebuilds every removed row in the order it was picked,
-   * because the rail holds one step; the batch is that step. The recreated rows get new ids and carry
-   * no steps, exactly like the single-delete undo, which is the limit of what a `TodoTask` snapshot
-   * holds.
+   * A delete leaves one undo on the rail. It restores every id the server said it changed, in the
+   * order the server answered, because the rail holds one step; the batch is that step. Restoring
+   * the same rows rather than re-creating them is what keeps their steps, tags and ids.
    */
   batchTasks: async (op, value) => {
     const state = get()
     const ids = [...state.selectedIds]
     if (!ids.length) return null
-    // Read before the request; after a delete the rows are no longer anywhere in the store.
-    const removed = op === 'delete'
-      ? ids
-        .map((id) => state.tasks.find((entry) => entry.id === id) ?? state.completed.find((entry) => entry.id === id))
-        .filter((task): task is TodoTask => task !== undefined)
-        .map(removedSnapshot)
-      : []
     try {
       const result = await api.todos.batch({ ids, op, ...(value !== undefined ? { value } : {}) })
       set({ selectedIds: new Set<string>() })
@@ -938,11 +917,14 @@ export const useTodos = create<TodosState>((set, get) => ({
       } else {
         useUi.getState().toast({ title: t(BATCH_TOAST_KEYS[op], { count: result.done.length }), tone: 'success' })
       }
-      if (op === 'delete' && removed.length && result.done.length === removed.length) {
-        offerUndo(set, get, t('todo.toast.batch_deleted', { count: removed.length }), async () => {
-          for (const snapshot of removed) {
-            if (!(await get().createTask(snapshot))) {
-              throw new Error('A deleted task could not be restored.')
+      if (op === 'delete' && result.done.length) {
+        const deleted = result.done
+        offerUndo(set, get, t('todo.toast.batch_deleted', { count: deleted.length }), async () => {
+          for (const id of deleted) {
+            try {
+              await api.todos.restore(id)
+            } catch (error) {
+              throw new Error(`A deleted task could not be restored: ${error instanceof Error ? error.message : String(error)}`)
             }
           }
           await get().load()

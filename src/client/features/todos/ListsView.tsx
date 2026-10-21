@@ -7,13 +7,14 @@
  */
 
 import { useState, type ReactNode } from 'react'
-import { Archive, ArchiveRestore, ChevronDown, ChevronRight, Pencil, Plus } from 'lucide-react'
+import { Archive, ArchiveRestore, ChevronDown, ChevronRight, Pencil, Plus, Trash2 } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { KanbanIconBadge } from '../../lib/markdown/kanban/ui/kanban-icon-badge'
 import { Select } from '../../components/form'
 import { listIconFor } from './todo-ui'
 import { useTodos, type TaskListEntry } from './store'
 import { ListEditor, TagEditor } from './OrganizerEditors'
+import { TrashPanel } from './TrashPanel'
 import type { TaskList, TaskTag } from '@shared/todos/model'
 
 export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagId?: string }) => void }) {
@@ -25,6 +26,7 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
   const counts = useTodos((state) => state.counts)
   const setView = useTodos((state) => state.setView)
   const [archivedOpen, setArchivedOpen] = useState(false)
+  const [trashOpen, setTrashOpen] = useState(false)
   const [listEditor, setListEditor] = useState<{ open: boolean; list: TaskList | null }>({ open: false, list: null })
   const [tagEditor, setTagEditor] = useState<{ open: boolean; tag: TaskTag | null }>({ open: false, tag: null })
 
@@ -175,6 +177,21 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
         </section>
 
         <section>
+          <div className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
+            <button
+              type="button"
+              onClick={() => setTrashOpen(true)}
+              aria-label={t('todo.trash.title')}
+              className="flex min-h-11 w-full items-center gap-2 px-3 text-left hover:bg-[var(--bg-hover)]"
+            >
+              <Trash2 size={14} className="text-[var(--text-tertiary)]" />
+              <span className="min-w-0 flex-1 truncate text-[length:var(--text-13)]">{t('todo.trash.title')}</span>
+              <ChevronRight size={13} className="text-[var(--text-quaternary)]" />
+            </button>
+          </div>
+        </section>
+
+        <section>
           <div className="mb-1.5 flex items-center justify-between px-1">
             <h2 className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">{t('todo.task.tags_label')}</h2>
             <button
@@ -208,6 +225,7 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
 
       <ListEditor open={listEditor.open} list={listEditor.list} onClose={() => setListEditor({ open: false, list: null })} />
       <TagEditor open={tagEditor.open} tag={tagEditor.tag} onClose={() => setTagEditor({ open: false, tag: null })} />
+      <TrashPanel open={trashOpen} onClose={() => setTrashOpen(false)} />
     </div>
   )
 }

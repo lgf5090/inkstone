@@ -224,6 +224,13 @@ export interface TaskPage {
   timezone: string
 }
 
+/** One page of the trash: only the rows that still carry a deletion stamp, newest first. */
+export interface TaskTrashPage {
+  tasks: TodoTask[]
+  /** The size of the whole trash, not of the page. */
+  total: number
+}
+
 /** The spans the statistics may bucket a range into. */
 export const TASK_STATS_BUCKETS = ['day', 'week', 'month'] as const
 export type TaskStatsBucket = (typeof TASK_STATS_BUCKETS)[number]

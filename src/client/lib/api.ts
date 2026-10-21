@@ -116,6 +116,7 @@ import type {
   TaskStatsBucket,
   TaskStep,
   TaskTag,
+  TaskTrashPage,
   TodoStats,
   TodoTask,
 } from '@shared/todos/model'
@@ -1155,6 +1156,18 @@ export const api = {
     snooze: (id: string, minutes: SnoozeMinutes) =>
       request<{ task: TodoTask, reminders: number[] }>(`/api/todos/${id}/snooze`, { method: 'POST', body: { minutes } }),
     remove: (id: string) => request<{ deleted: true }>(`/api/todos/${id}`, { method: 'DELETE' }),
+
+    /**
+     * The trash and its two doors.
+     *
+     * `trash` pages the rows every other read hides, newest deletion first. `restore` puts the same
+     * row back — the undo after a delete uses it rather than creating a copy — and `purge` removes a
+     * trashed row for good; both answer 404 for a live task or another account's id.
+     */
+    trash: (params: { limit?: number, offset?: number } = {}) =>
+      request<TaskTrashPage>(`/api/todos/trash${toQuery(params)}`),
+    restore: (id: string) => request<{ task: TodoTask }>(`/api/todos/${id}/restore`, { method: 'POST' }),
+    purge: (id: string) => request<{ purged: true }>(`/api/todos/${id}/purge`, { method: 'DELETE' }),
 
     /**
      * One change applied to a set of tasks.

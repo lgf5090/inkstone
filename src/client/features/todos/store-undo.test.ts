@@ -2,10 +2,11 @@
 /**
  * One step back, offered on the toast that announced the write.
  *
- * The undo is not a server endpoint: every case below watches the inverse writes the store sends
- * through the routes the app already has. A completed repeating task is the hard one — the server
- * filed the next occurrence when it finished the row, so taking the tick back has to delete that
- * occurrence before it reopens the original, and the call order is part of the contract.
+ * The undo is the inverse write the routes already offer, watched at the API boundary: a completion
+ * reopens the row, a move sends it back, and a delete restores the same stamped row rather than
+ * creating a copy. A completed repeating task is the hard one — the server filed the next occurrence
+ * when it finished the row, so taking the tick back has to delete that occurrence before it reopens the
+ * original, and the call order is part of the contract.
  *
  * The toast is the window. The store refuses a step whose toast is gone, and a second write replaces
  * the first rather than growing a second undo button somewhere off screen.
@@ -21,6 +22,7 @@ const service = vi.hoisted(() => ({
   /** Every inverse and forward write, in the order the store made it. */
   updates: [] as { id: string, body: Record<string, unknown> }[],
   removes: [] as string[],
+  restores: [] as string[],
   creates: [] as Record<string, unknown>[],
   /** The occurrence the fake PATCH files when a repeating task is finished. */
   next: null as TodoTask | null,
@@ -32,7 +34,13 @@ const EMPTY_COUNTS = { inbox: 0, today: 0, upcoming: 0, overdue: 0, all: 0, comp
 vi.mock('../../lib/api', () => ({
   api: {
     todos: {
-      list: async () => ({ tasks: [], total: 0, counts: EMPTY_COUNTS, dayEnd: Date.now() + 3_600_000, timezone: 'UTC' }),
+      list: async () => ({
+        tasks: [...service.rows.values()],
+        total: service.rows.size,
+        counts: EMPTY_COUNTS,
+        dayEnd: Date.now() + 3_600_000,
+        timezone: 'UTC',
+      }),
       lists: async () => ({ lists: [] }),
       tags: async () => ({ tags: [] }),
       get: async (id: string) => {
@@ -52,8 +60,13 @@ vi.mock('../../lib/api', () => ({
       },
       remove: async (id: string) => {
         service.removes.push(id)
-        service.rows.delete(id)
         return { deleted: true as const }
+      },
+      restore: async (id: string) => {
+        service.restores.push(id)
+        const task = service.rows.get(id)
+        if (!task) throw new Error('not found')
+        return { task }
       },
       create: async (body: Record<string, unknown>) => {
         service.creates.push(body)
@@ -109,6 +122,7 @@ beforeEach(async () => {
   await initI18n()
   service.updates.length = 0
   service.removes.length = 0
+  service.restores.length = 0
   service.creates.length = 0
   service.next = null
   service.rows.clear()
@@ -219,7 +233,7 @@ describe('undoing a priority change', () => {
 })
 
 describe('undoing a delete', () => {
-  it('re-creates the row from the snapshot the store still holds', async () => {
+  it('restores the same row the delete stamped, rather than creating a copy', async () => {
     const task = row('t1', 'File the return', {
       description: 'Before the deadline',
       listId: 'work',
@@ -235,20 +249,10 @@ describe('undoing a delete', () => {
 
     await useTodos.getState().undoLast()
 
-    expect(service.creates).toEqual([{
-      title: 'File the return',
-      description: 'Before the deadline',
-      priority: 'high',
-      starred: true,
-      dueAt: null,
-      listId: 'work',
-      repeat: null,
-      reminders: [],
-      tags: ['finance'],
-      noteId: null,
-      conversationId: null,
-    }])
-    expect(useTodos.getState().tasks.map((entry) => entry.id)).toEqual(['restored-1'])
+    // The undo is the server's restore: one row, same id, and nothing created.
+    expect(service.restores).toEqual(['t1'])
+    expect(service.creates).toEqual([])
+    expect(useTodos.getState().tasks.map((entry) => entry.id)).toEqual(['t1'])
   })
 })
 
