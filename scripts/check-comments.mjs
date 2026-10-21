@@ -11356,6 +11356,14 @@ const allowed = new Map([
     "// A use counter for the author's statistics. The template the reader imported is in their own library",
     "// and was reported above; this call only tells the server somebody used it, and nothing on screen",
     "// reads the count it answers with.",
+    "// The engine's own insert path: it reads the note the reader is looking at through the mounted editor,",
+    "// refuses when there is none, and queues the caret groups this legacy path could not express.",
+    "// The branch is here rather than inside the create helper because the two engines answer differently",
+    "// about what happens next: the legacy one has already made the note by the time it returns an id,",
+    "// while the engine's own path owns the toast, the caret queue and the conflict refusal.",
+    "// Somebody else's Templater body is still a Templater body: sent through the legacy renderer it would",
+    "// land in the reader's note as literal `<% … %>` text, which reads as a broken template rather than as",
+    "// the engine it never got.",
   ]],
   ["src/client/features/templates/gallery-controller.tsx", [
     "/**\n * The two header buttons that disappear on a narrow phone have to land here instead, or the\n * compact layout would simply drop the features they open.\n */",
@@ -11432,6 +11440,19 @@ const allowed = new Map([
   ["src/client/features/templates/template-card.tsx", [
     "/**\n * The whole card is one button, so a click anywhere on it uses the template.\n * The title row, description, tags and footer are painted above that button on\n * the z-axis to stay readable, which would otherwise let them swallow the\n * click exactly where the \"use this template\" hint is drawn — so every one of\n * them is transparent to the pointer, and only the tool buttons opt back in.\n */",
     "/* A warning tone, not a colour: the word is the thing that tells a reader the body runs code, so the\n            badge still says it with the colour blind palette or in a screen reader's reading order. */",
+  ]],
+  ["src/client/features/templates/template-engine.test.ts", [
+    "/**\n * The route a library template takes, which is the difference between a rendered note and a note full of\n * literal `<% … %>` text.\n *\n * The engine half is mocked, and that is also the point of the third case below: the gallery reaches the\n * QuickJS worker only through a dynamic import, so a card press must not be what pulls a wasm binary into\n * the page.\n */",
+    "// An empty title is not an oversight: the name is what the template's own commands say it is, which is",
+    "// the picker's behaviour and upstream's for `create_new`.",
+  ]],
+  ["src/client/features/templates/template-engine.ts", [
+    "/**\n * Which engine a library template is handed to.\n *\n * The gallery grew up rendering `{{title}}` itself, and that path is still what an old template needs — a\n * Templater body sent through it comes back with its `<% … %>` commands left as literal text in the reader's\n * note, which is the defect this file exists to prevent. The two renderers are not interchangeable and there\n * is no migration: `detectEngine` reads the body, and the answer decides the route.\n *\n * The Templater half is imported dynamically rather than statically. The engine is a QuickJS wasm binary\n * behind a worker, and a gallery card must not be the reason a reader downloads it — `tests/templater-offline-footprint.test.ts`\n * is what notices if this indirection goes away.\n */",
+    "/** Whether the Templater engine, and only it, can render this body. */",
+    "/**\n * Make one new note with the engine.\n *\n * Returns whether a note was made, which is the shape every caller here wants: the legacy path answers with\n * a note id and the engine with a boolean, and none of them can use the id — they close a dialog or say\n * nothing.\n */",
+    "// An empty title means \"whatever the template's own commands produce\", which is upstream's behaviour for",
+    "// `create_new` and this app's behaviour for the picker; a caller that knows the name passes it in.",
+    "/** Splice one template into the note the reader is looking at, with the engine. */",
   ]],
   ["src/client/features/templates/template-gallery.tsx", [
     "// The search box asks for these keys itself before the shared filter contract decides, so a key",

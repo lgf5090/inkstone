@@ -124,6 +124,7 @@ const ALLOWED_IMPORTERS: Record<string, string> = {
   'src/client/features/workspace/Workspace.tsx': 'hands the note editor the `tp.user` completion source, which reaches the store only through `features/templater/script-completion.ts` behind a dynamic import',
   'src/client/features/sidebar/Sidebar.tsx': 'the folder menu raises the template chooser, through `features/templater/picker-request.ts` — a request signal that imports no engine and no worker',
   'src/client/features/templates/template-risk.ts': 'the gallery’s badge/filter judgement, read from `lib/templater/detection.ts`: a regex over text already in memory, no parser, no engine, no worker',
+  'src/client/features/templates/template-engine.ts': 'the gallery’s route: which of the two renderers a library body gets. It reads `detection.ts` statically and reaches the QuickJS worker only through a dynamic import, so pressing a card is not what downloads the engine',
 }
 
 function sandboxImporters(): Map<string, Edge[]> {

@@ -4,6 +4,7 @@ import type { MessageKey } from '@shared/locales/en-US'
 import { TEMPLATE_IMPORT_LIMITS } from '@shared/note-templates'
 import { interpolateNewNoteTemplate } from '@shared/note-template-render'
 import { createNoteFromTemplate } from '../../lib/template-notes'
+import { createNoteWithEngine, insertNoteWithEngine, isTemplaterTemplate } from './template-engine'
 import { peekNoteContent } from '../preview/card-content'
 import { useNotes } from '../../store/notes'
 import { templateOrderValue, useNoteTemplates } from '../../store/note-templates'
@@ -56,6 +57,15 @@ export function useGalleryNoteBridge(state: GalleryLocalState, onClose: () => vo
     })()
   }, [activeNoteId, activeTitle, setSavingNote])
   const insertActiveNote = useCallback((template: NoteTemplate) => {
+    if (isTemplaterTemplate(template)) {
+      // The engine's own insert path: it reads the note the reader is looking at through the mounted editor,
+      // refuses when there is none, and queues the caret groups this legacy path could not express.
+      void (async () => {
+        if (await insertNoteWithEngine(template))
+          onClose()
+      })()
+      return
+    }
     const notes = useNotes.getState()
     const id = useUi.getState().activeNoteId
     const summary = id ? notes.notes[id] : null
@@ -110,7 +120,13 @@ export function useGalleryTemplateActions(state: GalleryLocalState, categories: 
   const { onClose } = state
   const useTemplate = useCallback((template: NoteTemplate) => {
     void (async () => {
-      if (await createNoteFromTemplate(template))
+      // The branch is here rather than inside the create helper because the two engines answer differently
+      // about what happens next: the legacy one has already made the note by the time it returns an id,
+      // while the engine's own path owns the toast, the caret queue and the conflict refusal.
+      const made = isTemplaterTemplate(template)
+        ? await createNoteWithEngine(template, null)
+        : (await createNoteFromTemplate(template)) !== null
+      if (made)
         onClose()
     })()
   }, [onClose])
@@ -145,7 +161,7 @@ export function useGalleryTemplateActions(state: GalleryLocalState, categories: 
   const useCommunityTemplate = useCallback((item: CommunityTemplate) => {
     void (async () => {
       const now = Date.now()
-      const created = await createNoteFromTemplate({
+      const template: NoteTemplate = {
         id: item.id,
         categoryId: null,
         name: item.name,
@@ -157,8 +173,14 @@ export function useGalleryTemplateActions(state: GalleryLocalState, categories: 
         isStarred: false,
         createdAt: item.createdAt || now,
         updatedAt: item.createdAt || now,
-      })
-      if (created)
+      }
+      // Somebody else's Templater body is still a Templater body: sent through the legacy renderer it would
+      // land in the reader's note as literal `<% … %>` text, which reads as a broken template rather than as
+      // the engine it never got.
+      const made = isTemplaterTemplate(template)
+        ? await createNoteWithEngine(template, null)
+        : (await createNoteFromTemplate(template)) !== null
+      if (made)
         onClose()
     })()
   }, [onClose])
