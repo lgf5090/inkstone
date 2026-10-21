@@ -130,6 +130,22 @@ describe('the task day columns spend a number each', () => {
 })
 
 /**
+ * The account switch that lets an MCP key read tasks at all.
+ *
+ * On by default: every key minted before the switch existed already carried `todos:read`, and turning
+ * the switch off by default would silently revoke what those readers were using. One column, one number,
+ * guarded so a fresh install replays nothing twice.
+ */
+describe('the to-do read switch', () => {
+  it('arrives on, under its own guarded number', () => {
+    expect(SCHEMA_MIGRATIONS.find((migration) => migration.version === 124)).toMatchObject({
+      skipIfColumnExists: { table: 'mcp_preferences', column: 'todo_read_enabled' },
+      statements: ['ALTER TABLE mcp_preferences ADD COLUMN todo_read_enabled INTEGER NOT NULL DEFAULT 1'],
+    })
+  })
+})
+
+/**
  * The two organizer columns a list gained: the archive stamp and the parent pointer.
  *
  * Each arrives under its own number and carries its own guard, so a database whose ledger already

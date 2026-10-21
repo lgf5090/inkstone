@@ -302,6 +302,24 @@ describe('a boot onto a database whose ledger lies', () => {
     expect(columnsOf(sqlite, 'todos_lists')).toEqual(expect.arrayContaining(['archived_at', 'parent_id']))
   })
 
+  it('gives an account that predates the to-do read switch the switch, on', async () => {
+    const sqlite = await installed()
+    sqlite.exec(`INSERT INTO mcp_preferences (user_id, write_enabled, trash_enabled, disabled_tools, updated_at)
+      VALUES ('u1', 1, 0, '[]', 1)`)
+    // The shape a database built before version 124 has. The number stays spent, because a branch that
+    // used 124 for other work is exactly the collision the shape repair exists for — and 116 was once
+    // reserved for this column, so a ledger note that hides it is not hypothetical.
+    sqlite.exec('ALTER TABLE mcp_preferences DROP COLUMN todo_read_enabled')
+    expect(columnsOf(sqlite, 'mcp_preferences')).not.toContain('todo_read_enabled')
+
+    await reboot(sqlite)
+
+    expect(columnsOf(sqlite, 'mcp_preferences')).toContain('todo_read_enabled')
+    // On, the way it was for every account that could already read tasks through its keys.
+    expect(sqlite.prepare(`SELECT todo_read_enabled FROM mcp_preferences WHERE user_id = 'u1'`).get())
+      .toEqual({ todo_read_enabled: 1 })
+  })
+
   it('is a no-op on a database that already matches', async () => {
     const sqlite = await installed()
     const before = tablesOf(sqlite).join(',')
