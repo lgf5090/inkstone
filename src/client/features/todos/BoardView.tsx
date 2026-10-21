@@ -164,6 +164,12 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
   const openEditor = useTodos((state) => state.openEditor)
   const updateTask = useTodos((state) => state.updateTask)
   const sort = useTodos((state) => state.sort)
+  const query = useTodos((state) => state.query)
+  const dueFrom = useTodos((state) => state.dueFrom)
+  const dueTo = useTodos((state) => state.dueTo)
+  // A due window or a search narrows the rows themselves, unlike paging: an empty card under one has
+  // no match to show, even while the server's account-wide count is still above zero.
+  const filtered = query.trim().length > 0 || dueFrom !== null || dueTo !== null
   const [adding, setAdding] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   // The card a drag is hovering, so the whole collection lights up as the drop target it is. A drop
@@ -376,10 +382,13 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
                     onStar={() => { void updateTask(task.id, { starred: !task.starred }) }}
                   />
                 ))}
-                {card.open + card.done === 0 && (
-                  // The page on hand can miss rows a card still has, so an empty card is one the server's
-                  // own count says is empty rather than one this page happens to hold nothing of.
-                  <p className="px-2.5 py-2 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('todo.empty.list')}</p>
+                {card.tasks.length === 0 && (filtered || card.open + card.done === 0) && (
+                  // The page on hand can miss rows a card still has, so an unfiltered empty card is one
+                  // the server's own count says is empty rather than one this page happens to hold
+                  // nothing of. A filter narrowed the rows themselves, so its empty card says so.
+                  <p className="px-2.5 py-2 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">
+                    {filtered ? t('todo.empty.search') : t('todo.empty.list')}
+                  </p>
                 )}
               </div>
 

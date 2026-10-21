@@ -337,6 +337,15 @@ describe('the due window a listing is read through', () => {
     expect(inputByLabel(container, t('todo.due.from'))?.value).toBe('2026-10-05')
     expect(inputByLabel(container, t('todo.due.to'))?.value).toBe('2026-10-09')
   })
+
+  it('says a filtered listing has no matches instead of calling the list empty', async () => {
+    stubBreakpoint(true)
+    service.rows = []
+    const container = await mount('/todo?list=L1&dueFrom=2026-10-05T00:00&dueTo=2026-10-10T00:00')
+
+    expect(container.textContent).toContain(t('todo.empty.search'))
+    expect(container.textContent).not.toContain(t('todo.empty.list'))
+  })
 })
 
 describe('the finished list’s own two filters', () => {

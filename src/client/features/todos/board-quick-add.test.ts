@@ -209,4 +209,17 @@ describe('the board\u2019s inline quick add', () => {
     // The card the reader typed into is still the list the task belongs to.
     expect(service.creates[0]!.listId).toBe('L1')
   })
+
+  it('says a filtered card has no matches instead of reading blank', () => {
+    act(() => {
+      useTodos.setState({
+        tasks: [],
+        query: '不存在',
+        counts: { ...counts(), inbox: 3, all: 3 },
+      })
+    })
+    const inbox = card(view!.container, t('todo.smart.inbox'))
+    expect(inbox.textContent).toContain(t('todo.empty.search'))
+    expect(inbox.textContent).not.toContain(t('todo.empty.list'))
+  })
 })

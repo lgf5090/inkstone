@@ -137,7 +137,7 @@ function CalendarDay({ cell, tasks, weekday, focusable, tall, compact, almanac, 
             {tasks.slice(0, 3).map((task) => (
               <span key={task.id} className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: colorOf(task) }} aria-hidden="true" />
             ))}
-            {tasks.length > 3 && <span className="text-[length:var(--text-8)] leading-none text-[var(--text-quaternary)]">+{tasks.length - 3}</span>}
+            {tasks.length > 3 && <span className="text-[length:var(--text-8-5)] leading-none text-[var(--text-quaternary)]">+{tasks.length - 3}</span>}
           </span>
         )
       ) : (

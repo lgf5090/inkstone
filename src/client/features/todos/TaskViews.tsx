@@ -65,15 +65,17 @@ export function GroupedTaskList({ groups, label, empty, onUnplan, canUnplan, mov
   const timezone = useTodos((state) => state.timezone)
   const openEditor = useTodos((state) => state.openEditor)
   const updateTask = useTodos((state) => state.updateTask)
+  const filtered = useTodos((state) => Boolean(
+    state.query.trim() || state.dueFrom || state.dueTo || state.completedFrom || state.completedTo,
+  ))
   const bounds = { dayEnd, now: Date.now() }
 
   if (!groups.length) {
-    const searching = Boolean(useTodos.getState().query.trim())
     return (
       <div className="px-4 py-10">
         <Empty
-          title={searching ? t('todo.empty.search') : empty.title}
-          description={searching ? undefined : empty.description}
+          title={filtered ? t('todo.empty.search') : empty.title}
+          description={filtered ? undefined : empty.description}
         />
       </div>
     )

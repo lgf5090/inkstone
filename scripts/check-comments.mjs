@@ -10697,8 +10697,11 @@ const allowed = new Map([
   ]],
   ["src/client/features/todos/BoardView.tsx", [
     "/**\n * The board: every list as a card, the way the reference app opens.\n *\n * A card answers one question — what does this list still owe me — so it shows a few open tasks and\n * a `done / total` line, and nothing else. The chips above it are the same lists, because on a phone\n * the board is two columns wide and a list that is not on screen needs a way to be reached.\n */",
-    "// The page on hand can miss rows a card still has, so an empty card is one the server's",
-    "// own count says is empty rather than one this page happens to hold nothing of.",
+    "// The page on hand can miss rows a card still has, so an unfiltered empty card is one",
+    "// the server's own count says is empty rather than one this page happens to hold",
+    "// nothing of. A filter narrowed the rows themselves, so its empty card says so.",
+    "// A due window or a search narrows the rows themselves, unlike paging: an empty card under one has",
+    "// no match to show, even while the server's account-wide count is still above zero.",
     "/* A board is a page of the open set too: it says what it left out rather than reading as whole. */",
     "/** What the reader reads; every chip carries its own answer, never a colour alone. */",
     "/** A list name the account does not have: shown, but not written anywhere. */",
