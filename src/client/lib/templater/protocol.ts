@@ -16,6 +16,7 @@
  * the whole point is to decide what untrusted code may do *after* it has been written.
  */
 import type { NoteTemplate } from '@shared/types'
+import type { TemplaterErrorCode } from './errors'
 
 /** Which of Templater's six situations a run is in; decides target, active file and output handling. */
 export type RunMode =
@@ -94,6 +95,55 @@ export interface TemplateRunContext {
    * began with, not whatever the reader has dragged over since. Empty when nothing is selected.
    */
   selection: string
+  /**
+   * The reader's own user scripts, as text the interpreter runs itself.
+   *
+   * They travel in the snapshot rather than being fetched per call for the same reason the note bodies do:
+   * `tp.user.<script>` is *synchronous* from the template's side, and upstream evaluates the script inside
+   * the same JS context the template runs in (`UserScriptFunctions.ts:78-98` builds a `require` and calls
+   * `context.eval` on the wrapped source). A host call could not answer that: the value it returns is
+   * JSON-parsed into the VM, so a script that exports a function, an object of functions, or a closure would
+   * arrive as data the template cannot call. So the page hands over the source and the interpreter runs it.
+   *
+   * Empty unless the run's profile grants `userScripts` — a community template, a preview, a dynamic command
+   * and a startup run of somebody else's text never receive it — and each entry is capped at
+   * `MAX_PROGRAM_BYTES` by `./context/snapshot.ts`, which is also where a name that would collide with
+   * another script is refused instead of quietly shadowing it.
+   */
+  userScripts: UserScriptSource[]
+  /**
+   * Why the whole script folder is unavailable, as the token beside `user-scripts-unavailable`.
+   *
+   * A name the listing does not hold is `not-found`, and a name it holds but cannot hand over carries its own
+   * refusal; this field is the third case, where the page never got a listing at all. It has to stay a third
+   * answer, or a store that failed once reads to the reader as a file they forgot to save.
+   */
+  userScriptsUnavailable?: string
+}
+
+/**
+ * One user script: what the template calls it by, where it came from, and its source text.
+ *
+ * A script the page could not carry — one file past `MAX_USER_SCRIPT_BYTES`, or a folder past
+ * `MAX_USER_SCRIPTS_PER_RUN` or the run's total budget — travels with `refusal` instead of `source`, so the
+ * template that *names* it is the run that fails. Carrying nothing at all would answer `not-found` and send
+ * the reader looking for a file that is sitting in their folder, and refusing the whole batch would be the
+ * flaw plan §D13's U4 exists to fix: one bad script must not break every template in the vault.
+ */
+export interface UserScriptSource {
+  /**
+   * The name the template types after `tp.user.` — the file name with its `.js` taken off.
+   *
+   * Upstream derives it the same way (`UserScriptFunctions.ts:56-60`), and it is the only spelling a copied
+   * template uses, so a rename here would break the reader's notes rather than this app's internals.
+   */
+  name: string
+  /** The virtual path the script is filed at, for error text and for a relative `require`. */
+  path: string
+  /** The script's own text, wrapped by the interpreter into `(require, module, exports)`. Empty when refused. */
+  source: string
+  /** Why this script has no text, as the same code-and-detail pair a failed host call carries. */
+  refusal?: { code: TemplaterErrorCode; detail: string }
 }
 
 /** A note as the interpreter sees it: identifiers and text, never a store handle. */
@@ -228,7 +278,6 @@ export const HOST_METHODS = [
   'web.request',
   'web.dailyQuote',
   'web.randomPicture',
-  'user.script',
   'app.commands',
   'hooks.register',
   'cursor.append',
@@ -263,7 +312,6 @@ export const HOST_METHOD_CAPABILITY: Record<HostMethod, keyof Capabilities> = {
   'web.request': 'web',
   'web.dailyQuote': 'web',
   'web.randomPicture': 'web',
-  'user.script': 'userScripts',
   'app.commands': 'writeActiveNote',
   'hooks.register': 'writeActiveNote',
   'cursor.append': 'writeActiveNote',

@@ -31,6 +31,7 @@ import momentCoreSource from 'moment/min/moment.min.js?raw'
 import momentZhCnSource from 'moment/locale/zh-cn.js?raw'
 import type { QuickJSContext, QuickJSHandle } from 'quickjs-emscripten-core'
 import type { TemplateRunContext } from '../protocol'
+import { capabilitiesFor } from '../protocol'
 import type { VmMarshalling } from './host-bindings'
 import { MAX_LOG_CHARS, MAX_LOG_LINES } from '../limits'
 
@@ -573,9 +574,161 @@ const PRELUDE = `(() => {
     })
   }
 
-  // A script name is whatever the template typed, so the module is a proxy rather than a table. Symbol keys
-  // are the engine probing the object: turning \`then\` into a script call is how a template that awaits
-  // \`tp.user\` itself would hang.
+  // The reader's own scripts, as the snapshot carried them in.
+  //
+  // This is the only place in the app that runs JavaScript the reader wrote. Upstream gets it into a callable
+  // through the browser: \`UserScriptFunctions.ts:19-65\` wraps the body as
+  // \`(function anonymous(require, module, exports){ … })\` and reads the function back off \`window\`. That door
+  // is not open here and would not be allowed if it were — the app ships no \`unsafe-eval\`
+  // (\`src/worker/lib/security-headers.ts\`) and the rule this whole package stands on is that reader code runs
+  // only inside this interpreter. So the source travels in the snapshot and the engine evaluates it itself,
+  // which is also why it has to: \`tp.user.<script>\` is synchronous in the template's eyes, and the answer a
+  // host call brings back is JSON, so a script that exports a function or a closure could never cross it.
+  //
+  // The one deliberate difference from upstream is *what a script can see*. Upstream hands it a real
+  // \`window\`; a script here sees only this interpreter, and the two names that would let it re-enter the run —
+  // \`tp\` and \`tR\` — are parameters bound to \`undefined\`, so they shadow the globals for the whole body (plan
+  // §D13's U7, which is the behaviour upstream has by accident of not putting \`tp\` on \`window\`).
+  //
+  // \`scripts.loaded\` is the per-run cache, and a run is the unit of validity: a note edited while a template
+  // runs keeps the text the first access of that run saw, and the next run re-reads.
+  const scripts = {
+    allowed: false,
+    /** Set when the page could not read the folder at all, which is not the same answer as a missing name. */
+    unavailable: '',
+    sources: new Map(),
+    /** Every script's own module path back to its name, which is what a relative \`require\` lands on. */
+    paths: new Map(),
+    loaded: new Map(),
+    /** The modules mid-evaluation, keyed by name, so a cycle can hand back what they export so far. */
+    loading: new Map(),
+  }
+
+  // The two names a script may \`require\` that are not another script. There is no Node and no package
+  // resolution inside the sandbox, so anything else — \`fs\`, \`crypto-js\`, a package name — is refused by name
+  // rather than resolved to nothing.
+  const SCRIPT_MODULE = (specifier) => specifier === 'moment' ? moment : specifier === 'obsidian' ? obsidian : null
+
+  const folderOfPath = (path) => {
+    const cut = path.lastIndexOf('/')
+    return cut === -1 ? '' : path.slice(0, cut)
+  }
+
+  // \`./helper.js\` asked for from \`Scripts/x.js\` is \`Scripts/helper.js\`. \`normalizePath\` deliberately leaves
+  // \`.\` and \`..\` alone because a note path is shown to the reader as written; here the segments have to be
+  // walked, and a \`..\` that climbs past the root lands on a path no listed script owns — the set of paths is
+  // exactly the folder the reader chose, which is what makes the walk safe instead of merely tidy.
+  const resolveScriptPath = (fromPath, specifier) => {
+    const walked = []
+    for (const segment of (folderOfPath(fromPath) + '/' + specifier).split('/')) {
+      if (segment === '' || segment === '.') continue
+      if (segment === '..') {
+        walked.pop()
+        continue
+      }
+      walked.push(segment)
+    }
+    return walked.join('/')
+  }
+
+  // The message a script's own throw carries. Kept to one line and a length, because it is shown after the
+  // translated label rather than instead of it, and a stack trace from inside a wasm interpreter is noise the
+  // reader cannot act on — the path in front of it is the part that names the file to open.
+  const oneLine = (text) => {
+    const flat = String(text ?? '').split('\\n')[0].trim()
+    return flat.length > 120 ? flat.slice(0, 120) : flat
+  }
+
+  const scriptFailureText = (path, error) => {
+    if (error && typeof error === 'object' && typeof error.code === 'string') return null
+    return path + ':' + oneLine(error && error.message ? error.message : error)
+  }
+
+  // An export is one function, or an object whose values are all functions — the two shapes upstream accepts
+  // and the two a template can call (\`UserScriptFunctions.ts:122-152\`). Anything else is refused with the name
+  // in it, because a script that exports a string would otherwise fail at the call site with no file to find.
+  const exportSurface = (name, exported) => {
+    if (!exported) throw hostError('script-load-failed', name + ':no-export')
+    if (typeof exported === 'function') return exported
+    if (typeof exported === 'object') {
+      for (const key of Object.keys(exported)) {
+        if (typeof exported[key] !== 'function') {
+          throw hostError('script-load-failed', name + ':' + key + ':not-a-function')
+        }
+      }
+      return exported
+    }
+    throw hostError('script-load-failed', name + ':export-invalid')
+  }
+
+  const loadScript = (name) => {
+    if (scripts.loaded.has(name)) return scripts.loaded.get(name)
+    // Two different refusals, and they must not be confused: a profile that was never given the right answers
+    // \`capability-blocked\` (the template is the problem), and a reader whose folder does not hold that name
+    // answers \`script-load-failed\` with the name in it (the script is the problem).
+    if (!scripts.allowed) throw hostError('capability-blocked', 'tp.user.' + name)
+    if (scripts.unavailable) throw hostError('user-scripts-unavailable', scripts.unavailable)
+    const record = scripts.sources.get(name)
+    if (!record) throw hostError('script-load-failed', name + ':not-found')
+    // A script the page could not carry — too big for one run, or one of a folder past the count this run may
+    // hold — arrives as a name with a reason instead of a text, so that the template which *names* it is the
+    // run that fails, and not every template the folder belongs to.
+    if (record.refusal) throw hostError(record.refusal.code, record.refusal.detail)
+    const pending = scripts.loading.get(name)
+    // A cycle gets the module as it stands, which is what CommonJS hands back and what a script that requires
+    // its own caller expects. Upstream never resolved sibling scripts, so there is no behaviour to copy and
+    // the rule is the one the module format itself has.
+    if (pending !== undefined) return pending.exports
+    const module = { exports: {} }
+    const exportsObj = module.exports
+    scripts.loading.set(name, module)
+    try {
+      const wrapper = new Function('tp', 'tR', 'require', 'module', 'exports', record.source + '\\n')
+      wrapper(undefined, undefined, scriptRequireFor(name, record.path), module, exportsObj)
+    } catch (error) {
+      scripts.loading.delete(name)
+      // A denial from a script this one required keeps its own code and its own name; anything else is
+      // reported against the file the reader has to open.
+      const text = scriptFailureText(record.path, error)
+      if (text === null) throw error
+      throw hostError('script-load-failed', text)
+    }
+    scripts.loading.delete(name)
+    // \`exports.default\` first, then \`module.exports\`, exactly as upstream reads it (\`:120\`). The first read is
+    // off the object the wrapper started with, so a script that replaced \`module.exports\` wholesale is not
+    // asked for a \`default\` it never wrote, and one that exported an object with a \`default\` member among
+    // others keeps that object rather than losing its members.
+    const exported = exportsObj.default ?? module.exports
+    const surface = exportSurface(name, exported)
+    scripts.loaded.set(name, surface)
+    return surface
+  }
+
+  const scriptRequireFor = (fromName, fromPath) => (specifier) => {
+    // \`require(variable)\` says nothing about what is being asked for, and this app answers a question it
+    // cannot read by refusing it, naming the script that wrote it.
+    if (typeof specifier !== 'string' || specifier === '') {
+      throw hostError('script-require-denied', fromName + ':dynamic')
+    }
+    const builtin = SCRIPT_MODULE(specifier)
+    if (builtin) return builtin
+    if (specifier[0] !== '.') throw hostError('script-require-denied', fromName + ':' + specifier)
+    const target = resolveScriptPath(fromPath, specifier)
+    // Node resolves \`./x\` to \`./x.js\` and a reader copying an upstream script may write either; both are
+    // looked up among the scripts this run was given, so a missing sibling is refused rather than invented.
+    const name = scripts.paths.get(target) ?? scripts.paths.get(target + '.js')
+    if (name === undefined || name === null) throw hostError('script-require-denied', fromName + ':' + specifier)
+    return loadScript(name)
+  }
+
+  // \`tp.user.<script>\` is loaded on the first thing the template does with it, and the value it hands back is
+  // the script's own export — so an object export answers its members, which is the spelling upstream's docs
+  // carry (\`tp.user.my_script.rename(text)\`) and the one a bare arrow function per key could not.
+  //
+  // Access itself does not throw for a name no script answers: upstream's namespace is a proxy that hands back
+  // a callable for any key, so \`typeof tp.user.missing\` says \`function\` and only the call fails. Keeping that
+  // is what lets a template check for a script the reader may not have installed, and a namespace that throws
+  // on the check would turn a portable template into a broken one.
   const userNamespace = new Proxy({}, {
     get(_target, key) {
       if (typeof key === 'symbol') return undefined
@@ -583,7 +736,7 @@ const PRELUDE = `(() => {
       // a thenable, and awaiting it — or any async path that passes tp.user through — calls into the
       // host and waits for a script the template never named.
       if (key === 'then' || key === 'catch' || key === 'finally') return undefined
-      return (...args) => callHost('user.script', [key, args])
+      return scriptSurface(String(key))
     },
     has() {
       return false
@@ -592,6 +745,27 @@ const PRELUDE = `(() => {
       return []
     },
   })
+
+  const scriptSurface = (name) => {
+    const surface = new Proxy(function userScript() {}, {
+      apply(_target, _thisArg, args) {
+        const value = loadScript(name)
+        if (typeof value !== 'function') throw hostError('not-supported', name + ':object-export')
+        // \`this\` is left unset, which is what upstream's \`exportedFunction(...args)\` gives a script.
+        return Reflect.apply(value, undefined, args)
+      },
+      get(_target, member) {
+        if (typeof member === 'symbol') return undefined
+        if (member === 'then' || member === 'catch' || member === 'finally') return undefined
+        return loadScript(name)[member]
+      },
+      has(_target, member) {
+        if (member === 'then' || member === 'catch' || member === 'finally') return false
+        return Reflect.has(loadScript(name), member)
+      },
+    })
+    return surface
+  }
 
   // The marker text, exactly as upstream emits it: jumping is the parser's job, not the sandbox's, and a
   // template that is never rendered still has to leave the marker in its output.
@@ -868,6 +1042,7 @@ const PRELUDE = `(() => {
     run.startedAt = typeof data.startedAt === 'number' ? data.startedAt : 0
     run.locale = typeof data.locale === 'string' ? data.locale : ''
     run.selection = typeof data.selection === 'string' ? data.selection : ''
+    installScripts(data)
     index.notes = Array.isArray(data.notes) ? data.notes : []
     index.folders = Array.isArray(data.folders) ? data.folders : []
     index.templates = Array.isArray(data.templates) ? data.templates : []
@@ -886,6 +1061,38 @@ const PRELUDE = `(() => {
     fileModule.tags = target() ? target().tags.map(withTagMark) : []
     fillFrontmatter()
     return true
+  }
+
+  // The scripts this run may reach, read off the snapshot's JSON.
+  //
+  // Every table is emptied first. A run owns one interpreter, but nothing in this file promises that a
+  // second \`install\` never happens in the same context, and a reader's scripts answering a later run that
+  // was never given them would be the one failure mode this half of the door cannot have.
+  //
+  // A name the page carried twice is not settled here: \`host/user-scripts.ts\` refuses the collision before a
+  // snapshot is built, because "two files claim this name" is only useful to a reader when it names both.
+  const installScripts = (data) => {
+    scripts.allowed = data.userScriptsAllowed === true
+    scripts.unavailable = typeof data.userScriptsUnavailable === 'string' ? data.userScriptsUnavailable : ''
+    scripts.sources.clear()
+    scripts.paths.clear()
+    scripts.loaded.clear()
+    scripts.loading.clear()
+    const records = Array.isArray(data.userScripts) ? data.userScripts : []
+    for (const record of records) {
+      if (!record || typeof record.name !== 'string' || record.name === '') continue
+      const path = typeof record.path === 'string' && record.path !== '' ? record.path : record.name + '.js'
+      scripts.paths.set(path, record.name)
+      const refusal = record.refusal
+      if (refusal && typeof refusal.code === 'string' && refusal.code !== '') {
+        scripts.sources.set(record.name, {
+          path: path,
+          refusal: { code: refusal.code, detail: typeof refusal.detail === 'string' ? refusal.detail : path },
+        })
+        continue
+      }
+      scripts.sources.set(record.name, { path: path, source: typeof record.source === 'string' ? record.source : '' })
+    }
   }
 
   // \`tp.frontmatter\` is the target's parsed frontmatter, key for key, and nothing else — upstream builds
@@ -972,7 +1179,7 @@ export function createBootstrap(options: BootstrapOptions): Bootstrap {
   // stays on moment's built-in English.
   selectLocale(locale.toLowerCase().startsWith('zh') ? 'zh-cn' : 'en')
 
-  const internal = unwrapEvaluated(context.evalCode(PRELUDE, 'bootstrap.js'))
+  const internal = unwrapEvaluated(context, context.evalCode(PRELUDE, 'bootstrap.js'))
   tracked.push(internal)
 
   for (const name of PRELUDE_NAMES) {
@@ -1044,6 +1251,12 @@ export function createBootstrap(options: BootstrapOptions): Bootstrap {
         frozenTitle: snapshot.frozenTitle,
         locale: snapshot.locale,
         selection: snapshot.selection,
+        // The scripts arrive as data rather than as a door: the interpreter is the only thing allowed to
+        // evaluate them, and `userScriptsAllowed` says whether this run was given the right at all, which is
+        // a different answer from "the folder holds no script by that name" and reads as one otherwise.
+        userScripts: snapshot.userScripts,
+        userScriptsUnavailable: snapshot.userScriptsUnavailable,
+        userScriptsAllowed: capabilitiesFor(snapshot.capabilities).userScripts,
       }))
       // `install` returns `true`; the handle is this side's to free, and the result of a failed install is
       // a run that never starts, which the caller reports.
@@ -1213,10 +1426,14 @@ function describe(value: unknown): string {
   }
 }
 
-function unwrapEvaluated(result: ReturnType<QuickJSContext['evalCode']>): QuickJSHandle {
+function unwrapEvaluated(context: QuickJSContext, result: ReturnType<QuickJSContext['evalCode']>): QuickJSHandle {
   if (result.error) {
+    // The interpreter's own words go with the code, the same way `evaluate` above hands them over: a run that
+    // never started because the prelude did not evaluate is the one failure a reader cannot debug from
+    // `sandbox-unavailable` alone, and the prelude is where a mistake in this file lands.
+    const dumped = context.dump(result.error) as { message?: unknown } | undefined
     result.error.dispose()
-    throw new TemplaterBootstrapError('sandbox-unavailable', 'bootstrap')
+    throw new TemplaterBootstrapError('sandbox-unavailable', typeof dumped?.message === 'string' ? dumped.message : 'bootstrap')
   }
   return result.value
 }

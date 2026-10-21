@@ -171,7 +171,14 @@ describe('host method surface', () => {
 
   it('maps no capability that the profile cannot express', () => {
     const mapped = new Set(Object.values(HOST_METHOD_CAPABILITY))
-    for (const key of CAPABILITY_KEYS) expect(mapped.has(key as keyof Capabilities), `${key} is unused`).toBe(true)
+    // One right is not a method's gate any more: `userScripts` is enforced where the data is carried, by
+    // `context/snapshot.ts` emptying the list for a profile that does not hold it, and again inside the
+    // interpreter, which answers `capability-blocked` rather than running a script it was handed anyway.
+    // `../worker/vm.test.ts` and `./context/snapshot.test.ts` are the proofs of those two, and a second right
+    // with no method behind it still has to be named here.
+    const snapshotGated = ['userScripts']
+    const unmapped = CAPABILITY_KEYS.filter((key) => !mapped.has(key as keyof Capabilities)).sort()
+    expect(unmapped).toEqual([...snapshotGated].sort())
   })
 
   it('keeps the two lists the same size, so a new method cannot arrive ungated', () => {

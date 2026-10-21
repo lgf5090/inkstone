@@ -28,7 +28,7 @@ import { groupCursorMarkers } from '../engine/cursor-markers'
 import { compileTemplate } from '../engine/program'
 import { isTemplaterErrorCode, type TemplaterErrorCode } from '../errors'
 import { DEFAULT_RUN_DEADLINE_MS } from '../limits'
-import type { CapabilityProfile, RunMode, TemplateRunContext } from '../protocol'
+import type { CapabilityProfile, RunMode, TemplateRunContext, UserScriptSource } from '../protocol'
 import { createTemplateRunId } from '../run-id'
 import type { PageHostDeps, PageHostFailure } from './page-host'
 import { planWrite, type WriteNotice, type WritePlan, type WriteRequest } from './write'
@@ -47,6 +47,15 @@ export interface RunTemplateInput {
   folders: Folder[]
   /** The reader's library, for `tp.file.include` and the gallery's own context. */
   templates: NoteTemplate[]
+  /**
+   * The reader's own scripts, already read and bounded by the page (`host/user-scripts.ts`).
+   *
+   * Optional because most runs never touch `tp.user`, and a run whose profile does not grant the right gets
+   * nothing whatever is handed over — the gate is `context/snapshot.ts`, not the caller's memory.
+   */
+  userScripts?: UserScriptSource[]
+  /** Why the script folder could not be read at all, as the token beside `user-scripts-unavailable`. */
+  userScriptsUnavailable?: string
   /** Whose rights the run has; never inferred from the template's origin here. */
   capabilities: CapabilityProfile
   locale: string
@@ -214,6 +223,8 @@ async function runProgram(
     startedAt: input.startedAt,
     frozenTitle: input.frozenTitle,
     selection: input.selection?.text,
+    userScripts: input.userScripts,
+    userScriptsUnavailable: input.userScriptsUnavailable,
   })
   const outcome = await ports.render({
     program: compiled.program,

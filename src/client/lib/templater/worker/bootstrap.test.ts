@@ -66,6 +66,7 @@ function context(overrides: Partial<TemplateRunContext> = {}): TemplateRunContex
     libraryTemplates: [{ id: 'tpl-1', name: 'Idea', content: 'from the library' } as never],
     locale: 'en-US',
     selection: 'the text the reader dragged over',
+    userScripts: [],
     ...overrides,
   }
 }

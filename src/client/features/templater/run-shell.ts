@@ -27,6 +27,8 @@ import type { Note, NoteTemplate } from '@shared/types'
 import type { MessageKey } from '@shared/locales/en-US'
 import type { TemplaterHosts } from '../../lib/templater'
 import type { CapabilityProfile, RunMode } from '../../lib/templater/protocol'
+import { capabilitiesFor } from '../../lib/templater/protocol'
+import { createUserScriptProvider } from '../../lib/templater/host/user-scripts'
 import { templaterErrorText, type TemplaterErrorCode } from '../../lib/templater/errors'
 import { virtualBasename, virtualFolderSegment, virtualNoteName } from '../../lib/templater/context/file-wrapper'
 import {
@@ -36,7 +38,7 @@ import {
   type RunTemplateResult,
 } from '../../lib/templater/host/run-template'
 import { WRITE_NOTICE_MESSAGES } from '../../lib/templater/host/write'
-import { libraryRows } from '../../lib/templater/host/store-port'
+import { libraryRows, storeUserScriptPort } from '../../lib/templater/host/store-port'
 import { confirm } from '../../components/overlay'
 import { api } from '../../lib/api'
 import { folderPath } from '../../lib/folders'
@@ -138,7 +140,7 @@ function refuseTarget(reason: TargetRefusal): false {
  */
 async function run(input: RunTemplateInput, success: MessageKey): Promise<boolean> {
   try {
-    return report(await runTemplateOnNote(input, await templaterPorts()), success)
+    return report(await runTemplateOnNote({ ...input, ...(await scriptContext(input.capabilities)) }, await templaterPorts()), success)
   }
   catch (error) {
     // A port that throws is this app's own data layer failing, and the pipeline lets it travel on purpose.
@@ -187,6 +189,24 @@ function contextFor(
     selection,
     startedAtRev: target?.rev ?? null,
   }
+}
+
+/**
+ * The reader's own scripts, for one run.
+ *
+ * Asked per run rather than once per session, because a script is a note and notes are edited; the provider
+ * built here is that run's cache, which is the unit of validity `host/user-scripts.ts` explains. Two answers
+ * cost no store read at all: a profile that was never given the right, and a reader who has not chosen a
+ * script folder — which is everyone, until they set one.
+ */
+async function scriptContext(
+  profile: CapabilityProfile,
+): Promise<Pick<RunTemplateInput, 'userScripts' | 'userScriptsUnavailable'>> {
+  if (!capabilitiesFor(profile).userScripts) return {}
+  const folderId = useSession.getState().settings.templater.userScriptsFolderId
+  if (folderId === null) return {}
+  const batch = await createUserScriptProvider(storeUserScriptPort(folderId)).gather()
+  return { userScripts: batch.sources, userScriptsUnavailable: batch.unavailable ?? undefined }
 }
 
 /** Splice a rendered template into the note the reader is looking at, at their selection. */
@@ -276,13 +296,12 @@ export async function applyTemplateToCreatedNote(template: NoteTemplate, note: N
  * template that quietly did its work.
  */
 export async function runStartupTemplate(template: NoteTemplate): Promise<{ ok: boolean; code?: TemplaterErrorCode; detail?: string }> {
-  const result = await runTemplateOnNote(
-    {
-      ...contextFor('startup', null, await activeRow(), null, 'startup'),
-      template: { kind: 'library', row: template },
-    },
-    await templaterPorts(),
-  )
+  const context = {
+    ...contextFor('startup', null, await activeRow(), null, 'startup'),
+    ...(await scriptContext('startup')),
+    template: { kind: 'library' as const, row: template },
+  }
+  const result = await runTemplateOnNote(context, await templaterPorts())
   return result.ok ? { ok: true } : { ok: false, code: result.code, detail: result.detail }
 }
 

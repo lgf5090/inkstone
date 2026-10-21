@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { HostResult, RunRequest, TemplateRunContext, WorkerMessage } from '../protocol'
 import { TemplateRun } from './vm'
+import { buildRunSnapshot } from '../context/snapshot'
 import { DEFAULT_RUN_DEADLINE_MS, MAX_CLIPBOARD_CHARS, MAX_OUTPUT_CHARS, MIN_RUN_DEADLINE_MS } from '../limits'
 
 /**
@@ -35,6 +36,7 @@ function context(overrides: Partial<TemplateRunContext> = {}): TemplateRunContex
     libraryTemplates: [{ id: 'tpl-1', name: 'Idea', content: 'from the library' } as never],
     locale: 'en-US',
     selection: '',
+    userScripts: [],
     ...overrides,
   }
 }
@@ -299,5 +301,240 @@ describe('templater interpreter', () => {
     // keeps that path visible rather than letting it become a silent catch.
     expect(run.currentState).toBe('finished')
     spy.mockRestore()
+  })
+})
+
+/**
+ * The reader's own scripts, evaluated by the interpreter.
+ *
+ * These are the plan §5.8 cards U2 to U7, and they are only answerable here: the page hands over text and the
+ * sandbox is the thing that turns it into a callable, so every rule about what a script can see, require and
+ * break belongs to this file.
+ */
+function userScript(name: string, source: string) {
+  return { name, path: `Scripts/${name}.js`, source }
+}
+
+async function runWithScripts(source: string, scripts: unknown[], overrides: Record<string, unknown> = {}) {
+  const { messages } = await execute(source, {
+    context: context({ userScripts: scripts as never, ...overrides }),
+  })
+  return terminal(messages)
+}
+
+describe('templater user scripts run inside the interpreter', () => {
+  it('calls a function export with the template’s arguments (U2)', async () => {
+    const result = await runWithScripts(
+      "tR += await tp.user.greeting('Ada')",
+      [userScript('greeting', 'module.exports = (name) => `hi ${name}`')],
+    )
+    expect(result).toMatchObject({ kind: 'done', output: 'hi Ada' })
+  })
+
+  it('calls the members of an object export, which is the spelling upstream documents (U3)', async () => {
+    const result = await runWithScripts(
+      "tR += tp.user.pair.left() + '/' + tp.user.pair.right(2)",
+      [userScript('pair', 'exports.left = () => 1\nexports.right = (n) => n * 2')],
+    )
+    expect(result).toMatchObject({ kind: 'done', output: '1/4' })
+  })
+
+  it('prefers `exports.default` over the object, the way upstream reads an export', async () => {
+    const result = await runWithScripts(
+      'tR += tp.user.one()',
+      [userScript('one', 'exports.default = () => 1\nmodule.exports = { default: () => 2, other: () => 3 }')],
+    )
+    expect(result).toMatchObject({ kind: 'done', output: '1' })
+  })
+
+  it('hands over a module.exports object whole when its `default` is one member among others', async () => {
+    const result = await runWithScripts(
+      'tR += tp.user.two.a() + tp.user.two.b()',
+      [userScript('two', 'module.exports = { a: () => 1, b: () => 2 }')],
+    )
+    expect(result).toMatchObject({ kind: 'done', output: '3' })
+  })
+
+  it('does not fail for a name no script answers until the template uses it', async () => {
+    const result = await runWithScripts('tR += typeof tp.user.missing + typeof tp.user.here', [
+      userScript('here', 'module.exports = () => 1'),
+    ])
+    // Upstream's namespace hands back a callable for any key, so a template can ask whether the reader
+    // installed something without the question itself being an error.
+    expect(result).toMatchObject({ kind: 'done', output: 'functionfunction' })
+  })
+
+  it('answers a call to a name no script holds as a load failure that names it', async () => {
+    const result = await runWithScripts('tR += tp.user.missing()', [userScript('here', 'module.exports = () => 1')])
+    expect(result).toMatchObject({ kind: 'failed', code: 'script-load-failed', detail: 'missing:not-found' })
+  })
+
+  it('gives a script the interpreter’s `moment` through require (U5)', async () => {
+    const result = await runWithScripts('tR += tp.user.year()', [
+      userScript('year', "const m = require('moment')\nmodule.exports = () => m(0).format('YYYY')"),
+    ])
+    expect(result).toMatchObject({ kind: 'done', output: '1970' })
+  })
+
+  it('refuses a Node built-in by name, and says which script asked (U5)', async () => {
+    const result = await runWithScripts('tR += tp.user.usesfs()', [
+      userScript('usesfs', "const fs = require('fs')\nmodule.exports = () => String(fs)"),
+    ])
+    expect(result).toMatchObject({ kind: 'failed', code: 'script-require-denied', detail: 'usesfs:fs' })
+  })
+
+  it('refuses a require whose specifier is not a string at all', async () => {
+    const result = await runWithScripts('tR += tp.user.indirect()', [
+      userScript('indirect', 'module.exports = () => require(undefined)'),
+    ])
+    expect(result).toMatchObject({ kind: 'failed', code: 'script-require-denied', detail: 'indirect:dynamic' })
+  })
+
+  it('refuses a bare package name that is not one of the two it can provide', async () => {
+    const result = await runWithScripts('tR += tp.user.indirect()', [
+      userScript('indirect', "const name = 'fs'\nmodule.exports = () => require(name)()"),
+    ])
+    // The specifier is read at the call, so a name built from a variable is refused for the module it
+    // actually names — the interpreter is not a text scanner and does not pretend to be.
+    expect(result).toMatchObject({ kind: 'failed', code: 'script-require-denied', detail: 'indirect:fs' })
+  })
+
+  it('resolves a sibling script by relative path and shares one instance of it (U5)', async () => {
+    const result = await runWithScripts('tR += tp.user.main()', [
+      userScript('main', "const count = require('./counter.js')\nmodule.exports = () => `${count()}${count()}`"),
+      userScript('counter', 'let n = 0\nmodule.exports = () => (n += 1)'),
+    ])
+    // `12` is the measurement: the sibling was evaluated once and both calls reached the same closure, which
+    // is what a per-run cache means. `11` would mean it was loaded twice.
+    expect(result).toMatchObject({ kind: 'done', output: '12' })
+  })
+
+  it('refuses a sibling that the run was not given', async () => {
+    const result = await runWithScripts('tR += tp.user.main()', [
+      userScript('main', "module.exports = () => require('./absent.js')"),
+    ])
+    expect(result).toMatchObject({ kind: 'failed', code: 'script-require-denied', detail: 'main:./absent.js' })
+  })
+
+  it('keeps a cycle from hanging the run, answering with the module as far as it got (U4)', async () => {
+    const result = await runWithScripts('tR += tp.user.a()', [
+      userScript('a', "const b = require('./b.js')\nmodule.exports = () => `a:${typeof b}`"),
+      userScript('b', "const a = require('./a.js')\nmodule.exports.later = () => typeof a"),
+    ])
+    expect(result).toMatchObject({ kind: 'done', output: 'a:object' })
+  })
+
+  it('hides the template’s own namespace from the script (U7)', async () => {
+    const result = await runWithScripts('tR += tp.user.peek()', [
+      userScript('peek', "module.exports = () => `${typeof tp}/${typeof tR}/${typeof __host.call}`"),
+    ])
+    // `__host` is the one door a run already holds under its own profile, so a script reaching it is not a new
+    // right — but `tp` re-entering the run from inside a script is, and that is what this pins shut.
+    expect(result).toMatchObject({ kind: 'done', output: 'undefined/undefined/function' })
+  })
+
+  it('loads a script once per run however many times it is called (U4)', async () => {
+    const result = await runWithScripts('tR += tp.user.count() + tp.user.count()', [
+      userScript('count', 'let n = 0\nmodule.exports = () => (n += 1)'),
+    ])
+    // `3` is the measurement: one evaluation, one closure, the counter kept across both calls. Two
+    // evaluations would answer `1 + 1`.
+    expect(result).toMatchObject({ kind: 'done', output: '3' })
+  })
+
+  it('reports a script that throws while it is called with the path and its own words (U4)', async () => {
+    const result = await runWithScripts('tR += tp.user.throws()', [
+      userScript('throws', "module.exports = () => { throw new TypeError('bad input') }"),
+    ])
+    // A throw inside the function is the script talking, and it fails only this run's one command.
+    expect(result).toMatchObject({ kind: 'failed', code: 'render-failed', detail: expect.stringContaining('bad input') })
+  })
+
+  it('reports a script that throws while it loads as a load failure naming its file (U4)', async () => {
+    const result = await runWithScripts('tR += tp.user.broken()', [
+      userScript('broken', "const x = undefinedThing()\nmodule.exports = () => x"),
+    ])
+    expect(result).toMatchObject({ kind: 'failed', code: 'script-load-failed', detail: "Scripts/broken.js:'undefinedThing' is not defined" })
+  })
+
+  it('breaks only the call that named a broken script, not the namespace beside it (U4)', async () => {
+    const broken = await runWithScripts('tR += tp.user.broken()', [
+      userScript('broken', 'throw new Error("at load")'),
+      userScript('fine', 'module.exports = () => 1'),
+    ])
+    expect(broken).toMatchObject({ kind: 'failed' })
+    const well = await runWithScripts('tR += tp.user.fine()', [
+      userScript('broken', 'throw new Error("at load")'),
+      userScript('fine', 'module.exports = () => 1'),
+    ])
+    expect(well).toMatchObject({ kind: 'done', output: '1' })
+  })
+
+  it('refuses an export that is neither a function nor an object of functions', async () => {
+    expect(await runWithScripts('tR += tp.user.nope()', [userScript('nope', 'module.exports = 42')])).toMatchObject({
+      code: 'script-load-failed',
+      detail: 'nope:export-invalid',
+    })
+    expect(await runWithScripts('tR += tp.user.none()', [userScript('none', 'module.exports = null')])).toMatchObject({
+      code: 'script-load-failed',
+      detail: 'none:no-export',
+    })
+    expect(await runWithScripts('tR += tp.user.mixed()', [userScript('mixed', 'exports.fn = () => 1\nexports.num = 2')])).toMatchObject({
+      code: 'script-load-failed',
+      detail: 'mixed:num:not-a-function',
+    })
+  })
+
+  it('answers a call to a script that exported nothing as an object with no member to call', async () => {
+    // Upstream registers an empty `module.exports` object too — `!exported` is false for `{}` — so calling it
+    // is not a load failure here either; it is a template trying to call an object, and the answer says which.
+    expect(await runWithScripts('tR += tp.user.silent()', [userScript('silent', 'const unused = 1')])).toMatchObject({
+      kind: 'failed',
+      code: 'not-supported',
+      detail: 'silent:object-export',
+    })
+  })
+
+  it('carries the page’s refusal for one script instead of pretending it is absent (U1)', async () => {
+    const result = await runWithScripts('tR += tp.user.dup()', [
+      { name: 'dup', path: 'Scripts/a/dup.js', source: '', refusal: { code: 'script-name-conflict', detail: 'dup:Scripts/a/dup.js,Scripts/b/dup.js' } },
+    ])
+    expect(result).toMatchObject({
+      kind: 'failed',
+      code: 'script-name-conflict',
+      detail: 'dup:Scripts/a/dup.js,Scripts/b/dup.js',
+    })
+  })
+
+  it('says the folder was unavailable rather than that the reader forgot the file', async () => {
+    const result = await runWithScripts('tR += tp.user.anything()', [], { userScriptsUnavailable: 'listing-failed' })
+    expect(result).toMatchObject({ kind: 'failed', code: 'user-scripts-unavailable', detail: 'listing-failed' })
+  })
+
+  it('refuses a run whose profile was never given the right, even though it holds the text', async () => {
+    const result = await runWithScripts('tR += tp.user.greeting()', [
+      userScript('greeting', 'module.exports = () => 1'),
+    ], { capabilities: 'community' })
+    expect(result).toMatchObject({ kind: 'failed', code: 'capability-blocked', detail: 'tp.user.greeting' })
+  })
+
+  it('gives a community run no scripts at all when the snapshot gate is the one that emptied it', async () => {
+    // `context/snapshot.ts` is what drops the list for a profile without the right; the interpreter's own
+    // answer is `not-found`, and the two guards are different questions asked of the same data.
+    const snapshot = buildRunSnapshot({
+      runId: 'run-1',
+      notes: [],
+      folders: [],
+      templates: [],
+      target: null,
+      active: null,
+      template: null,
+      mode: 'append-active',
+      capabilities: 'community',
+      locale: 'en-US',
+      startedAt: 0,
+      userScripts: [userScript('greeting', 'module.exports = () => 1') as never],
+    })
+    expect(snapshot.userScripts).toEqual([])
   })
 })

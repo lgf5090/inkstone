@@ -30,6 +30,8 @@ export type TemplaterErrorCode =
   | 'web-request-failed'
   | 'script-load-failed'
   | 'script-require-denied'
+  | 'script-name-conflict'
+  | 'user-scripts-unavailable'
   | 'note-not-found'
   | 'note-conflict'
   | 'path-invalid'
@@ -53,6 +55,8 @@ export const TEMPLATER_ERROR_MESSAGES: Record<TemplaterErrorCode, MessageKey> = 
   'web-request-failed': 'templater.error.web_request_failed',
   'script-load-failed': 'templater.error.script_load_failed',
   'script-require-denied': 'templater.error.script_require_denied',
+  'script-name-conflict': 'templater.error.script_name_conflict',
+  'user-scripts-unavailable': 'templater.error.user_scripts_unavailable',
   'note-not-found': 'templater.error.note_not_found',
   'note-conflict': 'templater.error.note_conflict',
   'path-invalid': 'templater.error.path_invalid',

@@ -83,6 +83,36 @@ export const STACK_BYTES = 64 * KB
 export const MAX_PROGRAM_BYTES = 512 * KB
 
 /**
+ * How many user scripts one run may be handed.
+ *
+ * Each one is compiled and evaluated inside the interpreter the first time the template touches it, so this
+ * is a ceiling on *startup work the reader cannot see*, not on storage: a folder of a thousand scripts must
+ * not become a thousand `new Function`s the first time a template says `tp.user.anything`. A script past the
+ * ceiling answers `user-scripts-unavailable`, which is a name the reader can act on, rather than a silent
+ * absence that makes the script look broken.
+ */
+export const MAX_USER_SCRIPTS_PER_RUN = 100
+
+/**
+ * How big one user script may be.
+ *
+ * Deliberately smaller than the program budget: a script is a function the reader wrote once and calls from
+ * many templates, and one that outgrows this is a module that should not be loaded into every run's heap.
+ */
+export const MAX_USER_SCRIPT_BYTES = 64 * KB
+
+/**
+ * How much script text one run may be handed in total.
+ *
+ * The per-file ceiling above does not bound the batch: a hundred scripts at their maximum is 6 MiB of source
+ * that `install` marshals into the interpreter as one JSON string, on top of the note index the run already
+ * carries. Past this budget every script in the folder answers `user-scripts-unavailable` with the number in
+ * it, because a run that dies of `sandbox-out-of-memory` blames the sandbox, and the reader has no way to
+ * tell that their script folder is what did it.
+ */
+export const MAX_USER_SCRIPTS_TOTAL_BYTES = 1024 * KB
+
+/**
  * How many commands one template may contain.
  *
  * Checked by `client.ts` before the program is posted, from `ProgramSource.commandCount`: it is the
@@ -217,6 +247,9 @@ export const TEMPLATER_LIMITS = {
   runtimeMemoryBytes: RUNTIME_MEMORY_BYTES,
   stackBytes: STACK_BYTES,
   maxProgramBytes: MAX_PROGRAM_BYTES,
+  maxUserScriptsPerRun: MAX_USER_SCRIPTS_PER_RUN,
+  maxUserScriptBytes: MAX_USER_SCRIPT_BYTES,
+  maxUserScriptsTotalBytes: MAX_USER_SCRIPTS_TOTAL_BYTES,
   maxCommands: MAX_COMMANDS,
   maxOutputChars: MAX_OUTPUT_CHARS,
   maxHostCalls: MAX_HOST_CALLS,

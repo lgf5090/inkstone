@@ -30,6 +30,7 @@ function context(): TemplateRunContext {
     libraryTemplates: [],
     locale: 'en-US',
     selection: '',
+    userScripts: [],
   }
 }
 

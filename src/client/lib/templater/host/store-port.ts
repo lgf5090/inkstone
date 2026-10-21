@@ -29,6 +29,9 @@ import { useNoteTemplates } from '../../../store/note-templates'
 import { syncTitleIntoFrontMatter } from '../../../store/new-note'
 import { getActiveEditorView, insertText } from '../../../editor/commands'
 import { createNoteIndexCache, libraryVersion } from './note-index-cache'
+import { joinVirtualPath } from '../context/file-wrapper'
+import { folderPathsOf } from '../context/snapshot'
+import type { UserScriptPort, UserScriptRecord } from './user-scripts'
 import type { PageHostChanges, PageHostDeps, PageHostWrite } from './page-host'
 
 /** Whether a pane is holding this note, which is the difference between a buffer and a row. */
@@ -285,6 +288,49 @@ export function libraryRows(): { notes: Note[]; folders: Folder[]; templates: No
     folders: state.folders,
     templates: useNoteTemplates.getState().templates,
   }
+}
+
+/**
+ * The reader's script folder, as the two calls `./user-scripts.ts` asks of a store.
+ *
+ * A script is a note, so the listing is that folder's own subtree and the read is a note body through the
+ * same `readBody` every other host call uses — offline copy included. The folder id comes from the reader's
+ * settings, which is why this file and not the module that asks for it is the one that knows what a folder is.
+ */
+export function storeUserScriptPort(folderId: string): UserScriptPort {
+  return {
+    listScripts: async () => {
+      const state = useNotes.getState()
+      const below = descendantFolderIds(state.folders, folderId)
+      const paths = folderPathsOf(state.folders)
+      return Object.values(state.notes)
+        .filter((summary) => summary.deletedAt === null && summary.folderId !== null && below.has(summary.folderId))
+        .map((summary): UserScriptRecord => ({
+          id: summary.id,
+          title: summary.title,
+          path: joinVirtualPath(paths.get(summary.folderId!) ?? '', summary.title),
+        }))
+    },
+    readScript: async (id) => (await readBody(id))?.content ?? '',
+  }
+}
+
+/** The folder itself and every folder under it, by id. A cycle in `parentId` stops at the first visit. */
+function descendantFolderIds(folders: Folder[], rootId: string): Set<string> {
+  const children = new Map<string, string[]>()
+  for (const folder of folders) {
+    const parent = folder.parentId ?? ''
+    children.set(parent, [...(children.get(parent) ?? []), folder.id])
+  }
+  const found = new Set<string>()
+  const queue = [rootId]
+  while (queue.length > 0) {
+    const id = queue.shift()!
+    if (found.has(id)) continue
+    found.add(id)
+    queue.push(...(children.get(id) ?? []))
+  }
+  return found
 }
 
 export function storePageHostPorts(nested: PageHostDeps['nested']): PageHostDeps {

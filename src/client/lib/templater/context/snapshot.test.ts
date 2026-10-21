@@ -127,6 +127,8 @@ describe('snapshot shape', () => {
       'startedAt',
       'target',
       'template',
+      'userScripts',
+      'userScriptsUnavailable',
     ])
     // A snapshot taken with no selection says so with the empty string, which is what `tp.file.selection()`
     // answers for a run started from a command with no editor in front of it.

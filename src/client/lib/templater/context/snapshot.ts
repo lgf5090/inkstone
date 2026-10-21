@@ -23,7 +23,7 @@
  * walks the folder tree and assembles.
  */
 import type { Folder, Note, NoteTemplate } from '@shared/types'
-import type { CapabilityProfile, NoteIndexEntry, RunMode, TemplateRunContext } from '../protocol'
+import type { CapabilityProfile, NoteIndexEntry, RunMode, TemplateRunContext, UserScriptSource } from '../protocol'
 import {
   TEMPLATES_FOLDER_ID,
   folderIndexEntry,
@@ -65,6 +65,19 @@ export interface RunSnapshotInput {
    * a startup template, a note being created — where upstream's `tp.file.selection()` reads nothing.
    */
   selection?: string
+  /**
+   * The reader's user scripts, as the page gathered them.
+   *
+   * The snapshot applies exactly one rule to this list — the profile's `userScripts` right — and nothing
+   * else: names, sizes, count and duplicate-name conflicts are decided where the files are read
+   * (`host/user-scripts.ts`), because that is the only place that can say *which* script is at fault, and a
+   * refusal the reader can act on has to name it. A run whose profile does not grant the right gets an empty
+   * list whatever the page handed over, so forgetting the gate at a call site cannot leak scripts into a
+   * community template.
+   */
+  userScripts?: UserScriptSource[]
+  /** Why the script folder as a whole could not be read; gated exactly like {@link userScripts}. */
+  userScriptsUnavailable?: string
 }
 
 /**
@@ -173,6 +186,10 @@ export function buildRunSnapshot(input: RunSnapshotInput): TemplateRunContext {
     libraryTemplates: copyTemplates(input.templates),
     locale: rules.locale,
     selection: input.selection ?? '',
+    userScripts: rules.capabilities.userScripts
+      ? (input.userScripts ?? []).map((script) => ({ ...script }))
+      : [],
+    userScriptsUnavailable: rules.capabilities.userScripts ? input.userScriptsUnavailable : undefined,
   }
 }
 

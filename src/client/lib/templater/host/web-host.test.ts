@@ -50,6 +50,7 @@ function context(overrides: Partial<TemplateRunContext> = {}): TemplateRunContex
     libraryTemplates: [],
     locale: 'en-US',
     selection: '',
+    userScripts: [],
     ...overrides,
   }
 }
