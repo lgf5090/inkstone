@@ -429,6 +429,7 @@ const allowed = new Map([
     "// A conditional child arrives as one fragment holding the real branches. A fragment takes no `id`, so",
     "// treating it as the control would leave the label's `for` pointing at nothing a reader could reach:",
     "// it is the several-children case for naming, and the block becomes the group the label describes.",
+    "/** A control that cannot be answered yet: shown, named, and skipped by the keyboard. */",
   ]],
   ["src/client/components/overlay-search.test.ts", [
     "/** What the user sees after typing: the field's own value plus whatever the list kept. */",
@@ -8844,6 +8845,7 @@ const allowed = new Map([
     "/* A choice that already asks for its day every time has no second behaviour to offer, so the\n            row appears only where the switch would change what the palette lists. */",
     "/** What each editor action does, in the reader's words rather than in code names. */",
     "/** A step's note name, with the library's own names offered beside it — the same list the run asks from. */",
+    "/* Only a line that was going to be a task can be filed as one; the choice is disabled\n            rather than hidden so the reader can see what the task switch would enable. */",
   ]],
   ["src/client/features/quickadd/choice-list.tsx", [
     "/**\n * The choice library as a list the author can actually run and rearrange.\n *\n * Rows are the tree the store keeps, flattened in `position` order; a collapsed group hides its\n * children without touching the data. Ordering is `place(id, parentId, index)`, so a drop into a group\n * and a nudge down the list go through the one function that refuses cycles, self-parenting and too\n * deep a nest — the editor never invents a second rule about what a legal tree is.\n */",
@@ -19881,6 +19883,10 @@ const allowed = new Map([
     "// a plain decimal is not money, and is not rounded into being money either.",
     "/**\n * The balance inside a vendor's answer, in the currency it is denominated in.\n *\n * Null means the answer arrived and did not say: no listed field held a number, or the credits subtraction\n * found only one of its two terms. That is reported as `unreadable`, which is the honest sentence — the key\n * was accepted, and this endpoint is not the one that answers the question.\n */",
   ]],
+  ["src/shared/quickadd.test.ts", [
+    "// The field is additive: a reader that predates it keeps writing notes, and a record that never",
+    "// chose the board stays byte-for-byte what it was.",
+  ]],
   ["src/shared/quickadd.ts", [
     "/**\n * The data model for QuickAdd-style choices: a named automation the user runs from the launcher,\n * the command palette or a hotkey. Three executable kinds (template, capture, macro) plus groups\n * that only hold other choices, and the account-level options that steer every run.\n *\n * Every function here is total: a hand-edited file or a stale account record is dropped entry by\n * entry with a count, never thrown at, because the worker validates the same shape on PUT.\n */",
     "/** The one shape used by the account record, a downloaded file and an upload, so all three parse alike. */",
@@ -19918,6 +19924,8 @@ const allowed = new Map([
     "/**\n   * A second palette command that asks which day the run measures its dates from. Absent means the\n   * choice has one command, which is what every record written before this field means.\n   */",
     "/**\n * What an editor step does to the note on screen. `pasteWithFormat` from the reference has no twin\n * here: this app has no rich-text paste to reach for, and its “paste as link” is an app command a\n * `command` step can already name.\n */",
     "/**\n   * Where a capture that adds to the task list files its line.\n   *\n   * Absent reads as `'note'`, which is what every choice stored before this field existed did: the\n   * line is written into the note as `- [ ] …`. `'todo'` files it in the to-do app instead, parsed\n   * by the board's own quick-add grammar, and the note is never resolved or touched. The field is\n   * additive on purpose — an older reader ignores it and keeps writing the note it always wrote.\n   */",
+    "// Absent is the note, which is what every record written before this field meant; only the",
+    "// to-do destination is worth storing, so a record stays as small as it was.",
   ]],
   ["src/shared/reasoning.ts", [
     "/**\n * What each model's own thinking switch is called, and which of its rungs a level lands on.\n *\n * One reader-facing level has to become different fields on different services, and getting that wrong is\n * not cosmetic: a field an endpoint does not know is refused outright by OpenAI's own service, Anthropic's\n * newest models reject the budget form its older ones require, and a `thinkingBudget` is not what a 3.x\n * Gemini reads as `thinkingLevel`. This file is the only place that knows what a level is called wherever\n * the model lives, and both sides of the app read it: the worker to build the request, the settings\n * screens to offer a model the levels its own service has rather than a list of five that may not fit.\n *\n * The dialect is decided from the endpoint and then from the model id, because the endpoint names the\n * vendor in most cases (its own host) and the model id names it when the endpoint is a gateway serving\n * several vendors (SiliconFlow, Together, Fireworks …). A reader can also pin it on the provider, which is\n * the only way to say what a custom gateway or a proxy is, and the pin wins over both readings.\n *\n * The rules below are each service's documentation as it stands today. Those pages could not be opened\n * from the build machine — Anthropic and Google answer this network with certificate errors and OpenAI's\n * model cards were unreachable — so they were read through their search-index excerpts; the DeepSeek\n * behaviour is the exception and was measured against a live key. Where a rule is model-specific rather\n * than vendor-wide it is applied only where it was read, and the comment beside it says so.\n */",

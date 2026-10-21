@@ -352,6 +352,28 @@ describe('the choice editor', () => {
     expect(saved.targetTitle).toBe('Reading')
   })
 
+  it('offers the to-do destination only to a choice that formats tasks', async () => {
+    const choice = { ...newCaptureChoice('qa-cap', 'File the line', 0), task: false }
+    seed({ choices: [choice] })
+    editor(choice)
+
+    const destination = control(t('quickadd.destination.todo')) as HTMLButtonElement | null
+    expect(destination, 'the destination switch is missing').not.toBeNull()
+    expect(destination!.getAttribute('aria-checked')).toBe('false')
+    expect(destination!.disabled, 'a note capture cannot file tasks').toBe(true)
+
+    clickNamed(t('quickadd.field_task'))
+    expect(destination!.disabled).toBe(false)
+    click(destination!)
+    expect(destination!.getAttribute('aria-checked')).toBe('true')
+
+    clickNamed(t('common.save'))
+    await settle()
+    const saved = library()[0]!
+    if (saved.type !== 'capture') throw new Error('the choice changed type')
+    expect(saved.destination).toBe('todo')
+  })
+
   it('offers the same names inside a macro step that names a note', async () => {
     const summary = (id: string, title: string): NoteSummary => ({
       id,

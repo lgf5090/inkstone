@@ -1408,6 +1408,7 @@ export const ZH_CN_MESSAGES = {
     "quickadd.suggest_no_match": "没有笔记叫这个",
     "quickadd.suggest_more": "还有 {count} 条，再打几个字筛",
     "quickadd.field_task": "写成待办项",
+    "quickadd.destination.todo": "建为待办",
     "quickadd.field_template": "模板",
     "quickadd.field_use_selection": "用选中文字代替提问",
     "quickadd.field_use_selection_desc": "选中了文字时，{{VALUE}} 直接写入这段文字，不再提问",

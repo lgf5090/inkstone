@@ -1408,6 +1408,7 @@ export const EN_US_MESSAGES = {
     "quickadd.suggest_no_match": "No note answers to that name",
     "quickadd.suggest_more": "{count} more — type to narrow the list",
     "quickadd.field_task": "Format as a task",
+    "quickadd.destination.todo": "Create as a task",
     "quickadd.field_template": "Template",
     "quickadd.field_use_selection": "Selected text answers the value",
     "quickadd.field_use_selection_desc": "When the reader has text selected, {{VALUE}} writes it instead of asking",

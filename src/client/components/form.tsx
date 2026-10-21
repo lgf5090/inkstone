@@ -558,19 +558,27 @@ export function Checkbox({
   onChange,
   label,
   className,
+  disabled,
 }: {
   checked: boolean
   onChange: (next: boolean) => void
   label?: ReactNode
   className?: string
+  /** A control that cannot be answered yet: shown, named, and skipped by the keyboard. */
+  disabled?: boolean
 }) {
   return (
     <button
       type="button"
       role="checkbox"
       aria-checked={checked}
+      disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={cn('inline-flex min-h-10 items-center gap-2 text-[length:var(--text-13)] md:min-h-0', className)}
+      className={cn(
+        'inline-flex min-h-10 items-center gap-2 text-[length:var(--text-13)] md:min-h-0',
+        disabled && 'cursor-not-allowed opacity-50',
+        className,
+      )}
     >
       <span
         className={cn(

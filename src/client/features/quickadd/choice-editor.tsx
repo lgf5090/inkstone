@@ -702,6 +702,14 @@ function CaptureFields({ draft, patch, renderFormat }: {
       </SettingRow>
       <div className="grid gap-1 md:grid-cols-3">
         <Checkbox checked={draft.task} onChange={(task) => set({ task })} label={t('quickadd.field_task')}/>
+        {/* Only a line that was going to be a task can be filed as one; the choice is disabled
+            rather than hidden so the reader can see what the task switch would enable. */}
+        <Checkbox
+          checked={draft.task && draft.destination === 'todo'}
+          disabled={!draft.task}
+          onChange={(todo) => set({ destination: todo ? 'todo' : 'note' })}
+          label={t('quickadd.destination.todo')}
+        />
         <Checkbox checked={draft.eachLine} onChange={(eachLine) => set({ eachLine })} label={t('quickadd.field_each_line')}/>
         <Checkbox checked={draft.openAfter} onChange={(openAfter) => set({ openAfter })} label={t('quickadd.field_open_after')}/>
         <Checkbox checked={draft.linkToSource} onChange={(linkToSource) => set({ linkToSource })} label={t('quickadd.field_link_to_source')}/>
