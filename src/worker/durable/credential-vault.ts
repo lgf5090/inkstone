@@ -15,14 +15,17 @@ const MAX_CIPHERTEXT_LENGTH = 24 * 1024
  * so a token minted for one third party cannot be read back out of another's row.
  *
  * `channel:` carries one notification channel's whole configuration, scoped to that channel's row id.
+ *
+ * `memo-webhook:` carries one memo webhook's signing secret, scoped to that webhook's row id.
  */
-const CREDENTIAL_SCOPE_PATTERN = /^(?:backup|totp|ai|mcp|channel):[0-9a-hjkmnp-tv-z]{26}$/
+const CREDENTIAL_SCOPE_PATTERN = /^(?:backup|totp|ai|mcp|channel|memo-webhook):[0-9a-hjkmnp-tv-z]{26}$/
 const CIPHERTEXT_PATTERN = /^v1\.([A-Za-z0-9_-]+)$/
 const HKDF_SALT = utf8('inkstone.backup-credentials.v1')
 const BACKUP_SECRET_FIELDS = new Set(['password', 'accessKeyId', 'secretAccessKey'])
 const TOTP_SECRET_FIELDS = new Set(['secret'])
 const AI_SECRET_FIELDS = new Set(['apiKey'])
 const MCP_SECRET_FIELDS = new Set(['blob'])
+const MEMO_WEBHOOK_SECRET_FIELDS = new Set(['secret'])
 /**
  * A channel bundle is not a fixed key list: which fields exist is what the channel definition says, and
  * the nine of them share no vocabulary at all (`botToken`/`chatId`, `serverUrl`/`appToken`, `sendKey`…).
@@ -214,7 +217,9 @@ function isCredentialRecord(scope: string, value: unknown): value is CredentialR
       ? AI_SECRET_FIELDS
       : scope.startsWith('mcp:')
         ? MCP_SECRET_FIELDS
-        : BACKUP_SECRET_FIELDS
+        : scope.startsWith('memo-webhook:')
+          ? MEMO_WEBHOOK_SECRET_FIELDS
+          : BACKUP_SECRET_FIELDS
   const cap = MAX_FIELD_LENGTH[scope.split(':')[0]!] ?? DEFAULT_MAX_FIELD_LENGTH
   if (entries.length < 1 || entries.length > allowed.size) return false
   return entries.every(
