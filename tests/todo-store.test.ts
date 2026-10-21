@@ -178,15 +178,17 @@ describe('completing a task', () => {
 })
 
 describe('deleting a task', () => {
-  it('takes its steps and tag links with it', async () => {
+  it('hides it while keeping its steps and tag links for a restore', async () => {
     const task = await store.createTask({ title: 'One', tags: ['Work'], steps: ['Step'] })
     await store.deleteTask(task.id)
 
     expect(await store.getTask(task.id)).toBeNull()
+    // The delete stamps the row rather than removing it, so the children stay with the task it can
+    // bring back; only the reads hide the row.
     const steps = sqlite.prepare('SELECT COUNT(*) AS n FROM todos_steps WHERE task_id = ?').get(task.id) as { n: number }
     const links = sqlite.prepare('SELECT COUNT(*) AS n FROM todos_tag_links WHERE task_id = ?').get(task.id) as { n: number }
-    expect(steps.n).toBe(0)
-    expect(links.n).toBe(0)
+    expect(steps.n).toBe(1)
+    expect(links.n).toBe(1)
     expect(await store.listTaskTags()).toHaveLength(1)
   })
 })
