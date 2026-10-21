@@ -639,6 +639,17 @@ describe('message keys and tools', () => {
     }
   })
 
+  it('registers the task list, tag, step, snooze and bulk-clear tools', () => {
+    const permission = new Map(ASSISTANT_TOOL_SPECS.map((spec) => [spec.name, spec.permission]))
+    expect(permission.get('update_task_list')).toBe('write')
+    expect(permission.get('delete_task_list')).toBe('destructive')
+    expect(permission.get('rename_task_tag')).toBe('write')
+    expect(permission.get('delete_task_tag')).toBe('destructive')
+    expect(permission.get('delete_task_step')).toBe('destructive')
+    expect(permission.get('snooze_task')).toBe('write')
+    expect(permission.get('delete_completed_tasks')).toBe('destructive')
+  })
+
   it('has a schedule sentence for every repeat type in both languages', () => {
     for (const key of [
       'assistant.schedule.once', 'assistant.schedule.daily', 'assistant.schedule.weekly',

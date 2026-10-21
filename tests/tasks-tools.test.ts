@@ -20,6 +20,7 @@ import {
   MAX_PLAN_TODAY_SUGGESTIONS,
   MAX_TASKS_FROM_NOTE,
   ToolExecutor,
+  runApprovedAction,
   type ToolContext,
 } from '../src/worker/assistant/tools'
 import type { Env } from '../src/worker/env'
@@ -66,6 +67,13 @@ function context(over: Partial<ToolContext> = {}): ToolContext {
 
 function executor(over: Partial<ToolContext> = {}): ToolExecutor {
   return new ToolExecutor(context(over), { maxToolCalls: 20 })
+}
+
+/** Presses the card the executor proposed, through the same door the reader's approval uses. */
+async function approve(tools: ToolExecutor, callId: string): Promise<void> {
+  const action = tools.approvalFor(callId)
+  if (!action) throw new Error(`no approval was proposed for ${callId}`)
+  await runApprovedAction(store, context(), action.id)
 }
 
 /** A note body straight into the table, because the tool reads the row and nothing above it. */
@@ -247,6 +255,162 @@ describe('delete_task', () => {
 
     expect(proposed.status).toBe('awaiting_reader_approval')
     expect(await store.getTask(created.created.id)).not.toBeNull()
+  })
+})
+
+describe('update_task_list and delete_task_list', () => {
+  it('renames, recolours and re-icons one list', async () => {
+    const list = await store.createTaskList({ name: 'Work' })
+
+    const result = await executor().execute('update_task_list', {
+      list: 'work', name: 'Job', color: '#2563eb', icon: 'Briefcase',
+    }, 'call-1') as { updated: Record<string, unknown> }
+
+    expect(result.updated).toMatchObject({ id: list.id, name: 'Job', color: '#2563eb', icon: 'Briefcase' })
+    expect(await store.getTaskList(list.id)).toMatchObject({ name: 'Job', color: '#2563eb', icon: 'Briefcase' })
+  })
+
+  it('refuses a colour outside the palette and a list that does not exist', async () => {
+    await store.createTaskList({ name: 'Work' })
+
+    await expect(executor().execute('update_task_list', { list: 'Work', color: 'red' }, 'call-1'))
+      .rejects.toThrow(/not one of the palette/)
+    await expect(executor().execute('update_task_list', { list: 'Nowhere', name: 'X' }, 'call-2'))
+      .rejects.toThrow(/No list matches/)
+  })
+
+  it('proposes the list deletion, then moves its tasks to the inbox on approval', async () => {
+    const list = await store.createTaskList({ name: 'Work' })
+    const task = await store.createTask({ title: 'One', listId: list.id })
+    const tools = executor()
+
+    const proposed = await tools.execute('delete_task_list', { list: 'Work' }, 'call-1') as { status: string }
+    expect(proposed.status).toBe('awaiting_reader_approval')
+    expect(await store.getTaskList(list.id)).not.toBeNull()
+
+    await approve(tools, 'call-1')
+
+    expect(await store.getTaskList(list.id)).toBeNull()
+    expect((await store.getTask(task.id))?.listId).toBeNull()
+  })
+})
+
+describe('the task tag tools', () => {
+  it('renames a tag everywhere it is used', async () => {
+    const task = await store.createTask({ title: 'One', tags: ['ops'] })
+
+    const result = await executor().execute('rename_task_tag', { tag: 'ops', name: 'platform' }, 'call-1') as {
+      updated: Record<string, unknown>
+    }
+
+    expect(result.updated).toMatchObject({ name: 'platform' })
+    expect((await store.getTask(task.id))?.tags.map((tag) => tag.name)).toEqual(['platform'])
+  })
+
+  it('refuses to rename a tag onto a name another tag already has', async () => {
+    await store.createTask({ title: 'One', tags: ['ops', 'home'] })
+
+    await expect(executor().execute('rename_task_tag', { tag: 'ops', name: 'home' }, 'call-1'))
+      .rejects.toThrow(/already exists/)
+    expect((await store.findTaskTagByName('ops'))?.name).toBe('ops')
+  })
+
+  it('proposes deleting a tag and removes its links on approval', async () => {
+    const task = await store.createTask({ title: 'One', tags: ['ops'] })
+    const tools = executor()
+
+    const proposed = await tools.execute('delete_task_tag', { tag: 'ops' }, 'call-1') as { status: string }
+    expect(proposed.status).toBe('awaiting_reader_approval')
+    expect(await store.findTaskTagByName('ops')).not.toBeNull()
+
+    await approve(tools, 'call-1')
+
+    expect(await store.findTaskTagByName('ops')).toBeNull()
+    expect((await store.getTask(task.id))?.tags).toEqual([])
+  })
+})
+
+describe('delete_task_step', () => {
+  it('proposes the step it matched, then deletes it on approval', async () => {
+    const created = await executor().execute('create_task', {
+      title: 'Ship it', steps: ['Write the copy', 'Send the mail'],
+    }, 'call-1') as { created: { id: string } }
+    const tools = executor()
+
+    const proposed = await tools.execute('delete_task_step', {
+      task: created.created.id, step: 'Write the copy',
+    }, 'call-2') as { status: string }
+    expect(proposed.status).toBe('awaiting_reader_approval')
+    expect((await store.listSteps(created.created.id)).map((step) => step.text)).toEqual(['Write the copy', 'Send the mail'])
+
+    await approve(tools, 'call-2')
+
+    expect((await store.listSteps(created.created.id)).map((step) => step.text)).toEqual(['Send the mail'])
+  })
+
+  it('refuses an ambiguous step rather than deleting the wrong one', async () => {
+    const created = await executor().execute('create_task', {
+      title: 'Ship it', steps: ['Write the copy', 'Write the mail'],
+    }, 'call-1') as { created: { id: string } }
+
+    await expect(executor().execute('delete_task_step', { task: created.created.id, step: 'Write' }, 'call-2'))
+      .rejects.toThrow(/Several steps match/)
+  })
+})
+
+describe('snooze_task', () => {
+  it('adds a reminder the chosen distance from now', async () => {
+    const task = await store.createTask({ title: 'Call back' })
+    const before = Date.now()
+
+    const result = await executor().execute('snooze_task', { task: task.id, minutes: 60 }, 'call-1') as {
+      remind_at: number
+      snoozed: Record<string, unknown>
+    }
+
+    expect(result.remind_at).toBeGreaterThanOrEqual(before + HOUR)
+    expect(result.snoozed.id).toBe(task.id)
+    const reread = await store.getTask(task.id)
+    expect(reread?.reminders).toEqual([result.remind_at])
+  })
+
+  it('refuses a finished task and a duration the menu does not offer', async () => {
+    const done = await store.createTask({ title: 'Finished' })
+    await store.completeTask(done.id, 'Asia/Shanghai')
+    const open = await store.createTask({ title: 'Open' })
+
+    await expect(executor().execute('snooze_task', { task: done.id, minutes: 60 }, 'call-1'))
+      .rejects.toThrow(/finished task/)
+    await expect(executor().execute('snooze_task', { task: open.id, minutes: 30 }, 'call-2'))
+      .rejects.toThrow(/A snooze must be/)
+  })
+})
+
+describe('delete_completed_tasks', () => {
+  it('proposes one batch, then deletes only the rows that were completed', async () => {
+    const first = await store.createTask({ title: 'Done one' })
+    const second = await store.createTask({ title: 'Done two' })
+    const open = await store.createTask({ title: 'Still open' })
+    await store.completeTask(first.id, 'Asia/Shanghai')
+    await store.completeTask(second.id, 'Asia/Shanghai')
+    const tools = executor()
+
+    const proposed = await tools.execute('delete_completed_tasks', {}, 'call-1') as { status: string }
+    expect(proposed.status).toBe('awaiting_reader_approval')
+    expect(await store.getTask(first.id)).not.toBeNull()
+
+    await approve(tools, 'call-1')
+
+    expect(await store.getTask(first.id)).toBeNull()
+    expect(await store.getTask(second.id)).toBeNull()
+    expect(await store.getTask(open.id)).not.toBeNull()
+  })
+
+  it('refuses when there is nothing completed to clear', async () => {
+    await store.createTask({ title: 'Still open' })
+
+    await expect(executor().execute('delete_completed_tasks', {}, 'call-1'))
+      .rejects.toThrow(/no completed tasks/)
   })
 })
 

@@ -19,19 +19,27 @@ import type { AssistantSettings, Task, TaskPriority } from '@shared/assistant'
 import { ASSISTANT_TOOL_SPECS, MAX_TASK_TITLE_CHARS, TASK_PRIORITIES, TASK_STATUSES, WEB_SEARCH_TOOL_NAME, toolPayloadText, toolModeFor, webSearchConfigured, type AssistantMemory, type AssistantMemoryCategory, type AutomationKind } from '@shared/assistant'
 import { webSearchEngineFor } from '@shared/web-search-engines'
 import {
+  MAX_BATCH_TASKS,
   MAX_LIST_NAME_CHARS,
+  MAX_REMINDERS_PER_TASK,
   MAX_STEPS_PER_TASK,
   MAX_STEP_TEXT_CHARS,
   MAX_TAGS_PER_TASK,
+  MAX_TAG_NAME_CHARS,
   REMIND_OFFSETS,
   REPEAT_FREQUENCIES,
+  SNOOZE_MINUTES,
   UPCOMING_DAYS,
+  isSnoozeMinutes,
   parseRepeatRule,
   remindAtFor,
   type RemindOffset,
   type TaskCounts,
+  type TaskStep,
+  type TaskTag,
   type TodoTask,
 } from '@shared/todos/model'
+import { organizerColorOrNull } from '@shared/organizer-colors'
 import { parseNoteCheckboxes } from '@shared/todos/note-parse'
 import { MEMORY_CATEGORIES_FOR_TOOLS } from './memory-service'
 import { localDate, parseLocalTime, toLocalMinute } from '@shared/assistant-time'
@@ -303,6 +311,38 @@ async function resolveTaskOrThrow(ref: unknown, ctx: ToolContext): Promise<TodoT
   const task = await ctx.store.resolveTask(String(ref))
   if (!task) throw new ToolError(`No single task matches "${String(ref).slice(0, 80)}". List tasks to find the exact one.`)
   return task
+}
+
+/**
+ * A tag the account really has, by name or id.
+ *
+ * Refused with what the reader can do instead rather than passed through as a rename that touches
+ * nothing: a tag the account does not have is not a smaller version of the request, it is a different
+ * one. The leading `#` is dropped the way the reader writes it.
+ */
+async function resolveTagOrThrow(ref: unknown, ctx: ToolContext): Promise<TaskTag> {
+  if (typeof ref !== 'string' || !ref.trim()) throw new ToolError('A tag is named by its name or id.')
+  const tag = await ctx.store.resolveTaskTag(ref.replace(/^#/, '').trim())
+  if (!tag) throw new ToolError(`No tag matches "${ref.slice(0, 60)}". List tasks to see the tags in use.`)
+  return tag
+}
+
+/**
+ * The one step a partial text names, the same matching `check_task_step` has always used.
+ *
+ * Two matches are refused rather than resolved by order: the model said "write", and ticking or
+ * deleting the wrong half of a task is a silent edit the reader never asked for.
+ */
+async function resolveStepOrThrow(task: TodoTask, ref: unknown, ctx: ToolContext): Promise<TaskStep> {
+  const steps = await ctx.store.listSteps(task.id)
+  const needle = String(ref).trim().toLowerCase()
+  const matches = steps.filter((step) => step.text.toLowerCase().includes(needle))
+  if (matches.length !== 1) {
+    throw new ToolError(matches.length
+      ? `Several steps match "${quoted(String(ref))}". Name the one you mean more fully.`
+      : `No step matches "${quoted(String(ref))}". Read the task first to see its steps.`)
+  }
+  return matches[0]!
 }
 
 async function resolveProjectIdOrThrow(ref: unknown, ctx: ToolContext): Promise<string | null | undefined> {
@@ -629,6 +669,35 @@ export const TASK_TOOLS: ToolDefinition[] = [
     },
   }),
   tool({
+    name: 'snooze_task',
+    permission: 'write',
+    maxCallsPerTurn: 5,
+    description: `Remind the reader about a task again in ${SNOOZE_MINUTES.join(', ')} minutes. The new reminder is added to the ones the task already has; it does not replace them.`,
+    fields: {
+      task: { type: 'string', description: 'Task id, or a title that matches exactly one task.', minLength: 1, maxLength: 300 },
+      minutes: {
+        type: 'integer',
+        minimum: SNOOZE_MINUTES[0],
+        maximum: SNOOZE_MINUTES[SNOOZE_MINUTES.length - 1],
+        description: `How long to wait: ${SNOOZE_MINUTES.join(', ')} minutes.`,
+      },
+    },
+    async run(args, ctx) {
+      if (!isSnoozeMinutes(args.minutes)) {
+        throw new ToolError(`A snooze must be ${SNOOZE_MINUTES.join(', ')} minutes.`)
+      }
+      const task = await resolveTaskOrThrow(args.task, ctx)
+      if (task.status === 'done') throw new ToolError('A finished task cannot be snoozed.')
+      if ((task.reminders?.length ?? 0) >= MAX_REMINDERS_PER_TASK) {
+        throw new ToolError(`This task already has ${MAX_REMINDERS_PER_TASK} reminders.`)
+      }
+      const remindAt = Date.now() + args.minutes * 60_000
+      const updated = await ctx.store.snoozeTask(task.id, remindAt)
+      if (!updated) throw new ToolError('This task no longer exists.')
+      return { snoozed: presentTask(updated), remind_at: remindAt }
+    },
+  }),
+  tool({
     name: 'delete_task',
     permission: 'destructive',
     maxCallsPerTurn: 3,
@@ -645,6 +714,45 @@ export const TASK_TOOLS: ToolDefinition[] = [
       if (!task) throw new ToolError('This task no longer exists.')
       await ctx.store.deleteTask(task.id)
       await ctx.store.recordActivity('task.deleted', task.title)
+    },
+  }),
+  tool({
+    name: 'rename_task_tag',
+    permission: 'write',
+    maxCallsPerTurn: 3,
+    description: 'Rename a tag the reader uses on tasks. Every task carrying it shows the new name.',
+    fields: {
+      tag: { type: 'string', description: 'Tag name or id.', minLength: 1, maxLength: MAX_TAG_NAME_CHARS },
+      name: { type: 'string', description: 'The new tag name.', minLength: 1, maxLength: MAX_TAG_NAME_CHARS },
+    },
+    async run(args, ctx) {
+      const tag = await resolveTagOrThrow(args.tag, ctx)
+      const name = String(args.name)
+      // The table's unique index refuses a duplicate name with a database error; naming the clash is the
+      // answer the reader can act on, and the call writes nothing.
+      const clash = await ctx.store.findTaskTagByName(name)
+      if (clash && clash.id !== tag.id) throw new ToolError(`A tag named "${name}" already exists.`)
+      const updated = await ctx.store.updateTaskTag(tag.id, { name })
+      if (!updated) throw new ToolError('This tag no longer exists.')
+      return { updated: { id: updated.id, name: updated.name, open: updated.openCount } }
+    },
+  }),
+  tool({
+    name: 'delete_task_tag',
+    permission: 'destructive',
+    maxCallsPerTurn: 3,
+    description: 'Propose deleting a tag from every task carrying it. Nothing is deleted until the reader approves it.',
+    fields: {
+      tag: { type: 'string', description: 'Tag name or id.', minLength: 1, maxLength: MAX_TAG_NAME_CHARS },
+    },
+    async prepare(args, ctx) {
+      const tag = await resolveTagOrThrow(args.tag, ctx)
+      return { targetId: tag.id, targetLabel: quoted(tag.name) }
+    },
+    async commit(targetId, ctx) {
+      const tag = await ctx.store.getTaskTag(targetId)
+      if (!tag) throw new ToolError('This tag no longer exists.')
+      await ctx.store.deleteTaskTag(tag.id)
     },
   }),
   tool({
@@ -683,6 +791,109 @@ export const TASK_TOOLS: ToolDefinition[] = [
     },
   }),
   tool({
+    name: 'update_task_list',
+    permission: 'write',
+    maxCallsPerTurn: 3,
+    description: 'Change a to-do list: its name, colour or icon. Use list_task_lists first if unsure which list it is.',
+    fields: {
+      list: { type: 'string', description: 'List name or id.', minLength: 1, maxLength: 200 },
+      name: { type: 'string', minLength: 1, maxLength: MAX_LIST_NAME_CHARS, optional: true },
+      color: { type: 'string', description: 'A hex colour; null clears it.', maxLength: 7, optional: true, nullable: true },
+      icon: { type: 'string', description: 'One emoji or an icon name; null clears it.', maxLength: 40, optional: true, nullable: true },
+    },
+    async run(args, ctx) {
+      const listId = await resolveListId(args.list, ctx)
+      if (!listId) throw new ToolError('A list is named by its name or id.')
+      let color: string | null | undefined
+      if (args.color !== undefined) {
+        if (args.color === null) color = null
+        else {
+          color = organizerColorOrNull(args.color)
+          if (!color) throw new ToolError('That colour is not one of the palette.')
+        }
+      }
+      const icon = args.icon === undefined
+        ? undefined
+        : args.icon === null
+          ? null
+          : (String(args.icon).replace(/[\u0000-\u001f\u007f]/g, '').trim() || null)
+      const patch = {
+        ...(args.name !== undefined ? { name: String(args.name) } : {}),
+        ...(color !== undefined ? { color } : {}),
+        ...(icon !== undefined ? { icon } : {}),
+      }
+      if (!Object.keys(patch).length) throw new ToolError('Name a new name, colour or icon to change.')
+      const list = await ctx.store.updateTaskList(listId, patch)
+      if (!list) throw new ToolError('This list no longer exists.')
+      return {
+        updated: {
+          id: list.id,
+          name: list.name,
+          icon: list.icon,
+          color: list.color,
+          open: list.openCount,
+          total: list.openCount + list.doneCount,
+        },
+      }
+    },
+  }),
+  tool({
+    name: 'delete_task_list',
+    permission: 'destructive',
+    maxCallsPerTurn: 2,
+    description: 'Propose deleting a to-do list. Its tasks move to the inbox, not the trash; nothing changes until the reader approves it.',
+    fields: {
+      list: { type: 'string', description: 'List name or id.', minLength: 1, maxLength: 200 },
+    },
+    async prepare(args, ctx) {
+      const listId = await resolveListId(args.list, ctx)
+      if (!listId) throw new ToolError('A list is named by its name or id.')
+      const list = await ctx.store.getTaskList(listId)
+      if (!list) throw new ToolError('This list no longer exists.')
+      return { targetId: list.id, targetLabel: quoted(list.name) }
+    },
+    async commit(targetId, ctx) {
+      const list = await ctx.store.getTaskList(targetId)
+      if (!list) throw new ToolError('This list no longer exists.')
+      await ctx.store.deleteTaskList(list.id)
+    },
+  }),
+  tool({
+    name: 'delete_completed_tasks',
+    permission: 'destructive',
+    maxCallsPerTurn: 1,
+    description: `Propose clearing completed tasks, up to ${MAX_BATCH_TASKS} rows per approval — the batch way to remove many at once, so do not call delete_task once per row. A second call takes the next batch if the first said more remain.`,
+    fields: {},
+    async prepare(_args, ctx) {
+      // One page, in the completed list's own order: the cap is the batch route's ceiling, and the count
+      // says whether this approval covers all of them or only the first page.
+      const completed = await ctx.store.listTasks({ status: 'all', view: 'completed', limit: MAX_BATCH_TASKS })
+      if (!completed.length) throw new ToolError('There are no completed tasks to delete.')
+      const total = await ctx.store.countTasks({ status: 'all', view: 'completed' })
+      const count = completed.length
+      return {
+        targetId: completed.map((task) => task.id).join(','),
+        targetLabel: count < total
+          ? `${count} of ${total} completed tasks`
+          : `${count} completed task${count === 1 ? '' : 's'}`,
+      }
+    },
+    async commit(targetId, ctx) {
+      // Only the rows that were completed when the card was raised: a task the reader reopened in the
+      // meantime is work again, and the approval was not a statement about it.
+      const ids = targetId.split(',').filter(Boolean)
+      let deleted = 0
+      for (const id of ids) {
+        const task = await ctx.store.getTask(id)
+        if (!task || task.status !== 'done') continue
+        await ctx.store.deleteTask(id)
+        deleted++
+      }
+      if (!deleted) throw new ToolError('Those tasks are no longer completed.')
+      return { deleted }
+    },
+  }),
+  tool({
     name: 'add_task_step',
     permission: 'write',
     maxCallsPerTurn: 8,
@@ -710,18 +921,36 @@ export const TASK_TOOLS: ToolDefinition[] = [
     },
     async run(args, ctx) {
       const task = await resolveTaskOrThrow(args.task, ctx)
-      const steps = await ctx.store.listSteps(task.id)
-      const needle = String(args.step).trim().toLowerCase()
-      const matches = steps.filter((step) => step.text.toLowerCase().includes(needle))
-      if (matches.length !== 1) {
-        throw new ToolError(matches.length
-          ? `Several steps match "${quoted(String(args.step))}". Name the one you mean more fully.`
-          : `No step matches "${quoted(String(args.step))}". Read the task first to see its steps.`)
-      }
-      const step = matches[0]!
+      const step = await resolveStepOrThrow(task, args.step, ctx)
       const done = args.done !== false
       await ctx.store.updateStep(task.id, step.id, { done })
       return { step: step.text, done }
+    },
+  }),
+  tool({
+    name: 'delete_task_step',
+    permission: 'destructive',
+    maxCallsPerTurn: 3,
+    description: 'Propose deleting one step of a task. Nothing is deleted until the reader approves it.',
+    fields: {
+      task: { type: 'string', description: 'Task id, or a title that matches exactly one task.', minLength: 1, maxLength: 300 },
+      step: { type: 'string', description: 'The step\'s text, or enough of it to match exactly one step.', minLength: 1, maxLength: MAX_STEP_TEXT_CHARS },
+    },
+    async prepare(args, ctx) {
+      const task = await resolveTaskOrThrow(args.task, ctx)
+      const step = await resolveStepOrThrow(task, args.step, ctx)
+      // The separator cannot occur in an id: both are minted from the same alphabet, which has no colon.
+      return { targetId: `${task.id}:${step.id}`, targetLabel: quoted(`${task.title} · ${step.text}`) }
+    },
+    async commit(targetId, ctx) {
+      const [taskId, stepId] = targetId.split(':')
+      if (!taskId || !stepId) throw new ToolError('This action no longer exists.')
+      const task = await ctx.store.getTask(taskId)
+      if (!task) throw new ToolError('This task no longer exists.')
+      const steps = await ctx.store.listSteps(task.id)
+      const step = steps.find((entry) => entry.id === stepId)
+      if (!step) throw new ToolError('This step no longer exists.')
+      if (!(await ctx.store.deleteStep(task.id, step.id))) throw new ToolError('This step no longer exists.')
     },
   }),
   tool({
