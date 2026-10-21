@@ -643,18 +643,65 @@ export const insertTable: StateCommand = (target) => {
 /**
  * Replace the selection with already-rendered text and put the caret where the
  * template asked for it. One transaction, so one undo takes the block back.
+ *
+ * `cursor` is one offset counted from the start of the inserted text — what the
+ * `{{ }}` gallery path and the new-note template pass. A list is a Templater
+ * plan's caret group: `tp.file.cursor(1)` can ask for several carets in one
+ * jump, and its offsets are counted in the document the plan produces, not from
+ * the start of the insert. With no text to insert, because the note store
+ * already wrote the document, the transaction carries a selection and no
+ * changes — the write stays the one undo step, and undoing it cannot be blocked
+ * by a caret.
  */
-export function insertRenderedTemplate(content: string, cursor: number | null): StateCommand {
+export function insertRenderedTemplate(content: string, cursor: number | number[] | null): StateCommand {
     return ({ state, dispatch }) => {
-        if (!content)
-            return false;
-        const changes = state.changeByRange((range) => ({
-            changes: { from: range.from, to: range.to, insert: content },
-            range: EditorSelection.cursor(range.from + (cursor ?? content.length)),
+        // A list is a caret group; anything else — including an empty one — is the older single caret.
+        const group = Array.isArray(cursor) && cursor.length > 0 ? cursor : null;
+        const single = group === null && typeof cursor === 'number' ? cursor : null;
+        if (!content) {
+            if (!group)
+                return false;
+            dispatch(state.update({
+                selection: caretGroup(group, state.doc.length),
+                scrollIntoView: true,
+            }));
+            return true;
+        }
+        if (!group) {
+            const caret = single ?? content.length;
+            const changes = state.changeByRange((range) => ({
+                changes: { from: range.from, to: range.to, insert: content },
+                range: EditorSelection.cursor(range.from + caret),
+            }));
+            dispatch(state.update(changes, { scrollIntoView: true, userEvent: 'input.insert' }));
+            return true;
+        }
+        // The insert and the whole caret group in one transaction, with the offsets read against the
+        // document this call produces — which is the coordinate space `planWrite` reports them in.
+        const changes = state.changes(state.selection.ranges.map((range) => ({ from: range.from, to: range.to, insert: content })));
+        dispatch(state.update({
+            changes,
+            selection: caretGroup(group, changes.newLength),
+            scrollIntoView: true,
+            userEvent: 'input.insert',
         }));
-        dispatch(state.update(changes, { scrollIntoView: true, userEvent: 'input.insert' }));
         return true;
     };
+}
+/**
+ * Several cursors at once, clamped to the document they are counted in.
+ *
+ * CodeMirror refuses a transaction whose selection point is past the end of the
+ * document, and a plan measures its offsets against the note it wrote, not
+ * against whatever the note has become by the time this runs — the insert
+ * signal can fire a frame after a store write, or on a note the reader has
+ * already shortened. Clamping moves each caret as far as the text allows;
+ * throwing would take the editor down over a caret. `EditorSelection.create`
+ * sorts the group and merges the offsets that end up on the same position, so
+ * a plan that asked for two carets in one place still leaves one caret there.
+ */
+function caretGroup(offsets: readonly number[], length: number): EditorSelection {
+    return EditorSelection.create(offsets.map((offset) => EditorSelection.cursor(Math.max(0, Math.min(offset, length)))));
 }
 /**
  * Insert the configured new-note template at each caret.

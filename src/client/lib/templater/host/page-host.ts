@@ -180,6 +180,11 @@ interface LiveRun {
   createdFolders: Map<string, string>
 }
 
+/** Where a note that is about to be created is going to live, as the tree answers it. */
+export type CreateTarget =
+  | { ok: true; title: string; folderId: string | null }
+  | { ok: false; code: TemplaterErrorCode; detail: string }
+
 /** A callable host: `configureTemplater` takes it as its `onHostCall` directly. */
 export interface PageHost {
   (call: HostCall): Promise<HostResult>
@@ -189,6 +194,16 @@ export interface PageHost {
   endRun: (runId: string) => void
   /** How many runs the page is holding contexts for, for a batch that wants to know it is done. */
   liveRuns: () => number
+  /**
+   * Resolve the destination of a note that is about to be created, creating the folders it names.
+   *
+   * This is `note.create`'s own path logic handed out as a call rather than a second copy of it: the title
+   * rules, the taken-path refusal and the folder chain all live in this module, and a duplicate of them in
+   * the write pipeline is how a traversal or a double name gets through. The pipeline needs it *before* it
+   * creates, because it creates the row with the finished document already in it — `note.create` takes path
+   * and text together and cannot be asked in two halves.
+   */
+  createTarget: (runId: string, path: string) => Promise<CreateTarget>
 }
 
 /**
@@ -332,21 +347,33 @@ export function createPageHost(deps: PageHostDeps): PageHost {
     return applied(await deps.notes.write(target.note.id, content.value, target.note), 'write', path.value)
   }
 
+  /**
+   * The folder and title a validated path files a new note under, refusing a path that is already taken.
+   *
+   * Derived from Templater 2.26.0 (AGPL-3.0-only) src/core/Templater.ts
+   * (`create_new_note_from_template`), with Inkstone adaptations: upstream asks Obsidian for an unused
+   * name and quietly creates `Note 2.md`, while two rows reading as one path is the state this app's index
+   * has to report as ambiguous later — so a taken path is refused here instead. One copy of that rule,
+   * shared by `note.create` and by {@link createTarget}, because two copies is how one of them gets fixed
+   * and the other does not.
+   */
+  async function targetFor(run: LiveRun, path: string): Promise<CreateTarget> {
+    const title = titleOf(path)
+    if (title === null) return { ok: false, code: 'path-invalid', detail: `title-max:${LIMITS.titleMaxLength}` }
+    if (resolve(run, path).entry !== null) return { ok: false, code: 'note-conflict', detail: path }
+    const folder = await resolveFolderPath(run, parentOf(path))
+    if (!folder.ok) return { ok: false, code: folder.code, detail: folder.detail }
+    return { ok: true, title, folderId: folder.value }
+  }
+
   async function createNote(run: LiveRun, args: unknown[]): Promise<Outcome> {
     const path = pathAt(args, 0)
     if (!path.ok) return path.failure
     const content = stringAt(args, 1, 'note.create')
     if (!content.ok) return content.failure
-    const title = titleOf(path.value)
-    if (title === null) return fail('path-invalid', `title-max:${LIMITS.titleMaxLength}`)
-    // Derived from Templater 2.26.0 (AGPL-3.0-only) src/core/Templater.ts
-    // (`create_new_note_from_template`), with Inkstone adaptations: upstream asks Obsidian for an unused
-    // name and quietly creates `Note 2.md`, while two rows reading as one path is the state this app's index
-    // has to report as ambiguous later — so a taken path is refused here instead.
-    if (resolve(run, path.value).entry !== null) return fail('note-conflict', path.value)
-    const folder = await resolveFolderPath(run, parentOf(path.value))
-    if (!folder.ok) return folder
-    const created = await deps.notes.create({ title, content: content.value, folderId: folder.value })
+    const target = await targetFor(run, path.value)
+    if (!target.ok) return fail(target.code, target.detail)
+    const created = await deps.notes.create({ title: target.title, content: content.value, folderId: target.folderId })
     if (created.ok) run.written.set(path.value, noteIndexEntry(created.note, path.value))
     return applied(created, 'create', path.value)
   }
@@ -674,7 +701,15 @@ export function createPageHost(deps: PageHostDeps): PageHost {
     return { ok: true, value: parentId }
   }
 
-  return Object.assign(onHostCall, { beginRun, endRun, liveRuns: () => runs.size })
+  async function createTarget(runId: string, path: string): Promise<CreateTarget> {
+    const run = runs.get(runId)
+    if (run === undefined) return { ok: false, code: 'render-failed', detail: `run:${runId}` }
+    const checked = validateNotePath(path)
+    if (!checked.ok) return { ok: false, code: 'path-invalid', detail: checked.reason }
+    return targetFor(run, checked.path)
+  }
+
+  return Object.assign(onHostCall, { beginRun, endRun, liveRuns: () => runs.size, createTarget })
 }
 
 /**

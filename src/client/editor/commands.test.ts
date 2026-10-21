@@ -357,17 +357,26 @@ describe('timeline insertion', () => {
   })
 })
 
-function runTemplateInsert(content: string, cursor: number | null, docs: string[], selection?: { anchor: number, head: number }) {
+function runTemplateInsert(content: string, cursor: number | number[] | null, docs: string[], selection?: { anchor: number, head: number }) {
   let state = EditorState.create({
     doc: docs.join('\n'),
     selection: selection ? EditorSelection.create([EditorSelection.range(selection.anchor, selection.head)]) : undefined,
+    // A Templater jump group is several carets at once, and a state that does not allow multiple ranges
+    // collapses every transaction's selection back to one — the editor on screen does allow them.
+    extensions: EditorState.allowMultipleSelections.of(true),
   })
   let next = state
+  let transactions = 0
   const handled = insertRenderedTemplate(content, cursor)({
     state,
-    dispatch: (transaction) => { next = transaction.state },
+    dispatch: (transaction) => { transactions += 1; next = transaction.state },
   })
-  return { handled, doc: next.doc.toString(), ranges: next.selection.ranges.map((range) => [range.from, range.to]) }
+  return {
+    handled,
+    doc: next.doc.toString(),
+    ranges: next.selection.ranges.map((range) => [range.from, range.to]),
+    transactions,
+  }
 }
 
 describe('insertRenderedTemplate', () => {
@@ -391,5 +400,37 @@ describe('insertRenderedTemplate', () => {
   it('shifts the caret by the text that came before it in the same insertion', () => {
     const { ranges } = runTemplateInsert('---\ntitle: x\n---\n\nafter', 14, [''])
     expect(ranges).toEqual([[14, 14]])
+  })
+
+  it('lands one caret per offset of a group that asked for several', () => {
+    const { handled, doc, ranges, transactions } = runTemplateInsert('abc', [1, 3], [''])
+    expect(handled).toBe(true)
+    expect(doc).toBe('abc')
+    expect(ranges).toEqual([[1, 1], [3, 3]])
+    // One dispatch, so one undo takes the whole thing back.
+    expect(transactions).toBe(1)
+  })
+
+  it('moves the carets of a note whose text the store already wrote, in one transaction', () => {
+    const { handled, doc, ranges, transactions } = runTemplateInsert('', [1, 3], ['abc'])
+    expect(handled).toBe(true)
+    expect(doc).toBe('abc')
+    expect(ranges).toEqual([[1, 1], [3, 3]])
+    expect(transactions).toBe(1)
+  })
+
+  it('refuses an empty caret list with no text, rather than dispatching nothing', () => {
+    expect(runTemplateInsert('', [], ['keep']).handled).toBe(false)
+  })
+
+  it('clamps a group to the note as it stands instead of throwing past its end', () => {
+    const { handled, ranges } = runTemplateInsert('', [1, 99], ['ab'])
+    expect(handled).toBe(true)
+    expect(ranges).toEqual([[1, 1], [2, 2]])
+  })
+
+  it('keeps a group it was given in order even when the plan listed it backwards', () => {
+    const { ranges } = runTemplateInsert('', [3, 1], ['abcd'])
+    expect(ranges).toEqual([[1, 1], [3, 3]])
   })
 })

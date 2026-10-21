@@ -7,7 +7,7 @@
  * note's own. The queue in `prompt-queue.ts` owns the promises; this file renders what the queue says
  * to render and answers back.
  */
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type FocusEvent } from 'react'
 import { Check, Plus } from 'lucide-react'
 import type { PromptAnswer, PromptRequest } from '../../lib/quickadd/format'
 import { evaluateMathExpression, formatMathValue } from '../../lib/quickadd/math'
@@ -43,7 +43,9 @@ interface DraftEntry {
 }
 
 function emptyDraft(request: PromptRequest): DraftEntry {
-  return { text: request.defaultValue, picks: [], query: '' }
+  // A multi-select can open with rows already ticked. Nothing in the token language does, so the field
+  // is only ever set by a host that asks for a list back — see `lib/templater/host/prompt-host.ts`.
+  return { text: request.defaultValue, picks: request.defaultPicks ? [...request.defaultPicks] : [], query: '' }
 }
 
 export function QuickAddPromptHost() {
@@ -98,18 +100,20 @@ function SuggesterRows({
       value,
       text: request.displayOptions?.[index] ?? value,
     }))
-    if (draft.query.trim() === '') return base
-    return fuzzyFilter(base, draft.query, (item) => item.text).map((match) => match.item)
-  }, [draft.query, request.displayOptions, request.options, pinyinVersion])
+    const matched = draft.query.trim() === '' ? base : fuzzyFilter(base, draft.query, (item) => item.text).map((match) => match.item)
+    // A caller that caps the list means the cap, after the filter has had its say: this is the number of
+    // rows the reader may pick from, not the number the caller was willing to build.
+    return request.limit === undefined || request.limit >= matched.length ? matched : matched.slice(0, Math.max(0, request.limit))
+  }, [draft.query, request.displayOptions, request.limit, request.options, pinyinVersion])
 
   return (
     <div className="space-y-1">
       <div role="listbox" aria-multiselectable={request.multiSelect || undefined} className="max-h-[min(46vh,320px)] overflow-y-auto">
-        {rows.map((row) => {
+        {rows.map((row, index) => {
           const selected = draft.picks.includes(row.value) || (!request.multiSelect && draft.text === row.value)
           return (
             <button
-              key={row.value}
+              key={`${index}:${row.value}`}
               type="button"
               role="option"
               aria-selected={selected}
@@ -141,16 +145,29 @@ function SuggesterRows({
 
 function PromptField({
   request,
+  name,
   draft,
   onChange,
   onPick,
 }: {
   request: PromptRequest
+  /** What the field is a field *of*: the row's own label, or the heading the dialog shows when it has none. */
+  name: string
   draft: DraftEntry
   onChange: (next: Partial<DraftEntry>) => void
   onPick: (value: string) => void
 }) {
   const fieldId = useMemo(() => `quickadd-${randomLocalId('field')}`, [])
+  // Upstream's `select_default_value`: the default is highlighted as soon as the field takes focus, so the
+  // first keystroke replaces it instead of appending to it. Once only, and on focus rather than in an
+  // effect: the dialog moves focus itself, and a selection made before that move is not a selection the
+  // reader sees — while one made on *every* focus would re-grab text a reader had already typed over.
+  const selectedDefault = useRef(false)
+  const selectDefaultOnFocus = (event: FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    if (request.selectDefaultValue !== true || selectedDefault.current || event.currentTarget.value === '') return
+    selectedDefault.current = true
+    event.currentTarget.select()
+  }
 
   if (request.kind === 'confirm' || request.kind === 'checkbox')
     return (
@@ -175,8 +192,8 @@ function PromptField({
         <input
           data-autofocus
           className={cn(FIELD_BASE, 'h-9')}
-          placeholder={t('quickadd.prompt_filter')}
-          aria-label={t('quickadd.prompt_filter_aria', { name: request.label })}
+          placeholder={request.placeholder || t('quickadd.prompt_filter')}
+          aria-label={t('quickadd.prompt_filter_aria', { name })}
           value={draft.query}
           onChange={(event) => onChange({ query: event.target.value })}
         />
@@ -190,8 +207,9 @@ function PromptField({
         data-autofocus
         rows={6}
         value={draft.text}
-        placeholder={request.defaultValue}
-        aria-label={request.label}
+        placeholder={request.placeholder || request.defaultValue}
+        onFocus={selectDefaultOnFocus}
+        aria-label={name}
         onChange={(event) => onChange({ text: event.target.value })}
       />
     )
@@ -281,8 +299,9 @@ function PromptField({
       data-autofocus
       className={cn(FIELD_BASE, 'h-9')}
       value={draft.text}
-      placeholder={request.defaultValue}
-      aria-label={request.label}
+      placeholder={request.placeholder || request.defaultValue}
+      onFocus={selectDefaultOnFocus}
+      aria-label={name}
       onChange={(event) => onChange({ text: event.target.value })}
     />
   )
@@ -407,6 +426,7 @@ function SinglePrompt({ group }: { group: PromptGroup }) {
       >
         <PromptField
           request={request}
+          name={request.label || group.choiceName}
           draft={draft}
           onChange={(next) => patch(request.key, next)}
           onPick={pickAndMaybeCommit}
@@ -463,6 +483,7 @@ function OnePagePrompt({ group }: { group: PromptGroup }) {
               </div>
               <PromptField
                 request={request}
+                name={request.label || request.key}
                 draft={draft}
                 onChange={(next) => patch(request.key, next)}
                 onPick={(value) => pick(request, value)}

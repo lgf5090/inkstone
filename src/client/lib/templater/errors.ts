@@ -114,11 +114,71 @@ export function templaterErrorCode(error: unknown): TemplaterErrorCode {
  * Only text that *starts* with a code this module knows has a detail to take off the front. Anything
  * else — an interpreter throw, a message from a library — carries no code at all, and its whole text
  * is the only description there is, so it comes back unchanged rather than split at the first colon.
+ *
+ * The two shapes that cross a worker boundary are read too, the way {@link templaterErrorCode} reads
+ * them: `HostResult`'s failure arm is `{ code, detail }`, so its measurement is taken off the field
+ * rather than lost (which would make a proxied refusal read shorter than the local one that caused it),
+ * and a thrown `Error` keeps its message, because `render-failed` beside nothing is the shrug this
+ * module's header refuses. A plain object that is not an `Error` gets no message lookup: its `message`
+ * is whichever sentence whoever built it chose, and prose is not a measurement.
  */
 export function templaterErrorDetail(error: unknown): string {
   if (error instanceof TemplaterError) return error.detail ?? ''
-  if (typeof error !== 'string') return ''
+  if (typeof error === 'string') {
+    const code = templaterErrorCode(error)
+    if (!error.startsWith(code)) return error
+    return error.slice(code.length).replace(/^:\s*/, '').trim()
+  }
+  if (error && typeof error === 'object') {
+    const detail = (error as { detail?: unknown }).detail
+    if (typeof detail === 'string') return detail
+    if (error instanceof Error && error.message !== '') return error.message
+  }
+  return ''
+}
+
+/**
+ * How much of a detail one line may carry.
+ *
+ * Sized against what this module's own reporters write: a colon chain around a virtual path, a template
+ * name or a measurement fits under it with room, and a note body, a clipboard value or a pasted paragraph
+ * does not — which is the point. See {@link isMeasurement}.
+ */
+const MAX_ERROR_DETAIL_CHARS = 120
+
+/**
+ * Whether a detail is something the run measured rather than something somebody wrote.
+ *
+ * Every failure this module reports carries one line of tokens, a path, a number or a name the template
+ * itself used — `chars:200001`, `Notes/Gone.md`, `403` — and that is the half a reader can act on. A body
+ * or a clipboard value is neither: it runs over lines, or far past the length of any name, and printing it
+ * under an error label would put somebody's text on the screen wearing the interface's voice. What fails
+ * the test is dropped rather than cut, the same choice `./limits.ts` makes for an oversized answer: half a
+ * path helps nobody, and a reader who needs the whole of it still has the note.
+ */
+function isMeasurement(detail: string): boolean {
+  if (detail === '' || detail.length > MAX_ERROR_DETAIL_CHARS) return false
+  return !/[\r\n\u0000-\u001f\u007f]/.test(detail)
+}
+
+/**
+ * What the reader is told about a failed run: the code's sentence, plus its measurement.
+ *
+ * The translate function comes in as a parameter rather than being imported and called here, which is
+ * both how the rest of this module stays free of the interface (`./protocol.ts`'s header records that
+ * these files are compiled by both sides) and the only way a line typed after a language switch speaks
+ * the new language — `scripts/check-i18n.mjs` refuses a module-scope call for the same reason.
+ *
+ * Every code is reachable, so every answer is a sentence: `templaterErrorCode` has a fallback rather
+ * than a failure mode, and a caller that hands this a `t` with no resource loaded still gets the key
+ * back rather than an empty line, the way `t()` itself degrades.
+ */
+export function templaterErrorText(error: unknown, translate: (key: MessageKey) => string): string {
   const code = templaterErrorCode(error)
-  if (!error.startsWith(code)) return error
-  return error.slice(code.length).replace(/^:\s*/, '').trim()
+  const key = TEMPLATER_ERROR_MESSAGES[code]
+  const label = translate(key).trim() || key
+  const detail = templaterErrorDetail(error)
+  // Straight brackets, not the full-width pair Chinese typesets with: this is not a locale file, and the
+  // same shape is what `markdown/mindmap/errors.ts` prints, so one failure looks like the other.
+  return isMeasurement(detail) ? `${label} (${detail})` : label
 }

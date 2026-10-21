@@ -38,11 +38,19 @@ export interface ToastItem {
 /** What a caller may say about a toast; the store supplies the id, the tone default and the timing. */
 export type ToastInput = Omit<ToastItem, 'id' | 'duration' | 'tone'> & { tone?: ToastItem['tone']; duration?: number }
 
-/** Rendered template text the workspace editor should insert for one note. */
+/**
+ * Rendered template text the workspace editor should insert for one note, and where the caret goes.
+ *
+ * `cursor` carries two shapes because the two features that use this signal need two things. The `{{ }}`
+ * gallery path hands back one offset counted from the start of the text it inserted. A Templater run writes
+ * its whole document through the note store instead, so it arrives with no text and a *list* of absolute
+ * offsets in the note as written — `tp.file.cursor(1)` may ask for several carets in one jump, and this
+ * signal is the only channel that still works when the note's editor has not mounted yet.
+ */
 export interface TemplateInsert {
   noteId: string
   content: string
-  cursor: number | null
+  cursor: number | number[] | null
 }
 
 interface UiState {

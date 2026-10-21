@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { EN_US_MESSAGES } from '@shared/locales/en-US'
 import { ZH_CN_MESSAGES } from '@shared/locales/zh-CN'
+import type { MessageKey } from '@shared/locales/en-US'
 import {
   CAPABILITY_PROFILES,
   capabilitiesFor,
@@ -9,7 +10,7 @@ import {
   type CapabilityProfile,
   type Capabilities,
 } from './protocol'
-import { TEMPLATER_ERROR_CODES, TEMPLATER_ERROR_MESSAGES, TemplaterError, isTemplaterErrorCode, templaterErrorCode, templaterErrorDetail } from './errors'
+import { TEMPLATER_ERROR_CODES, TEMPLATER_ERROR_MESSAGES, TemplaterError, isTemplaterErrorCode, templaterErrorCode, templaterErrorDetail, templaterErrorText } from './errors'
 
 // The catalogs are typed to include note-template content keys, which live in a separate lazily-loaded
 // resource; this table only ever names UI labels, so it reads them as the flat string maps they are.
@@ -64,6 +65,97 @@ describe('templater error codes', () => {
     expect(templaterErrorCode(null)).toBe('render-failed')
     // …and keeps the original text reachable, so a crash does not become a shrug.
     expect(templaterErrorDetail('TypeError: x is not a function')).toBe('TypeError: x is not a function')
+  })
+
+  it('takes the measurement off the two shapes that cross a worker boundary', () => {
+    // `HostResult`'s failure arm carries the pair as fields rather than as one string, and a thrown
+    // `Error` carries its only description in `message`. Reading neither would make a refusal that came
+    // from the other side of the thread say less than the identical local one.
+    expect(templaterErrorDetail({ code: 'note-not-found', detail: 'Notes/Gone.md' })).toBe('Notes/Gone.md')
+    expect(templaterErrorDetail(new Error('the editor refused'))).toBe('the editor refused')
+    // A plain object that is not an `Error` gets no message lookup: its `message` is whichever sentence
+    // whoever built it chose, and a sentence is not a measurement.
+    expect(templaterErrorDetail({ code: 'web-blocked', message: 'The address did not answer' })).toBe('')
+    // …and an object with neither field is still a code, answered on its own.
+    expect(templaterErrorDetail({ code: 'path-invalid' })).toBe('')
+  })
+})
+
+/**
+ * The reader-facing half: what a failure is *told* as.
+ *
+ * The translate function is handed in rather than imported — which is what lets the same table answer
+ * in whichever language the reader is looking at, and what `scripts/check-i18n.mjs` asks of every module
+ * that could otherwise freeze the initial locale — so these read the catalogs directly instead of going
+ * through the app's language state.
+ */
+describe('templaterErrorText', () => {
+  const enText = (key: MessageKey) => en[key]
+  const zhText = (key: MessageKey) => zh[key]
+
+  it('tells a sentence for every code, never its own token', () => {
+    for (const code of TEMPLATER_ERROR_CODES) {
+      const text = templaterErrorText(new TemplaterError(code), enText)
+      expect(text, code).toBe(en[TEMPLATER_ERROR_MESSAGES[code]])
+      // A reader who has to read `sandbox-out-of-memory` has been handed the gate's vocabulary, not an
+      // explanation; a caller who leaked the key would be showing a lookup path.
+      expect(text, code).not.toContain(code)
+      expect(text, code).not.toBe(TEMPLATER_ERROR_MESSAGES[code])
+      expect(text.trim(), code).not.toBe('')
+    }
+  })
+
+  it('speaks the language the caller is in, because the caller says which', () => {
+    const failure = new TemplaterError('capability-blocked', 'web.request')
+    expect(templaterErrorText(failure, enText)).toBe(`${en['templater.error.capability_blocked']} (web.request)`)
+    expect(templaterErrorText(failure, zhText)).toBe(`${zh['templater.error.capability_blocked']} (web.request)`)
+  })
+
+  it('puts the measurement beside the sentence, in each shape the wire carries', () => {
+    // Three ways of naming one failure — the class, the string that survives a worker boundary, and the
+    // protocol's field pair — all have to read alike, or the same bug tells the reader two different things
+    // depending on which half of the app noticed it.
+    const expected = `${en['templater.error.note_not_found']} (Notes/Gone.md)`
+    expect(templaterErrorText(new TemplaterError('note-not-found', 'Notes/Gone.md'), enText)).toBe(expected)
+    expect(templaterErrorText('note-not-found: Notes/Gone.md', enText)).toBe(expected)
+    expect(templaterErrorText({ code: 'note-not-found', detail: 'Notes/Gone.md' }, enText)).toBe(expected)
+    // A number and a colon chain are measurements too: they are what a limit or a nested run is made of.
+    expect(templaterErrorText(new TemplaterError('template-output-too-large', 'chars:200001'), enText))
+      .toBe(`${en['templater.error.output_too_large']} (chars:200001)`)
+    expect(templaterErrorText('web-request-failed: 403', enText))
+      .toBe(`${en['templater.error.web_request_failed']} (403)`)
+  })
+
+  it('drops somebody’s text rather than the run’s measurement', () => {
+    const body = 'The note the reader was writing.\nA second line of it, and a third.'
+    const text = templaterErrorText(new TemplaterError('render-failed', body), enText)
+    // The sentence stays, every line of the note goes: a failure line is not a place to reprint a body.
+    expect(text).toBe(en['templater.error.render_failed'])
+    expect(text).not.toContain('reader was writing')
+    // A clipboard value is the same case wearing a single line, so the bound is what refuses it — and
+    // what is refused is omitted rather than cut in half, the way `limits.ts` treats an oversized answer.
+    expect(templaterErrorText(new TemplaterError('render-failed', 'x'.repeat(400)), enText))
+      .toBe(en['templater.error.render_failed'])
+    // …while a long path, which is a measurement and not text, still fits.
+    const path = `Notes/${'a'.repeat(90)}.md`
+    expect(templaterErrorText(new TemplaterError('note-not-found', path), enText))
+      .toBe(`${en['templater.error.note_not_found']} (${path})`)
+  })
+
+  it('keeps an outside throw’s own line, because nothing else describes it', () => {
+    const crash = new TypeError('Cannot read properties of undefined (reading topic)')
+    const text = templaterErrorText(crash, enText)
+    expect(text).toBe(`${en['templater.error.render_failed']} (${crash.message})`)
+  })
+
+  it('answers something for an input that names nothing', () => {
+    // The renderer is the last thing between a failure and a screen, so an empty line is not an answer it
+    // is allowed to give even when the caller has no catalog loaded — `t()` itself degrades to the key.
+    expect(templaterErrorText(undefined, enText)).toBe(en['templater.error.render_failed'])
+    expect(templaterErrorText(null, enText)).toBe(en['templater.error.render_failed'])
+    expect(templaterErrorText({ ok: false }, enText)).toBe(en['templater.error.render_failed'])
+    expect(templaterErrorText('render-failed', () => '')).toBe('templater.error.render_failed')
+    expect(templaterErrorText('render-failed:json', () => '')).toBe('templater.error.render_failed (json)')
   })
 })
 

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { HostResult, RunRequest, TemplateRunContext, WorkerMessage } from '../protocol'
 import { TemplateRun } from './vm'
-import { DEFAULT_RUN_DEADLINE_MS, MAX_OUTPUT_CHARS, MIN_RUN_DEADLINE_MS } from '../limits'
+import { DEFAULT_RUN_DEADLINE_MS, MAX_CLIPBOARD_CHARS, MAX_OUTPUT_CHARS, MIN_RUN_DEADLINE_MS } from '../limits'
 
 /**
  * The harness: a real interpreter, a scripted page.
@@ -231,6 +231,22 @@ describe('templater interpreter', () => {
     const source = `for (let i = 0; i < ${MAX_OUTPUT_CHARS / 1000 + 1}; i++) tR += '${chunk}'`
     const { messages } = await execute(source, { deadlineMs: 8_000 })
     expect(terminal(messages)).toMatchObject({ kind: 'failed', code: 'template-output-too-large' })
+  })
+
+  it('refuses an answer bigger than the ceiling its own method carries, instead of truncating it', async () => {
+    // The clipboard is the case that matters: a template that silently got the first 64 KiB of a pasted
+    // table would write a note that looks complete. `host-bindings.ts` measures the answer against the
+    // per-method ceiling, and nothing else on either side of the wire does.
+    const { messages, run } = await execute('tR += await tp.system.clipboard()')
+    const call = hostCall(messages)
+    if (call === null) throw new Error('the clipboard was never asked for')
+    expect(call.method).toBe('system.clipboard')
+    run.deliver(answered(call.callId, 'x'.repeat(MAX_CLIPBOARD_CHARS + 1)))
+    expect(terminal(messages)).toMatchObject({
+      kind: 'failed',
+      code: 'template-output-too-large',
+      detail: `system.clipboard:${MAX_CLIPBOARD_CHARS}`,
+    })
   })
 
   it('keeps a run that registered hooks alive and runs them when asked', async () => {

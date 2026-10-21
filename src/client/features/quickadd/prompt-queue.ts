@@ -162,6 +162,30 @@ export function rejectQuickAddPrompts(): void {
   finish(active, null, false)
 }
 
+/**
+ * Cancel one asker's outstanding questions, on screen and queued, and nothing else's.
+ *
+ * `resetQuickAddPrompts` drops everything, which is right for a host that is going away and wrong for a
+ * single run that stopped wanting an answer: a queue is shared by every feature that asks, and cancelling
+ * the whole thing would silently stop a QuickAdd capture that has done nothing wrong. The caller names the
+ * asker by its `choiceId`, which is how a run's own prompts are grouped.
+ */
+export function cancelQuickAddPromptsFor(choiceId: string): void {
+  // Newest first in the queue, oldest first in the list: cancelling the group on screen promotes the next
+  // waiting one, which may belong to the same asker, so this runs until nothing matching is left.
+  for (;;) {
+    if (active?.group.choiceId === choiceId) {
+      finish(active, null, false)
+      continue
+    }
+    const index = waiting.findIndex((entry) => entry.group.choiceId === choiceId)
+    if (index === -1) break
+    const [entry] = waiting.splice(index, 1)
+    entry?.resolve(null)
+  }
+  notify()
+}
+
 /** Drop everything outstanding with no answer: used when the host unmounts or the account changes. */
 export function resetQuickAddPrompts(): void {
   const entries = active ? [active, ...waiting] : [...waiting]

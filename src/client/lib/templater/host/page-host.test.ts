@@ -1027,3 +1027,42 @@ describe('cursor.append', () => {
     expect(store.appended).toEqual([])
   })
 })
+
+/**
+ * `createTarget` is `note.create`'s path logic handed to the write pipeline, which creates its row with the
+ * finished document already in it and therefore cannot ask `note.create` twice. These four cases are the
+ * reason it is a call rather than a copy: the same refusals, the same folder chain, one rule.
+ */
+describe('createTarget', () => {
+  it('answers the title and folder a path files into, creating the chain it names', async () => {
+    const { host, store } = started('local')
+    const target = await host.createTarget('run-1', 'Journal/2026/Today.md')
+    if (!target.ok) throw new Error(`refused: ${target.code} ${target.detail}`)
+    expect(target.title).toBe('Today')
+    expect(store.folders.find((folder) => folder.id === target.folderId)?.name).toBe('2026')
+    expect(store.folders.map((folder) => folder.name)).toContain('Journal')
+  })
+
+  it('refuses a taken path and a traversal without touching the tree', async () => {
+    const { host, store } = started('local')
+    const folders = store.folders.length
+    expect(await host.createTarget('run-1', 'Target.md')).toEqual({ ok: false, code: 'note-conflict', detail: 'Target.md' })
+    expect(await host.createTarget('run-1', '../Secret.md')).toEqual({ ok: false, code: 'path-invalid', detail: 'escape' })
+    expect(store.folders.length).toBe(folders)
+  })
+
+  it('answers the destination `note.create` then uses, so the two cannot drift', async () => {
+    const { host, store } = started('local')
+    const target = await host.createTarget('run-1', 'Journal/Today.md')
+    if (!target.ok) throw new Error(`refused: ${target.code} ${target.detail}`)
+    const created = answered(await ask(host, 'note.create', ['Journal/Today.md', 'body'])) as { path: string; title: string }
+    expect(created).toMatchObject({ path: 'Journal/Today.md', title: 'Today' })
+    const row = [...store.notes.values()].find((note) => note.title === 'Today')
+    expect(row?.folderId).toBe(target.folderId)
+  })
+
+  it('refuses a run the page never registered', async () => {
+    const { host } = started('local')
+    expect(await host.createTarget('gone', 'Journal/Today.md')).toEqual({ ok: false, code: 'render-failed', detail: 'run:gone' })
+  })
+})
