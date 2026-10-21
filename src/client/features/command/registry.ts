@@ -8,7 +8,7 @@
  */
 import type { ComponentType } from 'react'
 import {
-  Archive, Clipboard, Columns2, Download, Eye, EyeOff, FolderPlus, Globe, ImagePlus, IndentDecrease, IndentIncrease, Keyboard, LayoutTemplate, Link2, ListTree, MoveDown, MoveUp, Palette, Pencil, Pin, Plus, Presentation, ScanSearch, Settings, Share2, Smile, Square, SquarePen, Sparkles, Star, Sun, Moon, Tags, Telescope, Trash2, WandSparkles, Waypoints, ChevronsDownUp, ChevronsUpDown, Search, Zap, Activity, Compass, ListChecks, Rss, BookMarked, Brain, FolderKanban, MessageSquare,
+  Archive, Clipboard, Columns2, Download, Eye, EyeOff, FolderPlus, Globe, ImagePlus, IndentDecrease, IndentIncrease, Keyboard, LayoutTemplate, Link2, ListTree, MoveDown, MoveUp, Palette, Pencil, Pin, Plus, Presentation, ScanSearch, Settings, Share2, Smile, Square, SquarePen, Sparkles, Star, Sun, Moon, Tags, Telescope, Trash2, WandSparkles, Waypoints, ChevronsDownUp, ChevronsUpDown, Search, Zap, Activity, Compass, ListChecks, Rss, BookMarked, Brain, FolderKanban, MessageSquare, CornerDownLeft, FilePlus2, Replace, ArrowRightToLine,
 } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import { api } from '../../lib/api'
@@ -29,6 +29,8 @@ import { outlineHeadingsFor } from '../preview/outline-registry'
 import { openEmojiPicker } from '../../store/emoji-picker'
 import { openOmnisearch } from '../omnisearch/store'
 import { openRssSection } from '../rss/rss-commands'
+import { openTemplaterPicker } from '../templater/picker-request'
+import { requireOpenNote } from '../templater/editor-surface'
 import { createContextualNote, useNotes } from '../../store/notes'
 import { useQuickAdd } from '../../store/quickadd'
 import { navigateToPath } from '../../lib/app-history'
@@ -629,6 +631,7 @@ export function appCommands(): AppCommand[] {
                 }]
             })
         : []),
+        ...templaterCommands(),
         ...assistantCommands(),
         ...chatCommands(),
     ]
@@ -883,6 +886,61 @@ function chatCommands(): AppCommand[] {
       },
     },
   ]
+}
+
+/**
+ * Templater's own four surfaces.
+ *
+ * They are registered as a list rather than folded into the note-scoped block above, because each one has
+ * something to say when there is no note: three of them refuse before the reader spends time choosing, and
+ * the fourth is the only cursor jump in the app. None of them imports the engine — the chooser pulls
+ * `run-shell.ts` when a template is picked, and the jump pulls `cursor-jump.ts` when the key is pressed,
+ * which is what keeps the parser, `yaml` and the sandbox out of the chunk the first screen loads (plan
+ * P11-5). Chords belong to the settings card that owns Templater hotkeys (P6-3), so no `combo` is claimed
+ * here.
+ */
+function templaterCommands(): AppCommand[] {
+    const group = t("templater.group");
+    const ask = (open: () => void) => () => {
+        // The note has to be there before a chooser is worth opening; the same rule is checked again by the
+        // run itself, which is the side that cannot be sure the reader has not closed it since.
+        if (requireOpenNote() === null) return;
+        open();
+    };
+    return [
+        {
+            id: 'cmd-templater-insert',
+            kind: 'command',
+            label: t("templater.cmd.insert"),
+            icon: CornerDownLeft,
+            group,
+            run: ask(() => openTemplaterPicker('insert')),
+        },
+        {
+            id: 'cmd-templater-create',
+            kind: 'command',
+            label: t("templater.cmd.create"),
+            icon: FilePlus2,
+            group,
+            run: () => openTemplaterPicker('create'),
+        },
+        {
+            id: 'cmd-templater-replace',
+            kind: 'command',
+            label: t("templater.cmd.replace"),
+            icon: Replace,
+            group,
+            run: ask(() => openTemplaterPicker('replace')),
+        },
+        {
+            id: 'cmd-templater-jump-cursor',
+            kind: 'command',
+            label: t("templater.cmd.jump"),
+            icon: ArrowRightToLine,
+            group,
+            run: () => void import('../templater/cursor-jump').then((module) => module.jumpToNextTemplaterCursor()),
+        },
+    ];
 }
 
 /** One command by id, or null when nothing registers that id. */
