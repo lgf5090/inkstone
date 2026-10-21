@@ -130,6 +130,17 @@ const PRELUDE = `(() => {
   // throws past ten, and its spec pins both the tenth level and the eleventh.
   const DEPTH_LIMIT = 10
 
+  // Every note this app stores is Markdown, which is what \`context/file-wrapper.ts\` calls
+  // MARKDOWN_EXTENSION. It is spelled again here rather than imported because the worker half may not
+  // reach into a page module at all — the rule \`tests/templater-protocol-purity.test.ts\` reads off the graph.
+  const MARKDOWN = 'md'
+
+  // The three characters a note name cannot hold. Upstream's \`tp.file.rename\` refuses them before it moves
+  // anything (\`InternalModuleFile.ts:281\`), and this app's tree reads a \`/\` as a folder and a \`:\` as a
+  // drive, so the refusal is the same one for the same reason. Kept apart from \`normalizePath\` because a
+  // name is not a path: folding the separators away would silently turn one refused name into another.
+  const FORBIDDEN_IN_NAME = /[\\\\/:]+/
+
   const LINK_PATTERN = /^\\[\\[(.*)\\]\\]$/
 
   // The run's own note table, filled by TypeScript from the snapshot. It is data, not objects: entries are
@@ -254,7 +265,7 @@ const PRELUDE = `(() => {
 
   const matchEntry = (entries, wanted) => {
     const nameOf = (path) => basenameOf(withoutExtension(path))
-    const withExtension = wanted.endsWith('.md') ? wanted : wanted + '.md'
+    const withExtension = wanted.endsWith('.' + MARKDOWN) ? wanted : wanted + '.' + MARKDOWN
     return entries.find((entry) => entry.path === wanted || entry.path === withExtension)
       ?? entries.find((entry) => nameOf(entry.path) === nameOf(wanted))
       ?? entries.find((entry) => entry.title === nameOf(wanted))
@@ -268,51 +279,212 @@ const PRELUDE = `(() => {
     return normalizePath(value)
   }
 
-  // Reading a file that is not the run's own target: the snapshot answers for the note it was made around,
-  // the library template goes through \`template.read\` so the run's capabilities are still applied to it,
-  // and everything else is the page's to read.
-  const readByPath = async (path) => {
-    if (target() && target().path === path) return fileModule.content
-    const template = index.templates.find((one) => one.path === path)
-    const answer = await callHost(template ? 'template.read' : 'note.read', [template ? template.title : path])
-    if (!answer || typeof answer !== 'object' || typeof answer.content !== 'string') {
-      throw hostError('note-not-found', path)
-    }
-    return answer.content
-  }
-
   // How deep the current \`tp.file.include\` chain is. One counter per run, the way upstream holds it on
   // the module rather than passing it down.
   let includeDepth = 0
 
-  // \`tp.file.include\`: upstream resolves the link, reads the file and then *parses the result again* so
-  // the commands inside it run. Re-parsing is the page's job — the worker never holds the parser — and no
-  // host method asks for a nested run, so this answers the stored text and nothing else. A subpath
-  // (\`#Heading\`, \`#^block\`) needs the note's parse positions, which the snapshot does not carry either,
-  // so it is refused rather than answered with the whole file.
+  // Upstream's second counter (\`InternalModuleFile.ts:22\`), kept separate from the inclusion one exactly as
+  // it is there: a \`create_new\` nested inside an \`include\` is not the same recursion as ten includes.
+  let createNewDepth = 0
+
+  // The level the render being asked for sits at, counting from 1 — the \`depth\` field of
+  // \`RenderIncludeRequest\` in \`../protocol.ts\`. The two counters are summed because they are the only two
+  // ways this run can hold a render outstanding at once, and the number describes this run's own stack. The
+  // ceiling across the nested runs is the page's to enforce (\`MAX_TEMPLATE_DEPTH\` in \`../limits.ts\`),
+  // because the contract carries no field that could hand a nested run the depth it was started at.
+  const renderDepth = () => includeDepth + createNewDepth
+
+  // Asking the page to render one thing into text. This is the half the worker cannot do for itself: it holds
+  // no parser and one interpreter per run, so a nested run is started on the page and answered finished.
+  const renderIncluded = async (path, subpath) => {
+    const answer = await callHost('note.renderInclude', [{
+      path,
+      subpath: wireSubpath(subpath),
+      depth: renderDepth(),
+    }])
+    if (!answer || typeof answer !== 'object' || typeof answer.content !== 'string') {
+      throw hostError('render-failed', 'note.renderInclude')
+    }
+    return answer.content
+  }
+
+  // \`RenderIncludeRequest\` names a subpath \`{ kind, text }\` and calls a block reference \`block\`, where
+  // Obsidian's \`parseLinktext\` — which \`tp.obsidian.parseLinktext\` hands out unchanged — says
+  // \`{ type, target }\` and \`block-id\`. Translated here, so the page is spoken to once in its own shape.
+  const wireSubpath = (subpath) => (subpath
+    ? { kind: subpath.type === 'block-id' ? 'block' : 'heading', text: subpath.target }
+    : null)
+
+  // \`tp.file.include\`: upstream resolves the link, reads the file and then *parses the result again* so the
+  // commands inside it run (\`InternalModuleFile.ts:158-227\`). Handing back the stored text was the
+  // placeholder for the render call that did not exist yet; it is now one call, which is also the only place
+  // a \`#Heading\` or a \`#^block\` slice can be cut — upstream cuts it from the note's parse positions
+  // (\`:199-211\`), and the snapshot deliberately does not carry those.
   const includeFile = async (include_link) => {
     if (includeDepth >= DEPTH_LIMIT) throw hostError('template-recursion', 'tp.file.include')
     includeDepth += 1
     try {
-      const path = include_link instanceof TFile
-        ? requirePath('file.include', include_link.path)
-        : includePathOf(include_link)
-      return await readByPath(path)
+      const found = includeTargetOf(include_link)
+      return await renderIncluded(found.path, found.subpath)
     } finally {
       includeDepth -= 1
     }
   }
 
-  const includePathOf = (include_link) => {
+  const includeTargetOf = (include_link) => {
+    if (include_link instanceof TFile) {
+      return { path: requirePath('file.include', include_link.path), subpath: null }
+    }
     const text = String(include_link ?? '')
     const match = LINK_PATTERN.exec(text)
     if (match === null) throw hostError('path-invalid', 'tp.file.include')
-    const { path, subpath } = parseLinktext(match[1])
-    if (subpath) throw hostError('not-supported', 'tp.file.include.subpath')
-    const wanted = normalizePath(path)
-    const found = findByTitle(wanted)
+    const parsed = parseLinktext(match[1])
+    const found = findByTitle(normalizePath(parsed.path))
     if (!found) throw hostError('note-not-found', text)
-    return found.path
+    return { path: found.path, subpath: parsed.subpath }
+  }
+
+  // The folder half of \`tp.file.create_new\`, read the way upstream reads it:
+  // \`folder instanceof TFolder ? folder.path : folder\` (\`Templater.ts:169\`). No folder at all is the tree
+  // root here, which is upstream's \`root\` reading of the \`newFileLocation\` setting (\`:141-164\`): that
+  // setting is the reader's, the frozen contract carries no field for it, and guessing a default folder the
+  // page could not name would be worse than filing at the root.
+  const folderPathOf = (folder) => {
+    if (folder === undefined || folder === null || folder === '') return ''
+    if (folder instanceof TFolder) return normalizePath(folder.path)
+    if (typeof folder === 'string') return normalizePath(folder)
+    throw hostError('path-invalid', 'tp.file.create_new.folder')
+  }
+
+  // The path a new note lands on: the folder, the name, and \`.md\` exactly once. Upstream asks Obsidian for
+  // an unused path (\`Templater.ts:170-173\`); this app refuses a taken one (\`note-conflict\`, in
+  // \`host/page-host.ts\`), so the answer here is the path that was asked for and nothing else. A \`filename\`
+  // that carries folders is legal — upstream's own spec files a note at \`notes/sub/leaf-note\` from that one
+  // argument (\`file.e2e.ts:1340\`).
+  const createPathOf = (folder, filename) => {
+    const parent = folderPathOf(folder)
+    const wanted = filename ? requirePath('file.create_new', filename) : 'Untitled'
+    const combined = normalizePath(parent + '/' + wanted)
+    // A name that leaves nothing behind is a mistake in the template, not a note called after its folder.
+    if (!wanted || !combined) throw hostError('path-invalid', 'tp.file.create_new')
+    return extensionOf(combined).toLowerCase() === MARKDOWN ? combined : combined + '.' + MARKDOWN
+  }
+
+  // What one \`create_new\` template argument means: a path to render, or text to store as written.
+  //
+  // Upstream renders a \`TFile\` it can read (\`Templater.ts:194-203\`) and treats any other argument as the
+  // template text itself (\`:204-214\`) — a string is never a name there. This app keeps library templates as
+  // rows rather than files, so a string that names one of *those* is read as that row: it is the one case
+  // where taking a string for a name is what the reader meant. Anything else stays text, including a string
+  // that matches a note, so \`create_new('TODO', 'x')\` cannot silently copy the reader's TODO note.
+  //
+  // \`null\` is upstream's answer for an argument that is neither: its \`errorWrapper\` around the create and
+  // around the render (\`:168-188\`, \`:200-220\`) turns either failure into \`undefined\`, which is why the
+  // reference signature reads \`TFile | undefined\`. Naming it beats inventing a code no template was written
+  // against.
+  const templateSourceOf = (template) => {
+    if (template instanceof TFile) {
+      const path = requirePath('file.create_new', template.path)
+      if (!path) throw hostError('path-invalid', 'tp.file.create_new')
+      return { path }
+    }
+    if (typeof template !== 'string') return null
+    const wanted = normalizePath(template)
+    const found = wanted ? matchEntry(index.templates, wanted) : null
+    return found ? { path: found.path } : { text: template }
+  }
+
+  // \`tp.file.create_new(template, filename = 'Untitled', open_new = false, folder?)\` — the parameter names,
+  // their order and their defaults are upstream's (\`InternalModuleFile.ts:62-94\`), and the work they drive is
+  // \`Templater.ts:134-253\).
+  const createNewFile = async (template, filename = 'Untitled', open_new = false, folder) => {
+    createNewDepth += 1
+    if (createNewDepth > DEPTH_LIMIT) {
+      // Upstream zeroes the counter on the way out rather than unwinding it (\`:75-80\`), so a run that
+      // survives the rejection can create again. Kept, because the next call's answer is all a template can
+      // observe of the difference.
+      createNewDepth = 0
+      throw hostError('template-recursion', 'tp.file.create_new')
+    }
+    try {
+      const source = templateSourceOf(template)
+      if (source === null) return undefined
+      // The path is worked out before anything is rendered, so a name the page cannot use cannot also cost a
+      // nested run.
+      const path = createPathOf(folder, filename)
+      // Rendering before creating is the port's order, not upstream's: upstream creates an empty file,
+      // renders into it and deletes the file when the render fails (\`Templater.ts:216-220\`). The page's
+      // \`note.create\` takes the body, so a failed render leaves no note behind.
+      const content = source.path === undefined ? source.text : await renderIncluded(source.path, null)
+      const answer = await callHost('note.create', [path, content])
+      const created = answer && typeof answer === 'object' ? hydrate(answer) : null
+      // No row came back: upstream's \`created_note == null\` branch, which answers \`undefined\` rather than
+      // throwing (\`Templater.ts:186-188\`).
+      if (!created) return undefined
+      // Upstream opens the note it made and, when there is no leaf to open it in, logs and answers
+      // \`undefined\` even though the note exists (\`Templater.ts:229-234\`). Here the page holds the leaves,
+      // so its own refusal travels as a code instead of being logged away.
+      if (open_new) await callHost('note.open', [created.path])
+      return created
+    } finally {
+      createNewDepth -= 1
+    }
+  }
+
+  // The path the page put the note at, read off the row it answered with. \`rename\` and \`move\` both answer an
+  // empty string upstream (\`InternalModuleFile.ts:248\` and \`:295\`) — the signature says \`Promise<string>\`
+  // and the value says nothing — so the port answers the path, which is the only way a template can tell its
+  // reader where the note went.
+  const movedPathOf = (method, answer) => {
+    if (!answer || typeof answer !== 'object' || typeof answer.path !== 'string') {
+      throw hostError('render-failed', method)
+    }
+    return answer.path
+  }
+
+  // \`tp.file.rename(new_title)\` (\`InternalModuleFile.ts:279-297\`): the folder stays and the name moves.
+  const renameFile = async (new_title) => {
+    // Upstream tests these three characters, and nothing else, before it touches a file (\`:281\`), and a
+    // non-string argument fails there the same way (calling \`.match\` on one is a TypeError). Here both read
+    // \`path-invalid\` with the member named, because the value is the reader's text and the code is ours.
+    if (typeof new_title !== 'string' || FORBIDDEN_IN_NAME.test(new_title)) {
+      throw hostError('path-invalid', 'tp.file.rename')
+    }
+    const file = target()
+    if (!file) throw hostError('note-not-found', 'tp.file.rename')
+    // Upstream rebuilds \`parent.path + '/' + new_title + '.' + extension\` itself (\`:288-290\`); here
+    // \`note.rename\` is handed the note's current path and one new name and keeps it in its folder, because
+    // the page is the half that owns paths (\`host/page-host.ts\`). \`tp.file.title\` is unaffected either way:
+    // upstream freezes the basename when it builds the namespace (\`:53\`, \`create_dynamic_templates\`), and
+    // this port froze it at install.
+    const answer = await callHost('note.rename', [file.path, new_title])
+    const renamedPath = movedPathOf('note.rename', answer)
+    // The live file object is what a rename changes in Obsidian, so a later \`tp.file.path(true)\` in the same
+    // template reads the new path. \`tp.file.title\` is a separate, frozen value, which is the half upstream's
+    // own spec pins as staying.
+    if (file === target()) config.target_file = hydrate(answer)
+    return renamedPath
+  }
+
+  // \`tp.file.move(new_path, file_to_move?)\` (\`InternalModuleFile.ts:235-250\`): move, rename, or both, of the
+  // run's own note or of the file the template handed it.
+  const moveFile = async (new_path, file_to_move) => {
+    const wanted = requirePath('file.move', new_path)
+    if (!wanted) throw hostError('path-invalid', 'tp.file.move')
+    const file = file_to_move instanceof TFile ? file_to_move : target()
+    if (!file) throw hostError('note-not-found', 'tp.file.move')
+    // The moved note's own extension is appended to whatever the template wrote (\`:238\), whose spec pins
+    // \`move("notes/moved.txt")\` landing on \`notes/moved.txt.md\` — \`file.e2e.ts:989-1002\`), so the append
+    // stays unconditional. The fallback for an empty extension is upstream's own (\`Templater.ts:167\`).
+    const destination = normalizePath(wanted + '.' + (file.extension || MARKDOWN))
+    // The missing destination folders are the page's to create: upstream makes them itself (\`:239-246\`) in
+    // one \`vault.createFolder\`, which \`host/page-host.ts\` walks segment by segment. Upstream's "absolute
+    // path" half has nothing to answer here — this app has no disk, only the tree — so the template's path is
+    // the virtual path, the same reading \`tp.file.path\` gives.
+    const answer = await callHost('note.move', [file.path, destination])
+    const movedPath = movedPathOf('note.move', answer)
+    if (file === target()) config.target_file = hydrate(answer)
+    return movedPath
   }
 
   const hooks = []
@@ -413,6 +585,18 @@ const PRELUDE = `(() => {
   // template that is never rendered still has to leave the marker in its output.
   const cursorMarker = (order) => '<%' + ' tp.file.cursor(' + (order === undefined ? '' : order) + ') %>'
 
+  // \`tp.file.cursor_append(content)\` (\`InternalModuleFile.ts:109-126\`): the text goes into the active editor
+  // at the selection and the call hands back upstream's own empty string (\`:124\`), not a promise.
+  // \`cursor.append\` is in the worker's \`SYNC_METHODS\` for exactly this — sent, remembered, and answered by
+  // the page before the run is reported done — so a template writing
+  // \`<% tp.file.cursor_append('x') %>\` cannot put \`[object Promise]\` into the reader's note. Upstream's
+  // no-editor branch returns \`undefined\` (\`:118\`); here the page holds the editor, and its own answer says
+  // whether anything was appended.
+  const cursorAppend = (content) => {
+    callHost('cursor.append', [{ text: String(content ?? '') }])
+    return ''
+  }
+
   const target = () => config.target_file
 
   // The basename the note has in the snapshot, which is what upstream's \`tp.file.title\` reads. The install
@@ -462,6 +646,10 @@ const PRELUDE = `(() => {
     },
     find_tfile: (filename) => findByTitle(requirePath('file.find_tfile', filename)),
     include: includeFile,
+    create_new: createNewFile,
+    cursor_append: cursorAppend,
+    move: moveFile,
+    rename: renameFile,
     // The selection the run arrived with. Synchronous, as upstream's is: the page took it into the snapshot
     // before the program started, so a template writing \`<% tp.file.selection() %>\` without an \`await\` gets
     // text rather than \`[object Promise]\`, and a reader who drags over something else mid-run does not

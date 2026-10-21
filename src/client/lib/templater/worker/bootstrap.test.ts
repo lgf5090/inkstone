@@ -5,7 +5,7 @@ import type { HostCall, RunNoteRef, TemplateRunContext } from '../protocol'
 import { TEMPLATE_GLOBAL_NAMES, createBootstrap, runModeNumber } from './bootstrap'
 import { createHostBindings } from './host-bindings'
 import { capabilitiesFor } from '../protocol'
-import { MAX_LOG_LINES, RUNTIME_MEMORY_BYTES, STACK_BYTES } from '../limits'
+import { MAX_LOG_LINES, MAX_TEMPLATE_DEPTH, RUNTIME_MEMORY_BYTES, STACK_BYTES } from '../limits'
 import { loadEngine } from './vm'
 
 /**
@@ -235,7 +235,9 @@ describe('templater namespace', () => {
     for (const helper of [
       'jsonToValue', 'hostError', 'callHost', 'hydrate', 'install', 'fileOf', 'index', 'settle',
       'fileModule', 'dateModule', 'webModule', 'frontmatter', 'run', 'nowMoment', 'referenceOf',
-      'readByPath', 'includeFile', 'requirePath', 'withTagMark', 'getAllTags', 'labelsOf',
+      'includeFile', 'includeTargetOf', 'renderIncluded', 'renderDepth', 'wireSubpath', 'requirePath',
+      'createNewFile', 'templateSourceOf', 'createPathOf', 'folderPathOf', 'renameFile', 'moveFile',
+      'cursorAppend', 'movedPathOf', 'withTagMark', 'getAllTags', 'labelsOf',
     ]) {
       expect(await seen.evaluate(`typeof ${helper}`), `${helper} leaked into the template's world`).toBe('undefined')
     }
@@ -354,10 +356,10 @@ describe('templater namespace', () => {
     expect(await seen.evaluate('tp.file.creation_date("YYYYMMDDHHMMSS")')).toBe(await seen.evaluate('tp.config.target_file.stat.ctime'))
     expect(await seen.evaluate('tp.file.last_modified_date("YYYYMMDDHHMMSS")')).toBe(await seen.evaluate('tp.config.target_file.stat.mtime'))
     expect(await seen.evaluate('typeof tp.file.creation_date()')).toBe('string')
-    // `tp.file` carries upstream's read side and nothing invented; the write half (`create_new`, `move`,
-    // `rename`, `cursor_append`) is not this stage, so it is simply absent rather than a wrong answer.
+    // `tp.file` is upstream's read side plus its write side: every name `InternalModuleFile.ts`
+    // (`create_static_templates`, `:25-48`) puts on the object is here, and nothing that is not.
     expect(await seen.evaluate('Object.keys(tp.file).sort().join(",")'))
-      .toBe('content,creation_date,cursor,exists,find_tfile,folder,include,last_modified_date,path,selection,tags,title')
+      .toBe('content,create_new,creation_date,cursor,cursor_append,exists,find_tfile,folder,include,last_modified_date,move,path,rename,selection,tags,title')
     expect(await seen.evaluate('tp.file.find_tfolder')).toBe('undefined')
     expect(await seen.evaluate('tp.file.basename')).toBe('undefined')
   })
@@ -514,6 +516,14 @@ function targetNote(overrides: Partial<RunNoteRef>): RunNoteRef {
   return { ...context().target as RunNoteRef, ...overrides }
 }
 
+/**
+ * The row the page answers a write with: `noteIndexEntry` in `context/file-wrapper.ts`, which is what
+ * `note.create`, `note.move` and `note.rename` hand back and what the prelude hydrates into a `TFile`.
+ */
+function rowAt(path: string, id = 'note-1'): { id: string; title: string; folderId: null; path: string; createdAt: number; updatedAt: number } {
+  return { id, title: path.slice(path.lastIndexOf('/') + 1).replace(/\.md$/, ''), folderId: null, path, createdAt: 1, updatedAt: 2 }
+}
+
 /** What one expression fails with, read inside the interpreter: `code`, `code:detail`, or `none`. */
 function failureOf(seen: Namespace, expression: string, answer?: (call: HostCall) => Reply | undefined): Promise<string> {
   const body = `try { await (${expression}); tR += 'none' } catch (error) {
@@ -590,8 +600,9 @@ describe('tp.date', () => {
 describe('tp.file', () => {
   it('keeps the title the run started with across a rename', async () => {
     const seen = await namespace()
-    // `file.e2e.ts:27`: `<% tp.file.title %><%* await tp.file.rename(...) %><% tp.file.title %>` prints the
-    // old name twice. The rename here is the same host call the write side will make.
+    // `file.e2e.ts:32`: `<% tp.file.title %><%* await tp.file.rename(...) %><% tp.file.title %>` prints the
+    // old name twice. `TFile.rename` is the file-object half and `tp.file.rename` the command half, and both
+    // go to the same host call, so the freeze is what this case really pins.
     const body = `const before = tp.file.title
   const after = await tp.config.target_file.rename('Renamed')
   tR += before + '|' + tp.file.title + '|' + after.basename`
@@ -599,6 +610,266 @@ describe('tp.file', () => {
       ? { value: { path: 'Reading/Renamed.md', name: 'Renamed.md', basename: 'Renamed' } }
       : undefined))
     expect(out).toBe('Target|Target|Renamed')
+  })
+
+  it('renames the run target, answers the new path, and leaves the title frozen', async () => {
+    const seen = await namespace()
+    const body = `const before = tp.file.title
+  const path = await tp.file.rename('Renamed')
+  tR += before + '|' + tp.file.title + '|' + path + '|' + tp.file.path(true)`
+    expect(await seen.evaluateAwaiting(body, (call) => (call.method === 'note.rename'
+      ? { value: rowAt('Reading/Renamed.md') }
+      : undefined))).toBe('Target|Target|Reading/Renamed.md|Reading/Renamed.md')
+    // The page is handed the note's current path and one new name: it keeps the note in its folder and owns
+    // the destination from there (`host/page-host.ts`, `renameNote`), where upstream rebuilds
+    // `parent.path/new_title.extension` itself (`InternalModuleFile.ts:288-290`).
+    expect(seen.calls[0].method).toBe('note.rename')
+    expect(seen.calls[0].args).toEqual(['Reading/Target.md', 'Renamed'])
+  })
+
+  it('refuses the three characters a note name cannot hold', async () => {
+    const seen = await namespace()
+    // Upstream's guard is a regex over the name, run before anything moves (`InternalModuleFile.ts:281`).
+    // Its own specs for these three cases exist but are skipped (`file.e2e.ts:1062`, `:1078`, `:1094`), so it
+    // is the implementation that is cited rather than a passing test. A name is not a path here either, so
+    // nothing is normalised away on the way past the guard.
+    expect(await failureOf(seen, "tp.file.rename('a/b')")).toBe('path-invalid:tp.file.rename')
+    expect(await failureOf(seen, "tp.file.rename('a\\\\b')")).toBe('path-invalid:tp.file.rename')
+    expect(await failureOf(seen, "tp.file.rename('a:b')")).toBe('path-invalid:tp.file.rename')
+    // Upstream calls `.match` on whatever it was given, so `rename()` fails as a TypeError there; the port
+    // refuses the same way it refuses the characters, with a code the reader can be told.
+    expect(await failureOf(seen, 'tp.file.rename()')).toBe('path-invalid:tp.file.rename')
+    expect(seen.calls).toHaveLength(0)
+  })
+
+  it('moves the run target to a new path and answers it', async () => {
+    const seen = await namespace()
+    expect(await seen.evaluateAwaiting(`tR += await tp.file.move('Archive/Kept')`,
+      (call) => (call.method === 'note.move' ? { value: rowAt('Archive/Kept.md') } : undefined)))
+      .toBe('Archive/Kept.md')
+    // Two arguments: where the note is now, and where the template said to put it, with its extension
+    // appended. The missing destination folders are the page's to make, the way `:239-246` makes them
+    // upstream — there is no disk here, so the path a template gives is the virtual one.
+    expect(seen.calls[0].method).toBe('note.move')
+    expect(seen.calls[0].args).toEqual(['Reading/Target.md', 'Archive/Kept.md'])
+    // The run's target is the note the page moved, so the rest of the template reads the new place, exactly
+    // as it reads the live `TFile` upstream mutates. `tp.file.title` stays frozen.
+    expect(await seen.evaluate('tp.file.path(true)')).toBe('Archive/Kept.md')
+    expect(await seen.evaluate('tp.file.folder(true)')).toBe('Archive')
+    expect(await seen.evaluate('tp.file.title')).toBe('Target')
+  })
+
+  it('appends the note extension on a move, the way upstream appends it', async () => {
+    // `:238` writes `path + '.' + file.extension` whatever the template typed, and upstream's own spec pins
+    // `move("notes/moved.txt")` landing on `notes/moved.txt.md` (`file.e2e.ts:989-1002`). The append is
+    // unconditional, so it stays unconditional rather than being quietly made cleverer.
+    const seen = await namespace()
+    await seen.evaluateAwaiting(`tR += await tp.file.move('Notes/moved.txt')`,
+      (call) => (call.method === 'note.move' ? { value: rowAt('Notes/moved.txt.md') } : undefined))
+    expect(seen.calls[0].args).toEqual(['Reading/Target.md', 'Notes/moved.txt.md'])
+  })
+
+  it('moves another note when the template names one', async () => {
+    const seen = await namespace()
+    expect(await seen.evaluateAwaiting(`tR += await tp.file.move('Archive/Other', tp.file.find_tfile('Other'))`,
+      (call) => (call.method === 'note.move' ? { value: rowAt('Archive/Other.md', 'note-9') } : undefined)))
+      .toBe('Archive/Other.md')
+    expect(seen.calls[0].args).toEqual(['Other.md', 'Archive/Other.md'])
+    // A move of somebody else's note does not become the run's target.
+    expect(await seen.evaluate('tp.file.path(true)')).toBe('Reading/Target.md')
+  })
+
+  it('refuses a move with nothing to move or nowhere to put it', async () => {
+    const seen = await namespace()
+    expect(await failureOf(seen, 'tp.file.move()')).toBe('path-invalid:tp.file.move')
+    expect(await failureOf(seen, "tp.file.move('')")).toBe('path-invalid:tp.file.move')
+    expect(await failureOf(seen, 'tp.file.move(7)')).toBe('path-invalid:tp.file.move')
+    const created = await namespace({ snapshot: context({ mode: 'create-new', target: null }) })
+    expect(await failureOf(created, "tp.file.move('Archive/None')")).toBe('note-not-found:tp.file.move')
+    expect(await failureOf(created, "tp.file.rename('None')")).toBe('note-not-found:tp.file.rename')
+    expect(created.calls).toHaveLength(0)
+  })
+
+  it('refuses a rename or a move the page did not answer with a path', async () => {
+    const seen = await namespace()
+    expect(await failureOf(seen, "tp.file.rename('Renamed')",
+      (call) => (call.method === 'note.rename' ? { value: null } : undefined)))
+      .toBe('render-failed:note.rename')
+    const moved = await namespace()
+    expect(await failureOf(moved, "tp.file.move('Archive/Kept')",
+      (call) => (call.method === 'note.move' ? { code: 'note-conflict', detail: 'Archive/Kept.md' } : undefined)))
+      .toBe('note-conflict:Archive/Kept.md')
+  })
+
+  it('appends to the active editor without making the template wait', async () => {
+    const seen = await namespace()
+    // Upstream returns an empty string on success (`InternalModuleFile.ts:124`) and nothing at all when
+    // there is no editor (`:118`). `cursor.append` is fire-and-forget in this worker (`SYNC_METHODS`), so
+    // the call leaves the thread and the template still prints text, not `[object Promise]`.
+    expect(await seen.evaluate('tp.file.cursor_append("appended")')).toBe('')
+    expect(seen.calls).toHaveLength(1)
+    expect(seen.calls[0].method).toBe('cursor.append')
+    expect(seen.calls[0].args).toEqual([{ text: 'appended' }])
+    const again = await namespace()
+    expect(await again.evaluate('typeof tp.file.cursor_append("more")')).toBe('string')
+    expect(await again.evaluate('tp.file.cursor_append(undefined)')).toBe('')
+    expect(again.calls[again.calls.length - 1].args).toEqual([{ text: '' }])
+  })
+
+  it('creates a note from a library template by rendering it first', async () => {
+    const seen = await namespace()
+    const answer = (call: HostCall): Reply | undefined => (call.method === 'note.renderInclude'
+      ? { value: { content: '# rendered child' } }
+      : call.method === 'note.create'
+        ? { value: rowAt('Child.md', 'note-77') }
+        : undefined)
+    // Upstream renders the template into the new note rather than copying its text, which is why the string
+    // naming a library template costs two calls, in this order. Upstream creates an empty file first and
+    // deletes it when the render fails (`Templater.ts:216-220`); the page's `note.create` takes the body, so
+    // a render that fails here leaves no note behind.
+    expect(await seen.evaluateAwaiting(`const made = await tp.file.create_new('Idea', 'Child')
+  tR += made.path + '/' + made.basename`, answer)).toBe('Child.md/Child')
+    expect(seen.calls.map((call) => [call.method, call.args[0]])).toEqual([
+      ['note.renderInclude', { path: 'Idea.md', subpath: null, depth: 1 }],
+      ['note.create', 'Child.md'],
+    ])
+    expect(seen.calls[1].args[1]).toBe('# rendered child')
+  })
+
+  it('keeps a raw string as the text it was given, and renders a file the template handed it', async () => {
+    const raw = await namespace()
+    expect(await raw.evaluateAwaiting(`const made = await tp.file.create_new('Hello <% 1 + 1 %>', 'Note')
+  tR += made.basename`, (call) => (call.method === 'note.create' ? { value: rowAt('Note.md') } : undefined)))
+      .toBe('Note')
+    // A string is the template *text* upstream, and a string that matches nothing in the reader's template
+    // list stays that. The page is never asked to render text, because `RenderIncludeRequest` names a path.
+    expect(raw.calls.map((call) => call.method)).toEqual(['note.create'])
+    expect(raw.calls[0].args).toEqual(['Note.md', 'Hello <% 1 + 1 %>'])
+
+    const fromFile = await namespace()
+    const answer = (call: HostCall): Reply | undefined => (call.method === 'note.renderInclude'
+      ? { value: { content: 'rendered from a file' } }
+      : call.method === 'note.create'
+        ? { value: rowAt('From.md') }
+        : undefined)
+    expect(await fromFile.evaluateAwaiting(`tR += (await tp.file.create_new(tp.file.find_tfile('Other'), 'From')).path`, answer))
+      .toBe('From.md')
+    expect(fromFile.calls.map((call) => [call.method, call.args[0]])).toEqual([
+      ['note.renderInclude', { path: 'Other.md', subpath: null, depth: 1 }],
+      ['note.create', 'From.md'],
+    ])
+    // A template file the run came from is the same shape, which is how upstream's
+    // `create_new(tp.file.find_tfile(...), …)` spec case reads here (`file.e2e.ts:1321`).
+  })
+
+  it('files the new note where the template pointed it', async () => {
+    const answer = (call: HostCall): Reply | undefined => (call.method === 'note.create'
+      ? { value: rowAt(String(call.args[0])) }
+      : undefined)
+    const byString = await namespace()
+    expect(await byString.evaluateAwaiting(`tR += (await tp.file.create_new('text', 'Child', false, 'Reading')).path`, answer))
+      .toBe('Reading/Child.md')
+    // `tp.file.folder(true)` answers a path string, which is the form upstream's spec passes too
+    // (`file.e2e.ts:1376`); a `TFolder` object is the other half of the signature (`Templater.ts:169`).
+    expect(byString.calls[0].args[0]).toBe('Reading/Child.md')
+
+    const byFolder = await namespace()
+    expect(await byFolder.evaluateAwaiting(`tR += (await tp.file.create_new('text', 'Child', false, tp.config.target_file.parent)).path`, answer))
+      .toBe('Reading/Child.md')
+
+    // A name that carries folders is legal on its own and is not doubled with the folder argument
+    // (`file.e2e.ts:1340`), and `.md` is added once — the same rule `virtualNoteName` applies to a title.
+    const inName = await namespace()
+    expect(await inName.evaluateAwaiting(`tR += (await tp.file.create_new('text', 'notes/sub/leaf-note')).path`, answer))
+      .toBe('notes/sub/leaf-note.md')
+    const already = await namespace()
+    expect(await already.evaluateAwaiting(`tR += (await tp.file.create_new('text', 'Child.md', false, 'Reading')).path`, answer))
+      .toBe('Reading/Child.md')
+
+    // No folder at all is the tree root: upstream reads the reader's `newFileLocation` setting for this
+    // (`Templater.ts:141-164`) and the frozen contract carries no field for it. `Untitled` is the default
+    // name, and passing `undefined` explicitly reaches it the way upstream's spec does (`:1470`).
+    const atRoot = await namespace()
+    expect(await atRoot.evaluateAwaiting(`tR += (await tp.file.create_new('text')).path`, answer)).toBe('Untitled.md')
+    const explicit = await namespace()
+    expect(await explicit.evaluateAwaiting(`tR += (await tp.file.create_new('text', undefined)).path`, answer)).toBe('Untitled.md')
+
+    const wrong = await namespace()
+    expect(await failureOf(wrong, "tp.file.create_new('text', 'Child', false, 7)")).toBe('path-invalid:tp.file.create_new.folder')
+    expect(wrong.calls).toHaveLength(0)
+  })
+
+  it('opens the note it made only when the template asked it to', async () => {
+    const answer = (call: HostCall): Reply | undefined => (call.method === 'note.create'
+      ? { value: rowAt('Child.md') }
+      : call.method === 'note.open'
+        ? { value: null }
+        : undefined)
+    const opened = await namespace()
+    expect(await opened.evaluateAwaiting(`tR += (await tp.file.create_new('text', 'Child', true)).path`, answer))
+      .toBe('Child.md')
+    // `file.e2e.ts:1413` and `:1432`: the third argument opens, and the default does not.
+    expect(opened.calls.map((call) => [call.method, call.args[0]])).toEqual([['note.create', 'Child.md'], ['note.open', 'Child.md']])
+
+    const kept = await namespace()
+    expect(await kept.evaluateAwaiting(`tR += (await tp.file.create_new('text', 'Child')).path`, answer))
+      .toBe('Child.md')
+    expect(kept.calls.map((call) => call.method)).toEqual(['note.create'])
+  })
+
+  it('answers undefined where upstream answers undefined', async () => {
+    // `TFile | undefined` is upstream's signature (`InternalModuleFile.ts:62-67`): its `errorWrapper` around
+    // the create and around the render (`Templater.ts:168-188`, `:200-220`) turns either failure into the
+    // bare `return;`, so a template can already be printing the result. An argument that is neither a file
+    // nor text is that case here, and it costs the page nothing at all.
+    const seen = await namespace()
+    expect(await seen.evaluateAwaiting('tR += String(await tp.file.create_new(7, "Child"))', () => ({ value: null })))
+      .toBe('undefined')
+    expect(seen.calls).toHaveLength(0)
+    // And so is a create that answers no row.
+    const empty = await namespace()
+    expect(await empty.evaluateAwaiting('tR += String(await tp.file.create_new("raw text", "Child"))',
+      (call) => (call.method === 'note.create' ? { value: null } : undefined))).toBe('undefined')
+    expect(empty.calls.map((call) => call.method)).toEqual(['note.create'])
+  })
+
+  it('holds create_new to the same depth as inclusion, and counts it separately', async () => {
+    const seen = await namespace()
+    const answer = (call: HostCall): Reply | undefined => (call.method === 'note.renderInclude'
+      ? { value: { content: 'x' } }
+      : call.method === 'note.create'
+        ? { value: rowAt('Child.md') }
+        : undefined)
+    // Eleven at once against upstream's ten (`InternalModuleFile.ts:74-80`), the same shape as the inclusion
+    // case above: the eleventh is refused and the ten are not.
+    const over = MAX_TEMPLATE_DEPTH + 1
+    expect(await seen.evaluateAwaiting(`const all = []
+  for (let i = 0; i < ${over}; i++) all.push(tp.file.create_new('Idea', 'Child' + i).then(() => 'ok', (error) => String(error.code)))
+  tR += (await Promise.all(all)).filter((one) => one === 'template-recursion').length`, answer)).toBe('1')
+    expect(await seen.evaluateAwaiting(`let done = 0
+  for (let i = 0; i < ${over}; i++) { await tp.file.create_new('Idea', 'Child' + i); done += 1 }
+  tR += done`, answer)).toBe(String(over))
+  })
+
+  it('refuses the whole write half for a community template, before posting anything', async () => {
+    const gated = await namespace({ snapshot: context({ capabilities: 'community' }) })
+    // The gate is the worker's (`host-bindings.ts`), so a call the profile does not grant never leaves the
+    // thread and never half-happens: no render, no note created, nothing appended. Upstream has no such
+    // concept — the capability matrix in `../protocol.ts` is this port's, and the write surface is what it
+    // exists to hold back.
+    for (const call of [
+      "tp.file.rename('New')",
+      "tp.file.move('Archive/New')",
+      "tp.file.create_new('Idea', 'Child')",
+      "tp.file.create_new('raw text', 'Child')",
+      "tp.file.include('[[Other]]')",
+      "tp.file.cursor_append('x')",
+    ]) {
+      // The door raises the refusal itself, so it carries the code in its message rather than on `code` —
+      // which is how `templaterErrorCode` reads it on the way out of the worker.
+      expect(await failureOf(gated, call), call).toContain('capability-blocked')
+    }
+    expect(gated.calls).toHaveLength(0)
   })
 
   it('joins tags with the hash kept on, and answers nothing for a note without tags', async () => {
@@ -646,33 +917,23 @@ describe('tp.file', () => {
     expect(await failureOf(seen, 'tp.file.find_tfile()')).toBe('path-invalid:tp.file.find_tfile')
   })
 
-  it('reads an included note through the door the run is allowed to use', async () => {
+  it('renders an inclusion through the door the run is allowed to use', async () => {
     const seen = await namespace()
     expect(await seen.evaluateAwaiting(`tR += await tp.file.include('[[Other]]')`,
-      (call) => (call.method === 'note.read' ? { value: { content: 'the other body' } } : undefined)))
+      (call) => (call.method === 'note.renderInclude' ? { value: { content: 'the other body' } } : undefined)))
       .toBe('the other body')
-    expect(seen.calls.map((call) => [call.method, call.args[0]])).toEqual([['note.read', 'Other.md']])
-
-    // A library template is answered from the snapshot, but still through `template.read`, so a run without
-    // the right to read other notes cannot pull a template body out of its own table.
-    const local = await namespace()
-    expect(await local.evaluateAwaiting(`tR += await tp.file.include('[[Idea]]')`, () => undefined))
-      .toBe('from the library')
-    expect(local.calls).toHaveLength(0)
-
-    // The note the run is writing into is already in hand; asking the page for it again would need a right
-    // the narrow profiles do not carry.
-    const self = await namespace()
-    expect(await self.evaluateAwaiting(`tR += await tp.file.include('[[Reading/Target]]')`, () => undefined))
-      .toBe('the body')
-    expect(self.calls).toHaveLength(0)
+    // One request, in the shape `RenderIncludeRequest` names: the path the run's own index gave that link, no
+    // subpath, and the level the render sits at — counted from 1, which is how the contract counts it.
+    expect(seen.calls.map((call) => [call.method, call.args[0]])).toEqual([
+      ['note.renderInclude', { path: 'Other.md', subpath: null, depth: 1 }],
+    ])
   })
 
-  it('answers a library template through one path, whichever way the run reached it', async () => {
-    // The snapshot a real run carries indexes its templates as `Templates/<name>.md`, the same projection
-    // the notes get. When the two lists disagree about that path, `include` stops matching the template
-    // list and asks the page for a note no vault has — so the file object, `find_tfile` and `include` all
-    // have to answer the indexed path, and the body still comes from the snapshot without a round trip.
+  it('renders the run target and its library template through that same door', async () => {
+    // Upstream re-parses whatever it includes (`InternalModuleFile.ts:214-221`), so the note the run is
+    // writing into and the template it came from both go to the page now. That is the difference between this
+    // and the placeholder that handed back stored text, and it is why `note.renderInclude` needs
+    // `readOtherNotes` even for those two — the reasoning written beside it in `../protocol.ts`.
     const indexed = await namespace({
       snapshot: context({
         index: [
@@ -682,11 +943,31 @@ describe('tp.file', () => {
       }),
     })
     expect(await indexed.evaluate('tp.config.template_file.path')).toBe('Templates/Idea.md')
-    expect(await indexed.evaluate('tp.config.template_file.basename')).toBe('Idea')
     expect(await indexed.evaluate('tp.file.find_tfile("Idea").path')).toBe('Templates/Idea.md')
-    expect(await indexed.evaluateAwaiting(`tR += await tp.file.include('[[Idea]]')`, () => undefined))
-      .toBe('from the library')
-    expect(indexed.calls).toHaveLength(0)
+    expect(await indexed.evaluateAwaiting(`tR += await tp.file.include('[[Idea]]')`,
+      () => ({ value: { content: 'rendered template' } }))).toBe('rendered template')
+    expect(indexed.calls.map((call) => call.args[0])).toEqual([{ path: 'Templates/Idea.md', subpath: null, depth: 1 }])
+
+    const self = await namespace()
+    expect(await self.evaluateAwaiting(`tR += await tp.file.include('[[Reading/Target]]')`,
+      () => ({ value: { content: 'the body, re-parsed' } }))).toBe('the body, re-parsed')
+    expect(self.calls[0].args[0]).toEqual({ path: 'Reading/Target.md', subpath: null, depth: 1 })
+  })
+
+  it('cuts a heading or a block inclusion by asking the half that holds the parse', async () => {
+    const heading = await namespace()
+    expect(await heading.evaluateAwaiting(`tR += await tp.file.include('[[Other#Heading]]')`,
+      (call) => (call.method === 'note.renderInclude' ? { value: { content: 'the section' } } : undefined)))
+      .toBe('the section')
+    // The subpath travels in the contract's shape, not in `parseLinktext`'s: Obsidian's `block-id` becomes
+    // `block`, because slicing needs the note's parse positions and only the page has them.
+    expect(heading.calls[0].args[0]).toEqual({ path: 'Other.md', subpath: { kind: 'heading', text: 'Heading' }, depth: 1 })
+
+    const block = await namespace()
+    expect(await block.evaluateAwaiting(`tR += await tp.file.include('[[Other#^abc123]]')`,
+      (call) => (call.method === 'note.renderInclude' ? { value: { content: 'the block' } } : undefined)))
+      .toBe('the block')
+    expect(block.calls[0].args[0]).toEqual({ path: 'Other.md', subpath: { kind: 'block', text: 'abc123' }, depth: 1 })
   })
 
   it('refuses an inclusion it cannot honour', async () => {
@@ -694,25 +975,60 @@ describe('tp.file', () => {
     // Upstream's link form, upstream's error: the bare text is not a link.
     expect(await failureOf(seen, "tp.file.include('Other')")).toBe('path-invalid:tp.file.include')
     expect(await failureOf(seen, "tp.file.include('[[Nope]]')")).toBe('note-not-found:[[Nope]]')
-    // A section or a block needs the note's parse positions, which no host method carries.
-    expect(await failureOf(seen, "tp.file.include('[[Other#Heading]]')")).toBe('not-supported:tp.file.include.subpath')
-    expect(await failureOf(seen, "tp.file.include('[[Other#^abc123]]')")).toBe('not-supported:tp.file.include.subpath')
-    // A file object is accepted the way upstream accepts one.
+    // A file object is accepted the way upstream accepts one, and the render is asked for its path.
     expect(await seen.evaluateAwaiting(`tR += await tp.file.include(tp.file.find_tfile('Other'))`,
-      (call) => (call.method === 'note.read' ? { value: { content: 'by file object' } } : undefined)))
+      (call) => (call.method === 'note.renderInclude' ? { value: { content: 'by file object' } } : undefined)))
       .toBe('by file object')
+    expect(seen.calls[0].args[0]).toEqual({ path: 'Other.md', subpath: null, depth: 1 })
+    // A render the page answers with nothing is a failure, not an inclusion of the empty string: a note that
+    // silently lost the included text is the failure this package exists to refuse.
+    const broken = await namespace()
+    expect(await failureOf(broken, "tp.file.include('[[Other]]')",
+      (call) => (call.method === 'note.renderInclude' ? { value: null } : undefined)))
+      .toBe('render-failed:note.renderInclude')
   })
 
   it('counts simultaneous inclusions the way upstream counts nested ones', async () => {
     const seen = await namespace()
-    const answer = (call: HostCall) => (call.method === 'note.read' ? { value: { content: 'x' } } : undefined)
-    // Eleven at once: upstream's limit is ten deep, so the eleventh is refused and the ten are not.
+    const answer = (call: HostCall) => (call.method === 'note.renderInclude' ? { value: { content: 'x' } } : undefined)
+    // Eleven at once: upstream's limit is ten deep (`InternalModuleFile.ts:17`), so the eleventh is refused and
+    // the ten are not. The number is read from `MAX_TEMPLATE_DEPTH` rather than written again, because the
+    // prelude's own `DEPTH_LIMIT` and the shared limit are one promise in two places.
+    const over = MAX_TEMPLATE_DEPTH + 1
     expect(await seen.evaluateAwaiting(`const all = []
-  for (let i = 0; i < 11; i++) all.push(tp.file.include('[[Other]]').then(() => 'ok', (error) => String(error.code)))
+  for (let i = 0; i < ${over}; i++) all.push(tp.file.include('[[Other]]').then(() => 'ok', (error) => String(error.code)))
   tR += (await Promise.all(all)).filter((one) => one === 'template-recursion').length`, answer)).toBe('1')
     expect(await seen.evaluateAwaiting(`let done = 0
-  for (let i = 0; i < 11; i++) { await tp.file.include('[[Other]]'); done += 1 }
-  tR += done`, answer)).toBe('11')
+  for (let i = 0; i < ${over}; i++) { await tp.file.include('[[Other]]'); done += 1 }
+  tR += done`, answer)).toBe(String(over))
+  })
+
+  it('numbers the renders one run holds open, so the page can see the nesting it started', async () => {
+    // The `depth` field is this run's own stack (`RenderIncludeRequest` counts from 1), which is what a page
+    // starting a nested run can compare against `MAX_TEMPLATE_DEPTH`. Sequential renders each sit at level 1;
+    // two renders open at once put the second at level 2, which is the increment that has to be observable
+    // from one run, since a nested run's own depth lives in a different interpreter.
+    const seen = await namespace()
+    const answer = (call: HostCall) => (call.method === 'note.renderInclude'
+      ? { value: { content: 'rendered' } }
+      : call.method === 'note.create'
+        ? { value: rowAt('Child.md') }
+        : undefined)
+    expect(await seen.evaluateAwaiting(`const first = tp.file.include('[[Other]]')
+  const second = tp.file.create_new('Idea', 'Child')
+  tR += (await Promise.all([first, second])).length`, answer)).toBe('2')
+    expect(seen.calls.map((call) => call.method)).toEqual(['note.renderInclude', 'note.renderInclude', 'note.create'])
+    expect(seen.calls.slice(0, 2).map((call) => (call.args[0] as { depth: number }).depth)).toEqual([1, 2])
+    expect(seen.calls[2].args[0]).toBe('Child.md')
+    // Sequential renders each go back to level 1, because the level is what is open, not what has been done.
+    const once = await namespace()
+    expect(await once.evaluateAwaiting(`tR += await tp.file.include('[[Other]]')
+  tR += await tp.file.create_new('Idea', 'Child').then(() => 'ok')`, (call) => (call.method === 'note.renderInclude'
+      ? { value: { content: 'rendered' } }
+      : { value: rowAt('Child.md') }))).toBe('renderedok')
+    expect(once.calls
+      .filter((call) => call.method === 'note.renderInclude')
+      .map((call) => (call.args[0] as { depth: number }).depth)).toEqual([1, 1])
   })
 
   it('answers the selection the run arrived with, synchronously and without asking the page', async () => {

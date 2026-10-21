@@ -212,6 +212,7 @@ export const HOST_METHODS = [
   'note.read',
   'note.write',
   'note.create',
+  'note.open',
   'note.move',
   'note.rename',
   'note.delete',
@@ -240,6 +241,10 @@ export const HOST_METHOD_CAPABILITY: Record<HostMethod, keyof Capabilities> = {
   'note.read': 'readOtherNotes',
   'note.write': 'writeActiveNote',
   'note.create': 'createNotes',
+  // Opening a note is what `create_new(…, true)` does after it made one, and nothing in the ported surface
+  // opens a note the run did not just create — so it travels with `createNotes` rather than needing a ninth
+  // capability for a name no template can reach on its own.
+  'note.open': 'createNotes',
   'note.move': 'moveNotes',
   'note.rename': 'moveNotes',
   'note.delete': 'writeActiveNote',
