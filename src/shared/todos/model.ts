@@ -9,7 +9,7 @@
 
 import type { Task, TaskPriority, TaskStatus } from '../assistant'
 import { daysInMonth, getZonedParts, zonedTimeToUtc } from '../assistant-schedule'
-import { ORGANIZER_COLORS } from '../organizer-colors'
+import { ORGANIZER_COLORS, organizerColorOrNull } from '../organizer-colors'
 
 export const REPEAT_FREQUENCIES = ['daily', 'weekly', 'monthly', 'yearly'] as const
 export type RepeatFrequency = (typeof REPEAT_FREQUENCIES)[number]
@@ -89,6 +89,15 @@ export const MAX_STEPS_PER_TASK = 50
 export const MAX_STEP_TEXT_CHARS = 200
 /** The longest task note a person may write through the to-do app's own HTTP form. */
 export const MAX_TASK_DESCRIPTION_CHARS = 10_000
+/**
+ * The longest task icon a person may store.
+ *
+ * Sized for a lucide name — `lucide:Briefcase` and friends — the way the list route already judges
+ * one, rather than for the eight units an emoji needs: a name truncated to eight is a name no picker
+ * can ever produce again, and a task that cannot show the face its reader chose is worse than one
+ * that refused it.
+ */
+export const MAX_TASK_ICON_CHARS = 40
 /** The longest substring a task listing searches for; the HTTP `q` and both task tool surfaces share it. */
 export const MAX_TASK_QUERY_CHARS = 200
 /** The most a single listing answers with; a page smaller than this is what a caller normally asks for. */
@@ -178,6 +187,16 @@ export interface TaskStep {
 
 export interface TodoTask extends Task {
   listId: string | null
+  /**
+   * The task's own icon, or null while it wears its list's.
+   *
+   * The same vocabulary a list icon speaks — `lucide:<Name>` or a single emoji — so one picker and one
+   * renderer serve both. Optional because an older answer, or a fixture written before the column
+   * existed, simply has no face to speak of; every row this app reads answers with one, null included.
+   */
+  icon?: string | null
+  /** The task's own colour from the shared palette, or null while it wears its list's. */
+  color?: string | null
   /**
    * Where the reader placed this task among its list's rows, or null while nobody has moved it.
    *
@@ -633,6 +652,34 @@ export function defaultColorFor(seed: string): string {
   let hash = 0
   for (let index = 0; index < seed.length; index += 1) hash = (hash * 31 + seed.charCodeAt(index)) >>> 0
   return ORGANIZER_COLORS[hash % ORGANIZER_COLORS.length]!
+}
+
+/**
+ * The icon a task may store, or null when the value is not one.
+ *
+ * The same shape the task route already judges — control characters stripped, trimmed, no longer than
+ * {@link MAX_TASK_ICON_CHARS}, an empty string read as "none" — because the route is not the only
+ * door: the assistant's tools and the MCP surface write through the store directly, and a value that
+ * reached a row by that road has to answer to the same rule. Refusing returns null rather than
+ * throwing, so one bad value in a batch leaves the rest of the write standing.
+ */
+export function taskIconOrNull(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const icon = value.replace(/[\u0000-\u001f\u007f]/g, '').trim()
+  if (!icon || icon.length > MAX_TASK_ICON_CHARS) return null
+  return icon
+}
+
+/**
+ * The colour a task may store, or null when the value is not one of the palette.
+ *
+ * {@link organizerColorOrNull} under the task's name, for the same reason {@link taskIconOrNull}
+ * exists: the store is a second door beside the route, and a colour is a colour whichever door it
+ * came through. A custom hex a reader mixed themselves stays allowed, lowercased, exactly as the
+ * lists and tags that share the palette already allow it.
+ */
+export function taskColorOrNull(value: unknown): string | null {
+  return typeof value === 'string' ? organizerColorOrNull(value) : null
 }
 
 /** The `done / total` a list card shows. A list with no tasks reads as `0 / 0`. */

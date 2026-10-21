@@ -63,6 +63,8 @@ import {
   normalizeReminderTimes,
   normalizeTagNames,
   parseRepeatRule,
+  taskColorOrNull,
+  taskIconOrNull,
   type RepeatRule,
   type TaskCounts,
   type TaskList,
@@ -945,6 +947,10 @@ export interface NewTask {
   startAt?: number | null
   projectId?: string | null
   listId?: string | null
+  /** The task's own icon — `lucide:<Name>` or a single emoji — or null to wear the list's. */
+  icon?: string | null
+  /** The task's own colour from the shared palette, or null to wear the list's. */
+  color?: string | null
   starred?: boolean
   repeat?: RepeatRule | null
   /** The task's reminders as absolute instants. Replaces the pending list when given to `updateTask`. */
@@ -4108,12 +4114,13 @@ export class AssistantStore {
     const createdOn = await this.taskDay(at, timeZone)
     await this.write(
       `INSERT INTO todos_tasks
-         (id, user_id, title, description, status, priority, due_at, start_at, project_id, list_id, starred,
-          repeat_rule, note_id, conversation_id, created_at, updated_at, completed_at,
-          created_on, completed_on)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)`,
+         (id, user_id, title, description, status, priority, due_at, start_at, project_id, list_id,
+          icon, color, starred, repeat_rule, note_id, conversation_id, created_at, updated_at,
+          completed_at, created_on, completed_on)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)`,
       id, input.title.trim().slice(0, 300), input.description ?? '', status, input.priority ?? 'medium',
-      input.dueAt ?? null, input.startAt ?? null, input.projectId ?? null, input.listId ?? null, input.starred ? 1 : 0,
+      input.dueAt ?? null, input.startAt ?? null, input.projectId ?? null, input.listId ?? null,
+      taskIconOrNull(input.icon), taskColorOrNull(input.color), input.starred ? 1 : 0,
       repeat ? JSON.stringify(repeat) : null, input.noteId ?? null,
       input.conversationId ?? null, at, at, status === 'done' ? at : null,
       createdOn, status === 'done' ? createdOn : null,
@@ -4207,6 +4214,11 @@ export class AssistantStore {
     if (patch.startAt !== undefined) fields.push(['start_at', patch.startAt])
     if (patch.projectId !== undefined) fields.push(['project_id', patch.projectId])
     if (patch.listId !== undefined) fields.push(['list_id', patch.listId])
+    // The two face columns answer to the same guards the write above and the route do: a caller that
+    // names an unusable value gets null rather than the value, and null is how a reader clears a
+    // face back to the list's. The guards live in shared so the client can pre-check the same rule.
+    if (patch.icon !== undefined) fields.push(['icon', taskIconOrNull(patch.icon)])
+    if (patch.color !== undefined) fields.push(['color', taskColorOrNull(patch.color)])
     if (patch.starred !== undefined) fields.push(['starred', patch.starred ? 1 : 0])
     if (patch.repeat !== undefined) fields.push(['repeat_rule', patch.repeat ? JSON.stringify(patch.repeat) : null])
     if (patch.noteId !== undefined) fields.push(['note_id', patch.noteId])
@@ -6562,7 +6574,10 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // column nothing reads. The field still travels in the file, because that is the format's shape.
   // `deleted_at` is absent for a different reason: trashed rows are not exported at all (see
   // `exportTables`), so a column that would only ever be null is not part of the format.
-  todos_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'start_at', 'project_id', 'list_id', 'starred', 'repeat_rule', 'note_id', 'conversation_id', 'created_at', 'updated_at', 'completed_at', 'created_on', 'completed_on'],
+  // `icon` and `color` are the task's own face: a restore that dropped them would silently hand every
+  // restored task back its list's, which is a different row than the one that was backed up. Both are
+  // nullable, so an old backup without the keys still lands.
+  todos_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'start_at', 'project_id', 'list_id', 'icon', 'color', 'starred', 'repeat_rule', 'note_id', 'conversation_id', 'created_at', 'updated_at', 'completed_at', 'created_on', 'completed_on'],
   todos_lists: ['id', 'name', 'icon', 'color', 'position', 'created_at', 'updated_at'],
   todos_steps: ['id', 'task_id', 'text', 'done', 'position', 'created_at'],
   todos_tags: ['id', 'name', 'color', 'created_at', 'updated_at'],
@@ -7196,6 +7211,10 @@ interface TaskRow {
   start_at: number | null
   project_id: string | null
   list_id: string | null
+  /** The task's own icon, or null while it wears its list's. */
+  icon: string | null
+  /** The task's own colour, or null while it wears its list's. */
+  color: string | null
   starred: number | null
   repeat_rule: string | null
   /** `TASK_REMINDER_TIMES`: the pending instants, comma-separated, or null when there are none. */
@@ -7258,6 +7277,8 @@ function toTask(
     startAt: num(r.start_at),
     projectId: r.project_id,
     listId: r.list_id,
+    icon: r.icon,
+    color: r.color,
     tags: extras.tags,
     starred: (r.starred ?? 0) === 1,
     repeat: parseRepeatRule(parseJson(r.repeat_rule)),

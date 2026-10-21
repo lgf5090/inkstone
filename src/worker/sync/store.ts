@@ -61,6 +61,10 @@ interface TodoSyncRow {
   due_at: number | null
   project_id: string | null
   list_id: string | null
+  /** The task's own icon, or null while it wears its list's. */
+  icon: string | null
+  /** The task's own colour, or null while it wears its list's. */
+  color: string | null
   starred: number
   repeat_rule: string | null
   note_id: string | null
@@ -73,7 +77,7 @@ interface TodoSyncRow {
   deleted_at: number | null
 }
 
-const TODO_SYNC_COLUMNS = `id, title, description, status, priority, due_at, project_id, list_id, starred,
+const TODO_SYNC_COLUMNS = `id, title, description, status, priority, due_at, project_id, list_id, icon, color, starred,
   repeat_rule, note_id, conversation_id, planned_for, created_at, updated_at, completed_at, rev, deleted_at`
 
 interface TodoTagSyncRow {
@@ -348,6 +352,8 @@ export class SyncStore {
         dueAt: row.due_at,
         projectId: row.project_id,
         listId: row.list_id,
+        icon: row.icon,
+        color: row.color,
         tags: tags.get(row.id) ?? [],
         starred: row.starred === 1,
         repeat: parseRepeatRule(parseJson(row.repeat_rule)),

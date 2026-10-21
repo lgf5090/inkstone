@@ -71,6 +71,10 @@ export interface TaskDraft {
   title?: string
   description?: string
   listId?: string | null
+  /** The task's own icon — `lucide:<Name>` or a single emoji — or null to wear the list's. */
+  icon?: string | null
+  /** The task's own colour from the shared palette, or null to wear the list's. */
+  color?: string | null
   /** An instant, or a local `YYYY-MM-DD[THH:MM]` the server reads in the reader's timezone. */
   dueAt?: number | string | null
   /** When the work starts, in either of the two shapes `dueAt` takes. */
@@ -778,6 +782,10 @@ function applyTodoPatch(task: TodoTask, patch: Record<string, unknown>): TodoTas
   else if (typeof patch.dueAt === 'string') next.dueAt = parseLocalTime(patch.dueAt, useTodos.getState().timezone)
   if (patch.listId === null) next.listId = null
   else if (typeof patch.listId === 'string') next.listId = patch.listId
+  if (patch.icon === null) next.icon = null
+  else if (typeof patch.icon === 'string') next.icon = patch.icon
+  if (patch.color === null) next.color = null
+  else if (typeof patch.color === 'string') next.color = patch.color
   if (patch.noteId === null) next.noteId = null
   else if (typeof patch.noteId === 'string') next.noteId = patch.noteId
   if (patch.conversationId === null) next.conversationId = null
@@ -815,6 +823,8 @@ function optimisticTask(id: string, input: TaskDraft): TodoTask {
     updatedAt: now,
     completedAt: null,
     listId: input.listId ?? null,
+    icon: input.icon ?? null,
+    color: input.color ?? null,
     tags: tagsForNames(input.tags ?? []),
     starred: input.starred ?? false,
     repeat: input.repeat ?? null,

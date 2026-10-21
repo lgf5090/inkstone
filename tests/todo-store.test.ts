@@ -84,6 +84,44 @@ describe('writing a task', () => {
   })
 })
 
+describe("a task's own face", () => {
+  it('keeps the icon and colour it was created with', async () => {
+    const task = await store.createTask({ title: 'One', icon: 'lucide:Star', color: '#dc2626' })
+    expect(task.icon).toBe('lucide:Star')
+    expect(task.color).toBe('#dc2626')
+    expect(await store.getTask(task.id)).toMatchObject({ icon: 'lucide:Star', color: '#dc2626' })
+  })
+
+  it('leaves both null while the task wears its list’s', async () => {
+    const task = await store.createTask({ title: 'One' })
+    expect(task.icon).toBeNull()
+    expect(task.color).toBeNull()
+  })
+
+  it('refuses an unusable icon or colour rather than storing it', async () => {
+    const task = await store.createTask({ title: 'One', icon: 'x'.repeat(41), color: 'red' })
+    expect(task.icon).toBeNull()
+    expect(task.color).toBeNull()
+  })
+
+  it('sets a face through a patch, and clears it again with an explicit null', async () => {
+    const task = await store.createTask({ title: 'One' })
+
+    const faced = await store.updateTask(task.id, { icon: 'lucide:Star', color: '#dc2626' })
+    expect(faced).toMatchObject({ icon: 'lucide:Star', color: '#dc2626' })
+
+    const cleared = await store.updateTask(task.id, { icon: null, color: null })
+    expect(cleared?.icon).toBeNull()
+    expect(cleared?.color).toBeNull()
+  })
+
+  it('leaves the face standing when a patch names neither column', async () => {
+    const task = await store.createTask({ title: 'One', icon: 'lucide:Star' })
+    const renamed = await store.updateTask(task.id, { title: 'Two' })
+    expect(renamed).toMatchObject({ title: 'Two', icon: 'lucide:Star', color: null })
+  })
+})
+
 describe('lists', () => {
   it('answers a duplicate name with the list that already has it', async () => {
     const first = await store.createTaskList({ name: 'Work' })

@@ -7,6 +7,8 @@ import {
   normalizeTagNames,
   parseRepeatRule,
   remindAtFor,
+  taskColorOrNull,
+  taskIconOrNull,
   taskListProgress,
   toggledStatus,
   type RepeatRule,
@@ -162,5 +164,50 @@ describe('the small readings a list card and a checkbox need', () => {
     expect(isTaskView('starred')).toBe(true)
     expect(isTaskView('someday')).toBe(false)
     expect(isTaskView(undefined)).toBe(false)
+  })
+})
+
+describe("a task's own icon, as the store keeps it", () => {
+  it('keeps a lucide name and an emoji as written', () => {
+    expect(taskIconOrNull('lucide:Briefcase')).toBe('lucide:Briefcase')
+    expect(taskIconOrNull('🔥')).toBe('🔥')
+  })
+
+  it('strips control characters and the surrounding space', () => {
+    expect(taskIconOrNull('  lucide:Star\u0000  ')).toBe('lucide:Star')
+  })
+
+  it('reads an empty icon as none', () => {
+    expect(taskIconOrNull('')).toBeNull()
+    expect(taskIconOrNull('   ')).toBeNull()
+  })
+
+  it('refuses what is longer than a name can be', () => {
+    expect(taskIconOrNull('x'.repeat(40))).toHaveLength(40)
+    expect(taskIconOrNull('x'.repeat(41))).toBeNull()
+  })
+
+  it('ignores anything that is not text', () => {
+    expect(taskIconOrNull(null)).toBeNull()
+    expect(taskIconOrNull(undefined)).toBeNull()
+    expect(taskIconOrNull(7)).toBeNull()
+  })
+})
+
+describe("a task's own colour, as the store keeps it", () => {
+  it('keeps a palette colour and lowercases a mixed hex', () => {
+    expect(taskColorOrNull('#dc2626')).toBe('#dc2626')
+    expect(taskColorOrNull('#ABCDEF')).toBe('#abcdef')
+  })
+
+  it('refuses what is not a colour', () => {
+    expect(taskColorOrNull('red')).toBeNull()
+    expect(taskColorOrNull('#12345')).toBeNull()
+    expect(taskColorOrNull('')).toBeNull()
+  })
+
+  it('ignores anything that is not text', () => {
+    expect(taskColorOrNull(null)).toBeNull()
+    expect(taskColorOrNull(42)).toBeNull()
   })
 })
