@@ -10,6 +10,7 @@ import { memoListRoutes } from './routes/memos'
 import { memoSpaceRoutes } from './routes/memos/spaces'
 import { memoViewRoutes } from './routes/memos/views'
 import { memoPreferenceRoutes } from './routes/memos/preferences'
+import { memoReactionRoutes } from './routes/memos/reactions'
 import { memoAttachmentRoutes } from './routes/memos/attachments'
 import { memoFileRoutes } from './routes/memos/files'
 import { foldersRoutes } from './routes/folders'
@@ -107,6 +108,7 @@ export function createApp() {
   app.route('/api/memos/preferences', memoPreferenceRoutes)
   app.route('/api/memos/attachments', memoAttachmentRoutes)
   app.route('/api/memos/files', memoFileRoutes)
+  app.route('/api/memos', memoReactionRoutes)
   app.route('/api/memos', memoListRoutes)
   app.route('/api/folders', foldersRoutes)
   app.route('/api/tags', tagsRoutes)
