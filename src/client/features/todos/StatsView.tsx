@@ -220,8 +220,10 @@ function KpiCard({ id, label, value, hint, delta, sparkline, tone, points }: {
 }) {
   return (
     <div data-stats-kpi={id} className="flex min-w-0 flex-col gap-1 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
-      <div className="flex items-start justify-between gap-1">
-        <span className="min-w-0 truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">{label}</span>
+      {/* Wraps rather than truncates: two cards across a phone leave the label and a points chip
+          fighting for one line, and a half-cut label is not a label. */}
+      <div className="flex flex-wrap items-start justify-between gap-x-1 gap-y-0.5">
+        <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{label}</span>
         <DeltaChip id={id} value={delta} points={points} />
       </div>
       <div className="flex items-end justify-between gap-2">

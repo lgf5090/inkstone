@@ -28,6 +28,7 @@ import { useTodos } from './store'
 import { buildTodoAssistantContext } from './assistant-context'
 import { BatchBar } from './BatchBar'
 import { TaskEditor } from './TaskEditor'
+import { ListEditor } from './OrganizerEditors'
 import { useViewTitle } from './TaskViews'
 import { TodoFilters } from './TodoFilters'
 import { ListIcon } from './list-icons'
@@ -93,6 +94,7 @@ export function TodosApp() {
   const completed = useTodos((state) => state.completed)
   const draft = useTodos((state) => state.draft)
   const editorOpen = useTodos((state) => state.editorOpen)
+  const openListEditor = useTodos((state) => state.openListEditor)
   const timezone = useTodos((state) => state.timezone)
   const dueFrom = useTodos((state) => state.dueFrom)
   const dueTo = useTodos((state) => state.dueTo)
@@ -401,7 +403,7 @@ export function TodosApp() {
       <div className="flex flex-col gap-0.5">
         <div className="flex items-center justify-between px-2 pb-1">
           <span className="text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">{t('todo.a11y.lists')}</span>
-          <button type="button" aria-label={t('todo.action.new_list')} onClick={() => setPage('lists')} className="text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]"><Plus size={12} /></button>
+          <button type="button" aria-label={t('todo.action.new_list')} onClick={() => openListEditor(null)} className="text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]"><Plus size={12} /></button>
         </div>
         <SidebarRow icon={<span className="size-2 rounded-full bg-[var(--text-tertiary)]" />} label={t('todo.smart.inbox')} count={counts?.inbox ?? 0} active={view === 'list' && listId === 'inbox'} onClick={() => openList({ listId: 'inbox' })} />
         {lists.map((list) => (
@@ -548,6 +550,9 @@ export function TodosApp() {
       )}
 
       <TaskEditor />
+      {/* Rendered here rather than inside the lists page: the sidebar's "+" opens it from any
+          screen, so the editor cannot be unmounted with the page that also renders a button for it. */}
+      <ListEditor />
     </section>
   )
 }

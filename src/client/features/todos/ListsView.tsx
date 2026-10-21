@@ -16,10 +16,10 @@ import { cn } from '../../lib/cn'
 import { IconButton } from '../../components/primitives'
 import { Menu, type MenuItem } from '../../components/overlay'
 import { useTodos, type TaskListEntry } from './store'
-import { ListEditor, TagEditor } from './OrganizerEditors'
+import { TagEditor } from './OrganizerEditors'
 import { TrashPanel } from './TrashPanel'
 import { ListIcon } from './list-icons'
-import type { TaskList, TaskTag } from '@shared/todos/model'
+import type { TaskTag } from '@shared/todos/model'
 
 export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagId?: string }) => void }) {
   const lists = useTodos((state) => state.lists)
@@ -29,9 +29,11 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
   const tags = useTodos((state) => state.tags)
   const counts = useTodos((state) => state.counts)
   const setView = useTodos((state) => state.setView)
+  // The list editor lives in the store: the sidebar's "+" opens it from any screen, so it cannot be
+  // state of the one page that also happens to render a button for it.
+  const openListEditor = useTodos((state) => state.openListEditor)
   const [archivedOpen, setArchivedOpen] = useState(false)
   const [trashOpen, setTrashOpen] = useState(false)
-  const [listEditor, setListEditor] = useState<{ open: boolean; list: TaskList | null }>({ open: false, list: null })
   const [tagEditor, setTagEditor] = useState<{ open: boolean; tag: TaskTag | null }>({ open: false, tag: null })
 
   const toggleArchive = (): void => {
@@ -83,7 +85,7 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
             <h2 className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">{t('todo.a11y.lists')}</h2>
             <button
               type="button"
-              onClick={() => setListEditor({ open: true, list: null })}
+              onClick={() => openListEditor(null)}
               className="inline-flex min-h-9 items-center gap-0.5 text-[length:var(--text-11-5)] text-[var(--accent)]"
             >
               <Plus size={12} />{t('todo.action.new_list')}
@@ -108,7 +110,7 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
                       color={list.color ?? 'var(--accent)'}
                       icon={list.icon}
                       onOpen={() => onOpen({ listId: list.id })}
-                      onEdit={() => setListEditor({ open: true, list })}
+                      onEdit={() => openListEditor(list)}
                       onArchive={() => { void updateList(list.id, { archived: true }) }}
                       parents={parentOptions(list, children.length > 0)}
                       parentId={list.parentId}
@@ -126,7 +128,7 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
                               color={child.color ?? 'var(--accent)'}
                               icon={child.icon}
                               onOpen={() => onOpen({ listId: child.id })}
-                              onEdit={() => setListEditor({ open: true, list: child })}
+                              onEdit={() => openListEditor(child)}
                               onArchive={() => { void updateList(child.id, { archived: true }) }}
                               parents={parentOptions(child, false)}
                               parentId={child.parentId}
@@ -217,7 +219,6 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
         </section>
       </div>
 
-      <ListEditor open={listEditor.open} list={listEditor.list} onClose={() => setListEditor({ open: false, list: null })} />
       <TagEditor open={tagEditor.open} tag={tagEditor.tag} onClose={() => setTagEditor({ open: false, tag: null })} />
       <TrashPanel open={trashOpen} onClose={() => setTrashOpen(false)} />
     </div>

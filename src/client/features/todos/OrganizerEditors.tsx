@@ -32,7 +32,7 @@ import { useTodos } from './store'
 import { ListIcon } from './list-icons'
 import { ListIconPicker } from './ListIconPicker'
 import { DEFAULT_LIST_COLOR, DEFAULT_TAG_COLOR } from './todo-ui'
-import type { TaskList, TaskTag } from '@shared/todos/model'
+import type { TaskTag } from '@shared/todos/model'
 
 /** The two halves of the ramp, drawn under their own labels. */
 const CLASSIC_COLORS = ORGANIZER_COLORS.slice(0, ORGANIZER_CLASSIC_COUNT)
@@ -172,7 +172,14 @@ function ListPreview({ name, icon, color }: { name: string; icon: string | null;
   )
 }
 
-export function ListEditor({ open, list, onClose }: { open: boolean; list: TaskList | null; onClose: () => void }) {
+/**
+ * The list editor, driven by the store: the sidebar's "+" opens it from any screen, so its open state
+ * cannot be props of the lists page that also renders a button for it.
+ */
+export function ListEditor() {
+  const open = useTodos((state) => state.listEditor.open)
+  const list = useTodos((state) => state.listEditor.list)
+  const onClose = useTodos((state) => state.closeListEditor)
   const createList = useTodos((state) => state.createList)
   const updateList = useTodos((state) => state.updateList)
   const removeList = useTodos((state) => state.removeList)

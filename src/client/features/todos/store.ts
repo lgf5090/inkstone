@@ -162,6 +162,11 @@ interface TodosState {
   saving: boolean
   /** The single step the toast is offering, if any. A new write replaces it rather than queuing. */
   undo: TodoUndoEntry | null
+  /**
+   * The list editor's own open state, mirroring the task editor's: the sidebar's "+" opens it from
+   * any screen, so the state cannot live inside the one view that also happens to render it.
+   */
+  listEditor: { open: boolean; list: TaskList | null }
 
   load: () => Promise<void>
   loadMore: () => Promise<void>
@@ -199,6 +204,9 @@ interface TodosState {
   openEditor: (draft: TaskDraft) => void
   closeEditor: () => void
   openTask: (id: string) => Promise<void>
+  /** Open the list editor on a new list, or on `list` to edit it; callable from any screen. */
+  openListEditor: (list?: TaskList | null) => void
+  closeListEditor: () => void
 
   createTask: (input: TaskDraft) => Promise<TodoTask | null>
   /**
@@ -1078,6 +1086,7 @@ export const useTodos = create<TodosState>((set, get) => ({
   draft: null,
   saving: false,
   undo: null,
+  listEditor: { open: false, list: null },
 
   load: async () => {
     if (get().status === 'idle') set({ status: 'loading' })
@@ -1363,6 +1372,10 @@ export const useTodos = create<TodosState>((set, get) => ({
     // the reader came from, not to a panel they just shut.
     if (readTodoAddress().taskId) replaceTodoTaskAddress(viewSelection(get()))
   },
+
+  openListEditor: (list = null) => set({ listEditor: { open: true, list } }),
+
+  closeListEditor: () => set({ listEditor: { open: false, list: null } }),
 
   /**
    * Open one task by id, wherever the reader came from.
