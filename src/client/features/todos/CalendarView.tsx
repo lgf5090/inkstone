@@ -459,7 +459,12 @@ function WeekTimeGrid({ week, tasks, lists, timezone, todayKey, now, dragEnabled
     const onUp = (event: PointerEvent): void => finish(event.clientY)
     const onCancel = (): void => setDrag(null)
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') setDrag(null)
+      if (event.key !== 'Escape') return
+      // The press that armed the drag still ends in a click on its slot, so cancelling the
+      // selection has to swallow that click too — otherwise Esc cancels the range and files the
+      // task the slot's own button would have created on a plain press.
+      suppressClick.current = true
+      setDrag(null)
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
