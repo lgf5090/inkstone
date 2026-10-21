@@ -7503,6 +7503,8 @@ console.log(\`Hello, \${name}!\`)
     "subscriptions.detail.no_reminder": "没有更多提醒了。",
     "subscriptions.detail.paid_total": "累计支付",
     "subscriptions.detail.period": "本周期",
+    "subscriptions.detail.price_history": "每一笔收了多少钱",
+    "subscriptions.detail.price_history_skipped": "另有 {count} 笔以其它币种支付，未画进这条线。",
     "subscriptions.detail.period_progress": "已过 {value}%",
     "subscriptions.detail.remaining": "剩余",
     "subscriptions.detail.start": "开始日期",

@@ -7,6 +7,8 @@ import {
   convertToBase,
   expenseByMonth,
   findPriceChanges,
+  monthlyEquivalent,
+  priceHistory,
   getExpenseByCategory,
   getExpenseByType,
   getRecentPayments,
@@ -320,5 +322,42 @@ describe('what has been paid', () => {
     expect(formatPaid([{ currency: 'CNY', amount: 60 }])).toBe('¥60.00')
     // Nothing paid is not zero paid: an empty string leaves the row saying nothing rather than a price.
     expect(formatPaid([])).toBe('')
+  })
+})
+
+/**
+ * The points a single plan's price curve connects.
+ *
+ * A line is a claim about continuity, so everything that breaks the continuity is left out rather than
+ * drawn: another currency (two units, one line), a zero charge (a trial is the absence of a price, not a
+ * price of nothing), and the oldest charges once the plot is full.
+ */
+describe('the price history of one plan', () => {
+  const charge = (at: string, amount: number, currency = 'CNY') => ({ paidAt: at, amount, currency })
+
+  it('keeps one currency, drops what was never charged, and runs oldest first', () => {
+    const points = priceHistory([
+      charge('2026-03-01T00:00:00.000Z', 75),
+      charge('2026-02-01T00:00:00.000Z', 0),
+      charge('2026-01-15T00:00:00.000Z', 9, 'USD'),
+      charge('2026-01-01T00:00:00.000Z', 60),
+    ], 'CNY')
+    expect(points).toEqual([
+      { at: '2026-01-01T00:00:00.000Z', amount: 60 },
+      { at: '2026-03-01T00:00:00.000Z', amount: 75 },
+    ])
+  })
+
+  it('keeps the newest charges when the history is longer than the plot', () => {
+    const many = Array.from({ length: 15 }, (_, index) => charge(new Date(Date.UTC(2024, index, 1)).toISOString(), 60))
+    const points = priceHistory(many, 'CNY', 12)
+    expect(points).toHaveLength(12)
+    expect(points[0]?.at).toBe('2024-04-01T00:00:00.000Z')
+    expect(points[11]?.at).toBe('2025-03-01T00:00:00.000Z')
+  })
+
+  it('turns a numeric instant into the day the chart prints', () => {
+    const points = priceHistory([{ paidAt: Date.parse('2026-05-06T04:00:00Z'), amount: 60, currency: 'CNY' }], 'CNY')
+    expect(points[0]?.at.startsWith('2026-05-06')).toBe(true)
   })
 })

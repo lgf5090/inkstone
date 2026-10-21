@@ -14,11 +14,14 @@ import { Button, IconButton, SectionLabel } from '../../components/primitives'
 import { Tooltip } from '../../components/overlay'
 import { LoadingBlock } from '../../components/feedback'
 import { daysState, daysStateKey, formatAmount, formatPaid, periodProgress, periodUnitKey } from '@shared/subscriptions/format'
-import { renewalsPerYear } from '@shared/subscriptions/currency'
+import { priceHistory, renewalsPerYear } from '@shared/subscriptions/currency'
 import { labelNamesOf, roundMoney, subscriptionStatus, type PaymentRecord, type ReminderRule, type SubscriptionDetail } from '@shared/subscriptions/model'
 import { StatusPill } from './StatusPill'
 import { ReminderRuleRow } from './ReminderRuleRow'
 import { LabelChip } from './label-identity'
+
+/** The price curve's plot, in pixels: tall enough to tell ¥60 from ¥75, short enough to stay a caption. */
+const CURVE_HEIGHT = 44
 
 export interface DetailCallbacks {
   onEdit: () => void
@@ -204,6 +207,7 @@ export function SubscriptionDetail({
             ))}
           </ul>
         )}
+        <PriceCurve item={item} payments={detail.payments} />
         {detail.payments.length === 0
           ? <p className="mt-1.5 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('subscriptions.payments.empty')}</p>
           : (
@@ -254,6 +258,52 @@ const PAYMENT_KIND: Record<PaymentRecord['kind'], Parameters<typeof t>[0]> = {
   initial: 'subscriptions.payments.kind_initial',
   manual: 'subscriptions.payments.kind_manual',
   auto: 'subscriptions.payments.kind_auto',
+}
+
+/**
+ * What this plan has cost, charge by charge.
+ *
+ * The list under it says what was paid on which day; this answers the question that made the reader open
+ * the history — is the line going up. Only receipts in the plan's own currency are connected, because a
+ * dollar bill joined to a yuan bill draws a trend between two units rather than one in a price.
+ *
+ * Bar heights are px against a fixed plot, not percentages of the column: the column is sized by its
+ * content, and a percentage against a content-sized parent resolves to nothing — which is how the
+ * dashboard's chart once drew six labels and no bars.
+ */
+function PriceCurve({ item, payments }: { item: SubscriptionDetail['item'], payments: readonly PaymentRecord[] }): ReactElement | null {
+  const points = priceHistory(payments, item.currency)
+  if (points.length < 2) return null
+  const skipped = payments.filter((payment) => payment.currency !== item.currency && payment.amount > 0).length
+  const peak = Math.max(1, ...points.map((point) => point.amount))
+
+  return (
+    <div className="mt-2" data-price-curve="">
+      <div
+        role="img"
+        aria-label={t('subscriptions.detail.price_history')}
+        className="flex items-end gap-1"
+        style={{ height: CURVE_HEIGHT }}
+      >
+        {points.map((point, index) => (
+          <span
+            key={`${point.at}-${index}`}
+            className={cn(
+              'w-full flex-1 rounded-t-[var(--r-xs)]',
+              index === points.length - 1 ? 'bg-[var(--accent)]' : 'bg-[color-mix(in_oklab,var(--accent)_42%,transparent)]',
+            )}
+            style={{ height: `${Math.max(2, Math.round((point.amount / peak) * CURVE_HEIGHT))}px` }}
+            title={`${point.at.slice(0, 10)} ${formatAmount(point.amount, item.currency)}`}
+          />
+        ))}
+      </div>
+      {skipped > 0 && (
+        <p className="mt-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+          {t('subscriptions.detail.price_history_skipped', { count: skipped })}
+        </p>
+      )}
+    </div>
+  )
 }
 
 function Fact({

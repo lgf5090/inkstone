@@ -142,3 +142,58 @@ describe('the year a plan commits to', () => {
     expect(document.body.textContent).not.toContain(t('subscriptions.detail.cost_per_year'))
   })
 })
+
+/** A receipt, as the panel's own history holds it. */
+function record(overrides: Partial<PaymentRecord> = {}): PaymentRecord {
+  return {
+    id: 'pay-1',
+    subscriptionId: 'sub-1',
+    paidAt: '2026-01-10T00:00:00.000Z',
+    amount: 60,
+    currency: 'CNY',
+    kind: 'auto',
+    note: '',
+    periodStart: null,
+    periodEnd: null,
+    ...overrides,
+  }
+}
+
+const bars = () => [...document.querySelectorAll<HTMLElement>('[data-price-curve] [role="img"] > span')]
+
+describe('the price curve', () => {
+  it('draws one bar per charge, scaled in pixels against the dearest one', async () => {
+    await show(detail({
+      payments: [
+        record({ paidAt: '2026-03-10T00:00:00.000Z', amount: 30 }),
+        record({ id: 'pay-2', paidAt: '2026-02-10T00:00:00.000Z', amount: 60 }),
+        record({ id: 'pay-3', paidAt: '2026-01-10T00:00:00.000Z', amount: 75 }),
+      ],
+    }))
+    const drawn = bars()
+    expect(drawn).toHaveLength(3)
+    // Oldest first on the page, so the line reads left to right through time; the heights are px against
+    // the plot because a percentage of a content-sized column is zero.
+    expect(drawn.map((node) => node.style.height)).toEqual(['44px', '35px', '18px'])
+    expect(drawn[0]?.getAttribute('title')).toContain('2026-01-10')
+  })
+
+  it('leaves other currencies out of the line and says how many', async () => {
+    await show(detail({
+      payments: [
+        record({ paidAt: '2026-02-10T00:00:00.000Z', amount: 60 }),
+        record({ id: 'pay-2', paidAt: '2026-01-10T00:00:00.000Z', amount: 65 }),
+        record({ id: 'pay-3', currency: 'USD', amount: 9, paidAt: '2026-03-01T00:00:00.000Z' }),
+      ],
+    }))
+    expect(bars()).toHaveLength(2)
+    expect((document.querySelector('[data-price-curve]')?.textContent || '')).toContain(
+      t('subscriptions.detail.price_history_skipped', { count: 1 }),
+    )
+  })
+
+  it('draws no curve for a plan with one charge to compare', async () => {
+    await show(detail({ payments: [record()] }))
+    expect(document.querySelector('[data-price-curve]')).toBeNull()
+  })
+})

@@ -10726,6 +10726,8 @@ const allowed = new Map([
     "// What the plan commits across twelve months at the price it quotes now. The dashboard prints the same",
     "// projection for the whole account; a reader weighing one plan wants it for that plan alone, in the",
     "// currency the plan itself is billed in.",
+    "/** The price curve's plot, in pixels: tall enough to tell ¥60 from ¥75, short enough to stay a caption. */",
+    "/**\n * What this plan has cost, charge by charge.\n *\n * The list under it says what was paid on which day; this answers the question that made the reader open\n * the history — is the line going up. Only receipts in the plan's own currency are connected, because a\n * dollar bill joined to a yuan bill draws a trend between two units rather than one in a price.\n *\n * Bar heights are px against a fixed plot, not percentages of the column: the column is sized by its\n * content, and a percentage against a content-sized parent resolves to nothing — which is how the\n * dashboard's chart once drew six labels and no bars.\n */",
   ]],
   ["src/client/features/subscriptions/SubscriptionForm.tsx", [
     "/**\n * The form a subscription is created or corrected with.\n *\n * The order is the order a reader thinks in — what it is, what it costs, when it ends — and the expiry\n * field is the only one that is required, because a subscription whose date is unknown is not a\n * subscription this app can do anything with. The two derived affordances are what make the form worth\n * having over a JSON editor: \"compute the expiry from the cycle\" fills the date the reader would have\n * counted on their fingers, and the line under it says what that date means in days and in the lunar\n * calendar when that is switched on.\n */",
@@ -10900,6 +10902,9 @@ const allowed = new Map([
   ]],
   ["src/client/features/subscriptions/subscription-detail-spend.test.ts", [
     "/**\n * The money one plan has cost, drawn where the plan is read.\n *\n * The dashboard counts the account; this panel counts a single row, and the two are only trustworthy while\n * they mean the same thing. Pinned here: the receipts are counted per year and per currency rather than\n * merged into a number with no unit, and the yearly projection is the price the plan quotes times the times\n * it charges — not a sum of what happened to arrive.\n *\n * What jsdom cannot tell anyone: how wide the strip gets when four years of history wrap, and whether the\n * chips stay legible against the panel's background.\n */",
+    "/** A receipt, as the panel's own history holds it. */",
+    "// Oldest first on the page, so the line reads left to right through time; the heights are px against",
+    "// the plot because a percentage of a content-sized column is zero.",
   ]],
   ["src/client/features/subscriptions/subscription-list.test.ts", [
     "/**\n * The row's two states: reading, and selecting.\n *\n * These four assertions exist because the app once shipped a list whose selection boxes could never\n * appear: the row derived \"am I selecting\" from \"is anything already checked\", so the box needed a check\n * before it could make one. The toolbar still flipped to its exit label, so nothing looked wrong from the\n * outside, and the batch actions under it were unreachable. Deriving the mode from the selection is the\n * exact bug this file forbids, which is why `selectMode` is a prop and is passed straight to the row.\n *\n * What the browser measured and jsdom cannot: the box's hit area, and the colour it paints.\n */",
@@ -19487,6 +19492,8 @@ const allowed = new Map([
     "// Only a receipt in the same currency as the newest one can say the price moved. Comparing a $60",
     "// charge with the ¥360 before it measures two currencies, not two prices, and reports the gap as a",
     "// rise the reader never saw.",
+    "/** One point on a single plan's price curve: the day it was charged, and what that charge was. */",
+    "/**\n * The receipts a price curve can honestly connect.\n *\n * One currency only: connecting a dollar bill to a yuan bill draws a line between two units, not a trend\n * in a price. Zero and negative charges are left out for the same reason — a free trial's ¥0.00 is the\n * absence of a price, and a refund is not a discount the plan offered. Oldest first, newest last, and the\n * oldest points fall off when the history is longer than the plot can hold.\n */",
   ]],
   ["src/shared/subscriptions/format.ts", [
     "/**\n * Display arithmetic that has one right answer, kept out of the components.\n *\n * Nothing here holds copy. A unit's name, a countdown's sentence and a status pill's word are interface\n * strings and belong to the locale catalogs; what this module decides is the *shape* — which symbol a\n * currency wears, which of three countdown states a number of days means, how much of a billing period\n * has elapsed. That split is what lets the same rules be tested without a language.\n */",
@@ -26951,6 +26958,7 @@ const allowed = new Map([
     "// is for.",
     "/**\n * The price rise a reader remembers and the receipts have to agree with.\n *\n * Two receipts in two currencies are not a price change: they are two different things being added up.\n * This is the case the comparison used to get wrong by reading the digits, which is why the mixed pair is\n * asserted to say nothing rather than to say something small.\n */",
     "// Nothing paid is not zero paid: an empty string leaves the row saying nothing rather than a price.",
+    "/**\n * The points a single plan's price curve connects.\n *\n * A line is a claim about continuity, so everything that breaks the continuity is left out rather than\n * drawn: another currency (two units, one line), a zero charge (a trial is the absence of a price, not a\n * price of nothing), and the oldest charges once the plot is full.\n */",
   ]],
   ["tests/subscriptions-identity.test.ts", [
     "/**\n * The rules that decide what a label looks like, and the split that decides what a label is.\n *\n * Both are pure and both are load-bearing in ways a route test cannot see: the split is what the rail,\n * the aggregate and the registry must agree on, and the tier order is what makes a reader's own choice\n * outrank a default without the default having to be written down first.\n */",

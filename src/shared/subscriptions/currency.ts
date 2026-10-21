@@ -484,6 +484,32 @@ export function findPriceChanges(
   return out.sort((left, right) => Date.parse(right.at) - Date.parse(left.at))
 }
 
+/** One point on a single plan's price curve: the day it was charged, and what that charge was. */
+export interface PricePoint {
+  at: string
+  amount: number
+}
+
+/**
+ * The receipts a price curve can honestly connect.
+ *
+ * One currency only: connecting a dollar bill to a yuan bill draws a line between two units, not a trend
+ * in a price. Zero and negative charges are left out for the same reason — a free trial's ¥0.00 is the
+ * absence of a price, and a refund is not a discount the plan offered. Oldest first, newest last, and the
+ * oldest points fall off when the history is longer than the plot can hold.
+ */
+export function priceHistory(
+  payments: readonly { paidAt: string | number; amount: number; currency: string }[],
+  currency: string,
+  limit = 12,
+): PricePoint[] {
+  const points = payments
+    .filter((payment) => payment.currency === currency && payment.amount > 0)
+    .map((payment) => ({ at: typeof payment.paidAt === 'number' ? new Date(payment.paidAt).toISOString() : payment.paidAt, amount: payment.amount }))
+    .sort((left, right) => Date.parse(left.at) - Date.parse(right.at))
+  return points.slice(Math.max(0, points.length - limit))
+}
+
 /** Trials still running, soonest to start charging first. */
 export function trialsEnding(
   items: readonly SubscriptionItem[],
