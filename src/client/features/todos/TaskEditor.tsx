@@ -10,7 +10,7 @@
  * because the row it produces has to come back with an id the panel can tick.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronUp, MessagesSquare, Plus, Sparkles, Star, Trash2, X } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
@@ -24,6 +24,7 @@ import { useUi } from '../../store/ui'
 import { useTodos, remindOffsetOf } from './store'
 import { dueValue } from './todo-ui'
 import { openConversationInChat, startChatAboutTask } from '../chat/start-chat'
+import { sendForAnswerDetailed, type AnswerResult } from '../chat/editor-ai'
 import { parseLocalTime } from '@shared/assistant-time'
 import type { MessageKey } from '@shared/locales/en-US'
 import {
@@ -38,6 +39,46 @@ import {
 } from '@shared/todos/model'
 
 const PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const
+
+/** How much of the task's note an inline question carries, the same clip the chat seed uses. */
+const ASK_CONTEXT_CHARS = 400
+/** How many steps ride along before the prompt stops growing. */
+const ASK_STEP_LIMIT = 20
+
+/**
+ * The question the inline window asks, with the task put in front of the model.
+ *
+ * Built the way `startChatAboutTask` seeds the composer — the title, the id and a clipped note — and
+ * then the steps, because "what should I do next" asked from this panel is a question about the steps
+ * on screen. The reader's own words close the prompt; nothing is sent until they press Ask.
+ */
+export function taskAskPrompt(
+  task: { id: string, title: string, notes: string, steps: readonly string[] },
+  question: string,
+): string {
+  const excerpt = task.notes.replace(/\s+/g, ' ').trim().slice(0, ASK_CONTEXT_CHARS)
+  const head = t('todo.chat.about_task', { title: task.title.trim() || t('todo.task.untitled'), id: task.id })
+  const steps = task.steps.map((step) => step.trim()).filter(Boolean).slice(0, ASK_STEP_LIMIT)
+  return [
+    `${head}${excerpt}`,
+    steps.length ? `${t('todo.task.steps_label')}:\n${steps.map((step) => `- ${step}`).join('\n')}` : '',
+    question.trim(),
+  ].filter(Boolean).join('\n\n')
+}
+
+/**
+ * What the inline window is showing.
+ *
+ * The answer and the three non-answers are separate states rather than one nullable string: a turn
+ * still running, a refusal, and a reply with no words in it each need their own sentence, and folding
+ * them together is how "nothing came back" gets said while the assistant is still writing.
+ */
+type TaskAskState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'answer', text: string }
+  | { status: 'failed', message: string }
+  | { status: 'empty' }
 
 /**
  * The weekday buttons, Monday first as a calendar reads. The values are the rule's own: 0 is Sunday.
@@ -103,6 +144,15 @@ export function TaskEditor() {
   const [stepInput, setStepInput] = useState('')
   /** One move at a time: two presses in flight would each resolve against the order before the other. */
   const [ordering, setOrdering] = useState(false)
+  const [askQuestion, setAskQuestion] = useState('')
+  const [askState, setAskState] = useState<TaskAskState>({ status: 'idle' })
+  /** The turn outlives the panel's re-renders; a write after unmount is the one thing it must not do. */
+  const mounted = useRef(true)
+
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false }
+  }, [])
 
   useEffect(() => {
     if (!open) return
@@ -135,6 +185,8 @@ export function TaskEditor() {
     setStepInput('')
     setTagInput('')
     setSteps([])
+    setAskQuestion('')
+    setAskState({ status: 'idle' })
     if (task) {
       let alive = true
       void api.todos.get(task.id).then(({ steps: rows }) => { if (alive) setSteps(rows) }).catch(() => { if (alive) setSteps([]) })
@@ -250,6 +302,49 @@ export function TaskEditor() {
     }
   }
 
+  /**
+   * Ask about the task as the panel currently reads it.
+   *
+   * `sendForAnswerDetailed` is the existing single-turn transport: it streams through the assistant's
+   * own channel and hands back this question's answer, or names why there is none. Nothing is opened
+   * or navigated — the reader stays in the editor and the answer lands under the field.
+   */
+  const ask = async (): Promise<void> => {
+    const question = askQuestion.trim()
+    if (!existing || !question || askState.status === 'loading') return
+    setAskState({ status: 'loading' })
+    let result: AnswerResult
+    try {
+      result = await sendForAnswerDetailed(taskAskPrompt({
+        id: existing.id,
+        title,
+        notes,
+        steps: steps.map((step) => step.text),
+      }, question))
+    } catch (error) {
+      if (!mounted.current) return
+      setAskState({
+        status: 'failed',
+        message: error instanceof Error && error.message ? error.message : t('todo.task.ai_failed'),
+      })
+      return
+    }
+    if (!mounted.current) return
+    switch (result.status) {
+      case 'ok':
+        setAskState({ status: 'answer', text: result.text })
+        return
+      case 'empty':
+        setAskState({ status: 'empty' })
+        return
+      case 'busy':
+        setAskState({ status: 'failed', message: t('assistant.edit.busy') })
+        return
+      default:
+        setAskState({ status: 'failed', message: result.error ?? t('todo.task.ai_failed') })
+    }
+  }
+
   return (
     <Modal
       open={open}
@@ -341,6 +436,77 @@ export function TaskEditor() {
               </Button>
             )}
           </div>
+        )}
+
+        {/* The question stays in the panel: the task is the context, and the answer belongs beside the
+            fields it is about rather than in a tab the reader has to leave the edit for. */}
+        {existing && (
+          <section
+            aria-label={t('todo.task.ai_title')}
+            className="flex flex-col gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2.5 py-2"
+          >
+            <div className="flex items-center gap-1.5">
+              <Sparkles size={13} className="shrink-0 text-[var(--accent)]" aria-hidden="true" />
+              <span className="min-w-0 flex-1 truncate text-[length:var(--text-11)] font-medium text-[var(--text-secondary)]">
+                {t('todo.task.ai_title')}
+              </span>
+              {askState.status !== 'idle' && (
+                <IconButton
+                  label={t('todo.task.ai_clear')}
+                  size="sm"
+                  onClick={() => { setAskState({ status: 'idle' }); setAskQuestion('') }}
+                >
+                  <X size={12} />
+                </IconButton>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Input
+                value={askQuestion}
+                placeholder={t('todo.task.ai_placeholder')}
+                aria-label={t('todo.task.ai_placeholder')}
+                onChange={(event) => setAskQuestion(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); void ask() }
+                }}
+                className="flex-1"
+              />
+              <Button
+                size="sm"
+                aria-label={t('todo.task.ai_send')}
+                loading={askState.status === 'loading'}
+                disabled={!askQuestion.trim()}
+                onClick={() => { void ask() }}
+              >
+                {t('todo.task.ai_send')}
+              </Button>
+            </div>
+            {askState.status === 'loading' && (
+              <p role="status" className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
+                {t('todo.task.ai_thinking')}
+              </p>
+            )}
+            {askState.status === 'failed' && (
+              <p role="alert" className="break-words text-[length:var(--text-11-5)] text-[var(--danger)]">
+                {askState.message}
+              </p>
+            )}
+            {askState.status === 'empty' && (
+              <p role="status" className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
+                {t('todo.task.ai_empty')}
+              </p>
+            )}
+            {askState.status === 'answer' && (
+              <div
+                role="region"
+                aria-label={t('todo.task.ai_answer')}
+                aria-live="polite"
+                className="max-h-56 overflow-y-auto whitespace-pre-wrap break-words rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2 py-1.5 text-[length:var(--text-12-5)] leading-[1.65] text-[var(--text-primary)]"
+              >
+                {askState.text}
+              </div>
+            )}
+          </section>
         )}
 
         <div className="grid grid-cols-2 gap-2">
