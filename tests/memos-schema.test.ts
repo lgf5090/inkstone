@@ -16,7 +16,7 @@ import {
 } from '../src/worker/memos/schema'
 import { makeD1 } from './doubles/d1-sqlite'
 
-const MEMOS_MIGRATION_VERSION = 128
+const MEMOS_MIGRATION_VERSION = 130
 
 function tablesOf(sqlite: DatabaseSync): Set<string> {
   const rows = sqlite.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as Array<{ name: string }>
@@ -82,7 +82,7 @@ describe('the memos tables', () => {
     for (const table of MEMOS_REQUIRED_TABLES) expect(REQUIRED_COLUMNS[table]).toBeDefined()
   })
 
-  it('declare migration 128 with the same statements the boot creates', () => {
+  it('declare migration 130 with the same statements the boot creates', () => {
     const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === MEMOS_MIGRATION_VERSION)
     expect(migration).toBeDefined()
     expect(migration?.statements).toEqual(MEMOS_SCHEMA_STATEMENTS)
@@ -90,7 +90,7 @@ describe('the memos tables', () => {
   })
 })
 
-describe('migration 128', () => {
+describe('migration 130', () => {
   it('builds the memos schema on its own', () => {
     const sqlite = new DatabaseSync(':memory:')
     const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === MEMOS_MIGRATION_VERSION)

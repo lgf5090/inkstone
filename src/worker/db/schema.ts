@@ -1941,7 +1941,7 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     ],
   },
   {
-    version: 128,
+    version: 130,
     statements: MEMOS_SCHEMA_STATEMENTS,
   },
 ]
