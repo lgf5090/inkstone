@@ -154,7 +154,8 @@ describe('a soft-deleted task', () => {
     const page = await listing()
     expect(page.tasks).toEqual([])
     expect(page.total).toBe(0)
-    expect(page.counts).toMatchObject({ all: 0, completed: 0, inbox: 0, open: 0 } as never)
+    // `TaskCounts` names the open total `all`; there is no separate `open` key on the page's counts.
+    expect(page.counts).toMatchObject({ all: 0, completed: 0, inbox: 0, today: 0, upcoming: 0, overdue: 0, starred: 0 })
 
     expect((await send('GET', `/${done.id}`)).status).toBe(404)
 

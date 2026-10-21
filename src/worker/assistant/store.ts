@@ -6294,6 +6294,10 @@ export class AssistantStore {
     // filtering the task alone would leave orphaned steps, links and reminders in the file.
     const liveTask = `task_id IN (SELECT id FROM todos_tasks WHERE user_id = ?1 AND ${TASK_LIVE_PREDICATE})`
     const tasks = await select('todos_tasks', `AND ${TASK_LIVE_PREDICATE}`)
+    // The stamp of a live row is null and carries no information into another account; the format
+    // does not have the column (see `EXPORT_COLUMNS`), so `SELECT *` has to drop it here or a restore
+    // would read a key the allowlist never accepts.
+    for (const task of tasks) delete task.deleted_at
     // A reminder travels on its task. The backup format has one row per task and no table for these,
     // so the first pending instant is written into the `remind_at` field the format already had; the
     // import reads it back as a row of `todos_reminders`. Fired rows stay behind: a restore is not a

@@ -3,7 +3,7 @@ import { runScheduledBackups } from './backup/scheduler'
 import { runDueAssistantAutomations } from './assistant/scheduler'
 import { sweepTaskReminders } from './assistant/tasks'
 import { runPushCatchUp } from './assistant/push-fanout'
-import { purgeExpiredEphemeralConversations } from './assistant/store'
+import { purgeExpiredEphemeralConversations, purgeExpiredTodoTrash } from './assistant/store'
 import type { Env } from './env'
 import { initializeDatabase } from './db/schema'
 import { drainAllFtsQueues } from './db/fts'
@@ -93,6 +93,7 @@ export default {
             purgeExpiredOperationalData(env.DB),
             purgeRevokedMcpApiKeys(env.DB),
             purgeExpiredEphemeralConversations(env.DB, env),
+            purgeExpiredTodoTrash(env.DB),
             purgeExpiredSubscriptionData(env.DB),
             providerForScheduled(env).purgeExpiredData(env, { batchSize: 100 }),
           ]

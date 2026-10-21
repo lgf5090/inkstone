@@ -18,7 +18,7 @@ import { normalizeAssistantSettings, type AssistantSettings } from '@shared/assi
 import { EN_US_TODO_NOTIFY } from '../../shared/locales/en-US-todo-notify'
 import { ZH_CN_TODO_NOTIFY } from '../../shared/locales/zh-CN-todo-notify'
 import type { Env } from '../env'
-import { AssistantStore } from './store'
+import { AssistantStore, taskLive } from './store'
 import { newPushFanoutTally, NotificationPushFanout, type PushFanoutTally } from './push-fanout'
 
 /** How many reminders one fire will deliver, so a backlog cannot monopolise the tick. */
@@ -78,7 +78,7 @@ export async function sweepTaskReminders(
     `SELECT r.user_id, r.id, r.task_id, t.title, t.due_at
        FROM todos_reminders r
        JOIN todos_tasks t ON t.user_id = r.user_id AND t.id = r.task_id
-      WHERE r.fired_at IS NULL AND r.remind_at <= ?1 AND t.status != 'done'
+      WHERE r.fired_at IS NULL AND r.remind_at <= ?1 AND t.status != 'done' AND ${taskLive('t')}
       ORDER BY r.remind_at ASC, r.id ASC LIMIT ?2`,
   ).bind(now, REMINDER_SWEEP_LIMIT).all<DueReminder>()
 
@@ -100,7 +100,8 @@ export async function sweepTaskReminders(
           WHERE user_id = ?1 AND id = ?2 AND fired_at IS NULL
             AND EXISTS (
               SELECT 1 FROM todos_tasks t
-               WHERE t.user_id = ?1 AND t.id = todos_reminders.task_id AND t.status != 'done'
+               WHERE t.user_id = ?1 AND t.id = todos_reminders.task_id
+                 AND t.status != 'done' AND ${taskLive('t')}
             )`,
       ).bind(row.user_id, row.id, now).run()
       if ((claim.meta.changes ?? 0) === 0) {

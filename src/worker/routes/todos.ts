@@ -431,6 +431,42 @@ todoRoutes.get('/stats', async (c) => {
   return c.json(stats)
 })
 
+/** One page of the trash, newest deletion first; `total` counts the whole trash, not the page. */
+function trashPageQuery(c: Ctx): { limit?: number; offset?: number } {
+  const limit = Number(c.req.query('limit'))
+  const offset = Number(c.req.query('offset'))
+  return {
+    limit: Number.isFinite(limit) ? Math.max(1, Math.min(MAX_TASKS_PER_QUERY, Math.trunc(limit))) : undefined,
+    offset: Number.isFinite(offset) ? Math.max(0, Math.trunc(offset)) : undefined,
+  }
+}
+
+/**
+ * The account's deleted tasks, and the two doors out of the trash.
+ *
+ * A deleted row is only hidden from every other read, so this is the one listing that asks for it
+ * by name; restoring puts the same row back, and purging removes it with its children. Both writes
+ * answer 404 for a live row or another account's id: the trash is a door, not a way around the
+ * account scoping every other task route already carries. Static `/trash` is registered above
+ * `/:id`, or it would be read as a task id.
+ */
+todoRoutes.get('/trash', async (c) => {
+  return c.json(await store(c).listTrash(trashPageQuery(c)))
+})
+
+todoRoutes.post('/:id/restore', async (c) => {
+  const s = store(c)
+  const task = await s.restoreTask(requiredId(c.req.param('id')))
+  if (!task) throw ApiError.notFound('Task not found')
+  return c.json({ task })
+})
+
+todoRoutes.delete('/:id/purge', async (c) => {
+  const id = requiredId(c.req.param('id'))
+  if (!(await store(c).purgeTask(id))) throw ApiError.notFound('Task not found')
+  return c.json({ purged: true })
+})
+
 // ------------------------------------------------------------------- feed
 
 /**

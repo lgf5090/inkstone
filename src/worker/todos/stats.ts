@@ -13,6 +13,7 @@
  * range holds; everything else is a pure function over those rows.
  */
 import { getZonedParts, isValidCalendarDate } from '@shared/assistant-schedule'
+import { TASK_LIVE_PREDICATE, taskLive } from '../assistant/store'
 import type {
   TaskPriority,
   TaskStatsBacklog,
@@ -340,17 +341,19 @@ export async function loadTodoStats(db: D1Database, userId: string, query: TodoS
     db.prepare(
       `SELECT id, list_id, priority, due_at, created_at, completed_at, completed_on
          FROM todos_tasks
-        WHERE user_id = ?1 AND status = 'done'
+        WHERE user_id = ?1 AND status = 'done' AND ${TASK_LIVE_PREDICATE}
           AND completed_on IS NOT NULL AND completed_on >= ?2 AND completed_on < ?3`,
     ).bind(userId, query.from, end).all<CompletedDbRow>(),
     db.prepare(
       `SELECT created_on AS day, COUNT(*) AS n
          FROM todos_tasks
-        WHERE user_id = ?1 AND created_on IS NOT NULL AND created_on >= ?2 AND created_on < ?3
+        WHERE user_id = ?1 AND ${TASK_LIVE_PREDICATE}
+          AND created_on IS NOT NULL AND created_on >= ?2 AND created_on < ?3
         GROUP BY created_on`,
     ).bind(userId, query.from, end).all<CreatedDbRow>(),
     db.prepare(
-      `SELECT due_at, created_at FROM todos_tasks WHERE user_id = ?1 AND status != 'done'`,
+      `SELECT due_at, created_at FROM todos_tasks
+        WHERE user_id = ?1 AND status != 'done' AND ${TASK_LIVE_PREDICATE}`,
     ).bind(userId).all<OpenDbRow>(),
     db.prepare(
       `SELECT id, name FROM todos_lists WHERE user_id = ?1 ORDER BY position ASC, name COLLATE NOCASE ASC`,
@@ -360,7 +363,7 @@ export async function loadTodoStats(db: D1Database, userId: string, query: TodoS
          FROM todos_tag_links l
          JOIN todos_tags t ON t.user_id = l.user_id AND t.id = l.tag_id
          JOIN todos_tasks k ON k.user_id = l.user_id AND k.id = l.task_id
-        WHERE l.user_id = ?1 AND k.status = 'done'
+        WHERE l.user_id = ?1 AND k.status = 'done' AND ${taskLive('k')}
           AND k.completed_on IS NOT NULL AND k.completed_on >= ?2 AND k.completed_on < ?3
         GROUP BY t.id, t.name`,
     ).bind(userId, query.from, end).all<TagDbRow>(),
