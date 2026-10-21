@@ -19,6 +19,7 @@ import {
   renewalsPerYear,
   spendingByYear,
   unpricedCurrencies,
+  yearlyBudgetOf,
   type PaymentSample,
 } from '../src/shared/subscriptions/currency'
 import { formatPaid } from '../src/shared/subscriptions/format'
@@ -164,6 +165,38 @@ describe('monthly and yearly totals', () => {
       payment({ paidAt: Date.parse('2026-04-30T17:00:00Z'), amount: 60 }),
     ], SHANGHAI, FALLBACK_RATES, NOW)
     expect(result.amount).toBe(60)
+  })
+})
+
+describe('a year against the ceiling set for it', () => {
+  it('spreads what is left across the months still to run, this one included', () => {
+    expect(yearlyBudgetOf({ amount: 400, monthlyAverage: 80 }, 1200, SHANGHAI, NOW)).toEqual({
+      limit: 1200, amount: 400, over: false, monthsLeft: 8, perMonthLeft: 100,
+    })
+  })
+
+  it('invents no pace when the reader set no ceiling', () => {
+    expect(yearlyBudgetOf({ amount: 400, monthlyAverage: 80 }, null, SHANGHAI, NOW)).toEqual({
+      limit: null, amount: 400, over: false, monthsLeft: 8, perMonthLeft: null,
+    })
+  })
+
+  it('says a spent year is spent rather than promising room that is not there', () => {
+    const result = yearlyBudgetOf({ amount: 1300, monthlyAverage: 260 }, 1200, SHANGHAI, NOW)
+    expect(result.over).toBe(true)
+    expect(result.perMonthLeft).toBeNull()
+  })
+
+  it('reads a ceiling of zero as no ceiling at all', () => {
+    expect(yearlyBudgetOf({ amount: 10, monthlyAverage: 10 }, 0, SHANGHAI, NOW).limit).toBeNull()
+  })
+
+  it('counts the months left by the reader zone, not by UTC', () => {
+    // Half past midnight on the first of June in Shanghai is still the 31st of May in UTC, and the
+    // reader is the one whose year is running out.
+    const juneEve = new Date('2026-05-31T17:30:00Z')
+    expect(yearlyBudgetOf({ amount: 0, monthlyAverage: 0 }, 1200, SHANGHAI, juneEve).monthsLeft).toBe(7)
+    expect(yearlyBudgetOf({ amount: 0, monthlyAverage: 0 }, 1200, 'UTC', juneEve).monthsLeft).toBe(8)
   })
 })
 

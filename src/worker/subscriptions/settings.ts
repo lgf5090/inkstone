@@ -41,6 +41,7 @@ interface SettingsRow {
   inbound_token_hint: string
   updated_at: number
   rate_overrides: string
+  budget_yearly: number | null
 }
 
 interface ChannelRow {
@@ -58,7 +59,8 @@ interface ChannelRow {
 }
 
 const SETTINGS_COLUMNS = `user_id, timezone, notification_hours, show_lunar, payment_history_limit,
-  locale, base_currency, budget_monthly, inbound_token_hash, inbound_token_hint, updated_at, rate_overrides`
+  locale, base_currency, budget_monthly, inbound_token_hash, inbound_token_hint, updated_at, rate_overrides,
+  budget_yearly`
 
 const CHANNEL_COLUMNS = `user_id, id, kind, enabled, config_ciphertext, config_hint, last_test_at,
   last_test_status, last_test_error, created_at, updated_at`
@@ -92,6 +94,7 @@ function toSettings(row: SettingsRow): SubscriptionSettings {
     locale: row.locale === 'en-US' ? 'en-US' : 'zh-CN',
     baseCurrency: isCurrencyCode(row.base_currency) ? row.base_currency : DEFAULT_SETTINGS.baseCurrency,
     budgetMonthly: Number.isFinite(row.budget_monthly) && row.budget_monthly !== null ? row.budget_monthly : null,
+    budgetYearly: Number.isFinite(row.budget_yearly) && row.budget_yearly !== null ? row.budget_yearly : null,
     rateOverrides: parseRates(row.rate_overrides),
     inboundTokenHint: row.inbound_token_hint,
   }
@@ -119,7 +122,19 @@ export interface SettingsPatch {
   locale?: unknown
   baseCurrency?: unknown
   budgetMonthly?: unknown
+  budgetYearly?: unknown
   rateOverrides?: unknown
+}
+
+/**
+ * A ceiling as the account meant it, or null when they meant none.
+ *
+ * Absent keeps what was already stored; blank, zero and nonsense all mean no ceiling. Two ceilings — the
+ * month's and the year's — are asked the same question, so they are read the same way.
+ */
+function ceilingOf(raw: unknown, kept: number | null): number | null {
+  const value = raw === undefined ? kept : Number(raw)
+  return value !== null && Number.isFinite(value) && value > 0 ? Math.round(value * 100) / 100 : null
 }
 
 /**
@@ -148,10 +163,8 @@ export async function saveSettings(db: D1Database, userId: string, patch: Settin
   const baseCurrency: CurrencyCode = patch.baseCurrency === undefined ? current.baseCurrency : patch.baseCurrency as CurrencyCode
   // A budget that is absent, blank or not a number means "no ceiling", which is a different state from
   // a ceiling of zero and has to survive the round trip as null.
-  const budgetRaw = patch.budgetMonthly === undefined ? current.budgetMonthly : Number(patch.budgetMonthly)
-  const budgetMonthly = budgetRaw !== null && Number.isFinite(budgetRaw) && budgetRaw > 0
-    ? Math.round(budgetRaw * 100) / 100
-    : null
+  const budgetMonthly = ceilingOf(patch.budgetMonthly, current.budgetMonthly)
+  const budgetYearly = ceilingOf(patch.budgetYearly, current.budgetYearly)
   // A pin the app cannot convert with is refused rather than dropped: the reader asked for their own
   // number, and totals quietly made from the feed instead would look exactly like the ones they asked for.
   // An empty object is a real answer — it clears every pin — so it is not the same as sending nothing.
@@ -168,7 +181,7 @@ export async function saveSettings(db: D1Database, userId: string, patch: Settin
   }
 
   await db.prepare(
-    `INSERT INTO sub_settings (${SETTINGS_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, '', '', ?9, ?10)
+    `INSERT INTO sub_settings (${SETTINGS_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, '', '', ?9, ?10, ?11)
      ON CONFLICT(user_id) DO UPDATE SET
        timezone = excluded.timezone,
        notification_hours = excluded.notification_hours,
@@ -178,6 +191,7 @@ export async function saveSettings(db: D1Database, userId: string, patch: Settin
        base_currency = excluded.base_currency,
        budget_monthly = excluded.budget_monthly,
        rate_overrides = excluded.rate_overrides,
+       budget_yearly = excluded.budget_yearly,
        updated_at = excluded.updated_at`,
   ).bind(
     userId,
@@ -190,9 +204,21 @@ export async function saveSettings(db: D1Database, userId: string, patch: Settin
     budgetMonthly,
     Date.now(),
     JSON.stringify(rateOverrides),
+    budgetYearly,
   ).run()
 
-  return { timezone, notificationHours, showLunar, paymentHistoryLimit: limit, locale, baseCurrency, budgetMonthly, rateOverrides, inboundTokenHint: current.inboundTokenHint }
+  return {
+    timezone,
+    notificationHours,
+    showLunar,
+    paymentHistoryLimit: limit,
+    locale,
+    baseCurrency,
+    budgetMonthly,
+    budgetYearly,
+    rateOverrides,
+    inboundTokenHint: current.inboundTokenHint,
+  }
 }
 
 export async function listChannels(db: D1Database, userId: string): Promise<ChannelState[]> {
@@ -427,7 +453,7 @@ export async function rotateInboundToken(db: D1Database, userId: string): Promis
   const hash = await sha256Hex(token)
   const hint = token.slice(-4)
   await db.prepare(
-    `INSERT INTO sub_settings (${SETTINGS_COLUMNS}) VALUES (?1, ?2, '[]', 0, 100, 'zh-CN', 'CNY', NULL, ?3, ?4, ?5, '{}')
+    `INSERT INTO sub_settings (${SETTINGS_COLUMNS}) VALUES (?1, ?2, '[]', 0, 100, 'zh-CN', 'CNY', NULL, ?3, ?4, ?5, '{}', NULL)
      ON CONFLICT(user_id) DO UPDATE SET
        inbound_token_hash = excluded.inbound_token_hash,
        inbound_token_hint = excluded.inbound_token_hint,

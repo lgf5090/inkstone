@@ -27,6 +27,7 @@ import {
   rateTableFor,
   trialsEnding,
   unpricedCurrencies,
+  yearlyBudgetOf,
   type PaymentSample,
   type RateTable,
 } from '@shared/subscriptions/currency'
@@ -138,10 +139,13 @@ export async function buildOverview(
   // Read once and shared with the budget: the headline and the ceiling have to be the same number, and
   // computing the month twice would let them disagree if the clock ticked over between the two.
   const monthly = calculateMonthlyExpense(samples, settings.timezone, rates, at)
+  // Hoisted for the same reason as the month: the yearly headline and the yearly ceiling are read by the
+  // reader as one statement about one year.
+  const yearly = calculateYearlyExpense(samples, settings.timezone, rates, at)
 
   return {
     monthly,
-    yearly: calculateYearlyExpense(samples, settings.timezone, rates, at),
+    yearly,
     active: {
       active: active.length,
       total: items.length,
@@ -161,6 +165,7 @@ export async function buildOverview(
       // Only an over-budget month is worth a colour, and a limit of 0 is a real one, not an absence.
       over: settings.budgetMonthly !== null && settings.budgetMonthly > 0 && monthly.amount > settings.budgetMonthly,
     },
+    yearlyBudget: yearlyBudgetOf(yearly, settings.budgetYearly, settings.timezone, at),
     committedYearly: annualisedCost(items, rates),
     trials: trialsEnding(items, settings.timezone, at).slice(0, 8),
     priceChanges: findPriceChanges(items, samples).slice(0, 8),

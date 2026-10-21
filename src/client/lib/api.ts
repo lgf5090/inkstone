@@ -337,6 +337,8 @@ export interface SettingsPatch {
   locale?: NotifyLocale
   baseCurrency?: CurrencyCode
   budgetMonthly?: number | null
+  budgetYearly?: number | null
+  rateOverrides?: Record<string, number>
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {

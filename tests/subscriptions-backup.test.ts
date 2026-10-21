@@ -66,7 +66,7 @@ async function seed(): Promise<void> {
     periodValue: 1,
     periodUnit: 'year',
   }, context)
-  await saveSettings(env.DB, USER, { timezone: 'Asia/Tokyo', notificationHours: ['08', '20'], baseCurrency: 'JPY', budgetMonthly: 5000 })
+  await saveSettings(env.DB, USER, { timezone: 'Asia/Tokyo', notificationHours: ['08', '20'], baseCurrency: 'JPY', budgetMonthly: 5000, budgetYearly: 60000 })
   await store.setLabelStyle('type', '流媒体', { icon: 'lucide:Tv', color: '#e11d48' })
 }
 
@@ -171,6 +171,22 @@ describe('restore', () => {
     const restored = await loadSettings(env.DB, USER)
     expect(restored.notificationHours).toEqual(['08', '20'])
     expect(restored.rateOverrides).toEqual({ USD: 7.2 })
+  })
+
+  /**
+   * A column the writer forgot comes back as null, which reads exactly like the reader had never set a
+   * budget — so the round trip is checked with the account's own numbers rather than with the export.
+   */
+  it('carries both ceilings out and back', async () => {
+    await seed()
+    const text = await readBackupSubscriptions(env.DB, USER)
+    expect(JSON.parse(text!).settings.budget_yearly).toBe(60000)
+
+    await saveSettings(env.DB, USER, { budgetMonthly: null, budgetYearly: null })
+    await applyBackupSubscriptions(env.DB, USER, text)
+    const restored = await loadSettings(env.DB, USER)
+    expect(restored.budgetMonthly).toBe(5000)
+    expect(restored.budgetYearly, 'the year is its own ceiling, not twelve of the month').toBe(60000)
   })
 
   it('replaces the current library rather than adding to it', async () => {

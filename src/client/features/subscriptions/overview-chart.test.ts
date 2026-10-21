@@ -11,6 +11,7 @@ import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { SubscriptionOverview } from '@shared/subscriptions/model'
+import { formatAmount } from '@shared/subscriptions/format'
 import { initI18n } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { OverviewView } from './OverviewView'
@@ -33,6 +34,7 @@ function overview(overrides: Partial<SubscriptionOverview> = {}): SubscriptionOv
     scheduler: null,
     history: [],
     budget: { limit: 200, amount: 300, over: true },
+    yearlyBudget: { limit: null, amount: 720, over: false, monthsLeft: 3, perMonthLeft: null },
     committedYearly: 3600,
     trials: [],
     priceChanges: [],
@@ -137,5 +139,28 @@ describe('the rates strip', () => {
     expect(words()).toContain('No rate for SGD, THB')
     expect(words()).toContain('SGD has no rate either')
     expect(words()).toContain('Pinned: USD')
+  })
+})
+
+describe('the yearly card', () => {
+  const words = () => (document.body.textContent || '').replace(/\s+/g, ' ')
+
+  it('shows the yearly ceiling beside what the year has cost, and what the rest of it can afford', () => {
+    mountChart({ yearlyBudget: { limit: 1200, amount: 400, over: false, monthsLeft: 8, perMonthLeft: 100 } })
+    expect(words()).toContain(`/ ${formatAmount(1200, 'CNY')}`)
+    expect(words()).toContain(`${formatAmount(100, 'CNY')} a month until year end`)
+    expect(words()).not.toContain('Over the yearly budget')
+  })
+
+  it('marks the year spent once the receipts pass the ceiling, and stops promising room', () => {
+    mountChart({ yearlyBudget: { limit: 1200, amount: 1300, over: true, monthsLeft: 8, perMonthLeft: null } })
+    expect(words()).toContain('Over the yearly budget')
+    expect(words()).not.toContain('a month until year end')
+  })
+
+  it('says nothing about a ceiling the reader never set', () => {
+    mountChart()
+    expect(words()).not.toContain('a month until year end')
+    expect(words()).not.toContain('Over the yearly budget')
   })
 })

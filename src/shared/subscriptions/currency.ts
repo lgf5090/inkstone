@@ -358,6 +358,36 @@ export function expenseByMonth(
   return buckets.map((bucket) => ({ month: bucket.month, amount: roundMoney(bucket.amount) }))
 }
 
+/**
+ * A calendar year's receipts against the ceiling the reader set for the year.
+ *
+ * The monthly ceiling cannot answer this question: an annual plan charges once, lands entirely in one
+ * month, and makes that month look reckless while the year it covers is exactly on plan.
+ *
+ * `monthsLeft` counts the current month as still to run, because its receipts are not all in. The money
+ * left over is spread across those months rather than divided by twelve: a reader who set the ceiling in
+ * November is not being asked to have spent ten months of it already.
+ */
+export function yearlyBudgetOf(
+  yearly: YearlyExpense,
+  limit: number | null,
+  timezone: string,
+  now: Date = new Date(),
+): { limit: number | null; amount: number; over: boolean; monthsLeft: number; perMonthLeft: number | null } {
+  const ceiling = limit !== null && limit > 0 ? limit : null
+  const monthsLeft = 13 - getTimezoneDateParts(now, timezone).month
+  const left = ceiling === null ? 0 : ceiling - yearly.amount
+  return {
+    // Normalised rather than echoed: a ceiling of zero is not a ceiling, and a dashboard that printed
+    // "/ 0" beside a number it does not enforce would be showing a limit it does not apply.
+    limit: ceiling,
+    amount: yearly.amount,
+    over: ceiling !== null && yearly.amount > ceiling,
+    monthsLeft,
+    perMonthLeft: ceiling !== null && left > 0 ? roundMoney(left / monthsLeft) : null,
+  }
+}
+
 /** How many times a plan charges inside twelve months: a 3-month plan bills four times, an 18-month one twice. */
 export function renewalsPerYear(item: Pick<SubscriptionItem, 'periodUnit' | 'periodValue'>): number {
   const periods = Math.max(1, item.periodValue)

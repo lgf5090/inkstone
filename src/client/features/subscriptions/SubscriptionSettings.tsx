@@ -159,6 +159,20 @@ export function SubscriptionSettings({
                 onChange={(event) => void saveGeneral({ budgetMonthly: event.target.value === '' ? null : Number(event.target.value) })}
               />
             </Field>
+            {/* The year is its own ceiling because an annual plan spends twelve months of cost in one
+                month, and a reader who set only the monthly number is told they overspent on the day they
+                bought the thing that makes their other months cheap. */}
+            <Field label={t('subscriptions.settings.budget_yearly')} hint={t('subscriptions.settings.budget_yearly_hint')}>
+              <Input
+                type="number"
+                min={0}
+                step="1"
+                inputMode="decimal"
+                value={settings.budgetYearly ?? ''}
+                placeholder={t('subscriptions.settings.budget_placeholder')}
+                onChange={(event) => void saveGeneral({ budgetYearly: event.target.value === '' ? null : Number(event.target.value) })}
+              />
+            </Field>
           </div>
 
           {/* The feed answers once a day, for everybody. A reader billed in a currency that moves faster

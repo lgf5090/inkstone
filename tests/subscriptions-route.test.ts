@@ -166,6 +166,20 @@ describe('the bundle', () => {
     expect(bundle.overview.monthly.amount).toBe(120)
     expect(bundle.overview.yearly.amount).toBe(120)
   })
+
+  it('carries the yearly ceiling into the overview the dashboard reads', async () => {
+    await create({ amount: 3000 })
+    await send('PUT', '/settings', { budgetYearly: 2400 })
+    const bundle = await json<any>(await send('GET', '/'))
+    expect(bundle.overview.yearlyBudget.limit).toBe(2400)
+    expect(bundle.overview.yearlyBudget.amount).toBe(3000)
+    expect(bundle.overview.yearlyBudget.over).toBe(true)
+    // A year already past its ceiling has no room left to spread over the months.
+    expect(bundle.overview.yearlyBudget.perMonthLeft).toBeNull()
+    // The month is a separate question: the same receipt is that month's whole spend, and no ceiling
+    // was set for it.
+    expect(bundle.overview.budget.over).toBe(false)
+  })
 })
 
 describe('updating', () => {
@@ -281,6 +295,22 @@ describe('settings', () => {
 
   it('refuses a time zone that does not exist', async () => {
     expect((await send('PUT', '/settings', { timezone: 'Mars/Olympus' })).status).toBe(400)
+  })
+
+  it('keeps the month and the year apart, and reads back what the account set', async () => {
+    const saved = await json<any>(await send('PUT', '/settings', { budgetMonthly: 200, budgetYearly: 2400 }))
+    expect(saved.settings.budgetMonthly).toBe(200)
+    expect(saved.settings.budgetYearly).toBe(2400)
+    const read = await json<any>(await send('GET', '/settings'))
+    expect(read.settings.budgetYearly, 'the yearly ceiling survives the round trip').toBe(2400)
+    // A row that already exists is written by the update clause, not by the insert values — and a column
+    // left out of that clause keeps whatever the first save put in it, quietly, forever.
+    expect((await json<any>(await send('PUT', '/settings', { budgetYearly: 900 }))).settings.budgetYearly).toBe(900)
+    expect((await json<any>(await send('GET', '/settings'))).settings.budgetYearly).toBe(900)
+    // One ceiling named in a save must not be read as the other one being given up.
+    const half = await json<any>(await send('PUT', '/settings', { budgetMonthly: null }))
+    expect(half.settings.budgetMonthly).toBeNull()
+    expect(half.settings.budgetYearly).toBe(900)
   })
 
   it('rotates an inbound token and never stores it in the clear', async () => {

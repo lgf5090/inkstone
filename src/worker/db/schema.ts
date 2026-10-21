@@ -1909,6 +1909,18 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE sub_settings ADD COLUMN rate_overrides TEXT NOT NULL DEFAULT '{}'`,
     ],
   },
+  {
+    // What a year of subscriptions is allowed to cost.
+    //
+    // A monthly ceiling cannot carry this question: an annual plan charges once, lands entirely in one
+    // month, and makes that month read as reckless while the year it pays for is on plan. NULL is "no
+    // ceiling", which stays a different state from a ceiling of zero.
+    version: 126,
+    skipIfColumnExists: { table: 'sub_settings', column: 'budget_yearly' },
+    statements: [
+      `ALTER TABLE sub_settings ADD COLUMN budget_yearly REAL`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

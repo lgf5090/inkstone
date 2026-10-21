@@ -50,6 +50,7 @@ import {
   type SubscriptionDetail,
   type SubscriptionItem,
   type SubscriptionMode,
+  type SubscriptionSettings,
 } from '@shared/subscriptions/model'
 import { ApiError } from '../lib/errors'
 import { ArtifactVersionConflictError, type AssistantStore, type MemoryScope } from './store'
@@ -1544,7 +1545,7 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
     name: 'subscription_summary',
     permission: 'read',
     maxCallsPerTurn: 2,
-    description: 'The account\'s money picture in one call: what this month and this year have cost in the reader\'s total currency, how that compares with last month, the ceiling the reader set for a month and whether this month is over it, what the current plans commit for a year, where the exchange rates came from and which currencies had none, which trials are about to start charging, which plans changed price, what renews in the next week, where the spending goes by type and by category, and whether the reminder scheduler is still running.',
+    description: 'The account\'s money picture in one call: what this month and this year have cost in the reader\'s total currency, how that compares with last month, the ceiling the reader set for a month and for a year and whether either is spent, what the months left in the year can still afford, what the current plans commit for a year, where the exchange rates came from and which currencies had none, which trials are about to start charging, which plans changed price, what renews in the next week, where the spending goes by type and by category, and whether the reminder scheduler is still running.',
     fields: {},
     async run(_args, ctx) {
       const settings = await loadSettings(ctx.env.DB, ctx.store.userId)
@@ -1557,6 +1558,9 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
         // The ceiling is the reader's own number, and `limit: null` means they never set one — which is a
         // different answer from "not over budget". Leaving it out made the tool unable to say either.
         budget: overview.budget,
+        // The year gets its own sentence because a monthly ceiling cannot answer a yearly question: an
+        // annual plan blows through the month it charges in and is exactly on plan for the year.
+        yearlyBudget: overview.yearlyBudget,
         committedYearly: overview.committedYearly,
         // Every amount above was converted from something: which day the rates came from, whether that day
         // was published or merely our own approximation, and which currencies had no rate at all and so sit
@@ -1785,28 +1789,10 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
     name: 'get_subscription_settings',
     permission: 'read',
     maxCallsPerTurn: 2,
-    description: 'How the subscriptions app is configured for this reader: the time zone reminders are judged in, the hours it may send them in, whether dates are shown by the lunar calendar, how many receipts a row carries, the currency the dashboard totals in, the monthly ceiling they set, and any exchange rate they pinned over the daily feed. Carrying no answer for one of these is a real fact about the account, so name it rather than guessing.',
+    description: 'How the subscriptions app is configured for this reader: the time zone reminders are judged in, the hours it may send them in, whether dates are shown by the lunar calendar, how many receipts a row carries, the currency the dashboard totals in, the ceilings they set for a month and for a year, and any exchange rate they pinned over the daily feed. Carrying no answer for one of these is a real fact about the account, so name it rather than guessing.',
     fields: {},
     async run(_args, ctx) {
-      const settings = await loadSettings(ctx.env.DB, ctx.store.userId)
-      // The inbound token hint is deliberately left out: it is a fragment of a credential, and a tool
-      // result travels to the model provider with the rest of the turn.
-      return {
-        timezone: settings.timezone,
-        notificationHours: settings.notificationHours,
-        showLunar: settings.showLunar,
-        paymentHistoryLimit: settings.paymentHistoryLimit,
-        locale: settings.locale,
-        baseCurrency: settings.baseCurrency,
-        budgetMonthly: settings.budgetMonthly,
-        budgetNote: settings.budgetMonthly === null
-          ? 'No monthly ceiling is set, so the dashboard never calls a month over budget.'
-          : undefined,
-        rateOverrides: settings.rateOverrides,
-        ratesNote: Object.keys(settings.rateOverrides).length === 0
-          ? 'No rate is pinned, so every total converts at the daily exchange feed.'
-          : undefined,
-      }
+      return presentSettings(await loadSettings(ctx.env.DB, ctx.store.userId))
     },
   }),
   tool({
@@ -1822,6 +1808,8 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
       baseCurrency: { type: 'string', enum: [...CURRENCY_CODES], optional: true },
       budgetMonthly: { type: 'number', minimum: 0, maximum: 1e9, optional: true },
       clearBudget: { type: 'boolean', optional: true, description: 'True removes the monthly ceiling altogether. Leave it out to keep or set one.' },
+      budgetYearly: { type: 'number', minimum: 0, maximum: 1e9, optional: true, description: 'What a whole calendar year of these plans may cost, counted against the receipts already in it. A reader who pays for a year at a time needs this rather than twelve times the monthly number.' },
+      clearYearlyBudget: { type: 'boolean', optional: true, description: 'True removes the yearly ceiling altogether. Leave it out to keep or set one.' },
       rateOverrides: {
         type: 'string',
         maxLength: 160,
@@ -1852,6 +1840,8 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
       // field cannot carry that, so clearing it is its own verb rather than a zero.
       if (args.clearBudget === true) patch.budgetMonthly = null
       else if (args.budgetMonthly !== undefined) patch.budgetMonthly = Number(args.budgetMonthly)
+      if (args.clearYearlyBudget === true) patch.budgetYearly = null
+      else if (args.budgetYearly !== undefined) patch.budgetYearly = Number(args.budgetYearly)
       // A pin is stated one currency at a time in a conversation — "and use 7.2 for the dollar" — so the
       // currencies named are merged into what the account already pinned. Only `clearRates` answers "drop
       // them all", because a merge cannot express that and an empty string would be read as either.
@@ -1890,21 +1880,7 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
           ? `"${String(args.timezone)}" is not a time zone the app accepts. Use an IANA name such as Asia/Shanghai, Europe/Berlin or America/New_York.`
           : `That setting could not be saved: ${reason.slice(0, 160)}`)
       }
-      return {
-        timezone: settings.timezone,
-        notificationHours: settings.notificationHours,
-        showLunar: settings.showLunar,
-        paymentHistoryLimit: settings.paymentHistoryLimit,
-        baseCurrency: settings.baseCurrency,
-        budgetMonthly: settings.budgetMonthly,
-        budgetNote: settings.budgetMonthly === null
-          ? 'No monthly ceiling is set, so the dashboard never calls a month over budget.'
-          : undefined,
-        rateOverrides: settings.rateOverrides,
-        ratesNote: Object.keys(settings.rateOverrides).length === 0
-          ? 'No rate is pinned, so every total converts at the daily exchange feed.'
-          : undefined,
-      }
+      return presentSettings(settings)
     },
   }),
   tool({
@@ -2306,6 +2282,36 @@ async function subscriptionAccess(ctx: ToolContext): Promise<{ store: Subscripti
 async function accountRateTable(ctx: ToolContext, settings: Awaited<ReturnType<typeof loadSettings>>): Promise<RateTable> {
   const { table } = await loadRates(ctx.env)
   return rateTableFor(applyRateOverrides(table, settings.rateOverrides), settings.baseCurrency)
+}
+
+/**
+ * What the settings look like to the model, in the words the reader would use back.
+ *
+ * The inbound token hint is left out on purpose: it is a fragment of a credential, and a tool result
+ * travels to the model provider with the rest of the turn. Each ceiling carries a sentence for its own
+ * absence, because "no ceiling" is an answer the account gave and not a field the tool forgot.
+ */
+function presentSettings(settings: SubscriptionSettings): Record<string, unknown> {
+  return {
+    timezone: settings.timezone,
+    notificationHours: settings.notificationHours,
+    showLunar: settings.showLunar,
+    paymentHistoryLimit: settings.paymentHistoryLimit,
+    locale: settings.locale,
+    baseCurrency: settings.baseCurrency,
+    budgetMonthly: settings.budgetMonthly,
+    budgetNote: settings.budgetMonthly === null
+      ? 'No monthly ceiling is set, so the dashboard never calls a month over budget.'
+      : undefined,
+    budgetYearly: settings.budgetYearly,
+    budgetYearlyNote: settings.budgetYearly === null
+      ? 'No yearly ceiling is set, so the dashboard never calls a year over budget.'
+      : undefined,
+    rateOverrides: settings.rateOverrides,
+    ratesNote: Object.keys(settings.rateOverrides).length === 0
+      ? 'No rate is pinned, so every total converts at the daily exchange feed.'
+      : undefined,
+  }
 }
 
 /** What a subscription looks like to the model: the fields a question about money or dates actually needs. */

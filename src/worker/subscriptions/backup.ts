@@ -77,7 +77,7 @@ async function tableRows(db: D1Database, userId: string): Promise<TableRows> {
     db.prepare(`SELECT name, icon, color, created_at FROM sub_type WHERE user_id = ?1 ORDER BY name`)
       .bind(userId).all(),
     db.prepare(`SELECT timezone, notification_hours, show_lunar, payment_history_limit, locale,
-                       base_currency, budget_monthly, rate_overrides
+                       base_currency, budget_monthly, budget_yearly, rate_overrides
                   FROM sub_settings WHERE user_id = ?1`).bind(userId).first<Record<string, unknown>>(),
   ])
   return {
@@ -212,13 +212,14 @@ export async function applyBackupSubscriptions(
     const row = settings as Record<string, unknown>
     statements.push(db.prepare(
       `INSERT INTO sub_settings (user_id, timezone, notification_hours, show_lunar, payment_history_limit,
-         locale, base_currency, budget_monthly, rate_overrides, inbound_token_hash, inbound_token_hint, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, '', '', ?10)
+         locale, base_currency, budget_monthly, budget_yearly, rate_overrides, inbound_token_hash, inbound_token_hint, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, '', '', ?11)
        ON CONFLICT(user_id) DO UPDATE SET
          timezone = excluded.timezone, notification_hours = excluded.notification_hours,
          show_lunar = excluded.show_lunar, payment_history_limit = excluded.payment_history_limit,
          locale = excluded.locale, base_currency = excluded.base_currency,
-         budget_monthly = excluded.budget_monthly, rate_overrides = excluded.rate_overrides,
+         budget_monthly = excluded.budget_monthly, budget_yearly = excluded.budget_yearly,
+         rate_overrides = excluded.rate_overrides,
          updated_at = excluded.updated_at`,
     ).bind(
       userId,
@@ -229,6 +230,7 @@ export async function applyBackupSubscriptions(
       row.locale === 'en-US' ? 'en-US' : 'zh-CN',
       isCurrencyCode(row.base_currency) ? row.base_currency : 'CNY',
       numberOrNull(row.budget_monthly),
+      numberOrNull(row.budget_yearly),
       JSON.stringify(normalizeRateOverrides(carriedField(row.rate_overrides))),
       Date.now(),
     ))

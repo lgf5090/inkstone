@@ -146,7 +146,27 @@ export function OverviewView({
         <StatCard
           label={t('subscriptions.overview.yearly')}
           value={formatAmount(overview.yearly.amount, currency)}
-          footer={<span className="text-[var(--text-quaternary)]">{t('subscriptions.overview.monthly_average', { amount: formatAmount(overview.yearly.monthlyAverage, currency) })}</span>}
+          tone={overview.yearlyBudget.over ? 'danger' : undefined}
+          footer={(
+            <span className="block space-y-0.5">
+              <span className="block text-[var(--text-quaternary)]">
+                {t('subscriptions.overview.monthly_average', { amount: formatAmount(overview.yearly.monthlyAverage, currency) })}
+                {overview.yearlyBudget.limit !== null && (
+                  <span className={cn('ml-1.5', overview.yearlyBudget.over ? 'text-[var(--danger)]' : '')}>
+                    / {formatAmount(overview.yearlyBudget.limit, currency)}
+                  </span>
+                )}
+              </span>
+              {overview.yearlyBudget.perMonthLeft !== null && (
+                <span className="block text-[var(--text-quaternary)]">
+                  {t('subscriptions.overview.yearly_pace', { amount: formatAmount(overview.yearlyBudget.perMonthLeft, currency) })}
+                </span>
+              )}
+              {overview.yearlyBudget.over && (
+                <span className="block text-[var(--danger)]">{t('subscriptions.overview.yearly_over')}</span>
+              )}
+            </span>
+          )}
         />
         {/* Spent this year and committed for the next are different questions, and only one of them is
             answered by the receipts. A plan cancelled tomorrow stops counting here, not there. */}

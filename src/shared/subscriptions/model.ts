@@ -278,6 +278,14 @@ export interface SubscriptionSettings {
   /** What a month of subscriptions is allowed to cost, in the total currency. Null means no budget. */
   budgetMonthly: number | null
   /**
+   * What a year of them is allowed to cost, counted against this calendar year's receipts.
+   *
+   * A separate number rather than twelve times the monthly one, because the plans that bite once a year
+   * — the ¥360 office suite, the annual domain — land in one month and make a monthly ceiling useless for
+   * them. Null means the reader set no ceiling for the year.
+   */
+  budgetYearly: number | null
+  /**
    * Rates the reader pinned, as `1 unit of the currency = N CNY`, used wherever the app converts.
    *
    * Anchored on CNY because that is the direction the feed is asked in and the direction the built-in
@@ -411,6 +419,14 @@ export interface SubscriptionOverview {
   history: ScheduleLogEntry[]
   /** What this month has cost against the ceiling the reader set. `limit` null means no budget. */
   budget: { limit: number | null; amount: number; over: boolean }
+  /**
+   * The same question asked of the whole year, and the number that makes a yearly ceiling actionable.
+   *
+   * `monthsLeft` counts this month as still to run — in October it is three, not two — because October's
+   * receipts are not all in yet. `perMonthLeft` is what those months could each spend and still land on
+   * the ceiling; null means there is no ceiling to work towards, or it is already spent.
+   */
+  yearlyBudget: { limit: number | null; amount: number; over: boolean; monthsLeft: number; perMonthLeft: number | null }
   /** What the current plans would cost across a full year if nothing were cancelled. */
   committedYearly: number
   /** Trials still running, soonest first — the ones that turn into a charge. */
@@ -677,6 +693,7 @@ export const DEFAULT_SETTINGS: SubscriptionSettings = {
   locale: 'zh-CN',
   baseCurrency: 'CNY',
   budgetMonthly: null,
+  budgetYearly: null,
   rateOverrides: {},
   inboundTokenHint: '',
 }

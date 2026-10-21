@@ -68,7 +68,7 @@ async function seedSubscription(overrides: Record<string, unknown> = {}, userId 
 }
 
 function store(userId = ALICE) {
-  return { store: new SubscriptionsStore(env.DB, userId), context: storeContext({ timezone: 'Asia/Shanghai', paymentHistoryLimit: 100, locale: 'zh-CN', notificationHours: [], showLunar: false, baseCurrency: 'CNY', budgetMonthly: null, rateOverrides: {}, inboundTokenHint: '' }, NOW) }
+  return { store: new SubscriptionsStore(env.DB, userId), context: storeContext({ timezone: 'Asia/Shanghai', paymentHistoryLimit: 100, locale: 'zh-CN', notificationHours: [], showLunar: false, baseCurrency: 'CNY', budgetMonthly: null, budgetYearly: null, rateOverrides: {}, inboundTokenHint: '' }, NOW) }
 }
 
 beforeEach(() => {
@@ -409,6 +409,34 @@ describe('the account behind the rows', () => {
     await expect(run('set_subscription_settings', { notificationHours: '8,25' }))
       .rejects.toThrow(/0 to 23/)
     await expect(run('set_subscription_settings', {})).rejects.toThrow(/at least one setting/)
+  })
+
+  it('keeps the ceiling for the year apart from the one for the month', async () => {
+    await run('set_subscription_settings', { budgetMonthly: 300 })
+    const saved = await run('set_subscription_settings', { budgetYearly: 2400 }) as {
+      budgetMonthly: number
+      budgetYearly: number
+      budgetYearlyNote?: string
+    }
+    expect(saved.budgetYearly).toBe(2400)
+    expect(saved.budgetMonthly, 'naming the year does not give up the month').toBe(300)
+    expect(saved.budgetYearlyNote, 'a ceiling that is set needs no sentence about it').toBeUndefined()
+
+    const cleared = await run('set_subscription_settings', { clearYearlyBudget: true }) as {
+      budgetMonthly: number
+      budgetYearly: number | null
+      budgetYearlyNote?: string
+    }
+    expect(cleared.budgetYearly).toBeNull()
+    expect(cleared.budgetYearlyNote).toMatch(/No yearly ceiling/)
+    expect(cleared.budgetMonthly).toBe(300)
+
+    const summary = await run('subscription_summary', {}) as {
+      yearlyBudget: { limit: number | null; over: boolean }
+      budget: { limit: number | null }
+    }
+    expect(summary.yearlyBudget.limit, 'a cleared ceiling is said, not left blank').toBeNull()
+    expect(summary.budget.limit).toBe(300)
   })
 
   /**
