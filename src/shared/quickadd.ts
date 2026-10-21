@@ -630,6 +630,9 @@ export function normalizeQuickAddChoice(value: unknown): QuickAddChoice | null {
           format: textOf(format.format, QUICKADD_LIMITS.maxFormatLength, '{{VALUE}}'),
         },
         task: boolOf(value.task, false),
+        // Absent is the note, which is what every record written before this field meant; only the
+        // to-do destination is worth storing, so a record stays as small as it was.
+        ...(value.destination === 'todo' ? { destination: 'todo' as const } : {}),
         eachLine: boolOf(value.eachLine, false),
         useSelectionAsValue: typeof value.useSelectionAsValue === 'boolean' ? value.useSelectionAsValue : null,
         openAfter: boolOf(value.openAfter, false),

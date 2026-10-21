@@ -60,6 +60,24 @@ describe('the quickadd record', () => {
     expect(parsed.truncated).toBe(false)
   })
 
+  it('keeps a capture’s task destination through the payload, and omits the default', () => {
+    const settings = defaultQuickAddSettings()
+    const toTodo: QuickAddCaptureChoice = {
+      ...newCaptureChoice('qa-c', 'To the board', 0),
+      task: true,
+      destination: 'todo',
+    }
+    const toNote: QuickAddCaptureChoice = { ...newCaptureChoice('qa-n', 'To the note', 1), task: true }
+
+    const parsed = parseQuickAddText(JSON.stringify(buildQuickAddPayload(settings, [toTodo, toNote])))
+    const [first, second] = parsed.data?.choices ?? []
+
+    // The field is additive: a reader that predates it keeps writing notes, and a record that never
+    // chose the board stays byte-for-byte what it was.
+    expect((first as QuickAddCaptureChoice).destination).toBe('todo')
+    expect(second).not.toHaveProperty('destination')
+  })
+
   it('refuses a payload that is not a quickadd library', () => {
     expect(parseQuickAddText('{"kind":"template-library","choices":[]}').data).toBeNull()
     expect(parseQuickAddText('{"app":"other","kind":"quickadd","choices":[]}').data).toBeNull()
