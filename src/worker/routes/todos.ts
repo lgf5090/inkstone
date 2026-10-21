@@ -292,6 +292,61 @@ function batchIds(value: unknown): string[] {
   return ids
 }
 
+/**
+ * The revision a conditional write names.
+ *
+ * `If-Match` wins over a body field: it is the standard place for a precondition, and a client library
+ * that adds the header must not be overruled by a body a caller forgot to update. `*` means "some live
+ * row", which every route here already requires. A header the route cannot read is a 400 rather than an
+ * unconditional write — silently dropping a guard is how the lost update came back.
+ */
+function requestRevision(c: Ctx, body: Record<string, unknown>): number | undefined {
+  const header = c.req.header('If-Match')
+  if (header !== undefined) {
+    const value = header.trim()
+    if (value === '*') return undefined
+    const match = /^(?:W\/)?"?(\d+)"?$/.exec(value)
+    const rev = match ? Number(match[1]) : Number.NaN
+    if (!Number.isSafeInteger(rev) || rev < 1) {
+      throw ApiError.badRequest('If-Match must name a task revision.')
+    }
+    return rev
+  }
+  const rev = body.rev
+  if (rev === undefined || rev === null) return undefined
+  if (typeof rev !== 'number' || !Number.isSafeInteger(rev) || rev < 1) {
+    throw ApiError.badRequest('rev must be the task revision.')
+  }
+  return rev
+}
+
+/**
+ * The revision each row of a batch was read at, keyed by task id.
+ *
+ * A batch carries many revisions and one header cannot name them, so the map is the body's own shape.
+ * A row whose revision does not match is a failure of that row, not of the batch: the same per-row
+ * answer a missing id already gets.
+ */
+function batchRevisions(value: unknown): Map<string, number> {
+  const revisions = new Map<string, number>()
+  if (value === undefined || value === null) return revisions
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw ApiError.badRequest('A batch revision map must be an object keyed by task id.')
+  }
+  for (const [id, rev] of Object.entries(value)) {
+    if (typeof rev !== 'number' || !Number.isSafeInteger(rev) || rev < 1) {
+      throw ApiError.badRequest('Each batch revision must be a task revision.')
+    }
+    revisions.set(id, rev)
+  }
+  return revisions
+}
+
+/** The 409 a guarded write answers with when the row moved: the store's own shape for a single task. */
+function revisionConflict(id: string, rev: number | undefined): ApiError {
+  return ApiError.conflict('The task changed since it was read. Reload it and try again.', { id, rev })
+}
+
 /** The flag a star batch sets. Absent means "star them", which is the gesture the bar offers. */
 function batchStarValue(value: unknown): boolean {
   if (value === undefined || value === null || value === true || value === 'true') return true
@@ -582,6 +637,7 @@ todoRoutes.post('/batch', async (c) => {
   }
   const op = body.op
   const ids = batchIds(body.ids)
+  const revisions = batchRevisions(body.revs)
   // The target is validated once, before any row changes: a list that does not exist is a bad request
   // about the batch, not a failure of each row inside it.
   let moveListId: string | null = null
@@ -619,6 +675,11 @@ todoRoutes.post('/batch', async (c) => {
         failed.push({ id, reason: 'not found' })
         continue
       }
+      const expectedRev = revisions.get(id)
+      if (expectedRev !== undefined && existing.rev !== expectedRev) {
+        failed.push({ id, reason: 'conflict' })
+        continue
+      }
       switch (op) {
         case 'complete':
           // The store method, not a status column: a repeating task has to file its next occurrence,
@@ -632,19 +693,19 @@ todoRoutes.post('/batch', async (c) => {
           await s.deleteTask(id)
           break
         case 'move':
-          if (!(await s.updateTask(id, { listId: moveListId }))) {
+          if (!(await s.updateTask(id, { listId: moveListId }, settings.timezone, expectedRev))) {
             failed.push({ id, reason: 'not found' })
             continue
           }
           break
         case 'priority':
-          if (!(await s.updateTask(id, { priority }))) {
+          if (!(await s.updateTask(id, { priority }, settings.timezone, expectedRev))) {
             failed.push({ id, reason: 'not found' })
             continue
           }
           break
         case 'star':
-          if (!(await s.updateTask(id, { starred }))) {
+          if (!(await s.updateTask(id, { starred }, settings.timezone, expectedRev))) {
             failed.push({ id, reason: 'not found' })
             continue
           }
@@ -657,6 +718,12 @@ todoRoutes.post('/batch', async (c) => {
       }
       done.push(id)
     } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        // The row moved between the read above and the guarded write: the same per-row answer the
+        // pre-check gives, and the rest of the batch still lands.
+        failed.push({ id, reason: 'conflict' })
+        continue
+      }
       if (!(error instanceof ApiError)) {
         // Reported per row below; the log is what tells an operator a batch failure was the database
         // rather than the id.
@@ -709,6 +776,10 @@ todoRoutes.post('/:id/plan', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
   const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
+  const expectedRev = requestRevision(c, body)
+  const existing = await s.getTask(id)
+  if (!existing) throw ApiError.notFound('Task not found')
+  if (expectedRev !== undefined && existing.rev !== expectedRev) throw revisionConflict(id, existing.rev)
   const task = await s.planTask(id, plannedDay(body.date))
   if (!task) throw ApiError.notFound('Task not found')
   return c.json({ task })
@@ -730,8 +801,10 @@ todoRoutes.post('/:id/snooze', async (c) => {
   if (!isSnoozeMinutes(body.minutes)) {
     throw ApiError.badRequest('A snooze must be 10, 60, 540 or 1440 minutes.')
   }
+  const expectedRev = requestRevision(c, body)
   const existing = await s.getTask(id)
   if (!existing) throw ApiError.notFound('Task not found')
+  if (expectedRev !== undefined && existing.rev !== expectedRev) throw revisionConflict(id, existing.rev)
   if (existing.status === 'done') throw ApiError.badRequest('A finished task cannot be snoozed.')
   if ((existing.reminders?.length ?? 0) >= MAX_REMINDERS_PER_TASK) {
     throw ApiError.badRequest(`This task already has ${MAX_REMINDERS_PER_TASK} reminders.`)
@@ -858,8 +931,12 @@ todoRoutes.patch('/:id', async (c) => {
   const settings = await s.getSettings()
   const id = requiredId(c.req.param('id'))
   const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
+  const expectedRev = requestRevision(c, body)
   const existing = await s.getTask(id)
   if (!existing) throw ApiError.notFound('Task not found')
+  // A guard that already disagrees is refused before anything is written, which is what protects the
+  // completion path: `completeTask` has no guarded variant, so the pre-check is its conflict check.
+  if (expectedRev !== undefined && existing.rev !== expectedRev) throw revisionConflict(id, existing.rev)
   const dueAt = body.dueAt === undefined ? undefined : parseDue(body.dueAt, settings.timezone)
   const nextStatus = body.status !== undefined ? asStatus(body.status) : undefined
   /**
@@ -887,7 +964,9 @@ todoRoutes.patch('/:id', async (c) => {
     ...(body.conversationId !== undefined ? { conversationId: optionalId(body.conversationId, 'conversationId') } : {}),
     ...(body.tags !== undefined ? { tags: tagNames(body.tags) ?? [] } : {}),
   }
-  let task = Object.keys(patch).length ? await s.updateTask(id, patch) : existing
+  let task = Object.keys(patch).length
+    ? await s.updateTask(id, patch, settings.timezone, expectedRev)
+    : existing
   if (!task) throw ApiError.notFound('Task not found')
   let next = null
   if (completing) {
@@ -897,7 +976,14 @@ todoRoutes.patch('/:id', async (c) => {
     next = done.next
     await s.recordActivity('task.completed', task.title)
   } else if (nextStatus !== undefined && nextStatus !== task.status) {
-    task = (await s.updateTask(id, { status: nextStatus })) ?? task
+    // The revision was already spent by the patch above; naming it twice would refuse this caller's
+    // own second write.
+    task = (await s.updateTask(
+      id,
+      { status: nextStatus },
+      settings.timezone,
+      Object.keys(patch).length ? undefined : expectedRev,
+    )) ?? task
   }
   return c.json({ task, ...(next ? { next } : {}) })
 })

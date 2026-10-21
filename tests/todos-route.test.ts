@@ -57,12 +57,19 @@ function app(): Hono<AppBindings> {
   return instance
 }
 
-async function send(method: string, path: string, body?: unknown): Promise<Response> {
+async function send(
+  method: string,
+  path: string,
+  body?: unknown,
+  headers: Record<string, string> = {},
+): Promise<Response> {
   const init: RequestInit = { method }
+  const merged = { ...headers }
   if (body !== undefined) {
-    init.headers = { 'Content-Type': 'application/json' }
+    merged['Content-Type'] = 'application/json'
     init.body = JSON.stringify(body)
   }
+  if (Object.keys(merged).length) init.headers = merged
   return app().request(`/api/todos${path}`, init, env)
 }
 
@@ -767,5 +774,97 @@ describe('the write budget', () => {
       ids: [first.id, second.id, third.id], op: 'priority', value: 'high',
     })).status).toBe(200)
     expect((await write('DELETE', `/${first.id}`)).status).toBe(429)
+  })
+})
+
+describe('a conditional write', () => {
+  // The write budget is module-wide and keyed by caller, so each case spends a caller of its own.
+  let caller = 0
+
+  beforeEach(() => {
+    caller += 1
+    mocks.userId = `revcase${String(caller).padStart(19, '0')}`
+    mocks.settingsRaw = '{}'
+  })
+
+  it('refuses an edit that names a revision the row has moved past, and writes nothing', async () => {
+    const task = await create({ title: 'Draft' })
+    expect(task.rev).toBe(1)
+
+    const first = await send('PATCH', `/${task.id}`, { title: 'First edit' }, { 'If-Match': '"1"' })
+    expect(first.status).toBe(200)
+    const saved = (await json<{ task: TodoTask }>(first)).task
+    // The write moves the revision on and hands the new one back, so the caller can guard its next save.
+    expect(saved.rev).toBe(2)
+    expect((await json<{ task: TodoTask }>(await send('GET', `/${task.id}`))).task.rev).toBe(2)
+
+    const stale = await send('PATCH', `/${task.id}`, { title: 'Second edit' }, { 'If-Match': '1' })
+    expect(stale.status).toBe(409)
+    const conflict = await json<{ error: { code: string, details: { id: string, rev: number } } }>(stale)
+    expect(conflict.error.code).toBe('conflict')
+    // The revision that really stands rides in the refusal, so a client can retry without a second read.
+    expect(conflict.error.details).toEqual({ id: task.id, rev: 2 })
+
+    // A refused write is zero writes: the first edit is still the only content.
+    const detail = await json<{ task: TodoTask }>(await send('GET', `/${task.id}`))
+    expect(detail.task.title).toBe('First edit')
+    expect(detail.task.rev).toBe(2)
+  })
+
+  it('reads a body revision when no header is sent, and lets the header win when both are', async () => {
+    const task = await create({ title: 'Draft' })
+
+    const viaBody = await send('PATCH', `/${task.id}`, { title: 'Body edit', rev: 1 })
+    expect(viaBody.status).toBe(200)
+    expect((await json<{ task: TodoTask }>(viaBody)).task.rev).toBe(2)
+
+    // The header and the body disagree; the header is the guard that is honoured.
+    const guarded = await send('PATCH', `/${task.id}`, { title: 'Body wins?', rev: 2 }, { 'If-Match': '1' })
+    expect(guarded.status).toBe(409)
+    expect((await json<{ task: TodoTask }>(await send('GET', `/${task.id}`))).task.title).toBe('Body edit')
+
+    // A guard this route cannot read is a refusal rather than an unconditional write.
+    expect((await send('PATCH', `/${task.id}`, { title: 'Unguarded' }, { 'If-Match': 'soon' })).status).toBe(400)
+  })
+
+  it('refuses a stale pick and a stale snooze and leaves the row as it was', async () => {
+    const task = await create({ title: 'Plan me' })
+    const planned = await send('POST', `/${task.id}/plan`, { date: '2026-10-21', rev: 1 })
+    expect(planned.status).toBe(200)
+    expect((await json<{ task: TodoTask }>(planned)).task.plannedFor).toBe('2026-10-21')
+
+    const stalePlan = await send('POST', `/${task.id}/plan`, { date: null, rev: 1 })
+    expect(stalePlan.status).toBe(409)
+    expect((await json<{ task: TodoTask }>(await send('GET', `/${task.id}`))).task.plannedFor).toBe('2026-10-21')
+
+    const fresh = (await json<{ task: TodoTask }>(await send('GET', `/${task.id}`))).task
+    const snoozed = await send('POST', `/${task.id}/snooze`, { minutes: 10, rev: fresh.rev })
+    expect(snoozed.status).toBe(200)
+    const staleSnooze = await send('POST', `/${task.id}/snooze`, { minutes: 10, rev: fresh.rev })
+    expect(staleSnooze.status).toBe(409)
+    // The refused snooze appended nothing: one reminder, not two.
+    expect((await json<{ task: TodoTask }>(await send('GET', `/${task.id}`))).task.reminders).toHaveLength(1)
+  })
+
+  it('answers a stale revision per row instead of failing the whole batch', async () => {
+    const fresh = await create({ title: 'Fresh' })
+    const moved = await create({ title: 'Moved' })
+    await send('PATCH', `/${moved.id}`, { title: 'Moved elsewhere' })
+    expect((await json<{ task: TodoTask }>(await send('GET', `/${moved.id}`))).task.rev).toBe(2)
+
+    const response = await send('POST', '/batch', {
+      ids: [fresh.id, moved.id],
+      op: 'star',
+      revs: { [fresh.id]: 1, [moved.id]: 1 },
+    })
+    expect(response.status).toBe(200)
+    // A batch is still not all-or-nothing: the row that matched changed, the stale one is named.
+    expect(await json<TaskBatchResult>(response)).toEqual({
+      done: [fresh.id],
+      failed: [{ id: moved.id, reason: 'conflict' }],
+    })
+
+    expect((await json<{ task: TodoTask }>(await send('GET', `/${fresh.id}`))).task.starred).toBe(true)
+    expect((await json<{ task: TodoTask }>(await send('GET', `/${moved.id}`))).task.starred).toBe(false)
   })
 })
