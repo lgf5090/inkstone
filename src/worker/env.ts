@@ -49,6 +49,13 @@ export interface Env {
    */
   AI_CONNECT_HOSTS?: string
 
+  /**
+   * The bare domain Email Routing delivers to this Worker, as in `mail.example.com`. Optional: with
+   * it unset no address can be formed, so the mail-token routes answer 503 and inbound mail is
+   * dropped. Set it as a plain variable, not a secret — it is printed in every address.
+   */
+  MAIL_DOMAIN?: string
+
   /** Workers AI binding for semantic search; optional so AI search degrades gracefully. */
   AI?: {
     run: <T = unknown>(model: string, inputs: unknown) => Promise<T>

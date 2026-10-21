@@ -209,6 +209,32 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
      ON todos_feeds(slug)`,
   `CREATE INDEX IF NOT EXISTS idx_todos_feeds_user
      ON todos_feeds(user_id, created_at DESC, slug DESC)`,
+
+  // The address an account may post mail to: one per account, so rotation replaces the row rather than
+  // accumulating addresses nobody remembers revoking. The token is stored in the clear because the
+  // owner's settings screen has to show the address again — the capability is the token itself, and
+  // its 200 bits of randomness are the authentication. The unique index is what turns a recipient
+  // into an owner; the primary key only keeps "one address" true.
+  `CREATE TABLE IF NOT EXISTS todos_mail_tokens (
+    user_id TEXT NOT NULL,
+    token TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id)
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_todos_mail_tokens_token
+     ON todos_mail_tokens(token)`,
+
+  // What makes a delivery idempotent: the Message-ID of every message already filed, claimed before
+  // the task is written. Email delivery is at least once, so the same message can arrive twice; the
+  // row is the claim that says the first arrival is the one that counts. Scoped by account because
+  // one message may legitimately reach two accounts that both route it to their own task list; the
+  // rows older than the idempotency window are pruned as new mail arrives, so the table stays small.
+  `CREATE TABLE IF NOT EXISTS todos_mail_messages (
+    user_id TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, message_id)
+  )`,
 ]
 
 export const TODOS_REQUIRED_TABLES: readonly string[] = [
@@ -220,6 +246,8 @@ export const TODOS_REQUIRED_TABLES: readonly string[] = [
   'todos_tags',
   'todos_tag_links',
   'todos_feeds',
+  'todos_mail_tokens',
+  'todos_mail_messages',
 ]
 
 export const TODOS_REQUIRED_INDEXES: readonly string[] = [
@@ -242,6 +270,7 @@ export const TODOS_REQUIRED_INDEXES: readonly string[] = [
   'idx_todos_tag_links_tag',
   'idx_todos_feeds_slug',
   'idx_todos_feeds_user',
+  'idx_todos_mail_tokens_token',
 ]
 
 export const TODOS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -261,6 +290,8 @@ export const TODOS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>>
   todos_tags: ['user_id', 'id', 'name', 'color', 'created_at', 'updated_at'],
   todos_tag_links: ['user_id', 'task_id', 'tag_id', 'created_at'],
   todos_feeds: ['slug', 'user_id', 'password_hash', 'expires_at', 'revoked_at', 'created_at'],
+  todos_mail_tokens: ['user_id', 'token', 'created_at'],
+  todos_mail_messages: ['user_id', 'message_id', 'created_at'],
 }
 
 // ------------------------------------------------------------- task attachments
@@ -356,4 +387,62 @@ export async function unlinkTodoAttachment(
       WHERE user_id = ?1 AND task_id = ?2 AND attachment_id = ?3`,
   ).bind(userId, taskId, attachmentId).run()
   return (result.meta?.changes ?? 0) > 0
+}
+
+// ------------------------------------------------------------- mail addresses
+
+/** The address an account has issued, as the settings screen reads it: the capability itself. */
+export interface MailTokenRow {
+  token: string
+  created_at: number
+}
+
+/** The account's one address, or null while it has never asked for one. */
+export async function loadMailToken(db: D1Database, userId: string): Promise<MailTokenRow | null> {
+  return (await db.prepare(
+    `SELECT token, created_at FROM todos_mail_tokens WHERE user_id = ?1`,
+  ).bind(userId).first<MailTokenRow>()) ?? null
+}
+
+/**
+ * Issue an address, replacing the one the account already had.
+ *
+ * One statement, so rotation cannot leave an account with two rows or none: the upsert keeps the
+ * primary key's promise even if two tabs press the button at once. The old token stops resolving the
+ * moment this lands, which is what "rotate" means — a reader who wants to keep the old address keeps
+ * it, because issuing is the only write that changes it.
+ */
+export async function saveMailToken(
+  db: D1Database,
+  userId: string,
+  token: string,
+  now: number,
+): Promise<void> {
+  await db.prepare(
+    `INSERT INTO todos_mail_tokens (user_id, token, created_at)
+     VALUES (?1, ?2, ?3)
+     ON CONFLICT(user_id) DO UPDATE SET token = excluded.token, created_at = excluded.created_at`,
+  ).bind(userId, token, now).run()
+}
+
+/** Revoke the account's address; `false` means there was none. */
+export async function revokeMailToken(db: D1Database, userId: string): Promise<boolean> {
+  const result = await db.prepare(
+    `DELETE FROM todos_mail_tokens WHERE user_id = ?1`,
+  ).bind(userId).run()
+  return (result.meta?.changes ?? 0) > 0
+}
+
+/**
+ * The account a delivered token belongs to, or null for a token nobody issued.
+ *
+ * This is the entire authentication of the inbound path: the address was handed to its owner, its
+ * 200 bits cannot be guessed, and a mailbox that does not hold it never reaches this query. The
+ * lookup is by the unique index, so a scanner walking `u+aaaa…` learns only that no row matched.
+ */
+export async function findMailTokenOwner(db: D1Database, token: string): Promise<string | null> {
+  const row = await db.prepare(
+    `SELECT user_id FROM todos_mail_tokens WHERE token = ?1`,
+  ).bind(token).first<{ user_id: string }>()
+  return row?.user_id ?? null
 }
