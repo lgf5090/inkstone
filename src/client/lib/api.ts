@@ -1199,6 +1199,26 @@ export const api = {
     removeTag: (id: string) => request<{ deleted: true }>(`/api/todos/tags/${id}`, { method: 'DELETE' }),
 
     /**
+     * Import tasks from a CSV the reader picked.
+     *
+     * The file is the document; `conflict` is the one rule it cannot answer for itself — keep what is here,
+     * let the file win, or file a second copy. Rows the parser refused come back in `errors` while the rest
+     * still land, so the screen can honestly print both numbers.
+     */
+    importCsv: (file: File, conflict: 'skip' | 'newer' | 'duplicate' = 'skip') => {
+      const form = new FormData()
+      form.append('file', file)
+      form.append('conflict', conflict)
+      return request<{
+        created: number
+        updated: number
+        skipped: number
+        missingLists: number
+        errors: { line: number, reason: string }[]
+      }>('/api/todos/import', { method: 'POST', formData: form })
+    },
+
+    /**
      * The calendar subscriptions this account published.
      *
      * `create` mints a new address every time — a feed is never replaced, and revoking one never frees

@@ -259,6 +259,83 @@ export function TodoSettings() {
         </Select>
       </SettingRow>
       <FeedSettings />
+      <TodoImportRow />
     </div>
+  )
+}
+
+/**
+ * The CSV import row.
+ *
+ * The worker already answers with what happened row by row; this row only chooses the document and the one
+ * rule a CSV cannot carry — what "already imported" should mean. A refused row is a line number the reader
+ * can fix, so the answer is printed rather than swallowed into a toast.
+ */
+function TodoImportRow() {
+  const fileId = useId()
+  const [file, setFile] = useState<File | null>(null)
+  const [conflict, setConflict] = useState<'skip' | 'newer' | 'duplicate'>('skip')
+  const [busy, setBusy] = useState(false)
+  const [answer, setAnswer] = useState<string | null>(null)
+  const [problem, setProblem] = useState<string | null>(null)
+
+  const run = async (): Promise<void> => {
+    if (!file) {
+      setProblem(t('settings.todo_import_choose'))
+      return
+    }
+    setBusy(true)
+    setProblem(null)
+    try {
+      const result = await api.todos.importCsv(file, conflict)
+      setAnswer(t('settings.todo_import_result', { created: result.created, updated: result.updated, skipped: result.skipped }))
+      setFile(null)
+    } catch (cause) {
+      setProblem(describeError(cause))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <SettingRow
+      title={t('settings.todo_import')}
+      description={(
+        <div className="flex flex-col gap-1">
+          <span id={fileId}>{t('settings.todo_import_hint')}</span>
+          {(answer || problem) && (
+            <span role="status" className={problem ? 'text-[var(--danger)]' : 'text-[var(--text-secondary)]'}>{problem ?? answer}</span>
+          )}
+        </div>
+      )}
+      controlId={fileId}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          id={fileId}
+          type="file"
+          accept=".csv,text/csv"
+          disabled={busy}
+          onChange={(event) => {
+            setFile(event.target.files?.[0] ?? null)
+            setAnswer(null)
+            setProblem(null)
+          }}
+          className="min-h-9 max-w-[240px] text-[length:var(--text-11-5)] text-[var(--text-secondary)] file:mr-2 file:rounded-[var(--r-sm)] file:border-0 file:bg-[var(--bg-hover)] file:px-2 file:py-1 file:text-[var(--text-secondary)]"
+        />
+        <Select
+          aria-label={t('settings.todo_import_conflict')}
+          value={conflict}
+          disabled={busy}
+          onChange={(event) => setConflict(event.target.value as 'skip' | 'newer' | 'duplicate')}
+          className="max-w-[170px]"
+        >
+          <option value="skip">{t('settings.todo_import_conflict_skip')}</option>
+          <option value="newer">{t('settings.todo_import_conflict_newer')}</option>
+          <option value="duplicate">{t('settings.todo_import_conflict_duplicate')}</option>
+        </Select>
+        <Button size="sm" disabled={busy} onClick={() => void run()}>{t('settings.todo_import_action')}</Button>
+      </div>
+    </SettingRow>
   )
 }

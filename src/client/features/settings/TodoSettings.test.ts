@@ -19,13 +19,14 @@ import { TodoSettings } from './TodoSettings'
  * switch that would create a duplicate routine on the next press.
  */
 
-const { settingsMock, saveSettingsMock, automationsMock, createMock, updateMock, feedListMock } = vi.hoisted(() => ({
+const { settingsMock, saveSettingsMock, automationsMock, createMock, updateMock, feedListMock, importCsvMock } = vi.hoisted(() => ({
   settingsMock: vi.fn(),
   saveSettingsMock: vi.fn(),
   automationsMock: vi.fn(),
   createMock: vi.fn(),
   updateMock: vi.fn(),
   feedListMock: vi.fn(),
+  importCsvMock: vi.fn(),
 }))
 
 vi.mock('../../lib/api', async (importOriginal) => {
@@ -41,7 +42,7 @@ vi.mock('../../lib/api', async (importOriginal) => {
         updateAutomation: updateMock,
       },
       // The calendar block loads with the page; a case about the plan row must not trip over it.
-      todos: { feed: { list: feedListMock, create: vi.fn(), remove: vi.fn() } },
+      todos: { feed: { list: feedListMock, create: vi.fn(), remove: vi.fn() }, importCsv: importCsvMock },
     },
   }
 })
@@ -213,5 +214,26 @@ describe('the daily-plan row', () => {
     await toggle()
     expect(view?.container.textContent).toContain(t('api.error.forbidden'))
     expect(switchControl().getAttribute('aria-checked')).toBe('false')
+  })
+
+  it('hands the chosen file and the duplicate rule to the import endpoint', async () => {
+    importCsvMock.mockResolvedValue({ created: 2, updated: 1, skipped: 3, missingLists: 0, errors: [] })
+    await render()
+
+    const input = view?.container.querySelector<HTMLInputElement>('input[type="file"]')
+    expect(input, 'the import row never drew a file input').toBeTruthy()
+    const file = new File(['title\nBuy milk'], 'tasks.csv', { type: 'text/csv' })
+    // jsdom has no picker, so the selection is handed to the field the way the browser would.
+    Object.defineProperty(input!, 'files', { value: [file], configurable: true })
+    await act(async () => { input!.dispatchEvent(new Event('change', { bubbles: true })) })
+
+    const button = [...(view?.container.querySelectorAll('button') ?? [])]
+      .find((node) => node.textContent?.trim() === t('settings.todo_import_action'))
+    expect(button, 'the row has no way to start the import').toBeTruthy()
+    await act(async () => { button!.click() })
+    await settle()
+
+    expect(importCsvMock).toHaveBeenCalledWith(file, 'skip')
+    expect(view?.container.textContent).toContain(t('settings.todo_import_result', { created: 2, updated: 1, skipped: 3 }))
   })
 })

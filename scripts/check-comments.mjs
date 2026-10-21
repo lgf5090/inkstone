@@ -10080,6 +10080,7 @@ const allowed = new Map([
     "// The schedule the row wrote is the one the sweep reads: 21:30 in Shanghai is 13:30 UTC.",
     "// The retry reads again; once it answers, the row is usable rather than stuck in its refusal.",
     "// The calendar block loads with the page; a case about the plan row must not trip over it.",
+    "// jsdom has no picker, so the selection is handed to the field the way the browser would.",
   ]],
   ["src/client/features/settings/TodoSettings.tsx", [
     "/** What a failed read or write says to the reader: the code the server named when it has one. */",
@@ -10094,6 +10095,7 @@ const allowed = new Map([
     "/**\n   * Turns the daily plan on or off on the automation the worker already fires.\n   *\n   * There is no digest yet — the first press creates the routine the chat's own editor would create:\n   * a `task_digest` at the chosen wall time, with no model behind it. Every later press is a PATCH, so\n   * the row never ends up with two routines that both notify at nine.\n   */",
     "/** Writes the picked wall time as a daily schedule; the worker arms it in the account's own zone. */",
     "// The field goes back to what is stored, so a refused write cannot look like a saved one.",
+    "/**\n * The CSV import row.\n *\n * The worker already answers with what happened row by row; this row only chooses the document and the one\n * rule a CSV cannot carry — what \"already imported\" should mean. A refused row is a line number the reader\n * can fix, so the answer is printed rather than swallowed into a toast.\n */",
   ]],
   ["src/client/features/settings/TotpSettings.tsx", [
     "// Best-effort release of a secret the reader walked away from. The form is already reset, and the",
@@ -11603,6 +11605,7 @@ const allowed = new Map([
     "/**\n * One calendar subscription as its owner's settings screen reads it.\n *\n * The worker's public reader (`routes/todo-feeds.ts`) owns the document; this is the management half:\n * the untrusted slug, the address built from it, whether a passcode stands in front of it, and the two\n * timestamps. A passcode hash has no field here and never travels — `hasPassword` is the whole marker.\n *\n * `url` is the route's answer for convenience, but the screen rebuilds the address from its own\n * `window.location.origin`: behind a proxy the origin the worker saw is not necessarily the one the\n * reader can reach, and a copied subscription has to be reachable from their calendar.\n */",
     "/**\n     * The calendar subscriptions this account published.\n     *\n     * `create` mints a new address every time — a feed is never replaced, and revoking one never frees\n     * its slug. The passcode is an optional plaintext on the way in only; the answer carries the\n     * `hasPassword` marker, and a protected feed's subscriber appends `?key=` to the copied address.\n     */",
     "/**\n * A list as the organizer page reads it: the shared shape plus where it sits.\n *\n * `archivedAt` is the moment the reader put the list away, or null while it is in use; `parentId` is\n * the one container it sits under, or null at the top level. Kept beside the API client rather than\n * in the shared model because they are fields of this screen's answer, not facts every task surface\n * reads.\n */",
+    "/**\n     * Import tasks from a CSV the reader picked.\n     *\n     * The file is the document; `conflict` is the one rule it cannot answer for itself — keep what is here,\n     * let the file win, or file a second copy. Rows the parser refused come back in `errors` while the rest\n     * still land, so the screen can honestly print both numbers.\n     */",
   ]],
   ["src/client/lib/app-history.ts", [
     "/** Replace the address without a reload. A no-op on the address that is already up. */",
@@ -27249,11 +27252,11 @@ const allowed = new Map([
     "// there: the ambient Workers interface is wider than hono needs and cannot be faked outside a Worker.",
   ]],
   ["tests/tasks-tools.test.ts", [
-    "/**\r\n * What the chat tools do to the reader's tasks, against a real store.\r\n *\r\n * The store is real rather than mocked because the contract under test is a compound one: a task that\r\n * says it has a list, tags and steps is only true if the three tables agree. A spy would let a tool\r\n * \"succeed\" while the row it wrote carried none of it.\r\n *\r\n * The one thing deliberately not exercised is the model: every case calls the executor exactly as the\r\n * runner would, with the arguments a model would send, and reads the payload the model would see.\r\n */",
     "// The finished row stays, so \"I did send that last week\" survives the next occurrence.",
     "/** A note body straight into the table, because the tool reads the row and nothing above it. */",
     "/** The end of a bare day in the account's zone (Asia/Shanghai in these fixtures), in UTC ms. */",
     "// The whole point of a draft: no step rows, and no edit to the task it was drafted for.",
+    "/**\n * What the chat tools do to the reader's tasks, against a real store.\n *\n * The store is real rather than mocked because the contract under test is a compound one: a task that\n * says it has a list, tags and steps is only true if the three tables agree. A spy would let a tool\n * \"succeed\" while the row it wrote carried none of it.\n *\n * The one thing deliberately not exercised is the model: every case calls the executor exactly as the\n * runner would, with the arguments a model would send, and reads the payload the model would see.\n */",
   ]],
   ["tests/template-library-route.test.ts", [
     "// Every field hono's request handler declares, so the fake cannot hand the route less than the real",
