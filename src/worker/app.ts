@@ -9,6 +9,7 @@ import { notesRoutes } from './routes/notes'
 import { memoListRoutes } from './routes/memos'
 import { memoSpaceRoutes } from './routes/memos/spaces'
 import { memoViewRoutes } from './routes/memos/views'
+import { memoTokenRoutes } from './routes/memos/tokens'
 import { memoPreferenceRoutes } from './routes/memos/preferences'
 import { memoReactionRoutes } from './routes/memos/reactions'
 import { memoShareRoutes } from './routes/memos/shares'
@@ -108,6 +109,7 @@ export function createApp() {
   app.route('/api/notes', notesRoutes)
   app.route('/api/memos/spaces', memoSpaceRoutes)
   app.route('/api/memos/views', memoViewRoutes)
+  app.route('/api/memos/tokens', memoTokenRoutes)
   app.route('/api/memos/preferences', memoPreferenceRoutes)
   app.route('/api/memos/stats', memoStatsRoutes)
   app.route('/api/memos/link-metadata', memoLinkMetaRoutes)
