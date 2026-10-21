@@ -9,11 +9,12 @@
  * calendar when that is switched on.
  */
 import { useMemo, useState, type ReactElement } from 'react'
-import { Calculator, Plus, Sparkles, X } from 'lucide-react'
+import { Calculator, Plus, Sparkles } from 'lucide-react'
 import { t } from '../../lib/i18n'
-import { Button, IconButton } from '../../components/primitives'
+import { Button } from '../../components/primitives'
 import { Field, Input, Select, Switch, Textarea } from '../../components/form'
 import { Modal } from '../../components/overlay'
+import { DatePicker } from '../../components/date-picker'
 import { formatAmount } from '@shared/subscriptions/format'
 import { addLunarPeriod, lunar2solar, solar2lunar } from '@shared/subscriptions/lunar'
 import { addCalendarPeriodInTimezone, formatDateInputInTimezone, getTimezoneDateParts, getTimestampForTimezoneParts } from '@shared/subscriptions/time'
@@ -326,20 +327,11 @@ export function SubscriptionForm({
           {/* A trial is the one subscription that quietly becomes a bill, so the date it turns is worth a
               field of its own rather than a note the reminder engine cannot read. */}
           <Field label={t('subscriptions.form.trial_ends')} hint={t('subscriptions.form.trial_ends_hint')}>
-            <div className="flex items-center gap-1.5">
-              <Input
-                className="min-w-0 flex-1"
-                type="date"
-                aria-label={t('subscriptions.form.trial_ends')}
-                value={draft.trialEndsAt}
-                onChange={(event) => set('trialEndsAt', event.target.value)}
-              />
-              {draft.trialEndsAt && (
-                <IconButton label={t('subscriptions.form.trial_ends_clear')} size="sm" onClick={() => set('trialEndsAt', '')}>
-                  <X size={13} />
-                </IconButton>
-              )}
-            </div>
+            <DatePicker
+              label={t('subscriptions.form.trial_ends')}
+              value={draft.trialEndsAt}
+              onChange={(date) => set('trialEndsAt', date)}
+            />
           </Field>
         </section>
 
@@ -369,20 +361,19 @@ export function SubscriptionForm({
           </Field>
           <div className="grid grid-cols-2 gap-2.5">
             <Field label={t('subscriptions.detail.start')}>
-              <Input type="date" value={draft.startDate} onChange={(event) => set('startDate', event.target.value)} />
+              <DatePicker label={t('subscriptions.detail.start')} value={draft.startDate} onChange={(date) => set('startDate', date)} />
             </Field>
             <Field label={t('subscriptions.detail.expiry')} required hint={expiryInvalid ? t('subscriptions.form.required') : hint}>
               <div className="flex items-center gap-1.5">
-                <Input
+                <DatePicker
                   className="min-w-0 flex-1"
-                  aria-label={t('subscriptions.detail.expiry')}
-                  type="date"
+                  label={t('subscriptions.detail.expiry')}
                   value={draft.expiryDate}
                   invalid={expiryInvalid}
-                  onChange={(event) => set('expiryDate', event.target.value)}
+                  onChange={(date) => set('expiryDate', date)}
                 />
-                {/* The native field cannot be pointed at a lunar calendar, and a birthday or an
-                    anniversary is remembered by its lunar date for half the accounts this serves. */}
+                {/* The other half of this row: a birthday or an anniversary is remembered by its lunar date
+                    for half the accounts this serves, and the solar picker has no way to ask for one. */}
                 <LunarDateButton value={draft.expiryDate} onPick={(date) => set('expiryDate', date)} />
               </div>
             </Field>

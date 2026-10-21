@@ -10,6 +10,7 @@ import { t } from '../../lib/i18n'
 import { Button } from '../../components/primitives'
 import { Field, Input } from '../../components/form'
 import { Modal } from '../../components/overlay'
+import { DatePicker } from '../../components/date-picker'
 import { formatAmount } from '@shared/subscriptions/format'
 import { addLunarPeriod, lunar2solar, solar2lunar } from '@shared/subscriptions/lunar'
 import { addCalendarPeriodInTimezone, formatDateInputInTimezone, getTimezoneDateParts, getTimestampForTimezoneParts } from '@shared/subscriptions/time'
@@ -83,7 +84,7 @@ export function RenewDialog({
       <div className="space-y-3">
         <div className="grid grid-cols-2 gap-2.5">
           <Field label={t('subscriptions.renew.date')}>
-            <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+            <DatePicker label={t('subscriptions.renew.date')} value={date} onChange={setDate} />
           </Field>
           <Field label={t('subscriptions.renew.amount')}>
             <Input type="number" min={0} step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} />

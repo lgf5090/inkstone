@@ -7663,7 +7663,6 @@ console.log(\`Hello, \${name}!\`)
     "subscriptions.form.type": "类型",
     "subscriptions.form.trial_ends": "试用截止",
     "subscriptions.form.trial_ends_hint": "免费期变成扣款的那一天。不是试用就留空。",
-    "subscriptions.form.trial_ends_clear": "不是试用",
     "subscriptions.select": "多选",
     "subscriptions.select_exit": "退出多选",
     "subscriptions.export": "导出 CSV",

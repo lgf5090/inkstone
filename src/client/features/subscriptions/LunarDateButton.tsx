@@ -1,10 +1,11 @@
 /**
  * Picking a date by its lunar calendar name.
  *
- * The form's date field is the browser's own, which is the right control for a Gregorian date — it is
- * keyboard accessible, it is what a phone gives you, and it localises itself. What it cannot do is let a
- * reader name a month by its lunar sequence, which is how a birthday or an anniversary is actually
- * remembered for half the accounts this app serves. So the native field stays and this sits beside it.
+ * The solar picker beside it is the shared `DatePicker`, which is the right control for a Gregorian
+ * date: keyboard reachable, its own calendar rather than the browser's, and localised. What neither can
+ * do is let a reader name a month by its lunar sequence, which is how a birthday or an anniversary is
+ * actually remembered for half the accounts this app serves — a lunar date has no fixed solar equivalent
+ * to point at, so it has to be entered from the lunar side and converted here.
  *
  * The day list is rebuilt from the month, not fixed at thirty: a lunar month is 29 or 30 days depending
  * on the year, and the thirtieth of the last month does not exist in most of them. Offering a day that

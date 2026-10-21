@@ -9,6 +9,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { initI18n, setLocale } from '../lib/i18n'
 import { installTestGlobals, renderElement } from '../lib/test-render'
 import { DatePicker, TimeField, nudgeFor } from './date-picker'
+import { Field } from './form'
 
 beforeAll(async () => {
   installTestGlobals()
@@ -229,5 +230,77 @@ describe('nudgeFor', () => {
     expect(tight.up).toBe(true)
     const cramped = nudgeFor({ anchor: { left: 8, bottom: 170, top: 138 }, panel: { width: 256, height: 600 }, viewport: PHONE })
     expect(cramped.up).toBe(false)
+  })
+})
+
+/**
+ * The naming contract, which is the part a `Field` cannot enforce on its own.
+ *
+ * A `Field` hands its child an `id` and an `aria-labelledby`; a picker that ignored them would leave the
+ * visible label pointing at nothing while the button named itself from a hidden span — the shape that
+ * reads as two different controls, and as an unlabelled one, to a screen reader.
+ */
+describe('DatePicker labelling', () => {
+  const trigger = (container: HTMLElement) =>
+    container.querySelector<HTMLButtonElement>('[aria-haspopup="dialog"]')
+
+  it('names itself when nothing above it does', () => {
+    const rendered = renderElement(createElement(DatePicker, { label: 'Due date', onChange: vi.fn() }))
+    const button = trigger(rendered.container)!
+    expect(button.getAttribute('aria-labelledby')).toBeNull()
+    expect(button.querySelector('.sr-only')?.textContent).toBe('Due date')
+    rendered.unmount()
+  })
+
+  it('takes the name from a surrounding Field and drops its own copy', () => {
+    const rendered = renderElement(
+      createElement(Field, {
+        label: 'Expiry date',
+        children: createElement(DatePicker, { label: 'Expiry date', onChange: vi.fn() }),
+      }),
+    )
+    const button = trigger(rendered.container)!
+    const label = rendered.container.querySelector('label')!
+    expect(label.getAttribute('for'), 'the visible label points at nothing').toBe(button.id)
+    expect(button.id, 'the picker took no id from its field').not.toBe('')
+    expect(button.getAttribute('aria-labelledby')).toBe(label.id)
+    expect(button.querySelector('.sr-only'), 'the same words are read twice').toBeNull()
+    rendered.unmount()
+  })
+
+  it('hands a hint to the control, so the field description is announced with it', () => {
+    const rendered = renderElement(
+      createElement(Field, {
+        label: 'Trial ends',
+        hint: 'The day the free period turns into a bill.',
+        children: createElement(DatePicker, { label: 'Trial ends', onChange: vi.fn() }),
+      }),
+    )
+    const button = trigger(rendered.container)!
+    const hintId = rendered.container.querySelector('p')!.id
+    expect(button.getAttribute('aria-describedby'), 'the hint is not tied to the control').toContain(hintId)
+    rendered.unmount()
+  })
+
+  it('shows and says an invalid date, and keeps its own box on a shared row', () => {
+    const rendered = renderElement(
+      createElement(DatePicker, { label: 'Expiry date', value: '', invalid: true, className: 'min-w-0 flex-1', onChange: vi.fn() }),
+    )
+    const box = trigger(rendered.container)!.parentElement!
+    expect(box.className).toContain('border-[var(--danger)]')
+    expect(box.className, 'the picker could not share its row').toContain('min-w-0')
+    expect(trigger(rendered.container)!.getAttribute('aria-invalid')).toBe('true')
+    rendered.unmount()
+  })
+
+  it('clears through its own affordance, which is why a caller needs no second button', () => {
+    const onChange = vi.fn()
+    const rendered = renderElement(createElement(DatePicker, { label: 'Trial ends', value: '2026-09-15', onChange }))
+    const clear = [...rendered.container.querySelectorAll<HTMLButtonElement>('button')]
+      .find((node) => node !== trigger(rendered.container))
+    expect(clear, 'a set date offers no way back to empty').toBeTruthy()
+    act(() => { clear!.click() })
+    expect(onChange).toHaveBeenCalledWith('')
+    rendered.unmount()
   })
 })

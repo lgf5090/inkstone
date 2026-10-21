@@ -94,12 +94,16 @@ describe('the service picker', () => {
 
   it('leaves the amount and every date for the reader', async () => {
     await mount()
-    const datesBefore = [...document.querySelectorAll<HTMLInputElement>('input[type=date]')].map((node) => node.value)
+    // Read what the pickers show rather than how many there are: the dates are no longer native fields,
+    // and an empty `input[type=date]` list would make this assertion pass while proving nothing.
+    const shownDates = () => [...document.querySelectorAll('[aria-haspopup="dialog"]')]
+      .map((node) => (node.textContent || '').trim())
+    const datesBefore = shownDates()
+    expect(datesBefore.length, 'the form drew no date pickers').toBeGreaterThan(0)
     expect(boxFor(t('subscriptions.form.amount'))?.value).toBe('')
     await choose('Netflix')
     expect(boxFor(t('subscriptions.form.amount'))?.value, 'a template that filled a price would be the app guessing').toBe('')
-    // The form opens with today in the start date; the point is that the template moved no date at all.
-    expect([...document.querySelectorAll<HTMLInputElement>('input[type=date]')].map((node) => node.value)).toEqual(datesBefore)
+    expect(shownDates(), 'a template moved a date the reader never answered').toEqual(datesBefore)
   })
 
   it('does not appear while a plan that already exists is being corrected', async () => {
