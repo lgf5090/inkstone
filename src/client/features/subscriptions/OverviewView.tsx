@@ -17,6 +17,7 @@ import { formatAmount } from '@shared/subscriptions/format'
 import { formatLocalDate } from '@shared/subscriptions/time'
 import type { LabelKind, SubscriptionOverview } from '@shared/subscriptions/model'
 import { iconComponentOf } from './label-icons'
+import { CurrencyFlag } from './currency-flag'
 import { useLabelIdentity } from './label-identity'
 
 /**
@@ -61,7 +62,10 @@ function RatesStrip({ rates, timezone, refreshing, onRefresh }: {
         {rates.at !== null && (
           <span>{t('subscriptions.overview.rates_taken', { when: formatLocalDate(rates.at, timezone, 'date') })}</span>
         )}
-        <span>{t('subscriptions.overview.rates_base', { code: rates.base })}</span>
+        <span className="inline-flex items-center gap-1">
+          <CurrencyFlag code={rates.base} />
+          {t('subscriptions.overview.rates_base', { code: rates.base })}
+        </span>
         {rates.pinned.length > 0 && (
           <span>{t('subscriptions.overview.rates_pinned', { codes: rates.pinned.join(', ') })}</span>
         )}

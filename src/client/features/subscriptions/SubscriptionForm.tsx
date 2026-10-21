@@ -18,7 +18,6 @@ import { formatAmount } from '@shared/subscriptions/format'
 import { addLunarPeriod, lunar2solar, solar2lunar } from '@shared/subscriptions/lunar'
 import { addCalendarPeriodInTimezone, formatDateInputInTimezone, getTimezoneDateParts, getTimestampForTimezoneParts } from '@shared/subscriptions/time'
 import {
-  CURRENCY_CODES,
   labelNamesOf,
   PERIOD_UNITS,
   PERIOD_VALUE_MAX,
@@ -32,6 +31,7 @@ import {
   type SubscriptionInput,
   type SubscriptionMode,
 } from '@shared/subscriptions/model'
+import { CurrencySelect } from './currency-flag'
 import { LabelGlyph, LabelStylePicker, useLabelIdentity } from './label-identity'
 import { LunarDateButton } from './LunarDateButton'
 import { ReminderRuleRow } from './ReminderRuleRow'
@@ -274,9 +274,7 @@ export function SubscriptionForm({
               />
             </Field>
             <Field label={t('subscriptions.form.currency')}>
-              <Select value={draft.currency} onChange={(event) => set('currency', event.target.value as CurrencyCode)}>
-                {CURRENCY_CODES.map((code) => <option key={code} value={code}>{code}</option>)}
-              </Select>
+              <CurrencySelect value={draft.currency} onChange={(code) => set('currency', code)} />
             </Field>
           </div>
           {/* A trial is the one subscription that quietly becomes a bill, so the date it turns is worth a

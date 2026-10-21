@@ -18,7 +18,8 @@ import { CHANNEL_DEFINITIONS, channelLabelKey, INBOUND_HOOK_PATH, type ChannelFi
 import { copyText } from '../../lib/clipboard'
 import { useUi } from '../../store/ui'
 import { FALLBACK_RATES } from '@shared/subscriptions/currency'
-import { CURRENCY_CODES, PAYMENT_LIMIT_MAX, PAYMENT_LIMIT_MIN, type ChannelKind, type ChannelState, type CurrencyCode, type NotifyLocale, type SubscriptionSettings } from '@shared/subscriptions/model'
+import { CURRENCY_CODES, PAYMENT_LIMIT_MAX, PAYMENT_LIMIT_MIN, type ChannelKind, type ChannelState, type NotifyLocale, type SubscriptionSettings } from '@shared/subscriptions/model'
+import { CurrencySelect } from './currency-flag'
 
 /**
  * Which currencies get a box.
@@ -140,9 +141,7 @@ export function SubscriptionSettings({
               </Select>
             </Field>
             <Field label={t('subscriptions.settings.base_currency')} hint={t('subscriptions.settings.base_currency_hint')}>
-              <Select value={settings.baseCurrency} onChange={(event) => void saveGeneral({ baseCurrency: event.target.value as CurrencyCode })}>
-                {CURRENCY_CODES.map((code) => <option key={code} value={code}>{code}</option>)}
-              </Select>
+              <CurrencySelect value={settings.baseCurrency} onChange={(code) => { void saveGeneral({ baseCurrency: code }) }} />
             </Field>
             {/* A ceiling the reader sets, not one the app infers: the dashboard already says what was
                 spent, and the number only means anything against a limit they chose themselves. */}

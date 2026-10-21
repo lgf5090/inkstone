@@ -19,6 +19,7 @@ import { Menu, Tooltip, type MenuItem } from '../../components/overlay'
 import { daysState, daysStateKey, formatAmount, periodUnitKey } from '@shared/subscriptions/format'
 import { subscriptionStatus, type SubscriptionItem } from '@shared/subscriptions/model'
 import { StatusPill } from './StatusPill'
+import { CurrencyFlag } from './currency-flag'
 import { iconComponentOf } from './label-icons'
 import { useLabelIdentity } from './label-identity'
 import { groupItems, type ListGroup } from './list-view'
@@ -180,8 +181,9 @@ function SubscriptionRow({
           </span>
         </span>
         <span className="shrink-0 text-right">
-          <span className="block text-[length:var(--text-13)] font-medium tabular-nums text-[var(--text-primary)]">
-            {amount || '—'}
+          <span className="flex items-center justify-end gap-1.5 text-[length:var(--text-13)] font-medium tabular-nums text-[var(--text-primary)]">
+            <CurrencyFlag code={item.currency} />
+            <span className="truncate">{amount || '—'}</span>
           </span>
           <span
             className={cn(
