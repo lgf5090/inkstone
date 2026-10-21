@@ -6,8 +6,8 @@
  * the board is two columns wide and a list that is not on screen needs a way to be reached.
  */
 
-import { useState, type ReactNode } from 'react'
-import { ChevronRight, ListChecks, Plus } from 'lucide-react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { ChevronRight, ListChecks, Mic, Plus, Square } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { getLocale, t } from '../../lib/i18n'
 import { useDropState } from '../../lib/drop-state'
@@ -111,6 +111,48 @@ function QuickAddPreview({ input, timezone, lists }: {
   )
 }
 
+/** The three states the voice button can be in. Absence of the API is not one of them. */
+type VoiceState = 'idle' | 'listening' | 'error'
+
+/** The one result shape this code reads: the first alternative of the first utterance. */
+interface SpeechResultEvent {
+  results: { 0: { 0: { transcript: string } } }
+}
+
+/** The slice of `SpeechRecognition` this button uses, declared because the API is not in jsdom. */
+interface SpeechRecognitionLike {
+  lang: string
+  interimResults: boolean
+  continuous: boolean
+  maxAlternatives: number
+  start(): void
+  stop(): void
+  abort?(): void
+  onresult: ((event: SpeechResultEvent) => void) | null
+  onerror: ((event: { error?: string }) => void) | null
+  onend: (() => void) | null
+}
+
+type SpeechRecognitionCtor = new () => SpeechRecognitionLike
+
+/**
+ * The browser's own recogniser, or null where there is none.
+ *
+ * Chromium and Safari expose it under the `webkit` prefix, and Firefox exposes neither. Returning
+ * null rather than a stub is what lets the button say "not available here" instead of pretending to
+ * listen — a press that silently does nothing is the failure this branch exists to avoid.
+ */
+function speechRecognitionCtor(): SpeechRecognitionCtor | null {
+  if (typeof window === 'undefined') return null
+  const scope = window as unknown as {
+    SpeechRecognition?: SpeechRecognitionCtor
+    webkitSpeechRecognition?: SpeechRecognitionCtor
+  }
+  return scope.SpeechRecognition ?? scope.webkitSpeechRecognition ?? null
+}
+
+const VOICE_HINT_ID = 'todo-voice-hint'
+
 export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void }) {
   const tasks = useTodos((state) => state.tasks)
   const lists = useTodos((state) => state.lists)
@@ -127,6 +169,76 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
   // on a row is handled by the row itself and never reaches this; a drop on the card appends.
   const [dropCard, setDropCard] = useDropState<string | null>(null)
   const moveFor = useTaskMoves(!sort)
+  /**
+   * Voice input for the inline field.
+   *
+   * The recogniser is created per attempt rather than kept: a browser may refuse the microphone, a
+   * card may close, and an instance that has ended is not reusable. Support is read every render so
+   * a test (or a browser that gained the API) sees the truth; the three states below are the run's
+   * own — idle, listening, and an error that stays visible until the next attempt.
+   */
+  const voiceSupported = speechRecognitionCtor() !== null
+  const [voiceState, setVoiceState] = useState<VoiceState>('idle')
+  const [voiceError, setVoiceError] = useState<MessageKey | null>(null)
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
+
+  useEffect(() => () => {
+    recognitionRef.current?.abort?.()
+    recognitionRef.current = null
+  }, [])
+
+  /** Ends a run without waiting for `onend`, which a stopped browser may never fire. */
+  const stopVoice = (): void => {
+    const recognition = recognitionRef.current
+    recognitionRef.current = null
+    recognition?.stop()
+    setVoiceState('idle')
+  }
+
+  const startVoice = (): void => {
+    if (voiceState === 'listening') {
+      stopVoice()
+      return
+    }
+    const Recognizer = speechRecognitionCtor()
+    if (!Recognizer) return
+    const recognition = new Recognizer()
+    recognition.lang = getLocale() === 'zh-CN' ? 'zh-CN' : 'en-US'
+    recognition.interimResults = false
+    recognition.continuous = false
+    recognition.maxAlternatives = 1
+    recognition.onresult = (event) => {
+      const transcript = event.results[0]?.[0]?.transcript?.trim() ?? ''
+      if (!transcript) return
+      // The words join whatever the reader had typed, separated by one space: a spoken correction is
+      // appended to the line rather than replacing it, and the same preview parses the result.
+      setDraft((previous) => (previous.trim() ? `${previous.trimEnd()} ${transcript}` : transcript))
+    }
+    recognition.onerror = (event) => {
+      setVoiceState('error')
+      setVoiceError(event.error === 'not-allowed' || event.error === 'service-not-allowed'
+        ? 'todo.voice.denied'
+        : 'todo.voice.failed')
+    }
+    recognition.onend = () => {
+      if (recognitionRef.current === recognition) recognitionRef.current = null
+      // An error keeps its message on screen; a clean finish returns the button to idle.
+      setVoiceState((state) => (state === 'error' ? 'error' : 'idle'))
+    }
+    try {
+      recognition.start()
+      recognitionRef.current = recognition
+      setVoiceError(null)
+      setVoiceState('listening')
+    } catch {
+      setVoiceError('todo.voice.failed')
+      setVoiceState('error')
+    }
+  }
+
+  const voiceStatus = voiceState === 'listening'
+    ? t('todo.voice.listening')
+    : voiceState === 'error' && voiceError ? t(voiceError) : ''
 
   const bounds = { dayEnd, now: Date.now() }
   // A card keeps the order the page arrived in: the server read it in the order the sort control
@@ -170,6 +282,7 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
       : 'none'
     setDraft('')
     setAdding(null)
+    stopVoice()
     await createTask({
       ...body,
       title,
@@ -271,25 +384,76 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
 
               {adding === card.id ? (
                 <div className="px-1.5 pb-1.5">
-                  <Input
-                    autoFocus
-                    value={draft}
-                    placeholder={t('todo.task.title_label')}
-                    aria-label={t('todo.action.add_task')}
-                    onChange={(event) => setDraft(event.target.value)}
-                    onBlur={() => { void submit(card) }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(card) }
-                      if (event.key === 'Escape') { setAdding(null); setDraft('') }
+                  {/* The row commits when focus leaves the whole group, not the field: the voice
+                      button is part of the same line, and focusing it must not submit the draft
+                      the reader is about to speak into. */}
+                  <div
+                    className="flex items-center gap-1"
+                    onBlur={(event) => {
+                      const next = event.relatedTarget
+                      if (next instanceof Node && event.currentTarget.contains(next)) return
+                      void submit(card)
                     }}
-                    className="h-9 text-[length:var(--text-12)]"
-                  />
+                  >
+                    <Input
+                      autoFocus
+                      value={draft}
+                      placeholder={t('todo.task.title_label')}
+                      aria-label={t('todo.action.add_task')}
+                      onChange={(event) => setDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(card) }
+                        if (event.key === 'Escape') { stopVoice(); setAdding(null); setDraft('') }
+                      }}
+                      className="h-9 min-w-0 flex-1 text-[length:var(--text-12)]"
+                    />
+                    <button
+                      type="button"
+                      data-todo-voice=""
+                      disabled={!voiceSupported}
+                      aria-label={voiceState === 'listening' ? t('todo.voice.stop') : t('todo.voice.start')}
+                      aria-pressed={voiceState === 'listening'}
+                      aria-describedby={voiceSupported ? undefined : VOICE_HINT_ID}
+                      onClick={startVoice}
+                      className={cn(
+                        'flex size-11 shrink-0 items-center justify-center rounded-full md:size-9',
+                        'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
+                        voiceSupported
+                          ? voiceState === 'listening'
+                            ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                            : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
+                          : 'cursor-not-allowed text-[var(--text-quaternary)] opacity-50',
+                      )}
+                    >
+                      {voiceState === 'listening'
+                        ? <Square size={13} fill="currentColor" aria-hidden="true" />
+                        : <Mic size={14} aria-hidden="true" />}
+                    </button>
+                  </div>
+                  {!voiceSupported && (
+                    <p id={VOICE_HINT_ID} className="mt-1 text-[length:var(--text-10-5)] leading-snug text-[var(--text-quaternary)]">
+                      {t('todo.voice.unsupported')}
+                    </p>
+                  )}
+                  {/* Listening and a refused microphone are states the reader has to hear, not only
+                      see: the same line is the live region a screen reader announces. */}
+                  <p
+                    role="status"
+                    aria-live="polite"
+                    className={cn(
+                      'mt-1 text-[length:var(--text-10-5)] leading-snug',
+                      voiceState === 'error' ? 'text-[var(--danger)]' : 'text-[var(--text-tertiary)]',
+                      voiceStatus ? '' : 'sr-only',
+                    )}
+                  >
+                    {voiceStatus}
+                  </p>
                   <QuickAddPreview input={draft} timezone={timezone} lists={lists} />
                 </div>
               ) : (
                 <button
                   type="button"
-                  onClick={() => { setAdding(card.id); setDraft('') }}
+                  onClick={() => { stopVoice(); setAdding(card.id); setDraft('') }}
                   className="m-1.5 mt-0 flex min-h-11 items-center justify-center gap-1 rounded-[var(--r-md)] text-[length:var(--text-11-5)] text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-primary)] md:min-h-9"
                   style={{ backgroundColor: `color-mix(in oklab, ${card.color} 8%, transparent)` }}
                 >
