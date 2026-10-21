@@ -353,12 +353,27 @@ export interface TaskStatsHourCount {
   completed: number
 }
 
+/**
+ * One occupied cell of the weekday × hour heatmap.
+ *
+ * Only cells that hold a completion are listed: the grid is 168 cells and most of them are empty for
+ * any real account, so sending the zeros would be four kilobytes of nothing. A missing cell reads as
+ * zero, which is the same answer with less wire.
+ */
+export interface TaskStatsWeekdayHourCount {
+  weekday: number
+  hour: number
+  completed: number
+}
+
 export interface TaskStatsDistributions {
   byList: TaskStatsNamedCount[]
   byTag: TaskStatsNamedCount[]
   byPriority: TaskStatsPriorityCount[]
   byWeekday: TaskStatsWeekdayCount[]
   byHour: TaskStatsHourCount[]
+  /** The two marginals above, crossed: when in the week the work actually gets finished. */
+  byWeekdayHour: TaskStatsWeekdayHourCount[]
 }
 
 export interface TaskStatsPriorityLead {

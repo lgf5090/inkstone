@@ -147,6 +147,10 @@ function fullStats(): TodoStats {
         { hour: 9, completed: 7 },
         { hour: 17, completed: 5 },
       ],
+      byWeekdayHour: [
+        { weekday: 1, hour: 9, completed: 7 },
+        { weekday: 3, hour: 17, completed: 3 },
+      ],
     },
     leadTime: {
       p50: 1.5 * 86_400_000,
@@ -189,6 +193,7 @@ function emptyStats(): TodoStats {
       byPriority: stats.distributions.byPriority.map((entry) => ({ ...entry, completed: 0, share: 0 })),
       byWeekday: [],
       byHour: [],
+      byWeekdayHour: [],
     },
     leadTime: { p50: null, p90: null, byPriority: [] },
     backlog: { under7: 0, days7to30: 0, over30: 0, none: 0 },
@@ -208,7 +213,9 @@ async function mount(address: string): Promise<HTMLElement> {
 }
 
 function buttonFor(container: HTMLElement, label: string): HTMLButtonElement {
-  const button = [...container.querySelectorAll('button')].find((node) => node.textContent?.trim() === label)
+  // An icon-only control carries its name in `aria-label`; a labelled one carries it as text.
+  const button = [...container.querySelectorAll('button')]
+    .find((node) => node.textContent?.trim() === label || node.getAttribute('aria-label') === label)
   expect(button, `no control labelled ${label}`).not.toBeNull()
   return button as HTMLButtonElement
 }
@@ -218,8 +225,9 @@ function clickControl(container: HTMLElement, label: string): void {
   act(() => { button.click() })
 }
 
+/** A number card: the four headlines, or one of the four small readings below them. */
 function kpi(container: HTMLElement, id: string): string {
-  return container.querySelector(`[data-stats-kpi="${id}"]`)?.textContent ?? ''
+  return container.querySelector(`[data-stats-kpi="${id}"], [data-stats-secondary="${id}"]`)?.textContent ?? ''
 }
 
 function delta(container: HTMLElement, id: string): string {

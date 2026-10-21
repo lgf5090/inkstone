@@ -268,15 +268,27 @@ export function computeTodoStats(input: StatsInput): TodoStats {
 
   const byWeekday = Array.from({ length: 7 }, (_, weekday) => ({ weekday, completed: 0 }))
   const byHour = Array.from({ length: 24 }, (_, hour) => ({ hour, completed: 0 }))
+  // The cross of the two marginals, keyed by `weekday * 24 + hour` while it is being counted so the
+  // grid is a Map of the cells that were actually hit rather than 168 objects walked twice.
+  const weekdayHour = new Map<number, number>()
   for (const row of completed) {
     // The weekday and hour are the one place a zone still matters: the stored day cannot tell 09:00
     // from 21:00, and the heatmap is about the clock the reader actually finished at.
     const parts = getZonedParts(new Date(row.completedAt), input.timezone)
     byWeekday[parts.weekday]!.completed += 1
     byHour[parts.hour]!.completed += 1
+    const cell = parts.weekday * 24 + parts.hour
+    weekdayHour.set(cell, (weekdayHour.get(cell) ?? 0) + 1)
   }
+  const byWeekdayHour = [...weekdayHour]
+    .map(([cell, completed]) => ({
+      weekday: Math.floor(cell / 24),
+      hour: cell % 24,
+      completed,
+    }))
+    .sort((left, right) => left.weekday - right.weekday || left.hour - right.hour)
 
-  const distributions: TaskStatsDistributions = { byList, byTag, byPriority, byWeekday, byHour }
+  const distributions: TaskStatsDistributions = { byList, byTag, byPriority, byWeekday, byHour, byWeekdayHour }
 
   const leadTime: TaskStatsLeadTime = {
     p50: percentile(durations, 0.5),

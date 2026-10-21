@@ -150,6 +150,7 @@ describe('the shape of the answer', () => {
     expect(answer.distributions.byPriority.map((entry) => entry.completed)).toEqual([0, 0, 0, 0])
     expect(answer.distributions.byWeekday).toHaveLength(7)
     expect(answer.distributions.byHour).toHaveLength(24)
+    expect(answer.distributions.byWeekdayHour).toEqual([])
     expect(answer.distributions.byHour.every((entry) => entry.completed === 0)).toBe(true)
     expect(answer.leadTime).toEqual({
       p50: null,
@@ -162,6 +163,20 @@ describe('the shape of the answer', () => {
       ],
     })
     expect(answer.backlog).toEqual({ under7: 0, days7to30: 0, over30: 0, none: 0 })
+  })
+
+  it('crosses the weekday and the hour into one heatmap cell', async () => {
+    // 2026-03-04 is a Wednesday (3) and the completion lands at 14:30 UTC, so the cell is (3, 14).
+    clock('2026-03-04T14:30:00Z')
+    await withZone('UTC')
+    await seedCompleted({ title: 'Wednesday afternoon' })
+
+    const answer = await stats('?from=2026-03-04&to=2026-03-04')
+
+    expect(answer.distributions.byWeekdayHour).toEqual([{ weekday: 3, hour: 14, completed: 1 }])
+    // The marginals still agree with the cell: one completion, counted once in each reading.
+    expect(answer.distributions.byWeekday.find((entry) => entry.weekday === 3)?.completed).toBe(1)
+    expect(answer.distributions.byHour.find((entry) => entry.hour === 14)?.completed).toBe(1)
   })
 
   it('answers a single day with one series point', async () => {
