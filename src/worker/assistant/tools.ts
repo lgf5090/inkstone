@@ -1546,7 +1546,7 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
     name: 'subscription_summary',
     permission: 'read',
     maxCallsPerTurn: 2,
-    description: 'The account\'s money picture in one call: what this month and this year have cost in the reader\'s total currency, how that compares with last month, the ceiling the reader set for a month and for a year and whether either is spent, what the months left in the year can still afford, what the current plans commit for a year, where the exchange rates came from and which currencies had none, which trials are about to start charging, which plans changed price, what renews in the next week, where the spending goes by type and by category and which categories the reader capped and whether those caps still hold, and whether the reminder scheduler is still running.',
+    description: 'The account\'s money picture in one call: what this month and this year have cost in the reader\'s total currency, how that compares with last month, the ceiling the reader set for a month and for a year and whether either is spent, what the months left in the year can still afford, what the current plans commit for a year, where the exchange rates came from and which currencies had none, which trials are about to start charging, which plans changed price, what renews in the next week, where the spending goes by type and by category and which categories the reader capped and whether those caps still hold, how the last twelve months of receipts compare month to month, and whether the reminder scheduler is still running.',
     fields: {},
     async run(_args, ctx) {
       const settings = await loadSettings(ctx.env.DB, ctx.store.userId)
@@ -1596,8 +1596,10 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
         priceChanges: overview.priceChanges,
         active: overview.active,
         upcoming: overview.upcoming.slice(0, 8),
-        byType: overview.byType.slice(0, 6),
-        byCategory: overview.byCategory.slice(0, 6),
+        // Eight of each, the same number the dashboard's own list and ring draw: a model asked "what does
+        // the app show" must not be handed a shorter answer than the reader sees.
+        byType: overview.byType.slice(0, 8),
+        byCategory: overview.byCategory.slice(0, 8),
         months: overview.months,
         scheduler: overview.scheduler
           ? { status: overview.scheduler.status, at: overview.scheduler.startedAt, sent: overview.scheduler.sentCount, reason: overview.scheduler.reason }

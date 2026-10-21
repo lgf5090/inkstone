@@ -9,72 +9,12 @@
  * Cost is drawn one currency at a time. A window priced in two is two bills, and stacking them would be
  * adding different money together; the panel names the currency it is showing instead.
  */
-import { useEffect, useMemo, useRef } from 'react'
+import { useMemo } from 'react'
 import type { ChartConfiguration } from 'chart.js'
 import type { AssistantStats, AssistantUsageDay, AssistantUsageSlice } from '@shared/assistant'
 import { t } from '../../lib/i18n'
-import { chartPalette } from '../../lib/markdown/chart'
-import { useThemeDark } from '../../lib/hooks'
+import { ChartCanvas, withAlpha, type ChartColors } from '../../components/chart-canvas'
 import { compact } from './usage-format'
-
-interface ChartColors {
-  palette: string[]
-  text: string
-  grid: string
-}
-
-/** A translucent fill for an area series, from the opaque hex the palette hands out. */
-function withAlpha(color: string, alpha: number): string {
-  if (!color.startsWith('#') || color.length !== 7) return color
-  return `${color}${Math.round(alpha * 255).toString(16).padStart(2, '0')}`
-}
-
-/**
- * One chart.js canvas, with the housekeeping every chart on this screen shares.
- *
- * `build` is memoised by the caller on the data it closes over, which is what makes this effect re-run when
- * the window or the grouping changes rather than on every render.
- */
-function ChartCanvas({ height, label, build }: {
-  height: string
-  label: string
-  /** Memoised on the data behind it: a new function each render would redraw the chart each render. */
-  build: (colors: ChartColors) => ChartConfiguration
-}) {
-  const canvas = useRef<HTMLCanvasElement>(null)
-  const dark = useThemeDark()
-  useEffect(() => {
-    const element = canvas.current
-    if (!element) return
-    let chart: { destroy: () => void } | null = null
-    let cancelled = false
-    void import('chart.js/auto').then(({ default: Chart }) => {
-      if (cancelled || !canvas.current) return
-      const styles = getComputedStyle(document.documentElement)
-      const colors: ChartColors = {
-        palette: chartPalette(dark),
-        text: styles.getPropertyValue('--text-quaternary').trim() || '#888',
-        grid: dark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)',
-      }
-      // Drawing is the one thing here that can fail on its own — a context that cannot be had, a library
-      // that will not load — and the numbers above it are what the reader came for. Best-effort, then.
-      try {
-        chart = new Chart(canvas.current, build(colors))
-      } catch {
-        chart = null
-      }
-    })
-    return () => {
-      cancelled = true
-      chart?.destroy()
-    }
-  }, [build, dark])
-  return (
-    <div className={height}>
-      <canvas ref={canvas} aria-label={label} role="img" />
-    </div>
-  )
-}
 
 const slicesOf = (day: AssistantUsageDay, group: 'model' | 'key'): AssistantUsageSlice[] =>
   group === 'model' ? day.models : day.keys

@@ -1,21 +1,28 @@
 /**
  * The dashboard: what this costs, what is about to renew, and whether the reminders are running.
  *
- * The four cards answer the questions a reader opens the app with, in the order they ask them. The bar
- * chart is six months of receipts rather than a projection, because a subscription app's whole value is
- * knowing what was actually charged. Every bar is a plain box with a height — a charting library would
- * be a second rendering stack for six rectangles, and it would draw on a canvas a screen reader cannot
- * read.
+ * The four cards answer the questions a reader opens the app with, in the order they ask them. The month
+ * chart is twelve months of receipts rather than a projection, because a subscription app's whole value is
+ * knowing what was actually charged; it is still drawn as boxes, because six — now twelve — rectangles do
+ * not need a second rendering stack, and a row of boxes keeps its numbers legible to a screen reader
+ * without a label written by hand.
+ *
+ * The two share charts are the exception: an arc is not a box. They come through the same chart.js canvas
+ * the usage screen and the note charts already use, and each one sits above the list of the same numbers,
+ * which is both the reading a canvas cannot offer and the legend the slices are coloured to match.
  */
 import type { ReactElement, ReactNode } from 'react'
+import { useMemo } from 'react'
+import type { ChartConfiguration } from 'chart.js'
 import { ArrowDownRight, ArrowUpRight, Minus } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { Button } from '../../components/primitives'
 import { Empty, LoadingBlock } from '../../components/feedback'
+import { ChartCanvas, type ChartColors } from '../../components/chart-canvas'
 import { formatAmount } from '@shared/subscriptions/format'
 import { formatLocalDate } from '@shared/subscriptions/time'
-import type { LabelKind, SubscriptionOverview } from '@shared/subscriptions/model'
+import type { ExpenseShare, LabelKind, SubscriptionOverview } from '@shared/subscriptions/model'
 import { iconComponentOf } from './label-icons'
 import { CurrencyFlag } from './currency-flag'
 import { useLabelIdentity } from './label-identity'
@@ -118,7 +125,6 @@ export function OverviewView({
     )
   }
 
-  const peak = Math.max(1, ...overview.months.map((month) => month.amount))
   const trend = overview.monthly
   const TrendIcon = trend.direction === 'up' ? ArrowUpRight : trend.direction === 'down' ? ArrowDownRight : Minus
 
@@ -193,23 +199,7 @@ export function OverviewView({
 
       <Card className="mt-3">
         <CardTitle>{t('subscriptions.overview.trend_title')}</CardTitle>
-        <div className="mt-3 flex items-end gap-1.5" role="img" aria-label={t('subscriptions.overview.trend_title')}>
-          {overview.months.map((month, index) => (
-            <div key={month.month} className="flex min-w-0 flex-1 flex-col items-center gap-1">
-              <div className="flex w-full items-end" style={{ height: PLOT_HEIGHT }}>
-                <div
-                  className={cn(
-                    'w-full rounded-t-[var(--r-xs)]',
-                    index === overview.months.length - 1 ? 'bg-[var(--accent)]' : 'bg-[color-mix(in_oklab,var(--accent)_42%,transparent)]',
-                  )}
-                  style={{ height: barHeight(month.amount, peak) }}
-                  title={formatAmount(month.amount, currency)}
-                />
-              </div>
-              <span className="text-[length:var(--text-10)] tabular-nums text-[var(--text-quaternary)]">{month.month.slice(5)}</span>
-            </div>
-          ))}
-        </div>
+        <TrendChart months={overview.months} currency={currency} budget={overview.budget.limit} />
       </Card>
 
       <div className="mt-3 grid gap-3 lg:grid-cols-2">
@@ -311,10 +301,11 @@ export function OverviewView({
         <Card>
           <CardTitle>{t('subscriptions.overview.by_category')}</CardTitle>
           <ShareBars
-            shares={overview.byCategory.slice(0, 5)}
+            shares={overview.byCategory.slice(0, 8)}
             kind="category"
             emptyLabel={t('subscriptions.overview.no_spending')}
             currency={currency}
+            chartLabel={t('subscriptions.overview.by_category')}
           />
           {/* Listed beside the shares rather than folded into them: a ceiling on a category that spends
               little is exactly the one a reader wants to see, and it would never reach the top five. */}
@@ -345,10 +336,11 @@ export function OverviewView({
         <Card>
           <CardTitle>{t('subscriptions.overview.by_type')}</CardTitle>
           <ShareBars
-            shares={overview.byType.slice(0, 5)}
+            shares={overview.byType.slice(0, 8)}
             kind="type"
             emptyLabel={t('subscriptions.overview.no_spending')}
             currency={currency}
+            chartLabel={t('subscriptions.overview.by_type')}
           />
         </Card>
 
@@ -430,46 +422,192 @@ function StatCard({
   )
 }
 
+/**
+ * Twelve months of receipts as boxes, with the month's ceiling ruled across them.
+ *
+ * The line is the reason this chart exists: a bar that reaches past it is the month to look at, and
+ * without the line the reader is comparing bar to bar rather than bar to the number they chose. The peak
+ * therefore includes the ceiling, so a year that never reached it still shows where it stood. A month
+ * that passed the ceiling is drawn in the danger colour rather than only marked, because the shape of the
+ * series is what the eye reads first.
+ *
+ * The boxes are hidden from a screen reader and the same twelve figures are listed beside them: a row of
+ * heights carries no numbers to a reader who cannot see them, and one long label written for the whole
+ * group would be a second copy of the data to keep in step.
+ */
+function TrendChart({ months, currency, budget }: {
+  months: SubscriptionOverview['months']
+  currency: string
+  budget: number | null
+}): ReactElement {
+  const ceiling = budget !== null && budget > 0 ? budget : null
+  const peak = Math.max(1, ...months.map((month) => month.amount), ceiling ?? 0)
+  return (
+    <div className="mt-3">
+      <div className="relative" aria-hidden="true">
+        {ceiling !== null && (
+          <div className="absolute inset-x-0 border-t border-dashed border-[var(--warning)]" style={{ bottom: barHeight(ceiling, peak) }} data-trend-budget="">
+            <span className="absolute -top-3.5 right-0 text-[length:var(--text-10)] tabular-nums text-[var(--warning)]">
+              {formatAmount(ceiling, currency)}
+            </span>
+          </div>
+        )}
+        <div className="flex items-end gap-1" style={{ height: PLOT_HEIGHT }} data-trend-bars="">
+          {months.map((month, index) => (
+            <div
+              key={month.month}
+              // One colour per month, chosen rather than layered: two background utilities in the same
+              // class string resolve by stylesheet order, which is not an order this file can promise.
+              className={cn(
+                'min-w-0 flex-1 rounded-t-[var(--r-xs)]',
+                ceiling !== null && month.amount > ceiling
+                  ? 'bg-[color-mix(in_oklab,var(--danger)_72%,transparent)]'
+                  : index === months.length - 1
+                    ? 'bg-[var(--accent)]'
+                    : 'bg-[color-mix(in_oklab,var(--accent)_42%,transparent)]',
+              )}
+              style={{ height: barHeight(month.amount, peak) }}
+              title={`${month.month} ${formatAmount(month.amount, currency)}`}
+            />
+          ))}
+        </div>
+      </div>
+      <div className="mt-1 flex gap-1" aria-hidden="true">
+        {months.map((month) => (
+          <span key={month.month} className="min-w-0 flex-1 text-center text-[length:var(--text-10)] tabular-nums text-[var(--text-quaternary)]">
+            {month.month.slice(5)}
+          </span>
+        ))}
+      </div>
+      <ul className="sr-only" data-trend-values="">
+        {months.map((month) => (
+          <li key={month.month}>
+            {month.month} · {formatAmount(month.amount, currency)}
+            {ceiling !== null && month.amount > ceiling ? ` · ${t('subscriptions.overview.trend_over')}` : ''}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+/**
+ * One share's face: the words and the colour the list row draws.
+ *
+ * The doughnut and the list under it are the same numbers, so they are named and coloured from here — a
+ * slice whose colour came from a second lookup would be free to disagree with the row that names it.
+ */
+function shareFace(identityOf: ReturnType<typeof useLabelIdentity>, kind: LabelKind, label: string) {
+  // The two sentinels are not labels anybody chose, so they keep the accent rather than being hashed into
+  // a colour that would read as a decision about them.
+  const chosen = label !== 'uncategorized' && label !== 'other'
+  const identity = chosen ? identityOf(kind, label) : null
+  return {
+    color: identity?.color ?? '',
+    name: label === 'uncategorized'
+      ? t('subscriptions.detail.uncategorized')
+      : label === 'other' ? t('subscriptions.overview.other_type') : label,
+    Icon: identity ? iconComponentOf(identity.icon) : null,
+  }
+}
+
+/**
+ * The same shares as a ring.
+ *
+ * Chart.js rather than boxes: an arc is not something to draw with divs, and the library the note charts
+ * and the usage screen already load is here for exactly this. No legend — the list below is the legend, in
+ * the same order and the same colours — and no numbers hidden in the picture either, because they are all
+ * written out under it.
+ */
+function ShareDoughnut({ shares, currency, kind, label }: {
+  shares: readonly ExpenseShare[]
+  currency: string
+  kind: LabelKind
+  label: string
+}): ReactElement {
+  const identityOf = useLabelIdentity()
+  const faces = shares.map((share) => shareFace(identityOf, kind, share.label))
+  // The chart rebuilds when a number or a colour moves, not when the dashboard re-renders: a fresh
+  // `build` each render would tear the canvas down on every keystroke elsewhere on the page.
+  const signature = `${kind}|${shares.map((share, index) => `${share.label}:${share.amount}:${faces[index]!.color}`).join('|')}`
+  const build = useMemo(() => (colors: ChartColors): ChartConfiguration<'doughnut'> => ({
+    type: 'doughnut',
+    data: {
+      labels: faces.map((face) => face.name),
+      datasets: [{
+        data: shares.map((share) => share.amount),
+        // A label with no colour of its own — the two sentinels — takes the accent, which is entry zero
+        // of the same palette the list row resolves `var(--accent)` from.
+        backgroundColor: faces.map((face) => face.color || colors.palette[0]),
+        borderWidth: 0,
+        hoverOffset: 3,
+      }],
+    },
+    options: {
+      cutout: '62%',
+      maintainAspectRatio: false,
+      // A reader who asked the system to reduce motion gets a ring that appears rather than one that spins.
+      animation: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? false : { duration: 250 },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (item) => {
+              const face = faces[item.dataIndex]
+              const share = shares[item.dataIndex]
+              if (!face || !share) return ''
+              return ` ${face.name} ${formatAmount(share.amount, currency)} · ${share.percentage}%`
+            },
+          },
+        },
+      },
+    },
+  }), [signature, currency])
+  return <div className="h-32 mt-2" data-share-ring=""><ChartCanvas height="h-full" label={label} build={build} /></div>
+}
+
 function ShareBars({
   shares,
   emptyLabel,
   currency,
   kind,
+  chartLabel,
 }: {
   shares: SubscriptionOverview['byCategory']
   emptyLabel: string
   currency: string
   kind: LabelKind
+  /** What the ring is a picture of, for the reader who cannot see it. */
+  chartLabel: string
 }): ReactElement {
   const identityOf = useLabelIdentity()
   if (shares.length === 0) return <p className="mt-2 text-[length:var(--text-12)] text-[var(--text-quaternary)]">{emptyLabel}</p>
   return (
-    <ul className="mt-2 space-y-1.5">
-      {shares.map((share) => {
-        // The two sentinels are not labels anybody chose, so they keep the accent rather than being
-        // hashed into a colour that would read as a decision about them.
-        const chosen = share.label !== 'uncategorized' && share.label !== 'other'
-        const identity = chosen ? identityOf(kind, share.label) : null
-        const Icon = identity ? iconComponentOf(identity.icon) : null
-        const color = identity?.color ?? 'var(--accent)'
-        return (
-          <li key={share.label}>
-            <div className="flex items-baseline justify-between gap-2 text-[length:var(--text-11-5)]">
-              <span className="flex min-w-0 items-center gap-1.5 truncate text-[var(--text-secondary)]">
-                {Icon && <span aria-hidden="true" className="inline-flex shrink-0" style={{ color }}><Icon size={11} /></span>}
-                <span className="truncate">
-                  {share.label === 'uncategorized' ? t('subscriptions.detail.uncategorized') : share.label === 'other' ? t('subscriptions.overview.other_type') : share.label}
+    <>
+      {/* One slice is not a proportion, it is the whole thing, and the number under it already says so. */}
+      {shares.length > 1 && <ShareDoughnut shares={shares} currency={currency} kind={kind} label={chartLabel} />}
+      <ul className={cn('space-y-1.5', shares.length > 1 && 'mt-2')} data-share-list="">
+        {shares.map((share) => {
+          const face = shareFace(identityOf, kind, share.label)
+          const color = face.color || 'var(--accent)'
+          const Icon = face.Icon
+          return (
+            <li key={share.label}>
+              <div className="flex items-baseline justify-between gap-2 text-[length:var(--text-11-5)]">
+                <span className="flex min-w-0 items-center gap-1.5 truncate text-[var(--text-secondary)]">
+                  {Icon && <span aria-hidden="true" className="inline-flex shrink-0" style={{ color }}><Icon size={11} /></span>}
+                  <span className="truncate">{face.name}</span>
                 </span>
-              </span>
-              <span className="shrink-0 tabular-nums text-[var(--text-tertiary)]">{formatAmount(share.amount, currency)} · {share.percentage}%</span>
-            </div>
-            <div className="mt-0.5 h-1 w-full overflow-hidden rounded-full bg-[var(--bg-inset)]">
-              <div className="h-full rounded-full" style={{ width: `${Math.max(2, share.percentage)}%`, background: color }} />
-            </div>
-          </li>
-        )
-      })}
-    </ul>
+                <span className="shrink-0 tabular-nums text-[var(--text-tertiary)]">{formatAmount(share.amount, currency)} · {share.percentage}%</span>
+              </div>
+              <div className="mt-0.5 h-1 w-full overflow-hidden rounded-full bg-[var(--bg-inset)]">
+                <div className="h-full rounded-full" style={{ width: `${Math.max(2, share.percentage)}%`, background: color }} />
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+    </>
   )
 }
 

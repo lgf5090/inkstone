@@ -123,6 +123,14 @@ export type SubscriptionStatus = 'active' | 'soon' | 'today' | 'expired' | 'disa
 /** How many days ahead the list calls something "soon" and the overview counts as expiring. */
 export const SOON_DAYS = 7
 
+/**
+ * How many calendar months the dashboard's trend is drawn across.
+ *
+ * Twelve, not six: the question a subscription reader asks of a trend is whether this year is heavier than
+ * last one, and a window shorter than a year cannot show the month that charges once a year at all.
+ */
+export const TREND_MONTHS = 12
+
 /** The most rules one subscription may carry. Ten is already more than a person reads. */
 export const RULES_LIMIT = 10
 

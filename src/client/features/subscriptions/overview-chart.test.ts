@@ -58,19 +58,23 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
-/** The chart's `role=img` block: it is a picture of six numbers, described rather than read cell by cell. */
-function chart(): HTMLElement {
-  const host = document.querySelector<HTMLElement>('[role=img]')
-  expect(host, 'the month chart is not rendered').toBeTruthy()
-  return host!
-}
-
+/**
+ * The bars themselves.
+ *
+ * Not `role=img`: the ring in the share card is a picture too, and a query that reaches for "the image"
+ * now finds a canvas instead of the month chart. These hooks name the thing they want.
+ */
 function bars(): HTMLElement[] {
-  return [...chart().querySelectorAll<HTMLElement>('[title]')] as HTMLElement[]
+  return [...document.querySelectorAll<HTMLElement>('[data-trend-bars] > div')]
 }
 
-function plotHeights(): string[] {
-  return bars().map((bar) => (bar.parentElement as HTMLElement).style.height)
+/** The same figures written out for a reader who cannot see the bars. */
+function barValues(): HTMLElement[] {
+  return [...document.querySelectorAll<HTMLElement>('[data-trend-values] > li')]
+}
+
+function budgetLine(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('[data-trend-budget]')
 }
 
 function mountChart(overrides: Partial<SubscriptionOverview> = {}): void {
@@ -95,18 +99,17 @@ describe('the month chart', () => {
   it('draws one bar per month, and every bar states a height that can resolve', () => {
     mountChart()
     const found = bars()
-    expect(found).toHaveLength(MONTHS.length)
+    expect(found, 'the month chart drew no bars').toHaveLength(MONTHS.length)
     for (const bar of found) expect(bar.getAttribute('title'), 'each bar says what it costs').toBeTruthy()
     for (const bar of found) {
       expect(bar.style.height, 'a percentage against a content-sized column is zero, which is how the chart vanished').toMatch(/^\d+px$/)
     }
-    for (const height of plotHeights()) expect(height).toMatch(/^\d+px$/)
   })
 
   it('scales the peak month to the whole plot and draws nothing for a month with no receipts', () => {
     mountChart()
     const found = bars()
-    const plot = Number.parseInt(plotHeights()[0]!, 10)
+    const plot = Number.parseInt(found[0]!.parentElement!.style.height, 10)
     expect(Number.parseInt(found[5]!.style.height, 10), 'the tallest month fills the plot').toBe(plot)
     expect(Number.parseInt(found[3]!.style.height, 10)).toBe(Math.round((240 / 300) * plot))
     // A stub here used to be two pixels, and five of them joined into a line that read as an axis.
@@ -114,11 +117,44 @@ describe('the month chart', () => {
     expect(Number.parseInt(found[2]!.style.height, 10)).toBe(0)
   })
 
-  it('names the chart once instead of reading six numbers at a reader who cannot see them', () => {
+  it('lists the same figures for a reader who cannot see the bars', () => {
     mountChart()
-    const block = chart()
-    expect(block.getAttribute('aria-label')).toBeTruthy()
-    expect(bars().every((bar) => bar.getAttribute('title'))).toBe(true)
+    const values = barValues()
+    expect(values).toHaveLength(MONTHS.length)
+    expect(values[1]!.textContent).toContain('2026-06')
+    expect(values[1]!.textContent).toContain('¥120.00')
+    // The picture is decoration once the numbers are written out; reading both would say everything twice.
+    expect(document.querySelector('[data-trend-bars]')!.closest('[aria-hidden="true"]')).toBeTruthy()
+  })
+
+  it('rules the monthly ceiling across the plot and marks the months that passed it', () => {
+    mountChart()
+    const line = budgetLine()
+    expect(line, 'a chart about a budget with no budget line cannot be read against the number it is about').toBeTruthy()
+    // The fixture's ceiling is ¥200 against a ¥300 peak, so the line sits two thirds up the plot.
+    expect(line!.style.bottom).toBe('64px')
+    expect(line!.textContent).toContain('¥200.00')
+    const found = bars()
+    expect(found[3]!.className, '240 over a 200 ceiling').toContain('danger')
+    expect(found[5]!.className, '300 over a 200 ceiling').toContain('danger')
+    expect(found[1]!.className).not.toContain('danger')
+    expect(barValues()[3]!.textContent).toContain('over the monthly budget')
+    expect(barValues()[1]!.textContent).not.toContain('over the monthly budget')
+  })
+
+  it('draws no line and no colour when the reader set no ceiling', () => {
+    mountChart({ budget: { limit: null, amount: 300, over: false } })
+    expect(budgetLine()).toBeNull()
+    for (const bar of bars()) expect(bar.className).not.toContain('danger')
+    for (const value of barValues()) expect(value.textContent).not.toContain('over the monthly budget')
+  })
+
+  it('lays a whole year out without collapsing the columns', () => {
+    const months = Array.from({ length: 12 }, (_, index) => `2025-${String(index + 1).padStart(2, '0')}`)
+    mountChart({ months: months.map((month) => ({ month, amount: 10 })) })
+    expect(bars()).toHaveLength(12)
+    expect(barValues()).toHaveLength(12)
+    for (const bar of bars()) expect(bar.className, 'a fixed-width column would push the twelfth off the card').toContain('flex-1')
   })
 })
 
@@ -189,5 +225,42 @@ describe('the category ceilings', () => {
     mountChart()
     expect(rows()).toHaveLength(0)
     expect(words()).not.toContain(t('subscriptions.overview.category_ceilings'))
+  })
+})
+
+describe('the share rings', () => {
+  const rings = () => [...document.querySelectorAll<HTMLElement>('[data-share-ring]')]
+  const list = () => document.querySelector('[data-share-list]')
+
+  it('draws a ring over the list without replacing it', () => {
+    mountChart({
+      byCategory: [
+        { label: 'streaming', amount: 600, percentage: 60 },
+        { label: 'tools', amount: 400, percentage: 40 },
+      ],
+    })
+    const ring = rings()[0]
+    expect(ring, 'a two-way split drew no ring').toBeTruthy()
+    const canvas = ring.querySelector('canvas[role="img"]')
+    expect(canvas, 'the ring is a picture that names nothing').toBeTruthy()
+    expect(canvas!.getAttribute('aria-label')).toContain('By category')
+    // The numbers stay written out beside it: a canvas a reader cannot see is not where the figures live.
+    expect(list(), 'the ring replaced the list it is supposed to sit above').toBeTruthy()
+    expect(list()!.querySelectorAll('li')).toHaveLength(2)
+    expect(list()!.textContent).toContain('¥600.00')
+    expect(list()!.textContent).toContain('60%')
+  })
+
+  it('draws no ring for a single slice, which is the whole total wearing a circle', () => {
+    mountChart({ byCategory: [{ label: 'streaming', amount: 600, percentage: 100 }] })
+    expect(rings()).toHaveLength(0)
+    expect(list()!.textContent).toContain('¥600.00')
+  })
+
+  it('draws nothing at all when there is no spending to split', () => {
+    mountChart({ byCategory: [], byType: [] })
+    expect(rings()).toHaveLength(0)
+    expect(list()).toBeNull()
+    expect(document.body.textContent).toContain('Nothing charged this year')
   })
 })
