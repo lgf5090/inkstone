@@ -9,7 +9,12 @@
 import { useMemo, useRef, useState } from 'react'
 import { cn } from '../../lib/cn'
 import { localeTag, t } from '../../lib/i18n'
-import type { TaskStatsBucket, TaskStatsPoint, TaskStatsWeekdayHourCount } from '@shared/todos/model'
+import type {
+  TaskStatsBucket,
+  TaskStatsFlowPoint,
+  TaskStatsPoint,
+  TaskStatsWeekdayHourCount,
+} from '@shared/todos/model'
 
 const MINUTE_MS = 60_000
 
@@ -203,6 +208,191 @@ export function TrendChart({ series, bucket, goal, from, to }: {
           </div>
           <div className="mt-1 flex justify-between text-[length:var(--text-9)] tabular leading-none text-[var(--text-quaternary)]" aria-hidden="true">
             {ticks.map((index) => <span key={index}>{tickLabel(series[index]!.day, bucket)}</span>)}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The cumulative flow: how much work stood in each status at the end of every bucket.
+ *
+ * The bands stack from the bottom up in the order a task moves — done, in progress, to do — so the
+ * height of the whole stack is the work that existed, and a band's thickness is its share. Colour is
+ * not the only distinction: every band is named in the legend and repeated in the hidden table, and a
+ * band can be switched off to read the other two. `trackedSince` is a dashed vertical line because
+ * before that day the in-progress band is an approximation, not a record.
+ */
+export function FlowChart({ flow, bucket, trackedSince, from, to }: {
+  flow: readonly TaskStatsFlowPoint[]
+  bucket: TaskStatsBucket
+  trackedSince: string | null
+  /** The range the answer describes; the chart's accessible name states it, not the first bucket. */
+  from: string
+  to: string
+}) {
+  const [hover, setHover] = useState<number | null>(null)
+  const [hidden, setHidden] = useState({ todo: false, inProgress: false, done: false })
+  const wrap = useRef<HTMLDivElement>(null)
+  const width = 640
+  const height = 180
+  const padX = 6
+  const padTop = 10
+  const plotWidth = width - padX * 2
+  const plotHeight = height - padTop
+  const max = Math.max(1, ...flow.map((point) => point.todo + point.inProgress + point.done))
+  const x = (index: number): number => (flow.length <= 1 ? padX + plotWidth / 2 : padX + (index / (flow.length - 1)) * plotWidth)
+  const y = (value: number): number => padTop + plotHeight - (value / max) * plotHeight
+
+  // Bottom-up, so hiding one band closes the gap rather than leaving a hole in the stack.
+  const order = [
+    { key: 'done' as const, color: 'var(--accent)', values: flow.map((point) => point.done) },
+    { key: 'inProgress' as const, color: 'var(--warning)', values: flow.map((point) => point.inProgress) },
+    { key: 'todo' as const, color: 'var(--text-tertiary)', values: flow.map((point) => point.todo) },
+  ]
+  const bands: Array<{ key: string; color: string; lower: number[]; upper: number[] }> = []
+  let lower = flow.map(() => 0)
+  for (const entry of order) {
+    if (hidden[entry.key]) continue
+    const upper = lower.map((value, index) => value + entry.values[index]!)
+    bands.push({ key: entry.key, color: entry.color, lower, upper })
+    lower = upper
+  }
+
+  const bandPoints = (band: { lower: number[]; upper: number[] }): string => {
+    if (flow.length === 1) {
+      // One bucket has no width between two x positions; the band becomes the plot's full width.
+      const left = padX
+      const right = width - padX
+      return `${left},${y(band.upper[0]!).toFixed(1)} ${right},${y(band.upper[0]!).toFixed(1)} `
+        + `${right},${y(band.lower[0]!).toFixed(1)} ${left},${y(band.lower[0]!).toFixed(1)}`
+    }
+    const top = flow.map((_, index) => `${x(index).toFixed(1)},${y(band.upper[index]!).toFixed(1)}`)
+    const bottom = flow.map((_, index) => `${x(index).toFixed(1)},${y(band.lower[index]!).toFixed(1)}`).reverse()
+    return [...top, ...bottom].join(' ')
+  }
+
+  const ticks = flow.length > 1
+    ? [...new Set([0, Math.floor((flow.length - 1) / 3), Math.floor(((flow.length - 1) * 2) / 3), flow.length - 1])]
+    : [0]
+  const hovered = hover !== null ? flow[hover] : null
+  const half = max / 2
+  // The bucket the tracked day falls in; a day past the last start still reads on the last bucket.
+  const trackedIndex = trackedSince === null
+    ? -1
+    : flow.reduce((found, point, index) => (point.day <= trackedSince ? index : found), -1)
+  const last = flow[flow.length - 1]
+
+  const onMove = (event: React.PointerEvent<HTMLDivElement>): void => {
+    const rect = wrap.current?.getBoundingClientRect()
+    if (!rect || rect.width === 0 || flow.length === 0) return
+    const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width))
+    setHover(Math.round(ratio * (flow.length - 1)))
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <LegendToggle label={t('todo.stats.flow.todo')} color="var(--text-tertiary)" hidden={hidden.todo}
+          onToggle={() => setHidden((state) => ({ ...state, todo: !state.todo }))} />
+        <LegendToggle label={t('todo.stats.flow.in_progress')} color="var(--warning)" hidden={hidden.inProgress}
+          onToggle={() => setHidden((state) => ({ ...state, inProgress: !state.inProgress }))} />
+        <LegendToggle label={t('todo.stats.flow.done')} color="var(--accent)" hidden={hidden.done}
+          onToggle={() => setHidden((state) => ({ ...state, done: !state.done }))} />
+        {trackedIndex >= 0 && (
+          <LegendToggle label={t('todo.stats.flow.tracked_since')} color="var(--text-quaternary)" dashed hidden={false} />
+        )}
+      </div>
+      <div className="flex gap-2">
+        <div className="flex h-44 shrink-0 flex-col justify-between pb-1 text-right text-[length:var(--text-9)] tabular leading-none text-[var(--text-quaternary)]" aria-hidden="true">
+          <span>{max}</span>
+          <span>{Number.isInteger(half) ? half : half.toFixed(1)}</span>
+          <span>{String(0)}</span>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div
+            ref={wrap}
+            className="relative touch-pan-y"
+            onPointerMove={onMove}
+            onPointerLeave={() => setHover(null)}
+          >
+            <svg
+              role="img"
+              aria-label={t('todo.stats.flow.chart_label', {
+                from,
+                to,
+                todo: last?.todo ?? 0,
+                inProgress: last?.inProgress ?? 0,
+                done: last?.done ?? 0,
+              })}
+              viewBox={`0 0 ${width} ${height}`}
+              preserveAspectRatio="none"
+              className="h-44 w-full"
+            >
+              {[0, 0.25, 0.5, 0.75, 1].map((ratio) => (
+                <line
+                  key={ratio}
+                  x1={padX}
+                  y1={padTop + plotHeight * ratio}
+                  x2={width - padX}
+                  y2={padTop + plotHeight * ratio}
+                  stroke="var(--border-subtle)"
+                  strokeWidth="1"
+                  vectorEffect="non-scaling-stroke"
+                />
+              ))}
+              {bands.map((band) => (
+                <polygon key={band.key} points={bandPoints(band)} fill={band.color} fillOpacity="0.8" />
+              ))}
+              {trackedIndex >= 0 && (
+                <line
+                  x1={x(trackedIndex)}
+                  y1={padTop}
+                  x2={x(trackedIndex)}
+                  y2={height}
+                  stroke="var(--text-quaternary)"
+                  strokeWidth="1"
+                  strokeDasharray="2 4"
+                  vectorEffect="non-scaling-stroke"
+                />
+              )}
+              {hovered && hover !== null && (
+                <line
+                  x1={x(hover)}
+                  y1={padTop}
+                  x2={x(hover)}
+                  y2={height}
+                  stroke="var(--border-strong)"
+                  strokeWidth="1"
+                  vectorEffect="non-scaling-stroke"
+                />
+              )}
+            </svg>
+            {hovered && hover !== null && (
+              <div
+                role="status"
+                className="pointer-events-none absolute top-1 z-[var(--z-pop)] -translate-x-1/2 rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-overlay)] px-2 py-1 text-[length:var(--text-10-5)] leading-tight whitespace-nowrap shadow-[var(--shadow-pop)]"
+                style={{ left: `${Math.min(88, Math.max(12, (x(hover) / width) * 100))}%` }}
+              >
+                <div className="font-medium text-[var(--text-primary)]">{tickLabel(hovered.day, bucket)}</div>
+                <div className="mt-0.5 flex items-center gap-1.5 tabular text-[var(--text-tertiary)]">
+                  <span className="size-1.5 rounded-full bg-[var(--text-tertiary)]" aria-hidden="true" />
+                  {t('todo.stats.flow.todo')} {hovered.todo}
+                </div>
+                <div className="flex items-center gap-1.5 tabular text-[var(--text-tertiary)]">
+                  <span className="size-1.5 rounded-full bg-[var(--warning)]" aria-hidden="true" />
+                  {t('todo.stats.flow.in_progress')} {hovered.inProgress}
+                </div>
+                <div className="flex items-center gap-1.5 tabular text-[var(--text-tertiary)]">
+                  <span className="size-1.5 rounded-full bg-[var(--accent)]" aria-hidden="true" />
+                  {t('todo.stats.flow.done')} {hovered.done}
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="mt-1 flex justify-between text-[length:var(--text-9)] tabular leading-none text-[var(--text-quaternary)]" aria-hidden="true">
+            {ticks.map((index) => <span key={index}>{tickLabel(flow[index]!.day, bucket)}</span>)}
           </div>
         </div>
       </div>

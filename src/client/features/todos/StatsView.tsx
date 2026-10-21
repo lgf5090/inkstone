@@ -37,6 +37,7 @@ import { useTodos } from './store'
 import {
   DeltaChip,
   Donut,
+  FlowChart,
   SliceBars,
   Sparkline,
   StackedBar,
@@ -425,7 +426,36 @@ function SeriesTable({ stats }: { stats: TodoStats }) {
   )
 }
 
+/** The hidden table behind the flow, so the bands are also readable as numbers. */
+function FlowTable({ stats }: { stats: TodoStats }) {
+  return (
+    <table className="sr-only" data-stats-flow="">
+      <caption>{t('todo.stats.flow.table_caption')}</caption>
+      <thead>
+        <tr>
+          <th scope="col">{t('todo.stats.trend.column.period')}</th>
+          <th scope="col">{t('todo.stats.flow.todo')}</th>
+          <th scope="col">{t('todo.stats.flow.in_progress')}</th>
+          <th scope="col">{t('todo.stats.flow.done')}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {stats.flow.map((point) => (
+          <tr key={point.day}>
+            <th scope="row">{point.day}</th>
+            <td>{point.todo}</td>
+            <td>{point.inProgress}</td>
+            <td>{point.done}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
 function StatsBody({ stats, comparison, goals }: { stats: TodoStats; comparison: PreviousStats; goals: TodoGoals }) {
+  // A range that never held any work has no stock to draw; the card is absent rather than empty.
+  const hasFlow = stats.flow.some((point) => point.todo + point.inProgress + point.done > 0)
   return (
     <div className="flex flex-col gap-4">
       <HeadlineStats stats={stats} comparison={comparison} />
@@ -447,6 +477,18 @@ function StatsBody({ stats, comparison, goals }: { stats: TodoStats; comparison:
         />
         <SeriesTable stats={stats} />
       </Card>
+      {hasFlow && (
+        <Card title={t('todo.stats.flow.title')} hint={t('todo.stats.flow.hint')}>
+          <FlowChart
+            flow={stats.flow}
+            bucket={stats.range.bucket}
+            trackedSince={stats.flowTrackedSince}
+            from={stats.range.from}
+            to={stats.range.to}
+          />
+          <FlowTable stats={stats} />
+        </Card>
+      )}
       <Card
         title={t('todo.stats.heatmap.title')}
         hint={t('todo.stats.heatmap.hint')}

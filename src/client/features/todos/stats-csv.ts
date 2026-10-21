@@ -1,12 +1,13 @@
 /**
  * The statistics as one CSV file the reader can open in a spreadsheet.
  *
- * Two tables share the file, separated by a blank line and introduced by `#` comment lines: the
- * trend first (`period,completed,created`), then every distribution (`distribution,key,label,count`).
- * The column names are fixed English so a script written against one export still reads the next;
- * the label column carries the reader's language. Days are the account-zone `YYYY-MM-DD` strings the
- * answer already holds, never UTC instants re-zoned here. The file starts with a UTF-8 BOM because
- * Excel otherwise reads a Chinese label as mojibake.
+ * Three tables share the file, separated by a blank line and introduced by `#` comment lines: the
+ * trend first (`period,completed,created`), then every distribution (`distribution,key,label,count`),
+ * then the cumulative flow (`period,todo,in_progress,done`). The column names are fixed English so a
+ * script written against one export still reads the next; the label column carries the reader's
+ * language. Days are the account-zone `YYYY-MM-DD` strings the answer already holds, never UTC
+ * instants re-zoned here. The file starts with a UTF-8 BOM because Excel otherwise reads a Chinese
+ * label as mojibake.
  */
 import type { TodoStats } from '@shared/todos/model'
 import { listName, tagName, weekdayName } from './stats-format'
@@ -24,7 +25,7 @@ function row(...values: Array<string | number>): string {
   return values.map(cell).join(',')
 }
 
-/** The whole answer as one CSV: the trend table, then the distribution table. */
+/** The whole answer as one CSV: the trend table, the distribution table, then the flow table. */
 export function buildStatsCsv(stats: TodoStats): string {
   const lines = [
     `${BOM}# Inkstone todo statistics`,
@@ -50,6 +51,10 @@ export function buildStatsCsv(stats: TodoStats): string {
     ...stats.distributions.byHour.map((entry) => (
       row('hour', entry.hour, String(entry.hour).padStart(2, '0'), entry.completed)
     )),
+    '',
+    '# table 3: cumulative flow by period',
+    row('period', 'todo', 'in_progress', 'done'),
+    ...stats.flow.map((point) => row(point.day, point.todo, point.inProgress, point.done)),
   ]
   return `${lines.join('\n')}\n`
 }
