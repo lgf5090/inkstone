@@ -309,6 +309,7 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'mcp', titleKey: 'settings.mcp_enable', detailKey: 'settings.mcp_enable_desc' },
   { section: 'mcp', titleKey: 'settings.mcp_write_access', detailKey: 'settings.mcp_write_access_desc' },
   { section: 'mcp', titleKey: 'settings.mcp_trash_access', detailKey: 'settings.mcp_trash_access_desc' },
+  { section: 'mcp', titleKey: 'settings.mcp_todo_read_access', detailKey: 'settings.mcp_todo_read_access_desc' },
   { section: 'mcp', titleKey: 'settings.mcp_ai_search', detailKey: 'settings.mcp_ai_search_desc', termKeys: ['settings.mcp_ai_search_reindex', 'settings.mcp_ai_search_clear'] },
   { section: 'mcp', titleKey: 'settings.mcp_api_keys', detailKey: 'settings.mcp_api_keys_desc', termKeys: ['settings.mcp_api_key_create', 'settings.mcp_api_key_revoke'] },
   { section: 'mcp', titleKey: 'settings.mcp_endpoint', detailKey: 'settings.mcp_endpoint_desc' },
@@ -471,6 +472,12 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'excalidraw', titleKey: 'settings.excalidraw_embed_md_comments', detailKey: 'settings.excalidraw_embed_md_comments_desc' },
   { section: 'excalidraw', titleKey: 'settings.excalidraw_sync_excalidraw', detailKey: 'settings.excalidraw_sync_excalidraw_desc' },
   { section: 'todo', titleKey: 'assistant.settings.timezone', detailKey: 'assistant.settings.timezone_hint' },
+  { section: 'todo', titleKey: 'settings.todo_digest', detailKey: 'settings.todo_digest_hint', termKeys: ['settings.todo_digest_time'] },
+  { section: 'todo', titleKey: 'settings.todo_default_remind', detailKey: 'settings.todo_default_remind_hint', termKeys: ['settings.todo_default_remind_none'] },
+  { section: 'todo', titleKey: 'settings.todo_goals', detailKey: 'settings.todo_goals_hint' },
+  { section: 'todo', titleKey: 'settings.todo_saved_filters', detailKey: 'settings.todo_saved_filters_hint', termKeys: ['settings.todo_saved_filters_syntax'] },
+  { section: 'todo', titleKey: 'settings.todo_import', detailKey: 'settings.todo_import_hint', termKeys: ['settings.todo_import_conflict'] },
+  { section: 'todo', titleKey: 'settings.todo_feed', detailKey: 'settings.todo_feed_hint' },
 ]
 
 const MAX_HITS = 80
