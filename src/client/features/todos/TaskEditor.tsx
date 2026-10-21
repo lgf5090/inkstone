@@ -99,6 +99,24 @@ const WEEKDAY_CHOICES: readonly { day: number, label: MessageKey }[] = [
   { day: 0, label: 'assistant.weekday.7' },
 ]
 
+/**
+ * What the start field opens with.
+ *
+ * An existing task reads its own start; a draft carries one of the two shapes `dueAt` does — an
+ * instant, or a local `YYYY-MM-DD[THH:MM]` the picker wrote — and a draft that names neither opens
+ * empty, exactly as the due field beside it does. The calendar's box-select seeds a draft with the
+ * local shape, so a selection drawn at 09:00–10:30 arrives in the field as those two clock times.
+ */
+export function seedStartText(
+  source: { startAt?: number | string | null },
+  task: { startAt?: number | null } | null | undefined,
+  timezone: string,
+): string {
+  if (task) return dueValue(task.startAt ?? null, timezone)
+  if (typeof source.startAt === 'string') return source.startAt
+  return source.startAt ? dueValue(source.startAt, timezone) : ''
+}
+
 export function TaskEditor() {
   const open = useTodos((state) => state.editorOpen)
   const draft = useTodos((state) => state.draft)
@@ -189,7 +207,7 @@ export function TaskEditor() {
     setDueText(task
       ? dueValue(task.dueAt, timezone)
       : typeof source.dueAt === 'string' ? source.dueAt : source.dueAt ? dueValue(source.dueAt, timezone) : '')
-    setStartText(task ? dueValue(task.startAt ?? null, timezone) : '')
+    setStartText(seedStartText(source, task, timezone))
     setListId(task?.listId ?? source.listId ?? '')
     setRepeat(task?.repeat?.freq ?? source.repeat?.freq ?? 'none')
     setInterval(task?.repeat?.interval ?? source.repeat?.interval ?? 1)
