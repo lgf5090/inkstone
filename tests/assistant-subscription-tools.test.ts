@@ -394,6 +394,23 @@ describe('the account behind the rows', () => {
     expect(filled.categories.labels.map((label) => label.name)).toContain('娱乐')
   })
 
+  it('lists the common services and carries no price for any of them', async () => {
+    const answer = await run('list_subscription_templates', {}) as {
+      templates: Array<Record<string, unknown>>
+      note: string
+    }
+    expect(answer.templates.length).toBeGreaterThan(10)
+    expect(answer.templates.some((entry) => 'amount' in entry || 'currency' in entry || 'expiryDate' in entry)).toBe(false)
+    expect(answer.templates.find((entry) => entry.name === 'Netflix')).toMatchObject({
+      type: 'streaming', periodUnit: 'month', periodValue: 1,
+    })
+    // The list is in English and the reader's labels are not, so the note has to send the model to the
+    // registry and say which language the reader's own list is written in.
+    expect(answer.note).toMatch(/list_subscription_labels/)
+    expect(answer.note).toMatch(/Chinese/)
+    expect(answer.note, 'the price stays the reader\'s answer').toMatch(/never in this list/i)
+  })
+
   it('sets the ceiling and the total currency, and refuses a zone that is not one', async () => {
     const saved = await run('set_subscription_settings', { budgetMonthly: 300, baseCurrency: 'USD' }) as { budgetMonthly: number, baseCurrency: string }
     expect(saved).toMatchObject({ budgetMonthly: 300, baseCurrency: 'USD' })

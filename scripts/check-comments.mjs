@@ -10739,6 +10739,9 @@ const allowed = new Map([
     "/* The native field cannot be pointed at a lunar calendar, and a birthday or an\n                    anniversary is remembered by its lunar date for half the accounts this serves. */",
     "/* The plan is edited here rather than only afterwards: a reader who knows a service wants a\n              week's notice should not have to save it, open it, and then fix the four rules the app\n              guessed for them. */",
     "/**\n * What the typed categories will look like, one chip per tag.\n *\n * Quiet when there is nothing to show: this is a confirmation that a two-tag value landed as\n * two tags rather than one name with a slash in it, which is the mistake the registry used to bake in.\n */",
+    "// Which template was applied, so the form can say out loud which two labels it chose on the reader's",
+    "// behalf. Nothing is remembered about the amount, because nothing is chosen about it.",
+    "/* Only when nothing is being corrected: a template overwrites the name, the two labels and the\n              cycle, which is a helpful thing to do to a blank form and a destructive one to do to a plan\n              that already exists. */",
   ]],
   ["src/client/features/subscriptions/SubscriptionGrid.tsx", [
     "/**\n * The same plans, as cards.\n *\n * The list is the right shape for a reader scanning dates: one column, urgency headings, everything\n * aligned so the eye can run down it. The grid is the right shape for looking at a portfolio — a screen\n * of tiles where each plan's face, price and countdown sit together and the eye moves across rather than\n * down. Neither is the better answer in general, which is why the toolbar offers both and both draw from\n * the same filtered, sorted rows.\n *\n * A card carries the row's kebab and the row's right-click, because a plan you can only open is a plan\n * you cannot do anything about from the view you happen to be in.\n */",
@@ -10913,6 +10916,11 @@ const allowed = new Map([
     "/** A receipt, as the panel's own history holds it. */",
     "// Oldest first on the page, so the line reads left to right through time; the heights are px against",
     "// the plot because a percentage of a content-sized column is zero.",
+  ]],
+  ["src/client/features/subscriptions/subscription-form-template.test.ts", [
+    "/**\n * The starting-point picker in the create form.\n *\n * What is worth testing is the promise the picker makes: it fills the four fields it knows and touches\n * nothing else. A template that also wrote a price would be the app claiming to know what a reader pays,\n * and a picker that appeared while editing would overwrite a plan that already exists.\n */",
+    "/** The box a labelled field owns: found by the `for` the Field wires up, not by the markup around it. */",
+    "// The form opens with today in the start date; the point is that the template moved no date at all.",
   ]],
   ["src/client/features/subscriptions/subscription-list.test.ts", [
     "/**\n * The row's two states: reading, and selecting.\n *\n * These four assertions exist because the app once shipped a list whose selection boxes could never\n * appear: the row derived \"am I selecting\" from \"is anything already checked\", so the box needed a check\n * before it could make one. The toolbar still flipped to its exit label, so nothing looked wrong from the\n * outside, and the batch actions under it were unreachable. Deriving the mode from the selection is the\n * exact bug this file forbids, which is why `selectMode` is a prop and is passed straight to the row.\n *\n * What the browser measured and jsdom cannot: the box's hit area, and the colour it paints.\n */",
@@ -19672,6 +19680,10 @@ const allowed = new Map([
     "// The app's own question: what is about to run out, with stopped plans keeping their own place by date.",
     "/**\n * The rows in the requested order.\n *\n * Sorted on a copy: callers keep their array for the counts in the rail, and an in-place sort would\n * quietly reorder the list a heading was just counted off.\n */",
   ]],
+  ["src/shared/subscriptions/templates.ts", [
+    "/**\n * A short list of services people subscribe to most, with where they usually get filed.\n *\n * This is a starting point for a form, not a price list. What a template carries is the shape of the\n * thing — its name as the service writes it, the type and category it is usually filed under, and how\n * often it charges — because those are the three choices that make someone stop and think, and none of\n * them change. What it deliberately does not carry is an amount: a price read from a pricing page on the\n * day this file was written is wrong the day the publisher moves it, the tier a reader is on is their\n * own business, and a number the app filled in silently is a number the reader will not check. The\n * amount stays the one field that is always typed.\n *\n * The names are proper nouns, spelled the way each service spells it, so they are the same in every\n * language and are not interface copy. The two labels are keys into the built-in preset tables, which\n * means the form writes them in the language the reader is reading in and a mistyped key stops\n * compiling.\n */",
+    "/** Whether a name in a conversation is one of these, matched the way the reader wrote it. */",
+  ]],
   ["src/shared/subscriptions/time.ts", [
     "/**\n * Time zones, done once.\n *\n * Three rules, and every caller in this app follows them:\n *  - stored times are epoch milliseconds, so a comparison is a comparison and never a string parse;\n *  - \"what day is it for this reader\" is answered by resolving the instant into the account's zone and\n *    reading the calendar fields back, never by `Date.getDate()` on the server's own clock;\n *  - a bare `YYYY-MM-DD` input means midnight *in the reader's zone*, which is why\n *    `parseDateInputInTimezone` exists — `new Date('2026-05-24')` is UTC midnight, and a reader eight\n *    hours east would see the day before.\n *\n * The reference project learned the last one the hard way (its issue #166: a subscription created\n * between midnight and 08:00 got yesterday's default date). The implementation below is a port of the\n * module that fixed it, minus the compatibility shims nobody calls.\n */",
     "/** The instant itself. A `Date` is always an absolute moment; the zone only changes how it reads. */",
@@ -21740,6 +21752,9 @@ const allowed = new Map([
     "// A ceiling is stated one category at a time in a conversation — \"and keep video under six hundred",
     "// this year\" — so the names given are merged into what the account already capped. Only",
     "// `clearCategoryBudgets` answers \"drop them all\", which a merge cannot express.",
+    "// The names above are English keys into the app's own label table; what the reader sees on screen",
+    "// is those labels in their language, so a plan filed straight from this list would carry words",
+    "// their own list never shows.",
   ]],
   ["src/worker/assistant/upstream.ts", [
     "/** A JSON Schema object, built by `toolSchemaFor` from the tool's own declared parameters. */",
@@ -25051,6 +25066,8 @@ const allowed = new Map([
     "// \"expiry\": a model that guesses can correct itself, and one that is agreed with cannot.",
     "// Nothing in this account is filed under those names, so the dashboard still lists all three ceilings",
     "// and says each has spent nothing — which is the answer to \"is the cap holding\".",
+    "// The list is in English and the reader's labels are not, so the note has to send the model to the",
+    "// registry and say which language the reader's own list is written in.",
   ]],
   ["tests/assistant-tag-search-shape.test.ts", [
     "/**\n * A pinned `#tag` has to narrow the keyword half of a note search, not empty it.\n *\n * A turn's scope keeps tags as *ids* — the shape the folder pins and the permission check use — while the\n * retriever filters both of its lists by tag *name*: the keyword half turns `tags` into `tag:\"…\"` terms,\n * and both halves then run the app's one tag-subtree rule (`tagScopePredicate()`, which `semanticWhere` in\n * `mcp/ai-search.ts` calls for the vector list too). Handing the ids over was therefore a filter no note\n * can satisfy: a reader pinning `#meeting` got a keyword half that was always empty, and on an index that\n * is switched on the only hits left came from the vector list, which is the \"it matched but nothing says\n * why\" answer.\n *\n * The vector half is switched off in every case below, so any hit at all can only have come from keywords.\n */",
@@ -27111,6 +27128,9 @@ const allowed = new Map([
     "// Twelve hours later it is due again.",
     "/**\n   * The scheduler reads through `store.list`, which is live-only, so this passes by construction — and\n   * that is exactly why it is worth pinning. A trashed subscription that kept renewing itself would\n   * silently spend money on the reader's behalf while they were deciding whether to restore it, and one\n   * that kept notifying would make the trash the noisiest place in the app.\n   */",
     "// Still where it was left, not rolled forward an hour later by a sweep that could not see it.",
+  ]],
+  ["tests/subscriptions-templates.test.ts", [
+    "/**\n * The list of services the app knows by name.\n *\n * Two things are worth holding still here rather than trusting to care. Every entry has to point at a\n * built-in label that actually exists — a template that filed something under a name with no icon or\n * colour behind it would draw a plain row in a list of styled ones — and the table has to stay price-free,\n * which is the promise the picker makes out loud (\"it never guesses a price\"). A key that drifts or a\n * price that sneaks in is a claim the app can no longer back, so both are asserted rather than reviewed.\n */",
   ]],
   ["tests/tag-count-live-sync.test.ts", [
     "// `since <= 0` makes the route answer with a full snapshot, which always carries full facets.",

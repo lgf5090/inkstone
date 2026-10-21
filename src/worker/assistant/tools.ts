@@ -31,6 +31,7 @@ import { applyRateOverrides, rateTableFor, type RateTable } from '@shared/subscr
 import { isListSort, LIST_SORTS, sortSubscriptions } from '@shared/subscriptions/sort'
 import { normalizeColor, normalizeIcon } from '@shared/subscriptions/identity'
 import { matchesSubscriptionSearch } from '@shared/subscriptions/search'
+import { SERVICE_TEMPLATES } from '@shared/subscriptions/templates'
 import { listChannels, loadSettings, saveSettings } from '../subscriptions/settings'
 import { queryNotifyLogs, recentScheduleLogs } from '../subscriptions/logs'
 import { formatAmount } from '@shared/subscriptions/format'
@@ -1786,6 +1787,32 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
         labels: labels.map((entry) => ({ name: entry.name, icon: entry.icon || null, color: entry.color || null })),
       })
       return { types: list('type', types), categories: list('category', categories) }
+    },
+  }),
+  tool({
+    name: 'list_subscription_templates',
+    permission: 'read',
+    maxCallsPerTurn: 1,
+    description: 'The services this app knows by name — what each one is usually filed as, and how often it charges. A reader adding a plan who names a service without describing it can be started from here. No entry carries a price, because the app never guesses what a plan costs: ask.',
+    fields: {},
+    async run(_args, ctx) {
+      const { settings } = await subscriptionAccess(ctx)
+      const slugOf = (key: string): string => key.slice(key.lastIndexOf('.') + 1)
+      return {
+        templates: SERVICE_TEMPLATES.map((template) => ({
+          name: template.name,
+          type: slugOf(template.typeKey),
+          category: slugOf(template.categoryKey),
+          periodValue: template.periodValue,
+          periodUnit: template.periodUnit,
+        })),
+        // The names above are English keys into the app's own label table; what the reader sees on screen
+        // is those labels in their language, so a plan filed straight from this list would carry words
+        // their own list never shows.
+        note: 'type and category are the app\'s built-in label names in English. Before creating a plan from one, read list_subscription_labels and file it under the spelling that reader\'s own list shows — in their language, which is '
+          + (settings.locale === 'en-US' ? 'English.' : 'Chinese.')
+          + ' The amount is never in this list; ask what they pay.',
+      }
     },
   }),
   tool({

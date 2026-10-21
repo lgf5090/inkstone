@@ -32,6 +32,7 @@ import {
   type SubscriptionMode,
 } from '@shared/subscriptions/model'
 import { CurrencySelect } from './currency-flag'
+import { SERVICE_TEMPLATES, type ServiceTemplate } from '@shared/subscriptions/templates'
 import { LabelGlyph, LabelStylePicker, useLabelIdentity } from './label-identity'
 import { LunarDateButton } from './LunarDateButton'
 import { ReminderRuleRow } from './ReminderRuleRow'
@@ -121,6 +122,21 @@ export function SubscriptionForm({
 }): ReactElement {
   const [draft, setDraft] = useState<Draft>(() => draftOf(detail, timezone))
   const [touched, setTouched] = useState(false)
+  // Which template was applied, so the form can say out loud which two labels it chose on the reader's
+  // behalf. Nothing is remembered about the amount, because nothing is chosen about it.
+  const [used, setUsed] = useState<ServiceTemplate | null>(null)
+
+  const applyTemplate = (template: ServiceTemplate): void => {
+    setDraft((current) => ({
+      ...current,
+      name: template.name,
+      customType: t(template.typeKey),
+      category: t(template.categoryKey),
+      periodValue: String(template.periodValue),
+      periodUnit: template.periodUnit,
+    }))
+    setUsed(template)
+  }
 
   const set = <K extends keyof Draft>(key: K, value: Draft[K]): void => setDraft(current => ({ ...current, [key]: value }))
 
@@ -209,6 +225,36 @@ export function SubscriptionForm({
       <div className="space-y-4">
         <section className="space-y-2.5">
           <h3 className="text-[length:var(--text-11)] font-medium uppercase tracking-wide text-[var(--text-quaternary)]">{t('subscriptions.form.section_basic')}</h3>
+          {/* Only when nothing is being corrected: a template overwrites the name, the two labels and the
+              cycle, which is a helpful thing to do to a blank form and a destructive one to do to a plan
+              that already exists. */}
+          {!detail && (
+            <div data-service-template="">
+              <Field label={t('subscriptions.form.template')} hint={t('subscriptions.form.template_hint')}>
+                <Select
+                  value=""
+                  onChange={(event) => {
+                    const picked = SERVICE_TEMPLATES.find((template) => template.name === event.target.value)
+                    if (picked) applyTemplate(picked)
+                  }}
+                >
+                  <option value="">{t('subscriptions.form.template_placeholder')}</option>
+                  {SERVICE_TEMPLATES.map((template) => (
+                    <option key={template.name} value={template.name}>{template.name}</option>
+                  ))}
+                </Select>
+              </Field>
+              {used && (
+                <p className="mt-1 text-[length:var(--text-11)] leading-relaxed text-[var(--text-quaternary)]">
+                  {t('subscriptions.form.template_used', {
+                    name: used.name,
+                    type: t(used.typeKey),
+                    category: t(used.categoryKey),
+                  })}
+                </p>
+              )}
+            </div>
+          )}
           <Field label={t('subscriptions.form.name')} required hint={nameInvalid ? t('subscriptions.form.required') : undefined}>
             <Input
               value={draft.name}
