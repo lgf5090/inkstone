@@ -19,6 +19,7 @@ import { avatarRoutes } from './routes/avatars'
 import { backupRoutes } from './routes/backup'
 import { settingsRoutes } from './routes/settings'
 import { conversationSharePageRoutes, shareManageRoutes, sharePageRoutes, shareRoutes } from './routes/share'
+import { memosPublicPageRoutes } from './routes/memos-public'
 import { transferRoutes } from './routes/transfer'
 import { updateRoutes } from './routes/update'
 import { mcpAuthorizeRoutes } from './routes/mcp-authorize'
@@ -133,6 +134,7 @@ export function createApp() {
 
   app.route('/s', sharePageRoutes)
   app.route('/c', conversationSharePageRoutes)
+  app.route('/memos', memosPublicPageRoutes)
   app.route('/', mcpAuthorizeRoutes)
 
 
