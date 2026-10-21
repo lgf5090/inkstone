@@ -550,3 +550,19 @@
   background: var(--accent-soft);
   color: var(--accent);
 }
+
+/* The template library's body editor wears the note editor's chrome, because the marks, the line-number
+   gutter, the caret and the selection are the same things to paint. What it takes back is the prose: a
+   template body is code being written, so it has no typewriter padding to scroll past after the last line,
+   no measured column to centre itself in, and the monospace size the dialog's textarea carried rather than
+   the size the reader writes notes at. Last in this file on purpose — the `.ink-editor` rules above it,
+   including the phone ones inside the media query, are the ones being answered. */
+.ink-template-editor .cm-editor {
+  font-size: var(--text-12-5);
+}
+.ink-template-editor .cm-scroller {
+  padding-block: 0;
+}
+.ink-template-editor .cm-content {
+  max-width: none;
+}

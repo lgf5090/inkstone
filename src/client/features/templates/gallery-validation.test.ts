@@ -157,7 +157,10 @@ describe('the gallery dialogs name what they reject', () => {
     await press(saveButton(t('templates.create_template')))
     expect(errorText(), 'the name is filled in, so it must not be blamed').toBe('')
     expect(messages().filter((text) => text === t('templates.content_required')).length).toBe(1)
-    const box = document.querySelector('textarea')
+    // The body is a CodeMirror surface now, so the element carrying the error is the editable one rather
+    // than a textarea — and only the editor's own element matches `.cm-content` in this dialog, since the
+    // import dialog's paste box is a different component.
+    const box = document.querySelector('.cm-content')
     expect(box?.getAttribute('aria-invalid'), 'the body field carries the error').toBe('true')
     expect(closed, 'a rejected draft must not be saved').toBe(0)
   })

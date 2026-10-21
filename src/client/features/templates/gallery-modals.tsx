@@ -9,6 +9,9 @@ import { Button } from '../../components/primitives'
 import { Field, Input, Select, Textarea } from '../../components/form'
 import { Modal } from '../../components/overlay'
 import { FolderColorMenu, FolderIconMenu } from '../folders/FolderAppearanceMenus'
+// The body editor belongs to the Templater feature: a template body is code the engine reads, and the
+// highlighting and the `tp.` completion are that feature's, not this dialog's.
+import { TemplateCodeEditor } from '../templater/template-code-editor'
 import { useNoteTemplates } from '../../store/note-templates'
 import { useUi } from '../../store/ui'
 import { t, useLocale } from '../../lib/i18n'
@@ -74,10 +77,10 @@ export function TemplateEditorModal({ template, initial, categories, onClose }: 
         <Input maxLength={TEMPLATE_IMPORT_LIMITS.maxDescriptionLength} value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} placeholder={t('templates.description')}/>
       </Field>
       <Field label={t('templates.template_content')} hint={bodyError ? <span className='text-[var(--danger)]'>{t('templates.content_required')}</span> : t('templates.template_content_hint')}>
-        <Textarea value={draft.content} aria-invalid={bodyError} onChange={(event) => {
-          setDraft({ ...draft, content: event.target.value })
+        <TemplateCodeEditor value={draft.content} invalid={bodyError} onChange={(content) => {
+          setDraft({ ...draft, content })
           setBodyError(false)
-        }} rows={16} spellCheck={false} className='min-h-70 font-mono text-[length:var(--text-12-5)]'/>
+        }}/>
       </Field>
     </div>
   </Modal>)
