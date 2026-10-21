@@ -161,6 +161,14 @@ export interface TodoTask extends Task {
   starred: boolean
   repeat: RepeatRule | null
   /**
+   * When the task may be begun, as an absolute instant, or null when the reader named no start.
+   *
+   * Independent of `dueAt`: a report can start on the first of the month and be owed on the last. The
+   * plan view files a not-yet-due task under the future by this day, and falls back to the due date
+   * when the task never named one.
+   */
+  startAt?: number | null
+  /**
    * The task's pending reminders, as absolute instants in ascending order. Up to
    * `MAX_REMINDERS_PER_TASK`; fired ones are delivery history and are not listed.
    */

@@ -740,6 +740,9 @@ todoRoutes.post('/', async (c) => {
   const settings = await s.getSettings()
   const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
   const dueAt = parseDue(body.dueAt, settings.timezone)
+  // A start date is read with the due date's own grammar — a local date, a local date-time, an instant
+  // or nothing — because it is the same kind of fact and a second parser would eventually disagree.
+  const startAt = parseDue(body.startAt, settings.timezone)
   const reminders = body.reminders !== undefined
     ? reminderTimes(body.reminders)
     : body.remind !== undefined
@@ -751,6 +754,7 @@ todoRoutes.post('/', async (c) => {
     status: body.status === undefined ? undefined : asStatus(body.status),
     priority: body.priority === undefined ? undefined : asPriority(body.priority),
     dueAt,
+    startAt,
     projectId: await projectRef(s, body.projectId),
     listId: await listRef(s, body.listId),
     starred: body.starred === undefined ? undefined : asBoolean(body.starred, 'starred'),
@@ -938,6 +942,8 @@ todoRoutes.patch('/:id', async (c) => {
   // completion path: `completeTask` has no guarded variant, so the pre-check is its conflict check.
   if (expectedRev !== undefined && existing.rev !== expectedRev) throw revisionConflict(id, existing.rev)
   const dueAt = body.dueAt === undefined ? undefined : parseDue(body.dueAt, settings.timezone)
+  // Absent leaves the column alone; null clears it, exactly as the due date's own field reads.
+  const startAt = body.startAt === undefined ? undefined : parseDue(body.startAt, settings.timezone)
   const nextStatus = body.status !== undefined ? asStatus(body.status) : undefined
   /**
    * Whether this request is the reader finishing the task.
@@ -955,6 +961,7 @@ todoRoutes.patch('/:id', async (c) => {
     ...(body.description !== undefined ? { description: optionalText(body.description, DESCRIPTION_MAX, 'A task note') ?? '' } : {}),
     ...(body.priority !== undefined ? { priority: asPriority(body.priority) } : {}),
     ...(dueAt !== undefined ? { dueAt } : {}),
+    ...(startAt !== undefined ? { startAt } : {}),
     ...(body.projectId !== undefined ? { projectId: await projectRef(s, body.projectId) } : {}),
     ...(body.listId !== undefined ? { listId: await listRef(s, body.listId) } : {}),
     ...(body.starred !== undefined ? { starred: asBoolean(body.starred, 'starred') } : {}),

@@ -1878,6 +1878,19 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
      ON todos_tasks(user_id, deleted_at)`,
     ],
   },
+  {
+    // When a task may be begun, or null when the reader named no start.
+    //
+    // A start date is not a second due date: it marks the day the row becomes work, while the due
+    // date says when it is owed. Nullable because most tasks are work from the moment they are filed,
+    // and an absent start is an honest absence rather than a sentinel. The plan view falls back to the
+    // due date when it is absent. One column, one version.
+    version: 123,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'start_at' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN start_at INTEGER`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

@@ -65,6 +65,7 @@ export function TaskEditor() {
   const [priority, setPriority] = useState<TodoPriority>('medium')
   const [starred, setStarred] = useState(false)
   const [dueText, setDueText] = useState('')
+  const [startText, setStartText] = useState('')
   const [listId, setListId] = useState('')
   const [repeat, setRepeat] = useState<'none' | RepeatFrequency>('none')
   const [interval, setInterval] = useState(1)
@@ -94,6 +95,7 @@ export function TaskEditor() {
     setDueText(task
       ? dueValue(task.dueAt, timezone)
       : typeof source.dueAt === 'string' ? source.dueAt : source.dueAt ? dueValue(source.dueAt, timezone) : '')
+    setStartText(task ? dueValue(task.startAt ?? null, timezone) : '')
     setListId(task?.listId ?? source.listId ?? '')
     setRepeat(task?.repeat?.freq ?? source.repeat?.freq ?? 'none')
     setInterval(task?.repeat?.interval ?? source.repeat?.interval ?? 1)
@@ -132,6 +134,7 @@ export function TaskEditor() {
       priority,
       starred,
       dueAt: dueText ? dueText : null,
+      startAt: startText ? startText : null,
       listId: listId || null,
       repeat: repeat === 'none' ? null : { freq: repeat, interval: Math.max(1, Math.min(99, interval)) },
       reminders,
@@ -285,6 +288,11 @@ export function TaskEditor() {
           </Field>
           <Field label={t('todo.task.due_label')}>
             <DatePicker label={t('todo.task.due_label')} value={dueText} withTime onChange={setDueText} />
+          </Field>
+          {/* The day the work becomes available, separate from the day it is owed. Left empty is the
+              ordinary case: a task is actionable from the moment it is filed. */}
+          <Field label={t('todo.task.start_label')}>
+            <DatePicker label={t('todo.task.start_label')} value={startText} withTime onChange={setStartText} />
           </Field>
           {/* The select sits where the single-reminder field always did and adds one instant to the
               list below; the list, not the select, is what the task saves. */}

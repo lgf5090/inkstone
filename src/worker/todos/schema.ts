@@ -19,6 +19,9 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
     status TEXT NOT NULL DEFAULT 'todo',
     priority TEXT NOT NULL DEFAULT 'medium',
     due_at INTEGER,
+    -- When the task may be begun, or NULL when the reader named no start. Migration 123 carries the
+    -- column to databases built before this line existed.
+    start_at INTEGER,
     completed_at INTEGER,
     -- The account's calendar day (YYYY-MM-DD) of the two instants beside them. Stored rather than
     -- derived at query time: a day computed from an offset drifts across DST and files a task under
@@ -218,7 +221,7 @@ export const TODOS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>>
   // still carries them and the boot guard compares the declared shape with the real one; nothing
   // reads or writes them any more, and `migrateTaskReminders` is what empties them (pending removal).
   todos_tasks: [
-    'user_id', 'id', 'title', 'description', 'status', 'priority', 'due_at', 'completed_at',
+    'user_id', 'id', 'title', 'description', 'status', 'priority', 'due_at', 'start_at', 'completed_at',
     'completed_on', 'created_on',
     'project_id', 'list_id', 'starred', 'repeat_rule', 'remind_at', 'reminded_at', 'planned_for', 'note_id',
     'conversation_id', 'created_at', 'updated_at', 'rev', 'deleted_at',

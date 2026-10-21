@@ -38,20 +38,34 @@ export function compareTasks(a: TodoTask, b: TodoTask): number {
  *
  * An in-progress task with no due date sits in "today" on purpose: the reader started it, so it is
  * on them now, and a task that disappears into "no date" is one they will forget.
+ *
+ * The two future groups read the day the task starts, falling back to its due date when it never
+ * named one: a task that cannot be begun until next month is a later task even when it is owed this
+ * week, and one that starts tomorrow belongs to the week being planned. Overdue and today stay due
+ * based — a start date does not make work late.
  */
 export function groupByPlan(tasks: readonly TodoTask[], bounds: { dayEnd: number; now: number }): TaskGroup<PlanGroupKey>[] {
   const upcomingEnd = bounds.dayEnd + UPCOMING_DAYS * DAY
   const groups: Record<PlanGroupKey, TodoTask[]> = { overdue: [], today: [], upcoming: [], later: [], none: [] }
   for (const task of tasks) {
     if (task.status === 'done') continue
+    const startAt = task.startAt ?? null
     if (task.dueAt === null) {
-      if (task.status === 'in_progress') groups.today.push(task)
-      else groups.none.push(task)
+      if (startAt === null) {
+        if (task.status === 'in_progress') groups.today.push(task)
+        else groups.none.push(task)
+        continue
+      }
+      // A task that named only a start is work from that day: started already is today, ahead is the
+      // same two future buckets, and a start that has not come is not "no date".
+      if (startAt < bounds.now) groups.today.push(task)
+      else if (startAt < upcomingEnd) groups.upcoming.push(task)
+      else groups.later.push(task)
       continue
     }
     if (task.dueAt < bounds.now) groups.overdue.push(task)
     else if (task.dueAt < bounds.dayEnd) groups.today.push(task)
-    else if (task.dueAt < upcomingEnd) groups.upcoming.push(task)
+    else if ((startAt ?? task.dueAt) < upcomingEnd) groups.upcoming.push(task)
     else groups.later.push(task)
   }
   return (['overdue', 'today', 'upcoming', 'later', 'none'] as const)

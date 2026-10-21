@@ -949,6 +949,8 @@ export interface NewTask {
   status?: TaskStatus
   priority?: TaskPriority
   dueAt?: number | null
+  /** When the task may be begun. Independent of `dueAt`; null clears it. */
+  startAt?: number | null
   projectId?: string | null
   listId?: string | null
   starred?: boolean
@@ -4085,12 +4087,12 @@ export class AssistantStore {
     const createdOn = await this.taskDay(at, timeZone)
     await this.write(
       `INSERT INTO todos_tasks
-         (id, user_id, title, description, status, priority, due_at, project_id, list_id, starred,
+         (id, user_id, title, description, status, priority, due_at, start_at, project_id, list_id, starred,
           repeat_rule, note_id, conversation_id, created_at, updated_at, completed_at,
           created_on, completed_on)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)`,
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)`,
       id, input.title.trim().slice(0, 300), input.description ?? '', status, input.priority ?? 'medium',
-      input.dueAt ?? null, input.projectId ?? null, input.listId ?? null, input.starred ? 1 : 0,
+      input.dueAt ?? null, input.startAt ?? null, input.projectId ?? null, input.listId ?? null, input.starred ? 1 : 0,
       repeat ? JSON.stringify(repeat) : null, input.noteId ?? null,
       input.conversationId ?? null, at, at, status === 'done' ? at : null,
       createdOn, status === 'done' ? createdOn : null,
@@ -4181,6 +4183,7 @@ export class AssistantStore {
     if (patch.description !== undefined) fields.push(['description', patch.description])
     if (patch.priority !== undefined) fields.push(['priority', patch.priority])
     if (patch.dueAt !== undefined) fields.push(['due_at', patch.dueAt])
+    if (patch.startAt !== undefined) fields.push(['start_at', patch.startAt])
     if (patch.projectId !== undefined) fields.push(['project_id', patch.projectId])
     if (patch.listId !== undefined) fields.push(['list_id', patch.listId])
     if (patch.starred !== undefined) fields.push(['starred', patch.starred ? 1 : 0])
@@ -4338,12 +4341,19 @@ export class AssistantStore {
     // carries none: a reminder anchored to nothing is not a reminder.
     const anchorDue = existing.dueAt
     const offsets = anchorDue === null ? [] : (existing.reminders ?? []).map((remindAt) => remindAt - anchorDue)
+    // A start date is a lead time before the due date, so it travels with the occurrence: shifting the
+    // due date forward without the start would make the next copy immediately actionable. A row with
+    // no due date has no distance to keep, so its next copy starts undated too.
+    const startAt = existing.startAt == null || anchorDue === null
+      ? null
+      : dueAt + (existing.startAt - anchorDue)
     const steps = await this.listSteps(id)
     const next = await this.createTask({
       title: existing.title,
       description: existing.description,
       priority: existing.priority,
       dueAt,
+      startAt,
       projectId: existing.projectId,
       listId: existing.listId,
       starred: existing.starred,
@@ -6393,7 +6403,7 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // column nothing reads. The field still travels in the file, because that is the format's shape.
   // `deleted_at` is absent for a different reason: trashed rows are not exported at all (see
   // `exportTables`), so a column that would only ever be null is not part of the format.
-  todos_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'project_id', 'list_id', 'starred', 'repeat_rule', 'note_id', 'conversation_id', 'created_at', 'updated_at', 'completed_at', 'created_on', 'completed_on'],
+  todos_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'start_at', 'project_id', 'list_id', 'starred', 'repeat_rule', 'note_id', 'conversation_id', 'created_at', 'updated_at', 'completed_at', 'created_on', 'completed_on'],
   todos_lists: ['id', 'name', 'icon', 'color', 'position', 'created_at', 'updated_at'],
   todos_steps: ['id', 'task_id', 'text', 'done', 'position', 'created_at'],
   todos_tags: ['id', 'name', 'color', 'created_at', 'updated_at'],
@@ -7022,6 +7032,7 @@ interface TaskRow {
   status: string
   priority: string
   due_at: number | null
+  start_at: number | null
   project_id: string | null
   list_id: string | null
   starred: number | null
@@ -7082,6 +7093,7 @@ function toTask(
     status: pickEnum(r.status, TASK_STATUS_VALUES, 'todo'),
     priority: pickEnum(r.priority, TASK_PRIORITY_VALUES, 'medium'),
     dueAt: num(r.due_at),
+    startAt: num(r.start_at),
     projectId: r.project_id,
     listId: r.list_id,
     tags: extras.tags,

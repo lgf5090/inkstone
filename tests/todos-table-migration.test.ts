@@ -154,3 +154,38 @@ describe('the task row version', () => {
     expect(TODOS_REQUIRED_COLUMNS.todos_tasks).toContain('rev')
   })
 })
+
+/**
+ * The day a task may begin. A fresh install creates it and the boot demands it; a database built
+ * before the column existed gets it from version 123 and records that number, so the next boot does
+ * not replay the statement.
+ */
+describe('the task start date', () => {
+  it('is created by a fresh boot and listed as required', async () => {
+    const sqlite = new DatabaseSync(':memory:')
+    sqlite.exec('PRAGMA journal_mode = OFF')
+
+    await boot(sqlite)
+
+    const columns = sqlite.prepare(`SELECT name FROM pragma_table_info('todos_tasks')`).all()
+      .map((row) => (row as { name: string }).name)
+    expect(columns).toContain('start_at')
+    expect(TODOS_REQUIRED_COLUMNS.todos_tasks).toContain('start_at')
+  })
+
+  it('arrives under version 123 on a database that predates it', async () => {
+    const sqlite = new DatabaseSync(':memory:')
+    sqlite.exec('PRAGMA journal_mode = OFF')
+    await boot(sqlite)
+    sqlite.exec('ALTER TABLE todos_tasks DROP COLUMN start_at')
+    sqlite.exec('DELETE FROM schema_migrations WHERE version = 123')
+
+    await reboot(sqlite)
+
+    const columns = sqlite.prepare(`SELECT name FROM pragma_table_info('todos_tasks')`).all()
+      .map((row) => (row as { name: string }).name)
+    expect(columns).toContain('start_at')
+    expect(sqlite.prepare(`SELECT version FROM schema_migrations WHERE version = 123`).all())
+      .toEqual([{ version: 123 }])
+  })
+})
