@@ -23,7 +23,7 @@ beforeEach(() => {
   const schedule = window.setTimeout.bind(window)
   vi.spyOn(window, 'setTimeout').mockImplementation((handler: TimerHandler, timeout?: number) => {
     armed.push(timeout ?? 0)
-    return schedule(handler, timeout)
+    return schedule(handler, timeout) as unknown as ReturnType<typeof window.setTimeout>
   })
 })
 
