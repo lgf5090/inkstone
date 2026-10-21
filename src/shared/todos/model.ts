@@ -83,6 +83,8 @@ export const MAX_TASK_QUERY_CHARS = 200
 export const MAX_TASKS_PER_QUERY = 500
 /** A completed list is history: the newest page is enough to answer "what did I finish". */
 export const COMPLETED_PAGE_SIZE = 200
+/** One page of the trash: a holding area, not a shelf, so its pages are smaller than the listing's. */
+export const TRASH_PAGE_SIZE = 50
 
 /**
  * The most tasks one batch may name.
@@ -188,6 +190,11 @@ export interface TodoTask extends Task {
    * a write naming an older one is refused with a 409 rather than replacing an edit it never saw.
    */
   rev?: number
+  /**
+   * When the task was moved to the trash, or null while it is live. Only the trash page answers with a
+   * stamp; every other read filters trashed rows out, so this is null there.
+   */
+  deletedAt?: number | null
   stepTotal: number
   stepDone: number
 }

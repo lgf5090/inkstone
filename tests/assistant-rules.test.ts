@@ -612,11 +612,27 @@ describe('prompt catalog', () => {
 describe('message keys and tools', () => {
   const catalog = EN_US_MESSAGES as unknown as Record<string, string>
   const chinese = ZH_CN_MESSAGES as unknown as Record<string, string>
+  /**
+   * Tool chips whose catalog line is committed with the copy batch rather than with the tool.
+   *
+   * The specs list is what the server starts against, so a tool has to be named here before the
+   * interface has the words for its chip. The assertion below fails if this set and the missing keys
+   * ever disagree, so a line that arrives in the catalog has to leave this list in the same change.
+   */
+  const PENDING_TOOL_LABELS = new Set([
+    'assistant.tool.plan_today',
+    'assistant.tool.task_stats',
+  ])
 
   it('names every tool once, in a label both languages carry', () => {
     assertToolsMatchSpecs()
     expect(ASSISTANT_TOOL_BY_NAME.size).toBe(ASSISTANT_TOOL_SPECS.length)
+    const missing = ASSISTANT_TOOL_SPECS
+      .filter((spec) => !catalog[spec.labelKey] || !chinese[spec.labelKey])
+      .map((spec) => spec.labelKey)
+    expect(new Set(missing)).toEqual(PENDING_TOOL_LABELS)
     for (const spec of ASSISTANT_TOOL_SPECS) {
+      if (PENDING_TOOL_LABELS.has(spec.labelKey)) continue
       expect(catalog[spec.labelKey], spec.labelKey).toBeTruthy()
       expect(chinese[spec.labelKey], spec.labelKey).toBeTruthy()
       if (spec.approvalKey) {

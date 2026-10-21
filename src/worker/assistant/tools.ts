@@ -25,6 +25,7 @@ import {
   MAX_TAGS_PER_TASK,
   REMIND_OFFSETS,
   REPEAT_FREQUENCIES,
+  UPCOMING_DAYS,
   parseRepeatRule,
   remindAtFor,
   type RemindOffset,
@@ -33,7 +34,8 @@ import {
 } from '@shared/todos/model'
 import { parseNoteCheckboxes } from '@shared/todos/note-parse'
 import { MEMORY_CATEGORIES_FOR_TOOLS } from './memory-service'
-import { parseLocalTime, toLocalMinute } from '@shared/assistant-time'
+import { localDate, parseLocalTime, toLocalMinute } from '@shared/assistant-time'
+import { addDays, isStatsDay, loadTodoStats } from '../todos/stats'
 import { hasHistoricalIntent } from '@shared/assistant-memory'
 import type { ScheduleSpec } from '@shared/assistant-schedule'
 import type { Env } from '../env'
@@ -383,6 +385,36 @@ function taskTitleKey(title: string): string {
   return title.trim().replace(/\s+/g, ' ').toLowerCase()
 }
 
+/**
+ * The most suggestions one `plan_today` call answers with.
+ *
+ * A day holds a handful of tasks, not a page of them, and a suggestion list longer than the screen
+ * would make the reader pick through advice rather than accept it. The field's own ceiling is this
+ * number, so a model asking for more is clamped by the declaration the provider schema advertises.
+ */
+export const MAX_PLAN_TODAY_SUGGESTIONS = 8
+
+/**
+ * The most open tasks one planning sweep reads before choosing.
+ *
+ * The candidates are a view of the shelf, not the whole shelf: an account with thousands of open rows
+ * still answers from one page, and the page is ordered the way the to-do list is (due date first,
+ * then priority), so a cut takes the least urgent tail rather than an arbitrary sample.
+ */
+export const MAX_PLAN_TODAY_CANDIDATES = 200
+
+/** How many suggestions a call returns when the model does not say. */
+const DEFAULT_PLAN_TODAY_SUGGESTIONS = 5
+
+/** Why a task is on the plan. The screen prints the reader's words for the code. */
+type PlanTodayReason = 'overdue' | 'starred_due' | 'unscheduled'
+
+interface PlanTodaySuggestion {
+  id: string
+  title: string
+  reason: PlanTodayReason
+}
+
 export const TASK_TOOLS: ToolDefinition[] = [
   tool({
     name: 'create_task',
@@ -716,6 +748,123 @@ export const TASK_TOOLS: ToolDefinition[] = [
         steps,
         ...(byAt !== null ? { due_at: byAt } : {}),
         note: 'Nothing was saved: this is a proposal for the reader to accept or edit in the task editor. Do not call add_task_step for these steps unless the reader asks.',
+      }
+    },
+  }),
+  tool({
+    name: 'plan_today',
+    permission: 'write',
+    maxCallsPerTurn: 2,
+    description: 'Propose which open tasks belong in today, and why. This is a draft: it writes nothing. The result carries suggestions with a reason code — overdue, starred_due (starred and due within the coming week) or unscheduled (no plan and not due today) — and the reader accepts them in the Today screen, which calls the plan endpoint one row at a time. Do not plan, update or complete anything yourself.',
+    fields: {
+      limit: {
+        type: 'integer',
+        minimum: 1,
+        maximum: MAX_PLAN_TODAY_SUGGESTIONS,
+        description: `How many suggestions to return. Defaults to ${DEFAULT_PLAN_TODAY_SUGGESTIONS}.`,
+        optional: true,
+      },
+    },
+    async run(args, ctx) {
+      const now = Date.now()
+      const today = localDate(now, ctx.timezone)
+      const upcomingEnd = ctx.dayEnd + UPCOMING_DAYS * 24 * 60 * 60 * 1000
+      // One page, read in the order the list itself is read. The three passes below run over the same
+      // page rather than three queries, so a candidate that qualifies twice — starred and overdue — is
+      // named once, under the more urgent reason.
+      const pool = await ctx.store.listTasks({
+        status: 'open',
+        view: 'open',
+        limit: MAX_PLAN_TODAY_CANDIDATES,
+      })
+      const suggestions: PlanTodaySuggestion[] = []
+      const taken = new Set<string>()
+      const offer = (task: TodoTask, reason: PlanTodayReason): void => {
+        if (taken.has(task.id)) return
+        taken.add(task.id)
+        suggestions.push({ id: task.id, title: task.title, reason })
+      }
+      for (const task of pool) {
+        if (task.dueAt !== null && task.dueAt < now) offer(task, 'overdue')
+      }
+      for (const task of pool) {
+        // The coming week, starting after today: a starred task due today is already on the screen.
+        if (task.starred && task.dueAt !== null && task.dueAt >= ctx.dayEnd && task.dueAt < upcomingEnd) {
+          if (task.plannedFor !== today) offer(task, 'starred_due')
+        }
+      }
+      for (const task of pool) {
+        const plannedAhead = task.plannedFor !== null && task.plannedFor >= today
+        const dueToday = task.dueAt !== null && task.dueAt < ctx.dayEnd
+        // The server counts an in-progress task with no date as today, so the plan does not offer it.
+        const inProgressToday = task.dueAt === null && task.status === 'in_progress'
+        if (plannedAhead || dueToday || inProgressToday) continue
+        offer(task, 'unscheduled')
+      }
+      const asked = typeof args.limit === 'number' ? args.limit : DEFAULT_PLAN_TODAY_SUGGESTIONS
+      return {
+        draft: true,
+        today,
+        suggestions: suggestions.slice(0, asked),
+        note: 'Nothing was saved. The reason is a code: overdue, starred_due or unscheduled. The reader accepts these in the Today screen; do not call update_task or complete_task for them.',
+      }
+    },
+  }),
+  tool({
+    name: 'task_stats',
+    permission: 'read',
+    maxCallsPerTurn: 2,
+    description: 'Read the reader\'s to-do statistics for a date range: completed, created, completion rate, on-time rate, current and longest streak, overdue, and the per-list split. Call this first when writing a weekly review, then base the review on these numbers rather than recounting the list. Defaults to the last seven days ending today in the reader\'s zone.',
+    fields: {
+      from: {
+        type: 'string',
+        description: 'First day to count, YYYY-MM-DD in the reader\'s zone. Defaults to six days before the end of the range.',
+        maxLength: 10,
+        optional: true,
+      },
+      to: {
+        type: 'string',
+        description: 'Last day to count, inclusive, YYYY-MM-DD in the reader\'s zone. Defaults to today.',
+        maxLength: 10,
+        optional: true,
+      },
+    },
+    async run(args, ctx) {
+      const now = Date.now()
+      const today = localDate(now, ctx.timezone)
+      const to = typeof args.to === 'string' && args.to ? args.to : today
+      const from = typeof args.from === 'string' && args.from ? args.from : addDays(to, -6)
+      if (!isStatsDay(from) || !isStatsDay(to)) {
+        throw new ToolError('"from" and "to" must be calendar days like 2026-01-31.')
+      }
+      if (from > to) throw new ToolError('"from" must not be after "to".')
+      // The numbers are the statistics screen's own: the same range reader, the same arithmetic. A
+      // second formula here would let the review and the screen disagree about the same week.
+      const stats = await loadTodoStats(ctx.env.DB, ctx.store.userId, {
+        from,
+        to,
+        bucket: 'day',
+        timezone: ctx.timezone,
+        now,
+      })
+      const { summary } = stats
+      return {
+        range: stats.range,
+        summary: {
+          completed: summary.completed,
+          created: summary.created,
+          open: summary.open,
+          completionRate: summary.completionRate,
+          onTime: summary.onTime,
+          onTimeDue: summary.onTimeDue,
+          onTimeRate: summary.onTimeRate,
+          currentStreak: summary.currentStreak,
+          longestStreak: summary.longestStreak,
+          overdue: summary.overdue,
+          medianLeadTimeMs: summary.medianLeadTimeMs,
+        },
+        by_list: stats.distributions.byList,
+        note: 'These are the Statistics screen\'s own numbers; base the review on them rather than recounting the list. The range is the reader\'s calendar, so say which days it covers.',
       }
     },
   }),
