@@ -48,6 +48,7 @@ export function memoComposerDraftScope(spaceId: string | null | undefined): stri
 export interface MemoComposerProps {
   memo?: Memo
   spaceId?: string | null
+  initialCreatedAt?: number
   onSaved?: (memo: Memo) => void
   onCancel?: () => void
 }
@@ -57,12 +58,23 @@ interface UploadingFile {
   name: string
 }
 
-export function MemoComposer({ memo, spaceId = null, onSaved, onCancel }: MemoComposerProps): ReactElement {
+export function MemoComposer({
+  memo,
+  spaceId = null,
+  initialCreatedAt,
+  onSaved,
+  onCancel,
+}: MemoComposerProps): ReactElement {
   const editing = memo !== undefined
   const userId = useSession((state) => state.user?.id ?? 'guest')
   const scope = useRef(memoComposerDraftScope(spaceId)).current
   const [restored] = useState(() => (editing ? null : loadMemoDraft(userId, scope)))
-  const initialCreatedAt = useRef(memo?.createdAt ?? Math.floor(Date.now() / 1000)).current
+  const startingCreatedAt = useRef(
+    memo?.createdAt
+    ?? (typeof initialCreatedAt === 'number' && Number.isFinite(initialCreatedAt)
+      ? Math.floor(initialCreatedAt)
+      : Math.floor(Date.now() / 1000)),
+  ).current
   const revRef = useRef(memo?.rev ?? 0)
   const spaces = useMemoSpaces()
   const editorRef = useRef<MemoEditorHandle>(null)
@@ -81,7 +93,7 @@ export function MemoComposer({ memo, spaceId = null, onSaved, onCancel }: MemoCo
     memo?.spaceId ?? spaceId ?? restored?.spaceId ?? null,
   )
   const [attachmentIds, setAttachmentIds] = useState<string[]>(restored?.attachmentIds ?? [])
-  const [createdAt, setCreatedAt] = useState(initialCreatedAt)
+  const [createdAt, setCreatedAt] = useState(startingCreatedAt)
   const [saving, setSaving] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [focusMode, setFocusMode] = useState(false)

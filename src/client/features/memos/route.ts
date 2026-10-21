@@ -48,8 +48,8 @@ function spaceRoute(segments: readonly string[]): MemoRoute {
   const [spaceId, section, ...extra] = segments
   if (spaceId === undefined) return NOT_FOUND
   if (section === undefined) return { kind: 'space', spaceId }
+  if (section === 'calendar') return calendarRoute(extra, spaceId)
   if (extra.length > 0) return NOT_FOUND
-  if (section === 'calendar') return { kind: 'calendar', spaceId, date: null }
   if (section === 'attachments') return { kind: 'attachments', spaceId }
   if (section === 'map') return { kind: 'map', spaceId }
   return NOT_FOUND

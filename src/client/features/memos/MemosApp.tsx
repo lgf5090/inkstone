@@ -12,6 +12,7 @@ import { MemoDetail } from './components/MemoDetail'
 import { useRevision } from './events'
 import { MemoFeedPage } from './pages/MemoFeedPage'
 import { MemoAttachmentsPage } from './pages/MemoAttachmentsPage'
+import { MemoCalendarPage } from './pages/MemoCalendarPage'
 import { MemoExplorePage } from './pages/MemoExplorePage'
 import { MemoInboxPage } from './pages/MemoInboxPage'
 import { MemoSettingsPage } from './pages/MemoSettingsPage'
@@ -259,8 +260,10 @@ export function MemosApp(): ReactElement {
     content = <MemoSettingsPage />
   } else if (route.kind === 'inbox') {
     content = <MemoInboxPage />
-  } else if (route.kind === 'calendar' || route.kind === 'map') {
-    content = <MemoPlaceholderPage kind={route.kind} />
+  } else if (route.kind === 'calendar') {
+    content = <MemoCalendarPage onOpenMemo={openMemo} />
+  } else if (route.kind === 'map') {
+    content = <MemoPlaceholderPage kind="map" />
   } else {
     content = <MemoPlaceholderPage kind="notFound" />
   }

@@ -152,7 +152,7 @@ describe('the memos container', () => {
     act(() => navigateToPath('/memos/calendar'))
     await flush()
     expect(host.querySelector('[data-memos-page="calendar"]')).not.toBeNull()
-    expect(host.textContent).toContain(t('memos.placeholder.calendar_description'))
+    expect(host.textContent).toContain(t('memos.calendar.today'))
 
     act(() => navigateToPath('/memos/not-a-page'))
     await flush()
