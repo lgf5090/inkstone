@@ -354,7 +354,13 @@ function batchStarValue(value: unknown): boolean {
   throw ApiError.badRequest('A star batch takes true or false.')
 }
 
-function colorValue(value: unknown): string | null | undefined {
+/**
+ * A list's or task's colour: one of the shared palette, or a hex the reader mixed themselves.
+ *
+ * Exported beside the icon validator below because the task routes judge the same two columns the
+ * list and tag routes do, and a second copy of the rule would eventually disagree with this one.
+ */
+export function colorValue(value: unknown): string | null | undefined {
   if (value === undefined) return undefined
   if (value === null || value === '') return null
   if (typeof value !== 'string') throw ApiError.badRequest('A colour must be text.')
@@ -364,13 +370,14 @@ function colorValue(value: unknown): string | null | undefined {
 }
 
 /**
- * A list's icon: one emoji, or the name of an icon the picker offers.
+ * A list's or task's icon: one emoji, or the name of an icon the picker offers.
  *
  * Deliberately not `normalizeOrganizerIcon`, whose 8-unit ceiling is sized for the emoji a folder
  * stores — an icon name such as `Briefcase` is longer than that, and truncating it would leave a
- * value no picker could ever produce again.
+ * value no picker could ever produce again. Exported for the same reason as the colour validator:
+ * one rule for the list, the tag and the task faces.
  */
-function iconValue(value: unknown): string | null | undefined {
+export function iconValue(value: unknown): string | null | undefined {
   if (value === undefined) return undefined
   if (value === null || value === '') return null
   if (typeof value !== 'string') throw ApiError.badRequest('An icon must be text.')
@@ -777,6 +784,11 @@ todoRoutes.post('/', async (c) => {
     startAt,
     projectId: await projectRef(s, body.projectId),
     listId: await listRef(s, body.listId),
+    // The task's own face, judged by the list and tag routes' own validators: a colour outside the
+    // palette and an icon name past the ceiling are a 400 here rather than a face the pickers could
+    // never produce again. Absent leaves the list's to show through.
+    icon: iconValue(body.icon) ?? null,
+    color: colorValue(body.color) ?? null,
     starred: body.starred === undefined ? undefined : asBoolean(body.starred, 'starred'),
     repeat: asRepeat(body.repeat),
     reminders,
@@ -1023,6 +1035,10 @@ todoRoutes.patch('/:id', async (c) => {
     ...(startAt !== undefined ? { startAt } : {}),
     ...(body.projectId !== undefined ? { projectId: await projectRef(s, body.projectId) } : {}),
     ...(body.listId !== undefined ? { listId: await listRef(s, body.listId) } : {}),
+    // The face columns follow the list route's own reading: absent leaves the column alone, null
+    // clears it back to the list's, and an unusable value is a 400 rather than a silent drop.
+    ...(body.icon !== undefined ? { icon: iconValue(body.icon) ?? null } : {}),
+    ...(body.color !== undefined ? { color: colorValue(body.color) ?? null } : {}),
     ...(body.starred !== undefined ? { starred: asBoolean(body.starred, 'starred') } : {}),
     ...(body.repeat !== undefined ? { repeat: asRepeat(body.repeat) } : {}),
     ...(body.reminders !== undefined ? { reminders: reminderTimes(body.reminders) } : {}),
