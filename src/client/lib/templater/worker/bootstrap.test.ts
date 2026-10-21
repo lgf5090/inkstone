@@ -729,22 +729,42 @@ describe('tp.file', () => {
     // a render that fails here leaves no note behind.
     expect(await seen.evaluateAwaiting(`const made = await tp.file.create_new('Idea', 'Child')
   tR += made.path + '/' + made.basename`, answer)).toBe('Child.md/Child')
+    // `RenderIncludeRequest`, in its own shape: a note source, this run's stack level, and the `asCreate`
+    // half that tells the page the child fills the note being created — upstream's create-new running
+    // config (`Templater.ts:194-203`), whose `template_file` is the source row, named here by path.
     expect(seen.calls.map((call) => [call.method, call.args[0]])).toEqual([
-      ['note.renderInclude', { path: 'Idea.md', subpath: null, depth: 1 }],
+      ['note.renderInclude', {
+        source: { kind: 'note', path: 'Idea.md', subpath: null },
+        depth: 1,
+        asCreate: { path: 'Child.md', title: 'Child', templatePath: 'Idea.md' },
+      }],
       ['note.create', 'Child.md'],
     ])
     expect(seen.calls[1].args[1]).toBe('# rendered child')
   })
 
-  it('keeps a raw string as the text it was given, and renders a file the template handed it', async () => {
+  it('renders a raw string as template text, and a file the way upstream reads one', async () => {
     const raw = await namespace()
+    const rawAnswer = (call: HostCall): Reply | undefined => (call.method === 'note.renderInclude'
+      ? { value: { content: 'Hello 2' } }
+      : call.method === 'note.create'
+        ? { value: rowAt('Note.md') }
+        : undefined)
     expect(await raw.evaluateAwaiting(`const made = await tp.file.create_new('Hello <% 1 + 1 %>', 'Note')
-  tR += made.basename`, (call) => (call.method === 'note.create' ? { value: rowAt('Note.md') } : undefined)))
-      .toBe('Note')
-    // A string is the template *text* upstream, and a string that matches nothing in the reader's template
-    // list stays that. The page is never asked to render text, because `RenderIncludeRequest` names a path.
-    expect(raw.calls.map((call) => call.method)).toEqual(['note.create'])
-    expect(raw.calls[0].args).toEqual(['Note.md', 'Hello <% 1 + 1 %>'])
+  tR += made.basename`, rawAnswer)).toBe('Note')
+    // A string that matches nothing in the reader's template list is the template *text* upstream, and
+    // upstream *renders* it (`Templater.ts:204-214` parses the string as the template): the new
+    // `RenderIncludeRequest` carries a `text` source for exactly this half, and `asCreate` arrives without
+    // a `templatePath`, which is upstream's `template_file: undefined` for a text-sourced create.
+    expect(raw.calls.map((call) => [call.method, call.args[0]])).toEqual([
+      ['note.renderInclude', {
+        source: { kind: 'text', text: 'Hello <% 1 + 1 %>' },
+        depth: 1,
+        asCreate: { path: 'Note.md', title: 'Note' },
+      }],
+      ['note.create', 'Note.md'],
+    ])
+    expect(raw.calls[1].args[1]).toBe('Hello 2')
 
     const fromFile = await namespace()
     const answer = (call: HostCall): Reply | undefined => (call.method === 'note.renderInclude'
@@ -755,7 +775,11 @@ describe('tp.file', () => {
     expect(await fromFile.evaluateAwaiting(`tR += (await tp.file.create_new(tp.file.find_tfile('Other'), 'From')).path`, answer))
       .toBe('From.md')
     expect(fromFile.calls.map((call) => [call.method, call.args[0]])).toEqual([
-      ['note.renderInclude', { path: 'Other.md', subpath: null, depth: 1 }],
+      ['note.renderInclude', {
+        source: { kind: 'note', path: 'Other.md', subpath: null },
+        depth: 1,
+        asCreate: { path: 'From.md', title: 'From', templatePath: 'Other.md' },
+      }],
       ['note.create', 'From.md'],
     ])
     // A template file the run came from is the same shape, which is how upstream's
@@ -763,15 +787,20 @@ describe('tp.file', () => {
   })
 
   it('files the new note where the template pointed it', async () => {
-    const answer = (call: HostCall): Reply | undefined => (call.method === 'note.create'
-      ? { value: rowAt(String(call.args[0])) }
-      : undefined)
+    const answer = (call: HostCall): Reply | undefined => (call.method === 'note.renderInclude'
+      ? { value: { content: 'rendered' } }
+      : call.method === 'note.create'
+        ? { value: rowAt(String(call.args[0])) }
+        : undefined)
+    /** The path the create call carried, once the render in front of it is skipped over. */
+    const createdPathAt = (calls: HostCall[]): string => String(calls.find((call) => call.method === 'note.create')?.args[0])
     const byString = await namespace()
     expect(await byString.evaluateAwaiting(`tR += (await tp.file.create_new('text', 'Child', false, 'Reading')).path`, answer))
       .toBe('Reading/Child.md')
     // `tp.file.folder(true)` answers a path string, which is the form upstream's spec passes too
     // (`file.e2e.ts:1376`); a `TFolder` object is the other half of the signature (`Templater.ts:169`).
-    expect(byString.calls[0].args[0]).toBe('Reading/Child.md')
+    expect(createdPathAt(byString.calls)).toBe('Reading/Child.md')
+    expect((byString.calls[0].args[0] as { asCreate: { path: string } }).asCreate.path).toBe('Reading/Child.md')
 
     const byFolder = await namespace()
     expect(await byFolder.evaluateAwaiting(`tR += (await tp.file.create_new('text', 'Child', false, tp.config.target_file.parent)).path`, answer))
@@ -800,21 +829,26 @@ describe('tp.file', () => {
   })
 
   it('opens the note it made only when the template asked it to', async () => {
-    const answer = (call: HostCall): Reply | undefined => (call.method === 'note.create'
-      ? { value: rowAt('Child.md') }
-      : call.method === 'note.open'
-        ? { value: null }
-        : undefined)
+    const answer = (call: HostCall): Reply | undefined => (call.method === 'note.renderInclude'
+      ? { value: { content: 'rendered' } }
+      : call.method === 'note.create'
+        ? { value: rowAt('Child.md') }
+        : call.method === 'note.open'
+          ? { value: null }
+          : undefined)
     const opened = await namespace()
     expect(await opened.evaluateAwaiting(`tR += (await tp.file.create_new('text', 'Child', true)).path`, answer))
       .toBe('Child.md')
-    // `file.e2e.ts:1413` and `:1432`: the third argument opens, and the default does not.
-    expect(opened.calls.map((call) => [call.method, call.args[0]])).toEqual([['note.create', 'Child.md'], ['note.open', 'Child.md']])
+    // `file.e2e.ts:1413` and `:1432`: the third argument opens, and the default does not. The render goes
+    // first because the port renders before it creates.
+    expect(opened.calls.map((call) => call.method)).toEqual(['note.renderInclude', 'note.create', 'note.open'])
+    expect(opened.calls[1].args[0]).toBe('Child.md')
+    expect(opened.calls[2].args[0]).toBe('Child.md')
 
     const kept = await namespace()
     expect(await kept.evaluateAwaiting(`tR += (await tp.file.create_new('text', 'Child')).path`, answer))
       .toBe('Child.md')
-    expect(kept.calls.map((call) => call.method)).toEqual(['note.create'])
+    expect(kept.calls.map((call) => call.method)).toEqual(['note.renderInclude', 'note.create'])
   })
 
   it('answers undefined where upstream answers undefined', async () => {
@@ -829,8 +863,10 @@ describe('tp.file', () => {
     // And so is a create that answers no row.
     const empty = await namespace()
     expect(await empty.evaluateAwaiting('tR += String(await tp.file.create_new("raw text", "Child"))',
-      (call) => (call.method === 'note.create' ? { value: null } : undefined))).toBe('undefined')
-    expect(empty.calls.map((call) => call.method)).toEqual(['note.create'])
+      (call) => (call.method === 'note.renderInclude'
+        ? { value: { content: 'rendered' } }
+        : call.method === 'note.create' ? { value: null } : undefined))).toBe('undefined')
+    expect(empty.calls.map((call) => call.method)).toEqual(['note.renderInclude', 'note.create'])
   })
 
   it('holds create_new to the same depth as inclusion, and counts it separately', async () => {
@@ -922,10 +958,11 @@ describe('tp.file', () => {
     expect(await seen.evaluateAwaiting(`tR += await tp.file.include('[[Other]]')`,
       (call) => (call.method === 'note.renderInclude' ? { value: { content: 'the other body' } } : undefined)))
       .toBe('the other body')
-    // One request, in the shape `RenderIncludeRequest` names: the path the run's own index gave that link, no
-    // subpath, and the level the render sits at — counted from 1, which is how the contract counts it.
+    // One request, in the shape `RenderIncludeRequest` names: a note source with the path the run's own
+    // index gave that link and no subpath, the level the render sits at — counted from 1, which is how the
+    // contract counts it — and no `asCreate`, because an `include` is not filling a new note.
     expect(seen.calls.map((call) => [call.method, call.args[0]])).toEqual([
-      ['note.renderInclude', { path: 'Other.md', subpath: null, depth: 1 }],
+      ['note.renderInclude', { source: { kind: 'note', path: 'Other.md', subpath: null }, depth: 1 }],
     ])
   })
 
@@ -946,12 +983,14 @@ describe('tp.file', () => {
     expect(await indexed.evaluate('tp.file.find_tfile("Idea").path')).toBe('Templates/Idea.md')
     expect(await indexed.evaluateAwaiting(`tR += await tp.file.include('[[Idea]]')`,
       () => ({ value: { content: 'rendered template' } }))).toBe('rendered template')
-    expect(indexed.calls.map((call) => call.args[0])).toEqual([{ path: 'Templates/Idea.md', subpath: null, depth: 1 }])
+    expect(indexed.calls.map((call) => call.args[0])).toEqual([
+      { source: { kind: 'note', path: 'Templates/Idea.md', subpath: null }, depth: 1 },
+    ])
 
     const self = await namespace()
     expect(await self.evaluateAwaiting(`tR += await tp.file.include('[[Reading/Target]]')`,
       () => ({ value: { content: 'the body, re-parsed' } }))).toBe('the body, re-parsed')
-    expect(self.calls[0].args[0]).toEqual({ path: 'Reading/Target.md', subpath: null, depth: 1 })
+    expect(self.calls[0].args[0]).toEqual({ source: { kind: 'note', path: 'Reading/Target.md', subpath: null }, depth: 1 })
   })
 
   it('cuts a heading or a block inclusion by asking the half that holds the parse', async () => {
@@ -961,13 +1000,19 @@ describe('tp.file', () => {
       .toBe('the section')
     // The subpath travels in the contract's shape, not in `parseLinktext`'s: Obsidian's `block-id` becomes
     // `block`, because slicing needs the note's parse positions and only the page has them.
-    expect(heading.calls[0].args[0]).toEqual({ path: 'Other.md', subpath: { kind: 'heading', text: 'Heading' }, depth: 1 })
+    expect(heading.calls[0].args[0]).toEqual({
+      source: { kind: 'note', path: 'Other.md', subpath: { kind: 'heading', text: 'Heading' } },
+      depth: 1,
+    })
 
     const block = await namespace()
     expect(await block.evaluateAwaiting(`tR += await tp.file.include('[[Other#^abc123]]')`,
       (call) => (call.method === 'note.renderInclude' ? { value: { content: 'the block' } } : undefined)))
       .toBe('the block')
-    expect(block.calls[0].args[0]).toEqual({ path: 'Other.md', subpath: { kind: 'block', text: 'abc123' }, depth: 1 })
+    expect(block.calls[0].args[0]).toEqual({
+      source: { kind: 'note', path: 'Other.md', subpath: { kind: 'block', text: 'abc123' } },
+      depth: 1,
+    })
   })
 
   it('refuses an inclusion it cannot honour', async () => {
@@ -979,7 +1024,7 @@ describe('tp.file', () => {
     expect(await seen.evaluateAwaiting(`tR += await tp.file.include(tp.file.find_tfile('Other'))`,
       (call) => (call.method === 'note.renderInclude' ? { value: { content: 'by file object' } } : undefined)))
       .toBe('by file object')
-    expect(seen.calls[0].args[0]).toEqual({ path: 'Other.md', subpath: null, depth: 1 })
+    expect(seen.calls[0].args[0]).toEqual({ source: { kind: 'note', path: 'Other.md', subpath: null }, depth: 1 })
     // A render the page answers with nothing is a failure, not an inclusion of the empty string: a note that
     // silently lost the included text is the failure this package exists to refuse.
     const broken = await namespace()

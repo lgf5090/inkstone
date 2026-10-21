@@ -290,18 +290,19 @@ const PRELUDE = `(() => {
   // The level the render being asked for sits at, counting from 1 — the \`depth\` field of
   // \`RenderIncludeRequest\` in \`../protocol.ts\`. The two counters are summed because they are the only two
   // ways this run can hold a render outstanding at once, and the number describes this run's own stack. The
-  // ceiling across the nested runs is the page's to enforce (\`MAX_TEMPLATE_DEPTH\` in \`../limits.ts\`),
-  // because the contract carries no field that could hand a nested run the depth it was started at.
+  // page sums this field with the level it started each nested run at, which is how \`MAX_TEMPLATE_DEPTH\`
+  // holds across the chain: each interpreter sees only its own counters, and the depth field is the only
+  // way one run's stack reaches the next one's host.
   const renderDepth = () => includeDepth + createNewDepth
 
   // Asking the page to render one thing into text. This is the half the worker cannot do for itself: it holds
   // no parser and one interpreter per run, so a nested run is started on the page and answered finished.
-  const renderIncluded = async (path, subpath) => {
-    const answer = await callHost('note.renderInclude', [{
-      path,
-      subpath: wireSubpath(subpath),
-      depth: renderDepth(),
-    }])
+  // The request is \`RenderIncludeRequest\`: a \`source\` naming a note (with its subpath) or raw text, this
+  // run's own stack level, and \`asCreate\` when the render fills a note being created.
+  const renderIncluded = async (source, asCreate) => {
+    const request = { source, depth: renderDepth() }
+    if (asCreate) request.asCreate = asCreate
+    const answer = await callHost('note.renderInclude', [request])
     if (!answer || typeof answer !== 'object' || typeof answer.content !== 'string') {
       throw hostError('render-failed', 'note.renderInclude')
     }
@@ -325,7 +326,7 @@ const PRELUDE = `(() => {
     includeDepth += 1
     try {
       const found = includeTargetOf(include_link)
-      return await renderIncluded(found.path, found.subpath)
+      return await renderIncluded({ kind: 'note', path: found.path, subpath: wireSubpath(found.subpath) })
     } finally {
       includeDepth -= 1
     }
@@ -370,7 +371,7 @@ const PRELUDE = `(() => {
     return extensionOf(combined).toLowerCase() === MARKDOWN ? combined : combined + '.' + MARKDOWN
   }
 
-  // What one \`create_new\` template argument means: a path to render, or text to store as written.
+  // What one \`create_new\` template argument means: a path to render, or text to render as written.
   //
   // Upstream renders a \`TFile\` it can read (\`Templater.ts:194-203\`) and treats any other argument as the
   // template text itself (\`:204-214\`) — a string is never a name there. This app keeps library templates as
@@ -415,7 +416,18 @@ const PRELUDE = `(() => {
       // Rendering before creating is the port's order, not upstream's: upstream creates an empty file,
       // renders into it and deletes the file when the render fails (\`Templater.ts:216-220\`). The page's
       // \`note.create\` takes the body, so a failed render leaves no note behind.
-      const content = source.path === undefined ? source.text : await renderIncluded(source.path, null)
+      //
+      // Both shapes of the template argument render, which is upstream's rule: a file row is read and
+      // re-parsed, and a raw string is parsed as the template text itself (\`Templater.ts:194-214\`) —
+      // \`create_new('Total: <% 1 + 1 %>', …)\` stores \`Total: 2\`, not the markup. \`asCreate\` carries the
+      // note being made, so the child run reads \`tp.file.*\` as that note and \`tp.config.run_mode\` as
+      // create-new; \`templatePath\` names the source row when there is one, which is upstream's
+      // \`template_file\` for a file-sourced create and its \`undefined\` for a text-sourced one.
+      const asCreate = { path, title: withoutExtension(basenameOf(path)) }
+      if (source.path !== undefined) asCreate.templatePath = source.path
+      const content = await renderIncluded(
+        source.path === undefined ? { kind: 'text', text: source.text } : { kind: 'note', path: source.path, subpath: null },
+        asCreate)
       const answer = await callHost('note.create', [path, content])
       const created = answer && typeof answer === 'object' ? hydrate(answer) : null
       // No row came back: upstream's \`created_note == null\` branch, which answers \`undefined\` rather than

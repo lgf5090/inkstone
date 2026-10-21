@@ -363,20 +363,28 @@ export function capabilitiesFor(profile: CapabilityProfile): Capabilities {
  * What `note.renderInclude` asks the page to do: render one thing into text.
  *
  * `tp.file.include` and `<% tp.file.create_new(template, …) %>` are not reads. Upstream parses what it
- * read, so the commands *inside* an included note run, and a nested `create_new` renders the template into
- * the note it just made. The worker cannot do that itself — it holds no parser and one interpreter per run —
- * so the page compiles and runs a nested template and answers its finished text, which is also the only
- * place a `#Heading` or `#^block` subpath can be sliced, because slicing needs the parse positions the
- * snapshot deliberately does not carry. `depth` travels so the page can own `MAX_TEMPLATE_DEPTH`: the
- * counter that limits nesting has to live where the nested runs are started.
+ * read, so the commands *inside* an included note run — `InternalModuleFile.ts:212-222` re-parses with the
+ * *parent's* own function object, which is why an included note sees the parent's `tp.file.title` and not
+ * its own — while `Templater.ts:204-214` gives a `create_new` child run a config of its own, with the note
+ * being made as the target and `RunMode.CreateNewFromTemplate`. Both are one call shape here, because both
+ * are "compile this and run it"; what differs is only `asCreate`.
+ *
+ * The worker cannot do either job itself: it holds no parser, and one interpreter holds one run. So the page
+ * compiles and runs a nested template and answers its finished text — which is also the only place a
+ * `#Heading` or `#^block` subpath can be sliced, since slicing needs parse positions the snapshot
+ * deliberately does not carry. `depth` travels because the counter that limits nesting has to live where the
+ * nested runs are started; without it `MAX_TEMPLATE_DEPTH` has no owner.
  */
 export interface RenderIncludeRequest {
-  /** The virtual path, already normalised and validated by the page's own resolver. */
-  path: string
-  /** A heading or block reference inside that note, or nothing for the whole body. */
-  subpath?: { kind: 'heading' | 'block'; text: string } | null
+  /** What to render: another note (optionally one heading or block of it), or raw template text. */
+  source: { kind: 'note'; path: string; subpath?: { kind: 'heading' | 'block'; text: string } | null } | { kind: 'text'; text: string }
   /** How deep this render sits under the run the reader started, counting from 1. */
   depth: number
+  /**
+   * Set when the render is filling a note that is being created: the child run reads `tp.file.*` as that
+   * note and `tp.config.run_mode` as create-new. Absent for `include`, which keeps the parent's context.
+   */
+  asCreate?: { path: string; title: string; templatePath?: string } | null
 }
 
 /** What the page answers a {@link RenderIncludeRequest} with: the rendered text, markers included. */

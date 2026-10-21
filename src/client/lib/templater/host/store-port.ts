@@ -27,6 +27,7 @@ import { findNoteByTitle, noteById, useNotes } from '../../../store/notes'
 import { useUi } from '../../../store/ui'
 import { useNoteTemplates } from '../../../store/note-templates'
 import { syncTitleIntoFrontMatter } from '../../../store/new-note'
+import { getActiveEditorView, insertText } from '../../../editor/commands'
 import type { PageHostChanges, PageHostDeps, PageHostWrite } from './page-host'
 
 /** Whether a pane is holding this note, which is the difference between a buffer and a row. */
@@ -218,32 +219,78 @@ async function removeRow(id: string): Promise<PageHostWrite> {
 }
 
 /**
- * The store, as the host's ports.
+ * The note in front of the reader, or `false` when the app cannot show it.
  *
- * One object, built once, handed to `createPageHost` beside the prompt host and the editor host by
- * `configureTemplater`. Folder creation is the store's synchronous optimistic call, whose id is returned
- * before the route answers — which is what lets a template create a folder and file into it in the same run
- * while the row is still in flight.
+ * `openNote` is the store's own entry point — the one the list, the backlinks panel and the recovery toast
+ * use — so an opened note arrives with its pane, its revalidation and its mobile reveal intact. The answer
+ * is measured after the call rather than assumed: upstream's `create_new(…, true)` only ever fails for
+ * want of a leaf (`Templater.ts:229-234`) and logs it; this reports whether a pane is really on the note,
+ * which is the difference between "opened" and "asked".
  */
-export const storePageHostPorts: PageHostDeps = {
-  notes: {
-    read: readBody,
-    write: writeBody,
-    update: updateRow,
-    create: createRow,
-    remove: removeRow,
-  },
-  folders: {
-    list: (): Folder[] => useNotes.getState().folders,
-    create: async ({ name, parentId }) => useNotes.getState().createFolder({ name, parentId }),
-  },
-  templates: {
-    // The gallery's own rule: a name matched after trimming and case-folding, and an id accepted as well, so
-    // a template that carries a row id from `tp.config.template_file` reads the same row back.
-    byName: async (name) => {
-      const wanted = name.trim().toLowerCase()
-      const templates = useNoteTemplates.getState().templates
-      return templates.find((template) => template.id === name || template.name.trim().toLowerCase() === wanted) ?? null
+async function openInEditor(id: string): Promise<boolean> {
+  const summary = noteById(id)
+  if (summary === undefined || summary.deletedAt !== null) return false
+  await useNotes.getState().openNote(id)
+  const ui = useUi.getState()
+  return ui.activeNoteId === id || ui.workspacePrimaryNoteId === id || ui.workspaceSecondaryNoteId === id
+}
+
+/**
+ * Text at the active editor's selection, in one undoable transaction.
+ *
+ * The same door the emoji picker uses (`features/emoji/insert-emoji.ts`): the view the editor names when
+ * it mounts, and `insertText`, which dispatches a real CodeMirror transaction that replaces the selection
+ * and leaves the caret after the text — upstream's `doc.replaceSelection(content)` and the same undo
+ * contract the template insert already keeps. A preview pane, an inert board or no editor at all answers
+ * `false`; nothing is dropped into a buffer nobody is looking at.
+ */
+function appendAtEditorCursor(text: string): boolean {
+  const view = getActiveEditorView()
+  if (view === null || !view.dom.isConnected || view.dom.closest('[inert]') !== null) return false
+  insertText(text)(view)
+  view.focus()
+  return true
+}
+
+/**
+ * The store and the editor, as the host's ports.
+ *
+ * One object, handed to `createPageHost` beside the prompt host and the web host. Folder creation is the
+ * store's synchronous optimistic call, whose id is returned before the route answers — which is what lets a
+ * template create a folder and file into it in the same run while the row is still in flight.
+ *
+ * The nested half is **passed in rather than imported**: starting a child run means calling the module's own
+ * door (`renderTemplate`/`cancelTemplateRun`), and a module under `host/` that imports the door would make
+ * the door import this file right back — the cycle that only shows up as an `undefined` function at the
+ * first nested `include`. `tests/templater-protocol-purity.test.ts` forbids it, and the wiring hands both
+ * functions over here instead.
+ */
+export function storePageHostPorts(nested: PageHostDeps['nested']): PageHostDeps {
+  return {
+    notes: {
+      read: readBody,
+      write: writeBody,
+      update: updateRow,
+      create: createRow,
+      remove: removeRow,
     },
-  },
+    folders: {
+      list: (): Folder[] => useNotes.getState().folders,
+      create: async ({ name, parentId }) => useNotes.getState().createFolder({ name, parentId }),
+    },
+    templates: {
+      // The gallery's own rule: a name matched after trimming and case-folding, and an id accepted as well, so
+      // a template that carries a row id from `tp.config.template_file` reads the same row back.
+      byName: async (name) => {
+        const wanted = name.trim().toLowerCase()
+        const templates = useNoteTemplates.getState().templates
+        return templates.find((template) => template.id === name || template.name.trim().toLowerCase() === wanted) ?? null
+      },
+    },
+    editor: {
+      open: openInEditor,
+      appendAtCursor: appendAtEditorCursor,
+    },
+    nested,
+  }
 }

@@ -119,14 +119,8 @@ export function terminateTemplater(): void {
 /**
  * A new `runId`.
  *
- * Ids have to be unique across a batch rather than merely clever, and the two sources of randomness this app
- * has are `crypto.randomUUID` and a counter; the counter is used when the platform has no `crypto`, which is
- * a browser that is old enough to lack it rather than a theoretical one.
+ * Lives in `./run-id.ts` because the page host mints ids for the nested runs it starts, and a module under
+ * `host/` may not import the door it is wired through — that would be a cycle. Re-exported so callers of
+ * the door keep reaching it from here.
  */
-export function createTemplateRunId(prefix: string): string {
-  const random = globalThis.crypto?.randomUUID?.()
-  const tail = random ?? `${Date.now().toString(36)}${++sequence}`
-  return `${prefix}-${tail}`
-}
-
-let sequence = 0
+export { createTemplateRunId } from './run-id'

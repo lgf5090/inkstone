@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Folder, Note, NoteTemplate } from '@shared/types'
-import { HOST_METHOD_CAPABILITY, HOST_METHODS, capabilitiesFor, type CapabilityProfile, type HostResult, type TemplateRunContext } from '../protocol'
-import { MAX_HOST_ARG_CHARS } from '../limits'
+import { HOST_METHOD_CAPABILITY, HOST_METHODS, capabilitiesFor, type CapabilityProfile, type HostResult, type ProgramSource, type RenderIncludeRequest, type TemplateRunContext } from '../protocol'
+import { MAX_HOST_ARG_CHARS, MAX_OUTPUT_CHARS } from '../limits'
 import { buildRunSnapshot, type RunSnapshotInput } from '../context/snapshot'
-import { createPageHost, MAX_TRACKED_RUNS, OWNED_METHODS, type PageHost, type PageHostDeps } from './page-host'
+import { createPageHost, MAX_TRACKED_RUNS, OWNED_METHODS, type NestedRenderOutcome, type PageHost, type PageHostDeps } from './page-host'
 
 /**
  * The page host is the module that lets someone else's code touch the reader's notes, so these read as a
@@ -91,6 +91,22 @@ interface FakeStore {
   calls: string[]
   /** Simulate a write landing between the host's read and its patch, which is what `note-conflict` means. */
   raceNextWrite: boolean
+  /** What `editor.open` answers; a pane that cannot show the note is the `no-leaf` case. */
+  openAnswer: boolean
+  /** What `editor.appendAtCursor` answers; `false` is "no live editor", upstream's do-nothing branch. */
+  appendAnswer: boolean
+  /** Every text the editor was asked to put at the caret, in order. */
+  appended: string[]
+  /** Every nested render the host started, in order — the context and program the door was handed. */
+  renders: { program: ProgramSource; context: TemplateRunContext; deadlineMs: number }[]
+  /** Nested runs the host cancelled because their parent went away. */
+  cancelled: string[]
+  /** What the next `nested.render` resolves with; replace it to script a failure. */
+  nextRenderOutcome: NestedRenderOutcome
+  /** When true, each `nested.render` stays open until the test resolves `resolveRenders`. */
+  renderHold: boolean
+  /** The pending renders' resolvers, one per held render. */
+  resolveRenders: ((outcome: NestedRenderOutcome) => void)[]
 }
 
 function fakeStores(input = rows()): FakeStore {
@@ -166,12 +182,50 @@ function fakeStores(input = rows()): FakeStore {
           return templates.find((template) => template.name.trim().toLowerCase() === wanted) ?? null
         },
       },
+      editor: {
+        async open(id) {
+          calls.push('editor.open')
+          void id
+          return store.openAnswer
+        },
+        appendAtCursor(text) {
+          calls.push('editor.append')
+          store.appended.push(text)
+          return store.appendAnswer
+        },
+      },
+      nested: {
+        render({ program, context, deadlineMs }) {
+          calls.push('nested.render')
+          store.renders.push({ program, context, deadlineMs })
+          // A held render stays open until the test resolves it, which is the only way to observe what the
+          // host does with a child run that is still rendering when its parent goes away.
+          if (store.renderHold) {
+            return new Promise<NestedRenderOutcome>((resolve) => {
+              store.resolveRenders.push(resolve)
+            })
+          }
+          return Promise.resolve(store.nextRenderOutcome)
+        },
+        cancel(runId) {
+          calls.push('nested.cancel')
+          store.cancelled.push(runId)
+        },
+      },
     },
     notes,
     folders,
     templates,
     calls,
     raceNextWrite: false,
+    openAnswer: true,
+    appendAnswer: true,
+    appended: [],
+    renders: [],
+    cancelled: [],
+    nextRenderOutcome: { ok: true, output: 'rendered text', durationMs: 1 },
+    renderHold: false,
+    resolveRenders: [],
   }
   return store
 }
@@ -711,5 +765,265 @@ describe('template.read', () => {
     const { host, store } = started('community')
     expect(refused(await ask(host, 'template.read', ['Daily']))).toEqual({ code: 'capability-blocked', detail: 'template.read' })
     expect(store.calls).toEqual([])
+  })
+})
+
+describe('note.renderInclude', () => {
+  /** A `RenderIncludeRequest` as the prelude builds one: a source, this run's stack level, maybe a create. */
+  function includeRequest(source: RenderIncludeRequest['source'], depth = 1, asCreate?: RenderIncludeRequest['asCreate']): RenderIncludeRequest {
+    return asCreate === undefined ? { source, depth } : { source, depth, asCreate }
+  }
+
+  const noteSource = (path: string): RenderIncludeRequest['source'] => ({ kind: 'note', path, subpath: null })
+
+  /** Wait until the fake door has recorded `count` renders; the host reaches it through microtasks only. */
+  async function awaitRenders(store: FakeStore, count: number): Promise<void> {
+    while (store.renders.length < count) await Promise.resolve()
+  }
+
+  it('renders a note and answers its finished text', async () => {
+    const { host, store, context } = started('local')
+    expect(answered(await ask(host, 'note.renderInclude', [includeRequest({ kind: 'note', path: 'Notes/Secret.md', subpath: null })])))
+      .toEqual({ content: 'rendered text' })
+    expect(store.calls).toEqual(['notes.read', 'nested.render'])
+    const render = store.renders[0]!
+    expect(render.context.runId).not.toBe(context.runId)
+    expect(render.context.runId.startsWith('include-')).toBe(true)
+    // The `include` reading of upstream (`InternalModuleFile.ts:212-222` re-parses with the parent's own
+    // function object): every fact the child can read about the run is the parent's — same capabilities,
+    // same instant, same selection, same index — and the only difference is the run id. An included note
+    // therefore prints the *parent's* `tp.file.title`.
+    expect({ ...render.context, runId: context.runId }).toEqual(context)
+    expect(render.context.frozenTitle).toBe('Target')
+    expect(render.context.target?.id).toBe('note-target')
+    // `deadlineMs: 0` is the engine default, not an absence: the nested run has no page-chosen budget.
+    expect(render.deadlineMs).toBe(0)
+  })
+
+  it('registers the nested run with the host while it renders and releases it after', async () => {
+    const { host, store } = started('local')
+    store.renderHold = true
+    const call = ask(host, 'note.renderInclude', [includeRequest(noteSource('Notes/Secret.md'))])
+    await awaitRenders(store, 1)
+    expect(host.liveRuns()).toBe(2)
+    store.resolveRenders?.forEach((resolve) => resolve({ ok: true, output: 'done', durationMs: 1 }))
+    await call
+    expect(host.liveRuns()).toBe(1)
+  })
+
+  it('renders raw text as the template it is', async () => {
+    const { host, store } = started('local')
+    expect(answered(await ask(host, 'note.renderInclude', [includeRequest({ kind: 'text', text: 'Total: <% 1 + 1 %>' })])))
+      .toEqual({ content: 'rendered text' })
+    // No read preceded it, and the program was compiled from exactly the text the request carried.
+    expect(store.calls).toEqual(['nested.render'])
+    expect(store.renders[0]!.program.template).toBe('Total: <% 1 + 1 %>')
+  })
+
+  it('reads a library template row through the template half, like every other read', async () => {
+    const { host, store } = started('local')
+    answered(await ask(host, 'note.renderInclude', [includeRequest(noteSource('Templates/Daily.md'))]))
+    expect(store.calls).toEqual(['templates.byName', 'nested.render'])
+    expect(store.renders[0]!.program.template).toBe('daily template text')
+  })
+
+  it('cuts a heading subpath the way the app cuts it for an embed, front matter and the next section gone', async () => {
+    const { host, store } = started('local')
+    store.notes.set('note-secret', noteRow('note-secret', 'Secret', NOTES_FOLDER.id,
+      '---\ntitle: s\n---\n\n# Top\n\ninside text\n\n# Other\n\noutside text'))
+    answered(await ask(host, 'note.renderInclude', [includeRequest({ kind: 'note', path: 'Notes/Secret.md', subpath: { kind: 'heading', text: 'Top' } })]))
+    expect(store.renders[0]!.program.template).toBe('# Top\n\ninside text')
+  })
+
+  it('cuts a block subpath with its anchor stripped', async () => {
+    const { host, store } = started('local')
+    store.notes.set('note-secret', noteRow('note-secret', 'Secret', NOTES_FOLDER.id, 'first paragraph ^abc123\nsecond paragraph'))
+    answered(await ask(host, 'note.renderInclude', [includeRequest({ kind: 'note', path: 'Notes/Secret.md', subpath: { kind: 'block', text: 'abc123' } })]))
+    expect(store.renders[0]!.program.template).toBe('first paragraph')
+  })
+
+  it('refuses an anchor that matches nothing instead of handing back the whole note', async () => {
+    const { host, store } = started('local')
+    expect(refused(await ask(host, 'note.renderInclude', [includeRequest({ kind: 'note', path: 'Notes/Secret.md', subpath: { kind: 'heading', text: 'Missing' } })])))
+      .toEqual({ code: 'note-not-found', detail: 'subpath:heading:Missing' })
+    expect(refused(await ask(host, 'note.renderInclude', [includeRequest({ kind: 'note', path: 'Notes/Secret.md', subpath: { kind: 'block', text: 'nope1' } })])))
+      .toEqual({ code: 'note-not-found', detail: 'subpath:block:nope1' })
+    // Returning the full note for an anchor that is not there would print more than the template asked for.
+    expect(store.calls).toEqual(['notes.read', 'notes.read'])
+    expect(store.renders).toHaveLength(0)
+  })
+
+  it('refuses a note the run cannot see and a path that escapes the tree', async () => {
+    const { host, store } = started('local')
+    expect(refused(await ask(host, 'note.renderInclude', [includeRequest(noteSource('Notes/Gone.md'))])))
+      .toEqual({ code: 'note-not-found', detail: 'Notes/Gone.md' })
+    expect(refused(await ask(host, 'note.renderInclude', [includeRequest(noteSource('../Escape.md'))])))
+      .toEqual({ code: 'path-invalid', detail: 'escape' })
+    expect(store.calls).toEqual([])
+  })
+
+  it('refuses a parse failure with the parser code, at the position the reader wrote', async () => {
+    const { host } = started('local')
+    const result = await ask(host, 'note.renderInclude', [includeRequest({ kind: 'text', text: '<%~ x %>' })])
+    expect(refused(result)).toEqual({ code: 'parse-invalid', detail: 'line:1:1' })
+    const unclosed = await ask(host, 'note.renderInclude', [includeRequest({ kind: 'text', text: 'a\n<% x' })])
+    expect(refused(unclosed).code).toBe('parse-unclosed')
+  })
+
+  it('maps the nested run own failure onto the answer, naming the child run', async () => {
+    const { host, store } = started('local')
+    store.nextRenderOutcome = { ok: false, code: 'sandbox-timeout', detail: 'cpu:2000' }
+    const result = await ask(host, 'note.renderInclude', [includeRequest(noteSource('Notes/Secret.md'))])
+    const childRunId = store.renders[0]!.context.runId
+    expect(refused(result)).toEqual({ code: 'sandbox-timeout', detail: `include:${childRunId}:cpu:2000` })
+  })
+
+  it('refuses an oversized render at the size that broke, not at the write that never came', async () => {
+    const { host, store } = started('local')
+    store.nextRenderOutcome = { ok: true, output: 'x'.repeat(MAX_OUTPUT_CHARS + 1), durationMs: 1 }
+    expect(refused(await ask(host, 'note.renderInclude', [includeRequest(noteSource('Notes/Secret.md'))])).code)
+      .toBe('template-output-too-large')
+  })
+
+  it('holds the depth across nested levels: the child counts from the level it was started at', async () => {
+    const { host, store } = started('local')
+    store.renderHold = true
+    const first = ask(host, 'note.renderInclude', [includeRequest(noteSource('Notes/Secret.md'), 1)])
+    await awaitRenders(store, 1)
+    const childRunId = store.renders[0]!.context.runId
+    // The child's own stack of 9 puts its render at level 10 — upstream's tenth include works and its
+    // eleventh throws (`InternalModuleFile.ts:162-166`), and the page owns the ceiling because each run's
+    // counters see only their own interpreter.
+    const second = ask(host, 'note.renderInclude', [includeRequest(noteSource('Notes/Secret.md'), 9)], childRunId)
+    await awaitRenders(store, 2)
+    expect(store.renders[1]!.context.runId.startsWith('include-')).toBe(true)
+    expect(refused(await ask(host, 'note.renderInclude', [includeRequest(noteSource('Notes/Secret.md'), 10)], childRunId)))
+      .toEqual({ code: 'template-recursion', detail: 'depth:11' })
+    store.resolveRenders.forEach((resolve) => resolve({ ok: true, output: 'done', durationMs: 1 }))
+    expect(answered(await first)).toEqual({ content: 'done' })
+    expect(answered(await second)).toEqual({ content: 'done' })
+  })
+
+  it('cancels a child render when its parent run is released, and does not leave it registered', async () => {
+    const { host, store } = started('local')
+    store.renderHold = true
+    const call = ask(host, 'note.renderInclude', [includeRequest(noteSource('Notes/Secret.md'))])
+    await awaitRenders(store, 1)
+    const childRunId = store.renders[0]!.context.runId
+    host.endRun('run-1')
+    // A cancelled or failed parent must not leave its child rendering text nobody will answer.
+    expect(store.cancelled).toEqual([childRunId])
+    expect(host.liveRuns()).toBe(0)
+    store.resolveRenders?.forEach((resolve) => resolve({ ok: false, code: 'render-failed', detail: 'cancelled' }))
+    expect(refused(await call)).toEqual({ code: 'render-failed', detail: `include:${childRunId}:cancelled` })
+  })
+
+  it('gives a create-new render the note being made as its whole world, and the include the parent', async () => {
+    const { host, store, context } = started('local')
+    answered(await ask(host, 'note.renderInclude', [includeRequest(
+      noteSource('Templates/Daily.md'),
+      1,
+      { path: 'Notes/Child.md', title: 'Child', templatePath: 'Templates/Daily.md' },
+    )]))
+    // Upstream gives a `create_new` child its own running config, with the created note as the target and
+    // `RunMode.CreateNewFromTemplate` (`Templater.ts:194-214`): the child prints the new note title, its
+    // folder, and the source template as `tp.config.template_file`.
+    const child = store.renders[0]!.context
+    expect(child.mode).toBe('create-new')
+    expect(child.frozenTitle).toBe('Child')
+    expect(child.target).toMatchObject({ title: 'Child', content: '', isEmpty: true, folderId: NOTES_FOLDER.id })
+    expect(child.active).toEqual(child.target)
+    expect(child.template).toEqual({ id: 'template-daily', name: 'Daily', content: 'daily template text' })
+    expect(child.index).toContainEqual(expect.objectContaining({ path: 'Notes/Child.md' }))
+    // Never wider than the parent, and the shared facts still carry over untouched.
+    expect(child.capabilities).toBe(context.capabilities)
+    expect(child.startedAt).toBe(context.startedAt)
+    expect(child.locale).toBe(context.locale)
+    expect(child.selection).toBe(context.selection)
+  })
+
+  it('answers a text-sourced create with no template file, the way upstream leaves it undefined', async () => {
+    const { host, store } = started('local')
+    answered(await ask(host, 'note.renderInclude', [includeRequest(
+      { kind: 'text', text: 'raw body' },
+      1,
+      { path: 'Fresh.md', title: 'Fresh' },
+    )]))
+    const child = store.renders[0]!.context
+    expect(child.template).toBeNull()
+    expect(child.target).toMatchObject({ title: 'Fresh', folderId: null, isEmpty: true })
+    expect(child.target?.id.startsWith('templater:pending:')).toBe(true)
+  })
+
+  it('refuses a request that is not the contract shape, naming the field', async () => {
+    const { host, store } = started('local')
+    expect(refused(await ask(host, 'note.renderInclude', [42]))).toEqual({ code: 'render-failed', detail: 'note.renderInclude:shape' })
+    expect(refused(await ask(host, 'note.renderInclude', [{ source: { kind: 'other' }, depth: 1 }])))
+      .toEqual({ code: 'render-failed', detail: 'note.renderInclude:source' })
+    expect(refused(await ask(host, 'note.renderInclude', [{ source: { kind: 'text', text: 'x' }, depth: 0 }])).code)
+      .toBe('render-failed')
+    expect(refused(await ask(host, 'note.renderInclude', [{ source: { kind: 'text', text: 'x' }, depth: 1, asCreate: { path: 'a.md' } }])).code)
+      .toBe('render-failed')
+    // Nothing was read, compiled or started for any of them.
+    expect(store.calls).toEqual([])
+  })
+})
+
+describe('note.open', () => {
+  it('shows the note through the store own open path and answers nothing else', async () => {
+    const { host, store } = started('local')
+    const result = await ask(host, 'note.open', ['Notes/Secret.md'])
+    expect(result).toMatchObject({ ok: true, value: undefined })
+    expect(store.calls).toEqual(['editor.open'])
+  })
+
+  it('refuses a note the run index does not carry, without touching the editor', async () => {
+    const { host, store } = started('local')
+    expect(refused(await ask(host, 'note.open', ['Notes/Gone.md']))).toEqual({ code: 'note-not-found', detail: 'Notes/Gone.md' })
+    expect(refused(await ask(host, 'note.open', ['../Escape.md']))).toEqual({ code: 'path-invalid', detail: 'escape' })
+    expect(store.calls).toEqual([])
+  })
+
+  it('refuses to open a library template row', async () => {
+    const { host } = started('local')
+    expect(refused(await ask(host, 'note.open', ['Templates/Daily.md'])))
+      .toEqual({ code: 'not-supported', detail: 'note.open:template-row' })
+  })
+
+  it('refuses with a named cause when no pane can show the note', async () => {
+    const { host, store } = started('local')
+    store.openAnswer = false
+    const warned = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    expect(refused(await ask(host, 'note.open', ['Notes/Secret.md']))).toEqual({ code: 'render-failed', detail: 'note.open:no-leaf' })
+    expect(warned).toHaveBeenCalledWith('[inkstone] templater note.open found no pane to show the note in', 'Notes/Secret.md')
+    warned.mockRestore()
+  })
+})
+
+describe('cursor.append', () => {
+  it('appends at the selection through the editor port and always answers', async () => {
+    const { host, store } = started('local')
+    const result = await ask(host, 'cursor.append', [{ text: 'appended' }])
+    expect(result).toMatchObject({ ok: true, value: undefined })
+    expect(store.appended).toEqual(['appended'])
+    // The worker does not await this call, but it does wait for the answer to arrive before reporting the
+    // run done (`SYNC_METHODS`), so an answer in both outcomes is the contract.
+    store.appendAnswer = false
+    const warned = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const noEditor = await ask(host, 'cursor.append', [{ text: 'still answered' }])
+    expect(noEditor).toMatchObject({ ok: true, value: undefined })
+    expect(warned).toHaveBeenCalledWith('[inkstone] templater cursor_append found no active editor to append to')
+    warned.mockRestore()
+    expect(store.appended).toEqual(['appended', 'still answered'])
+  })
+
+  it('refuses an argument that is not the { text } the prelude sends', async () => {
+    const { host, store } = started('local')
+    expect(refused(await ask(host, 'cursor.append'))).toEqual({ code: 'render-failed', detail: 'cursor.append:arg:0:type' })
+    expect(refused(await ask(host, 'cursor.append', ['appended'])))
+      .toEqual({ code: 'render-failed', detail: 'cursor.append:arg:0:type' })
+    expect(refused(await ask(host, 'cursor.append', [{ text: 7 }])))
+      .toEqual({ code: 'render-failed', detail: 'cursor.append:arg:0:type' })
+    expect(store.appended).toEqual([])
   })
 })

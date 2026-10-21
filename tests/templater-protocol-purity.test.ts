@@ -90,6 +90,20 @@ describe('neither half of the templater module reaches into the other', () => {
     }
   })
 
+  it('keeps the door free of anyone who needs the door', () => {
+    // `index.ts` is the module's public entry: the wiring imports it, and nothing below it may import it
+    // back. A page host that minted its nested run ids through the door would have built exactly that
+    // cycle — the kind that compiles, bundles, and then hands one half an `undefined` function at the first
+    // moment it is called. `run-id.ts` exists so no half has a reason to reach for the door.
+    for (const directory of ['host', 'worker', 'context', 'engine']) {
+      for (const file of sourceFiles(directory)) {
+        for (const specifier of importsOf(file)) {
+          expect(specifier, `${file} may not import the door`).not.toMatch(/^(\.\.\/|\.\/)index$/)
+        }
+      }
+    }
+  })
+
   it('keeps the shared halves free of the app too', () => {
     // These four are compiled by both sides, so neither may reference a page module. `index.ts` is not in
     // the list on purpose: it is the door the page walks through, and a door may look at both halves.
