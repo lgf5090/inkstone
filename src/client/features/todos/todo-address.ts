@@ -18,6 +18,9 @@ import type { TodoView } from './store'
 /** The app's own address, and the prefix every screen under it hangs off. */
 export const TODO_PATH = '/todo'
 
+/** The arrangement a list's own screen can be read in: the plain list, or one column per status. */
+export type TodoLayout = 'list' | 'columns'
+
 /**
  * Whether an address is one of the to-do app's screens.
  *
@@ -83,6 +86,12 @@ export interface TodoViewSelection {
   statsFrom?: string | null
   statsTo?: string | null
   statsBucket?: TaskStatsBucket | null
+  /**
+   * The list screen's arrangement. Optional because the store's selection describes the view, not
+   * the arrangement: an address writer carries the current layout over when a caller does not name
+   * one, and only a named list has a layout to write at all.
+   */
+  layout?: TodoLayout | null
 }
 
 /** A due bound the address can mean: a local calendar day, or that day at a wall-clock minute. */
@@ -104,6 +113,17 @@ function dueBound(value: string | null): string | null {
 /** A completion bound: one calendar day, the only shape the route accepts for a completion window. */
 function completionDay(value: string | null): string | null {
   return value && STATS_DAY.test(value) ? value : null
+}
+
+/**
+ * The arrangement a query names for the list screen.
+ *
+ * The plain list is what an address without the parameter already means, so it is the answer for
+ * every other value as well: a pasted `layout=nonsense` opens the list rather than a broken screen.
+ */
+export function todoLayoutFromSearch(search: string): TodoLayout {
+  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
+  return params.get('layout') === 'columns' ? 'columns' : 'list'
 }
 
 /** The whole screen, as the address states it: which view, and which task is open on it. */
@@ -136,7 +156,7 @@ export function parseTodoAddress(pathname: string, search: string): TodoAddress 
   if (pathname !== TODO_PATH && !pathname.startsWith(`${TODO_PATH}/`)) {
     return {
       view: 'board', listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null,
-      completedFrom: null, completedTo: null, statsFrom: null, statsTo: null, statsBucket: null, taskId: null,
+      completedFrom: null, completedTo: null, statsFrom: null, statsTo: null, statsBucket: null, layout: null, taskId: null,
     }
   }
   const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
@@ -146,6 +166,7 @@ export function parseTodoAddress(pathname: string, search: string): TodoAddress 
   const query = params.get('q') ?? ''
   const namedSort = params.get('sort')
   const sort = namedSort && (TODO_SORTS as readonly string[]).includes(namedSort) ? (namedSort as TaskSort) : null
+  const layout: TodoLayout | null = params.get('layout') === 'columns' ? 'columns' : null
   const dueFrom = dueBound(params.get('dueFrom'))
   const dueTo = dueBound(params.get('dueTo'))
   // A completion window belongs to the finished view; the other views are not narrowed by one, and a
@@ -160,7 +181,7 @@ export function parseTodoAddress(pathname: string, search: string): TodoAddress 
   const statsBucket = isTaskStatsBucket(rawBucket) ? rawBucket : null
   const common = {
     query, sort, dueFrom, dueTo, completedFrom, completedTo,
-    statsFrom, statsTo, statsBucket, taskId: taskIdFromPathname(pathname),
+    statsFrom, statsTo, statsBucket, layout: null as TodoLayout | null, taskId: taskIdFromPathname(pathname),
   }
   // The completed view is the one screen a `list=` narrows rather than renames: there is no
   // completed list view to confuse it with, and the dropdown there scopes finished work to one
@@ -168,7 +189,7 @@ export function parseTodoAddress(pathname: string, search: string): TodoAddress 
   if (named === 'completed') return { ...common, view: 'completed', listId, tagId: null }
   // A collection names its own view, and it wins over a `view=` left beside it: the two spellings of the
   // same screen have to have one reading, and the narrower one is the one a reader can paste.
-  if (listId) return { ...common, view: 'list', listId, tagId: null }
+  if (listId) return { ...common, view: 'list', listId, tagId: null, layout }
   if (tagId) return { ...common, view: 'tag', listId: null, tagId }
   const view: TodoView = TODO_VIEWS.includes(named as TodoView) ? (named as TodoView) : 'board'
   return { ...common, view, listId: null, tagId: null }
@@ -179,6 +200,9 @@ export function writeTodoSearch(selection: TodoViewSelection): string {
   const params = new URLSearchParams()
   if (selection.view === 'list') {
     if (selection.listId) params.set('list', selection.listId)
+    // The plain list is what an address without the parameter already means, so only the split is
+    // written, and only beside the list it belongs to.
+    if (selection.listId && selection.layout === 'columns') params.set('layout', 'columns')
   } else if (selection.view === 'tag') {
     if (selection.tagId) params.set('tag', selection.tagId)
   } else if (selection.view === 'completed') {
@@ -212,7 +236,7 @@ export function readTodoAddress(): TodoAddress {
   if (typeof window === 'undefined') {
     return {
       view: 'board', listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null,
-      completedFrom: null, completedTo: null, statsFrom: null, statsTo: null, statsBucket: null, taskId: null,
+      completedFrom: null, completedTo: null, statsFrom: null, statsTo: null, statsBucket: null, layout: null, taskId: null,
     }
   }
   return parseTodoAddress(currentPathname(), currentSearch())
@@ -224,26 +248,67 @@ function currentTaskPath(taskId: string | null): string {
 }
 
 /**
+ * The layout a write keeps when its caller did not name one.
+ *
+ * The store's selection describes which view is up, not how a list screen is arranged, so a search,
+ * a sort or opening a task rewrites the address without a layout. Dropping it there would take the
+ * reader back to the plain list on the next keystroke; only a list has one to carry, and an explicit
+ * null is the reader choosing the plain list rather than the writer not knowing.
+ */
+function withCarriedLayout(selection: TodoViewSelection): TodoViewSelection {
+  if (selection.view !== 'list' || selection.layout !== undefined) return selection
+  return { ...selection, layout: readTodoAddress().layout ?? null }
+}
+
+/**
  * Put a view state into the address as a deliberate move.
  *
  * The task part of the path is carried over rather than cleared: switching from the plan to a list while
  * a panel is open leaves that panel's address standing, which is what the back button then goes back to.
  */
 export function pushTodoAddress(selection: TodoViewSelection): void {
-  navigateToAddress(currentTaskPath(readTodoAddress().taskId), writeTodoSearch(selection))
+  navigateToAddress(currentTaskPath(readTodoAddress().taskId), writeTodoSearch(withCarriedLayout(selection)))
 }
 
 /** The same screen, without another back button — the one for state that moves while the reader types. */
 export function replaceTodoAddress(selection: TodoViewSelection): void {
-  replaceAddress(currentTaskPath(readTodoAddress().taskId), writeTodoSearch(selection))
+  replaceAddress(currentTaskPath(readTodoAddress().taskId), writeTodoSearch(withCarriedLayout(selection)))
 }
 
 /** Take one task's screen into the address, with the view the reader was on still named. */
 export function pushTodoTaskAddress(taskId: string, selection: TodoViewSelection): void {
-  navigateToAddress(todoPathForTask(taskId), writeTodoSearch(selection))
+  navigateToAddress(todoPathForTask(taskId), writeTodoSearch(withCarriedLayout(selection)))
 }
 
 /** Drop the task from the address, leaving the view it was open over. */
 export function replaceTodoTaskAddress(selection: TodoViewSelection): void {
-  replaceAddress(TODO_PATH, writeTodoSearch(selection))
+  replaceAddress(TODO_PATH, writeTodoSearch(withCarriedLayout(selection)))
+}
+
+/**
+ * Choose the arrangement of the list screen on show.
+ *
+ * The arrangement is the address's, like the view and the filters: a reload or a pasted link opens the
+ * same screen. A deliberate choice earns its own history entry, the way opening another view does; a
+ * choice that is already up writes nothing.
+ */
+export function setTodoLayout(layout: TodoLayout): void {
+  const current = readTodoAddress()
+  const next = layout === 'columns' ? 'columns' : null
+  if ((current.layout ?? null) === next) return
+  pushTodoAddress({
+    view: current.view,
+    listId: current.listId,
+    tagId: current.tagId,
+    query: current.query,
+    sort: current.sort,
+    dueFrom: current.dueFrom,
+    dueTo: current.dueTo,
+    completedFrom: current.completedFrom,
+    completedTo: current.completedTo,
+    statsFrom: current.statsFrom,
+    statsTo: current.statsTo,
+    statsBucket: current.statsBucket,
+    layout: next,
+  })
 }

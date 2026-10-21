@@ -14,7 +14,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initI18n } from '../../lib/i18n'
-import { parseTodoAddress, writeTodoSearch } from './todo-address'
+import { parseTodoAddress, setTodoLayout, writeTodoSearch } from './todo-address'
 
 const EMPTY_COUNTS = { inbox: 0, today: 0, upcoming: 0, overdue: 0, all: 0, completed: 0, starred: 0, byList: {}, byTag: {} }
 
@@ -44,6 +44,21 @@ describe('the to-do address grammar', () => {
     // The one spelling this app writes for its own screen.
     expect(writeTodoSearch({ view: 'today', listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null }))
       .toBe('view=today')
+  })
+
+  it('carries the list layout, and only beside a collection that has one', () => {
+    expect(parseTodoAddress('/todo', 'list=work&layout=columns')).toMatchObject({ view: 'list', listId: 'work', layout: 'columns' })
+    expect(parseTodoAddress('/todo', 'list=work').layout).toBeNull()
+    // The arrangement belongs to one list's screen: a smart view or a tag ignores it.
+    expect(parseTodoAddress('/todo', 'view=plan&layout=columns').layout).toBeNull()
+    expect(parseTodoAddress('/todo', 'tag=errands&layout=columns').layout).toBeNull()
+    expect(writeTodoSearch({
+      view: 'list', listId: 'work', tagId: null, query: '', sort: null, dueFrom: null, dueTo: null, layout: 'columns',
+    })).toBe('list=work&layout=columns')
+    // The ordinary list is what an address without the parameter already means, so it is not written.
+    expect(writeTodoSearch({
+      view: 'list', listId: 'work', tagId: null, query: '', sort: null, dueFrom: null, dueTo: null, layout: 'list',
+    })).toBe('list=work')
   })
 
   it('names a list or a tag by its own parameter, which is what makes the view implicit', () => {
@@ -106,6 +121,7 @@ describe('the to-do address grammar', () => {
       { view: 'plan' as const, listId: null, tagId: null, query: 'tax', sort: 'priority' as const, dueFrom: null, dueTo: null },
       { view: 'calendar' as const, listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null },
       { view: 'list' as const, listId: 'work', tagId: null, query: '', sort: null, dueFrom: '2026-10-01T00:00', dueTo: '2026-10-31T00:00' },
+      { view: 'list' as const, listId: 'work', tagId: null, query: '', sort: null, dueFrom: null, dueTo: null, layout: 'columns' as const },
       { view: 'tag' as const, listId: null, tagId: 'errands', query: 'a b', sort: 'created' as const, dueFrom: null, dueTo: null },
       { view: 'completed' as const, listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null },
       { view: 'completed' as const, listId: 'work', tagId: null, query: '', sort: null, dueFrom: null, dueTo: null },
@@ -215,6 +231,21 @@ describe('the view state and the address bar', () => {
     useTodos.getState().syncFromAddress()
     expect(useTodos.getState().view).toBe('plan')
     expect(useTodos.getState().query).toBe('tax')
+  })
+
+  it('keeps the chosen layout while the rest of the view state is rewritten', () => {
+    reset()
+    useTodos.getState().setView('list', { listId: 'work' })
+    setTodoLayout('columns')
+    expect(window.location.search).toBe('?list=work&layout=columns')
+
+    // A search or a filter rewrite is not a move back to the plain list. The store's selection does
+    // not carry the layout, so the address writer is what has to keep it.
+    useTodos.getState().setQuery('tax')
+    expect(window.location.search).toBe('?list=work&layout=columns&q=tax')
+
+    setTodoLayout('list')
+    expect(window.location.search).toBe('?list=work&q=tax')
   })
 
   it('follows a completion window a back button brings back', () => {

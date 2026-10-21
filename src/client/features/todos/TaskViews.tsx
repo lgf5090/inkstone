@@ -9,11 +9,13 @@
 import { useMemo, useRef } from 'react'
 import { localDate } from '@shared/assistant-time'
 import { t } from '../../lib/i18n'
+import { useMediaQuery } from '../../lib/hooks'
 import { Empty } from '../../components/feedback'
 import { Select } from '../../components/form'
 import { TodoPageFooter } from './TodoPageFooter'
 import { useTodos } from './store'
 import { TaskCard } from './TaskCard'
+import { LIST_COLUMNS_QUERY, ListLayoutToggle, StatusBoard, useListLayout } from './status-board'
 import { groupByPlan, groupCompleted, groupByList, type TaskGroup, type PlanGroupKey } from './task-groups'
 import type { MessageKey } from '@shared/locales/en-US'
 import type { TodoTask } from '@shared/todos/model'
@@ -220,6 +222,12 @@ export function CompletedView() {
 export function ListTaskView() {
   const tasks = useTodos((state) => state.tasks)
   const sort = useTodos((state) => state.sort)
+  const view = useTodos((state) => state.view)
+  // Three columns are a reading of the same rows that the plain list draws; a narrower window keeps
+  // the list, and the switch that asks for the split does not exist where the split cannot be drawn.
+  const wide = useMediaQuery(LIST_COLUMNS_QUERY)
+  const layout = useListLayout()
+  const columns = view === 'list' && wide && layout === 'columns'
   const groups = useMemo(() => {
     const grouped = groupByList(tasks)
     return sort ? inServerOrder(grouped, tasks) : grouped
@@ -229,11 +237,16 @@ export function ListTaskView() {
 
   return (
     <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
-      <GroupedTaskList
-        groups={groups}
-        label={label}
-        empty={{ title: t('todo.empty.list'), description: t('todo.empty.list_hint') }}
-      />
+      {view === 'list' && wide && <ListLayoutToggle layout={layout} />}
+      {columns ? (
+        <StatusBoard tasks={tasks} />
+      ) : (
+        <GroupedTaskList
+          groups={groups}
+          label={label}
+          empty={{ title: t('todo.empty.list'), description: t('todo.empty.list_hint') }}
+        />
+      )}
     </div>
   )
 }
