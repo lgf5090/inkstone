@@ -6,7 +6,8 @@ import { loadSession, requireClientHeader } from './middleware/auth'
 import { authRoutes } from './routes/auth'
 import { totpRoutes } from './routes/totp'
 import { notesRoutes } from './routes/notes'
-import { memosRoutes } from './memos'
+import { memoListRoutes } from './routes/memos'
+import { memoSpaceRoutes } from './routes/memos/spaces'
 import { foldersRoutes } from './routes/folders'
 import { tagsRoutes } from './routes/tags'
 import { communityTemplatesRoutes } from './routes/community-templates'
@@ -97,7 +98,8 @@ export function createApp() {
   app.route('/api/auth/totp', totpRoutes)
   app.route('/api/auth', authRoutes)
   app.route('/api/notes', notesRoutes)
-  app.route('/api/memos', memosRoutes)
+  app.route('/api/memos/spaces', memoSpaceRoutes)
+  app.route('/api/memos', memoListRoutes)
   app.route('/api/folders', foldersRoutes)
   app.route('/api/tags', tagsRoutes)
   app.route('/api/templates/community', communityTemplatesRoutes)

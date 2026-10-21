@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import type { AppBindings } from '../../env'
 import { ApiError } from '../../lib/errors'
 import { JSON_BODY_LIMITS, readJson } from '../../lib/request'
-import { requireMemoUser } from '../auth'
+import { requireMemoUser } from '../../memos/auth'
 import {
   createSpace,
   deleteSpace,
@@ -10,7 +10,7 @@ import {
   patchSpace,
   type MemoSpaceDeleteMode,
   type MemoSpaceFields,
-} from '../spaces'
+} from '../../memos/spaces'
 
 function parseSpaceDeleteMode(value: string | undefined): MemoSpaceDeleteMode {
   if (value === undefined || value === '') return 'unfile'

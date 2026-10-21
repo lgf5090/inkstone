@@ -14,7 +14,7 @@ import {
   patchSpace,
   spaceBelongsToUser,
 } from '../src/worker/memos/spaces'
-import { memoSpaceRoutes } from '../src/worker/memos/routes/spaces'
+import { memoSpaceRoutes } from '../src/worker/routes/memos/spaces'
 import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
