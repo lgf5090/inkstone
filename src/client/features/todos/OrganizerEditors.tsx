@@ -8,6 +8,9 @@
  *
  * The header is a live preview rather than a label: a list is recognised by its circle long before its
  * name is read, so the reader sees exactly what the sidebar and the board will draw.
+ *
+ * The task editor borrows `ColorPicker` for a task's own colour: it is the same palette, and a second
+ * way to pick one would drift the moment the ramp gained a colour.
  */
 import { useEffect, useRef, useState } from 'react'
 import { Ban, ListChecks, Palette, X } from 'lucide-react'
@@ -39,16 +42,19 @@ const CLASSIC_COLORS = ORGANIZER_COLORS.slice(0, ORGANIZER_CLASSIC_COUNT)
 const BRIGHT_COLORS = ORGANIZER_COLORS.slice(ORGANIZER_CLASSIC_COUNT)
 
 /**
- * The colour picker both editors share.
+ * The colour picker the list, tag and task editors share.
  *
  * A custom hex is offered only when it can be told apart from the surface it will sit on: a tag paints
  * its name in its own colour, so a near-white pick would be a tag nobody can read. The guard is the
  * folder panel's, pointed at this panel's own background.
  */
-function ColorPicker({ value, onChange, allowNone }: {
+export function ColorPicker({ value, onChange, allowNone }: {
   value: string | null
   onChange: (color: string | null) => void
-  /** Tags may carry no colour at all; a list always has one. */
+  /**
+   * Tags and tasks may carry no colour at all — theirs then reads as their list's; a list always has
+   * one, so its editor never offers the empty swatch.
+   */
   allowNone: boolean
 }) {
   const panelRef = useRef<HTMLDivElement>(null)

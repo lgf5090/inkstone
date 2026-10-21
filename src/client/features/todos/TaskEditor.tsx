@@ -27,6 +27,8 @@ import { useUi } from '../../store/ui'
 import { useTodos, remindOffsetOf } from './store'
 import { dueValue, priorityDot, priorityLabel } from './todo-ui'
 import { ListIcon } from './list-icons'
+import { ColorPicker } from './OrganizerEditors'
+import { ListIconPicker } from './ListIconPicker'
 import { openConversationInChat, startChatAboutTask } from '../chat/start-chat'
 import { sendForAnswerDetailed, type AnswerResult } from '../chat/editor-ai'
 import { parseLocalTime, localDate } from '@shared/assistant-time'
@@ -162,6 +164,15 @@ export function TaskEditor() {
   const [dueText, setDueText] = useState('')
   const [startText, setStartText] = useState('')
   const [listId, setListId] = useState('')
+  /**
+   * The task's own face: a glyph and a colour of its own, or null to wear the list's.
+   *
+   * Both start empty rather than on a default, because "not set" is the ordinary case — a task
+   * without a face of its own reads as its list, which is what every row did before tasks could
+   * carry one.
+   */
+  const [icon, setIcon] = useState<string | null>(null)
+  const [color, setColor] = useState<string | null>(null)
   const [repeat, setRepeat] = useState<'none' | RepeatFrequency>('none')
   const [interval, setInterval] = useState(1)
   /** The named weekdays of a weekly rule, and which day a monthly rule lands on. */
@@ -209,6 +220,8 @@ export function TaskEditor() {
       : typeof source.dueAt === 'string' ? source.dueAt : source.dueAt ? dueValue(source.dueAt, timezone) : '')
     setStartText(seedStartText(source, task, timezone))
     setListId(task?.listId ?? source.listId ?? '')
+    setIcon(task?.icon ?? source.icon ?? null)
+    setColor(task?.color ?? source.color ?? null)
     setRepeat(task?.repeat?.freq ?? source.repeat?.freq ?? 'none')
     setInterval(task?.repeat?.interval ?? source.repeat?.interval ?? 1)
     setWeekdays(task?.repeat?.weekdays ?? source.repeat?.weekdays ?? [])
@@ -269,6 +282,8 @@ export function TaskEditor() {
       dueAt: dueText ? dueText : null,
       startAt: startText ? startText : null,
       listId: listId || null,
+      icon,
+      color,
       repeat: repeat === 'none' ? null : {
         freq: repeat,
         interval: Math.max(1, Math.min(99, interval)),
@@ -710,6 +725,25 @@ export function TaskEditor() {
               )}
             </div>
           </Field>
+        </div>
+
+        {/* The task's own face, in the two fields that set it. Neither is required: a task that names
+            neither wears its list's, which is what every row showed before a task could have one of
+            its own — so the colour panel leads with "none of its own" instead of a default. */}
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[length:var(--text-11)] font-medium text-[var(--text-secondary)]">{t('todo.task.color')}</span>
+          <ColorPicker value={color} onChange={setColor} allowNone />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[length:var(--text-11)] font-medium text-[var(--text-secondary)]">{t('todo.task.icon')}</span>
+            {icon && (
+              <IconButton label={t('todo.list.icon_clear')} size="sm" onClick={() => setIcon(null)}>
+                <X size={12} />
+              </IconButton>
+            )}
+          </div>
+          <ListIconPicker value={icon} onChange={setIcon} />
         </div>
 
         <div className="flex flex-col gap-1.5">

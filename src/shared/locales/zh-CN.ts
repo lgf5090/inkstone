@@ -7570,6 +7570,8 @@ console.log(\`Hello, \${name}!\`)
     "todo.task.start_label": "开始",
     "todo.task.priority_label": "优先级",
     "todo.task.list_label": "清单",
+    "todo.task.color": "颜色",
+    "todo.task.icon": "图标",
     "todo.task.tags_label": "标签",
     "todo.saved_filters": "保存的筛选",
     "todo.saved_filter.delete": "删除保存的筛选“{name}”",

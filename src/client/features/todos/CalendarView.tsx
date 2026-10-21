@@ -35,6 +35,7 @@ import {
 } from '../../lib/time'
 import { useTodos } from './store'
 import { TODO_DRAG_TYPE, isTodoTaskDrag, readTodoTaskDrag } from './TaskCard'
+import { taskColorOf } from './task-face'
 import {
   allDayTasksForDay,
   dayChips,
@@ -120,12 +121,6 @@ function pad2(value: number): string {
 /** A minute of the day as the clock reads it, for the instants a slot or a selection names. */
 function mmClock(minute: number): string {
   return `${pad2(Math.floor(minute / 60))}:${pad2(minute % 60)}`
-}
-
-/** The colour a task wears: its list's, or the neutral the inbox gets. */
-function colorFor(task: TodoTask, lists: readonly TaskList[]): string {
-  if (!task.listId) return 'var(--text-tertiary)'
-  return lists.find((list) => list.id === task.listId)?.color ?? 'var(--accent)'
 }
 
 /** The clock time a task reads at, or null for an all-day one. */
@@ -336,7 +331,7 @@ function MonthWeek({ cells, tasks, lists, timezone, compact, almanac, display, d
                 chips.length > 0 && (
                   <span className="mt-auto flex w-full min-w-0 items-center gap-0.5 pt-1">
                     {chips.slice(0, 3).map((task) => (
-                      <span key={task.id} className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: colorFor(task, lists) }} aria-hidden="true" />
+                      <span key={task.id} className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: taskColorOf(task, lists) }} aria-hidden="true" />
                     ))}
                     {chips.length > 3 && <span className="text-[length:var(--text-8-5)] leading-none text-[var(--text-quaternary)]">+{chips.length - 3}</span>}
                   </span>
@@ -347,7 +342,7 @@ function MonthWeek({ cells, tasks, lists, timezone, compact, almanac, display, d
                     <TaskChip
                       key={task.id}
                       task={task}
-                      color={colorFor(task, lists)}
+                      color={taskColorOf(task, lists)}
                       time={timeOf(task, timezone)}
                       dragEnabled={dragEnabled}
                       onOpen={() => onOpenTask(task)}
@@ -377,7 +372,7 @@ function MonthWeek({ cells, tasks, lists, timezone, compact, almanac, display, d
             <SpanRow
               key={bar.task.id}
               bar={bar}
-              color={colorFor(bar.task, lists)}
+              color={taskColorOf(bar.task, lists)}
               weekStart={weekKeys[0]!}
               weekEnd={weekKeys[weekKeys.length - 1]!}
               timezone={timezone}
@@ -538,9 +533,9 @@ function WeekTimeGrid({ week, tasks, lists, timezone, todayKey, now, dragEnabled
                   }}
                   onClick={() => onOpenTask(task)}
                   className="flex min-w-0 items-center gap-1 rounded-[var(--r-xs)] px-1 py-0.5 text-left text-[length:var(--text-10)] hover:bg-[var(--bg-hover)]"
-                  style={{ backgroundColor: `color-mix(in oklab, ${colorFor(task, lists)} 14%, transparent)` }}
+                  style={{ backgroundColor: `color-mix(in oklab, ${taskColorOf(task, lists)} 14%, transparent)` }}
                 >
-                  <span className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: colorFor(task, lists) }} aria-hidden="true" />
+                  <span className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: taskColorOf(task, lists) }} aria-hidden="true" />
                   <span className="truncate text-[var(--text-secondary)]">{task.title}</span>
                 </button>
               ))}
@@ -656,8 +651,8 @@ function WeekTimeGrid({ week, tasks, lists, timezone, todayKey, now, dragEnabled
                       height: Math.max(18, ((block.endMin - block.startMin) / 60) * HOUR_H - 2),
                       left: `calc(${(block.lane / lanes) * 100}% + 1px)`,
                       width: `calc(${100 / lanes}% - 2px)`,
-                      backgroundColor: `color-mix(in oklab, ${colorFor(block.task, lists)} 16%, var(--bg-surface))`,
-                      borderLeft: `2px solid ${colorFor(block.task, lists)}`,
+                      backgroundColor: `color-mix(in oklab, ${taskColorOf(block.task, lists)} 16%, var(--bg-surface))`,
+                      borderLeft: `2px solid ${taskColorOf(block.task, lists)}`,
                     }}
                   >
                     <span className="truncate font-medium text-[var(--text-primary)]">{block.task.title}</span>

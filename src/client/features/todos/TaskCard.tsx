@@ -19,6 +19,7 @@ import { Menu, MenuSubmenuList, type MenuItem } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useTodos, snoozeLabel } from './store'
 import { dueLabel, priorityDot, priorityLabel } from './todo-ui'
+import { taskColorOf } from './task-face'
 import { ListIcon } from './list-icons'
 import { SNOOZE_MINUTES, type TaskList, type TodoTask } from '@shared/todos/model'
 
@@ -151,7 +152,10 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
   const selected = useTodos((state) => state.selectedIds.has(task.id))
   const toggleSelected = useTodos((state) => state.toggleSelected)
   const list = task.listId ? lists.find((entry) => entry.id === task.listId) ?? null : null
-  const colour = list?.color ?? 'var(--accent)'
+  // The row's colour identity: the task's own when it has one, its list's otherwise. The accent stays
+  // the inbox's fallback here — a card's checkbox is the row's own mark — where the calendar, whose
+  // chips sit beside other days' work, draws the neutral instead (`task-face.ts`).
+  const colour = taskColorOf(task, lists, 'var(--accent)')
   const due = dueLabel(task.dueAt, bounds, timezone)
   const done = task.status === 'done'
   const progress = task.stepTotal > 0 ? t('todo.steps.progress', { done: task.stepDone, total: task.stepTotal }) : null
@@ -400,13 +404,19 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
           compact && 'flex min-h-11 flex-col justify-center',
         )}
       >
-        <span
-          className={cn(
-            'line-clamp-2 block break-words text-[length:var(--text-13)] leading-snug',
-            done ? 'text-[var(--text-tertiary)] line-through' : 'text-[var(--text-primary)]',
-          )}
-        >
-          {task.title}
+        <span className="flex min-w-0 items-start gap-1.5">
+          {/* The task's own glyph, when it has picked one. A task that has not keeps exactly the row
+              it had before tasks could wear a face — no placeholder, and the colour beside the
+              checkbox still says which list the work belongs to. */}
+          {task.icon && <ListIcon icon={task.icon} size={14} className="mt-0.5 shrink-0 leading-none" />}
+          <span
+            className={cn(
+              'line-clamp-2 min-w-0 block break-words text-[length:var(--text-13)] leading-snug',
+              done ? 'text-[var(--text-tertiary)] line-through' : 'text-[var(--text-primary)]',
+            )}
+          >
+            {task.title}
+          </span>
         </span>
         {!compact && task.description && (
           <span className="mt-0.5 line-clamp-1 break-words text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">

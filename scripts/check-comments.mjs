@@ -10753,7 +10753,6 @@ const allowed = new Map([
     "/** The press's clientY, so a drag that never moved can be told from a click. */",
     "/** The pressed column's box, so a pointer that wanders off still measures against it. */",
     "/** A minute of the day as the clock reads it, for the instants a slot or a selection names. */",
-    "/** The colour a task wears: its list's, or the neutral the inbox gets. */",
     "/** The clock time a task reads at, or null for an all-day one. */",
     "/** A chip is one task on one day; a bar is one task across several. Both open the task. */",
     "/** The bar a task covering several days draws across one week's columns. */",
@@ -10804,12 +10803,12 @@ const allowed = new Map([
     "/** The lists this row may move under; empty or absent means the row cannot be re-parented. */",
   ]],
   ["src/client/features/todos/OrganizerEditors.tsx", [
-    "/**\n * The two editors a list and a tag need: a name, a colour, and — for a list — an icon.\n *\n * The colour ramp is the app's own (`ORGANIZER_COLORS`), drawn with the shared `Swatch` the folder,\n * tag and QuickAdd panels already use, and the custom-colour wheel is the shared `ColorWheelTrigger`,\n * so a list does not invent a second way to pick a colour. The icon grid is the to-do app's own\n * registry (`list-icons.tsx`), with the notebook's emoji catalogue behind its second tab.\n *\n * The header is a live preview rather than a label: a list is recognised by its circle long before its\n * name is read, so the reader sees exactly what the sidebar and the board will draw.\n */",
     "/** The two halves of the ramp, drawn under their own labels. */",
-    "/**\n * The colour picker both editors share.\n *\n * A custom hex is offered only when it can be told apart from the surface it will sit on: a tag paints\n * its name in its own colour, so a near-white pick would be a tag nobody can read. The guard is the\n * folder panel's, pointed at this panel's own background.\n */",
-    "/** Tags may carry no colour at all; a list always has one. */",
     "/** The circle a list wears in the sidebar and on the board, at the size the dialog can show it. */",
     "/**\n * The list editor, driven by the store: the sidebar's \"+\" opens it from any screen, so its open state\n * cannot be props of the lists page that also renders a button for it.\n */",
+    "/**\n * The two editors a list and a tag need: a name, a colour, and — for a list — an icon.\n *\n * The colour ramp is the app's own (`ORGANIZER_COLORS`), drawn with the shared `Swatch` the folder,\n * tag and QuickAdd panels already use, and the custom-colour wheel is the shared `ColorWheelTrigger`,\n * so a list does not invent a second way to pick a colour. The icon grid is the to-do app's own\n * registry (`list-icons.tsx`), with the notebook's emoji catalogue behind its second tab.\n *\n * The header is a live preview rather than a label: a list is recognised by its circle long before its\n * name is read, so the reader sees exactly what the sidebar and the board will draw.\n *\n * The task editor borrows `ColorPicker` for a task's own colour: it is the same palette, and a second\n * way to pick one would drift the moment the ramp gained a colour.\n */",
+    "/**\n * The colour picker the list, tag and task editors share.\n *\n * A custom hex is offered only when it can be told apart from the surface it will sit on: a tag paints\n * its name in its own colour, so a near-white pick would be a tag nobody can read. The guard is the\n * folder panel's, pointed at this panel's own background.\n */",
+    "/**\n   * Tags and tasks may carry no colour at all — theirs then reads as their list's; a list always has\n   * one, so its editor never offers the empty swatch.\n   */",
   ]],
   ["src/client/features/todos/StatsView.tsx", [
     "/** Up to two weeks a day is still a readable curve; past that the days are too thin to tell apart. */",
@@ -10871,6 +10870,10 @@ const allowed = new Map([
     "// The row owns the drop it is under: without this the board card behind it would append the",
     "// task to the list instead of placing it where the reader pointed.",
     "/**\n   * Whether the row names its list. A row on one list is already inside that list, so repeating the\n   * name on every line is noise; the aggregate views (all, starred, plan, finished, tag) keep it.\n   */",
+    "// The row's colour identity: the task's own when it has one, its list's otherwise. The accent stays",
+    "// the inbox's fallback here — a card's checkbox is the row's own mark — where the calendar, whose",
+    "// chips sit beside other days' work, draws the neutral instead (`task-face.ts`).",
+    "/* The task's own glyph, when it has picked one. A task that has not keeps exactly the row\n              it had before tasks could wear a face — no placeholder, and the colour beside the\n              checkbox still says which list the work belongs to. */",
   ]],
   ["src/client/features/todos/TaskEditor.tsx", [
     "/**\n * The task editor: one dialog for a new task and for an existing one.\n *\n * It is a `Modal`, which already renders as a bottom sheet on a phone and a centred dialog on a\n * desktop — the two shapes the reference app has, without a second component. Fields are saved\n * together rather than on every keystroke: a title is edited in one pass, and a save per character\n * would be a write per character.\n *\n * Steps are the exception, and only for a task that already exists: adding a step is its own request\n * because the row it produces has to come back with an id the panel can tick.\n */",
@@ -10912,6 +10915,8 @@ const allowed = new Map([
     "/** The tags the account already has and this task does not: the rows the field offers. */",
     "/* One column on a phone: two date pickers across 360px leave each one too narrow to read. */",
     "/* The notebook's tag list, offered as the menu a `<datalist>` could not be: real rows with\n                the tag's colour, reachable by keyboard, and no native popup in the middle of a dialog. */",
+    "/**\n   * The task's own face: a glyph and a colour of its own, or null to wear the list's.\n   *\n   * Both start empty rather than on a default, because \"not set\" is the ordinary case — a task\n   * without a face of its own reads as its list, which is what every row did before tasks could\n   * carry one.\n   */",
+    "/* The task's own face, in the two fields that set it. Neither is required: a task that names\n            neither wears its list's, which is what every row showed before a task could have one of\n            its own — so the colour panel leads with \"none of its own\" instead of a default. */",
   ]],
   ["src/client/features/todos/TaskViews.tsx", [
     "/**\n * The four reading views: plan, starred, completed, and one list or tag.\n *\n * They share one grouped list because they differ only in how the page is split and what the group\n * headings say. Each view owns its own split — the plan groups by when, completed by the day it was\n * finished — and hands the result here.\n */",
@@ -11494,6 +11499,15 @@ const allowed = new Map([
     "// The pressed state is the state a screen reader hears, not only a colour.",
     "/**\r\n * The repeat controls in the editor: a weekly rule can name days, a monthly one can land on the last.\r\n *\r\n * What the panel saves is what the server stores, so these cases press the controls and read the body\r\n * the store's create action received — a selector that renders but never reaches the rule would still\r\n * look right on screen.\r\n */",
     "/** The editor's own container, which is where a select-menu's trigger lives. */",
+  ]],
+  ["src/client/features/todos/task-face.test.ts", [
+    "/**\n * The colour a task wears, away from the DOM.\n *\n * The rule is small enough to say in one line — its own, else its list's, else the neutral — but the\n * edges are what a reader sees: a task that has cleared its own colour goes back to the list's rather\n * than to grey, an inbox task never asks a list it does not have, and a list deleted out from under\n * a task leaves the row wearing the caller's neutral instead of throwing.\n */",
+    "// A fixture written before the column existed answers with no face at all; the reading is the list's,",
+    "// exactly as it was the day before tasks could have one of their own.",
+  ]],
+  ["src/client/features/todos/task-face.ts", [
+    "/**\n * The face a task wears.\n *\n * A task's colour and icon are both optional, and \"not set\" means \"wear the list's\" — the same face\n * every row showed before a task could carry one of its own. The calendar and the card are the two\n * surfaces that paint a task's colour, and before this module they answered that question twice over\n * (the calendar drew the inbox neutral, the card drew it in the accent), which is how one task came\n * to wear two faces on two screens. The answer lives here once.\n */",
+    "/**\n * The colour a task wears: its own, else its list's, else the caller's neutral.\n *\n * The fallback is a parameter because the two surfaces that ask disagree about the inbox on purpose:\n * a calendar chip sits beside other days' work and reads as nobody's row, while a card's checkbox is\n * the row's own identity and keeps the accent it has always had. A task naming a list that has since\n * been deleted falls back the same way an inbox task does — there is no list left to ask.\n */",
   ]],
   ["src/client/features/todos/task-groups.ts", [
     "/**\n * The readings the views share: how a set of tasks splits into groups, and in what order.\n *\n * These are pure functions over a page the server already scoped, so the grouping rules are the only\n * thing here — no fetching, no state. The day boundaries come in from the server (`dayEnd` is the end\n * of the reader's own day), which is why nothing in this file calls `Date.now()` for \"today\".\n */",
