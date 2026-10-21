@@ -64,7 +64,7 @@ export function normalizeMemoTranscriptionMime(raw: string): string | null {
   return (MEMO_TRANSCRIBE_MIME_TYPES as readonly string[]).includes(mime) ? mime : null
 }
 
-export function transcriptionsEndpoint(baseUrl: string): string {
+function transcriptionsEndpoint(baseUrl: string): string {
   const base = baseUrl.trim().replace(/\/+$/, '')
   if (base.endsWith('/audio/transcriptions')) return base
   const afterHost = base.replace(/^[a-z]+:\/\//i, '')
@@ -212,7 +212,7 @@ async function transcribeWithOpenAi(call: ProviderCall): Promise<string> {
       authorization: `Bearer ${call.apiKey}`,
     }),
     body: form,
-  })
+  }, call.apiKey)
   const payload = await response.json().catch(() => null) as { text?: unknown } | null
   if (typeof payload?.text !== 'string') {
     throw new ApiError(502, 'internal', 'The transcription provider answered without a transcript.')
@@ -239,7 +239,7 @@ async function transcribeWithGemini(call: ProviderCall): Promise<string> {
       'x-goog-api-key': call.apiKey,
     }),
     body: JSON.stringify(body),
-  })
+  }, call.apiKey)
   const payload = await response.json().catch(() => null) as { candidates?: unknown } | null
   const text = firstGeminiText(payload)
   if (!text) {
@@ -283,7 +283,7 @@ function vettedEndpoint(endpoint: string): URL {
   }
 }
 
-async function callProvider(url: URL, init: RequestInit): Promise<Response> {
+async function callProvider(url: URL, init: RequestInit, apiKey: string): Promise<Response> {
   let response: Response
   try {
     response = await fetch(url, {
@@ -308,13 +308,13 @@ async function callProvider(url: URL, init: RequestInit): Promise<Response> {
       'The transcription provider answered with a redirect, which this app does not follow.',
     )
   }
-  if (!response.ok) throw await providerFailure(response)
+  if (!response.ok) throw await providerFailure(response, apiKey)
   return response
 }
 
-async function providerFailure(response: Response): Promise<ApiError> {
+async function providerFailure(response: Response, apiKey: string): Promise<ApiError> {
   const text = (await readStreamTextWithinLimit(response.body, TRANSCRIBE_ERROR_MAX_BYTES)) ?? ''
-  const detail = providerMessage(text)
+  const detail = providerMessage(text).replaceAll(apiKey, '[redacted]')
   const suffix = detail ? ` ${detail}` : ''
   if (response.status === 401 || response.status === 403) {
     return new ApiError(

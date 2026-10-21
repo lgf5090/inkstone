@@ -343,6 +343,21 @@ describe('provider failures', () => {
     expect(await response.text()).toContain('not found')
   })
 
+  it('redacts the key when a provider repeats it in an error', async () => {
+    stubFetch(() => jsonResponse({
+      error: { message: `Incorrect API key provided: ${OPENAI_KEY}` },
+    }, 500))
+    const response = await requestTranscription({
+      providerId: openAiProviderId,
+      model: 'whisper-1',
+    })
+
+    expect(response.status).toBe(502)
+    const body = await response.text()
+    expect(body).toContain('[redacted]')
+    expect(body).not.toContain(OPENAI_KEY)
+  })
+
   it('maps an unreachable provider to an upstream error', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => {
       throw new TypeError('network down')
