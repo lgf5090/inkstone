@@ -23174,6 +23174,7 @@ const allowed = new Map([
     "/**\n * One MCP server's outbound OAuth material.\n *\n * Scoped to the server's own id rather than to the account, because the thing being kept is not this\n * reader's credential in general but a token one third party minted for one resource: a ciphertext written\n * into another server's row then fails to decrypt instead of leaking a bearer across two issuers.\n *\n * The payload is opaque to the vault — one field, whatever the authorization server handed back — so a\n * large JWT from a large identity provider does not have to be truncated to fit.\n */",
     "/**\n * One subscription channel's configuration.\n *\n * A channel's settings are a bundle — a bot token beside a chat id, a webhook beside a parse mode — and\n * none of them is ever queried, so the whole object is sealed as one ciphertext rather than spread over\n * columns where a backup or a log line could pick a secret up. The scope is the row's own id, which is\n * what keeps one channel's ciphertext from decrypting under another's.\n */",
     "/**\n   * The default sentence is about the one thing only the operator can fix: no binding at all. A caller\n   * that got an answer and did not like it passes its own sentence instead — a refusal and an absent\n   * binding are different failures, and reporting a refusal as \"the binding is missing\" sends whoever\n   * reads it looking in the wrong place. Neither message carries the value that was being stored.\n   */",
+    "/**\n * One memo webhook's signing secret.\n *\n * The scope is the webhook's own row id so a ciphertext moved into another row cannot be read back out,\n * and the prefix is checked on both directions because the string doubles as the HMAC key material:\n * a value that is not a webhook secret would sign deliveries with the wrong bytes.\n */",
   ]],
   ["src/worker/lib/image.ts", [
     "// A header that reads as an image but does not survive the walk is a truncated or hostile file,",
@@ -23393,6 +23394,14 @@ const allowed = new Map([
     "/** Appended to a write batch so the response body costs no extra round trip. */",
     "/** The same row without `content`: a 1.9 MB body a flag flip never looks at. */",
     "// The conflict payload keeps carrying the body even when the pre-read was metadata only.",
+  ]],
+  ["src/worker/memos/webhooks.ts", [
+    "/**\n * Standard Webhooks signs `id.timestamp.body` with the decoded secret, and the versioned prefix is what\n * lets a receiver tell which scheme produced the value. The body is the JSON exactly as sent, so a\n * re-serialised copy at the receiver would not verify.\n */",
+    "// Best-effort by design: a webhook that cannot be reached must not make the memo write disappear,",
+    "// and there is no retry queue, so the row id and the reason are all the record that will exist.",
+    "/**\n * Deliver one memo activity to every webhook the account owns.\n *\n * The caller runs this through `waitUntil`: the mutation has already been committed and answered, and\n * the delivery is not allowed to change that answer. Failures reach the log by webhook id only, never\n * with the secret or the memo body.\n */",
+    "// The mutation already answered; a failure to even list the targets belongs in the log beside the",
+    "// delivery failures, not in the response.",
   ]],
   ["src/worker/middleware/auth.ts", [
     "/**\n * How stale `users.last_seen_at` may get before a request writes a fresh one.\n *\n * A reader's every request would otherwise take a write to the `users` row, so the bump is rate-limited\n * to one per interval; the same number is the guard in the `UPDATE` so two concurrent requests cannot\n * both decide they were the one that crossed the interval.\n */",
@@ -24025,6 +24034,10 @@ const allowed = new Map([
     "// read without a request context because nothing in it runs.",
     "/**\n * The switched-off list, checked against the tools this server actually registers.\n *\n * A name that matches nothing is refused rather than stored: it would be a switch the reader cannot see the\n * effect of, and it would survive a rename in the code as a rule that quietly governs nothing. The catalog\n * is read here rather than trusted from the body for the same reason.\n */",
     "/** What a new key should carry, checked against the scopes this server understands. */",
+  ]],
+  ["src/worker/routes/memos.ts", [
+    "// The mutation is already committed; without a waitUntil the delivery runs on its own and may be cut",
+    "// short, which is the same best-effort outcome as a receiver that does not answer.",
   ]],
   ["src/worker/routes/notes.ts", [
     "/** Ids per dependent-table delete when emptying the trash. */",

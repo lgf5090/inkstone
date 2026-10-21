@@ -8,6 +8,7 @@ import {
 import {
   MEMO_ORDER_FIELDS,
   MEMO_STATES,
+  type Memo,
   type MemoOrderDirection,
   type MemoOrderField,
   type MemoState,
@@ -28,6 +29,10 @@ import {
   type MemoPatchFields,
   type MemoRelationsFields,
 } from '../memos/store'
+import {
+  dispatchMemoWebhookEvent,
+  type MemoWebhookActivityType,
+} from '../memos/webhooks'
 
 const OBJECT_DELETE_BATCH = 500
 
@@ -117,6 +122,28 @@ function scheduleMemoObjectCleanup(
   }
 }
 
+function scheduleMemoWebhook(
+  c: Context<AppBindings>,
+  activityType: MemoWebhookActivityType,
+  memo: Memo,
+): void {
+  const delivery = dispatchMemoWebhookEvent(
+    c.env,
+    c.get('userId'),
+    activityType,
+    memo,
+    new URL(c.req.url).origin,
+  )
+  try {
+    c.executionCtx.waitUntil(delivery)
+  } catch (error) {
+    // The mutation is already committed; without a waitUntil the delivery runs on its own and may be cut
+    // short, which is the same best-effort outcome as a receiver that does not answer.
+    console.warn('[inkstone] Memo webhook dispatch has no execution context:', error)
+    void delivery
+  }
+}
+
 export const memoListRoutes = new Hono<AppBindings>()
 
 memoListRoutes.use('*', requireMemoUser)
@@ -126,6 +153,11 @@ memoListRoutes.get('/', async (c) => c.json(await memoStore(c).list(listOptions(
 memoListRoutes.post('/', async (c) => {
   const body = await readJson<MemoCreateFields>(c, JSON_BODY_LIMITS.note)
   const memo = await memoStore(c).create(body)
+  scheduleMemoWebhook(
+    c,
+    memo.parentId ? 'memos.memo.comment.created' : 'memos.memo.created',
+    memo,
+  )
   return c.json(memo, 201)
 })
 
@@ -141,15 +173,19 @@ memoListRoutes.patch('/:id', async (c) => {
   const result = await memoStore(c).patch(id, body)
   if (result.status === 'missing') throw ApiError.notFound('Memo not found')
   if (result.status === 'conflict') return c.json(result.current, 409)
+  scheduleMemoWebhook(c, 'memos.memo.updated', result.memo)
   return c.json(result.memo)
 })
 
 memoListRoutes.delete('/:id', async (c) => {
-  const result = await memoStore(c).delete(memoId(c))
+  const id = memoId(c)
+  const memo = await memoStore(c).get(id)
+  const result = await memoStore(c).delete(id)
   if (!result) throw ApiError.notFound('Memo not found')
   if (result.attachmentObjects.length) {
     scheduleMemoObjectCleanup(c, result.attachmentObjects)
   }
+  if (memo) scheduleMemoWebhook(c, 'memos.memo.deleted', memo)
   return c.json({ ok: true })
 })
 
@@ -178,6 +214,7 @@ memoListRoutes.post('/:id/comments', async (c) => {
     createdAt: body.createdAt,
     parentId: id,
   })
+  scheduleMemoWebhook(c, 'memos.memo.comment.created', memo)
   return c.json(memo, 201)
 })
 
