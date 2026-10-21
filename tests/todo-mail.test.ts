@@ -13,11 +13,14 @@
  */
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import type { AppBindings, Env } from '../src/worker/env'
 import { errorResponse } from '../src/worker/lib/errors'
 import { todoMailRoutes } from '../src/worker/routes/todo-mail'
+import { MAX_INBOUND_MAIL_BYTES } from '../src/worker/email/inbound'
+import worker from '../src/worker/index'
+import { AssistantStore } from '../src/worker/assistant/store'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
 
@@ -58,11 +61,75 @@ function newToken(address: string): string {
   return match[1]!
 }
 
+interface MailOptions {
+  to: string
+  from?: string
+  subject?: string
+  body?: string
+  messageId?: string | null
+  contentType?: string
+  raw?: string
+  rawSize?: number
+}
+
+function rawMessage(options: MailOptions): string {
+  const messageId = options.messageId === undefined ? '<m1@example.com>' : options.messageId
+  return [
+    `From: Sender <${options.from ?? 'sender@example.com'}>`,
+    `To: ${options.to}`,
+    `Subject: ${options.subject ?? 'Buy milk'}`,
+    ...(messageId ? [`Message-ID: ${messageId}`] : []),
+    `Content-Type: ${options.contentType ?? 'text/plain; charset=utf-8'}`,
+    '',
+    options.body ?? 'Bring two bottles.',
+  ].join('\r\n')
+}
+
+/** One delivery as the platform hands it over: envelope addresses, headers, and a raw MIME stream. */
+function mailMessage(options: MailOptions): ForwardableEmailMessage {
+  const from = options.from ?? 'sender@example.com'
+  const messageId = options.messageId === undefined ? '<m1@example.com>' : options.messageId
+  const blob = new Blob([options.raw ?? rawMessage(options)])
+  return {
+    from,
+    to: options.to,
+    headers: new Headers(messageId ? { 'message-id': messageId } : {}),
+    raw: blob.stream(),
+    rawSize: options.rawSize ?? blob.size,
+    setReject: () => {},
+    forward: async () => ({ messageId: 'forwarded' }),
+    reply: async () => ({ messageId: 'replied' }),
+  } as unknown as ForwardableEmailMessage
+}
+
+async function deliver(message: ForwardableEmailMessage, target: Env = env): Promise<void> {
+  await worker.email!(message, target, {} as ExecutionContext)
+}
+
+async function issueAddress(target: Env = env): Promise<string> {
+  const response = await send('POST', target)
+  expect(response.status).toBe(201)
+  return (await json<{ address: string }>(response)).address
+}
+
+async function tasks(): Promise<{ title: string; description: string }[]> {
+  return await new AssistantStore(env.DB, USER, env).listTasks()
+}
+
+function messageRows(): number {
+  return Number((sqlite.prepare('SELECT COUNT(*) AS n FROM todos_mail_messages').get() as { n: number }).n)
+}
+
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   sqlite.exec('PRAGMA journal_mode = OFF')
   sqlite.exec(SCHEMA_STATEMENTS.join(';'))
   env = testBindings(makeD1(sqlite), { MAIL_DOMAIN: DOMAIN })
+})
+
+// Restore here, not inside a test: `mockRestore` also clears the calls the assertions read.
+afterEach(() => {
+  vi.restoreAllMocks()
 })
 
 describe('the mail-token endpoints', () => {
@@ -127,5 +194,155 @@ describe('the mail-token endpoints', () => {
     const revoked = await send('DELETE', testBindings(env.DB))
     expect(revoked.status).toBe(200)
     expect(tokenRows()).toBe(0)
+  })
+})
+
+describe('the inbound email handler', () => {
+  it('turns a plain-text message into a task for the addressed account', async () => {
+    const address = await issueAddress()
+
+    await deliver(mailMessage({ to: address }))
+
+    const [task] = await tasks()
+    expect(task).toBeDefined()
+    expect(task!.title).toBe('Buy milk')
+    expect(task!.description).toBe('From: sender@example.com via email\n\nBring two bottles.')
+    expect(messageRows()).toBe(1)
+  })
+
+  it('records the envelope sender rather than the forgeable From header', async () => {
+    const address = await issueAddress()
+    const raw = [
+      'From: CEO <ceo@bank.example>',
+      `To: ${address}`,
+      'Subject: Payroll',
+      'Message-ID: <spoof@example.net>',
+      'Content-Type: text/plain; charset=utf-8',
+      '',
+      'Change the account number.',
+    ].join('\r\n')
+
+    await deliver(mailMessage({ to: address, from: 'attacker@example.net', raw }))
+
+    const [task] = await tasks()
+    expect(task!.description.split('\n')[0]).toBe('From: attacker@example.net via email')
+    expect(task!.description).not.toContain('ceo@bank.example')
+  })
+
+  it('writes nothing for an unknown token, a foreign domain or a revoked address', async () => {
+    const address = await issueAddress()
+    const token = newToken(address)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await deliver(mailMessage({ to: `u+${'z'.repeat(40)}@${DOMAIN}`, messageId: '<unknown@example.com>' }))
+    await deliver(mailMessage({ to: `u+${token}@other.example.com`, messageId: '<foreign@example.com>' }))
+    expect(await tasks()).toHaveLength(0)
+    expect(messageRows()).toBe(0)
+
+    expect((await send('DELETE')).status).toBe(200)
+    await deliver(mailMessage({ to: address, messageId: '<revoked@example.com>' }))
+    expect(await tasks()).toHaveLength(0)
+    expect(messageRows()).toBe(0)
+
+    // One line per drop, each naming the reason and none repeating the recipient's token.
+    expect(warn.mock.calls).toHaveLength(3)
+    expect(warn.mock.calls.every(([line]) => String(line).includes('dropped'))).toBe(true)
+    expect(warn.mock.calls.every(([line]) => !String(line).includes(token))).toBe(true)
+  })
+
+  it('files a redelivered Message-ID once', async () => {
+    const address = await issueAddress()
+    const message = mailMessage({ to: address, messageId: '<same@example.com>' })
+
+    await deliver(message)
+    await deliver(mailMessage({ to: address, messageId: '<same@example.com>' }))
+
+    expect(await tasks()).toHaveLength(1)
+  })
+
+  it('falls back to a digest when the message has no Message-ID', async () => {
+    const address = await issueAddress()
+    const raw = rawMessage({ to: address, messageId: null })
+    await deliver(mailMessage({ to: address, messageId: null, raw }))
+    await deliver(mailMessage({ to: address, messageId: null, raw }))
+
+    expect(await tasks()).toHaveLength(1)
+  })
+
+  it('caps the title at 300 characters and the whole note at 10,000', async () => {
+    const address = await issueAddress()
+    const origin = 'From: sender@example.com via email'
+
+    await deliver(mailMessage({ to: address, subject: 'S'.repeat(350), body: 'b'.repeat(12_000) }))
+
+    const [task] = await tasks()
+    expect(task!.title).toHaveLength(300)
+    expect(task!.description).toHaveLength(10_000)
+    expect(task!.description.startsWith(`${origin}\n\n`)).toBe(true)
+  })
+
+  it('reads the plain-text alternative and decodes an encoded subject', async () => {
+    const address = await issueAddress()
+    const raw = [
+      'From: Sender <sender@example.com>',
+      `To: ${address}`,
+      'Subject: =?utf-8?B?Q2Fmw6kgcnVu?=',
+      'Message-ID: <alternative@example.com>',
+      'MIME-Version: 1.0',
+      'Content-Type: multipart/alternative; boundary="alt"',
+      '',
+      '--alt',
+      'Content-Type: text/plain; charset=utf-8',
+      '',
+      'Plain body',
+      '--alt',
+      'Content-Type: text/html; charset=utf-8',
+      '',
+      '<p>HTML body</p>',
+      '--alt--',
+      '',
+    ].join('\r\n')
+
+    await deliver(mailMessage({ to: address, raw }))
+
+    const [task] = await tasks()
+    expect(task!.title).toBe('Café run')
+    expect(task!.description.endsWith('Plain body')).toBe(true)
+    expect(task!.description).not.toContain('<p>')
+  })
+
+  it('drops an oversized message and logs it', async () => {
+    const address = await issueAddress()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await deliver(mailMessage({ to: address, rawSize: MAX_INBOUND_MAIL_BYTES + 1 }))
+
+    expect(await tasks()).toHaveLength(0)
+    expect(messageRows()).toBe(0)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('dropped'))
+  })
+
+  it('drops a message with no plain-text body and logs it', async () => {
+    const address = await issueAddress()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const raw = rawMessage({ to: address, messageId: '<empty@example.com>', body: '' })
+
+    await deliver(mailMessage({ to: address, messageId: '<empty@example.com>', raw }))
+
+    expect(await tasks()).toHaveLength(0)
+    expect(messageRows()).toBe(0)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('dropped'))
+  })
+
+  it('drops everything while MAIL_DOMAIN is unset', async () => {
+    const address = await issueAddress()
+    const unconfigured = testBindings(env.DB)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await deliver(mailMessage({ to: address }), unconfigured)
+
+    expect(await tasks()).toHaveLength(0)
+    expect(messageRows()).toBe(0)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('MAIL_DOMAIN'))
   })
 })

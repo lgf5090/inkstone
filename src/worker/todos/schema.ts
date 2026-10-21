@@ -446,3 +446,43 @@ export async function findMailTokenOwner(db: D1Database, token: string): Promise
   ).bind(token).first<{ user_id: string }>()
   return row?.user_id ?? null
 }
+
+/**
+ * Claim one inbound message before its task is written.
+ *
+ * `INSERT OR IGNORE` is the whole concurrency story: two deliveries of the same Message-ID race for
+ * one primary key, and the loser sees zero changes and writes nothing. Stale claims are pruned on the
+ * same call, which is why the table cannot grow without bound on a long-lived mailbox — the window is
+ * far longer than any retry of one delivery, so pruning can never resurrect a message still in flight.
+ * `false` means a previous delivery already claimed it.
+ */
+export async function claimMailMessage(
+  db: D1Database,
+  userId: string,
+  messageId: string,
+  now: number,
+  staleBefore: number,
+): Promise<boolean> {
+  await db.prepare(
+    `DELETE FROM todos_mail_messages WHERE user_id = ?1 AND created_at < ?2`,
+  ).bind(userId, staleBefore).run()
+  const result = await db.prepare(
+    `INSERT OR IGNORE INTO todos_mail_messages (user_id, message_id, created_at)
+     VALUES (?1, ?2, ?3)`,
+  ).bind(userId, messageId, now).run()
+  return (result.meta?.changes ?? 0) > 0
+}
+
+/**
+ * Give a claim back after the task could not be written, so the platform's retry is not mistaken
+ * for a duplicate. Deleting only this key leaves every other delivery's claim alone.
+ */
+export async function releaseMailMessage(
+  db: D1Database,
+  userId: string,
+  messageId: string,
+): Promise<void> {
+  await db.prepare(
+    `DELETE FROM todos_mail_messages WHERE user_id = ?1 AND message_id = ?2`,
+  ).bind(userId, messageId).run()
+}

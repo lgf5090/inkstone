@@ -23,8 +23,8 @@ import { requireAuth } from '../middleware/auth'
 import { mailAddress, mailDomain, newMailToken } from '../email/inbound'
 import { loadMailToken, revokeMailToken, saveMailToken } from '../todos/schema'
 
-/** How many address changes one account may make in a minute; a rotation is rare and scriptable. */
-export const MAIL_TOKEN_BUDGET_PER_MINUTE = 10
+/** How many address changes one account may make in a minute; the same ceiling a task write rides. */
+export const MAIL_TOKEN_BUDGET_PER_MINUTE = 60
 
 const takeBudget = createMinuteBudget(
   MAIL_TOKEN_BUDGET_PER_MINUTE,

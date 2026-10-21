@@ -18,6 +18,7 @@ import { sweepSubscriptions } from './subscriptions/scheduler'
 import { ApiError } from './lib/errors'
 import { withSecurityHeaders } from './lib/security-headers'
 import { normalizeRepeatedOAuthResource } from './lib/oauth-request'
+import { handleInboundMail } from './email/inbound'
 
 export { SyncHub } from './realtime/sync-hub'
 export { CredentialVault } from './durable/credential-vault'
@@ -100,6 +101,18 @@ export default {
         : []
       await Promise.all([...drains, ...heavy, subscriptionTick, reminderTick])
     })())
+  },
+
+  /**
+   * Email Routing's inbound door: `u+<token>@<MAIL_DOMAIN>` becomes a task.
+   *
+   * The handler is deliberately one call deep — routing, parsing, idempotency and the drops all live
+   * in `email/inbound.ts`, so the Worker entry stays a list of the platform's events. Nothing here
+   * answers the sender: an unknown recipient is dropped, not rejected, which is what keeps the
+   * address space from being enumerable through bounces.
+   */
+  async email(message: ForwardableEmailMessage, env: Env, _ctx: ExecutionContext): Promise<void> {
+    await handleInboundMail(message, env)
   },
 } satisfies ExportedHandler<Env>
 
