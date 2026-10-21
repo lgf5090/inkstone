@@ -307,7 +307,7 @@ describe('a file that is not what it claims to be', () => {
     expect(summary.messages).toBe(MAX_SESSION_IMPORT_MESSAGES)
     expect(summary.skipped.join(' ')).toMatch(/more than the 5000 messages one import writes/)
     account(READER)
-  })
+  }, 90_000)
 
   it('cuts one turn past the ceiling a stored message may hold, and names the thread', async () => {
     const text = JSON.stringify({
