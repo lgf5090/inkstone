@@ -8,6 +8,7 @@ import { Menu, Tooltip, useContextMenu, type MenuItem } from '../../components/o
 import { t } from '../../lib/i18n'
 import { cardClickAction } from './gallery-actions'
 import { TemplateTag } from './template-tag'
+import { templateKinds } from './template-risk'
 
 const MENU_WIDTH = 200
 const CLOSED_MENU_ITEMS: MenuItem[] = []
@@ -170,6 +171,18 @@ function CardTitleRow({
           {template.name}
         </h3>
         {template.isStarred && <Star size={11} className='shrink-0 fill-current text-[var(--warning)]'/>}
+        {templateKinds(template.content).templater && (
+          <span className='shrink-0 rounded-full bg-[var(--bg-raised)] px-1.5 py-px text-[length:var(--text-10)] font-medium text-[var(--text-tertiary)]'>
+            {t('templater.group')}
+          </span>
+        )}
+        {/* A warning tone, not a colour: the word is the thing that tells a reader the body runs code, so the
+            badge still says it with the colour blind palette or in a screen reader's reading order. */}
+        {templateKinds(template.content).script && (
+          <span className='shrink-0 rounded-full bg-[var(--warning-softer)] px-1.5 py-px text-[length:var(--text-10)] font-medium text-[var(--warning)]'>
+            {t('templates.runs_code')}
+          </span>
+        )}
         {template.builtin && (
           <span className='shrink-0 rounded-full bg-[var(--bg-raised)] px-1.5 py-px text-[length:var(--text-10)] font-medium text-[var(--text-quaternary)]'>
             {t('templates.builtin')}

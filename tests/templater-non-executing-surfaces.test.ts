@@ -122,6 +122,8 @@ const ALLOWED_IMPORTERS: Record<string, string> = {
   'src/client/features/templates/gallery-modals.tsx': 'mounts the template code editor the gallery opens',
   'src/client/features/templates/template-gallery.tsx': 'hosts the chooser that raises the library',
   'src/client/features/workspace/Workspace.tsx': 'hands the note editor the `tp.user` completion source, which reaches the store only through `features/templater/script-completion.ts` behind a dynamic import',
+  'src/client/features/sidebar/Sidebar.tsx': 'the folder menu raises the template chooser, through `features/templater/picker-request.ts` — a request signal that imports no engine and no worker',
+  'src/client/features/templates/template-risk.ts': 'the gallery’s badge/filter judgement, read from `lib/templater/detection.ts`: a regex over text already in memory, no parser, no engine, no worker',
 }
 
 function sandboxImporters(): Map<string, Edge[]> {

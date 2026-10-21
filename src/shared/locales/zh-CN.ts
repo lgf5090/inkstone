@@ -3520,6 +3520,7 @@ console.log(\`Hello, \${name}!\`)
     "templates.template_library": "模板库",
     "templates.template_name": "模板名称",
     "templates.uncategorized": "未分类",
+    "templates.runs_code": "会执行代码",
     "templates.use_template": "使用此模板",
     "templates.preview_template": "预览",
     "templates.preview_lines_value0": "共 {value0} 行，按原文显示",

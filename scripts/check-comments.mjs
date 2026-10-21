@@ -11368,6 +11368,8 @@ const allowed = new Map([
     "/**\n * One query, one rule: the gallery grid and the community list are the same\n * search over the same four fields, because a search box that only works in one\n * of the two is a control that lies about what the view can do.\n */",
     "/**\n * Which empty state the grid should explain. `no_templates` was almost unreachable\n * because a fresh account always carries the built-in catalog, so what a reader\n * actually meets is an empty view of a library that is not empty.\n */",
     "/**\n * Ordering the directory cannot do for you: the server only ever answers \"newest\",\n * so a reader who wants to find a name in the list has to be given the sort here.\n * Ties fall back to the other fields so the order is stable across re-renders.\n */",
+    "/**\n * How many of each kind the library holds, which is what decides whether a filter row is worth showing.\n *\n * A plain function rather than inline in the hook: the counts and the list below read the same bodies, and\n * two copies of \"what makes a template a Templater one\" is how a chip starts counting cards the filter then\n * refuses to show.\n */",
+    "/** The grid's rows for one filter and one search, in display order. */",
   ]],
   ["src/client/features/templates/gallery-export.ts", [
     "/** Built-ins are re-seeded by the app, so an export carries only what the user made. */",
@@ -11408,6 +11410,14 @@ const allowed = new Map([
     "// Preferences, not data: a filter change dropped in the last debounce window costs",
     "// the next visit its remembered view, and nothing the user authored with it.",
   ]],
+  ["src/client/features/templates/gallery-templater-filter.test.ts", [
+    "/**\n * The gallery's two Templater-facing judgements: which bodies the engine would render, and which of those can\n * run code rather than only print values.\n *\n * The badge and the filter are read from one function on purpose, and the tests below are the proof of that:\n * every body that a filter lets through is a body whose card carries the word. A reader who filters to\n * \"runs code\" and finds a card without the badge has been told something false about a template they are\n * about to execute.\n */",
+    "// `detection.ts` is a regex over text, and the one direction it is allowed to be wrong in is the safe",
+    "// one: a body that only *mentions* `tp.user` gets the warning badge it does not need, while a body that",
+    "// really calls it can never slip through unbadged. The badge drives a filter and a community gate, never",
+    "// a permission, so the false positive costs a reader a look at a card and nothing more.",
+    "// A body with no command delimiter is still not one the Templater engine would run.",
+  ]],
   ["src/client/features/templates/gallery-validation.test.ts", [
     "// The body is a CodeMirror surface now, so the element carrying the error is the editable one rather",
     "// than a textarea — and only the editor's own element matches `.cm-content` in this dialog, since the",
@@ -11421,11 +11431,17 @@ const allowed = new Map([
   ]],
   ["src/client/features/templates/template-card.tsx", [
     "/**\n * The whole card is one button, so a click anywhere on it uses the template.\n * The title row, description, tags and footer are painted above that button on\n * the z-axis to stay readable, which would otherwise let them swallow the\n * click exactly where the \"use this template\" hint is drawn — so every one of\n * them is transparent to the pointer, and only the tool buttons opt back in.\n */",
+    "/* A warning tone, not a colour: the word is the thing that tells a reader the body runs code, so the\n            badge still says it with the colour blind palette or in a screen reader's reading order. */",
   ]],
   ["src/client/features/templates/template-gallery.tsx", [
     "// The search box asks for these keys itself before the shared filter contract decides, so a key",
     "// that started there is not walked a second time when it reaches the dialog.",
     "/* The Templater chooser is hosted here because this is the surface the app already mounts for\n        anything called a template; `openTemplaterPicker` raises the gallery when a command comes from\n        somewhere else, and takes it back down again when the chooser closes. */",
+  ]],
+  ["src/client/features/templates/template-risk.ts", [
+    "/**\n * What a template body *is*, in the two words the gallery shows.\n *\n * The classification itself is the engine's (`lib/templater/detection.ts`), and this file is the only place\n * in the gallery that reads it — the card and the filter both ask here, so a badge and the list it filters\n * cannot disagree about the same body. That is also why it lives beside the two consumers rather than in the\n * engine: what counts as \"runs code\" on a card is a presentation question, and the day the wording changes\n * only this file moves.\n *\n * Nothing here runs, parses, or renders anything: it is a regex over text the reader already has in memory.\n */",
+    "/** The body holds at least one `<% … %>` command, so the Templater engine is what would render it. */",
+    "/** The body can run code rather than only print values: an execute command, a user script, or the network. */",
   ]],
   ["src/client/features/templates/template-tag.tsx", [
     "/**\n * One tag written on a template.\n *\n * The card, the community row, the preview modal and the publish sheet each drew the same span, and\n * four copies of one literal class string is how four surfaces end up with four pills that only look\n * the same today.\n *\n * It is a label rather than the shared `TagChip`, because it is not a control: a template card is\n * already a button with its own hit target, and a pressable chip inside it would nest one control in\n * another. What a chip owns — the pressed state, the count, the keyboard — this has no use for.\n */",

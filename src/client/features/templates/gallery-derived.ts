@@ -4,6 +4,7 @@ import { compareTemplates } from '../../store/note-templates'
 import { matchesQuery } from '../../lib/fuzzy'
 import { usePinyinVersion } from '../../lib/pinyin'
 import type { GalleryFilter } from './gallery-persist'
+import { templateKinds } from './template-risk'
 
 export interface TemplateSearchable {
   name: string
@@ -62,6 +63,49 @@ export function sortCommunityItems<T extends { name: string; authorName: string;
   })
 }
 
+/**
+ * How many of each kind the library holds, which is what decides whether a filter row is worth showing.
+ *
+ * A plain function rather than inline in the hook: the counts and the list below read the same bodies, and
+ * two copies of "what makes a template a Templater one" is how a chip starts counting cards the filter then
+ * refuses to show.
+ */
+export function galleryCounts(templates: NoteTemplate[]) {
+  const byCategory = new Map<string, number>()
+  const byTag = new Map<string, number>()
+  let uncategorized = 0
+  let starred = 0
+  let templater = 0
+  let script = 0
+  for (const template of templates) {
+    if (template.categoryId === null) uncategorized++
+    else byCategory.set(template.categoryId, (byCategory.get(template.categoryId) ?? 0) + 1)
+    if (template.isStarred) starred++
+    const kinds = templateKinds(template.content)
+    if (kinds.templater) templater++
+    if (kinds.script) script++
+    for (const tag of template.tags)
+      byTag.set(tag, (byTag.get(tag) ?? 0) + 1)
+  }
+  return { byCategory, byTag, uncategorized, starred, templater, script }
+}
+
+/** The grid's rows for one filter and one search, in display order. */
+export function filterGalleryTemplates(templates: NoteTemplate[], filter: GalleryFilter, query: string): NoteTemplate[] {
+  const matchesQuery = (template: NoteTemplate) => templateMatchesQuery(template, query)
+  const list = templates.filter((template) => {
+    if (filter.kind === 'favorites') return template.isStarred && matchesQuery(template)
+    if (filter.kind === 'templater') return templateKinds(template.content).templater && matchesQuery(template)
+    if (filter.kind === 'script') return templateKinds(template.content).script && matchesQuery(template)
+    if (filter.kind === 'uncategorized') return template.categoryId === null && matchesQuery(template)
+    if (filter.kind === 'community') return matchesQuery(template)
+    if (filter.kind === 'category') return template.categoryId === filter.id && matchesQuery(template)
+    if (filter.kind === 'tag') return template.tags.includes(filter.tag) && matchesQuery(template)
+    return matchesQuery(template)
+  })
+  return [...list].sort(compareTemplates)
+}
+
 export function useGalleryDerived(
   templates: NoteTemplate[],
   filter: GalleryFilter,
@@ -69,35 +113,11 @@ export function useGalleryDerived(
   selectedIds: ReadonlySet<string>,
 ) {
   const pinyinVersion = usePinyinVersion()
-  const counts = useMemo(() => {
-    const byCategory = new Map<string, number>()
-    const byTag = new Map<string, number>()
-    let uncategorized = 0
-    let starred = 0
-    for (const template of templates) {
-      if (template.categoryId === null) uncategorized++
-      else byCategory.set(template.categoryId, (byCategory.get(template.categoryId) ?? 0) + 1)
-      if (template.isStarred) starred++
-      for (const tag of template.tags)
-        byTag.set(tag, (byTag.get(tag) ?? 0) + 1)
-    }
-    return { byCategory, byTag, uncategorized, starred }
-  }, [templates])
+  const counts = useMemo(() => galleryCounts(templates), [templates])
   const tagList = useMemo(() => [...counts.byTag.entries()]
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])),
   [counts.byTag])
-  const visible = useMemo(() => {
-    const matchesQuery = (template: NoteTemplate) => templateMatchesQuery(template, query)
-    const list = templates.filter((template) => {
-      if (filter.kind === 'favorites') return template.isStarred && matchesQuery(template)
-      if (filter.kind === 'uncategorized') return template.categoryId === null && matchesQuery(template)
-      if (filter.kind === 'community') return matchesQuery(template)
-      if (filter.kind === 'category') return template.categoryId === filter.id && matchesQuery(template)
-      if (filter.kind === 'tag') return template.tags.includes(filter.tag) && matchesQuery(template)
-      return matchesQuery(template)
-    })
-    return [...list].sort(compareTemplates)
-  }, [filter, pinyinVersion, query, templates])
+  const visible = useMemo(() => filterGalleryTemplates(templates, filter, query), [filter, pinyinVersion, query, templates])
   const selectedTemplates = useMemo(() => templates.filter((item) => selectedIds.has(item.id)), [selectedIds, templates])
   const visibleSelected = useMemo(() => visible.filter((item) => selectedIds.has(item.id)), [selectedIds, visible])
   const allVisibleSelected = visible.length > 0 && visibleSelected.length === visible.length
