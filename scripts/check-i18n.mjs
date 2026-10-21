@@ -236,21 +236,45 @@ const assistantPromptBodyFiles = {
     en: [path.join(localeRoot, 'en-US-assistant-prompt.ts'), 'EN_US_ASSISTANT_PROMPT'],
     zh: [path.join(localeRoot, 'zh-CN-assistant-prompt.ts'), 'ZH_CN_ASSISTANT_PROMPT'],
 };
+const memoCatalogFiles = {
+    en: [
+        [path.join(localeRoot, 'en-US-memos.ts'), 'EN_US_MEMOS'],
+        [path.join(localeRoot, 'en-US-memos-core.ts'), 'EN_US_MEMOS_CORE'],
+        [path.join(localeRoot, 'en-US-memos-org.ts'), 'EN_US_MEMOS_ORG'],
+        [path.join(localeRoot, 'en-US-memos-media.ts'), 'EN_US_MEMOS_MEDIA'],
+        [path.join(localeRoot, 'en-US-memos-share.ts'), 'EN_US_MEMOS_SHARE'],
+        [path.join(localeRoot, 'en-US-memos-data.ts'), 'EN_US_MEMOS_DATA'],
+    ],
+    zh: [
+        [path.join(localeRoot, 'zh-CN-memos.ts'), 'ZH_CN_MEMOS'],
+        [path.join(localeRoot, 'zh-CN-memos-core.ts'), 'ZH_CN_MEMOS_CORE'],
+        [path.join(localeRoot, 'zh-CN-memos-org.ts'), 'ZH_CN_MEMOS_ORG'],
+        [path.join(localeRoot, 'zh-CN-memos-media.ts'), 'ZH_CN_MEMOS_MEDIA'],
+        [path.join(localeRoot, 'zh-CN-memos-share.ts'), 'ZH_CN_MEMOS_SHARE'],
+        [path.join(localeRoot, 'zh-CN-memos-data.ts'), 'ZH_CN_MEMOS_DATA'],
+    ],
+};
+const catalogFragments = {
+    en: [noteTemplateBodyFiles.en, ...memoCatalogFiles.en],
+    zh: [noteTemplateBodyFiles.zh, ...memoCatalogFiles.zh],
+};
 // Chinese is legal in a zh locale catalog and nowhere else; every other file is held to English.
 // The subscription notifications are a catalog of their own because the worker writes them and must
 // not carry the interface's seven thousand keys to reach twenty sentences.
-const hanAllowedCatalogs = [path.join(localeRoot, 'zh-CN.ts'), noteTemplateBodyFiles.zh[0], assistantPromptBodyFiles.zh[0], path.join(localeRoot, 'zh-CN-subscriptions-notify.ts')];
-function readCatalog(variableFile, variableName, [bodyFile, bodyName]) {
+const hanAllowedCatalogs = [path.join(localeRoot, 'zh-CN.ts'), ...catalogFragments.zh.map(([file]) => file), assistantPromptBodyFiles.zh[0], path.join(localeRoot, 'zh-CN-subscriptions-notify.ts')];
+function readCatalog(variableFile, variableName, fragments) {
     const messages = readMessages(variableFile, variableName);
-    for (const [key, value] of readMessages(bodyFile, bodyName)) {
-        if (messages.has(key))
-            failures.push(`duplicate message across catalog files: ${key}`);
-        messages.set(key, value);
+    for (const [file, name] of fragments) {
+        for (const [key, value] of readMessages(file, name)) {
+            if (messages.has(key))
+                failures.push(`duplicate message across catalog files: ${key}`);
+            messages.set(key, value);
+        }
     }
     return messages;
 }
-const english = readCatalog(path.join(localeRoot, 'en-US.ts'), 'EN_US_MESSAGES', noteTemplateBodyFiles.en);
-const chinese = readCatalog(path.join(localeRoot, 'zh-CN.ts'), 'ZH_CN_MESSAGES', noteTemplateBodyFiles.zh);
+const english = readCatalog(path.join(localeRoot, 'en-US.ts'), 'EN_US_MESSAGES', catalogFragments.en);
+const chinese = readCatalog(path.join(localeRoot, 'zh-CN.ts'), 'ZH_CN_MESSAGES', catalogFragments.zh);
 {
     const instructions = readMessages(assistantPromptBodyFiles.en[0], assistantPromptBodyFiles.en[1]);
     const translated = readMessages(assistantPromptBodyFiles.zh[0], assistantPromptBodyFiles.zh[1]);
