@@ -11,7 +11,9 @@ import { t, type MessageKey } from '../../lib/i18n'
 import { MemoDetail } from './components/MemoDetail'
 import { useRevision } from './events'
 import { MemoFeedPage } from './pages/MemoFeedPage'
+import { MemoAttachmentsPage } from './pages/MemoAttachmentsPage'
 import { MemoPlaceholderPage } from './pages/MemoPlaceholderPage'
+import { MemoViewsPage } from './pages/MemoViewsPage'
 import { parseMemoPath, type MemoRoute } from './route'
 import { MemoSidebar } from './sidebar/MemoSidebar'
 import {
@@ -244,8 +246,12 @@ export function MemosApp(): ReactElement {
         onTagPress={openTag}
       />
     )
-  } else if (route.kind === 'calendar' || route.kind === 'attachments' || route.kind === 'map'
-    || route.kind === 'views' || route.kind === 'inbox' || route.kind === 'setting' || route.kind === 'explore') {
+  } else if (route.kind === 'views') {
+    content = <MemoViewsPage />
+  } else if (route.kind === 'attachments') {
+    content = <MemoAttachmentsPage onOpenMemo={openMemo} />
+  } else if (route.kind === 'calendar' || route.kind === 'map'
+    || route.kind === 'inbox' || route.kind === 'setting' || route.kind === 'explore') {
     content = <MemoPlaceholderPage kind={route.kind} />
   } else {
     content = <MemoPlaceholderPage kind="notFound" />
