@@ -15,7 +15,7 @@ import { ChevronDown, ChevronUp, MessagesSquare, Plus, Sparkles, Star, Trash2, X
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { Button, IconButton } from '../../components/primitives'
-import { Input, Select, Segmented, Textarea, Field } from '../../components/form'
+import { Checkbox, Input, Select, Segmented, Textarea, Field } from '../../components/form'
 import { renderMarkdown } from '../../lib/markdown/renderer'
 import { DatePicker } from '../../components/date-picker'
 import { Modal, confirm } from '../../components/overlay'
@@ -690,18 +690,15 @@ export function TaskEditor() {
           {steps.length === 0 && <span className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('todo.task.no_steps')}</span>}
           {steps.map((step, index) => (
             <div key={step.id} className="flex items-center gap-2">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={step.done}
-                aria-label={step.text}
-                onChange={(event) => {
-                  const done = event.target.checked
+                onChange={(done) => {
                   setSteps((current) => current.map((entry) => (entry.id === step.id ? { ...entry, done } : entry)))
                   if (existing) void updateStep(existing.id, step.id, { done })
                 }}
-                className="size-4 accent-[var(--accent)]"
+                label={<span className={cn('block min-w-0 truncate text-[length:var(--text-12-5)]', step.done && 'text-[var(--text-tertiary)] line-through')}>{step.text}</span>}
+                className="min-w-0 flex-1"
               />
-              <span className={cn('min-w-0 flex-1 truncate text-[length:var(--text-12-5)]', step.done && 'text-[var(--text-tertiary)] line-through')}>{step.text}</span>
               <IconButton
                 label={t('quickadd.move_step_up')}
                 size="sm"

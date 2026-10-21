@@ -363,7 +363,7 @@ export function TodosApp() {
             type="button"
             onClick={newTask}
             aria-label={t('todo.action.new_task')}
-            className="fixed bottom-[calc(76px+env(safe-area-inset-bottom))] right-4 z-10 flex size-14 items-center justify-center rounded-full bg-[var(--accent)] text-[var(--accent-contrast)] shadow-[var(--shadow-modal)] active:scale-95"
+            className="fixed bottom-[calc(76px+env(safe-area-inset-bottom))] right-4 z-[var(--z-float)] flex size-14 items-center justify-center rounded-full bg-[var(--accent)] text-[var(--accent-contrast)] shadow-[var(--shadow-modal)] active:scale-95"
           >
             <Plus size={24} />
           </button>}
