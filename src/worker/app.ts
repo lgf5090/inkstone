@@ -13,6 +13,7 @@ import { memoTokenRoutes } from './routes/memos/tokens'
 import { memoPreferenceRoutes } from './routes/memos/preferences'
 import { memoReactionRoutes } from './routes/memos/reactions'
 import { memoShareRoutes } from './routes/memos/shares'
+import { memoPublicDataRoutes } from './routes/memos/public'
 import { memoStatsRoutes } from './routes/memos/stats'
 import { memoLinkMetaRoutes } from './routes/memos/link-meta'
 import { memoAttachmentRoutes } from './routes/memos/attachments'
@@ -111,6 +112,7 @@ export function createApp() {
   app.route('/api/memos/views', memoViewRoutes)
   app.route('/api/memos/tokens', memoTokenRoutes)
   app.route('/api/memos/preferences', memoPreferenceRoutes)
+  app.route('/api/memos/public', memoPublicDataRoutes)
   app.route('/api/memos/stats', memoStatsRoutes)
   app.route('/api/memos/link-metadata', memoLinkMetaRoutes)
   app.route('/api/memos/attachments', memoAttachmentRoutes)
