@@ -90,7 +90,7 @@ import { localDate } from '@shared/assistant-time'
 import { likePattern } from '@shared/markdown-utils'
 import type { Env } from '../env'
 import { tagScopePredicate } from '../db/rows'
-import { MAX_BATCH_STATEMENTS } from '../db/writes'
+import { ID_READ_BATCH, MAX_BATCH_STATEMENTS, chunkMarks, idChunks } from '../db/writes'
 import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
 import { parseStoredJson } from '../lib/json'
@@ -302,16 +302,8 @@ export interface ConversationCursor {
   id: string
 }
 
-/** How many ids one delete statement may carry, well under SQLite's parameter ceiling. */
-const ATTACHMENT_DELETE_BATCH = 200
-
-/**
- * Ids one read statement may carry.
- *
- * The ceiling that binds here is D1's bound-variable limit, which is well below SQLite's: the other
- * stores chunk an id list at ninety for exactly that reason (`tags/store.ts`, `sync/store.ts`).
- */
-const ID_READ_BATCH = 90
+/** How many ids one delete statement may carry: the bind-variable ceiling, not SQLite's. */
+const ATTACHMENT_DELETE_BATCH = ID_READ_BATCH
 
 /**
  * How long a notification's pointer may be.
@@ -2075,20 +2067,25 @@ export class AssistantStore {
     conversationIds: readonly string[],
     query: string,
   ): Promise<Map<string, { messageId: string, snippet: string }>> {
-    const q = new Query(this.userId)
-    q.inList('conversation_id', conversationIds)
-    const pattern = q.add(containsPattern(query))
-    const rows = await this.rows<{ conversation_id: string, id: string, content: string }>(
-      `SELECT conversation_id, id, content FROM (
-         SELECT conversation_id, id, content,
-                ROW_NUMBER() OVER (PARTITION BY conversation_id ORDER BY created_at ASC, rowid ASC) AS rn
-           FROM chat_messages
-          WHERE ${q.where} AND content LIKE ${pattern} ESCAPE '\\'
-       ) WHERE rn = 1`,
-      ...q.binds,
-    )
     const found = new Map<string, { messageId: string, snippet: string }>()
-    for (const row of rows) found.set(row.conversation_id, { messageId: row.id, snippet: searchSnippet(row.content, query) })
+    // The listing hands over a page of up to two hundred ids, and one statement may not name them
+    // all: D1 binds at most 100 parameters, so the page is read in chunks and merged. The window
+    // function keeps the earliest hit per conversation, which is the one the reader means.
+    for (const chunk of idChunks(conversationIds)) {
+      const q = new Query(this.userId)
+      q.inList('conversation_id', chunk)
+      const pattern = q.add(containsPattern(query))
+      const rows = await this.rows<{ conversation_id: string, id: string, content: string }>(
+        `SELECT conversation_id, id, content FROM (
+           SELECT conversation_id, id, content,
+                  ROW_NUMBER() OVER (PARTITION BY conversation_id ORDER BY created_at ASC, rowid ASC) AS rn
+             FROM chat_messages
+            WHERE ${q.where} AND content LIKE ${pattern} ESCAPE '\\'
+         ) WHERE rn = 1`,
+        ...q.binds,
+      )
+      for (const row of rows) found.set(row.conversation_id, { messageId: row.id, snippet: searchSnippet(row.content, query) })
+    }
     return found
   }
 
@@ -2140,18 +2137,23 @@ export class AssistantStore {
     const found = new Set<string>([rootId])
     let frontier = [rootId]
     for (let depth = 0; depth < 12 && frontier.length; depth++) {
-      const q = new Query(this.userId)
-      q.inList('parent_id', frontier)
-      const rows = await this.rows<{ id: string }>(
-        `SELECT id FROM folders WHERE ${q.where} AND deleted_at IS NULL`,
-        ...q.binds,
-      )
-      frontier = []
-      for (const row of rows ?? []) {
-        if (found.has(row.id)) continue
-        found.add(row.id)
-        frontier.push(row.id)
+      // A wide level is walked in chunks: D1 binds at most 100 parameters per statement, so a level
+      // holding a hundred folders or more would fail the whole walk rather than the level.
+      const next: string[] = []
+      for (const chunk of idChunks(frontier)) {
+        const q = new Query(this.userId)
+        q.inList('parent_id', chunk)
+        const rows = await this.rows<{ id: string }>(
+          `SELECT id FROM folders WHERE ${q.where} AND deleted_at IS NULL`,
+          ...q.binds,
+        )
+        for (const row of rows ?? []) {
+          if (found.has(row.id)) continue
+          found.add(row.id)
+          next.push(row.id)
+        }
       }
+      frontier = next
     }
     return [...found]
   }
@@ -2188,20 +2190,21 @@ export class AssistantStore {
   /** The tags on these conversations, keyed by conversation id. */
   async tagsForConversations(ids: readonly string[]): Promise<Map<string, ConversationTag[]>> {
     const out = new Map<string, ConversationTag[]>()
-    if (!ids.length) return out
     // Written out rather than through Query: a join makes the builder's unqualified `user_id = ?1`
-    // ambiguous, and the failure is a 500 on every conversation list.
-    const marks = ids.map((_, index) => `?${index + 2}`).join(', ')
-    const rows = await this.rows<{ conversation_id: string, tag_id: string, name: string, color: string | null }>(
-      `SELECT ct.conversation_id, t.id AS tag_id, t.name, t.color
-         FROM chat_conversation_tags ct JOIN tags t ON t.user_id = ct.user_id AND t.id = ct.tag_id
-        WHERE ct.user_id = ?1 AND ct.conversation_id IN (${marks}) ORDER BY t.name`,
-      this.userId, ...ids,
-    )
-    for (const row of rows) {
-      const list = out.get(row.conversation_id) ?? []
-      list.push({ id: row.tag_id, name: row.name, color: row.color ?? null })
-      out.set(row.conversation_id, list)
+    // ambiguous, and the failure is a 500 on every conversation list. The ids arrive a page at a
+    // time, so they are cut into chunks before the join rather than named in one statement.
+    for (const chunk of idChunks(ids)) {
+      const rows = await this.rows<{ conversation_id: string, tag_id: string, name: string, color: string | null }>(
+        `SELECT ct.conversation_id, t.id AS tag_id, t.name, t.color
+           FROM chat_conversation_tags ct JOIN tags t ON t.user_id = ct.user_id AND t.id = ct.tag_id
+          WHERE ct.user_id = ?1 AND ct.conversation_id IN (${chunkMarks(chunk)}) ORDER BY t.name`,
+        this.userId, ...chunk,
+      )
+      for (const row of rows) {
+        const list = out.get(row.conversation_id) ?? []
+        list.push({ id: row.tag_id, name: row.name, color: row.color ?? null })
+        out.set(row.conversation_id, list)
+      }
     }
     return out
   }
@@ -3989,33 +3992,35 @@ export class AssistantStore {
 
   /** The step counts of many tasks in one query, so a listing is not a query per row. */
   private async stepCounts(ids: readonly string[]): Promise<Map<string, { total: number; done: number }>> {
-    if (!ids.length) return new Map()
-    const marks = ids.map((_, index) => `?${index + 2}`).join(', ')
-    const list = await this.rows<{ task_id: string; total: number; done: number | null }>(
-      `SELECT task_id, COUNT(*) AS total, SUM(CASE WHEN done = 1 THEN 1 ELSE 0 END) AS done
-         FROM todos_steps WHERE user_id = ?1 AND task_id IN (${marks}) GROUP BY task_id`,
-      this.userId, ...ids,
-    )
-    return new Map(list.map((row) => [row.task_id, { total: row.total, done: row.done ?? 0 }]))
+    const out = new Map<string, { total: number; done: number }>()
+    for (const chunk of idChunks(ids)) {
+      const list = await this.rows<{ task_id: string; total: number; done: number | null }>(
+        `SELECT task_id, COUNT(*) AS total, SUM(CASE WHEN done = 1 THEN 1 ELSE 0 END) AS done
+           FROM todos_steps WHERE user_id = ?1 AND task_id IN (${chunkMarks(chunk)}) GROUP BY task_id`,
+        this.userId, ...chunk,
+      )
+      for (const row of list) out.set(row.task_id, { total: row.total, done: row.done ?? 0 })
+    }
+    return out
   }
 
   /** The tags of many tasks in one query, keyed by task. */
   private async tagsForTasks(ids: readonly string[]): Promise<Map<string, TaskTag[]>> {
-    if (!ids.length) return new Map()
-    const marks = ids.map((_, index) => `?${index + 2}`).join(', ')
-    const list = await this.rows<TaskTagRow & { task_id: string }>(
-      `SELECT l.task_id, t.id, t.name, t.color, t.created_at, t.updated_at
-         FROM todos_tag_links l
-         JOIN todos_tags t ON t.user_id = l.user_id AND t.id = l.tag_id
-        WHERE l.user_id = ?1 AND l.task_id IN (${marks})
-        ORDER BY t.name COLLATE NOCASE`,
-      this.userId, ...ids,
-    )
     const out = new Map<string, TaskTag[]>()
-    for (const row of list) {
-      const bucket = out.get(row.task_id) ?? []
-      bucket.push(toTaskTag(row, 0))
-      out.set(row.task_id, bucket)
+    for (const chunk of idChunks(ids)) {
+      const list = await this.rows<TaskTagRow & { task_id: string }>(
+        `SELECT l.task_id, t.id, t.name, t.color, t.created_at, t.updated_at
+           FROM todos_tag_links l
+           JOIN todos_tags t ON t.user_id = l.user_id AND t.id = l.tag_id
+          WHERE l.user_id = ?1 AND l.task_id IN (${chunkMarks(chunk)})
+          ORDER BY t.name COLLATE NOCASE`,
+        this.userId, ...chunk,
+      )
+      for (const row of list) {
+        const bucket = out.get(row.task_id) ?? []
+        bucket.push(toTaskTag(row, 0))
+        out.set(row.task_id, bucket)
+      }
     }
     return out
   }
@@ -4952,9 +4957,11 @@ export class AssistantStore {
       // The vectors go with the facts: `memoryEmbeddingCount` is a plain count of rows, so a vector whose
       // memory is gone would keep inflating the number on the settings card while no turn could recall it.
       // The review rows are not cleaned here — `listReviews` already drops the ones whose memory is
-      // missing, so a delete would be a second copy of that rule.
-      const marks = filed.map((_, index) => `?${index + 2}`).join(', ')
-      await this.write(`DELETE FROM chat_memory_embeddings WHERE user_id = ?1 AND memory_id IN (${marks})`, ...filed.map((memory) => memory.id))
+      // missing, so a delete would be a second copy of that rule. A project with a hundred facts or
+      // more deletes in chunks, for the same bound-parameter reason the listings do.
+      for (const chunk of idChunks(filed.map((memory) => memory.id))) {
+        await this.write(`DELETE FROM chat_memory_embeddings WHERE user_id = ?1 AND memory_id IN (${chunkMarks(chunk)})`, ...chunk)
+      }
     }
     await this.write(`DELETE FROM chat_memories WHERE user_id = ?1 AND project_id = ?2`, id)
     // The activity feed quoted each fact when it was learned; the fact is gone, so the quote goes too —
@@ -6590,12 +6597,7 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
  * bind-variable ceiling D1 imposes — the same reason the delete loops above page themselves.
  */
 function idReadChunks(ids: readonly string[]): string[][] {
-  const wanted = [...new Set(ids)]
-  const chunks: string[][] = []
-  for (let start = 0; start < wanted.length; start += ID_READ_BATCH) {
-    chunks.push(wanted.slice(start, start + ID_READ_BATCH))
-  }
-  return chunks
+  return idChunks([...new Set(ids)])
 }
 
 function normaliseBind(value: unknown): string | number | null {
@@ -6672,20 +6674,25 @@ export async function purgeExpiredEphemeralConversations(
  * Shared by the endpoint and the retention sweep so the trash is emptied one way: steps, tag links and
  * reminders go with their task, and the task delete repeats the trash predicate so a live row can never
  * be caught by a stale id. The `IN` list is built here from ids the account already owns, one place
- * after a scoped read.
+ * after a scoped read — and cut into chunks, because a sweep page (`TODO_TRASH_PURGE_LIMIT`) names
+ * more ids than one statement may bind.
  */
 function purgeTaskStatements(db: D1Database, userId: string, ids: readonly string[]): D1PreparedStatement[] {
   if (!ids.length) return []
-  const marks = ids.map((_, index) => `?${index + 2}`).join(', ')
-  const binds = [userId, ...ids]
-  return [
-    db.prepare(`DELETE FROM todos_steps WHERE user_id = ?1 AND task_id IN (${marks})`).bind(...binds),
-    db.prepare(`DELETE FROM todos_tag_links WHERE user_id = ?1 AND task_id IN (${marks})`).bind(...binds),
-    db.prepare(`DELETE FROM todos_reminders WHERE user_id = ?1 AND task_id IN (${marks})`).bind(...binds),
-    db.prepare(
-      `DELETE FROM todos_tasks WHERE user_id = ?1 AND id IN (${marks}) AND ${TASK_TRASHED_PREDICATE}`,
-    ).bind(...binds),
-  ]
+  const statements: D1PreparedStatement[] = []
+  for (const chunk of idChunks(ids)) {
+    const marks = chunkMarks(chunk)
+    const binds = [userId, ...chunk]
+    statements.push(
+      db.prepare(`DELETE FROM todos_steps WHERE user_id = ?1 AND task_id IN (${marks})`).bind(...binds),
+      db.prepare(`DELETE FROM todos_tag_links WHERE user_id = ?1 AND task_id IN (${marks})`).bind(...binds),
+      db.prepare(`DELETE FROM todos_reminders WHERE user_id = ?1 AND task_id IN (${marks})`).bind(...binds),
+      db.prepare(
+        `DELETE FROM todos_tasks WHERE user_id = ?1 AND id IN (${marks}) AND ${TASK_TRASHED_PREDICATE}`,
+      ).bind(...binds),
+    )
+  }
+  return statements
 }
 
 /**

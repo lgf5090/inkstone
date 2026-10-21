@@ -8,6 +8,7 @@
  */
 
 import { ApiError } from '../lib/errors'
+import { ID_READ_BATCH, idChunks } from '../db/writes'
 
 export interface NoteScope {
   /** True when the reader named folders or tags, so the note tools must filter. */
@@ -81,16 +82,22 @@ export async function resolveNoteScope(
   if (!owned.size) return { restricted: true, folderIds: owned, tagIds, noteIds }
   const frontier = [...owned]
   for (let depth = 0; depth < 12 && frontier.length; depth++) {
-    const placeholders = frontier.map((_, index) => `?${index + 2}`).join(', ')
-    const { results } = await db.prepare(
-      `SELECT id FROM folders WHERE user_id = ?1 AND deleted_at IS NULL AND parent_id IN (${placeholders})`,
-    ).bind(userId, ...frontier).all<{ id: string }>()
-    frontier.length = 0
-    for (const row of results ?? []) {
-      if (owned.has(row.id)) continue
-      owned.add(row.id)
-      frontier.push(row.id)
+    // One level of the walk at a time, and a wide level in chunks: D1 binds at most 100 parameters
+    // per statement, so a level holding a hundred folders or more would fail the whole resolve.
+    const next: string[] = []
+    for (const chunk of idChunks(frontier)) {
+      const placeholders = chunk.map((_, index) => `?${index + 2}`).join(', ')
+      const { results } = await db.prepare(
+        `SELECT id FROM folders WHERE user_id = ?1 AND deleted_at IS NULL AND parent_id IN (${placeholders})`,
+      ).bind(userId, ...chunk).all<{ id: string }>()
+      for (const row of results ?? []) {
+        if (owned.has(row.id)) continue
+        owned.add(row.id)
+        next.push(row.id)
+      }
     }
+    frontier.length = 0
+    frontier.push(...next)
   }
   return { restricted: true, folderIds: owned, tagIds, noteIds }
 }
@@ -110,33 +117,38 @@ export async function readableNoteIds(
   const named = ids.filter((id) => scope.noteIds.has(id))
   const asked = ids.filter((id) => !scope.noteIds.has(id))
   if (!asked.length) return new Set(named)
-  const binds: unknown[] = [userId]
-  const idPlaceholders = asked.map((id) => {
-    binds.push(id)
-    return `?${binds.length}`
-  }).join(', ')
   const folders = [...scope.folderIds]
   const tags = [...scope.tagIds]
   if (!folders.length && !tags.length) return new Set(named)
-  let where = `user_id = ?1 AND deleted_at IS NULL AND id IN (${idPlaceholders})`
-  if (folders.length) {
-    const folderPlaceholders = folders.map((folder) => {
-      binds.push(folder)
-      return `?${binds.length}`
-    }).join(', ')
-    where += ` AND folder_id IN (${folderPlaceholders})`
+  // The folder and tag predicates share the statement's bind budget with the asked ids, so the id
+  // chunks shrink by whatever the scope named: D1 binds at most 100 parameters per statement, and a
+  // search that hands back a hundred hits or more would otherwise fail the whole read.
+  const chunkSize = Math.max(1, ID_READ_BATCH - folders.length - tags.length)
+  const allowed = new Set(named)
+  for (const chunk of idChunks(asked, chunkSize)) {
+    const binds: unknown[] = [userId, ...chunk]
+    const idPlaceholders = chunk.map((_, index) => `?${index + 2}`).join(', ')
+    let where = `user_id = ?1 AND deleted_at IS NULL AND id IN (${idPlaceholders})`
+    if (folders.length) {
+      const folderPlaceholders = folders.map((folder) => {
+        binds.push(folder)
+        return `?${binds.length}`
+      }).join(', ')
+      where += ` AND folder_id IN (${folderPlaceholders})`
+    }
+    if (tags.length) {
+      const tagPlaceholders = tags.map((tag) => {
+        binds.push(tag)
+        return `?${binds.length}`
+      }).join(', ')
+      where += ` AND EXISTS (SELECT 1 FROM note_tags nt WHERE nt.note_id = notes.id AND nt.tag_id IN (${tagPlaceholders}))`
+    }
+    const { results } = await db.prepare(
+      `SELECT id FROM notes WHERE ${where}`,
+    ).bind(...binds).all<{ id: string }>()
+    for (const row of results ?? []) allowed.add(row.id)
   }
-  if (tags.length) {
-    const tagPlaceholders = tags.map((tag) => {
-      binds.push(tag)
-      return `?${binds.length}`
-    }).join(', ')
-    where += ` AND EXISTS (SELECT 1 FROM note_tags nt WHERE nt.note_id = notes.id AND nt.tag_id IN (${tagPlaceholders}))`
-  }
-  const { results } = await db.prepare(
-    `SELECT id FROM notes WHERE ${where}`,
-  ).bind(...binds).all<{ id: string }>()
-  return new Set([...named, ...(results ?? []).map((row) => row.id)])
+  return allowed
 }
 
 export async function assertNoteReadable(
