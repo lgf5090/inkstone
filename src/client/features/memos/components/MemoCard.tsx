@@ -7,6 +7,7 @@ import { TagChip } from '../../../components/TagChip'
 import { cn } from '../../../lib/cn'
 import { t, type MessageKey } from '../../../lib/i18n'
 import { fullTime, shortTime } from '../../../lib/time'
+import { useMemoTaskToggle } from '../use-memo-task-toggle'
 import { MemoAttachments } from './MemoAttachments'
 import { MemoBody } from './MemoBody'
 import { MemoCardActions } from './MemoCardActions'
@@ -51,6 +52,7 @@ export function MemoCard({
   onTagPress,
 }: MemoCardProps): ReactElement {
   const href = `${MEMOS_APP_PATH}/m/${encodeURIComponent(memo.id)}`
+  const onToggleTask = useMemoTaskToggle(memo)
   const shownAt = timeBasis === 'updated' ? memo.updatedAt : memo.createdAt
   const shownMs = shownAt * 1000
   const shownLabel = t(timeBasis === 'updated' ? 'memos.card.updated_at' : 'memos.card.created_at', {
@@ -102,7 +104,7 @@ export function MemoCard({
         </div>
       ) : (
         <>
-          <MemoBody content={memo.content} onTagPress={onTagPress} className="mt-2" />
+          <MemoBody content={memo.content} onTagPress={onTagPress} onToggleTask={onToggleTask} className="mt-2" />
           {memo.tags.length > 0 ? (
             <div className="mt-2 flex flex-wrap items-center gap-1">
               {memo.tags.map((tag) => (

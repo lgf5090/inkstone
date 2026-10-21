@@ -1,9 +1,10 @@
 import { act, createElement, Fragment, type ReactElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { MemoShare } from '@shared/memos/types'
+import type { Memo, MemoShare } from '@shared/memos/types'
 import { ConfirmHost } from '../../../components/overlay'
 import { initI18n, t } from '../../../lib/i18n'
 import { installTestGlobals, renderElement, type RenderedElement } from '../../../lib/test-render'
+import { useUi } from '../../../store/ui'
 import { MemoShareDialog } from './MemoShareDialog'
 
 const api = vi.hoisted(() => ({
@@ -14,7 +15,49 @@ const api = vi.hoisted(() => ({
   },
 }))
 
+const image = vi.hoisted(() => ({
+  collectDocumentCss: vi.fn(async () => 'body { color: red }'),
+  renderElementPng: vi.fn(async (
+    _element: HTMLElement,
+    _geometry: { width: number; height: number },
+    _css: string,
+  ) => new Blob(['png'], { type: 'image/png' })),
+  saveImage: vi.fn(),
+}))
+
 vi.mock('../api', () => ({ memosApi: api }))
+vi.mock('../../../lib/element-image', () => image)
+
+function memo(overrides: Partial<Memo> = {}): Memo {
+  return {
+    id: 'memo-1',
+    content: 'share me',
+    title: '',
+    snippet: '',
+    tags: ['work'],
+    visibility: 'private',
+    state: 'normal',
+    pinned: false,
+    spaceId: null,
+    parentId: null,
+    location: null,
+    properties: {
+      hasLink: false,
+      hasCode: false,
+      hasTaskList: false,
+      hasIncompleteTasks: false,
+      hasLocation: false,
+    },
+    attachments: [],
+    reactions: [],
+    relations: [],
+    commentCount: 0,
+    rev: 1,
+    createdAt: 1_700_000_000,
+    updatedAt: 1_700_000_000,
+    ...overrides,
+  }
+}
 
 function share(overrides: Partial<MemoShare> = {}): MemoShare {
   return {
@@ -28,17 +71,17 @@ function share(overrides: Partial<MemoShare> = {}): MemoShare {
 
 let view: RenderedElement | null = null
 
-function dialog(open: boolean): ReactElement {
+function dialog(open: boolean, item: Memo | null = null): ReactElement {
   return createElement(
     Fragment,
     null,
-    createElement(MemoShareDialog, { memoId: 'memo-1', open, onClose: () => {} }),
+    createElement(MemoShareDialog, { memoId: 'memo-1', memo: item, open, onClose: () => {} }),
     createElement(ConfirmHost),
   )
 }
 
-function render(open = true): HTMLElement {
-  view = renderElement(dialog(open))
+function render(open = true, item: Memo | null = null): HTMLElement {
+  view = renderElement(dialog(open, item))
   return view.container
 }
 
@@ -64,6 +107,7 @@ beforeEach(async () => {
   installTestGlobals()
   await initI18n()
   vi.clearAllMocks()
+  useUi.setState({ toasts: [] })
   api.shares.list.mockResolvedValue({ shares: [] })
 })
 
@@ -166,5 +210,30 @@ describe('the share dialog', () => {
     await flush()
     expect(api.shares.list).toHaveBeenCalledTimes(2)
     expect(document.body.textContent).toContain(t('memos.share.never_expires'))
+  })
+
+  it('exports the memo card as a png', async () => {
+    render(true, memo())
+    expect(document.body.textContent).toContain('share me')
+    expect(document.body.textContent).toContain('#work')
+    click(buttonByText(document.body, t('memos.share.image_action')))
+    await flush()
+
+    expect(image.collectDocumentCss).toHaveBeenCalledTimes(1)
+    const [element, geometry, css] = image.renderElementPng.mock.calls[0]!
+    expect(element.dataset.memoShareImage).toBe('')
+    expect(geometry).toEqual({ width: 420, height: 240 })
+    expect(css).toBe('body { color: red }')
+    expect(image.saveImage).toHaveBeenCalledWith(expect.any(Blob), 'memo-memo-1.png')
+    expect(useUi.getState().toasts.some((toast) => toast.title === t('memos.share.image_saved'))).toBe(true)
+  })
+
+  it('reports a failed image export', async () => {
+    image.renderElementPng.mockRejectedValueOnce(new Error('canvas unavailable'))
+    render(true, memo())
+    click(buttonByText(document.body, t('memos.share.image_action')))
+    await flush()
+    expect(image.saveImage).not.toHaveBeenCalled()
+    expect(useUi.getState().toasts.some((toast) => toast.title === t('memos.share.image_failed'))).toBe(true)
   })
 })

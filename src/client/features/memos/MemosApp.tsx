@@ -12,6 +12,7 @@ import { MemoDetail } from './components/MemoDetail'
 import { useRevision } from './events'
 import { MemoFeedPage } from './pages/MemoFeedPage'
 import { MemoAttachmentsPage } from './pages/MemoAttachmentsPage'
+import { MemoExplorePage } from './pages/MemoExplorePage'
 import { MemoPlaceholderPage } from './pages/MemoPlaceholderPage'
 import { MemoViewsPage } from './pages/MemoViewsPage'
 import { parseMemoPath, type MemoRoute } from './route'
@@ -250,8 +251,10 @@ export function MemosApp(): ReactElement {
     content = <MemoViewsPage />
   } else if (route.kind === 'attachments') {
     content = <MemoAttachmentsPage onOpenMemo={openMemo} />
+  } else if (route.kind === 'explore') {
+    content = <MemoExplorePage />
   } else if (route.kind === 'calendar' || route.kind === 'map'
-    || route.kind === 'inbox' || route.kind === 'setting' || route.kind === 'explore') {
+    || route.kind === 'inbox' || route.kind === 'setting') {
     content = <MemoPlaceholderPage kind={route.kind} />
   } else {
     content = <MemoPlaceholderPage kind="notFound" />

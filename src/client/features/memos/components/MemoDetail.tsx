@@ -1,12 +1,15 @@
-import { useEffect, useState, type ReactElement } from 'react'
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactElement } from 'react'
 import { ArrowLeft, Pin, X } from 'lucide-react'
 import type { MemoVisibility } from '@shared/memos/types'
 import { Badge, Button, IconButton } from '../../../components/primitives'
 import { Empty, LoadingBlock } from '../../../components/feedback'
 import { TagChip } from '../../../components/TagChip'
+import { cn } from '../../../lib/cn'
 import { t, type MessageKey } from '../../../lib/i18n'
 import { fullTime } from '../../../lib/time'
+import { parseMemoOutline } from '../memo-outline'
 import { useMemos } from '../state'
+import { useMemoTaskToggle } from '../use-memo-task-toggle'
 import { MemoAttachments } from './MemoAttachments'
 import { MemoBody } from './MemoBody'
 import { MemoCardActions } from './MemoCardActions'
@@ -25,6 +28,12 @@ const VISIBILITY_TONES: Record<MemoVisibility, 'neutral' | 'accent' | 'warning'>
   private: 'neutral',
   protected: 'warning',
   public: 'accent',
+}
+
+const OUTLINE_INDENT: Record<number, string> = {
+  1: 'pl-1.5',
+  2: 'pl-4',
+  3: 'pl-6',
 }
 
 export interface MemoDetailProps {
@@ -50,7 +59,10 @@ export function MemoDetail({
   const status = useMemos((state) => state.detailStatus)
   const error = useMemos((state) => state.detailError)
   const [editing, setEditing] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
   const memo = detail?.id === memoId ? detail : null
+  const outline = useMemo(() => (memo ? parseMemoOutline(memo.content) : []), [memo?.content])
+  const onToggleTask = useMemoTaskToggle(memo)
 
   useEffect(() => {
     void useMemos.getState().openDetail(memoId)
@@ -62,6 +74,18 @@ export function MemoDetail({
   useEffect(() => {
     setEditing(false)
   }, [memoId])
+
+  const jumpToHeading = (event: MouseEvent<HTMLAnchorElement>, id: string): void => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+    const root = scrollRef.current
+    if (!root) return
+    const heading = [...root.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6')]
+      .find((element) => element.id === id)
+    if (!heading) return
+    event.preventDefault()
+    heading.focus({ preventScroll: true })
+    heading.scrollIntoView({ block: 'start' })
+  }
 
   const toolbar = (
     <div className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2">
@@ -136,12 +160,35 @@ export function MemoDetail({
             {t('memos.card.archived_notice')}
           </p>
         ) : null}
+        {!editing && outline.length > 1 ? (
+          <nav
+            aria-label={t('memos.detail.outline')}
+            className="mt-3 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-raised)] px-2 py-1.5"
+          >
+            <ul className="space-y-px">
+              {outline.map((entry) => (
+                <li key={entry.id}>
+                  <a
+                    href={`#${entry.id}`}
+                    onClick={(event) => jumpToHeading(event, entry.id)}
+                    className={cn(
+                      'flex min-h-8 min-w-0 items-center truncate rounded-[var(--r-xs)] pr-1.5 text-[length:var(--text-11-5)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] md:min-h-7',
+                      OUTLINE_INDENT[entry.level],
+                    )}
+                  >
+                    {entry.text}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        ) : null}
         {editing ? (
           <div className="mt-3">
             <MemoComposer memo={memo} onSaved={() => setEditing(false)} onCancel={() => setEditing(false)} />
           </div>
         ) : (
-          <MemoBody content={memo.content} onTagPress={onTagPress} className="mt-3" />
+          <MemoBody content={memo.content} onTagPress={onTagPress} onToggleTask={onToggleTask} className="mt-3" />
         )}
         <MemoAttachments attachments={memo.attachments} className="mt-3" />
         {memo.tags.length > 0 ? (
@@ -178,7 +225,7 @@ export function MemoDetail({
   return (
     <div className="flex h-full min-h-0 flex-col" data-memo-detail={embedded ? 'panel' : 'page'}>
       {toolbar}
-      <div className="min-h-0 flex-1 overflow-y-auto">{content}</div>
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">{content}</div>
     </div>
   )
 }

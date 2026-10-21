@@ -148,7 +148,7 @@ export function MemoCardActions({ memo, onEdit, onDeleted }: MemoCardActionsProp
         align="end"
         width={196}
       />
-      <MemoShareDialog memoId={memo.id} open={shareOpen} onClose={() => setShareOpen(false)} />
+      <MemoShareDialog memoId={memo.id} memo={memo} open={shareOpen} onClose={() => setShareOpen(false)} />
     </>
   )
 }

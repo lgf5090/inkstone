@@ -24,6 +24,7 @@ const api = vi.hoisted(() => ({
   spaces: { list: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
   attachments: { list: vi.fn(), upload: vi.fn(), delete: vi.fn(), batchDelete: vi.fn(), prune: vi.fn() },
   stats: { get: vi.fn() },
+  publicMemos: { explore: vi.fn(), userMemos: vi.fn(), userMemo: vi.fn(), share: vi.fn() },
 }))
 
 vi.mock('./api', () => ({ memosApi: api }))
@@ -171,6 +172,28 @@ describe('the memos container', () => {
     expect(host.querySelector('[data-memos-page="memo"]')).not.toBeNull()
   })
 
+  it('draws a heading outline inside the detail panel', async () => {
+    const item = memo({ content: '# One\n\ntext\n\n## Two' })
+    api.list.mockResolvedValue({ items: [item], nextCursor: null })
+    api.get.mockResolvedValue(item)
+    const host = mount()
+    await flush()
+    act(() => navigateToPath('/memos/m/memo-1'))
+    await flush()
+    const panel = host.querySelector('[data-memos-detail-panel]')
+    const outline = panel?.querySelector(`nav[aria-label="${t('memos.detail.outline')}"]`)
+    expect(outline).not.toBeNull()
+    const links = [...outline!.querySelectorAll('a')]
+    expect(links.map((entry) => entry.textContent)).toEqual(['One', 'Two'])
+    expect(links[0]?.getAttribute('href')).toBe('#one')
+    expect(panel?.querySelector('#one')).not.toBeNull()
+
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {})
+    click(links[1]!)
+    expect(scrollIntoView).toHaveBeenCalled()
+    scrollIntoView.mockRestore()
+  })
+
   it('renders fetched memos with their body, tags and comment count', async () => {
     const item = memo({
       id: 'memo-a',
@@ -186,6 +209,27 @@ describe('the memos container', () => {
     expect(host.querySelector('script')).toBeNull()
     expect(host.textContent).toContain('work')
     expect(host.textContent).toContain(t('memos.feed.count', { count: 2 }))
+  })
+
+  it('applies a suggested tag from the feed strip', async () => {
+    api.list.mockResolvedValue({
+      items: [
+        memo({ id: 'memo-a', tags: ['work'] }),
+        memo({ id: 'memo-b', tags: ['work', 'idea'] }),
+      ],
+      nextCursor: null,
+    })
+    const host = mount()
+    await flush()
+    const strip = host.querySelector(`[role="group"][aria-label="${t('memos.feed.suggested_tags')}"]`)
+    expect(strip).not.toBeNull()
+    const suggestion = [...strip!.querySelectorAll('button')]
+      .find((button) => button.getAttribute('aria-label') === t('memos.card.filter_tag', { tag: 'work' }))
+    expect(suggestion).toBeDefined()
+    click(suggestion!)
+    await flush()
+    expect(window.location.search).toContain('tag=work')
+    expect(api.list.mock.calls.at(-1)?.[0]).toMatchObject({ filter: 'tag == "work"' })
   })
 
   it('shows the empty state when the list has nothing', async () => {
@@ -234,6 +278,21 @@ describe('the memos container', () => {
     await flush()
     expect(window.location.search).toContain('sort=updated-desc')
     expect(api.list.mock.calls.at(-1)?.[0]).toMatchObject({ orderBy: 'updated', order: 'desc' })
+  })
+
+  it('shows public memos on the explore page', async () => {
+    api.publicMemos.explore.mockResolvedValue({
+      items: [memo({ id: 'public-1', content: 'public body', visibility: 'public' })],
+      nextCursor: null,
+    })
+    const host = mount()
+    await flush()
+    act(() => navigateToPath('/memos/explore'))
+    await flush()
+    expect(host.querySelector('[data-memos-explore]')).not.toBeNull()
+    expect(host.textContent).toContain(t('memos.public.explore_title'))
+    expect(host.textContent).toContain('public body')
+    expect(api.publicMemos.explore).toHaveBeenCalled()
   })
 
   it('follows spaces and saved views from the sidebar', async () => {

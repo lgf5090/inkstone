@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState, type ReactElement } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import type { Memo, MemoDisplayPreferences, MemoOrderDirection, MemoOrderField } from '@shared/memos/types'
 import { Button } from '../../../components/primitives'
 import { Empty, Skeleton } from '../../../components/feedback'
+import { TagChip } from '../../../components/TagChip'
 import { cn } from '../../../lib/cn'
 import { t } from '../../../lib/i18n'
+import { suggestMemoTags } from '../tag-suggestions'
 import { useMemos } from '../state'
 import type { MemoUrlState } from '../url-state'
 import { MemoCard } from '../components/MemoCard'
@@ -58,6 +60,7 @@ export function MemoFeedPage({
   const hasMore = useMemos((state) => state.hasMore)
   const [editingId, setEditingId] = useState<string | null>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
+  const suggestedTags = useMemo(() => suggestMemoTags(items, urlState.tag), [items, urlState.tag])
   const initialLoading = (status === 'idle' || status === 'loading') && items.length === 0
   const failedWithoutItems = status === 'error' && items.length === 0
   const filtered = urlState.q.trim() !== '' || urlState.tag !== null || urlState.filter.trim() !== ''
@@ -119,6 +122,22 @@ export function MemoFeedPage({
               onDisplayChange={onDisplayChange}
             />
           </div>
+          {suggestedTags.length > 0 ? (
+            <div role="group" aria-label={t('memos.feed.suggested_tags')} className="mt-2 flex flex-wrap items-center gap-1.5">
+              <span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+                {t('memos.feed.suggested_tags')}
+              </span>
+              {suggestedTags.map((tag) => (
+                <TagChip
+                  key={tag}
+                  label={tag}
+                  sigil
+                  onPress={() => onTagPress(tag)}
+                  ariaLabel={t('memos.card.filter_tag', { tag })}
+                />
+              ))}
+            </div>
+          ) : null}
           {initialLoading ? (
             <>
               <p role="status" aria-live="polite" className="sr-only">{t('memos.common.loading')}</p>

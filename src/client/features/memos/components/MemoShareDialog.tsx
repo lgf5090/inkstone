@@ -1,15 +1,20 @@
-import { useEffect, useState, type ReactElement } from 'react'
-import { Copy } from 'lucide-react'
-import type { MemoShare } from '@shared/memos/types'
+import { useEffect, useRef, useState, type ReactElement } from 'react'
+import { createPortal } from 'react-dom'
+import { Copy, ImageDown } from 'lucide-react'
+import type { Memo, MemoShare } from '@shared/memos/types'
 import { Badge, Button } from '../../../components/primitives'
 import { Field, Input, Select } from '../../../components/form'
 import { Empty, LoadingBlock } from '../../../components/feedback'
 import { Modal, confirm } from '../../../components/overlay'
 import { copyText } from '../../../lib/clipboard'
+import { collectDocumentCss, renderElementPng, saveImage } from '../../../lib/element-image'
 import { t } from '../../../lib/i18n'
 import { fullTime } from '../../../lib/time'
+import { useSession } from '../../../store/session'
+import { useUi } from '../../../store/ui'
 import { memosApi } from '../api'
 import { memoErrorMessage, memoIsAbortError } from '../errors'
+import { MEMO_SHARE_IMAGE_MIN_HEIGHT, MEMO_SHARE_IMAGE_WIDTH, MemoShareImage } from './MemoShareImage'
 
 const SHARE_EXPIRY_OPTIONS = ['never', '1', '7', '30'] as const
 type ShareExpiry = (typeof SHARE_EXPIRY_OPTIONS)[number]
@@ -43,11 +48,12 @@ const EXPIRY_LABEL_KEYS = {
 
 export interface MemoShareDialogProps {
   memoId: string
+  memo?: Memo | null
   open: boolean
   onClose: () => void
 }
 
-export function MemoShareDialog({ memoId, open, onClose }: MemoShareDialogProps): ReactElement {
+export function MemoShareDialog({ memoId, memo = null, open, onClose }: MemoShareDialogProps): ReactElement {
   const [expiry, setExpiry] = useState<ShareExpiry>('never')
   const [creating, setCreating] = useState(false)
   const [created, setCreated] = useState<MemoShare | null>(null)
@@ -60,6 +66,9 @@ export function MemoShareDialog({ memoId, open, onClose }: MemoShareDialogProps)
   const [listTicket, setListTicket] = useState(0)
   const [revokingId, setRevokingId] = useState<string | null>(null)
   const [revokeError, setRevokeError] = useState<string | null>(null)
+  const [exporting, setExporting] = useState(false)
+  const imageRef = useRef<HTMLDivElement>(null)
+  const user = useSession((state) => state.user)
 
   useEffect(() => {
     if (!open) return
@@ -70,6 +79,7 @@ export function MemoShareDialog({ memoId, open, onClose }: MemoShareDialogProps)
     setCopyFailed(false)
     setShares([])
     setRevokeError(null)
+    setExporting(false)
   }, [open, memoId])
 
   useEffect(() => {
@@ -135,16 +145,60 @@ export function MemoShareDialog({ memoId, open, onClose }: MemoShareDialogProps)
     }
   }
 
+  const exportImage = async (): Promise<void> => {
+    const element = imageRef.current
+    if (!memo || !element || exporting) return
+    setExporting(true)
+    try {
+      const width = element.offsetWidth > 0 ? element.offsetWidth : MEMO_SHARE_IMAGE_WIDTH
+      const height = Math.max(element.offsetHeight, MEMO_SHARE_IMAGE_MIN_HEIGHT)
+      const css = await collectDocumentCss()
+      const blob = await renderElementPng(element, { width, height }, css)
+      saveImage(blob, `memo-${memo.id}.png`)
+      useUi.getState().toast({ title: t('memos.share.image_saved'), tone: 'success' })
+    } catch (error) {
+      useUi.getState().toast({
+        title: t('memos.share.image_failed'),
+        description: error instanceof Error && error.message ? error.message : undefined,
+        tone: 'danger',
+      })
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const author = memo?.creator
+    ? { name: memo.creator.name, username: memo.creator.username }
+    : user
+      ? { name: user.name, username: user.username }
+      : null
+
   const nowMs = Date.now()
+  const footer = (
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      {memo ? (
+        <Button
+          variant="secondary"
+          loading={exporting}
+          icon={<ImageDown size={13} />}
+          onClick={() => void exportImage()}
+        >
+          {exporting ? t('memos.share.image_exporting') : t('memos.share.image_action')}
+        </Button>
+      ) : null}
+      <Button variant="secondary" onClick={onClose}>{t('common.close')}</Button>
+    </div>
+  )
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title={t('memos.share.title')}
-      description={t('memos.share.description')}
-      width={500}
-      footer={<Button variant="secondary" onClick={onClose}>{t('common.close')}</Button>}
-    >
+    <>
+      <Modal
+        open={open}
+        onClose={onClose}
+        title={t('memos.share.title')}
+        description={t('memos.share.description')}
+        width={500}
+        footer={footer}
+      >
       <div className="space-y-4 pt-1">
         <div className="flex flex-wrap items-end gap-2">
           <Field label={t('memos.share.expiry_label')} className="min-w-[160px] flex-1">
@@ -264,6 +318,17 @@ export function MemoShareDialog({ memoId, open, onClose }: MemoShareDialogProps)
           ) : null}
         </section>
       </div>
-    </Modal>
+      </Modal>
+      {open && memo ? createPortal(
+        <div
+          aria-hidden="true"
+          inert
+          className="pointer-events-none fixed top-0 left-[-100000px] w-[420px]"
+        >
+          <MemoShareImage ref={imageRef} memo={memo} author={author} />
+        </div>,
+        document.body,
+      ) : null}
+    </>
   )
 }

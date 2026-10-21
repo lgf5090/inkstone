@@ -6,6 +6,7 @@ import { initI18n, t } from '../../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../../lib/test-render'
 import { useUi } from '../../../store/ui'
 import { MEMO_QUERY_DEFAULTS, useMemos } from '../state'
+import { MemoBody } from './MemoBody'
 import { MemoCard } from './MemoCard'
 
 const api = vi.hoisted(() => ({
@@ -189,6 +190,45 @@ describe('the memo card', () => {
     click(menuItem(t('memos.card.restore')))
     await flush()
     expect(api.restore).toHaveBeenCalledWith(item.id)
+  })
+
+  it('ticks a task through the store', async () => {
+    const item = memo({ content: '- [ ] ship it' })
+    api.patch.mockResolvedValue({ ...item, content: '- [x] ship it', rev: 2 })
+    const rendered = render({ memo: item })
+    const checkbox = rendered.container.querySelector<HTMLInputElement>('input[type="checkbox"]')
+    expect(checkbox).not.toBeNull()
+    expect(checkbox?.disabled).toBe(false)
+    click(checkbox!)
+    await flush()
+    expect(api.patch).toHaveBeenCalledWith('memo-1', { rev: 1, content: '- [x] ship it' })
+    expect(useMemos.getState().items[0]?.content).toBe('- [x] ship it')
+  })
+
+  it('reports a failed task tick and keeps the stored content', async () => {
+    const item = memo({ content: '- [ ] ship it' })
+    useMemos.setState({ items: [item] })
+    api.patch.mockRejectedValue(new Error('offline'))
+    const rendered = render({ memo: item })
+    click(rendered.container.querySelector('input[type="checkbox"]')!)
+    await flush()
+    expect(useMemos.getState().items[0]?.content).toBe('- [ ] ship it')
+    expect(useUi.getState().toasts.some((toast) => toast.title === t('memos.card.task_failed'))).toBe(true)
+  })
+
+  it('links mentions and leaves code alone', () => {
+    const rendered = render({
+      memo: memo({ content: 'Hi @alice\n\n`@bob`\n\n```\n@carol\n```' }),
+    })
+    const links = [...rendered.container.querySelectorAll<HTMLAnchorElement>('a[data-mention]')]
+    expect(links.map((anchor) => anchor.dataset.mention)).toEqual(['alice'])
+    expect(links[0]?.getAttribute('href')).toBe('/memos/u/alice')
+  })
+
+  it('keeps tasks read-only when no toggle handler is passed', () => {
+    const rendered = renderElement(createElement(MemoBody, { content: '- [ ] ship it' }))
+    view = rendered
+    expect(rendered.container.querySelector<HTMLInputElement>('input[type="checkbox"]')?.disabled).toBe(true)
   })
 
   it('opens the basic editor in place', async () => {
