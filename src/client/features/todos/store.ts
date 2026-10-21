@@ -166,7 +166,14 @@ interface TodosState {
   openTask: (id: string) => Promise<void>
 
   createTask: (input: TaskDraft) => Promise<TodoTask | null>
-  updateTask: (id: string, patch: Record<string, unknown>) => Promise<TodoTask | null>
+  /**
+   * Save a patch, naming the revision the row was read at.
+   *
+   * `rev` is optional so an undo or a caller holding only an id can still write; when it is left out the
+   * store sends the revision of the row on screen. A 409 is not a failure line: it opens the conflict
+   * choice below.
+   */
+  updateTask: (id: string, patch: Record<string, unknown>, rev?: number) => Promise<TodoTask | null>
   toggleTask: (task: TodoTask) => Promise<void>
   removeTask: (id: string) => Promise<boolean>
   /** Put a trashed task back by id and re-read the listing; answers whether the server took it. */
@@ -208,6 +215,61 @@ function toastError(error: unknown): void {
     description: error instanceof Error ? error.message : String(error),
     tone: 'danger',
   })
+}
+
+/** Whether a failed write was refused because the row moved: the 409 every task conflict carries. */
+function isRevisionConflict(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { status?: unknown }).status === 409
+}
+
+/**
+ * What a 409 offers, and what each answer does.
+ *
+ * The server row is read before the choice is put up, so "use the server version" adopts what really
+ * stands rather than a guess. "Retry my change" sends the same patch again against the revision the
+ * server reported: a retry, not a merge. Until the reader answers, the store keeps the row it had —
+ * the refused value was never painted, and showing it would claim a save that did not happen.
+ *
+ * The dialog is the app's own `confirm`; when no host is mounted it answers with the cancelling side,
+ * which here is the safe one — the row the server holds.
+ */
+async function resolveRevisionConflict(
+  id: string,
+  patch: Record<string, unknown>,
+  set: (partial: Partial<TodosState> | ((state: TodosState) => Partial<TodosState>)) => void,
+  get: () => TodosState,
+): Promise<void> {
+  let server: TodoTask
+  try {
+    server = (await api.todos.get(id)).task
+  } catch (error) {
+    toastError(error)
+    return
+  }
+  // Loaded on the failure path rather than imported at the top: the chat's task chips reach this store
+  // too, and they need no dialog — pulling the whole overlay surface (and the editor stylesheet behind
+  // it) into every such entry point is a cost paid by everyone for a prompt almost nobody sees.
+  const { confirm } = await import('../../components/overlay')
+  const retry = await confirm({
+    title: t('todo.conflict.title'),
+    description: t('todo.conflict.description'),
+    confirmLabel: t('todo.conflict.retry'),
+    cancelLabel: t('todo.conflict.use_server'),
+  })
+  if (retry) {
+    await get().updateTask(id, patch, server.rev)
+    return
+  }
+  // The server's row replaces whichever bucket held the old one; a row that finished elsewhere moves
+  // to the finished page rather than staying on the open board.
+  set((state) => ({
+    tasks: server.status === 'done'
+      ? state.tasks.filter((entry) => entry.id !== id)
+      : [...state.tasks.filter((entry) => entry.id !== id), server],
+    completed: server.status === 'done'
+      ? [server, ...state.completed.filter((entry) => entry.id !== id)]
+      : state.completed.filter((entry) => entry.id !== id),
+  }))
 }
 
 /**
@@ -791,13 +853,16 @@ export const useTodos = create<TodosState>((set, get) => ({
     }
   },
 
-  updateTask: async (id, patch) => {
+  updateTask: async (id, patch, rev) => {
     const before = get().tasks.find((entry) => entry.id === id)
       ?? get().completed.find((entry) => entry.id === id)
       ?? null
+    // The guard names the row the reader is looking at. A caller that hands one in (the conflict
+    // retry) wins, because the row on screen is the stale one in that case.
+    const expectedRev = rev ?? before?.rev
     set({ saving: true })
     try {
-      const { task, next } = await api.todos.update(id, patch)
+      const { task, next } = await api.todos.update(id, patch, expectedRev)
       set((state) => ({
         // The next occurrence of a repeating task arrives with the completion, so the reader who ticked
         // the box sees the following one on the list instead of finding out about it on the next reload.
@@ -841,6 +906,12 @@ export const useTodos = create<TodosState>((set, get) => ({
       return task
     } catch (error) {
       set({ saving: false })
+      if (isRevisionConflict(error)) {
+        // Nothing landed, so nothing is painted: the choice decides between the server's row and
+        // another guarded attempt at this one.
+        await resolveRevisionConflict(id, patch, set, get)
+        return null
+      }
       toastError(error)
       return null
     }
