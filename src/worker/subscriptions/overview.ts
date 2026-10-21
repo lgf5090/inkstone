@@ -173,6 +173,7 @@ export async function buildOverview(
       basePriced: hasRate(settings.baseCurrency, cnyRates),
       unpriced: unpricedCurrencies(used, rates),
       pinned: Object.keys(settings.rateOverrides),
+      table: rates,
     },
   }
 }

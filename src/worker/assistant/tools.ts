@@ -26,7 +26,9 @@ import type { Env } from '../env'
 import type { McpWriteContext } from '../mcp/writes'
 import { createMcpNote, editMcpNote, trashMcpNote } from '../mcp/writes'
 import { readMcpNote, searchMcpNotes } from '../mcp/retrieval'
-import { buildOverview } from '../subscriptions/overview'
+import { buildOverview, loadRates } from '../subscriptions/overview'
+import { applyRateOverrides, rateTableFor, type RateTable } from '@shared/subscriptions/currency'
+import { isListSort, LIST_SORTS, sortSubscriptions } from '@shared/subscriptions/sort'
 import { normalizeColor, normalizeIcon } from '@shared/subscriptions/identity'
 import { matchesSubscriptionSearch } from '@shared/subscriptions/search'
 import { listChannels, loadSettings, saveSettings } from '../subscriptions/settings'
@@ -1459,9 +1461,15 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
       query: { type: 'string', maxLength: 120, optional: true },
       category: { type: 'string', maxLength: 40, optional: true },
       limit: { type: 'integer', minimum: 1, maximum: 50, optional: true },
+      sort: {
+        type: 'string',
+        enum: [...LIST_SORTS],
+        optional: true,
+        description: 'The same ordering the screen\'s toolbar offers: expiry (default, soonest first), cost (what one month of the plan works out to, highest first), amount (one charge, highest first), name. `cost` and `amount` convert to the account\'s total currency before comparing, so a $20 plan does not outrank a ¥150 one.',
+      },
     },
     async run(args, ctx) {
-      const { store, context } = await subscriptionAccess(ctx)
+      const { store, context, settings } = await subscriptionAccess(ctx)
       const status = (args.status as string) ?? 'all'
       // The trash is a separate read rather than a filter on the live list: `store.list` excludes those
       // rows in SQL, so a model that never learns the word `trash` cannot see them at all — which is how
@@ -1469,7 +1477,7 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
       const items = status === 'trash' ? await store.list(context, 'trash') : await store.list(context)
       const query = typeof args.query === 'string' ? args.query.trim().toLocaleLowerCase() : ''
       const category = typeof args.category === 'string' ? args.category.trim().toLocaleLowerCase() : ''
-      const matched = items.filter((item) => {
+      const filtered = items.filter((item) => {
         if (status === 'soon' && !(item.daysRemaining >= 0 && item.daysRemaining <= SOON_DAYS)) return false
         if (status === 'expired' && item.daysRemaining >= 0) return false
         if (status === 'active' && (item.daysRemaining < 0 || !item.isActive)) return false
@@ -1477,7 +1485,12 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
         if (category && !labelNamesOf(item.category, 'category').some((token) => token.toLocaleLowerCase() === category)) return false
         if (query && !matchesSubscriptionSearch(item, query)) return false
         return true
-      }).sort((left, right) => left.daysRemaining - right.daysRemaining)
+      })
+      const sort = isListSort(args.sort) ? args.sort : 'expiry'
+      // Only the two money orderings need the table, and getting it can reach the currency service when
+      // the day's cache is cold — a list asked for by name should not pay for that.
+      const rates: RateTable = sort === 'cost' || sort === 'amount' ? await accountRateTable(ctx, settings) : {}
+      const matched = sortSubscriptions(filtered, sort, rates)
       const limit = Number(args.limit ?? 15)
       const page = matched.slice(0, limit)
       return {
@@ -2282,6 +2295,17 @@ async function subscriptionAccess(ctx: ToolContext): Promise<{ store: Subscripti
     context: storeContext(settings),
     settings,
   }
+}
+
+/**
+ * The rate table the account's own money is added up with — the same three steps the dashboard runs:
+ * the day's rates against the yuan, this account's pins over them, then re-based to the currency it
+ * counts in. A list ordered "by what costs most" has to use that table or it disagrees with the total
+ * printed above it.
+ */
+async function accountRateTable(ctx: ToolContext, settings: Awaited<ReturnType<typeof loadSettings>>): Promise<RateTable> {
+  const { table } = await loadRates(ctx.env)
+  return rateTableFor(applyRateOverrides(table, settings.rateOverrides), settings.baseCurrency)
 }
 
 /** What a subscription looks like to the model: the fields a question about money or dates actually needs. */

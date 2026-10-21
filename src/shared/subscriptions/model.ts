@@ -423,6 +423,14 @@ export interface SubscriptionOverview {
     unpriced: string[]
     /** Codes this account pinned by hand, which beat the feed for that one currency. */
     pinned: string[]
+    /**
+     * The rates those totals were added with, per unit of the base currency, `1 = base`.
+     *
+     * Sent because the browser orders and prices the same money the server just totalled: a list that
+     * sorted "what costs most per month" at face value would file a $20 plan under a ¥150 one, and the
+     * reader would be left wondering which of the two numbers the app believed.
+     */
+    table: Readonly<Record<string, number>>
   }
 }
 

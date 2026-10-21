@@ -80,6 +80,7 @@ function mount(selectMode: boolean, selection: readonly string[] = []): void {
   act(() => {
     root?.render(createElement(SubscriptionList, {
       items: ITEMS,
+      sort: 'expiry',
       selectedId: null,
       loading: false,
       onSelect: () => {},

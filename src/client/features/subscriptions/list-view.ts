@@ -7,6 +7,8 @@
  */
 import { SOON_DAYS, type SubscriptionItem } from '@shared/subscriptions/model'
 import { matchesSubscriptionSearch } from '@shared/subscriptions/search'
+import type { RateTable } from '@shared/subscriptions/currency'
+import { sortSubscriptions } from '@shared/subscriptions/sort'
 import type { ListFilter } from './store'
 
 export type ListGroup = 'expired' | 'week' | 'month' | 'later' | 'disabled'
@@ -102,6 +104,13 @@ export function categoryCounts(items: readonly SubscriptionItem[]): Array<{ name
 }
 
 /** Everything the list shows for one filter, in one call. */
-export function visibleItems(items: readonly SubscriptionItem[], filter: ListFilter): SubscriptionItem[] {
-  return items.filter((item) => matchesFilter(item, filter))
+/**
+ * The rows the list shows, in the order the toolbar asked for.
+ *
+ * The rate table travels with the call because two of the four orderings are about money: sorting "what
+ * costs most per month" at face value would file a $20 plan under a ¥150 one, and the reader would be
+ * left deciding which of the two numbers this app actually believes.
+ */
+export function visibleItems(items: readonly SubscriptionItem[], filter: ListFilter, rates: RateTable): SubscriptionItem[] {
+  return sortSubscriptions(items.filter((item) => matchesFilter(item, filter)), filter.sort, rates)
 }

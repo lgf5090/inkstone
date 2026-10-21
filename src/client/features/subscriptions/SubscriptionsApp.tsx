@@ -7,7 +7,7 @@
  * tab does not pay for a library they will not look at.
  */
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
-import { CheckSquare, CircleHelp, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings2, Sparkles, Tags, Wallet } from 'lucide-react'
+import { CheckSquare, CircleHelp, LayoutGrid, List, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings2, Sparkles, Tags, Wallet } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { IS_DEMO_MODE } from '../../lib/runtime'
@@ -18,13 +18,17 @@ import { AssistantDock } from '../chat/AssistantDock'
 import { NotificationsBell } from '../chat/NotificationCenter'
 import { Button, IconButton } from '../../components/primitives'
 import { Drawer, Modal, Tooltip, confirm } from '../../components/overlay'
-import { Input } from '../../components/form'
+import { Input, Select } from '../../components/form'
 import { formatAmount } from '@shared/subscriptions/format'
+import { FALLBACK_RATES } from '@shared/subscriptions/currency'
 import { NEW_RULE_DRAFT } from '@shared/subscriptions/model'
+import { LIST_SORTS, type ListSort } from '@shared/subscriptions/sort'
 import { useSubscriptions } from './store'
 import { countItems, visibleItems } from './list-view'
 import { FilterRail } from './FilterRail'
-import { SubscriptionList } from './SubscriptionList'
+import { SubscriptionList, type SubscriptionActions } from './SubscriptionList'
+import { SubscriptionGrid } from './SubscriptionGrid'
+import { SORT_LABEL } from './subscription-parts'
 import { SubscriptionDetail } from './SubscriptionDetail'
 import { OverviewView } from './OverviewView'
 import { LogsView } from './LogsView'
@@ -88,7 +92,25 @@ export function SubscriptionsApp(): ReactElement {
     void useSubscriptions.getState().load()
   }, [userId])
 
-  const visible = useMemo(() => visibleItems(items, filter), [items, filter])
+  // The table the dashboard's own totals were added with, so the list orders money the same way the
+  // numbers above it were. Before the bundle lands there is nothing to order by but the built-in table.
+  const rateTable = overview?.rates.table ?? FALLBACK_RATES
+  const visible = useMemo(() => visibleItems(items, filter, rateTable), [items, filter, rateTable])
+  // One set of actions for both shapes of the same rows. Written once because a plan that can be renewed
+  // from the list must be able to be renewed from a card — two definitions would drift by the next button
+  // anybody adds.
+  const rowActions: SubscriptionActions = {
+    onEdit: (item) => { void useSubscriptions.getState().select(item.id).then(() => setFormOpen(true)) },
+    onRenew: (item) => {
+      void useSubscriptions.getState().select(item.id).then(() => {
+        const next = useSubscriptions.getState().detail
+        if (next) setRenewTarget(next)
+      })
+    },
+    onToggle: (item) => void useSubscriptions.getState().toggle(item.id, !item.isActive),
+    onTrash: (item) => void onTrash(item),
+    onTest: (item) => void useSubscriptions.getState().testNotify(item.id),
+  }
   const counts = useMemo(() => countItems(items), [items])
   // The account's own total currency. This used to be a literal, so an account billed entirely in
   // dollars was shown a yuan headline converted at a rate it never chose.
@@ -201,6 +223,30 @@ export function SubscriptionsApp(): ReactElement {
           onChange={(event) => useSubscriptions.getState().setFilter({ query: event.target.value })}
           className="h-7 w-24 text-[length:var(--text-11-5)] sm:w-40 lg:w-52"
         />
+        {/* Ordering and shape belong to the rows, so neither control exists where there are none: the
+            dashboard, the logs and the trash each have their own arrangement already. */}
+        {(view === 'list' || view === 'grid') && (
+          <>
+            <Select
+              aria-label={t('subscriptions.list.sort')}
+              value={filter.sort}
+              onChange={(event) => useSubscriptions.getState().setFilter({ sort: event.target.value as ListSort })}
+              className="h-7 w-[92px] text-[length:var(--text-11-5)]"
+            >
+              {LIST_SORTS.map((sort) => <option key={sort} value={sort}>{t(SORT_LABEL[sort])}</option>)}
+            </Select>
+            <Tooltip label={view === 'grid' ? t('subscriptions.view_list') : t('subscriptions.view_grid')} side="bottom">
+              <IconButton
+                label={view === 'grid' ? t('subscriptions.view_list') : t('subscriptions.view_grid')}
+                size="sm"
+                active={view === 'grid'}
+                onClick={() => useSubscriptions.getState().setView(view === 'grid' ? 'list' : 'grid')}
+              >
+                {view === 'grid' ? <List size={15} /> : <LayoutGrid size={15} />}
+              </IconButton>
+            </Tooltip>
+          </>
+        )}
         <Tooltip label={t('subscriptions.keys.title')} side="bottom">
           {/* A touch screen has no keys to press, so the card is offered only where it can be used. */}
           <IconButton label={t('subscriptions.keys.title')} size="sm" className="hidden sm:inline-flex" onClick={() => setKeysOpen(true)}><CircleHelp size={15} /></IconButton>
@@ -333,25 +379,25 @@ export function SubscriptionsApp(): ReactElement {
           {view === 'list' && (
             <SubscriptionList
               items={visible}
+              sort={filter.sort}
               selectedId={selectedId}
               loading={status === 'loading'}
               onSelect={openDetail}
               onAdd={() => setFormOpen(true)}
-              actions={{
-                onEdit: (item) => { void useSubscriptions.getState().select(item.id).then(() => setFormOpen(true)) },
-                onRenew: (item) => {
-                  void useSubscriptions.getState().select(item.id).then(() => {
-                    const next = useSubscriptions.getState().detail
-                    if (next) setRenewTarget(next)
-                  })
-                },
-                onToggle: (item) => void useSubscriptions.getState().toggle(item.id, !item.isActive),
-                onTrash: (item) => void onTrash(item),
-                onTest: (item) => void useSubscriptions.getState().testNotify(item.id),
-              }}
+              actions={rowActions}
               selectMode={selectMode}
               selection={selection}
               onCheck={(id) => useSubscriptions.getState().toggleSelected(id)}
+            />
+          )}
+          {view === 'grid' && (
+            <SubscriptionGrid
+              items={visible}
+              selectedId={selectedId}
+              loading={status === 'loading'}
+              onSelect={openDetail}
+              onAdd={() => setFormOpen(true)}
+              actions={rowActions}
             />
           )}
           {view === 'list' && <BulkBar items={items} />}

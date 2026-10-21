@@ -10737,13 +10737,14 @@ const allowed = new Map([
     "/* The plan is edited here rather than only afterwards: a reader who knows a service wants a\n              week's notice should not have to save it, open it, and then fix the four rules the app\n              guessed for them. */",
     "/**\n * What the typed categories will look like, one chip per tag.\n *\n * Quiet when there is nothing to show: this is a confirmation that a two-tag value landed as\n * two tags rather than one name with a slash in it, which is the mistake the registry used to bake in.\n */",
   ]],
+  ["src/client/features/subscriptions/SubscriptionGrid.tsx", [
+    "/**\n * The same plans, as cards.\n *\n * The list is the right shape for a reader scanning dates: one column, urgency headings, everything\n * aligned so the eye can run down it. The grid is the right shape for looking at a portfolio — a screen\n * of tiles where each plan's face, price and countdown sit together and the eye moves across rather than\n * down. Neither is the better answer in general, which is why the toolbar offers both and both draw from\n * the same filtered, sorted rows.\n *\n * A card carries the row's kebab and the row's right-click, because a plan you can only open is a plan\n * you cannot do anything about from the view you happen to be in.\n */",
+  ]],
   ["src/client/features/subscriptions/SubscriptionList.tsx", [
     "/**\n * The subscriptions, under the headings their dates put them in.\n *\n * A row is two siblings rather than one: the part that opens the detail panel is a real button, and the\n * actions menu is its own button beside it. Nesting the second inside the first would be a button in a\n * button, which is the one thing a screen reader cannot describe.\n *\n * The row shows the amount and the countdown on the right and the identity on the left, because those\n * are the two questions a reader opens this app with: what does it cost, and how long have I got.\n */",
-    "/* Always drawn on touch screens, where there is no hover to reveal it; the desktop keeps the quiet row. */",
-    "// Not `danger`: this is the recoverable one, and reserving red for the row that cannot be undone",
-    "// is what makes the trash's own \"delete forever\" read as the serious choice it is.",
     "/* The box is only in the tab order while a selection is being made, so a reader moving through\n          the list one row at a time is not asked to answer a question they never opened. */",
-    "/**\n * The row's face.\n *\n * A subscription with a type wears that type's icon in that type's colour, which is what lets a reader\n * scan twelve rows and find the streaming ones without reading; a subscription with no type keeps the\n * neutral initial tile rather than being assigned a colour by hash, because a colour that means\n * \"nothing was chosen\" teaches the reader nothing and is indistinguishable from a choice they did make.\n */",
+    "/* An ordering that is not about dates has nothing to do with the date headings, and drawing the\n           headings anyway would file a reader's most expensive plan under \"later\". One flat list, under a\n           heading that says what it is sorted by. */",
+    "/* The same list, where the pointer already is. A right-click on a row is the reader asking the\n          question the kebab answers, and making them find the kebab first is a second step for nobody. */",
   ]],
   ["src/client/features/subscriptions/SubscriptionSettings.tsx", [
     "/**\n * Settings, in two halves: how this app behaves, and where its reminders may go.\n *\n * The channel half is drawn from the shared field table rather than from nine hand-written forms, so a\n * field added to an adapter appears here without this file knowing what a bot token is. What it does own\n * is the shape of the interaction: a secret that is already stored is never shown, and leaving the box\n * empty keeps it — the only arrangement that lets a reader change a webhook address without retyping a\n * token they cannot see.\n */",
@@ -10777,6 +10778,12 @@ const allowed = new Map([
     "// The three-column decision the rail, the list and the detail panel share. The widths are this app's own",
     "// because a third column needs more room than the notebook's two: 1024px is where the filter rail plus a",
     "// list fits, 1280px is where a 380px detail panel joins them.",
+    "// The table the dashboard's own totals were added with, so the list orders money the same way the",
+    "// numbers above it were. Before the bundle lands there is nothing to order by but the built-in table.",
+    "// One set of actions for both shapes of the same rows. Written once because a plan that can be renewed",
+    "// from the list must be able to be renewed from a card — two definitions would drift by the next button",
+    "// anybody adds.",
+    "/* Ordering and shape belong to the rows, so neither control exists where there are none: the\n            dashboard, the logs and the trash each have their own arrangement already. */",
   ]],
   ["src/client/features/subscriptions/TrashView.tsx", [
     "/**\n * The trash: what was deleted, and the two ways to deal with it.\n *\n * A separate view rather than another mode of the subscription list, because the list's whole organising\n * idea is *when does this expire* — the buckets, the countdown colour, the renew shortcut — and none of\n * that means anything for a row nobody is being reminded about. A trashed subscription is sorted by when\n * it was discarded and offers exactly two actions: put it back, or make it gone.\n *\n * Nothing else lives here. Editing, renewing or testing a trashed subscription would all have to decide\n * what happens when it is restored afterwards, and a trash that can be quietly modified is a trash whose\n * contents cannot be trusted.\n */",
@@ -10844,6 +10851,7 @@ const allowed = new Map([
     "/** Everything the list shows for one filter, in one call. */",
     "// One vocabulary for \"which plan does this text name\": the chat tool and the global search read the same",
     "// field list, and a third hand-written copy here is how typing finds a plan in one place and not another.",
+    "/**\n * The rows the list shows, in the order the toolbar asked for.\n *\n * The rate table travels with the call because two of the four orderings are about money: sorting \"what\n * costs most per month\" at face value would file a $20 plan under a ¥150 one, and the reader would be\n * left deciding which of the two numbers this app actually believes.\n */",
   ]],
   ["src/client/features/subscriptions/lunar-date-button.test.ts", [
     "/**\n * The lunar date picker that sits beside the form's native date field.\n *\n * The almanac table behind it is proved on its own in `tests/subscriptions-lunar.test.ts`; what is proved\n * here is the promise the control makes on top of that table: it never offers a day the table refuses, and\n * what it writes back is the day it is showing.\n *\n * Two facts outside this codebase anchor the fixtures, because a test that only re-reads the table would\n * pass even if the table were wrong. 2024-02-10 is the first day of the lunar year that begins in 2024,\n * published anywhere, and that year's first month has 29 days — so a thirtieth does not exist to be\n * picked. 2023-03-22 is the first day of that year's leap second month, which is the one case where a\n * month number names two different solar dates.\n */",
@@ -10888,6 +10896,7 @@ const allowed = new Map([
     "// Every total on the dashboard was added with the old table, so the whole bundle is read again",
     "// rather than the strip being patched with the answer — two sources for one number is how the",
     "// headline and its own disclaimer start disagreeing.",
+    "/** Which ordering the toolbar is showing the rows in; the comparison itself lives in `@shared`. */",
   ]],
   ["src/client/features/subscriptions/subscription-detail-spend.test.ts", [
     "/**\n * The money one plan has cost, drawn where the plan is read.\n *\n * The dashboard counts the account; this panel counts a single row, and the two are only trustworthy while\n * they mean the same thing. Pinned here: the receipts are counted per year and per currency rather than\n * merged into a number with no unit, and the yearly projection is the price the plan quotes times the times\n * it charges — not a sum of what happened to arrive.\n *\n * What jsdom cannot tell anyone: how wide the strip gets when four years of history wrap, and whether the\n * chips stay legible against the panel's background.\n */",
@@ -10896,10 +10905,27 @@ const allowed = new Map([
     "/**\n * The row's two states: reading, and selecting.\n *\n * These four assertions exist because the app once shipped a list whose selection boxes could never\n * appear: the row derived \"am I selecting\" from \"is anything already checked\", so the box needed a check\n * before it could make one. The toolbar still flipped to its exit label, so nothing looked wrong from the\n * outside, and the batch actions under it were unreachable. Deriving the mode from the selection is the\n * exact bug this file forbids, which is why `selectMode` is a prop and is passed straight to the row.\n *\n * What the browser measured and jsdom cannot: the box's hit area, and the colour it paints.\n */",
     "/** The part of each row that opens the detail panel — not the actions menu, not the selection box. */",
   ]],
+  ["src/client/features/subscriptions/subscription-parts.tsx", [
+    "/**\n * The pieces a subscription is drawn with, shared by the row and the card.\n *\n * The list and the grid answer the same two questions in different shapes — what does it cost, and how\n * long have I got — and both offer the same handful of actions on one plan. Those actions are the part\n * that must not drift: a card that could not be renewed, or whose kebab offered a different list than its\n * right-click, would be two answers to one question. So the menu is built here, once, from the same\n * `SubscriptionActions` every surface already implements.\n */",
+    "/**\n * What each ordering is called, in the words the interface uses.\n *\n * The toolbar names the choice and the list names the heading it drew under it; two copies of those four\n * strings is how a control ends up offering \"cost\" over a heading that says \"monthly equivalent\".\n */",
+    "/**\n * The row's face.\n *\n * A subscription with a type wears that type's icon in that type's colour, which is what lets a reader\n * scan twelve rows and find the streaming ones without reading; a subscription with no type keeps the\n * neutral initial tile rather than being assigned a colour by hash, because a colour that means\n * \"nothing was chosen\" teaches the reader nothing and is indistinguishable from a choice they did make.\n */",
+    "/** The line under a plan's name: what it is, where it sits, how often it charges. */",
+    "/** Everything one plan can be asked to do, in the order both surfaces show it. */",
+    "// Not `danger`: this is the recoverable one, and reserving red for the row that cannot be undone",
+    "// is what makes the trash's own \"delete forever\" read as the serious choice it is.",
+    "/**\n * The kebab beside a row or a card.\n *\n * It is a sibling of the control that opens the detail panel rather than its child: a button inside a\n * button is the one thing a screen reader cannot describe.\n */",
+    "/* Always drawn on touch screens, where there is no hover to reveal it; the desktop keeps the quiet row. */",
+  ]],
   ["src/client/features/subscriptions/subscription-settings-rates.test.ts", [
     "/**\n * The rate boxes in the settings panel.\n *\n * What is pinned is the meaning of a box, not its position: the account's pins travel as one map on every\n * blur, so a box left empty is the reader asking for the feed back for that currency rather than a pin of\n * zero, and a box with a number in it is that number. The panel is also the only place a pin can be read,\n * so the saved value has to come back out of the box it was written into.\n *\n * The boxes are the currencies this account actually meets — its own plans, what it already pinned, the\n * currency the totals are added up in — rather than every currency the app knows, because the app now\n * knows thirty and a wall of thirty empty boxes answers a question nobody asked. Anything else is one\n * choice away, which is what the last two cases here pin.\n */",
     "// By the label's own `for`, which is what the panel's Field wires up: reaching for the select through",
     "// the markup around it would break the day the field's wrapper changes shape.",
+  ]],
+  ["src/client/features/subscriptions/subscription-views.test.ts", [
+    "/**\n * The two shapes the same rows come in, and what each one offers.\n *\n * The list and the cards exist because a reader scanning dates and a reader surveying a portfolio want\n * different things from the same twelve plans. What they must not want is different *actions*: a card\n * that cannot be renewed, or a row whose right-click offers something else again, is two answers to one\n * question. These cases pin the parity, the right-click both surfaces now answer, and the flat layout a\n * non-date ordering falls into.\n */",
+    "/** The action names a menu is currently offering, in the order it lists them. */",
+    "// The urgency headings are a date ordering; sorting by cost under them would file the dearest plan",
+    "// wherever the calendar happens to put it.",
   ]],
   ["src/client/features/tags/SidebarTags.tsx", [
     "// Expansion is keyed by path, so a rename or a move would otherwise collapse the branch the",
@@ -19457,6 +19483,7 @@ const allowed = new Map([
     "// The omission has to be seen, though, so every surface that prints one of these totals names the",
     "// currencies `unpricedCurrencies` finds beside it.",
     "/**\n * Which currencies this table cannot price, out of the ones an account actually uses.\n *\n * Computed from the same table the totals were added with, so a total and its disclaimer cannot disagree\n * about what was left out.\n */",
+    "/**\n * What one plan costs a month, in the currency the account's totals are added up in.\n *\n * A year at ¥360 and a month at ¥39 are the same decision, and a reader ordering by what hurts least needs\n * them on one scale. Converted rather than compared at face value: twenty Singapore dollars is not twenty\n * yuan, and a list that pretended otherwise would file the cheaper plan last.\n */",
   ]],
   ["src/shared/subscriptions/format.ts", [
     "/**\n * Display arithmetic that has one right answer, kept out of the components.\n *\n * Nothing here holds copy. A unit's name, a countdown's sentence and a status pill's word are interface\n * strings and belong to the locale catalogs; what this module decides is the *shape* — which symbol a\n * currency wears, which of three countdown states a number of days means, how much of a billing period\n * has elapsed. That split is what lets the same rules be tested without a language.\n */",
@@ -19576,6 +19603,7 @@ const allowed = new Map([
     "/** Whether that base currency itself has a rate. False means the totals are really in CNY. */",
     "/** Codes this account uses that no rate could be found for, so they sit in no total. */",
     "/** Codes this account pinned by hand, which beat the feed for that one currency. */",
+    "/**\n     * The rates those totals were added with, per unit of the base currency, `1 = base`.\n     *\n     * Sent because the browser orders and prices the same money the server just totalled: a list that\n     * sorted \"what costs most per month\" at face value would file a $20 plan under a ¥150 one, and the\n     * reader would be left wondering which of the two numbers the app believed.\n     */",
   ]],
   ["src/shared/subscriptions/notify-copy.ts", [
     "/**\n * Which catalog a notification body is written from, and the two helpers that assemble one.\n *\n * The language is the account's, stored on its settings row: the scheduler runs on a cron tick with no\n * request behind it, so there is nobody to ask. `fill` is deliberately smaller than the interface's\n * formatter — two placeholders and no plural rules, because the only number these sentences carry is a\n * day count and both languages write that the same way.\n */",
@@ -19603,6 +19631,14 @@ const allowed = new Map([
     "/** What a search box and a conversation both mean by the same words, ignoring case and accents' order. */",
     "/**\n * Whether `query` names this subscription.\n *\n * An empty query matches nothing rather than everything: every caller asks in the middle of a search, and\n * \"the reader typed nothing\" must not read as \"all forty of their plans matched\".\n */",
     "/**\n * The nearest rows for a search box, soonest-expiring first.\n *\n * Sorting by what is about to run out is the order the app already uses for a filtered list, so a hit from\n * the global search lands in a list that looks the same rather than a differently ordered one.\n */",
+  ]],
+  ["src/shared/subscriptions/sort.ts", [
+    "/**\n * One answer to \"in what order do these rows go\".\n *\n * The rail's list and the chat tool's listing are the same rows, and a reader who asks the assistant to\n * name their plans and then looks up at the screen should not find them in a different order — so the\n * comparison lives here, once, and both ends read it.\n *\n * Names are folded to lower case and compared as code points rather than through a collation locale.\n * That is a deliberate loss: an order that changes between the browser's language and the worker's would\n * be worse than an order that is merely not dictionary-perfect for Chinese, where the code points run\n * roughly by how common each character is.\n */",
+    "/** The direction each ordering runs in, and what breaks its ties. */",
+    "// Compared as code points, not through `localeCompare`: the browser and the worker do not agree on a",
+    "// default collation, and two orders for one list is exactly the disagreement this file exists to stop.",
+    "// The app's own question: what is about to run out, with stopped plans keeping their own place by date.",
+    "/**\n * The rows in the requested order.\n *\n * Sorted on a copy: callers keep their array for the counts in the rail, and an in-place sort would\n * quietly reorder the list a heading was just counted off.\n */",
   ]],
   ["src/shared/subscriptions/time.ts", [
     "/**\n * Time zones, done once.\n *\n * Three rules, and every caller in this app follows them:\n *  - stored times are epoch milliseconds, so a comparison is a comparison and never a string parse;\n *  - \"what day is it for this reader\" is answered by resolving the instant into the account's zone and\n *    reading the calendar fields back, never by `Date.getDate()` on the server's own clock;\n *  - a bare `YYYY-MM-DD` input means midnight *in the reader's zone*, which is why\n *    `parseDateInputInTimezone` exists — `new Date('2026-05-24')` is UTC midnight, and a reader eight\n *    hours east would see the day before.\n *\n * The reference project learned the last one the hard way (its issue #166: a subscription created\n * between midnight and 08:00 got yesterday's default date). The implementation below is a port of the\n * module that fixed it, minus the compatibility shims nobody calls.\n */",
@@ -21661,6 +21697,9 @@ const allowed = new Map([
     "// was published or merely our own approximation, and which currencies had no rate at all and so sit",
     "// in no total. Asked live without these, a model promised the rates were current the morning the",
     "// fetch had failed, and said nothing was pinned while the account carried a USD pin.",
+    "// Only the two money orderings need the table, and getting it can reach the currency service when",
+    "// the day's cache is cold — a list asked for by name should not pay for that.",
+    "/**\n * The rate table the account's own money is added up with — the same three steps the dashboard runs:\n * the day's rates against the yuan, this account's pins over them, then re-based to the currency it\n * counts in. A list ordered \"by what costs most\" has to use that table or it disagrees with the total\n * printed above it.\n */",
   ]],
   ["src/worker/assistant/upstream.ts", [
     "/** A JSON Schema object, built by `toolSchemaFor` from the tool's own declared parameters. */",
@@ -26909,6 +26948,12 @@ const allowed = new Map([
   ]],
   ["tests/subscriptions-label-icons.test.ts", [
     "/**\n * The guard that keeps the two icon lists honest.\n *\n * The names the worker validates against live in `@shared/subscriptions/identity`; the components that\n * draw them live in the browser, because a Worker has no business importing an icon set. Two lists is a\n * drift hazard, and the failure is silent in both directions: a name with no component draws an empty\n * tile and reads as a corrupt choice, and a component with no name is bytes in the bundle that nothing\n * can ever select.\n */",
+  ]],
+  ["tests/subscriptions-list-view.test.ts", [
+    "/** Enough of a rate table for the money orderings: yuan is the base, and these are the codes below. */",
+    "/**\n   * The four orderings the toolbar offers, on three plans chosen so each one answers differently.\n   *\n   * The money ones are the reason this list exists in a shared file at all: a $60-a-month plan is the\n   * dearest of the three and the cheapest at face value, so an ordering that skipped the rate table would\n   * put it last and read as though the app did not know what a dollar was.\n   */",
+    "// ¥420 a month, then ¥150, then ¥30 — the yearly plan is the cheap one once a year is twelve months.",
+    "// One charge: $60 is ¥420, the annual ¥360 is next, the monthly ¥150 last.",
   ]],
   ["tests/subscriptions-mention.test.ts", [
     "/**\n * The prefix that keeps a subscription mention out of the note resolver's way.\n *\n * Both sides read the same syntax — the worker to build a turn's context, the chat to decide what a click\n * on a `[[…]]` means — and the failure mode of getting it wrong is not an error message but a junk note\n * called `sub:Netflix` appearing in the vault because a click was answered as a title.\n */",

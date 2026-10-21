@@ -36,7 +36,7 @@ function overview(overrides: Partial<SubscriptionOverview> = {}): SubscriptionOv
     committedYearly: 3600,
     trials: [],
     priceChanges: [],
-    rates: { source: 'feed', at: Date.parse('2026-10-21T00:00:00Z'), base: 'CNY', basePriced: true, unpriced: [], pinned: [] },
+    rates: { source: 'feed', at: Date.parse('2026-10-21T00:00:00Z'), base: 'CNY', basePriced: true, unpriced: [], pinned: [], table: { CNY: 1 } },
     ...overrides,
   }
 }
@@ -132,7 +132,7 @@ describe('the rates strip', () => {
 
   it('names the currencies left out of every total, and the base left out too', () => {
     mountChart({
-      rates: { source: 'approximate', at: null, base: 'SGD', basePriced: false, unpriced: ['SGD', 'THB'], pinned: ['USD'] },
+      rates: { source: 'approximate', at: null, base: 'SGD', basePriced: false, unpriced: ['SGD', 'THB'], pinned: ['USD'], table: { CNY: 1 } },
     })
     expect(words()).toContain('No rate for SGD, THB')
     expect(words()).toContain('SGD has no rate either')

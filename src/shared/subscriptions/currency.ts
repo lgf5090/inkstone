@@ -367,6 +367,21 @@ export function renewalsPerYear(item: Pick<SubscriptionItem, 'periodUnit' | 'per
 }
 
 /**
+ * What one plan costs a month, in the currency the account's totals are added up in.
+ *
+ * A year at ¥360 and a month at ¥39 are the same decision, and a reader ordering by what hurts least needs
+ * them on one scale. Converted rather than compared at face value: twenty Singapore dollars is not twenty
+ * yuan, and a list that pretended otherwise would file the cheaper plan last.
+ */
+export function monthlyEquivalent(
+  item: Pick<SubscriptionItem, 'amount' | 'currency' | 'periodUnit' | 'periodValue'>,
+  rates: RateTable,
+): number {
+  if (item.amount === null || item.amount <= 0) return 0
+  return roundMoney(convertToBase(item.amount, item.currency, rates) * renewalsPerYear(item) / 12)
+}
+
+/**
  * What a plan would cost across a full year at its current price.
  *
  * Deliberately a projection rather than a sum of receipts: "what have I actually spent this year" and

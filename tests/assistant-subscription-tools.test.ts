@@ -255,6 +255,31 @@ describe('deleting from a conversation', () => {
     expect(trashed.subscriptions.map((item) => item.name)).toContain('Netflix')
   })
 
+  /**
+   * The toolbar's four orderings, because the same list asked for in a conversation has to come back in
+   * the same order. `cost` is the one that cannot be faked: a $60-a-month plan is the dearest thing here
+   * and the smallest number, so an ordering that read the digits would file it last and disagree with the
+   * screen the reader is looking at.
+   */
+  it('orders a conversation list the way the toolbar does, converting money before comparing it', async () => {
+    await seedSubscription({ name: 'Adobe', amount: 150, currency: 'CNY' })
+    await seedSubscription({ name: 'Figma', amount: 60, currency: 'USD' })
+    await seedSubscription({ name: 'Office', amount: 360, currency: 'CNY', periodUnit: 'year' })
+
+    const names = async (sort: string) => ((await run('list_subscriptions', { sort })) as {
+      subscriptions: Array<{ name: string }>
+    }).subscriptions.map((item) => item.name)
+
+    // ¥419 a month, then ¥150, then the annual plan's ¥30.
+    expect(await names('cost')).toEqual(['Figma', 'Adobe', 'Office'])
+    // One charge: the dollar plan, then the ¥360 year, then the ¥150 month.
+    expect(await names('amount')).toEqual(['Figma', 'Office', 'Adobe'])
+    expect(await names('name')).toEqual(['Adobe', 'Figma', 'Office'])
+    // A word the toolbar does not offer is refused with the list of what it does, not quietly read as
+    // "expiry": a model that guesses can correct itself, and one that is agreed with cannot.
+    await expect(run('list_subscriptions', { sort: 'nonsense' })).rejects.toThrow(/expiry, cost, name, amount/)
+  })
+
   it('names what is in the trash when a restore misses, rather than reporting an empty one', async () => {
     const created = await seedSubscription({ amount: 60 })
     const { store: subStore, context: ctx } = store()

@@ -12,6 +12,7 @@ import { create } from 'zustand'
 import { api, type PaymentPatch, type SettingsPatch } from '../../lib/api'
 import { useUi } from '../../store/ui'
 import { t } from '../../lib/i18n'
+import type { ListSort as SharedListSort } from '@shared/subscriptions/sort'
 import type {
   BulkAction,
   ChannelKind,
@@ -32,14 +33,18 @@ import type {
   SubscriptionSettings,
 } from '@shared/subscriptions/model'
 
-export type SubscriptionsView = 'overview' | 'list' | 'logs' | 'trash'
+export type SubscriptionsView = 'overview' | 'list' | 'grid' | 'logs' | 'trash'
 
 export type StatusFilter = 'all' | 'soon' | 'expired' | 'disabled'
+
+/** Which ordering the toolbar is showing the rows in; the comparison itself lives in `@shared`. */
+export type ListSort = SharedListSort
 
 export interface ListFilter {
   status: StatusFilter
   category: string | null
   query: string
+  sort: ListSort
 }
 
 export interface SubscriptionLogs {
@@ -145,7 +150,7 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
   overview: null,
 
   view: 'list',
-  filter: { status: 'all', category: null, query: '' },
+  filter: { status: 'all', category: null, query: '', sort: 'expiry' },
   selectedId: null,
   detail: null,
   detailLoading: false,

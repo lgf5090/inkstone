@@ -8,21 +8,21 @@
  * The row shows the amount and the countdown on the right and the identity on the left, because those
  * are the two questions a reader opens this app with: what does it cost, and how long have I got.
  */
-import { useRef, useState, type ReactElement } from 'react'
-import { MoreHorizontal, PencilLine, Plus, RefreshCw, Send, Trash2 } from 'lucide-react'
+import { type ReactElement } from 'react'
+import { Plus } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
-import { Button, IconButton, SectionLabel } from '../../components/primitives'
+import { Button, SectionLabel } from '../../components/primitives'
 import { Checkbox } from '../../components/form'
 import { Empty, LoadingBlock } from '../../components/feedback'
-import { Menu, Tooltip, type MenuItem } from '../../components/overlay'
+import { Menu, useContextMenu } from '../../components/overlay'
 import { daysState, daysStateKey, formatAmount, periodUnitKey } from '@shared/subscriptions/format'
 import { subscriptionStatus, type SubscriptionItem } from '@shared/subscriptions/model'
 import { StatusPill } from './StatusPill'
 import { CurrencyFlag } from './currency-flag'
-import { iconComponentOf } from './label-icons'
-import { useLabelIdentity } from './label-identity'
+import { SORT_LABEL, SubscriptionAvatar, SubscriptionKebab, subscriptionMenu, subscriptionSubtitle } from './subscription-parts'
 import { groupItems, type ListGroup } from './list-view'
+import type { ListSort } from './store'
 
 const GROUP_LABEL: Record<ListGroup, Parameters<typeof t>[0]> = {
   expired: 'subscriptions.list.group_expired',
@@ -42,6 +42,7 @@ export interface SubscriptionActions {
 
 export function SubscriptionList({
   items,
+  sort,
   selectedId,
   loading,
   onSelect,
@@ -52,6 +53,7 @@ export function SubscriptionList({
   onCheck,
 }: {
   items: readonly SubscriptionItem[]
+  sort: ListSort
   selectedId: string | null
   loading: boolean
   onSelect: (id: string) => void
@@ -75,30 +77,49 @@ export function SubscriptionList({
 
   return (
     <div className="no-scrollbar h-full overflow-y-auto px-2 pb-6 pt-2">
-      {groupItems(items).map((group) => (
-        <section key={group.group} className="mb-1">
-          <SectionLabel className="sticky top-0 z-10 bg-[var(--bg-base)] px-2 py-1.5">
-            {t(GROUP_LABEL[group.group])}
-            <span className="ml-1.5 font-normal text-[var(--text-quaternary)]">{group.items.length}</span>
-          </SectionLabel>
-          <div role="list">
-            {group.items.map((item) => (
-              <SubscriptionRow
-                key={item.id}
-                item={item}
-                selected={item.id === selectedId}
-                onSelect={onSelect}
-                actions={actions}
-                selectMode={selectMode}
-                checked={selection.includes(item.id)}
-                onCheck={onCheck}
-              />
-            ))}
-          </div>
-        </section>
-      ))}
+      {sort === 'expiry'
+        ? groupItems(items).map((group) => (
+          <section key={group.group} className="mb-1">
+            <SectionLabel className="sticky top-0 z-10 bg-[var(--bg-base)] px-2 py-1.5">
+              {t(GROUP_LABEL[group.group])}
+              <span className="ml-1.5 font-normal text-[var(--text-quaternary)]">{group.items.length}</span>
+            </SectionLabel>
+            {rows(group.items)}
+          </section>
+        ))
+        /* An ordering that is not about dates has nothing to do with the date headings, and drawing the
+           headings anyway would file a reader's most expensive plan under "later". One flat list, under a
+           heading that says what it is sorted by. */
+        : (
+          <section className="mb-1">
+            <SectionLabel className="sticky top-0 z-10 bg-[var(--bg-base)] px-2 py-1.5">
+              {t(SORT_LABEL[sort])}
+              <span className="ml-1.5 font-normal text-[var(--text-quaternary)]">{items.length}</span>
+            </SectionLabel>
+            {rows(items)}
+          </section>
+        )}
     </div>
   )
+
+  function rows(list: readonly SubscriptionItem[]): ReactElement {
+    return (
+      <div role="list">
+        {list.map((item) => (
+          <SubscriptionRow
+            key={item.id}
+            item={item}
+            selected={item.id === selectedId}
+            onSelect={onSelect}
+            actions={actions}
+            selectMode={selectMode}
+            checked={selection.includes(item.id)}
+            onCheck={onCheck}
+          />
+        ))}
+      </div>
+    )
+  }
 }
 
 function SubscriptionRow({
@@ -118,31 +139,11 @@ function SubscriptionRow({
   checked: boolean
   onCheck: (id: string) => void
 }): ReactElement {
-  const [menuOpen, setMenuOpen] = useState(false)
-  const anchor = useRef<HTMLButtonElement>(null)
+  const contextMenu = useContextMenu()
   const status = subscriptionStatus(item, item.daysRemaining)
   const countdown = daysState(item.daysRemaining)
   const amount = formatAmount(item.amount, item.currency)
-
-  const menu: MenuItem[] = [
-    { id: 'edit', label: t('subscriptions.edit'), icon: <PencilLine size={14} />, onSelect: () => actions.onEdit(item) },
-    { id: 'renew', label: t('subscriptions.renew.confirm'), icon: <RefreshCw size={14} />, onSelect: () => actions.onRenew(item) },
-    { id: 'test', label: t('subscriptions.channel.test'), icon: <Send size={14} />, onSelect: () => actions.onTest(item) },
-    {
-      id: 'toggle',
-      label: item.isActive ? t('subscriptions.detail.toggle_off') : t('subscriptions.detail.toggle_on'),
-      separatorBefore: true,
-      onSelect: () => actions.onToggle(item),
-    },
-    {
-      // Not `danger`: this is the recoverable one, and reserving red for the row that cannot be undone
-      // is what makes the trash's own "delete forever" read as the serious choice it is.
-      id: 'trash',
-      label: t('subscriptions.trash.move'),
-      icon: <Trash2 size={14} />,
-      onSelect: () => actions.onTrash(item),
-    },
-  ]
+  const menu = subscriptionMenu(item, actions)
 
   return (
     <div role="listitem" className={cn('group relative flex items-stretch rounded-[var(--r-md)]', selected && 'bg-[var(--accent-soft)]')}>
@@ -160,6 +161,7 @@ function SubscriptionRow({
       <button
         type="button"
         onClick={() => onSelect(item.id)}
+        onContextMenu={contextMenu.onContextMenu}
         aria-current={selected ? 'true' : undefined}
         tabIndex={selectMode ? -1 : undefined}
         className={cn(
@@ -175,9 +177,7 @@ function SubscriptionRow({
             <StatusPill status={status} />
           </span>
           <span className="mt-0.5 block truncate text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
-            {[item.customType || t('subscriptions.detail.uncategorized'), item.category, `${item.periodValue} ${t(periodUnitKey(item.periodUnit))}`]
-              .filter(Boolean)
-              .join(' · ')}
+            {subscriptionSubtitle(item, t(periodUnitKey(item.periodUnit)))}
           </span>
         </span>
         <span className="shrink-0 text-right">
@@ -195,51 +195,12 @@ function SubscriptionRow({
           </span>
         </span>
       </button>
-      <div className="flex items-center pr-1.5">
-        <Tooltip label={t('subscriptions.row_actions')} side="left">
-          <IconButton
-            ref={anchor}
-            label={t('subscriptions.row_actions')}
-            size="sm"
-            className={cn(
-              /* Always drawn on touch screens, where there is no hover to reveal it; the desktop keeps the quiet row. */
-              'size-11 opacity-100 transition-opacity md:size-6 md:opacity-0 md:group-hover:opacity-100 focus-visible:opacity-100',
-              menuOpen && 'md:opacity-100',
-            )}
-            onClick={() => setMenuOpen(open => !open)}
-          >
-            <MoreHorizontal size={15} />
-          </IconButton>
-        </Tooltip>
-        <Menu anchor={anchor} open={menuOpen} onClose={() => setMenuOpen(false)} items={menu} align="end" />
-      </div>
-    </div>
-  )
-}
-
-/**
- * The row's face.
- *
- * A subscription with a type wears that type's icon in that type's colour, which is what lets a reader
- * scan twelve rows and find the streaming ones without reading; a subscription with no type keeps the
- * neutral initial tile rather than being assigned a colour by hash, because a colour that means
- * "nothing was chosen" teaches the reader nothing and is indistinguishable from a choice they did make.
- */
-function SubscriptionAvatar({ item }: { item: SubscriptionItem }): ReactElement {
-  const identityOf = useLabelIdentity()
-  const identity = item.customType ? identityOf('type', item.customType) : null
-  const Icon = identity ? iconComponentOf(identity.icon) : null
-  const tint = identity?.color ?? 'var(--text-secondary)'
-  return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        'flex size-8 shrink-0 items-center justify-center rounded-full text-[length:var(--text-12)] font-semibold',
-        !identity && 'bg-[var(--bg-inset)]',
+      <SubscriptionKebab item={item} actions={actions} />
+      {/* The same list, where the pointer already is. A right-click on a row is the reader asking the
+          question the kebab answers, and making them find the kebab first is a second step for nobody. */}
+      {contextMenu.point && (
+        <Menu anchor={contextMenu.point} open onClose={contextMenu.close} items={menu} label={t('subscriptions.row_actions')} />
       )}
-      style={identity ? { color: tint, background: `color-mix(in oklab, ${tint} 14%, transparent)` } : undefined}
-    >
-      {Icon ? <Icon size={15} /> : item.name.slice(0, 1).toUpperCase()}
-    </span>
+    </div>
   )
 }
