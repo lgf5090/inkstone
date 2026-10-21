@@ -11052,7 +11052,7 @@ const allowed = new Map([
     "/**\n * Hand the CSV to the browser as a download.\n *\n * A Blob and an object URL: the data is already in memory, and a temporary anchor is the platform's\n * own download gesture — no dependency and no server round trip. The URL is revoked on the next task\n * because a browser may start reading the blob after the click handler returns.\n */",
   ]],
   ["src/client/features/todos/stats-format.ts", [
-    "/**\n * The words the statistics screen and its CSV put beside a raw key.\n *\n * Priority, list, tag and weekday labels are needed by two readers — the on-screen bars and the\n * exported file — so they live here instead of being spelled twice and drifting in the second copy.\n * The weekday formatter is pinned to UTC because a midnight instant in a western zone is the day\n * before.\n */",
+    "/**\n * The words the statistics screen and its CSV put beside a raw key.\n *\n * List, tag and weekday labels are needed by two readers — the on-screen bars and the exported\n * file — so they live here instead of being spelled twice and drifting in the second copy. The\n * weekday formatter is pinned to UTC because a midnight instant in a western zone is the day\n * before.\n */",
     "/** The order priorities are listed in: the same low-to-urgent ladder the task form shows. */",
     "/** A weekday name from the account-calendar index the server counts (0 = Sunday). */",
     "// 2023-01-01 is a Sunday, so the index is the weekday the server counts.",

@@ -9,7 +9,8 @@
  * Excel otherwise reads a Chinese label as mojibake.
  */
 import type { TodoStats } from '@shared/todos/model'
-import { listName, priorityLabel, tagName, weekdayName } from './stats-format'
+import { listName, tagName, weekdayName } from './stats-format'
+import { priorityLabel } from './todo-ui'
 
 const BOM = '\ufeff'
 

@@ -13,7 +13,7 @@
  * are named in a legend and in the table's header.
  */
 import { useEffect } from 'react'
-import { Check } from 'lucide-react'
+import { Check, ChevronDown } from 'lucide-react'
 import { localDate } from '@shared/assistant-time'
 import type {
   TaskStatsBucket,
@@ -34,7 +34,8 @@ import {
   type PreviousStats,
 } from './stats-compare'
 import { downloadStatsCsv } from './stats-csv'
-import { PRIORITIES, listName, priorityLabel, tagName, weekdayName } from './stats-format'
+import { PRIORITIES, listName, tagName, weekdayName } from './stats-format'
+import { priorityLabel } from './todo-ui'
 import { useTodos } from './store'
 
 const RANGE_CHOICES = [
@@ -238,11 +239,23 @@ function TrendChart({ stats, dailyGoal }: { stats: TodoStats; dailyGoal: number 
     completed: summary.completed,
     created: summary.created,
   })
+  const tickIndexes = series.length > 0
+    ? [...new Set([0, Math.floor((series.length - 1) / 2), series.length - 1])]
+    : []
+  const tickLabel = (day: string): string => new Intl.DateTimeFormat(localeTag(), { month: 'numeric', day: 'numeric' })
+    .format(new Date(`${day}T00:00:00`))
+  const half = max / 2
+  const halfLabel = Number.isInteger(half) ? String(half) : half.toFixed(1)
   return (
     <section aria-labelledby="todo-stats-trend" className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
-      <h2 id="todo-stats-trend" className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
-        {t('todo.stats.trend.title')}
-      </h2>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 id="todo-stats-trend" className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
+          {t('todo.stats.trend.title')}
+        </h2>
+        <span className="text-[length:var(--text-10-5)] tabular text-[var(--text-quaternary)]">
+          {t('todo.stats.completed')} {summary.completed} · {t('todo.stats.created')} {summary.created}
+        </span>
+      </div>
       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
         <Legend label={t('todo.stats.completed')} color="var(--accent)" />
         <Legend label={t('todo.stats.created')} color="var(--text-tertiary)" dashed />
@@ -250,58 +263,106 @@ function TrendChart({ stats, dailyGoal }: { stats: TodoStats; dailyGoal: number 
           <Legend label={t('todo.stats.goal.line')} color="var(--text-quaternary)" dashed />
         )}
       </div>
-      <svg
-        role="img"
-        aria-label={label}
-        viewBox={`0 0 ${width} ${height}`}
-        preserveAspectRatio="none"
-        className="mt-2 h-40 w-full"
-      >
-        <title>{label}</title>
-        <line
-          x1={padX}
-          y1={height - 1}
-          x2={width - padX}
-          y2={height - 1}
-          stroke="var(--border-default)"
-          strokeWidth="1"
-          vectorEffect="non-scaling-stroke"
-        />
-        <polyline
-          fill="none"
-          stroke="var(--accent)"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          vectorEffect="non-scaling-stroke"
-          points={points('completed')}
-        />
-        <polyline
-          fill="none"
-          stroke="var(--text-tertiary)"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeDasharray="6 4"
-          vectorEffect="non-scaling-stroke"
-          points={points('created')}
-        />
-        {reference !== null && (
-          <line
-            x1={padX}
-            y1={y(reference)}
-            x2={width - padX}
-            y2={y(reference)}
-            stroke="var(--text-quaternary)"
-            strokeWidth="1"
-            strokeDasharray="2 4"
-            vectorEffect="non-scaling-stroke"
-          />
-        )}
-        {series.length === 1 && (
-          <circle cx={x(0)} cy={y(series[0]!.completed)} r="2.5" fill="var(--accent)" />
-        )}
-      </svg>
+      <div className="mt-2 flex gap-2">
+        <div className="flex h-40 shrink-0 flex-col justify-between pb-1 text-right text-[length:var(--text-9)] tabular leading-none text-[var(--text-quaternary)]" aria-hidden="true">
+          <span>{max}</span>
+          <span>{halfLabel}</span>
+          <span>{0}</span>
+        </div>
+        <div className="min-w-0 flex-1">
+          <svg
+            role="img"
+            aria-label={label}
+            viewBox={`0 0 ${width} ${height}`}
+            preserveAspectRatio="none"
+            className="h-40 w-full"
+          >
+            <title>{label}</title>
+            {[0, 0.5, 1].map((ratio) => (
+              <line
+                key={ratio}
+                x1={padX}
+                y1={padTop + plotHeight * ratio}
+                x2={width - padX}
+                y2={padTop + plotHeight * ratio}
+                stroke="var(--border-subtle)"
+                strokeWidth="1"
+                vectorEffect="non-scaling-stroke"
+              />
+            ))}
+            {series.length > 1 && (
+              <polygon
+                points={`${x(0)},${height - 1} ${points('completed')} ${x(series.length - 1)},${height - 1}`}
+                fill="var(--accent)"
+                opacity="0.08"
+              />
+            )}
+            <polyline
+              fill="none"
+              stroke="var(--accent)"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
+              points={points('completed')}
+            />
+            <polyline
+              fill="none"
+              stroke="var(--text-tertiary)"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeDasharray="6 4"
+              vectorEffect="non-scaling-stroke"
+              points={points('created')}
+            />
+            {reference !== null && (
+              <line
+                x1={padX}
+                y1={y(reference)}
+                x2={width - padX}
+                y2={y(reference)}
+                stroke="var(--text-quaternary)"
+                strokeWidth="1"
+                strokeDasharray="2 4"
+                vectorEffect="non-scaling-stroke"
+              />
+            )}
+            {series.length <= 31 && series.map((point, index) => (
+              <g key={point.day}>
+                {point.completed > 0 && (
+                  <line
+                    x1={x(index)}
+                    y1={y(point.completed) - 2}
+                    x2={x(index)}
+                    y2={y(point.completed) + 2}
+                    stroke="var(--accent)"
+                    strokeWidth="2"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                )}
+                {point.created > 0 && (
+                  <line
+                    x1={x(index)}
+                    y1={y(point.created) - 2}
+                    x2={x(index)}
+                    y2={y(point.created) + 2}
+                    stroke="var(--text-tertiary)"
+                    strokeWidth="1.5"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                )}
+              </g>
+            ))}
+            {series.length === 1 && (
+              <circle cx={x(0)} cy={y(series[0]!.completed)} r="2.5" fill="var(--accent)" />
+            )}
+          </svg>
+          <div className="mt-1 flex justify-between text-[length:var(--text-9)] tabular leading-none text-[var(--text-quaternary)]" aria-hidden="true">
+            {tickIndexes.map((index) => <span key={index}>{tickLabel(series[index]!.day)}</span>)}
+          </div>
+        </div>
+      </div>
       <table className="sr-only" data-stats-series="">
         <caption>{t('todo.stats.trend.table_caption')}</caption>
         <thead>
@@ -387,9 +448,13 @@ function Distributions({ stats }: { stats: TodoStats }) {
             }))}
           />
         </DistributionCard>
-        <details className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 md:col-span-2">
-          <summary className="flex min-h-11 cursor-pointer items-center text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
-            {t('todo.stats.by_hour')}
+        <details className="group rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 md:col-span-2">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)] [&::-webkit-details-marker]:hidden">
+            <span>{t('todo.stats.by_hour')}</span>
+            <span className="flex items-center gap-1.5 text-[length:var(--text-10-5)] font-normal tabular text-[var(--text-quaternary)]">
+              {total}
+              <ChevronDown size={14} className="transition-transform duration-[var(--dur-fast)] group-open:rotate-180" aria-hidden="true" />
+            </span>
           </summary>
           <p className="mt-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('todo.stats.by_hour_note')}</p>
           <div className="mt-2">
