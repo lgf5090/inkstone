@@ -179,13 +179,14 @@ describe('the board\u2019s inline quick add', () => {
     const input = openAdd(section)
     typeInto(input, '每周三、五 打卡')
 
-    expect(preview(section), 'two weekdays are not one repeat rule to preview').toBeNull()
+    // F08 made a two-day rhythm expressible, so the old "must not guess" guard is now the opposite
+    // contract: one weekly rule carrying both days, previewed like any other repeat.
+    expect(preview(section), 'two weekdays should preview as one weekly rule').not.toBeNull()
 
     await pressEnter(input)
     const body = service.creates[0]!
-    expect(body.title).toBe('每周三、五 打卡')
-    expect('repeat' in body, 'the parser must not guess one of the two days').toBe(false)
-    expect('dueAt' in body).toBe(false)
+    expect(body.title).toBe('打卡')
+    expect(body.repeat).toEqual({ freq: 'weekly', interval: 1, weekdays: [3, 5] })
   })
 
   it('refuses a line with no title instead of writing a dated but nameless task', async () => {
