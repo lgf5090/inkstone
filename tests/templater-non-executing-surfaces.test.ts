@@ -121,6 +121,7 @@ const ALLOWED_IMPORTERS: Record<string, string> = {
   'src/client/features/command/registry.ts': 'registers the four commands and the cursor-jump key',
   'src/client/features/templates/gallery-modals.tsx': 'mounts the template code editor the gallery opens',
   'src/client/features/templates/template-gallery.tsx': 'hosts the chooser that raises the library',
+  'src/client/features/workspace/Workspace.tsx': 'hands the note editor the `tp.user` completion source, which reaches the store only through `features/templater/script-completion.ts` behind a dynamic import',
 }
 
 function sandboxImporters(): Map<string, Edge[]> {

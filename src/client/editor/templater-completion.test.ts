@@ -390,6 +390,57 @@ describe('members a run would refuse', () => {
   })
 })
 
+describe('the reader’s own scripts', () => {
+  const folder = {
+    names: async () => ['greeting', 'helpers'],
+    members: async (name: string) => (name === 'helpers' ? ['left', 'right'] : []),
+  }
+
+  it('lists the folder for `tp.user.`, which the registry alone cannot do', async () => {
+    expect(await labelsOf('<% tp.user.', undefined, { userScripts: folder })).toEqual(['greeting', 'helpers'])
+    // Without the page's answer there is nothing to offer: the registry's `tp.user.<script_name>` is a
+    // placeholder, and writing it into a note would be writing a name no script answers.
+    expect(await labelsOf('<% tp.user.')).toEqual([])
+  })
+
+  it('inserts a script name bare, because its export shape is inside its own text', async () => {
+    const { result } = await completeAt('<% tp.user.gre', undefined, { userScripts: folder })
+    const row = result?.options.find((option) => option.label === 'greeting')
+    expect(row?.apply).toBe('greeting')
+    expect(String(row?.detail)).toContain("Reader's own script")
+  })
+
+  it('lists the callable members of `tp.user.<script>.`', async () => {
+    const { result } = await completeAt('<% tp.user.helpers.', undefined, { userScripts: folder })
+    expect(result?.options.map((option) => option.label)).toEqual(['left', 'right'])
+    // A member is known to be a function — an object export may only hold functions — so the call form is safe.
+    expect(typeof result?.options[0]?.apply).toBe('function')
+  })
+
+  it('offers nothing for a function export, an unknown name, or a chain past the member', async () => {
+    expect(await labelsOf('<% tp.user.greeting.', undefined, { userScripts: folder })).toEqual([])
+    expect(await labelsOf('<% tp.user.absent.', undefined, { userScripts: folder })).toEqual([])
+    expect(await labelsOf('<% tp.user.helpers.left(', undefined, { userScripts: folder })).toEqual([])
+  })
+
+  it('asks the page once per list, and never for a chain that is not `tp.user`', async () => {
+    const names = vi.fn(async () => ['greeting'])
+    const members = vi.fn(async () => ['left'])
+    const source = { names, members }
+    await labelsOf('<% tp.file.', undefined, { userScripts: source })
+    expect(names).not.toHaveBeenCalled()
+    expect(members).not.toHaveBeenCalled()
+    await labelsOf('<% tp.user.', undefined, { userScripts: source })
+    expect(names).toHaveBeenCalledTimes(1)
+  })
+
+  it('writes the name without documentation when the reader turned the panel off', async () => {
+    const { result } = await completeAt('<% tp.user.', undefined, { userScripts: folder, intellisenseRender: () => '0' })
+    expect(result?.options.map((option) => option.label)).toEqual(['greeting', 'helpers'])
+    for (const option of result?.options ?? []) expect(option.detail).toBeUndefined()
+  })
+})
+
 describe('the switch', () => {
   it('offers nothing while it is off', async () => {
     let on = false

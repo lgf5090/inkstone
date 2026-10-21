@@ -55,6 +55,8 @@ const ACCESS_PATH = /(?:^|[^.\w$])tp((?:\.[\w$]+)*)\.?$/
 interface TypedPath {
   /** Null while the module itself is the thing being typed. */
   module: string | null
+  /** The script a `tp.user.<script>.` chain is asking the members of. Null for every other path. */
+  script: string | null
   /** The part of the name already in the note: the replacement range starts here. */
   partial: string
 }
@@ -80,6 +82,28 @@ export interface TemplaterCompletionOptions {
    * the reader is writing rather than running, and is marked in the documentation panel instead.
    */
   profile?: () => CapabilityProfile
+  /**
+   * The reader's own scripts, as the page can see them without running them.
+   *
+   * Absent by default because the editor half may not reach a store: the note editor and the template body
+   * editor both hand this over from `features/templater/completion-surface.ts`. With no source the `tp.user`
+   * chain offers nothing, which is the honest list for a reader who has not chosen a script folder.
+   */
+  userScripts?: TemplaterScriptSource
+}
+
+/**
+ * The two questions the `tp.user` chain asks the page.
+ *
+ * Split rather than one call returning a tree, because the first is answered by a folder listing and the
+ * second by reading one note and scanning its text: completing `tp.user.` must not cost a read per script,
+ * and completing `tp.user.helper.` must not read the rest of the folder.
+ */
+export interface TemplaterScriptSource {
+  /** Every name the script folder holds, in any order — this file sorts nothing. */
+  names: () => Promise<string[]>
+  /** The callable members of one object-exporting script; empty for a function export or an unreadable one. */
+  members: (name: string) => Promise<string[]>
 }
 
 /** The shipped default, taken from the settings table rather than restated here. */
@@ -113,13 +137,19 @@ function pathBeforeCaret(text: string): TypedPath | null {
   const segments = (matched[1] ?? '').split('.').filter(Boolean)
   // The match runs to the caret, so a trailing dot can only be the one the reader just typed.
   const afterDot = text.endsWith('.')
-  if (segments.length === 0) return afterDot ? { module: null, partial: '' } : null
+  if (segments.length === 0) return afterDot ? { module: null, script: null, partial: '' } : null
   if (segments.length === 1) {
     return afterDot
-      ? { module: segments[0]!, partial: '' }
-      : { module: null, partial: segments[0]! }
+      ? { module: segments[0]!, script: null, partial: '' }
+      : { module: null, script: null, partial: segments[0]! }
   }
-  if (segments.length === 2 && !afterDot) return { module: segments[0]!, partial: segments[1]! }
+  // `tp.user.<script>.` is the one two-level chain the editor can answer, and only because the reader's own
+  // scripts are a list the page can hand over: every other module's second level is either a placeholder the
+  // registry refuses to write (`tp.frontmatter.<key>`) or a façade member being ported one at a time.
+  if (segments.length === 2 && afterDot && segments[0] === 'user') {
+    return { module: 'user', script: segments[1]!, partial: '' }
+  }
+  if (segments.length === 2 && !afterDot) return { module: segments[0]!, script: null, partial: segments[1]! }
   // Past two segments the registry has nothing to say: `tp.app.vault.` reaches into the façade's members,
   // which are being ported one at a time and are not a list this file may write.
   return null
@@ -297,6 +327,34 @@ function memberRows(
 }
 
 /**
+ * The rows for `tp.user.`: one per script the reader's folder holds.
+ *
+ * A script arrives as a bare name rather than in call form, because whether it exports a function or an
+ * object of functions is a fact inside its own text, and guessing it here would mean reading every script in
+ * the folder to complete one word. What the reader types next decides: a `(` calls it, a `.` asks for members.
+ */
+function scriptRows(names: string[], documented: boolean): Completion[] {
+  return names.map((name, index): Completion => ({
+    label: name,
+    type: 'function',
+    detail: documented ? truncateText(t('templater.completion.user_script'), DETAIL_MAX_CHARACTERS) : undefined,
+    boost: names.length - index,
+    apply: name,
+  }))
+}
+
+/** The rows for `tp.user.<script>.`: the callable members of an object export. */
+function scriptMemberRows(script: string, members: string[], documented: boolean): Completion[] {
+  return members.map((member, index): Completion => ({
+    label: member,
+    type: 'function',
+    detail: documented ? truncateText(t('templater.completion.user_member', { value0: script }), DETAIL_MAX_CHARACTERS) : undefined,
+    boost: members.length - index,
+    apply: applyMember(member, 'with-args'),
+  }))
+}
+
+/**
  * The completion source, ready for `autocompletion({ override: [...] })`.
  *
  * A factory with closures rather than a constant, mirroring `templaterHighlight`: the editor is configured
@@ -304,7 +362,7 @@ function memberRows(
  */
 export function templaterCompletion(options: TemplaterCompletionOptions): CompletionSource {
   const enabled = options.enabled ?? (() => true)
-  return (context: CompletionContext): CompletionResult | null => {
+  return (context: CompletionContext): CompletionResult | null | Promise<CompletionResult | null> => {
     if (!enabled()) return null
     const window = commandWindow(context.state, context.pos)
     if (window === null) return null
@@ -312,6 +370,24 @@ export function templaterCompletion(options: TemplaterCompletionOptions): Comple
     if (path === null) return null
     const level = renderLevel(options.intellisenseRender())
     const documented = level !== '0'
+    const from = context.pos - path.partial.length
+    const listed = (rows: Completion[]): CompletionResult => ({ from, options: rows, validFor: /^[\w$]*$/ })
+    const userScripts = options.userScripts
+    if (userScripts && path.module === 'user') {
+      // The one list in this file that is not plain data: a script is a note, so both the names and the
+      // members arrive on a later tick, which is what a `CompletionSource` is allowed to return.
+      if (path.script === null) {
+        return userScripts.names().then((names) => {
+          const rows = scriptRows(names, documented)
+          return rows.length === 0 ? null : listed(rows)
+        })
+      }
+      const script = path.script
+      return userScripts.members(script).then((members) => {
+        const rows = scriptMemberRows(script, members, documented)
+        return rows.length === 0 ? null : listed(rows)
+      })
+    }
     const module = path.module === null ? null : referenceModuleDoc(path.module)
     if (path.module !== null && !module) return null
     const capabilities = options.profile ? capabilitiesFor(options.profile()) : null
@@ -319,6 +395,6 @@ export function templaterCompletion(options: TemplaterCompletionOptions): Comple
     if (rows.length === 0) return null
     // CodeMirror's own matcher filters these: the lists are the registry's, small and already ordered, so
     // a second ranking path here would only be another thing to keep in step with the panel.
-    return { from: context.pos - path.partial.length, options: rows, validFor: /^[\w$]*$/ }
+    return listed(rows)
   }
 }

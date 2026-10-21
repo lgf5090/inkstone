@@ -46,6 +46,7 @@ import { t } from '../../lib/i18n'
 import { Button } from '../../components/primitives'
 import { templaterHighlight } from '../../editor/templater'
 import { templaterCompletion } from '../../editor/templater-completion'
+import { templaterUserScripts } from './script-completion'
 import { useSession } from '../../store/session'
 import { describeTemplateBody, type TemplateBodyReport } from './template-body-check'
 
@@ -144,6 +145,7 @@ export function TemplateCodeEditor(props: TemplateCodeEditorProps) {
         // answer from a note, a library of them, or the caret inside one, and this body has none of that.
         override: [templaterCompletion({
           intellisenseRender: () => latest.current.intellisenseRender,
+          userScripts: templaterUserScripts,
           // The body being edited is the reader's own, which is the profile a run of it would get
           // (`features/templater/run-shell.ts`), so the documentation panel can say what a run may refuse.
           profile: () => 'local',

@@ -603,6 +603,7 @@ const allowed = new Map([
     "// settings panel is looking at a note they are not typing in, and marks that appear only once they",
     "// press a key are marks the switch looks like it ignored.",
     "/**\n     * How much the template completions may say about themselves — the reader's `intellisenseRender` level.\n     *\n     * A string rather than the setting object because this component owns no view of the settings store.\n     */",
+    "/** The reader's own scripts, for the `tp.user` chain. Absent means that chain completes nothing. */",
   ]],
   ["src/client/editor/codeLanguages.ts", [
     "// Highlighting removed: no code languages are loaded.",
@@ -984,6 +985,9 @@ const allowed = new Map([
     "// may not start a run to draw one line of prose.",
     "// Built from code points so no Han character sits in a source file, which is what the comment gate",
     "// asks of anything that has to name Chinese.",
+    "// Without the page's answer there is nothing to offer: the registry's `tp.user.<script_name>` is a",
+    "// placeholder, and writing it into a note would be writing a name no script answers.",
+    "// A member is known to be a function — an object export may only hold functions — so the call form is safe.",
   ]],
   ["src/client/editor/templater-completion.ts", [
     "/**\n * Templater completion for the note editor.\n *\n * The registry in `lib/templater/reference` is the only list of names this file reads. The syntax-reference\n * panel and these tooltips are two surfaces a reader compares, and a second table of function names is\n * precisely how they start disagreeing, so every row here is built from `REFERENCE_ENTRIES` and\n * `REFERENCE_MODULES` at request time.\n *\n * A member is offered only when the registry documents that exact path (`tp.file.rename`), which is what\n * keeps `tp.user.` and `tp.frontmatter.` from inventing members: the names under those are the reader's own\n * scripts and the note's own keys, so nothing here can enumerate them, and the module's own description says\n * the list cannot be closed.\n *\n * Documentation depth follows the reader's `templater.intellisenseRender` setting. It arrives as a closure\n * because this module must not reach for the settings store, and reading it per request is what makes a\n * change land on the next keystroke instead of on the next editor rebuild.\n *\n * The document is never scanned whole. The question \"is the caret inside a command\" is answered by one\n * `parseTemplate` call over a bounded window ending at the caret, which is also the only text the typed path\n * is matched against — the same engine a run uses, so a `%>` inside a string and a tag that is still open\n * mid-typing are read the way the interpreter reads them.\n */",
@@ -1022,6 +1026,18 @@ const allowed = new Map([
     "/**\n * The completion source, ready for `autocompletion({ override: [...] })`.\n *\n * A factory with closures rather than a constant, mirroring `templaterHighlight`: the editor is configured\n * once, and every reader setting has to be read when a list is actually asked for.\n */",
     "// CodeMirror's own matcher filters these: the lists are the registry's, small and already ordered, so",
     "// a second ranking path here would only be another thing to keep in step with the panel.",
+    "/** The script a `tp.user.<script>.` chain is asking the members of. Null for every other path. */",
+    "/**\n   * The reader's own scripts, as the page can see them without running them.\n   *\n   * Absent by default because the editor half may not reach a store: the note editor and the template body\n   * editor both hand this over from `features/templater/completion-surface.ts`. With no source the `tp.user`\n   * chain offers nothing, which is the honest list for a reader who has not chosen a script folder.\n   */",
+    "/**\n * The two questions the `tp.user` chain asks the page.\n *\n * Split rather than one call returning a tree, because the first is answered by a folder listing and the\n * second by reading one note and scanning its text: completing `tp.user.` must not cost a read per script,\n * and completing `tp.user.helper.` must not read the rest of the folder.\n */",
+    "/** Every name the script folder holds, in any order — this file sorts nothing. */",
+    "/** The callable members of one object-exporting script; empty for a function export or an unreadable one. */",
+    "// `tp.user.<script>.` is the one two-level chain the editor can answer, and only because the reader's own",
+    "// scripts are a list the page can hand over: every other module's second level is either a placeholder the",
+    "// registry refuses to write (`tp.frontmatter.<key>`) or a façade member being ported one at a time.",
+    "/**\n * The rows for `tp.user.`: one per script the reader's folder holds.\n *\n * A script arrives as a bare name rather than in call form, because whether it exports a function or an\n * object of functions is a fact inside its own text, and guessing it here would mean reading every script in\n * the folder to complete one word. What the reader types next decides: a `(` calls it, a `.` asks for members.\n */",
+    "/** The rows for `tp.user.<script>.`: the callable members of an object export. */",
+    "// The one list in this file that is not plain data: a script is a note, so both the names and the",
+    "// members arrive on a later tick, which is what a `CompletionSource` is allowed to return.",
   ]],
   ["src/client/editor/templater.test.ts", [
     "/**\n * The engine, watched.\n *\n * \"Only as much as changed\" is the promise this file's whole design rests on, and it is invisible in the\n * result: a stale mark and a freshly scanned one look the same. So the parse is counted by the characters\n * it was handed, which is the only way to ask the question without a browser.\n */",
@@ -11027,6 +11043,20 @@ const allowed = new Map([
     "/** Zero-based line the task sits on. */",
     "/**\n   * The words the reader saw on that line, or null when the caller already holds the note's text —\n   * the editor, the reading preview and the context menu all do. The words are what refuses a note\n   * that moved since the row was drawn; where there is no row, only the live text, the question is\n   * already answered.\n   */",
   ]],
+  ["src/client/features/templater/completion-surface.test.ts", [
+    "/**\n * The two halves of the `tp.user` completion path: the facade the editor is allowed to import, and the page\n * glue behind it. What is pinned here is the *seam* — that a keystroke reaches the store through a lazy import\n * and that the answers come from the folder the reader chose, not from a table this file keeps.\n */",
+    "// The mocked session and library version have to be readable from inside `vi.mock` factories, which run",
+    "// before this file's own statements, so the two knobs live in a hoisted object.",
+    "// The cache key is the folder plus this version, so a test that wants a fresh listing bumps it the way a",
+    "// reader editing a note would.",
+    "// The name rule is the one the real module owns; the facade only sees what it returns.",
+    "// The facade is what `CodeEditor` may import statically; it must resolve to the same answers while",
+    "// loading the glue only when a list is actually asked for.",
+  ]],
+  ["src/client/features/templater/completion-surface.ts", [
+    "/**\n * The reader's own scripts, as far as a keystroke inside an editor can see them.\n *\n * `editor/templater-completion.ts` may not reach a store — the editor half is below the feature half — so it\n * asks for two questions instead of a table, and this file answers them: which names the script folder holds,\n * and which members one of those names exports. Both are read **without running anything**: the listing is a\n * folder query and the members come out of `host/user-script-scan.ts`, which reads a body as text.\n *\n * The cache is keyed off the folder and the library version, so a script edited between two keystrokes is\n * re-read on the next one and a folder nobody touched costs one listing however many times the reader pauses\n * inside `tp.user.`.\n */",
+    "/** `folderId:libraryVersion`, which is the only thing the two answers below depend on. */",
+  ]],
   ["src/client/features/templater/creation-trigger.test.ts", [
     "/** What the stand-in run shell was asked to apply, and what the stand-in server handed back. */",
     "/** Create a note the way the app does, and let the trigger's async work land. */",
@@ -11175,6 +11205,9 @@ const allowed = new Map([
     "/**\n * One startup template, run for its effects and never for its text.\n *\n * The `startup` mode discards what the template produced (`host/write.ts` has no subject to write into), so\n * this answers with the run's own code instead of a toast: a batch is reported by `host/startup.ts`'s caller,\n * once per template that failed, with the name the reader gave it beside the reason. Silence on success is\n * deliberate — a note the reader did not ask to open, with a notice about it, is a worse morning than a\n * template that quietly did its work.\n */",
     "/**\n * Apply a template to a note that was just created, replacing what it holds.\n *\n * This is the file-creation trigger's write: the reader made the note, the rule named the template, and\n * `overwrite-file` is the mode that means \"this note's content is the template's output\" — matching upstream,\n * which runs the trigger over the new file rather than appending to it. No confirmation is asked: the rule\n * was set deliberately in the settings screen, and a dialog on every new note is why upstream's own trigger\n * is off by default. Carets are not requested either — the reader is looking at a note that was not the\n * point of this run.\n */",
     "/**\n * The reader's own scripts, for one run.\n *\n * Asked per run rather than once per session, because a script is a note and notes are edited; the provider\n * built here is that run's cache, which is the unit of validity `host/user-scripts.ts` explains. Two answers\n * cost no store read at all: a profile that was never given the right, and a reader who has not chosen a\n * script folder — which is everyone, until they set one.\n */",
+  ]],
+  ["src/client/features/templater/script-completion.ts", [
+    "/**\n * The `tp.user` completion source, without dragging the sandbox into the first screen.\n *\n * The note editor is in the entry chunk, and answering \"which scripts does this reader have\" needs the page\n * host's store port and the export scanner — several hundred kilobytes of Templater that a reader who never\n * types `tp.user.` should not download. So this is the only piece of the completion path the editor may import\n * statically: it holds two closures, and the real work arrives on the first keystroke that asks for a list.\n *\n * `tests/templater-offline-footprint.test.ts` is what would notice if this indirection were removed, because\n * the sandbox's modules would then join the entry graph.\n */",
   ]],
   ["src/client/features/templater/startup-bridge.test.ts", [
     "/** What the stand-in run shell was asked to run, in order. */",

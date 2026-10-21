@@ -7947,6 +7947,8 @@ console.log(\`Hello, \${name}!\`)
     "templater.notice.output_discarded": "启动时运行的模板不写入内容，它的输出已被丢弃",
     "templater.group": "模板引擎",
     "templater.editor.check_label": "验证并预览",
+    "templater.completion.user_script": "读者自己的脚本",
+    "templater.completion.user_member": "{value0} 的成员",
     "templater.editor.check_not_run": "没有执行任何内容：这里只读取模板。渲染需要输出要写入的那篇笔记。",
     "templater.editor.check_none": "这段正文里没有模板引擎命令。",
     "templater.editor.check_commands_value0": "读出 {value0} 个命令，按运行会取的顺序",
