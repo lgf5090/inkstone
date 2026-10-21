@@ -10704,6 +10704,7 @@ const allowed = new Map([
     "// The two sentinels are not labels anybody chose, so they keep the accent rather than being",
     "// hashed into a colour that would read as a decision about them.",
     "/**\n * Where the money's numbers came from.\n *\n * Every total above is one currency's sum of converted amounts, so the screen owes the reader three\n * facts: which currency it added up in, whose rates it used and how old they are, and which of the\n * account's own currencies had no rate at all and so sit in none of those totals. A reader who asks \"is\n * this live?\" has to be answerable by looking, not by reading the code.\n */",
+    "/* Listed beside the shares rather than folded into them: a ceiling on a category that spends\n              little is exactly the one a reader wants to see, and it would never reach the top five. */",
   ]],
   ["src/client/features/subscriptions/PaymentDialog.tsx", [
     "/**\n * Correcting one receipt.\n *\n * Only the four fields a receipt actually carries are editable. The period it bought is not one of them:\n * moving a receipt's dates would silently move the subscription's expiry with it, and a reader fixing a\n * typo in an amount should not have to reason about that.\n */",
@@ -10766,6 +10767,8 @@ const allowed = new Map([
     "// The calendar link carries the same token: a calendar client polls a URL and sends no header anybody",
     "// could ask it to keep the secret out of the address bar of its own logs.",
     "/* The year is its own ceiling because an annual plan spends twelve months of cost in one\n                month, and a reader who set only the monthly number is told they overspent on the day they\n                bought the thing that makes their other months cheap. */",
+    "/**\n   * Send the ceilings as one map, for the same reason the pins are sent that way: the boxes are the map.\n   *\n   * A blank box is a ceiling the reader gave up on, which has to be absent from what goes out rather than\n   * sent as zero — zero would come back as a ceiling nobody can spend under.\n   */",
+    "/* A ceiling on a category is the question about a pile rather than about one plan: the dashboard\n              already splits the year by category, and this is where a reader says what each pile may cost. */",
   ]],
   ["src/client/features/subscriptions/SubscriptionsApp.tsx", [
     "/**\n * The subscription app: the frame the rail, the list, the dashboard and the detail panel share.\n *\n * It owns nothing but the wiring — every rule lives in the store or in a component — and it owns the\n * responsive decision the other containers make too: three panes when there is room, one pane and a\n * drawer when there is not. Loading is on mount rather than at boot, so a reader who never opens this\n * tab does not pay for a library they will not look at.\n */",
@@ -10789,6 +10792,8 @@ const allowed = new Map([
     "// from the list must be able to be renewed from a card — two definitions would drift by the next button",
     "// anybody adds.",
     "/* Ordering and shape belong to the rows, so neither control exists where there are none: the\n            dashboard, the logs and the trash each have their own arrangement already. */",
+    "// The registry alone, not the suggestions: a ceiling on a built-in category nobody has filed a plan",
+    "// under would be a row that reports zero forever.",
   ]],
   ["src/client/features/subscriptions/TrashView.tsx", [
     "/**\n * The trash: what was deleted, and the two ways to deal with it.\n *\n * A separate view rather than another mode of the subscription list, because the list's whole organising\n * idea is *when does this expire* — the buckets, the countdown colour, the renew shortcut — and none of\n * that means anything for a row nobody is being reminded about. A trashed subscription is sorted by when\n * it was discarded and offers exactly two actions: put it back, or make it gone.\n *\n * Nothing else lives here. Editing, renewing or testing a trashed subscription would all have to decide\n * what happens when it is restored afterwards, and a trash that can be quietly modified is a trash whose\n * contents cannot be trusted.\n */",
@@ -19500,6 +19505,7 @@ const allowed = new Map([
     "/**\n * A calendar year's receipts against the ceiling the reader set for the year.\n *\n * The monthly ceiling cannot answer this question: an annual plan charges once, lands entirely in one\n * month, and makes that month look reckless while the year it covers is exactly on plan.\n *\n * `monthsLeft` counts the current month as still to run, because its receipts are not all in. The money\n * left over is spread across those months rather than divided by twelve: a reader who set the ceiling in\n * November is not being asked to have spent ten months of it already.\n */",
     "// Normalised rather than echoed: a ceiling of zero is not a ceiling, and a dashboard that printed",
     "// \"/ 0\" beside a number it does not enforce would be showing a limit it does not apply.",
+    "/**\n * The categories the reader capped, each with what its year has cost.\n *\n * A cap on a category nobody spent in this year is still said, at zero: the reader asked whether the\n * ceiling is holding, and silence would read as \"nothing to report\" either way.\n */",
   ]],
   ["src/shared/subscriptions/format.ts", [
     "/**\n * Display arithmetic that has one right answer, kept out of the components.\n *\n * Nothing here holds copy. A unit's name, a countdown's sentence and a status pill's word are interface\n * strings and belong to the locale catalogs; what this module decides is the *shape* — which symbol a\n * currency wears, which of three countdown states a number of days means, how much of a billing period\n * has elapsed. That split is what lets the same rules be tested without a language.\n */",
@@ -19625,6 +19631,11 @@ const allowed = new Map([
     "/** Money actually paid, in the currency it was paid in. */",
     "/**\n   * What a year of them is allowed to cost, counted against this calendar year's receipts.\n   *\n   * A separate number rather than twelve times the monthly one, because the plans that bite once a year\n   * — the ¥360 office suite, the annual domain — land in one month and make a monthly ceiling useless for\n   * them. Null means the reader set no ceiling for the year.\n   */",
     "/**\n   * The same question asked of the whole year, and the number that makes a yearly ceiling actionable.\n   *\n   * `monthsLeft` counts this month as still to run — in October it is three, not two — because October's\n   * receipts are not all in yet. `perMonthLeft` is what those months could each spend and still land on\n   * the ceiling; null means there is no ceiling to work towards, or it is already spent.\n   */",
+    "/**\n   * What one category of plans is allowed to cost across this calendar year, by the name the reader gave it.\n   *\n   * The year rather than the month, because that is the period the dashboard already breaks spending up by\n   * — a monthly share of a category would be a second number the reader has to reconcile against the first.\n   */",
+    "/** A ceiling per category name, as the account spelled it. */",
+    "/** One category's year against the ceiling the reader gave it. */",
+    "/**\n * The ceilings an account set for its own categories.\n *\n * Keys stay the names as the registry spells them, so renaming a category leaves its ceiling unmatched\n * rather than quietly moved onto the new name. A blank name or an unreadable number is dropped: a ceiling\n * the app cannot enforce would still be printed beside the spending, and a number that means nothing is\n * worse than no number.\n */",
+    "/** The categories the reader capped, each with where its year stands against that cap. */",
   ]],
   ["src/shared/subscriptions/notify-copy.ts", [
     "/**\n * Which catalog a notification body is written from, and the two helpers that assemble one.\n *\n * The language is the account's, stored on its settings row: the scheduler runs on a cron tick with no\n * request behind it, so there is nobody to ask. `fill` is deliberately smaller than the interface's\n * formatter — two placeholders and no plural rules, because the only number these sentences carry is a\n * day count and both languages write that the same way.\n */",
@@ -21724,6 +21735,11 @@ const allowed = new Map([
     "// The year gets its own sentence because a monthly ceiling cannot answer a yearly question: an",
     "// annual plan blows through the month it charges in and is exactly on plan for the year.",
     "/**\n * What the settings look like to the model, in the words the reader would use back.\n *\n * The inbound token hint is left out on purpose: it is a fragment of a credential, and a tool result\n * travels to the model provider with the rest of the turn. Each ceiling carries a sentence for its own\n * absence, because \"no ceiling\" is an answer the account gave and not a field the tool forgot.\n */",
+    "// The categories the reader capped, each with its year so far — including the ones that have spent",
+    "// nothing, which is the answer to \"is the cap holding\".",
+    "// A ceiling is stated one category at a time in a conversation — \"and keep video under six hundred",
+    "// this year\" — so the names given are merged into what the account already capped. Only",
+    "// `clearCategoryBudgets` answers \"drop them all\", which a merge cannot express.",
   ]],
   ["src/worker/assistant/upstream.ts", [
     "/** A JSON Schema object, built by `toolSchemaFor` from the tool's own declared parameters. */",
@@ -22438,6 +22454,10 @@ const allowed = new Map([
     "// A monthly ceiling cannot carry this question: an annual plan charges once, lands entirely in one",
     "// month, and makes that month read as reckless while the year it pays for is on plan. NULL is \"no",
     "// ceiling\", which stays a different state from a ceiling of zero.",
+    "// What a year of one category is allowed to cost, as a map of the reader's own names to numbers.",
+    "// A JSON cell rather than a table: these are a handful of numbers read and written as one bundle, never",
+    "// queried one at a time, and a table would buy a join for nothing. Names are the key because that is",
+    "// how the reader chose them and how the dashboard already groups the spending.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -23713,6 +23733,8 @@ const allowed = new Map([
     "// really CNY while the setting names another currency. Said here rather than hidden there.",
     "// Hoisted for the same reason as the month: the yearly headline and the yearly ceiling are read by the",
     "// reader as one statement about one year.",
+    "// The category shares are read twice — once for the card, once for the ceilings the reader set against",
+    "// them — and a second pass would be a second answer to the same question.",
   ]],
   ["src/worker/subscriptions/scheduler.ts", [
     "/**\n * The hourly sweep: who is due, who has already been told, and what actually went out.\n *\n * It runs on every cron fire rather than once an hour, because this deployment fires at :00, :15 and\n * :45 and a reminder that waits for the next hour is a reminder that arrives up to forty-five minutes\n * late. Repeating the sweep is safe for one reason only: a delivery is recorded against the reader's own\n * local hour before it is sent, so the second and third fires of an hour find it already claimed and do\n * nothing. That claim is also what gives an \"every N hours after expiry\" rule its interval — the last\n * claim is the last delivery, and a rule that asked for twelve hours is not due after one.\n *\n * Each account is swept inside its own try, so one broken configuration cannot stop the others, and the\n * per-account log row is written even when the sweep throws: a reader whose reminders stopped needs to\n * find a line saying why.\n */",
@@ -23747,6 +23769,10 @@ const allowed = new Map([
     "// Text that is not a list is a window nobody set, which is the same answer as an empty one: every hour",
     "// stays open rather than the reader's reminders falling silent over one corrupt cell.",
     "/**\n * A ceiling as the account meant it, or null when they meant none.\n *\n * Absent keeps what was already stored; blank, zero and nonsense all mean no ceiling. Two ceilings — the\n * month's and the year's — are asked the same question, so they are read the same way.\n */",
+    "/** The same rule for the ceilings: a cell that cannot be read is a reader who set none. */",
+    "// The ceilings are sent as a whole map, the way the pins are: the editor shows every one of them, so a",
+    "// save that left a name out is the reader removing it rather than forgetting it. A name that cannot be a",
+    "// category, or a number that cannot be a price, is refused rather than dropped on the floor.",
   ]],
   ["src/worker/subscriptions/store.ts", [
     "/**\n * Everything the subscription app writes, and the rules it writes by.\n *\n * The reference project kept this in three files: a repository that shuttled JSON through KV, a\n * business layer that knew when an expiry date should move, and handlers that glued the two together.\n * With a real database the repository has nothing left to do — the business layer *is* the data layer,\n * because \"advance the expiry date and write the receipt that explains it\" has to be one transaction\n * rather than two calls that can disagree.\n *\n * Two invariants run through every method here:\n *  - a row is only ever read or written under its own `user_id`, so a guessed id is a 404 rather than\n *    somebody else's subscription;\n *  - a payment record and the expiry date it bought are written together, because a receipt without\n *    its period (or a period without its receipt) is what makes a history untrustworthy.\n */",
@@ -25023,6 +25049,8 @@ const allowed = new Map([
     "// One charge: the dollar plan, then the ¥360 year, then the ¥150 month.",
     "// A word the toolbar does not offer is refused with the list of what it does, not quietly read as",
     "// \"expiry\": a model that guesses can correct itself, and one that is agreed with cannot.",
+    "// Nothing in this account is filed under those names, so the dashboard still lists all three ceilings",
+    "// and says each has spent nothing — which is the answer to \"is the cap holding\".",
   ]],
   ["tests/assistant-tag-search-shape.test.ts", [
     "/**\n * A pinned `#tag` has to narrow the keyword half of a note search, not empty it.\n *\n * A turn's scope keeps tags as *ids* — the shape the folder pins and the permission check use — while the\n * retriever filters both of its lists by tag *name*: the keyword half turns `tags` into `tag:\"…\"` terms,\n * and both halves then run the app's one tag-subtree rule (`tagScopePredicate()`, which `semanticWhere` in\n * `mcp/ai-search.ts` calls for the vector list too). Handing the ids over was therefore a filter no note\n * can satisfy: a reader pinning `#meeting` got a keyword half that was always empty, and on an index that\n * is switched on the only hits left came from the vector list, which is the \"it matched but nothing says\n * why\" answer.\n *\n * The vector half is switched off in every case below, so any hit at all can only have come from keywords.\n */",
@@ -26962,6 +26990,7 @@ const allowed = new Map([
     "// a file that should never have held the key in the first place.",
     "/**\n   * The settings row is a dump of columns, so the fields the database stores as text arrive as text.\n   *\n   * Read straight, a window written as `[\"08\",\"20\"]` splits on its own commas and comes back as two hour\n   * names that match nothing — which silences every reminder after a restore, the one thing a reader has\n   * no way to see. The pinned rates are the same shape one field over, so both are named here.\n   */",
     "/**\n   * A column the writer forgot comes back as null, which reads exactly like the reader had never set a\n   * budget — so the round trip is checked with the account's own numbers rather than with the export.\n   */",
+    "// A map cell travels as text and comes back as a map, the same way the notification window does.",
   ]],
   ["tests/subscriptions-calendar.test.ts", [
     "/**\n * The calendar a reader pastes into a calendar app.\n *\n * Two things are worth holding still here. The file has to parse in a client nobody in this repository\n * controls, which means the format's own rules — CRLF, escaped text, folded lines — are features rather\n * than pedantry; and the link carries a token, so what it hands out has to stop at the plan's name,\n * price and date. A note is the one field a reader may have used for anything.\n */",
@@ -27001,6 +27030,7 @@ const allowed = new Map([
     "/**\n * The points a single plan's price curve connects.\n *\n * A line is a claim about continuity, so everything that breaks the continuity is left out rather than\n * drawn: another currency (two units, one line), a zero charge (a trial is the absence of a price, not a\n * price of nothing), and the oldest charges once the plot is full.\n */",
     "// Half past midnight on the first of June in Shanghai is still the 31st of May in UTC, and the",
     "// reader is the one whose year is running out.",
+    "/**\n * The ceilings a reader names for their own categories, and the year each one is measured against.\n *\n * Two separate promises: what goes into the account's settings is only what the app can enforce with, and\n * what comes out of the dashboard lists every ceiling — including the one whose category has spent nothing.\n */",
   ]],
   ["tests/subscriptions-identity.test.ts", [
     "/**\n * The rules that decide what a label looks like, and the split that decides what a label is.\n *\n * Both are pure and both are load-bearing in ways a route test cannot see: the split is what the rail,\n * the aggregate and the registry must agree on, and the tier order is what makes a reader's own choice\n * outrank a default without the default having to be written down first.\n */",
@@ -27072,6 +27102,8 @@ const allowed = new Map([
     "// A row that already exists is written by the update clause, not by the insert values — and a column",
     "// left out of that clause keeps whatever the first save put in it, quietly, forever.",
     "// One ceiling named in a save must not be read as the other one being given up.",
+    "// A second save is the map again rather than a merge: leaving a name out is the reader removing its ceiling.",
+    "// The account keeps what it had rather than half-adopting what did not land.",
   ]],
   ["tests/subscriptions-scheduler.test.ts", [
     "/* The one binding a double cannot describe structurally: only `idFromName`/`get` are ever reached here. */",

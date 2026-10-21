@@ -12,7 +12,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { SubscriptionOverview } from '@shared/subscriptions/model'
 import { formatAmount } from '@shared/subscriptions/format'
-import { initI18n } from '../../lib/i18n'
+import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { OverviewView } from './OverviewView'
 import { useSubscriptions } from './store'
@@ -35,6 +35,7 @@ function overview(overrides: Partial<SubscriptionOverview> = {}): SubscriptionOv
     history: [],
     budget: { limit: 200, amount: 300, over: true },
     yearlyBudget: { limit: null, amount: 720, over: false, monthsLeft: 3, perMonthLeft: null },
+    categoryBudgets: [],
     committedYearly: 3600,
     trials: [],
     priceChanges: [],
@@ -162,5 +163,31 @@ describe('the yearly card', () => {
     mountChart()
     expect(words()).not.toContain('a month until year end')
     expect(words()).not.toContain('Over the yearly budget')
+  })
+})
+
+describe('the category ceilings', () => {
+  const rows = () => [...document.querySelectorAll<HTMLElement>('[data-category-ceilings] > li')]
+  const words = () => (document.body.textContent || '').replace(/\s+/g, ' ')
+
+  it('lists every ceiling the account set, with what the year has spent against it', () => {
+    mountChart({
+      categoryBudgets: [
+        { label: 'family', limit: 500, amount: 600, over: true },
+        { label: 'books', limit: 100, amount: 0, over: false },
+      ],
+    })
+    const found = rows()
+    expect(found).toHaveLength(2)
+    expect(words()).toContain(t('subscriptions.overview.category_ceilings'))
+    expect(found[0]!.textContent).toBe(`family${formatAmount(600, 'CNY')} / ${formatAmount(500, 'CNY')}`)
+    expect(found[0]!.querySelector('span:last-child')!.className).toContain('danger')
+    expect(found[1]!.querySelector('span:last-child')!.className).not.toContain('danger')
+  })
+
+  it('draws nothing about ceilings when the account set none', () => {
+    mountChart()
+    expect(rows()).toHaveLength(0)
+    expect(words()).not.toContain(t('subscriptions.overview.category_ceilings'))
   })
 })

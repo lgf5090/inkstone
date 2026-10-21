@@ -16,6 +16,7 @@ import {
   applyRateOverrides,
   calculateMonthlyExpense,
   calculateYearlyExpense,
+  categoryBudgetsOf,
   expenseByMonth,
   findPriceChanges,
   getExpenseByCategory,
@@ -142,6 +143,9 @@ export async function buildOverview(
   // Hoisted for the same reason as the month: the yearly headline and the yearly ceiling are read by the
   // reader as one statement about one year.
   const yearly = calculateYearlyExpense(samples, settings.timezone, rates, at)
+  // The category shares are read twice — once for the card, once for the ceilings the reader set against
+  // them — and a second pass would be a second answer to the same question.
+  const byCategory = getExpenseByCategory(items, samples, settings.timezone, rates, at)
 
   return {
     monthly,
@@ -154,7 +158,8 @@ export async function buildOverview(
     recentPayments: getRecentPayments(items, samples, settings.timezone, at),
     upcoming: getUpcomingRenewals(items, settings.timezone, at),
     byType: getExpenseByType(items, samples, settings.timezone, rates, at),
-    byCategory: getExpenseByCategory(items, samples, settings.timezone, rates, at),
+    byCategory,
+    categoryBudgets: categoryBudgetsOf(byCategory, settings.budgetCategories),
     months: expenseByMonth(samples, settings.timezone, rates, at),
     timezone: settings.timezone,
     scheduler: history[0] ?? null,

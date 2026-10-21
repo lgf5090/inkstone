@@ -85,6 +85,8 @@ function fail(error: unknown): never {
   if (message === 'lunar_out_of_range') throw ApiError.badRequest('That lunar date is outside 1900-2100')
   if (message === 'invalid_timezone') throw ApiError.badRequest('That time zone is not recognised')
   if (message === 'invalid_base_currency') throw ApiError.badRequest('That currency is not supported')
+  if (message === 'invalid_category_budgets') throw ApiError.badRequest('The category budgets are a list of names and numbers')
+  if (message.startsWith('invalid_category_budget:')) throw ApiError.badRequest(`The budget for "${message.slice(24)}" is not an amount above zero`)
   throw error
 }
 

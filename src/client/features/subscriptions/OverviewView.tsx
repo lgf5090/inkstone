@@ -316,6 +316,30 @@ export function OverviewView({
             emptyLabel={t('subscriptions.overview.no_spending')}
             currency={currency}
           />
+          {/* Listed beside the shares rather than folded into them: a ceiling on a category that spends
+              little is exactly the one a reader wants to see, and it would never reach the top five. */}
+          {overview.categoryBudgets.length > 0 && (
+            <div className="mt-2.5 border-t border-[var(--border-subtle)] pt-2">
+              <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                {t('subscriptions.overview.category_ceilings')}
+              </p>
+              <ul className="mt-1 space-y-1" data-category-ceilings="">
+                {overview.categoryBudgets.map((budget) => (
+                  <li key={budget.label} className="flex items-baseline justify-between gap-2">
+                    <span className="min-w-0 truncate text-[length:var(--text-11-5)] text-[var(--text-secondary)]">{budget.label}</span>
+                    <span
+                      className={cn(
+                        'shrink-0 text-[length:var(--text-11-5)] tabular-nums',
+                        budget.over ? 'text-[var(--danger)]' : 'text-[var(--text-quaternary)]',
+                      )}
+                    >
+                      {formatAmount(budget.amount, currency)} / {formatAmount(budget.limit, currency)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </Card>
 
         <Card>

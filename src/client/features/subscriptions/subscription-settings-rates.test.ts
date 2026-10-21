@@ -30,6 +30,7 @@ const boxFor = (code: string): HTMLInputElement | undefined =>
 async function show(options: {
   settings?: Partial<SubscriptionSettings>
   currencies?: string[]
+  categories?: string[]
   onSaveSettings?: (patch: Record<string, unknown>) => Promise<boolean>
 } = {}): Promise<void> {
   const value = { ...DEFAULT_SETTINGS, ...options.settings }
@@ -38,6 +39,7 @@ async function show(options: {
       settings: value,
       channels: NO_CHANNELS,
       currencies: options.currencies ?? [],
+      categories: options.categories ?? [],
       onClose: () => {},
       onSaveSettings: options.onSaveSettings ?? (async () => true),
       onSaveChannel: async () => true,
@@ -153,5 +155,71 @@ describe('the rate boxes', () => {
     expect(usd.textContent).toContain('6.98')
     expect(sgd.textContent).toContain(t('subscriptions.settings.rate_no_fallback'))
     expect(sgd.textContent).not.toContain('6.98')
+  })
+})
+
+describe('the category ceilings', () => {
+  const ceilingRows = () => [...document.querySelectorAll<HTMLElement>('[data-category-budget-boxes] > *')]
+  const ceilingBoxFor = (name: string): HTMLInputElement | undefined =>
+    ceilingRows().find((row) => rowText(row).includes(name))?.querySelector('input[type="number"]') ?? undefined
+
+  async function chooseCategory(name: string): Promise<void> {
+    const label = [...document.querySelectorAll<HTMLLabelElement>('label')]
+      .find((node) => (node.textContent ?? '').includes(t('subscriptions.settings.category_budget_add')))
+    const select = label?.htmlFor ? document.getElementById(label.htmlFor) as HTMLSelectElement | null : null
+    expect(select, 'the add-a-category list is not rendered').toBeTruthy()
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!
+    await act(async () => {
+      setter.call(select, name)
+      select!.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+  }
+
+  const buttonNamed = (name: string) => [...document.querySelectorAll<HTMLButtonElement>('button')]
+    .find((button) => button.textContent?.includes(name))
+
+  it('draws one box per ceiling the account carries', async () => {
+    await show({ categories: ['family', 'travel'], settings: { budgetCategories: { family: 500 } } })
+    expect(ceilingRows()).toHaveLength(1)
+    expect(ceilingBoxFor('family')!.value).toBe('500')
+  })
+
+  it('sends the whole map, and reads a blank box as a ceiling given up', async () => {
+    const onSaveSettings = vi.fn(async () => true)
+    await show({
+      categories: ['family', 'travel'],
+      settings: { budgetCategories: { family: 500, travel: 100 } },
+      onSaveSettings,
+    })
+    await typeInto(ceilingBoxFor('travel'), '')
+    expect(onSaveSettings).toHaveBeenLastCalledWith({ budgetCategories: { family: 500 } })
+  })
+
+  it('adds a category from the list and caps it', async () => {
+    const onSaveSettings = vi.fn(async () => true)
+    await show({ categories: ['family', 'travel'], settings: { budgetCategories: { family: 500 } }, onSaveSettings })
+    await chooseCategory('travel')
+    expect(ceilingBoxFor('travel'), 'choosing a category drew no box').toBeTruthy()
+    await typeInto(ceilingBoxFor('travel'), '300')
+    expect(onSaveSettings).toHaveBeenLastCalledWith({ budgetCategories: { family: 500, travel: 300 } })
+  })
+
+  it('clears every ceiling, and offers no button when there is nothing to clear', async () => {
+    const onSaveSettings = vi.fn(async () => true)
+    await show({ categories: ['family'], settings: { budgetCategories: { family: 500 } }, onSaveSettings })
+    const clear = buttonNamed(t('subscriptions.settings.category_budgets_clear'))
+    expect(clear, 'a capped account offers no way back to uncapped').toBeTruthy()
+    await act(async () => { clear!.click() })
+    expect(onSaveSettings).toHaveBeenLastCalledWith({ budgetCategories: {} })
+
+    await show({ categories: ['family'], settings: { budgetCategories: {} } })
+    expect(buttonNamed(t('subscriptions.settings.category_budgets_clear'))).toBeUndefined()
+  })
+
+  it('explains an empty category list instead of offering a select with nothing in it', async () => {
+    await show({ categories: [] })
+    expect(document.body.textContent ?? '').toContain(t('subscriptions.settings.category_budgets_none'))
+    expect([...document.querySelectorAll<HTMLSelectElement>('select')]
+      .some((node) => (node.textContent ?? '').includes(t('subscriptions.settings.category_budget_add_placeholder')))).toBe(false)
   })
 })

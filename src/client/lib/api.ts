@@ -338,6 +338,7 @@ export interface SettingsPatch {
   baseCurrency?: CurrencyCode
   budgetMonthly?: number | null
   budgetYearly?: number | null
+  budgetCategories?: Record<string, number>
   rateOverrides?: Record<string, number>
 }
 

@@ -58,6 +58,7 @@ export function SubscriptionsApp(): ReactElement {
   const trashCount = useSubscriptions((state) => state.trashCount)
   const settings = useSubscriptions((state) => state.settings)
   const channels = useSubscriptions((state) => state.channels)
+  const categoryEntries = useSubscriptions((state) => state.categories)
   const overview = useSubscriptions((state) => state.overview)
   const view = useSubscriptions((state) => state.view)
   const filter = useSubscriptions((state) => state.filter)
@@ -87,6 +88,9 @@ export function SubscriptionsApp(): ReactElement {
   const [selectMode, setSelectMode] = useState(false)
   const typeSuggestions = useLabelSuggestions('type')
   const categorySuggestions = useLabelSuggestions('category')
+  // The registry alone, not the suggestions: a ceiling on a built-in category nobody has filed a plan
+  // under would be a row that reports zero forever.
+  const categoryNames = useMemo(() => categoryEntries.map((entry) => entry.name), [categoryEntries])
 
   useEffect(() => {
     void useSubscriptions.getState().load()
@@ -504,6 +508,7 @@ export function SubscriptionsApp(): ReactElement {
             settings={settings}
             channels={channels}
             currencies={items.map((item) => item.currency)}
+            categories={categoryNames}
             onClose={() => setSettingsOpen(false)}
             onSaveSettings={(patch) => useSubscriptions.getState().saveSettings(patch)}
             onSaveChannel={(kind, input) => useSubscriptions.getState().saveChannel(kind, input)}

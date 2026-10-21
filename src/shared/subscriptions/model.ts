@@ -286,6 +286,13 @@ export interface SubscriptionSettings {
    */
   budgetYearly: number | null
   /**
+   * What one category of plans is allowed to cost across this calendar year, by the name the reader gave it.
+   *
+   * The year rather than the month, because that is the period the dashboard already breaks spending up by
+   * — a monthly share of a category would be a second number the reader has to reconcile against the first.
+   */
+  budgetCategories: CategoryBudgets
+  /**
    * Rates the reader pinned, as `1 unit of the currency = N CNY`, used wherever the app converts.
    *
    * Anchored on CNY because that is the direction the feed is asked in and the direction the built-in
@@ -329,6 +336,38 @@ export function isRateValue(value: unknown): value is number {
 export function roundRate(value: number): number {
   const factor = 10 ** RATE_DECIMALS
   return Math.round(value * factor) / factor
+}
+
+/** A ceiling per category name, as the account spelled it. */
+export type CategoryBudgets = Readonly<Record<string, number>>
+
+/** One category's year against the ceiling the reader gave it. */
+export interface CategoryBudget {
+  label: string
+  limit: number
+  amount: number
+  over: boolean
+}
+
+/**
+ * The ceilings an account set for its own categories.
+ *
+ * Keys stay the names as the registry spells them, so renaming a category leaves its ceiling unmatched
+ * rather than quietly moved onto the new name. A blank name or an unreadable number is dropped: a ceiling
+ * the app cannot enforce would still be printed beside the spending, and a number that means nothing is
+ * worse than no number.
+ */
+export function normalizeBudgetCategories(input: unknown): CategoryBudgets {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return {}
+  const out: Record<string, number> = {}
+  for (const [name, value] of Object.entries(input as Record<string, unknown>)) {
+    const label = name.trim()
+    if (!label || label.length > LABEL_MAX) continue
+    const numeric = Number(value)
+    if (!Number.isFinite(numeric) || numeric <= 0) continue
+    out[label] = Math.round(numeric * 100) / 100
+  }
+  return out
 }
 
 /** One channel as the settings screen sees it: whether it may send, never what it holds. */
@@ -427,6 +466,8 @@ export interface SubscriptionOverview {
    * the ceiling; null means there is no ceiling to work towards, or it is already spent.
    */
   yearlyBudget: { limit: number | null; amount: number; over: boolean; monthsLeft: number; perMonthLeft: number | null }
+  /** The categories the reader capped, each with where its year stands against that cap. */
+  categoryBudgets: CategoryBudget[]
   /** What the current plans would cost across a full year if nothing were cancelled. */
   committedYearly: number
   /** Trials still running, soonest first — the ones that turn into a charge. */
@@ -694,6 +735,7 @@ export const DEFAULT_SETTINGS: SubscriptionSettings = {
   baseCurrency: 'CNY',
   budgetMonthly: null,
   budgetYearly: null,
+  budgetCategories: {},
   rateOverrides: {},
   inboundTokenHint: '',
 }

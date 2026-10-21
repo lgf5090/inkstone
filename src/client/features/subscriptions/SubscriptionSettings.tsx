@@ -45,6 +45,7 @@ export function SubscriptionSettings({
   settings,
   channels,
   currencies,
+  categories,
   onClose,
   onSaveSettings,
   onSaveChannel,
@@ -56,6 +57,7 @@ export function SubscriptionSettings({
   settings: SubscriptionSettings
   channels: readonly ChannelState[]
   currencies: readonly string[]
+  categories: readonly string[]
   onClose: () => void
   onSaveSettings: (patch: Record<string, unknown>) => Promise<boolean>
   onSaveChannel: (kind: ChannelKind, input: { enabled?: boolean; config: Record<string, unknown> }) => Promise<boolean>
@@ -70,6 +72,8 @@ export function SubscriptionSettings({
   // seven, and a box they cleared has asked for the feed back.
   const [rates, setRates] = useState<Record<string, string>>(() =>
     Object.fromEntries(Object.entries(settings.rateOverrides).map(([code, value]) => [code, String(value)])))
+  const [budgets, setBudgets] = useState<Record<string, string>>(() =>
+    Object.fromEntries(Object.entries(settings.budgetCategories).map(([name, value]) => [name, String(value)])))
   const [token, setToken] = useState<string | null>(null)
   // Built once: the address the copy button puts on the clipboard and the line that shows it to the reader
   // must not be two strings that can drift.
@@ -94,6 +98,23 @@ export function SubscriptionSettings({
       if (Number.isFinite(numeric) && numeric > 0) patch[code] = numeric
     }
     await onSaveSettings({ rateOverrides: patch })
+  }
+
+  /**
+   * Send the ceilings as one map, for the same reason the pins are sent that way: the boxes are the map.
+   *
+   * A blank box is a ceiling the reader gave up on, which has to be absent from what goes out rather than
+   * sent as zero — zero would come back as a ceiling nobody can spend under.
+   */
+  const saveBudgets = async (next: Record<string, string>): Promise<void> => {
+    const ceilings: Record<string, number> = {}
+    for (const [name, text] of Object.entries(next)) {
+      const trimmed = text.trim()
+      if (!trimmed) continue
+      const numeric = Number(trimmed)
+      if (Number.isFinite(numeric) && numeric > 0) ceilings[name] = numeric
+    }
+    await onSaveSettings({ budgetCategories: ceilings })
   }
 
   const saveGeneral = async (patch: Record<string, unknown>): Promise<void> => {
@@ -232,6 +253,64 @@ export function SubscriptionSettings({
               >
                 {t('subscriptions.settings.rates_clear')}
               </Button>
+            )}
+          </div>
+
+          {/* A ceiling on a category is the question about a pile rather than about one plan: the dashboard
+              already splits the year by category, and this is where a reader says what each pile may cost. */}
+          <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)] px-2.5 py-2">
+            <SectionLabel>{t('subscriptions.settings.category_budgets')}</SectionLabel>
+            <p className="mt-1 text-[length:var(--text-11)] leading-relaxed text-[var(--text-quaternary)]">
+              {t('subscriptions.settings.category_budgets_hint')}
+            </p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2" data-category-budget-boxes="">
+              {Object.keys(budgets).map((name) => (
+                <Field key={name} label={name}>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="any"
+                    inputMode="decimal"
+                    value={budgets[name]}
+                    placeholder={t('subscriptions.settings.budget_placeholder')}
+                    onChange={(event) => setBudgets((current) => ({ ...current, [name]: event.target.value }))}
+                    onBlur={() => void saveBudgets(budgets)}
+                  />
+                </Field>
+              ))}
+            </div>
+            {categories.filter((name) => !(name in budgets)).length > 0 && (
+              <div className="mt-2 w-[160px]">
+                <Field label={t('subscriptions.settings.category_budget_add')}>
+                  <Select
+                    value=""
+                    onChange={(event) => {
+                      const picked = event.target.value
+                      if (picked) setBudgets((current) => ({ ...current, [picked]: '' }))
+                    }}
+                  >
+                    <option value="">{t('subscriptions.settings.category_budget_add_placeholder')}</option>
+                    {categories.filter((name) => !(name in budgets)).map((name) => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+            )}
+            {Object.keys(settings.budgetCategories).length > 0 && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="mt-2"
+                onClick={() => { setBudgets({}); void saveBudgets({}) }}
+              >
+                {t('subscriptions.settings.category_budgets_clear')}
+              </Button>
+            )}
+            {categories.length === 0 && (
+              <p className="mt-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+                {t('subscriptions.settings.category_budgets_none')}
+              </p>
             )}
           </div>
 

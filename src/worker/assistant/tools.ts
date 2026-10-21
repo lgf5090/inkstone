@@ -1545,7 +1545,7 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
     name: 'subscription_summary',
     permission: 'read',
     maxCallsPerTurn: 2,
-    description: 'The account\'s money picture in one call: what this month and this year have cost in the reader\'s total currency, how that compares with last month, the ceiling the reader set for a month and for a year and whether either is spent, what the months left in the year can still afford, what the current plans commit for a year, where the exchange rates came from and which currencies had none, which trials are about to start charging, which plans changed price, what renews in the next week, where the spending goes by type and by category, and whether the reminder scheduler is still running.',
+    description: 'The account\'s money picture in one call: what this month and this year have cost in the reader\'s total currency, how that compares with last month, the ceiling the reader set for a month and for a year and whether either is spent, what the months left in the year can still afford, what the current plans commit for a year, where the exchange rates came from and which currencies had none, which trials are about to start charging, which plans changed price, what renews in the next week, where the spending goes by type and by category and which categories the reader capped and whether those caps still hold, and whether the reminder scheduler is still running.',
     fields: {},
     async run(_args, ctx) {
       const settings = await loadSettings(ctx.env.DB, ctx.store.userId)
@@ -1561,6 +1561,9 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
         // The year gets its own sentence because a monthly ceiling cannot answer a yearly question: an
         // annual plan blows through the month it charges in and is exactly on plan for the year.
         yearlyBudget: overview.yearlyBudget,
+        // The categories the reader capped, each with its year so far — including the ones that have spent
+        // nothing, which is the answer to "is the cap holding".
+        categoryBudgets: overview.categoryBudgets,
         committedYearly: overview.committedYearly,
         // Every amount above was converted from something: which day the rates came from, whether that day
         // was published or merely our own approximation, and which currencies had no rate at all and so sit
@@ -1789,7 +1792,7 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
     name: 'get_subscription_settings',
     permission: 'read',
     maxCallsPerTurn: 2,
-    description: 'How the subscriptions app is configured for this reader: the time zone reminders are judged in, the hours it may send them in, whether dates are shown by the lunar calendar, how many receipts a row carries, the currency the dashboard totals in, the ceilings they set for a month and for a year, and any exchange rate they pinned over the daily feed. Carrying no answer for one of these is a real fact about the account, so name it rather than guessing.',
+    description: 'How the subscriptions app is configured for this reader: the time zone reminders are judged in, the hours it may send them in, whether dates are shown by the lunar calendar, how many receipts a row carries, the currency the dashboard totals in, the ceilings they set for a month, for a year and for any category, and any exchange rate they pinned over the daily feed. Carrying no answer for one of these is a real fact about the account, so name it rather than guessing.',
     fields: {},
     async run(_args, ctx) {
       return presentSettings(await loadSettings(ctx.env.DB, ctx.store.userId))
@@ -1810,6 +1813,13 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
       clearBudget: { type: 'boolean', optional: true, description: 'True removes the monthly ceiling altogether. Leave it out to keep or set one.' },
       budgetYearly: { type: 'number', minimum: 0, maximum: 1e9, optional: true, description: 'What a whole calendar year of these plans may cost, counted against the receipts already in it. A reader who pays for a year at a time needs this rather than twelve times the monthly number.' },
       clearYearlyBudget: { type: 'boolean', optional: true, description: 'True removes the yearly ceiling altogether. Leave it out to keep or set one.' },
+      categoryBudgets: {
+        type: 'string',
+        maxLength: 240,
+        optional: true,
+        description: 'Ceilings for one category of plans across this calendar year, as "streaming:600, music:200". The names are matched as the reader wrote them, so a category nobody has filed a plan under yet is a ceiling that reads zero. Named categories are added to the ceilings already set; "streaming:none" lets one go uncapped again.',
+      },
+      clearCategoryBudgets: { type: 'boolean', optional: true, description: 'True removes every category ceiling, so no part of the year is capped.' },
       rateOverrides: {
         type: 'string',
         maxLength: 160,
@@ -1842,6 +1852,31 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
       else if (args.budgetMonthly !== undefined) patch.budgetMonthly = Number(args.budgetMonthly)
       if (args.clearYearlyBudget === true) patch.budgetYearly = null
       else if (args.budgetYearly !== undefined) patch.budgetYearly = Number(args.budgetYearly)
+      // A ceiling is stated one category at a time in a conversation — "and keep video under six hundred
+      // this year" — so the names given are merged into what the account already capped. Only
+      // `clearCategoryBudgets` answers "drop them all", which a merge cannot express.
+      if (args.clearCategoryBudgets === true) patch.budgetCategories = {}
+      else if (typeof args.categoryBudgets === 'string') {
+        const tokens = args.categoryBudgets.split(',').map((token) => token.trim()).filter(Boolean)
+        if (!tokens.length) throw new ToolError('Name a category to cap, such as "streaming:600", or ask to clear the ceilings.')
+        const ceilings: Record<string, number> = { ...(await loadSettings(ctx.env.DB, ctx.store.userId)).budgetCategories }
+        for (const token of tokens) {
+          const [rawName = '', rawValue] = token.split(/[:=]/)
+          const name = rawName.trim()
+          if (!name) throw new ToolError(`"${token}" names no category. Write <category>:<amount>, such as "streaming:600".`)
+          const value = (rawValue ?? '').trim()
+          if (value.toLowerCase() === 'none') {
+            delete ceilings[name]
+            continue
+          }
+          const numeric = Number(value)
+          if (!Number.isFinite(numeric) || numeric <= 0) {
+            throw new ToolError(`"${token}" is not a ceiling. Write <category>:<amount>, such as "streaming:600", or "streaming:none" to leave it uncapped.`)
+          }
+          ceilings[name] = numeric
+        }
+        patch.budgetCategories = ceilings
+      }
       // A pin is stated one currency at a time in a conversation — "and use 7.2 for the dollar" — so the
       // currencies named are merged into what the account already pinned. Only `clearRates` answers "drop
       // them all", because a merge cannot express that and an empty string would be read as either.
@@ -2306,6 +2341,10 @@ function presentSettings(settings: SubscriptionSettings): Record<string, unknown
     budgetYearly: settings.budgetYearly,
     budgetYearlyNote: settings.budgetYearly === null
       ? 'No yearly ceiling is set, so the dashboard never calls a year over budget.'
+      : undefined,
+    budgetCategories: settings.budgetCategories,
+    categoryBudgetsNote: Object.keys(settings.budgetCategories).length === 0
+      ? 'No category is capped, so the dashboard sets no ceiling on any part of the year.'
       : undefined,
     rateOverrides: settings.rateOverrides,
     ratesNote: Object.keys(settings.rateOverrides).length === 0

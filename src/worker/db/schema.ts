@@ -1921,6 +1921,18 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE sub_settings ADD COLUMN budget_yearly REAL`,
     ],
   },
+  {
+    // What a year of one category is allowed to cost, as a map of the reader's own names to numbers.
+    //
+    // A JSON cell rather than a table: these are a handful of numbers read and written as one bundle, never
+    // queried one at a time, and a table would buy a join for nothing. Names are the key because that is
+    // how the reader chose them and how the dashboard already groups the spending.
+    version: 127,
+    skipIfColumnExists: { table: 'sub_settings', column: 'budget_categories' },
+    statements: [
+      `ALTER TABLE sub_settings ADD COLUMN budget_categories TEXT NOT NULL DEFAULT '{}'`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

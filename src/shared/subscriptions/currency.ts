@@ -10,7 +10,7 @@
  * per-currency amount stays beside each row for the reader who wants it.
  */
 import { MS_PER_DAY, formatLocalDate, getDaysBetween, getNowInTimezone, getTimezoneDateParts } from './time'
-import { labelNamesOf, roundMoney, type CurrencyCode, type ExpenseShare, type MonthExpense, type PriceChange, type RateOverrides, type SubscriptionItem, type TrialEnding, type UpcomingRenewal, type YearSpend } from './model'
+import { labelNamesOf, roundMoney, type CategoryBudget, type CategoryBudgets, type CurrencyCode, type ExpenseShare, type MonthExpense, type PriceChange, type RateOverrides, type SubscriptionItem, type TrialEnding, type UpcomingRenewal, type YearSpend } from './model'
 
 /**
  * `1 unit of the currency = N CNY`, with CNY itself as the base. Used when the rate service is down.
@@ -386,6 +386,27 @@ export function yearlyBudgetOf(
     monthsLeft,
     perMonthLeft: ceiling !== null && left > 0 ? roundMoney(left / monthsLeft) : null,
   }
+}
+
+/**
+ * The categories the reader capped, each with what its year has cost.
+ *
+ * A cap on a category nobody spent in this year is still said, at zero: the reader asked whether the
+ * ceiling is holding, and silence would read as "nothing to report" either way.
+ */
+export function categoryBudgetsOf(
+  shares: readonly ExpenseShare[],
+  limits: CategoryBudgets,
+): CategoryBudget[] {
+  const spent = new Map(shares.map((share) => [share.label, share.amount]))
+  return Object.entries(limits)
+    .map(([label, limit]) => {
+      const amount = spent.get(label) ?? 0
+      return { label, limit, amount, over: amount > limit }
+    })
+    .sort((left, right) => (right.over ? 1 : 0) - (left.over ? 1 : 0)
+      || right.amount - left.amount
+      || (left.label < right.label ? -1 : left.label > right.label ? 1 : 0))
 }
 
 /** How many times a plan charges inside twelve months: a 3-month plan bills four times, an 18-month one twice. */
