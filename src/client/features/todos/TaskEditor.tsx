@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { MessagesSquare, Plus, Sparkles, Star, Trash2, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, MessagesSquare, Plus, Sparkles, Star, Trash2, X } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { Button, IconButton } from '../../components/primitives'
@@ -20,6 +20,7 @@ import { renderMarkdown } from '../../lib/markdown/renderer'
 import { DatePicker } from '../../components/date-picker'
 import { Modal, confirm } from '../../components/overlay'
 import { api } from '../../lib/api'
+import { useUi } from '../../store/ui'
 import { useTodos, remindOffsetOf } from './store'
 import { dueValue } from './todo-ui'
 import { openConversationInChat, startChatAboutTask } from '../chat/start-chat'
@@ -100,6 +101,8 @@ export function TaskEditor() {
   const [tagInput, setTagInput] = useState('')
   const [steps, setSteps] = useState<TaskStep[]>([])
   const [stepInput, setStepInput] = useState('')
+  /** One move at a time: two presses in flight would each resolve against the order before the other. */
+  const [ordering, setOrdering] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -205,6 +208,46 @@ export function TaskEditor() {
     if (!name) return
     setTagNames((current) => (current.some((entry) => entry.toLowerCase() === name.toLowerCase()) ? current : [...current, name]))
     setTagInput('')
+  }
+
+  /**
+   * Moves one step up or down in the panel.
+   *
+   * Buttons rather than a drag, so every row is reachable from the keyboard and the two ends disable
+   * instead of wrapping. A draft has no row to patch yet and moves in the local list it saves with;
+   * an existing task sends the index the step should land on and reads the order back, because the
+   * server resolves that index against the order it currently holds.
+   */
+  const moveStep = async (index: number, delta: -1 | 1): Promise<void> => {
+    const target = index + delta
+    if (ordering || target < 0 || target >= steps.length) return
+    const moving = steps[index]!
+    if (!existing) {
+      setSteps((current) => {
+        const next = [...current]
+        const [step] = next.splice(index, 1)
+        next.splice(target, 0, step!)
+        return next
+      })
+      return
+    }
+    setOrdering(true)
+    try {
+      // The route takes the zero-based landing index; the shared client type still describes the
+      // text/tick patch, so the body is widened here rather than cast at the call.
+      const body: { text?: string; done?: boolean; position?: number } = { position: target }
+      await api.todos.updateStep(existing.id, moving.id, body)
+      const { steps: rows } = await api.todos.get(existing.id)
+      setSteps(rows)
+    } catch (error) {
+      useUi.getState().toast({
+        title: t('todo.toast.failed'),
+        description: error instanceof Error ? error.message : String(error),
+        tone: 'danger',
+      })
+    } finally {
+      setOrdering(false)
+    }
   }
 
   return (
@@ -479,7 +522,7 @@ export function TaskEditor() {
         <div className="flex flex-col gap-1.5">
           <span className="text-[length:var(--text-11)] font-medium text-[var(--text-secondary)]">{t('todo.task.steps_label')}</span>
           {steps.length === 0 && <span className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('todo.task.no_steps')}</span>}
-          {steps.map((step) => (
+          {steps.map((step, index) => (
             <div key={step.id} className="flex items-center gap-2">
               <input
                 type="checkbox"
@@ -493,6 +536,22 @@ export function TaskEditor() {
                 className="size-4 accent-[var(--accent)]"
               />
               <span className={cn('min-w-0 flex-1 truncate text-[length:var(--text-12-5)]', step.done && 'text-[var(--text-tertiary)] line-through')}>{step.text}</span>
+              <IconButton
+                label={t('quickadd.move_step_up')}
+                size="sm"
+                disabled={index === 0 || ordering}
+                onClick={() => { void moveStep(index, -1) }}
+              >
+                <ChevronUp size={12} />
+              </IconButton>
+              <IconButton
+                label={t('quickadd.move_step_down')}
+                size="sm"
+                disabled={index === steps.length - 1 || ordering}
+                onClick={() => { void moveStep(index, 1) }}
+              >
+                <ChevronDown size={12} />
+              </IconButton>
               <IconButton
                 label={t('todo.action.delete')}
                 size="sm"

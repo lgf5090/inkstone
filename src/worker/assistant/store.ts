@@ -4717,6 +4717,73 @@ export class AssistantStore {
     return row ? toTaskStep(row) : null
   }
 
+  /**
+   * Moves one step in its task's order.
+   *
+   * The caller names either the sibling the step should sit before (`null` for the end) or the
+   * zero-based index it should land on; both are resolved against the rows as they stand, so a move
+   * that already matches the order writes nothing. The order itself is fractional: the moved row
+   * takes the midpoint between its new neighbours, and only when that gap is exhausted are the
+   * siblings renumbered to whole thousands — the same scheme folders use, and the reason a reorder
+   * does not rewrite every row on every press.
+   *
+   * Returns null when the step is not this account's: another account's id is a 404, not a 403.
+   */
+  async moveStep(
+    taskId: string,
+    stepId: string,
+    placement: { beforeStepId: string | null } | { position: number },
+  ): Promise<TaskStep | null> {
+    const rows = await this.rows<TaskStepRow>(
+      `SELECT * FROM todos_steps WHERE user_id = ?1 AND task_id = ?2 ORDER BY position ASC, created_at ASC, id ASC`,
+      this.userId, taskId,
+    )
+    const movingAt = rows.findIndex((row) => row.id === stepId)
+    if (movingAt < 0) return null
+    const siblings = rows.filter((row) => row.id !== stepId)
+    let index: number
+    if ('beforeStepId' in placement) {
+      index = placement.beforeStepId === null
+        ? siblings.length
+        : siblings.findIndex((row) => row.id === placement.beforeStepId)
+      if (index < 0) throw ApiError.badRequest('That step is not on this task.')
+    } else {
+      // An index past the end is the end: the caller asked for the last place, not for an error.
+      index = Math.min(Math.max(placement.position, 0), siblings.length)
+    }
+    if (index === movingAt) return toTaskStep(rows[movingAt]!)
+
+    let position = stepInsertionPosition(siblings[index - 1]?.position, siblings[index]?.position)
+    if (position === null) {
+      // The neighbours sit on the same value, or too close for another midpoint. Renumbering to
+      // whole thousands keeps the order the reader is looking at and opens a gap again.
+      for (let at = 0; at < siblings.length; at++) {
+        const sibling = siblings[at]!
+        const next = (at + 1) * 1000
+        if (sibling.position === next) continue
+        const changes = await this.write(
+          `UPDATE todos_steps SET position = ?2 WHERE user_id = ?1 AND task_id = ?3 AND id = ?4`,
+          next, taskId, sibling.id,
+        )
+        if (!changes) throw ApiError.conflict('The step order changed. Try again.')
+        sibling.position = next
+      }
+      position = stepInsertionPosition(siblings[index - 1]?.position, siblings[index]?.position)
+      if (position === null) throw ApiError.conflict('The step order changed. Try again.')
+    }
+
+    const changes = await this.write(
+      `UPDATE todos_steps SET position = ?2 WHERE user_id = ?1 AND task_id = ?3 AND id = ?4`,
+      position, taskId, stepId,
+    )
+    if (!changes) return null
+    const row = await this.one<TaskStepRow>(
+      `SELECT * FROM todos_steps WHERE user_id = ?1 AND task_id = ?2 AND id = ?3`,
+      this.userId, taskId, stepId,
+    )
+    return row ? toTaskStep(row) : null
+  }
+
   async deleteStep(taskId: string, stepId: string): Promise<boolean> {
     const changes = await this.write(
       `DELETE FROM todos_steps WHERE user_id = ?1 AND task_id = ?2 AND id = ?3`,
@@ -7153,6 +7220,20 @@ function toTaskStep(r: TaskStepRow): TaskStep {
     position: r.position,
     createdAt: r.created_at,
   }
+}
+
+/**
+ * A step position strictly between two neighbours, or null when that gap has no room left.
+ *
+ * An undefined neighbour is an end: a run's first slot starts at 1000 and an append is a whole
+ * thousand past the last, so the ordinary case does not depend on the midpoint at all.
+ */
+function stepInsertionPosition(previous: number | undefined, next: number | undefined): number | null {
+  if (previous === undefined && next === undefined) return 1000
+  if (previous === undefined) return next! - 1000
+  if (next === undefined) return previous + 1000
+  const position = previous + (next - previous) / 2
+  return Number.isFinite(position) && position > previous && position < next ? position : null
 }
 
 interface ProjectRow {

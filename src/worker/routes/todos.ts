@@ -1037,15 +1037,51 @@ todoRoutes.post('/:id/steps', async (c) => {
   return c.json({ step }, 201)
 })
 
+/**
+ * Where a step move wants the row, read from a PATCH body.
+ *
+ * `position` is the zero-based index the step lands on after the move, and `beforeStepId` is the
+ * sibling it should sit before (`null` is the end) — the same anchor folders take. Naming both leaves
+ * two answers to one question, so it is refused; naming neither is not a move and answers null. The
+ * index is validated here and clamped by the store, because a place past the end is the last place.
+ */
+function stepPlacement(body: Record<string, unknown>): { beforeStepId: string | null } | { position: number } | null {
+  const numbered = body.position !== undefined
+  const anchored = body.beforeStepId !== undefined
+  if (!numbered && !anchored) return null
+  if (numbered && anchored) throw ApiError.badRequest('A step move names position or beforeStepId, not both.')
+  if (numbered) {
+    const value = body.position
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+      throw ApiError.badRequest('position must be a whole step number from zero.')
+    }
+    return { position: value }
+  }
+  const value = body.beforeStepId
+  if (value === null) return { beforeStepId: null }
+  if (!isValidId(value)) throw ApiError.badRequest('beforeStepId must be a step id, or null.')
+  return { beforeStepId: value }
+}
+
 todoRoutes.patch('/:id/steps/:stepId', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
   const stepId = requiredId(c.req.param('stepId'))
   const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
-  const step = await s.updateStep(id, stepId, {
+  // Text and tick are validated before anything is written, so a body that is half wrong cannot
+  // leave the row moved. The move goes first: its anchor can still be refused, and a refusal after
+  // the text had landed would be a partial edit.
+  const patch = {
     ...(body.text !== undefined ? { text: text(body.text, MAX_STEP_TEXT_CHARS, 'A step') } : {}),
     ...(body.done !== undefined ? { done: asBoolean(body.done, 'done') } : {}),
-  })
+  }
+  const placement = stepPlacement(body)
+  if (placement && 'beforeStepId' in placement && placement.beforeStepId === stepId) {
+    throw ApiError.badRequest('A step cannot be placed before itself.')
+  }
+  let step = placement ? await s.moveStep(id, stepId, placement) : null
+  if (placement && !step) throw ApiError.notFound('Step not found')
+  if (Object.keys(patch).length) step = await s.updateStep(id, stepId, patch)
   if (!step) throw ApiError.notFound('Step not found')
   return c.json({ step })
 })

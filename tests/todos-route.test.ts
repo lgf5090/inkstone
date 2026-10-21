@@ -339,6 +339,68 @@ describe('steps', () => {
   })
 })
 
+describe('the step order', () => {
+  // The write budget is module-wide and keyed by caller, so these cases spend a caller of their own
+  // rather than the one every earlier case in this file shares.
+  let caller = 0
+
+  beforeEach(() => {
+    caller += 1
+    mocks.userId = `steporder${String(caller).padStart(15, '0')}`
+  })
+
+  async function stepsOf(taskId: string): Promise<TaskStep[]> {
+    return (await json<{ steps: TaskStep[] }>(await send('GET', `/${taskId}`))).steps
+  }
+
+  const texts = (steps: TaskStep[]): string[] => steps.map((step) => step.text)
+
+  it('moves a step to an index, before a sibling, and to the end', async () => {
+    const task = await create({ title: 'Publish', steps: ['Write', 'Review', 'Ship'] })
+    const [, review, ship] = await stepsOf(task.id)
+
+    // `position` is the zero-based index the row lands on after the move.
+    expect((await send('PATCH', `/${task.id}/steps/${ship!.id}`, { position: 0 })).status).toBe(200)
+    expect(texts(await stepsOf(task.id))).toEqual(['Ship', 'Write', 'Review'])
+
+    // `beforeStepId` anchors the row to a sibling, wherever that sibling currently sits.
+    expect((await send('PATCH', `/${task.id}/steps/${ship!.id}`, { beforeStepId: review!.id })).status).toBe(200)
+    expect(texts(await stepsOf(task.id))).toEqual(['Write', 'Ship', 'Review'])
+
+    // A null anchor is the end, which is how the last "move down" lands.
+    const [write] = await stepsOf(task.id)
+    expect((await send('PATCH', `/${task.id}/steps/${write!.id}`, { beforeStepId: null })).status).toBe(200)
+    expect(texts(await stepsOf(task.id))).toEqual(['Ship', 'Review', 'Write'])
+  })
+
+  it('keeps the order at both ends instead of running off them', async () => {
+    const task = await create({ title: 'Edge', steps: ['First', 'Middle', 'Last'] })
+    const steps = await stepsOf(task.id)
+    const [first, , last] = steps
+
+    // The ends a keyboard reaches and stops at: the row stays where it is.
+    expect((await send('PATCH', `/${task.id}/steps/${first!.id}`, { position: 0 })).status).toBe(200)
+    expect((await send('PATCH', `/${task.id}/steps/${last!.id}`, { position: 2 })).status).toBe(200)
+    // An index past the end is the end, not a fourth place beyond the list.
+    expect((await send('PATCH', `/${task.id}/steps/${last!.id}`, { position: 99 })).status).toBe(200)
+
+    const after = await stepsOf(task.id)
+    expect(texts(after)).toEqual(['First', 'Middle', 'Last'])
+    // The stored order is still strictly ascending: clamping collapsed the index onto the end
+    // instead of writing a position past every sibling.
+    expect(after.map((step) => step.position)).toEqual([...after.map((step) => step.position)].sort((a, b) => a - b))
+  })
+
+  it('cannot reorder another account’s step', async () => {
+    const mine = await create({ title: 'Mine', steps: ['One', 'Two'] })
+    const [one] = await stepsOf(mine.id)
+    mocks.userId = `${mocks.userId}other`
+
+    expect((await send('PATCH', `/${mine.id}/steps/${one!.id}`, { position: 1 })).status).toBe(404)
+    expect((await send('PATCH', `/${mine.id}/steps/${one!.id}`, { beforeStepId: null })).status).toBe(404)
+  })
+})
+
 describe('a batch of tasks', () => {
   // The write budget is module-wide and keyed by caller, so these cases spend a caller of their own
   // rather than the one every later case in this file shares.
