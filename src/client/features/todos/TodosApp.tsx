@@ -14,6 +14,7 @@ import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { IS_DEMO_MODE } from '../../lib/runtime'
 import { isEditableTarget } from '../../lib/hotkeys'
+import { isImeComposing } from '../../lib/ime'
 import { IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
 import { LoadingBlock } from '../../components/feedback'
@@ -130,6 +131,7 @@ export function TodosApp() {
 
   /** Escape in the box is the reader taking the words back out — and, on a phone, the box with them. */
   const clearSearch = (event: React.KeyboardEvent<HTMLInputElement>): void => {
+    if (isImeComposing(event)) return
     if (event.key !== 'Escape') return
     if (query) setQuery('')
     else if (!wide) setSearchOpen(false)
