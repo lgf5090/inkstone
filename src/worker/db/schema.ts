@@ -2462,7 +2462,10 @@ async function migrateTaskReminders(db: D1Database): Promise<void> {
  * account's zone, so no row is dated a second time. What cannot be told is left alone: a task
  * that was started and reopened before this table existed moved through states nothing recorded,
  * so a completion's `from_status` is the documented approximation `'todo'`, and the flow's
- * `trackedSince` line marks where the real record begins.
+ * `trackedSince` line marks where the real record begins. A birth is always filed as `'todo'` for
+ * the same reason: a task born and finished long ago has no start event to replay, and filing its
+ * birth under `done` would add it to the finished band a second time when the completion beside it
+ * is replayed.
  *
  * Three properties make it safe to run on every boot, the ones `migrateTaskReminders` set:
  *  - each insert only fills the rows its `NOT EXISTS` guard says are missing, so a converged
@@ -2484,7 +2487,7 @@ async function migrateTaskEvents(db: D1Database): Promise<void> {
   const results = await db.batch([
     db.prepare(
       `INSERT INTO todos_task_events (id, user_id, task_id, at, on_day, kind, from_status, to_status)
-       SELECT lower(hex(randomblob(13))), user_id, id, created_at, created_on, 'born', NULL, status
+       SELECT lower(hex(randomblob(13))), user_id, id, created_at, created_on, 'born', NULL, 'todo'
          FROM todos_tasks t
         WHERE NOT EXISTS (SELECT 1 FROM todos_task_events e WHERE e.task_id = t.id AND e.kind = 'born')`,
     ),

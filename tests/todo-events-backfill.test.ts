@@ -11,6 +11,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it, vi } from 'vitest'
 import { initializeDatabase, SCHEMA_STATEMENTS } from '../src/worker/db/schema'
+import { computeTodoFlow } from '../src/worker/todos/stats'
 import { testBindings } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
 
@@ -78,17 +79,41 @@ describe('the task event backfill', () => {
     await initializeDatabase(testBindings(makeD1(sqlite)))
 
     expect(eventRows(sqlite, DONE)).toEqual([
-      { kind: 'born', from_status: null, to_status: 'done', at: CREATED_AT, on_day: '2026-10-01', id: expect.stringMatching(/^[0-9a-f]{26}$/) },
+      { kind: 'born', from_status: null, to_status: 'todo', at: CREATED_AT, on_day: '2026-10-01', id: expect.stringMatching(/^[0-9a-f]{26}$/) },
       { kind: 'status', from_status: 'todo', to_status: 'done', at: COMPLETED_AT, on_day: '2026-10-02', id: expect.stringMatching(/^[0-9a-f]{26}$/) },
     ])
-    // A task that is open now gets only its birth, carrying the status it was born in — which is
-    // what the replay starts counting from.
+    // A task that is open now gets only its birth, filed as todo: the birth is the one event the
+    // table can state without guessing, and a birth that carried a later status would be counted
+    // twice once the transition beside it replays.
     expect(eventRows(sqlite, TODO)).toEqual([
       { kind: 'born', from_status: null, to_status: 'todo', at: CREATED_AT, on_day: '2026-10-03', id: expect.stringMatching(/^[0-9a-f]{26}$/) },
     ])
     expect(eventRows(sqlite, RUNNING)).toEqual([
-      { kind: 'born', from_status: null, to_status: 'in_progress', at: CREATED_AT, on_day: '2026-10-04', id: expect.stringMatching(/^[0-9a-f]{26}$/) },
+      { kind: 'born', from_status: null, to_status: 'todo', at: CREATED_AT, on_day: '2026-10-04', id: expect.stringMatching(/^[0-9a-f]{26}$/) },
     ])
+  })
+
+  it('replays a finished task as one, not as a birth and a completion added together', async () => {
+    const sqlite = database()
+    seedLegacyTasks(sqlite)
+    await initializeDatabase(testBindings(makeD1(sqlite)))
+
+    // The bug this pins: a birth filed under `done` plus the completion beside it would put two
+    // finished tasks on the chart for one row. The seed is zero, so the replay is the whole story.
+    const events = eventRows(sqlite, DONE).map((row) => ({
+      kind: row.kind === 'born' ? 'born' as const : 'status' as const,
+      fromStatus: row.from_status as 'todo' | 'done' | null,
+      toStatus: row.to_status as 'todo' | 'done',
+      at: row.at,
+      onDay: row.on_day,
+    }))
+    const points = computeTodoFlow(
+      { createdBefore: 0, doneBefore: 0, inProgressNow: 0 },
+      events,
+      { from: '2026-10-01', to: '2026-10-02', bucket: 'day' },
+    )
+
+    expect(points.at(-1)).toEqual({ day: '2026-10-02', todo: 0, inProgress: 0, done: 1 })
   })
 
   it('has nothing left to write on a second boot, and says nothing while finding out', async () => {
@@ -122,7 +147,7 @@ describe('the task event backfill', () => {
     ).run(USER, DONE, CREATED_AT, COMPLETED_AT)
     sqlite.prepare(
       `INSERT INTO todos_task_events (user_id, id, task_id, at, on_day, kind, from_status, to_status)
-       VALUES (?1, ?2, ?3, ?4, '2026-10-01', 'born', NULL, 'done')`,
+       VALUES (?1, ?2, ?3, ?4, '2026-10-01', 'born', NULL, 'todo')`,
     ).run(USER, kept, DONE, CREATED_AT)
 
     await initializeDatabase(testBindings(makeD1(sqlite)))
