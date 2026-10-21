@@ -22,6 +22,7 @@ const api = vi.hoisted(() => ({
   preferences: { get: vi.fn(), patch: vi.fn() },
   spaces: { list: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
   attachments: { list: vi.fn(), upload: vi.fn(), delete: vi.fn(), batchDelete: vi.fn(), prune: vi.fn() },
+  shares: { list: vi.fn(), create: vi.fn(), delete: vi.fn() },
 }))
 
 vi.mock('../api', () => ({ memosApi: api }))
@@ -111,10 +112,12 @@ async function flush(): Promise<void> {
 
 beforeEach(async () => {
   await initI18n()
+  localStorage.clear()
   useMemos.getState().reset()
   useMemos.setState({ items: [memo()], status: 'ready', query: { ...MEMO_QUERY_DEFAULTS } })
   useUi.setState({ toasts: [] })
   vi.clearAllMocks()
+  api.spaces.list.mockResolvedValue({ spaces: [] })
 })
 
 afterEach(() => {
@@ -165,22 +168,34 @@ describe('the memo card', () => {
     expect(useUi.getState().toasts.some((toast) => toast.title === t('memos.card.link_copied'))).toBe(true)
   })
 
+  it('opens the share dialog from the actions menu', async () => {
+    api.shares.list.mockResolvedValue({ shares: [] })
+    render({ memo: memo({ id: 'memo-share' }) })
+    click(menuTrigger())
+    click(menuItem(t('memos.share.card_action')))
+    await flush()
+    expect(api.shares.list).toHaveBeenCalledWith('memo-share', expect.any(AbortSignal))
+    expect(document.body.textContent).toContain(t('memos.share.title'))
+  })
+
   it('offers restore instead of edit on an archived memo', async () => {
     const item = memo({ state: 'archived' })
     api.restore.mockResolvedValue({ ...item, state: 'normal', rev: 2 })
     render({ memo: item })
     click(menuTrigger())
     expect(document.body.textContent).not.toContain(t('memos.card.edit'))
+    expect(document.body.textContent).not.toContain(t('memos.share.card_action'))
     expect(document.body.textContent).toContain(t('memos.card.restore'))
     click(menuItem(t('memos.card.restore')))
     await flush()
     expect(api.restore).toHaveBeenCalledWith(item.id)
   })
 
-  it('opens the basic editor in place', () => {
+  it('opens the basic editor in place', async () => {
     const rendered = render({ memo: memo({ content: 'edit me' }), editing: true })
-    const field = rendered.container.querySelector('textarea')
-    expect(field?.value).toBe('edit me')
+    await flush()
+    const editor = rendered.container.querySelector('.cm-content')
+    expect(editor?.textContent).toBe('edit me')
     expect(rendered.container.textContent).toContain(t('memos.composer.save'))
   })
 })

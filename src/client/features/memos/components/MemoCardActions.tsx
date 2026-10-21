@@ -1,5 +1,5 @@
 import { useRef, useState, type ReactElement } from 'react'
-import { Archive, Copy, Link2, MoreHorizontal, Pencil, Pin, RotateCcw, Trash2 } from 'lucide-react'
+import { Archive, Copy, Link2, MoreHorizontal, Pencil, Pin, RotateCcw, Share2, Trash2 } from 'lucide-react'
 import { MEMOS_APP_PATH } from '@shared/memos/constants'
 import type { Memo } from '@shared/memos/types'
 import { IconButton } from '../../../components/primitives'
@@ -8,6 +8,7 @@ import { copyText } from '../../../lib/clipboard'
 import { t } from '../../../lib/i18n'
 import { useUi } from '../../../store/ui'
 import { useMemos } from '../state'
+import { MemoShareDialog } from './MemoShareDialog'
 
 export interface MemoCardActionsProps {
   memo: Memo
@@ -17,6 +18,7 @@ export interface MemoCardActionsProps {
 
 export function MemoCardActions({ memo, onEdit, onDeleted }: MemoCardActionsProps): ReactElement {
   const [open, setOpen] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
   const anchorRef = useRef<HTMLButtonElement>(null)
   const notify = (title: string, tone: 'default' | 'success' | 'danger', description?: string): void => {
     useUi.getState().toast({ title, tone, description })
@@ -101,6 +103,14 @@ export function MemoCardActions({ memo, onEdit, onDeleted }: MemoCardActionsProp
     separatorBefore: true,
     onSelect: () => void copy(`${window.location.origin}${MEMOS_APP_PATH}/m/${encodeURIComponent(memo.id)}`, t('memos.card.link_copied')),
   })
+  if (memo.state === 'normal') {
+    items.push({
+      id: 'share',
+      label: t('memos.share.card_action'),
+      icon: <Share2 size={13} />,
+      onSelect: () => setShareOpen(true),
+    })
+  }
   items.push({
     id: 'copy-content',
     label: t('memos.card.copy_content'),
@@ -138,6 +148,7 @@ export function MemoCardActions({ memo, onEdit, onDeleted }: MemoCardActionsProp
         align="end"
         width={196}
       />
+      <MemoShareDialog memoId={memo.id} open={shareOpen} onClose={() => setShareOpen(false)} />
     </>
   )
 }
