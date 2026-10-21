@@ -142,6 +142,13 @@ describe('the card menu is the keyboard and phone equivalent of a drag', () => {
     expect(service.moves).toEqual([{ id: 'A', body: { beforeId: 'C' } }])
   })
 
+  it('does not count a finished row as the open row above', () => {
+    const finished: TodoTask = { ...task('D', 'Done', 'L1', 0), status: 'done', completedAt: 1 }
+    act(() => { useTodos.setState({ tasks: [finished, ...service.tasks] }) })
+    openMenu('Alpha')
+    expect(menuRow(t('todo.move.up')).disabled, 'the first open row has nothing open above it').toBe(true)
+  })
+
   it('offers the inbox and the other lists, and sends a list id only when it crosses', async () => {
     openMenu('Alpha')
     choose(t('todo.move.to_list'))

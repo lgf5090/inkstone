@@ -62,11 +62,13 @@ export async function moveTodoTask(
 /**
  * What a card's move menu may do, and whether it may be dragged.
  *
- * The siblings are the rows of the card's own list in the order the page arrived in, which is the
- * order the server read. Up and down therefore name the visible neighbour, and "move down" anchors
- * the row before the sibling *after* that neighbour — the same "before this row" grammar a drop
- * uses. Dragging needs a fine pointer: a phone gets the menu instead, which is why the controls are
- * built whether or not the pointer can drag.
+ * The siblings are the open rows of the card's own list in the order the page arrived in, which is the
+ * order the server read. Finished rows are drawn under their own heading and carry no move controls, so
+ * they are not neighbours a press can name: counting them would disable the first open row for no
+ * visible reason, or send a move to a row below a different group. Up and down therefore name the
+ * visible neighbour, and "move down" anchors the row before the sibling *after* that neighbour — the
+ * same "before this row" grammar a drop uses. Dragging needs a fine pointer: a phone gets the menu
+ * instead, which is why the controls are built whether or not the pointer can drag.
  */
 export interface TaskMoveControls {
   dragEnabled: boolean
@@ -84,7 +86,7 @@ export function useTaskMoves(enabled: boolean): (task: TodoTask) => TaskMoveCont
   const finePointer = useMediaQuery('(hover: hover) and (pointer: fine)')
   return (task) => {
     if (!enabled) return null
-    const siblings = tasks.filter((entry) => entry.listId === task.listId)
+    const siblings = tasks.filter((entry) => entry.listId === task.listId && entry.status !== 'done')
     const index = siblings.findIndex((entry) => entry.id === task.id)
     if (index < 0) return null
     const placeBefore = (draggedId: string, beforeId: string | null): void => {
