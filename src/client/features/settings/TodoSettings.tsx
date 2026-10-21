@@ -180,7 +180,7 @@ export function TodoSettings() {
   return (
     <div className="flex flex-col gap-4">
       {error && (
-        <div className="flex items-center justify-between gap-3 rounded-[var(--r-md)] border border-[var(--danger-border)] px-3 py-2">
+        <div className="flex items-center justify-between gap-3 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-3 py-2">
           <p className="min-w-0 text-[length:var(--text-12-5)] text-[var(--danger)]">{error}</p>
           <Button size="sm" variant="ghost" disabled={saving} onClick={() => void save(settings?.timezone ?? browserZone)}>
             {t('common.retry')}
