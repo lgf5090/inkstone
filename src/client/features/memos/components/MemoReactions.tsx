@@ -14,6 +14,7 @@ import { bump } from '../events'
 export interface MemoReactionsProps {
   memo: Memo
   readOnly?: boolean
+  reactions?: readonly string[]
   className?: string
 }
 
@@ -34,11 +35,19 @@ function toggleReaction(
   return next
 }
 
-export function MemoReactions({ memo, readOnly = false, className }: MemoReactionsProps): ReactElement | null {
+export function MemoReactions({
+  memo,
+  readOnly = false,
+  reactions: reactionChoices,
+  className,
+}: MemoReactionsProps): ReactElement | null {
   const [reactions, setReactions] = useState<MemoReactionSummary[]>(memo.reactions)
   const [open, setOpen] = useState(false)
   const anchorRef = useRef<HTMLButtonElement>(null)
   const pending = useRef(new Set<string>())
+  const choices = reactionChoices && reactionChoices.length > 0
+    ? [...new Set(reactionChoices)]
+    : MEMO_DEFAULT_REACTIONS
   useEffect(() => {
     setReactions(memo.reactions)
   }, [memo.id, memo.reactions])
@@ -69,7 +78,7 @@ export function MemoReactions({ memo, readOnly = false, className }: MemoReactio
     }
   }
 
-  const items: MenuItem[] = MEMO_DEFAULT_REACTIONS.map((type) => ({
+  const items: MenuItem[] = choices.map((type) => ({
     id: `reaction-${type}`,
     label: t('memos.reactions.react_with', { emoji: type }),
     icon: <span className="text-[length:var(--text-14)]">{type}</span>,

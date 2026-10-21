@@ -7,6 +7,7 @@ import { cn } from '../../../lib/cn'
 import { t } from '../../../lib/i18n'
 import { suggestMemoTags } from '../tag-suggestions'
 import { useMemos } from '../state'
+import { useMemoPreferences } from '../use-memo-preferences'
 import type { MemoUrlState } from '../url-state'
 import { MemoCard } from '../components/MemoCard'
 import { MemoComposer } from '../components/MemoComposer'
@@ -60,6 +61,7 @@ export function MemoFeedPage({
   const hasMore = useMemos((state) => state.hasMore)
   const [editingId, setEditingId] = useState<string | null>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
+  const preferences = useMemoPreferences()
   const suggestedTags = useMemo(() => suggestMemoTags(items, urlState.tag), [items, urlState.tag])
   const initialLoading = (status === 'idle' || status === 'loading') && items.length === 0
   const failedWithoutItems = status === 'error' && items.length === 0
@@ -207,6 +209,9 @@ export function MemoFeedPage({
                   compact={display.compact}
                   timeBasis={display.timeBasis}
                   editing={editingId === memo.id}
+                  tagRules={preferences.preferences.tagRules}
+                  reactionOptions={preferences.preferences.reactions}
+                  doubleClickEdit={preferences.preferences.enableDoubleClickEdit}
                   onOpen={onOpen}
                   onStartEdit={() => setEditingId(memo.id)}
                   onEndEdit={() => setEditingId(null)}

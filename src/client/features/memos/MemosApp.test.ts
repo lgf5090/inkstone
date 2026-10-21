@@ -3,6 +3,7 @@ import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Memo, MemoListResponse, MemoSpace, MemoView } from '@shared/memos/types'
+import { MEMO_PREFERENCES_DEFAULTS } from '@shared/memos/constants'
 import { navigateToPath } from '../../lib/app-history'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals, stubBreakpoint } from '../../lib/test-render'
@@ -95,6 +96,7 @@ beforeEach(async () => {
   api.list.mockResolvedValue(emptyList())
   api.spaces.list.mockResolvedValue({ spaces: [] })
   api.views.list.mockResolvedValue({ views: [] })
+  api.preferences.get.mockResolvedValue({ ...MEMO_PREFERENCES_DEFAULTS })
   api.stats.get.mockResolvedValue({
     total: 0,
     archived: 0,

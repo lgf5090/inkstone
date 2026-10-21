@@ -8,13 +8,15 @@ import { cn } from '../../../lib/cn'
 import { t, type MessageKey } from '../../../lib/i18n'
 import { fullTime } from '../../../lib/time'
 import { parseMemoOutline } from '../memo-outline'
+import { memoTagRuleBlursContent, memoTagRulesByTag } from '../tag-rules'
 import { useMemos } from '../state'
+import { useMemoPreferences } from '../use-memo-preferences'
 import { useMemoTaskToggle } from '../use-memo-task-toggle'
 import { MemoAttachments } from './MemoAttachments'
-import { MemoBody } from './MemoBody'
 import { MemoCardActions } from './MemoCardActions'
 import { MemoComments } from './MemoComments'
 import { MemoComposer } from './MemoComposer'
+import { MemoMaskedBody } from './MemoMaskedBody'
 import { MemoReactions } from './MemoReactions'
 import { MemoRelations } from './MemoRelations'
 
@@ -58,11 +60,17 @@ export function MemoDetail({
   const detail = useMemos((state) => state.detail)
   const status = useMemos((state) => state.detailStatus)
   const error = useMemos((state) => state.detailError)
+  const preferences = useMemoPreferences()
   const [editing, setEditing] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const memo = detail?.id === memoId ? detail : null
   const outline = useMemo(() => (memo ? parseMemoOutline(memo.content) : []), [memo?.content])
   const onToggleTask = useMemoTaskToggle(memo)
+  const ruleByTag = useMemo(
+    () => memoTagRulesByTag(memo?.tags ?? [], preferences.preferences.tagRules),
+    [memo?.tags, preferences.preferences.tagRules],
+  )
+  const blurred = memo ? memoTagRuleBlursContent(memo.tags, preferences.preferences.tagRules) : false
 
   useEffect(() => {
     void useMemos.getState().openDetail(memoId)
@@ -188,7 +196,15 @@ export function MemoDetail({
             <MemoComposer memo={memo} onSaved={() => setEditing(false)} onCancel={() => setEditing(false)} />
           </div>
         ) : (
-          <MemoBody content={memo.content} onTagPress={onTagPress} onToggleTask={onToggleTask} className="mt-3" />
+          <MemoMaskedBody
+            key={`${memo.id}:${blurred ? 'blurred' : 'clear'}`}
+            content={memo.content}
+            tagRules={preferences.preferences.tagRules}
+            blurred={blurred && memo.content.trim() !== ''}
+            onTagPress={onTagPress}
+            onToggleTask={onToggleTask}
+            className="mt-3"
+          />
         )}
         <MemoAttachments attachments={memo.attachments} className="mt-3" />
         {memo.tags.length > 0 ? (
@@ -198,6 +214,7 @@ export function MemoDetail({
                 key={tag}
                 label={tag}
                 sigil
+                color={ruleByTag.get(tag)?.backgroundColor ?? null}
                 onPress={() => onTagPress(tag)}
                 ariaLabel={t('memos.card.filter_tag', { tag })}
               />
@@ -205,7 +222,11 @@ export function MemoDetail({
           </div>
         ) : null}
         <div className="mt-3 border-t border-[var(--border-subtle)] pt-2">
-          <MemoReactions memo={memo} readOnly={memo.state === 'archived'} />
+          <MemoReactions
+            memo={memo}
+            reactions={preferences.preferences.reactions}
+            readOnly={memo.state === 'archived'}
+          />
         </div>
         <div className="mt-3">
           <MemoRelations memo={memo} onOpen={onOpen} />

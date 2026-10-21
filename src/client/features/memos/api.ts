@@ -19,6 +19,9 @@ import type {
   MemoSpace,
   MemoSpaceInput,
   MemoStats,
+  MemoToken,
+  MemoTokenCreateInput,
+  MemoTokenCreateResult,
   MemoView,
   MemoViewInput,
   MemoViewValidation,
@@ -217,6 +220,20 @@ export const memosApi = {
 
     patch(input: MemoPreferencesPatch): Promise<MemoPreferences> {
       return memoRequest<MemoPreferences>('/preferences', { method: 'PATCH', body: input })
+    },
+  },
+
+  tokens: {
+    list(signal?: AbortSignal): Promise<{ tokens: MemoToken[] }> {
+      return memoRequest<{ tokens: MemoToken[] }>('/tokens', { signal })
+    },
+
+    create(input: MemoTokenCreateInput): Promise<MemoTokenCreateResult> {
+      return memoRequest<MemoTokenCreateResult>('/tokens', { method: 'POST', body: input })
+    },
+
+    delete(id: string): Promise<{ ok: true }> {
+      return memoRequest<{ ok: true }>(`/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' })
     },
   },
 

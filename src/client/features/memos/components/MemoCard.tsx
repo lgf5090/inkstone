@@ -1,17 +1,18 @@
-import type { MouseEvent, ReactElement } from 'react'
+import { useMemo, type MouseEvent, type ReactElement } from 'react'
 import { MessageCircle, Pin } from 'lucide-react'
 import { MEMOS_APP_PATH } from '@shared/memos/constants'
-import type { Memo, MemoOrderField, MemoVisibility } from '@shared/memos/types'
+import type { Memo, MemoOrderField, MemoTagRule, MemoVisibility } from '@shared/memos/types'
 import { Badge } from '../../../components/primitives'
 import { TagChip } from '../../../components/TagChip'
 import { cn } from '../../../lib/cn'
 import { t, type MessageKey } from '../../../lib/i18n'
 import { fullTime, shortTime } from '../../../lib/time'
+import { memoTagRuleBlursContent, memoTagRulesByTag } from '../tag-rules'
 import { useMemoTaskToggle } from '../use-memo-task-toggle'
 import { MemoAttachments } from './MemoAttachments'
-import { MemoBody } from './MemoBody'
 import { MemoCardActions } from './MemoCardActions'
 import { MemoComposer } from './MemoComposer'
+import { MemoMaskedBody } from './MemoMaskedBody'
 import { MemoReactions } from './MemoReactions'
 
 const VISIBILITY_KEYS: Record<MemoVisibility, MessageKey> = {
@@ -26,6 +27,8 @@ const VISIBILITY_TONES: Record<MemoVisibility, 'neutral' | 'accent' | 'warning'>
   public: 'accent',
 }
 
+const NO_TAG_RULES: readonly MemoTagRule[] = []
+
 export interface MemoCardProps {
   memo: Memo
   spaceName: string | null
@@ -33,6 +36,9 @@ export interface MemoCardProps {
   compact: boolean
   timeBasis: MemoOrderField
   editing: boolean
+  tagRules?: readonly MemoTagRule[]
+  reactionOptions?: readonly string[]
+  doubleClickEdit?: boolean
   onOpen: (id: string) => void
   onStartEdit: () => void
   onEndEdit: () => void
@@ -46,6 +52,9 @@ export function MemoCard({
   compact,
   timeBasis,
   editing,
+  tagRules,
+  reactionOptions,
+  doubleClickEdit = false,
   onOpen,
   onStartEdit,
   onEndEdit,
@@ -59,11 +68,22 @@ export function MemoCard({
     time: fullTime(shownMs),
   })
   const shownShort = shortTime(shownMs)
+  const ruleByTag = useMemo(
+    () => memoTagRulesByTag(memo.tags, tagRules ?? NO_TAG_RULES),
+    [memo.tags, tagRules],
+  )
+  const blurred = memoTagRuleBlursContent(memo.tags, tagRules ?? NO_TAG_RULES)
   const onLinkClick = (event: MouseEvent<HTMLAnchorElement>): void => {
     if (event.defaultPrevented || event.button !== 0
       || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
     event.preventDefault()
     onOpen(memo.id)
+  }
+  const onCardDoubleClick = (event: MouseEvent<HTMLElement>): void => {
+    if (!doubleClickEdit || editing || memo.state !== 'normal') return
+    const target = event.target instanceof Element ? event.target : null
+    if (target?.closest('a, button, input, textarea, select, [contenteditable="true"]')) return
+    onStartEdit()
   }
   const commentLabel = t(memo.commentCount === 1 ? 'memos.card.comments_one' : 'memos.card.comments', {
     count: memo.commentCount,
@@ -71,6 +91,7 @@ export function MemoCard({
   return (
     <article
       data-memo-id={memo.id}
+      onDoubleClick={onCardDoubleClick}
       className={cn(
         'flex min-w-0 flex-col rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-sm',
         compact ? 'p-2.5' : 'p-3',
@@ -104,7 +125,15 @@ export function MemoCard({
         </div>
       ) : (
         <>
-          <MemoBody content={memo.content} onTagPress={onTagPress} onToggleTask={onToggleTask} className="mt-2" />
+          <MemoMaskedBody
+            key={`${memo.id}:${blurred ? 'blurred' : 'clear'}`}
+            content={memo.content}
+            tagRules={tagRules}
+            blurred={blurred && memo.content.trim() !== ''}
+            onTagPress={onTagPress}
+            onToggleTask={onToggleTask}
+            className="mt-2"
+          />
           {memo.tags.length > 0 ? (
             <div className="mt-2 flex flex-wrap items-center gap-1">
               {memo.tags.map((tag) => (
@@ -112,6 +141,7 @@ export function MemoCard({
                   key={tag}
                   label={tag}
                   sigil
+                  color={ruleByTag.get(tag)?.backgroundColor ?? null}
                   onPress={() => onTagPress(tag)}
                   ariaLabel={t('memos.card.filter_tag', { tag })}
                 />
@@ -120,7 +150,11 @@ export function MemoCard({
           ) : null}
           <MemoAttachments attachments={memo.attachments} compact className="mt-2" />
           <footer className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-[var(--border-subtle)] pt-1.5">
-            <MemoReactions memo={memo} readOnly={memo.state === 'archived'} />
+            <MemoReactions
+              memo={memo}
+              reactions={reactionOptions}
+              readOnly={memo.state === 'archived'}
+            />
             <a
               href={href}
               onClick={onLinkClick}

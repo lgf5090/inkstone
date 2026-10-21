@@ -178,6 +178,24 @@ describe('views and preferences', () => {
   })
 })
 
+describe('access tokens', () => {
+  it('lists tokens, creates one and revokes it by id', async () => {
+    const fetchMock = stubFetch({ tokens: [] })
+    const controller = new AbortController()
+    await memosApi.tokens.list(controller.signal)
+    await memosApi.tokens.create({ description: 'Web Clipper', expiresAt: 1_900_000_000 })
+    await memosApi.tokens.delete('tok/1')
+    expect(callOf(fetchMock, 0)[0]).toBe('/api/memos/tokens')
+    expect(callOf(fetchMock, 0)[1].signal).toBe(controller.signal)
+    expect(callOf(fetchMock, 1)).toEqual(['/api/memos/tokens', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ description: 'Web Clipper', expiresAt: 1_900_000_000 }),
+    })])
+    expect(callOf(fetchMock, 2)[0]).toBe('/api/memos/tokens/tok%2F1')
+    expect(callOf(fetchMock, 2)[1].method).toBe('DELETE')
+  })
+})
+
 describe('spaces', () => {
   it('lists, creates, updates and deletes a space', async () => {
     const fetchMock = stubFetch({ spaces: [] })

@@ -1,13 +1,18 @@
 import { useMemo, type KeyboardEvent, type MouseEvent, type ReactElement } from 'react'
 import { MEMOS_APP_PATH } from '@shared/memos/constants'
+import type { MemoTagRule } from '@shared/memos/types'
 import { cn } from '../../../lib/cn'
 import { decodeDataValue } from '../../../lib/markdown/data-attr'
 import { renderMarkdown } from '../../../lib/markdown/renderer'
 import { findMentionRanges } from '../mentions'
+import { matchingMemoTagRule } from '../tag-rules'
 import { findMemoTasks, toggleMemoTask } from '../task-toggle'
+
+const NO_TAG_RULES: readonly MemoTagRule[] = []
 
 export interface MemoBodyProps {
   content: string
+  tagRules?: readonly MemoTagRule[]
   onTagPress?: (tag: string) => void
   onToggleTask?: (nextContent: string) => void
   className?: string
@@ -44,9 +49,29 @@ function linkMentions(root: DocumentFragment): void {
   }
 }
 
-function memoHtml(content: string, interactiveTasks: boolean): string {
+function paintTagRules(root: DocumentFragment, tagRules: readonly MemoTagRule[]): void {
+  for (const tag of root.querySelectorAll<HTMLElement>('[data-tag]')) {
+    const value = decodeDataValue(tag.dataset.tag)
+    if (!value) continue
+    const rule = matchingMemoTagRule(value, tagRules)
+    if (!rule?.backgroundColor) continue
+    const dot = document.createElement('span')
+    dot.dataset.memoTagDot = ''
+    dot.setAttribute('aria-hidden', 'true')
+    dot.className = 'mr-1 inline-block size-[6px] rounded-[var(--r-full)] align-middle'
+    dot.style.backgroundColor = rule.backgroundColor
+    tag.prepend(dot)
+  }
+}
+
+function memoHtml(
+  content: string,
+  interactiveTasks: boolean,
+  tagRules: readonly MemoTagRule[],
+): string {
   const rendered = renderMarkdown(content, { hideFrontMatter: true })
-  if (!rendered.html.includes('task-list-item-checkbox') && !rendered.html.includes('@')) {
+  const hasTags = tagRules.length > 0 && rendered.html.includes('data-tag=')
+  if (!rendered.html.includes('task-list-item-checkbox') && !rendered.html.includes('@') && !hasTags) {
     return rendered.html
   }
   const frame = document.createElement('template')
@@ -57,14 +82,21 @@ function memoHtml(content: string, interactiveTasks: boolean): string {
     }
   }
   linkMentions(frame.content)
+  if (hasTags) paintTagRules(frame.content, tagRules)
   return frame.innerHTML
 }
 
-export function MemoBody({ content, onTagPress, onToggleTask, className }: MemoBodyProps): ReactElement | null {
+export function MemoBody({
+  content,
+  tagRules = NO_TAG_RULES,
+  onTagPress,
+  onToggleTask,
+  className,
+}: MemoBodyProps): ReactElement | null {
   const interactiveTasks = onToggleTask !== undefined
   const html = useMemo(
-    () => (content.trim() ? memoHtml(content, interactiveTasks) : ''),
-    [content, interactiveTasks],
+    () => (content.trim() ? memoHtml(content, interactiveTasks, tagRules) : ''),
+    [content, interactiveTasks, tagRules],
   )
   if (!html) return null
   const onClick = (event: MouseEvent<HTMLDivElement>): void => {

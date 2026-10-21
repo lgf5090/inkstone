@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Memo } from '@shared/memos/types'
+import type { Memo, MemoTagRule } from '@shared/memos/types'
 import { initI18n, t } from '../../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../../lib/test-render'
 import { useUi } from '../../../store/ui'
@@ -62,6 +62,9 @@ function memo(overrides: Partial<Memo> = {}): Memo {
 interface CardProps {
   memo: Memo
   editing?: boolean
+  tagRules?: readonly MemoTagRule[]
+  reactionOptions?: readonly string[]
+  doubleClickEdit?: boolean
   onOpen?: (id: string) => void
   onStartEdit?: () => void
   onEndEdit?: () => void
@@ -237,5 +240,86 @@ describe('the memo card', () => {
     const editor = rendered.container.querySelector('.cm-content')
     expect(editor?.textContent).toBe('edit me')
     expect(rendered.container.textContent).toContain(t('memos.composer.save'))
+  })
+
+  it('colors matching tag chips and blurs content until it is revealed', () => {
+    const item = memo({ content: 'the secret #secret', tags: ['secret'] })
+    const rule: MemoTagRule = {
+      pattern: 'secret',
+      mode: 'exact',
+      backgroundColor: '#ff0000',
+      blurContent: true,
+    }
+    const rendered = render({ memo: item, tagRules: [rule] })
+    const chip = rendered.container.querySelector<HTMLButtonElement>(
+      `button[aria-label="${t('memos.card.filter_tag', { tag: 'secret' })}"]`,
+    )
+    expect(chip).not.toBeNull()
+    expect((chip!.querySelector('span') as HTMLElement | null)?.style.backgroundColor).toBe('rgb(255, 0, 0)')
+    const body = rendered.container.querySelector('[data-memo-blurred="true"]')
+    expect(body).not.toBeNull()
+    const hidden = body!.querySelector('[data-memo-mask="hidden"]')
+    expect(hidden).not.toBeNull()
+    expect(hidden?.getAttribute('aria-hidden')).toBe('true')
+    expect(hidden?.hasAttribute('inert')).toBe(true)
+    const inlineDot = rendered.container.querySelector('[data-memo-tag-dot]')
+    expect(inlineDot).not.toBeNull()
+    expect((inlineDot as HTMLElement).style.backgroundColor).toBe('rgb(255, 0, 0)')
+
+    const reveal = [...rendered.container.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent?.includes(t('memos.blur.reveal')))
+    expect(reveal).not.toBeUndefined()
+    click(reveal!)
+    expect(rendered.container.querySelector('[data-memo-mask="hidden"]')).toBeNull()
+    expect(rendered.container.querySelector('[data-memo-mask="revealed"]')?.hasAttribute('aria-hidden')).toBe(false)
+  })
+
+  it('starts editing on a double click only when the preference allows it', () => {
+    const starts: number[] = []
+    const rendered = render({ memo: memo(), onStartEdit: () => starts.push(1) })
+    const article = rendered.container.querySelector('article')!
+    expect(article).not.toBeNull()
+    act(() => {
+      article.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }))
+    })
+    expect(starts).toEqual([])
+
+    rendered.rerender(createElement(MemoCard, {
+      memo: memo(),
+      spaceName: null,
+      isNew: false,
+      compact: false,
+      timeBasis: 'created',
+      editing: false,
+      doubleClickEdit: true,
+      onOpen: () => {},
+      onStartEdit: () => starts.push(1),
+      onEndEdit: () => {},
+      onTagPress: () => {},
+    }))
+    act(() => {
+      rendered.container.querySelector('article')!.dispatchEvent(
+        new MouseEvent('dblclick', { bubbles: true, cancelable: true }),
+      )
+    })
+    expect(starts).toEqual([1])
+
+    act(() => {
+      menuTrigger().dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }))
+    })
+    expect(starts).toEqual([1])
+  })
+
+  it('offers the configured reactions in the picker', () => {
+    const rendered = render({ memo: memo(), reactionOptions: ['🔥'] })
+    const add = rendered.container.querySelector<HTMLButtonElement>(
+      `button[aria-label="${t('memos.reactions.add')}"]`,
+    )
+    expect(add).not.toBeNull()
+    click(add!)
+    const labels = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+      .map((item) => item.textContent ?? '')
+    expect(labels.some((label) => label.includes(t('memos.reactions.react_with', { emoji: '🔥' })))).toBe(true)
+    expect(labels.some((label) => label.includes(t('memos.reactions.react_with', { emoji: '👍' })))).toBe(false)
   })
 })
