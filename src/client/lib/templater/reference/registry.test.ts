@@ -25,6 +25,7 @@ import {
   referenceEntriesForModule,
   referenceIsAvailable,
   referenceMemberPath,
+  referenceIsMember,
   referenceModuleDoc,
   type ReferenceDocEntry,
 } from './registry'
@@ -103,6 +104,21 @@ describe('templater reference registry shape', () => {
       if (entry.dynamic === true) {
         expect(referenceModuleDoc(entry.module)?.dynamic, `${referenceMemberPath(entry)} is dynamic inside a closed module`).toBe(true)
       }
+    }
+  })
+
+  it('tells a member a surface may type from a placeholder it may not', () => {
+    // The completion list reads this predicate, so the rule it refuses to write into a note has to be the
+    // registry's own and not a second copy that can drift: an entry whose name is in angle brackets
+    // describes a shape, and the module self-entry documents the module rather than a member of it.
+    const notMembers = REFERENCE_ENTRIES.filter((entry) => !referenceIsMember(entry))
+    expect(notMembers.map(referenceMemberPath).sort()).toEqual([
+      'tp.frontmatter.key',
+      'tp.moment.moment',
+      'tp.user.script_name',
+    ])
+    for (const entry of notMembers) {
+      expect(entry.signature.startsWith(`tp.${entry.module}.${entry.name}`), referenceMemberPath(entry)).toBe(false)
     }
   })
 

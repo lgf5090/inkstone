@@ -76,6 +76,21 @@ export function referenceMemberPath(entry: ReferenceDocEntry): string {
   return `tp.${entry.module}.${entry.name}`
 }
 
+/**
+ * Whether the registry documents this exact member, as opposed to a placeholder for one only the reader has.
+ *
+ * `tp.user.<script_name>` and `tp.frontmatter.<key>` are entries that *describe* a shape, and their `name`
+ * is not a word a surface may write into a note; `moment(input?)` documents the module itself rather than
+ * `tp.moment.moment`. The test is whether the signature really starts at this entry's own path.
+ *
+ * It lives here because both consumers need the same answer: the completion list must not offer a name that
+ * cannot be typed, and the panel must still be able to show the entry's documentation. A second copy of the
+ * rule is how the two start disagreeing about the same table.
+ */
+export function referenceIsMember(entry: ReferenceDocEntry): boolean {
+  return entry.signature.startsWith(referenceMemberPath(entry))
+}
+
 export function referenceModuleDoc(module: string): ReferenceModuleDoc | undefined {
   return REFERENCE_MODULES.find((candidate) => candidate.module === module)
 }

@@ -32,6 +32,7 @@ import {
   REFERENCE_ENTRIES,
   REFERENCE_MODULES,
   referenceIsAvailable,
+  referenceIsMember,
   referenceModuleDoc,
   type ReferenceDocEntry,
   type ReferenceModuleDoc,
@@ -153,22 +154,6 @@ function pathBeforeCaret(text: string): TypedPath | null {
   // Past two segments the registry has nothing to say: `tp.app.vault.` reaches into the façade's members,
   // which are being ported one at a time and are not a list this file may write.
   return null
-}
-
-/** The path a member row would have to document for its name to be insertable text. */
-function memberPath(entry: ReferenceDocEntry): string {
-  return `tp.${entry.module}.${entry.name}`
-}
-
-/**
- * Whether the registry documents this exact member.
- *
- * `tp.frontmatter.<key>` and `tp.user.<script_name>` are placeholders for a name only the reader has, and
- * `moment(input?)` documents the module itself rather than `tp.moment.moment`; none of the three is text a
- * completion may write into a note.
- */
-function isDocumentedMember(entry: ReferenceDocEntry): boolean {
-  return entry.signature.startsWith(memberPath(entry))
 }
 
 /** The entry documenting the module as a value — `tp.moment` is moment's function, not a namespace. */
@@ -309,7 +294,7 @@ function memberRows(
   documented: boolean,
   capabilities: Capabilities | null,
 ): Completion[] {
-  const entries = REFERENCE_ENTRIES.filter((entry) => entry.module === module.module && isDocumentedMember(entry))
+  const entries = REFERENCE_ENTRIES.filter((entry) => entry.module === module.module && referenceIsMember(entry))
   return entries.map((entry, index): Completion => {
     const shape = callShapeOf(entry)
     return {
