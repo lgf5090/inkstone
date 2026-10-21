@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
-import { csvFilename, parseCsv, rowToInput, toCsv } from '../src/client/features/subscriptions/csv'
+import { CSV_BOM, csvFilename, parseCsv, rowToInput, toCsv } from '../src/client/features/subscriptions/csv'
 import type { SubscriptionItem } from '../src/shared/subscriptions/model'
 
 /**
@@ -39,7 +39,7 @@ function item(overrides: Partial<SubscriptionItem> = {}): SubscriptionItem {
     hoursRemaining: 192,
     nextReminderAt: null,
     paymentCount: 0,
-    paidTotal: 0,
+    paidByCurrency: [],
     ...overrides,
   }
 }
@@ -82,6 +82,15 @@ describe('import', () => {
   it('drops a column the reader renamed instead of shifting the rest', () => {
     const [row] = parseCsv('title,amount\nNetflix,60')
     expect(row).toEqual({ amount: '60' })
+  })
+
+  it('reads the first column through the mark Excel puts at the front of the file', () => {
+    // The mark is the character U+FEFF, one unit long: a shorter or wider stand-in would silently stop
+    // writing the signal Excel reads, and the importer would strip the wrong character from the header.
+    expect(CSV_BOM).toHaveLength(1)
+    expect(CSV_BOM.codePointAt(0)).toBe(0xFEFF)
+    const [row] = parseCsv(`${CSV_BOM}name,amount\nNetflix,60`)
+    expect(row.name).toBe('Netflix')
   })
 
   it('keeps a comma, a quote and a newline inside one field', () => {

@@ -16,7 +16,7 @@
  * hands out a new URL. That is correct — an old URL that still worked after a restore would be a
  * second, undocumented way into the account.
  */
-import { normalizeNotificationHours, clampPaymentLimit, isCurrencyCode, isPeriodUnit, isSubscriptionMode, LABEL_MAX, NAME_MAX, NOTES_MAX } from '@shared/subscriptions/model'
+import { normalizeNotificationHours, normalizeRateOverrides, normalizeBudgetCategories, clampPaymentLimit, isCurrencyCode, isPeriodUnit, isSubscriptionMode, LABEL_MAX, NAME_MAX, NOTES_MAX } from '@shared/subscriptions/model'
 
 export const SUBSCRIPTIONS_BACKUP_VERSION = 1 as const
 
@@ -77,7 +77,7 @@ async function tableRows(db: D1Database, userId: string): Promise<TableRows> {
     db.prepare(`SELECT name, icon, color, created_at FROM sub_type WHERE user_id = ?1 ORDER BY name`)
       .bind(userId).all(),
     db.prepare(`SELECT timezone, notification_hours, show_lunar, payment_history_limit, locale,
-                       base_currency, budget_monthly
+                       base_currency, budget_monthly, budget_yearly, budget_categories, rate_overrides
                   FROM sub_settings WHERE user_id = ?1`).bind(userId).first<Record<string, unknown>>(),
   ])
   return {
@@ -212,22 +212,28 @@ export async function applyBackupSubscriptions(
     const row = settings as Record<string, unknown>
     statements.push(db.prepare(
       `INSERT INTO sub_settings (user_id, timezone, notification_hours, show_lunar, payment_history_limit,
-         locale, base_currency, budget_monthly, inbound_token_hash, inbound_token_hint, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, '', '', ?9)
+         locale, base_currency, budget_monthly, budget_yearly, budget_categories, rate_overrides, inbound_token_hash, inbound_token_hint, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, '', '', ?12)
        ON CONFLICT(user_id) DO UPDATE SET
          timezone = excluded.timezone, notification_hours = excluded.notification_hours,
          show_lunar = excluded.show_lunar, payment_history_limit = excluded.payment_history_limit,
          locale = excluded.locale, base_currency = excluded.base_currency,
-         budget_monthly = excluded.budget_monthly, updated_at = excluded.updated_at`,
+         budget_monthly = excluded.budget_monthly, budget_yearly = excluded.budget_yearly,
+         budget_categories = excluded.budget_categories,
+         rate_overrides = excluded.rate_overrides,
+         updated_at = excluded.updated_at`,
     ).bind(
       userId,
       bounded(String(row.timezone ?? 'Asia/Shanghai'), 64),
-      JSON.stringify(normalizeNotificationHours(row.notification_hours)),
+      JSON.stringify(normalizeNotificationHours(carriedField(row.notification_hours))),
       truthy(row.show_lunar) ? 1 : 0,
       clampPaymentLimit(row.payment_history_limit),
       row.locale === 'en-US' ? 'en-US' : 'zh-CN',
       isCurrencyCode(row.base_currency) ? row.base_currency : 'CNY',
       numberOrNull(row.budget_monthly),
+      numberOrNull(row.budget_yearly),
+      JSON.stringify(normalizeBudgetCategories(carriedField(row.budget_categories))),
+      JSON.stringify(normalizeRateOverrides(carriedField(row.rate_overrides))),
       Date.now(),
     ))
   }
@@ -261,8 +267,21 @@ function safeParse(text: string): unknown {
   try {
     return JSON.parse(text)
   } catch {
+    // null is the caller's "this archive holds nothing readable", which it already has to answer: the
+    // whole document is checked before a single row is written.
     return null
   }
+}
+
+/**
+ * A settings field the archive carries as the column's own text — an hour list, a rate map.
+ *
+ * The document is a dump of rows, so these arrive as the JSON string the column holds, not as the value
+ * the app works with. Read straight, a window written as `["08","20"]` would be split on its commas and
+ * become two hours that match nothing, and every reminder after a restore would fall silent.
+ */
+function carriedField(value: unknown): unknown {
+  return typeof value === 'string' ? safeParse(value) : value
 }
 
 function cleanRows(value: unknown, limit: number, label: string): Array<Record<string, unknown>> {

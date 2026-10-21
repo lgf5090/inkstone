@@ -26,7 +26,11 @@ export interface DeliveryAccount {
 
 export async function sendInApp(payload: ChannelPayload, account: DeliveryAccount): Promise<ChannelResult> {
   const store = new AssistantStore(account.env.DB, account.userId, account.env)
-  const notification = await store.createNotification({ title: payload.title, body: payload.content })
+  const notification = await store.createNotification({
+    title: payload.title,
+    body: payload.content,
+    subscriptionId: payload.subscriptionId ?? null,
+  })
 
   // The row is the delivery, so an unread device is a report and never a refusal to write it.
   const problem = vapidProblem(account.env)

@@ -10,13 +10,19 @@
 import { channelHint, channelDefinition } from '@shared/subscriptions/channels'
 import {
   DEFAULT_SETTINGS,
+  LABEL_MAX,
   clampPaymentLimit,
   isCurrencyCode,
+  isRateValue,
+  normalizeBudgetCategories,
   normalizeNotificationHours,
+  normalizeRateOverrides,
   type ChannelKind,
   type ChannelState,
+  type CategoryBudgets,
   type CurrencyCode,
   type NotifyLocale,
+  type RateOverrides,
   type SubscriptionSettings,
 } from '@shared/subscriptions/model'
 import { isValidTimezone } from '@shared/subscriptions/time'
@@ -37,6 +43,9 @@ interface SettingsRow {
   inbound_token_hash: string
   inbound_token_hint: string
   updated_at: number
+  rate_overrides: string
+  budget_yearly: number | null
+  budget_categories: string
 }
 
 interface ChannelRow {
@@ -54,7 +63,8 @@ interface ChannelRow {
 }
 
 const SETTINGS_COLUMNS = `user_id, timezone, notification_hours, show_lunar, payment_history_limit,
-  locale, base_currency, budget_monthly, inbound_token_hash, inbound_token_hint, updated_at`
+  locale, base_currency, budget_monthly, inbound_token_hash, inbound_token_hint, updated_at, rate_overrides,
+  budget_yearly, budget_categories`
 
 const CHANNEL_COLUMNS = `user_id, id, kind, enabled, config_ciphertext, config_hint, last_test_at,
   last_test_status, last_test_error, created_at, updated_at`
@@ -64,7 +74,27 @@ function parseHours(raw: string): string[] {
     const value = JSON.parse(raw) as unknown
     return normalizeNotificationHours(value)
   } catch {
+    // Text that is not a list is a window nobody set, which is the same answer as an empty one: every hour
+    // stays open rather than the reader's reminders falling silent over one corrupt cell.
     return []
+  }
+}
+
+/** A cache-shaped field that could not be read is an empty one: the feed answers, and nothing is guessed. */
+function parseRates(raw: string): RateOverrides {
+  try {
+    return normalizeRateOverrides(JSON.parse(raw) as unknown)
+  } catch {
+    return {}
+  }
+}
+
+/** The same rule for the ceilings: a cell that cannot be read is a reader who set none. */
+function parseCategoryBudgets(raw: string): CategoryBudgets {
+  try {
+    return normalizeBudgetCategories(JSON.parse(raw) as unknown)
+  } catch {
+    return {}
   }
 }
 
@@ -77,6 +107,9 @@ function toSettings(row: SettingsRow): SubscriptionSettings {
     locale: row.locale === 'en-US' ? 'en-US' : 'zh-CN',
     baseCurrency: isCurrencyCode(row.base_currency) ? row.base_currency : DEFAULT_SETTINGS.baseCurrency,
     budgetMonthly: Number.isFinite(row.budget_monthly) && row.budget_monthly !== null ? row.budget_monthly : null,
+    budgetYearly: Number.isFinite(row.budget_yearly) && row.budget_yearly !== null ? row.budget_yearly : null,
+    budgetCategories: parseCategoryBudgets(row.budget_categories),
+    rateOverrides: parseRates(row.rate_overrides),
     inboundTokenHint: row.inbound_token_hint,
   }
 }
@@ -103,6 +136,20 @@ export interface SettingsPatch {
   locale?: unknown
   baseCurrency?: unknown
   budgetMonthly?: unknown
+  budgetYearly?: unknown
+  budgetCategories?: unknown
+  rateOverrides?: unknown
+}
+
+/**
+ * A ceiling as the account meant it, or null when they meant none.
+ *
+ * Absent keeps what was already stored; blank, zero and nonsense all mean no ceiling. Two ceilings — the
+ * month's and the year's — are asked the same question, so they are read the same way.
+ */
+function ceilingOf(raw: unknown, kept: number | null): number | null {
+  const value = raw === undefined ? kept : Number(raw)
+  return value !== null && Number.isFinite(value) && value > 0 ? Math.round(value * 100) / 100 : null
 }
 
 /**
@@ -131,13 +178,40 @@ export async function saveSettings(db: D1Database, userId: string, patch: Settin
   const baseCurrency: CurrencyCode = patch.baseCurrency === undefined ? current.baseCurrency : patch.baseCurrency as CurrencyCode
   // A budget that is absent, blank or not a number means "no ceiling", which is a different state from
   // a ceiling of zero and has to survive the round trip as null.
-  const budgetRaw = patch.budgetMonthly === undefined ? current.budgetMonthly : Number(patch.budgetMonthly)
-  const budgetMonthly = budgetRaw !== null && Number.isFinite(budgetRaw) && budgetRaw > 0
-    ? Math.round(budgetRaw * 100) / 100
-    : null
+  const budgetMonthly = ceilingOf(patch.budgetMonthly, current.budgetMonthly)
+  const budgetYearly = ceilingOf(patch.budgetYearly, current.budgetYearly)
+  // The ceilings are sent as a whole map, the way the pins are: the editor shows every one of them, so a
+  // save that left a name out is the reader removing it rather than forgetting it. A name that cannot be a
+  // category, or a number that cannot be a price, is refused rather than dropped on the floor.
+  let budgetCategories = current.budgetCategories
+  if (patch.budgetCategories !== undefined) {
+    const raw = patch.budgetCategories
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('invalid_category_budgets')
+    for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
+      const label = name.trim()
+      if (!label || label.length > LABEL_MAX) throw new Error(`invalid_category_budget:${name.slice(0, 24)}`)
+      const numeric = Number(value)
+      if (!Number.isFinite(numeric) || numeric <= 0) throw new Error(`invalid_category_budget:${label}`)
+    }
+    budgetCategories = normalizeBudgetCategories(raw)
+  }
+  // A pin the app cannot convert with is refused rather than dropped: the reader asked for their own
+  // number, and totals quietly made from the feed instead would look exactly like the ones they asked for.
+  // An empty object is a real answer — it clears every pin — so it is not the same as sending nothing.
+  let rateOverrides = current.rateOverrides
+  if (patch.rateOverrides !== undefined) {
+    const raw = patch.rateOverrides
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('invalid_rate_overrides')
+    for (const [code, value] of Object.entries(raw as Record<string, unknown>)) {
+      const upper = code.toUpperCase()
+      if (!isCurrencyCode(upper) || upper === 'CNY') throw new Error(`invalid_rate_currency:${upper}`)
+      if (!isRateValue(value)) throw new Error(`invalid_rate_value:${upper}`)
+    }
+    rateOverrides = normalizeRateOverrides(raw)
+  }
 
   await db.prepare(
-    `INSERT INTO sub_settings (${SETTINGS_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, '', '', ?9)
+    `INSERT INTO sub_settings (${SETTINGS_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, '', '', ?9, ?10, ?11, ?12)
      ON CONFLICT(user_id) DO UPDATE SET
        timezone = excluded.timezone,
        notification_hours = excluded.notification_hours,
@@ -146,6 +220,9 @@ export async function saveSettings(db: D1Database, userId: string, patch: Settin
        locale = excluded.locale,
        base_currency = excluded.base_currency,
        budget_monthly = excluded.budget_monthly,
+       rate_overrides = excluded.rate_overrides,
+       budget_yearly = excluded.budget_yearly,
+       budget_categories = excluded.budget_categories,
        updated_at = excluded.updated_at`,
   ).bind(
     userId,
@@ -157,9 +234,24 @@ export async function saveSettings(db: D1Database, userId: string, patch: Settin
     baseCurrency,
     budgetMonthly,
     Date.now(),
+    JSON.stringify(rateOverrides),
+    budgetYearly,
+    JSON.stringify(budgetCategories),
   ).run()
 
-  return { timezone, notificationHours, showLunar, paymentHistoryLimit: limit, locale, baseCurrency, budgetMonthly, inboundTokenHint: current.inboundTokenHint }
+  return {
+    timezone,
+    notificationHours,
+    showLunar,
+    paymentHistoryLimit: limit,
+    locale,
+    baseCurrency,
+    budgetMonthly,
+    budgetYearly,
+    budgetCategories,
+    rateOverrides,
+    inboundTokenHint: current.inboundTokenHint,
+  }
 }
 
 export async function listChannels(db: D1Database, userId: string): Promise<ChannelState[]> {
@@ -394,7 +486,7 @@ export async function rotateInboundToken(db: D1Database, userId: string): Promis
   const hash = await sha256Hex(token)
   const hint = token.slice(-4)
   await db.prepare(
-    `INSERT INTO sub_settings (${SETTINGS_COLUMNS}) VALUES (?1, ?2, '[]', 0, 100, 'zh-CN', 'CNY', NULL, ?3, ?4, ?5)
+    `INSERT INTO sub_settings (${SETTINGS_COLUMNS}) VALUES (?1, ?2, '[]', 0, 100, 'zh-CN', 'CNY', NULL, ?3, ?4, ?5, '{}', NULL, '{}')
      ON CONFLICT(user_id) DO UPDATE SET
        inbound_token_hash = excluded.inbound_token_hash,
        inbound_token_hint = excluded.inbound_token_hint,

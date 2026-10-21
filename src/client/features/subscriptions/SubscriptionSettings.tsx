@@ -14,8 +14,25 @@ import { t } from '../../lib/i18n'
 import { Button, IconButton, SectionLabel } from '../../components/primitives'
 import { Field, Input, Segmented, Select, Switch, Textarea } from '../../components/form'
 import { Modal } from '../../components/overlay'
-import { CHANNEL_DEFINITIONS, channelLabelKey, type ChannelField } from '@shared/subscriptions/channels'
-import { CURRENCY_CODES, type ChannelKind, type ChannelState, type CurrencyCode, type NotifyLocale, type SubscriptionSettings } from '@shared/subscriptions/model'
+import { CHANNEL_DEFINITIONS, channelLabelKey, INBOUND_HOOK_PATH, type ChannelField } from '@shared/subscriptions/channels'
+import { copyText } from '../../lib/clipboard'
+import { useUi } from '../../store/ui'
+import { FALLBACK_RATES } from '@shared/subscriptions/currency'
+import { CURRENCY_CODES, PAYMENT_LIMIT_MAX, PAYMENT_LIMIT_MIN, type ChannelKind, type ChannelState, type NotifyLocale, type SubscriptionSettings } from '@shared/subscriptions/model'
+import { CurrencySelect } from './currency-flag'
+
+/**
+ * Which currencies get a box.
+ *
+ * Not every currency the app can be told in: thirty boxes is a wall, and a reader pins a rate because a
+ * number on their own dashboard is wrong, so the currencies they are actually billed in are the ones that
+ * belong here — plus anything they have already pinned, plus the currency the totals are added up in, in
+ * case that one is the number nobody can find. Anything else is one choice away in the add list.
+ */
+function pinnableCurrencies(rates: Record<string, string>, currencies: readonly string[], base: string): string[] {
+  const codes = new Set<string>([...Object.keys(rates), ...currencies, base])
+  return [...codes].filter((code) => code !== 'CNY').sort()
+}
 
 const TIMEZONES = [
   'Asia/Shanghai', 'Asia/Hong_Kong', 'Asia/Taipei', 'Asia/Singapore', 'Asia/Tokyo', 'Asia/Seoul',
@@ -27,6 +44,8 @@ const TIMEZONES = [
 export function SubscriptionSettings({
   settings,
   channels,
+  currencies,
+  categories,
   onClose,
   onSaveSettings,
   onSaveChannel,
@@ -37,6 +56,8 @@ export function SubscriptionSettings({
 }: {
   settings: SubscriptionSettings
   channels: readonly ChannelState[]
+  currencies: readonly string[]
+  categories: readonly string[]
   onClose: () => void
   onSaveSettings: (patch: Record<string, unknown>) => Promise<boolean>
   onSaveChannel: (kind: ChannelKind, input: { enabled?: boolean; config: Record<string, unknown> }) => Promise<boolean>
@@ -47,7 +68,54 @@ export function SubscriptionSettings({
 }): ReactElement {
   const [tab, setTab] = useState<'general' | 'channels'>('general')
   const [hours, setHours] = useState(settings.notificationHours.join(', '))
+  // The boxes hold text, not numbers: a reader mid-way through typing `7.` has not asked for a rate of
+  // seven, and a box they cleared has asked for the feed back.
+  const [rates, setRates] = useState<Record<string, string>>(() =>
+    Object.fromEntries(Object.entries(settings.rateOverrides).map(([code, value]) => [code, String(value)])))
+  const [budgets, setBudgets] = useState<Record<string, string>>(() =>
+    Object.fromEntries(Object.entries(settings.budgetCategories).map(([name, value]) => [name, String(value)])))
   const [token, setToken] = useState<string | null>(null)
+  // Built once: the address the copy button puts on the clipboard and the line that shows it to the reader
+  // must not be two strings that can drift.
+  const inboundAddress = token ? `${location.origin}${INBOUND_HOOK_PATH}/${token}` : ''
+  // The calendar link carries the same token: a calendar client polls a URL and sends no header anybody
+  // could ask it to keep the secret out of the address bar of its own logs.
+  const calendarAddress = token ? `${location.origin}${INBOUND_HOOK_PATH}/calendar/${token}` : ''
+
+  /**
+   * Send the pins as one map, because the boxes above are the whole map.
+   *
+   * A number field reports an empty string while it holds nonsense, so the only state a box can leave
+   * behind is the one the reader can see: empty means the feed again for that currency, and a number means
+   * that number.
+   */
+  const saveRates = async (next: Record<string, string>): Promise<void> => {
+    const patch: Record<string, number> = {}
+    for (const [code, text] of Object.entries(next)) {
+      const trimmed = text.trim()
+      if (!trimmed) continue
+      const numeric = Number(trimmed)
+      if (Number.isFinite(numeric) && numeric > 0) patch[code] = numeric
+    }
+    await onSaveSettings({ rateOverrides: patch })
+  }
+
+  /**
+   * Send the ceilings as one map, for the same reason the pins are sent that way: the boxes are the map.
+   *
+   * A blank box is a ceiling the reader gave up on, which has to be absent from what goes out rather than
+   * sent as zero — zero would come back as a ceiling nobody can spend under.
+   */
+  const saveBudgets = async (next: Record<string, string>): Promise<void> => {
+    const ceilings: Record<string, number> = {}
+    for (const [name, text] of Object.entries(next)) {
+      const trimmed = text.trim()
+      if (!trimmed) continue
+      const numeric = Number(trimmed)
+      if (Number.isFinite(numeric) && numeric > 0) ceilings[name] = numeric
+    }
+    await onSaveSettings({ budgetCategories: ceilings })
+  }
 
   const saveGeneral = async (patch: Record<string, unknown>): Promise<void> => {
     await onSaveSettings(patch)
@@ -84,8 +152,8 @@ export function SubscriptionSettings({
             <Field label={t('subscriptions.settings.history_limit')}>
               <Input
                 type="number"
-                min={10}
-                max={1000}
+                min={PAYMENT_LIMIT_MIN}
+                max={PAYMENT_LIMIT_MAX}
                 value={settings.paymentHistoryLimit}
                 onChange={(event) => void saveGeneral({ paymentHistoryLimit: Number(event.target.value) })}
               />
@@ -97,9 +165,7 @@ export function SubscriptionSettings({
               </Select>
             </Field>
             <Field label={t('subscriptions.settings.base_currency')} hint={t('subscriptions.settings.base_currency_hint')}>
-              <Select value={settings.baseCurrency} onChange={(event) => void saveGeneral({ baseCurrency: event.target.value as CurrencyCode })}>
-                {CURRENCY_CODES.map((code) => <option key={code} value={code}>{code}</option>)}
-              </Select>
+              <CurrencySelect value={settings.baseCurrency} onChange={(code) => { void saveGeneral({ baseCurrency: code }) }} />
             </Field>
             {/* A ceiling the reader sets, not one the app infers: the dashboard already says what was
                 spent, and the number only means anything against a limit they chose themselves. */}
@@ -114,6 +180,138 @@ export function SubscriptionSettings({
                 onChange={(event) => void saveGeneral({ budgetMonthly: event.target.value === '' ? null : Number(event.target.value) })}
               />
             </Field>
+            {/* The year is its own ceiling because an annual plan spends twelve months of cost in one
+                month, and a reader who set only the monthly number is told they overspent on the day they
+                bought the thing that makes their other months cheap. */}
+            <Field label={t('subscriptions.settings.budget_yearly')} hint={t('subscriptions.settings.budget_yearly_hint')}>
+              <Input
+                type="number"
+                min={0}
+                step="1"
+                inputMode="decimal"
+                value={settings.budgetYearly ?? ''}
+                placeholder={t('subscriptions.settings.budget_placeholder')}
+                onChange={(event) => void saveGeneral({ budgetYearly: event.target.value === '' ? null : Number(event.target.value) })}
+              />
+            </Field>
+          </div>
+
+          {/* The feed answers once a day, for everybody. A reader billed in a currency that moves faster
+              than that — or at their bank's price rather than an index — had no way to say so, and every
+              total was quietly made with the number they disagree with. */}
+          <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)] px-2.5 py-2">
+            <SectionLabel>{t('subscriptions.settings.rates')}</SectionLabel>
+            <p className="mt-1 text-[length:var(--text-11)] leading-relaxed text-[var(--text-quaternary)]">
+              {t('subscriptions.settings.rates_hint')}
+            </p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2" data-rate-boxes="">
+              {pinnableCurrencies(rates, currencies, settings.baseCurrency).map((code) => (
+                <Field
+                  key={code}
+                  label={t('subscriptions.settings.rate_row', { currency: code })}
+                  hint={FALLBACK_RATES[code] === undefined
+                    ? t('subscriptions.settings.rate_no_fallback')
+                    : t('subscriptions.settings.rate_fallback', { rate: String(FALLBACK_RATES[code]) })}
+                >
+                  <Input
+                    type="number"
+                    min={0}
+                    step="any"
+                    inputMode="decimal"
+                    value={rates[code] ?? ''}
+                    placeholder={FALLBACK_RATES[code] === undefined ? '' : String(FALLBACK_RATES[code])}
+                    onChange={(event) => setRates((current) => ({ ...current, [code]: event.target.value }))}
+                    onBlur={() => void saveRates(rates)}
+                  />
+                </Field>
+              ))}
+            </div>
+            {CURRENCY_CODES.filter((code) => code !== 'CNY' && !(code in rates)).length > 0 && (
+              <div className="mt-2 w-[140px]">
+                <Field label={t('subscriptions.settings.rate_add')}>
+                  <Select
+                    value=""
+                    onChange={(event) => {
+                      const picked = event.target.value
+                      if (picked) setRates((current) => ({ ...current, [picked]: '' }))
+                    }}
+                  >
+                    <option value="">{t('subscriptions.settings.rate_add_placeholder')}</option>
+                    {CURRENCY_CODES.filter((code) => code !== 'CNY' && !(code in rates)).map((code) => (
+                      <option key={code} value={code}>{code}</option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+            )}
+            {Object.keys(settings.rateOverrides).length > 0 && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="mt-2"
+                onClick={() => { setRates({}); void saveRates({}) }}
+              >
+                {t('subscriptions.settings.rates_clear')}
+              </Button>
+            )}
+          </div>
+
+          {/* A ceiling on a category is the question about a pile rather than about one plan: the dashboard
+              already splits the year by category, and this is where a reader says what each pile may cost. */}
+          <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)] px-2.5 py-2">
+            <SectionLabel>{t('subscriptions.settings.category_budgets')}</SectionLabel>
+            <p className="mt-1 text-[length:var(--text-11)] leading-relaxed text-[var(--text-quaternary)]">
+              {t('subscriptions.settings.category_budgets_hint')}
+            </p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2" data-category-budget-boxes="">
+              {Object.keys(budgets).map((name) => (
+                <Field key={name} label={name}>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="any"
+                    inputMode="decimal"
+                    value={budgets[name]}
+                    placeholder={t('subscriptions.settings.budget_placeholder')}
+                    onChange={(event) => setBudgets((current) => ({ ...current, [name]: event.target.value }))}
+                    onBlur={() => void saveBudgets(budgets)}
+                  />
+                </Field>
+              ))}
+            </div>
+            {categories.filter((name) => !(name in budgets)).length > 0 && (
+              <div className="mt-2 w-[160px]">
+                <Field label={t('subscriptions.settings.category_budget_add')}>
+                  <Select
+                    value=""
+                    onChange={(event) => {
+                      const picked = event.target.value
+                      if (picked) setBudgets((current) => ({ ...current, [picked]: '' }))
+                    }}
+                  >
+                    <option value="">{t('subscriptions.settings.category_budget_add_placeholder')}</option>
+                    {categories.filter((name) => !(name in budgets)).map((name) => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+            )}
+            {Object.keys(settings.budgetCategories).length > 0 && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="mt-2"
+                onClick={() => { setBudgets({}); void saveBudgets({}) }}
+              >
+                {t('subscriptions.settings.category_budgets_clear')}
+              </Button>
+            )}
+            {categories.length === 0 && (
+              <p className="mt-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+                {t('subscriptions.settings.category_budgets_none')}
+              </p>
+            )}
           </div>
 
           <label className="flex items-center justify-between gap-3 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-2.5 py-2">
@@ -146,7 +344,9 @@ export function SubscriptionSettings({
                   size="sm"
                   variant="ghost"
                   icon={<Copy size={13} />}
-                  onClick={() => void navigator.clipboard?.writeText(`${location.origin}/hooks/subscriptions/${token}`)}
+                  onClick={() => void copyText(inboundAddress).then((taken) => {
+                    if (!taken) useUi.getState().toast({ title: t('subscriptions.settings.copy_failed'), tone: 'danger' })
+                  })}
                 >
                   {t('subscriptions.settings.inbound_copy')}
                 </Button>
@@ -154,8 +354,31 @@ export function SubscriptionSettings({
             </div>
             {token && (
               <p className="mt-1 break-all rounded-[var(--r-xs)] bg-[var(--bg-inset)] px-2 py-1 font-mono text-[length:var(--text-10-5)] text-[var(--warning)]">
-                {t('subscriptions.settings.inbound_once', { token: `${location.origin}/hooks/subscriptions/${token}` })}
+                {t('subscriptions.settings.inbound_once', { token: inboundAddress })}
               </p>
+            )}
+            {token && (
+              <div className="mt-2 border-t border-[var(--border-subtle)] pt-2">
+                <p className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('subscriptions.settings.calendar')}</p>
+                <p className="mt-1 text-[length:var(--text-11)] leading-relaxed text-[var(--text-quaternary)]">
+                  {t('subscriptions.settings.calendar_hint')}
+                </p>
+                <div className="mt-1.5 flex items-center gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    icon={<Copy size={13} />}
+                    onClick={() => void copyText(calendarAddress).then((taken) => {
+                      if (!taken) useUi.getState().toast({ title: t('subscriptions.settings.copy_failed'), tone: 'danger' })
+                    })}
+                  >
+                    {t('subscriptions.settings.calendar_copy')}
+                  </Button>
+                </div>
+                <p className="mt-1 break-all rounded-[var(--r-xs)] bg-[var(--bg-inset)] px-2 py-1 font-mono text-[length:var(--text-10-5)] text-[var(--warning)]">
+                  {calendarAddress}
+                </p>
+              </div>
             )}
           </div>
 

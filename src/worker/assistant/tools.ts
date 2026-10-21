@@ -26,12 +26,20 @@ import type { Env } from '../env'
 import type { McpWriteContext } from '../mcp/writes'
 import { createMcpNote, editMcpNote, trashMcpNote } from '../mcp/writes'
 import { readMcpNote, searchMcpNotes } from '../mcp/retrieval'
-import { buildOverview } from '../subscriptions/overview'
+import { buildOverview, loadRates } from '../subscriptions/overview'
+import { applyRateOverrides, rateTableFor, type RateTable } from '@shared/subscriptions/currency'
+import { isListSort, LIST_SORTS, sortSubscriptions } from '@shared/subscriptions/sort'
 import { normalizeColor, normalizeIcon } from '@shared/subscriptions/identity'
-import { listChannels, loadSettings } from '../subscriptions/settings'
+import { matchesSubscriptionSearch } from '@shared/subscriptions/search'
+import { SERVICE_TEMPLATES } from '@shared/subscriptions/templates'
+import { listChannels, loadSettings, saveSettings } from '../subscriptions/settings'
+import { queryNotifyLogs, recentScheduleLogs } from '../subscriptions/logs'
+import { formatAmount } from '@shared/subscriptions/format'
 import { SubscriptionsStore, storeContext, type StoreContext } from '../subscriptions/store'
 import {
+  BULK_LIMIT,
   CURRENCY_CODES,
+  isRateValue,
   labelNamesOf,
   PERIOD_UNITS,
   RULES_LIMIT,
@@ -43,6 +51,7 @@ import {
   type SubscriptionDetail,
   type SubscriptionItem,
   type SubscriptionMode,
+  type SubscriptionSettings,
 } from '@shared/subscriptions/model'
 import { ApiError } from '../lib/errors'
 import { ArtifactVersionConflictError, type AssistantStore, type MemoryScope } from './store'
@@ -1454,9 +1463,15 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
       query: { type: 'string', maxLength: 120, optional: true },
       category: { type: 'string', maxLength: 40, optional: true },
       limit: { type: 'integer', minimum: 1, maximum: 50, optional: true },
+      sort: {
+        type: 'string',
+        enum: [...LIST_SORTS],
+        optional: true,
+        description: 'The same ordering the screen\'s toolbar offers: expiry (default, soonest first), cost (what one month of the plan works out to, highest first), amount (one charge, highest first), name. `cost` and `amount` convert to the account\'s total currency before comparing, so a $20 plan does not outrank a ¥150 one.',
+      },
     },
     async run(args, ctx) {
-      const { store, context } = await subscriptionAccess(ctx)
+      const { store, context, settings } = await subscriptionAccess(ctx)
       const status = (args.status as string) ?? 'all'
       // The trash is a separate read rather than a filter on the live list: `store.list` excludes those
       // rows in SQL, so a model that never learns the word `trash` cannot see them at all — which is how
@@ -1464,18 +1479,20 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
       const items = status === 'trash' ? await store.list(context, 'trash') : await store.list(context)
       const query = typeof args.query === 'string' ? args.query.trim().toLocaleLowerCase() : ''
       const category = typeof args.category === 'string' ? args.category.trim().toLocaleLowerCase() : ''
-      const matched = items.filter((item) => {
+      const filtered = items.filter((item) => {
         if (status === 'soon' && !(item.daysRemaining >= 0 && item.daysRemaining <= SOON_DAYS)) return false
         if (status === 'expired' && item.daysRemaining >= 0) return false
         if (status === 'active' && (item.daysRemaining < 0 || !item.isActive)) return false
         if (status === 'disabled' && item.isActive) return false
         if (category && !labelNamesOf(item.category, 'category').some((token) => token.toLocaleLowerCase() === category)) return false
-        if (query) {
-          const haystack = `${item.name} ${item.customType} ${item.category} ${item.notes}`.toLocaleLowerCase()
-          if (!haystack.includes(query)) return false
-        }
+        if (query && !matchesSubscriptionSearch(item, query)) return false
         return true
-      }).sort((left, right) => left.daysRemaining - right.daysRemaining)
+      })
+      const sort = isListSort(args.sort) ? args.sort : 'expiry'
+      // Only the two money orderings need the table, and getting it can reach the currency service when
+      // the day's cache is cold — a list asked for by name should not pay for that.
+      const rates: RateTable = sort === 'cost' || sort === 'amount' ? await accountRateTable(ctx, settings) : {}
+      const matched = sortSubscriptions(filtered, sort, rates)
       const limit = Number(args.limit ?? 15)
       const page = matched.slice(0, limit)
       return {
@@ -1492,7 +1509,7 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
     name: 'get_subscription',
     permission: 'read',
     maxCallsPerTurn: 3,
-    description: 'Read one subscription in full: its reminder rules, when the next one fires, and its payment history with what each receipt bought.',
+    description: 'Read one subscription in full: its reminder rules, when the next one fires, its payment history with what each receipt bought, and what that history adds up to per calendar year and per currency.',
     fields: { ref: { type: 'string', minLength: 1, maxLength: 120, description: 'The id, or the name the reader used.' } },
     async run(args, ctx) {
       const { detail } = await resolveSubscriptionOrThrow(args.ref, ctx)
@@ -1519,6 +1536,9 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
           note: payment.note,
         })),
         paymentCount: detail.payments.length,
+        // Every receipt the plan has, counted rather than listed: the slice above is the recent history,
+        // and "what did 2025 cost" is a question about all of it.
+        yearlySpend: detail.yearlySpend,
       }
     },
   }),
@@ -1526,7 +1546,7 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
     name: 'subscription_summary',
     permission: 'read',
     maxCallsPerTurn: 2,
-    description: 'The account\'s money picture in one call: what this month and this year have cost in the reader\'s total currency, how that compares with last month, the ceiling the reader set for a month and whether this month is over it, what the current plans commit for a year, which trials are about to start charging, which plans changed price, what renews in the next week, where the spending goes by type and by category, and whether the reminder scheduler is still running.',
+    description: 'The account\'s money picture in one call: what this month and this year have cost in the reader\'s total currency, how that compares with last month, the ceiling the reader set for a month and for a year and whether either is spent, what the months left in the year can still afford, what the current plans commit for a year, where the exchange rates came from and which currencies had none, which trials are about to start charging, which plans changed price, what renews in the next week, where the spending goes by type and by category and which categories the reader capped and whether those caps still hold, and whether the reminder scheduler is still running.',
     fields: {},
     async run(_args, ctx) {
       const settings = await loadSettings(ctx.env.DB, ctx.store.userId)
@@ -1539,7 +1559,39 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
         // The ceiling is the reader's own number, and `limit: null` means they never set one — which is a
         // different answer from "not over budget". Leaving it out made the tool unable to say either.
         budget: overview.budget,
+        // The year gets its own sentence because a monthly ceiling cannot answer a yearly question: an
+        // annual plan blows through the month it charges in and is exactly on plan for the year.
+        yearlyBudget: overview.yearlyBudget,
+        // The categories the reader capped, each with its year so far — including the ones that have spent
+        // nothing, which is the answer to "is the cap holding".
+        categoryBudgets: overview.categoryBudgets,
         committedYearly: overview.committedYearly,
+        // Every amount above was converted from something: which day the rates came from, whether that day
+        // was published or merely our own approximation, and which currencies had no rate at all and so sit
+        // in no total. Asked live without these, a model promised the rates were current the morning the
+        // fetch had failed, and said nothing was pinned while the account carried a USD pin.
+        rates: {
+          base: overview.rates.base,
+          source: overview.rates.source,
+          takenAt: overview.rates.at === null ? null : new Date(overview.rates.at).toISOString(),
+          pinned: settings.rateOverrides,
+          unpriced: overview.rates.unpriced,
+          basePriced: overview.rates.basePriced,
+          note: [
+            overview.rates.source === 'feed'
+              ? 'Foreign amounts converted at the published daily rates.'
+              : 'The rate feed could not be reached, so foreign amounts converted at the app\'s own built-in approximations, which can be a long way off.',
+            Object.keys(settings.rateOverrides).length === 0
+              ? 'No rate is pinned, so every foreign amount converted at the table above.'
+              : 'A pinned currency converted at the reader\'s own number rather than the feed.',
+            overview.rates.unpriced.length === 0
+              ? ''
+              : `${overview.rates.unpriced.join(', ')} had no rate to convert at, so their money is in none of the totals above. Say which, and offer to pin a rate for them with set_subscription_settings.`,
+            overview.rates.basePriced
+              ? ''
+              : `The total currency ${overview.rates.base} has no rate either, so the totals above are really CNY while the setting names ${overview.rates.base}.`,
+          ].filter(Boolean).join(' '),
+        },
         trials: overview.trials,
         priceChanges: overview.priceChanges,
         active: overview.active,
@@ -1569,6 +1621,10 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
       periodUnit: { type: 'string', enum: [...PERIOD_UNITS], optional: true },
       mode: { type: 'string', enum: ['cycle', 'reset'], optional: true },
       startDate: { type: 'string', maxLength: 10, optional: true },
+      useLunar: { type: 'boolean', optional: true, description: 'True when the reader set the date by the lunar calendar, so the app keeps showing it that way.' },
+      isActive: { type: 'boolean', optional: true, description: 'False switches reminders and renewal tracking off. Defaults to on.' },
+      autoRenew: { type: 'boolean', optional: true, description: 'False means the plan stops at its expiry instead of charging again, so the app says so. Defaults to on.' },
+      trialEndsAt: { type: 'string', maxLength: 10, optional: true, description: 'YYYY-MM-DD the free period turns into a charge. Leave out unless this is a trial.' },
       notes: { type: 'string', maxLength: 2000, optional: true },
       reminders: { type: 'string', maxLength: 200, optional: true, description: 'Comma-separated: "7d" or "12h" for that far ahead, "on" for the day itself, "after:24" to repeat every 24 hours once overdue.' },
     },
@@ -1585,6 +1641,10 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
         periodValue: args.periodValue === undefined ? 1 : Number(args.periodValue),
         periodUnit: (args.periodUnit as PeriodUnit) ?? 'month',
         subscriptionMode: (args.mode as SubscriptionMode) ?? 'cycle',
+        useLunar: args.useLunar === true,
+        isActive: args.isActive === undefined ? true : args.isActive === true,
+        autoRenew: args.autoRenew === undefined ? true : args.autoRenew === true,
+        trialEndsAt: typeof args.trialEndsAt === 'string' && args.trialEndsAt ? `${args.trialEndsAt}T00:00:00Z` : null,
         notes: typeof args.notes === 'string' ? args.notes : '',
         reminderRules: typeof args.reminders === 'string' ? parseReminderSpec(args.reminders) : undefined,
       }, context)
@@ -1607,6 +1667,8 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
       periodValue: { type: 'integer', minimum: 1, maximum: 120, optional: true },
       periodUnit: { type: 'string', enum: [...PERIOD_UNITS], optional: true },
       mode: { type: 'string', enum: ['cycle', 'reset'], optional: true },
+      startDate: { type: 'string', maxLength: 10, optional: true, description: 'YYYY-MM-DD the plan started. It anchors a reset-cycle expiry, so changing it moves the date.' },
+      useLunar: { type: 'boolean', optional: true, description: 'Whether the app keeps showing the expiry date by the lunar calendar.' },
       autoRenew: { type: 'boolean', optional: true },
       notes: { type: 'string', maxLength: 2000, optional: true },
     },
@@ -1619,12 +1681,12 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
         category: typeof args.category === 'string' ? args.category : current.category,
         amount: args.amount === undefined ? current.amount : Number(args.amount),
         currency: (args.currency as CurrencyCode) ?? current.currency,
-        startDate: typeof args.startDate === 'string' ? args.startDate : current.startDate,
+        startDate: typeof args.startDate === 'string' && args.startDate ? args.startDate : current.startDate,
         expiryDate: `${(typeof args.expiryDate === 'string' && args.expiryDate ? args.expiryDate : current.expiryDate.slice(0, 10))}T00:00:00Z`,
         periodValue: args.periodValue === undefined ? current.periodValue : Number(args.periodValue),
         periodUnit: (args.periodUnit as PeriodUnit) ?? current.periodUnit,
         subscriptionMode: (args.mode as SubscriptionMode) ?? current.subscriptionMode,
-        useLunar: current.useLunar,
+        useLunar: args.useLunar === undefined ? current.useLunar : args.useLunar === true,
         isActive: current.isActive,
         autoRenew: args.autoRenew === undefined ? current.autoRenew : args.autoRenew === true,
         notes: typeof args.notes === 'string' ? args.notes : current.notes,
@@ -1705,6 +1767,441 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
     },
   }),
   tool({
+    name: 'list_subscription_labels',
+    permission: 'read',
+    maxCallsPerTurn: 2,
+    description: 'The type and category names the reader has registered, each with the icon and colour the app draws for it, in one answer. Read this before naming a label in another tool: a type the reader already has, spelled differently, becomes a second identity for the same service.',
+    fields: {},
+    async run(_args, ctx) {
+      const { store } = await subscriptionAccess(ctx)
+      // Both registries at once: the question is always "what do I already call these", and a tool that
+      // demands a `kind` first was measured live making the model send an empty call, get refused, and ask
+      // again — two wasted round trips to say one sentence.
+      const [types, categories] = await Promise.all([store.listLabels('type'), store.listLabels('category')])
+      const list = (kind: LabelKind, labels: Awaited<ReturnType<typeof store.listLabels>>) => ({
+        kind,
+        total: labels.length,
+        // A reader who registered nothing gets the built-in presets instead, and saying so keeps the
+        // model from reporting an empty registry to somebody who has forty types on screen.
+        note: labels.length === 0 ? `Nothing is registered under ${kind} yet; the app is drawing its built-in suggestions.` : undefined,
+        labels: labels.map((entry) => ({ name: entry.name, icon: entry.icon || null, color: entry.color || null })),
+      })
+      return { types: list('type', types), categories: list('category', categories) }
+    },
+  }),
+  tool({
+    name: 'list_subscription_templates',
+    permission: 'read',
+    maxCallsPerTurn: 1,
+    description: 'The services this app knows by name — what each one is usually filed as, and how often it charges. A reader adding a plan who names a service without describing it can be started from here. No entry carries a price, because the app never guesses what a plan costs: ask.',
+    fields: {},
+    async run(_args, ctx) {
+      const { settings } = await subscriptionAccess(ctx)
+      const slugOf = (key: string): string => key.slice(key.lastIndexOf('.') + 1)
+      return {
+        templates: SERVICE_TEMPLATES.map((template) => ({
+          name: template.name,
+          type: slugOf(template.typeKey),
+          category: slugOf(template.categoryKey),
+          periodValue: template.periodValue,
+          periodUnit: template.periodUnit,
+        })),
+        // The names above are English keys into the app's own label table; what the reader sees on screen
+        // is those labels in their language, so a plan filed straight from this list would carry words
+        // their own list never shows.
+        note: 'type and category are the app\'s built-in label names in English. Before creating a plan from one, read list_subscription_labels and file it under the spelling that reader\'s own list shows — in their language, which is '
+          + (settings.locale === 'en-US' ? 'English.' : 'Chinese.')
+          + ' The amount is never in this list; ask what they pay.',
+      }
+    },
+  }),
+  tool({
+    name: 'get_subscription_settings',
+    permission: 'read',
+    maxCallsPerTurn: 2,
+    description: 'How the subscriptions app is configured for this reader: the time zone reminders are judged in, the hours it may send them in, whether dates are shown by the lunar calendar, how many receipts a row carries, the currency the dashboard totals in, the ceilings they set for a month, for a year and for any category, and any exchange rate they pinned over the daily feed. Carrying no answer for one of these is a real fact about the account, so name it rather than guessing.',
+    fields: {},
+    async run(_args, ctx) {
+      return presentSettings(await loadSettings(ctx.env.DB, ctx.store.userId))
+    },
+  }),
+  tool({
+    name: 'set_subscription_settings',
+    permission: 'write',
+    maxCallsPerTurn: 2,
+    description: 'Change how the subscriptions app behaves for this reader. Only what is named is touched. `timezone` must be a real IANA zone such as Asia/Shanghai, and `notificationHours` is which hours of the reader\'s own day reminders may arrive in. `rateOverrides` is how the reader wants a currency valued, in yuan per unit, instead of the daily feed.',
+    fields: {
+      timezone: { type: 'string', maxLength: 40, optional: true, description: 'An IANA zone name, for example Asia/Shanghai or Europe/Berlin.' },
+      notificationHours: { type: 'string', maxLength: 80, optional: true, description: 'Comma-separated hours of the day the reader may be woken with a reminder, such as "9,10,19,20". Send "all" for no window, or "none" to stay quiet.' },
+      showLunar: { type: 'boolean', optional: true },
+      paymentHistoryLimit: { type: 'integer', minimum: 1, maximum: 200, optional: true },
+      baseCurrency: { type: 'string', enum: [...CURRENCY_CODES], optional: true },
+      budgetMonthly: { type: 'number', minimum: 0, maximum: 1e9, optional: true },
+      clearBudget: { type: 'boolean', optional: true, description: 'True removes the monthly ceiling altogether. Leave it out to keep or set one.' },
+      budgetYearly: { type: 'number', minimum: 0, maximum: 1e9, optional: true, description: 'What a whole calendar year of these plans may cost, counted against the receipts already in it. A reader who pays for a year at a time needs this rather than twelve times the monthly number.' },
+      clearYearlyBudget: { type: 'boolean', optional: true, description: 'True removes the yearly ceiling altogether. Leave it out to keep or set one.' },
+      categoryBudgets: {
+        type: 'string',
+        maxLength: 240,
+        optional: true,
+        description: 'Ceilings for one category of plans across this calendar year, as "streaming:600, music:200". The names are matched as the reader wrote them, so a category nobody has filed a plan under yet is a ceiling that reads zero. Named categories are added to the ceilings already set; "streaming:none" lets one go uncapped again.',
+      },
+      clearCategoryBudgets: { type: 'boolean', optional: true, description: 'True removes every category ceiling, so no part of the year is capped.' },
+      rateOverrides: {
+        type: 'string',
+        maxLength: 160,
+        optional: true,
+        description: 'Rates the reader stated for themselves, as "USD:7.2, JPY:0.045", each meaning 1 of that currency = so many yuan. Named currencies are added to the pins already set; "USD:none" lets one follow the feed again. Every total the app adds up converts with these.',
+      },
+      clearRates: { type: 'boolean', optional: true, description: 'True removes every pinned rate, so the account converts at the daily feed again.' },
+    },
+    async run(args, ctx) {
+      const patch: Record<string, unknown> = {}
+      if (typeof args.timezone === 'string') patch.timezone = args.timezone
+      if (typeof args.showLunar === 'boolean') patch.showLunar = args.showLunar
+      if (args.paymentHistoryLimit !== undefined) patch.paymentHistoryLimit = Number(args.paymentHistoryLimit)
+      if (typeof args.baseCurrency === 'string') patch.baseCurrency = args.baseCurrency
+      if (typeof args.notificationHours === 'string') {
+        const text = args.notificationHours.trim().toLocaleLowerCase()
+        if (text === 'none') patch.notificationHours = []
+        else if (text === 'all' || !text) patch.notificationHours = Array.from({ length: 24 }, (_, hour) => String(hour))
+        else {
+          const hours = text.split(',').map((part) => part.trim()).filter(Boolean)
+          if (!hours.every((part) => /^\d{1,2}$/.test(part) && Number(part) >= 0 && Number(part) <= 23)) {
+            throw new ToolError(`"${args.notificationHours}" is not a list of hours. Name the hours as numbers 0 to 23, such as "9,10,19,20", or send "all" or "none".`)
+          }
+          patch.notificationHours = [...new Set(hours)]
+        }
+      }
+      // A ceiling is one of the few settings where "no value" is the answer the reader means, and a number
+      // field cannot carry that, so clearing it is its own verb rather than a zero.
+      if (args.clearBudget === true) patch.budgetMonthly = null
+      else if (args.budgetMonthly !== undefined) patch.budgetMonthly = Number(args.budgetMonthly)
+      if (args.clearYearlyBudget === true) patch.budgetYearly = null
+      else if (args.budgetYearly !== undefined) patch.budgetYearly = Number(args.budgetYearly)
+      // A ceiling is stated one category at a time in a conversation — "and keep video under six hundred
+      // this year" — so the names given are merged into what the account already capped. Only
+      // `clearCategoryBudgets` answers "drop them all", which a merge cannot express.
+      if (args.clearCategoryBudgets === true) patch.budgetCategories = {}
+      else if (typeof args.categoryBudgets === 'string') {
+        const tokens = args.categoryBudgets.split(',').map((token) => token.trim()).filter(Boolean)
+        if (!tokens.length) throw new ToolError('Name a category to cap, such as "streaming:600", or ask to clear the ceilings.')
+        const ceilings: Record<string, number> = { ...(await loadSettings(ctx.env.DB, ctx.store.userId)).budgetCategories }
+        for (const token of tokens) {
+          const [rawName = '', rawValue] = token.split(/[:=]/)
+          const name = rawName.trim()
+          if (!name) throw new ToolError(`"${token}" names no category. Write <category>:<amount>, such as "streaming:600".`)
+          const value = (rawValue ?? '').trim()
+          if (value.toLowerCase() === 'none') {
+            delete ceilings[name]
+            continue
+          }
+          const numeric = Number(value)
+          if (!Number.isFinite(numeric) || numeric <= 0) {
+            throw new ToolError(`"${token}" is not a ceiling. Write <category>:<amount>, such as "streaming:600", or "streaming:none" to leave it uncapped.`)
+          }
+          ceilings[name] = numeric
+        }
+        patch.budgetCategories = ceilings
+      }
+      // A pin is stated one currency at a time in a conversation — "and use 7.2 for the dollar" — so the
+      // currencies named are merged into what the account already pinned. Only `clearRates` answers "drop
+      // them all", because a merge cannot express that and an empty string would be read as either.
+      if (args.clearRates === true) patch.rateOverrides = {}
+      else if (typeof args.rateOverrides === 'string') {
+        const tokens = args.rateOverrides.split(',').map((token) => token.trim()).filter(Boolean)
+        if (!tokens.length) throw new ToolError('Name a currency to pin, such as "USD:7.2", or ask to clear the pinned rates.')
+        const pinned: Record<string, number> = { ...(await loadSettings(ctx.env.DB, ctx.store.userId)).rateOverrides }
+        for (const token of tokens) {
+          const [rawCode = '', rawValue] = token.split(/[:=]/)
+          const code = rawCode.trim().toUpperCase()
+          if (!(CURRENCY_CODES as readonly string[]).includes(code)) {
+            throw new ToolError(`"${code}" is not a currency this app converts. It knows ${CURRENCY_CODES.join(', ')}.`)
+          }
+          if (code === 'CNY') throw new ToolError('The yuan is what every other rate is measured against, so it has no rate of its own to pin.')
+          const value = (rawValue ?? '').trim()
+          if (value.toLowerCase() === 'none') {
+            delete pinned[code]
+            continue
+          }
+          const numeric = Number(value)
+          if (!isRateValue(numeric)) {
+            throw new ToolError(`"${token}" is not a rate. Write 1 <currency> = <number>, such as "USD:7.2", or "USD:none" to let it follow the feed.`)
+          }
+          pinned[code] = numeric
+        }
+        patch.rateOverrides = pinned
+      }
+      if (!Object.keys(patch).length) throw new ToolError('Name at least one setting to change.')
+      let settings
+      try {
+        settings = await saveSettings(ctx.env.DB, ctx.store.userId, patch)
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error)
+        throw new ToolError(reason === 'invalid_timezone'
+          ? `"${String(args.timezone)}" is not a time zone the app accepts. Use an IANA name such as Asia/Shanghai, Europe/Berlin or America/New_York.`
+          : `That setting could not be saved: ${reason.slice(0, 160)}`)
+      }
+      return presentSettings(settings)
+    },
+  }),
+  tool({
+    name: 'set_subscription_active',
+    permission: 'write',
+    maxCallsPerTurn: 3,
+    description: 'Switch one subscription\'s tracking on or off. Off keeps the row and its receipts and stops reminders for it — it is not the trash, which is what `delete_subscription` is for.',
+    fields: {
+      ref: { type: 'string', minLength: 1, maxLength: 120 },
+      active: { type: 'boolean', description: 'False stops reminders and renewal counting for it; true starts them again.' },
+    },
+    async run(args, ctx) {
+      const { store, context, detail } = await resolveSubscriptionOrThrow(args.ref, ctx)
+      const active = args.active === true
+      // The bulk write reports the rows it touched, not the rows whose state moved, so a repeat of the
+      // same switch would answer "done" while changing nothing. The refusal is read off the row first.
+      if (detail.item.isActive === active) {
+        throw new ToolError(`That subscription is already ${active ? 'switched on' : 'switched off'}.`)
+      }
+      await store.bulk([detail.item.id], active ? 'activate' : 'deactivate')
+      const after = await store.get(detail.item.id, context)
+      return { updated: after ? presentSubscription(after.item) : null }
+    },
+  }),
+  tool({
+    name: 'subscription_logs',
+    permission: 'read',
+    maxCallsPerTurn: 2,
+    description: 'What the reminder scheduler actually did: the deliveries it attempted per channel with the reason for each failure, and the sweeps that ran — how many subscriptions it looked at, how many matched, how many were silenced as duplicates. `subscription_summary` answers what is due; this answers whether the app told the reader about it. Titles and bodies are omitted on purpose: the reader can read them in the notification.',
+    fields: {
+      ref: { type: 'string', maxLength: 120, optional: true, description: 'Limit the deliveries to one subscription, named as the reader named it.' },
+      status: { type: 'string', enum: ['all', 'success', 'failed'], optional: true },
+      limit: { type: 'integer', minimum: 1, maximum: 50, optional: true },
+    },
+    async run(args, ctx) {
+      const limit = Number(args.limit ?? 15)
+      let subscriptionId: string | undefined
+      if (typeof args.ref === 'string' && args.ref.trim()) {
+        const { detail } = await resolveSubscriptionOrThrow(args.ref, ctx)
+        subscriptionId = detail.item.id
+      }
+      const status = args.status === 'success' || args.status === 'failed' ? args.status : undefined
+      const [deliveries, sweeps] = await Promise.all([
+        queryNotifyLogs(ctx.env.DB, ctx.store.userId, { subscriptionId, status, limit }),
+        recentScheduleLogs(ctx.env.DB, ctx.store.userId, 5),
+      ])
+      return {
+        total: deliveries.length,
+        more: deliveries.length === limit,
+        deliveries: deliveries.map((entry) => ({
+          subscription: entry.subscriptionName,
+          channel: entry.channel,
+          status: entry.status,
+          at: entry.createdAt,
+          // The two fields that turn "failed" into something the reader can act on.
+          error: entry.error || null,
+          detail: entry.detail || null,
+        })),
+        sweeps: sweeps.map((entry) => ({
+          startedAt: entry.startedAt,
+          status: entry.status,
+          inWindow: entry.inWindow,
+          checked: entry.checkedCount,
+          matched: entry.matchedCount,
+          deduped: entry.dedupedCount,
+          sent: entry.sentCount,
+          reason: entry.reason || null,
+        })),
+        note: deliveries.length === 0
+          ? 'No delivery has been attempted yet, which is different from nothing being due — check the reminders and the notification window.'
+          : undefined,
+      }
+    },
+  }),
+  tool({
+    name: 'edit_subscription_payment',
+    permission: 'write',
+    maxCallsPerTurn: 3,
+    description: 'Correct one receipt that was already paid: its date, amount, currency or note. Use this rather than `renew_subscription` when the reader says the record is wrong, because renewing writes a second receipt and doubles what the dashboard says they spent. The receipt ids come from `get_subscription`.',
+    fields: {
+      ref: { type: 'string', minLength: 1, maxLength: 120 },
+      payment: { type: 'string', minLength: 1, maxLength: 40, description: 'The receipt\'s id, as `get_subscription` returned it.' },
+      date: { type: 'string', maxLength: 10, optional: true, description: 'YYYY-MM-DD.' },
+      amount: { type: 'number', minimum: 0, maximum: 1e9, optional: true },
+      currency: { type: 'string', enum: [...CURRENCY_CODES], optional: true },
+      note: { type: 'string', maxLength: 200, optional: true, description: 'Send an empty string to clear the note.' },
+    },
+    async run(args, ctx) {
+      const { store, context, detail } = await resolveSubscriptionOrThrow(args.ref, ctx)
+      const wanted = String(args.payment).trim()
+      const payment = detail.payments.find((entry) => entry.id === wanted)
+      if (!payment) {
+        const held = detail.payments.slice(0, 5).map((entry) => `${entry.id} (${entry.paidAt.slice(0, 10)} ${formatAmount(entry.amount, entry.currency)})`)
+        throw new ToolError(`No receipt ${held.length ? 'of this subscription matches' : 'exists to edit'} "${wanted.slice(0, 40)}".${held.length ? ` It holds: ${held.join(', ')}.` : ''} Read the subscription first to get the id.`)
+      }
+      const patch: { date?: string; amount?: number; currency?: string; note?: string } = {}
+      if (typeof args.date === 'string' && args.date) patch.date = `${args.date.slice(0, 10)}T00:00:00Z`
+      if (args.amount !== undefined) patch.amount = Number(args.amount)
+      if (typeof args.currency === 'string') patch.currency = args.currency
+      if (typeof args.note === 'string') patch.note = args.note
+      if (!Object.keys(patch).length) throw new ToolError('Name at least one part of the receipt to change.')
+      const updated = await store.updatePayment(detail.item.id, payment.id, patch, context)
+      if (!updated) throw new ToolError('That receipt is gone.')
+      return {
+        updated: presentSubscription(updated.item),
+        payment: {
+          id: payment.id,
+          date: (patch.date ?? payment.paidAt).slice(0, 10),
+          amount: patch.amount ?? payment.amount,
+          currency: patch.currency ?? payment.currency,
+          note: patch.note ?? payment.note,
+        },
+        payments: updated.payments.length,
+      }
+    },
+  }),
+  tool({
+    name: 'delete_subscription_payment',
+    permission: 'destructive',
+    maxCallsPerTurn: 2,
+    description: 'Erase one receipt from a subscription\'s history. This is not undoable and it changes what the reader has been told they spent, so it is proposed for approval rather than run.',
+    fields: {
+      ref: { type: 'string', minLength: 1, maxLength: 120 },
+      payment: { type: 'string', minLength: 1, maxLength: 40 },
+    },
+    async prepare(args, ctx) {
+      const { detail } = await resolveSubscriptionOrThrow(args.ref, ctx)
+      const wanted = String(args.payment).trim()
+      const payment = detail.payments.find((entry) => entry.id === wanted)
+      if (!payment) throw new ToolError(`No receipt of "${detail.item.name}" matches "${wanted.slice(0, 40)}". Read the subscription to get its ids.`)
+      return {
+        targetId: `${detail.item.id}:${payment.id}`,
+        targetLabel: `${detail.item.name} — ${formatAmount(payment.amount, payment.currency)} on ${payment.paidAt.slice(0, 10)}`,
+      }
+    },
+    async commit(targetId, ctx, args) {
+      const { store, context, detail } = await resolveSubscriptionOrThrow(String(args.ref), ctx)
+      const paymentId = targetId.split(':')[1] ?? ''
+      if (!detail.payments.some((entry) => entry.id === paymentId)) {
+        throw new ToolError(`That receipt is no longer on ${detail.item.name}, so nothing was erased.`)
+      }
+      const updated = await store.deletePayment(detail.item.id, paymentId, context)
+      if (!updated) throw new ToolError('That receipt is gone.')
+      return {
+        deleted: true,
+        subscription: presentSubscription(updated.item),
+        payments: updated.payments.length,
+        note: 'The receipt is erased; the subscription and its remaining history are untouched.',
+      }
+    },
+  }),
+  tool({
+    name: 'bulk_update_subscriptions',
+    permission: 'write',
+    maxCallsPerTurn: 2,
+    description: 'Switch tracking on or off, or set the category, for several subscriptions at once. Name them in `refs`, separated by commas. Trashing is deliberately not a bulk verb: one wrong name would multiply a deletion, so `delete_subscription` handles that one plan at a time and asks first.',
+    fields: {
+      refs: { type: 'string', minLength: 1, maxLength: 2000, description: 'Names or ids, comma-separated. Up to 200.' },
+      action: { type: 'string', enum: ['activate', 'deactivate', 'set_category'] },
+      category: { type: 'string', maxLength: 40, optional: true, description: 'Required for set_category, ignored otherwise.' },
+    },
+    async run(args, ctx) {
+      const { store, context } = await subscriptionAccess(ctx)
+      const action = String(args.action)
+      if (action === 'set_category' && !(typeof args.category === 'string' && args.category.trim())) {
+        throw new ToolError('set_category needs a `category` to set. Name it, or send several labels separated by "/" to replace the whole set.')
+      }
+      const wanted = String(args.refs).split(',').map((entry) => entry.trim()).filter(Boolean)
+      if (!wanted.length) throw new ToolError('Name at least one subscription.')
+      const live = await store.list(context)
+      const folded = new Map<string, typeof live[number][]>()
+      for (const item of live) {
+        const key = item.name.toLocaleLowerCase()
+        folded.set(key, [...(folded.get(key) ?? []), item])
+      }
+      const ids: string[] = []
+      const skipped: string[] = []
+      for (const name of wanted.slice(0, BULK_LIMIT)) {
+        const exact = folded.get(name.toLocaleLowerCase())
+        if (exact && exact.length === 1) { ids.push(exact[0]!.id); continue }
+        const byId = live.find((item) => item.id === name)
+        if (byId) { ids.push(byId.id); continue }
+        skipped.push(exact && exact.length > 1 ? `${name} (matches ${exact.length} plans)` : `${name} (no live plan of that name)`)
+      }
+      if (!ids.length) throw new ToolError(`Nothing was changed. ${skipped.join('; ')}.`)
+      const changed = await store.bulk(ids, action as 'activate' | 'deactivate' | 'set_category', { category: typeof args.category === 'string' ? args.category : undefined })
+      return {
+        action,
+        asked: wanted.length,
+        matched: ids.length,
+        changed,
+        skipped,
+        more: wanted.length > BULK_LIMIT,
+      }
+    },
+  }),
+  tool({
+    name: 'add_subscription_label',
+    permission: 'write',
+    maxCallsPerTurn: 3,
+    description: 'Register a type or category name so it is offered when the reader types it, without attaching it to any subscription yet. A plan that already uses the name registers it on save, so this is for the list itself.',
+    fields: {
+      kind: { type: 'string', enum: ['type', 'category'] },
+      name: { type: 'string', minLength: 1, maxLength: 40 },
+    },
+    async run(args, ctx) {
+      const { store } = await subscriptionAccess(ctx)
+      const kind = args.kind === 'category' ? 'category' : 'type'
+      await store.registerLabels(kind, String(args.name))
+      const labels = await store.listLabels(kind)
+      const named = labels.find((entry) => entry.name.toLocaleLowerCase() === String(args.name).trim().toLocaleLowerCase())
+      if (!named) throw new ToolError(`"${String(args.name).slice(0, 40)}" was not registered — the app rejects names that are empty or too long.`)
+      return { kind, label: named, total: labels.length }
+    },
+  }),
+  tool({
+    name: 'rename_subscription_label',
+    permission: 'write',
+    maxCallsPerTurn: 2,
+    description: 'Rename a type or category everywhere it is used: the registry entry and every subscription carrying it. Refused when the new name is already taken, because merging two names is a different decision than renaming one.',
+    fields: {
+      kind: { type: 'string', enum: ['type', 'category'] },
+      name: { type: 'string', minLength: 1, maxLength: 40 },
+      to: { type: 'string', minLength: 1, maxLength: 40 },
+    },
+    async run(args, ctx) {
+      const { store } = await subscriptionAccess(ctx)
+      const kind = args.kind === 'category' ? 'category' : 'type'
+      const renamed = await store.renameLabel(kind, String(args.name), String(args.to))
+      if (!renamed) {
+        throw new ToolError(`"${String(args.name).slice(0, 40)}" was not renamed to "${String(args.to).slice(0, 40)}". The target name may already exist, or the two names are the same.`)
+      }
+      const labels = await store.listLabels(kind)
+      return { kind, total: labels.length, labels: labels.map((entry) => entry.name) }
+    },
+  }),
+  tool({
+    name: 'remove_subscription_label',
+    permission: 'write',
+    maxCallsPerTurn: 2,
+    description: 'Take a type or category out of the registry, so it stops being suggested. Subscriptions that were using it keep the word they hold — this does not edit any plan — and re-registering the name brings its icon and colour back.',
+    fields: {
+      kind: { type: 'string', enum: ['type', 'category'] },
+      name: { type: 'string', minLength: 1, maxLength: 40 },
+    },
+    async run(args, ctx) {
+      const { store } = await subscriptionAccess(ctx)
+      const kind = args.kind === 'category' ? 'category' : 'type'
+      const removed = await store.removeLabel(kind, String(args.name))
+      const labels = await store.listLabels(kind)
+      return {
+        kind,
+        removed,
+        total: labels.length,
+        note: removed ? undefined : `Nothing registered is called "${String(args.name).slice(0, 40)}".`,
+      }
+    },
+  }),
+  tool({
     name: 'restore_subscription',
     permission: 'write',
     maxCallsPerTurn: 3,
@@ -1748,6 +2245,58 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
     },
   }),
   tool({
+    name: 'purge_subscription',
+    permission: 'destructive',
+    maxCallsPerTurn: 2,
+    description: 'Erase one subscription that is already in the trash, together with its whole payment history. This cannot be undone, so it only accepts a plan the reader has already trashed — `delete_subscription` is the verb that puts one there.',
+    fields: { ref: { type: 'string', minLength: 1, maxLength: 120 } },
+    async prepare(args, ctx) {
+      const { store, context } = await subscriptionAccess(ctx)
+      const wanted = String(args.ref).trim()
+      const folded = wanted.toLocaleLowerCase()
+      const trashed = await store.list(context, 'trash')
+      const match = trashed.find((item) => item.id === wanted) ?? trashed.find((item) => item.name.toLocaleLowerCase() === folded)
+      if (!match) {
+        throw new ToolError(trashed.length === 0
+          ? 'The trash is empty, so there is nothing to erase. Moving a plan to the trash is `delete_subscription`.'
+          : `Nothing in the trash matches "${wanted.slice(0, 80)}". The trash holds ${trashed.length}: ${trashed.slice(0, 10).map((item) => item.name).join(', ')}.`)
+      }
+      return { targetId: match.id, targetLabel: quoted(match.name) }
+    },
+    async commit(targetId, ctx) {
+      const { store } = await subscriptionAccess(ctx)
+      const erased = await store.purge(targetId)
+      if (!erased) throw new ToolError('That subscription is no longer in the trash, so nothing was erased.')
+      return { purged: true, note: 'The plan and its receipts are gone for good.' }
+    },
+  }),
+  tool({
+    name: 'empty_subscription_trash',
+    permission: 'destructive',
+    maxCallsPerTurn: 1,
+    description: 'Erase every subscription in the trash at once, with their payment histories. The approval card names how many are about to go, because this is the one deletion in the app that no longer has a way back.',
+    fields: {},
+    async prepare(_args, ctx) {
+      const { store, context } = await subscriptionAccess(ctx)
+      const trashed = await store.list(context, 'trash')
+      if (!trashed.length) throw new ToolError('The trash is already empty.')
+      const names = trashed.slice(0, 5).map((item) => item.name).join(', ')
+      return {
+        targetId: String(trashed.length),
+        targetLabel: `${trashed.length} subscription${trashed.length === 1 ? '' : 's'}: ${names}${trashed.length > 5 ? ', …' : ''}`,
+      }
+    },
+    async commit(targetId, ctx) {
+      const { store } = await subscriptionAccess(ctx)
+      const purged = await store.emptyTrash()
+      if (purged === 0) return { purged: 0, note: 'Nothing was erased — the trash was emptied first.' }
+      if (String(purged) !== targetId) {
+        return { purged, note: `${targetId} were on the card the reader approved; ${purged} went. The list changed in between.` }
+      }
+      return { purged, note: 'Every trashed plan and its receipts are gone for good.' }
+    },
+  }),
+  tool({
     name: 'subscription_channels',
     permission: 'read',
     maxCallsPerTurn: 2,
@@ -1786,6 +2335,51 @@ async function subscriptionAccess(ctx: ToolContext): Promise<{ store: Subscripti
   }
 }
 
+/**
+ * The rate table the account's own money is added up with — the same three steps the dashboard runs:
+ * the day's rates against the yuan, this account's pins over them, then re-based to the currency it
+ * counts in. A list ordered "by what costs most" has to use that table or it disagrees with the total
+ * printed above it.
+ */
+async function accountRateTable(ctx: ToolContext, settings: Awaited<ReturnType<typeof loadSettings>>): Promise<RateTable> {
+  const { table } = await loadRates(ctx.env)
+  return rateTableFor(applyRateOverrides(table, settings.rateOverrides), settings.baseCurrency)
+}
+
+/**
+ * What the settings look like to the model, in the words the reader would use back.
+ *
+ * The inbound token hint is left out on purpose: it is a fragment of a credential, and a tool result
+ * travels to the model provider with the rest of the turn. Each ceiling carries a sentence for its own
+ * absence, because "no ceiling" is an answer the account gave and not a field the tool forgot.
+ */
+function presentSettings(settings: SubscriptionSettings): Record<string, unknown> {
+  return {
+    timezone: settings.timezone,
+    notificationHours: settings.notificationHours,
+    showLunar: settings.showLunar,
+    paymentHistoryLimit: settings.paymentHistoryLimit,
+    locale: settings.locale,
+    baseCurrency: settings.baseCurrency,
+    budgetMonthly: settings.budgetMonthly,
+    budgetNote: settings.budgetMonthly === null
+      ? 'No monthly ceiling is set, so the dashboard never calls a month over budget.'
+      : undefined,
+    budgetYearly: settings.budgetYearly,
+    budgetYearlyNote: settings.budgetYearly === null
+      ? 'No yearly ceiling is set, so the dashboard never calls a year over budget.'
+      : undefined,
+    budgetCategories: settings.budgetCategories,
+    categoryBudgetsNote: Object.keys(settings.budgetCategories).length === 0
+      ? 'No category is capped, so the dashboard sets no ceiling on any part of the year.'
+      : undefined,
+    rateOverrides: settings.rateOverrides,
+    ratesNote: Object.keys(settings.rateOverrides).length === 0
+      ? 'No rate is pinned, so every total converts at the daily exchange feed.'
+      : undefined,
+  }
+}
+
 /** What a subscription looks like to the model: the fields a question about money or dates actually needs. */
 function presentSubscription(item: SubscriptionItem): Record<string, unknown> {
   return {
@@ -1797,10 +2391,15 @@ function presentSubscription(item: SubscriptionItem): Record<string, unknown> {
     currency: item.currency,
     period: `${item.periodValue} ${item.periodUnit}`,
     expiryDate: item.expiryDate.slice(0, 10),
+    startDate: item.startDate ? item.startDate.slice(0, 10) : null,
+    trialEndsAt: item.trialEndsAt ? item.trialEndsAt.slice(0, 10) : null,
+    useLunar: item.useLunar,
     daysRemaining: item.daysRemaining,
     isActive: item.isActive,
     autoRenew: item.autoRenew,
-    paidTotal: item.paidTotal,
+    // Per currency, because the receipts are: a plan paid in two currencies has two answers to "what
+    // have I spent on it", and adding them would be a number that means nothing.
+    paidByCurrency: item.paidByCurrency,
     paymentCount: item.paymentCount,
     nextReminderAt: item.nextReminderAt,
   }

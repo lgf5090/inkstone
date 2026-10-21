@@ -50,7 +50,7 @@ function item(overrides: Partial<SubscriptionItem> = {}): SubscriptionItem {
     hoursRemaining: 240,
     nextReminderAt: null,
     paymentCount: 0,
-    paidTotal: 0,
+    paidByCurrency: [],
     ...overrides,
   }
 }
@@ -80,6 +80,7 @@ function mount(selectMode: boolean, selection: readonly string[] = []): void {
   act(() => {
     root?.render(createElement(SubscriptionList, {
       items: ITEMS,
+      sort: 'expiry',
       selectedId: null,
       loading: false,
       onSelect: () => {},

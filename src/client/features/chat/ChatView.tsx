@@ -10,7 +10,7 @@
  */
 import { Z_INDEX } from '../../lib/z-index'
 import { type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, type KeyboardEvent, Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Archive, ArrowUp, ArrowUpRight, AudioLines, Check, Copy, FileText, FolderOpen, Ghost, History, Link2Off, ListChecks, ListTree, MoreHorizontal, NotebookPen, PanelRight, Paperclip, Pencil, Plus, Search, Settings2, Square, Sparkles, Star, Trash2, X } from 'lucide-react'
+import {Archive, ArrowUp, ArrowUpRight, AudioLines, Check, Copy, FileText, FolderOpen, Ghost, History, Link2Off, ListChecks, ListTree, MoreHorizontal, NotebookPen, PanelRight, Paperclip, Pencil, Plus, Search, Settings2, Square, Sparkles, Star, Trash2, X } from 'lucide-react'
 import type { AssistantConversation, AssistantMessage, AssistantTurnScope, ChatAttachment } from '@shared/assistant'
 import { EPHEMERAL_CONVERSATION_RETENTION_DAYS, RUN_PARTIAL_MAX_CHARS, SEARCH_NATIVE_PROTOCOLS, looksLikeSearchTool, mcpToolModeFor, webSearchConfigured } from '@shared/assistant'
 import { webSearchEngineFor } from '@shared/web-search-engines'
@@ -1862,6 +1862,7 @@ function EmptyChat({ onPick }: { onPick: (text: string) => void }) {
  * taken off. Taking one off lasts for this thread only; the next thread starts from the pointer again.
  */
 function ContextStrip() {
+  const dockSurface = useAssistant((state) => state.dockSurface)
   const activeNoteId = useUi((state) => state.activeNoteId)
   const folderId = useUi((state) => state.folderId)
   const noteTitle = useNotes((state) => (activeNoteId ? state.notes[activeNoteId]?.title : undefined))
@@ -1890,6 +1891,10 @@ function ContextStrip() {
       onRemove: () => setCanvasContext(false),
     })
   }
+  // Beside the money app the notebook's pointers name a document the reader is not looking at, so nothing
+  // of ours is drawn here; the dock draws the plan the reader opened. Mutating the list rather than
+  // returning early keeps every hook above on the same path.
+  if (dockSurface === 'subscriptions') chips.length = 0
   if (!chips.length) return null
   return (
     <div role="group" aria-label={t('assistant.context.title')} className="flex flex-wrap items-center gap-1 px-1 pt-0.5">

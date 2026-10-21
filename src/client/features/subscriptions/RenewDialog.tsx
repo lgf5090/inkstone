@@ -13,7 +13,7 @@ import { Modal } from '../../components/overlay'
 import { formatAmount } from '@shared/subscriptions/format'
 import { addLunarPeriod, lunar2solar, solar2lunar } from '@shared/subscriptions/lunar'
 import { addCalendarPeriodInTimezone, formatDateInputInTimezone, getTimezoneDateParts, getTimestampForTimezoneParts } from '@shared/subscriptions/time'
-import type { SubscriptionDetail } from '@shared/subscriptions/model'
+import { PERIOD_MULTIPLIER_MAX, type SubscriptionDetail } from '@shared/subscriptions/model'
 
 export function RenewDialog({
   open,
@@ -90,7 +90,7 @@ export function RenewDialog({
           </Field>
         </div>
         <Field label={t('subscriptions.renew.periods')}>
-          <Input type="number" min={1} max={120} value={multiplier} onChange={(event) => setMultiplier(event.target.value)} />
+          <Input type="number" min={1} max={PERIOD_MULTIPLIER_MAX} value={multiplier} onChange={(event) => setMultiplier(event.target.value)} />
         </Field>
         <Field label={t('subscriptions.renew.note')}>
           <Input value={note} onChange={(event) => setNote(event.target.value)} />

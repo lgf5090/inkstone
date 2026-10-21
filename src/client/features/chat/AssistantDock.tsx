@@ -15,7 +15,7 @@
  * drawn as a chip the reader can take off, because a context they cannot see is one they cannot correct.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowUpRight, Plus, Sparkles, X } from 'lucide-react'
+import { ArrowUpRight, Plus, Sparkles, Wallet, X } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
@@ -39,7 +39,19 @@ import {
 import { buildWriteDiff, WriteDiffSummary, WriteDiffView } from './editor-ai-diff'
 import { saveReplyAsNote } from './save-to-note'
 
-export function AssistantDock() {
+/** Which app the dock is sitting beside: it decides what "this page" can honestly mean. */
+export type AssistantDockSurface = 'notebook' | 'subscriptions'
+
+export function AssistantDock({ surface = 'notebook', subscription = null }: {
+  surface?: AssistantDockSurface
+  /** The plan the money app has open, so "what will this cost me this year" has an answer. */
+  subscription?: { id: string, name: string } | null
+}) {
+  const subscriptionId = subscription?.id ?? null
+  const subscriptionName = subscription?.name ?? null
+  // The strip draws what is attached, not what the page offered: once the reader takes it off it must stay
+  // off until they move, or the control lies about the turn it is sending.
+  const attached = useAssistant((state) => state.subscriptionContext)
   const bootstrap = useAssistant((state) => state.bootstrap)
   const loaded = useAssistant((state) => state.loaded)
   const agentName = useAssistant((state) => state.settings?.agentName)
@@ -52,6 +64,9 @@ export function AssistantDock() {
   const stop = useAssistant((state) => state.stop)
   const newConversation = useAssistant((state) => state.newConversation)
   const setNoteContext = useAssistant((state) => state.setNoteContext)
+  const setFolderContext = useAssistant((state) => state.setFolderContext)
+  const noteContextOn = useAssistant((state) => state.noteContextOn)
+  const activeNoteId = useUi((state) => state.activeNoteId)
   const sendOnEnter = useAssistant((state) => state.settings?.sendOnEnter ?? true)
   const blocked = useAssistant((state) => !state.settings?.activeModelId && !state.settings?.offlineMode)
   const fileIndex = useAssistant((state) => state.fileIndex)
@@ -65,9 +80,30 @@ export function AssistantDock() {
   }, [bootstrap])
 
   useEffect(() => {
-    // The panel exists to ask about this page, so opening it points the next turn at the page.
-    setNoteContext(true)
-  }, [setNoteContext])
+    // The panel exists to ask about the page it is on. In the notebook that means the note under the
+    // reader's eyes; in the money app the same pointer still names a note they are not looking at, and a
+    // turn answered from it reads as "summarise this" about the wrong thing. So the notebook's pointers
+    // are switched off there rather than borrowed. The surface also lands in the store, because the strip
+    // and the outgoing turn read it there — a mount effect alone loses to the conversation paths that put
+    // noteContextOn back to true.
+    useAssistant.getState().setDockSurface(surface)
+    if (surface === 'notebook') {
+      setNoteContext(true)
+      return
+    }
+    setNoteContext(false)
+    setFolderContext(false)
+  }, [surface, setNoteContext, setFolderContext])
+
+  // The dock hands the plan over and takes it back as the reader moves through the list; the chip below is
+  // what makes that visible, because context the reader cannot see is context they cannot remove.
+  // The dependencies are the primitives, not the object: a caller that builds `{ id, name }` inline gives
+  // this a new identity on every render, and re-attaching after the reader pressed "remove" is how the
+  // chip would become impossible to take off.
+  useEffect(() => {
+    if (surface !== 'subscriptions') return
+    useAssistant.getState().setSubscriptionContext(subscriptionId ? { id: subscriptionId, name: subscriptionName ?? '' } : null)
+  }, [surface, subscriptionId, subscriptionName])
 
   const streaming = (!!turn && !turn.done) || remoteStreaming
   const turnHere = turn && turn.conversationId === (activeId ?? null) ? turn : null
@@ -81,11 +117,22 @@ export function AssistantDock() {
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight
   }, [messages.length, turnHere?.text, turnHere?.tools.length])
 
-  const suggestions = useMemo(() => [
-    'assistant.dock.suggest_summary',
-    'assistant.dock.suggest_questions',
-    'assistant.dock.suggest_next',
-  ] as const, [])
+  const suggestions = surface === 'subscriptions'
+    ? ['assistant.dock.suggest_due', 'assistant.dock.suggest_cost', 'assistant.dock.suggest_remind'] as const
+    : ['assistant.dock.suggest_summary', 'assistant.dock.suggest_questions', 'assistant.dock.suggest_next'] as const
+
+  /**
+   * What the empty thread says about itself.
+   *
+   * The guidance used to promise that the note under the reader's eyes was already in context on every
+   * surface, which in the money app named a thing that was not there and a chip that was deliberately not
+   * drawn. It now names what this dock is actually carrying: the plan, the note, or nothing yet.
+   */
+  const hint = attached
+    ? t('assistant.dock.hint_plan', { name: attached.name })
+    : surface === 'notebook' && noteContextOn && activeNoteId
+      ? t('assistant.dock.hint')
+      : t('assistant.dock.hint_page')
 
   return (
     <aside
@@ -148,7 +195,7 @@ export function AssistantDock() {
         ) : empty ? (
           <div className="flex flex-col gap-3 px-3 py-6">
             <p className="text-[length:var(--text-12)] leading-relaxed text-[var(--text-tertiary)]">
-              {t('assistant.dock.hint')}
+              {hint}
             </p>
             <ul className="flex flex-col gap-1">
               {suggestions.map((key) => (
@@ -201,6 +248,22 @@ export function AssistantDock() {
         )}
       </div>
 
+      {surface === 'subscriptions' && attached && (
+        <div role="group" aria-label={t('assistant.context.title')} className="flex flex-wrap items-center gap-1 px-3 pt-1.5">
+          <span className="inline-flex min-w-0 items-center gap-1 rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+            <span aria-hidden className="shrink-0 text-[var(--text-quaternary)]"><Wallet size={12} /></span>
+            <span className="max-w-[180px] truncate">{attached.name}</span>
+            <button
+              type="button"
+              aria-label={t('assistant.context.remove', { name: attached.name })}
+              onClick={() => useAssistant.getState().setSubscriptionContext(null)}
+              className="ink-tap-pad relative shrink-0 text-[var(--text-quaternary)] transition-colors hover:text-[var(--text-secondary)]"
+            >
+              <X size={11} />
+            </button>
+          </span>
+        </div>
+      )}
       <ChatComposer
         streaming={streaming}
         sendOnEnter={sendOnEnter}

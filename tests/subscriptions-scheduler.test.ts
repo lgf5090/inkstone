@@ -53,6 +53,9 @@ async function seed(userId: string, options: { name?: string; days: number; hour
     locale: 'zh-CN' as const,
     baseCurrency: 'CNY' as const,
     budgetMonthly: null,
+    budgetYearly: null,
+    budgetCategories: {},
+    rateOverrides: {},
     inboundTokenHint: '',
   }
   const store = new SubscriptionsStore(db, userId)

@@ -22,6 +22,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import { DEBOUNCE } from '@shared/constants'
+import { isSubscriptionMention, subscriptionMentionName } from '@shared/subscriptions/mention'
 import { cn } from '../../lib/cn'
 import { useDebounced, useThemeDark } from '../../lib/hooks'
 import { t, useLocale } from '../../lib/i18n'
@@ -67,6 +68,11 @@ export interface MarkdownLinks {
   openNote: (noteId: string) => void
   /** A note the document names and the vault does not have; the surface decides whether to make one. */
   createNote?: (title: string) => void
+  /**
+   * A `[[sub:…]]` target. Without a handler of its own a subscription mention would be answered as a note
+   * title, which is how a click on a plan the reader pays for creates a junk document called `sub:Netflix`.
+   */
+  openSubscription?: (name: string) => void
 }
 
 export interface MarkdownBodyProps {
@@ -244,6 +250,12 @@ export function MarkdownBody({
 
   const followWikiLink = useCallback((link: HTMLElement) => {
     const parsed = parseWikiTarget(decodeDataValue(link.dataset.wikilink))
+    // A subscription is not a note with an odd name: it has its own app and its own resolver, so it is
+    // handed over before anything tries to look the title up in the vault.
+    if (isSubscriptionMention(parsed.raw)) {
+      links!.openSubscription?.(subscriptionMentionName(parsed.raw))
+      return
+    }
     const note = parsed.noteTitle ? findNoteByTitle(parsed.noteTitle) : undefined
     if (note) {
       links!.openNote(note.id)

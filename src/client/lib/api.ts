@@ -337,6 +337,9 @@ export interface SettingsPatch {
   locale?: NotifyLocale
   baseCurrency?: CurrencyCode
   budgetMonthly?: number | null
+  budgetYearly?: number | null
+  budgetCategories?: Record<string, number>
+  rateOverrides?: Record<string, number>
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -1492,6 +1495,14 @@ export const api = {
    */
   subscriptions: {
     bundle: () => request<SubscriptionBundle>('/api/subscriptions'),
+    /**
+     * Drop the cached day of exchange rates and read a fresh one.
+     *
+     * The answer is where the numbers now came from, not the numbers: the dashboard redraws from the
+     * bundle it already refetches, and a second copy of those totals here could only ever disagree.
+     */
+    refreshRates: () =>
+      request<{ source: 'feed' | 'approximate', at: number | null }>('/api/subscriptions/rates/refresh', { method: 'POST' }),
     create: (input: SubscriptionInput) =>
       request<SubscriptionDetail>('/api/subscriptions', { method: 'POST', body: input }),
     detail: (id: string) => request<SubscriptionDetail>(`/api/subscriptions/${encodeURIComponent(id)}`),
@@ -1500,6 +1511,10 @@ export const api = {
     remove: (id: string) =>
       request<{ ok: true }>(`/api/subscriptions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     trashList: () => request<{ items: SubscriptionItem[] }>('/api/subscriptions/trash'),
+    search: (query: string, limit?: number) =>
+      request<{ items: SubscriptionItem[] }>(
+        `/api/subscriptions/search?q=${encodeURIComponent(query)}${limit ? `&limit=${limit}` : ''}`,
+      ),
     restore: (id: string) =>
       request<SubscriptionDetail>(`/api/subscriptions/${encodeURIComponent(id)}/restore`, { method: 'POST' }),
     purge: (id: string) =>

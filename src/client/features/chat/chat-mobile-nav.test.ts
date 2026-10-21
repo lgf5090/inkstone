@@ -25,7 +25,7 @@ vi.mock('./AutomationsView', () => ({ AutomationsView: () => createElement('div'
 vi.mock('./SkillsView', () => ({ SkillsView: () => createElement('div', { 'data-surface': 'skills' }) }))
 vi.mock('./ProjectsView', () => ({ ProjectsView: () => createElement('div', { 'data-surface': 'projects' }) }))
 vi.mock('./AssistantSettingsView', () => ({ AssistantSettingsView: () => createElement('div', { 'data-surface': 'settings' }) }))
-vi.mock('./NotificationCenter', () => ({ NotificationCenter: () => null }))
+vi.mock('./NotificationCenter', () => ({ NotificationCenter: () => null, NotificationsBell: () => null }))
 
 const original = useAssistant.getState()
 let root: Root

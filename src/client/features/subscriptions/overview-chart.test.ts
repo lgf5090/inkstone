@@ -11,7 +11,8 @@ import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { SubscriptionOverview } from '@shared/subscriptions/model'
-import { initI18n } from '../../lib/i18n'
+import { formatAmount } from '@shared/subscriptions/format'
+import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { OverviewView } from './OverviewView'
 import { useSubscriptions } from './store'
@@ -33,9 +34,12 @@ function overview(overrides: Partial<SubscriptionOverview> = {}): SubscriptionOv
     scheduler: null,
     history: [],
     budget: { limit: 200, amount: 300, over: true },
+    yearlyBudget: { limit: null, amount: 720, over: false, monthsLeft: 3, perMonthLeft: null },
+    categoryBudgets: [],
     committedYearly: 3600,
     trials: [],
     priceChanges: [],
+    rates: { source: 'feed', at: Date.parse('2026-10-21T00:00:00Z'), base: 'CNY', basePriced: true, unpriced: [], pinned: [], table: { CNY: 1 } },
     ...overrides,
   }
 }
@@ -69,15 +73,17 @@ function plotHeights(): string[] {
   return bars().map((bar) => (bar.parentElement as HTMLElement).style.height)
 }
 
-function mountChart(): void {
+function mountChart(overrides: Partial<SubscriptionOverview> = {}): void {
   const host = document.createElement('div')
   document.body.append(host)
   root = createRoot(host)
   act(() => {
     root?.render(createElement(OverviewView, {
-      overview: overview(),
+      overview: overview(overrides),
       loading: false,
       currency: 'CNY',
+      refreshingRates: false,
+      onRefreshRates: () => {},
       onOpenItem: () => {},
       onOpenLogs: () => {},
       onAdd: () => {},
@@ -113,5 +119,75 @@ describe('the month chart', () => {
     const block = chart()
     expect(block.getAttribute('aria-label')).toBeTruthy()
     expect(bars().every((bar) => bar.getAttribute('title'))).toBe(true)
+  })
+})
+
+describe('the rates strip', () => {
+  const words = () => (document.body.textContent || '').replace(/\s+/g, ' ')
+
+  it('says whose rates these are and which currency the totals are added up in', () => {
+    mountChart()
+    expect(words()).toContain('Rates from the daily currency service')
+    expect(words()).toContain('Totals in CNY')
+    // A table that priced everything has nothing to apologise for.
+    expect(words()).not.toContain('No rate for')
+  })
+
+  it('names the currencies left out of every total, and the base left out too', () => {
+    mountChart({
+      rates: { source: 'approximate', at: null, base: 'SGD', basePriced: false, unpriced: ['SGD', 'THB'], pinned: ['USD'], table: { CNY: 1 } },
+    })
+    expect(words()).toContain('No rate for SGD, THB')
+    expect(words()).toContain('SGD has no rate either')
+    expect(words()).toContain('Pinned: USD')
+  })
+})
+
+describe('the yearly card', () => {
+  const words = () => (document.body.textContent || '').replace(/\s+/g, ' ')
+
+  it('shows the yearly ceiling beside what the year has cost, and what the rest of it can afford', () => {
+    mountChart({ yearlyBudget: { limit: 1200, amount: 400, over: false, monthsLeft: 8, perMonthLeft: 100 } })
+    expect(words()).toContain(`/ ${formatAmount(1200, 'CNY')}`)
+    expect(words()).toContain(`${formatAmount(100, 'CNY')} a month until year end`)
+    expect(words()).not.toContain('Over the yearly budget')
+  })
+
+  it('marks the year spent once the receipts pass the ceiling, and stops promising room', () => {
+    mountChart({ yearlyBudget: { limit: 1200, amount: 1300, over: true, monthsLeft: 8, perMonthLeft: null } })
+    expect(words()).toContain('Over the yearly budget')
+    expect(words()).not.toContain('a month until year end')
+  })
+
+  it('says nothing about a ceiling the reader never set', () => {
+    mountChart()
+    expect(words()).not.toContain('a month until year end')
+    expect(words()).not.toContain('Over the yearly budget')
+  })
+})
+
+describe('the category ceilings', () => {
+  const rows = () => [...document.querySelectorAll<HTMLElement>('[data-category-ceilings] > li')]
+  const words = () => (document.body.textContent || '').replace(/\s+/g, ' ')
+
+  it('lists every ceiling the account set, with what the year has spent against it', () => {
+    mountChart({
+      categoryBudgets: [
+        { label: 'family', limit: 500, amount: 600, over: true },
+        { label: 'books', limit: 100, amount: 0, over: false },
+      ],
+    })
+    const found = rows()
+    expect(found).toHaveLength(2)
+    expect(words()).toContain(t('subscriptions.overview.category_ceilings'))
+    expect(found[0]!.textContent).toBe(`family${formatAmount(600, 'CNY')} / ${formatAmount(500, 'CNY')}`)
+    expect(found[0]!.querySelector('span:last-child')!.className).toContain('danger')
+    expect(found[1]!.querySelector('span:last-child')!.className).not.toContain('danger')
+  })
+
+  it('draws nothing about ceilings when the account set none', () => {
+    mountChart()
+    expect(rows()).toHaveLength(0)
+    expect(words()).not.toContain(t('subscriptions.overview.category_ceilings'))
   })
 })

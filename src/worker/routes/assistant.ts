@@ -1555,7 +1555,7 @@ async function unstartableTurn(
  * closed tab does not keep spending the account's AI budget on an answer nobody is reading.
  */
 assistantRoutes.post('/chat', async (c) => {
-  const body = await readJson<{ conversationId?: unknown, message?: string, retry?: boolean, messageId?: unknown, continue?: unknown, attachments?: unknown, tools?: unknown, scopes?: unknown, webSearch?: unknown, contextNoteId?: unknown, contextFolderId?: unknown, activeArtifactId?: unknown, noteId?: unknown, ephemeral?: unknown, modelId?: unknown, noTools?: unknown }>(c, 64 * 1024)
+  const body = await readJson<{ conversationId?: unknown, message?: string, retry?: boolean, messageId?: unknown, continue?: unknown, attachments?: unknown, tools?: unknown, scopes?: unknown, webSearch?: unknown, contextNoteId?: unknown, contextFolderId?: unknown, contextSubscriptionId?: unknown, activeArtifactId?: unknown, noteId?: unknown, ephemeral?: unknown, modelId?: unknown, noTools?: unknown }>(c, 64 * 1024)
   const s = store(c)
   const settings = await s.getSettings()
   const conversationId = body.conversationId === undefined || body.conversationId === null
@@ -1686,6 +1686,7 @@ assistantRoutes.post('/chat', async (c) => {
         // What the reader had on screen. Only ids survive, and the runner re-reads both against this
         // account before either reaches the skill — a caller cannot name someone else's note.
         ...(typeof body.contextNoteId === 'string' && isValidId(body.contextNoteId) ? { contextNoteId: body.contextNoteId } : {}),
+        ...(typeof body.contextSubscriptionId === 'string' && isValidId(body.contextSubscriptionId) ? { contextSubscriptionId: body.contextSubscriptionId } : {}),
         ...(typeof body.contextFolderId === 'string' && isValidId(body.contextFolderId) ? { contextFolderId: body.contextFolderId } : {}),
         // The draft in the canvas. The runner re-reads it and checks it belongs to this conversation;
         // a malformed id never reaches the runner at all.

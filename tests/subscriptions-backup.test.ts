@@ -6,7 +6,7 @@ import {
   applyBackupSubscriptions,
   readBackupSubscriptions,
 } from '../src/worker/subscriptions/backup'
-import { saveSettings } from '../src/worker/subscriptions/settings'
+import { loadSettings, saveSettings } from '../src/worker/subscriptions/settings'
 import { SubscriptionsStore } from '../src/worker/subscriptions/store'
 import type { Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
@@ -66,7 +66,14 @@ async function seed(): Promise<void> {
     periodValue: 1,
     periodUnit: 'year',
   }, context)
-  await saveSettings(env.DB, USER, { timezone: 'Asia/Tokyo', notificationHours: ['08', '20'], baseCurrency: 'JPY', budgetMonthly: 5000 })
+  await saveSettings(env.DB, USER, {
+    timezone: 'Asia/Tokyo',
+    notificationHours: ['08', '20'],
+    baseCurrency: 'JPY',
+    budgetMonthly: 5000,
+    budgetYearly: 60000,
+    budgetCategories: { family: 500, travel: 1200 },
+  })
   await store.setLabelStyle('type', '流媒体', { icon: 'lucide:Tv', color: '#e11d48' })
 }
 
@@ -152,6 +159,46 @@ describe('restore', () => {
     expect(rows('sub_payment')).toHaveLength(before.payments.length)
     expect(rows('sub_reminder_rule')).toHaveLength(6)
     expect(rows('sub_type')).toEqual(before.types)
+  })
+
+  /**
+   * The settings row is a dump of columns, so the fields the database stores as text arrive as text.
+   *
+   * Read straight, a window written as `["08","20"]` splits on its own commas and comes back as two hour
+   * names that match nothing — which silences every reminder after a restore, the one thing a reader has
+   * no way to see. The pinned rates are the same shape one field over, so both are named here.
+   */
+  it('round-trips the notification window and the pinned rates as the values they hold', async () => {
+    await seed()
+    await saveSettings(env.DB, USER, { rateOverrides: { USD: 7.2 } })
+    const text = await readBackupSubscriptions(env.DB, USER)!
+    expect(JSON.parse(text!).settings.notification_hours).toBeTypeOf('string')
+
+    await applyBackupSubscriptions(env.DB, USER, text)
+    const restored = await loadSettings(env.DB, USER)
+    expect(restored.notificationHours).toEqual(['08', '20'])
+    expect(restored.rateOverrides).toEqual({ USD: 7.2 })
+  })
+
+  /**
+   * A column the writer forgot comes back as null, which reads exactly like the reader had never set a
+   * budget — so the round trip is checked with the account's own numbers rather than with the export.
+   */
+  it('carries both ceilings out and back', async () => {
+    await seed()
+    const text = await readBackupSubscriptions(env.DB, USER)
+    const payload = JSON.parse(text!)
+    expect(payload.settings.budget_yearly).toBe(60000)
+    // A map cell travels as text and comes back as a map, the same way the notification window does.
+    expect(typeof payload.settings.budget_categories).toBe('string')
+    expect(JSON.parse(payload.settings.budget_categories)).toEqual({ family: 500, travel: 1200 })
+
+    await saveSettings(env.DB, USER, { budgetMonthly: null, budgetYearly: null, budgetCategories: {} })
+    await applyBackupSubscriptions(env.DB, USER, text)
+    const restored = await loadSettings(env.DB, USER)
+    expect(restored.budgetMonthly).toBe(5000)
+    expect(restored.budgetYearly, 'the year is its own ceiling, not twelve of the month').toBe(60000)
+    expect(restored.budgetCategories).toEqual({ family: 500, travel: 1200 })
   })
 
   it('replaces the current library rather than adding to it', async () => {

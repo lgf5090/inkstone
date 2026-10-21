@@ -14,8 +14,31 @@ export type PeriodUnit = (typeof PERIOD_UNITS)[number]
 export const SUBSCRIPTION_MODES = ['cycle', 'reset'] as const
 export type SubscriptionMode = (typeof SUBSCRIPTION_MODES)[number]
 
-export const CURRENCY_CODES = ['CNY', 'USD', 'HKD', 'TWD', 'JPY', 'EUR', 'GBP', 'KRW', 'TRY'] as const
+/**
+ * What a reader may bill a plan in.
+ *
+ * The list is the set the daily rate service quotes, plus the one currency a reader asked for that it
+ * does not: the feed has no TWD, so that one runs on the built-in approximation and a pin. CNY leads
+ * because it is the anchor and the default; the rest are alphabetical so a thirty-option list can be
+ * scanned rather than read.
+ *
+ * A code here with no rate on a given day is not a reason to guess one — the dashboard says which
+ * currencies it could not price instead of adding them in at face value.
+ */
+export const CURRENCY_CODES = [
+  'CNY',
+  'AUD', 'BRL', 'CAD', 'CHF', 'CZK', 'DKK', 'EUR', 'GBP', 'HKD', 'HUF', 'IDR', 'ILS', 'INR', 'ISK',
+  'JPY', 'KRW', 'MXN', 'MYR', 'NOK', 'NZD', 'PHP', 'PLN', 'RON', 'SEK', 'SGD', 'THB', 'TRY', 'TWD',
+  'USD', 'ZAR',
+] as const
 export type CurrencyCode = (typeof CURRENCY_CODES)[number]
+
+/**
+ * `1 unit of the currency = N CNY`, for the currencies the reader stated a price for themselves.
+ *
+ * CNY has no key: it is the anchor every other number is measured against.
+ */
+export type RateOverrides = { [K in Exclude<CurrencyCode, 'CNY'>]?: number }
 
 export const REMINDER_KINDS = ['before_expiry', 'on_expiry', 'after_expiry'] as const
 export type ReminderKind = (typeof REMINDER_KINDS)[number]
@@ -118,6 +141,10 @@ export const NAME_MAX = 120
 export const LABEL_MAX = 40
 export const NOTES_MAX = 2000
 export const PERIOD_VALUE_MAX = 120
+/** How many periods one renewal may buy at once: four years of a monthly plan, and no more. */
+export const PERIOD_MULTIPLIER_MAX = 120
+/** What a reader may write against one receipt. */
+export const PAYMENT_NOTE_MAX = 200
 export const RULE_VALUE_MAX = 3650
 export const REPEAT_INTERVAL_MAX = 720
 
@@ -166,7 +193,21 @@ export interface SubscriptionItem {
   trialDaysRemaining: number | null
   nextReminderAt: string | null
   paymentCount: number
-  paidTotal: number
+  /**
+   * What the receipts add up to, kept apart by the currency each was written in.
+   *
+   * One number was the first shape, and it was wrong the day a reader paid a dollar bill on a yuan plan:
+   * `¥1,200 + $60` is not ¥1,260, and the total that said so was neither of the two true answers. The
+   * pairs are printed as they are — `formatPaid` joins them — and anything that wants one number has to
+   * convert through the rate table and say which one it used.
+   */
+  paidByCurrency: PaidAmount[]
+}
+
+/** Money actually paid, in the currency it was paid in. */
+export interface PaidAmount {
+  currency: CurrencyCode
+  amount: number
 }
 
 /** What a create or a full update sends. Derived fields are ignored if a caller sends them. */
@@ -236,8 +277,97 @@ export interface SubscriptionSettings {
   baseCurrency: CurrencyCode
   /** What a month of subscriptions is allowed to cost, in the total currency. Null means no budget. */
   budgetMonthly: number | null
+  /**
+   * What a year of them is allowed to cost, counted against this calendar year's receipts.
+   *
+   * A separate number rather than twelve times the monthly one, because the plans that bite once a year
+   * — the ¥360 office suite, the annual domain — land in one month and make a monthly ceiling useless for
+   * them. Null means the reader set no ceiling for the year.
+   */
+  budgetYearly: number | null
+  /**
+   * What one category of plans is allowed to cost across this calendar year, by the name the reader gave it.
+   *
+   * The year rather than the month, because that is the period the dashboard already breaks spending up by
+   * — a monthly share of a category would be a second number the reader has to reconcile against the first.
+   */
+  budgetCategories: CategoryBudgets
+  /**
+   * Rates the reader pinned, as `1 unit of the currency = N CNY`, used wherever the app converts.
+   *
+   * Anchored on CNY because that is the direction the feed is asked in and the direction the built-in
+   * table is written in; the account's total currency is a separate choice applied afterwards. CNY itself
+   * is never pinned — it is the anchor, and pinning it would rescale every other number by a factor the
+   * reader would then have to undo by hand.
+   */
+  rateOverrides: RateOverrides
   /** The last four characters of the inbound token, or empty when none was ever made. */
   inboundTokenHint: string
+}
+
+/** How many decimals a pinned rate keeps: a won is worth fractions of a fen. */
+export const RATE_DECIMALS = 6
+
+/**
+ * A currency the reader stated a price for, or nothing when they did not.
+ *
+ * Anything unreadable is dropped rather than guessed at: a rate that cannot be parsed would convert every
+ * total in the app by a factor nobody chose, which is worse than using the feed.
+ */
+export function normalizeRateOverrides(input: unknown): RateOverrides {
+  if (!input || typeof input !== 'object') return {}
+  const out: Record<string, number> = {}
+  for (const [code, value] of Object.entries(input as Record<string, unknown>)) {
+    const upper = code.toUpperCase()
+    if (!isCurrencyCode(upper) || upper === 'CNY') continue
+    const numeric = Number(value)
+    if (!Number.isFinite(numeric) || numeric <= 0) continue
+    out[upper] = roundRate(numeric)
+  }
+  return out as RateOverrides
+}
+
+/** Whether a pinned rate is a number the app can convert with. */
+export function isRateValue(value: unknown): value is number {
+  const numeric = Number(value)
+  return Number.isFinite(numeric) && numeric > 0
+}
+
+export function roundRate(value: number): number {
+  const factor = 10 ** RATE_DECIMALS
+  return Math.round(value * factor) / factor
+}
+
+/** A ceiling per category name, as the account spelled it. */
+export type CategoryBudgets = Readonly<Record<string, number>>
+
+/** One category's year against the ceiling the reader gave it. */
+export interface CategoryBudget {
+  label: string
+  limit: number
+  amount: number
+  over: boolean
+}
+
+/**
+ * The ceilings an account set for its own categories.
+ *
+ * Keys stay the names as the registry spells them, so renaming a category leaves its ceiling unmatched
+ * rather than quietly moved onto the new name. A blank name or an unreadable number is dropped: a ceiling
+ * the app cannot enforce would still be printed beside the spending, and a number that means nothing is
+ * worse than no number.
+ */
+export function normalizeBudgetCategories(input: unknown): CategoryBudgets {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return {}
+  const out: Record<string, number> = {}
+  for (const [name, value] of Object.entries(input as Record<string, unknown>)) {
+    const label = name.trim()
+    if (!label || label.length > LABEL_MAX) continue
+    const numeric = Number(value)
+    if (!Number.isFinite(numeric) || numeric <= 0) continue
+    out[label] = Math.round(numeric * 100) / 100
+  }
+  return out
 }
 
 /** One channel as the settings screen sees it: whether it may send, never what it holds. */
@@ -328,12 +458,51 @@ export interface SubscriptionOverview {
   history: ScheduleLogEntry[]
   /** What this month has cost against the ceiling the reader set. `limit` null means no budget. */
   budget: { limit: number | null; amount: number; over: boolean }
+  /**
+   * The same question asked of the whole year, and the number that makes a yearly ceiling actionable.
+   *
+   * `monthsLeft` counts this month as still to run — in October it is three, not two — because October's
+   * receipts are not all in yet. `perMonthLeft` is what those months could each spend and still land on
+   * the ceiling; null means there is no ceiling to work towards, or it is already spent.
+   */
+  yearlyBudget: { limit: number | null; amount: number; over: boolean; monthsLeft: number; perMonthLeft: number | null }
+  /** The categories the reader capped, each with where its year stands against that cap. */
+  categoryBudgets: CategoryBudget[]
   /** What the current plans would cost across a full year if nothing were cancelled. */
   committedYearly: number
   /** Trials still running, soonest first — the ones that turn into a charge. */
   trials: TrialEnding[]
   /** Plans whose last receipt differs from the one before it, most recent first. */
   priceChanges: PriceChange[]
+  /**
+   * How the money above was converted, and what could not be converted at all.
+   *
+   * Every total on the dashboard is one currency's number, so the dashboard has to say which one, where
+   * the exchange rate came from, and which of the account's currencies were left out for want of a rate.
+   * A reader asking "is this live?" has to be answerable from the screen, not from the code.
+   */
+  rates: {
+    /** `feed`: a real day's rates. `approximate`: the built-in table, because nothing could be fetched. */
+    source: 'feed' | 'approximate'
+    /** When those rates were taken, in epoch milliseconds; null for the built-in table. */
+    at: number | null
+    /** Which currency every total here is added up in. */
+    base: CurrencyCode
+    /** Whether that base currency itself has a rate. False means the totals are really in CNY. */
+    basePriced: boolean
+    /** Codes this account uses that no rate could be found for, so they sit in no total. */
+    unpriced: string[]
+    /** Codes this account pinned by hand, which beat the feed for that one currency. */
+    pinned: string[]
+    /**
+     * The rates those totals were added with, per unit of the base currency, `1 = base`.
+     *
+     * Sent because the browser orders and prices the same money the server just totalled: a list that
+     * sorted "what costs most per month" at face value would file a $20 plan under a ¥150 one, and the
+     * reader would be left wondering which of the two numbers the app believed.
+     */
+    table: Readonly<Record<string, number>>
+  }
 }
 
 /** A running free trial, with the day it starts costing money. */
@@ -386,6 +555,21 @@ export interface SubscriptionDetail {
   rules: ReminderRule[]
   nextReminder: NextReminder | null
   upcoming: NextReminder[]
+  /** What the receipts actually added up to, one entry per year and currency. */
+  yearlySpend: YearSpend[]
+}
+
+/**
+ * One calendar year of receipts for one plan.
+ *
+ * Kept in the currency each receipt was paid in rather than merged into one total: a year that mixes two
+ * currencies needs an exchange table, and this number is read next to the price the plan quotes.
+ */
+export interface YearSpend {
+  year: number
+  currency: CurrencyCode
+  amount: number
+  receipts: number
 }
 
 export interface NextReminder {
@@ -425,6 +609,14 @@ export const PRESET_RULE_DRAFTS: readonly ReminderRuleInput[] = [
   { type: 'before_expiry', value: 1, unit: 'days' },
   { type: 'on_expiry', value: 0, unit: 'days' },
 ]
+
+/**
+ * What "add a rule" starts a new row with.
+ *
+ * Three days ahead is the lead a reader means when they say "warn me before it renews", and both places
+ * that offer the button have to begin at the same day or the two screens teach different habits.
+ */
+export const NEW_RULE_DRAFT: ReminderRuleInput = { type: 'before_expiry', value: 3, unit: 'days', isEnabled: true }
 
 /**
  * The ids are made by the caller so this stays a pure function — a test can then assert the shape
@@ -542,6 +734,9 @@ export const DEFAULT_SETTINGS: SubscriptionSettings = {
   locale: 'zh-CN',
   baseCurrency: 'CNY',
   budgetMonthly: null,
+  budgetYearly: null,
+  budgetCategories: {},
+  rateOverrides: {},
   inboundTokenHint: '',
 }
 

@@ -7,6 +7,7 @@ import {
   subscriptionMentions,
 } from '../src/worker/assistant/subscription-mentions'
 import { noteMentions } from '../src/worker/assistant/note-mentions'
+import { subscriptionContextById } from '../src/worker/assistant/subscription-mentions'
 import { SubscriptionsStore } from '../src/worker/subscriptions/store'
 import { makeD1 } from './doubles/d1-sqlite'
 
@@ -115,5 +116,30 @@ describe('resolution', () => {
     await seed('Netflix')
     const block = await resolveSubscriptionMentions(db, 'user-2', '[[sub:Netflix]]', NOW)
     expect(block).toContain('no subscription of that name')
+  })
+})
+
+describe("the plan on the reader's screen", () => {
+  /**
+   * Context the reader pointed at rather than named.
+   *
+   * The block has to arrive under its own heading: a model that cannot tell "the row they have open" from
+   * "a row they mentioned in passing" will answer a question about one with the other's numbers.
+   */
+  it("carries the row by id, under a heading that says whose view it is", async () => {
+    const created = await seed("Netflix")
+    const block = await subscriptionContextById(db, USER, created.item.id, NOW)
+    expect(block).toContain("[subscription on the reader's screen]")
+    expect(block).toContain("price: ¥60.00 / 1 month")
+    expect(block).not.toContain("shared with the family")
+  })
+
+  it("carries nothing for a plan that is gone, trashed, or somebody else's", async () => {
+    const created = await seed("Netflix")
+    expect(await subscriptionContextById(db, USER, "01missingmissingmissingmissing", NOW)).toBe("")
+    await store.trash(created.item.id, context)
+    expect(await subscriptionContextById(db, USER, created.item.id, NOW), "the trash is not on screen").toBe("")
+    expect(await subscriptionContextById(db, "user-other", created.item.id, NOW)).toBe("")
+    expect(await subscriptionContextById(db, USER, "", NOW)).toBe("")
   })
 })

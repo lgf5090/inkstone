@@ -69,6 +69,31 @@ export function useClickOutside(refs: RefObject<HTMLElement | null>[], active: b
         return () => document.removeEventListener('mousedown', handler);
     }, [active]);
 }
+/**
+ * Move the caret into a panel while it is open, and hand it back when it closes.
+ *
+ * A grid of tiles — the label's icon and colour board, the lunar month and day lists — is read with Tab
+ * like any other control, but a panel that opens on a click leaves the caret on the trigger, so the first
+ * Tab goes to whatever follows the trigger in the document instead of into the panel the reader is looking
+ * at. `Menu` walks its own rows with an arrow cursor rather than Tab, so it keeps its own focus effect;
+ * these panels are a handful of buttons and need only the two ends of the same promise.
+ */
+export function usePanelCaret(active: boolean, panelRef: RefObject<HTMLElement | null>, anchorRef: RefObject<HTMLElement | null>): void {
+    useEffect(() => {
+        if (!active)
+            return;
+        const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        panelRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)?.focus({ preventScroll: true });
+        return () => {
+            // The trigger wins over whatever had the caret: a panel opens on a click on it, and some
+            // engines leave a clicked button unfocused, so returning to "previous" would drop the reader
+            // back on the page body with nothing to Tab from.
+            const back = anchorRef.current ?? previous;
+            if (back?.isConnected)
+                back.focus({ preventScroll: true });
+        };
+    }, [active, panelRef, anchorRef]);
+}
 let scrollLockCount = 0;
 let unlockedBodyOverflow = '';
 export function useLockScroll(active: boolean): void {

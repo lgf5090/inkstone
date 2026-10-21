@@ -1885,6 +1885,54 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE sub_settings ADD COLUMN budget_monthly REAL`,
     ],
   },
+  {
+    // An in-app notification about a plan said what was due and nothing else: the row had no pointer back
+    // to the subscription it was written for, so the reader had to go find it in the list. Nullable rather
+    // than defaulted, because a notification from a routine or an automation names no plan and keeps
+    // arriving exactly as it did before this column existed.
+    version: 124,
+    skipIfColumnExists: { table: 'chat_notifications', column: 'subscription_id' },
+    statements: [
+      `ALTER TABLE chat_notifications ADD COLUMN subscription_id TEXT`,
+    ],
+  },
+  {
+    // The rates an account pinned for itself, as `1 unit = N CNY`.
+    //
+    // The feed answers once a day for everybody; a reader billing in a currency that moves faster than
+    // that, or at their bank's price rather than an index, had no way to say so and got totals that looked
+    // authoritative. A JSON map rather than one column per currency because the currencies are a set the
+    // app already enumerates, and a column each would mean a migration every time one is added.
+    version: 125,
+    skipIfColumnExists: { table: 'sub_settings', column: 'rate_overrides' },
+    statements: [
+      `ALTER TABLE sub_settings ADD COLUMN rate_overrides TEXT NOT NULL DEFAULT '{}'`,
+    ],
+  },
+  {
+    // What a year of subscriptions is allowed to cost.
+    //
+    // A monthly ceiling cannot carry this question: an annual plan charges once, lands entirely in one
+    // month, and makes that month read as reckless while the year it pays for is on plan. NULL is "no
+    // ceiling", which stays a different state from a ceiling of zero.
+    version: 126,
+    skipIfColumnExists: { table: 'sub_settings', column: 'budget_yearly' },
+    statements: [
+      `ALTER TABLE sub_settings ADD COLUMN budget_yearly REAL`,
+    ],
+  },
+  {
+    // What a year of one category is allowed to cost, as a map of the reader's own names to numbers.
+    //
+    // A JSON cell rather than a table: these are a handful of numbers read and written as one bundle, never
+    // queried one at a time, and a table would buy a join for nothing. Names are the key because that is
+    // how the reader chose them and how the dashboard already groups the spending.
+    version: 127,
+    skipIfColumnExists: { table: 'sub_settings', column: 'budget_categories' },
+    statements: [
+      `ALTER TABLE sub_settings ADD COLUMN budget_categories TEXT NOT NULL DEFAULT '{}'`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

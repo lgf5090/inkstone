@@ -7,6 +7,7 @@ import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings } from '../src/worker/env'
 import { subscriptionRoutes } from '../src/worker/routes/subscriptions'
 import { enabledChannels } from '../src/worker/subscriptions/settings'
+import { BULK_LIMIT } from '../src/shared/subscriptions/model'
 import { makeD1 } from './doubles/d1-sqlite'
 
 const ALICE = 'user-alice'
@@ -109,7 +110,7 @@ describe('creating a subscription', () => {
     expect(detail.payments[0].kind).toBe('initial')
     expect(detail.payments[0].amount).toBe(60)
     expect(detail.item.paymentCount).toBe(1)
-    expect(detail.item.paidTotal).toBe(60)
+    expect(detail.item.paidByCurrency).toEqual([{ currency: 'CNY', amount: 60 }])
     expect(detail.item.daysRemaining).toBeGreaterThanOrEqual(19)
   })
 
@@ -164,6 +165,30 @@ describe('the bundle', () => {
     const bundle = await json<any>(await send('GET', '/'))
     expect(bundle.overview.monthly.amount).toBe(120)
     expect(bundle.overview.yearly.amount).toBe(120)
+  })
+
+  it('carries the yearly ceiling into the overview the dashboard reads', async () => {
+    await create({ amount: 3000 })
+    await send('PUT', '/settings', { budgetYearly: 2400 })
+    const bundle = await json<any>(await send('GET', '/'))
+    expect(bundle.overview.yearlyBudget.limit).toBe(2400)
+    expect(bundle.overview.yearlyBudget.amount).toBe(3000)
+    expect(bundle.overview.yearlyBudget.over).toBe(true)
+    // A year already past its ceiling has no room left to spread over the months.
+    expect(bundle.overview.yearlyBudget.perMonthLeft).toBeNull()
+    // The month is a separate question: the same receipt is that month's whole spend, and no ceiling
+    // was set for it.
+    expect(bundle.overview.budget.over).toBe(false)
+  })
+
+  it('lists every ceiling the account set, including the category that has spent nothing', async () => {
+    await create({ amount: 300 })
+    await send('PUT', '/settings', { budgetCategories: { family: 500, books: 100 } })
+    const bundle = await json<any>(await send('GET', '/'))
+    expect(bundle.overview.categoryBudgets).toEqual([
+      { label: 'family', limit: 500, amount: 300, over: false },
+      { label: 'books', limit: 100, amount: 0, over: false },
+    ])
   })
 })
 
@@ -282,6 +307,39 @@ describe('settings', () => {
     expect((await send('PUT', '/settings', { timezone: 'Mars/Olympus' })).status).toBe(400)
   })
 
+  it('keeps the month and the year apart, and reads back what the account set', async () => {
+    const saved = await json<any>(await send('PUT', '/settings', { budgetMonthly: 200, budgetYearly: 2400 }))
+    expect(saved.settings.budgetMonthly).toBe(200)
+    expect(saved.settings.budgetYearly).toBe(2400)
+    const read = await json<any>(await send('GET', '/settings'))
+    expect(read.settings.budgetYearly, 'the yearly ceiling survives the round trip').toBe(2400)
+    // A row that already exists is written by the update clause, not by the insert values — and a column
+    // left out of that clause keeps whatever the first save put in it, quietly, forever.
+    expect((await json<any>(await send('PUT', '/settings', { budgetYearly: 900 }))).settings.budgetYearly).toBe(900)
+    expect((await json<any>(await send('GET', '/settings'))).settings.budgetYearly).toBe(900)
+    // One ceiling named in a save must not be read as the other one being given up.
+    const half = await json<any>(await send('PUT', '/settings', { budgetMonthly: null }))
+    expect(half.settings.budgetMonthly).toBeNull()
+    expect(half.settings.budgetYearly).toBe(900)
+  })
+
+  it('saves the category ceilings as the whole map the editor shows', async () => {
+    const saved = await json<any>(await send('PUT', '/settings', { budgetCategories: { streaming: 600, books: 200 } }))
+    expect(saved.settings.budgetCategories).toEqual({ streaming: 600, books: 200 })
+    // A second save is the map again rather than a merge: leaving a name out is the reader removing its ceiling.
+    const changed = await json<any>(await send('PUT', '/settings', { budgetCategories: { streaming: 900 } }))
+    expect(changed.settings.budgetCategories).toEqual({ streaming: 900 })
+    expect((await json<any>(await send('GET', '/settings'))).settings.budgetCategories).toEqual({ streaming: 900 })
+    expect((await json<any>(await send('PUT', '/settings', { budgetCategories: {} }))).settings.budgetCategories).toEqual({})
+  })
+
+  it('refuses a ceiling the app could not enforce with', async () => {
+    expect((await send('PUT', '/settings', { budgetCategories: { streaming: 'cheap' } })).status).toBe(400)
+    expect((await send('PUT', '/settings', { budgetCategories: 'streaming:600' })).status).toBe(400)
+    // The account keeps what it had rather than half-adopting what did not land.
+    expect((await json<any>(await send('GET', '/settings'))).settings.budgetCategories).toEqual({})
+  })
+
   it('rotates an inbound token and never stores it in the clear', async () => {
     const first = await json<any>(await send('POST', '/inbound-token'))
     expect(first.token).toHaveLength(20)
@@ -371,6 +429,64 @@ describe('channels', () => {
     // A row that was never saved is not a channel that can send, and an account's rows stay its own.
     const other = await enabledChannels(noVault, db, BOB)
     expect(other).toEqual([])
+  })
+})
+
+describe('bulk actions', () => {
+  it('changes every subscription the call names', async () => {
+    const first = await create({ name: 'First' })
+    const second = await create({ name: 'Second' })
+    const response = await send('POST', '/bulk', { action: 'deactivate', ids: [first.item.id, second.item.id] })
+    expect(response.status).toBe(200)
+    expect((await json<any>(response)).changed).toBe(2)
+  })
+
+  it('refuses a list past the cap instead of quietly doing the first two hundred', async () => {
+    const ids = Array.from({ length: BULK_LIMIT + 1 }, (_, index) => `sub-${index}`)
+    const response = await send('POST', '/bulk', { action: 'deactivate', ids })
+    expect(response.status).toBe(400)
+    expect((await json<any>(response)).error.message).toContain(String(BULK_LIMIT))
+  })
+})
+
+describe('the rate table behind the dashboard', () => {
+  /**
+   * Which of the two ways the numbers came in is asserted as a set rather than a value because the suite
+   * does not stand between this test and the currency service: an account read with the network up answers
+   * `feed`, one read with it down answers `approximate`, and both are honest answers.
+   */
+  it('says where the totals got their rates, and which currency they are added up in', async () => {
+    const bundle = await json<any>(await send('GET', '/'))
+    expect(['feed', 'approximate']).toContain(bundle.overview.rates.source)
+    expect(bundle.overview.rates.base).toBe('CNY')
+    expect(bundle.overview.rates.basePriced).toBe(true)
+    expect(bundle.overview.rates.unpriced).toEqual([])
+  })
+
+  it('forgets the cached day when asked and answers with what it holds now', async () => {
+    const response = await send('POST', '/rates/refresh')
+    expect(response.status).toBe(200)
+    const body = await json<{ source: string, at: number | null }>(response)
+    expect(['feed', 'approximate']).toContain(body.source)
+  })
+})
+
+describe('what has been paid on one plan', () => {
+  /**
+   * The case a single total got wrong: a reader who pays one bill in dollars and the next in yuan has
+   * paid two things, and `¥120` or `$120` would each be a number the account never spent.
+   */
+  it('keeps receipts in different currencies apart rather than adding them', async () => {
+    const created = await create({ amount: 60, currency: 'CNY' })
+    await send('PUT', `/${created.item.id}/payments/${created.payments[0].id}`, { currency: 'USD' })
+    await send('POST', `/${created.item.id}/renew`, { amount: 60 })
+
+    const detail = await json<any>(await send('GET', `/${created.item.id}`))
+    expect(detail.item.paymentCount).toBe(2)
+    expect(detail.item.paidByCurrency).toHaveLength(2)
+    expect(detail.item.paidByCurrency).toEqual(
+      expect.arrayContaining([{ currency: 'USD', amount: 60 }, { currency: 'CNY', amount: 60 }]),
+    )
   })
 })
 
@@ -569,5 +685,36 @@ describe('the trash', () => {
     mocks.userId = ALICE
     const bundle = await json<any>(await send('GET', '/'))
     expect(bundle.trashCount).toBe(1)
+  })
+})
+
+describe('the global search over subscriptions', () => {
+  it('finds a plan by name, type, category or note, whatever case it was typed in', async () => {
+    await create({ name: 'Netflix', customType: 'streaming', category: 'family', notes: 'shared with 弟弟' })
+    for (const q of ['netfl', 'STREAMING', 'FAMILY', '弟弟']) {
+      const answer = await json<any>(await send('GET', `/search?q=${encodeURIComponent(q)}`))
+      expect(answer.items.map((item: any) => item.name), `"${q}" should have matched`).toEqual(['Netflix'])
+    }
+  })
+
+  it('answers nothing for an empty query, because the reader has not asked yet', async () => {
+    await create()
+    const answer = await json<any>(await send('GET', '/search?q='))
+    expect(answer.items).toEqual([])
+  })
+
+  it('keeps a trashed plan out of the results', async () => {
+    const created = await create({ name: 'Figma' })
+    await send('DELETE', `/${created.item.id}`)
+    const answer = await json<any>(await send('GET', '/search?q=figma'))
+    expect(answer.items).toEqual([])
+  })
+
+  it('orders soonest first and stops at the limit, under a path that the id route would otherwise take', async () => {
+    await create({ name: 'Far Plan', expiryDate: inDays(200) })
+    await create({ name: 'Soon Plan', expiryDate: inDays(2) })
+    await create({ name: 'Middle Plan', expiryDate: inDays(30) })
+    const answer = await json<any>(await send('GET', '/search?q=plan&limit=2'))
+    expect(answer.items.map((item: any) => item.name)).toEqual(['Soon Plan', 'Middle Plan'])
   })
 })

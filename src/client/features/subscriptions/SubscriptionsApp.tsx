@@ -7,22 +7,28 @@
  * tab does not pay for a library they will not look at.
  */
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
-import { CheckSquare, CircleHelp, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings2, Tags, Wallet } from 'lucide-react'
+import { CheckSquare, CircleHelp, LayoutGrid, List, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings2, Sparkles, Tags, Wallet } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { IS_DEMO_MODE } from '../../lib/runtime'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
-import { useBreakpoint } from '../../lib/hooks'
+import { useBreakpoint, useMediaQuery } from '../../lib/hooks'
 import { AssistantDock } from '../chat/AssistantDock'
+import { NotificationsBell } from '../chat/NotificationCenter'
 import { Button, IconButton } from '../../components/primitives'
 import { Drawer, Modal, Tooltip, confirm } from '../../components/overlay'
-import { Input } from '../../components/form'
+import { Input, Select } from '../../components/form'
 import { formatAmount } from '@shared/subscriptions/format'
+import { FALLBACK_RATES } from '@shared/subscriptions/currency'
+import { NEW_RULE_DRAFT } from '@shared/subscriptions/model'
+import { LIST_SORTS, type ListSort } from '@shared/subscriptions/sort'
 import { useSubscriptions } from './store'
 import { countItems, visibleItems } from './list-view'
 import { FilterRail } from './FilterRail'
-import { SubscriptionList } from './SubscriptionList'
+import { SubscriptionList, type SubscriptionActions } from './SubscriptionList'
+import { SubscriptionGrid } from './SubscriptionGrid'
+import { SORT_LABEL } from './subscription-parts'
 import { SubscriptionDetail } from './SubscriptionDetail'
 import { OverviewView } from './OverviewView'
 import { LogsView } from './LogsView'
@@ -36,6 +42,10 @@ import { useLabelSuggestions } from './label-identity'
 import { SubscriptionSettings } from './SubscriptionSettings'
 import type { PaymentRecord, SubscriptionDetail as Detail, SubscriptionItem } from '@shared/subscriptions/model'
 
+/** Where the filter rail earns its column, and where the detail panel earns a third one. */
+const NEEDS_RAIL_QUERY = '(min-width: 1024px)'
+const NEEDS_PANEL_QUERY = '(min-width: 1280px)'
+
 export function SubscriptionsApp(): ReactElement {
   const userId = useSession((state) => state.user?.id ?? null)
   const assistantDockOpen = useUi((state) => state.assistantDockOpen)
@@ -48,6 +58,7 @@ export function SubscriptionsApp(): ReactElement {
   const trashCount = useSubscriptions((state) => state.trashCount)
   const settings = useSubscriptions((state) => state.settings)
   const channels = useSubscriptions((state) => state.channels)
+  const categoryEntries = useSubscriptions((state) => state.categories)
   const overview = useSubscriptions((state) => state.overview)
   const view = useSubscriptions((state) => state.view)
   const filter = useSubscriptions((state) => state.filter)
@@ -56,11 +67,15 @@ export function SubscriptionsApp(): ReactElement {
   const detailLoading = useSubscriptions((state) => state.detailLoading)
   const logs = useSubscriptions((state) => state.logs)
   const saving = useSubscriptions((state) => state.saving)
+  const refreshingRates = useSubscriptions((state) => state.refreshingRates)
   const loadLogs = useSubscriptions((state) => state.loadLogs)
 
-  const [railOpen, setRailOpen] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches)
-  const [wide, setWide] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches)
-  const [panelWide, setPanelWide] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 1280px)').matches)
+  // The three-column decision the rail, the list and the detail panel share. The widths are this app's own
+  // because a third column needs more room than the notebook's two: 1024px is where the filter rail plus a
+  // list fits, 1280px is where a 380px detail panel joins them.
+  const wide = useMediaQuery(NEEDS_RAIL_QUERY)
+  const panelWide = useMediaQuery(NEEDS_PANEL_QUERY)
+  const [railOpen, setRailOpen] = useState(wide)
   const [formOpen, setFormOpen] = useState(false)
   const [renewTarget, setRenewTarget] = useState<Detail | null>(null)
   const [paymentTarget, setPaymentTarget] = useState<PaymentRecord | null>(null)
@@ -69,28 +84,37 @@ export function SubscriptionsApp(): ReactElement {
   const [keysOpen, setKeysOpen] = useState(false)
   const [detailDrawer, setDetailDrawer] = useState(false)
   const [labelsOpen, setLabelsOpen] = useState(false)
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [selectMode, setSelectMode] = useState(false)
   const typeSuggestions = useLabelSuggestions('type')
   const categorySuggestions = useLabelSuggestions('category')
+  // The registry alone, not the suggestions: a ceiling on a built-in category nobody has filed a plan
+  // under would be a row that reports zero forever.
+  const categoryNames = useMemo(() => categoryEntries.map((entry) => entry.name), [categoryEntries])
 
   useEffect(() => {
     void useSubscriptions.getState().load()
   }, [userId])
 
-  useEffect(() => {
-    const wideQuery = window.matchMedia('(min-width: 1024px)')
-    const panelQuery = window.matchMedia('(min-width: 1280px)')
-    const onWide = (): void => setWide(wideQuery.matches)
-    const onPanel = (): void => setPanelWide(panelQuery.matches)
-    wideQuery.addEventListener('change', onWide)
-    panelQuery.addEventListener('change', onPanel)
-    return () => {
-      wideQuery.removeEventListener('change', onWide)
-      panelQuery.removeEventListener('change', onPanel)
-    }
-  }, [])
-
-  const visible = useMemo(() => visibleItems(items, filter), [items, filter])
+  // The table the dashboard's own totals were added with, so the list orders money the same way the
+  // numbers above it were. Before the bundle lands there is nothing to order by but the built-in table.
+  const rateTable = overview?.rates.table ?? FALLBACK_RATES
+  const visible = useMemo(() => visibleItems(items, filter, rateTable), [items, filter, rateTable])
+  // One set of actions for both shapes of the same rows. Written once because a plan that can be renewed
+  // from the list must be able to be renewed from a card — two definitions would drift by the next button
+  // anybody adds.
+  const rowActions: SubscriptionActions = {
+    onEdit: (item) => { void useSubscriptions.getState().select(item.id).then(() => setFormOpen(true)) },
+    onRenew: (item) => {
+      void useSubscriptions.getState().select(item.id).then(() => {
+        const next = useSubscriptions.getState().detail
+        if (next) setRenewTarget(next)
+      })
+    },
+    onToggle: (item) => void useSubscriptions.getState().toggle(item.id, !item.isActive),
+    onTrash: (item) => void onTrash(item),
+    onTest: (item) => void useSubscriptions.getState().testNotify(item.id),
+  }
   const counts = useMemo(() => countItems(items), [items])
   // The account's own total currency. This used to be a literal, so an account billed entirely in
   // dollars was shown a yuan headline converted at a rate it never chose.
@@ -203,9 +227,54 @@ export function SubscriptionsApp(): ReactElement {
           onChange={(event) => useSubscriptions.getState().setFilter({ query: event.target.value })}
           className="h-7 w-24 text-[length:var(--text-11-5)] sm:w-40 lg:w-52"
         />
+        {/* Ordering and shape belong to the rows, so neither control exists where there are none: the
+            dashboard, the logs and the trash each have their own arrangement already. */}
+        {(view === 'list' || view === 'grid') && (
+          <>
+            <Select
+              aria-label={t('subscriptions.list.sort')}
+              value={filter.sort}
+              onChange={(event) => useSubscriptions.getState().setFilter({ sort: event.target.value as ListSort })}
+              className="h-7 w-[92px] text-[length:var(--text-11-5)]"
+            >
+              {LIST_SORTS.map((sort) => <option key={sort} value={sort}>{t(SORT_LABEL[sort])}</option>)}
+            </Select>
+            <Tooltip label={view === 'grid' ? t('subscriptions.view_list') : t('subscriptions.view_grid')} side="bottom">
+              <IconButton
+                label={view === 'grid' ? t('subscriptions.view_list') : t('subscriptions.view_grid')}
+                size="sm"
+                active={view === 'grid'}
+                onClick={() => useSubscriptions.getState().setView(view === 'grid' ? 'list' : 'grid')}
+              >
+                {view === 'grid' ? <List size={15} /> : <LayoutGrid size={15} />}
+              </IconButton>
+            </Tooltip>
+          </>
+        )}
         <Tooltip label={t('subscriptions.keys.title')} side="bottom">
           {/* A touch screen has no keys to press, so the card is offered only where it can be used. */}
           <IconButton label={t('subscriptions.keys.title')} size="sm" className="hidden sm:inline-flex" onClick={() => setKeysOpen(true)}><CircleHelp size={15} /></IconButton>
+        </Tooltip>
+        {/* A reminder that fires while the reader is on this page has nowhere to show up otherwise: the
+            bell that carries it is mounted on the chat tab alone, and the schedules that write those rows
+            belong to these plans. One bell per surface, one unread count between them. */}
+        <NotificationsBell
+          open={notificationsOpen}
+          onOpen={() => setNotificationsOpen(true)}
+          onClose={() => setNotificationsOpen(false)}
+        />
+        {/* The dock is mounted here, but nothing on this page could open it: the only callers of
+            `setAssistantDock` live in the notebook, so asking about a plan meant leaving for the chat tab
+            first. This is that door. */}
+        <Tooltip label={t('subscriptions.ask_assistant')} side="bottom">
+          <IconButton
+            label={t('subscriptions.ask_assistant')}
+            size="sm"
+            active={assistantDockOpen}
+            onClick={() => useUi.getState().setAssistantDock(!assistantDockOpen)}
+          >
+            <Sparkles size={15} />
+          </IconButton>
         </Tooltip>
         {/* Selecting applies to the list rows, so the press only exists where a box can appear. Offered in
             the trash or the logs it would flip to "exit selecting" and change nothing on screen. */}
@@ -263,7 +332,7 @@ export function SubscriptionsApp(): ReactElement {
         onTrash: () => { if (detail) void onTrash(detail.item) },
         onAddRule: () => {
           if (!detail) return
-          void useSubscriptions.getState().addRule(detail.item.id, { type: 'before_expiry', value: 3, unit: 'days' })
+          void useSubscriptions.getState().addRule(detail.item.id, { ...NEW_RULE_DRAFT })
         },
         onPresetRules: () => { if (detail) void useSubscriptions.getState().applyPreset(detail.item.id) },
         onUpdateRule: (rule, patch) => { if (detail) void useSubscriptions.getState().updateRule(detail.item.id, rule.id, patch) },
@@ -304,6 +373,8 @@ export function SubscriptionsApp(): ReactElement {
               overview={overview}
               loading={status === 'loading'}
               currency={overviewCurrency}
+              refreshingRates={refreshingRates}
+              onRefreshRates={() => { void useSubscriptions.getState().refreshRates() }}
               onOpenItem={openDetail}
               onOpenLogs={() => { useSubscriptions.getState().setView('logs') }}
               onAdd={() => setFormOpen(true)}
@@ -312,25 +383,25 @@ export function SubscriptionsApp(): ReactElement {
           {view === 'list' && (
             <SubscriptionList
               items={visible}
+              sort={filter.sort}
               selectedId={selectedId}
               loading={status === 'loading'}
               onSelect={openDetail}
               onAdd={() => setFormOpen(true)}
-              actions={{
-                onEdit: (item) => { void useSubscriptions.getState().select(item.id).then(() => setFormOpen(true)) },
-                onRenew: (item) => {
-                  void useSubscriptions.getState().select(item.id).then(() => {
-                    const next = useSubscriptions.getState().detail
-                    if (next) setRenewTarget(next)
-                  })
-                },
-                onToggle: (item) => void useSubscriptions.getState().toggle(item.id, !item.isActive),
-                onTrash: (item) => void onTrash(item),
-                onTest: (item) => void useSubscriptions.getState().testNotify(item.id),
-              }}
+              actions={rowActions}
               selectMode={selectMode}
               selection={selection}
               onCheck={(id) => useSubscriptions.getState().toggleSelected(id)}
+            />
+          )}
+          {view === 'grid' && (
+            <SubscriptionGrid
+              items={visible}
+              selectedId={selectedId}
+              loading={status === 'loading'}
+              onSelect={openDetail}
+              onAdd={() => setFormOpen(true)}
+              actions={rowActions}
             />
           )}
           {view === 'list' && <BulkBar items={items} />}
@@ -354,7 +425,10 @@ export function SubscriptionsApp(): ReactElement {
         {/* The same column the notebook mounts, under the same conditions: the assistant's thread is
             global state, so opening it here and opening it there is one conversation rather than two.
             Not on a phone, where chat already has a tab of its own. */}
-        {assistantDockOpen && !isMobile && <AssistantDock />}
+        {assistantDockOpen && !isMobile && <AssistantDock surface="subscriptions" subscription={(() => {
+          const open = items.find((item) => item.id === selectedId)
+          return open ? { id: open.id, name: open.name } : null
+        })()} />}
       </div>
 
       {!panelWide && (
@@ -433,6 +507,8 @@ export function SubscriptionsApp(): ReactElement {
           <SubscriptionSettings
             settings={settings}
             channels={channels}
+            currencies={items.map((item) => item.currency)}
+            categories={categoryNames}
             onClose={() => setSettingsOpen(false)}
             onSaveSettings={(patch) => useSubscriptions.getState().saveSettings(patch)}
             onSaveChannel={(kind, input) => useSubscriptions.getState().saveChannel(kind, input)}
@@ -472,7 +548,7 @@ export function SubscriptionsApp(): ReactElement {
       )}
 
       {status === 'error' && (
-        <div className="flex items-center gap-2 border-t border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-2">
+        <div role="alert" className="flex items-center gap-2 border-t border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-2">
           <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--danger)]">{error ?? t('subscriptions.error.load')}</span>
           <Button size="sm" onClick={() => void useSubscriptions.getState().load()}>{t('subscriptions.error.retry')}</Button>
         </div>

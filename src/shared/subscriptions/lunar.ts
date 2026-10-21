@@ -54,6 +54,26 @@ export const LUNAR_DAY_NAMES = [
 
 export const ALMANAC_TEXT = { leap: '闰', month: '月', year: '年' }
 
+/**
+ * The month and day names in the language the interface is actually wearing.
+ *
+ * The tables above are the almanac's own vocabulary and stay for a Chinese reader; an English interface
+ * that renders those glyphs names a thing the reader cannot read, which is the same failure the rest of
+ * this app has to avoid. The number is always there, because that is what a renewal date is counted in.
+ */
+export function lunarMonthLabel(index: number, locale: string): string {
+  return locale === 'zh-CN' ? `${LUNAR_MONTH_NAMES[index] ?? ''}${ALMANAC_TEXT.month}` : `Month ${index + 1}`
+}
+
+/** The same month with the leap marker the calendar carries. */
+export function lunarLeapMonthLabel(index: number, locale: string): string {
+  return locale === 'zh-CN' ? `${ALMANAC_TEXT.leap}${LUNAR_MONTH_NAMES[index] ?? ''}${ALMANAC_TEXT.month}` : `Leap month ${index + 1}`
+}
+
+export function lunarDayLabel(day: number, locale: string): string {
+  return locale === 'zh-CN' ? LUNAR_DAY_NAMES[day - 1] ?? '' : `Day ${day}`
+}
+
 export const LUNAR_RANGE_START = 1900
 export const LUNAR_RANGE_END = 2100
 

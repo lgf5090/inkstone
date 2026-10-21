@@ -1,8 +1,10 @@
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
-import { CornerDownRight, FileText, FolderOpen, ImageIcon, MessageSquare, ScanSearch, X } from 'lucide-react';
+import { CornerDownRight, FileText, FolderOpen, ImageIcon, MessageSquare, ScanSearch, Wallet, X } from 'lucide-react';
 import type { ParsedOmnisearchQuery } from '@shared/omnisearch-query';
 import type { AssistantConversation } from '@shared/assistant';
+import type { SubscriptionItem } from '@shared/subscriptions/model';
+import { daysState, daysStateKey, formatAmount } from '@shared/subscriptions/format';
 import { DEBOUNCE } from '@shared/constants';
 import { cn } from '../../lib/cn';
 import { t } from '../../lib/i18n';
@@ -17,6 +19,7 @@ import { useLongPress } from '../workspace/context-menu/use-long-press';
 import { omnisearchIndexer, type IndexerStatus } from './indexer';
 import { closeOmnisearch, type OmnisearchMode } from './store';
 import { useConversationSearch } from './conversation-results';
+import { useSubscriptionSearch } from './subscription-results';
 import { docIdForNote, fileIdOfDoc, noteIdOfDoc } from './engine';
 import { buildExcerpt, findMatches, groupOffsets } from './excerpt';
 import { insertAtActiveCursor, revealInNote } from './reveal';
@@ -127,9 +130,9 @@ interface FileRow {
     excerpt: Excerpt;
 }
 /**
- * One row of the vault search. The index's notes come first and the server's conversations after them,
- * and the cursor counts the two together — so an arrow key walks into a thread the same way it walks
- * into a note, and `Enter` only has to ask which of the two it landed on.
+ * One row of the vault search. The index's notes come first, then the server's conversations, then the
+ * subscriptions the money app keeps, and the cursor counts all three together — so an arrow key walks into
+ * a thread or a plan the same way it walks into a note, and `Enter` only has to ask which it landed on.
  */
 type VaultRow = {
     kind: 'note';
@@ -137,6 +140,9 @@ type VaultRow = {
 } | {
     kind: 'conversation';
     conversation: AssistantConversation;
+} | {
+    kind: 'subscription';
+    item: SubscriptionItem;
 };
 /**
  * A conversation the reader already had, as a row.
@@ -172,6 +178,43 @@ const ConversationRow = memo(function ConversationRow({ conversation, active, in
           {snippet && (<span className="mt-0.5 block truncate text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">
               <Highlighted text={snippet} terms={terms} ignoreDiacritics={ignoreDiacritics}/>
             </span>)}
+        </span>
+      </button>);
+});
+/**
+ * A subscription the reader pays for, as a row.
+ *
+ * The countdown and the price are the two facts that tell the reader whether this is the plan they meant,
+ * and both are said in the words the money app already uses — a search that invented its own phrasing for
+ * "3 days left" would be a second vocabulary for one state.
+ */
+const SubscriptionRow = memo(function SubscriptionRow({ item, active, index, listId, terms, ignoreDiacritics, onHover, onInvoke, }: {
+    item: SubscriptionItem;
+    active: boolean;
+    index: number;
+    listId: string;
+    terms: readonly string[];
+    ignoreDiacritics: boolean;
+    onHover: (index: number) => void;
+    onInvoke: () => void;
+}) {
+    const countdown = daysState(item.daysRemaining);
+    return (<button id={`${listId}-option-${index}`} type="button" role="option" aria-selected={active} tabIndex={-1} data-index={index} onMouseEnter={() => onHover(index)} onClick={onInvoke} className={active ? ROW_ACTIVE_CLASS : ROW_CLASS}>
+        <span className={cn('mt-0.5 shrink-0', active ? 'text-[var(--accent)]' : 'text-[var(--text-quaternary)]')}>
+          <Wallet size={14}/>
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="min-w-0 truncate text-[length:var(--text-13)] text-[var(--text-primary)]">
+              <Highlighted text={item.name} terms={terms} ignoreDiacritics={ignoreDiacritics}/>
+            </span>
+            <span className="shrink-0 rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-1.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
+              {t('app.tabs.subscriptions')}
+            </span>
+          </span>
+          <span className="mt-0.5 block truncate text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">
+            {formatAmount(item.amount, item.currency)} · {t(daysStateKey(countdown), { count: countdown.count })}
+          </span>
         </span>
       </button>);
 });
@@ -215,6 +258,8 @@ export function OmnisearchPrompt({ mode, seed, noteId }: {
     // The threads the note index cannot see, asked of the one endpoint the chat's own list already uses.
     // An in-file search is about one note, so that is the only scope with nothing for it to add.
     const conversations = useConversationSearch(debounced, scope === 'vault');
+    // The plans the reader pays for, asked of the money app's own search rather than the note index.
+    const subscriptions = useSubscriptionSearch(debounced, scope === 'vault');
     useEscape(true, () => closeOmnisearch());
     useLockScroll(true);
     useDialogFocus(true, panelRef, inputRef);
@@ -274,7 +319,11 @@ export function OmnisearchPrompt({ mode, seed, noteId }: {
             kind: 'conversation',
             conversation,
         })),
-    ], [conversations.items, results]);
+        ...subscriptions.items.map<VaultRow>((item) => ({
+            kind: 'subscription',
+            item,
+        })),
+    ], [conversations.items, results, subscriptions.items]);
     const rows = scope === 'file' ? fileRows.length : vaultRows.length;
     const move = useCallback((offset: number) => {
         if (!rows) return;
@@ -343,6 +392,13 @@ export function OmnisearchPrompt({ mode, seed, noteId }: {
         closeOmnisearch();
         void import('../chat/start-chat').then((module) => module.openConversationInChat(conversation.id, conversation.match?.messageId));
     }, [query]);
+    // A plan lives in another app, so the module that knows how to land there is pulled only for the
+    // results that need it — the same reason a conversation loads `start-chat` on demand.
+    const openSubscription = useCallback((item: SubscriptionItem) => {
+        void pushHistory(query);
+        closeOmnisearch();
+        void import('../subscriptions/open-subscription').then((module) => module.openSubscriptionInApp(item));
+    }, [query]);
     const invokeRow = useCallback((row: VaultRow | undefined, options: {
         pane?: boolean;
         background?: boolean;
@@ -352,8 +408,12 @@ export function OmnisearchPrompt({ mode, seed, noteId }: {
             openConversation(row.conversation);
             return;
         }
+        if (row.kind === 'subscription') {
+            openSubscription(row.item);
+            return;
+        }
         openResult(row.result, options);
-    }, [openConversation, openResult]);
+    }, [openConversation, openResult, openSubscription]);
     const create = useCallback(() => {
         const title = query.trim();
         if (!title) return;
@@ -371,6 +431,15 @@ export function OmnisearchPrompt({ mode, seed, noteId }: {
         if (row.kind === 'conversation') {
             toast({
                 title: t('omnisearch.conversation_no_link'),
+                tone: 'warning',
+            });
+            return;
+        }
+        // Same reason here: a subscription is not a document the editor can link into by title, and a
+        // `[[sub:…]]` written into a note is a broken note link rather than a reference to the plan.
+        if (row.kind === 'subscription') {
+            toast({
+                title: t('omnisearch.subscription_no_link'),
                 tone: 'warning',
             });
             return;
@@ -509,9 +578,10 @@ export function OmnisearchPrompt({ mode, seed, noteId }: {
         if (status.cacheFailed) return t('omnisearch.cache_failed');
         return '';
     }, [search.enabled, status]);
-    const empty = !searching && !conversations.loading && rows === 0 && !conversations.error;
+    const empty = !searching && !conversations.loading && !subscriptions.loading && rows === 0 && !conversations.error && !subscriptions.error;
     // The thread half of a vault search is only asked for once there is something to ask it with.
     const conversationAsked = scope === 'vault' && Boolean(debounced.trim());
+    const subscriptionAsked = conversationAsked;
     const placeholder = scope === 'file' ? t('omnisearch.placeholder_file') : t('omnisearch.placeholder_vault');
     const activeRowId = rows ? `${listId}-option-${Math.min(cursor.index, rows - 1)}` : undefined;
     return createPortal(<div className="app-viewport-fixed fixed z-[var(--z-prompt)] flex items-end justify-center md:items-start md:px-4 md:pt-[11vh]">
@@ -561,6 +631,20 @@ export function OmnisearchPrompt({ mode, seed, noteId }: {
             {conversationAsked && !conversations.loading && !conversations.error && !conversations.items.length && rows > 0 && (<p className="px-2.5 py-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
                 {t('omnisearch.conversations_none')}
               </p>)}
+            {subscriptionAsked && (<div className={SECTION_CLASS}>{t('app.tabs.subscriptions')}</div>)}
+            {subscriptionAsked && subscriptions.items.map((item, offset) => {
+                        const index = results.length + conversations.items.length + offset;
+                        return (<SubscriptionRow key={`s-${item.id}-${offset}`} item={item} index={index} active={index === cursor.index} listId={listId} terms={terms} ignoreDiacritics={search.ignoreDiacritics} onHover={(next) => setCursor((current) => current.index === next && current.fromPointer ? current : {
+                                index: next,
+                                fromPointer: true,
+                            })} onInvoke={() => openSubscription(item)}/>);
+                    })}
+            {subscriptionAsked && subscriptions.loading && (<p role="status" className="px-2.5 py-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+                {t('omnisearch.subscriptions_searching')}
+              </p>)}
+            {subscriptionAsked && !subscriptions.loading && !subscriptions.error && !subscriptions.items.length && rows > 0 && (<p className="px-2.5 py-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+                {t('omnisearch.subscriptions_none')}
+              </p>)}
             {empty && (<div className="px-3 py-10 text-center text-[length:var(--text-12-5)] text-[var(--text-quaternary)]">
                 {query.trim() ? t('omnisearch.no_results') : t('omnisearch.type_to_search')}
                 {parsed?.trash && (<p className="mt-1 text-[length:var(--text-11-5)]">{t('omnisearch.trash_hint')}</p>)}
@@ -572,6 +656,12 @@ export function OmnisearchPrompt({ mode, seed, noteId }: {
               <span className="min-w-0 truncate">{t('omnisearch.conversations_failed')}</span>
               <span className="min-w-0 flex-1 truncate text-[var(--text-quaternary)]">{conversations.error}</span>
               <Button size="sm" variant="secondary" onClick={conversations.retry}>{t('common.retry')}</Button>
+            </div>)}
+
+          {subscriptionAsked && subscriptions.error && (<div role="alert" className="flex items-center gap-2 border-t border-[var(--border-subtle)] bg-[var(--bg-inset)] px-4 py-1.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
+              <span className="min-w-0 truncate">{t('omnisearch.subscriptions_failed')}</span>
+              <span className="min-w-0 flex-1 truncate text-[var(--text-quaternary)]">{subscriptions.error}</span>
+              <Button size="sm" variant="secondary" onClick={subscriptions.retry}>{t('common.retry')}</Button>
             </div>)}
 
           <div className="flex items-center gap-2 border-t border-[var(--border-subtle)] px-3 py-2 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">

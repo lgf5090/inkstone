@@ -1982,6 +1982,20 @@ export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'restore_subscription', labelKey: 'assistant.tool.restore_subscription', permission: 'write' },
   { name: 'delete_subscription', labelKey: 'assistant.tool.delete_subscription', approvalKey: 'assistant.approval.delete_subscription', permission: 'destructive' },
   { name: 'subscription_channels', labelKey: 'assistant.tool.subscription_channels', permission: 'read' },
+  { name: 'list_subscription_labels', labelKey: 'assistant.tool.list_subscription_labels', permission: 'read' },
+  { name: 'list_subscription_templates', labelKey: 'assistant.tool.list_subscription_templates', permission: 'read' },
+  { name: 'get_subscription_settings', labelKey: 'assistant.tool.get_subscription_settings', permission: 'read' },
+  { name: 'set_subscription_settings', labelKey: 'assistant.tool.set_subscription_settings', permission: 'write' },
+  { name: 'set_subscription_active', labelKey: 'assistant.tool.set_subscription_active', permission: 'write' },
+  { name: 'subscription_logs', labelKey: 'assistant.tool.subscription_logs', permission: 'read' },
+  { name: 'edit_subscription_payment', labelKey: 'assistant.tool.edit_subscription_payment', permission: 'write' },
+  { name: 'delete_subscription_payment', labelKey: 'assistant.tool.delete_subscription_payment', approvalKey: 'assistant.approval.delete_subscription_payment', permission: 'destructive' },
+  { name: 'bulk_update_subscriptions', labelKey: 'assistant.tool.bulk_update_subscriptions', permission: 'write' },
+  { name: 'add_subscription_label', labelKey: 'assistant.tool.add_subscription_label', permission: 'write' },
+  { name: 'rename_subscription_label', labelKey: 'assistant.tool.rename_subscription_label', permission: 'write' },
+  { name: 'remove_subscription_label', labelKey: 'assistant.tool.remove_subscription_label', permission: 'write' },
+  { name: 'purge_subscription', labelKey: 'assistant.tool.purge_subscription', approvalKey: 'assistant.approval.purge_subscription', permission: 'destructive' },
+  { name: 'empty_subscription_trash', labelKey: 'assistant.tool.empty_subscription_trash', approvalKey: 'assistant.approval.empty_subscription_trash', permission: 'destructive' },
 ]
 
 /** A page the model actually consulted, as the vendor reported it. */
@@ -2498,6 +2512,8 @@ export interface AssistantNotification {
   title: string
   body: string
   automationId: string | null
+  /** The plan this delivery was about, when it was about one. See the in-app channel. */
+  subscriptionId: string | null
   readAt: number | null
   createdAt: number
 }

@@ -14,7 +14,7 @@ import { IconButton, SectionLabel } from '../../components/primitives'
 import { Select } from '../../components/form'
 import { LoadingBlock } from '../../components/feedback'
 import { channelLabelKey } from '@shared/subscriptions/channels'
-import type { ChannelKind, NotifyLogEntry, ScheduleLogEntry, SubscriptionItem } from '@shared/subscriptions/model'
+import { CHANNEL_KINDS, type ChannelKind, type NotifyLogEntry, type ScheduleLogEntry, type SubscriptionItem } from '@shared/subscriptions/model'
 import type { SubscriptionLogs } from './store'
 
 const PERIODS = ['today', 'week', 'month'] as const
@@ -76,7 +76,9 @@ export function LogsView({
         </Select>
         <Select aria-label={t('subscriptions.logs.filter_channel')} value={channel} onChange={(event) => setChannel(event.target.value as ChannelKind | '')} className="h-7 w-[132px] text-[length:var(--text-11-5)]">
           <option value="">{t('subscriptions.logs.all')}</option>
-          {(['telegram', 'notifyx', 'webhook', 'wechatbot', 'email', 'bark', 'gotify', 'serverchan', 'pushplus'] as ChannelKind[]).map((kind) => (
+          {/* The registry of kinds, not a copy of it: the hand-written list here had already fallen behind
+              and left the in-app channel unfilterable. */}
+          {CHANNEL_KINDS.map((kind) => (
             <option key={kind} value={kind}>{t(channelLabelKey(kind))}</option>
           ))}
         </Select>
@@ -151,6 +153,11 @@ function LogRow({ entry }: { entry: NotifyLogEntry }): ReactElement {
           aria-hidden="true"
           className={cn('size-1.5 shrink-0 rounded-full', entry.status === 'success' ? 'bg-[var(--success)]' : 'bg-[var(--danger)]')}
         />
+        {/* The dot is the only visible difference between a delivery that worked and one that did not, and
+            a colour with no name behind it reads as nothing at all to a screen reader. */}
+        <span className="sr-only">
+          {t(entry.status === 'success' ? 'subscriptions.logs.status_success' : 'subscriptions.logs.status_failed')}
+        </span>
         <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-primary)]">
           {entry.subscriptionName || entry.title}
         </span>

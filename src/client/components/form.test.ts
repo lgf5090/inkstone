@@ -1,7 +1,7 @@
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { Segmented, Slider, commitOnEnter } from './form'
+import { Segmented, Slider, Switch, commitOnEnter } from './form'
 
 const nextFrame = () => new Promise((resolve) => window.requestAnimationFrame(() => resolve(undefined)))
 
@@ -219,5 +219,22 @@ describe('Segmented keyboard and roles', () => {
     const letter = press(document.activeElement!, 'a')
     expect(letter.defaultPrevented).toBe(false)
     expect(onChange).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('the switch reaches the pointer floor', () => {
+  function renderSwitch() {
+    act(() => root.render(createElement(Switch, { checked: true, onChange: () => {} })))
+    return host.querySelector<HTMLButtonElement>('button[role="switch"]')!
+  }
+
+  it('pads the drawn desktop track instead of repainting it bigger', () => {
+    const track = renderSwitch()
+    expect(`${track.className} `).toMatch(/(?:^|\s)ink-tap-pad\s/)
+    // The pad is an absolutely positioned child, so the control has to own its containing block, and the
+    // drawn 20px track stays drawn at 20px — the row it sits in is dense on purpose. The sheet the class
+    // lives in is proved in `tests/touch-target-utility.test.ts`.
+    expect(`${track.className} `).toMatch(/(?:^|\s)relative\s/)
+    expect(track.className).toContain('md:h-[20px]')
   })
 })

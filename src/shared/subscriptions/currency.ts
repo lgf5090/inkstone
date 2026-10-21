@@ -10,7 +10,7 @@
  * per-currency amount stays beside each row for the reader who wants it.
  */
 import { MS_PER_DAY, formatLocalDate, getDaysBetween, getNowInTimezone, getTimezoneDateParts } from './time'
-import { labelNamesOf, roundMoney, type CurrencyCode, type ExpenseShare, type MonthExpense, type PriceChange, type SubscriptionItem, type TrialEnding, type UpcomingRenewal } from './model'
+import { labelNamesOf, roundMoney, type CategoryBudget, type CategoryBudgets, type CurrencyCode, type ExpenseShare, type MonthExpense, type PriceChange, type RateOverrides, type SubscriptionItem, type TrialEnding, type UpcomingRenewal, type YearSpend } from './model'
 
 /**
  * `1 unit of the currency = N CNY`, with CNY itself as the base. Used when the rate service is down.
@@ -46,14 +46,36 @@ export interface PaymentSample {
   note?: string
 }
 
+/** Whether this table can price one unit of `code` at all. */
+export function hasRate(code: string | undefined, rates: RateTable): boolean {
+  const rate = rates[code || 'CNY']
+  return Number.isFinite(rate) && (rate as number) > 0
+}
+
 export function convertToBase(amount: number, currency: string | undefined, rates: RateTable): number {
   if (!Number.isFinite(amount) || amount <= 0) return 0
   const rate = rates[currency || 'CNY']
-  // An unknown code is left at face value rather than guessed at: it was almost certainly entered as
-  // the base currency by somebody who has since added the code, and scaling it by a wrong factor would
-  // be a worse error than reporting it unchanged.
-  if (!rate || rate <= 0) return amount
+  // Nothing to multiply by is not a licence to add the money in unchanged: a hundred Singapore dollars
+  // counted as a hundred yuan is a made-up number, while leaving it out only makes the total small.
+  // The omission has to be seen, though, so every surface that prints one of these totals names the
+  // currencies `unpricedCurrencies` finds beside it.
+  if (!rate || rate <= 0) return 0
   return amount * rate
+}
+
+/**
+ * Which currencies this table cannot price, out of the ones an account actually uses.
+ *
+ * Computed from the same table the totals were added with, so a total and its disclaimer cannot disagree
+ * about what was left out.
+ */
+export function unpricedCurrencies(currencies: Iterable<string>, rates: RateTable): string[] {
+  const missing = new Set<string>()
+  for (const code of currencies) {
+    const normalized = String(code || 'CNY').toUpperCase()
+    if (!hasRate(normalized, rates)) missing.add(normalized)
+  }
+  return [...missing].sort()
 }
 
 /**
@@ -89,6 +111,20 @@ export function rateTableFor(cnyRates: RateTable, base: string): RateTable {
   const out: Record<string, number> = {}
   for (const [code, perCny] of Object.entries(cnyRates)) out[code] = perCny / perBase
   return out
+}
+
+/**
+ * The rates the reader pinned, laid over the day's table before the base is applied.
+ *
+ * A pin beats the feed for that one currency and changes nothing else: a reader billing in a currency
+ * that moves faster than the daily cache does not have to accept yesterday's number, and one whose bank
+ * quotes differently from the index does not either. The value means what the table means — `1 unit = N
+ * CNY` — so the same pin survives a change of total currency.
+ */
+export function applyRateOverrides(cnyRates: RateTable, overrides: RateOverrides): RateTable {
+  const pinned = Object.entries(overrides).filter(([, value]) => Number.isFinite(value) && (value as number) > 0)
+  if (pinned.length === 0) return cnyRates
+  return { ...cnyRates, ...Object.fromEntries(pinned) }
 }
 
 export interface MonthlyExpense {
@@ -322,7 +358,80 @@ export function expenseByMonth(
   return buckets.map((bucket) => ({ month: bucket.month, amount: roundMoney(bucket.amount) }))
 }
 
-/** Today, in the account's zone, as the dashboard's own clock reads it. */
+/**
+ * A calendar year's receipts against the ceiling the reader set for the year.
+ *
+ * The monthly ceiling cannot answer this question: an annual plan charges once, lands entirely in one
+ * month, and makes that month look reckless while the year it covers is exactly on plan.
+ *
+ * `monthsLeft` counts the current month as still to run, because its receipts are not all in. The money
+ * left over is spread across those months rather than divided by twelve: a reader who set the ceiling in
+ * November is not being asked to have spent ten months of it already.
+ */
+export function yearlyBudgetOf(
+  yearly: YearlyExpense,
+  limit: number | null,
+  timezone: string,
+  now: Date = new Date(),
+): { limit: number | null; amount: number; over: boolean; monthsLeft: number; perMonthLeft: number | null } {
+  const ceiling = limit !== null && limit > 0 ? limit : null
+  const monthsLeft = 13 - getTimezoneDateParts(now, timezone).month
+  const left = ceiling === null ? 0 : ceiling - yearly.amount
+  return {
+    // Normalised rather than echoed: a ceiling of zero is not a ceiling, and a dashboard that printed
+    // "/ 0" beside a number it does not enforce would be showing a limit it does not apply.
+    limit: ceiling,
+    amount: yearly.amount,
+    over: ceiling !== null && yearly.amount > ceiling,
+    monthsLeft,
+    perMonthLeft: ceiling !== null && left > 0 ? roundMoney(left / monthsLeft) : null,
+  }
+}
+
+/**
+ * The categories the reader capped, each with what its year has cost.
+ *
+ * A cap on a category nobody spent in this year is still said, at zero: the reader asked whether the
+ * ceiling is holding, and silence would read as "nothing to report" either way.
+ */
+export function categoryBudgetsOf(
+  shares: readonly ExpenseShare[],
+  limits: CategoryBudgets,
+): CategoryBudget[] {
+  const spent = new Map(shares.map((share) => [share.label, share.amount]))
+  return Object.entries(limits)
+    .map(([label, limit]) => {
+      const amount = spent.get(label) ?? 0
+      return { label, limit, amount, over: amount > limit }
+    })
+    .sort((left, right) => (right.over ? 1 : 0) - (left.over ? 1 : 0)
+      || right.amount - left.amount
+      || (left.label < right.label ? -1 : left.label > right.label ? 1 : 0))
+}
+
+/** How many times a plan charges inside twelve months: a 3-month plan bills four times, an 18-month one twice. */
+export function renewalsPerYear(item: Pick<SubscriptionItem, 'periodUnit' | 'periodValue'>): number {
+  const periods = Math.max(1, item.periodValue)
+  if (item.periodUnit === 'day') return 365 / periods
+  if (item.periodUnit === 'month') return 12 / periods
+  return 1 / periods
+}
+
+/**
+ * What one plan costs a month, in the currency the account's totals are added up in.
+ *
+ * A year at ¥360 and a month at ¥39 are the same decision, and a reader ordering by what hurts least needs
+ * them on one scale. Converted rather than compared at face value: twenty Singapore dollars is not twenty
+ * yuan, and a list that pretended otherwise would file the cheaper plan last.
+ */
+export function monthlyEquivalent(
+  item: Pick<SubscriptionItem, 'amount' | 'currency' | 'periodUnit' | 'periodValue'>,
+  rates: RateTable,
+): number {
+  if (item.amount === null || item.amount <= 0) return 0
+  return roundMoney(convertToBase(item.amount, item.currency, rates) * renewalsPerYear(item) / 12)
+}
+
 /**
  * What a plan would cost across a full year at its current price.
  *
@@ -338,14 +447,42 @@ export function annualisedCost(
   let total = 0
   for (const item of items) {
     if (!item.isActive || item.amount === null || item.amount <= 0) continue
-    const perYear = item.periodUnit === 'day'
-      ? 365 / Math.max(1, item.periodValue)
-      : item.periodUnit === 'month'
-        ? 12 / Math.max(1, item.periodValue)
-        : 1 / Math.max(1, item.periodValue)
-    total += convertToBase(item.amount * perYear, item.currency, rates)
+    total += convertToBase(item.amount * renewalsPerYear(item), item.currency, rates)
   }
   return roundMoney(total)
+}
+
+/** A receipt as the yearly grouping needs it: when it was paid, how much, in what. */
+export interface SpendingInput {
+  paidAt: number
+  amount: number
+  currency: CurrencyCode
+}
+
+/**
+ * What the receipts added up to, year by year.
+ *
+ * The year is the account's own, read in its zone: a payment stamped an hour past midnight in Shanghai is
+ * last year for a reader who counts in UTC, and the app already dates everything else by the account.
+ *
+ * Split by currency instead of converted, because this runs where the exchange table is not — the store
+ * calls it while building one subscription's detail. A total that mixed yuan and dollars would be a
+ * number with no unit, so it is not attempted; each line names its own.
+ */
+export function spendingByYear(payments: readonly SpendingInput[], timezone: string): YearSpend[] {
+  const byYear = new Map<string, YearSpend>()
+  for (const payment of payments) {
+    if (!Number.isFinite(payment.amount)) continue
+    const { year } = getTimezoneDateParts(payment.paidAt, timezone)
+    const key = `${year}|${payment.currency}`
+    const entry = byYear.get(key) ?? { year, currency: payment.currency, amount: 0, receipts: 0 }
+    entry.amount += payment.amount
+    entry.receipts += 1
+    byYear.set(key, entry)
+  }
+  return [...byYear.values()]
+    .map((entry) => ({ ...entry, amount: roundMoney(entry.amount) }))
+    .sort((left, right) => right.year - left.year || left.currency.localeCompare(right.currency))
 }
 
 /**
@@ -373,8 +510,13 @@ export function findPriceChanges(
   for (const item of items) {
     const history = (bySubscription.get(item.id) ?? []).sort((left, right) => right.paidAt - left.paidAt)
     if (history.length < 2) continue
-    const [latest, previous] = history
-    if (!latest || !previous || latest.amount === previous.amount) continue
+    const [latest] = history
+    if (!latest) continue
+    // Only a receipt in the same currency as the newest one can say the price moved. Comparing a $60
+    // charge with the ¥360 before it measures two currencies, not two prices, and reports the gap as a
+    // rise the reader never saw.
+    const previous = history.slice(1).find((payment) => payment.currency === latest.currency)
+    if (!previous || latest.amount === previous.amount) continue
     // A renewal that bought several periods costs more without the plan being dearer, so the comparison
     // is only honest per period.
     const latestPerPeriod = latest.amount
@@ -383,7 +525,7 @@ export function findPriceChanges(
     out.push({
       id: item.id,
       name: item.name,
-      currency: item.currency,
+      currency: latest.currency,
       previous: roundMoney(previousPerPeriod),
       current: roundMoney(latestPerPeriod),
       change: Math.round(((latestPerPeriod - previousPerPeriod) / previousPerPeriod) * 100),
@@ -391,6 +533,32 @@ export function findPriceChanges(
     })
   }
   return out.sort((left, right) => Date.parse(right.at) - Date.parse(left.at))
+}
+
+/** One point on a single plan's price curve: the day it was charged, and what that charge was. */
+export interface PricePoint {
+  at: string
+  amount: number
+}
+
+/**
+ * The receipts a price curve can honestly connect.
+ *
+ * One currency only: connecting a dollar bill to a yuan bill draws a line between two units, not a trend
+ * in a price. Zero and negative charges are left out for the same reason — a free trial's ¥0.00 is the
+ * absence of a price, and a refund is not a discount the plan offered. Oldest first, newest last, and the
+ * oldest points fall off when the history is longer than the plot can hold.
+ */
+export function priceHistory(
+  payments: readonly { paidAt: string | number; amount: number; currency: string }[],
+  currency: string,
+  limit = 12,
+): PricePoint[] {
+  const points = payments
+    .filter((payment) => payment.currency === currency && payment.amount > 0)
+    .map((payment) => ({ at: typeof payment.paidAt === 'number' ? new Date(payment.paidAt).toISOString() : payment.paidAt, amount: payment.amount }))
+    .sort((left, right) => Date.parse(left.at) - Date.parse(right.at))
+  return points.slice(Math.max(0, points.length - limit))
 }
 
 /** Trials still running, soonest to start charging first. */
@@ -412,6 +580,7 @@ export function trialsEnding(
     .sort((left, right) => left.daysRemaining - right.daysRemaining)
 }
 
+/** Today, in the account's zone, as the dashboard's own clock reads it. */
 export function todayLabel(timezone: string, now: Date = new Date()): string {
   return getNowInTimezone(timezone, now).isoLocal.slice(0, 10)
 }

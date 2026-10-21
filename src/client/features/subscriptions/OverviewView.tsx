@@ -14,8 +14,10 @@ import { t } from '../../lib/i18n'
 import { Button } from '../../components/primitives'
 import { Empty, LoadingBlock } from '../../components/feedback'
 import { formatAmount } from '@shared/subscriptions/format'
+import { formatLocalDate } from '@shared/subscriptions/time'
 import type { LabelKind, SubscriptionOverview } from '@shared/subscriptions/model'
 import { iconComponentOf } from './label-icons'
+import { CurrencyFlag } from './currency-flag'
 import { useLabelIdentity } from './label-identity'
 
 /**
@@ -38,10 +40,59 @@ function barHeight(amount: number, peak: number): string {
   return `${amount > 0 ? Math.max(2, Math.round((amount / peak) * PLOT_HEIGHT)) : 0}px`
 }
 
+/**
+ * Where the money's numbers came from.
+ *
+ * Every total above is one currency's sum of converted amounts, so the screen owes the reader three
+ * facts: which currency it added up in, whose rates it used and how old they are, and which of the
+ * account's own currencies had no rate at all and so sit in none of those totals. A reader who asks "is
+ * this live?" has to be answerable by looking, not by reading the code.
+ */
+function RatesStrip({ rates, timezone, refreshing, onRefresh }: {
+  rates: SubscriptionOverview['rates']
+  timezone: string
+  refreshing: boolean
+  onRefresh: () => void
+}): ReactElement {
+  const unpriced = rates.unpriced.length > 0
+  return (
+    <div className="mt-2">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+        <span>{t(rates.source === 'feed' ? 'subscriptions.overview.rates_feed' : 'subscriptions.overview.rates_approximate')}</span>
+        {rates.at !== null && (
+          <span>{t('subscriptions.overview.rates_taken', { when: formatLocalDate(rates.at, timezone, 'date') })}</span>
+        )}
+        <span className="inline-flex items-center gap-1">
+          <CurrencyFlag code={rates.base} />
+          {t('subscriptions.overview.rates_base', { code: rates.base })}
+        </span>
+        {rates.pinned.length > 0 && (
+          <span>{t('subscriptions.overview.rates_pinned', { codes: rates.pinned.join(', ') })}</span>
+        )}
+        <Button size="sm" variant="ghost" disabled={refreshing} onClick={onRefresh}>
+          {t('subscriptions.overview.rates_refresh')}
+        </Button>
+      </div>
+      {(unpriced || !rates.basePriced) && (
+        <p className="mt-1 text-[length:var(--text-11)] leading-relaxed text-[var(--warning)]">
+          {unpriced && <span>{t('subscriptions.overview.rates_unpriced', { codes: rates.unpriced.join(', ') })}</span>}
+          {!rates.basePriced && (
+            <span className={unpriced ? 'ml-2' : undefined}>
+              {t('subscriptions.overview.rates_base_unpriced', { code: rates.base })}
+            </span>
+          )}
+        </p>
+      )}
+    </div>
+  )
+}
+
 export function OverviewView({
   overview,
   loading,
   currency,
+  refreshingRates,
+  onRefreshRates,
   onOpenItem,
   onOpenLogs,
   onAdd,
@@ -49,6 +100,8 @@ export function OverviewView({
   overview: SubscriptionOverview | null
   loading: boolean
   currency: string
+  refreshingRates: boolean
+  onRefreshRates: () => void
   onOpenItem: (id: string) => void
   onOpenLogs: () => void
   onAdd: () => void
@@ -93,7 +146,27 @@ export function OverviewView({
         <StatCard
           label={t('subscriptions.overview.yearly')}
           value={formatAmount(overview.yearly.amount, currency)}
-          footer={<span className="text-[var(--text-quaternary)]">{t('subscriptions.overview.monthly_average', { amount: formatAmount(overview.yearly.monthlyAverage, currency) })}</span>}
+          tone={overview.yearlyBudget.over ? 'danger' : undefined}
+          footer={(
+            <span className="block space-y-0.5">
+              <span className="block text-[var(--text-quaternary)]">
+                {t('subscriptions.overview.monthly_average', { amount: formatAmount(overview.yearly.monthlyAverage, currency) })}
+                {overview.yearlyBudget.limit !== null && (
+                  <span className={cn('ml-1.5', overview.yearlyBudget.over ? 'text-[var(--danger)]' : '')}>
+                    / {formatAmount(overview.yearlyBudget.limit, currency)}
+                  </span>
+                )}
+              </span>
+              {overview.yearlyBudget.perMonthLeft !== null && (
+                <span className="block text-[var(--text-quaternary)]">
+                  {t('subscriptions.overview.yearly_pace', { amount: formatAmount(overview.yearlyBudget.perMonthLeft, currency) })}
+                </span>
+              )}
+              {overview.yearlyBudget.over && (
+                <span className="block text-[var(--danger)]">{t('subscriptions.overview.yearly_over')}</span>
+              )}
+            </span>
+          )}
         />
         {/* Spent this year and committed for the next are different questions, and only one of them is
             answered by the receipts. A plan cancelled tomorrow stops counting here, not there. */}
@@ -110,6 +183,13 @@ export function OverviewView({
             : <span className="text-[var(--text-quaternary)]">{t('subscriptions.overview.no_expiring')}</span>}
         />
       </div>
+
+      <RatesStrip
+        rates={overview.rates}
+        timezone={overview.timezone}
+        refreshing={refreshingRates}
+        onRefresh={onRefreshRates}
+      />
 
       <Card className="mt-3">
         <CardTitle>{t('subscriptions.overview.trend_title')}</CardTitle>
@@ -236,6 +316,30 @@ export function OverviewView({
             emptyLabel={t('subscriptions.overview.no_spending')}
             currency={currency}
           />
+          {/* Listed beside the shares rather than folded into them: a ceiling on a category that spends
+              little is exactly the one a reader wants to see, and it would never reach the top five. */}
+          {overview.categoryBudgets.length > 0 && (
+            <div className="mt-2.5 border-t border-[var(--border-subtle)] pt-2">
+              <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                {t('subscriptions.overview.category_ceilings')}
+              </p>
+              <ul className="mt-1 space-y-1" data-category-ceilings="">
+                {overview.categoryBudgets.map((budget) => (
+                  <li key={budget.label} className="flex items-baseline justify-between gap-2">
+                    <span className="min-w-0 truncate text-[length:var(--text-11-5)] text-[var(--text-secondary)]">{budget.label}</span>
+                    <span
+                      className={cn(
+                        'shrink-0 text-[length:var(--text-11-5)] tabular-nums',
+                        budget.over ? 'text-[var(--danger)]' : 'text-[var(--text-quaternary)]',
+                      )}
+                    >
+                      {formatAmount(budget.amount, currency)} / {formatAmount(budget.limit, currency)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </Card>
 
         <Card>

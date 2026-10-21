@@ -31,6 +31,7 @@ import { readerDiscoveryRoutes } from './routes/reader-discovery'
 import { rssRoutes } from './routes/rss'
 import { subscriptionRoutes } from './routes/subscriptions'
 import { subscriptionInboundRoutes } from './routes/subscriptions-inbound'
+import { INBOUND_HOOK_PATH } from '@shared/subscriptions/channels'
 import type { AppBindings } from './env'
 import { selectAttachmentStorage } from './attachments/backend'
 
@@ -120,9 +121,8 @@ export function createApp() {
   app.route('/api/public', shareRoutes)
   app.route('/api', transferRoutes)
 
-  // Outside the API prefix on purpose: every API POST demands the browser's client header, which a
-  // third-party caller does not have and should not need. See the route's own comment.
-  app.route('/hooks/subscriptions', subscriptionInboundRoutes)
+  // Outside the API prefix on purpose, and the path is shared with the settings screen that prints it.
+  app.route(INBOUND_HOOK_PATH, subscriptionInboundRoutes)
 
   app.all('/api/*', () => {
     throw ApiError.notFound('API endpoint not found')

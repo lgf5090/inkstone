@@ -18,9 +18,10 @@ import { formatAmount } from '@shared/subscriptions/format'
 import { addLunarPeriod, lunar2solar, solar2lunar } from '@shared/subscriptions/lunar'
 import { addCalendarPeriodInTimezone, formatDateInputInTimezone, getTimezoneDateParts, getTimestampForTimezoneParts } from '@shared/subscriptions/time'
 import {
-  CURRENCY_CODES,
   labelNamesOf,
   PERIOD_UNITS,
+  PERIOD_VALUE_MAX,
+  NEW_RULE_DRAFT,
   PRESET_RULE_DRAFTS,
   RULES_LIMIT,
   type CurrencyCode,
@@ -30,6 +31,8 @@ import {
   type SubscriptionInput,
   type SubscriptionMode,
 } from '@shared/subscriptions/model'
+import { CurrencySelect } from './currency-flag'
+import { SERVICE_TEMPLATES, type ServiceTemplate } from '@shared/subscriptions/templates'
 import { LabelGlyph, LabelStylePicker, useLabelIdentity } from './label-identity'
 import { LunarDateButton } from './LunarDateButton'
 import { ReminderRuleRow } from './ReminderRuleRow'
@@ -119,6 +122,21 @@ export function SubscriptionForm({
 }): ReactElement {
   const [draft, setDraft] = useState<Draft>(() => draftOf(detail, timezone))
   const [touched, setTouched] = useState(false)
+  // Which template was applied, so the form can say out loud which two labels it chose on the reader's
+  // behalf. Nothing is remembered about the amount, because nothing is chosen about it.
+  const [used, setUsed] = useState<ServiceTemplate | null>(null)
+
+  const applyTemplate = (template: ServiceTemplate): void => {
+    setDraft((current) => ({
+      ...current,
+      name: template.name,
+      customType: t(template.typeKey),
+      category: t(template.categoryKey),
+      periodValue: String(template.periodValue),
+      periodUnit: template.periodUnit,
+    }))
+    setUsed(template)
+  }
 
   const set = <K extends keyof Draft>(key: K, value: Draft[K]): void => setDraft(current => ({ ...current, [key]: value }))
 
@@ -207,6 +225,36 @@ export function SubscriptionForm({
       <div className="space-y-4">
         <section className="space-y-2.5">
           <h3 className="text-[length:var(--text-11)] font-medium uppercase tracking-wide text-[var(--text-quaternary)]">{t('subscriptions.form.section_basic')}</h3>
+          {/* Only when nothing is being corrected: a template overwrites the name, the two labels and the
+              cycle, which is a helpful thing to do to a blank form and a destructive one to do to a plan
+              that already exists. */}
+          {!detail && (
+            <div data-service-template="">
+              <Field label={t('subscriptions.form.template')} hint={t('subscriptions.form.template_hint')}>
+                <Select
+                  value=""
+                  onChange={(event) => {
+                    const picked = SERVICE_TEMPLATES.find((template) => template.name === event.target.value)
+                    if (picked) applyTemplate(picked)
+                  }}
+                >
+                  <option value="">{t('subscriptions.form.template_placeholder')}</option>
+                  {SERVICE_TEMPLATES.map((template) => (
+                    <option key={template.name} value={template.name}>{template.name}</option>
+                  ))}
+                </Select>
+              </Field>
+              {used && (
+                <p className="mt-1 text-[length:var(--text-11)] leading-relaxed text-[var(--text-quaternary)]">
+                  {t('subscriptions.form.template_used', {
+                    name: used.name,
+                    type: t(used.typeKey),
+                    category: t(used.categoryKey),
+                  })}
+                </p>
+              )}
+            </div>
+          )}
           <Field label={t('subscriptions.form.name')} required hint={nameInvalid ? t('subscriptions.form.required') : undefined}>
             <Input
               value={draft.name}
@@ -272,9 +320,7 @@ export function SubscriptionForm({
               />
             </Field>
             <Field label={t('subscriptions.form.currency')}>
-              <Select value={draft.currency} onChange={(event) => set('currency', event.target.value as CurrencyCode)}>
-                {CURRENCY_CODES.map((code) => <option key={code} value={code}>{code}</option>)}
-              </Select>
+              <CurrencySelect value={draft.currency} onChange={(code) => set('currency', code)} />
             </Field>
           </div>
           {/* A trial is the one subscription that quietly becomes a bill, so the date it turns is worth a
@@ -304,7 +350,7 @@ export function SubscriptionForm({
               <Input
                 type="number"
                 min={1}
-                max={120}
+                max={PERIOD_VALUE_MAX}
                 value={draft.periodValue}
                 onChange={(event) => set('periodValue', event.target.value)}
               />
@@ -375,7 +421,7 @@ export function SubscriptionForm({
                 variant="ghost"
                 icon={<Plus size={12} />}
                 disabled={draft.rules.length >= RULES_LIMIT}
-                onClick={() => set('rules', [...draft.rules, { type: 'before_expiry', value: 1, unit: 'days', isEnabled: true }])}
+                onClick={() => set('rules', [...draft.rules, { ...NEW_RULE_DRAFT }])}
               >
                 {t('subscriptions.rules.add')}
               </Button>

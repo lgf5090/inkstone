@@ -61,29 +61,6 @@
 }
 
 /*
- * The 24px touch floor for a control that has to stay small on screen.
- *
- * A remove cross, a detach chip and a pager arrow are drawn at 16 to 20 pixels, which is under what
- * WCAG 2.5.8 asks a pointer target for. Their painted boxes stay as dense as the row needs — the look
- * is not what was wrong — and this lays the missing area over them as an invisible child, so it takes
- * the control's own clicks, hover and activation. The control keeps its own box, so its focus ring
- * still lands where it did before.
- *
- * The element has to establish its own containing block: either it is already positioned (the
- * attachment chips sit at `absolute` corners) or it carries `relative`. Setting `position` here would
- * win against the utilities that place those corner buttons, which is why it is spelled out per site.
- */
-.ink-tap-pad::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: max(100%, var(--tap-min));
-  height: max(100%, var(--tap-min));
-  translate: -50% -50%;
-}
-
-/*
  * Motion that the chat asks the reader to look at, and what happens when they ask not to see it.
  *
  * `app.css` caps every animation once `prefers-reduced-motion: reduce` is set (one iteration, ~0ms), so a

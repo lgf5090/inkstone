@@ -7,16 +7,52 @@
  */
 import { Z_INDEX } from '../../lib/z-index'
 import { useEffect, useMemo, useState } from 'react'
-import { Check, Trash2 } from 'lucide-react'
+import { Bell, Check, Trash2, Wallet } from 'lucide-react'
 import type { AssistantNotification } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { relativeTime } from '../../lib/time'
 import { renderMarkdown } from '../../lib/markdown/renderer'
 import { Button, IconButton } from '../../components/primitives'
-import { Drawer } from '../../components/overlay'
+import { Drawer, Tooltip } from '../../components/overlay'
 import { Empty } from '../../components/feedback'
 import { useAssistant } from './assistant-store'
+
+/**
+ * The header control that opens the centre.
+ *
+ * Two surfaces wear one — the chat header and the subscriptions header — and the badge is the same
+ * arithmetic in both, so it is written once here rather than in two toolbars that would drift. The count is
+ * read on mount because the bell cannot be a quiet zero: on a plan nothing else ever asks for it, and on the
+ * chat tab the container's own bootstrap asks in the same tick, where the store answers both with one read.
+ */
+export function NotificationsBell({ open, onOpen, onClose }: { open: boolean, onOpen: () => void, onClose: () => void }) {
+  const unread = useAssistant((state) => state.unread)
+
+  useEffect(() => {
+    void useAssistant.getState().loadNotifications()
+  }, [])
+
+  return (
+    <>
+      <Tooltip label={unread ? t('assistant.notifications.unread', { count: unread }) : t('assistant.notifications.title')}>
+        <IconButton label={t('assistant.notifications.title')} size="sm" onClick={onOpen}>
+          <span className="relative">
+            <Bell size={15} />
+            {unread > 0 && (
+              <span
+                className="absolute -right-1.5 -top-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[var(--danger)] px-[3px] text-[length:var(--text-9)] font-semibold text-white"
+              >
+                {unread > 9 ? '9+' : unread}
+              </span>
+            )}
+          </span>
+        </IconButton>
+      </Tooltip>
+      <NotificationCenter open={open} onClose={onClose} />
+    </>
+  )
+}
 
 export function NotificationCenter({ open, onClose }: { open: boolean, onClose: () => void }) {
   const notifications = useAssistant((state) => state.notifications)
@@ -56,6 +92,12 @@ export function NotificationCenter({ open, onClose }: { open: boolean, onClose: 
                     notification={notification}
                     onRead={() => void markRead(notification.id)}
                     onDelete={() => void remove(notification.id)}
+                    onOpenSubscription={(id) => {
+                      // The reader pressed this to be taken somewhere else, and the centre covers the very
+                      // panel the plan opens in, so it has to get out of the way first.
+                      onClose()
+                      void import('../subscriptions/open-subscription').then((module) => module.openSubscriptionById(id))
+                    }}
                   />
                 ))}
               </ul>
@@ -71,10 +113,12 @@ function NotificationRow({
   notification,
   onRead,
   onDelete,
+  onOpenSubscription,
 }: {
   notification: AssistantNotification
   onRead: () => void
   onDelete: () => void
+  onOpenSubscription: (id: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const unread = notification.readAt === null
@@ -102,6 +146,17 @@ function NotificationRow({
             </p>
             <p className="mt-0.5 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{relativeTime(notification.createdAt)}</p>
           </button>
+          {/* A delivery about a plan can be opened; one from a routine cannot, and the control is not
+              offered when there is nothing behind it. */}
+          {notification.subscriptionId && (
+            <IconButton
+              label={t('assistant.notifications.open_subscription')}
+              size="xs"
+              onClick={() => { if (notification.subscriptionId) onOpenSubscription(notification.subscriptionId) }}
+            >
+              <Wallet size={12} />
+            </IconButton>
+          )}
           <IconButton label={t('assistant.notifications.delete')} size="xs" onClick={onDelete}>
             <Trash2 size={12} />
           </IconButton>

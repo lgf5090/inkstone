@@ -12,14 +12,13 @@
  */
 import { SubscriptionsStore, storeContext } from '../subscriptions/store'
 import { loadSettings } from '../subscriptions/settings'
-import { formatAmount } from '@shared/subscriptions/format'
+import { formatAmount, formatPaid } from '@shared/subscriptions/format'
+import type { PaidAmount } from '@shared/subscriptions/model'
+import { SUBSCRIPTION_MENTION_PREFIX } from '@shared/subscriptions/mention'
 
 /** How many mentions one turn may resolve, and how many receipts each one carries. */
 export const MAX_SUBSCRIPTION_MENTIONS = 8
 const RECEIPTS_PER_MENTION = 5
-
-/** The prefix that keeps a subscription target out of the note resolver's way. */
-export const SUBSCRIPTION_MENTION_PREFIX = 'sub:'
 
 interface SubscriptionMention {
   id: string | null
@@ -96,6 +95,30 @@ export async function resolveSubscriptionMentions(
   return sections.length ? `[mentioned subscriptions]\n\n${sections.join('\n\n')}` : ''
 }
 
+/**
+ * The plan the reader is looking at, as a context block.
+ *
+ * A mention has to be named in the sentence; this one is pointed at by the app, so an id is enough and
+ * there is no ambiguity to resolve. It says whose plan it is in the header, because a model that cannot
+ * tell "the row on screen" from "a row the reader mentioned" answers a question about the wrong thing.
+ */
+export async function subscriptionContextById(
+  db: D1Database,
+  userId: string,
+  id: string,
+  now = Date.now(),
+): Promise<string> {
+  if (!id) return ''
+  const settings = await loadSettings(db, userId)
+  const store = new SubscriptionsStore(db, userId)
+  const detail = await store.get(id, storeContext(settings, now))
+  // `get` answers for a trashed row too, and the trash is not "on the screen" of the list the dock sits
+  // beside. The client only ever sends a live selection; the server does not take that on trust, because
+  // what lands here is read into a turn that leaves for the model provider.
+  if (!detail || detail.item.deletedAt) return ''
+  return `[subscription on the reader's screen]\n\n${present(detail.item, detail.rules, detail.payments)}`
+}
+
 function present(
   item: {
     name: string
@@ -109,7 +132,7 @@ function present(
     daysRemaining: number
     isActive: boolean
     autoRenew: boolean
-    paidTotal: number
+    paidByCurrency: PaidAmount[]
     nextReminderAt: string | null
     trialEndsAt: string | null
     subscriptionMode: string
@@ -127,7 +150,7 @@ function present(
     `active: ${item.isActive ? 'yes' : 'no'}`,
     `auto-renew: ${item.autoRenew ? 'yes' : 'no'}`,
     item.trialEndsAt ? `trial ends: ${item.trialEndsAt.slice(0, 10)}` : '',
-    `paid in total: ${formatAmount(item.paidTotal, item.currency)}`,
+    `paid in total: ${formatPaid(item.paidByCurrency) || 'nothing yet'}`,
     item.nextReminderAt ? `next reminder: ${item.nextReminderAt.slice(0, 16).replace('T', ' ')}` : 'next reminder: none',
     rules.length ? `reminders: ${rules.filter((rule) => rule.isEnabled).map((rule) => rule.type === 'on_expiry' ? 'on the day' : rule.type === 'after_expiry' ? `every ${rule.repeatInterval ?? 24}h after` : `${rule.value} ${rule.unit} before`).join(', ') || 'all switched off'}` : 'reminders: none',
     payments.length ? `last receipts: ${payments.slice(0, RECEIPTS_PER_MENTION).map((payment) => `${payment.paidAt.slice(0, 10)} ${formatAmount(payment.amount, payment.currency)} (${payment.kind})`).join('; ')}` : '',
