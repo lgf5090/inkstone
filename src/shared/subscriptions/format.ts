@@ -7,7 +7,7 @@
  * has elapsed. That split is what lets the same rules be tested without a language.
  */
 import type { MessageKey } from '../locales/en-US'
-import type { CurrencyCode, PeriodUnit, ReminderUnit } from './model'
+import type { CurrencyCode, PaidAmount, PeriodUnit, ReminderUnit } from './model'
 
 /**
  * The symbol each currency is written with.
@@ -61,6 +61,21 @@ export function formatAmount(amount: number | null | undefined, currency: string
   if (!Number.isFinite(value)) return ''
   const symbol = currencySymbol(currency)
   return options.decimals === false ? `${symbol}${Math.round(value)}` : `${symbol}${value.toFixed(2)}`
+}
+
+/**
+ * What the receipts add up to, written out per currency they were written in.
+ *
+ * Joined with a plus rather than totalled: the sum of two currencies is not a number anybody can spend,
+ * and a reader checking what they paid against what a plan quotes wants both figures on the page. The
+ * dearest first, so the line leads with what matters; an empty list is an empty string, because a plan
+ * with no receipts has not paid anything and `¥0.00` would say it did.
+ */
+export function formatPaid(paid: readonly PaidAmount[]): string {
+  return [...paid]
+    .sort((left, right) => right.amount - left.amount || (left.currency < right.currency ? -1 : 1))
+    .map((entry) => formatAmount(entry.amount, entry.currency))
+    .join(' + ')
 }
 
 /** Which countdown sentence a number of remaining days calls for, and the number it needs. */

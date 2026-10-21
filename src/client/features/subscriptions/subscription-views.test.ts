@@ -45,7 +45,7 @@ function item(overrides: Partial<SubscriptionItem> = {}): SubscriptionItem {
     hoursRemaining: 240,
     nextReminderAt: null,
     paymentCount: 1,
-    paidTotal: 60,
+    paidByCurrency: [{ currency: 'CNY', amount: 60 }],
     ...overrides,
   }
 }

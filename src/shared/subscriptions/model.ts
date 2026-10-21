@@ -193,7 +193,21 @@ export interface SubscriptionItem {
   trialDaysRemaining: number | null
   nextReminderAt: string | null
   paymentCount: number
-  paidTotal: number
+  /**
+   * What the receipts add up to, kept apart by the currency each was written in.
+   *
+   * One number was the first shape, and it was wrong the day a reader paid a dollar bill on a yuan plan:
+   * `¥1,200 + $60` is not ¥1,260, and the total that said so was neither of the two true answers. The
+   * pairs are printed as they are — `formatPaid` joins them — and anything that wants one number has to
+   * convert through the rate table and say which one it used.
+   */
+  paidByCurrency: PaidAmount[]
+}
+
+/** Money actually paid, in the currency it was paid in. */
+export interface PaidAmount {
+  currency: CurrencyCode
+  amount: number
 }
 
 /** What a create or a full update sends. Derived fields are ignored if a caller sends them. */

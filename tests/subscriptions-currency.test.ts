@@ -6,6 +6,7 @@ import {
   calculateYearlyExpense,
   convertToBase,
   expenseByMonth,
+  findPriceChanges,
   getExpenseByCategory,
   getExpenseByType,
   getRecentPayments,
@@ -18,6 +19,7 @@ import {
   unpricedCurrencies,
   type PaymentSample,
 } from '../src/shared/subscriptions/currency'
+import { formatPaid } from '../src/shared/subscriptions/format'
 import type { SubscriptionItem } from '../src/shared/subscriptions/model'
 
 const SHANGHAI = 'Asia/Shanghai'
@@ -50,7 +52,7 @@ function item(overrides: Partial<SubscriptionItem> = {}): SubscriptionItem {
     hoursRemaining: 192,
     nextReminderAt: null,
     paymentCount: 0,
-    paidTotal: 0,
+    paidByCurrency: [],
     ...overrides,
   }
 }
@@ -266,5 +268,57 @@ describe('what one plan costs across a year', () => {
 
   it('says nothing when nothing was paid', () => {
     expect(spendingByYear([], SHANGHAI)).toEqual([])
+  })
+})
+
+/**
+ * The price rise a reader remembers and the receipts have to agree with.
+ *
+ * Two receipts in two currencies are not a price change: they are two different things being added up.
+ * This is the case the comparison used to get wrong by reading the digits, which is why the mixed pair is
+ * asserted to say nothing rather than to say something small.
+ */
+describe('the price changes in a receipt history', () => {
+  it('reports a rise between two receipts in the same currency', () => {
+    const changes = findPriceChanges([item()], [
+      payment({ amount: 75, paidAt: Date.parse('2026-05-10T00:00:00Z') }),
+      payment({ amount: 60, paidAt: Date.parse('2026-04-10T00:00:00Z') }),
+    ])
+    expect(changes).toHaveLength(1)
+    expect(changes[0]).toMatchObject({ currency: 'CNY', previous: 60, current: 75, change: 25 })
+  })
+
+  it('says nothing when the two newest receipts are in different currencies', () => {
+    expect(findPriceChanges([item()], [
+      payment({ currency: 'USD', amount: 10, paidAt: Date.parse('2026-05-10T00:00:00Z') }),
+      payment({ currency: 'CNY', amount: 60, paidAt: Date.parse('2026-04-10T00:00:00Z') }),
+    ])).toEqual([])
+  })
+
+  it('looks past a receipt in another currency for the last comparable one', () => {
+    const changes = findPriceChanges([item()], [
+      payment({ amount: 75, paidAt: Date.parse('2026-05-10T00:00:00Z') }),
+      payment({ currency: 'USD', amount: 10, paidAt: Date.parse('2026-04-20T00:00:00Z') }),
+      payment({ amount: 60, paidAt: Date.parse('2026-04-10T00:00:00Z') }),
+    ])
+    expect(changes).toHaveLength(1)
+    expect(changes[0]).toMatchObject({ previous: 60, current: 75 })
+  })
+
+  it('names the currency the receipts were written in, not the one the plan quotes', () => {
+    const changes = findPriceChanges([item({ currency: 'CNY' })], [
+      payment({ currency: 'USD', amount: 12, paidAt: Date.parse('2026-05-10T00:00:00Z') }),
+      payment({ currency: 'USD', amount: 10, paidAt: Date.parse('2026-04-10T00:00:00Z') }),
+    ])
+    expect(changes[0]?.currency).toBe('USD')
+  })
+})
+
+describe('what has been paid', () => {
+  it('writes one figure per currency the receipts were paid in, dearest first', () => {
+    expect(formatPaid([{ currency: 'CNY', amount: 1200 }, { currency: 'USD', amount: 60 }])).toBe('¥1200.00 + $60.00')
+    expect(formatPaid([{ currency: 'CNY', amount: 60 }])).toBe('¥60.00')
+    // Nothing paid is not zero paid: an empty string leaves the row saying nothing rather than a price.
+    expect(formatPaid([])).toBe('')
   })
 })

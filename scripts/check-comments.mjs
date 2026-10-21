@@ -19484,6 +19484,9 @@ const allowed = new Map([
     "// currencies `unpricedCurrencies` finds beside it.",
     "/**\n * Which currencies this table cannot price, out of the ones an account actually uses.\n *\n * Computed from the same table the totals were added with, so a total and its disclaimer cannot disagree\n * about what was left out.\n */",
     "/**\n * What one plan costs a month, in the currency the account's totals are added up in.\n *\n * A year at ¥360 and a month at ¥39 are the same decision, and a reader ordering by what hurts least needs\n * them on one scale. Converted rather than compared at face value: twenty Singapore dollars is not twenty\n * yuan, and a list that pretended otherwise would file the cheaper plan last.\n */",
+    "// Only a receipt in the same currency as the newest one can say the price moved. Comparing a $60",
+    "// charge with the ¥360 before it measures two currencies, not two prices, and reports the gap as a",
+    "// rise the reader never saw.",
   ]],
   ["src/shared/subscriptions/format.ts", [
     "/**\n * Display arithmetic that has one right answer, kept out of the components.\n *\n * Nothing here holds copy. A unit's name, a countdown's sentence and a status pill's word are interface\n * strings and belong to the locale catalogs; what this module decides is the *shape* — which symbol a\n * currency wears, which of three countdown states a number of days means, how much of a billing period\n * has elapsed. That split is what lets the same rules be tested without a language.\n */",
@@ -19495,6 +19498,7 @@ const allowed = new Map([
     "/** `2026-05` to the month's own number, for a chart axis that needs no locale. */",
     "/** A currency's code, or CNY when nothing usable was stored. */",
     "/**\n * The symbol each currency is written with.\n *\n * A sign is given only where it names one currency: JPY is prefixed because `¥` alone is ambiguous, and\n * the Scandinavian króna / krone currencies are left out because `kr 500` would not tell a reader which\n * of four they were holding. Those print as `DKK 500` through the fallback in `currencySymbol`, which is\n * a wider string but never a wrong one.\n */",
+    "/**\n * What the receipts add up to, written out per currency they were written in.\n *\n * Joined with a plus rather than totalled: the sum of two currencies is not a number anybody can spend,\n * and a reader checking what they paid against what a plan quotes wants both figures on the page. The\n * dearest first, so the line leads with what matters; an empty list is an empty string, because a plan\n * with no receipts has not paid anything and `¥0.00` would say it did.\n */",
   ]],
   ["src/shared/subscriptions/identity.ts", [
     "/**\n * What a type or a category looks like.\n *\n * The reference project kept both as bare strings typed into a form and drew every one of them the\n * same way: one generic tag glyph for every category, one layer glyph for every type, and a bar on\n * its dashboard coloured by *rank in the money league table*, so a service changed colour the moment\n * another one overtook it in spend. Identity that belongs to a name, not to a position, is what this\n * module fixes: one name resolves to one icon and one colour everywhere — the list avatar, the rail,\n * the share bars, the detail header and the notification body — and it keeps them until the reader\n * says otherwise.\n *\n * Resolution is three tiers, cheapest first to declare and last to win:\n *   1. what the reader picked for this exact label, stored in the registry;\n *   2. what a built-in preset ships with, so a fresh account's first type looks deliberate;\n *   3. a hash of the label into the organiser palette, so a name nobody configured is still stable\n *      across devices and does not need a row to have a face.\n *\n * Icons are stored the way the kanban fence stores them — `lucide:<ComponentName>` — so one encoding\n * covers the app and a picker and a renderer cannot drift about what a stored icon means.\n */",
@@ -19604,6 +19608,8 @@ const allowed = new Map([
     "/** Codes this account uses that no rate could be found for, so they sit in no total. */",
     "/** Codes this account pinned by hand, which beat the feed for that one currency. */",
     "/**\n     * The rates those totals were added with, per unit of the base currency, `1 = base`.\n     *\n     * Sent because the browser orders and prices the same money the server just totalled: a list that\n     * sorted \"what costs most per month\" at face value would file a $20 plan under a ¥150 one, and the\n     * reader would be left wondering which of the two numbers the app believed.\n     */",
+    "/**\n   * What the receipts add up to, kept apart by the currency each was written in.\n   *\n   * One number was the first shape, and it was wrong the day a reader paid a dollar bill on a yuan plan:\n   * `¥1,200 + $60` is not ¥1,260, and the total that said so was neither of the two true answers. The\n   * pairs are printed as they are — `formatPaid` joins them — and anything that wants one number has to\n   * convert through the rate table and say which one it used.\n   */",
+    "/** Money actually paid, in the currency it was paid in. */",
   ]],
   ["src/shared/subscriptions/notify-copy.ts", [
     "/**\n * Which catalog a notification body is written from, and the two helpers that assemble one.\n *\n * The language is the account's, stored on its settings row: the scheduler runs on a cron tick with no\n * request behind it, so there is nobody to ask. `fill` is deliberately smaller than the interface's\n * formatter — two placeholders and no plural rules, because the only number these sentences carry is a\n * day count and both languages write that the same way.\n */",
@@ -21700,6 +21706,8 @@ const allowed = new Map([
     "// Only the two money orderings need the table, and getting it can reach the currency service when",
     "// the day's cache is cold — a list asked for by name should not pay for that.",
     "/**\n * The rate table the account's own money is added up with — the same three steps the dashboard runs:\n * the day's rates against the yuan, this account's pins over them, then re-based to the currency it\n * counts in. A list ordered \"by what costs most\" has to use that table or it disagrees with the total\n * printed above it.\n */",
+    "// Per currency, because the receipts are: a plan paid in two currencies has two answers to \"what",
+    "// have I spent on it\", and adding them would be a number that means nothing.",
   ]],
   ["src/worker/assistant/upstream.ts", [
     "/** A JSON Schema object, built by `toolSchemaFor` from the tool's own declared parameters. */",
@@ -23729,6 +23737,9 @@ const allowed = new Map([
     "/**\n   * Rename a label and move every subscription that carried the old one.\n   *\n   * A rename that only touched the registry would leave twelve rows saying the old word while the rail\n   * showed the new one — the face and the name would disagree, which is worse than no rename at all.\n   *\n   * Categories are composite strings, so their rewrite goes through TypeScript: split, substitute the\n   * one token, rejoin. Types are a single label and go straight through SQL.\n   */",
     "/**\n   * Set a label's face.\n   *\n   * Only the axes the caller names are written: a reader who changes a colour has not asked to lose the\n   * icon they picked last week, and a picker that sent the *resolved* icon alongside it would quietly\n   * promote a default into a choice — after which a preset change could never reach that label again.\n   * An explicit null is still a clearing, which is what the \"reset\" swatch means.\n   */",
     "/**\n   * Forget a label.\n   *\n   * Only the registry row goes: the subscriptions that still carry the word keep it, because deleting a\n   * suggestion is not the same act as editing twelve records, and a reader who changes their mind about\n   * the second one can undo it while they cannot undo the first.\n   */",
+    "/** What has been paid for one plan: how many receipts, and how much in each currency they were written in. */",
+    "// Per currency, never across them: a dollar receipt on a yuan plan is a second figure the reader has",
+    "// to see, not an amount that belongs in the yuan total.",
   ]],
   ["src/worker/sync/store.ts", [
     "/**\n * Every read the sync HTTP route makes against D1.\n *\n * The shape follows `tags/store.ts`: a store built per request from the account it serves, methods\n * that take already-validated input and hand back rows, and nothing in between that knows about\n * HTTP. Sync only ever reads — the write path is the note/tag/folder stores, which record `changes`\n * rows as they go. Every statement here binds the account as `?1` (`user_id = ?1`), so the change\n * log, the delta pages, the facets and the snapshot can never cross accounts.\n *\n * Chunking and batch boundaries live with the store because they are transport facts of these\n * reads: ids are loaded eighty at a time (the D1 bind-variable ceiling), the delta note page and its\n * tag roll-up ride one D1 batch per chunk, and the three entity loads stay in the request's\n * `Promise.all`, exactly as the route arranged them before the move.\n */",
@@ -24967,6 +24978,11 @@ const allowed = new Map([
     "/**\n   * The two things a conversation could previously not ask about at all: which names the reader already\n   * uses, and how the app is configured. Both are on screen in the app itself, so a model that could not\n   * read them had to either refuse the question or invent an answer.\n   *\n   * One call answers both registries: measured against a live model, a `kind` argument it had to guess was\n   * sent empty first, refused, and asked again — so the registry is read whole.\n   */",
     "/**\n   * The money summary is the call a model reaches for first when the question is about the account, and\n   * until now it carried no word about the rates its own totals were converted with. Measured against a\n   * live model on 2026-10-21: asked \"is any rate pinned?\" it called the summary, found nothing, and\n   * answered that there were none — while the account carried USD 7.2.\n   */",
     "/**\n   * A currency the day's table cannot price is in none of those totals, and the summary has to say so:\n   * \"this month cost ¥300\" read to a model as the whole account when a plan it could not convert was\n   * sitting right there. The stubbed feed above answers with nothing, so only the built-in nine codes can\n   * be priced here — which is what makes SGD the case.\n   */",
+    "/**\n   * The toolbar's four orderings, because the same list asked for in a conversation has to come back in\n   * the same order. `cost` is the one that cannot be faked: a $60-a-month plan is the dearest thing here\n   * and the smallest number, so an ordering that read the digits would file it last and disagree with the\n   * screen the reader is looking at.\n   */",
+    "// ¥419 a month, then ¥150, then the annual plan's ¥30.",
+    "// One charge: the dollar plan, then the ¥360 year, then the ¥150 month.",
+    "// A word the toolbar does not offer is refused with the list of what it does, not quietly read as",
+    "// \"expiry\": a model that guesses can correct itself, and one that is agreed with cannot.",
   ]],
   ["tests/assistant-tag-search-shape.test.ts", [
     "/**\n * A pinned `#tag` has to narrow the keyword half of a note search, not empty it.\n *\n * A turn's scope keeps tags as *ids* — the shape the folder pins and the permission check use — while the\n * retriever filters both of its lists by tag *name*: the keyword half turns `tags` into `tag:\"…\"` terms,\n * and both halves then run the app's one tag-subtree rule (`tagScopePredicate()`, which `semanticWhere` in\n * `mcp/ai-search.ts` calls for the vector list too). Handing the ids over was therefore a filter no note\n * can satisfy: a reader pinning `#meeting` got a keyword half that was always empty, and on an index that\n * is switched on the only hits left came from the vector list, which is the \"it matched but nothing says\n * why\" answer.\n *\n * The vector half is switched off in every case below, so any hit at all can only have come from keywords.\n */",
@@ -26933,6 +26949,8 @@ const allowed = new Map([
     "// Adding fifty of an unpriced currency into a yuan total is a made-up number. Leaving it out is only",
     "// a smaller total, and the dashboard names what it left out — which is what `unpricedCurrencies` below",
     "// is for.",
+    "/**\n * The price rise a reader remembers and the receipts have to agree with.\n *\n * Two receipts in two currencies are not a price change: they are two different things being added up.\n * This is the case the comparison used to get wrong by reading the digits, which is why the mixed pair is\n * asserted to say nothing rather than to say something small.\n */",
+    "// Nothing paid is not zero paid: an empty string leaves the row saying nothing rather than a price.",
   ]],
   ["tests/subscriptions-identity.test.ts", [
     "/**\n * The rules that decide what a label looks like, and the split that decides what a label is.\n *\n * Both are pure and both are load-bearing in ways a route test cannot see: the split is what the rail,\n * the aggregate and the registry must agree on, and the tier order is what makes a reader's own choice\n * outrank a default without the default having to be written down first.\n */",
@@ -26997,6 +27015,7 @@ const allowed = new Map([
     "// The headline is the reason the row is worth keeping: six months of receipts, still there.",
     "// The receipts went with it, so the money total went too.",
     "/**\n   * Which of the two ways the numbers came in is asserted as a set rather than a value because the suite\n   * does not stand between this test and the currency service: an account read with the network up answers\n   * `feed`, one read with it down answers `approximate`, and both are honest answers.\n   */",
+    "/**\n   * The case a single total got wrong: a reader who pays one bill in dollars and the next in yuan has\n   * paid two things, and `¥120` or `$120` would each be a number the account never spent.\n   */",
   ]],
   ["tests/subscriptions-scheduler.test.ts", [
     "/* The one binding a double cannot describe structurally: only `idFromName`/`get` are ever reached here. */",

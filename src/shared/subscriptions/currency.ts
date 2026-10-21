@@ -459,8 +459,13 @@ export function findPriceChanges(
   for (const item of items) {
     const history = (bySubscription.get(item.id) ?? []).sort((left, right) => right.paidAt - left.paidAt)
     if (history.length < 2) continue
-    const [latest, previous] = history
-    if (!latest || !previous || latest.amount === previous.amount) continue
+    const [latest] = history
+    if (!latest) continue
+    // Only a receipt in the same currency as the newest one can say the price moved. Comparing a $60
+    // charge with the ¥360 before it measures two currencies, not two prices, and reports the gap as a
+    // rise the reader never saw.
+    const previous = history.slice(1).find((payment) => payment.currency === latest.currency)
+    if (!previous || latest.amount === previous.amount) continue
     // A renewal that bought several periods costs more without the plan being dearer, so the comparison
     // is only honest per period.
     const latestPerPeriod = latest.amount
@@ -469,7 +474,7 @@ export function findPriceChanges(
     out.push({
       id: item.id,
       name: item.name,
-      currency: item.currency,
+      currency: latest.currency,
       previous: roundMoney(previousPerPeriod),
       current: roundMoney(latestPerPeriod),
       change: Math.round(((latestPerPeriod - previousPerPeriod) / previousPerPeriod) * 100),

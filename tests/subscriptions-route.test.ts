@@ -110,7 +110,7 @@ describe('creating a subscription', () => {
     expect(detail.payments[0].kind).toBe('initial')
     expect(detail.payments[0].amount).toBe(60)
     expect(detail.item.paymentCount).toBe(1)
-    expect(detail.item.paidTotal).toBe(60)
+    expect(detail.item.paidByCurrency).toEqual([{ currency: 'CNY', amount: 60 }])
     expect(detail.item.daysRemaining).toBeGreaterThanOrEqual(19)
   })
 
@@ -411,6 +411,25 @@ describe('the rate table behind the dashboard', () => {
     expect(response.status).toBe(200)
     const body = await json<{ source: string, at: number | null }>(response)
     expect(['feed', 'approximate']).toContain(body.source)
+  })
+})
+
+describe('what has been paid on one plan', () => {
+  /**
+   * The case a single total got wrong: a reader who pays one bill in dollars and the next in yuan has
+   * paid two things, and `¥120` or `$120` would each be a number the account never spent.
+   */
+  it('keeps receipts in different currencies apart rather than adding them', async () => {
+    const created = await create({ amount: 60, currency: 'CNY' })
+    await send('PUT', `/${created.item.id}/payments/${created.payments[0].id}`, { currency: 'USD' })
+    await send('POST', `/${created.item.id}/renew`, { amount: 60 })
+
+    const detail = await json<any>(await send('GET', `/${created.item.id}`))
+    expect(detail.item.paymentCount).toBe(2)
+    expect(detail.item.paidByCurrency).toHaveLength(2)
+    expect(detail.item.paidByCurrency).toEqual(
+      expect.arrayContaining([{ currency: 'USD', amount: 60 }, { currency: 'CNY', amount: 60 }]),
+    )
   })
 })
 

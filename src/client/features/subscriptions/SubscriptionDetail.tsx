@@ -13,7 +13,7 @@ import { t } from '../../lib/i18n'
 import { Button, IconButton, SectionLabel } from '../../components/primitives'
 import { Tooltip } from '../../components/overlay'
 import { LoadingBlock } from '../../components/feedback'
-import { daysState, daysStateKey, formatAmount, periodProgress, periodUnitKey } from '@shared/subscriptions/format'
+import { daysState, daysStateKey, formatAmount, formatPaid, periodProgress, periodUnitKey } from '@shared/subscriptions/format'
 import { renewalsPerYear } from '@shared/subscriptions/currency'
 import { labelNamesOf, roundMoney, subscriptionStatus, type PaymentRecord, type ReminderRule, type SubscriptionDetail } from '@shared/subscriptions/model'
 import { StatusPill } from './StatusPill'
@@ -114,7 +114,7 @@ export function SubscriptionDetail({
           <Fact label={t('subscriptions.detail.mode')} value={item.subscriptionMode === 'reset' ? t('subscriptions.detail.mode_reset') : t('subscriptions.detail.mode_cycle')} />
           <Fact label={t('subscriptions.detail.calendar')} value={item.useLunar ? t('subscriptions.detail.calendar_lunar') : t('subscriptions.detail.calendar_solar')} />
           <Fact label={t('subscriptions.detail.auto_renew')} value={item.autoRenew ? t('subscriptions.detail.yes') : t('subscriptions.detail.no')} />
-          <Fact label={t('subscriptions.detail.paid_total')} value={formatAmount(item.paidTotal, item.currency)} />
+          <Fact label={t('subscriptions.detail.paid_total')} value={formatPaid(item.paidByCurrency) || '—'} />
           {committedYear && <Fact label={t('subscriptions.detail.cost_per_year')} value={committedYear} />}
           {item.trialEndsAt && (
             <Fact

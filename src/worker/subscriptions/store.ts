@@ -24,6 +24,8 @@ import {
   PERIOD_MULTIPLIER_MAX,
   RULES_LIMIT,
   type BulkAction,
+  type CurrencyCode,
+  type PaidAmount,
 } from '@shared/subscriptions/model'
 import { normalizeColor, normalizeIcon } from '@shared/subscriptions/identity'
 import { spendingByYear, type SpendingInput } from '@shared/subscriptions/currency'
@@ -142,6 +144,12 @@ function toRule(row: RuleRow): ReminderRule {
   }
 }
 
+/** What has been paid for one plan: how many receipts, and how much in each currency they were written in. */
+interface PaidTotals {
+  count: number
+  byCurrency: PaidAmount[]
+}
+
 export class SubscriptionsStore {
   constructor(
     private readonly db: D1Database,
@@ -163,14 +171,22 @@ export class SubscriptionsStore {
       this.db.prepare(`SELECT ${ITEM_COLUMNS} FROM sub_item WHERE user_id = ?1 AND ${shelf} ORDER BY ${order}`)
         .bind(this.userId).all<ItemRow>(),
       this.db.prepare(
-        `SELECT subscription_id, COUNT(*) AS count, SUM(amount) AS total
-           FROM sub_payment WHERE user_id = ?1 GROUP BY subscription_id`,
-      ).bind(this.userId).all<{ subscription_id: string; count: number; total: number | null }>(),
+        `SELECT subscription_id, currency, COUNT(*) AS count, SUM(amount) AS total
+           FROM sub_payment WHERE user_id = ?1 GROUP BY subscription_id, currency`,
+      ).bind(this.userId).all<{ subscription_id: string; currency: string; count: number; total: number | null }>(),
       this.db.prepare(`SELECT ${RULE_COLUMNS} FROM sub_reminder_rule WHERE user_id = ?1`)
         .bind(this.userId).all<RuleRow>(),
     ])
 
-    const paid = new Map(payments.results.map((row) => [row.subscription_id, row]))
+    // Per currency, never across them: a dollar receipt on a yuan plan is a second figure the reader has
+    // to see, not an amount that belongs in the yuan total.
+    const paid = new Map<string, PaidTotals>()
+    for (const row of payments.results) {
+      const entry = paid.get(row.subscription_id) ?? { count: 0, byCurrency: [] }
+      entry.count += row.count
+      entry.byCurrency.push({ currency: row.currency as CurrencyCode, amount: roundMoney(row.total ?? 0) })
+      paid.set(row.subscription_id, entry)
+    }
     const bySubscription = new Map<string, ReminderRule[]>()
     for (const row of rules.results) {
       const list = bySubscription.get(row.subscription_id) ?? []
@@ -193,9 +209,16 @@ export class SubscriptionsStore {
     if (!row) return null
     const [payments, rules] = await Promise.all([this.paymentRows(id), this.ruleRows(id)])
     const mapped = rules.map(toRule)
-    const paid = {
+    const byCurrency = new Map<string, number>()
+    for (const payment of payments) {
+      byCurrency.set(payment.currency, (byCurrency.get(payment.currency) ?? 0) + payment.amount)
+    }
+    const paid: PaidTotals = {
       count: payments.length,
-      total: payments.reduce((sum, payment) => sum + payment.amount, 0),
+      byCurrency: [...byCurrency].map(([currency, amount]) => ({
+        currency: currency as CurrencyCode,
+        amount: roundMoney(amount),
+      })),
     }
     const expiryIso = toIso(row.expiry_date)!
     const nowIso = new Date(now).toISOString()
@@ -922,7 +945,7 @@ export class SubscriptionsStore {
     row: ItemRow,
     context: StoreContext,
     now: number,
-    paid: { count: number; total: number | null } | undefined,
+    paid: PaidTotals | undefined,
     rules: ReminderRule[],
   ): SubscriptionItem {
     const expiry = row.expiry_date
@@ -962,7 +985,7 @@ export class SubscriptionsStore {
         ),
       nextReminderAt: next?.nextFireTime ?? null,
       paymentCount: paid?.count ?? 0,
-      paidTotal: roundMoney(paid?.total ?? 0),
+      paidByCurrency: paid?.byCurrency ?? [],
     }
   }
 

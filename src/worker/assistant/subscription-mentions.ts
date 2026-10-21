@@ -12,7 +12,8 @@
  */
 import { SubscriptionsStore, storeContext } from '../subscriptions/store'
 import { loadSettings } from '../subscriptions/settings'
-import { formatAmount } from '@shared/subscriptions/format'
+import { formatAmount, formatPaid } from '@shared/subscriptions/format'
+import type { PaidAmount } from '@shared/subscriptions/model'
 import { SUBSCRIPTION_MENTION_PREFIX } from '@shared/subscriptions/mention'
 
 /** How many mentions one turn may resolve, and how many receipts each one carries. */
@@ -131,7 +132,7 @@ function present(
     daysRemaining: number
     isActive: boolean
     autoRenew: boolean
-    paidTotal: number
+    paidByCurrency: PaidAmount[]
     nextReminderAt: string | null
     trialEndsAt: string | null
     subscriptionMode: string
@@ -149,7 +150,7 @@ function present(
     `active: ${item.isActive ? 'yes' : 'no'}`,
     `auto-renew: ${item.autoRenew ? 'yes' : 'no'}`,
     item.trialEndsAt ? `trial ends: ${item.trialEndsAt.slice(0, 10)}` : '',
-    `paid in total: ${formatAmount(item.paidTotal, item.currency)}`,
+    `paid in total: ${formatPaid(item.paidByCurrency) || 'nothing yet'}`,
     item.nextReminderAt ? `next reminder: ${item.nextReminderAt.slice(0, 16).replace('T', ' ')}` : 'next reminder: none',
     rules.length ? `reminders: ${rules.filter((rule) => rule.isEnabled).map((rule) => rule.type === 'on_expiry' ? 'on the day' : rule.type === 'after_expiry' ? `every ${rule.repeatInterval ?? 24}h after` : `${rule.value} ${rule.unit} before`).join(', ') || 'all switched off'}` : 'reminders: none',
     payments.length ? `last receipts: ${payments.slice(0, RECEIPTS_PER_MENTION).map((payment) => `${payment.paidAt.slice(0, 10)} ${formatAmount(payment.amount, payment.currency)} (${payment.kind})`).join('; ')}` : '',

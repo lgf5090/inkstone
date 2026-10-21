@@ -2325,7 +2325,9 @@ function presentSubscription(item: SubscriptionItem): Record<string, unknown> {
     daysRemaining: item.daysRemaining,
     isActive: item.isActive,
     autoRenew: item.autoRenew,
-    paidTotal: item.paidTotal,
+    // Per currency, because the receipts are: a plan paid in two currencies has two answers to "what
+    // have I spent on it", and adding them would be a number that means nothing.
+    paidByCurrency: item.paidByCurrency,
     paymentCount: item.paymentCount,
     nextReminderAt: item.nextReminderAt,
   }
