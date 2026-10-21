@@ -57,12 +57,13 @@ function row(id: string, title: string, extra: Partial<TodoTask> = {}): TodoTask
 const service = vi.hoisted(() => ({
   requests: [] as ListParams[],
   plans: [] as { id: string, date: string | null }[],
-  /** The today page's rows, and the open shelf the picker searches. */
+  /** The today page's rows, the open shelf the picker searches, and the wider shelf a plan reads. */
   pageRows: [] as TodoTask[],
   candidates: [] as TodoTask[],
+  shelf: [] as TodoTask[],
   answer(params: ListParams): Record<string, unknown> {
     service.requests.push(params)
-    const rows = params.q ? service.candidates : service.pageRows
+    const rows = params.q ? service.candidates : params.view === 'open' ? service.shelf : service.pageRows
     const limit = Number(params.limit ?? 0)
     const offset = Number(params.offset ?? 0)
     return {
@@ -205,5 +206,63 @@ describe('the today screen', () => {
     const container = await mount('/todo?view=today')
 
     expect(container.querySelector(`button[aria-label="${t('todo.today.remove', { title: 'Send the invoice' })}"]`)).toBeNull()
+  })
+
+  it('suggests today’s candidates and plans each row the reader accepts', async () => {
+    stubBreakpoint(true)
+    const today = localDate(Date.now(), 'UTC')
+    service.shelf = [
+      row('overdue', 'Pay rent', { dueAt: Date.now() - 60_000 }),
+      row('starred', 'Book flights', { dueAt: Date.now() + 2 * 86_400_000, starred: true }),
+      row('free', 'Read the report'),
+      // Already on today, finished, or in the trash: not work the plan may offer.
+      row('picked', 'Already picked', { plannedFor: today }),
+      row('done', 'Finished', { status: 'done' }),
+      row('gone', 'Gone', { deletedAt: 123 }),
+    ]
+
+    const container = await mount('/todo?view=today')
+    const trigger = container.querySelector<HTMLButtonElement>(`button[aria-label="${t('todo.today.ai_plan')}"]`)
+    expect(trigger, 'the today screen offers no way to plan the shelf').not.toBeNull()
+    expect(trigger!.getAttribute('aria-expanded')).toBe('false')
+
+    await act(async () => {
+      trigger!.click()
+      await Promise.resolve()
+    })
+    await settle()
+
+    // The plan reads the open shelf, not the rows already on the screen.
+    expect(service.requests.some((request) => request.view === 'open' && request.limit === 200)).toBe(true)
+    expect(trigger!.getAttribute('aria-expanded')).toBe('true')
+    const offered = [...container.querySelectorAll<HTMLElement>('[data-today-suggestion]')]
+      .map((item) => item.getAttribute('data-today-suggestion'))
+    expect(offered).toEqual(['overdue', 'starred', 'free'])
+
+    const accept = container.querySelector<HTMLButtonElement>(
+      `button[aria-label="${t('todo.today.ai_plan_accept', { title: 'Pay rent' })}"]`,
+    )
+    expect(accept, 'an offered row has no button to accept it').not.toBeNull()
+    await act(async () => {
+      accept!.click()
+      await Promise.resolve()
+    })
+    await settle()
+    expect(service.plans).toEqual([{ id: 'overdue', date: today }])
+
+    // The rest can be taken in one press, each through the same plan endpoint.
+    const acceptAll = container.querySelector<HTMLButtonElement>(`button[aria-label="${t('todo.today.ai_plan_all')}"]`)
+    expect(acceptAll, 'the panel offers no accept-all').not.toBeNull()
+    await act(async () => {
+      acceptAll!.click()
+      await Promise.resolve()
+    })
+    await settle()
+    expect(service.plans).toEqual([
+      { id: 'overdue', date: today },
+      { id: 'starred', date: today },
+      { id: 'free', date: today },
+    ])
+    expect(container.querySelector('[data-today-suggestion]')).toBeNull()
   })
 })
