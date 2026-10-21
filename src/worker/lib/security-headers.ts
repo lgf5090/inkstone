@@ -34,6 +34,8 @@ const BUILTIN_AI_CONNECT_HOSTS: readonly string[] = [
  */
 const CLOUDFLARE_INSIGHTS_SCRIPT_SOURCE = 'https://static.cloudflareinsights.com'
 const CLOUDFLARE_INSIGHTS_REPORT_SOURCE = 'https://cloudflareinsights.com'
+const MEMO_MAP_TILE_SOURCE = 'https://tile.openstreetmap.org'
+const MEMO_MAP_GEOCODE_SOURCE = 'https://nominatim.openstreetmap.org'
 
 export interface SecurityHeaderOptions {
   // Vite's dev server injects the React Fast Refresh bootstrap as an inline script,
@@ -61,7 +63,7 @@ export function securityHeaders(url: string, options: SecurityHeaderOptions = {}
     'Permissions-Policy': 'camera=(), microphone=(self), geolocation=()',
     'Content-Security-Policy': [
       `default-src 'self'; base-uri 'self'; ${scriptSrc}style-src 'self' 'unsafe-inline'; `,
-      `img-src 'self' data: blob: ${imageSchemes}; font-src 'self' data: https://esm.sh; connect-src 'self' data: blob: ${CLOUDFLARE_INSIGHTS_REPORT_SOURCE} ${aiConnectSources}; worker-src 'self' blob:; `,
+      `img-src 'self' data: blob: ${imageSchemes} ${MEMO_MAP_TILE_SOURCE}; font-src 'self' data: https://esm.sh; connect-src 'self' data: blob: ${CLOUDFLARE_INSIGHTS_REPORT_SOURCE} ${MEMO_MAP_GEOCODE_SOURCE} ${aiConnectSources}; worker-src 'self' blob:; `,
       "manifest-src 'self'; media-src 'self' blob:; form-action 'self'; frame-src 'none'; ",
       "frame-ancestors 'none'; object-src 'none'",
     ].join(''),
