@@ -25,6 +25,7 @@ import { subscribeToAddress } from '../../lib/app-history'
 import { parseLocalTime } from '@shared/assistant-time'
 import { useUi } from '../../store/ui'
 import { parseQuickAdd } from '@shared/todos/quick-parse'
+import { parseTodoFilter, type TodoFilterQuery } from '@shared/todos/filter-query'
 import type { MessageKey } from '@shared/locales/en-US'
 import {
   isSnoozeMinutes,
@@ -50,6 +51,7 @@ import {
   replaceTodoTaskAddress,
   type TodoViewSelection,
 } from './todo-address'
+import { daysToRange } from './due-range'
 
 export type TodoView = 'board' | 'today' | 'plan' | 'calendar' | 'starred' | 'completed' | 'list' | 'tag' | 'stats'
 
@@ -91,6 +93,14 @@ interface TodosState {
   tasks: TodoTask[]
   /** How many tasks the filter on screen matches, whether or not this page holds all of them. */
   total: number
+  /**
+   * How many rows of the current listing the server has sent, hidden ones included.
+   *
+   * This is the offset the next page is asked from. It is not `tasks.length`: a `-tag:` line hides
+   * rows after they arrive, and asking for the count of visible rows would fetch the hidden ones
+   * again on the next page.
+   */
+  fetched: number
   completed: TodoTask[]
   /** The same count for the finished page, which is the rows the completed view pages through. */
   completedTotal: number
@@ -99,6 +109,15 @@ interface TodosState {
   /** The put-away lists, read only when the archive shelf is opened. */
   archivedLists: TaskListEntry[]
   tags: TaskTag[]
+  /**
+   * Whether the lists and tags have been read at least once.
+   *
+   * A `list:` or `tag:` line names its collection by name, and only the directory can turn that into
+   * the id the route reads. A cold load therefore reads the directory first; after that first read
+   * the listing's own parallel reads keep it current, and a name that still matches nothing is treated
+   * as a word rather than causing a second directory read on every keystroke.
+   */
+  directoryKnown: boolean
   counts: TaskCounts | null
   dayEnd: number
   timezone: string
@@ -106,6 +125,10 @@ interface TodosState {
   view: TodoView
   listId: string | null
   tagId: string | null
+  /**
+   * The filter line as typed. The address keeps it verbatim and `listingParams` reads it into the
+   * route's own parameters, so `list:Work` narrows the listing rather than being searched for.
+   */
   query: string
   /** The order the reader picked; null leaves it to the server, which decides it per view. */
   sort: TaskSort | null
@@ -853,24 +876,26 @@ export function applyTodoSync(payload: { todos: TodoTask[]; deleted: string[] })
  *
  * Every condition that decides *which* tasks are on screen is here, and nothing else is: the browser
  * groups what comes back and asks for the next page of it, and the database decides what matches.
+ *
+ * The search box's line is read here too. Its qualifiers become the route's own parameters — the
+ * address keeps the line itself — and the words that are not qualifiers become `q`. A list or tag the
+ * account does not have is put back among the words rather than sent as an id: the route answers an
+ * unknown id with a 404, and a mistyped name should read as "nothing matches", not as a broken screen.
  */
 function listingParams(
   state: Pick<TodosState, 'view' | 'listId' | 'tagId' | 'query' | 'sort' | 'dueFrom' | 'dueTo'
-    | 'completedFrom' | 'completedTo'>,
+    | 'completedFrom' | 'completedTo' | 'lists' | 'tags'>,
   offset = 0,
 ): ListingParams {
   const params: ListingParams = { limit: PAGE_SIZE }
   // The statistics and calendar screens have no listing of their own, so they ask for nothing more than
   // the counts and the lists that their own frame still needs.
   if (state.view === 'stats' || state.view === 'calendar') return { ...params, limit: 1 }
-  const query = state.query.trim()
-  if (query) params.q = query
+  const filter = parseTodoFilter(state.query)
   if (offset > 0) params.offset = offset
   // The order is the reader's when they picked one, and otherwise absent: the route reads the order a
   // view has always had, so the default here is the default there rather than a second answer.
   if (state.sort) params.sort = state.sort
-  if (state.dueFrom) params.dueFrom = state.dueFrom
-  if (state.dueTo) params.dueTo = state.dueTo
   if (state.view === 'list') {
     // A list shows its finished rows under its open ones, so it asks for both rather than for the open
     // page and a guess about the rest. The inbox is a collection with no row behind it: `none`.
@@ -890,7 +915,78 @@ function listingParams(
   } else {
     params.view = SERVER_VIEWS[state.view]
   }
+  // The line's conditions are applied after the view's, so what the reader just typed wins over the
+  // collection the screen was opened on. The due window is the exception: the bar's window and the
+  // line's are intersected, so neither statement is thrown away and the rows on screen satisfy both.
+  const words = [filter.text]
+  if (filter.list) {
+    const id = knownId(state.lists, filter.list)
+    if (id) params.list = id
+    else words.push(`list:${filter.list}`)
+  }
+  if (filter.tag) {
+    const id = knownId(state.tags, filter.tag)
+    if (id) params.tag = id
+    else words.push(`tag:${filter.tag}`)
+  }
+  const line = filter.dueFrom || filter.dueTo ? daysToRange(filter.dueFrom ?? '', filter.dueTo ?? '') : null
+  const dueFrom = laterBound(state.dueFrom, line?.from ?? null)
+  const dueTo = earlierBound(state.dueTo, line?.to ?? null)
+  if (dueFrom) params.dueFrom = dueFrom
+  if (dueTo) params.dueTo = dueTo
+  if (filter.priority) params.priority = filter.priority
+  if (filter.starred) params.starred = '1'
+  if (filter.status) params.status = filter.status.join(',')
+  const text = words.filter(Boolean).join(' ')
+  if (text) params.q = text
   return params
+}
+
+/** The id a list or tag name from the line points at, or null when the account has no such row. */
+function knownId(rows: readonly { id: string; name: string }[], value: string): string | null {
+  const wanted = value.trim().toLowerCase()
+  return rows.find((row) => row.id === value || row.name.trim().toLowerCase() === wanted)?.id ?? null
+}
+
+/** The later of two local wall-clock bounds; they are `YYYY-MM-DDTHH:MM`, so strings compare as time. */
+function laterBound(a: string | null, b: string | null): string | null {
+  if (!a) return b
+  if (!b) return a
+  return a > b ? a : b
+}
+
+/** The earlier of two local wall-clock bounds. */
+function earlierBound(a: string | null, b: string | null): string | null {
+  if (!a) return b
+  if (!b) return a
+  return a < b ? a : b
+}
+
+/**
+ * Whether the line names a list or tag that only a directory read can turn into an id.
+ *
+ * Asked once per store, not once per keystroke: after the first read the listing keeps the directory
+ * current, and a name that still matches nothing is put back into the search words instead.
+ */
+function needsDirectory(state: Pick<TodosState, 'view' | 'query' | 'directoryKnown'>): boolean {
+  if (state.directoryKnown || state.view === 'stats' || state.view === 'calendar') return false
+  const filter: TodoFilterQuery = parseTodoFilter(state.query)
+  return filter.list !== null || filter.tag !== null
+}
+
+/**
+ * Hide the rows a `-tag:` line excluded.
+ *
+ * The route has no negative tag filter, so this is the one condition the browser applies itself, and
+ * it reaches only the page it was given: `total` and the rows still on the server are not narrowed.
+ * The page offset is counted in server rows (`fetched`), so a hidden row never makes the next page
+ * skip one; a page can simply arrive with fewer visible rows than its limit.
+ */
+function withoutExcludedTags(tasks: readonly TodoTask[], excluded: readonly string[]): TodoTask[] {
+  const keys = new Set(excluded.map((name) => name.trim().toLowerCase()).filter(Boolean))
+  if (!keys.size) return [...tasks]
+  return tasks.filter((task) =>
+    !task.tags.some((tag) => keys.has(tag.name.trim().toLowerCase()) || keys.has(tag.id.toLowerCase())))
 }
 
 /** The completed view pages through its own bucket, because its rows are a different question. */
@@ -898,20 +994,22 @@ function isCompletedPage(view: TodoView): boolean {
   return view === 'completed'
 }
 
-/** The part of the screen a page footer reads: which bucket is on show, and how full the page is. */
+/** The part of the screen a page footer reads: which bucket is on show, and how much of it was read. */
 export interface TodoPageInfo {
   view: TodoView
   tasks: TodoTask[]
   completed: TodoTask[]
   total: number
   completedTotal: number
+  /** Server rows read for this listing, hidden ones included — the offset the next page starts at. */
+  fetched: number
 }
 
-/** How many rows the filter on screen still has behind the page the reader is looking at. */
+/** How many rows the filter on screen still has behind the rows the server already sent. */
 export function remainingCount(state: TodoPageInfo): number {
   return Math.max(0, isCompletedPage(state.view)
-    ? state.completedTotal - state.completed.length
-    : state.total - state.tasks.length)
+    ? state.completedTotal - state.fetched
+    : state.total - state.fetched)
 }
 
 /**
@@ -936,12 +1034,14 @@ export const useTodos = create<TodosState>((set, get) => ({
   error: null,
   tasks: [],
   total: 0,
+  fetched: 0,
   completed: [],
   completedTotal: 0,
   loadingMore: false,
   lists: [],
   archivedLists: [],
   tags: [],
+  directoryKnown: false,
   counts: null,
   dayEnd: 0,
   timezone: 'UTC',
@@ -973,29 +1073,43 @@ export const useTodos = create<TodosState>((set, get) => ({
   load: async () => {
     if (get().status === 'idle') set({ status: 'loading' })
     const seq = ++listingSeq
-    const params = listingParams(get())
     try {
+      // A line that names a list or tag needs the directory before its id can be built. On a cold load
+      // nothing is cached yet, so it is read first; the listing's own reads keep it current afterwards.
+      let directory: { lists: TaskListEntry[]; tags: TaskTag[] } | null = null
+      if (needsDirectory(get())) {
+        const [lists, tags] = await Promise.all([api.todos.lists(), api.todos.tags()])
+        if (seq !== listingSeq) return
+        directory = { lists: lists.lists, tags: tags.tags }
+        set({ ...directory, directoryKnown: true })
+      }
+      const params = listingParams(get())
+      const excluded = parseTodoFilter(get().query).excludedTags
       const [page, lists, tags] = await Promise.all([
         api.todos.list(params),
-        api.todos.lists(),
-        api.todos.tags(),
+        directory ? Promise.resolve({ lists: directory.lists }) : api.todos.lists(),
+        directory ? Promise.resolve({ tags: directory.tags }) : api.todos.tags(),
       ])
       // A reader who moved on while this was in flight must not be shown the screen they left.
       if (seq !== listingSeq) return
+      const visible = withoutExcludedTags(page.tasks, excluded)
       const shared = {
         counts: page.counts,
         dayEnd: page.dayEnd,
         timezone: page.timezone,
         lists: lists.lists,
         tags: tags.tags,
+        directoryKnown: true,
         status: 'ready' as const,
         error: null,
+        // The offset belongs to the answer, hidden rows included, not to what is left on screen.
+        fetched: page.tasks.length,
       }
       // A new listing starts its own first page: what the reader had scrolled to belongs to the filter
       // that produced it, and keeping it would show the old screen under the new heading.
       set(isCompletedPage(get().view)
-        ? { ...shared, completed: page.tasks, completedTotal: page.total }
-        : { ...shared, tasks: page.tasks, total: page.total })
+        ? { ...shared, completed: visible, completedTotal: page.total }
+        : { ...shared, tasks: visible, total: page.total })
     } catch (error) {
       if (seq !== listingSeq) return
       set({ status: 'error', error: error instanceof Error ? error.message : String(error) })
@@ -1006,16 +1120,16 @@ export const useTodos = create<TodosState>((set, get) => ({
   loadMore: async () => {
     const state = get()
     const completed = isCompletedPage(state.view)
-    const loaded = completed ? state.completed.length : state.tasks.length
     const total = completed ? state.completedTotal : state.total
-    if (state.loadingMore || loaded >= total) return
+    if (state.loadingMore || state.fetched >= total) return
     set({ loadingMore: true })
     try {
-      const page = await api.todos.list(listingParams(state, loaded))
+      const page = await api.todos.list(listingParams(state, state.fetched))
+      const visible = withoutExcludedTags(page.tasks, parseTodoFilter(state.query).excludedTags)
       // Appended, not replaced: the rows already on screen were read for the same filter, and swapping
       // them out would move what the reader is in the middle of looking at.
-      if (completed) set({ completed: [...state.completed, ...page.tasks], completedTotal: page.total, loadingMore: false })
-      else set({ tasks: [...state.tasks, ...page.tasks], total: page.total, loadingMore: false })
+      if (completed) set({ completed: [...state.completed, ...visible], completedTotal: page.total, fetched: state.fetched + page.tasks.length, loadingMore: false })
+      else set({ tasks: [...state.tasks, ...visible], total: page.total, fetched: state.fetched + page.tasks.length, loadingMore: false })
     } catch (error) {
       set({ loadingMore: false })
       toastError(error)
