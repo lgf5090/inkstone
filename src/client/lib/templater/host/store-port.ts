@@ -173,7 +173,9 @@ async function updateRow(id: string, changes: PageHostChanges, expected: Note): 
 async function createRow(input: { title: string; content: string; folderId: string | null }): Promise<PageHostWrite> {
   // `open: false`: a template that creates five notes must not leave the reader in the last one. The page's
   // create-from-template path opens what the reader asked for, through the editor host.
-  const id = await useNotes.getState().createNote({ ...input, open: false })
+  // `fromTemplateRun: true` is the recursion guard the file-creation trigger reads: without it, a template
+  // that files a note would trigger the rule for that folder and run a second template into it.
+  const id = await useNotes.getState().createNote({ ...input, open: false, fromTemplateRun: true })
   if (id === null) {
     // The store has already told the reader why it refused. The one reason this layer can still name is the
     // one the host's own path check could not see: a row that appeared at that title while the call ran.

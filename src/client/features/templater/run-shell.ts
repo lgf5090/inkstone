@@ -250,6 +250,23 @@ export async function createNoteFromTemplate(template: NoteTemplate, destination
 }
 
 /**
+ * Apply a template to a note that was just created, replacing what it holds.
+ *
+ * This is the file-creation trigger's write: the reader made the note, the rule named the template, and
+ * `overwrite-file` is the mode that means "this note's content is the template's output" — matching upstream,
+ * which runs the trigger over the new file rather than appending to it. No confirmation is asked: the rule
+ * was set deliberately in the settings screen, and a dialog on every new note is why upstream's own trigger
+ * is off by default. Carets are not requested either — the reader is looking at a note that was not the
+ * point of this run.
+ */
+export async function applyTemplateToCreatedNote(template: NoteTemplate, note: Note): Promise<boolean> {
+  return run(
+    { ...contextFor('overwrite-file', note, await activeRow(), null), template: { kind: 'library', row: template } },
+    'templater.applied_to_new_note',
+  )
+}
+
+/**
  * One startup template, run for its effects and never for its text.
  *
  * The `startup` mode discards what the template produced (`host/write.ts` has no subject to write into), so

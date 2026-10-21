@@ -7936,6 +7936,7 @@ console.log(\`Hello, \${name}!\`)
     "templater.startup.failed": "启动模板「{name}」没有运行：{reason}",
     "templater.startup.missing": "你的启动模板里有 {count} 条已经不在模板库中，已跳过。",
     "templater.startup.batch_failed": "启动模板没能开始运行：{reason}",
+    "templater.applied_to_new_note": "已对这篇新笔记套用新建笔记的模板",
     "templater.ref.file.module": "关于模板正在写入的这篇笔记的全部内建变量与函数。",
     "templater.ref.date.module": "与日期有关的全部内建函数。日期以本次运行开始的那一刻为基准，所以同一段模板里的两条命令不会对今天给出不同的答案。",
     "templater.ref.moment.module": "模板使用的日期库：moment 是全局名字，tp.moment 是同一个函数。它的语言跟随界面语言，因此月份名、星期名和一周的起点都按该语言输出。",
