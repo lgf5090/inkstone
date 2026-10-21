@@ -137,7 +137,7 @@ describe('the start date on a task', () => {
     const finished = await json<{ task: TodoTask, next: TodoTask }>(
       await send('PATCH', `/${task.id}`, { status: 'done' }),
     )
-    const nextDue = parseLocalTime('2027-01-31T18:00', 'UTC')
+    const nextDue = parseLocalTime('2027-01-31T18:00', 'UTC')!
     expect(finished.next.dueAt).toBe(nextDue)
     // The copy starts as far before its own due date as the row it came from did.
     expect(finished.next.startAt).toBe(nextDue - (due - start))
