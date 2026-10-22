@@ -389,6 +389,7 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'templater', titleKey: 'settings.templater_highlight' },
   { section: 'templater', titleKey: 'settings.templater_highlight_mobile' },
   { section: 'templater', titleKey: 'settings.templater_intellisense', detailKey: 'settings.templater_intellisense_desc', termKeys: ['templater.intellisense_off', 'templater.intellisense_params_returns', 'templater.intellisense_params', 'templater.intellisense_returns', 'templater.intellisense_description'] },
+  { section: 'templater', titleKey: 'settings.templater_reference', detailKey: 'settings.templater_reference_desc', termKeys: ['templater.ref.open', 'templater.ref.filter', 'templater.ref.profile_local', 'templater.ref.profile_community', 'templater.ref.profile_startup'] },
   { section: 'templater', titleKey: 'settings.templater_auto_cursor' },
   { section: 'templater', titleKey: 'settings.templater_jump_after_create' },
   { section: 'templater', titleKey: 'settings.templater_hotkeys', detailKey: 'settings.templater_hotkeys_desc', termKeys: ['templater.hotkey.chord', 'templater.hotkey.insert', 'templater.hotkey.create', 'templater.hotkey.filter'] },

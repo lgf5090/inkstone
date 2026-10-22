@@ -49,6 +49,7 @@ import { templaterCompletion } from '../../editor/templater-completion'
 import { templaterUserScripts } from './script-completion'
 import { useSession } from '../../store/session'
 import { describeTemplateBody, type TemplateBodyReport } from './template-body-check'
+import { TemplateReferenceButton } from './reference-entry'
 
 /** A change this component dispatched to follow its own `value`, which is not the reader typing. */
 const externalValue = Annotation.define<boolean>()
@@ -241,8 +242,9 @@ export function TemplateCodeEditor(props: TemplateCodeEditorProps) {
           in `styles/editor.css`. */}
       <div ref={hostRef} className='ink-editor ink-template-editor'/>
     </div>
-    <div className='pt-1.5'>
+    <div className='flex flex-wrap items-center gap-2 pt-1.5'>
       <Button size='sm' variant='ghost' onClick={() => setReport(describeTemplateBody(value))}>{t('templater.editor.check_label')}</Button>
+      <TemplateReferenceButton/>
     </div>
     {report && <TemplateBodyReportView report={report}/>}
   </>)

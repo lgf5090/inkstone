@@ -37,6 +37,7 @@ import { useTemplaterDevicePrefs, setTemplaterDevicePrefs } from '../../lib/temp
 import type { TemplaterChordClaim, TemplaterHotkeyClaimant } from '../templater/hotkeys'
 import { normaliseTemplaterCombo, planTemplaterHotkeys, templaterChordClaims } from '../templater/hotkeys'
 import { TemplaterTriggers, useTemplaterLibrary } from './TemplaterTriggers'
+import { TemplateReferenceButton } from '../templater/reference-entry'
 
 /** The five documentation levels, in the order upstream numbers them, each named by what it adds. */
 const INTELLISENSE_LABELS: Record<TemplaterIntellisenseRender, MessageKey> = {
@@ -96,6 +97,11 @@ export function TemplaterSettings() {
             onChange={(syntaxHighlightingMobile) => update({ syntaxHighlightingMobile })}/>
         </SettingRow>
         <IntellisenseRow templater={templater} update={update}/>
+        <SettingRow
+          title={t('settings.templater_reference')}
+          description={t('settings.templater_reference_desc')}>
+          <TemplateReferenceButton/>
+        </SettingRow>
         <SettingRow
           title={t('settings.templater_auto_cursor')}
           description={t('settings.templater_auto_cursor_desc')}>
