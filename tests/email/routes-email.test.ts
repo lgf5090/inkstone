@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { EMAIL_BODY_MAX_BYTES, EMAIL_SUBJECT_MAX_CHARS } from '../../src/shared/email/model'
 import type { EmailFolder, EmailListResponse, EmailMessage } from '../../src/shared/email/model'
 import { SCHEMA_STATEMENTS } from '../../src/worker/db/schema'
-import { createEmailAccount } from '../../src/worker/email/account-store'
+import { claimAutoDraftJobs, createEmailAccount, finishAutoDraftJob, queueAutoDraftJob } from '../../src/worker/email/account-store'
 import { applyMailboxMigrations } from '../../src/worker/email/mailbox-schema'
 import { MailboxStore, type EmailData } from '../../src/worker/email/mailbox-store'
 import type { AppBindings, Env } from '../../src/worker/env'
@@ -164,6 +164,31 @@ describe('email route auth and ownership', () => {
     const response = await call('GET', `/accounts/${accountId}/folders`)
     expect(response.status).toBe(404)
     expect((await errorOf(response)).code).toBe('email_account_not_found')
+  })
+
+  it('reports the latest automatic draft attempt without inventing one', async () => {
+    const empty = await json<{ status: string | null, reason: string | null }>(
+      await call('GET', `/accounts/${accountId}/auto-draft`),
+    )
+    expect(empty).toEqual({ status: null, reason: null, attempts: 0, updatedAt: null })
+
+    await queueAutoDraftJob(db, { userId, accountId, messageId: 'm1', threadId: null })
+    await claimAutoDraftJobs(db)
+    await finishAutoDraftJob(db, {
+      userId,
+      accountId,
+      messageId: 'm1',
+      status: 'skipped',
+      reason: 'injection',
+    })
+    const after = await json<{ status: string | null, reason: string | null, attempts: number }>(
+      await call('GET', `/accounts/${accountId}/auto-draft`),
+    )
+    expect(after).toMatchObject({ status: 'skipped', reason: 'injection', attempts: 1 })
+
+    userId = newId()
+    const other = await call('GET', `/accounts/${accountId}/auto-draft`)
+    expect(other.status).toBe(404)
   })
 })
 

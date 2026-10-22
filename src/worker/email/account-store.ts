@@ -201,6 +201,18 @@ export async function finishAutoDraftJob(
   ).bind(input.status, input.reason, input.now ?? Date.now(), input.userId, input.accountId, input.messageId).run()
 }
 
+export async function latestAutoDraftJob(
+  db: D1Database,
+  userId: string,
+  accountId: string,
+): Promise<EmailAutoDraftJobRow | null> {
+  return db.prepare(
+    `SELECT * FROM email_auto_draft_jobs
+      WHERE user_id = ?1 AND account_id = ?2
+      ORDER BY updated_at DESC LIMIT 1`,
+  ).bind(userId, accountId).first<EmailAutoDraftJobRow>()
+}
+
 export async function pruneAutoDraftJobs(db: D1Database, before: number): Promise<void> {
   await db.prepare(
     `DELETE FROM email_auto_draft_jobs

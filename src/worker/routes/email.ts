@@ -21,8 +21,11 @@ import type {
 } from '@shared/email/model'
 import { utf8ByteLength } from '@shared/text-utils'
 import type { AppBindings } from '../env'
+import { createBackupArchive } from '../backup/archive'
+import { buildEmailExportSnapshot } from '../backup/snapshot'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
+import { acquireLease } from '../lib/lease'
 import { isInlineSafe } from '../lib/image'
 import { clampInt, JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { requireAuth, requireOwner } from '../middleware/auth'
@@ -32,6 +35,7 @@ import {
   deleteEmailAttachmentsForAccount,
   findEmailAccountByAddress,
   getEmailAccount,
+  latestAutoDraftJob,
   listEmailAccounts,
   listEmailAttachmentKeys,
   toEmailAccount,
@@ -65,6 +69,8 @@ type SummaryRow = EmailRow & {
 
 const LOCAL_PART_RE = /^[a-z0-9!#$%&'*+/=?^_`{|}~.-]{1,64}$/i
 const MAX_PAGE = 1_000_000
+const EXPORT_LEASE_TTL_MS = 15 * 60_000
+const EXPORT_LEASE_RENEW_MS = 5 * 60_000
 const RESERVED_FOLDER_NAMES = new Set<string>([
   ...EMAIL_SYSTEM_FOLDERS,
   ...Object.values(EMAIL_FOLDER_SEED_NAMES).map((name) => name.toLowerCase()),
@@ -412,6 +418,70 @@ emailRoutes.post('/accounts/ensure', async (c) => {
 emailRoutes.get('/accounts/:id', async (c) => {
   const row = await requireAccount(c, c.req.param('id') ?? '')
   return c.json(toEmailAccount(row))
+})
+
+emailRoutes.get('/accounts/:id/export', async (c) => {
+  const row = await requireAccount(c, c.req.param('id') ?? '')
+  const userId = c.get('userId')
+  const release = await acquireLease(
+    c.env.DB,
+    `snapshot_lock:${userId}`,
+    EXPORT_LEASE_TTL_MS,
+    'A backup or export is already running. Try again later',
+  )
+  const abort = new AbortController()
+  const heartbeat = setInterval(() => {
+    void release.renew().then((ok) => {
+      if (!ok) abort.abort(new Error('The export lease was lost'))
+    }).catch((error) => {
+      console.warn('[inkstone] Email export lease renewal failed:', error)
+      abort.abort(error)
+    })
+  }, EXPORT_LEASE_RENEW_MS)
+  let streaming = false
+  const finish = async () => {
+    clearInterval(heartbeat)
+    await release()
+  }
+  try {
+    const snapshot = await buildEmailExportSnapshot(c.env, userId, row.id)
+    let archive
+    try {
+      archive = createBackupArchive(snapshot)
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 413) {
+        throw new ApiError(413, 'email_export_too_large', error.message)
+      }
+      throw error
+    }
+    const fixed = new FixedLengthStream(archive.byteLength)
+    const completed = archive.stream.pipeTo(fixed.writable, { signal: abort.signal }).catch((error) => {
+      console.error('[inkstone] Streaming email export failed:', error)
+    }).finally(finish)
+    const response = new Response(fixed.readable as BodyInit, {
+      headers: {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': `attachment; filename="${archive.filename}"`,
+        'Cache-Control': 'private, no-store',
+      },
+    })
+    c.executionCtx.waitUntil(completed)
+    streaming = true
+    return response
+  } finally {
+    if (!streaming) await finish()
+  }
+})
+
+emailRoutes.get('/accounts/:id/auto-draft', async (c) => {
+  const row = await requireAccount(c, c.req.param('id') ?? '')
+  const job = await latestAutoDraftJob(c.env.DB, c.get('userId'), row.id)
+  return c.json({
+    status: job?.status ?? null,
+    reason: job?.reason ?? null,
+    attempts: job?.attempts ?? 0,
+    updatedAt: job ? new Date(job.updated_at).toISOString() : null,
+  })
 })
 
 emailRoutes.patch('/accounts/:id', async (c) => {
