@@ -469,7 +469,9 @@ async function openEmailAttachment(
   const object = await env.FILES.get(attachment.object_key)
   if (!object) throw new Error(`Email attachment data is missing: ${attachment.filename}`)
   if (object.size !== attachment.size) {
-    await object.body.cancel().catch(() => {})
+    await object.body.cancel().catch((error) => {
+      console.warn('[inkstone] email attachment stream could not be cancelled:', (error as Error).message)
+    })
     throw new Error(`Email attachment size changed while the backup was running: ${attachment.filename}`)
   }
   return object.body

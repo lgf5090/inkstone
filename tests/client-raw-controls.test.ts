@@ -558,7 +558,6 @@ const LIST_FILTER_BASELINE = new Map<string, { sites: number; reason: string }>(
   ['src/client/features/settings/FeedSettings.tsx', { sites: 1, reason: 'The read-only subscription address that selects on focus (236); a copy field, not a list filter.' }],
   ['src/client/features/share/ConversationSharePanel.tsx', { sites: 1, reason: 'The same read-only share link field as SharePanel (178), for a published conversation. Not a filter at all.' }],
   ['src/client/features/tags/tag-row-parts.tsx', { sites: 1, reason: 'Tag rename row (`tags.rename` at 42) with autoFocus and a default value; an inline editor, not a list filter.' }],
-  ['src/client/features/workspace/EditorColorMenu.tsx', { sites: 1, reason: 'Colour name draft (87) inside the editor colour menu; an inline editor for one value.' }],
   ['src/client/features/workspace/Workspace.tsx', { sites: 1, reason: 'Inline text field in the workspace surface (557). Not verified as a list filter; baseline so the rule can block new ones.' }],
   ['src/client/features/todos/OrganizerEditors.tsx', { sites: 1, reason: 'The custom-colour draft (`#rrggbb`, 124) beside the colour wheel: an inline editor for one value, the same shape as the editor colour menu\'s name draft, not a list filter.' }],
 ])

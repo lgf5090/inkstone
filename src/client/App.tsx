@@ -360,8 +360,7 @@ function SettingsLayer() {
   const panel = useUi((s) => s.panel)
   const closePanel = useUi((s) => s.closePanel)
   const userId = useSession((s) => s.user?.id)
-  if (panel !== 'settings') return null
-  return <Suspense fallback={null}><SettingsPanel key={userId} onClose={closePanel} /></Suspense>
+  return panel === 'settings' && <Suspense fallback={null}><SettingsPanel key={userId} onClose={closePanel} /></Suspense>
 }
 
 function AttachmentHubLayer() {
