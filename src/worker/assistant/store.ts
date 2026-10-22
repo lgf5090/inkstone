@@ -4595,7 +4595,14 @@ export class AssistantStore {
       ? patch.remindAt === null ? [] : [patch.remindAt]
       : undefined)
     if (named !== undefined) await this.replaceTaskReminders(id, named)
-    else if (patch.dueAt !== undefined && patch.dueAt !== null && existing.dueAt !== null) {
+    else if (patch.dueAt === null && existing.dueAt !== null) {
+      // The date is gone, and every pending reminder was a distance from it, so there is nothing left to
+      // count from: they are dropped rather than shifted or kept. A reminder that survives its own due
+      // date would go off at a schedule the reader just erased — the loudest possible way to say "the
+      // field you cleared still owns your evening". This is the same reading `completeTask` already
+      // gives a repeating task with no due date, whose reminders go whole for want of an anchor.
+      await this.replaceTaskReminders(id, [])
+    } else if (patch.dueAt !== undefined && patch.dueAt !== null && existing.dueAt !== null) {
       await this.shiftTaskReminders(id, patch.dueAt - existing.dueAt)
     }
     return await this.getTask(id)

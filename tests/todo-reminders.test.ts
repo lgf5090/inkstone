@@ -107,6 +107,30 @@ describe('sweepTaskReminders', () => {
     expect(notificationCount(ALICE)).toBe(0)
   })
 
+  it('delivers nothing for a task whose due date was taken away', async () => {
+    const store = new AssistantStore(env.DB as D1Database, ALICE, env)
+    const task = await store.createTask({
+      title: 'Loose end',
+      dueAt: NOW + 60 * 60 * 1000,
+      reminders: [NOW - 60_000],
+    })
+
+    const cleared = await store.updateTask(task.id, { dueAt: null }, 'UTC')
+    // A reminder is a distance from the due date. With no date left, the distance has no anchor, so the
+    // pending row goes with it rather than firing on a schedule the reader just erased.
+    expect(cleared?.dueAt).toBeNull()
+    expect(cleared?.reminders ?? []).toEqual([])
+
+    expect(await sweepTaskReminders(env, NOW)).toMatchObject({ due: 0, sent: 0 })
+    expect(notificationCount(ALICE)).toBe(0)
+
+    // A patch that names its own reminder list still owns it: taking the date away does not overrule
+    // the instants the same request spelled out — the editor sends both fields in one save.
+    const both = await store.createTask({ title: 'Named anyway', dueAt: NOW + 60 * 60 * 1000, reminders: [NOW - 60_000] })
+    const named = await store.updateTask(both.id, { dueAt: null, reminders: [NOW + 5 * 60_000] }, 'UTC')
+    expect(named?.reminders).toEqual([NOW + 5 * 60_000])
+  })
+
   it('leaves a reminder that is not due yet alone', async () => {
     await reminderTask(ALICE, { offsetMs: 60 * 60 * 1000 })
     expect(await sweepTaskReminders(env, NOW)).toMatchObject({ due: 0, sent: 0 })
