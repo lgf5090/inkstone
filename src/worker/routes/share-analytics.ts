@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { LIMITS, SHARE_STALE_DEFAULT_DAYS } from '@shared/constants'
-import { parseChannelDrillDown, type ChannelDrillDown } from '@shared/share-channel'
+import { parseChannelDrillDown } from '@shared/share-channel'
 import type {
   ShareBreakdownItem,
   ShareExpiredLinks,
@@ -10,8 +10,7 @@ import type {
   ShareStaleLinks,
   ShareVisitLog,
 } from '@shared/share-hub'
-import type { ShareStatusFilter, VisitLogFilter, VisitTrafficFilters } from '@shared/share-selection'
-import { isVisitLogFilter } from '@shared/share-selection'
+import { type VisitLogFilter, isVisitLogFilter } from '@shared/share-selection'
 import type { AppBindings } from '../env'
 import { getMeta, setMeta } from '../db/metadata'
 import { ApiError } from '../lib/errors'
@@ -19,6 +18,7 @@ import { isValidId, isValidSlug } from '../lib/id'
 import { createMinuteBudget } from '../lib/rate-limit'
 import { clampInt } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
+import { ShareAnalyticsStore } from '../share/analytics-store'
 import {
   ANALYTICS_CARD_LIMIT,
   DAY_MS,
@@ -33,32 +33,11 @@ import {
   type AnalyticsRequest,
   type AnalyticsWindow,
 } from '../share/analytics'
-import {
-  channelBreakdownStatement,
-  collectionChannelLabels,
-  collectionChannelLabelsStatement,
-  composeChannels,
-  type ChannelCountRow,
-  type CollectionLabelRow,
-} from '../share/channel-split'
-import {
-  shareStatusSql,
-  shareTagElementSql,
-  visitLogFilterSql,
-  visitTrafficSql,
-  type ShareSqlAliases,
-  type SqlFragment,
-} from '../share/selection-sql'
-import type { ShareRow } from '../share/store'
-import {
-  firstOf,
-  rowsOf,
-  visitAggregateFromResults,
-  visitAggregateStatements,
-  type VisitAggregate,
-  type VisitDistributionMaps,
-  type VisitScope,
-  type VisitTargetStat,
+import type {
+  VisitAggregate,
+  VisitDistributionMaps,
+  VisitScope,
+  VisitTargetStat,
 } from '../share/visit-aggregates'
 
 /**
@@ -77,19 +56,7 @@ import {
  * because they were never asked separately.
  */
 
-export const shareAnalyticsRoutes = new Hono<AppBindings>()
-
-shareAnalyticsRoutes.use('*', requireAuth)
-
-/** Rows the dashboard's own visit list shows; the log route pages over the same table. */
-const RECENT_VISITS_LIMIT = 20
-
-/** How many quiet links the stale card lists; the count beside it covers all of them. */
-const STALE_LINK_PAGE_SIZE = 5
-
-/** How many lapsed links the expiry notice lists; its count covers all of them. */
-const EXPIRED_LINK_PAGE_SIZE = 5
-
+/** One page of the visit log, and the deepest page a caller may name. */
 const VISITS_PAGE_DEFAULT = 1
 const VISITS_LIMIT_DEFAULT = 50
 
@@ -109,50 +76,12 @@ const chargeReadBudget = createMinuteBudget(
   'Too many analytics reads at once. Try again in a minute.',
 )
 
-/**
- * The distinct-visitor measure, spelled once for the two statements that need it.
- *
- * It is the expression `visit-aggregates` counts a windowed UV with, and the empty-string guard is what
- * keeps a visit that carried neither an address nor a user agent from becoming a visitor of its own.
- */
-const VISITOR_COUNT_SQL = `COUNT(DISTINCT NULLIF(visitor_fp, ''))`
-
-/**
- * The traffic filters the footer counts with, and the ones the dashboard speaks when the query says
- * nothing. One object for both, so an all-time number and a windowed one cannot mean different rows.
- */
-const DEFAULT_TRAFFIC_FILTERS: VisitTrafficFilters = { excludeBots: true }
-
-/** This build has no per-owner threshold setting, so the shared default is the report's whole answer. */
+/** How many quiet days make a link stale, when the account has not named its own. */
 const STALE_THRESHOLD_DAYS = SHARE_STALE_DEFAULT_DAYS
 
-/** One row of `share_visits` joined with its note; `sv` is the visit, `n` the note. */
-const VISIT_LOG_COLUMNS = `sv.id, sv.note_id, sv.slug, sv.visited_at, sv.country, sv.region, sv.city,
-              sv.referrer, sv.referrer_host, sv.device_type, sv.os, sv.browser, sv.visitor_fp,
-              sv.is_bot, sv.is_self_referrer, sv.is_owner, sv.channel,
-              CASE WHEN sv.is_bot = 1 THEN sv.user_agent END AS user_agent,
-              n.title AS note_title`
+export const shareAnalyticsRoutes = new Hono<AppBindings>()
 
-/**
- * Whether a visit's link still exists.
- *
- * Both halves are scoped by the account, so a slug another owner holds can never make one account's row
- * look like a live link. A visit whose link was revoked sits outside every reading here, the log included:
- * the hub reports traffic the owner can still be reached by.
- */
-function liveLinkCondition(alias: string): string {
-  return `EXISTS (SELECT 1 FROM shares s WHERE s.slug = ${alias}.slug AND s.user_id = ${alias}.user_id)`
-}
-
-/** The status rule a `CASE WHEN` counts with; `all` names no column, so it counts every joined row. */
-function statusFragment(
-  status: ShareStatusFilter,
-  now: number,
-  firstBind: number,
-  aliases?: ShareSqlAliases,
-): SqlFragment {
-  return shareStatusSql(status, now, firstBind, aliases) ?? { sql: '1', binds: [], nextBind: firstBind }
-}
+shareAnalyticsRoutes.use('*', requireAuth)
 
 /**
  * The dismissal of the expired-links notice, one timestamp per account in `app_meta`.
@@ -170,10 +99,6 @@ export function expiredAckMetaKey(userId: string): string {
 export function parseExpiredAck(raw: string | null): number | null {
   const parsed = Number(raw)
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
-}
-
-interface MinVisitedRow {
-  min_ts: number | null
 }
 
 interface PrevStatsRow {
@@ -239,17 +164,27 @@ interface ExpiredLinkRow {
   expired_total: number
 }
 
-type NoteShareRow = ShareRow & { note_title: string | null }
-
 shareAnalyticsRoutes.get('/analytics/global', async (c) => {
-  const database = c.env.DB
   const userId = c.get('userId')
-  const ctx = await analyticsContext(database, c, { userId })
+  const store = new ShareAnalyticsStore(c.env.DB, userId)
+  const ctx = await analyticsContext(store, c, { userId })
   // Only the unbounded range is charged: a bounded one reads a single window of rows.
   if (ctx.range === 'all') chargeReadBudget(userId)
   // Read ahead of the batch, because the expired-links query filters on it.
-  const acknowledgedAt = parseExpiredAck(await getMeta(database, expiredAckMetaKey(userId)))
-  return c.json(await loadGlobalAnalytics(database, userId, ctx, acknowledgedAt))
+  const acknowledgedAt = parseExpiredAck(await getMeta(c.env.DB, expiredAckMetaKey(userId)))
+  const read = await store.globalDashboard(ctx, acknowledgedAt)
+  return c.json(composeGlobalAnalytics({
+    ctx,
+    aggregate: read.aggregate,
+    summary: read.summary,
+    prevStats: read.prevStats,
+    filterStats: read.filterStats,
+    topNotes: await topNotesOf(store, read.aggregate.targets),
+    recentVisits: toVisitLogs(read.recentVisits),
+    staleLinks: composeStaleLinks(read.staleLinks),
+    expiredLinks: composeExpiredLinks(acknowledgedAt, read.expiredLinks),
+    channels: read.channels,
+  }))
 })
 
 shareAnalyticsRoutes.post('/analytics/expired-ack', async (c) => {
@@ -258,25 +193,19 @@ shareAnalyticsRoutes.post('/analytics/expired-ack', async (c) => {
 })
 
 shareAnalyticsRoutes.get('/analytics/note/:noteId', async (c) => {
-  const database = c.env.DB
   const userId = c.get('userId')
+  const store = new ShareAnalyticsStore(c.env.DB, userId)
   const noteId = c.req.param('noteId')
   // A malformed id and a foreign one get the same answer: neither tells the caller anything about the id
   // they guessed, and a dashboard has nothing of this account's to show for either.
   if (!isValidId(noteId)) throw ApiError.notFound('Share or note not found')
-  const share = await noteShareStatement(database, userId, noteId).first<NoteShareRow>()
+  const share = await store.noteShareRow(noteId)
   if (!share) throw ApiError.notFound('Share or note not found')
 
-  const ctx = await analyticsContext(database, c, { userId, targetId: noteId })
+  const ctx = await analyticsContext(store, c, { userId, targetId: noteId })
   if (ctx.range === 'all') chargeReadBudget(userId)
-  const scope: VisitScope = { userId, targetId: noteId }
-  const [recentResult, channelResult, labelResult, ...visitResults] = await database.batch([
-    recentVisitsStatement(database, { userId, noteId, startTs: ctx.startTs, clause: ctx.clause }),
-    channelBreakdownStatement(database, scope, ctx),
-    collectionChannelLabelsStatement(database, userId),
-    ...visitAggregateStatements(database, scope, ctx),
-  ])
-  const aggregate = visitAggregateFromResults(visitResults, ctx)
+  const read = await store.noteDashboard(noteId, ctx)
+  const aggregate = read.aggregate
   const breakdown = breakdownsOf(aggregate, aggregate.views)
   return c.json({
     range: ctx.range,
@@ -296,24 +225,20 @@ shareAnalyticsRoutes.get('/analytics/note/:noteId', async (c) => {
     devices: breakdown.devices,
     osList: breakdown.osList,
     browsers: breakdown.browsers,
-    channels: composeChannels(
-      rowsOf<ChannelCountRow>(channelResult),
-      aggregate.views,
-      collectionChannelLabels(rowsOf<CollectionLabelRow>(labelResult)),
-    ),
-    recentVisits: toVisitLogs(rowsOf<VisitLogRow>(recentResult), share.note_title),
+    channels: read.channels,
+    recentVisits: toVisitLogs(read.recentVisits, share.note_title),
   } satisfies ShareNoteAnalytics)
 })
 
 /**
- * One page of the audit trail.
+ * One page of the visit log.
  *
- * The deepest page a caller can name is bounded by the shared product limits — see
- * `visitLogPageStatements`, where the arithmetic on `OFFSET` is written out.
+ * The deepest page a caller can name is bounded by the shared product limits — the arithmetic on
+ * `OFFSET` is written out where the statements are built, in `analytics-store`.
  */
 shareAnalyticsRoutes.get('/visits', async (c) => {
-  const database = c.env.DB
   const userId = c.get('userId')
+  const store = new ShareAnalyticsStore(c.env.DB, userId)
   const page = clampInt(c.req.query('page'), VISITS_PAGE_DEFAULT, LIMITS.shareVisitsPageMax, VISITS_PAGE_DEFAULT)
   const limit = clampInt(c.req.query('limit'), 1, LIMITS.shareVisitsPerPage, VISITS_LIMIT_DEFAULT)
   const filter = visitLogFilterParam(c.req.query('filter'))
@@ -321,144 +246,115 @@ shareAnalyticsRoutes.get('/visits', async (c) => {
   // A mistyped channel is refused rather than folded into "no filter": a dropped drill-down that answered
   // with every row would read as "this channel sent everything".
   if (channel.kind === 'invalid') throw ApiError.badRequest(`Unknown visit channel: ${c.req.query('channel')}`)
-  const scope = await resolveVisitScope(database, userId, c.req.query('noteId'), c.req.query('slug'))
+  const scope = await resolveVisitScope(store, c.req.query('noteId'), c.req.query('slug'))
   // The page's total is an unbounded `COUNT(*)` over the account, so it shares the read budget.
   chargeReadBudget(userId)
-
-  const where = visitLogWhere({ userId, scope, filter, channel })
-  const offset = (page - 1) * limit
-  const [countResult, rowsResult] = await database.batch(visitLogPageStatements(database, where, limit, offset))
-  const total = firstOf<{ total: number }>(countResult)?.total ?? 0
+  const read = await store.visitLogPage({ scope, filter, channel, limit, offset: (page - 1) * limit })
   return c.json({
-    visits: toVisitLogs(rowsOf<VisitLogRow>(rowsResult)),
-    total,
+    visits: toVisitLogs(read.rows),
+    total: read.total,
     page,
     limit,
-    totalPages: Math.ceil(total / limit),
+    totalPages: Math.ceil(read.total / limit),
   })
 })
 
 /**
  * Wipes the account's visit rows, and the counters derived from them.
  *
- * `shares.views` and `shares.last_viewed_at` are the list's own reading of the same traffic, and the stale
- * report is computed from `last_viewed_at`; leaving them after an emptied log would have the hub say "12
- * views, read yesterday" over a table with no rows in it. Both statements run as one batch, so a wipe
- * cannot leave a counter pointing at traffic that is already gone.
+ * The two statements and why they must be one batch are the store's; this only answers with the row
+ * count it reports.
  */
 shareAnalyticsRoutes.delete('/visits', async (c) => {
-  const database = c.env.DB
-  const userId = c.get('userId')
-  const [wipe] = await database.batch([
-    database.prepare(`DELETE FROM share_visits WHERE user_id = ?1`).bind(userId),
-    database.prepare(`UPDATE shares SET views = 0, last_viewed_at = NULL WHERE user_id = ?1`).bind(userId),
-  ])
-  return c.json({ ok: true, deleted: wipe?.meta?.changes ?? 0 })
+  const deleted = await new ShareAnalyticsStore(c.env.DB, c.get('userId')).wipeVisits()
+  return c.json({ ok: true, deleted })
 })
 
 /**
  * The sidebar's counters: ten category counts, the folder and tag counts, and the all-time traffic the
  * footer prints.
  *
- * Four statements in one batch, and no memoization. An all-time aggregate over the whole visit table is not
- * a real-time number, and the reference bought relief with a cached row that silently switched the footer
- * between `COUNT(*)` of `share_visits` and `SUM(shares.views)` depending on whether the cache was warm — two
- * different questions under one label, with a visitor count that had no fallback at all. The read budget is
- * the honest brake.
+ * The four statements ride one batch in the store, and there is no memoization here or there: the
+ * reference cached this and silently switched the footer between two different measures depending on
+ * whether the cache was warm. The read budget is the honest brake.
  */
 shareAnalyticsRoutes.get('/stats', async (c) => {
-  const database = c.env.DB
-  const userId = c.get('userId')
   const now = Date.now()
+  const userId = c.get('userId')
   chargeReadBudget(userId)
-  const [summaryResult, totalsResult, folderResult, tagResult] = await database.batch([
-    globalSummaryStatement(database, userId, now),
-    visitTotalsStatement(database, userId),
-    folderCountsStatement(database, userId, now),
-    tagCountsStatement(database, userId, now),
-  ])
+  const read = await new ShareAnalyticsStore(c.env.DB, userId).sidebarStats(now)
   const globalStats: ShareGlobalStats = composeGlobalStats(
-    firstOf<GlobalSummaryRow>(summaryResult),
-    firstOf<VisitTotalsRow>(totalsResult),
-    toFolderCounts(rowsOf<FolderCountRow>(folderResult)),
-    toTagCounts(rowsOf<TagCountRow>(tagResult)),
+    read.summary,
+    read.totals,
+    toFolderCounts(read.folders),
+    toTagCounts(read.tags),
   )
   return c.json({ globalStats })
 })
 
 /** The window and clause every share read resolves, so two panels cannot disagree about "7d, no bots". */
 async function analyticsContext(
-  database: D1Database,
+  store: ShareAnalyticsStore,
   c: { req: { query(key: string): string | undefined } },
   scope: VisitScope,
 ): Promise<AnalyticsContext> {
   const request = parseAnalyticsRequest(c)
-  const minRow =
-    request.range === 'all' ? await minVisitedAtStatement(database, scope).first<MinVisitedRow>() : null
-  return { ...request, ...analyticsWindow(request.range, request.now, minRow?.min_ts ?? null) }
-}
-
-function minVisitedAtStatement(database: D1Database, scope: VisitScope): D1PreparedStatement {
-  return scope.targetId
-    ? database
-        .prepare(`SELECT MIN(visited_at) AS min_ts FROM share_visits WHERE note_id = ?1 AND user_id = ?2`)
-        .bind(scope.targetId, scope.userId)
-    : database
-        .prepare(`SELECT MIN(visited_at) AS min_ts FROM share_visits WHERE user_id = ?1`)
-        .bind(scope.userId)
+  const earliest = request.range === 'all' ? await store.minVisitedAt(scope.targetId) : null
+  return { ...request, ...analyticsWindow(request.range, request.now, earliest) }
 }
 
 /**
- * One read of everything the global dashboard answers with.
+ * The dashboard's top-notes card: the busiest links out of the window's per-target stats, with the
+ * titles read back for just those ids.
  *
- * The aggregates, the two channel statements and both hygiene reports ride one batch; only the top-notes
- * titles need a second flight, because which notes made the top ten is not known before the first.
+ * The ranking and the card's ceiling live here rather than in the store because they are a presentation
+ * choice — which ten of the account's links a reader is shown — while the titles are the one second
+ * flight the batch cannot predict.
  */
-async function loadGlobalAnalytics(
-  database: D1Database,
-  userId: string,
-  ctx: AnalyticsContext,
-  acknowledgedAt: number | null,
-): Promise<ShareGlobalAnalytics> {
-  const scope: VisitScope = { userId }
-  const [
-    summaryResult,
-    prevStatsResult,
-    filterStatsResult,
-    recentResult,
-    staleRowsResult,
-    expiredRowsResult,
-    channelResult,
-    channelLabelResult,
-    ...visitResults
-  ] = await database.batch([
-    shareSummaryStatement(database, userId, ctx.now),
-    prevVisitStatsStatement(database, userId, ctx.prevStartTs, ctx.startTs, ctx.clause),
-    visitFilterStatsStatement(database, userId, ctx.startTs),
-    recentVisitsStatement(database, { userId, startTs: ctx.startTs, clause: ctx.clause }),
-    staleLinksStatement(database, { userId, now: ctx.now }),
-    expiredLinksStatement(database, { userId, now: ctx.now, acknowledgedAt }),
-    channelBreakdownStatement(database, scope, ctx),
-    collectionChannelLabelsStatement(database, userId),
-    ...visitAggregateStatements(database, scope, ctx),
-  ])
-  const aggregate = visitAggregateFromResults(visitResults, ctx)
-  return composeGlobalAnalytics({
-    ctx,
-    aggregate,
-    summary: firstOf<ShareSummaryRow>(summaryResult),
-    prevStats: firstOf<PrevStatsRow>(prevStatsResult),
-    filterStats: firstOf<FilterStatsRow>(filterStatsResult),
-    topNotes: await loadTopNotes(database, userId, aggregate.targets),
-    recentVisits: toVisitLogs(rowsOf<VisitLogRow>(recentResult)),
-    staleLinks: composeStaleLinks(rowsOf<StaleLinkRow>(staleRowsResult)),
-    expiredLinks: composeExpiredLinks(acknowledgedAt, rowsOf<ExpiredLinkRow>(expiredRowsResult)),
-    channels: composeChannels(
-      rowsOf<ChannelCountRow>(channelResult),
-      aggregate.views,
-      collectionChannelLabels(rowsOf<CollectionLabelRow>(channelLabelResult)),
-    ),
-  })
+async function topNotesOf(
+  store: ShareAnalyticsStore,
+  targets: Map<string, VisitTargetStat>,
+): Promise<ShareGlobalAnalytics['topNotes']> {
+  const ranked = Array.from(targets, ([noteId, stat]) => ({ noteId, ...stat }))
+    .sort((left, right) => right.views - left.views || (left.noteId < right.noteId ? -1 : 1))
+    .slice(0, ANALYTICS_CARD_LIMIT)
+  if (!ranked.length) return []
+  const titles = await store.noteTitles(ranked.map((note) => note.noteId))
+  return ranked.map((note) => ({
+    noteId: note.noteId,
+    noteTitle: titles.get(note.noteId) ?? null,
+    slug: note.slug,
+    views: note.views,
+    visitors: note.visitors,
+  }))
+}
+
+/**
+ * Which link a log request narrows to, checked against the account that owns the store.
+ *
+ * An id and a slug together is a contradiction the caller should hear about; either alone is answered
+ * the same way whether it is malformed, foreign or simply absent, so the log is not a way to ask
+ * whether some other account published something.
+ */
+async function resolveVisitScope(
+  store: ShareAnalyticsStore,
+  rawNoteId: string | undefined,
+  rawSlug: string | undefined,
+): Promise<VisitLogScope> {
+  const noteId = rawNoteId?.trim() ?? ''
+  const slug = rawSlug?.trim() ?? ''
+  if (noteId && slug) throw ApiError.badRequest('The visit log narrows to one note id or one slug, not both')
+  if (noteId) {
+    if (!isValidId(noteId)) throw ApiError.badRequest('noteId is not a valid id')
+    if (!(await store.ownsNoteShare(noteId))) throw ApiError.notFound('Share or note not found')
+    return { noteId }
+  }
+  if (slug) {
+    if (!isValidSlug(slug)) throw ApiError.badRequest('slug is not a valid link address')
+    if (!(await store.ownsShareSlug(slug))) throw ApiError.notFound('The link does not exist')
+    return { slug }
+  }
+  return {}
 }
 
 function composeGlobalAnalytics(params: {
@@ -526,123 +422,6 @@ function breakdownsOf(
   }
 }
 
-/**
- * The links the aggregate put in the window, with their titles.
- *
- * Equal view counts have no order out of a `GROUP BY`, so ties break by note id and the card is the same
- * list on two requests. The titles come from one `IN (...)` read of this account's own notes, so a link
- * whose note row is gone keeps a `null` title and the client labels it.
- */
-async function loadTopNotes(
-  database: D1Database,
-  userId: string,
-  targets: Map<string, VisitTargetStat>,
-): Promise<ShareGlobalAnalytics['topNotes']> {
-  const ranked = Array.from(targets, ([noteId, stat]) => ({ noteId, ...stat }))
-    .sort((a, b) => b.views - a.views || (a.noteId < b.noteId ? -1 : 1))
-    .slice(0, ANALYTICS_CARD_LIMIT)
-  if (!ranked.length) return []
-  const placeholders = ranked.map((_, index) => `?${index + 2}`).join(', ')
-  const noteRows = await database
-    .prepare(`SELECT id, title FROM notes WHERE user_id = ?1 AND id IN (${placeholders})`)
-    .bind(userId, ...ranked.map((note) => note.noteId))
-    .all<{ id: string; title: string }>()
-  const titles = new Map((noteRows.results ?? []).map((row) => [row.id, row.title]))
-  return ranked.map((note) => ({
-    noteId: note.noteId,
-    noteTitle: titles.get(note.noteId) ?? null,
-    slug: note.slug,
-    views: note.views,
-    visitors: note.visitors,
-  }))
-}
-
-/**
- * The two link counts the dashboard's header prints.
- *
- * `active` is the shared rule rather than a condition of its own, and no `SUM(views)` is selected: the
- * reading beside this row is measured over `share_visits`, so a counter that disagrees with the log it sits
- * next to is not an answer either of them wants. A dead column is also a column nobody tests.
- */
-function shareSummaryStatement(database: D1Database, userId: string, now: number): D1PreparedStatement {
-  const active = statusFragment('active', now, 2)
-  return database
-    .prepare(
-      `SELECT COUNT(*) AS total_shares,
-              COUNT(CASE WHEN ${active.sql} THEN 1 END) AS active_shares
-         FROM shares s JOIN notes n ON n.id = s.note_id AND n.user_id = s.user_id
-        WHERE s.user_id = ?1 AND n.deleted_at IS NULL`,
-    )
-    .bind(userId, ...active.binds)
-}
-
-function noteShareStatement(database: D1Database, userId: string, noteId: string): D1PreparedStatement {
-  return database
-    .prepare(
-      `SELECT s.*, n.title AS note_title
-         FROM shares s LEFT JOIN notes n ON n.id = s.note_id AND n.user_id = s.user_id
-        WHERE s.note_id = ?1 AND s.user_id = ?2`,
-    )
-    .bind(noteId, userId)
-}
-
-/** The same window one step earlier, for the two trend badges. */
-function prevVisitStatsStatement(
-  database: D1Database,
-  userId: string,
-  prevStartTs: number,
-  startTs: number,
-  clause: string,
-): D1PreparedStatement {
-  return database
-    .prepare(
-      `SELECT COUNT(*) AS prev_views, ${VISITOR_COUNT_SQL} AS prev_uv
-         FROM share_visits
-        WHERE user_id = ?1 AND visited_at >= ?2 AND visited_at < ?3 ${clause}`,
-    )
-    .bind(userId, prevStartTs, startTs)
-}
-
-/** How many rows the filters are hiding, so the dashboard can say what it left out. */
-function visitFilterStatsStatement(database: D1Database, userId: string, startTs: number): D1PreparedStatement {
-  return database
-    .prepare(
-      `SELECT COUNT(CASE WHEN is_bot = 1 THEN 1 END) AS bots,
-              COUNT(CASE WHEN is_self_referrer = 1 THEN 1 END) AS self_referrals,
-              COUNT(CASE WHEN is_owner = 1 THEN 1 END) AS owner
-         FROM share_visits
-        WHERE user_id = ?1 AND visited_at >= ?2`,
-    )
-    .bind(userId, startTs)
-}
-
-/**
- * The stale-links report: live links nobody has opened inside the threshold.
- *
- * The live rule is `shareStatusSql('active')`, so a link this card lists is a link the `active` category
- * counts, and the threshold is a bind rather than text folded into an expression.
- */
-function staleLinksStatement(
-  database: D1Database,
-  params: { userId: string; now: number },
-): D1PreparedStatement {
-  const active = statusFragment('active', params.now, 2)
-  const cutoff = params.now - STALE_THRESHOLD_DAYS * DAY_MS
-  return database
-    .prepare(
-      `SELECT s.note_id, s.slug, s.last_viewed_at, s.views, n.title AS note_title,
-              COUNT(*) OVER () AS stale_total,
-              SUM(CASE WHEN s.last_viewed_at IS NULL THEN 1 ELSE 0 END) OVER () AS never_viewed
-         FROM shares s
-         LEFT JOIN notes n ON n.id = s.note_id AND n.user_id = s.user_id
-        WHERE s.user_id = ?1 AND ${active.sql}
-          AND (s.last_viewed_at IS NULL OR s.last_viewed_at <= ?${active.nextBind})
-        ORDER BY COALESCE(s.last_viewed_at, 0), s.created_at, s.note_id
-        LIMIT ?${active.nextBind + 1}`,
-    )
-    .bind(params.userId, ...active.binds, cutoff, STALE_LINK_PAGE_SIZE)
-}
-
 function composeStaleLinks(rows: StaleLinkRow[]): ShareStaleLinks {
   return {
     thresholdDays: STALE_THRESHOLD_DAYS,
@@ -657,30 +436,6 @@ function composeStaleLinks(rows: StaleLinkRow[]): ShareStaleLinks {
       views: row.views,
     })),
   }
-}
-
-/**
- * The expiry notice: links that lapsed since the owner last dismissed it.
- *
- * The dismissal is one timestamp, so "new since the last time I looked" is `expires_at > acknowledgedAt` —
- * a link that expired again after being acknowledged comes back, and one acknowledged once stays gone.
- */
-function expiredLinksStatement(
-  database: D1Database,
-  params: { userId: string; now: number; acknowledgedAt: number | null },
-): D1PreparedStatement {
-  const expired = statusFragment('expired', params.now, 2)
-  return database
-    .prepare(
-      `SELECT s.note_id, s.slug, s.expires_at, n.title AS note_title, COUNT(*) OVER () AS expired_total
-         FROM shares s
-         LEFT JOIN notes n ON n.id = s.note_id AND n.user_id = s.user_id
-        WHERE s.user_id = ?1 AND ${expired.sql}
-          AND (?${expired.nextBind} IS NULL OR s.expires_at > ?${expired.nextBind})
-        ORDER BY s.expires_at DESC, s.slug
-        LIMIT ?${expired.nextBind + 1}`,
-    )
-    .bind(params.userId, ...expired.binds, params.acknowledgedAt, EXPIRED_LINK_PAGE_SIZE)
 }
 
 function composeExpiredLinks(acknowledgedAt: number | null, rows: ExpiredLinkRow[]): ShareExpiredLinks {
@@ -709,115 +464,11 @@ interface VisitLogScope {
 }
 
 /**
- * The link a log request narrows to, or nothing at all for the whole account.
- *
- * Whitespace counts as absent: a filter the client cleared arrives empty, and the account-wide reading is
- * what an empty filter means. A named link this account does not own is a 404 rather than an empty page, so
- * the log cannot be used to ask whether a note id or a slug belongs to somebody else.
- */
-async function resolveVisitScope(
-  database: D1Database,
-  userId: string,
-  rawNoteId: string | undefined,
-  rawSlug: string | undefined,
-): Promise<VisitLogScope> {
-  const noteId = rawNoteId?.trim() ?? ''
-  const slug = rawSlug?.trim() ?? ''
-  if (noteId && slug) throw ApiError.badRequest('The visit log narrows to one note id or one slug, not both')
-  if (noteId) {
-    if (!isValidId(noteId)) throw ApiError.badRequest('noteId is not a valid id')
-    const owned = await database
-      .prepare(`SELECT 1 AS found FROM shares WHERE note_id = ?1 AND user_id = ?2`)
-      .bind(noteId, userId)
-      .first<{ found: number }>()
-    if (!owned) throw ApiError.notFound('Share or note not found')
-    return { noteId }
-  }
-  if (slug) {
-    if (!isValidSlug(slug)) throw ApiError.badRequest('slug is not a valid link address')
-    const owned = await database
-      .prepare(`SELECT 1 AS found FROM shares WHERE slug = ?1 AND user_id = ?2`)
-      .bind(slug, userId)
-      .first<{ found: number }>()
-    if (!owned) throw ApiError.notFound('The link does not exist')
-    return { slug }
-  }
-  return {}
-}
-
-/**
  * The log's `WHERE`, built once for the page and for its count.
  *
  * Placeholders number from the account bind at `?1`, and every value is a bind; the only text spliced in is
  * the log filter, the live-link test and the module's own column list.
  */
-function visitLogWhere(params: {
-  userId: string
-  scope: VisitLogScope
-  filter: VisitLogFilter
-  channel: ChannelDrillDown
-}): { sql: string; binds: Array<string | number>; nextBind: number } {
-  const conditions = ['sv.user_id = ?1']
-  const binds: Array<string | number> = [params.userId]
-  let bind = 2
-  if (params.scope.noteId) {
-    conditions.push(`sv.note_id = ?${bind}`)
-    binds.push(params.scope.noteId)
-    bind += 1
-  }
-  if (params.scope.slug) {
-    conditions.push(`sv.slug = ?${bind}`)
-    binds.push(params.scope.slug)
-    bind += 1
-  }
-  if (params.channel.kind === 'unmarked') {
-    // The unmarked column holds no marker at all, so this condition carries no bind.
-    conditions.push('sv.channel IS NULL')
-  } else if (params.channel.kind === 'unrecognized') {
-    conditions.push(`sv.channel = ?${bind}`)
-    binds.push('')
-    bind += 1
-  } else if (params.channel.kind === 'token') {
-    conditions.push(`sv.channel = ?${bind}`)
-    binds.push(params.channel.token)
-    bind += 1
-  }
-  const filterCondition = visitLogFilterSql(params.filter, 'sv')
-  if (filterCondition) conditions.push(filterCondition)
-  conditions.push(liveLinkCondition('sv'))
-  return { sql: conditions.join(' AND '), binds, nextBind: bind }
-}
-
-/**
- * The count and the page, in one batch, from the same `WHERE`.
- *
- * At the shipped limits — `LIMITS.shareVisitsPageMax` pages of `LIMITS.shareVisitsPerPage` rows — the
- * largest `OFFSET` a caller can name is `(100 - 1) * 100 = 9 900` rows, four figures and every one of them
- * inside the index the walk uses. `page` beyond the ceiling is clamped, not refused, because a hub that
- * asks for a page past the end gets an empty last page rather than a 500.
- */
-function visitLogPageStatements(
-  database: D1Database,
-  where: { sql: string; binds: Array<string | number>; nextBind: number },
-  limit: number,
-  offset: number,
-): [D1PreparedStatement, D1PreparedStatement] {
-  return [
-    database
-      .prepare(`SELECT COUNT(*) AS total FROM share_visits sv WHERE ${where.sql}`)
-      .bind(...where.binds),
-    database
-      .prepare(
-        `SELECT ${VISIT_LOG_COLUMNS}
-           FROM share_visits sv
-           LEFT JOIN notes n ON n.id = sv.note_id AND n.user_id = sv.user_id
-          WHERE ${where.sql}
-          ORDER BY sv.visited_at DESC
-          LIMIT ?${where.nextBind} OFFSET ?${where.nextBind + 1}`,
-      )
-      .bind(...where.binds, limit, offset),
-  ]
-}
 
 /**
  * A visit row as the API answers it.
@@ -857,50 +508,6 @@ function toVisitLogs(rows: VisitLogRow[], noteTitle?: string | null): ShareVisit
   return rows.map((row) => toVisitLog(row, noteTitle))
 }
 
-/**
- * The recent list beside a dashboard: the same rows the log pages over, narrowed to the reading's own window
- * and traffic filters, so the two lists cannot show different traffic for the same heading.
- */
-function recentVisitsStatement(
-  database: D1Database,
-  params: { userId: string; noteId?: string; startTs: number; clause: string },
-): D1PreparedStatement {
-  const conditions = ['sv.user_id = ?1']
-  const binds: Array<string | number> = [params.userId]
-  let bind = 2
-  if (params.noteId) {
-    conditions.push(`sv.note_id = ?${bind}`)
-    binds.push(params.noteId)
-    bind += 1
-  }
-  conditions.push(`sv.visited_at >= ?${bind}`)
-  binds.push(params.startTs)
-  conditions.push(liveLinkCondition('sv'))
-  return database
-    .prepare(
-      `SELECT ${VISIT_LOG_COLUMNS}
-         FROM share_visits sv
-         LEFT JOIN notes n ON n.id = sv.note_id AND n.user_id = sv.user_id
-        WHERE ${conditions.join(' AND ')}${params.clause}
-        ORDER BY sv.visited_at DESC
-        LIMIT ${RECENT_VISITS_LIMIT}`,
-    )
-    .bind(...binds)
-}
-
-/** The ten categories the sidebar lists; each is one column of one row, in the order it shows them. */
-const STATUS_COUNT_COLUMNS: Record<Exclude<ShareStatusFilter, 'all'>, string> = {
-  active: 'active_shares',
-  pinned: 'pinned_shares',
-  starred: 'starred_shares',
-  paused: 'paused_shares',
-  password: 'password_shares',
-  expiring_soon: 'expiring_soon_shares',
-  expiring: 'expiring_shares',
-  permanent: 'permanent_shares',
-  expired: 'expired_shares',
-}
-
 export interface GlobalSummaryRow {
   total_shares: number
   active_shares: number
@@ -922,48 +529,6 @@ export interface GlobalSummaryRow {
  * the sidebar then numbered links its own list could not filter to. The joins mirror the hub's list — the
  * note row has to exist and be out of the trash, because `pinned` and `starred` are the note's columns.
  */
-function statusCountSelect(now: number): { sql: string; binds: Array<string | number> } {
-  const parts: string[] = []
-  const binds: Array<string | number> = []
-  let nextBind = 2
-  for (const [status, column] of Object.entries(STATUS_COUNT_COLUMNS) as Array<
-    [Exclude<ShareStatusFilter, 'all'>, string]
-  >) {
-    const fragment = statusFragment(status, now, nextBind)
-    parts.push(`COUNT(CASE WHEN ${fragment.sql} THEN 1 END) AS ${column}`)
-    binds.push(...fragment.binds)
-    nextBind = fragment.nextBind
-  }
-  return { sql: parts.join(',\n              '), binds }
-}
-
-function globalSummaryStatement(database: D1Database, userId: string, now: number): D1PreparedStatement {
-  const counts = statusCountSelect(now)
-  return database
-    .prepare(
-      `SELECT COUNT(*) AS total_shares,
-              ${counts.sql}
-         FROM shares s JOIN notes n ON n.id = s.note_id AND n.user_id = s.user_id
-        WHERE s.user_id = ?1 AND n.deleted_at IS NULL`,
-    )
-    .bind(userId, ...counts.binds)
-}
-
-/**
- * All-time traffic, both numbers in one statement.
- *
- * There is no fallback and no second source: a footer that printed the visit table's count one minute and
- * `SUM(shares.views)` the next would show a number whose meaning depends on a cache.
- */
-function visitTotalsStatement(database: D1Database, userId: string): D1PreparedStatement {
-  return database
-    .prepare(
-      `SELECT COUNT(*) AS total_views, ${VISITOR_COUNT_SQL} AS total_visitors
-         FROM share_visits sv
-        WHERE sv.user_id = ?1 AND ${liveLinkCondition('sv')}${visitTrafficSql(DEFAULT_TRAFFIC_FILTERS, 'sv')}`,
-    )
-    .bind(userId)
-}
 
 interface FolderCountRow {
   folder_id: string
@@ -971,54 +536,10 @@ interface FolderCountRow {
   shared_notes: number
 }
 
-/**
- * What each folder covers.
- *
- * "Shared" is the collection page's own rule — `active`, over a note that is not in the trash — so a folder
- * whose row says three cannot open on a page that lists two.
- */
-function folderCountsStatement(database: D1Database, userId: string, now: number): D1PreparedStatement {
-  const live = statusFragment('active', now, 2)
-  return database
-    .prepare(
-      `SELECT sf.id AS folder_id,
-              COUNT(CASE WHEN s.slug IS NOT NULL AND n.deleted_at IS NULL THEN 1 END) AS total_shares,
-              COUNT(CASE WHEN s.slug IS NOT NULL AND n.deleted_at IS NULL AND ${live.sql} THEN 1 END) AS shared_notes
-         FROM share_folders sf
-         LEFT JOIN shares s ON s.folder_id = sf.id AND s.user_id = sf.user_id
-         LEFT JOIN notes n ON n.id = s.note_id AND n.user_id = s.user_id
-        WHERE sf.user_id = ?1
-        GROUP BY sf.id`,
-    )
-    .bind(userId, ...live.binds)
-}
-
 interface TagCountRow {
   name: string
   total: number
   shared: number
-}
-
-/**
- * What each tag covers, by the same element test the list filter uses.
- *
- * `shareTagElementSql('s', 't.name')` asks whether the name is one element of the stored array; the
- * substring test it replaces counted `monthly-report` under a tag called `report`.
- */
-function tagCountsStatement(database: D1Database, userId: string, now: number): D1PreparedStatement {
-  const live = statusFragment('active', now, 2)
-  return database
-    .prepare(
-      `SELECT t.name AS name,
-              COUNT(CASE WHEN s.slug IS NOT NULL AND n.deleted_at IS NULL THEN 1 END) AS total,
-              COUNT(CASE WHEN s.slug IS NOT NULL AND n.deleted_at IS NULL AND ${live.sql} THEN 1 END) AS shared
-         FROM share_tags t
-         LEFT JOIN shares s ON s.user_id = t.user_id AND ${shareTagElementSql('s', 't.name')}
-         LEFT JOIN notes n ON n.id = s.note_id AND n.user_id = s.user_id
-        WHERE t.user_id = ?1
-        GROUP BY t.name`,
-    )
-    .bind(userId, ...live.binds)
 }
 
 /** The counts keyed for the sidebar, with the live half never ahead of the total. */

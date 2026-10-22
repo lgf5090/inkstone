@@ -22,6 +22,15 @@ const TARGET_COLUMN = 'note_id'
  */
 const OS_FALLBACK = 'other'
 
+/**
+ * The distinct-visitor measure, spelled once for the statements that count a window's UV with it.
+ *
+ * The empty-string guard is what keeps a visit that carried neither an address nor a user agent from
+ * becoming a visitor of its own, and a footer number that used a second copy of the expression would be
+ * one edit away from meaning something else than the timeline above it.
+ */
+export const VISITOR_COUNT_SQL = `COUNT(DISTINCT NULLIF(visitor_fp, ''))`
+
 export interface VisitScope {
   userId: string
   targetId?: string
@@ -172,12 +181,12 @@ export function visitAggregateStatements(
   const bucketWidth = query.duration / timelineBucketCount(query.range)
   return [
     db.prepare(
-      `SELECT COUNT(*) AS views, COUNT(DISTINCT NULLIF(visitor_fp, '')) AS visitors
+      `SELECT COUNT(*) AS views, ${VISITOR_COUNT_SQL} AS visitors
          FROM ${VISIT_TABLE} WHERE ${where.sql}`,
     ).bind(...where.binds),
     db.prepare(
       `SELECT CAST((visited_at - ?${where.startTsParam}) / ?${where.startTsParam + 1} AS INTEGER) AS bucket,
-              COUNT(*) AS views, COUNT(DISTINCT NULLIF(visitor_fp, '')) AS visitors
+              COUNT(*) AS views, ${VISITOR_COUNT_SQL} AS visitors
          FROM ${VISIT_TABLE}
         WHERE ${where.sql} AND visited_at < ?${where.startTsParam + 2}
         GROUP BY bucket`,
@@ -185,7 +194,7 @@ export function visitAggregateStatements(
     ...distributionStatements(db, where),
     db.prepare(
       `SELECT ${TARGET_COLUMN} AS target_id, COUNT(*) AS views,
-              COUNT(DISTINCT NULLIF(visitor_fp, '')) AS visitors, MAX(slug) AS slug
+              ${VISITOR_COUNT_SQL} AS visitors, MAX(slug) AS slug
          FROM ${VISIT_TABLE}
         WHERE ${where.sql} AND ${TARGET_COLUMN} IS NOT NULL
         GROUP BY ${TARGET_COLUMN}`,
