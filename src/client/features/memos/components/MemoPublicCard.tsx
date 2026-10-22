@@ -4,16 +4,9 @@ import type { Memo, MemoAttachment } from '@shared/memos/types'
 import { Avatar, Badge } from '../../../components/primitives'
 import { t } from '../../../lib/i18n'
 import { fullTime, shortTime } from '../../../lib/time'
+import { memoAttachmentUrl } from '../media'
 import { MemoAttachments } from './MemoAttachments'
 import { MemoBody } from './MemoBody'
-
-export function memoAttachmentUrl(url: string, shareToken: string): string {
-  const hashIndex = url.indexOf('#')
-  const base = hashIndex >= 0 ? url.slice(0, hashIndex) : url
-  const hash = hashIndex >= 0 ? url.slice(hashIndex) : ''
-  const separator = base.includes('?') ? '&' : '?'
-  return `${base}${separator}share=${encodeURIComponent(shareToken)}${hash}`
-}
 
 export function applyShareToken(memo: Memo, shareToken: string): Memo {
   const attachments: MemoAttachment[] = memo.attachments.map((attachment) => ({
@@ -106,11 +99,12 @@ export function MemoPublicCard({ memo, href }: MemoPublicCardProps): ReactElemen
 
 export interface MemoPublicArticleProps {
   memo: Memo
+  shareToken?: string
   backHref?: string
   backLabel?: string
 }
 
-export function MemoPublicArticle({ memo, backHref, backLabel }: MemoPublicArticleProps): ReactElement {
+export function MemoPublicArticle({ memo, shareToken, backHref, backLabel }: MemoPublicArticleProps): ReactElement {
   const createdMs = memo.createdAt * 1000
   const updatedMs = memo.updatedAt * 1000
   return (
@@ -139,7 +133,7 @@ export function MemoPublicArticle({ memo, backHref, backLabel }: MemoPublicArtic
           {t('memos.card.updated_at', { time: fullTime(updatedMs) })}
         </p>
       ) : null}
-      <MemoBody content={memo.content} className="mt-3" />
+      <MemoBody content={memo.content} shareToken={shareToken} className="mt-3" />
       <MemoTags tags={memo.tags} />
       <MemoAttachments attachments={memo.attachments} className="mt-3" />
     </article>

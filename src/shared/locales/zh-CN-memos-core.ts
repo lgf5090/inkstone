@@ -120,7 +120,7 @@ export const ZH_CN_MEMOS_CORE = {
     "memos.composer.edit_time": "编辑 memo 时间",
     "memos.composer.timestamp": "memo 时间",
     "memos.composer.space": "空间",
-    "memos.composer.space_none": "不归属空间",
+    "memos.composer.space_none": "无空间",
     "memos.composer.space_unknown": "未知空间",
     "memos.composer.spaces_unavailable": "空间加载失败。",
     "memos.visibility.private": "私密",

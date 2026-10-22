@@ -30,7 +30,12 @@ async function accept(doc: string, code: string): Promise<string> {
     const host = document.createElement('div')
     document.body.append(host)
     const view: EditorView = new EditorView({ state, parent: host })
-    ;(option.apply as (target: EditorView) => void)(view)
+    ;(option.apply as (target: EditorView, completion: unknown, from: number, to: number) => void)(
+        view,
+        option,
+        result!.from,
+        view.state.selection.main.head,
+    )
     const text = view.state.doc.toString()
     const caret = view.state.selection.main.head
     view.destroy()
@@ -69,6 +74,27 @@ describe('emoji completion', () => {
         const state = EditorState.create({ doc: ':roc', selection: EditorSelection.cursor(4) })
         const result = emojiSource(new CompletionContext(state, 4, true))
         expect(await result).not.toBeNull()
+    })
+
+    it('replaces letters typed while the list was still loading', async () => {
+        const { result, state } = await completeAt(':sm')
+        const option = result!.options[0]!
+        const host = document.createElement('div')
+        document.body.append(host)
+        const view: EditorView = new EditorView({ state, parent: host })
+        view.dispatch({
+            changes: { from: 3, insert: 'i' },
+            selection: { anchor: 4 },
+        })
+        ;(option.apply as (target: EditorView, completion: unknown, from: number, to: number) => void)(
+            view,
+            option,
+            result!.from,
+            view.state.selection.main.head,
+        )
+        expect(view.state.doc.toString()).toBe(option.label)
+        view.destroy()
+        host.remove()
     })
 
     it('needs two letters before it interrupts typing', async () => {

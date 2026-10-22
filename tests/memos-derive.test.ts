@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   deriveMemoContentSearch,
+  deriveMemoPreview,
   deriveMemoSnippet,
   deriveMemoTitle,
   scanMemoAttachmentIds,
@@ -23,6 +24,29 @@ describe('memo markdown derivation', () => {
     const content = '# Launch plan\n\nShip **the** thing.\n\n- [ ] write notes'
     expect(deriveMemoSnippet(content)).toBe('Ship the thing. write notes')
     expect(deriveMemoContentSearch('Hello WORLD')).toBe('hello world')
+  })
+
+  it('flattens tables and drops block math from the snippet', () => {
+    const content = [
+      'Look:',
+      '',
+      '| Item | Owner |',
+      '| --- | --- |',
+      '| Import | Lin |',
+      '',
+      '$$',
+      '\\sum_{i=1}^{n} i',
+      '$$',
+      '',
+      'Inline $E = mc^2$ stays readable.',
+    ].join('\n')
+    expect(deriveMemoSnippet(content)).toBe(
+      'Item Owner Import Lin Inline E = mc^2 stays readable.',
+    )
+    expect(deriveMemoPreview(content)).toBe(
+      'Look: Item Owner Import Lin Inline E = mc^2 stays readable.',
+    )
+    expect(deriveMemoPreview('One line memo')).toBe('One line memo')
   })
 
   it('scans hierarchical, CJK, and emoji tags with their ancestors', () => {

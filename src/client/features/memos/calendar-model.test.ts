@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { compileMemoFilter } from '@shared/memos/filter'
 import type { Memo } from '@shared/memos/types'
 import {
   addMemoCalendarDays,
@@ -6,6 +7,7 @@ import {
   groupMemosByDay,
   memoCalendarDateKey,
   memoCalendarPath,
+  memoCreatedRangeFilter,
   memoDayKeyInTimeZone,
   memoDayStartSeconds,
   memoMonthGridRows,
@@ -87,6 +89,44 @@ describe('memo calendar date resolution', () => {
       invalidDay: true,
     })
     expect(resolveMemoCalendarDate({ year: 2024, month: 2, day: 29 }, now).invalidDay).toBe(false)
+  })
+})
+
+describe('memo month filters', () => {
+  it('writes month bounds as timestamp literals the filter parser accepts', () => {
+    const start = Date.UTC(2026, 9, 1) / 1000
+    const end = Date.UTC(2026, 10, 1) / 1000
+    const expression = memoCreatedRangeFilter(start, end)
+    expect(expression).toBe(
+      'created_ts >= timestamp("2026-10-01T00:00:00.000Z")'
+      + ' && created_ts < timestamp("2026-11-01T00:00:00.000Z")',
+    )
+    const compiled = compileMemoFilter(expression)
+    expect(compiled.ok).toBe(true)
+    if (!compiled.ok) return
+    const context = { viewerId: 'viewer', now: end, timeZone: 'UTC' }
+    const record = {
+      id: 'memo',
+      creatorId: 'viewer',
+      content: '',
+      tags: [],
+      visibility: 'private' as const,
+      pinned: false,
+      spaceId: null,
+      size: 0,
+      hasLink: false,
+      hasCode: false,
+      hasTaskList: false,
+      hasIncompleteTasks: false,
+      hasLocation: false,
+      createdAt: Date.UTC(2026, 9, 15) / 1000,
+      updatedAt: Date.UTC(2026, 9, 15) / 1000,
+    }
+    expect(compiled.filter.matches(record, context)).toBe(true)
+    expect(compiled.filter.matches(
+      { ...record, createdAt: Date.UTC(2026, 10, 1) / 1000 },
+      context,
+    )).toBe(false)
   })
 })
 

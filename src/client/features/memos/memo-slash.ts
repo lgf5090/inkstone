@@ -33,7 +33,6 @@ export const MEMO_SLASH_ACTIONS: readonly MemoSlashAction[] = [
 ]
 
 const SLASH_TOKEN_RE = /\/[A-Za-z0-9]*$/
-const SLASH_VALID_RE = /^[A-Za-z0-9]*$/
 const WORD_BOUNDARY_RE = /[\s(\uFF08\u3010\u300C\u300E\uFF0C,\u3001;\uFF1B]/
 const EXISTING_PREFIX_RE = /^(?:#{1,6}\s+|[-*+]\s+(?:\[[ xX]\]\s+)?|>\s+|\d+\.\s+)/
 
@@ -104,6 +103,5 @@ export function memoSlashSource(context: CompletionContext): CompletionResult | 
     from: before.from + 1,
     options,
     filter: false,
-    validFor: SLASH_VALID_RE,
   }
 }

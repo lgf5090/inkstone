@@ -1,9 +1,13 @@
-import { useMemo, type KeyboardEvent, type MouseEvent, type ReactElement } from 'react'
+import { useEffect, useMemo, useRef, type KeyboardEvent, type MouseEvent, type ReactElement } from 'react'
 import { MEMOS_APP_PATH } from '@shared/memos/constants'
 import type { MemoTagRule } from '@shared/memos/types'
 import { cn } from '../../../lib/cn'
 import { decodeDataValue } from '../../../lib/markdown/data-attr'
+import { enhancePreview } from '../../../lib/markdown/enhance'
+import { registerFenceBodies } from '../../../lib/markdown/fence-bodies'
 import { renderMarkdown } from '../../../lib/markdown/renderer'
+import { useUi } from '../../../store/ui'
+import { memoAttachmentUrl } from '../media'
 import { findMentionRanges } from '../mentions'
 import { matchingMemoTagRule } from '../tag-rules'
 import { findMemoTasks, toggleMemoTask } from '../task-toggle'
@@ -12,6 +16,7 @@ const NO_TAG_RULES: readonly MemoTagRule[] = []
 
 export interface MemoBodyProps {
   content: string
+  shareToken?: string
   tagRules?: readonly MemoTagRule[]
   onTagPress?: (tag: string) => void
   onToggleTask?: (nextContent: string) => void
@@ -64,15 +69,27 @@ function paintTagRules(root: DocumentFragment, tagRules: readonly MemoTagRule[])
   }
 }
 
-function memoHtml(
+function shareAttachmentUrls(root: DocumentFragment, shareToken: string): void {
+  for (const anchor of root.querySelectorAll<HTMLAnchorElement>('a[href*="/api/memos/files/"]')) {
+    const href = anchor.getAttribute('href')
+    if (href) anchor.setAttribute('href', memoAttachmentUrl(href, shareToken))
+  }
+  for (const image of root.querySelectorAll<HTMLImageElement>('img[src*="/api/memos/files/"]')) {
+    const src = image.getAttribute('src')
+    if (src) image.setAttribute('src', memoAttachmentUrl(src, shareToken))
+  }
+}
+
+function memoMarkup(
   content: string,
   interactiveTasks: boolean,
   tagRules: readonly MemoTagRule[],
-): string {
+  shareToken: string | undefined,
+) {
   const rendered = renderMarkdown(content, { hideFrontMatter: true })
   const hasTags = tagRules.length > 0 && rendered.html.includes('data-tag=')
-  if (!rendered.html.includes('task-list-item-checkbox') && !rendered.html.includes('@') && !hasTags) {
-    return rendered.html
+  if (!shareToken && !rendered.html.includes('task-list-item-checkbox') && !rendered.html.includes('@') && !hasTags) {
+    return { html: rendered.html, fences: rendered.fences }
   }
   const frame = document.createElement('template')
   frame.innerHTML = rendered.html
@@ -83,22 +100,48 @@ function memoHtml(
   }
   linkMentions(frame.content)
   if (hasTags) paintTagRules(frame.content, tagRules)
-  return frame.innerHTML
+  if (shareToken) shareAttachmentUrls(frame.content, shareToken)
+  return { html: frame.innerHTML, fences: rendered.fences }
 }
 
 export function MemoBody({
   content,
+  shareToken,
   tagRules = NO_TAG_RULES,
   onTagPress,
   onToggleTask,
   className,
 }: MemoBodyProps): ReactElement | null {
   const interactiveTasks = onToggleTask !== undefined
-  const html = useMemo(
-    () => (content.trim() ? memoHtml(content, interactiveTasks, tagRules) : ''),
-    [content, interactiveTasks, tagRules],
+  const markup = useMemo(
+    () => (content.trim() ? memoMarkup(content, interactiveTasks, tagRules, shareToken) : null),
+    [content, interactiveTasks, tagRules, shareToken],
   )
-  if (!html) return null
+  const hostRef = useRef<HTMLDivElement>(null)
+  const theme = useUi((state) => state.theme)
+  const dark = theme === 'dark'
+    || (theme === 'system' && typeof window !== 'undefined'
+      && typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-color-scheme: dark)').matches)
+
+  useEffect(() => {
+    const host = hostRef.current
+    if (!host || !markup) return
+    registerFenceBodies(host, markup.fences)
+    void enhancePreview(host, {
+      math: true,
+      mermaid: true,
+      chart: false,
+      kanban: 'snapshot',
+      mindmap: 'source',
+      excalidraw: 'source',
+      dataview: 'source',
+      dark,
+      codeBlockCollapseLines: 0,
+    })
+  }, [markup, dark])
+
+  if (!markup) return null
   const onClick = (event: MouseEvent<HTMLDivElement>): void => {
     const target = event.target instanceof Element ? event.target : null
     if (!target) return
@@ -137,10 +180,11 @@ export function MemoBody({
   }
   return (
     <div
-      className={cn('ink-prose min-w-0 text-[length:var(--text-13)]', className)}
+      ref={hostRef}
+      className={cn('ink-prose ink-memo-prose min-w-0 text-[length:var(--text-13)]', className)}
       onClick={onClick}
       onKeyDown={onKeyDown}
-      dangerouslySetInnerHTML={{ __html: html }}
+      dangerouslySetInnerHTML={{ __html: markup.html }}
     />
   )
 }

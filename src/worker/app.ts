@@ -111,18 +111,21 @@ export function createApp() {
   app.route('/api/auth/totp', totpRoutes)
   app.route('/api/auth', authRoutes)
   app.route('/api/notes', notesRoutes)
+  // Public reads and share-authorized files must be registered before the authenticated
+  // `/api/memos` mounts: a mounted app's `use('*')` would otherwise turn an anonymous
+  // share page into a 401 before these routes ever see it.
+  app.route('/api/memos/public', memoPublicDataRoutes)
+  app.route('/api/memos/files', memoFileRoutes)
   app.route('/api/memos/spaces', memoSpaceRoutes)
   app.route('/api/memos/views', memoViewRoutes)
   app.route('/api/memos/tokens', memoTokenRoutes)
   app.route('/api/memos/preferences', memoPreferenceRoutes)
   app.route('/api/memos/webhooks', memoWebhookRoutes)
   app.route('/api/memos', memoTransferRoutes)
-  app.route('/api/memos/public', memoPublicDataRoutes)
   app.route('/api/memos/stats', memoStatsRoutes)
   app.route('/api/memos/ai', memoAiRoutes)
   app.route('/api/memos/link-metadata', memoLinkMetaRoutes)
   app.route('/api/memos/attachments', memoAttachmentRoutes)
-  app.route('/api/memos/files', memoFileRoutes)
   app.route('/api/memos', memoShareRoutes)
   app.route('/api/memos', memoReactionRoutes)
   app.route('/api/memos', memoListRoutes)

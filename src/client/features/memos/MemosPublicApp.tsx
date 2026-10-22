@@ -264,6 +264,7 @@ function PublicMemoPage(props: PublicMemoProps): ReactElement {
   return (
     <MemoPublicArticle
       memo={memo}
+      shareToken={props.kind === 'share' ? props.token : undefined}
       backHref={props.kind === 'profileMemo' ? `/memos/u/${encodeURIComponent(props.username)}` : undefined}
       backLabel={props.kind === 'profileMemo' ? t('memos.public.back_to_profile') : undefined}
     />

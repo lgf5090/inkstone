@@ -228,6 +228,11 @@ export function memoDayStartSeconds(
   return seconds
 }
 
+export function memoCreatedRangeFilter(start: number, end: number): string {
+  return `created_ts >= timestamp("${new Date(start * 1000).toISOString()}")`
+    + ` && created_ts < timestamp("${new Date(end * 1000).toISOString()}")`
+}
+
 export function memoMonthRangeSeconds(
   year: number,
   month: number,

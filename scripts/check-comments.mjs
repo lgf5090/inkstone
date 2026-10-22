@@ -18972,6 +18972,7 @@ const allowed = new Map([
     "/* An embedded conversation: a transcript, not a document. Roles are told apart by a left edge and a\n   label, because the note's own prose is what should stay the loudest thing on the page. */",
     "/* The label of a quoted turn opens that turn: a note arguing with one exchange should not land the\n   reader at the top of a long thread and leave them to find it. */",
     "/*\n * WCAG 2.5.8 wants 24 by 24 CSS pixels of target, and a task box is painted at 1.05em (17 at the\n * default prose size) because a taller box would push every line of the list apart. So the drawn box\n * stays and the tappable area grows around it — the same invisible overlay `.ink-tap-pad` uses, here\n * on `::before` because `::after` is the check mark. It reaches into the first pixels of the label,\n * which is prose rather than a control, and a query row's own neighbour is 8px further out.\n */",
+    "/* Memo cards, comments and the detail panel are surfaces inside the app, not the note page: the\n   reading column's 42vh tail turned a one-line comment into a 308px card (232px of it blank). */",
   ]],
   ["src/client/styles/reading.css", [
     "/**\n * The reading surface.\n *\n * Two things here are not decoration and are worth the comments, because both look like a bug in the\n * other direction when they are changed: the column geometry that turns flowing text into pages, and\n * the HUD's habit of floating over the page instead of reserving a row.\n */",
@@ -20509,6 +20510,9 @@ const allowed = new Map([
     "// A 1xx handshake response carries the socket, and Hono rebuilds the Response to",
     "// mutate its headers — which the Response constructor rejects below 200.",
     "// Outside the API prefix on purpose, and the path is shared with the settings screen that prints it.",
+    "// Public reads and share-authorized files must be registered before the authenticated",
+    "// `/api/memos` mounts: a mounted app's `use('*')` would otherwise turn an anonymous",
+    "// share page into a 401 before these routes ever see it.",
   ]],
   ["src/worker/assistant/attachments.ts", [
     "/**\n * The token each attachment line starts with.\n *\n * It is English on purpose: this block is model-facing prompt text, never the reader's UI, and the\n * reader's own labels come from the locale catalog the composer draws.\n */",

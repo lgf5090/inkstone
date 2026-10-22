@@ -10,6 +10,7 @@ import {
 } from 'react'
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import { MEMO_MAX_PAGE_SIZE, MEMOS_APP_PATH } from '@shared/memos/constants'
+import { deriveMemoPreview } from '@shared/memos/markdown'
 import type { Memo } from '@shared/memos/types'
 import { heatCell } from '../../../components/activity-calendar/heat-cell'
 import { Empty, Skeleton } from '../../../components/feedback'
@@ -34,6 +35,7 @@ import {
   groupMemosByDay,
   memoCalendarDateKey,
   memoCalendarPath,
+  memoCreatedRangeFilter,
   memoDayStartSeconds,
   memoMonthGridRows,
   memoMonthHeatLevels,
@@ -102,7 +104,7 @@ export function MemoCalendarPage({ onOpenMemo }: MemoCalendarPageProps): ReactEl
   )
   const monthMemos = useMemoResource(
     (signal) => memosApi.list({
-      filter: `created_ts >= ${range.start} && created_ts < ${range.end}`,
+      filter: memoCreatedRangeFilter(range.start, range.end),
       limit: MEMO_MAX_PAGE_SIZE,
       orderBy: 'created',
       order: 'asc',
@@ -498,7 +500,7 @@ export function MemoCalendarPage({ onOpenMemo }: MemoCalendarPageProps): ReactEl
               {dayMemos.length > 0 ? (
                 <ul className="mt-2 space-y-0.5">
                   {dayMemos.map((memo) => {
-                    const preview = memo.snippet.trim() || memo.content.trim()
+                    const preview = deriveMemoPreview(memo.content)
                     const href = `${MEMOS_APP_PATH}/m/${encodeURIComponent(memo.id)}`
                     const time = timeFormatter.format(new Date(memo.createdAt * 1000))
                     return (

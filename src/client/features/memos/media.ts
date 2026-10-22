@@ -21,6 +21,14 @@ export function isDocumentAttachment(attachment: MemoAttachment): boolean {
   return !isMediaAttachment(attachment) && !isAudioAttachment(attachment)
 }
 
+export function memoAttachmentUrl(url: string, shareToken: string): string {
+  const hashIndex = url.indexOf('#')
+  const base = hashIndex >= 0 ? url.slice(0, hashIndex) : url
+  const hash = hashIndex >= 0 ? url.slice(hashIndex) : ''
+  const separator = base.includes('?') ? '&' : '?'
+  return `${base}${separator}share=${encodeURIComponent(shareToken)}${hash}`
+}
+
 export function motionVideoUrl(attachment: MemoAttachment): string | null {
   if (attachment.motion?.role !== 'still') return null
   return `${attachment.url}${attachment.url.includes('?') ? '&' : '?'}motion=1`

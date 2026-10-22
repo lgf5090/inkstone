@@ -6,6 +6,8 @@ const MEMO_SNIPPET_MAX_LENGTH = 200
 const ATTACHMENT_URL_PREFIX = `${MEMOS_API_PREFIX}/files/`
 
 const FENCE_PATTERN = /^[ \t]{0,3}(`{3,}|~{3,})/
+const MATH_FENCE_PATTERN = /^[ \t]{0,3}\$\$[ \t]*$/
+const TABLE_SEPARATOR_PATTERN = /^[ \t]*\|?[ \t]*:?-{3,}:?[ \t]*(?:\|[ \t]*:?-{3,}:?[ \t]*)+\|?[ \t]*$/
 const HEADING_PATTERN = /^[ \t]{0,3}#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$/
 const HORIZONTAL_RULE_PATTERN = /^[ \t]{0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/
 const TASK_PATTERN = /^[ \t]*(?:[-*+]|\d+[.)])[ \t]+\[([ xX])\](?:[ \t]+\S|$)/gm
@@ -232,6 +234,7 @@ function plainInline(value: string): string {
     .replace(/`+([^`\n]*)`+/gu, '$1')
     .replace(/<\/?[A-Za-z][^>]*>/gu, '')
     .replace(/[*_~]{1,3}/gu, '')
+    .replace(/\$([^$\n]+)\$/gu, '$1')
     .replace(/\\([\\`*_{}[\]()#+\-.!>])/gu, '$1')
     .replace(/\s+/gu, ' ')
     .trim()
@@ -269,7 +272,7 @@ export function deriveMemoTitle(content: string): string {
       }
       continue
     }
-    if (!inFence) visible.push(line)
+    if (!inFence && !MATH_FENCE_PATTERN.test(line) && !TABLE_SEPARATOR_PATTERN.test(line)) visible.push(line)
   }
 
   for (const line of visible) {
@@ -289,6 +292,7 @@ export function deriveMemoTitle(content: string): string {
 function memoPlainText(content: string): string {
   const lines: string[] = []
   let inFence = false
+  let inMath = false
   let fenceChar = ''
   let fenceLength = 0
   for (const rawLine of content.split('\n')) {
@@ -305,11 +309,24 @@ function memoPlainText(content: string): string {
       }
       continue
     }
-    if (HORIZONTAL_RULE_PATTERN.test(line)) continue
-    const text = inFence ? line.trim() : plainInline(blockLead(line))
+    if (MATH_FENCE_PATTERN.test(line)) {
+      inMath = !inMath
+      continue
+    }
+    if (inMath || HORIZONTAL_RULE_PATTERN.test(line) || TABLE_SEPARATOR_PATTERN.test(line)) continue
+    const cellText = /^[ \t]*\|.*\|[ \t]*$/.test(line)
+      ? line.replace(/^[ \t]*\|/, '').replace(/\|[ \t]*$/, '').split('|').map((cell) => cell.trim()).filter(Boolean).join(' ')
+      : line
+    const text = inFence ? line.trim() : plainInline(blockLead(cellText))
     if (text) lines.push(text)
   }
   return lines.join(' ').replace(/\s+/gu, ' ').trim()
+}
+
+export function deriveMemoPreview(content: string): string {
+  const text = memoPlainText(content)
+  if (text.length <= MEMO_SNIPPET_MAX_LENGTH) return text
+  return `${truncateText(text, MEMO_SNIPPET_MAX_LENGTH).trimEnd()}\u2026`
 }
 
 export function deriveMemoSnippet(content: string): string {
