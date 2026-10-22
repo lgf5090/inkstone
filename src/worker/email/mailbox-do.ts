@@ -1,7 +1,14 @@
 import { DurableObject } from 'cloudflare:workers'
 import type { Env } from '../env'
 import { applyMailboxMigrations, type SqlExec } from './mailbox-schema'
-import { MailboxStore, type EmailData, type ListOptions, type SearchOptions } from './mailbox-store'
+import {
+  MailboxStore,
+  type EmailData,
+  type EmailRestoreData,
+  type FolderRestoreData,
+  type ListOptions,
+  type SearchOptions,
+} from './mailbox-store'
 
 export class EmailMailbox extends DurableObject<Env> {
   private readonly store: MailboxStore
@@ -17,6 +24,9 @@ export class EmailMailbox extends DurableObject<Env> {
   createFolder(name: string) { return this.store.createFolder(name) }
   updateFolder(id: string, name: string) { return this.store.updateFolder(id, name) }
   deleteFolder(id: string, deleteEmails = false) { return this.store.deleteFolder(id, deleteEmails) }
+  listAllEmails() { return this.store.listAllEmails() }
+  importFolder(folder: FolderRestoreData) { return this.store.importFolder(folder) }
+  importEmail(email: EmailRestoreData) { return this.store.importEmail(email) }
   getEmails(options: ListOptions = {}) { return this.store.getEmails(options) }
   countEmails(options: { folder?: string; threadId?: string } = {}) { return this.store.countEmails(options) }
   getThreadedEmails(options: ListOptions = {}) { return this.store.getThreadedEmails(options) }

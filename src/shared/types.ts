@@ -396,6 +396,11 @@ export interface BackupSettings {
   schedule: BackupSchedule
   retentionCount: number
 }
+
+export interface EmailBackupSettings {
+  enabled: boolean
+  includeAttachments: boolean
+}
 export interface SyncSettings {
   realtime: boolean
   pollIntervalMs: number
@@ -534,6 +539,7 @@ export interface UserSettings {
   preview: PreviewSettings
   properties: PropertySettings
   backup: BackupSettings
+  emailBackup: EmailBackupSettings
   sync: SyncSettings
   notes: NotesSettings
   search: SearchSettings
@@ -1194,6 +1200,12 @@ export interface ImportResult {
   createdAttachments: number
   skippedAttachments: number
   warnings: string[]
+  emailAccounts?: number
+  emailMessages?: number
+  emailCreatedMessages?: number
+  emailSkippedMessages?: number
+  emailAttachments?: number
+  emailMissingAttachments?: number
 }
 
 
@@ -1207,6 +1219,7 @@ export interface McpPreferences {
    * default the column carries, so a reader who has never seen the switch keeps what keys already had.
    */
   todoReadEnabled?: boolean
+  emailEnabled?: boolean
   /**
    * The server's own tools the reader has switched off, by the name the server registers them under.
    *

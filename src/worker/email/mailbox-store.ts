@@ -65,6 +65,21 @@ export interface FolderRow {
   unread_count?: number
 }
 
+export interface FolderRestoreData {
+  id: string
+  name: string
+  isDeletable: boolean
+  createdAt: number
+}
+
+export interface EmailRestoreData extends EmailData {
+  folderId: string
+  receivedAt: number
+  deletedAt: number | null
+  createdAt: number
+  updatedAt: number
+}
+
 export interface ListOptions {
   folder?: string
   threadId?: string
@@ -185,6 +200,72 @@ export class MailboxStore {
     if (this.storage) this.storage.transactionSync(run)
     else run()
     return { deletedMessageIds }
+  }
+
+  listAllEmails(): EmailRow[] {
+    return this.rows<EmailRow>(`SELECT * FROM email_messages ORDER BY id ASC`)
+  }
+
+  importFolder(folder: FolderRestoreData): boolean {
+    const existing = this.one<{ id: string }>(`SELECT id FROM email_folders WHERE id = ?1`, folder.id)
+    if (existing) return false
+    const named = this.one<{ id: string }>(
+      `SELECT id FROM email_folders WHERE name = ?1 COLLATE NOCASE`,
+      folder.name,
+    )
+    if (named) return false
+    this.sql.exec(
+      `INSERT INTO email_folders (id, name, is_deletable, created_at) VALUES (?1, ?2, ?3, ?4)`,
+      folder.id,
+      folder.name,
+      folder.isDeletable ? 1 : 0,
+      folder.createdAt,
+    )
+    return true
+  }
+
+  importEmail(email: EmailRestoreData): boolean {
+    const existing = this.one<{ id: string }>(`SELECT id FROM email_messages WHERE id = ?1`, email.id)
+    if (existing) return false
+    const folder = this.one<{ id: string }>(`SELECT id FROM email_folders WHERE id = ?1`, email.folderId)
+    if (!folder) return false
+    this.sql.exec(
+      `INSERT INTO email_messages (
+         id, folder_id, subject, sender, recipient, cc, bcc, date, received_at,
+         read, starred, body, body_source, in_reply_to, email_references, thread_id,
+         message_id, raw_headers, delivery_status, delivery_error, provider_message_id,
+         attachments_skipped, has_attachment, size, deleted_at, created_at, updated_at
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
+         ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)`,
+      email.id,
+      email.folderId,
+      email.subject,
+      email.sender,
+      email.recipient,
+      email.cc ?? null,
+      email.bcc ?? null,
+      email.date,
+      email.receivedAt,
+      email.read ? 1 : 0,
+      email.starred ? 1 : 0,
+      email.body,
+      email.bodySource ?? null,
+      email.inReplyTo ?? null,
+      email.emailReferences ?? null,
+      email.threadId ?? null,
+      email.messageId ?? null,
+      email.rawHeaders ?? null,
+      email.deliveryStatus ?? null,
+      email.deliveryError ?? null,
+      email.providerMessageId ?? null,
+      email.attachmentsSkipped ? 1 : 0,
+      email.hasAttachment ? 1 : 0,
+      email.size ?? 0,
+      email.deletedAt,
+      email.createdAt,
+      email.updatedAt,
+    )
+    return true
   }
 
   getEmails(options: ListOptions = {}): EmailRow[] {

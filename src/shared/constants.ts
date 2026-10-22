@@ -396,6 +396,10 @@ export const DEFAULT_SETTINGS: UserSettings = {
     schedule: 'sixHourly',
     retentionCount: 0,
   },
+  emailBackup: {
+    enabled: true,
+    includeAttachments: false,
+  },
   sync: {
     realtime: true,
     pollIntervalMs: 15_000,
@@ -887,6 +891,7 @@ export function mergeSettings(partial: unknown): UserSettings {
   const preview = asRecord(src.preview)
   const properties = asRecord(src.properties)
   const backup = asRecord(src.backup)
+  const emailBackup = asRecord(src.emailBackup)
   const sync = asRecord(src.sync)
   const notes = asRecord(src.notes)
   const search = asRecord(src.search)
@@ -1233,6 +1238,11 @@ export function mergeSettings(partial: unknown): UserSettings {
     base.backup.schedule,
   )
   base.backup.retentionCount = integerInRange(backup.retentionCount, 0, 1000, base.backup.retentionCount)
+  base.emailBackup.enabled = booleanValue(emailBackup.enabled, base.emailBackup.enabled)
+  base.emailBackup.includeAttachments = booleanValue(
+    emailBackup.includeAttachments,
+    base.emailBackup.includeAttachments,
+  )
 
   base.sync.realtime = booleanValue(sync.realtime, base.sync.realtime)
   base.sync.pollIntervalMs = integerInRange(
@@ -1690,6 +1700,7 @@ function cloneDefaultSettings(): UserSettings {
       selectOptions: {},
     },
     backup: { ...DEFAULT_SETTINGS.backup },
+    emailBackup: { ...DEFAULT_SETTINGS.emailBackup },
     sync: { ...DEFAULT_SETTINGS.sync },
     notes: { ...DEFAULT_SETTINGS.notes },
     search: {

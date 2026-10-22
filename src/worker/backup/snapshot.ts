@@ -15,7 +15,7 @@ import {
   MARKDOWN_BACKUP_FORMAT,
   MARKDOWN_BACKUP_VERSION,
 } from '@shared/backup-format'
-import { APP_VERSION, LIMITS } from '@shared/constants'
+import { APP_VERSION, LIMITS, mergeSettings } from '@shared/constants'
 import { formatBytes } from '@shared/byte-format'
 import { extractAttachmentIds } from '@shared/markdown-utils'
 import { truncateText } from '@shared/text-utils'
@@ -30,14 +30,16 @@ import {
 import { readBackupTemplates } from './templates'
 import { readBackupQuickAdd } from './quickadd'
 import { readBackupSubscriptions } from '../subscriptions/backup'
+import { readBackupEmail } from '../email/backup'
 import { attachmentObjectKey } from '../attachments/keys'
+import { storedObject } from '../lib/json'
 import { NOTE_COLUMNS_FULL, NOTE_CONTENT_COLUMNS, toFolder, toNote, toTag, type FolderRow, type NoteRow, type TagRow } from '../db/rows'
 import type { Env } from '../env'
 import { sha256Hex } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import { safeAttachmentMime } from '../lib/image'
 
-export type BackupFileKind = 'note' | 'attachment' | 'readme' | 'manifest' | 'complete' | 'templates' | 'automation' | 'subscriptions'
+export type BackupFileKind = 'note' | 'attachment' | 'readme' | 'manifest' | 'complete' | 'templates' | 'automation' | 'subscriptions' | 'email' | 'email-attachment'
 
 export interface BackupFile {
   path: string
@@ -248,6 +250,17 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
       'application/json; charset=utf-8',
       'subscriptions',
     )
+  const settingsRow = await env.DB.prepare(
+    `SELECT settings FROM users WHERE id = ?1`,
+  ).bind(userId).first<{ settings: string }>()
+  const emailBackup = mergeSettings(storedObject(settingsRow?.settings ?? '{}')).emailBackup
+  const emailResult = emailBackup.enabled
+    ? await readBackupEmail(env, userId, {
+      includeAttachments: emailBackup.includeAttachments,
+      snapshot: stamp,
+    })
+    : null
+  const emailFile = emailResult?.file ?? null
   const manifest: MarkdownBackupManifest = {
     format: MARKDOWN_BACKUP_FORMAT,
     version: MARKDOWN_BACKUP_VERSION,
@@ -264,6 +277,14 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
       : undefined,
     subscriptions: subscriptionsFile
       ? { path: subscriptionsFile.path, bytes: subscriptionsFile.byteLength, sha256: subscriptionsFile.sha256 }
+      : undefined,
+    email: emailFile
+      ? {
+        path: emailFile.path,
+        bytes: emailFile.byteLength,
+        sha256: emailFile.sha256,
+        includesAttachments: emailResult!.includesAttachments,
+      }
       : undefined,
   }
   if (!parseMarkdownBackupManifest(manifest)) {
@@ -284,7 +305,16 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
     'text/plain; charset=utf-8',
     'complete',
   )
-  const payloadFiles = [...noteFiles, ...attachmentFiles, readmeFile, ...(templatesFile ? [templatesFile] : []), ...(automationFile ? [automationFile] : []), ...(subscriptionsFile ? [subscriptionsFile] : [])]
+  const payloadFiles: BackupFile[] = [
+    ...noteFiles,
+    ...attachmentFiles,
+    readmeFile,
+    ...(templatesFile ? [templatesFile] : []),
+    ...(automationFile ? [automationFile] : []),
+    ...(subscriptionsFile ? [subscriptionsFile] : []),
+    ...(emailFile ? [emailFile] : []),
+    ...(emailResult?.attachments ?? []),
+  ]
   const allFiles = [...payloadFiles, manifestFile, completeFile]
 
   return {
@@ -314,6 +344,66 @@ async function loadReferencedAttachments(
         WHERE user_id = ?1 AND id IN (SELECT value FROM json_each(?2))`,
     ).bind(userId, JSON.stringify(chunk)).all<AttachmentSnapshotRow>()
     for (const row of results) target.set(row.id, row)
+  }
+}
+
+export async function buildEmailExportSnapshot(
+  env: Env,
+  userId: string,
+  accountId: string,
+): Promise<Snapshot> {
+  const now = new Date()
+  const stamp = formatStamp(now)
+  const email = await readBackupEmail(env, userId, {
+    includeAttachments: true,
+    snapshot: stamp,
+    accountId,
+  })
+  if (!email.file) throw new ApiError(404, 'email_account_not_found', 'Mailbox not found')
+  const manifest: MarkdownBackupManifest = {
+    format: MARKDOWN_BACKUP_FORMAT,
+    version: MARKDOWN_BACKUP_VERSION,
+    appVersion: APP_VERSION,
+    createdAt: now.toISOString(),
+    snapshot: stamp,
+    notes: [],
+    attachments: [],
+    email: {
+      path: email.file.path,
+      bytes: email.file.byteLength,
+      sha256: email.file.sha256,
+      includesAttachments: email.includesAttachments,
+    },
+  }
+  if (!parseMarkdownBackupManifest(manifest)) {
+    throw new Error('The email export contains metadata that cannot be restored safely')
+  }
+  const manifestFile = await staticFileAsync(
+    backupManifestPath(stamp),
+    encoder.encode(JSON.stringify(manifest, null, 2)),
+    'application/json; charset=utf-8',
+    'manifest',
+  )
+  if (manifestFile.byteLength > LIMITS.importUploadMaxBytes) {
+    throw new ApiError(413, 'email_export_too_large', 'The email export manifest is too large')
+  }
+  const completeFile = await staticFile(
+    backupCompletePath(stamp),
+    backupCompleteBody(manifestFile.sha256),
+    'text/plain; charset=utf-8',
+    'complete',
+  )
+  const payloadFiles: BackupFile[] = [email.file, ...email.attachments]
+  const allFiles = [...payloadFiles, manifestFile, completeFile]
+  return {
+    payloadFiles,
+    manifestFile,
+    completeFile,
+    noteCount: 0,
+    attachmentCount: email.attachmentCount,
+    bytes: allFiles.reduce((sum, file) => sum + file.byteLength, 0),
+    stamp,
+    createdAt: now,
   }
 }
 

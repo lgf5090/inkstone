@@ -1,5 +1,9 @@
 import { MailboxStore } from '../../src/worker/email/mailbox-store'
-import type { EmailData } from '../../src/worker/email/mailbox-store'
+import type {
+  EmailData,
+  EmailRestoreData,
+  FolderRestoreData,
+} from '../../src/worker/email/mailbox-store'
 
 export function fakeEmailMailboxNamespace(store: MailboxStore): DurableObjectNamespace {
   const stub = {
@@ -7,6 +11,9 @@ export function fakeEmailMailboxNamespace(store: MailboxStore): DurableObjectNam
     createFolder: (name: string) => store.createFolder(name),
     updateFolder: (id: string, name: string) => store.updateFolder(id, name),
     deleteFolder: (id: string, deleteEmails = false) => store.deleteFolder(id, deleteEmails),
+    listAllEmails: () => store.listAllEmails(),
+    importFolder: (folder: FolderRestoreData) => store.importFolder(folder),
+    importEmail: (email: EmailRestoreData) => store.importEmail(email),
     getEmails: (options = {}) => store.getEmails(options),
     countEmails: (options = {}) => store.countEmails(options),
     getThreadedEmails: (options = {}) => store.getThreadedEmails(options),

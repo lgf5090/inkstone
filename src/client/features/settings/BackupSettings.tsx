@@ -18,11 +18,16 @@ import { useSettingsResource } from './resource';
 import { backupTargetsResource, backupRunsResource } from './resources';
 export function BackupSettings() {
     const backup = useSession((s) => s.settings.backup);
+    const emailBackup = useSession((s) => s.settings.emailBackup);
     const update = useSession((s) => s.updateSettings);
     const toast = useUi((s) => s.toast);
     const [targets, setTargets] = useSettingsResource(backupTargetsResource);
     const [cachedRuns] = useSettingsResource(backupRunsResource);
     const runs = cachedRuns ?? [];
+    const lastRunTime = useRelativeTime(runs[0]?.startedAt ?? 0, Boolean(runs[0]));
+    const lastEmailRun = runs[0]
+        ? `${runs[0].status === 'success' ? t("settings.last_backup_succeeded") : t("settings.last_backup_failed")} · ${lastRunTime}`
+        : t("settings.no_backup_record_yet");
     const [editing, setEditing] = useState<BackupTarget | 'new' | null>(null);
     const [running, setRunning] = useState(false);
     const [loadError, setLoadError] = useState<string | null>(null);
@@ -160,6 +165,27 @@ export function BackupSettings() {
             {backup.retentionCount > 0 && ![7, 14, 30, 90, 365].includes(backup.retentionCount) && <option value={backup.retentionCount}>{t("settings.keep_latest_backups", { count: backup.retentionCount })}</option>}
           </Select>
         </SettingRow>
+      </section>
+
+      { }
+      <section>
+        <h3 data-setting-title={t("settings.email_backup")} className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.email_backup")}</h3>
+        <SettingRow title={t("settings.email_backup_enabled")} description={t("settings.email_backup_enabled_hint")}>
+          <Switch checked={emailBackup.enabled} label={t("settings.email_backup_enabled")} onChange={(enabled) => update({ emailBackup: { enabled } })}/>
+        </SettingRow>
+        <SettingRow title={t("settings.email_backup_attachments")} description={t("settings.email_backup_attachments_hint")}>
+          <Switch checked={emailBackup.includeAttachments} disabled={!emailBackup.enabled} label={t("settings.email_backup_attachments")} onChange={(includeAttachments) => update({ emailBackup: { includeAttachments } })}/>
+        </SettingRow>
+        <SettingRow title={t("settings.email_backup_path")} description={t("settings.email_backup_path_hint")}>
+          <div className="min-w-0 space-y-1 text-right">
+            <code className="block overflow-x-auto whitespace-nowrap font-mono text-[length:var(--text-11)] text-[var(--text-secondary)]">{t("settings.email_backup_path_value", { value0: 'email-YYYYMMDD-HHMMSS-mmm.json' })}</code>
+            <code className="block overflow-x-auto whitespace-nowrap font-mono text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t("settings.email_backup_attachments_path_value", { value0: 'email-attachments/YYYYMMDD-HHMMSS-mmm/…' })}</code>
+          </div>
+        </SettingRow>
+        <SettingRow title={t("settings.email_backup_last_run")} description={lastEmailRun}>
+          <Button data-setting-title={t("settings.email_backup_run")} size="sm" variant="secondary" icon={running ? undefined : <Zap size={13}/>} loading={running} disabled={!emailBackup.enabled || !enabled} onClick={() => void runBackup()}>{t("settings.email_backup_run")}</Button>
+        </SettingRow>
+        <p className="px-1 pt-1 text-[length:var(--text-11)] leading-relaxed text-[var(--text-quaternary)]">{t("settings.email_backup_restore_hint")}</p>
       </section>
 
       { }

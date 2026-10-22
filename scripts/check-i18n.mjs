@@ -254,9 +254,19 @@ const memoCatalogFiles = {
         [path.join(localeRoot, 'zh-CN-memos-data.ts'), 'ZH_CN_MEMOS_DATA'],
     ],
 };
+const emailCatalogFiles = {
+    en: [
+        [path.join(localeRoot, 'en-US-email-mcp.ts'), 'EN_US_EMAIL_MCP'],
+        [path.join(localeRoot, 'en-US-email-backup.ts'), 'EN_US_EMAIL_BACKUP'],
+    ],
+    zh: [
+        [path.join(localeRoot, 'zh-CN-email-mcp.ts'), 'ZH_CN_EMAIL_MCP'],
+        [path.join(localeRoot, 'zh-CN-email-backup.ts'), 'ZH_CN_EMAIL_BACKUP'],
+    ],
+};
 const catalogFragments = {
-    en: [noteTemplateBodyFiles.en, ...memoCatalogFiles.en],
-    zh: [noteTemplateBodyFiles.zh, ...memoCatalogFiles.zh],
+    en: [noteTemplateBodyFiles.en, ...memoCatalogFiles.en, ...emailCatalogFiles.en],
+    zh: [noteTemplateBodyFiles.zh, ...memoCatalogFiles.zh, ...emailCatalogFiles.zh],
 };
 // Chinese is legal in a zh locale catalog and nowhere else; every other file is held to English.
 // The subscription notifications are a catalog of their own because the worker writes them and must
