@@ -5,11 +5,12 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirro
 import { markdown } from '@codemirror/lang-markdown'
 import { editorTheme } from '../../editor/theme'
 
-export function EmailComposer({ value, onChange, onReady, placeholder }: {
+export function EmailComposer({ value, onChange, onReady, placeholder, label }: {
   value: string
   onChange: (value: string) => void
   onReady?: (view: EditorView | null) => void
   placeholder?: string
+  label?: string
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
@@ -27,6 +28,7 @@ export function EmailComposer({ value, onChange, onReady, placeholder }: {
           markdown(),
           EditorView.lineWrapping,
           editorTheme(),
+          ...(label ? [EditorView.contentAttributes.of({ 'aria-label': label })] : []),
           placeholderExt(placeholder ?? ''),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) onChange(update.state.doc.toString())

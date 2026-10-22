@@ -1015,6 +1015,7 @@ export const api = {
       trashEnabled?: boolean
       /** Whether a key may read tasks at all. */
       todoReadEnabled?: boolean
+      emailEnabled?: boolean
       /** The server's own tools to switch off, by the name it registers them under. */
       disabledTools?: string[]
     }) => request<{
@@ -1158,6 +1159,12 @@ export const api = {
       request<EmailAccount>('/api/email/accounts', { method: 'POST', body }),
     ensureAccounts: () => request<EmailAccount[]>('/api/email/accounts/ensure', { method: 'POST' }),
     getAccount: (id: string) => request<EmailAccount>(`/api/email/accounts/${id}`),
+    getAutoDraftStatus: (id: string) => request<{
+      status: string | null
+      reason: string | null
+      attempts: number
+      updatedAt: string | null
+    }>(`/api/email/accounts/${id}/auto-draft`),
     updateAccount: (id: string, body: { displayName?: string, settings?: unknown }) =>
       request<EmailAccount>(`/api/email/accounts/${id}`, { method: 'PATCH', body }),
     deleteAccount: (id: string) => request<void>(`/api/email/accounts/${id}`, { method: 'DELETE' }),

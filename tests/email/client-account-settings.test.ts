@@ -54,6 +54,12 @@ function button(label: string): HTMLButtonElement {
 let view: RenderedElement | null = null
 
 beforeEach(() => {
+  vi.spyOn(api.email, 'getAutoDraftStatus').mockResolvedValue({
+    status: null,
+    reason: null,
+    attempts: 0,
+    updatedAt: null,
+  })
   useEmailStore.setState(original, true)
   useEmailStore.setState({
     accounts: [account],
@@ -106,5 +112,18 @@ describe('the mailbox settings page', () => {
       },
     })
     expect(useEmailStore.getState().accounts[0]!.displayName).toBe('Grace Hopper')
+  })
+
+  it('states the last automatic draft attempt instead of leaving it silent', async () => {
+    vi.spyOn(api.email, 'getAutoDraftStatus').mockResolvedValue({
+      status: 'skipped',
+      reason: 'injection',
+      attempts: 1,
+      updatedAt: '2026-01-02T00:00:00.000Z',
+    })
+    view = renderElement(createElement(AccountSettingsPage, { accountId: 'a1' }))
+    await settle()
+    const status = document.querySelector('[role="status"]')
+    expect(status?.textContent).toContain(t('email.settings.auto_draft_skipped_injection'))
   })
 })

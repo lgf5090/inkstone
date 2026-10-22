@@ -79,7 +79,7 @@ export function MessagePane({
         account={account}
         mode={compose}
         draftId={draftId}
-        original={summary ?? thread[thread.length - 1] ?? null}
+        original={compose === 'new' ? null : summary ?? thread[thread.length - 1] ?? null}
         onClose={onCancelCompose}
         onSent={onClosed}
       />

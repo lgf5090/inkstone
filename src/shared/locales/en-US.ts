@@ -5,6 +5,8 @@ import { EN_US_MEMOS_DATA } from './en-US-memos-data';
 import { EN_US_MEMOS_MEDIA } from './en-US-memos-media';
 import { EN_US_MEMOS_ORG } from './en-US-memos-org';
 import { EN_US_MEMOS_SHARE } from './en-US-memos-share';
+import { EN_US_EMAIL_BACKUP } from './en-US-email-backup';
+import { EN_US_EMAIL_MCP } from './en-US-email-mcp';
 export const EN_US_MESSAGES = {
     "template.kanban_sprint_board.name": "Sprint Board",
     "template.kanban_sprint_board.description": "A kanban board with the four columns a sprint actually needs.",
@@ -990,8 +992,6 @@ export const EN_US_MESSAGES = {
     "email.attachments.preview": "Preview {name}",
     "email.attachments.title_one": "{count} attachment",
     "email.attachments.title_other": "{count} attachments",
-    "email.ai.title": "Mail assistant",
-    "email.ai.hint": "The mail assistant is not connected in this workspace yet. It will appear here once the email tools are enabled.",
     "email.compose.title_new": "New message",
     "email.compose.title_reply": "Reply",
     "email.compose.title_reply_all": "Reply all",
@@ -1006,6 +1006,7 @@ export const EN_US_MESSAGES = {
     "email.compose.edit": "Write",
     "email.compose.preview": "Preview",
     "email.compose.body_placeholder": "Write your message…",
+    "email.compose.body_label": "Message body",
     "email.compose.add_attachment": "Add attachment",
     "email.compose.attachment_hint": "Up to 25 MB per file, 10 GB per account",
     "email.compose.remove_attachment": "Remove attachment",
@@ -1037,6 +1038,17 @@ export const EN_US_MESSAGES = {
     "email.settings.auto_draft": "Automatic drafts",
     "email.settings.auto_draft_hint": "Drafts a reply when a new message arrives. Nothing is sent automatically.",
     "email.settings.auto_draft_unavailable": "Unavailable until the assistant model and mailbox are configured.",
+    "email.settings.auto_draft_status": "Latest attempt:",
+    "email.settings.auto_draft_status_none": "No automatic draft has run yet.",
+    "email.settings.auto_draft_status_unavailable": "The latest automatic draft state could not be read.",
+    "email.settings.auto_draft_queued": "Queued",
+    "email.settings.auto_draft_running": "Writing a draft",
+    "email.settings.auto_draft_done": "Draft created",
+    "email.settings.auto_draft_failed": "Failed",
+    "email.settings.auto_draft_skipped_injection": "Skipped: suspicious instructions detected",
+    "email.settings.auto_draft_skipped_no_model": "Skipped: no assistant model configured",
+    "email.settings.auto_draft_skipped_rate_limited": "Skipped: assistant limit reached",
+    "email.settings.auto_draft_skipped_other": "Skipped",
     "email.settings.danger": "Danger zone",
     "email.settings.delete_account": "Delete this mailbox",
     "email.settings.delete_hint": "Deleting a mailbox removes its mail, drafts and attachments for good.",
@@ -8826,6 +8838,8 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     ...EN_US_MEMOS_MEDIA,
     ...EN_US_MEMOS_SHARE,
     ...EN_US_MEMOS_DATA,
+    ...EN_US_EMAIL_MCP,
+    ...EN_US_EMAIL_BACKUP,
 } as const;
 export type BaseMessageKey = keyof typeof EN_US_MESSAGES;
 export type MessageKey = BaseMessageKey | NoteTemplateContentKey;

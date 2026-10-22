@@ -7,6 +7,7 @@ import { Field, Input, SettingRow, Switch, Textarea } from '../../components/for
 import { confirm } from '../../components/overlay'
 import { t } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
+import { api } from '../../lib/api'
 import { useUi } from '../../store/ui'
 import { emailErrorText } from './errors'
 import { emailFolderPath } from './email-address'
@@ -32,6 +33,8 @@ export function AccountSettingsPage({ accountId }: { accountId: string }) {
   const [signatureText, setSignatureText] = useState('')
   const [agentPrompt, setAgentPrompt] = useState('')
   const [autoDraft, setAutoDraft] = useState(true)
+  const [autoDraftStatus, setAutoDraftStatus] = useState<{ status: string | null, reason: string | null } | null>(null)
+  const [autoDraftStatusError, setAutoDraftStatusError] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const endpoint = useMemo(mcpEndpoint, [])
@@ -39,6 +42,16 @@ export function AccountSettingsPage({ accountId }: { accountId: string }) {
   useEffect(() => {
     if (accountsStatus === 'idle') void loadAccounts()
   }, [accountsStatus, loadAccounts])
+
+  useEffect(() => {
+    if (!account) return
+    let cancelled = false
+    setAutoDraftStatusError(false)
+    void api.email.getAutoDraftStatus(account.id)
+      .then((value) => { if (!cancelled) setAutoDraftStatus(value) })
+      .catch(() => { if (!cancelled) setAutoDraftStatusError(true) })
+    return () => { cancelled = true }
+  }, [account?.id])
 
   useEffect(() => {
     if (!account) return
@@ -114,6 +127,18 @@ export function AccountSettingsPage({ accountId }: { accountId: string }) {
   }
 
   const autoDraftAvailable = config?.autoDraftAvailable === true
+  const autoDraftStatusText = (() => {
+    if (autoDraftStatusError) return t('email.settings.auto_draft_status_unavailable')
+    if (!autoDraftStatus?.status) return t('email.settings.auto_draft_status_none')
+    if (autoDraftStatus.status === 'queued') return t('email.settings.auto_draft_queued')
+    if (autoDraftStatus.status === 'running') return t('email.settings.auto_draft_running')
+    if (autoDraftStatus.status === 'done') return t('email.settings.auto_draft_done')
+    if (autoDraftStatus.status === 'failed') return t('email.settings.auto_draft_failed')
+    if (autoDraftStatus.reason === 'injection') return t('email.settings.auto_draft_skipped_injection')
+    if (autoDraftStatus.reason === 'no_model') return t('email.settings.auto_draft_skipped_no_model')
+    if (autoDraftStatus.reason === 'rate_limited') return t('email.settings.auto_draft_skipped_rate_limited')
+    return t('email.settings.auto_draft_skipped_other')
+  })()
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--bg-base)]">
       <header className="flex h-11 shrink-0 items-center gap-1.5 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 md:px-3">
@@ -191,6 +216,9 @@ export function AccountSettingsPage({ accountId }: { accountId: string }) {
                 label={t('email.settings.auto_draft')}
               />
             </SettingRow>
+            <p role="status" className="pb-3 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">
+              {t('email.settings.auto_draft_status')} {autoDraftStatusText}
+            </p>
           </section>
 
           <section aria-label={t('email.settings.mcp')} className="mt-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4">

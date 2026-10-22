@@ -5,6 +5,8 @@ import { ZH_CN_MEMOS_DATA } from './zh-CN-memos-data';
 import { ZH_CN_MEMOS_MEDIA } from './zh-CN-memos-media';
 import { ZH_CN_MEMOS_ORG } from './zh-CN-memos-org';
 import { ZH_CN_MEMOS_SHARE } from './zh-CN-memos-share';
+import { ZH_CN_EMAIL_BACKUP } from './zh-CN-email-backup';
+import { ZH_CN_EMAIL_MCP } from './zh-CN-email-mcp';
 export const ZH_CN_MESSAGES = {
     "template.kanban_sprint_board.name": "迭代看板",
     "template.kanban_sprint_board.description": "用看板排一个迭代：四条泳道，任务带勾选。",
@@ -990,8 +992,6 @@ export const ZH_CN_MESSAGES = {
     "email.attachments.preview": "预览 {name}",
     "email.attachments.title_one": "{count} 个附件",
     "email.attachments.title_other": "{count} 个附件",
-    "email.ai.title": "邮件助手",
-    "email.ai.hint": "此工作区尚未接入邮件助手。启用邮件工具后会显示在这里。",
     "email.compose.title_new": "新邮件",
     "email.compose.title_reply": "回复",
     "email.compose.title_reply_all": "全部回复",
@@ -1006,6 +1006,7 @@ export const ZH_CN_MESSAGES = {
     "email.compose.edit": "撰写",
     "email.compose.preview": "预览",
     "email.compose.body_placeholder": "写点什么…",
+    "email.compose.body_label": "邮件正文",
     "email.compose.add_attachment": "添加附件",
     "email.compose.attachment_hint": "单文件 25 MB，每账号 10 GB",
     "email.compose.remove_attachment": "移除附件",
@@ -1037,6 +1038,17 @@ export const ZH_CN_MESSAGES = {
     "email.settings.auto_draft": "自动草稿",
     "email.settings.auto_draft_hint": "收到新邮件时自动起草回复，不会自动发送。",
     "email.settings.auto_draft_unavailable": "助手模型和邮箱配置完成后可用。",
+    "email.settings.auto_draft_status": "最近一次：",
+    "email.settings.auto_draft_status_none": "尚未运行过自动草稿。",
+    "email.settings.auto_draft_status_unavailable": "最近的自动草稿状态读取失败。",
+    "email.settings.auto_draft_queued": "排队中",
+    "email.settings.auto_draft_running": "正在起草",
+    "email.settings.auto_draft_done": "已生成草稿",
+    "email.settings.auto_draft_failed": "失败",
+    "email.settings.auto_draft_skipped_injection": "已跳过：检测到可疑指令",
+    "email.settings.auto_draft_skipped_no_model": "已跳过：未配置助手模型",
+    "email.settings.auto_draft_skipped_rate_limited": "已跳过：助手额度已用尽",
+    "email.settings.auto_draft_skipped_other": "已跳过",
     "email.settings.danger": "危险操作",
     "email.settings.delete_account": "删除此邮箱",
     "email.settings.delete_hint": "删除邮箱会永久移除其中的邮件、草稿和附件。",
@@ -8827,4 +8839,6 @@ console.log(\`Hello, \${name}!\`)
     ...ZH_CN_MEMOS_MEDIA,
     ...ZH_CN_MEMOS_SHARE,
     ...ZH_CN_MEMOS_DATA,
+    ...ZH_CN_EMAIL_MCP,
+    ...ZH_CN_EMAIL_BACKUP,
 } as const satisfies Record<BaseMessageKey, string>;

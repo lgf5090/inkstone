@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import {
   ArrowLeft,
   Bot,
   ChevronDown,
   Mail,
   MoreHorizontal,
+  Paperclip,
   PanelLeft,
   RefreshCw,
   Search,
@@ -12,14 +13,17 @@ import {
   X,
 } from 'lucide-react'
 import type { EmailAccount, EmailSummary } from '@shared/email/model'
+import { MAX_EMAIL_CONTEXT_SNIPPET, type EmailAssistantContext } from '@shared/email/assistant-context'
 import { Button, IconButton } from '../../components/primitives'
-import { Empty } from '../../components/feedback'
 import { Input } from '../../components/form'
 import { Drawer, Menu, confirm, type MenuItem } from '../../components/overlay'
 import { t } from '../../lib/i18n'
 import { navigateToAddress, navigateToPath } from '../../lib/app-history'
 import { useBreakpoint } from '../../lib/hooks'
 import { useUi } from '../../store/ui'
+import { useAssistant } from '../chat/assistant-store'
+import { AssistantDock } from '../chat/AssistantDock'
+import { useAssistantToolRefresh } from '../chat/tool-refresh'
 import type { EmailAddress, EmailComposeMode } from './email-address'
 import { emailFolderPath, emailSettingsPath } from './email-address'
 import { messageSubject } from './format'
@@ -30,6 +34,14 @@ import { MessagePane } from './MessagePane'
 import { TrashPanel } from './TrashPanel'
 
 type MailboxAddress = Extract<EmailAddress, { kind: 'mailbox' | 'search' }>
+
+const EMAIL_WRITE_TOOLS = new Set([
+  'email_draft_reply',
+  'email_draft',
+  'email_mark_read',
+  'email_move',
+  'email_discard_draft',
+])
 
 function searchMessageAddress(accountId: string, query: string, messageId: string): { path: string; search: string } {
   return {
@@ -86,10 +98,25 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
   const [folderDrawer, setFolderDrawer] = useState(false)
   const [accountMenu, setAccountMenu] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
-  const [aiOpen, setAiOpen] = useState(false)
   const [trashOpen, setTrashOpen] = useState(false)
+  const assistantDockOpen = useUi((state) => state.assistantDockOpen)
   const accountAnchor = useRef<HTMLButtonElement>(null)
   const moreAnchor = useRef<HTMLButtonElement>(null)
+  const lastAssistantEmail = useRef<string | null>(null)
+
+  const emailContext = useMemo<EmailAssistantContext>(() => ({
+    accountId: account.id,
+    address: account.address,
+    folderId,
+    messageId: selectedMessage?.id ?? null,
+    threadId: selectedMessage?.threadId ?? null,
+    subject: selectedMessage?.subject ?? null,
+    sender: selectedMessage?.sender ?? null,
+    recipient: selectedMessage?.recipient ?? null,
+    date: selectedMessage?.date ?? null,
+    snippet: selectedMessage?.snippet?.slice(0, MAX_EMAIL_CONTEXT_SNIPPET) ?? null,
+    threadCount: selectedMessage?.threadCount ?? (thread.length || null),
+  }), [account.address, account.id, folderId, selectedMessage, thread.length])
 
   useEffect(() => {
     setSearchDraft(query)
@@ -116,6 +143,15 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
     startPolling()
     return () => stopPolling()
   }, [startPolling, stopPolling])
+
+  useEffect(() => {
+    const key = `${account.id}|${folderId ?? ''}|${selectedMessage?.id ?? ''}`
+    if (lastAssistantEmail.current === key) return
+    lastAssistantEmail.current = key
+    useAssistant.getState().setEmailContextOn(true)
+  }, [account.id, folderId, selectedMessage?.id])
+
+  useAssistantToolRefresh(EMAIL_WRITE_TOOLS, refresh)
 
   const goList = (): void => {
     if (searchMode) {
@@ -232,7 +268,8 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
 
   const moreItems: MenuItem[] = [
     { id: 'refresh', label: t('email.header.refresh'), icon: <RefreshCw size={14} />, onSelect: refreshNow },
-    { id: 'ai', label: t('email.header.ai'), icon: <Bot size={14} />, onSelect: () => setAiOpen(true) },
+    { id: 'attachments', label: t('attachments.manage'), icon: <Paperclip size={14} />, onSelect: () => useUi.getState().setAttachmentHub('email') },
+    { id: 'ai', label: t('email.header.ai'), icon: <Bot size={14} />, onSelect: () => useUi.getState().setAssistantDock(true) },
     { id: 'settings', label: t('email.header.settings'), icon: <Settings size={14} />, onSelect: () => navigateToPath(emailSettingsPath(account.id)) },
     { id: 'accounts', label: t('email.header.all_accounts'), icon: <Mail size={14} />, separatorBefore: true, onSelect: () => navigateToPath('/email') },
   ]
@@ -327,7 +364,16 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
           <IconButton label={t('email.header.refresh')} size="sm" className="size-11 md:size-7" onClick={refreshNow} disabled={listRefreshing}>
             <RefreshCw size={15} className={listRefreshing ? 'animate-[ink-spin_0.7s_linear_infinite]' : undefined} />
           </IconButton>
-          <IconButton label={t('email.header.ai')} size="sm" className="size-11 md:size-7" active={aiOpen} onClick={() => setAiOpen((open) => !open)}>
+          <IconButton label={t('attachments.manage')} size="sm" className="size-11 md:size-7" onClick={() => useUi.getState().setAttachmentHub('email')}>
+            <Paperclip size={15} />
+          </IconButton>
+          <IconButton
+            label={t('email.header.ai')}
+            size="sm"
+            className="size-11 md:size-7"
+            active={assistantDockOpen}
+            onClick={() => useUi.getState().setAssistantDock(!assistantDockOpen)}
+          >
             <Bot size={15} />
           </IconButton>
           <IconButton label={t('email.header.settings')} size="sm" className="size-11 md:size-7" onClick={() => navigateToPath(emailSettingsPath(account.id))}>
@@ -441,21 +487,24 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
     <div className="flex h-full min-h-0 flex-col bg-[var(--bg-base)]">
       {header}
       {alerts}
-      {desktop ? (
-        <div className="flex min-h-0 flex-1">
-          <aside className="w-[232px] shrink-0 border-r border-[var(--border-subtle)]">
-            {folderSidebar}
-          </aside>
-          <div className="flex w-[380px] min-w-[360px] max-w-[420px] shrink-0 flex-col border-r border-[var(--border-subtle)]">
-            {listPane}
+      <div className="flex min-h-0 flex-1">
+        {desktop ? (
+          <>
+            <aside className="w-[232px] shrink-0 border-r border-[var(--border-subtle)]">
+              {folderSidebar}
+            </aside>
+            <div className="flex w-[380px] min-w-[360px] max-w-[420px] shrink-0 flex-col border-r border-[var(--border-subtle)]">
+              {listPane}
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col">{pane}</div>
+          </>
+        ) : (
+          <div className="flex min-h-0 flex-1 flex-col">
+            {messageId || (address.kind === 'mailbox' && address.compose) ? pane : listPane}
           </div>
-          <div className="flex min-w-0 flex-1 flex-col">{pane}</div>
-        </div>
-      ) : (
-        <div className="flex min-h-0 flex-1 flex-col">
-          {messageId || (address.kind === 'mailbox' && address.compose) ? pane : listPane}
-        </div>
-      )}
+        )}
+        {assistantDockOpen && <AssistantDock surface="email" email={emailContext} />}
+      </div>
       <Drawer
         open={folderDrawer}
         onClose={() => setFolderDrawer(false)}
@@ -464,15 +513,6 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
         title={t('email.header.folders')}
       >
         {folderSidebar}
-      </Drawer>
-      <Drawer
-        open={aiOpen}
-        onClose={() => setAiOpen(false)}
-        side="right"
-        width={360}
-        title={t('email.ai.title')}
-      >
-        <Empty art="notes" title={t('email.ai.title')} description={t('email.ai.hint')} />
       </Drawer>
       <TrashPanel open={trashOpen} accountId={account.id} onClose={() => setTrashOpen(false)} />
     </div>

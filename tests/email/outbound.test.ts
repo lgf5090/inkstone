@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { buildThreadingHeaders, normalizeRecipients, outgoingMessageId, validateBody, validateFrom } from '../../src/worker/email/outbound'
+import { EMAIL_RECIPIENTS_MAX } from '../../src/shared/email/model'
+import type { Env } from '../../src/worker/env'
+import { buildThreadingHeaders, normalizeRecipients, outgoingMessageId, sendViaBinding, validateBody, validateFrom } from '../../src/worker/email/outbound'
 
 describe('outbound helpers', () => {
   it('accepts only the mailbox sender', () => {
@@ -23,5 +25,18 @@ describe('outbound helpers', () => {
   it('rejects an empty body', () => {
     expect(() => validateBody({ to: 'a@x.com', subject: 's', body: '', bodyHtml: '', operationId: 'op' }))
       .toThrow('empty')
+  })
+
+  it('stops at the recipient limit', () => {
+    const addresses = Array.from({ length: EMAIL_RECIPIENTS_MAX + 1 }, (_, index) => `u${index}@example.com`).join(',')
+    expect(() => normalizeRecipients(addresses, 'to')).toThrow('Too many recipients')
+  })
+
+  it('says sending is unavailable instead of pretending a send happened', async () => {
+    await expect(sendViaBinding({} as Env, {
+      to: 'a@example.com',
+      from: 'me@example.com',
+      subject: 'Hello',
+    })).rejects.toMatchObject({ status: 503, code: 'email_send_unavailable' })
   })
 })

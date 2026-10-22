@@ -63,7 +63,7 @@ function initialFields(account: EmailAccount, mode: EmailComposeMode, original: 
   showCc: boolean
 } {
   const signature = signatureBlock(account)
-  if (!original) {
+  if (!original || mode === 'new') {
     return { to: '', cc: '', subject: '', body: signature.trimStart(), showCc: false }
   }
   const quote = buildEmailQuoteMarkdown(original.date, original.sender, original.body)
@@ -107,6 +107,11 @@ export function ComposePanel({
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [draft, setDraft] = useState(draftId)
+  const [threading, setThreading] = useState<{ inReplyTo: string | null, threadId: string | null }>(() => (
+    draftId || !original
+      ? { inReplyTo: null, threadId: null }
+      : { inReplyTo: original.id, threadId: original.threadId }
+  ))
   const [attachments, setAttachments] = useState<ComposeAttachment[]>([])
   const [preview, setPreview] = useState<ComposeAttachment | null>(null)
   const viewRef = useRef<EditorView | null>(null)
@@ -124,6 +129,7 @@ export function ComposePanel({
       setSubject(message.subject)
       setBody(message.bodySource ?? message.body)
       setShowCc(Boolean(message.cc || message.bcc))
+      setThreading({ inReplyTo: message.inReplyTo, threadId: message.threadId })
       setAttachments(message.attachments.map((entry) => ({ id: entry.id, filename: entry.filename, mime: entry.mime, size: entry.size })))
     }).catch((reason) => {
       if (!cancelled) setError((reason as Error).message)
@@ -145,8 +151,8 @@ export function ComposePanel({
         subject,
         body,
         bodyHtml: bodyHtml(),
-        inReplyTo: original?.id,
-        threadId: original?.threadId ?? undefined,
+        inReplyTo: threading.inReplyTo ?? undefined,
+        threadId: threading.threadId ?? undefined,
         draftId: draft ?? undefined,
       })
       setDraft(saved.draftId)
@@ -223,16 +229,19 @@ export function ComposePanel({
   const addFiles = async (files: FileList | null) => {
     if (!files?.length) return
     setError(null)
+    let activeDraft = draft
     for (const file of Array.from(files)) {
       if (file.size > EMAIL_ATTACHMENT_MAX_BYTES) {
         toast(t('email.compose.attachment_too_large'), 'danger')
         continue
       }
       try {
-        const id = draft ?? await saveDraft()
-        if (!id) return
+        if (!activeDraft) {
+          activeDraft = await saveDraft()
+          if (!activeDraft) return
+        }
         const uploaded = await attachmentHubApi.upload('email', file)
-        await api.email.linkAttachment(account.id, id, uploaded.id)
+        await api.email.linkAttachment(account.id, activeDraft, uploaded.id)
         setAttachments((current) => [...current, { id: uploaded.id, filename: uploaded.filename, mime: uploaded.mime, size: uploaded.size }])
       } catch (reason) {
         toast((reason as Error).message, 'danger')
@@ -353,6 +362,7 @@ export function ComposePanel({
               onChange={setBody}
               onReady={(view) => { viewRef.current = view }}
               placeholder={t('email.compose.body_placeholder')}
+              label={t('email.compose.body_label')}
             />
           ) : (
             <div
