@@ -23,14 +23,24 @@ import {
 import { requireAuth } from '../middleware/auth'
 import {
   ShareStore,
-  countShareView,
   findShareBySlug,
   loadSharePageMeta,
   loadSharedNote,
   parseShareTags,
+  recordShareVisit,
   type SharePageMeta,
   type ShareRow,
 } from '../share/store'
+import {
+  isBot,
+  isSelfReferrer,
+  parseBrowser,
+  parseDeviceType,
+  parseOS,
+  sanitizeVisitReferrer,
+  visitorFingerprint,
+} from '../share/analytics'
+import { storedChannelValue } from '@shared/share-channel'
 import {
   assertConversationShareAccess,
   countConversationShareView,
@@ -107,9 +117,52 @@ function noteShareView(slug: string, ip: string, now: number): boolean {
 }
 
 /**
- * The only place a share's `views` number moves is `countShareView` in `share/store.ts`; this file
+ * The only place a share's `views` number moves is `recordShareVisit` in `share/store.ts`; this file
  * decides when it is worth calling (once per visitor per window) and hangs it off the response path.
  */
+
+/**
+ * What one read of one public link looks like once it has been classified.
+ *
+ * Every derived field is computed here and stored as a plain value, so a dashboard reading never has
+ * to re-parse a `user_agent` — a rule change would silently reinterpret rows it already counted. The
+ * visitor's address is not among them: only the keyed digest is stored, and only its first eight
+ * characters ever leave the worker.
+ */
+async function recordNoteVisit(
+  c: Context<AppBindings>,
+  params: { share: ShareRow; slug: string; now: number },
+): Promise<void> {
+  const { share, slug, now } = params
+  const userAgent = c.req.header('user-agent') ?? null
+  const referer = c.req.header('referer') ?? null
+  const ip = requestClientIp(c)
+  const fingerprint = await visitorFingerprint(c.env, ip, userAgent, new Date(now))
+  const referrer = sanitizeVisitReferrer(referer, `/s/${slug}`)
+  await recordShareVisit(c.env.DB, {
+    userId: share.user_id,
+    noteId: share.note_id,
+    slug,
+    visitedAt: now,
+    visitorFp: fingerprint,
+    country: c.req.header('cf-ipcountry') || null,
+    region: c.req.header('cf-region') || null,
+    city: c.req.header('cf-ipcity') || null,
+    referrer: referrer.referrer,
+    referrerHost: referrer.referrerHost,
+    deviceType: parseDeviceType(userAgent ?? ''),
+    os: parseOS(userAgent ?? ''),
+    browser: parseBrowser(userAgent ?? ''),
+    language: (c.req.header('accept-language') ?? '').slice(0, 32) || null,
+    userAgent: userAgent ? userAgent.slice(0, LIMITS.shareUserAgentMaxLength) : null,
+    isBot: isBot(userAgent ?? ''),
+    isSelfReferrer: isSelfReferrer(referer, new URL(c.req.url).host, slug),
+    // `loadSession` runs on `/api/*`, so an owner previewing their own link is indistinguishable
+    // from a stranger to nobody: the same account that can read this row is the one that wrote it.
+    isOwner: c.get('userId') === share.user_id,
+    channel: storedChannelValue(c.req.query('ref')),
+  })
+}
 
 function toShareInfo(row: ShareRow, origin: string): ShareInfo {
   return {
@@ -221,6 +274,9 @@ shareRoutes.post('/:slug', async (c) => {
 
   const share = await findShareBySlug(c.env.DB, slug)
   if (!share) throw ApiError.notFound('The link does not exist or has been revoked')
+  // A paused link reads as gone rather than as "paused": telling a stranger that a link exists and
+  // is merely switched off is information the owner did not choose to publish.
+  if (!share.is_enabled) throw ApiError.notFound('The link does not exist or has been revoked')
   if (share.expires_at && share.expires_at < Date.now()) throw ApiError.notFound('The link has expired')
 
   if (share.password_hash) {
@@ -246,7 +302,8 @@ shareRoutes.post('/:slug', async (c) => {
   if (!note) throw ApiError.notFound('The note has been deleted')
 
   if (noteShareView(slug, requestClientIp(c), Date.now())) {
-    c.executionCtx?.waitUntil(countShareView(c.env.DB, slug))
+    const now = Date.now()
+    c.executionCtx?.waitUntil(recordNoteVisit(c, { share, slug, now }))
   }
 
   if (share.password_hash) {

@@ -220,28 +220,6 @@ export async function loadSharePageMeta(
 }
 
 /**
- * The only place a share's `views` number moves, kept off the response path on purpose.
- *
- * A reader who has already been served must not lose the note because the counter was unreachable,
- * so the write runs under `waitUntil` and its failure cannot reach the caller. The number itself is
- * what the owner reads in the share list, so a refusal is reported rather than dropped: a share whose
- * views silently stop growing is a product defect, and an invisible one is impossible to find.
- *
- * Best-effort by design: the catch and the warning are the agreed error surface, and the route
- * decides the `waitUntil` timing around this call.
- */
-export async function countShareView(db: D1Database, slug: string): Promise<void> {
-  try {
-    await db
-      .prepare(`UPDATE shares SET views = views + 1, last_viewed_at = ?2 WHERE slug = ?1`)
-      .bind(slug, Date.now())
-      .run()
-  } catch (error) {
-    console.warn(`[inkstone] Share view count failed for ${slug}:`, error instanceof Error ? error.message : error)
-  }
-}
-
-/**
  * One read of one public link, as the analytics row records it.
  *
  * Every field here is already classified or truncated: `visitorFp` is the keyed digest rather than

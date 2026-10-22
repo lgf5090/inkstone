@@ -472,6 +472,10 @@ const ACCOUNT_GLOBAL_KEYS = new Map<string, string>([
   ['memos_webhooks', 'id is a 26-character newId(); every read binds user_id'],
   ['memos_import_sessions', 'id is a 26-character newId(); every read binds user_id'],
   ['memos_changes', 'seq INTEGER PRIMARY KEY AUTOINCREMENT, every read filters on user_id'],
+  // An append-only fact row, not an account's record: the id exists so the visit log can page over a
+  // window, and SQLite only autonumbers a row whose integer key is the whole primary key. Every read
+  // filters on `user_id`, and the four covering indexes all lead with it or with the slug.
+  ['share_visits', 'seq INTEGER PRIMARY KEY AUTOINCREMENT, every read filters on user_id'],
 ])
 
 /** The tables that carry a `user_id` column yet key on something else. */

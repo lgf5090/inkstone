@@ -34,6 +34,9 @@ import { avatarRoutes } from './routes/avatars'
 import { backupRoutes } from './routes/backup'
 import { settingsRoutes } from './routes/settings'
 import { conversationSharePageRoutes, shareManageRoutes, sharePageRoutes, shareRoutes } from './routes/share'
+import { shareAnalyticsRoutes } from './routes/share-analytics'
+import { shareOrganizerRoutes } from './routes/share-organizer'
+import { publicCollectionRoutes, shareCollectionRoutes } from './routes/share-collections'
 import { memosPublicPageRoutes } from './routes/memos-public'
 import { transferRoutes } from './routes/transfer'
 import { updateRoutes } from './routes/update'
@@ -171,7 +174,14 @@ export function createApp() {
   app.route('/api/reading', readingRoutes)
   app.route('/api/reader/discovery', readerDiscoveryRoutes)
   app.route('/api/reader', readerLibraryRoutes)
+  // The hub's own routers are claimed before `shareManageRoutes`, which reads any one-segment path
+  // under `/api/share` as a note id: mounted the other way round, `GET /api/share/folders` would be
+  // answered as "the share of a note called folders" rather than as the folder list.
+  app.route('/api/share', shareAnalyticsRoutes)
+  app.route('/api/share', shareOrganizerRoutes)
+  app.route('/api/share', shareCollectionRoutes)
   app.route('/api/share', shareManageRoutes)
+  app.route('/api/public', publicCollectionRoutes)
   app.route('/api/public', shareRoutes)
   app.route('/api', transferRoutes)
 

@@ -12,15 +12,16 @@ export const SHARE_HUB_SCHEMA_STATEMENTS: readonly string[] = [
   // *publishing*, and a note moving between folders would otherwise silently move a published
   // collection's readership with it.
   `CREATE TABLE IF NOT EXISTS share_folders (
-    id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
     parent_id TEXT,
     name TEXT NOT NULL,
     icon TEXT,
     color TEXT,
     position REAL NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_share_folders_user
      ON share_folders(user_id, parent_id, position)`,
@@ -28,12 +29,13 @@ export const SHARE_HUB_SCHEMA_STATEMENTS: readonly string[] = [
      ON share_folders(user_id, IFNULL(parent_id, ''), lower(name))`,
 
   `CREATE TABLE IF NOT EXISTS share_tags (
-    id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
     name TEXT NOT NULL,
     color TEXT,
     is_pinned INTEGER NOT NULL DEFAULT 0,
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_share_tags_unique ON share_tags(user_id, name)`,
   `CREATE INDEX IF NOT EXISTS idx_share_tags_name_nocase
@@ -85,9 +87,9 @@ export const SHARE_HUB_SCHEMA_STATEMENTS: readonly string[] = [
   // access policy are stored; the members are derived from the shares on every request, so a page
   // cannot show a link the owner has since revoked.
   `CREATE TABLE IF NOT EXISTS share_collections (
-    id TEXT PRIMARY KEY,
-    slug TEXT NOT NULL,
     user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    slug TEXT NOT NULL,
     target_type TEXT NOT NULL CHECK (target_type IN ('folder', 'tag', 'manual')),
     target_value TEXT NOT NULL,
     password_hash TEXT,
@@ -96,7 +98,8 @@ export const SHARE_HUB_SCHEMA_STATEMENTS: readonly string[] = [
     member_sort TEXT,
     title TEXT,
     created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_share_collections_slug ON share_collections(slug)`,
   // One live directory per target: two enabled collections over the same folder would be two answers
@@ -121,13 +124,14 @@ export const SHARE_HUB_SCHEMA_STATEMENTS: readonly string[] = [
   // rather than as anything derived from it, because the previous hash is a secret the log has no
   // business repeating.
   `CREATE TABLE IF NOT EXISTS share_audit_log (
-    id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
     note_id TEXT NOT NULL,
     slug TEXT NOT NULL,
     action TEXT NOT NULL CHECK (action IN ('create', 'update', 'revoke', 'batch')),
     changed_json TEXT NOT NULL DEFAULT '{}',
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_share_audit_log_user
      ON share_audit_log(user_id, created_at DESC)`,
