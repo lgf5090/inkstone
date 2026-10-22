@@ -228,6 +228,36 @@ describe('lists', () => {
   })
 })
 
+describe('list position validation', () => {
+  // The case spends a caller of its own: the write budget is module-wide and keyed by whoever is
+  // signed in, and six refusals plus two lands are not what the shared account's later cases signed
+  // up for.
+  let caller = 0
+
+  beforeEach(() => {
+    caller += 1
+    mocks.userId = `listpos${String(caller).padStart(19, '0')}`
+  })
+
+  it('refuses a list position that is not a whole non-negative number', async () => {
+    const list = await json<{ list: TaskList }>(await send('POST', '/lists', { name: 'Sort' })).then((body) => body.list)
+    // The store only truncates what it is handed before binding it to the INTEGER column, and
+    // `Math.trunc(NaN)` is NaN — so the route is the trust boundary that says no. JSON has no NaN:
+    // stringified it arrives as null, and that reads as the same refusal, as do a fraction, a
+    // negative and an unbounded number.
+    expect((await send('PATCH', `/lists/${list.id}`, { position: NaN })).status).toBe(400)
+    expect((await send('PATCH', `/lists/${list.id}`, { position: -1 })).status).toBe(400)
+    expect((await send('PATCH', `/lists/${list.id}`, { position: 1.5 })).status).toBe(400)
+    expect((await send('PATCH', `/lists/${list.id}`, { position: Infinity })).status).toBe(400)
+    // A whole non-negative number still lands, and an absent field is not a move: the row keeps the
+    // position the last move left it.
+    const moved = await json<{ list: TaskList }>(await send('PATCH', `/lists/${list.id}`, { position: 2000 }))
+    expect(moved.list.position).toBe(2000)
+    const untouched = await json<{ list: TaskList }>(await send('PATCH', `/lists/${list.id}`, { name: 'Sorted' }))
+    expect(untouched.list.position).toBe(2000)
+  })
+})
+
 describe('list archiving and grouping', () => {
   // Each case spends a caller of its own: the write budget is module-wide and keyed by whoever is
   // signed in, and these cases must not eat into what the list cases above already spent.

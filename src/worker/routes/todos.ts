@@ -924,10 +924,27 @@ todoRoutes.post('/lists', async (c) => {
   return c.json({ list }, 201)
 })
 
+/**
+ * Where a PATCH wants the list in the order, read from the body.
+ *
+ * The store only truncates what it is handed and binds the answer to an INTEGER column, and
+ * `Math.trunc(NaN)` is NaN — so the route says no first: a finite, whole, non-negative number, or a
+ * 400 naming the field. Absent is not a move. Same grammar as `stepPlacement` for a step.
+ */
+function listPosition(body: Record<string, unknown>): number | undefined {
+  const value = body.position
+  if (value === undefined) return undefined
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw ApiError.badRequest('position must be a whole list number from zero.')
+  }
+  return value
+}
+
 todoRoutes.patch('/lists/:id', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
   const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
+  const position = listPosition(body)
   const existing = await s.getTaskList(id)
   if (!existing) throw ApiError.notFound('List not found')
   // Grouping is one level deep. The parent is read first, so "that parent does not exist" is a 400
@@ -951,7 +968,7 @@ todoRoutes.patch('/lists/:id', async (c) => {
     ...(body.name !== undefined ? { name: text(body.name, MAX_LIST_NAME_CHARS, 'A list name') } : {}),
     ...(body.icon !== undefined ? { icon: iconValue(body.icon) ?? null } : {}),
     ...(body.color !== undefined ? { color: colorValue(body.color) ?? null } : {}),
-    ...(typeof body.position === 'number' ? { position: body.position } : {}),
+    ...(position !== undefined ? { position } : {}),
     // The stamp is the moment the list left the working page. A false answer clears it instead of
     // writing a second value, so unarchiving restores exactly the state the list was in.
     ...(body.archived !== undefined ? { archivedAt: asBoolean(body.archived, 'archived') ? Date.now() : null } : {}),
