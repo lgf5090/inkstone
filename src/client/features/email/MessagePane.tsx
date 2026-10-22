@@ -20,6 +20,7 @@ import { useEmailStore, type EmailLoadStatus } from './store'
 import { folderLabel, messageFullDate, messageSubject, messageRecipients, senderLabel } from './format'
 import { SourceDialog } from './SourceDialog'
 import { ThreadMessage } from './ThreadMessage'
+import { ComposePanel } from './ComposePanel'
 
 const TOOLBAR_BUTTON = 'size-11 md:size-7'
 
@@ -74,14 +75,14 @@ export function MessagePane({
 
   if (compose) {
     return (
-      <section className="flex min-h-0 flex-1 items-center justify-center bg-[var(--bg-base)]">
-        <Empty
-          art="notes"
-          title={t('email.compose.placeholder_title')}
-          description={t('email.compose.placeholder_hint')}
-          action={<Button size="sm" variant="ghost" onClick={onCancelCompose}>{t('common.cancel')}</Button>}
-        />
-      </section>
+      <ComposePanel
+        account={account}
+        mode={compose}
+        draftId={draftId}
+        original={summary ?? thread[thread.length - 1] ?? null}
+        onClose={onCancelCompose}
+        onSent={onClosed}
+      />
     )
   }
 
