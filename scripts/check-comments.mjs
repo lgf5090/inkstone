@@ -11489,6 +11489,16 @@ const allowed = new Map([
     "// the command raised it, and that has to happen before this request to keep it up.",
     "/** Where a new note goes when the reader has not said: the folder they are in, else the top level. */",
   ]],
+  ["src/client/features/templater/user-script-seed.test.ts", [
+    "/** The row the stand-in server hands back, so the store believes the note it just asked for exists. */",
+  ]],
+  ["src/client/features/templater/user-script-seed.ts", [
+    "/**\n * The one action that makes a user script: a note whose title ends in `.js`, in the folder the reader chose,\n * holding an export the scanner can already read.\n *\n * What makes a title a script, and the name it answers to, belong to `lib/templater/host/user-scripts.ts` —\n * this file borrows neither rule and asks that module instead. What lives here is only what that one cannot\n * answer: which title is still free, and what a first script should contain so it is callable the moment it\n * is saved. Before this existed the whole feature was a sentence in a setting's description telling the reader\n * to rename a note by hand.\n */",
+    "/** The stem a new script starts from; a numeric suffix is added while that name is taken. */",
+    "/** The suffix that makes a note a script. Kept short so the name a reader types cannot drift from it. */",
+    "/**\n * The first `<stem>.js` no note in the account already answers to.\n *\n * Checked against every title rather than only the chosen folder's, because two notes called `my_script.js`\n * in different folders are one `tp.user.my_script` with two bodies, and a run picks one without saying which.\n * Titles are compared the way the scan reads them — trimmed, extension matched case-insensitively — so a note\n * named `My_Script.JS` reserves the name too.\n */",
+    "/**\n * Create the script note, open it, and answer with the name a template will call it by — or `null` when the\n * create did not happen. A failed create is left to the store's own message: this adds no second error line\n * for the same event.\n */",
+  ]],
   ["src/client/features/templates/community-panel.tsx", [
     "// The same classifier the library card and the two filters ask, so a gallery badge cannot disagree with",
     "// the runs-code list the reader used to find this body in the first place.",

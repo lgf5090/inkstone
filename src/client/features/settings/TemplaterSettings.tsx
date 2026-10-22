@@ -13,7 +13,7 @@
  * silently: a switch that starts running code over every new note is not a preference like the font size.
  */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Plus, Trash2 } from 'lucide-react'
+import { FilePlus2, Plus, Trash2 } from 'lucide-react'
 import type { TemplaterDevicePrefs } from '../../lib/templater/device-prefs'
 import type { TemplaterHotkey, TemplaterScriptPolicy, TemplaterSettings } from '@shared/types'
 import {
@@ -32,6 +32,8 @@ import { compileQuery, queryKeeps } from '../../lib/query-match'
 import { usePinyinVersion } from '../../lib/pinyin'
 import { folderPathLabel } from '../../lib/folders'
 import { useNotes } from '../../store/notes'
+import { useUi } from '../../store/ui'
+import { createUserScript } from '../templater/user-script-seed'
 import { useSession } from '../../store/session'
 import { useTemplaterDevicePrefs, setTemplaterDevicePrefs } from '../../lib/templater/device-prefs'
 import type { TemplaterChordClaim, TemplaterHotkeyClaimant } from '../templater/hotkeys'
@@ -288,6 +290,22 @@ function ScriptFolderRow({
         <span className="mt-1 block text-[length:var(--text-11)] text-[var(--text-quaternary)]">
           {t('templater.script.folder_gone')}
         </span>
+      )}
+      {templater.userScriptsFolderId !== null && path !== '' && (
+        <Button
+          size="sm"
+          icon={<FilePlus2 size={13}/>}
+          className="mt-2"
+          onClick={() => {
+            const folderId = templater.userScriptsFolderId
+            if (folderId === null) return
+            void createUserScript(folderId).then((name) => {
+              if (name === null) return
+              useUi.getState().toast({ title: t('templater.script.created', { value0: name }), tone: 'success' })
+            })
+          }}>
+          {t('templater.script.create')}
+        </Button>
       )}
     </SettingRow>
   )
