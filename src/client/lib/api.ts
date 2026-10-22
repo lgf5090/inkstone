@@ -126,6 +126,16 @@ import type {
   TodoStats,
   TodoTask,
 } from '@shared/todos/model'
+import type {
+  EmailAccount,
+  EmailConfig,
+  EmailDraftInput,
+  EmailFolder,
+  EmailListResponse,
+  EmailMessage,
+  EmailSendInput,
+  EmailSendResult,
+} from '@shared/email/model'
 import { publishBroadcast } from './db'
 import { randomLocalId } from './random-id'
 import { getLocale, t, translateApiError } from './i18n'
@@ -1141,6 +1151,56 @@ export const api = {
    * The chat assistant. Its own group because it is its own app container: the rail's Chat tab owns
    * these routes, and nothing in the notebook calls them.
    */
+  email: {
+    getConfig: () => request<EmailConfig>('/api/email/config'),
+    listAccounts: () => request<EmailAccount[]>('/api/email/accounts'),
+    createAccount: (body: { localPart: string, domain: string, displayName?: string }) =>
+      request<EmailAccount>('/api/email/accounts', { method: 'POST', body }),
+    ensureAccounts: () => request<EmailAccount[]>('/api/email/accounts/ensure', { method: 'POST' }),
+    getAccount: (id: string) => request<EmailAccount>(`/api/email/accounts/${id}`),
+    updateAccount: (id: string, body: { displayName?: string, settings?: unknown }) =>
+      request<EmailAccount>(`/api/email/accounts/${id}`, { method: 'PATCH', body }),
+    deleteAccount: (id: string) => request<void>(`/api/email/accounts/${id}`, { method: 'DELETE' }),
+    listFolders: (id: string) => request<EmailFolder[]>(`/api/email/accounts/${id}/folders`),
+    listEmails: (id: string, params: Record<string, string | number | undefined> = {}) =>
+      request<EmailListResponse>(`/api/email/accounts/${id}/emails${toQuery(params)}`),
+    getEmail: (id: string, messageId: string) =>
+      request<EmailMessage>(`/api/email/accounts/${id}/emails/${messageId}`),
+    updateEmail: (id: string, messageId: string, body: { read?: boolean, starred?: boolean }) =>
+      request<EmailMessage>(`/api/email/accounts/${id}/emails/${messageId}`, { method: 'PATCH', body }),
+    deleteEmail: (id: string, messageId: string, permanent = false) =>
+      request<void>(`/api/email/accounts/${id}/emails/${messageId}${permanent ? '?permanent=true' : ''}`, { method: 'DELETE' }),
+    moveEmail: (id: string, messageId: string, folderId: string) =>
+      request<void>(`/api/email/accounts/${id}/emails/${messageId}/move`, { method: 'POST', body: { folderId } }),
+    restoreEmail: (id: string, messageId: string) =>
+      request<void>(`/api/email/accounts/${id}/emails/${messageId}/restore`, { method: 'POST' }),
+    listTrash: (id: string, params: Record<string, string | number | undefined> = {}) =>
+      request<EmailListResponse>(`/api/email/accounts/${id}/trash${toQuery(params)}`),
+    emptyTrash: (id: string) =>
+      request<void>(`/api/email/accounts/${id}/trash?confirm=true`, { method: 'DELETE' }),
+    getThread: (id: string, threadId: string) =>
+      request<EmailMessage[]>(`/api/email/accounts/${id}/threads/${threadId}`),
+    markThreadRead: (id: string, threadId: string) =>
+      request<void>(`/api/email/accounts/${id}/threads/${threadId}/read`, { method: 'POST' }),
+    send: (id: string, body: EmailSendInput) =>
+      request<EmailSendResult>(`/api/email/accounts/${id}/emails`, { method: 'POST', body }),
+    reply: (id: string, messageId: string, body: EmailSendInput) =>
+      request<EmailSendResult>(`/api/email/accounts/${id}/emails/${messageId}/reply`, { method: 'POST', body }),
+    forward: (id: string, messageId: string, body: EmailSendInput) =>
+      request<EmailSendResult>(`/api/email/accounts/${id}/emails/${messageId}/forward`, { method: 'POST', body }),
+    saveDraft: (id: string, draft: EmailDraftInput) =>
+      request<{ draftId: string }>(`/api/email/accounts/${id}/drafts`, { method: 'POST', body: draft }),
+    sendDraft: (id: string, draftId: string, body: EmailSendInput) =>
+      request<EmailSendResult>(`/api/email/accounts/${id}/drafts/${draftId}/send`, { method: 'POST', body }),
+    linkAttachment: (id: string, draftId: string, attachmentId: string) =>
+      request<void>(`/api/email/accounts/${id}/drafts/${draftId}/attachments`, { method: 'POST', body: { attachmentId } }),
+    unlinkAttachment: (id: string, draftId: string, attachmentId: string) =>
+      request<void>(`/api/email/accounts/${id}/drafts/${draftId}/attachments/${attachmentId}`, { method: 'DELETE' }),
+    search: (id: string, params: Record<string, string | number | undefined>) =>
+      request<EmailListResponse>(`/api/email/accounts/${id}/search${toQuery(params)}`),
+    attachmentUrl: (attachmentId: string) => `/api/email/files/${attachmentId}`,
+  },
+
   todos: {
     /**
      * One page of the listing the to-do screen states.

@@ -9,6 +9,7 @@ const EVERY_TAB_ID: Record<AppTabId, true> = {
   memos: true,
   calendar: true,
   todo: true,
+  email: true,
   projects: true,
   nav: true,
   chat: true,
