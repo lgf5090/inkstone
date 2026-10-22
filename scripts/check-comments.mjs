@@ -19610,6 +19610,7 @@ const allowed = new Map([
     "/** Calendar-field arithmetic on a copy. */",
     "/**\n * Month-field arithmetic that clamps rather than overflowing.\n *\n * `Date` rolls a day that the target month does not have into the next month, so stepping the last\n * day of October back one month answers the first of October and a \"last month\" range silently\n * grows to two months. Clamping to that month's final day is what a reader means by \"the 31st of a\n * month that has thirty days\", and it is what every other date library here already does.\n */",
     "/** Whole civil days from `a` to `b`, negative when `b` is earlier, counted in UTC days to stay DST-safe. */",
+    "/**\n * One weekday's narrow label, Sunday-first.\n *\n * A grid column and a single cell (a heatmap's row) name the same weekday; both have to read it\n * from this file, or a fix to the labels leaves one of the two saying something else.\n */",
   ]],
   ["src/client/lib/transfer.ts", [
     "/**\n * Byte transfers that tell the reader how far they have got.\n *\n * `fetch` cannot report how much of a request body the server has taken, which is the one number a\n * 40 MB book needs while it is going up, so the upload goes through `XMLHttpRequest` — the browser API\n * that still has `upload.onprogress` — and carries the same headers the rest of the app's requests do.\n * Downloads use `fetch` and count the chunks, because that side can be streamed.\n */",
@@ -21278,6 +21279,8 @@ const allowed = new Map([
   ]],
   ["src/shared/settings-sections.test.ts", [
     "/**\n * The store's own contract: a patch naming one field of one group has to arrive.\n *\n * `mergeSettingsPatch` walks a list of groups, and a group missing from that list is a settings panel\n * whose switches move on screen and never save — the reader sees nothing wrong. Probing one field per\n * group is what makes that failure answer in words rather than in a bug report.\n */",
+    "// The task section's defaults are all nulls and arrays, and an absent value has nothing a",
+    "// scalar probe could change. Its fields are the cases below; this loop has no answer to give.",
   ]],
   ["src/shared/share-presence.ts", [
     "/** Where a show is, as the channel carries it: the same three axes the presenter's own session uses. */",

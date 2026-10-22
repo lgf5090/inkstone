@@ -9,6 +9,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { cn } from '../../lib/cn'
 import { localeTag, t } from '../../lib/i18n'
+import { narrowWeekdayLabel } from '../../lib/time'
 import type {
   TaskStatsBucket,
   TaskStatsFlowPoint,
@@ -522,7 +523,7 @@ export function WeekHourHeatmap({ cells }: { cells: readonly TaskStatsWeekdayHou
           {rows.map((weekday) => (
             <div key={weekday} className="mb-[2px] grid grid-cols-[28px_repeat(24,minmax(0,1fr))] items-center gap-[2px]">
               <span className="pr-1 text-right text-[length:var(--text-9)] text-[var(--text-quaternary)]" aria-hidden="true">
-                {new Intl.DateTimeFormat(localeTag(), { weekday: 'narrow', timeZone: 'UTC' }).format(new Date(Date.UTC(2023, 0, 1 + weekday)))}
+                {narrowWeekdayLabel(localeTag(), weekday)}
               </span>
               {hours.map((hour) => {
                 const value = grid[weekday]![hour]!

@@ -14,6 +14,7 @@ describe('a settings patch reaching every group', () => {
     for (const section of Object.keys(DEFAULT_SETTINGS) as (keyof UserSettings)[]) {
       const current = DEFAULT_SETTINGS[section] as unknown as Record<string, unknown>
       let reached = false
+      let probeable = false
       for (const key of Object.keys(current)) {
         const value = current[key]
         const probe = typeof value === 'boolean' ? !value
@@ -21,12 +22,16 @@ describe('a settings patch reaching every group', () => {
             : typeof value === 'string' ? `${value}x`
               : null
         if (probe === null) continue
+        probeable = true
         const merged = mergeSettingsPatch(DEFAULT_SETTINGS, { [section]: { [key]: probe } })
         const outcome = (merged[section] as unknown as Record<string, unknown>)[key]
         if (JSON.stringify(outcome) === JSON.stringify(value)) continue
         reached = true
         break
       }
+      // The task section's defaults are all nulls and arrays, and an absent value has nothing a
+      // scalar probe could change. Its fields are the cases below; this loop has no answer to give.
+      if (!probeable) continue
       expect(reached, `no field of "${section}" survives a settings patch`).toBe(true)
     }
   })

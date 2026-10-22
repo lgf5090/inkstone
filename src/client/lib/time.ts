@@ -266,6 +266,17 @@ export function narrowWeekdayLabels(locale: string, weekStart: WeekStartDay): st
   )
 }
 
+/**
+ * One weekday's narrow label, Sunday-first.
+ *
+ * A grid column and a single cell (a heatmap's row) name the same weekday; both have to read it
+ * from this file, or a fix to the labels leaves one of the two saying something else.
+ */
+export function narrowWeekdayLabel(locale: string, weekday: number): string {
+  return new Intl.DateTimeFormat(locale, { weekday: 'narrow', timeZone: 'UTC' })
+    .format(new Date(Date.UTC(2024, 0, 7 + (weekday % 7))))
+}
+
 export function isSameDay(a: Date, b: Date): boolean {
   return (
     a.getFullYear() === b.getFullYear() &&
