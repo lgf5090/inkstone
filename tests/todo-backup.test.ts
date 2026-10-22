@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { AssistantStore } from '../src/worker/assistant/store'
 import { exportAssistant, importAssistant } from '../src/worker/assistant/backup'
+import { linkTodoAttachment, listTodoAttachments } from '../src/worker/todos/schema'
+import { newId } from '../src/worker/lib/id'
 import type { Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
@@ -117,5 +119,92 @@ describe('a backup round trip', () => {
     await importAssistant(store, JSON.parse(JSON.stringify(backup)))
 
     expect((await store.getTask(task.id))?.title).toBe('Renamed here')
+  })
+
+  it('carries every pending reminder of a task, not only the first', async () => {
+    // The file used to hold one instant per task, so a reader who set five got one back and had no way
+    // to tell the other four had been thrown away.
+    const due = Date.parse('2026-10-20T09:00:00Z')
+    const times = [-3_600_000, -900_000, -600_000, 600_000, 3_600_000].map((offset) => due + offset)
+    const task = await store.createTask({ title: 'Five chances', dueAt: due, reminders: times })
+    expect((await store.getTask(task.id))?.reminders).toHaveLength(5)
+
+    const backup = await exportAssistant(store)
+    const target = new AssistantStore(env.DB as D1Database, OTHER, env)
+    await importAssistant(target, JSON.parse(JSON.stringify(backup)))
+
+    expect((await target.getTask(task.id))?.reminders).toEqual(times)
+  })
+
+  it('still imports a file that names one reminder on the task row', async () => {
+    // Deprecation window: every file written before the `reminders` array carried a single `remind_at`
+    // number. The reader who restores one of those gets the reminder they set, not silence.
+    const due = Date.parse('2026-10-20T09:00:00Z')
+    const task = await store.createTask({ title: 'Written by an older build', dueAt: due, reminders: [due - 60_000] })
+    const backup = JSON.parse(JSON.stringify(await exportAssistant(store))) as { data: Record<string, unknown> }
+    const row = (backup.data.tasks as Record<string, unknown>[]).find((entry) => entry.id === task.id)!
+    delete row.reminders
+    row.remind_at = due - 60_000
+
+    const target = new AssistantStore(env.DB as D1Database, OTHER, env)
+    await importAssistant(target, backup)
+
+    expect((await target.getTask(task.id))?.reminders).toEqual([due - 60_000])
+  })
+
+  it('restores a task\'s attachment links so its files still resolve', async () => {
+    // The bytes live in the file hub and travel in no backup; what was lost was the link that says
+    // which file the task shows, so a restored task came back with an empty attachment list.
+    const task = await store.createTask({ title: 'Signed contract' })
+    const attachmentId = newId()
+    sqlite.prepare(
+      `INSERT INTO attachments (id, user_id, scope, filename, mime, size, sha256, storage, created_at)
+       VALUES (?1, ?2, 'todos', 'contract.pdf', 'application/pdf', 12, 'hash', 'r2', 1)`,
+    ).run(attachmentId, USER)
+    expect(await linkTodoAttachment(env.DB as D1Database, USER, task.id, attachmentId, Date.now())).toBe(true)
+
+    const backup = await exportAssistant(store)
+    // The device that lost its link table but kept its files: the case a restore is actually for.
+    sqlite.exec('DELETE FROM todos_attachments')
+    expect(await listTodoAttachments(env.DB as D1Database, USER, task.id)).toEqual([])
+
+    await importAssistant(store, JSON.parse(JSON.stringify(backup)))
+
+    const restored = await listTodoAttachments(env.DB as D1Database, USER, task.id)
+    expect(restored.map((row) => [row.id, row.filename])).toEqual([[attachmentId, 'contract.pdf']])
+  })
+
+  it('keeps credentials and the replayed history out of the file', async () => {
+    // A feed slug with its password hash and a mail token are the capability itself, so they go
+    // nowhere near an export; the event table is left out for the size reason the plan measured.
+    sqlite.prepare(
+      `INSERT INTO todos_feeds (slug, user_id, password_hash, created_at) VALUES ('s1', ?1, 'hash', 1)`,
+    ).run(USER)
+    sqlite.prepare(`INSERT INTO todos_mail_tokens (user_id, token, created_at) VALUES (?1, 'tok', 1)`).run(USER)
+    await store.createTask({ title: 'One task' })
+    // The three tables are each holding a row, so the exclusions below are about the export and not
+    // about an empty database.
+    for (const table of ['todos_feeds', 'todos_mail_tokens', 'todos_task_events']) {
+      expect(Number((sqlite.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n)).toBeGreaterThan(0)
+    }
+
+    const exported = await store.exportTables()
+
+    expect(Object.keys(exported).filter((key) => /feed|mail|token|event/i.test(key))).toEqual([])
+    const text = JSON.stringify(exported)
+    expect(text).not.toContain('hash')
+    expect(text).not.toContain('tok')
+  })
+
+  it('says on the restore summary what no backup could carry', async () => {
+    const target = new AssistantStore(env.DB as D1Database, OTHER, env)
+    await store.createTask({ title: 'One task' })
+
+    const summary = await importAssistant(target, JSON.parse(JSON.stringify(await exportAssistant(store))))
+
+    const notes = summary.skipped.join('\n')
+    expect(notes).toMatch(/calendar feed/i)
+    expect(notes).toMatch(/mail/i)
+    expect(notes).toMatch(/flow/i)
   })
 })

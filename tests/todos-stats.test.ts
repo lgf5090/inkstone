@@ -416,6 +416,40 @@ describe('the cumulative flow on the wire', () => {
     expect(earlier.flowTrackedSince).toBeNull()
   })
 
+  it('marks the day the record begins when a restore rebuilt the event table', async () => {
+    // A backup carries the rows, not the history they went through, so a restored account holds tasks
+    // whose days are years old beside an event table that starts on the day it was restored. Without a
+    // mark the chart reads as though it replayed the whole range: the flow starts with a jump that was
+    // never recorded, and the reader has nothing telling them the backlog before that day is a guess.
+    clock('2026-01-01T09:00:00Z')
+    const store = await withZone('UTC')
+    const restoredAt = Date.parse('2026-01-01T09:00:00Z')
+    await store.importRows('todos_tasks', [{
+      id: '0123456789abcdefghjkmnq10',
+      title: 'Carried in by the restore',
+      description: '',
+      status: 'todo',
+      priority: 'medium',
+      due_at: null,
+      created_at: restoredAt,
+      updated_at: restoredAt,
+      created_on: '2026-01-01',
+      completed_on: null,
+      completed_at: null,
+    }])
+
+    // The first task written after the restore is the first row the account's own history holds.
+    vi.setSystemTime(new Date('2026-03-05T09:00:00Z'))
+    await store.createTask({ title: 'Written here' }, 'UTC')
+
+    const answer = await stats('?from=2026-03-01&to=2026-03-10')
+    expect(answer.flowTrackedSince).toBe('2026-03-05')
+
+    // A range entirely before that day has no recorded history at all, so nothing is marked.
+    const before = await stats('?from=2026-02-01&to=2026-02-28')
+    expect(before.flowTrackedSince).toBeNull()
+  })
+
   it('does not count a task started inside the range twice', async () => {
     clock('2026-03-01T09:00:00Z')
     const store = await withZone('UTC')
@@ -487,7 +521,9 @@ describe('the query', () => {
     const large = await countWith()
 
     expect(small).toBeGreaterThan(0)
-    expect(small).toBeLessThanOrEqual(8)
+    // The seven reads the tables need, the flow's seed and event range, and the one indexed minimum that
+    // says where this account's record begins.
+    expect(small).toBe(9)
     expect(large).toBe(small)
     expect(statements).toHaveLength(large)
   })

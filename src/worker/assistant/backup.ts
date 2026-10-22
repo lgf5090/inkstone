@@ -12,7 +12,7 @@
 import type { AssistantImportSummary, AssistantSettings } from '@shared/assistant'
 import { clipReasoning, normalizeAssistantSettings } from '@shared/assistant'
 import { parseScheduleSpec } from '@shared/assistant-schedule'
-import { parseRepeatRule } from '@shared/todos/model'
+import { normalizeReminderTimes, parseRepeatRule } from '@shared/todos/model'
 import { ASSISTANT_MEMORY_CATEGORIES, AUTOMATION_KINDS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_AUTOMATION_TARGET_ID_CHARS, MAX_MESSAGE_CHARS, MAX_PROJECT_NOTES } from '@shared/assistant'
 import { ApiError } from '../lib/errors'
 import { AssistantStore, decodeFeedback, encodeFeedback } from './store'
@@ -107,6 +107,19 @@ const NOTIFICATION_LINK_MAX_CHARS = 200
 function notificationLinkValue(value: unknown): string | null {
   if (typeof value !== 'string') return null
   return value.trim().slice(0, NOTIFICATION_LINK_MAX_CHARS) || null
+}
+
+/**
+ * The pending instants one task row of the file names, in either shape the format has had.
+ *
+ * The current field is `reminders`, the whole pending list. Every file written before it carries a
+ * single `remind_at` number instead, and a restore of one of those used to bring back exactly that one
+ * alarm while the reader's other four had gone out of the file silently — so the old shape stays
+ * readable for a version cycle, and the new one wins whenever both are present.
+ */
+function fileReminders(task: Record<string, unknown>): number[] {
+  if (Array.isArray(task.reminders)) return normalizeReminderTimes(task.reminders.filter((value): value is number => typeof value === 'number'))
+  return typeof task.remind_at === 'number' ? normalizeReminderTimes([task.remind_at]) : []
 }
 
 export async function importAssistant(store: AssistantStore, raw: Record<string, unknown>): Promise<ImportSummary> {
@@ -534,10 +547,10 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
       list_id: listId && knownLists.has(listId) ? listId : null,
       starred: task.starred === true || task.starred === 1 ? 1 : 0,
       repeat_rule: repeat ? JSON.stringify(repeat) : null,
-      remind_at: numberOrNull(task.remind_at),
-      // A restore is not a delivery: the reminder has to be able to fire on the machine that received
-      // the file, so the mark that says it already went out does not travel.
-      reminded_at: null,
+      // The pending instants, both shapes of them folded into one list. They are not a column of the
+      // task row — `todos_reminders` owns them, and `importRows` turns this field into those rows — and
+      // a fired reminder never comes back as a pending one, because a restore is not a delivery.
+      reminders: fileReminders(task),
       note_id: idValue(task.note_id),
       conversation_id: idValue(task.conversation_id),
       created_at: numberValue(task.created_at, Date.now()),
@@ -601,6 +614,40 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
     })
   }
   await store.importRows('todos_steps', stepRows)
+
+  // Which file each task shows. The file's own row lives in the attachment hub and travels in no backup,
+  // so a link whose task is not here is dropped rather than left pointing at nothing, and one whose file
+  // the device no longer holds resolves to nothing on read — the join that lists a task's files already
+  // insists the file belongs to this account, so restoring the link can neither leak nor lie.
+  const attachmentEntries = rows(data.task_attachments)
+  const attachmentTaskIds = attachmentEntries
+    .map((entry) => idValue(entry.task_id))
+    .filter((id): id is string => id !== null)
+  const tasksWithFiles = await store.hasRows('todos_tasks', attachmentTaskIds)
+  const attachmentRows: Record<string, unknown>[] = []
+  for (const link of attachmentEntries) {
+    const taskId = idValue(link.task_id)
+    // An attachment id is one of this app's own ids, so it goes through the same gate as every other
+    // key the file names; anything shaped differently cannot be a file of this account.
+    const attachmentId = idValue(link.attachment_id)
+    if (!taskId || !attachmentId || !tasksWithFiles.has(taskId)) continue
+    attachmentRows.push({
+      task_id: taskId,
+      attachment_id: attachmentId,
+      created_at: numberValue(link.created_at, Date.now()),
+    })
+  }
+  await store.importRows('todos_attachments', attachmentRows)
+
+  // Two things this format leaves out by decision, said on the summary rather than left for the reader to
+  // discover by counting what came back. A feed's password hash and a mail address's token are the
+  // capability itself, so they go nowhere near a file that may leave the deployment; and the event table
+  // the cumulative flow replays is the one history whose rows cost more than the restore ceiling can spare.
+  // Both notes are unconditional: the file says nothing about whether the account had either, so the only
+  // honest answer is the one given every time.
+  skipped.push('calendar feed links and the mail inbox address are not part of a backup — regenerate them in Settings')
+  skipped.push('the task history the cumulative flow replays is not part of a backup — the flow starts again from this restore')
+
   const notificationEntries = rows(data.notifications)
   const heldNotifications = await store.hasRows(
     'chat_notifications',

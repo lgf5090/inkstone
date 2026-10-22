@@ -458,11 +458,13 @@ export interface TodoStats {
   /** The same buckets as `series`, holding the status of the whole backlog rather than the day's work. */
   flow: TaskStatsFlowPoint[]
   /**
-   * The first day in the range on which a task is known to have entered `in_progress`, or null.
+   * The first day in the range on which the replayed history is real, or null while none of it is.
    *
-   * Before the event table existed there was no record of a task being started, so a chart drawn
-   * further back would show a `todo` band that silently includes work already under way. The line
-   * marks where that reading stops being an approximation.
+   * Two things can put the chart back into the guess: before the event table existed there was no record
+   * of a task being started, so a reading further back shows a `todo` band that silently includes work
+   * already under way; and a restore writes the task rows without the history they went through, so an
+   * account can hold years of backlog above a table whose first row is the day it was restored. The line
+   * marks the later of the two, which is where the reading stops being an approximation.
    */
   flowTrackedSince: string | null
   distributions: TaskStatsDistributions

@@ -6900,24 +6900,22 @@ export class AssistantStore {
     if (!rows.length) return
     const columns = this.importColumns(table)
     await this.runImportBatch(rows.map((row) => this.importInsert(table, columns, row)), onLanded)
-    // A task row names its reminder in the `remind_at` field the backup format has always carried;
-    // the column itself is no longer written (see `EXPORT_COLUMNS`), this turns the field into the
-    // row that now owns the instants. They are written after the tasks they belong to, and only when
-    // the same instant is not already pending here: importing one file twice must not double its
-    // alarms.
+    // A task row names its pending instants in the `reminders` field; the columns they used to live in
+    // are no longer written (see `EXPORT_COLUMNS`), so this turns the field into the rows that now own
+    // them. They are written after the tasks they belong to, and only when the same instant is not
+    // already pending here: importing one file twice must not double its alarms.
     if (table === 'todos_tasks') await this.importTaskReminders(rows)
   }
 
-  /** The `remind_at` fields a backup attached to its task rows, as rows of `todos_reminders`. */
+  /** The `reminders` list a backup attached to its task rows, as rows of `todos_reminders`. */
   private async importTaskReminders(rows: readonly Record<string, unknown>[]): Promise<void> {
     const at = Date.now()
     const statements: D1PreparedStatement[] = []
     for (const row of rows) {
       const taskId = typeof row.id === 'string' ? row.id : ''
       if (!taskId) continue
-      const times = Array.isArray(row.reminders)
-        ? row.reminders as number[]
-        : typeof row.remind_at === 'number' ? [row.remind_at] : []
+      // The reader `backup.ts` ends the deprecated single-instant field into, so this side has one shape.
+      const times = Array.isArray(row.reminders) ? row.reminders as readonly number[] : []
       for (const remindAt of normalizeReminderTimes(times)) {
         statements.push(this.db.prepare(
           `INSERT INTO todos_reminders (user_id, id, task_id, remind_at, fired_at, created_at)
@@ -7006,6 +7004,14 @@ export class AssistantStore {
    * thread that would not be kept, and a file they hand to somebody else is the last place it should
    * reappear. The dependent tables are filtered through the conversation rather than by a column of their
    * own, because none of them carries the flag.
+   *
+   * Three to-do tables are left out on purpose. `todos_feeds` and `todos_mail_tokens` hold the credential
+   * rather than the thing it grants — a feed's password hash and a mail address's token are the right to
+   * read or to post, so they go nowhere near a file that leaves the deployment, and the reader regenerates
+   * them. `todos_task_events` is the cumulative flow's history: measured, one row costs 217 bytes and a
+   * ten-thousand-task account's export already runs past the ceiling a restore accepts without it, so
+   * carrying the replay would only make an unrestorable file bigger. The restore summary says both of
+   * those out loud instead of letting the reader find them by counting what came back.
    */
   async exportTables(): Promise<Record<string, Record<string, unknown>[]>> {
     const onlyKept = 'conversation_id IN (SELECT id FROM chat_conversations WHERE user_id = ?1 AND ephemeral = 0)'
@@ -7021,12 +7027,10 @@ export class AssistantStore {
     // does not have the column (see `EXPORT_COLUMNS`), so `SELECT *` has to drop it here or a restore
     // would read a key the allowlist never accepts.
     for (const task of tasks) delete task.deleted_at
-    // A reminder travels on its task. The backup format has one row per task and no table for these,
-    // so the first pending instant is written into the `remind_at` field the format already had; the
-    // import reads it back as a row of `todos_reminders`. Fired rows stay behind: a restore is not a
-    // delivery, and history the file does not need is not a reason to write it into another account.
-    // The task row's own `remind_at` column is not read — it is superseded and this value is derived
-    // from the reminder rows, then overwritten either way.
+    // A reminder travels on its task, as the whole pending list rather than one instant: the format used
+    // to hold a single `remind_at` per task, so a reader who set five got one back and the other four
+    // went out of the file without a word. Fired rows stay behind: a restore is not a delivery, and
+    // history the file does not need is not a reason to write it into another account.
     const pending = await select('todos_reminders', `AND fired_at IS NULL AND ${liveTask}`)
     const byTask = new Map<string, number[]>()
     for (const row of pending) {
@@ -7039,7 +7043,12 @@ export class AssistantStore {
     }
     for (const task of tasks) {
       const list = typeof task.id === 'string' ? byTask.get(task.id) : undefined
-      task.remind_at = list?.length ? normalizeReminderTimes(list)[0]! : null
+      task.reminders = normalizeReminderTimes(list ?? [])
+      // The two columns `todos_reminders` superseded are still on a database that predates the move, so
+      // `SELECT *` brings them here. Neither is read by anything and neither is in `EXPORT_COLUMNS`, so
+      // carrying their leftovers into the file would only invite a reader to trust a stale instant.
+      delete task.remind_at
+      delete task.reminded_at
     }
     return {
       conversations: await select('chat_conversations', 'AND ephemeral = 0'),
@@ -7054,6 +7063,10 @@ export class AssistantStore {
       task_steps: await select('todos_steps', `AND ${liveTask}`),
       task_tags: await select('todos_tags'),
       task_tag_links: await select('todos_tag_links', `AND ${liveTask}`),
+      // Which file each task shows. The bytes live in the attachment hub and travel in no backup — the
+      // same rule the notes side follows — so this carries the link, and a restore onto a device that
+      // still holds the file puts the task's attachments back rather than leaving it looking empty.
+      task_attachments: await select('todos_attachments', `AND ${liveTask}`),
       projects: await select('chat_projects'),
       automations: await select('chat_automations'),
       notifications: await select('chat_notifications'),
@@ -7116,7 +7129,7 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // means a boot after a restore does not come back through the repair. They are nullable, so an old
   // backup without the keys still lands.
   // `remind_at` is deliberately absent: the single reminder column is superseded by `todos_reminders`,
-  // and a restore turns the backup's `remind_at` field into a row of that table instead of writing a
+  // and a restore turns the backup's `reminders` field into rows of that table instead of writing a
   // column nothing reads. The field still travels in the file, because that is the format's shape.
   // `deleted_at` is absent for a different reason: trashed rows are not exported at all (see
   // `exportTables`), so a column that would only ever be null is not part of the format.
@@ -7129,6 +7142,10 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   todos_tags: ['id', 'name', 'color', 'created_at', 'updated_at'],
   // A link has no id of its own: its key is the pair, so it is only ever inserted, never patched.
   todos_tag_links: ['task_id', 'tag_id', 'created_at'],
+  // The same shape for the same reason: a task's file link is keyed by the pair, and the file itself is
+  // the hub's row rather than something this file carries. Without these the restored task lists no
+  // attachments at all and says nothing about it.
+  todos_attachments: ['task_id', 'attachment_id', 'created_at'],
   // The brief and the folders a project reads are what make it a context rather than a folder; a
   // restored project without them is the same name over an empty brief. `note_ids` travels with them: a
   // project that named three pages and came back naming none would answer from the whole vault, which is

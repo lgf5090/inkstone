@@ -83,7 +83,8 @@ export interface StatsTagRow {
  *   falls inside the range — they enter the band through their own event instead.
  *
  * What remains is the honest approximation: a task started before the event table existed carries no
- * start event, so it is taken as already running. That is what `flowTrackedSince` marks.
+ * start event, so it is taken as already running. That is what `flowTrackedSince` marks — along with
+ * the second way the record can be missing, `earliestEventDay` in the input below.
  */
 export interface StatsFlowSeed {
   createdBefore: number
@@ -109,6 +110,15 @@ export interface StatsInput {
   tags: StatsTagRow[]
   flowSeed: StatsFlowSeed
   flowEvents: StatsFlowEvent[]
+  /**
+   * The earliest day this account's event table holds, or null while it holds nothing.
+   *
+   * The day the record begins, which is the other half of what `flowTrackedSince` marks: a restore
+   * writes the rows and not the history they went through, so an account can hold years of tasks above
+   * an event table whose first row is from today. Read once rather than derived from `flowEvents`,
+   * because those are already cut to the range.
+   */
+  earliestEventDay: string | null
   from: string
   to: string
   bucket: TaskStatsBucket
@@ -324,13 +334,22 @@ export function computeTodoStats(input: StatsInput): TodoStats {
     to: input.to,
     bucket: input.bucket,
   })
-  // The earliest arrival into `in_progress` is the first moment the chart's `todo` band is known to
-  // be exact; the events are already in `at` order from the query, but a caller need not be.
+  // Two bounds say where the chart stops being a guess, and the later one is the honest mark: the first
+  // arrival into `in_progress` (the events are in `at` order from the query, but a caller need not be),
+  // and the first day this account's event table holds when that day falls inside the range — a record
+  // that reaches back past the range opens nothing to mark. A restore moves the second bound forward:
+  // the rows come back, the history they went through does not, and without the mark the chart would
+  // draw a backlog it had never replayed.
   const tracked = input.flowEvents.reduce<StatsFlowEvent | null>((first, event) => {
     if (event.toStatus !== 'in_progress') return first
     if (event.onDay < input.from || event.onDay > input.to) return first
     return first === null || event.at < first.at ? event : first
   }, null)
+  const recordStart = input.earliestEventDay === null || input.earliestEventDay <= input.from
+    ? null
+    : input.earliestEventDay
+  const bounds = [tracked?.onDay ?? null, recordStart].filter((day): day is string => day !== null)
+  const trackedSince = bounds.length === 0 ? null : bounds.reduce((later, day) => (day > later ? day : later))
 
   const byPriority = PRIORITIES.map((priority) => {
     const count = completed.filter((row) => priorityOf(row.priority) === priority).length
@@ -418,7 +437,7 @@ export function computeTodoStats(input: StatsInput): TodoStats {
     summary,
     series,
     flow,
-    flowTrackedSince: tracked?.onDay ?? null,
+    flowTrackedSince: trackedSince !== null && trackedSince <= input.to ? trackedSince : null,
     distributions,
     leadTime,
     backlog,
@@ -441,20 +460,22 @@ type ListDbRow = { id: string; name: string }
 type TagDbRow = { id: string; name: string; n: number }
 type FlowSeedDbRow = { created_before: number | null; done_before: number | null; in_progress_now: number | null }
 type FlowEventDbRow = { kind: string; from_status: string | null; to_status: string; at: number; on_day: string }
+type FlowRecordDayRow = { first_day: string | null }
 
 /**
  * Reads one range and answers the whole statistics object.
  *
- * Seven statements, none of which depends on how many rows the range holds. The finished rows are read
+ * Eight statements, none of which depends on how many rows the range holds. The finished rows are read
  * as rows rather than pre-aggregated because a median, a weekday/hour heatmap and an on-time comparison
  * all need each completion's own timestamps; grouping those in SQL would still need the raw rows for
- * the rest, and running both would be a sixth statement for no gain. The last two are the flow's: one
- * row of stock for the day before the range, and the events inside it, both read whole rather than
- * bucketed because the replay is a pure function that a test can run without a database.
+ * the rest, and running both would be a sixth statement for no gain. The last three are the flow's: one
+ * row of stock for the day before the range, the events inside it, and the day the account's record
+ * begins — the first two read whole rather than bucketed because the replay is a pure function that a
+ * test can run without a database.
  */
 export async function loadTodoStats(db: D1Database, userId: string, query: TodoStatsQuery): Promise<TodoStats> {
   const end = addDays(query.to, 1)
-  const [completed, created, open, lists, tags, flowSeed, flowEvents] = await Promise.all([
+  const [completed, created, open, lists, tags, flowSeed, flowEvents, flowRecordDay] = await Promise.all([
     db.prepare(
       `SELECT id, list_id, priority, due_at, created_at, completed_at, completed_on
          FROM todos_tasks
@@ -511,6 +532,11 @@ export async function loadTodoStats(db: D1Database, userId: string, query: TodoS
         WHERE user_id = ?1 AND on_day >= ?2 AND on_day < ?3
         ORDER BY at ASC`,
     ).bind(userId, query.from, end).all<FlowEventDbRow>(),
+    // Where this account's own record begins. Not cut to the range: the question is whether the history
+    // the chart replays reaches back past it, and one indexed minimum answers that whatever the range is.
+    db.prepare(
+      `SELECT MIN(on_day) AS first_day FROM todos_task_events WHERE user_id = ?1`,
+    ).bind(userId).first<FlowRecordDayRow>(),
   ])
 
   return computeTodoStats({
@@ -542,6 +568,7 @@ export async function loadTodoStats(db: D1Database, userId: string, query: TodoS
       at: Number(row.at),
       onDay: row.on_day,
     })),
+    earliestEventDay: flowRecordDay?.first_day ?? null,
     from: query.from,
     to: query.to,
     bucket: query.bucket,
