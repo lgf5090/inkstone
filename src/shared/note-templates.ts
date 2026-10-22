@@ -993,6 +993,16 @@ export function parseTemplateLibraryExport(
       dropped++
       continue
     }
+    // A body the reader wrote is code once Templater is in the library, and a command cut in half imports as
+    // a template that prints `<% …` forever. The clamp is the right size limit to keep — it is what stops one
+    // paste filling the store — but it may not be silent: `truncated` is the flag the import dialog and the
+    // save route already refuse on.
+    if (
+      typeof candidate === 'object' && candidate !== null && typeof (candidate as { content?: unknown }).content === 'string'
+      && (candidate as { content: string }).content.length > TEMPLATE_IMPORT_LIMITS.maxContentLength
+    ) {
+      truncated = true
+    }
     if (template.content.length > contentBudget) {
       truncated = true
       dropped++
