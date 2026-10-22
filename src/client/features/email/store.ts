@@ -1,0 +1,725 @@
+import { create } from 'zustand'
+import type {
+  EmailAccount,
+  EmailAccountSettings,
+  EmailConfig,
+  EmailFolder,
+  EmailMessage,
+  EmailSummary,
+} from '@shared/email/model'
+import { EMAIL_PAGE_SIZE } from '@shared/email/model'
+import { emailSearchParams, parseEmailSearchQuery } from '@shared/email/search'
+import { api } from '../../lib/api'
+import { t } from '../../lib/i18n'
+import { emailErrorText } from './errors'
+
+export type EmailLoadStatus = 'idle' | 'loading' | 'ready' | 'error'
+export type EmailListMode = 'folder' | 'search'
+
+const POLL_INTERVAL_MS = 30_000
+
+let overviewSequence = 0
+let listSequence = 0
+let messageSequence = 0
+let trashSequence = 0
+let pollTimer: number | null = null
+let visibilityBound = false
+
+interface MailboxSnapshot {
+  messages: EmailSummary[]
+  total: number
+  trash: EmailSummary[]
+  trashTotal: number
+  selectedId: string | null
+  selectedMessage: EmailMessage | null
+  thread: EmailMessage[]
+  folders: EmailFolder[]
+}
+
+interface EmailState {
+  config: EmailConfig | null
+  configStatus: EmailLoadStatus
+  accounts: EmailAccount[]
+  accountsStatus: EmailLoadStatus
+  accountsError: string | null
+
+  folders: EmailFolder[]
+  foldersStatus: EmailLoadStatus
+  foldersError: string | null
+  foldersAccountId: string | null
+
+  messages: EmailSummary[]
+  total: number
+  listStatus: EmailLoadStatus
+  listError: string | null
+  listRefreshing: boolean
+  listMode: EmailListMode
+  accountId: string | null
+  folderId: string | null
+  searchQuery: string
+  page: number
+
+  selectedId: string | null
+  selectedMessage: EmailMessage | null
+  selectedStatus: EmailLoadStatus
+  selectedError: string | null
+  thread: EmailMessage[]
+  threadStatus: EmailLoadStatus
+  threadError: string | null
+
+  trash: EmailSummary[]
+  trashTotal: number
+  trashStatus: EmailLoadStatus
+  trashError: string | null
+  trashPage: number
+
+  actionError: string | null
+
+  loadAccounts: () => Promise<void>
+  createAccount: (input: { localPart: string; domain: string; displayName?: string }) => Promise<EmailAccount>
+  updateAccount: (accountId: string, input: { displayName?: string; settings: EmailAccountSettings }) => Promise<EmailAccount>
+  deleteAccount: (accountId: string) => Promise<void>
+
+  loadFolders: (accountId: string, options?: { silent?: boolean }) => Promise<void>
+  createFolder: (accountId: string, name: string) => Promise<void>
+  renameFolder: (accountId: string, folderId: string, name: string) => Promise<void>
+  deleteFolder: (accountId: string, folderId: string, deleteEmails?: boolean) => Promise<void>
+
+  loadList: (accountId: string, folderId: string, page?: number, options?: { silent?: boolean }) => Promise<void>
+  searchEmails: (accountId: string, query: string, page?: number, options?: { silent?: boolean }) => Promise<void>
+  loadPage: (page: number) => Promise<void>
+  refresh: () => Promise<void>
+
+  openMessage: (accountId: string, messageId: string) => Promise<void>
+  clearSelection: () => void
+  markThreadRead: (accountId: string, message: EmailMessage) => Promise<boolean>
+  setRead: (accountId: string, messageId: string, read: boolean) => Promise<boolean>
+  toggleStar: (accountId: string, messageId: string) => Promise<boolean>
+  moveMessage: (accountId: string, messageId: string, folderId: string) => Promise<boolean>
+  deleteMessage: (accountId: string, messageId: string, permanent?: boolean) => Promise<boolean>
+  retrySend: (accountId: string, messageId: string) => Promise<boolean>
+
+  loadTrash: (accountId: string, page?: number) => Promise<void>
+  restoreTrash: (accountId: string, messageId: string) => Promise<void>
+  purgeTrash: (accountId: string, messageId: string) => Promise<void>
+  emptyTrash: (accountId: string) => Promise<void>
+
+  startPolling: () => void
+  stopPolling: () => void
+  clearActionError: () => void
+}
+
+const INITIAL = {
+  config: null as EmailConfig | null,
+  configStatus: 'idle' as EmailLoadStatus,
+  accounts: [] as EmailAccount[],
+  accountsStatus: 'idle' as EmailLoadStatus,
+  accountsError: null as string | null,
+  folders: [] as EmailFolder[],
+  foldersStatus: 'idle' as EmailLoadStatus,
+  foldersError: null as string | null,
+  foldersAccountId: null as string | null,
+  messages: [] as EmailSummary[],
+  total: 0,
+  listStatus: 'idle' as EmailLoadStatus,
+  listError: null as string | null,
+  listRefreshing: false,
+  listMode: 'folder' as EmailListMode,
+  accountId: null as string | null,
+  folderId: null as string | null,
+  searchQuery: '',
+  page: 1,
+  selectedId: null as string | null,
+  selectedMessage: null as EmailMessage | null,
+  selectedStatus: 'idle' as EmailLoadStatus,
+  selectedError: null as string | null,
+  thread: [] as EmailMessage[],
+  threadStatus: 'idle' as EmailLoadStatus,
+  threadError: null as string | null,
+  trash: [] as EmailSummary[],
+  trashTotal: 0,
+  trashStatus: 'idle' as EmailLoadStatus,
+  trashError: null as string | null,
+  trashPage: 1,
+  actionError: null as string | null,
+}
+
+const visibilityHandler = (): void => {
+  if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+    void useEmailStore.getState().refresh()
+  }
+}
+
+function snapshot(state: EmailState): MailboxSnapshot {
+  return {
+    messages: state.messages,
+    total: state.total,
+    trash: state.trash,
+    trashTotal: state.trashTotal,
+    selectedId: state.selectedId,
+    selectedMessage: state.selectedMessage,
+    thread: state.thread,
+    folders: state.folders,
+  }
+}
+
+function sortedThread(messages: EmailMessage[]): EmailMessage[] {
+  const unique = new Map<string, EmailMessage>()
+  for (const message of messages) unique.set(message.id, message)
+  return [...unique.values()].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+}
+
+function adjustFolderUnread(folders: EmailFolder[], folderId: string | null, delta: number): EmailFolder[] {
+  if (!folderId) return folders
+  return folders.map((folder) => folder.id === folderId
+    ? { ...folder, unreadCount: Math.max(0, folder.unreadCount + delta) }
+    : folder)
+}
+
+function updateSummary(list: EmailSummary[], id: string, patch: Partial<EmailSummary>): EmailSummary[] {
+  return list.map((entry) => entry.id === id ? { ...entry, ...patch } : entry)
+}
+
+function updateThread(list: EmailMessage[], id: string, patch: Partial<EmailMessage>): EmailMessage[] {
+  return list.map((entry) => entry.id === id ? { ...entry, ...patch } : entry)
+}
+
+function findSummary(state: EmailState, id: string): EmailSummary | null {
+  return state.messages.find((entry) => entry.id === id)
+    ?? state.trash.find((entry) => entry.id === id)
+    ?? (state.selectedMessage?.id === id ? state.selectedMessage : null)
+}
+
+export const useEmailStore = create<EmailState>((set, get) => ({
+  ...INITIAL,
+
+  loadAccounts: async () => {
+    const sequence = ++overviewSequence
+    const state = get()
+    set({
+      accountsStatus: state.accounts.length > 0 ? 'ready' : 'loading',
+      configStatus: state.config ? 'ready' : 'loading',
+      accountsError: null,
+    })
+    try {
+      const config = await api.email.getConfig()
+      if (sequence !== overviewSequence) return
+      let accounts = await api.email.listAccounts()
+      if (sequence !== overviewSequence) return
+      let ensureError: string | null = null
+      if (config.addresses.length > 0) {
+        try {
+          const created = await api.email.ensureAccounts()
+          if (sequence !== overviewSequence) return
+          if (created.length > 0) {
+            accounts = await api.email.listAccounts()
+            if (sequence !== overviewSequence) return
+          }
+        } catch (reason) {
+          ensureError = emailErrorText(reason)
+        }
+      }
+      set({
+        config,
+        configStatus: 'ready',
+        accounts,
+        accountsStatus: 'ready',
+        accountsError: ensureError,
+      })
+    } catch (reason) {
+      if (sequence !== overviewSequence) return
+      set({
+        accountsStatus: 'error',
+        configStatus: get().config ? 'ready' : 'error',
+        accountsError: emailErrorText(reason),
+      })
+    }
+  },
+
+  createAccount: async (input) => {
+    const account = await api.email.createAccount(input)
+    set((state) => ({ accounts: [...state.accounts, account] }))
+    return account
+  },
+
+  updateAccount: async (accountId, input) => {
+    const updated = await api.email.updateAccount(accountId, input)
+    set((state) => ({
+      accounts: state.accounts.map((account) => account.id === updated.id ? updated : account),
+    }))
+    return updated
+  },
+
+  deleteAccount: async (accountId) => {
+    await api.email.deleteAccount(accountId)
+    if (get().accountId === accountId) {
+      get().stopPolling()
+      set({
+        messages: [],
+        total: 0,
+        listStatus: 'idle',
+        listError: null,
+        folders: [],
+        foldersAccountId: null,
+        foldersStatus: 'idle',
+        selectedId: null,
+        selectedMessage: null,
+        selectedStatus: 'idle',
+        selectedError: null,
+        thread: [],
+        threadStatus: 'idle',
+        threadError: null,
+        folderId: null,
+        accountId: null,
+        trash: [],
+        trashTotal: 0,
+        trashStatus: 'idle',
+        trashError: null,
+      })
+    }
+    set((state) => ({ accounts: state.accounts.filter((account) => account.id !== accountId) }))
+  },
+
+  loadFolders: async (accountId, options) => {
+    const silent = options?.silent === true
+    set((state) => ({
+      folders: state.foldersAccountId === accountId ? state.folders : [],
+      foldersAccountId: accountId,
+      foldersStatus: silent ? state.foldersStatus : 'loading',
+      foldersError: null,
+    }))
+    try {
+      const folders = await api.email.listFolders(accountId)
+      if (get().foldersAccountId !== accountId) return
+      set({ folders, foldersStatus: 'ready', foldersError: null })
+    } catch (reason) {
+      if (get().foldersAccountId !== accountId) return
+      set({
+        foldersStatus: silent ? get().foldersStatus : 'error',
+        foldersError: emailErrorText(reason),
+      })
+    }
+  },
+
+  createFolder: async (accountId, name) => {
+    await api.email.createFolder(accountId, name)
+    await get().loadFolders(accountId, { silent: true })
+  },
+
+  renameFolder: async (accountId, folderId, name) => {
+    await api.email.updateFolder(accountId, folderId, name)
+    await get().loadFolders(accountId, { silent: true })
+  },
+
+  deleteFolder: async (accountId, folderId, deleteEmails = false) => {
+    await api.email.deleteFolder(accountId, folderId, deleteEmails)
+    await get().loadFolders(accountId, { silent: true })
+    await get().refresh()
+  },
+
+  loadList: async (accountId, folderId, page = 1, options) => {
+    const silent = options?.silent === true
+    const sequence = ++listSequence
+    set((state) => ({
+      accountId,
+      folderId,
+      listMode: 'folder',
+      searchQuery: '',
+      page,
+      listError: null,
+      listRefreshing: silent,
+      listStatus: silent ? state.listStatus : 'loading',
+      ...(silent ? {} : { messages: [], total: 0 }),
+    }))
+    try {
+      const result = await api.email.listEmails(accountId, {
+        folder: folderId,
+        page,
+        limit: EMAIL_PAGE_SIZE,
+        threaded: 'true',
+      })
+      if (sequence !== listSequence) return
+      set({
+        messages: result.emails,
+        total: result.totalCount,
+        listStatus: 'ready',
+        listError: null,
+        listRefreshing: false,
+      })
+    } catch (reason) {
+      if (sequence !== listSequence) return
+      set({
+        listStatus: silent ? get().listStatus : 'error',
+        listError: emailErrorText(reason),
+        listRefreshing: false,
+      })
+    }
+  },
+
+  searchEmails: async (accountId, query, page = 1, options) => {
+    const silent = options?.silent === true
+    const sequence = ++listSequence
+    const trimmed = query.trim()
+    set((state) => ({
+      accountId,
+      folderId: null,
+      listMode: 'search',
+      searchQuery: query,
+      page,
+      listError: null,
+      listRefreshing: silent,
+      listStatus: silent ? state.listStatus : 'loading',
+      ...(silent ? {} : { messages: [], total: 0 }),
+    }))
+    if (!trimmed) {
+      set({ messages: [], total: 0, listStatus: 'ready', listRefreshing: false })
+      return
+    }
+    try {
+      const result = await api.email.search(accountId, {
+        ...emailSearchParams(parseEmailSearchQuery(trimmed)),
+        page,
+        limit: EMAIL_PAGE_SIZE,
+      })
+      if (sequence !== listSequence) return
+      set({
+        messages: result.emails,
+        total: result.totalCount,
+        listStatus: 'ready',
+        listError: null,
+        listRefreshing: false,
+      })
+    } catch (reason) {
+      if (sequence !== listSequence) return
+      set({
+        listStatus: silent ? get().listStatus : 'error',
+        listError: emailErrorText(reason),
+        listRefreshing: false,
+      })
+    }
+  },
+
+  loadPage: async (page) => {
+    const state = get()
+    if (!state.accountId) return
+    if (state.listMode === 'search') {
+      await get().searchEmails(state.accountId, state.searchQuery, page)
+      return
+    }
+    if (state.folderId) await get().loadList(state.accountId, state.folderId, page)
+  },
+
+  refresh: async () => {
+    const state = get()
+    if (!state.accountId) return
+    const tasks: Promise<void>[] = [get().loadFolders(state.accountId, { silent: true })]
+    if (state.listMode === 'search') {
+      tasks.push(get().searchEmails(state.accountId, state.searchQuery, state.page, { silent: true }))
+    } else if (state.folderId) {
+      tasks.push(get().loadList(state.accountId, state.folderId, state.page, { silent: true }))
+    }
+    await Promise.allSettled(tasks)
+  },
+
+  openMessage: async (accountId, messageId) => {
+    const sequence = ++messageSequence
+    set({
+      selectedId: messageId,
+      selectedMessage: null,
+      selectedStatus: 'loading',
+      selectedError: null,
+      thread: [],
+      threadStatus: 'loading',
+      threadError: null,
+    })
+    try {
+      const message = await api.email.getEmail(accountId, messageId)
+      if (sequence !== messageSequence) return
+      let thread = [message]
+      let threadError: string | null = null
+      if (message.threadId) {
+        try {
+          const rows = await api.email.getThread(accountId, message.threadId)
+          if (sequence !== messageSequence) return
+          if (rows.length > 0) thread = rows
+        } catch (reason) {
+          if (sequence !== messageSequence) return
+          threadError = emailErrorText(reason)
+        }
+      }
+      const sorted = sortedThread(thread)
+      const selected = sorted.find((entry) => entry.id === message.id) ?? message
+      set({
+        selectedMessage: selected,
+        selectedStatus: 'ready',
+        selectedError: null,
+        thread: sorted,
+        threadStatus: threadError ? 'error' : 'ready',
+        threadError,
+      })
+      if (sorted.some((entry) => !entry.read)) void get().markThreadRead(accountId, selected)
+    } catch (reason) {
+      if (sequence !== messageSequence) return
+      const error = emailErrorText(reason)
+      set({
+        selectedStatus: 'error',
+        selectedError: error,
+        threadStatus: 'error',
+        threadError: error,
+      })
+    }
+  },
+
+  clearSelection: () => {
+    messageSequence += 1
+    set({
+      selectedId: null,
+      selectedMessage: null,
+      selectedStatus: 'idle',
+      selectedError: null,
+      thread: [],
+      threadStatus: 'idle',
+      threadError: null,
+    })
+  },
+
+  markThreadRead: async (accountId, message) => {
+    const state = get()
+    const threadId = message.threadId
+    const ids = new Set(state.thread.map((entry) => entry.id))
+    ids.add(message.id)
+    const matches = (entry: EmailSummary): boolean => ids.has(entry.id) || (Boolean(threadId) && entry.threadId === threadId)
+    const listed = state.messages.filter((entry) => matches(entry) && !entry.read)
+    const unread = state.thread.some((entry) => !entry.read) || !message.read
+    if (listed.length === 0 && !unread) return true
+    const before = snapshot(state)
+    const delta = Math.max(listed.length, !message.read ? 1 : 0)
+    set({
+      messages: state.messages.map((entry) => matches(entry) ? { ...entry, read: true } : entry),
+      thread: state.thread.map((entry) => ({ ...entry, read: true })),
+      selectedMessage: state.selectedMessage ? { ...state.selectedMessage, read: true } : null,
+      folders: adjustFolderUnread(state.folders, message.folderId, -delta),
+    })
+    try {
+      if (threadId) await api.email.markThreadRead(accountId, threadId)
+      else await api.email.updateEmail(accountId, message.id, { read: true })
+      return true
+    } catch (reason) {
+      set({ ...before, actionError: emailErrorText(reason) })
+      return false
+    }
+  },
+
+  setRead: async (accountId, messageId, read) => {
+    const state = get()
+    const summary = findSummary(state, messageId)
+    if (!summary || summary.read === read) return true
+    const before = snapshot(state)
+    const delta = read ? -1 : 1
+    set({
+      messages: updateSummary(state.messages, messageId, { read }),
+      trash: updateSummary(state.trash, messageId, { read }),
+      thread: updateThread(state.thread, messageId, { read }),
+      selectedMessage: state.selectedMessage?.id === messageId
+        ? { ...state.selectedMessage, read }
+        : state.selectedMessage,
+      folders: adjustFolderUnread(state.folders, summary.folderId, delta),
+    })
+    try {
+      const updated = await api.email.updateEmail(accountId, messageId, { read })
+      set({
+        messages: updateSummary(get().messages, messageId, { read: updated.read }),
+        trash: updateSummary(get().trash, messageId, { read: updated.read }),
+        thread: updateThread(get().thread, messageId, { read: updated.read }),
+      })
+      return true
+    } catch (reason) {
+      set({ ...before, actionError: emailErrorText(reason) })
+      return false
+    }
+  },
+
+  toggleStar: async (accountId, messageId) => {
+    const state = get()
+    const summary = findSummary(state, messageId)
+    if (!summary) return false
+    const starred = !summary.starred
+    const before = snapshot(state)
+    set({
+      messages: updateSummary(state.messages, messageId, { starred }),
+      trash: updateSummary(state.trash, messageId, { starred }),
+      thread: updateThread(state.thread, messageId, { starred }),
+      selectedMessage: state.selectedMessage?.id === messageId
+        ? { ...state.selectedMessage, starred }
+        : state.selectedMessage,
+    })
+    try {
+      const updated = await api.email.updateEmail(accountId, messageId, { starred })
+      set({
+        messages: updateSummary(get().messages, messageId, { starred: updated.starred }),
+        trash: updateSummary(get().trash, messageId, { starred: updated.starred }),
+        thread: updateThread(get().thread, messageId, { starred: updated.starred }),
+      })
+      return true
+    } catch (reason) {
+      set({ ...before, actionError: emailErrorText(reason) })
+      return false
+    }
+  },
+
+  moveMessage: async (accountId, messageId, folderId) => {
+    const state = get()
+    const summary = findSummary(state, messageId)
+    if (!summary) return false
+    if (summary.folderId === folderId) return true
+    const before = snapshot(state)
+    const removeFromList = state.listMode === 'folder' && state.folderId === summary.folderId
+    const clearsSelection = state.selectedId === messageId
+      || state.thread.some((entry) => entry.id === messageId)
+    set({
+      messages: removeFromList
+        ? state.messages.filter((entry) => entry.id !== messageId)
+        : state.messages,
+      total: removeFromList ? Math.max(0, state.total - 1) : state.total,
+      selectedId: clearsSelection ? null : state.selectedId,
+      selectedMessage: clearsSelection ? null : state.selectedMessage,
+      thread: clearsSelection ? [] : state.thread,
+      threadStatus: clearsSelection ? 'idle' : state.threadStatus,
+      folders: adjustFolderUnread(
+        adjustFolderUnread(state.folders, summary.folderId, summary.read ? 0 : -1),
+        folderId,
+        summary.read ? 0 : 1,
+      ),
+    })
+    try {
+      await api.email.moveEmail(accountId, messageId, folderId)
+      return true
+    } catch (reason) {
+      set({ ...before, actionError: emailErrorText(reason) })
+      return false
+    }
+  },
+
+  deleteMessage: async (accountId, messageId, permanent = false) => {
+    const state = get()
+    const summary = findSummary(state, messageId)
+    if (!summary) return false
+    const before = snapshot(state)
+    const clearsSelection = state.selectedId === messageId
+      || state.thread.some((entry) => entry.id === messageId)
+    const inTrashList = state.trash.some((entry) => entry.id === messageId)
+    const inMessageList = state.messages.some((entry) => entry.id === messageId)
+    set({
+      messages: state.messages.filter((entry) => entry.id !== messageId),
+      total: inMessageList ? Math.max(0, state.total - 1) : state.total,
+      trash: state.trash.filter((entry) => entry.id !== messageId),
+      trashTotal: inTrashList ? Math.max(0, state.trashTotal - 1) : state.trashTotal,
+      selectedId: clearsSelection ? null : state.selectedId,
+      selectedMessage: clearsSelection ? null : state.selectedMessage,
+      thread: clearsSelection ? [] : state.thread,
+      threadStatus: clearsSelection ? 'idle' : state.threadStatus,
+      folders: permanent || summary.read
+        ? state.folders
+        : adjustFolderUnread(state.folders, summary.folderId, -1),
+    })
+    try {
+      await api.email.deleteEmail(accountId, messageId, permanent)
+      return true
+    } catch (reason) {
+      set({ ...before, actionError: emailErrorText(reason) })
+      return false
+    }
+  },
+
+  retrySend: async (accountId, messageId) => {
+    try {
+      const result = await api.email.retrySend(accountId, messageId)
+      if (result.status === 'failed') {
+        set({ actionError: result.error ?? emailErrorText(new Error(t('email.errors.send_failed'))) })
+        return false
+      }
+      set((state) => ({
+        messages: updateSummary(state.messages, messageId, { deliveryStatus: result.status }),
+        actionError: null,
+      }))
+      await get().refresh()
+      return true
+    } catch (reason) {
+      set({ actionError: emailErrorText(reason) })
+      return false
+    }
+  },
+
+  loadTrash: async (accountId, page = 1) => {
+    const sequence = ++trashSequence
+    set({ trashStatus: 'loading', trashError: null, trashPage: page })
+    try {
+      const result = await api.email.listTrash(accountId, { page, limit: EMAIL_PAGE_SIZE })
+      if (sequence !== trashSequence) return
+      set({
+        trash: result.emails,
+        trashTotal: result.totalCount,
+        trashStatus: 'ready',
+        trashError: null,
+        trashPage: page,
+      })
+    } catch (reason) {
+      if (sequence !== trashSequence) return
+      set({ trashStatus: 'error', trashError: emailErrorText(reason) })
+    }
+  },
+
+  restoreTrash: async (accountId, messageId) => {
+    await api.email.restoreEmail(accountId, messageId)
+    set((state) => ({
+      trash: state.trash.filter((entry) => entry.id !== messageId),
+      trashTotal: Math.max(0, state.trashTotal - 1),
+      selectedId: state.selectedId === messageId ? null : state.selectedId,
+      selectedMessage: state.selectedMessage?.id === messageId ? null : state.selectedMessage,
+    }))
+    await get().refresh()
+  },
+
+  purgeTrash: async (accountId, messageId) => {
+    await api.email.deleteEmail(accountId, messageId, true)
+    set((state) => ({
+      trash: state.trash.filter((entry) => entry.id !== messageId),
+      trashTotal: Math.max(0, state.trashTotal - 1),
+      selectedId: state.selectedId === messageId ? null : state.selectedId,
+      selectedMessage: state.selectedMessage?.id === messageId ? null : state.selectedMessage,
+    }))
+    await get().refresh()
+  },
+
+  emptyTrash: async (accountId) => {
+    await api.email.emptyTrash(accountId)
+    set({ trash: [], trashTotal: 0, trashStatus: 'ready' })
+    await get().refresh()
+  },
+
+  startPolling: () => {
+    if (typeof window === 'undefined' || pollTimer !== null) return
+    const tick = (): void => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+      void get().refresh()
+    }
+    pollTimer = window.setInterval(tick, POLL_INTERVAL_MS)
+    if (typeof document !== 'undefined' && !visibilityBound) {
+      document.addEventListener('visibilitychange', visibilityHandler)
+      visibilityBound = true
+    }
+  },
+
+  stopPolling: () => {
+    if (pollTimer !== null && typeof window !== 'undefined') window.clearInterval(pollTimer)
+    pollTimer = null
+    if (typeof document !== 'undefined' && visibilityBound) {
+      document.removeEventListener('visibilitychange', visibilityHandler)
+      visibilityBound = false
+    }
+  },
+
+  clearActionError: () => set({ actionError: null }),
+}))
+
+export const EMAIL_POLL_INTERVAL_MS = POLL_INTERVAL_MS

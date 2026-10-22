@@ -1162,6 +1162,14 @@ export const api = {
       request<EmailAccount>(`/api/email/accounts/${id}`, { method: 'PATCH', body }),
     deleteAccount: (id: string) => request<void>(`/api/email/accounts/${id}`, { method: 'DELETE' }),
     listFolders: (id: string) => request<EmailFolder[]>(`/api/email/accounts/${id}/folders`),
+    createFolder: (id: string, name: string) =>
+      request<EmailFolder>(`/api/email/accounts/${id}/folders`, { method: 'POST', body: { name } }),
+    updateFolder: (id: string, folderId: string, name: string) =>
+      request<EmailFolder>(`/api/email/accounts/${id}/folders/${folderId}`, { method: 'PATCH', body: { name } }),
+    deleteFolder: (id: string, folderId: string, deleteEmails = false) =>
+      request<void>(`/api/email/accounts/${id}/folders/${folderId}${deleteEmails ? '?deleteEmails=true' : ''}`, { method: 'DELETE' }),
+    retrySend: (id: string, messageId: string) =>
+      request<EmailSendResult>(`/api/email/accounts/${id}/emails/${messageId}/retry`, { method: 'POST' }),
     listEmails: (id: string, params: Record<string, string | number | undefined> = {}) =>
       request<EmailListResponse>(`/api/email/accounts/${id}/emails${toQuery(params)}`),
     getEmail: (id: string, messageId: string) =>
