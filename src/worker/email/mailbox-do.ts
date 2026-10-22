@@ -5,9 +5,11 @@ import {
   MailboxStore,
   type EmailData,
   type EmailRestoreData,
+  type FolderPatch,
   type FolderRestoreData,
   type ListOptions,
   type SearchOptions,
+  type TagPatch,
 } from './mailbox-store'
 
 export class EmailMailbox extends DurableObject<Env> {
@@ -21,14 +23,25 @@ export class EmailMailbox extends DurableObject<Env> {
   }
 
   getFolders() { return this.store.getFolders() }
-  createFolder(name: string) { return this.store.createFolder(name) }
-  updateFolder(id: string, name: string) { return this.store.updateFolder(id, name) }
+  createFolder(name: string, parentId: string | null = null, color: string | null = null) {
+    return this.store.createFolder(name, parentId, color)
+  }
+  updateFolder(id: string, patch: FolderPatch) { return this.store.updateFolder(id, patch) }
   deleteFolder(id: string, deleteEmails = false) { return this.store.deleteFolder(id, deleteEmails) }
+  listTags() { return this.store.listTags() }
+  getTag(id: string) { return this.store.getTag(id) }
+  findTagByPath(name: string) { return this.store.findTagByPath(name) }
+  createTag(name: string, color: string | null = null) { return this.store.createTag(name, color) }
+  updateTag(id: string, patch: TagPatch) { return this.store.updateTag(id, patch) }
+  deleteTag(id: string) { return this.store.deleteTag(id) }
+  attachTag(messageId: string, tagId: string) { return this.store.attachTag(messageId, tagId) }
+  detachTag(messageId: string, tagId: string) { return this.store.detachTag(messageId, tagId) }
+  mailboxStats(now?: number) { return this.store.mailboxStats(now) }
   listAllEmails() { return this.store.listAllEmails() }
   importFolder(folder: FolderRestoreData) { return this.store.importFolder(folder) }
   importEmail(email: EmailRestoreData) { return this.store.importEmail(email) }
   getEmails(options: ListOptions = {}) { return this.store.getEmails(options) }
-  countEmails(options: { folder?: string; threadId?: string } = {}) { return this.store.countEmails(options) }
+  countEmails(options: { folder?: string; tag?: string; threadId?: string } = {}) { return this.store.countEmails(options) }
   getThreadedEmails(options: ListOptions = {}) { return this.store.getThreadedEmails(options) }
   countThreadedEmails(folder: string) { return this.store.countThreadedEmails(folder) }
   getEmail(id: string) { return this.store.getEmail(id) }

@@ -399,6 +399,27 @@ describe('email restore', () => {
     expect(store.listAllEmails()).toHaveLength(2)
   })
 
+  it('restores into root folders when a nested folder shares the name', async () => {
+    await setupAccount()
+    const work = store.createFolder('Work')!
+    const messageId = newId()
+    seedMessage(messageId, { folder: work.id })
+    const result = await readBackupEmail(env, userId, { includeAttachments: false, snapshot: STAMP })
+    const bundle = await readEmailBundle(result)
+
+    store.deleteAll()
+    sqlite.prepare('DELETE FROM email_attachments WHERE user_id = ?').run(userId)
+    sqlite.prepare('DELETE FROM email_accounts WHERE user_id = ?').run(userId)
+
+    const other = store.createFolder('Other')!
+    const nested = store.createFolder('Work', other.id)!
+    await applyBackupEmail(env, userId, { bundle, attachments: new Map() })
+
+    expect(store.getEmail(messageId)?.folder_id).toBe(work.id)
+    expect(store.getEmail(messageId)?.folder_id).not.toBe(nested.id)
+    expect(store.getFolders().find((folder) => folder.id === work.id)?.parent_id).toBeNull()
+  })
+
   it('restores attachment bytes and reports missing files rather than claiming them', async () => {
     await setupAccount()
     const messageId = newId()

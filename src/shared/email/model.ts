@@ -85,6 +85,73 @@ export interface EmailFolder {
   name: string
   isDeletable: boolean
   unreadCount: number
+  parentId: string | null
+  color: string | null
+  sortOrder: number
+}
+
+export interface EmailFolderInput {
+  name: string
+  parentId?: string | null
+  color?: string | null
+}
+
+export interface EmailFolderPatch {
+  name?: string
+  parentId?: string | null
+  color?: string | null
+  sortOrder?: number
+}
+
+export interface EmailTag {
+  id: string
+  name: string
+  color: string | null
+  count: number
+}
+
+export interface EmailTagInput {
+  name: string
+  color?: string | null
+}
+
+export interface EmailTagPatch {
+  name?: string
+  color?: string | null
+}
+
+export interface EmailMessageTagInput {
+  tagId?: string
+  path?: string
+}
+
+export interface EmailFolderStats {
+  folderId: string
+  total: number
+  read: number
+  unread: number
+  starred: number
+  withAttachments: number
+}
+
+export interface EmailDailyCount {
+  date: string
+  count: number
+}
+
+export interface EmailMailboxStats {
+  total: number
+  read: number
+  unread: number
+  starred: number
+  withAttachments: number
+  sent: number
+  draft: number
+  trash: number
+  attachmentBytes: number
+  folders: EmailFolderStats[]
+  receivedLast7Days: EmailDailyCount[]
+  sentLast7Days: EmailDailyCount[]
 }
 
 export interface EmailAttachment {

@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { EMAIL_BODY_MAX_BYTES, EMAIL_SUBJECT_MAX_CHARS } from '../../src/shared/email/model'
-import type { EmailFolder, EmailListResponse, EmailMessage } from '../../src/shared/email/model'
+import type { EmailFolder, EmailListResponse, EmailMailboxStats, EmailMessage, EmailTag } from '../../src/shared/email/model'
 import { SCHEMA_STATEMENTS } from '../../src/worker/db/schema'
 import { claimAutoDraftJobs, createEmailAccount, finishAutoDraftJob, queueAutoDraftJob } from '../../src/worker/email/account-store'
 import { applyMailboxMigrations } from '../../src/worker/email/mailbox-schema'
@@ -607,5 +607,249 @@ describe('email file serving', () => {
 
     const invalid = await call('GET', '/files/not-an-id')
     expect(invalid.status).toBe(404)
+  })
+})
+
+describe('email folder hierarchy routes', () => {
+  it('creates nested folders, allows sibling names under different parents and rejects duplicates', async () => {
+    const parent = await json<EmailFolder>(await call('POST', `/accounts/${accountId}/folders`, {
+      name: 'Projects',
+      color: '#2563eb',
+    }))
+    expect(parent).toMatchObject({ parentId: null, color: '#2563eb', sortOrder: 0, unreadCount: 0 })
+
+    const child = await json<EmailFolder>(await call('POST', `/accounts/${accountId}/folders`, {
+      name: 'Child',
+      parentId: parent.id,
+    }))
+    expect(child).toMatchObject({ parentId: parent.id, color: null, sortOrder: 0 })
+
+    const other = await json<EmailFolder>(await call('POST', `/accounts/${accountId}/folders`, { name: 'Other' }))
+    expect((await call('POST', `/accounts/${accountId}/folders`, { name: 'Child', parentId: other.id })).status)
+      .toBe(201)
+
+    const duplicate = await call('POST', `/accounts/${accountId}/folders`, { name: 'child', parentId: parent.id })
+    expect(duplicate.status).toBe(409)
+    expect((await errorOf(duplicate)).code).toBe('email_folder_exists')
+
+    expect((await call('POST', `/accounts/${accountId}/folders`, { name: 'Bad color', color: 'not-a-color' })).status)
+      .toBe(400)
+    expect((await call('POST', `/accounts/${accountId}/folders`, { name: 'bad/name' })).status).toBe(400)
+    expect((await call('POST', `/accounts/${accountId}/folders`, { name: 'Bad parent', parentId: newId() })).status)
+      .toBe(404)
+
+    const listed = await json<EmailFolder[]>(await call('GET', `/accounts/${accountId}/folders`))
+    expect(listed.find((folder) => folder.id === child.id)).toMatchObject({ parentId: parent.id })
+  })
+
+  it('limits folder nesting to five levels', async () => {
+    let parentId: string | null = null
+    const ids: string[] = []
+    for (let level = 0; level < 5; level++) {
+      const body = parentId ? { name: `Level ${level}`, parentId } : { name: `Level ${level}` }
+      const response = await call('POST', `/accounts/${accountId}/folders`, body)
+      expect(response.status).toBe(201)
+      parentId = (await json<EmailFolder>(response)).id
+      ids.push(parentId)
+    }
+    const tooDeep = await call('POST', `/accounts/${accountId}/folders`, { name: 'Level 5', parentId })
+    expect(tooDeep.status).toBe(400)
+    const tooDeepMove = await call('PATCH', `/accounts/${accountId}/folders/${ids[0]}`, {
+      parentId: ids[4],
+    })
+    expect(tooDeepMove.status).toBe(400)
+  })
+
+  it('moves folders while rejecting self, cycles, duplicates and system changes', async () => {
+    const root = await json<EmailFolder>(await call('POST', `/accounts/${accountId}/folders`, { name: 'Root' }))
+    const child = await json<EmailFolder>(await call('POST', `/accounts/${accountId}/folders`, {
+      name: 'Child',
+      parentId: root.id,
+    }))
+    await call('POST', `/accounts/${accountId}/folders`, { name: 'Sibling' })
+
+    const self = await call('PATCH', `/accounts/${accountId}/folders/${child.id}`, { parentId: child.id })
+    expect(self.status).toBe(400)
+    const cycle = await call('PATCH', `/accounts/${accountId}/folders/${root.id}`, { parentId: child.id })
+    expect(cycle.status).toBe(400)
+
+    const moved = await call('PATCH', `/accounts/${accountId}/folders/${child.id}`, {
+      parentId: null,
+      color: '#059669',
+      sortOrder: 4,
+    })
+    expect(moved.status).toBe(200)
+    expect(await json<EmailFolder>(moved)).toMatchObject({
+      parentId: null,
+      color: '#059669',
+      sortOrder: 4,
+    })
+    const cleared = await call('PATCH', `/accounts/${accountId}/folders/${child.id}`, { color: null })
+    expect(cleared.status).toBe(200)
+    expect((await json<EmailFolder>(cleared)).color).toBeNull()
+
+    const duplicate = await call('PATCH', `/accounts/${accountId}/folders/${child.id}`, { name: 'sibling' })
+    expect(duplicate.status).toBe(409)
+    expect((await errorOf(duplicate)).code).toBe('email_folder_exists')
+
+    const system = await call('PATCH', `/accounts/${accountId}/folders/inbox`, { color: '#2563eb' })
+    expect(system.status).toBe(400)
+    expect((await errorOf(system)).code).toBe('email_folder_reserved')
+
+    const missing = await call('PATCH', `/accounts/${accountId}/folders/${newId()}`, { name: 'Gone' })
+    expect(missing.status).toBe(404)
+    expect((await errorOf(missing)).code).toBe('email_folder_not_found')
+
+    const empty = await call('PATCH', `/accounts/${accountId}/folders/${child.id}`, {})
+    expect(empty.status).toBe(400)
+  })
+
+  it('promotes children and moves messages when a nested folder is deleted', async () => {
+    const parent = await json<EmailFolder>(await call('POST', `/accounts/${accountId}/folders`, { name: 'Parent' }))
+    const child = await json<EmailFolder>(await call('POST', `/accounts/${accountId}/folders`, {
+      name: 'Child',
+      parentId: parent.id,
+    }))
+    const messageId = newId()
+    seedMessage(messageId, { folder: parent.id })
+
+    expect((await call('DELETE', `/accounts/${accountId}/folders/${parent.id}`)).status).toBe(204)
+    const folders = await json<EmailFolder[]>(await call('GET', `/accounts/${accountId}/folders`))
+    expect(folders.find((folder) => folder.id === child.id)?.parentId).toBeNull()
+    expect(store.getEmail(messageId)?.folder_id).toBe('inbox')
+  })
+})
+
+describe('email tag routes', () => {
+  it('creates, renames and deletes tags with duplicate and invalid name handling', async () => {
+    expect(await json<EmailTag[]>(await call('GET', `/accounts/${accountId}/tags`))).toEqual([])
+
+    const work = await json<EmailTag>(await call('POST', `/accounts/${accountId}/tags`, {
+      name: 'work',
+      color: '#2563eb',
+    }))
+    expect(work).toMatchObject({ name: 'work', color: '#2563eb', count: 0 })
+    const meeting = await json<EmailTag>(await call('POST', `/accounts/${accountId}/tags`, { name: 'work/meeting' }))
+    expect(meeting.name).toBe('work/meeting')
+
+    const duplicate = await call('POST', `/accounts/${accountId}/tags`, { name: 'WORK' })
+    expect(duplicate.status).toBe(409)
+    expect((await errorOf(duplicate)).code).toBe('conflict')
+    expect((await call('POST', `/accounts/${accountId}/tags`, { name: '   ' })).status).toBe(400)
+    expect((await call('POST', `/accounts/${accountId}/tags`, { name: 'bad\\path' })).status).toBe(400)
+
+    const renamed = await call('PATCH', `/accounts/${accountId}/tags/${work.id}`, { name: 'job' })
+    expect(renamed.status).toBe(200)
+    expect((await json<EmailTag>(renamed)).name).toBe('job')
+    const conflict = await call('PATCH', `/accounts/${accountId}/tags/${work.id}`, { name: 'work/meeting' })
+    expect(conflict.status).toBe(409)
+    expect((await call('PATCH', `/accounts/${accountId}/tags/${newId()}`, { name: 'x' })).status).toBe(404)
+
+    expect((await call('DELETE', `/accounts/${accountId}/tags/${meeting.id}`)).status).toBe(204)
+    expect((await call('DELETE', `/accounts/${accountId}/tags/${meeting.id}`)).status).toBe(404)
+  })
+
+  it('attaches and detaches tags idempotently and filters list and search results', async () => {
+    const tag = await json<EmailTag>(await call('POST', `/accounts/${accountId}/tags`, { name: 'inbox-tag' }))
+    const messageId = newId()
+    seedMessage(messageId)
+
+    expect((await call('POST', `/accounts/${accountId}/emails/${messageId}/tags`, { tagId: tag.id })).status).toBe(204)
+    expect((await call('POST', `/accounts/${accountId}/emails/${messageId}/tags`, { tagId: tag.id })).status).toBe(204)
+    expect((await call('POST', `/accounts/${accountId}/emails/${messageId}/tags`, { path: 'inbox-tag' })).status).toBe(204)
+
+    expect((await call('POST', `/accounts/${accountId}/emails/${messageId}/tags`, {})).status).toBe(400)
+    expect((await call('POST', `/accounts/${accountId}/emails/${messageId}/tags`, { tagId: 'nope' })).status).toBe(400)
+    expect((await call('POST', `/accounts/${accountId}/emails/${messageId}/tags`, { path: 'missing' })).status)
+      .toBe(404)
+    expect((await call('POST', `/accounts/${accountId}/emails/${newId()}/tags`, { tagId: tag.id })).status).toBe(404)
+
+    const listed = await json<EmailListResponse>(await call(
+      'GET',
+      `/accounts/${accountId}/emails?tag=inbox-tag`,
+    ))
+    expect(listed.totalCount).toBe(1)
+    expect(listed.emails.map((email) => email.id)).toEqual([messageId])
+
+    const searched = await json<EmailListResponse>(await call(
+      'GET',
+      `/accounts/${accountId}/search?tag=inbox-tag`,
+    ))
+    expect(searched.totalCount).toBe(1)
+    expect((await call('GET', `/accounts/${accountId}/emails?tag=bad%5Cpath`)).status).toBe(400)
+
+    const tags = await json<EmailTag[]>(await call('GET', `/accounts/${accountId}/tags`))
+    expect(tags.find((entry) => entry.id === tag.id)?.count).toBe(1)
+
+    expect((await call('DELETE', `/accounts/${accountId}/emails/${messageId}/tags/${tag.id}`)).status).toBe(204)
+    expect((await call('DELETE', `/accounts/${accountId}/emails/${messageId}/tags/${tag.id}`)).status).toBe(204)
+    expect((await call('DELETE', `/accounts/${accountId}/emails/${messageId}/tags/${newId()}`)).status).toBe(404)
+    expect((await call('DELETE', `/accounts/${accountId}/emails/${newId()}/tags/${tag.id}`)).status).toBe(404)
+
+    const after = await json<EmailListResponse>(await call(
+      'GET',
+      `/accounts/${accountId}/emails?tag=inbox-tag`,
+    ))
+    expect(after.totalCount).toBe(0)
+
+    expect((await call('DELETE', `/accounts/${accountId}/tags/${tag.id}`)).status).toBe(204)
+    expect((await json<EmailListResponse>(await call(
+      'GET',
+      `/accounts/${accountId}/emails?tag=inbox-tag`,
+    ))).totalCount).toBe(0)
+  })
+
+  it('keeps tags and stats owned by the account', async () => {
+    userId = newId()
+    expect((await call('GET', `/accounts/${accountId}/tags`)).status).toBe(404)
+    expect((await call('GET', `/accounts/${accountId}/stats`)).status).toBe(404)
+  })
+})
+
+describe('email stats route', () => {
+  it('returns folder counts, overview totals and attachment bytes', async () => {
+    const now = Date.now()
+    seedMessage(newId(), {
+      folder: 'inbox',
+      date: now - 1_000,
+      starred: true,
+      hasAttachment: true,
+    })
+    const readInbox = newId()
+    seedMessage(readInbox, { folder: 'inbox', date: now - 2 * 24 * 60 * 60 * 1000, read: true })
+    seedMessage(newId(), { folder: 'sent', date: now - 2_000 })
+    seedMessage(newId(), { folder: 'draft', date: now - 3_000 })
+    const trashed = newId()
+    seedMessage(trashed, { folder: 'inbox' })
+    store.trashEmail(trashed)
+    const attachmentId = await seedAttachment({ emailId: readInbox, bytes: new Uint8Array(7) })
+
+    const response = await call('GET', `/accounts/${accountId}/stats`)
+    expect(response.status).toBe(200)
+    const stats = await json<EmailMailboxStats>(response)
+    expect(stats).toMatchObject({
+      total: 4,
+      read: 2,
+      unread: 2,
+      starred: 1,
+      withAttachments: 1,
+      sent: 1,
+      draft: 1,
+      trash: 1,
+      attachmentBytes: 7,
+    })
+    expect(stats.folders).toHaveLength(6)
+    expect(stats.folders.find((folder) => folder.folderId === 'inbox')).toMatchObject({
+      total: 2,
+      read: 1,
+      unread: 1,
+      starred: 1,
+      withAttachments: 1,
+    })
+    expect(stats.receivedLast7Days).toHaveLength(7)
+    expect(stats.sentLast7Days).toHaveLength(7)
+    expect(stats.receivedLast7Days.at(-1)?.count).toBe(1)
+    expect(stats.sentLast7Days.at(-1)?.count).toBe(1)
+    expect(count('SELECT COUNT(*) AS n FROM email_attachments WHERE id = ?', attachmentId)).toBe(1)
   })
 })

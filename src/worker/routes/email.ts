@@ -16,9 +16,20 @@ import type {
   EmailConfig,
   EmailFolder,
   EmailListResponse,
+  EmailMailboxStats,
   EmailMessage,
   EmailSummary,
+  EmailTag,
 } from '@shared/email/model'
+import {
+  emailFolderDepthAllowed,
+  emailFolderNameTaken,
+  emailFolderSubtreeHeight,
+  emailFolderWouldCycle,
+  type EmailFolderLike,
+} from '@shared/email/folders'
+import { isValidEmailTagPath, normalizeEmailTagPath } from '@shared/email/tags'
+import { organizerColorOrNull } from '@shared/organizer-colors'
 import { utf8ByteLength } from '@shared/text-utils'
 import type { AppBindings } from '../env'
 import { createBackupArchive } from '../backup/archive'
@@ -50,9 +61,10 @@ import {
   getEmailAttachmentRow,
   linkEmailAttachment,
   loadEmailAttachments,
+  sumEmailAttachmentBytes,
   unlinkEmailAttachment,
 } from '../email/attachments'
-import type { EmailRow, FolderRow } from '../email/mailbox-store'
+import type { EmailRow, FolderRow, FolderPatch, TagPatch, TagRow } from '../email/mailbox-store'
 import { emailMailbox } from '../email/mailbox-stub'
 
 type Ctx = Context<AppBindings>
@@ -201,11 +213,22 @@ function dateQuery(value: string | undefined, name: string): number | undefined 
   return parsed
 }
 
+function tagQuery(c: Ctx): string | undefined {
+  const raw = c.req.query('tag')?.trim() ?? ''
+  if (!raw) return undefined
+  const path = normalizeEmailTagPath(raw)
+  if (!isValidEmailTagPath(path)) throw ApiError.badRequest('The tag filter is not valid')
+  return path
+}
+
 function readFolderName(value: unknown): string {
   if (typeof value !== 'string') throw ApiError.badRequest('A folder name is required')
   const name = value.trim()
   if (!name) throw ApiError.badRequest('A folder name is required')
   if (name.length > LIMITS.folderNameMaxLength) throw ApiError.badRequest('The folder name is too long')
+  if (/[\u0000-\u001f\u007f/\\]/.test(name)) {
+    throw ApiError.badRequest('The folder name contains invalid characters')
+  }
   if (RESERVED_FOLDER_NAMES.has(name.toLowerCase())) {
     throw new ApiError(400, 'email_folder_reserved', 'That folder name is reserved')
   }
@@ -218,7 +241,67 @@ function toFolder(row: FolderRow): EmailFolder {
     name: row.name,
     isDeletable: Boolean(row.is_deletable),
     unreadCount: Number(row.unread_count ?? 0),
+    parentId: row.parent_id ?? null,
+    color: row.color ?? null,
+    sortOrder: Number(row.sort_order ?? 0),
   }
+}
+
+function toTag(row: TagRow): EmailTag {
+  return {
+    id: row.id,
+    name: row.name,
+    color: row.color ?? null,
+    count: Number(row.count ?? 0),
+  }
+}
+
+function folderRefs(folders: readonly FolderRow[]): EmailFolderLike[] {
+  return folders.map((folder) => ({
+    id: folder.id,
+    name: folder.name,
+    parentId: folder.parent_id ?? null,
+    sortOrder: Number(folder.sort_order ?? 0),
+  }))
+}
+
+function matchFolder(folders: readonly FolderRow[], value: string): FolderRow | null {
+  const wanted = value.trim()
+  if (!wanted) return null
+  const byId = folders.find((folder) => folder.id === wanted)
+  if (byId) return byId
+  const named = folders.filter((folder) => folder.name.toLowerCase() === wanted.toLowerCase())
+  return named.length === 1 ? named[0]! : null
+}
+
+function readColor(value: unknown): string | null {
+  if (value === undefined || value === null) return null
+  const color = organizerColorOrNull(value)
+  if (!color) throw ApiError.badRequest('The color is not valid')
+  return color
+}
+
+function readSortOrder(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > 1_000_000) {
+    throw ApiError.badRequest('The sort order must be a non-negative integer')
+  }
+  return value
+}
+
+function readTagPath(value: unknown): string {
+  if (typeof value !== 'string') throw ApiError.badRequest('A tag name is required')
+  const path = normalizeEmailTagPath(value)
+  if (!isValidEmailTagPath(path)) throw ApiError.badRequest('The tag name is not valid')
+  return path
+}
+
+function tagNotFound(): ApiError {
+  return new ApiError(404, 'not_found', 'Tag not found')
+}
+
+function tagIdParam(value: string): string {
+  if (!isValidId(value)) throw tagNotFound()
+  return value
 }
 
 function toSummary(row: SummaryRow): EmailSummary {
@@ -292,10 +375,7 @@ function toMessage(row: EmailRow, attachments: EmailAttachment[]): EmailMessage 
 }
 
 async function resolveFolder(mailbox: Mailbox, value: string): Promise<FolderRow> {
-  const wanted = value.trim()
-  const folders = await mailbox.getFolders()
-  const match = folders.find((folder) => folder.id === wanted) ??
-    folders.find((folder) => folder.name.toLowerCase() === wanted.toLowerCase())
+  const match = matchFolder(await mailbox.getFolders(), value)
   if (!match) throw folderNotFound()
   return match
 }
@@ -519,9 +599,27 @@ emailRoutes.get('/accounts/:id/folders', async (c) => {
 
 emailRoutes.post('/accounts/:id/folders', async (c) => {
   const row = await requireAccount(c, c.req.param('id') ?? '')
-  const body = await readJson<{ name?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const mailbox = emailMailbox(c.env, row.id)
+  const body = await readJson<{ name?: unknown; parentId?: unknown; color?: unknown }>(c, JSON_BODY_LIMITS.small)
   const name = readFolderName(body.name)
-  const folder = await emailMailbox(c.env, row.id).createFolder(name)
+  const folders = await mailbox.getFolders()
+  let parentId: string | null = null
+  if (body.parentId !== undefined && body.parentId !== null) {
+    if (typeof body.parentId !== 'string' || !body.parentId.trim()) {
+      throw ApiError.badRequest('The parent folder must be a string or null')
+    }
+    const parent = matchFolder(folders, body.parentId)
+    if (!parent) throw folderNotFound()
+    parentId = parent.id
+  }
+  const refs = folderRefs(folders)
+  if (!emailFolderDepthAllowed(refs, parentId)) {
+    throw ApiError.badRequest('Folder nesting is limited to 5 levels')
+  }
+  if (emailFolderNameTaken(refs, parentId, name)) {
+    throw new ApiError(409, 'email_folder_exists', 'A folder with that name already exists')
+  }
+  const folder = await mailbox.createFolder(name, parentId, readColor(body.color))
   if (!folder) throw new ApiError(409, 'email_folder_exists', 'A folder with that name already exists')
   return c.json(toFolder(folder), 201)
 })
@@ -529,12 +627,49 @@ emailRoutes.post('/accounts/:id/folders', async (c) => {
 emailRoutes.patch('/accounts/:id/folders/:folderId', async (c) => {
   const row = await requireAccount(c, c.req.param('id') ?? '')
   const mailbox = emailMailbox(c.env, row.id)
-  const folder = await resolveFolder(mailbox, c.req.param('folderId') ?? '')
-  if (!folder.is_deletable) throw new ApiError(400, 'email_folder_reserved', 'System folders cannot be renamed')
-  const body = await readJson<{ name?: unknown }>(c, JSON_BODY_LIMITS.small)
-  const name = readFolderName(body.name)
-  const updated = await mailbox.updateFolder(folder.id, name)
-  if (!updated) throw new ApiError(409, 'email_folder_exists', 'A folder with that name already exists')
+  const folders = await mailbox.getFolders()
+  const folder = matchFolder(folders, c.req.param('folderId') ?? '')
+  if (!folder) throw folderNotFound()
+  if (!folder.is_deletable) throw new ApiError(400, 'email_folder_reserved', 'System folders cannot be changed')
+  const body = await readJson<{ name?: unknown; parentId?: unknown; color?: unknown; sortOrder?: unknown }>(
+    c,
+    JSON_BODY_LIMITS.small,
+  )
+  const patch: FolderPatch = {}
+  if (body.name !== undefined) patch.name = readFolderName(body.name)
+  if (body.parentId !== undefined) {
+    if (body.parentId === null) patch.parentId = null
+    else if (typeof body.parentId === 'string' && body.parentId.trim()) {
+      const parent = matchFolder(folders, body.parentId)
+      if (!parent) throw folderNotFound()
+      patch.parentId = parent.id
+    } else {
+      throw ApiError.badRequest('The parent folder must be a string or null')
+    }
+  }
+  if (body.color !== undefined) patch.color = readColor(body.color)
+  if (body.sortOrder !== undefined) patch.sortOrder = readSortOrder(body.sortOrder)
+  if (Object.keys(patch).length === 0) throw ApiError.badRequest('No folder changes were supplied')
+  const refs = folderRefs(folders)
+  if (patch.parentId !== undefined) {
+    if (emailFolderWouldCycle(refs, folder.id, patch.parentId)) {
+      throw ApiError.badRequest('A folder cannot be moved inside itself')
+    }
+    if (!emailFolderDepthAllowed(refs, patch.parentId, emailFolderSubtreeHeight(refs, folder.id))) {
+      throw ApiError.badRequest('Folder nesting is limited to 5 levels')
+    }
+  }
+  const nextParent = patch.parentId !== undefined ? patch.parentId : folder.parent_id ?? null
+  const nextName = patch.name ?? folder.name
+  if (emailFolderNameTaken(refs, nextParent, nextName, folder.id)) {
+    throw new ApiError(409, 'email_folder_exists', 'A folder with that name already exists')
+  }
+  const updated = await mailbox.updateFolder(folder.id, patch)
+  if (!updated) {
+    const latest = await mailbox.getFolders()
+    if (!latest.some((entry) => entry.id === folder.id)) throw folderNotFound()
+    throw new ApiError(409, 'email_folder_exists', 'A folder with that name already exists')
+  }
   return c.json(toFolder(updated))
 })
 
@@ -553,30 +688,111 @@ emailRoutes.delete('/accounts/:id/folders/:folderId', async (c) => {
   return c.body(null, 204)
 })
 
+emailRoutes.get('/accounts/:id/tags', async (c) => {
+  const row = await requireAccount(c, c.req.param('id') ?? '')
+  const tags = await emailMailbox(c.env, row.id).listTags()
+  return c.json(tags.map(toTag))
+})
+
+emailRoutes.post('/accounts/:id/tags', async (c) => {
+  const row = await requireAccount(c, c.req.param('id') ?? '')
+  const body = await readJson<{ name?: unknown; color?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const name = readTagPath(body.name)
+  const tag = await emailMailbox(c.env, row.id).createTag(name, readColor(body.color))
+  if (!tag) throw new ApiError(409, 'conflict', 'A tag with that name already exists')
+  return c.json(toTag(tag), 201)
+})
+
+emailRoutes.patch('/accounts/:id/tags/:tagId', async (c) => {
+  const row = await requireAccount(c, c.req.param('id') ?? '')
+  const mailbox = emailMailbox(c.env, row.id)
+  const tag = await mailbox.getTag(tagIdParam(c.req.param('tagId') ?? ''))
+  if (!tag) throw tagNotFound()
+  const body = await readJson<{ name?: unknown; color?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const patch: TagPatch = {}
+  if (body.name !== undefined) patch.name = readTagPath(body.name)
+  if (body.color !== undefined) patch.color = readColor(body.color)
+  if (Object.keys(patch).length === 0) throw ApiError.badRequest('No tag changes were supplied')
+  const updated = await mailbox.updateTag(tag.id, patch)
+  if (!updated) throw new ApiError(409, 'conflict', 'A tag with that name already exists')
+  return c.json(toTag(updated))
+})
+
+emailRoutes.delete('/accounts/:id/tags/:tagId', async (c) => {
+  const row = await requireAccount(c, c.req.param('id') ?? '')
+  const mailbox = emailMailbox(c.env, row.id)
+  const tagId = tagIdParam(c.req.param('tagId') ?? '')
+  if (!(await mailbox.getTag(tagId))) throw tagNotFound()
+  if (!(await mailbox.deleteTag(tagId))) throw tagNotFound()
+  return c.body(null, 204)
+})
+
+emailRoutes.post('/accounts/:id/emails/:messageId/tags', async (c) => {
+  const row = await requireAccount(c, c.req.param('id') ?? '')
+  const mailbox = emailMailbox(c.env, row.id)
+  const messageId = messageIdParam(c.req.param('messageId') ?? '')
+  if (!(await mailbox.getEmail(messageId))) throw messageNotFound()
+  const body = await readJson<{ tagId?: unknown; path?: unknown }>(c, JSON_BODY_LIMITS.small)
+  let tag: TagRow | null = null
+  if (body.tagId !== undefined) {
+    if (typeof body.tagId !== 'string' || !isValidId(body.tagId)) {
+      throw ApiError.badRequest('The tag id is not valid')
+    }
+    tag = await mailbox.getTag(body.tagId)
+  } else if (body.path !== undefined) {
+    tag = await mailbox.findTagByPath(readTagPath(body.path))
+  } else {
+    throw ApiError.badRequest('A tag id or path is required')
+  }
+  if (!tag) throw tagNotFound()
+  if (!(await mailbox.attachTag(messageId, tag.id))) throw messageNotFound()
+  return c.body(null, 204)
+})
+
+emailRoutes.delete('/accounts/:id/emails/:messageId/tags/:tagId', async (c) => {
+  const row = await requireAccount(c, c.req.param('id') ?? '')
+  const mailbox = emailMailbox(c.env, row.id)
+  const messageId = messageIdParam(c.req.param('messageId') ?? '')
+  if (!(await mailbox.getEmail(messageId))) throw messageNotFound()
+  const tagId = tagIdParam(c.req.param('tagId') ?? '')
+  if (!(await mailbox.getTag(tagId))) throw tagNotFound()
+  await mailbox.detachTag(messageId, tagId)
+  return c.body(null, 204)
+})
+
+emailRoutes.get('/accounts/:id/stats', async (c) => {
+  const row = await requireAccount(c, c.req.param('id') ?? '')
+  const stats = await emailMailbox(c.env, row.id).mailboxStats(Date.now())
+  const attachmentBytes = await sumEmailAttachmentBytes(c.env.DB, c.get('userId'), row.id)
+  return c.json({ ...stats, attachmentBytes } satisfies EmailMailboxStats)
+})
+
 emailRoutes.get('/accounts/:id/emails', async (c) => {
   const row = await requireAccount(c, c.req.param('id') ?? '')
   const mailbox = emailMailbox(c.env, row.id)
   const folderParam = c.req.query('folder')?.trim() ?? ''
   const threadId = c.req.query('thread_id')?.trim() || undefined
+  const tag = tagQuery(c)
   const threaded = booleanQuery(c.req.query('threaded'), 'threaded') ?? false
   let folder: string | undefined
   if (folderParam) folder = (await resolveFolder(mailbox, folderParam)).id
-  else if (!threadId) folder = 'inbox'
+  else if (!threadId && !tag) folder = 'inbox'
   const { page, limit } = pageParams(c)
   const sortDirection = (c.req.query('sortDirection') ?? '').toUpperCase() === 'ASC' ? 'ASC' : 'DESC'
   const options = {
     folder,
+    tag,
     threadId,
     page,
     limit,
     sortColumn: c.req.query('sortColumn'),
     sortDirection,
   } as const
-  const grouped = threaded && Boolean(folder) && !threadId
+  const grouped = threaded && Boolean(folder) && !threadId && !tag
   const rows = grouped ? await mailbox.getThreadedEmails(options) : await mailbox.getEmails(options)
   const totalCount = grouped
     ? await mailbox.countThreadedEmails(folder!)
-    : await mailbox.countEmails({ folder, threadId })
+    : await mailbox.countEmails({ folder, tag, threadId })
   return c.json({ emails: rows.map((entry) => toSummary(entry as unknown as SummaryRow)), totalCount })
 })
 
@@ -695,6 +911,7 @@ emailRoutes.get('/accounts/:id/search', async (c) => {
     to: c.req.query('to')?.trim() || undefined,
     subject: c.req.query('subject')?.trim() || undefined,
     folder,
+    tag: tagQuery(c),
     dateStart: dateQuery(c.req.query('date_start'), 'date_start'),
     dateEnd: dateQuery(c.req.query('date_end'), 'date_end'),
     isRead: booleanQuery(c.req.query('is_read'), 'is_read'),

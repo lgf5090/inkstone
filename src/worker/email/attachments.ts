@@ -258,3 +258,15 @@ export async function deleteEmailAttachmentsForMessages(
   }
   return pending
 }
+
+export async function sumEmailAttachmentBytes(
+  db: D1Database,
+  userId: string,
+  accountId: string,
+): Promise<number> {
+  const row = await db.prepare(
+    `SELECT COALESCE(SUM(size), 0) AS bytes FROM email_attachments
+      WHERE user_id = ?1 AND account_id = ?2`,
+  ).bind(userId, accountId).first<{ bytes: number }>()
+  return Number(row?.bytes ?? 0)
+}

@@ -33,7 +33,7 @@ describe('mailbox store', () => {
     const custom = store.createFolder('Projects')
     expect(custom?.name).toBe('Projects')
     expect(store.createFolder('projects')).toBeNull()
-    expect(store.updateFolder(custom!.id, 'Work')?.name).toBe('Work')
+    expect(store.updateFolder(custom!.id, { name: 'Work' })?.name).toBe('Work')
   })
 
   it('creates, lists, reads and searches messages', () => {

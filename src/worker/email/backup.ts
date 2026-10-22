@@ -544,7 +544,11 @@ async function restoreFolders(
 ): Promise<Map<string, string>> {
   const existing = await mailbox.getFolders()
   const byId = new Map(existing.map((folder) => [folder.id, folder.id]))
-  const byName = new Map(existing.map((folder) => [folder.name.toLowerCase(), folder.id]))
+  const byName = new Map(
+    existing
+      .filter((folder) => folder.parent_id === null)
+      .map((folder) => [folder.name.toLowerCase(), folder.id]),
+  )
   const mapping = new Map<string, string>()
   for (const folder of account.folders) {
     summary.folders++
@@ -574,7 +578,7 @@ async function restoreFolders(
     } else {
       const refreshed = await mailbox.getFolders()
       const match = refreshed.find((row) => row.id === folder.id) ??
-        refreshed.find((row) => row.name.toLowerCase() === folder.name.toLowerCase())
+        refreshed.find((row) => row.parent_id === null && row.name.toLowerCase() === folder.name.toLowerCase())
       if (match) mapping.set(folder.id, match.id)
       summary.skippedFolders++
     }

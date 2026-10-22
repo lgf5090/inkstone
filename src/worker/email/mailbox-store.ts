@@ -1,5 +1,12 @@
 import { newId } from '../lib/id'
 import { EMAIL_AUTO_DRAFT_LEASE_MS, EMAIL_PAGE_SIZE, EMAIL_MAX_PAGE_SIZE, EMAIL_SEND_RATE_LIMIT_DAY, EMAIL_SEND_RATE_LIMIT_HOUR } from '@shared/email/model'
+import type { EmailFolderPatch, EmailMailboxStats, EmailTagPatch } from '@shared/email/model'
+import {
+  emailFolderDepthAllowed,
+  emailFolderMoveAllowed,
+  emailFolderNameTaken,
+  type EmailFolderLike,
+} from '@shared/email/folders'
 import type { SqlExec } from './mailbox-schema'
 
 export interface EmailData {
@@ -62,7 +69,18 @@ export interface FolderRow {
   name: string
   is_deletable: number
   created_at: number
+  parent_id: string | null
+  color: string | null
+  sort_order: number
   unread_count?: number
+}
+
+export interface TagRow {
+  id: string
+  name: string
+  color: string | null
+  created_at: number
+  count?: number
 }
 
 export interface FolderRestoreData {
@@ -71,6 +89,12 @@ export interface FolderRestoreData {
   isDeletable: boolean
   createdAt: number
 }
+
+export type FolderPatch = EmailFolderPatch
+
+export type TagPatch = EmailTagPatch
+
+export type MailboxStats = Omit<EmailMailboxStats, 'attachmentBytes'>
 
 export interface EmailRestoreData extends EmailData {
   folderId: string
@@ -82,6 +106,7 @@ export interface EmailRestoreData extends EmailData {
 
 export interface ListOptions {
   folder?: string
+  tag?: string
   threadId?: string
   page?: number
   limit?: number
@@ -92,6 +117,7 @@ export interface ListOptions {
 export interface SearchOptions {
   query?: string
   folder?: string
+  tag?: string
   from?: string
   to?: string
   subject?: string
@@ -126,6 +152,16 @@ const NORMALIZED_SUBJECT_SQL = `LOWER(TRIM(
     're: ', ''), 'fwd: ', ''), 'fw: ', '')
 ))`
 
+const TAG_SELECT = `SELECT t.id, t.name, t.color, t.created_at,
+  (SELECT COUNT(*) FROM email_message_tags mt
+     JOIN email_messages m ON m.id = mt.message_id AND m.deleted_at IS NULL
+    WHERE mt.tag_id = t.id) AS count
+  FROM email_tags t`
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+const STATS_DAY_COUNT = 7
+
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (char) => `\\${char}`)
 }
@@ -150,39 +186,98 @@ export class MailboxStore {
 
   getFolders(): FolderRow[] {
     return this.rows<FolderRow>(
-      `SELECT f.id, f.name, f.is_deletable, f.created_at,
+      `SELECT f.id, f.name, f.is_deletable, f.parent_id, f.color, f.sort_order, f.created_at,
               COALESCE(SUM(CASE WHEN m.read = 0 AND m.deleted_at IS NULL THEN 1 ELSE 0 END), 0) AS unread_count
          FROM email_folders f
          LEFT JOIN email_messages m ON m.folder_id = f.id
-        GROUP BY f.id, f.name, f.is_deletable, f.created_at
+        GROUP BY f.id, f.name, f.is_deletable, f.parent_id, f.color, f.sort_order, f.created_at
         ORDER BY CASE f.id
           WHEN 'inbox' THEN 0 WHEN 'sent' THEN 1 WHEN 'draft' THEN 2
           WHEN 'archive' THEN 3 WHEN 'trash' THEN 4 WHEN 'spam' THEN 5 ELSE 6 END,
-          f.created_at ASC`,
+          CASE WHEN f.parent_id IS NULL THEN 0 ELSE 1 END,
+          f.parent_id,
+          f.sort_order ASC,
+          f.created_at ASC,
+          f.name COLLATE NOCASE ASC`,
     )
   }
 
-  createFolder(name: string): FolderRow | null {
-    const existing = this.one<FolderRow>(`SELECT * FROM email_folders WHERE name = ?1 COLLATE NOCASE`, name)
-    if (existing) return null
+  private folderRows(): FolderRow[] {
+    return this.rows<FolderRow>(
+      `SELECT id, name, is_deletable, parent_id, color, sort_order, created_at
+         FROM email_folders ORDER BY created_at ASC, id ASC`,
+    )
+  }
+
+  private folderRefs(): EmailFolderLike[] {
+    return this.folderRows().map((folder) => ({
+      id: folder.id,
+      name: folder.name,
+      parentId: folder.parent_id ?? null,
+      sortOrder: Number(folder.sort_order ?? 0),
+    }))
+  }
+
+  createFolder(name: string, parentId: string | null = null, color: string | null = null): FolderRow | null {
+    const parent = parentId ?? null
+    const folders = this.folderRefs()
+    if (parent && !folders.some((folder) => folder.id === parent)) return null
+    if (emailFolderNameTaken(folders, parent, name)) return null
+    if (!emailFolderDepthAllowed(folders, parent)) return null
     const id = newId()
     this.sql.exec(
-      `INSERT INTO email_folders (id, name, is_deletable, created_at) VALUES (?1, ?2, 1, ?3)`,
+      `INSERT INTO email_folders (id, name, is_deletable, created_at, parent_id, color, sort_order)
+       VALUES (?1, ?2, 1, ?3, ?4, ?5, 0)`,
       id,
       name,
       Date.now(),
+      parent,
+      color,
     )
     return this.one<FolderRow>(`SELECT * FROM email_folders WHERE id = ?1`, id)
   }
 
-  updateFolder(id: string, name: string): FolderRow | null {
+  updateFolder(id: string, patch: FolderPatch): FolderRow | null {
     const existing = this.one<FolderRow>(
-      `SELECT * FROM email_folders WHERE name = ?1 COLLATE NOCASE AND id != ?2`,
-      name,
+      `SELECT id, name, is_deletable, parent_id, color, sort_order, created_at
+         FROM email_folders WHERE id = ?1`,
       id,
     )
-    if (existing) return null
-    this.sql.exec(`UPDATE email_folders SET name = ?1 WHERE id = ?2 AND is_deletable = 1`, name, id)
+    if (!existing || existing.is_deletable === 0) return null
+    const folders = this.folderRefs()
+    const parentChanged = patch.parentId !== undefined
+    const nextParent = parentChanged ? patch.parentId ?? null : existing.parent_id ?? null
+    const nextName = patch.name ?? existing.name
+    if (nextParent && !folders.some((folder) => folder.id === nextParent)) return null
+    if (parentChanged && !emailFolderMoveAllowed(folders, id, nextParent)) return null
+    if (
+      (patch.name !== undefined || parentChanged) &&
+      emailFolderNameTaken(folders, nextParent, nextName, id)
+    ) return null
+    const sets: string[] = []
+    const bindings: unknown[] = []
+    if (patch.name !== undefined) {
+      sets.push('name = ?')
+      bindings.push(patch.name)
+    }
+    if (parentChanged) {
+      sets.push('parent_id = ?')
+      bindings.push(nextParent)
+    }
+    if (patch.color !== undefined) {
+      sets.push('color = ?')
+      bindings.push(patch.color)
+    }
+    if (patch.sortOrder !== undefined) {
+      sets.push('sort_order = ?')
+      bindings.push(patch.sortOrder)
+    }
+    if (!sets.length) return existing
+    bindings.push(id)
+    this.sql.exec(
+      `UPDATE email_folders SET ${sets.join(', ')} WHERE id = ? AND is_deletable = 1`,
+      ...bindings,
+    )
     return this.one<FolderRow>(`SELECT * FROM email_folders WHERE id = ?1`, id)
   }
 
@@ -192,9 +287,51 @@ export class MailboxStore {
     const deletedMessageIds = deleteEmails
       ? this.rows<{ id: string }>(`SELECT id FROM email_messages WHERE folder_id = ?1`, id).map((row) => row.id)
       : []
+    const targetParent = folder.parent_id ?? null
+    const siblings = this.rows<{ name: string }>(
+      `SELECT name FROM email_folders
+        WHERE COALESCE(parent_id, '') = COALESCE(?1, '') AND id != ?2`,
+      targetParent,
+      id,
+    )
+    const taken = new Set(siblings.map((row) => row.name.toLowerCase()))
+    const children = this.rows<{ id: string; name: string }>(
+      `SELECT id, name FROM email_folders WHERE parent_id = ?1
+        ORDER BY sort_order ASC, created_at ASC, id ASC`,
+      id,
+    )
     const run = () => {
-      if (deleteEmails) this.sql.exec(`DELETE FROM email_messages WHERE folder_id = ?1`, id)
-      else this.sql.exec(`UPDATE email_messages SET folder_id = 'inbox', updated_at = ?1 WHERE folder_id = ?2`, Date.now(), id)
+      for (const child of children) {
+        let name = child.name
+        if (taken.has(name.toLowerCase())) {
+          const base = child.name.slice(0, 100)
+          let suffix = 2
+          do {
+            name = `${base} (${suffix++})`
+          } while (taken.has(name.toLowerCase()))
+        }
+        taken.add(name.toLowerCase())
+        this.sql.exec(
+          `UPDATE email_folders SET parent_id = ?1, name = ?2 WHERE id = ?3`,
+          targetParent,
+          name,
+          child.id,
+        )
+      }
+      if (deleteEmails) {
+        this.sql.exec(
+          `DELETE FROM email_message_tags
+            WHERE message_id IN (SELECT id FROM email_messages WHERE folder_id = ?1)`,
+          id,
+        )
+        this.sql.exec(`DELETE FROM email_messages WHERE folder_id = ?1`, id)
+      } else {
+        this.sql.exec(
+          `UPDATE email_messages SET folder_id = 'inbox', updated_at = ?1 WHERE folder_id = ?2`,
+          Date.now(),
+          id,
+        )
+      }
       this.sql.exec(`DELETE FROM email_folders WHERE id = ?1`, id)
     }
     if (this.storage) this.storage.transactionSync(run)
@@ -210,12 +347,14 @@ export class MailboxStore {
     const existing = this.one<{ id: string }>(`SELECT id FROM email_folders WHERE id = ?1`, folder.id)
     if (existing) return false
     const named = this.one<{ id: string }>(
-      `SELECT id FROM email_folders WHERE name = ?1 COLLATE NOCASE`,
+      `SELECT id FROM email_folders
+        WHERE COALESCE(parent_id, '') = '' AND name = ?1 COLLATE NOCASE`,
       folder.name,
     )
     if (named) return false
     this.sql.exec(
-      `INSERT INTO email_folders (id, name, is_deletable, created_at) VALUES (?1, ?2, ?3, ?4)`,
+      `INSERT INTO email_folders (id, name, is_deletable, created_at, parent_id, color, sort_order)
+       VALUES (?1, ?2, ?3, ?4, NULL, NULL, 0)`,
       folder.id,
       folder.name,
       folder.isDeletable ? 1 : 0,
@@ -279,6 +418,12 @@ export class MailboxStore {
       clauses.push(`folder_id = (SELECT id FROM email_folders WHERE id = ? OR name = ? COLLATE NOCASE LIMIT 1)`)
       bindings.push(options.folder, options.folder)
     }
+    if (options.tag) {
+      clauses.push(`EXISTS (
+        SELECT 1 FROM email_message_tags mt JOIN email_tags t ON t.id = mt.tag_id
+         WHERE mt.message_id = email_messages.id AND t.name = ? COLLATE NOCASE)`)
+      bindings.push(options.tag)
+    }
     if (options.threadId) {
       clauses.push(`thread_id = ?`)
       bindings.push(options.threadId)
@@ -291,12 +436,18 @@ export class MailboxStore {
     )
   }
 
-  countEmails(options: { folder?: string; threadId?: string } = {}): number {
+  countEmails(options: { folder?: string; tag?: string; threadId?: string } = {}): number {
     const clauses = ['deleted_at IS NULL']
     const bindings: unknown[] = []
     if (options.folder) {
       clauses.push(`folder_id = (SELECT id FROM email_folders WHERE id = ? OR name = ? COLLATE NOCASE LIMIT 1)`)
       bindings.push(options.folder, options.folder)
+    }
+    if (options.tag) {
+      clauses.push(`EXISTS (
+        SELECT 1 FROM email_message_tags mt JOIN email_tags t ON t.id = mt.tag_id
+         WHERE mt.message_id = email_messages.id AND t.name = ? COLLATE NOCASE)`)
+      bindings.push(options.tag)
     }
     if (options.threadId) {
       clauses.push(`thread_id = ?`)
@@ -535,7 +686,15 @@ export class MailboxStore {
   emptyTrash(): string[] {
     const ids = this.rows<{ id: string }>(`SELECT id FROM email_messages WHERE deleted_at IS NOT NULL`).map((row) => row.id)
     if (ids.length) {
-      this.sql.exec(`DELETE FROM email_messages WHERE deleted_at IS NOT NULL`)
+      const run = () => {
+        this.sql.exec(
+          `DELETE FROM email_message_tags
+            WHERE message_id IN (SELECT id FROM email_messages WHERE deleted_at IS NOT NULL)`,
+        )
+        this.sql.exec(`DELETE FROM email_messages WHERE deleted_at IS NOT NULL`)
+      }
+      if (this.storage) this.storage.transactionSync(run)
+      else run()
     }
     return ids
   }
@@ -546,7 +705,16 @@ export class MailboxStore {
       cutoff,
     ).map((row) => row.id)
     if (ids.length) {
-      this.sql.exec(`DELETE FROM email_messages WHERE deleted_at IS NOT NULL AND deleted_at < ?1`, cutoff)
+      const run = () => {
+        this.sql.exec(
+          `DELETE FROM email_message_tags
+            WHERE message_id IN (SELECT id FROM email_messages WHERE deleted_at IS NOT NULL AND deleted_at < ?1)`,
+          cutoff,
+        )
+        this.sql.exec(`DELETE FROM email_messages WHERE deleted_at IS NOT NULL AND deleted_at < ?1`, cutoff)
+      }
+      if (this.storage) this.storage.transactionSync(run)
+      else run()
     }
     return ids
   }
@@ -554,7 +722,12 @@ export class MailboxStore {
   deleteEmail(id: string): boolean {
     const row = this.one<{ id: string }>(`SELECT id FROM email_messages WHERE id = ?1`, id)
     if (!row) return false
-    this.sql.exec(`DELETE FROM email_messages WHERE id = ?1`, id)
+    const run = () => {
+      this.sql.exec(`DELETE FROM email_message_tags WHERE message_id = ?1`, id)
+      this.sql.exec(`DELETE FROM email_messages WHERE id = ?1`, id)
+    }
+    if (this.storage) this.storage.transactionSync(run)
+    else run()
     return true
   }
 
@@ -571,6 +744,103 @@ export class MailboxStore {
       folderId,
       Date.now(),
       id,
+    )
+    return true
+  }
+
+  listTags(): TagRow[] {
+    return this.rows<TagRow>(`${TAG_SELECT} ORDER BY t.name COLLATE NOCASE ASC, t.id ASC`)
+  }
+
+  getTag(id: string): TagRow | null {
+    return this.one<TagRow>(`${TAG_SELECT} WHERE t.id = ?1`, id)
+  }
+
+  findTagByPath(name: string): TagRow | null {
+    return this.one<TagRow>(`${TAG_SELECT} WHERE t.name = ?1 COLLATE NOCASE`, name)
+  }
+
+  createTag(name: string, color: string | null = null): TagRow | null {
+    const existing = this.one<{ id: string }>(`SELECT id FROM email_tags WHERE name = ?1 COLLATE NOCASE`, name)
+    if (existing) return null
+    const id = newId()
+    this.sql.exec(
+      `INSERT INTO email_tags (id, name, color, created_at) VALUES (?1, ?2, ?3, ?4)`,
+      id,
+      name,
+      color,
+      Date.now(),
+    )
+    return this.getTag(id)
+  }
+
+  updateTag(id: string, patch: TagPatch): TagRow | null {
+    const existing = this.one<TagRow>(`SELECT id, name, color, created_at FROM email_tags WHERE id = ?1`, id)
+    if (!existing) return null
+    if (patch.name !== undefined) {
+      const duplicate = this.one<{ id: string }>(
+        `SELECT id FROM email_tags WHERE name = ?1 COLLATE NOCASE AND id != ?2`,
+        patch.name,
+        id,
+      )
+      if (duplicate) return null
+    }
+    const sets: string[] = []
+    const bindings: unknown[] = []
+    if (patch.name !== undefined) {
+      sets.push('name = ?')
+      bindings.push(patch.name)
+    }
+    if (patch.color !== undefined) {
+      sets.push('color = ?')
+      bindings.push(patch.color)
+    }
+    if (!sets.length) return this.getTag(id)
+    bindings.push(id)
+    this.sql.exec(`UPDATE email_tags SET ${sets.join(', ')} WHERE id = ?`, ...bindings)
+    return this.getTag(id)
+  }
+
+  deleteTag(id: string): boolean {
+    const existing = this.one<{ id: string }>(`SELECT id FROM email_tags WHERE id = ?1`, id)
+    if (!existing) return false
+    const run = () => {
+      this.sql.exec(`DELETE FROM email_message_tags WHERE tag_id = ?1`, id)
+      this.sql.exec(`DELETE FROM email_tags WHERE id = ?1`, id)
+    }
+    if (this.storage) this.storage.transactionSync(run)
+    else run()
+    return true
+  }
+
+  attachTag(messageId: string, tagId: string): boolean {
+    const message = this.one<{ id: string }>(
+      `SELECT id FROM email_messages WHERE id = ?1 AND deleted_at IS NULL`,
+      messageId,
+    )
+    if (!message) return false
+    const tag = this.one<{ id: string }>(`SELECT id FROM email_tags WHERE id = ?1`, tagId)
+    if (!tag) return false
+    this.sql.exec(
+      `INSERT OR IGNORE INTO email_message_tags (message_id, tag_id, created_at) VALUES (?1, ?2, ?3)`,
+      messageId,
+      tagId,
+      Date.now(),
+    )
+    return true
+  }
+
+  detachTag(messageId: string, tagId: string): boolean {
+    const existing = this.one<{ message_id: string }>(
+      `SELECT message_id FROM email_message_tags WHERE message_id = ?1 AND tag_id = ?2`,
+      messageId,
+      tagId,
+    )
+    if (!existing) return false
+    this.sql.exec(
+      `DELETE FROM email_message_tags WHERE message_id = ?1 AND tag_id = ?2`,
+      messageId,
+      tagId,
     )
     return true
   }
@@ -611,6 +881,12 @@ export class MailboxStore {
     if (options.folder) {
       clauses.push(`e.folder_id = (SELECT id FROM email_folders WHERE id = ? OR name = ? COLLATE NOCASE LIMIT 1)`)
       bindings.push(options.folder, options.folder)
+    }
+    if (options.tag) {
+      clauses.push(`EXISTS (
+        SELECT 1 FROM email_message_tags mt JOIN email_tags t ON t.id = mt.tag_id
+         WHERE mt.message_id = e.id AND t.name = ? COLLATE NOCASE)`)
+      bindings.push(options.tag)
     }
     if (options.from) {
       clauses.push(`e.sender LIKE ? ESCAPE '\\'`)
@@ -887,8 +1163,84 @@ export class MailboxStore {
     return { status: 'claimed', messageId }
   }
 
+  mailboxStats(now = Date.now()): MailboxStats {
+    const rows = this.rows<{
+      folder_id: string
+      total: number
+      read: number
+      unread: number
+      starred: number
+      with_attachments: number
+    }>(
+      `SELECT folder_id,
+              COUNT(*) AS total,
+              SUM(CASE WHEN read = 1 THEN 1 ELSE 0 END) AS read,
+              SUM(CASE WHEN read = 0 THEN 1 ELSE 0 END) AS unread,
+              SUM(CASE WHEN starred = 1 THEN 1 ELSE 0 END) AS starred,
+              SUM(CASE WHEN has_attachment = 1 THEN 1 ELSE 0 END) AS with_attachments
+         FROM email_messages
+        WHERE deleted_at IS NULL
+        GROUP BY folder_id`,
+    )
+    const byFolder = new Map(rows.map((row) => [row.folder_id, row]))
+    const folders = this.getFolders().map((folder) => {
+      const row = byFolder.get(folder.id)
+      return {
+        folderId: folder.id,
+        total: Number(row?.total ?? 0),
+        read: Number(row?.read ?? 0),
+        unread: Number(row?.unread ?? 0),
+        starred: Number(row?.starred ?? 0),
+        withAttachments: Number(row?.with_attachments ?? 0),
+      }
+    })
+    const totals = rows.reduce(
+      (sum, row) => ({
+        total: sum.total + Number(row.total),
+        read: sum.read + Number(row.read),
+        unread: sum.unread + Number(row.unread),
+        starred: sum.starred + Number(row.starred),
+        withAttachments: sum.withAttachments + Number(row.with_attachments),
+      }),
+      { total: 0, read: 0, unread: 0, starred: 0, withAttachments: 0 },
+    )
+    const trashed = this.one<{ total: number }>(
+      `SELECT COUNT(*) AS total FROM email_messages WHERE deleted_at IS NOT NULL`,
+    )
+    const dayStart = Math.floor(now / DAY_MS) * DAY_MS
+    const rangeStart = dayStart - (STATS_DAY_COUNT - 1) * DAY_MS
+    return {
+      ...totals,
+      sent: Number(byFolder.get('sent')?.total ?? 0),
+      draft: Number(byFolder.get('draft')?.total ?? 0),
+      trash: Number(trashed?.total ?? 0),
+      folders,
+      receivedLast7Days: this.dailyCounts(`folder_id NOT IN ('sent', 'draft')`, rangeStart, now),
+      sentLast7Days: this.dailyCounts(`folder_id = 'sent'`, rangeStart, now),
+    }
+  }
+
+  private dailyCounts(condition: string, start: number, end: number): { date: string; count: number }[] {
+    const rows = this.rows<{ day: number; total: number }>(
+      `SELECT CAST(date / ?1 AS INTEGER) * ?1 AS day, COUNT(*) AS total
+         FROM email_messages
+        WHERE deleted_at IS NULL AND ${condition} AND date >= ?2 AND date <= ?3
+        GROUP BY day`,
+      DAY_MS,
+      start,
+      end,
+    )
+    const counts = new Map(rows.map((row) => [Number(row.day), Number(row.total)]))
+    const out: { date: string; count: number }[] = []
+    for (let index = 0; index < STATS_DAY_COUNT; index++) {
+      const day = start + index * DAY_MS
+      out.push({ date: new Date(day).toISOString().slice(0, 10), count: counts.get(day) ?? 0 })
+    }
+    return out
+  }
+
   deleteAll(): void {
-    for (const table of ['email_messages', 'email_folders', 'email_inbound_claims', 'email_operations']) {
+    for (const table of ['email_message_tags', 'email_tags', 'email_messages', 'email_folders', 'email_inbound_claims', 'email_operations']) {
       this.sql.exec(`DELETE FROM ${table}`)
     }
   }

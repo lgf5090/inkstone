@@ -8,11 +8,11 @@ import { useUi } from '../../src/client/store/ui'
 import { FolderSidebar, FolderSidebarRail } from '../../src/client/features/email/FolderSidebar'
 
 const folders: EmailFolder[] = [
-  { id: 'inbox', name: 'Inbox', isDeletable: false, unreadCount: 3 },
-  { id: 'sent', name: 'Sent', isDeletable: false, unreadCount: 0 },
-  { id: 'draft', name: 'Drafts', isDeletable: false, unreadCount: 1 },
-  { id: 'archive', name: 'Archive', isDeletable: false, unreadCount: 0 },
-  { id: 'trash', name: 'Trash', isDeletable: false, unreadCount: 0 },
+  { id: 'inbox', name: 'Inbox', isDeletable: false, unreadCount: 3, parentId: null, color: null, sortOrder: 0 },
+  { id: 'sent', name: 'Sent', isDeletable: false, unreadCount: 0, parentId: null, color: null, sortOrder: 0 },
+  { id: 'draft', name: 'Drafts', isDeletable: false, unreadCount: 1, parentId: null, color: null, sortOrder: 0 },
+  { id: 'archive', name: 'Archive', isDeletable: false, unreadCount: 0, parentId: null, color: null, sortOrder: 0 },
+  { id: 'trash', name: 'Trash', isDeletable: false, unreadCount: 0, parentId: null, color: null, sortOrder: 0 },
 ]
 
 const uiOriginal = useUi.getState()

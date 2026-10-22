@@ -113,6 +113,9 @@ export async function listEmailToolFolders(env: Env, userId: string, accountId?:
     name: folder.name,
     isDeletable: Boolean(folder.is_deletable),
     unreadCount: Number(folder.unread_count ?? 0),
+    parentId: folder.parent_id ?? null,
+    color: folder.color ?? null,
+    sortOrder: Number(folder.sort_order ?? 0),
   }))
 }
 

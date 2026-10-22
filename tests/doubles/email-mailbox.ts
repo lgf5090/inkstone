@@ -2,15 +2,27 @@ import { MailboxStore } from '../../src/worker/email/mailbox-store'
 import type {
   EmailData,
   EmailRestoreData,
+  FolderPatch,
   FolderRestoreData,
+  TagPatch,
 } from '../../src/worker/email/mailbox-store'
 
 export function fakeEmailMailboxNamespace(store: MailboxStore): DurableObjectNamespace {
   const stub = {
     getFolders: () => store.getFolders(),
-    createFolder: (name: string) => store.createFolder(name),
-    updateFolder: (id: string, name: string) => store.updateFolder(id, name),
+    createFolder: (name: string, parentId: string | null = null, color: string | null = null) =>
+      store.createFolder(name, parentId, color),
+    updateFolder: (id: string, patch: FolderPatch) => store.updateFolder(id, patch),
     deleteFolder: (id: string, deleteEmails = false) => store.deleteFolder(id, deleteEmails),
+    listTags: () => store.listTags(),
+    getTag: (id: string) => store.getTag(id),
+    findTagByPath: (name: string) => store.findTagByPath(name),
+    createTag: (name: string, color: string | null = null) => store.createTag(name, color),
+    updateTag: (id: string, patch: TagPatch) => store.updateTag(id, patch),
+    deleteTag: (id: string) => store.deleteTag(id),
+    attachTag: (messageId: string, tagId: string) => store.attachTag(messageId, tagId),
+    detachTag: (messageId: string, tagId: string) => store.detachTag(messageId, tagId),
+    mailboxStats: (now?: number) => store.mailboxStats(now),
     listAllEmails: () => store.listAllEmails(),
     importFolder: (folder: FolderRestoreData) => store.importFolder(folder),
     importEmail: (email: EmailRestoreData) => store.importEmail(email),
