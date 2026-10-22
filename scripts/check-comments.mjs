@@ -96,6 +96,14 @@ const allowed = new Map([
     "// workers and wasm loaders whose own strings are not this app's interface copy. It is generated",
     "// output, gitignored like dist, so scanning it would gate us on somebody else's source.",
   ]],
+  ["scripts/e2e.mjs", [
+    "// The route counts the body while it streams, under a ceiling of 25 MiB plus a 512 KiB form",
+    "// envelope, and a chunked request carries no declared length to check first — so the fixture has",
+    "// to clear that ceiling to be testing the counter at all. Eleven MiB only ever proved it against",
+    "// the 10 MiB single-file limit this app had before the ceiling moved to 25 MiB.",
+    "// The reader's own copy may be held for a year because only that reader can delete the bytes; a",
+    "// share grant is revocable, so its reads are asserted no-store further below.",
+  ]],
   ["scripts/excalidraw-patch.mjs", [
     "/**\n * The vendored engine build is a minified IIFE that was written for Obsidian, so six of its teardown\n * and asset paths throw when it is hosted by this app instead. The only way in is exact-string\n * replacement on minified text, which fails silently: rename one local and the `.replace()` becomes a\n * no-op that ships an unpatched bundle, and every gate still passes because nothing reads the result.\n *\n * This module is the single source for those edits (they used to be duplicated verbatim in\n * `vite.config.ts` and `scripts/patch-excalidraw.mjs`), and it reports every patch as applied,\n * already-present or unmatched so the caller can refuse to build on a miss.\n */",
     "// The upstream teardown nulls every field, and the mount guard above re-creates each one, so the",
@@ -24467,6 +24475,7 @@ const allowed = new Map([
     "/**\n * The object key a row's bytes live under.\n *\n * The persisted key wins. Deriving it from mutable columns instead would mean a rename or a\n * re-file can move an object out from under its own row, which is how the pre-hub layout ended up\n * recomputed identically in eight places that each had to agree with the writer by luck.\n *\n * A null `object_key` is not missing data: it marks a row written before the hub, whose bytes sit in\n * the flat unprefixed layout. Those rows keep resolving the old way, so no backfill has to\n * reproduce the extension rule in SQL and no object has to move. New uploads persist their key.\n */",
     "/** The columns needed to choose a key for an object that has no row to read one back from. */",
     "/** The key a scope's newest object will be written under, and the only place a prefix is chosen. */",
+    "/**\n * The attachment a queued deletion names, when the key really is this account's attachment.\n *\n * One table holds every object this app deletes, so keys arrive in three shapes: the flat pre-hub\n * `<user>/<file>`, the hub `<scope>/<user>/<file>` for a registered scope, and objects that merely\n * look like the second — avatars live at `avatars/<user>/<file>`, and `avatars` is not a scope.\n * Reading segments rather than counting from a fixed offset is what keeps this true now that the\n * scope prefix moved every attachment key one level deeper; the old positional read matched nothing\n * written after the hub and simply stopped finding anything.\n */",
   ]],
   ["src/worker/attachments/organizer.ts", [
     "/**\n * Folders and tags for the attachment hub.\n *\n * Both tables carry a `scope` column rather than being one table pair per application, because the\n * row shape, the ordering rules and the detach-on-delete behaviour are identical across all four —\n * the only thing that differs is which application's sidebar is drawing them. Scoping by a column\n * keeps that to one implementation; four table pairs would mean four copies of the same eight\n * statements to keep honest.\n *\n * Names are scoped, not global: a \"Screenshots\" folder in notes and one in chat are unrelated\n * things that happen to share a name, and a rename in one must not reach into the other.\n */",
@@ -26194,6 +26203,13 @@ const allowed = new Map([
   ["src/worker/routes/files.ts", [
     "// Anonymous share reads get a tighter work budget than the delete/backup paths:",
     "// an unfinished scan here only withholds one asset, which is the safe direction.",
+    "// An owner re-reading their own attachment is the one cache that can be trusted to stay valid: the",
+    "// bytes behind an id never change, and the reader is the only party that can delete them.",
+    "// A share grant, however, is revocable — rotating the share password is documented to cut old asset",
+    "// sessions off at once, and a year-long cache in the visitor's browser would outlive both the",
+    "// rotation and the share itself. Same reasoning as the memos file route.",
+    "// Conditional revalidation only means something for a response the reader is allowed to keep, so",
+    "// the share path answers the bytes every time rather than a 304 backed by a cache it must not have.",
   ]],
   ["src/worker/routes/folders.ts", [
     "/**\n * The persistence layer for these routes, bound to the account the request authenticated as.\n *\n * Same shape as `routes/notes.ts`: the route parses and validates, asks the store for a record, and\n * turns that record into a response; no statement is built here.\n */",
@@ -26543,13 +26559,13 @@ const allowed = new Map([
     "/** Imports queue thousands of embeddings at once; a cron-only drain would take days. */",
     "/**\n   * One note-count snapshot budgeting the whole request. The import route holds an\n   * account-level lease for its duration, so re-counting per note is pure overhead.\n   */",
     "/**\n   * The account's D1 access, bound once per request.\n   *\n   * Every statement these helpers need lives in `transfer/store.ts`; the route validates, decides and\n   * shapes the answer, and asks this object for rows.\n   */",
-    "// Which cleanup key belongs to which source id is read from the object key itself, so the storage",
-    "// prefix stays here and only the query moved.",
     "/**\n * Fill the request's note cache for ids it has not asked about yet.\n *\n * The lookup itself — the ids, the mappings, the notes behind them — is `store.noteIndexesBySourceIds`.\n * What stays here is the cache: ids already answered are not asked again, and an id the account does\n * not own is recorded as \"known absent\" so a later note in the same import does not re-query it.\n */",
     "/**\n * The note this account already owns for an export id, answered from the cache when it can be.\n */",
     "/**\n * The tags an export carried, reduced to rows this account may store.\n *\n * A name that is empty, too long or still holds a space or a hash is dropped rather than rejected: an\n * export is a bundle of many things, and losing one tag is a warning the client never asked for. The\n * first spelling of a name wins, which is what the case-folded key means. Writing them is\n * `store.restoreTagMetadata`.\n */",
     "/**\n * Apply a re-imported note over the one this account already has, if it is newer.\n *\n * The three answers the caller cannot derive on its own are the whole contract: `missing` (the note is\n * gone), `skipped` (what is stored is already at least as new) and `conflict` (someone edited it\n * between the read and the guarded write, so the current version was kept). Which of the counters a\n * result moves, and whether the client is warned, is the caller's business.\n */",
     "/**\n * Create one note from an import and return the id it ended up with.\n *\n * Size and quota are checked here, the timestamps and the title are decided here, and an id the export\n * carried is offered once and replaced with a fresh one if the insert loses the collision — which is\n * the only reason a re-import of the same export cannot overwrite a note another account owns. The\n * writing itself is `store.insertNote`.\n */",
+    "// The store already matched every key to a source id by its segments, so this only recovers the id",
+    "// the same way to decide which restore needs the \"old bytes still pending\" warning.",
   ]],
   ["src/worker/search/service.ts", [
     "/**\n * The search and graph answers the HTTP route, the MCP retriever and the note store all need.\n *\n * Lifted out of `routes/search.ts` because a route is an HTTP adapter: `mcp/retrieval.ts` and\n * `notes/store.ts` must not reach into one to get a function (`AGENTS.md` rule 3), and the ranking,\n * snippet and node-assembly rules here are exactly the product behaviour those callers depend on.\n * The route keeps query parsing, validation, throttles, `ApiError` codes and response shaping; the\n * SQL stays in `search/store.ts`; this layer is the arithmetic between them.\n */",
@@ -26569,7 +26585,6 @@ const allowed = new Map([
     "/** One node of a graph page, in the columns both graph statements select. */",
     "/** The parts of a graph request that decide which rows come back; the rest is the route's assembly. */",
     "/** The row the document page selects, with the per-note truncation window applied. */",
-    "/**\n   * The notes whose FTS rows have not been written yet.\n   *\n   * `notes_fts` lags the note table by one drain, so these ids are searched by LIKE and merged with\n   * the FTS page instead of being invisible until the queue drains.\n   */",
     "/** The account's live notes matching `match`, ranked by bm25, body windowed around the first term. */",
     "/**\n   * The account's notes whose title or body contains every term, read as up to `min(limit * 3, 600)`\n   * candidates so the route can re-rank the page in memory.\n   *\n   * `noteIds` narrows the read to the ids the caller named (the pending-queue half of a search), and an\n   * empty list answers empty rather than emitting `IN ()`, which SQLite rejects.\n   */",
     "// A term-less query (folder:/tag:/is: only) must not emit `ORDER BY 0`: SQLite reads a bare",
@@ -26582,6 +26597,7 @@ const allowed = new Map([
     "// the search result set disagree about the same click.",
     "// The folder view is recursive, so folder: has to walk the subtree too. UNION rather than",
     "// UNION ALL keeps a parent_id cycle from looping forever.",
+    "/**\n   * The notes whose FTS rows have not been written yet.\n   *\n   * `notes_fts` lags the note table by one drain, so these ids are searched by LIKE and merged with\n   * the FTS page instead of being invisible until the queue drains.\n   *\n   * The queue is read newest-queued first and capped at one page of search results, because a lagging\n   * index only surprises a reader about what they just wrote: a flat scan-ordered slice of the queue\n   * (the old `LIMIT 20`, with no ordering at all) kept the newest note — the one an import or save\n   * just queued last — outside the fallback whenever more than that many rows were pending, which is\n   * precisely the case the fallback exists for. One row per note is guaranteed by the queue's\n   * `(user_id, note_id)` primary key, so the ids need no de-duplication to order.\n   */",
   ]],
   ["src/worker/settings/store.ts", [
     "/**\n * Every read and write the settings HTTP routes make against D1.\n *\n * The shape follows `share/store.ts`: a store built per request from the account it serves, methods\n * that hand back rows, the boolean a compare-and-set matched or nothing, and no `Response` in sight.\n * What stays with the route is the merge itself (`mergeSettings` / `mergeSettingsPatch` are the\n * shared contract with the client), the owner-only check, the `ApiError` codes and message strings,\n * the retry ceiling and the change record that rides `commitChange`.\n *\n * All three statements are the account's own row: `WHERE id = ?1` binds `c.get('userId')`, and\n * `users.id` *is* the account — there is no separate `user_id` column to carry on this table. The\n * `stats` read is the exception worth spelling out: a `users` read would be one row, but the answer\n * is a count over six tables, so every subquery in it names `user_id = ?1` and the two derived tables\n * filter `notes` and `attachments` by the same bound account. One account can never see another's\n * totals, and no statement here reaches a row it does not bind.\n *\n * The settings write is a compare-and-set rather than a plain update, and that is the point of\n * handing back a boolean: two devices editing their appearance settings must not silently lose one\n * edit, so the write only lands while the column still holds the text the caller merged from. The\n * route owns what a refusal means — re-read and try again, then a 409.\n */",
@@ -27038,7 +27054,6 @@ const allowed = new Map([
     "/**\n   * The two lookups a restored attachment needs — the import mapping for this hash, and the oldest\n   * attachment that already carries it — in one round trip. They used to run as separate queries for\n   * every entry of a restore.\n   */",
     "/**\n   * Which attachment id this account already restored for each source hash.\n   *\n   * A note cannot be written before the attachments its body links to exist, so the restore asks for\n   * every hash its manifest names and the caller refuses the note when one is missing.\n   */",
     "/**\n   * The attachments this restore already knows about, keyed by the id the export used.\n   *\n   * Two sequential reads per chunk, in the order they have always run: the account's own mapping for\n   * that source id, then the attachment rows whose id equals it. The second is the one statement here\n   * with no `user_id` filter, because a restore carries another account's attachment ids and has to\n   * learn whether one of them collides with a live row before it can pick a destination id; the caller\n   * compares each row's `user_id` against its own account and treats a mismatch as \"not mine\".\n   */",
-    "/**\n   * The cleanup-queue object keys that still hold bytes for this account.\n   *\n   * Scoped by `user_id` and by the key's own prefix, which the SQL matches positionally because the\n   * queue table stores a backend prefix, the account and the file name as one string. Turning those\n   * keys back into attachment ids is a storage-key question, not a SQL one, so the caller reads the\n   * keys and does it.\n   */",
     "/**\n   * Point restored attachments at the notes that reference them, one batch per `LINK_BATCH` rows.\n   *\n   * `noteId` is already the destination note id or `null`; mapping the export's own ids to it is the\n   * route's business. Every statement carries `user_id`, so a link cannot re-parent another account's\n   * file even when an id collides.\n   */",
     "/**\n   * Record what an export id restored to, for notes and attachments alike.\n   *\n   * `runBatched` keeps the statements in fixed-size batches, and the upsert means a second restore of\n   * the same export re-points the mapping instead of failing on it.\n   */",
     "/**\n   * Every note this account already owns that the listed export ids resolve to.\n   *\n   * Three sequential reads per chunk, in the order they have always run: the ids themselves, the\n   * mappings for those ids, and the notes the mappings point at. A source id that is also a live note\n   * id ends up answered by the mapping, because that pass writes its entry last — a restore has to\n   * follow a re-parented note rather than trust the id it was handed. Keys of the returned map are\n   * export-side ids; ids nobody owns are simply absent.\n   */",
@@ -27053,6 +27068,7 @@ const allowed = new Map([
     "/** The folder this account already owns under `parentId` answering to `name`. */",
     "// --------------------------------------------------------------------- tags",
     "/**\n   * Restore the manual tags and colours an export carried, in one batch.\n   *\n   * The three statements are one unit: create what is missing, colour what exists, announce both. The\n   * insert is guarded by a `NOT EXISTS` on this account's own names, so an export from another account\n   * cannot retitle a tag this one already uses; the update and the change record are scoped by\n   * `user_id` for the same reason. Tag naming rules — what a name may contain, what colour is usable —\n   * are decided by the caller, which hands back rows already fit to store.\n   */",
+    "/**\n   * The cleanup-queue object keys that still hold bytes for this account.\n   *\n   * Scoped by `user_id` and by the account's own path segment, then matched to the ids the caller\n   * named by reading the key's segments — the queue stores backend prefix, path and file name as one\n   * string, and the path gained a scope level when the hub started prefixing new objects, so no\n   * fixed offset describes it any more.\n   */",
   ]],
   ["src/worker/types/vite-env.d.ts", [
     "// Only `DEV` is read by the Worker, and only through optional chaining, so a bundle",
@@ -28592,8 +28608,15 @@ const allowed = new Map([
     "// The self-hosted entry is what these addresses are read as: a vendor engine names its own host, and its",
     "// address is guarded on the way out just the same.",
   ]],
+  ["tests/attachment-cache-policy.test.ts", [
+    "/**\n * How long an attachment response may be kept, split by who is allowed to invalidate it.\n *\n * The bytes behind an attachment id never change, so an owner's own browser may hold them\n * indefinitely — that is what the ETag work added, and it is the only party that can delete them.\n * A share grant is different: rotating the share password is documented to cut old asset sessions\n * off immediately, and a year-long cache in the visitor's browser would keep serving the file after\n * both the rotation and the share are gone. Revocable access cannot be cacheable.\n */",
+    "// Slugs are exactly twenty characters and attachment ids exactly twenty-six, both drawn from the",
+    "// same generated alphabet, which is also what the body reference scanner matches against.",
+  ]],
   ["tests/attachment-scope-isolation.test.ts", [
     "/**\n * That a file belongs to the application that claims it, and that no application's sweep can\n * collect another's.\n *\n * The first case is a regression with a body count: task uploads have always been ordinary\n * `attachments` rows with a null `note_id`, and the notebook's \"clean up unreferenced\" decided\n * \"unreferenced\" by reading note bodies only. A task's file therefore looked spare to it and was\n * deleted, while the `todos_attachments` row survived and the task went on listing a file whose\n * bytes were gone — silently, with nothing queued and nothing thrown.\n */",
+    "// An avatar shares the scoped shape, but `avatars` names no attachment scope.",
+    "// A motion-photo thumbnail carries the owner’s id with a suffix, so it is not a file of its own.",
   ]],
   ["tests/auth-password.test.ts", [
     "// The route reads the session middleware's own variables, so the harness has to bind them the way",
@@ -30011,6 +30034,10 @@ const allowed = new Map([
     "// same failure here means the defect is in the shared ORDER BY, not in folder scoping.",
     "// Ids have to be the 26-character shape the assistant accepts, unlike the short ones above.",
   ]],
+  ["tests/search-pending-fallback.test.ts", [
+    "/**\n * The half of a search that has to work before the FTS drain lands.\n *\n * Every write queues a row and the index catches up on a timer, so anything a reader saved seconds\n * ago is only findable through the LIKE fallback over the pending queue. That queue is longer than\n * what a reader can have just written — a bulk import queues a whole notebook at once — so which\n * pending rows the fallback looks at is the difference between \"my import is searchable\" and \"it is\n * invisible until the drain happens to run\".\n */",
+    "/** `count` notes queued in ascending write order, oldest first, numbered from `firstAt`. */",
+  ]],
   ["tests/search-tag-expressions.test.ts", [
     "// Typed as the context `app.fetch` actually declares, so every field the route may read has to be",
     "// there: the ambient Workers interface is wider than hono needs and cannot be faked outside a Worker.",
@@ -30805,6 +30832,11 @@ const allowed = new Map([
     "// Matched case-insensitively, so the name the account already uses wins and keeps its row.",
     "// Typed as the context `app.request` declares, so the fake carries `props` as well: the route can",
     "// read anything hono promises, and a missing field has to fail the build rather than the request.",
+    "// Both layouts the queue holds for one account: the flat pre-hub key and the scope-prefixed key",
+    "// every hub upload writes. A reader that only understands the first silently stops finding the",
+    "// second, which is the whole failure mode here.",
+    "// Another account's object of the same id, and an avatar that merely looks like a scoped",
+    "// attachment — `avatars` is not a scope, so neither may be claimed.",
   ]],
   ["tests/trash-purge-batch.test.ts", [
     "// Two notes share a title so the link can be retargeted before the trashed one disappears.",
