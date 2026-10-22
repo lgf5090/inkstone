@@ -13,7 +13,7 @@
  */
 
 import { useEffect, useId, useRef, useState } from 'react'
-import { CalendarMinus, Check, CircleDot, MoreHorizontal, Star } from 'lucide-react'
+import { CalendarMinus, Check, CircleDot, MoreHorizontal, Paperclip, Star } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { api } from '../../lib/api'
@@ -25,6 +25,7 @@ import { Menu, useContextMenu } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useTodos } from './store'
 import { buildTaskContextMenuItems, buildTaskMenuItems, TASK_ROW_MENU_WIDTH } from './task-menu'
+import { attachFilesToTask } from './task-attachments'
 import { BatchContextMenu } from './BatchBar'
 import { dueLabel, priorityDot, priorityLabel } from './todo-ui'
 import { taskColorOf } from './task-face'
@@ -70,14 +71,93 @@ export const TODO_DRAG_TYPE = 'application/x-inkstone-todo'
  */
 export const FINE_POINTER_QUERY = '(hover: hover) and (pointer: fine)'
 
+/**
+ * What a dragged *group* of them carries, beside the row under the pointer.
+ *
+ * Its own format rather than a second id in the first, because every surface that answers a drop today
+ * reads one task id and would take a list for a name. A drag that started on an unpicked row writes
+ * nothing here at all.
+ */
+export const TODO_DRAG_GROUP_TYPE = 'application/x-inkstone-todo-group'
+
 /** Whether a drag over this surface is one of ours rather than a file from the desktop. */
 export function isTodoTaskDrag(event: React.DragEvent): boolean {
   return Array.from(event.dataTransfer.types).includes(TODO_DRAG_TYPE)
 }
 
+/** Whether a drag is carrying files from outside the page — the other half of the same drop event. */
+export function isFileDrag(event: React.DragEvent): boolean {
+  return Array.from(event.dataTransfer.types).includes('Files')
+}
+
+/** The files a drop is carrying, or nothing for a drag this page wrote itself. */
+export function droppedFiles(event: React.DragEvent): File[] {
+  return Array.from(event.dataTransfer.files ?? [])
+}
+
 /** The task a drop is carrying, or an empty string for a drag that is not ours. */
 export function readTodoTaskDrag(event: React.DragEvent): string {
   return event.dataTransfer.getData(TODO_DRAG_TYPE)
+}
+
+/**
+ * The group a drag wrote, or nothing for a bag that is not ours.
+ *
+ * A payload that will not parse is not a group: the caller falls back to the single id every task drag
+ * carries, so a hand-edited or third-party bag moves the one row it names rather than none of them, and
+ * says nothing about it.
+ */
+function parseCarriedGroup(carried: string): string[] {
+  try {
+    const parsed: unknown = JSON.parse(carried)
+    return Array.isArray(parsed)
+      ? parsed.filter((entry): entry is string => typeof entry === 'string')
+      : []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Every task id a drop is carrying, in the order the drag wrote them.
+ *
+ * The picked group when the drag started on a row that was picked, and the one row underneath when it
+ * did not — which is why a destination never has to ask which kind of drag it was handed.
+ */
+export function readTodoTaskDropIds(event: React.DragEvent): string[] {
+  const single = event.dataTransfer.getData(TODO_DRAG_TYPE)
+  const carried = event.dataTransfer.getData(TODO_DRAG_GROUP_TYPE)
+  if (carried) {
+    const group = parseCarriedGroup(carried)
+    if (group.length > 0) return group
+  }
+  return single ? [single] : []
+}
+
+/** Where the pointer holds the group's label, so it does not sit under the finger and vanish. */
+const DRAG_GHOST_ANCHOR_PX = 12
+
+/**
+ * The count a picked group wears while it is in the air.
+ *
+ * A browser paints a drag's ghost from a node the page holds, not from the row it photographed, so the
+ * node is made for the gesture and taken away when the gesture ends: left in the document it is a
+ * fragment of a finished drag nobody finished. It is parked outside the window rather than hidden,
+ * because a node nothing lays out gives the browser nothing to draw.
+ */
+function appendGroupDragImage(count: number): HTMLElement {
+  const node = document.createElement('div')
+  node.setAttribute('data-todo-drag-ghost', '')
+  node.setAttribute('aria-hidden', 'true')
+  node.className = [
+    'fixed top-0 -left-[10000px]',
+    'flex items-center gap-1.5 rounded-[var(--r-md)] border border-[var(--border-default)]',
+    'bg-[var(--bg-overlay)] px-2 py-1 shadow-[var(--shadow-pop)]',
+    'text-[length:var(--text-12)] font-medium text-[var(--text-primary)]',
+  ].join(' ')
+  node.textContent = t('todo.drag.move_count', { count })
+  document.body.appendChild(node)
+  return node
 }
 
 /**
@@ -132,6 +212,13 @@ export function openTaskSiblings(tasks: readonly TodoTask[], task: TodoTask): To
  * Absent, `reorderEnabled` follows `dragEnabled`, which is every listing that has had the pair together
  * all along. Dragging needs a fine pointer either way: a phone gets the menu instead, which is why the
  * controls are built whether or not the pointer can drag.
+ *
+ * A drop may carry more than one row, and the row it lands beside is the anchor for every one of them.
+ * The two drop halves are therefore called once per carried row, and one is waited for before the next
+ * is sent: sent together they would reach the server in whatever order the network chose and the group
+ * would land shuffled, while sent one after the other they take the same anchor in the order they left.
+ * A control that answers at once — a column that only re-files a field — returns nothing, and waiting on
+ * nothing is the same as not waiting.
  */
 export interface TaskMoveControls {
   dragEnabled: boolean
@@ -141,8 +228,8 @@ export interface TaskMoveControls {
   onMoveUp: () => void
   onMoveDown: () => void
   onMoveToList: (listId: string | null) => void
-  onDropBefore: (draggedId: string) => void
-  onDropAfter: (draggedId: string) => void
+  onDropBefore: (draggedId: string) => void | Promise<void>
+  onDropAfter: (draggedId: string) => void | Promise<void>
 }
 
 export function useTaskMoves(enabled: boolean): (task: TodoTask) => TaskMoveControls | null {
@@ -153,11 +240,14 @@ export function useTaskMoves(enabled: boolean): (task: TodoTask) => TaskMoveCont
     const siblings = openTaskSiblings(tasks, task)
     const index = siblings.findIndex((entry) => entry.id === task.id)
     if (index < 0) return null
-    const placeBefore = (draggedId: string, beforeId: string | null): void => {
+    // A row is never placed beside itself, and a row crossing into this one's list names that list
+    // beside the anchor — which is what keeps a move from carrying the number it had where it came from
+    // into the middle of where it is going.
+    const placeBefore = (draggedId: string, beforeId: string | null): Promise<void> | void => {
       if (draggedId === task.id) return
       const dragged = tasks.find((entry) => entry.id === draggedId)
       if (!dragged) return
-      void moveTodoTask(draggedId, {
+      return moveTodoTask(draggedId, {
         beforeId,
         ...(dragged.listId === task.listId ? {} : { listId: task.listId }),
       })
@@ -246,6 +336,32 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
   const draggable = move?.dragEnabled === true
   const reorderable = move ? (move.reorderEnabled ?? move.dragEnabled) === true : false
   /**
+   * Whether a file from outside the page is hovering over this row.
+   *
+   * The same five bail-outs the gap line needs: a drag that leaves the window, or one the reader
+   * cancels, never fires `drop` on the row it was over, and a strip left up would be a promise the row
+   * has no intention of keeping.
+   */
+  const [fileHover, setFileHover] = useDropState(false)
+  /** The label this row's own drag hung on the page, while it is in the air. */
+  const dragGhost = useRef<HTMLElement | null>(null)
+  /**
+   * The rows this drag carries when the row under the pointer is part of a picked group.
+   *
+   * Read from the store at the moment the pointer lets go rather than subscribed to: a row does not
+   * re-render because another row was ticked, and a count that was a frame stale would be the one place
+   * the ghost lied. Only rows the page has read are carried, so the number on the drag is exactly the
+   * number of writes the drop can make, and the order is the page's own rather than the order the
+   * reader happened to tick them in.
+   */
+  const pickedGroup = (): string[] => {
+    const state = useTodos.getState()
+    if (!state.selectedIds.has(task.id)) return []
+    const group = state.tasks.filter((entry) => state.selectedIds.has(entry.id)).map((entry) => entry.id)
+    // A group of one is the single row it always was, and "Move 1 items" is not a promise worth painting.
+    return group.length > 1 ? group : []
+  }
+  /**
    * The long press a phone uses to enter selection mode.
    *
    * The timer lives beside the row rather than in the store: it belongs to the pointer that started it,
@@ -257,6 +373,9 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
 
   useEffect(() => () => {
     if (pressTimer.current) clearTimeout(pressTimer.current)
+    // A row that went away mid-drag would otherwise leave its count hanging on the page forever.
+    dragGhost.current?.remove()
+    dragGhost.current = null
   }, [])
 
   const cancelLongPress = (): void => {
@@ -384,6 +503,20 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
     if (pressTimer.current || suppressOpen.current) return
     rowMenu.onContextMenu(event)
   }
+
+  /**
+   * Places every row a drag carried beside this one, the next held until the last has landed.
+   *
+   * Each write names the same anchor, so the order they are sent in is the order they arrive in. Fired
+   * together, they would land in whichever order the network answered and the group would read as a
+   * shuffle nobody asked for.
+   */
+  const placeCarried = async (carried: readonly string[], after: boolean): Promise<void> => {
+    if (!move) return
+    for (const draggedId of carried) {
+      await (after ? move.onDropAfter(draggedId) : move.onDropBefore(draggedId))
+    }
+  }
   // One set of rows, two ways to reach it: the kebab writes them as they have always been, and a
   // right-click opens the same list under a schedule strip. `task-menu.ts` builds both, because a card
   // that kept a second copy of the list would answer one question twice.
@@ -411,7 +544,7 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
     <article
       data-todo-selected={selected ? '' : undefined}
       data-todo-draggable={draggable ? '' : undefined}
-      draggable={draggable && !selectionMode && !titleOpen ? true : undefined}
+      draggable={draggable && !titleOpen ? true : undefined}
       onDragStart={(event) => {
         if (!draggable) {
           event.preventDefault()
@@ -419,33 +552,65 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
         }
         event.dataTransfer.setData(TODO_DRAG_TYPE, task.id)
         event.dataTransfer.effectAllowed = 'move'
+        // A picked row drags its whole group, and says so on the drag rather than in the row after it.
+        const group = pickedGroup()
+        if (group.length === 0) return
+        event.dataTransfer.setData(TODO_DRAG_GROUP_TYPE, JSON.stringify(group))
+        dragGhost.current = appendGroupDragImage(group.length)
+        event.dataTransfer.setDragImage(dragGhost.current, DRAG_GHOST_ANCHOR_PX, DRAG_GHOST_ANCHOR_PX)
+      }}
+      onDragEnd={() => {
+        dragGhost.current?.remove()
+        dragGhost.current = null
       }}
       onDragOver={(event) => {
-        if (!reorderable || !isTodoTaskDrag(event)) return
-        // The row owns the drop it is under: without this the board card behind it would append the
-        // task to the list instead of placing it where the reader pointed.
+        if (isTodoTaskDrag(event)) {
+          if (!reorderable) return
+          // The row owns the drop it is under: without this the board card behind it would append the
+          // task to the list instead of placing it where the reader pointed.
+          event.preventDefault()
+          event.stopPropagation()
+          event.dataTransfer.dropEffect = 'move'
+          const rect = event.currentTarget.getBoundingClientRect()
+          const ratio = rect.height ? (event.clientY - rect.top) / rect.height : 0.5
+          setDropState(ratio < 0.5 ? 'before' : 'after')
+          return
+        }
+        // The other half of the same event: a file from outside the page is not a row being moved, and
+        // it needs this row to say out loud that it will take it.
+        if (!isFileDrag(event)) return
         event.preventDefault()
-        event.stopPropagation()
-        event.dataTransfer.dropEffect = 'move'
-        const rect = event.currentTarget.getBoundingClientRect()
-        const ratio = rect.height ? (event.clientY - rect.top) / rect.height : 0.5
-        setDropState(ratio < 0.5 ? 'before' : 'after')
+        event.dataTransfer.dropEffect = 'copy'
+        setFileHover(true)
       }}
       onDragLeave={(event) => {
         const next = event.relatedTarget
-        if (!(next instanceof Node) || !event.currentTarget.contains(next)) setDropState('none')
+        if (!(next instanceof Node) || !event.currentTarget.contains(next)) {
+          setDropState('none')
+          setFileHover(false)
+        }
       }}
       onDrop={(event) => {
-        // A drag this row cannot read is not its own to swallow: taking it would leave the surface
-        // behind — the column, the board, the day the pointer is really over — never hearing about it.
-        if (!move || !reorderable || !isTodoTaskDrag(event)) return
+        if (isTodoTaskDrag(event)) {
+          // A drag this row cannot read is not its own to swallow: taking it would leave the surface
+          // behind — the column, the board, the day the pointer is really over — never hearing about it.
+          if (!move || !reorderable) return
+          event.preventDefault()
+          event.stopPropagation()
+          setDropState('none')
+          const carried = readTodoTaskDropIds(event).filter((id) => id !== task.id)
+          if (carried.length === 0) return
+          void placeCarried(carried, dropState === 'after')
+          return
+        }
+        if (!isFileDrag(event)) return
+        const files = droppedFiles(event)
+        if (files.length === 0) return
         event.preventDefault()
         event.stopPropagation()
-        setDropState('none')
-        const draggedId = readTodoTaskDrag(event)
-        if (!draggedId || draggedId === task.id) return
-        if (dropState === 'after') move.onDropAfter(draggedId)
-        else move.onDropBefore(draggedId)
+        setFileHover(false)
+        // The route answers for itself: what the client refused, what landed, and why not.
+        void attachFilesToTask(task.id, files)
       }}
       className={cn(
         'group relative flex min-w-0 items-start gap-2 rounded-[var(--r-md)] border-b border-[var(--border-subtle)] px-2 py-1.5 transition-colors duration-[var(--dur-fast)] last:border-b-0',
@@ -459,6 +624,19 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
       )}
       {dropState === 'after' && (
         <span aria-hidden="true" data-todo-drop-line="after" className="pointer-events-none absolute right-1 bottom-0 left-1 h-0.5 rounded-full bg-[var(--accent)]" />
+      )}
+      {fileHover && (
+        // The row says what it will do with the file before the pointer lets go, in the same words the
+        // attachment hub uses for the same gesture. The toast is what a reader is told afterwards; this
+        // is the mark a pointer reads, so it is not announced twice.
+        <span
+          aria-hidden="true"
+          data-todo-attach-hint=""
+          className="pointer-events-none absolute inset-0 flex items-center justify-center gap-1.5 rounded-[var(--r-md)] border border-dashed border-[var(--accent)] bg-[var(--accent-soft)] text-[length:var(--text-11)] font-medium text-[var(--accent)]"
+        >
+          <Paperclip size={12} />
+          {t('attachments.drag_drop_hint')}
+        </span>
       )}
       {selectionMode ? (
         // The selection tick takes the completion box's place rather than sitting beside it: while the
