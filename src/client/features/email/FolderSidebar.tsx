@@ -1,12 +1,12 @@
 import { useRef, useState } from 'react'
-import { Archive, FileText, Inbox, MoreHorizontal, Plus, Send, Trash2 } from 'lucide-react'
+import { Archive, FileText, Inbox, MoreHorizontal, PanelLeft, Plus, Send, Trash2 } from 'lucide-react'
 import type { EmailFolder, EmailSystemFolder } from '@shared/email/model'
 import { EMAIL_SIDEBAR_FOLDERS, isEmailSystemFolder } from '@shared/email/model'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { SectionLabel } from '../../components/primitives'
 import { IconButton } from '../../components/primitives'
-import { Menu, confirm, prompt, type MenuItem } from '../../components/overlay'
+import { Menu, Tooltip, confirm, prompt, type MenuItem } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { emailErrorText } from './errors'
 import { SYSTEM_FOLDER_LABEL_KEYS } from './format'
@@ -182,6 +182,48 @@ export function FolderSidebar({
         width={168}
         label={t('email.folder.more_actions')}
       />
+    </nav>
+  )
+}
+
+export function FolderSidebarRail({
+  folders,
+  activeFolderId,
+  onSelect,
+  onExpand,
+}: {
+  folders: readonly EmailFolder[]
+  activeFolderId: string | null
+  onSelect: (folderId: string) => void
+  onExpand: () => void
+}) {
+  const byId = new Map(folders.map((folder) => [folder.id, folder]))
+  return (
+    <nav aria-label={t('email.a11y.folders')} className="flex h-full min-h-0 w-full flex-col items-center gap-1 overflow-y-auto bg-[var(--bg-sunken)] py-2">
+      <Tooltip label={t('sidebar.expand_navigation')} side="right">
+        <IconButton label={t('sidebar.expand_navigation')} onClick={onExpand}>
+          <PanelLeft size={16} aria-hidden="true" />
+        </IconButton>
+      </Tooltip>
+      <div aria-hidden="true" className="my-1 h-px w-6 shrink-0 bg-[var(--border-subtle)]" />
+      {EMAIL_SIDEBAR_FOLDERS.map((id) => {
+        const Icon = FOLDER_ICONS[id]
+        const label = t(SYSTEM_FOLDER_LABEL_KEYS[id])
+        const active = activeFolderId === id
+        const unread = byId.get(id)?.unreadCount ?? 0
+        return (
+          <Tooltip key={id} label={unread > 0 ? `${label} · ${unread}` : label} side="right">
+            <IconButton
+              label={unread > 0 ? `${label} · ${unread}` : label}
+              active={active}
+              aria-current={active ? 'page' : undefined}
+              onClick={() => onSelect(id)}
+            >
+              <Icon size={16} aria-hidden="true" />
+            </IconButton>
+          </Tooltip>
+        )
+      })}
     </nav>
   )
 }

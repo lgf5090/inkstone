@@ -5,8 +5,9 @@ import {
   ChevronDown,
   Mail,
   MoreHorizontal,
-  Paperclip,
   PanelLeft,
+  PanelLeftClose,
+  Paperclip,
   RefreshCw,
   Search,
   Settings,
@@ -20,7 +21,8 @@ import { Drawer, Menu, confirm, type MenuItem } from '../../components/overlay'
 import { t } from '../../lib/i18n'
 import { navigateToAddress, navigateToPath } from '../../lib/app-history'
 import { useBreakpoint } from '../../lib/hooks'
-import { useUi } from '../../store/ui'
+import { DEFAULT_LAYOUT, PANEL_WIDTHS, useUi } from '../../store/ui'
+import { Resizer } from '../shell/Resizer'
 import { useAssistant } from '../chat/assistant-store'
 import { AssistantDock } from '../chat/AssistantDock'
 import { useAssistantToolRefresh } from '../chat/tool-refresh'
@@ -28,7 +30,7 @@ import type { EmailAddress, EmailComposeMode } from './email-address'
 import { emailFolderPath, emailSettingsPath } from './email-address'
 import { messageSubject } from './format'
 import { useEmailStore } from './store'
-import { FolderSidebar } from './FolderSidebar'
+import { FolderSidebar, FolderSidebarRail } from './FolderSidebar'
 import { MessageList } from './MessageList'
 import { MessagePane } from './MessagePane'
 import { TrashPanel } from './TrashPanel'
@@ -42,6 +44,8 @@ const EMAIL_WRITE_TOOLS = new Set([
   'email_move',
   'email_discard_draft',
 ])
+
+const NAV_RAIL_WIDTH = 48
 
 function searchMessageAddress(accountId: string, query: string, messageId: string): { path: string; search: string } {
   return {
@@ -100,6 +104,10 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
   const [moreOpen, setMoreOpen] = useState(false)
   const [trashOpen, setTrashOpen] = useState(false)
   const assistantDockOpen = useUi((state) => state.assistantDockOpen)
+  const navCollapsed = useUi((state) => state.emailNavCollapsed)
+  const navWidth = useUi((state) => state.emailNavWidth)
+  const toggleNav = useUi((state) => state.toggleEmailNav)
+  const setLayout = useUi((state) => state.setLayout)
   const accountAnchor = useRef<HTMLButtonElement>(null)
   const moreAnchor = useRef<HTMLButtonElement>(null)
   const lastAssistantEmail = useRef<string | null>(null)
@@ -239,6 +247,15 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
     if (folderId === id) navigateToPath(emailFolderPath(account.id, 'inbox'))
   }
 
+  const selectFolder = (id: string): void => {
+    setFolderDrawer(false)
+    if (id === 'trash') {
+      setTrashOpen(true)
+      return
+    }
+    navigateToPath(emailFolderPath(account.id, id))
+  }
+
   const refreshNow = (): void => {
     void refresh()
   }
@@ -299,7 +316,17 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
           <ArrowLeft size={16} />
         </IconButton>
       )}
-      {!desktop && !messageId && (
+      {desktop ? (
+        <IconButton
+          label={t(navCollapsed ? 'sidebar.expand_navigation' : 'sidebar.collapse_navigation')}
+          size="sm"
+          className="size-11 md:size-8"
+          active={navCollapsed}
+          onClick={toggleNav}
+        >
+          {navCollapsed ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}
+        </IconButton>
+      ) : (
         <IconButton label={t('email.header.folders')} size="sm" className="size-11 md:size-8" onClick={() => setFolderDrawer(true)}>
           <PanelLeft size={16} />
         </IconButton>
@@ -408,14 +435,7 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
     <FolderSidebar
       folders={folders}
       activeFolderId={folderId}
-      onSelect={(id) => {
-        setFolderDrawer(false)
-        if (id === 'trash') {
-          setTrashOpen(true)
-          return
-        }
-        navigateToPath(emailFolderPath(account.id, id))
-      }}
+      onSelect={selectFolder}
       onCreate={(name) => createFolder(account.id, name)}
       onRename={(id, name) => renameFolder(account.id, id, name)}
       onDelete={removeFolder}
@@ -498,9 +518,31 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
       <div className="flex min-h-0 flex-1">
         {desktop ? (
           <>
-            <aside className="w-[232px] shrink-0 border-r border-[var(--border-subtle)]">
-              {folderSidebar}
-            </aside>
+            <div
+              style={{ width: navCollapsed ? NAV_RAIL_WIDTH : navWidth }}
+              className="shrink-0 overflow-hidden border-r border-[var(--border-subtle)] transition-[width] duration-[var(--dur-slow)] ease-[var(--ease-out)]"
+            >
+              {navCollapsed
+                ? (
+                    <FolderSidebarRail
+                      folders={folders}
+                      activeFolderId={folderId}
+                      onSelect={selectFolder}
+                      onExpand={toggleNav}
+                    />
+                  )
+                : folderSidebar}
+            </div>
+            {!navCollapsed && (
+              <Resizer
+                label={t('shell.resize_navigation_panel')}
+                value={navWidth}
+                min={PANEL_WIDTHS.emailNav.min}
+                max={PANEL_WIDTHS.emailNav.max}
+                onChange={(emailNavWidth) => setLayout({ emailNavWidth })}
+                onReset={() => setLayout({ emailNavWidth: DEFAULT_LAYOUT.emailNavWidth })}
+              />
+            )}
             <div className="flex w-[380px] min-w-[360px] max-w-[420px] shrink-0 flex-col border-r border-[var(--border-subtle)]">
               {listPane}
             </div>
