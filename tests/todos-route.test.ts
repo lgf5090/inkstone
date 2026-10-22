@@ -499,7 +499,16 @@ describe('a batch of tasks', () => {
 
     const response = await send('POST', '/batch', { ids: [weekly.id, plain.id], op: 'complete' })
     expect(response.status).toBe(200)
-    expect(await json<TaskBatchResult>(response)).toEqual({ done: [weekly.id, plain.id], failed: [] })
+    // Every row a batch changed is answered with as an object, not a bare id: a caller that asks for
+    // the changed ids still reads `done[i].id`, and the occurrence a repeat filed has somewhere to go.
+    const batched = await json<TaskBatchResult>(response)
+    expect(batched.failed).toEqual([])
+    expect(batched.done.map((entry) => entry.id)).toEqual([weekly.id, plain.id])
+    expect(batched.done[0]!.next).not.toBeNull()
+    expect(batched.done[0]!.next?.id).not.toBe(weekly.id)
+    expect(batched.done[0]!.next?.title).toBe('Weekly report')
+    expect(batched.done[0]!.next?.dueAt).toBe(due + 7 * 24 * 60 * 60 * 1000)
+    expect(batched.done[1]!.next).toBeNull()
 
     // The same press means the same thing here as it does on one card: the occurrence the repeat
     // files is a real row, not a status the batch wrote by hand.
@@ -526,7 +535,7 @@ describe('a batch of tasks', () => {
     })
     expect(response.status).toBe(200)
     expect(await json<TaskBatchResult>(response)).toEqual({
-      done: [mine.id],
+      done: [{ id: mine.id, next: null }],
       failed: [
         { id: theirs.id, reason: 'not found' },
         { id: 'not-a-task', reason: 'not found' },
@@ -564,7 +573,7 @@ describe('a batch of tasks', () => {
 
     const response = await send('POST', '/batch', { ids: [s2.id], op: 'move', value: target.id })
     expect(response.status).toBe(200)
-    expect(await json<TaskBatchResult>(response)).toEqual({ done: [s2.id], failed: [] })
+    expect(await json<TaskBatchResult>(response)).toEqual({ done: [{ id: s2.id, next: null }], failed: [] })
 
     // A batch move means the same thing a card drop means: the end of the destination. Keeping the old
     // place from the source list is how a row slid into the middle of an order nobody put it in.
@@ -579,19 +588,38 @@ describe('a batch of tasks', () => {
       .map((task) => task.title)).toEqual(['S1'])
   })
 
-  it('moves, prioritises, stars and tags the rows it names', async () => {
+  it('moves, prioritises, stars, tags and deletes the rows it names', async () => {
     const list = await json<{ list: TaskList }>(await send('POST', '/lists', { name: 'Work' })).then((body) => body.list)
     const task = await create({ title: 'One', tags: ['Home'] })
+    const doomed = await create({ title: 'Two' })
 
-    expect((await send('POST', '/batch', { ids: [task.id], op: 'move', value: list.id })).status).toBe(200)
-    expect((await send('POST', '/batch', { ids: [task.id], op: 'priority', value: 'urgent' })).status).toBe(200)
-    expect((await send('POST', '/batch', { ids: [task.id], op: 'star', value: 'true' })).status).toBe(200)
-    expect((await send('POST', '/batch', { ids: [task.id], op: 'tag', value: 'Work' })).status).toBe(200)
+    /**
+     * The one answer body every operation shares.
+     *
+     * `next` is only ever a row for a `complete` batch that repeats, so the other five still name the
+     * field and answer it with null — a shape that changes with the operation would make the caller
+     * guess which operation it had sent.
+     */
+    const changed = (id: string): { id: string, next: null } => ({ id, next: null })
+
+    expect(await json<TaskBatchResult>(await send('POST', '/batch', { ids: [task.id], op: 'move', value: list.id })))
+      .toEqual({ done: [changed(task.id)], failed: [] })
+    expect(await json<TaskBatchResult>(await send('POST', '/batch', { ids: [task.id], op: 'priority', value: 'urgent' })))
+      .toEqual({ done: [changed(task.id)], failed: [] })
+    expect(await json<TaskBatchResult>(await send('POST', '/batch', { ids: [task.id], op: 'star', value: 'true' })))
+      .toEqual({ done: [changed(task.id)], failed: [] })
+    expect(await json<TaskBatchResult>(await send('POST', '/batch', { ids: [task.id], op: 'tag', value: 'Work' })))
+      .toEqual({ done: [changed(task.id)], failed: [] })
+    expect(await json<TaskBatchResult>(await send('POST', '/batch', { ids: [doomed.id], op: 'delete' })))
+      .toEqual({ done: [changed(doomed.id)], failed: [] })
 
     const detail = await json<{ task: TodoTask }>(await send('GET', `/${task.id}`))
     expect(detail.task).toMatchObject({ listId: list.id, priority: 'urgent', starred: true })
     // Tagging adds the word instead of replacing the vocabulary the row already carried.
     expect(detail.task.tags.map((tag) => tag.name).sort()).toEqual(['Home', 'Work'])
+    // A delete is a move to the trash, so the id the answer names is one a restore can pick up again.
+    expect((await send('GET', `/${doomed.id}`)).status).toBe(404)
+    expect((await send('POST', `/${doomed.id}/restore`)).status).toBe(200)
   })
 
   it('moves overdue rows to the end of today without touching their plan', async () => {
@@ -600,7 +628,7 @@ describe('a batch of tasks', () => {
 
     const response = await send('POST', '/batch', { ids: [overdue.id], op: 'due' })
     expect(response.status).toBe(200)
-    expect(await json<TaskBatchResult>(response)).toEqual({ done: [overdue.id], failed: [] })
+    expect(await json<TaskBatchResult>(response)).toEqual({ done: [{ id: overdue.id, next: null }], failed: [] })
 
     const detail = await json<{ task: TodoTask }>(await send('GET', `/${overdue.id}`))
     // The plan is a separate fact: shifting the due date must not move the row into or out of today.
@@ -1069,7 +1097,7 @@ describe('a conditional write', () => {
     expect(response.status).toBe(200)
     // A batch is still not all-or-nothing: the row that matched changed, the stale one is named.
     expect(await json<TaskBatchResult>(response)).toEqual({
-      done: [fresh.id],
+      done: [{ id: fresh.id, next: null }],
       failed: [{ id: moved.id, reason: 'conflict' }],
     })
 

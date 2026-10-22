@@ -25,21 +25,28 @@ const service = vi.hoisted(() => ({
   /** Every batch request, in the order the client made it. */
   batches: [] as { ids: string[]; op: string; value?: unknown }[],
   restores: [] as string[],
+  /** The occurrence a `complete` batch answers with, or null while the fake files none. */
+  filed: null as TodoTask | null,
+  /** Set to make the listing read fail, the way a connection that drops after a write does. */
+  listFails: false,
 }))
 
 vi.mock('../../lib/api', () => ({
   api: {
     todos: {
-      list: async () => ({
-        tasks: service.tasks,
-        total: service.tasks.length,
-        counts: {
-          inbox: 0, today: 0, upcoming: 0, overdue: 0, all: service.tasks.length,
-          completed: 0, starred: 0, byList: {}, byTag: {},
-        } satisfies TaskCounts,
-        dayEnd: Date.now() + 3_600_000,
-        timezone: 'UTC',
-      }),
+      list: async () => {
+        if (service.listFails) throw new Error('The connection went away')
+        return {
+          tasks: service.tasks,
+          total: service.tasks.length,
+          counts: {
+            inbox: 0, today: 0, upcoming: 0, overdue: 0, all: service.tasks.length,
+            completed: 0, starred: 0, byList: {}, byTag: {},
+          } satisfies TaskCounts,
+          dayEnd: Date.now() + 3_600_000,
+          timezone: 'UTC',
+        }
+      },
       lists: async () => ({ lists: service.lists }),
       tags: async () => ({ tags: service.tags }),
       get: async () => ({ task: null, steps: [] }),
@@ -54,7 +61,12 @@ vi.mock('../../lib/api', () => ({
           }
           service.tasks = service.tasks.filter((task) => !body.ids.includes(task.id))
         }
-        return { done: body.ids, failed: [] }
+        // A completion answers with the occurrence the route filed, the same row the single-task PATCH
+        // hands over; every other operation answers null beside its id.
+        return {
+          done: body.ids.map((id) => ({ id, next: body.op === 'complete' ? service.filed : null })),
+          failed: [],
+        }
       },
       restore: async (id: string) => {
         service.restores.push(id)
@@ -121,6 +133,8 @@ beforeEach(async () => {
   service.tags = [tag('tag-1', 'Focus')]
   service.batches.length = 0
   service.restores.length = 0
+  service.filed = null
+  service.listFails = false
   useTodos.setState(original, true)
   useUi.setState({ toasts: [] })
 })
@@ -264,7 +278,7 @@ describe('a batch that deleted rows', () => {
 
     const result = await useTodos.getState().batchTasks('delete')
 
-    expect(result).toEqual({ done: ['a', 'b'], failed: [] })
+    expect(result).toEqual({ done: [{ id: 'a', next: null }, { id: 'b', next: null }], failed: [] })
     expect(service.batches).toEqual([{ ids: ['a', 'b'], op: 'delete' }])
     // The request picks up both rows and the server's answer empties the page.
     expect(useTodos.getState().selectedIds.size).toBe(0)
@@ -277,5 +291,25 @@ describe('a batch that deleted rows', () => {
     expect(service.restores).toEqual(['a', 'b'])
     expect(useTodos.getState().tasks.map((task) => task.title).sort()).toEqual(['First', 'Second'])
     expect(useTodos.getState().tasks.find((task) => task.id === 'a')?.tags.map((entry) => entry.name)).toEqual(['Focus'])
+  })
+})
+
+describe('a batch that completed repeating rows', () => {
+  it('keeps the occurrence the answer carried when the reload cannot be read', async () => {
+    const due = Date.parse('2026-10-21T02:00:00Z')
+    const weekly = { freq: 'weekly' as const, interval: 1 }
+    service.tasks = [row('a', 'Weekly report', { repeat: weekly, dueAt: due })]
+    service.filed = row('b', 'Weekly report', { repeat: weekly, dueAt: due + 7 * 24 * 60 * 60 * 1000 })
+    service.listFails = true
+    useTodos.setState({
+      status: 'ready', tasks: service.tasks, total: 1, selectedIds: new Set(['a']),
+    })
+
+    const result = await useTodos.getState().batchTasks('complete')
+
+    expect(result?.done).toEqual([{ id: 'a', next: service.filed }])
+    // The row the server made is on screen even though the page could not be re-read: the batch answer
+    // named it, so a connection that drops in the gap does not hide the next occurrence.
+    expect(useTodos.getState().tasks.map((task) => task.id)).toEqual(['a', 'b'])
   })
 })

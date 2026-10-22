@@ -45,8 +45,10 @@ import {
   remindAtFor,
   type RemindOffset,
   type RepeatRule,
+  type TaskBatchDone,
   type TaskSort,
   type TaskStatsBucket,
+  type TodoTask,
 } from '@shared/todos/model'
 import type { TaskPriority, TaskStatus } from '@shared/assistant'
 import { AssistantStore, type TaskQuery } from '../assistant/store'
@@ -634,6 +636,10 @@ todoRoutes.delete('/feed/:slug', async (c) => {
  * The write bucket counts the call once, through the middleware every other write already passes: a
  * batch is one gesture from the client, and a second, unmetered door for it is how a batch becomes a
  * bypass. The work inside is bounded by `MAX_BATCH_TASKS`.
+ *
+ * A row that changed is answered as `{id, next}` rather than as an id: finishing a repeating row
+ * creates another row, and the caller that pressed the bar is owed the new one, exactly as the
+ * single-task PATCH hands it over. The other six operations answer `next` as null.
  */
 todoRoutes.post('/batch', async (c) => {
   const s = store(c)
@@ -685,9 +691,12 @@ todoRoutes.post('/batch', async (c) => {
       break
   }
 
-  const done: string[] = []
+  const done: TaskBatchDone[] = []
   const failed: { id: string; reason: string }[] = []
   for (const id of ids) {
+    // The occurrence a completion files, answered beside the id so the caller does not have to reload
+    // the listing to find the row it just created. Every other operation leaves it null.
+    let filed: TodoTask | null = null
     try {
       const existing = await s.getTask(id)
       if (!existing) {
@@ -700,16 +709,19 @@ todoRoutes.post('/batch', async (c) => {
         continue
       }
       switch (op) {
-        case 'complete':
+        case 'complete': {
           // The store method, not a status column: a repeating task has to file its next occurrence,
           // and that happens in exactly one place. The row's own revision rides along, so a row that
           // moved between the read above and this press is refused per row rather than finished over
           // whoever changed it.
-          if (!(await s.completeTask(id, settings.timezone, expectedRev))) {
+          const finished = await s.completeTask(id, settings.timezone, expectedRev)
+          if (!finished) {
             failed.push({ id, reason: 'not found' })
             continue
           }
+          filed = finished.next
           break
+        }
         case 'delete':
           await s.deleteTask(id)
           break
@@ -748,7 +760,7 @@ todoRoutes.post('/batch', async (c) => {
           }
           break
       }
-      done.push(id)
+      done.push({ id, next: filed })
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
         // The row moved between the read above and the guarded write: the same per-row answer the

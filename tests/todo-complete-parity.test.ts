@@ -245,7 +245,12 @@ describe('finishing a repeating task through every door', () => {
     const response = await send('POST', '/batch', { ids: [task.id], op: 'complete' })
 
     expect(response.status).toBe(200)
-    expect(await json<TaskBatchResult>(response)).toEqual({ done: [task.id], failed: [] })
+    // The batch hands the occurrence it filed back to the caller rather than making it reload to find
+    // it, which is the half of R0-1 the shared answer type still owed.
+    const batched = await json<TaskBatchResult>(response)
+    expect(batched.failed).toEqual([])
+    expect(batched.done.map((entry) => entry.id)).toEqual([task.id])
+    expect(batched.done[0]!.next?.dueAt).toBe(NEXT_DUE)
     await expectFiled(task)
   })
 

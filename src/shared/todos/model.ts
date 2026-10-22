@@ -153,6 +153,21 @@ export interface TaskBatchFailure {
 }
 
 /**
+ * One task a batch did change.
+ *
+ * An object rather than a bare id because a completion is not only a status: a repeating row files
+ * its next occurrence, and the caller that pressed the batch bar has to be told what that new row is
+ * — the same thing the single-task PATCH answers with. Every operation shares the shape, so a `move`
+ * or a `delete` answers `next` as null rather than as a field that only exists for one operation and
+ * would make the caller guess which one it had sent.
+ */
+export interface TaskBatchDone {
+  id: string
+  /** The occurrence a completed repeating task filed, or null — which is also every other operation. */
+  next: TodoTask | null
+}
+
+/**
  * What a batch answers with.
  *
  * Both lists are always present, because a batch is allowed to be partly true: the rows that changed
@@ -162,7 +177,7 @@ export interface TaskBatchFailure {
  * the caller whether an id exists somewhere else.
  */
 export interface TaskBatchResult {
-  done: string[]
+  done: TaskBatchDone[]
   failed: TaskBatchFailure[]
 }
 

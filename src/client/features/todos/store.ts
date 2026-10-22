@@ -1632,6 +1632,12 @@ export const useTodos = create<TodosState>((set, get) => ({
     try {
       const result = await api.todos.batch({ ids, op, ...(value !== undefined ? { value } : {}) })
       set({ selectedIds: new Set<string>() })
+      // A completion files an occurrence for every repeating row it finished and the answer carries it,
+      // so the next one is painted before the page is re-read: a reload that fails — a connection that
+      // drops in the gap — must not be what tells the reader about the row the server already made.
+      for (const entry of result.done) {
+        if (entry.next) storeServerTask(entry.next, { addIfMissing: true })
+      }
       await get().load()
       if (result.failed.length) {
         const reasons = [...new Set(result.failed.map((entry) => entry.reason))].slice(0, 3).join(' · ')
@@ -1644,7 +1650,9 @@ export const useTodos = create<TodosState>((set, get) => ({
         useUi.getState().toast({ title: t(BATCH_TOAST_KEYS[op], { count: result.done.length }), tone: 'success' })
       }
       if (op === 'delete' && result.done.length) {
-        const deleted = result.done
+        // The answer names each row as an object beside the occurrence a completion filed, so the ids
+        // the undo has to hand back are read out of it rather than assumed.
+        const deleted = result.done.map((entry) => entry.id)
         offerUndo(set, get, t('todo.toast.batch_deleted', { count: deleted.length }), async () => {
           for (const id of deleted) {
             try {
