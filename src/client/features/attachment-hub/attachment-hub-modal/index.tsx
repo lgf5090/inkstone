@@ -16,6 +16,7 @@ import { AttachmentQrModal } from '../attachment-qr-modal'
 import { AttachmentRenameModal } from '../attachment-rename-modal'
 import { UploadEmptyState } from '../attachment-item-common'
 import { hubFolderToNoteFolder } from '../attachment-helpers'
+import { FilePreviewModal } from '../../file-preview'
 import { LoadingBlock } from '../../../components/feedback'
 import { useAttachmentHubModal } from './hooks'
 
@@ -288,6 +289,18 @@ function HubDialogs({ hub }: { hub: HubBundle }) {
           currentId={null}
           onSelect={(targetId) => void hub.handleDropFilesToFolder(hub.movingFileIds ?? [], targetId)}
           onClose={() => hub.setMovingFileIds(null)}
+        />
+      )}
+      {hub.previewFile && (
+        <FilePreviewModal
+          open
+          onClose={() => hub.setPreviewFile(null)}
+          file={{
+            url: hub.previewFile.url,
+            filename: hub.previewFile.filename,
+            mime: hub.previewFile.mime,
+            size: hub.previewFile.size,
+          }}
         />
       )}
     </>

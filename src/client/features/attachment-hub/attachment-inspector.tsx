@@ -4,7 +4,6 @@ import {
   Check,
   Copy,
   Download,
-  ExternalLink,
   FileText,
   FolderClosed,
   Link2Off,
@@ -179,10 +178,10 @@ function PreviewBlock({ file, isImage, badge, onPreview }: {
   badge: string
   onPreview: (file: HubAttachmentWithUsage) => void
 }) {
-  const chrome = 'group relative flex aspect-video w-full items-center justify-center overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-base)]'
+  const chrome = 'group relative flex aspect-video w-full cursor-pointer items-center justify-center overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-base)]'
   if (isImage) {
     return (
-      <button type='button' aria-label={t('attachments.preview_file')} onClick={() => onPreview(file)} className={cn(chrome, 'cursor-pointer')}>
+      <button type='button' aria-label={t('attachments.preview_file')} onClick={() => onPreview(file)} className={chrome}>
         <img src={file.url} alt={file.filename} className='h-full w-full object-cover transition-transform duration-[var(--dur-base)] group-hover:scale-105' />
         <span className='absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100'>
           <Maximize2 size={20} className='text-white' />
@@ -191,15 +190,15 @@ function PreviewBlock({ file, isImage, badge, onPreview }: {
     )
   }
   return (
-    <a href={file.url} target='_blank' rel='noopener noreferrer' className={cn(chrome, 'cursor-pointer')}>
+    <button type='button' aria-label={t('attachments.preview_file')} onClick={() => onPreview(file)} className={chrome}>
       <span className='flex flex-col items-center gap-[var(--sp-1-5)] rounded-[var(--r-xl)] bg-[var(--bg-sunken)] px-[var(--sp-4)] py-[var(--sp-3)]'>
         <span className='text-[length:var(--text-15)] font-bold tracking-wider text-[var(--text-secondary)]'>{badge}</span>
         <span className='text-[length:var(--text-11)] text-[var(--text-tertiary)]'>{file.mime}</span>
       </span>
       <span className='absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100'>
-        <ExternalLink size={20} className='text-white' />
+        <Maximize2 size={20} className='text-white' />
       </span>
-    </a>
+    </button>
   )
 }
 

@@ -11,11 +11,10 @@ import { useHubScope } from '../hub-scope'
 import {
   HUB_LIST_LIMIT,
   categoryFilters,
-  getFileCategory,
   type HubCategory,
   type HubSizeFilter,
 } from '../attachment-helpers'
-import { downloadFile, openFileExternally } from '../attachment-item-common'
+import { downloadFile } from '../attachment-item-common'
 
 type Setter<T> = React.Dispatch<React.SetStateAction<T>>
 type ToastFn = (input: ToastInput) => void
@@ -219,8 +218,6 @@ function useHubHandlers(
   dialogs: { renameFile: HubAttachmentWithUsage | null },
   toast: ToastFn,
 ) {
-  const setLightbox = useUi((state) => state.setLightbox)
-
   const patchLocal = (id: string, patch: Partial<HubAttachmentWithUsage>) => {
     files.setFiles((prev) => prev.map((file) => (file.id === id ? { ...file, ...patch } : file)))
     if (selection.activeFile?.id === id) {
@@ -237,11 +234,10 @@ function useHubHandlers(
     if (selection.activeFile && ids.has(selection.activeFile.id)) selection.setActiveFile(null)
   }
 
-  /** Images ride the app's shared lightbox; everything else goes to the browser's own viewer. */
-  const handlePreview = (file: HubAttachmentWithUsage) => {
-    if (getFileCategory(file.mime, file.filename) === 'image') setLightbox({ src: file.url, alt: file.filename })
-    else openFileExternally(file)
-  }
+  const [previewFile, setPreviewFile] = useState<HubAttachmentWithUsage | null>(null)
+
+  /** Every type previews through the one lazy viewer, so a PDF and an image open the same way. */
+  const handlePreview = (file: HubAttachmentWithUsage) => setPreviewFile(file)
 
   const handleToggleFlag = async (file: HubAttachmentWithUsage, flag: 'isStarred' | 'isPinned') => {
     const next = !file[flag]
@@ -349,6 +345,8 @@ function useHubHandlers(
 
   return {
     handlePreview,
+    previewFile,
+    setPreviewFile,
     handleDownloadFile: downloadFile,
     handleToggleStar: (file: HubAttachmentWithUsage) => handleToggleFlag(file, 'isStarred'),
     handleTogglePin: (file: HubAttachmentWithUsage) => handleToggleFlag(file, 'isPinned'),

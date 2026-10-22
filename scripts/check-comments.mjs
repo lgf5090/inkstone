@@ -1019,9 +1019,9 @@ const allowed = new Map([
     "/** `count` stays zero: the hub tags files, and the file list is what carries how many. */",
   ]],
   ["src/client/features/attachment-hub/attachment-hub-modal/hooks.ts", [
-    "/** Images ride the app's shared lightbox; everything else goes to the browser's own viewer. */",
     "/** All the hub modal's state and commands, so its JSX stays a thin shell. */",
     "/**\n   * The next page, appended rather than swapped in.\n   *\n   * The server caps a page at 500 and hands back an opaque position marker; without this the\n   * centre would silently stop at the first 500 files for anyone with more, and the count in the\n   * footer would disagree with the grid in a way that reads as \"my files disappeared\".\n   */",
+    "/** Every type previews through the one lazy viewer, so a PDF and an image open the same way. */",
   ]],
   ["src/client/features/attachment-hub/attachment-hub-modal/index.tsx", [
     "/* Only offered while the server says there is more: the grid already shows the count it\n          loaded, and a control that can never finish would sit under a list that looks complete. */",
@@ -1047,7 +1047,6 @@ const allowed = new Map([
   ]],
   ["src/client/features/attachment-hub/attachment-item-common.tsx", [
     "/** The two views are the same set of commands over the same rows, so they share one props shape. */",
-    "/** Non-images have no in-app viewer: the browser's own is the one that can actually show them. */",
   ]],
   ["src/client/features/attachment-hub/attachment-store.ts", [
     "/**\n * One store per scope: four applications organise their own folders and tags, and a single module\n * array would have two open hubs overwrite each other.\n */",
@@ -5313,6 +5312,21 @@ const allowed = new Map([
   ]],
   ["src/client/features/excalidraw/library/official-library-window.ts", [
     "/**\n * The official catalog holds 232 libraries. Mounting all of them at once was measured in Chromium as a\n * single 355-383 ms long task that also holds up the modal's own shell, and it asked for a preview image\n * per card (748 kB before the first scroll). So the grid renders a window and hands out the rest as the\n * reader approaches its end — the same shape the kanban board uses, with a real button for the tail so a\n * browser without an observer, or a keyboard that never scrolls, still reaches every card.\n */",
+  ]],
+  ["src/client/features/file-preview/FilePreviewModal.tsx", [
+    "// `attempt` re-runs the same load on retry; `target` is rebuilt from primitives each render, so the",
+    "// effect keys on the fields that actually identify a preview rather than on a fresh object identity.",
+    "// The viewer names a file off its URL when handed one, and our object URLs",
+    "// (`/api/files/<26-char id>`) carry no extension — so it fell back to synthesising",
+    "// `preview.<mime>` and read the extension as `.image/png`, declaring every attachment",
+    "// unsupported. Handing it a real File keeps the name authoritative instead.",
+  ]],
+  ["src/client/features/file-preview/registry.ts", [
+    "/**\n * A lazy loader for one renderer package. Each returns the package's default plugin, widened once\n * here: the packages type their handler to a narrower render target than the viewer registry's\n * default, so the plugin only fits the `renderers` option after this assertion.\n */",
+    "/**\n * The one place that names which renderer package serves which file. Nothing here may import a\n * renderer statically: these functions are the sole entry points, so a PDF only ever pulls the PDF\n * chunk and never the spreadsheet, media or archive one.\n */",
+    "/** Only the codecs `renderer-media` declares; mov/avi/mkv have no renderer here and stay unsupported. */",
+    "/** OFD is China's national layout-document standard (GB/T 33190): e-invoices and archived official files. */",
+    "/**\n * Extension first: a stored attachment's mime is often the generic `application/octet-stream`, so its\n * name is the only reliable signal. The mime is the fallback for a nameless blob.\n */",
   ]],
   ["src/client/features/folders/FolderAppearanceMenus.tsx", [
     "// The folder guard only accepts a surface its own contrast maths can read, so it hands the walk",
@@ -20963,6 +20977,8 @@ const allowed = new Map([
     "/**\n * The saved filter lines, as the account keeps them.\n *\n * A line with no name or no query is not a filter anyone can reopen, so it is dropped rather than kept\n * as a blank row. The id is a local identifier like a saved query's: a shape-matching one is kept so a\n * rename is one entry, and a stray one is derived from the name and the line. The ceilings are what\n * keep a few dozen shortcuts from turning the settings blob into a library.\n */",
     "/**\n * The range a daily or weekly goal may name, in whole tasks.\n *\n * A goal is a nudge rather than a workload plan, and a three-digit ceiling is already more finished\n * tasks than one day or week holds for a person. It is also the field's own `min`/`max`, so the\n * number the reader types and the number the merge keeps share one edge.\n */",
     "/**\n * A stored daily or weekly goal: a whole count inside `TODO_GOAL_RANGE`, or null for no goal.\n *\n * Zero, a negative number, an empty field and anything that is not a finite number all read as\n * \"off\": a goal of nothing is not a goal, and one spelling for that is what keeps every reader of\n * the settings from testing two shapes. A fraction is rounded because a goal counts tasks, and an\n * over-long number is held to the same ceiling the field offers.\n */",
+    "/**\n   * The account ceiling when bytes live in R2.\n   *\n   * Workers KV is a different story and gets its own, smaller number below, so this one is only the\n   * default in the sense of \"the backend a real deployment binds\".\n   */",
+    "/**\n   * KV holds one value per attachment and caps a value at 25 MiB, with a namespace ceiling far below\n   * R2's, so promising ten gigabytes here would advertise a limit the backend cannot honour.\n   */",
   ]],
   ["src/shared/linter.test.ts", [
     "/**\n * The settings blob's boundary.\n *\n * A reader can bring this object into the app from a backup restore as well as from the settings\n * page, and the panel's own refusals are not in the way then. So everything that a lint run will\n * later compile or iterate is checked here: the shape, the size, and the flags. A value the\n * normaliser cannot recognise is dropped rather than passed on, because the alternative is a stored\n * string reaching `new RegExp` or a rule's option.\n */",
@@ -24419,6 +24435,7 @@ const allowed = new Map([
   ]],
   ["src/worker/attachments/backend.ts", [
     "/**\n * Ranged read for one chunk. R2 serves it storage-side; KV has no ranged get, so callers\n * must fall back to readAttachmentObject and slice in the isolate.\n */",
+    "/**\n * The account's attachment ceiling for the backend this deployment actually bound.\n *\n * One function on purpose: the refusal in `persistAttachmentWithinQuota`, the memos upload guard and\n * the number printed in the attachment centre all read it, so the figure a reader is shown is the\n * figure the server enforces and neither can drift ahead of the other.\n */",
   ]],
   ["src/worker/attachments/hub-rows.ts", [
     "/**\n * Reading and organising hub rows across the three tables the four applications keep them in.\n *\n * Every statement is narrowed twice: by the account taken from the session, and by the scope\n * resolved against the registry before it reached this file. Neither is ever interpolated from a\n * caller — table and column names come from the descriptor's literal union, and anything a client\n * sent arrives as a bound parameter.\n */",
@@ -30810,6 +30827,8 @@ const allowed = new Map([
     "/**\n * A file the dev server cannot watch is one save that does not hot-reload, not a dead server.\n *\n * chokidar emits `error` when `fs.watch` answers EBUSY (Windows locks a file while an editor, an\n * agent harness or an archiver is renaming it into place). EventEmitter treats an unhandled `error`\n * as fatal, so the dev server used to exit mid-keystroke and the next page load read as a start-up\n * failure. The listener is the fix; `server.watch.ignored` below keeps the known writers out of the\n * tree so the warning stays rare.\n */",
     "/*\n       * Windows reports EBUSY for a path that is being renamed into place, and chokidar treats that\n       * as a fatal error: one atomic save anywhere under the project used to end the dev server with\n       * an uncaught FSWatcher exception, which the person in front of the screen experiences as\n       * \"Inkstone did not start\". Editors and agent harnesses write through a locked temp directory\n       * next to the target; browser profiles and Wrangler's local state are locked for as long as\n       * they run. None of them is source to reload, so they are kept out of the watched tree.\n       */",
     "/**\n * Pele ships its own build: the 33 diagram entries are thin files over 89 chunks named by content\n * hash and shared between types, so there is no per-type name to hand the bundler. Left alone, every\n * one of those hashes becomes an app chunk name, and the service worker decides what to download\n * ahead of time by name — unnamed, the whole engine joins the background download of every account,\n * which is the one thing the on-demand list exists to keep out. One named chunk instead: a reader who\n * opens any diagram pays the engine once, and nobody else pays it at all.\n */",
+    "// Anchor `react` to the top-level package: a bare `/react/` also matches the scoped `@file-viewer/react`",
+    "// path, which dragged the file viewer (and its core) into the boot `vendor-react` chunk.",
   ]],
   ["vitest.config.ts", [
     "// The suite's own tail decides this number. Measured over a full parallel run of every file:",

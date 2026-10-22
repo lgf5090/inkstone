@@ -121,11 +121,6 @@ export function downloadFile(file: HubAttachmentWithUsage): void {
   document.body.removeChild(link)
 }
 
-/** Non-images have no in-app viewer: the browser's own is the one that can actually show them. */
-export function openFileExternally(file: HubAttachmentWithUsage): void {
-  window.open(new URL(file.url, window.location.origin).href, '_blank', 'noopener,noreferrer')
-}
-
 export function reportCopyFailure(): void {
   useUi.getState().toast({ title: t('preview.could_not_copy'), tone: 'danger' })
 }

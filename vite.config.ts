@@ -31,9 +31,11 @@ const isLucideModule = (id: string) =>
 
 const isReactModule = (id: string) => {
   const path = normalizeModuleId(id)
+  // Anchor `react` to the top-level package: a bare `/react/` also matches the scoped `@file-viewer/react`
+  // path, which dragged the file viewer (and its core) into the boot `vendor-react` chunk.
   return (
     path.includes('/node_modules/') &&
-    /react-dom|\/react\/|scheduler|use-sync-external-store|zustand/.test(path)
+    /react-dom|\/node_modules\/react\/|scheduler|use-sync-external-store|zustand/.test(path)
   )
 }
 
