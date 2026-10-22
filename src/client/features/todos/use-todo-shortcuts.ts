@@ -17,7 +17,7 @@
  * most likely to be missed, and the reason the guards come first rather than per binding.
  *
  * The task-level keys act on the row the caret stands on, and the caret model is the one the cards
- * already ship: `[data-todo-open]` is the focusable body of a row and carries its task's id. Nothing
+ * already ship: `[data-todo-open]` is a row's own title control and carries its task's id. Nothing
  * here invents a second one. A row-scoped key pressed with nothing focused moves the caret to the
  * first row rather than swallowing the press, because a key that silently does nothing is the defect
  * this surface exists to remove.
@@ -31,7 +31,7 @@ import { prompt, type MenuItem } from '../../components/overlay'
 import type { MessageKey } from '@shared/locales/en-US'
 import type { TodoTask } from '@shared/todos/model'
 import { useTodos } from './store'
-import { moveTodoTask, useTaskMoves } from './TaskCard'
+import { moveTodoTask, openTaskSiblings, useTaskMoves } from './TaskCard'
 import { buildScheduleMenuItems, buildTaskContextMenuItems, type TaskMenuHandlers } from './task-menu'
 
 /** Every keystroke this hook answers. The `?` panel prints one row per member of this list. */
@@ -58,10 +58,11 @@ export type TodoShortcutId =
 /**
  * `edit-title` is in the table but not in the union above, and that gap is the point.
  *
- * Enter on a row is answered by the row's own button — a browser activates a focused `<button>` on
- * Enter, and the card's activation opens the task with its title field holding the caret. A container
- * that listened for Enter too would either duplicate that write or cancel it. The key is listed here
- * because the panel is the reader's only map of what this surface answers to.
+ * Enter on a row is answered by the row's own title control, not by anything here: a browser activates
+ * a focused `<button>` on Enter, and the card answers that by opening the title box on the spot. A
+ * container that listened for Enter too would either rename the task twice or cancel the row. The task
+ * itself keeps its own way in — the `i` key, and a press anywhere on the row that is not its title. The
+ * key is listed here because the panel is the reader's only map of what this surface answers to.
  */
 export type TodoShortcutRowId = TodoShortcutId | 'edit-title'
 
@@ -145,8 +146,11 @@ const ROW_KEYS = new Set<TodoShortcutId>([
   'swap-up', 'swap-down', 'to-top', 'to-bottom',
 ])
 
-/** How wide the panel a key opens is: the width a right-click's panel already takes. */
-export const TODO_ROW_MENU_WIDTH = 200
+/**
+ * How wide the panel a key opens is. The number belongs to the row's menu, not to the key that opens
+ * it, so it is named once in `task-menu.ts` and passed through here for the frame that renders it.
+ */
+export { TASK_ROW_MENU_WIDTH as TODO_ROW_MENU_WIDTH } from './task-menu'
 
 /** What the container hands the hook: the state that lives in the frame rather than in the store. */
 export interface TodoShortcutHost {
@@ -218,17 +222,6 @@ function focusedRow(): HTMLElement | null {
   // The checkbox and the kebab sit beside the title body rather than inside it, and a reader standing
   // on either is standing on that row: `<article>` is one card, and one card is one row.
   return active.closest('article')?.querySelector<HTMLElement>('[data-todo-open]') ?? null
-}
-
-/**
- * The rows a manual order can move this one between.
- *
- * The same set `useTaskMoves` reads, and it has to be the same: a jump to the top that counted the
- * finished rows as well would land the task above or below lines the reader cannot see.
- */
-function openSiblings(tasks: readonly TodoTask[], task: TodoTask): TodoTask[] {
-  if (task.status === 'done') return []
-  return tasks.filter((entry) => entry.status !== 'done' && entry.listId === task.listId)
 }
 
 export function useTodoShortcuts(host: TodoShortcutHost): TodoShortcuts {
@@ -441,14 +434,14 @@ export function useTodoShortcuts(host: TodoShortcutHost): TodoShortcuts {
         return
       }
       case 'to-top': {
-        const head = openSiblings(state.tasks, task)[0]
+        const head = openTaskSiblings(state.tasks, task)[0]
         if (!head || head.id === task.id) return
         event.preventDefault()
         void moveTodoTask(task.id, { beforeId: head.id })
         return
       }
       case 'to-bottom': {
-        const siblings = openSiblings(state.tasks, task)
+        const siblings = openTaskSiblings(state.tasks, task)
         const last = siblings[siblings.length - 1]
         if (!last || last.id === task.id) return
         event.preventDefault()

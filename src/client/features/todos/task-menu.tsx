@@ -35,6 +35,14 @@ import type { TaskMoveControls } from './TaskCard'
 const PRIORITIES: readonly TaskPriority[] = ['low', 'medium', 'high', 'urgent']
 
 /**
+ * How wide a row's menu is — the one panel a right-click, the kebab's group and a keyboard key all
+ * open. Wider than the kebab's own list, because the strip's rows name a day and a calendar rather
+ * than one status word, and a truncated "Select date" is the label a reader has to recognise in order
+ * to press it. Every surface that draws one of these rows takes the number from here.
+ */
+export const TASK_ROW_MENU_WIDTH = 200
+
+/**
  * The days the strip names, as a shift from the reader's own today. The last is a week out rather than
  * the next Monday, because that is what the editor's quick chip of the same name already writes.
  */

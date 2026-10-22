@@ -21,7 +21,7 @@ import { SelectMenu } from '../../components/select-menu'
 import { TagPill } from '../../components/TagChip'
 import { renderMarkdown } from '../../lib/markdown/renderer'
 import { DatePicker } from '../../components/date-picker'
-import { Menu, Modal, confirm } from '../../components/overlay'
+import { Menu, Modal } from '../../components/overlay'
 import { api } from '../../lib/api'
 import { useUi } from '../../store/ui'
 import { useTodos, remindOffsetOf } from './store'
@@ -364,16 +364,15 @@ export function TaskEditor() {
     close()
   }
 
+  /**
+   * Delete this row at once.
+   *
+   * One row needs no question: the store's toast already carries the way back — the same stamped row
+   * restored, not a copy — and a reader who misses the window still has the trash. A group of more than
+   * one asks first, and that question lives with the batch bar (`task-menu.ts`'s `confirmBatchDelete`).
+   */
   const remove = async (): Promise<void> => {
     if (!existing) return
-    const ok = await confirm({
-      title: t('todo.action.delete'),
-      description: t('todo.task.delete_hint', { title: existing.title }),
-      confirmLabel: t('todo.action.delete'),
-      tone: 'danger',
-    })
-    if (!ok) return
-    // The store takes the snapshot before the row leaves and offers the rebuild on its toast.
     await removeTask(existing.id)
     close()
   }

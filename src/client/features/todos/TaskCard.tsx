@@ -5,9 +5,14 @@
  * those are the same object seen at three densities — a second implementation would drift the moment
  * one of them learned about steps or tags. The checkbox is a real `role="checkbox"` button with a
  * 44px hit area; the visible circle is 20px, which is what the reference app shows.
+ *
+ * A row carries two presses. The title is the one a reader aims at to change the name, so it opens a
+ * box on the spot; everything else on the row is the way into the task itself. They are separate
+ * controls rather than one button with a special corner, because one control that answers two
+ * questions depending on where inside it the pointer landed is a control a keyboard cannot describe.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { CalendarMinus, Check, CircleDot, MoreHorizontal, Star } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
@@ -15,10 +20,11 @@ import { api } from '../../lib/api'
 import { useDropState } from '../../lib/drop-state'
 import { useMediaQuery } from '../../lib/hooks'
 import { TagPill } from '../../components/TagChip'
+import { Input } from '../../components/form'
 import { Menu, useContextMenu } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useTodos } from './store'
-import { buildTaskContextMenuItems, buildTaskMenuItems } from './task-menu'
+import { buildTaskContextMenuItems, buildTaskMenuItems, TASK_ROW_MENU_WIDTH } from './task-menu'
 import { BatchContextMenu } from './BatchBar'
 import { dueLabel, priorityDot, priorityLabel } from './todo-ui'
 import { taskColorOf } from './task-face'
@@ -29,11 +35,27 @@ import type { SnoozeMinutes, TaskList, TodoTask } from '@shared/todos/model'
 const LONG_PRESS_MS = 500
 
 /**
- * How wide a right-click's panel is. Wider than the kebab's, because the strip's rows name a day and a
- * calendar rather than one status word, and a truncated "Select date" is the label a reader has to
- * recognise in order to press it.
+ * How far a press on the title may travel before it is the drag the row is draggable for.
+ *
+ * Without it the two gestures are the same gesture: a browser reports a drag as a release, and a
+ * pointer that moved 30px to reach the next row would otherwise leave a title box open on the way.
+ * Five pixels is the width that reads as a slip rather than a shake of the finger, and the reference
+ * app draws its line at the same place.
  */
-const CONTEXT_MENU_WIDTH = 200
+const TITLE_DRAG_THRESHOLD_PX = 5
+
+/**
+ * Whether a release happened far enough from where the press landed to have been a drag.
+ *
+ * An event with no pointer at all — a keypress reaching the control as a click — has no place to have
+ * travelled from, and so has moved none.
+ */
+function pressTravelled(origin: { x: number; y: number } | null, event: { clientX: number; clientY: number }): boolean {
+  if (!origin) return false
+  if (!Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return false
+  return Math.abs(event.clientX - origin.x) > TITLE_DRAG_THRESHOLD_PX
+    || Math.abs(event.clientY - origin.y) > TITLE_DRAG_THRESHOLD_PX
+}
 
 /** What a dragged task carries. The note tree uses the same shape for the same reason. */
 export const TODO_DRAG_TYPE = 'application/x-inkstone-todo'
@@ -72,15 +94,27 @@ export async function moveTodoTask(
 }
 
 /**
+ * The rows a manual order may move this one between, in the order the page read them.
+ *
+ * One function answers this because two questions depend on the same answer: the card's up and down
+ * name a visible neighbour, and a keyboard jump to the top or the bottom has to land on the very same
+ * row. The finished half of a list is drawn under its own heading, so it is never a neighbour — and a
+ * finished task has no place in that order at all, which is why it answers with nothing rather than
+ * with the open rows it sits above.
+ */
+export function openTaskSiblings(tasks: readonly TodoTask[], task: TodoTask): TodoTask[] {
+  if (task.status === 'done') return []
+  return tasks.filter((entry) => entry.status !== 'done' && entry.listId === task.listId)
+}
+
+/**
  * What a card's move menu may do, and whether it may be dragged.
  *
  * The siblings are the open rows of the card's own list in the order the page arrived in, which is the
- * order the server read. Finished rows are drawn under their own heading and carry no move controls, so
- * they are not neighbours a press can name: counting them would disable the first open row for no
- * visible reason, or send a move to a row below a different group. Up and down therefore name the
- * visible neighbour, and "move down" anchors the row before the sibling *after* that neighbour — the
- * same "before this row" grammar a drop uses. Dragging needs a fine pointer: a phone gets the menu
- * instead, which is why the controls are built whether or not the pointer can drag.
+ * order the server read. Up and down therefore name the visible neighbour, and "move down" anchors the
+ * row before the sibling *after* that neighbour — the same "before this row" grammar a drop uses.
+ * Dragging needs a fine pointer: a phone gets the menu instead, which is why the controls are built
+ * whether or not the pointer can drag.
  */
 export interface TaskMoveControls {
   dragEnabled: boolean
@@ -98,7 +132,7 @@ export function useTaskMoves(enabled: boolean): (task: TodoTask) => TaskMoveCont
   const finePointer = useMediaQuery('(hover: hover) and (pointer: fine)')
   return (task) => {
     if (!enabled) return null
-    const siblings = tasks.filter((entry) => entry.listId === task.listId && entry.status !== 'done')
+    const siblings = openTaskSiblings(tasks, task)
     const index = siblings.findIndex((entry) => entry.id === task.id)
     if (index < 0) return null
     const placeBefore = (draggedId: string, beforeId: string | null): void => {
@@ -170,6 +204,15 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
   const progress = task.stepTotal > 0 ? t('todo.steps.progress', { done: task.stepDone, total: task.stepTotal }) : null
   const menuRef = useRef<HTMLButtonElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  /**
+   * What the row says beside its name — the note, the status, the day, the priority, the list, the tags.
+   *
+   * The body's control carries a name of its own ("Open "Write the report""), and a name replaces the
+   * text it sits on rather than adding to it, so what the row says has to be read to it as its
+   * description. Without that, a row's due date and its unfinished steps would exist only in ink.
+   */
+  const notesId = useId()
+  const metaId = useId()
   /** The point a right-click opened this row's menu at, or null while no menu is showing. */
   const rowMenu = useContextMenu()
   /** The row highlight a drag paints: the same before/after grammar the note tree uses. */
@@ -207,12 +250,97 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
     }, LONG_PRESS_MS)
   }
 
+  /**
+   * The title box, and the draft inside it.
+   *
+   * The text is the row's own and lives beside the row: it is gone the moment the box closes, whether
+   * the reader committed it or not, and a rename that failed at the server says so with the store's own
+   * toast rather than with a second one here. While it is open the row is not a drag source either —
+   * `draggable` below hands that question back to the pointer.
+   */
+  const [titleOpen, setTitleOpen] = useState(false)
+  const [titleDraft, setTitleDraft] = useState('')
+  const titleRef = useRef<HTMLButtonElement>(null)
+  /** Where a press on the title landed, or null once the pointer has left it. */
+  const titlePress = useRef<{ x: number; y: number } | null>(null)
+  /** Whether that press had already travelled before the release was read. */
+  const titleMoved = useRef(false)
+  /** The box closed under the reader's hands, so the row's title takes the caret back. */
+  const caretToTitle = useRef(false)
+
+  useEffect(() => {
+    if (titleOpen || !caretToTitle.current) return
+    caretToTitle.current = false
+    titleRef.current?.focus()
+  }, [titleOpen])
+
+  const openTitleBox = (): void => {
+    caretToTitle.current = true
+    setTitleDraft(task.title)
+    setTitleOpen(true)
+  }
+
+  /**
+   * The write the box leaves with: Enter, or walking away from it.
+   *
+   * Escape unmounts the field before it can blur, so the two exits cannot both answer one gesture.
+   * A blank or unchanged title writes nothing — the row keeps the name it had rather than sending an
+   * empty one the server would have to refuse.
+   */
+  const commitTitle = (): void => {
+    if (!titleOpen) return
+    caretToTitle.current = true
+    setTitleOpen(false)
+    const next = titleDraft.trim()
+    if (next && next !== task.title) void updateTask(task.id, { title: next })
+  }
+
+  const closeTitleBox = (): void => {
+    caretToTitle.current = true
+    setTitleOpen(false)
+  }
+
+  /**
+   * The answer every press on this row gives before it means anything of its own.
+   *
+   * The click that ends a long press is the selection's own, not a second press, and a row in a picked
+   * group — or one Command/Ctrl-clicked into it — belongs to the bar rather than to itself.
+   */
+  const claimPress = (event: React.MouseEvent<HTMLButtonElement>): boolean => {
+    if (suppressOpen.current) { suppressOpen.current = false; return true }
+    if (selectionMode) { event.preventDefault(); toggleSelected(task.id); return true }
+    if (event.metaKey || event.ctrlKey) { event.preventDefault(); toggleSelected(task.id); return true }
+    return false
+  }
+
   const openRow = (event: React.MouseEvent<HTMLButtonElement>): void => {
-    // The click that ends a long press is the selection's own, not a second press on the row.
-    if (suppressOpen.current) { suppressOpen.current = false; return }
-    if (selectionMode) { event.preventDefault(); toggleSelected(task.id); return }
-    if (event.metaKey || event.ctrlKey) { event.preventDefault(); toggleSelected(task.id); return }
+    if (claimPress(event)) return
     onOpen()
+  }
+
+  /** The tap that renames: the row's own press, and nothing that travelled far enough to be a drag. */
+  const pressTitle = (event: React.MouseEvent<HTMLButtonElement>): void => {
+    if (claimPress(event)) return
+    if (titleMoved.current || pressTravelled(titlePress.current, event)) return
+    openTitleBox()
+  }
+
+  const titlePointerDown = (event: React.PointerEvent<HTMLButtonElement>): void => {
+    titlePress.current = { x: event.clientX, y: event.clientY }
+    titleMoved.current = false
+    startLongPress(event)
+  }
+
+  const titlePointerMove = (event: React.PointerEvent<HTMLButtonElement>): void => {
+    // Once the pointer is past the threshold the gesture is decided, whatever the release reports.
+    if (!pressTravelled(titlePress.current, event)) return
+    titleMoved.current = true
+    cancelLongPress()
+  }
+
+  const titlePointerOff = (): void => {
+    cancelLongPress()
+    titlePress.current = null
   }
 
   /**
@@ -255,7 +383,7 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
     <article
       data-todo-selected={selected ? '' : undefined}
       data-todo-draggable={move?.dragEnabled ? '' : undefined}
-      draggable={move?.dragEnabled && !selectionMode ? true : undefined}
+      draggable={move?.dragEnabled && !selectionMode && !titleOpen ? true : undefined}
       onDragStart={(event) => {
         if (!move?.dragEnabled) {
           event.preventDefault()
@@ -349,42 +477,90 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
         </button>
       )}
 
-      <button
-        type="button"
-        data-todo-open={task.id}
-        onClick={openRow}
-        onPointerDown={startLongPress}
-        onPointerUp={cancelLongPress}
-        onPointerCancel={cancelLongPress}
-        onPointerLeave={cancelLongPress}
-        onContextMenu={openRowMenu}
-        className={cn(
-          'min-w-0 flex-1 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
-          // The row a reader taps to open the task is the whole card body, and on a phone it has to be
-          // a finger's height: the title alone was 22px once the card got its width back.
-          compact && 'flex min-h-11 flex-col justify-center',
+      {/*
+       * The body of the row, and the two presses it answers.
+       *
+       * The control underneath is the row's whole-body press it always was: it covers the description,
+       * the meta line and the empty space around them, and it is still the way into the task. The title
+       * sits on top of it — in flow, but positioned and later in the order, which is what puts a press
+       * on the word itself above a press anywhere else. `pointer-events-none` on the wrapper is what
+       * keeps the space beside a short title part of the body rather than part of the title.
+       */}
+      <div className={cn(
+        'relative min-w-0 flex-1',
+        // The row a reader taps to open the task is the whole card body, and on a phone it has to be
+        // a finger's height: the title alone was 22px once the card got its width back.
+        compact && 'flex min-h-11 flex-col justify-center',
+      )}>
+        {!titleOpen && (
+          <button
+            type="button"
+            data-todo-details={task.id}
+            aria-label={t('todo.a11y.open_task', { title: task.title })}
+            aria-describedby={!compact && task.description ? `${notesId} ${metaId}` : metaId}
+            onClick={openRow}
+            onPointerDown={startLongPress}
+            onPointerUp={cancelLongPress}
+            onPointerCancel={cancelLongPress}
+            onPointerLeave={cancelLongPress}
+            onContextMenu={openRowMenu}
+            className="absolute inset-0 rounded-[var(--r-md)] text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+          />
         )}
-      >
-        <span className="flex min-w-0 items-start gap-1.5">
+        <span className="pointer-events-none relative flex min-w-0 items-start gap-1.5">
           {/* The task's own glyph, when it has picked one. A task that has not keeps exactly the row
               it had before tasks could wear a face — no placeholder, and the colour beside the
               checkbox still says which list the work belongs to. */}
           {task.icon && <ListIcon icon={task.icon} size={14} className="mt-0.5 shrink-0 leading-none" />}
-          <span
-            className={cn(
-              'line-clamp-2 min-w-0 block break-words text-[length:var(--text-13)] leading-snug',
-              done ? 'text-[var(--text-tertiary)] line-through' : 'text-[var(--text-primary)]',
-            )}
-          >
-            {task.title}
-          </span>
+          {titleOpen ? (
+            <Input
+              autoFocus
+              aria-label={t('todo.task.title_label')}
+              value={titleDraft}
+              onChange={(event) => { setTitleDraft(event.target.value) }}
+              onBlur={commitTitle}
+              onKeyDown={(event) => {
+                // Enter is the commit and Escape the way back out. Both cancel the keystroke: the first
+                // so the browser does not activate the row behind the field, the second so the app's
+                // own Escape does not step the reader out of a screen they were never on.
+                if (event.key === 'Enter') { event.preventDefault(); commitTitle() }
+                else if (event.key === 'Escape') { event.preventDefault(); closeTitleBox() }
+              }}
+              className={cn(
+                'pointer-events-auto -ml-1 w-auto min-w-0 flex-1 h-auto border-transparent px-1 py-0 leading-snug md:h-auto',
+                // The box wears the row's own type and keeps its border transparent until it is
+                // focused, so opening it moves the title by nothing but the caret.
+                done ? 'text-[var(--text-tertiary)]' : 'text-[var(--text-primary)]',
+              )}
+            />
+          ) : (
+            <button
+              ref={titleRef}
+              type="button"
+              data-todo-open={task.id}
+              onClick={pressTitle}
+              onPointerDown={titlePointerDown}
+              onPointerMove={titlePointerMove}
+              onPointerUp={cancelLongPress}
+              onPointerCancel={titlePointerOff}
+              onPointerLeave={titlePointerOff}
+              onContextMenu={openRowMenu}
+              className={cn(
+                'line-clamp-2 pointer-events-auto block min-w-0 break-words rounded-[var(--r-sm)] text-left text-[length:var(--text-13)] leading-snug',
+                done ? 'text-[var(--text-tertiary)] line-through' : 'text-[var(--text-primary)]',
+                'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
+              )}
+            >
+              {task.title}
+            </button>
+          )}
         </span>
         {!compact && task.description && (
-          <span className="mt-0.5 line-clamp-1 break-words text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
+          <span id={notesId} className="mt-0.5 line-clamp-1 break-words text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
             {task.description}
           </span>
         )}
-        <span className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+        <span id={metaId} className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           {/* A status the reader can set has to be one they can see. The word carries it; the dot is
               only the accent that makes a started row findable at a glance. */}
           {task.status === 'in_progress' && (
@@ -434,7 +610,7 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
             <span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">+{task.tags.length - 2}</span>
           )}
         </span>
-      </button>
+      </div>
 
       {/* A board card carries no star of its own. Two cards across a phone leave about 150px, and a
           36px column on the right took so much of it that a four-character title wrapped one character
@@ -501,7 +677,7 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
             open
             onClose={rowMenu.close}
             items={contextItems}
-            width={CONTEXT_MENU_WIDTH}
+            width={TASK_ROW_MENU_WIDTH}
             label={t('todo.task.actions')}
           />
         ))}
