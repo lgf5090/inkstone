@@ -112,6 +112,7 @@ import {
   type RealtimeRelayDescriptor,
 } from '../assistant/realtime'
 import { readTodoContext } from '../assistant/todo-context'
+import { readEmailContext } from '../assistant/email-context'
 import { cancelApprovedAction, runApprovedAction } from '../assistant/tools'
 import { exportAssistant, importAssistant } from '../assistant/backup'
 import { describeSubscription, pushConfigStatus, pushEndpointProblem, pushKeyProblem, vapidProblem, type PushSubscriptionView } from '../assistant/push'
@@ -1552,7 +1553,7 @@ async function unstartableTurn(
  * closed tab does not keep spending the account's AI budget on an answer nobody is reading.
  */
 assistantRoutes.post('/chat', async (c) => {
-  const body = await readJson<{ conversationId?: unknown, message?: string, retry?: boolean, messageId?: unknown, continue?: unknown, attachments?: unknown, tools?: unknown, scopes?: unknown, webSearch?: unknown, contextNoteId?: unknown, contextFolderId?: unknown, contextSubscriptionId?: unknown, activeArtifactId?: unknown, contextTodo?: unknown, noteId?: unknown, ephemeral?: unknown, modelId?: unknown, noTools?: unknown }>(c, 64 * 1024)
+  const body = await readJson<{ conversationId?: unknown, message?: string, retry?: boolean, messageId?: unknown, continue?: unknown, attachments?: unknown, tools?: unknown, scopes?: unknown, webSearch?: unknown, contextNoteId?: unknown, contextFolderId?: unknown, contextSubscriptionId?: unknown, activeArtifactId?: unknown, contextTodo?: unknown, contextEmail?: unknown, noteId?: unknown, ephemeral?: unknown, modelId?: unknown, noTools?: unknown }>(c, 64 * 1024)
   const s = store(c)
   const settings = await s.getSettings()
   const conversationId = body.conversationId === undefined || body.conversationId === null
@@ -1573,6 +1574,7 @@ assistantRoutes.post('/chat', async (c) => {
   const tools = pinnedTools(body.tools)
   const scopes = pinnedScopes(body.scopes)
   const contextTodo = readTodoContext(body.contextTodo)
+  const contextEmail = readEmailContext(body.contextEmail)
 
   // Which kind of turn this is, decided once: the preconditions below and the runner's own input have to
   // read it the same way, or a refusal answered here and a refusal answered as a frame would diverge.
@@ -1692,6 +1694,7 @@ assistantRoutes.post('/chat', async (c) => {
           ? {}
           : { activeArtifactId: requiredId(body.activeArtifactId) }),
         ...(contextTodo ? { contextTodo } : {}),
+        ...(contextEmail ? { contextEmail } : {}),
         // The note the thread began beside, recorded on the conversation rather than on the turn.
         ...(typeof body.noteId === 'string' && isValidId(body.noteId) && await s.knownNote(body.noteId) ? { originNoteId: body.noteId } : {}),
         webSearch,
