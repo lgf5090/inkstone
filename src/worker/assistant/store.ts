@@ -7044,11 +7044,6 @@ export class AssistantStore {
     for (const task of tasks) {
       const list = typeof task.id === 'string' ? byTask.get(task.id) : undefined
       task.reminders = normalizeReminderTimes(list ?? [])
-      // The two columns `todos_reminders` superseded are still on a database that predates the move, so
-      // `SELECT *` brings them here. Neither is read by anything and neither is in `EXPORT_COLUMNS`, so
-      // carrying their leftovers into the file would only invite a reader to trust a stale instant.
-      delete task.remind_at
-      delete task.reminded_at
     }
     return {
       conversations: await select('chat_conversations', 'AND ephemeral = 0'),
@@ -7122,15 +7117,17 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // travels with the fact it belongs to.
   chat_memories: ['id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'project_id', 'note_id', 'created_at', 'updated_at'],
   // Every column the app reads travels, not only the ones the tool layer writes: a task restored
-  // without its list, star, repeat or note link is a different task, and `reminded_at` is the one
-  // exception — a restore is not a delivery, so the next sweep may announce it again.
+  // without its list, star, repeat or note link is a different task, and a delivered reminder is the one
+  // thing that does not travel — a restore is not a delivery, so the next sweep may announce it again.
   // `created_on` and `completed_on` are the statistics' day columns: a restore that dropped them
   // would leave every restored task with no day until a boot backfilled it, and the fingerprint note
   // means a boot after a restore does not come back through the repair. They are nullable, so an old
   // backup without the keys still lands.
-  // `remind_at` is deliberately absent: the single reminder column is superseded by `todos_reminders`,
-  // and a restore turns the backup's `reminders` field into rows of that table instead of writing a
-  // column nothing reads. The field still travels in the file, because that is the format's shape.
+  // The task's `remind_at` / `reminded_at` columns were superseded by `todos_reminders` and dropped from
+  // the table by migration 155, so no column list and no row of this file names them. What travels is the
+  // `reminders` field `exportTables()` writes from the pending rows, which the restore turns back into
+  // rows of that table; a file written before it carried one `remind_at` number per task stays readable
+  // (see `fileReminders` in backup.ts).
   // `deleted_at` is absent for a different reason: trashed rows are not exported at all (see
   // `exportTables`), so a column that would only ever be null is not part of the format.
   // `icon` and `color` are the task's own face: a restore that dropped them would silently hand every

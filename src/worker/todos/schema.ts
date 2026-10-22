@@ -47,11 +47,6 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
     color TEXT,
     starred INTEGER NOT NULL DEFAULT 0,
     repeat_rule TEXT,
-    -- Superseded by todos_reminders (pending removal). The pair is emptied by migrateTaskReminders and no code
-    -- reads or writes it after that; it stays only because dropping a column needs a migration number
-    -- this change deliberately does not spend.
-    remind_at INTEGER,
-    reminded_at INTEGER,
     -- The account's calendar day (YYYY-MM-DD) the reader picked this task into "today", or NULL when
     -- it was never picked. A day rather than a boolean: a row planned for yesterday stops equalling
     -- today when the calendar moves, so the membership needs no midnight sweep to clear itself.
@@ -79,8 +74,10 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
      ON todos_tasks(user_id, project_id)`,
   `CREATE INDEX IF NOT EXISTS idx_todos_tasks_star
      ON todos_tasks(user_id, starred, status)`,
-  `CREATE INDEX IF NOT EXISTS idx_todos_tasks_remind
-     ON todos_tasks(remind_at) WHERE remind_at IS NOT NULL`,
+  // There is deliberately no index over a reminder instant here. `todos_tasks` once held one
+  // (`remind_at`, with `idx_todos_tasks_remind` partial over it) for the sweep that read the column;
+  // `todos_reminders` superseded both, and migration 155 takes the pair and that index away from the
+  // databases that still have them.
   // The two orders the list gained after it shipped — `sort=created` and `sort=completed` — walk one
   // account's tasks by a column no index above leads with. Without these, every page of a long-lived
   // account sorted its whole table; the migration numbers 111 and 112 carry them to databases built
@@ -109,11 +106,11 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_todos_tasks_trash
      ON todos_tasks(user_id, deleted_at)`,
 
-  // The reminders a task carries, one row each. The todos_tasks columns remind_at / reminded_at held
-  // the same idea as a single pair and are no longer read or written: the one-shot repair
-  // migrateTaskReminders moved their rows here, and they stay on the table only until a later
-  // migration drops them (pending removal). A row is claimed by stamping fired_at, so the sweep needs no
-  // scheduler of its own and two overlapping ticks cannot both deliver the same reminder.
+  // The reminders a task carries, one row each. `todos_tasks.remind_at` / `reminded_at` held the same
+  // idea as a single pair of columns and are gone: the one-shot `migrateTaskReminders` moved their rows
+  // here on the boot that needed it, and migration 155 dropped the pair behind it. A row is claimed by
+  // stamping fired_at, so the sweep needs no scheduler of its own and two overlapping ticks cannot both
+  // deliver the same reminder.
   `CREATE TABLE IF NOT EXISTS todos_reminders (
     user_id TEXT NOT NULL,
     id TEXT NOT NULL,
@@ -298,7 +295,6 @@ export const TODOS_REQUIRED_INDEXES: readonly string[] = [
   'idx_todos_tasks_list',
   'idx_todos_tasks_project',
   'idx_todos_tasks_star',
-  'idx_todos_tasks_remind',
   'idx_todos_tasks_created',
   'idx_todos_tasks_completed',
   'idx_todos_tasks_completed_on',
@@ -319,13 +315,10 @@ export const TODOS_REQUIRED_INDEXES: readonly string[] = [
 ]
 
 export const TODOS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
-  // `remind_at` / `reminded_at` stay listed because a database that predates the reminders table
-  // still carries them and the boot guard compares the declared shape with the real one; nothing
-  // reads or writes them any more, and `migrateTaskReminders` is what empties them (pending removal).
   todos_tasks: [
     'user_id', 'id', 'title', 'description', 'status', 'priority', 'position', 'due_at', 'start_at', 'completed_at',
     'completed_on', 'created_on',
-    'project_id', 'list_id', 'icon', 'color', 'starred', 'repeat_rule', 'remind_at', 'reminded_at', 'planned_for', 'note_id',
+    'project_id', 'list_id', 'icon', 'color', 'starred', 'repeat_rule', 'planned_for', 'note_id',
     'conversation_id', 'created_at', 'updated_at', 'rev', 'deleted_at',
   ],
   todos_reminders: ['user_id', 'id', 'task_id', 'remind_at', 'fired_at', 'created_at'],

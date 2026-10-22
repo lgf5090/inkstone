@@ -26,6 +26,14 @@ let sqlite: DatabaseSync
 let env: Env
 let store: AssistantStore
 
+/** How many alarms one account is still owed: the row count, not what a task read chooses to show. */
+function pendingReminderCount(userId: string): number {
+  const row = sqlite.prepare(
+    `SELECT COUNT(*) AS n FROM todos_reminders WHERE user_id = ?1 AND fired_at IS NULL`,
+  ).get(userId) as { n: number | bigint }
+  return Number(row.n)
+}
+
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   sqlite.exec('PRAGMA journal_mode = OFF')
@@ -101,14 +109,31 @@ describe('a backup round trip', () => {
 
   it('lets the reminder fire again on the machine that received the file', async () => {
     const due = Date.parse('2026-10-20T09:00:00Z')
-    const task = await store.createTask({ title: 'Call', dueAt: due, remindAt: due })
-    sqlite.prepare('UPDATE todos_tasks SET reminded_at = ? WHERE id = ?').run(due, task.id)
+    const task = await store.createTask({ title: 'Call', dueAt: due, reminders: [due] })
+    // It has already gone out here. A restore is not a delivery, so a fired row is left behind rather
+    // than re-queued: nothing about it travels, and the account that receives the file gets no alarm.
+    sqlite.prepare('UPDATE todos_reminders SET fired_at = ?1 WHERE user_id = ?2 AND task_id = ?3')
+      .run(due, USER, task.id)
 
     const backup = await exportAssistant(store)
     const target = new AssistantStore(env.DB as D1Database, OTHER, env)
     await importAssistant(target, JSON.parse(JSON.stringify(backup)))
 
+    expect((await target.getTask(task.id))?.reminders).toEqual([])
     expect((await target.getTask(task.id))?.remindedAt).toBeNull()
+    expect(pendingReminderCount(OTHER)).toBe(0)
+  })
+
+  it('carries no reminder column in the task rows', async () => {
+    // `todos_reminders` superseded both columns, and a file that still named them would be a file whose
+    // reminder nothing reads: the keys are the list, or the one number an older build wrote.
+    await store.createTask({ title: 'Plain', reminders: [Date.parse('2026-10-20T09:00:00Z')] })
+    const exported = await store.exportTables()
+    const row = exported.tasks[0]!
+
+    expect(Object.keys(row)).not.toContain('remind_at')
+    expect(Object.keys(row)).not.toContain('reminded_at')
+    expect(row.reminders).toHaveLength(1)
   })
 
   it('does not bring a task back over a newer local copy', async () => {

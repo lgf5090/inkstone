@@ -79,13 +79,13 @@ describe('moving the task table', () => {
 
     await boot(sqlite)
 
-    const row = sqlite.prepare(`SELECT starred, list_id, repeat_rule, remind_at FROM todos_tasks`).get() as {
+    const row = sqlite.prepare(`SELECT starred, list_id, repeat_rule, planned_for FROM todos_tasks`).get() as {
       starred: number
       list_id: string | null
       repeat_rule: string | null
-      remind_at: number | null
+      planned_for: string | null
     }
-    expect(row).toEqual({ starred: 0, list_id: null, repeat_rule: null, remind_at: null })
+    expect(row).toEqual({ starred: 0, list_id: null, repeat_rule: null, planned_for: null })
   })
 
   it('is a no-op on a database that has already been moved', async () => {
