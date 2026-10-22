@@ -30,6 +30,8 @@ run_worker_first = [
   "/memos/*",
   "/calendar",
   "/todo",
+  "/email",
+  "/email/*",
   "/projects",
   "/nav",
   "/chat",
@@ -50,6 +52,10 @@ database_name = "inkstone-db"
 binding = "FILES"
 bucket_name = "inkstone-files"
 
+[[send_email]]
+name = "EMAIL"
+remote = true
+
 [[kv_namespaces]]
 binding = "OAUTH_KV"
 
@@ -61,11 +67,19 @@ class_name = "SyncHub"
 name = "CREDENTIAL_VAULT"
 class_name = "CredentialVault"
 
+[[durable_objects.bindings]]
+name = "EMAIL_MAILBOX"
+class_name = "EmailMailbox"
+
 [exports.SyncHub]
 type = "durable-object"
 storage = "sqlite"
 
 [exports.CredentialVault]
+type = "durable-object"
+storage = "sqlite"
+
+[exports.EmailMailbox]
 type = "durable-object"
 storage = "sqlite"
 

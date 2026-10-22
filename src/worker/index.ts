@@ -22,6 +22,7 @@ import { handleInboundMail } from './email/inbound'
 
 export { SyncHub } from './realtime/sync-hub'
 export { CredentialVault } from './durable/credential-vault'
+export { EmailMailbox } from './email/mailbox-do'
 
 // Codex CLI drops the `iss` callback parameter while its rmcp
 // dependency enforces it whenever the authorization server advertises

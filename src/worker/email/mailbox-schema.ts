@@ -1,0 +1,112 @@
+export interface SqlExec {
+  exec<T = Record<string, unknown>>(sql: string, ...bindings: unknown[]): Iterable<T>
+}
+
+export interface MailboxMigration {
+  name: string
+  sql: string
+}
+
+export interface TransactionalStorage {
+  transactionSync<T>(closure: () => T): T
+}
+
+export function applyMailboxMigrations(
+  sql: SqlExec,
+  storage?: TransactionalStorage,
+): void {
+  sql.exec(`CREATE TABLE IF NOT EXISTS email_migrations (
+    name TEXT PRIMARY KEY,
+    applied_at INTEGER NOT NULL
+  )`)
+  for (const migration of EMAIL_MAILBOX_MIGRATIONS) {
+    const applied = [...sql.exec(`SELECT 1 FROM email_migrations WHERE name = ?1`, migration.name)]
+    if (applied.length) continue
+    const run = () => {
+      sql.exec(migration.sql)
+      sql.exec(`INSERT INTO email_migrations (name, applied_at) VALUES (?1, ?2)`, migration.name, Date.now())
+    }
+    if (storage) storage.transactionSync(run)
+    else run()
+  }
+}
+
+export const EMAIL_MAILBOX_MIGRATIONS: readonly MailboxMigration[] = [
+  {
+    name: '1_initial_setup',
+    sql: `
+      CREATE TABLE IF NOT EXISTS email_folders (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        is_deletable INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_email_folders_name
+        ON email_folders(name COLLATE NOCASE);
+
+      CREATE TABLE IF NOT EXISTS email_messages (
+        id TEXT PRIMARY KEY,
+        folder_id TEXT NOT NULL,
+        subject TEXT NOT NULL DEFAULT '',
+        sender TEXT NOT NULL DEFAULT '',
+        recipient TEXT NOT NULL DEFAULT '',
+        cc TEXT,
+        bcc TEXT,
+        date INTEGER NOT NULL,
+        received_at INTEGER NOT NULL,
+        read INTEGER NOT NULL DEFAULT 0,
+        starred INTEGER NOT NULL DEFAULT 0,
+        body TEXT NOT NULL DEFAULT '',
+        body_source TEXT,
+        in_reply_to TEXT,
+        email_references TEXT,
+        thread_id TEXT,
+        message_id TEXT,
+        raw_headers TEXT,
+        delivery_status TEXT,
+        delivery_error TEXT,
+        provider_message_id TEXT,
+        attachments_skipped INTEGER NOT NULL DEFAULT 0,
+        has_attachment INTEGER NOT NULL DEFAULT 0,
+        size INTEGER NOT NULL DEFAULT 0,
+        deleted_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        FOREIGN KEY (folder_id) REFERENCES email_folders(id) ON DELETE RESTRICT
+      );
+      CREATE INDEX IF NOT EXISTS idx_email_messages_folder_date
+        ON email_messages(folder_id, date DESC);
+      CREATE INDEX IF NOT EXISTS idx_email_messages_thread
+        ON email_messages(thread_id);
+      CREATE INDEX IF NOT EXISTS idx_email_messages_in_reply_to
+        ON email_messages(in_reply_to);
+      CREATE INDEX IF NOT EXISTS idx_email_messages_message_id
+        ON email_messages(message_id);
+      CREATE INDEX IF NOT EXISTS idx_email_messages_date
+        ON email_messages(date DESC);
+      CREATE INDEX IF NOT EXISTS idx_email_messages_trash
+        ON email_messages(deleted_at);
+
+      CREATE TABLE IF NOT EXISTS email_inbound_claims (
+        message_key TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS email_operations (
+        operation_id TEXT PRIMARY KEY,
+        request_hash TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+
+      INSERT OR IGNORE INTO email_folders (id, name, is_deletable, created_at) VALUES
+        ('inbox', 'Inbox', 0, 0),
+        ('sent', 'Sent', 0, 0),
+        ('draft', 'Drafts', 0, 0),
+        ('archive', 'Archive', 0, 0),
+        ('trash', 'Trash', 0, 0),
+        ('spam', 'Spam', 0, 0);
+    `,
+  },
+]
