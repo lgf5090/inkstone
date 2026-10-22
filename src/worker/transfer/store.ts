@@ -19,7 +19,7 @@
 
 import { LIMITS } from '@shared/constants'
 import { utf8ByteLength } from '@shared/text-utils'
-import type { AttachmentObjectStorage } from '../attachments/keys'
+import { attachmentIdFromCleanupTarget, type AttachmentObjectStorage } from '../attachments/keys'
 import {
   buildNoteDerivedStatements,
   runBatched,
@@ -266,23 +266,24 @@ export class TransferStore {
   /**
    * The cleanup-queue object keys that still hold bytes for this account.
    *
-   * Scoped by `user_id` and by the key's own prefix, which the SQL matches positionally because the
-   * queue table stores a backend prefix, the account and the file name as one string. Turning those
-   * keys back into attachment ids is a storage-key question, not a SQL one, so the caller reads the
-   * keys and does it.
+   * Scoped by `user_id` and by the account's own path segment, then matched to the ids the caller
+   * named by reading the key's segments — the queue stores backend prefix, path and file name as one
+   * string, and the path gained a scope level when the hub started prefixing new objects, so no
+   * fixed offset describes it any more.
    */
   async pendingCleanupObjectKeys(sourceIds: readonly string[]): Promise<string[]> {
     if (!sourceIds.length) return []
+    const wanted = new Set(sourceIds)
     const { results } = await this.db.prepare(
       `SELECT object_key FROM attachment_cleanup
-        WHERE user_id = ?1
-          AND substr(object_key, 4, length(?1) + 1) = ?1 || '/'
-          AND substr(object_key, length(?1) + 5, 26) IN (
-            SELECT value FROM json_each(?2)
-          )
-          AND substr(object_key, length(?1) + 31, 1) = '.'`,
-    ).bind(this.userId, JSON.stringify(sourceIds)).all<{ object_key: string }>()
-    return results.map((row) => row.object_key)
+        WHERE user_id = ?1 AND instr(object_key, ?1) > 0`,
+    ).bind(this.userId).all<{ object_key: string }>()
+    return results
+      .map((row) => row.object_key)
+      .filter((key) => {
+        const id = attachmentIdFromCleanupTarget(key, this.userId)
+        return id !== null && wanted.has(id)
+      })
   }
 
   /**

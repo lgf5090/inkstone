@@ -26,6 +26,7 @@ import {
   hasAttachmentStorage,
   selectAttachmentStorage,
 } from '../attachments/backend'
+import { attachmentIdFromCleanupTarget } from '../attachments/keys'
 import type { AppBindings } from '../env'
 import { pruneOrphanTags } from '../db/writes'
 import {
@@ -1008,19 +1009,14 @@ async function prepareBundleAttachments(
   const existingAttachments = await ctx.store.attachmentsByIds(
     candidates.map((candidate) => candidate.sourceId),
   )
-  // Which cleanup key belongs to which source id is read from the object key itself, so the storage
-  // prefix stays here and only the query moved.
-  const prefixes = [`r2:${userId}/`, `kv:${userId}/`]
+  // The store already matched every key to a source id by its segments, so this only recovers the id
+  // the same way to decide which restore needs the "old bytes still pending" warning.
   const pendingCleanupIds = new Set<string>()
   for (const objectKey of await ctx.store.pendingCleanupObjectKeys(
     candidates.map((candidate) => candidate.sourceId),
   )) {
-    const prefix = prefixes.find((candidate) => objectKey.startsWith(candidate))
-    if (!prefix) continue
-    const filename = objectKey.slice(prefix.length)
-    const separator = filename.indexOf('.')
-    const id = separator > 0 ? filename.slice(0, separator) : ''
-    if (isValidId(id)) pendingCleanupIds.add(id)
+    const id = attachmentIdFromCleanupTarget(objectKey, userId)
+    if (id) pendingCleanupIds.add(id)
   }
   const idMap = new Map<string, string>()
   const created: CreatedImportedAttachment[] = []

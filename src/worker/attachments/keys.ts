@@ -1,5 +1,6 @@
+import { isValidId } from '../lib/id'
 import { extensionFor } from '../lib/image'
-import { attachmentScope, type AttachmentScope } from './scopes'
+import { ATTACHMENT_SCOPES, attachmentScope, type AttachmentScope } from './scopes'
 
 export interface StoredAttachmentKey {
   id: string
@@ -69,4 +70,30 @@ export function parseAttachmentCleanupTarget(value: string): {
   if (value.startsWith('kv:') && value.length > 3) return { storage: 'kv', key: value.slice(3) }
   if (value.startsWith('r2:') && value.length > 3) return { storage: 'r2', key: value.slice(3) }
   return null
+}
+
+const SCOPE_IDS: ReadonlySet<string> = new Set(ATTACHMENT_SCOPES)
+
+/**
+ * The attachment a queued deletion names, when the key really is this account's attachment.
+ *
+ * One table holds every object this app deletes, so keys arrive in three shapes: the flat pre-hub
+ * `<user>/<file>`, the hub `<scope>/<user>/<file>` for a registered scope, and objects that merely
+ * look like the second — avatars live at `avatars/<user>/<file>`, and `avatars` is not a scope.
+ * Reading segments rather than counting from a fixed offset is what keeps this true now that the
+ * scope prefix moved every attachment key one level deeper; the old positional read matched nothing
+ * written after the hub and simply stopped finding anything.
+ */
+export function attachmentIdFromCleanupTarget(value: string, userId: string): string | null {
+  const target = parseAttachmentCleanupTarget(value)
+  if (!target) return null
+  const segments = target.key.split('/')
+  const file = segments[segments.length - 1] ?? ''
+  const ownedByScope = segments.length === 3 && SCOPE_IDS.has(segments[0]!) && segments[1] === userId
+  const ownedFlat = segments.length === 2 && segments[0] === userId
+  if (!ownedByScope && !ownedFlat) return null
+  const dot = file.indexOf('.')
+  if (dot <= 0) return null
+  const id = file.slice(0, dot)
+  return isValidId(id) ? id : null
 }

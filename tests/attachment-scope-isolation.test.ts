@@ -8,7 +8,7 @@ import type { AppBindings, Env } from '../src/worker/env'
 import { filesRoutes } from '../src/worker/routes/files'
 import { todoAttachmentRoutes } from '../src/worker/routes/todo-attachments'
 import { attachmentHubRoutes } from '../src/worker/routes/attachments'
-import { attachmentObjectKey } from '../src/worker/attachments/keys'
+import { attachmentIdFromCleanupTarget, attachmentObjectKey } from '../src/worker/attachments/keys'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings, testR2Bucket, type TestR2Bucket } from './doubles/bindings'
 
@@ -304,5 +304,19 @@ describe('object keys', () => {
         object_key: `notes/${USER}/${id(61)}.txt`,
       }),
     ).toBe(`notes/${USER}/${id(61)}.txt`)
+  })
+
+  it('reads an attachment id back out of a queued deletion in either layout', () => {
+    expect(attachmentIdFromCleanupTarget(`r2:${USER}/${id(70)}.png`, USER)).toBe(id(70))
+    expect(attachmentIdFromCleanupTarget(`kv:memos/${USER}/${id(71)}.pdf`, USER)).toBe(id(71))
+  })
+
+  it('refuses a queued deletion that is not this account’s attachment', () => {
+    // An avatar shares the scoped shape, but `avatars` names no attachment scope.
+    expect(attachmentIdFromCleanupTarget(`r2:avatars/${USER}/${id(72)}.png`, USER)).toBeNull()
+    expect(attachmentIdFromCleanupTarget(`r2:notes/${OTHER}/${id(73)}.png`, USER)).toBeNull()
+    // A motion-photo thumbnail carries the owner’s id with a suffix, so it is not a file of its own.
+    expect(attachmentIdFromCleanupTarget(`r2:memos/${USER}/${id(74)}-thumb.png`, USER)).toBeNull()
+    expect(attachmentIdFromCleanupTarget(`notes/${USER}/${id(75)}.png`, USER)).toBeNull()
   })
 })

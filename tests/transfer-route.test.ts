@@ -296,17 +296,25 @@ describe('the transfer store', () => {
   })
 
   it('scopes the cleanup queue to the asking account', async () => {
-    sqlite.prepare('INSERT INTO attachment_cleanup (object_key, user_id, created_at) VALUES (?, ?, ?)').run(
-      `r2:${ALICE}/abcdef0123456789abcdef0123.png`, ALICE, 1000,
-    )
-    sqlite.prepare('INSERT INTO attachment_cleanup (object_key, user_id, created_at) VALUES (?, ?, ?)').run(
-      `r2:${BOB}/abcdef0123456789abcdef0123.png`, BOB, 1000,
-    )
+    const sourceId = 'abcdef0123456789abcdef0123'
+    const queueKey = (key: string, user: string) =>
+      sqlite.prepare('INSERT INTO attachment_cleanup (object_key, user_id, created_at) VALUES (?, ?, ?)')
+        .run(key, user, 1000)
 
-    const alice = await new TransferStore(db, ALICE, false).pendingCleanupObjectKeys(['abcdef0123456789abcdef0123'])
-    expect(alice).toHaveLength(1)
-    expect(alice[0]).toContain(ALICE)
+    // Both layouts the queue holds for one account: the flat pre-hub key and the scope-prefixed key
+    // every hub upload writes. A reader that only understands the first silently stops finding the
+    // second, which is the whole failure mode here.
+    queueKey(`r2:${ALICE}/${sourceId}.png`, ALICE)
+    queueKey(`r2:notes/${ALICE}/${sourceId}.png`, ALICE)
+    // Another account's object of the same id, and an avatar that merely looks like a scoped
+    // attachment — `avatars` is not a scope, so neither may be claimed.
+    queueKey(`r2:${BOB}/${sourceId}.png`, BOB)
+    queueKey(`r2:avatars/${ALICE}/${sourceId}.png`, ALICE)
+
+    const alice = await new TransferStore(db, ALICE, false).pendingCleanupObjectKeys([sourceId])
+    expect(alice.sort()).toEqual([`r2:notes/${ALICE}/${sourceId}.png`, `r2:${ALICE}/${sourceId}.png`])
     expect(await new TransferStore(db, BOB, false).pendingCleanupObjectKeys([])).toEqual([])
+    expect(await new TransferStore(db, ALICE, false).pendingCleanupObjectKeys(['ffffffffffffffffffffffff'])).toEqual([])
   })
 
   it('answers an export id only for the account that owns the note', async () => {
