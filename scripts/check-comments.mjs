@@ -92,6 +92,9 @@ const allowed = new Map([
     "// What a CSV boolean column accepts as \"yes\". A file is the reader's artefact, not the interface's:",
     "// the vocabulary has to hold whatever they or their spreadsheet wrote, whatever language the app",
     "// happens to be in when the file is read back.",
+    "// public/vendor is written by @file-viewer/vite-plugin on every build: bundled third-party",
+    "// workers and wasm loaders whose own strings are not this app's interface copy. It is generated",
+    "// output, gitignored like dist, so scanning it would gate us on somebody else's source.",
   ]],
   ["scripts/excalidraw-patch.mjs", [
     "/**\n * The vendored engine build is a minified IIFE that was written for Obsidian, so six of its teardown\n * and asset paths throw when it is hosted by this app instead. The only way in is exact-string\n * replacement on minified text, which fails silently: rename one local and the `.replace()` becomes a\n * no-op that ships an unpatched bundle, and every gate still passes because nothing reads the result.\n *\n * This module is the single source for those edits (they used to be duplicated verbatim in\n * `vite.config.ts` and `scripts/patch-excalidraw.mjs`), and it reports every patch as applied,\n * already-present or unmatched so the caller can refuse to build on a miss.\n */",
@@ -30829,6 +30832,10 @@ const allowed = new Map([
     "/**\n * Pele ships its own build: the 33 diagram entries are thin files over 89 chunks named by content\n * hash and shared between types, so there is no per-type name to hand the bundler. Left alone, every\n * one of those hashes becomes an app chunk name, and the service worker decides what to download\n * ahead of time by name — unnamed, the whole engine joins the background download of every account,\n * which is the one thing the on-demand list exists to keep out. One named chunk instead: a reader who\n * opens any diagram pays the engine once, and nobody else pays it at all.\n */",
     "// Anchor `react` to the top-level package: a bare `/react/` also matches the scoped `@file-viewer/react`",
     "// path, which dragged the file viewer (and its core) into the boot `vendor-react` chunk.",
+    "// Emits each renderer's worker/wasm/font assets (archive's libarchive worker has no other way to",
+    "// reach the bundle) and keeps one chunk per renderer. The renderer list is explicit rather than a",
+    "// preset so the build cannot pull in a package this app does not ship, and `missingRenderer` turns",
+    "// a typo here into a failed build instead of a viewer that silently cannot render a type.",
   ]],
   ["vitest.config.ts", [
     "// The suite's own tail decides this number. Measured over a full parallel run of every file:",

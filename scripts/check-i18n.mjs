@@ -321,6 +321,11 @@ for (const file of englishOnlyPaths.flatMap((target) => fs.existsSync(target) ? 
     // exemption the scan below gives it.
     if (hanAllowedCatalogs.includes(file) || !isTextSource(file) || file.includes(".test."))
         continue;
+    // public/vendor is written by @file-viewer/vite-plugin on every build: bundled third-party
+    // workers and wasm loaders whose own strings are not this app's interface copy. It is generated
+    // output, gitignored like dist, so scanning it would gate us on somebody else's source.
+    if (file.startsWith(path.resolve('public') + path.sep + 'vendor' + path.sep))
+        continue;
     rejectHan(file);
 }
 for (const file of [

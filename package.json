@@ -123,6 +123,7 @@
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.51.1",
     "@cloudflare/workers-types": "^5.20260809.1",
+    "@file-viewer/vite-plugin": "^3.2.3",
     "@tailwindcss/vite": "^4.3.3",
     "@types/diff-match-patch": "^1.0.36",
     "@types/leaflet": "^1.9.22",
