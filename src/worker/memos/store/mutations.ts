@@ -3,7 +3,7 @@ import type { Memo, MemoLocation } from '@shared/memos/types'
 import { ApiError } from '../../lib/errors'
 import { isValidId, newId } from '../../lib/id'
 import { deriveMemoFields } from '../derive'
-import { spaceBelongsToUser } from '../spaces'
+import { spaceBelongsToUser } from '../space-access'
 import {
   parseBoolean,
   parseContent,

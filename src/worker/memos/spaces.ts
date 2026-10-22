@@ -1,7 +1,10 @@
 import type { MemoSpace } from '@shared/memos/types'
 import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
-import { deleteMemo, type MemoAttachmentObjectRef } from './store/deletion'
+import { spaceBelongsToUser } from './space-access'
+import { MemosStore, type MemoAttachmentObjectRef } from './store'
+
+export { spaceBelongsToUser }
 
 export const MEMO_SPACE_TITLE_MAX_LENGTH = 120
 export const MEMO_SPACE_DESCRIPTION_MAX_LENGTH = 1024
@@ -180,8 +183,9 @@ export async function deleteSpace(
       .bind(userId, id)
       .all<{ id: string }>()
     const attachmentObjects: MemoAttachmentObjectRef[] = []
+    const store = new MemosStore(db, userId)
     for (const memo of results) {
-      const result = await deleteMemo(db, userId, memo.id)
+      const result = await store.delete(memo.id)
       if (result) attachmentObjects.push(...result.attachmentObjects)
     }
     const { meta } = await db
@@ -202,16 +206,4 @@ export async function deleteSpace(
     db.prepare(`DELETE FROM memos_spaces WHERE id = ?2 AND user_id = ?1`).bind(userId, id),
   ])
   return { deleted: (results[1]?.meta.changes ?? 0) > 0, attachmentObjects: [] }
-}
-
-export async function spaceBelongsToUser(
-  db: D1Database,
-  userId: string,
-  spaceId: string,
-): Promise<boolean> {
-  const row = await db
-    .prepare(`SELECT id FROM memos_spaces WHERE id = ?1 AND user_id = ?2`)
-    .bind(spaceId, userId)
-    .first<{ id: string }>()
-  return row !== null
 }
