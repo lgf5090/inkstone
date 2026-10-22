@@ -94,7 +94,7 @@ import {
   type MemoryReview,
   type PendingActionStatus,
 } from '@shared/assistant'
-import { parseScheduleSpec, zonedTimeToUtc, type ScheduleSpec } from '@shared/assistant-schedule'
+import { parseScheduleSpec, getZonedParts, zonedTimeToUtc, type ScheduleSpec } from '@shared/assistant-schedule'
 import { localDate } from '@shared/assistant-time'
 import { likePattern } from '@shared/markdown-utils'
 import type { Env } from '../env'
@@ -981,6 +981,13 @@ export interface NewTask {
   icon?: string | null
   /** The task's own colour from the shared palette, or null to wear the list's. */
   color?: string | null
+  /**
+   * The day (`YYYY-MM-DD`, in the reader's zone) the task is picked into a My Day for.
+   *
+   * `planTask` is the door a reader uses to pick one; this is the door a copy comes in through: the
+   * next occurrence of a task that had been picked arrives picked, on the day its own cycle opens.
+   */
+  plannedFor?: string | null
   starred?: boolean
   repeat?: RepeatRule | null
   /** The task's reminders as absolute instants. Replaces the pending list when given to `updateTask`. */
@@ -1210,7 +1217,33 @@ export class TaskCompletionRequiresCompleteTask extends Error {
   }
 }
 
+/**
+ * The instant `UPCOMING_DAYS` calendar days after the day that ends at `dayEnd`.
+ *
+ * "The coming week" counts days, not hours. `dayEnd` is the first instant of a reader's next day, and
+ * adding 7 × 24 h to it lands an hour inside that eighth day whenever the window crosses a
+ * daylight-saving change — the week that follows 8 March 2026 in New York is 167 hours long. So the
+ * arithmetic goes the way `dayEnd` itself was made: read the day out of the zone, count days on the
+ * calendar, and turn the result back into an instant. A task owed in the hour the arithmetic lost is
+ * then in no window, which is what the reader's own calendar says about it.
+ */
+function upcomingBoundary(dayEnd: number, timeZone: string): number {
+  const parts = getZonedParts(new Date(dayEnd), timeZone)
+  const target = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + UPCOMING_DAYS))
+  return zonedTimeToUtc(
+    target.getUTCFullYear(),
+    target.getUTCMonth() + 1,
+    target.getUTCDate(),
+    0,
+    0,
+    timeZone,
+  ).getTime()
+}
+
 export class AssistantStore {
+  /** The account's settings as this instance read them; see `getSettings`. */
+  private settingsOnce: AssistantSettings | null = null
+
   constructor(
     private readonly db: D1Database,
     readonly userId: string,
@@ -1270,13 +1303,27 @@ export class AssistantStore {
 
   // ---------------------------------------------------------------- settings
 
+  /**
+   * The account's settings, read once per store instance.
+   *
+   * One instance is one request, one cron fire or one tool run, and the reader's zone is asked for
+   * at the top of most of them: the listing now needs it twice (the day its rows are cut by, and the
+   * window the coming-week badge counts), so a second read of a row that cannot have changed
+   * mid-request would be a round trip bought for nothing. `saveSettings` refreshes the copy, so what
+   * a caller reads back after a write is what it wrote. The object handed out is a copy of the copy:
+   * a caller that spreads or trims one gets a value it may change without moving the cache.
+   */
   async getSettings(): Promise<AssistantSettings> {
-    const stored = await this.one<{ config: string }>(
-      `SELECT config FROM chat_settings WHERE user_id = ?1`,
-      this.userId,
-    )
-    if (!stored) return { ...DEFAULT_ASSISTANT_SETTINGS }
-    return normalizeAssistantSettings(parseJson(stored.config))
+    if (!this.settingsOnce) {
+      const stored = await this.one<{ config: string }>(
+        `SELECT config FROM chat_settings WHERE user_id = ?1`,
+        this.userId,
+      )
+      this.settingsOnce = stored
+        ? normalizeAssistantSettings(parseJson(stored.config))
+        : { ...DEFAULT_ASSISTANT_SETTINGS }
+    }
+    return { ...this.settingsOnce }
   }
 
   async saveSettings(settings: AssistantSettings): Promise<AssistantSettings> {
@@ -1286,7 +1333,8 @@ export class AssistantStore {
        ON CONFLICT(user_id) DO UPDATE SET config = excluded.config, updated_at = excluded.updated_at`,
       JSON.stringify(normalized), Date.now(),
     )
-    return normalized
+    this.settingsOnce = normalized
+    return { ...normalized }
   }
 
   // --------------------------------------------------------------- providers
@@ -4129,7 +4177,6 @@ export class AssistantStore {
     else if (status !== 'all') q.eq(`status`, status)
     const now = Date.now()
     const dayEnd = query.dayEnd ?? now
-    const upcomingEnd = dayEnd + UPCOMING_DAYS * 24 * 60 * 60 * 1000
     const today = query.view === 'today'
       ? query.today ?? localDate(now, (await this.getSettings()).timezone)
       : null
@@ -4145,9 +4192,13 @@ export class AssistantStore {
           OR (due_at IS NULL AND status = 'in_progress')
           ${today === null ? '' : `OR planned_for = ${q.add(today)}`})`)
         break
-      case 'upcoming':
+      case 'upcoming': {
+        // Counted in calendar days in the account's own zone, so a window that crosses a
+        // daylight-saving change holds the days it names and no part of the one after them.
+        const upcomingEnd = upcomingBoundary(dayEnd, (await this.getSettings()).timezone)
         q.raw(`status != 'done' AND due_at IS NOT NULL AND due_at >= ${q.add(dayEnd)} AND due_at < ${q.add(upcomingEnd)}`)
         break
+      }
       case 'overdue':
         q.raw(`status != 'done' AND due_at IS NOT NULL AND due_at < ${q.add(now)}`)
         break
@@ -4405,15 +4456,15 @@ export class AssistantStore {
       `INSERT INTO todos_tasks
          (id, user_id, title, description, status, priority, due_at, start_at, project_id, list_id,
           icon, color, starred, repeat_rule, note_id, conversation_id, created_at, updated_at,
-          completed_at, created_on, completed_on)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)`,
+          completed_at, created_on, completed_on, planned_for)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)`,
     ).bind(
       this.userId, id, input.title.trim().slice(0, 300), input.description ?? '', status, input.priority ?? 'medium',
       input.dueAt ?? null, input.startAt ?? null, input.projectId ?? null, input.listId ?? null,
       taskIconOrNull(input.icon), taskColorOrNull(input.color), input.starred ? 1 : 0,
       repeat ? JSON.stringify(repeat) : null, input.noteId ?? null,
       input.conversationId ?? null, at, at, status === 'done' ? at : null,
-      createdOn, status === 'done' ? createdOn : null,
+      createdOn, status === 'done' ? createdOn : null, input.plannedFor ?? null,
     )
     await this.db.batch([insert, this.taskEvent(id, at, createdOn, 'born', null, status)])
     if (input.tags?.length) await this.replaceTaskTags(id, input.tags)
@@ -4797,8 +4848,9 @@ export class AssistantStore {
    * This is the only door that finishes a task: `updateTask` refuses the transition to `done` so no
    * caller can move the row and leave the rhythm behind. The finished row stays: "I did write that
    * report last week" is a fact worth keeping, and a task that silently moved its own due date forward
-   * would erase it. The next one is a new row with the same content, its steps unchecked, and a due
-   * date counted from the old one.
+   * would erase it. The next one is a new row carrying the same content — its steps unchecked, its
+   * face, its pick and its files — with its due date counted from the old one, or from the completion
+   * when the old row never had one, which is when the new row gets none either.
    *
    * `expectedRev` guards the completion the same way it guards an edit, which is what lets the batch
    * bar and the route's checkbox name the revision they read: a row that moved first is refused with a
@@ -4816,19 +4868,28 @@ export class AssistantStore {
     const task = await this.applyTaskPatch(id, existing, { status: 'done' }, timeZone, expectedRev)
     if (!task) return null
     if (!existing.repeat) return { task, next: null }
-    const anchor = existing.dueAt ?? Date.now()
-    const dueAt = nextOccurrence(anchor, existing.repeat, timeZone)
+    const anchorDue = existing.dueAt
+    // The cycle is counted whether or not the finished row was owed on a day: it is also the day the
+    // next copy's pick lands on. What a task that never had a due date does not get by being
+    // finished is a due date — ticking a box is not the reader asking to be told when, and the old
+    // behaviour wrote the completion instant plus one period straight into `due_at`, so an undated
+    // task became a dated one the first time it was done.
+    const nextInstant = nextOccurrence(anchorDue ?? Date.now(), existing.repeat, timeZone)
+    const dueAt = anchorDue === null ? null : nextInstant
     // Every pending reminder keeps its distance from the due date on the next occurrence, the way the
     // single reminder used to. A task with no due date has no distance to keep, so its next copy
     // carries none: a reminder anchored to nothing is not a reminder.
-    const anchorDue = existing.dueAt
     const offsets = anchorDue === null ? [] : (existing.reminders ?? []).map((remindAt) => remindAt - anchorDue)
     // A start date is a lead time before the due date, so it travels with the occurrence: shifting the
     // due date forward without the start would make the next copy immediately actionable. A row with
     // no due date has no distance to keep, so its next copy starts undated too.
-    const startAt = existing.startAt == null || anchorDue === null
+    const startAt = anchorDue === null || existing.startAt == null
       ? null
-      : dueAt + (existing.startAt - anchorDue)
+      : nextInstant + (existing.startAt - anchorDue)
+    // A task the reader picked into a My Day stays picked. The pick is not copied over as the old
+    // date, which has already passed by definition, but re-issued for the day this cycle opens on —
+    // dated or not, since the pick is what puts an undated repeat back in front of the reader.
+    const plannedFor = existing.plannedFor === null ? null : localDate(nextInstant, timeZone)
     const steps = await this.listSteps(id)
     const next = await this.createTask({
       title: existing.title,
@@ -4836,17 +4897,44 @@ export class AssistantStore {
       priority: existing.priority,
       dueAt,
       startAt,
+      // The task's own face and its own colour: a copy that lost them wore its list's instead, so a
+      // task the reader had given an identity of its own lost it one period at a time.
+      icon: existing.icon,
+      color: existing.color,
+      plannedFor,
       projectId: existing.projectId,
       listId: existing.listId,
       starred: existing.starred,
       repeat: existing.repeat,
-      reminders: offsets.map((offset) => dueAt + offset),
+      reminders: offsets.map((offset) => nextInstant + offset),
       noteId: existing.noteId,
       conversationId: existing.conversationId,
       tags: existing.tags.map((tag) => tag.name),
       steps: steps.map((step) => step.text),
     }, timeZone)
+    // The files come with the copy as links, not as copies of the bytes: a repeating task that shows
+    // the form it fills in every week has to keep showing it, or the next copy arrives empty-handed
+    // and the reader re-uploads the same file every period.
+    await this.copyTaskAttachments(id, next.id)
     return { task, next }
+  }
+
+  /**
+   * Copies one task's file links onto another, leaving the files where they are.
+   *
+   * A link is a name, not a second copy of the bytes: both tasks then show one file, and unlinking
+   * either leaves the other's link alone (and the purge deletes by task). The select reads only this
+   * account's rows and joins the file itself, so a link whose file is already gone is not carried
+   * over onto the new task as a pointer to nothing.
+   */
+  private async copyTaskAttachments(fromId: string, toId: string): Promise<void> {
+    await this.db.prepare(
+      `INSERT INTO todos_attachments (user_id, task_id, attachment_id, created_at)
+       SELECT ?1, ?2, ta.attachment_id, ?3
+         FROM todos_attachments ta
+         JOIN attachments a ON a.id = ta.attachment_id AND a.user_id = ta.user_id
+        WHERE ta.user_id = ?1 AND ta.task_id = ?4`,
+    ).bind(this.userId, toId, Date.now(), fromId).run()
   }
 
   /** By id, or by a title match that is unambiguous: the assistant must not guess which task was meant. */
@@ -4879,8 +4967,11 @@ export class AssistantStore {
    */
   async taskCounts(dayEnd: number, today?: string): Promise<TaskCounts> {
     const now = Date.now()
-    const pickedFor = today ?? localDate(now, (await this.getSettings()).timezone)
-    const upcomingEnd = dayEnd + UPCOMING_DAYS * 24 * 60 * 60 * 1000
+    const timezone = (await this.getSettings()).timezone
+    const pickedFor = today ?? localDate(now, timezone)
+    // The badge and the list are the same window, so they take the same boundary: counted in days in
+    // the account's zone rather than as 7 × 24 hours after the day end.
+    const upcomingEnd = upcomingBoundary(dayEnd, timezone)
     const totals = await this.one<{
       inbox: number | null; today: number | null; upcoming: number | null; overdue: number | null
       open: number | null; completed: number | null; starred: number | null

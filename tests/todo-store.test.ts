@@ -1,8 +1,9 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { AssistantStore } from '../src/worker/assistant/store'
+import { listTodoAttachments } from '../src/worker/todos/schema'
 import type { Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
@@ -12,9 +13,29 @@ const OTHER = 'user-bob'
 const HOUR = 60 * 60 * 1000
 const DAY = 24 * HOUR
 
+/** Two files a task can show: the link table cares only that the rows are the account's own. */
+const FILE_A = 'a'.repeat(26)
+const FILE_B = 'b'.repeat(26)
+
 let sqlite: DatabaseSync
 let env: Env
 let store: AssistantStore
+
+/** Seeds one file and the link that puts it on a task, the way the upload route leaves both. */
+function linkFile(taskId: string, attachmentId: string): void {
+  sqlite.prepare(
+    `INSERT INTO attachments (id, user_id, scope, note_id, filename, mime, size, sha256, object_key, width, height, storage, created_at)
+     VALUES (?, ?, 'todos', NULL, ?, 'text/plain', 4, ?, ?, NULL, NULL, 'r2', 1)`,
+  ).run(attachmentId, USER, `${attachmentId}.txt`, `${attachmentId}hash`, `todos/${USER}/${attachmentId}.txt`)
+  sqlite.prepare(
+    'INSERT INTO todos_attachments (user_id, task_id, attachment_id, created_at) VALUES (?, ?, ?, 1)',
+  ).run(USER, taskId, attachmentId)
+}
+
+async function fileIdsOf(taskId: string): Promise<string[]> {
+  const rows = await listTodoAttachments(env.DB as D1Database, USER, taskId)
+  return rows.map((row) => row.id).sort()
+}
 
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
@@ -22,6 +43,11 @@ beforeEach(() => {
   sqlite.exec(SCHEMA_STATEMENTS.join(';'))
   env = testBindings(makeD1(sqlite), { PUBLIC_URL: 'http://localhost' })
   store = new AssistantStore(env.DB as D1Database, USER, env)
+})
+
+// Only the cases that count a cycle from "now" hold the clock still, and none of them leaves it held.
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('writing a task', () => {
@@ -205,6 +231,67 @@ describe('completing a task', () => {
     const task = await store.createTask({ title: 'One off' })
     const result = await store.completeTask(task.id, 'UTC')
     expect(result?.next).toBeNull()
+  })
+
+  it('carries the face, the pick and the files the finished task had', async () => {
+    const due = Date.parse('2026-10-19T09:00:00Z')
+    const task = await store.createTask({
+      title: 'Weekly review',
+      dueAt: due,
+      icon: 'lucide:Timer',
+      color: '#2563eb',
+      repeat: { freq: 'weekly', interval: 1 },
+    })
+    await store.planTask(task.id, '2026-10-19')
+    linkFile(task.id, FILE_A)
+    linkFile(task.id, FILE_B)
+
+    const next = (await store.completeTask(task.id, 'UTC'))?.next
+
+    // A copy that lost the icon the reader set wears its list's face instead, which is a different
+    // task; the same goes for the colour. Both are the task's own, so both are the copy's own.
+    expect(next).toMatchObject({ icon: 'lucide:Timer', color: '#2563eb' })
+    // The pick travels as a pick for the new occurrence's own day, not for the day the finished row
+    // was picked for: a copy wearing a date that has already passed sits in a My Day nobody reads.
+    expect(next?.plannedFor).toBe('2026-10-26')
+    // The files come along as links, not as copies of the bytes.
+    expect(next ? await fileIdsOf(next.id) : []).toEqual([FILE_A, FILE_B])
+    // A copy is not a move: the finished row still shows its own files.
+    expect(await fileIdsOf(task.id)).toEqual([FILE_A, FILE_B])
+  })
+
+  it('files the next copy of an undated repeat undated, and the chain still advances', async () => {
+    const task = await store.createTask({
+      title: 'Someday, weekly',
+      repeat: { freq: 'weekly', interval: 1 },
+    })
+
+    const result = await store.completeTask(task.id, 'UTC')
+
+    // A task that was never owed on a day does not acquire one by being finished: the next copy is
+    // filed undated, and so carries no reminder and no start, because both are distances from a due.
+    expect(result?.next).toMatchObject({ dueAt: null, startAt: null })
+    expect(result?.next?.reminders ?? []).toEqual([])
+    // The copy still repeats, so ticking it off files the one after it: no due date is a blank
+    // schedule, not a dead end.
+    const again = await store.completeTask(result!.next!.id, 'UTC')
+    expect(again?.next).not.toBeNull()
+    expect(again?.next?.dueAt).toBeNull()
+  })
+
+  it('keeps a picked undated repeat picked, for the day its next cycle opens', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-19T06:00:00Z'))
+    const task = await store.createTask({
+      title: 'Someday, weekly',
+      repeat: { freq: 'weekly', interval: 1 },
+    })
+    await store.planTask(task.id, '2026-10-19')
+
+    const next = (await store.completeTask(task.id, 'UTC'))?.next
+
+    expect(next?.dueAt).toBeNull()
+    expect(next?.plannedFor).toBe('2026-10-26')
   })
 
   it('is idempotent: completing a finished task does not clone it again', async () => {

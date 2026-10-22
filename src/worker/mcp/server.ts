@@ -15,6 +15,7 @@ import {
   REMIND_OFFSETS,
   REPEAT_FREQUENCIES,
   TASK_VIEWS,
+  TODO_TRASH_RETENTION_DAYS,
 } from '@shared/todos/model'
 import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
@@ -110,7 +111,7 @@ Work with content: Markdown is the source of truth. Use get_note_context for lin
 
 Respect access: Reads require notes:read; most writes require notes:write; moving a note to trash requires separately granted notes:trash and is reversible. A /s/<slug> URL is a public share, possibly password protected or expiring. Use get_note_share to inspect a share, and create or change public sharing only when the user explicitly asks. Read attachments in chunks; uploads have storage, quota, and rate limits. Backup tools can run existing targets but cannot reveal or change credentials. Permanent purge and account or authentication management are not exposed.
 
-Work with to-dos: The to-do family is a separate grant, not part of the note family — notes:read does not open a task, and todos:read does not open a note. list_todos, get_todo and list_todo_lists need todos:read; create_todo, update_todo and complete_todo need todos:write; delete_todo needs the separately consented todos:danger and removes the task for good. Stored dates are epoch milliseconds measured in the reader's own timezone, which a listing names; send dates as local text and a bare date means the end of that day. Completing a repeating task files its next occurrence and returns it as next, so say that new date rather than the old one. A task may reference a note by id: the to-do tools never return note text, and they name the note only when the call also holds notes:read.`
+Work with to-dos: The to-do family is a separate grant, not part of the note family — notes:read does not open a task, and todos:read does not open a note. list_todos, get_todo and list_todo_lists need todos:read; create_todo, update_todo and complete_todo need todos:write; delete_todo needs the separately consented todos:danger and moves the task to the trash, where it stays restorable for ${TODO_TRASH_RETENTION_DAYS} days before the retention sweep erases it; no MCP tool restores it. Stored dates are epoch milliseconds measured in the reader's own timezone, which a listing names; send dates as local text and a bare date means the end of that day. Completing a repeating task files its next occurrence and returns it as next, so say that new date rather than the old one. A task may reference a note by id: the to-do tools never return note text, and they name the note only when the call also holds notes:read.`
 
 const generalOutputSchema = z.object({ data: z.record(z.string(), z.unknown()) })
 const operationId = z.string().min(8).max(128).describe('Stable UUID or unique request key; reuse only for an exact retry')
@@ -1177,7 +1178,7 @@ export function createInkstoneMcpServer(options: InkstoneMcpServerOptions): McpS
     'delete_todo',
     {
       title: 'Delete to-do',
-      description: 'Remove one task and its steps for good. Requires the separately consented todos:danger; unlike a note there is no trash to restore from.',
+      description: `Delete one task: it moves to the trash, where it stays restorable for ${TODO_TRASH_RETENTION_DAYS} days until the retention sweep erases it. Requires the separately consented todos:danger. No MCP tool brings it back — the reader restores it from the app's trash, or asks the in-app assistant, whose tools are named list_trash and restore_task — so report a deleted to-do as trashed with its window, not as gone past recall.`,
       inputSchema: z.object({ operation_id: operationId, task_id: taskId }),
       outputSchema: generalOutputSchema,
       annotations: { ...writeAnnotations(true), destructiveHint: true },

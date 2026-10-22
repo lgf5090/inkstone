@@ -317,6 +317,30 @@ describe('delete needs its own consent', () => {
     expect(outcome.ok).toBe(true)
     expect(await store.getTask(task.id)).toBeNull()
   })
+
+  it('describes the trash the tool actually writes, rather than a deletion that never was', async () => {
+    // A published description is a contract with the agent reading it. This one used to promise a
+    // deletion "for good" with "no trash to restore from", while the handler has always stamped
+    // `deleted_at` and left the row restorable for the retention window — so an outside agent
+    // apologises for work the reader can still get back, and never mentions the way back.
+    const tools = await listedTools(DANGER)
+    const description = String(tools.get('delete_todo')!.description ?? '')
+    expect(description).toMatch(/trash/i)
+    expect(description).toMatch(/restor/i)
+    expect(description.toLowerCase()).not.toMatch(/for good|no trash/)
+
+    const task = await store.createTask({ title: 'Only hidden, not erased' })
+    await switchPreferences(true, true)
+    expect((await callTool(DANGER, 'delete_todo', { operation_id: 'op-delete-soft', task_id: task.id })).ok).toBe(true)
+
+    // The behaviour the description now tells: the row is stamped, every read hides it, and the
+    // trash's own door puts the same row back.
+    const row = sqlite.prepare('SELECT deleted_at FROM todos_tasks WHERE user_id = ?1 AND id = ?2')
+      .get(USER, task.id) as { deleted_at: number | null }
+    expect(row.deleted_at).not.toBeNull()
+    expect(await store.getTask(task.id)).toBeNull()
+    expect((await store.restoreTask(task.id)).task?.id).toBe(task.id)
+  })
 })
 
 describe('the answers use the model, not a second copy of it', () => {

@@ -15,13 +15,7 @@ import { Modal, confirm } from '../../components/overlay'
 import { api } from '../../lib/api'
 import { useUi } from '../../store/ui'
 import { useTodos } from './store'
-import type { TodoTask } from '@shared/todos/model'
-
-/** How many rows one page of the trash holds; the same size the listing's own pages use. */
-const TRASH_PAGE_SIZE = 100
-
-/** How long a deleted task stays restorable; the server's sweep uses the same window. */
-const TRASH_RETENTION_DAYS = 30
+import { TODO_TRASH_RETENTION_DAYS, TRASH_PAGE_SIZE, type TodoTask } from '@shared/todos/model'
 
 function failureText(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -123,7 +117,7 @@ export function TrashPanel({ open, onClose }: { open: boolean; onClose: () => vo
       open={open}
       onClose={onClose}
       title={t('todo.trash.title')}
-      description={t('todo.trash.description', { days: TRASH_RETENTION_DAYS })}
+      description={t('todo.trash.description', { days: TODO_TRASH_RETENTION_DAYS })}
       width={520}
     >
       {status === 'loading' && (
@@ -146,7 +140,7 @@ export function TrashPanel({ open, onClose }: { open: boolean; onClose: () => vo
         <ul className="m-0 list-none p-0">
           {tasks.map((task, index) => (
             <li key={task.id} className={index > 0 ? 'border-t border-[var(--border-subtle)]' : undefined}>
-              <div className="flex min-h-12 items-center gap-2 py-1.5">
+              <div data-todo-trash-row className="flex min-h-12 items-center gap-2 py-1.5">
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[length:var(--text-13)] text-[var(--text-primary)]">{task.title}</p>
                   <p className="truncate text-[length:var(--text-11)] text-[var(--text-quaternary)]">{deletedLabel(task.deletedAt)}</p>
