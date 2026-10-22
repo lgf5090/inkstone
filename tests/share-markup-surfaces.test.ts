@@ -54,6 +54,7 @@ function ruleImports(source: string): string[] {
 describe('the surfaces that hand a stranger a document', () => {
   it('finds both public pages and their markup calls, so the check cannot pass by finding nothing', () => {
     expect(publicPages().map(({ file }) => path.basename(file))).toEqual([
+      'CollectionPage.tsx',
       'ConversationSharePage.tsx',
       'SharePage.tsx',
     ])
@@ -64,13 +65,28 @@ describe('the surfaces that hand a stranger a document', () => {
    * One rule, not one of its halves. `neutralizeShareEmbeds` answers a box but leaves the handle that
    * names it, and `prepareShareSource` answers words but never sees markup: a page that reaches for
    * either one alone has published part of the promise and kept the rest.
+   *
+   * Which half a surface owes follows from what it draws. A page that renders a document owes the
+   * composed chain; a page that prints titles and excerpts as text owes the source rule. What no page
+   * may do is print an author's words without either one, so that is the assertion that stays universal
+   * while the composed-rule requirement attaches to the surfaces that actually render markup.
    */
   it('draws every document through the one composed rule', () => {
     for (const { file, source } of publicPages()) {
       const imported = ruleImports(source)
-      expect(imported, `${file} renders share markup without the composed rule`).toContain('prepareShareMarkup')
+      expect(
+        imported.length,
+        `${file} hands a stranger text without running either half of the rule`,
+      ).toBeGreaterThan(0)
       const strays = imported.filter((name) => name !== 'prepareShareMarkup' && name !== 'prepareShareSource')
       expect(strays, `${file} runs a single pass of the rule beside the composed one`).toEqual([])
+    }
+    for (const { file, source } of publicPages()) {
+      if (!/<MarkdownBody\b/.test(source)) continue
+      expect(
+        ruleImports(source),
+        `${file} renders markdown without the composed rule`,
+      ).toContain('prepareShareMarkup')
     }
     for (const { file, call } of markdownBodies()) {
       expect(call, `${file} draws a document nobody neutralised: ${call}`).toMatch(/transformHtml=\{\s*\w+\s*\}/)
@@ -113,7 +129,7 @@ describe('the surfaces that hand a stranger a document', () => {
   /** The scan above is only a guard if the pages it reads are the ones a reader can be sent to. */
   it('is reached from a public link the app still routes to', () => {
     const app = fs.readFileSync(APP, 'utf8')
-    for (const page of ['SharePage', 'ConversationSharePage']) {
+    for (const page of ['SharePage', 'ConversationSharePage', 'CollectionPage']) {
       expect(app, `${page} is no longer loaded from the share feature`)
         .toMatch(new RegExp(`import\\('\\./features/share/[A-Za-z]*${page}'\\)`))
       expect(app, `${page} is loaded but no public address mounts it`)

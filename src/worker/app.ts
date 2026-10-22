@@ -36,7 +36,7 @@ import { settingsRoutes } from './routes/settings'
 import { conversationSharePageRoutes, shareManageRoutes, sharePageRoutes, shareRoutes } from './routes/share'
 import { shareAnalyticsRoutes } from './routes/share-analytics'
 import { shareOrganizerRoutes } from './routes/share-organizer'
-import { publicCollectionRoutes, shareCollectionRoutes } from './routes/share-collections'
+import { publicCollectionPageRoutes, publicCollectionRoutes, shareCollectionRoutes } from './routes/share-collections'
 import { memosPublicPageRoutes } from './routes/memos-public'
 import { transferRoutes } from './routes/transfer'
 import { updateRoutes } from './routes/update'
@@ -195,6 +195,7 @@ export function createApp() {
 
   app.route('/s', sharePageRoutes)
   app.route('/c', conversationSharePageRoutes)
+  app.route('/collections', publicCollectionPageRoutes)
   app.route('/feeds', todoFeedRoutes)
   app.route('/memos', memosPublicPageRoutes)
   app.route('/', mcpAuthorizeRoutes)

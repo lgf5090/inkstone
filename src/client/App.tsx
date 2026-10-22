@@ -27,6 +27,9 @@ const SharePage = lazy(() =>
 const ConversationSharePage = lazy(() =>
   import('./features/share/ConversationSharePage').then((module) => ({ default: module.ConversationSharePage })),
 )
+const CollectionPage = lazy(() =>
+  import('./features/share/CollectionPage').then((module) => ({ default: module.CollectionPage })),
+)
 const MemosPublicApp = lazy(() =>
   import('./features/memos/MemosPublicApp').then((module) => ({ default: module.MemosPublicApp })),
 )
@@ -113,14 +116,20 @@ export function App() {
   // The presenter console is a second window over the same app, and it is a document that has been
   // handed a capability rather than an account session: it speaks on the BroadcastChannel and reads
   // nothing of its own. Booting the notebook here would ask it to log in to a room it is already in.
+  // A published collection is a third public document, at an address no note or conversation can
+  // answer on: it lists links rather than being one, and its reader has no account either.
+  const [collectionSlug] = useState(() => {
+    const match = /^\/collections\/([A-Za-z0-9_-]+)/.exec(location.pathname)
+    return match?.[1] ?? null
+  })
   const [isPresenter] = useState(() => new URLSearchParams(location.search).has('presenter'))
   const [memoSurface] = useState(() => classifyMemoSurface(location.pathname))
   const memoAlwaysPublic = memoSurface.kind === 'public'
 
   useEffect(() => {
-    if (shareSlug || conversationShareSlug || isPresenter || memoAlwaysPublic) return
+    if (shareSlug || conversationShareSlug || collectionSlug || isPresenter || memoAlwaysPublic) return
     void load()
-  }, [load, shareSlug, conversationShareSlug, isPresenter, memoAlwaysPublic])
+  }, [load, shareSlug, conversationShareSlug, collectionSlug, isPresenter, memoAlwaysPublic])
 
   useEffect(() => watchSystemTheme(), [])
 
@@ -130,9 +139,9 @@ export function App() {
   }, [isPresenter])
 
   useEffect(() => {
-    if ((shareSlug || conversationShareSlug || isPresenter || memoAlwaysPublic) || status !== 'loading') return
+    if ((shareSlug || conversationShareSlug || collectionSlug || isPresenter || memoAlwaysPublic) || status !== 'loading') return
     requestOfflineWarmup()
-  }, [shareSlug, conversationShareSlug, isPresenter, memoAlwaysPublic, status])
+  }, [shareSlug, conversationShareSlug, collectionSlug, isPresenter, memoAlwaysPublic, status])
 
   useEffect(() => {
     if (shareSlug || conversationShareSlug || isPresenter || memoAlwaysPublic || status !== 'loading') dismissBootScreen()
@@ -159,12 +168,12 @@ export function App() {
     )
   }
 
-  if (shareSlug || conversationShareSlug) {
+  if (shareSlug || conversationShareSlug || collectionSlug) {
     return (
       <>
         <ErrorBoundary>
           <Suspense fallback={<PageFallback />}>
-            {shareSlug ? <SharePage slug={shareSlug} /> : <ConversationSharePage slug={conversationShareSlug!} />}
+            {shareSlug ? <SharePage slug={shareSlug} /> : conversationShareSlug ? <ConversationSharePage slug={conversationShareSlug}/> : <CollectionPage slug={collectionSlug!}/>}
           </Suspense>
         </ErrorBoundary>
         <Toaster />

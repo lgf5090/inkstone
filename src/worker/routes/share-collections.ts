@@ -10,6 +10,7 @@ import { ApiError } from '../lib/errors'
 import { isValidId, isValidSlug } from '../lib/id'
 import { JSON_BODY_LIMITS, clampInt, readJson, readOptionalJson, requestClientIp } from '../lib/request'
 import { hashPassword, verifyPassword } from '../lib/password'
+import { escapeHtml } from '../lib/encoding'
 import {
   assertAttemptBudget,
   assertNotLocked,
@@ -68,6 +69,9 @@ const COLLECTION_EXPIRY_MAX_MS = 10 * 365 * 24 * 60 * 60 * 1000
 export const shareCollectionRoutes = new Hono<AppBindings>()
 
 export const publicCollectionRoutes = new Hono<AppBindings>()
+
+/** The directory's own document, mounted outside `/api` at `/collections/<slug>`. */
+export const publicCollectionPageRoutes = new Hono<AppBindings>()
 
 shareCollectionRoutes.use('*', requireAuth)
 
@@ -442,4 +446,52 @@ function rowsOf(result: { results?: unknown[] } | undefined): CollectionMemberRo
 function membersOf(result: { results?: unknown[] } | undefined): number {
   const counted = ((result?.results ?? []) as unknown) as Array<{ members: number }>
   return Number(counted[0]?.members ?? 0)
+}
+
+/**
+ * The document a published directory is read from.
+ *
+ * A separate mount from the JSON it boots with, for the same reason `/s` is separate from
+ * `/api/public`: a reader's first request has no passcode in it, and a document that 401ed would
+ * never get to show the gate. What it returns is the app shell with a title and a refusal to be
+ * indexed — nothing about the directory's contents, because the shell is what a crawler sees before
+ * any of the rules below have been answered.
+ */
+publicCollectionPageRoutes.get('/:slug', async (c) => {
+  const slug = c.req.param('slug')
+  const url = new URL(c.req.url)
+  const title = isValidSlug(slug) ? await loadCollectionPageTitle(c.env.DB, slug) : null
+  return renderCollectionShell(c, url, title)
+})
+
+/**
+ * The heading a directory's document may carry, or null when it may not carry one.
+ *
+ * A passcode-guarded, paused or expired directory answers with no title at all: the owner named it,
+ * and a link preview would hand that name to whoever the passcode was keeping out.
+ */
+async function loadCollectionPageTitle(db: D1Database, slug: string): Promise<string | null> {
+  const collection = await findCollectionBySlug(db, slug)
+  if (!collection || collection.is_enabled === 0) return null
+  if (collection.expires_at && collection.expires_at < Date.now()) return null
+  if (collection.password_hash) return null
+  return collection.title
+}
+
+async function renderCollectionShell(c: Context<AppBindings>, url: URL, title: string | null) {
+  const shell = await c.env.ASSETS.fetch(new Request(new URL('/index.html', url.origin)))
+  if (!shell.ok) return shell
+  let html = await shell.text()
+  const siteName = c.env.APP_NAME || 'Inkstone'
+  const heading = title?.trim() || 'A shared collection'
+  const tags = [
+    `<title>${escapeHtml(heading)} · ${escapeHtml(siteName)}</title>`,
+    `<meta property="og:type" content="website" />`,
+    `<meta property="og:title" content="${escapeHtml(heading)}" />`,
+    `<meta property="og:site_name" content="${escapeHtml(siteName)}" />`,
+    `<meta name="twitter:card" content="summary" />`,
+    `<meta name="robots" content="noindex, nofollow" />`,
+  ].join('\n    ')
+  html = html.replace(/<title>[\s\S]*?<\/title>/i, '').replace('</head>', `    ${tags}\n  </head>`)
+  return c.html(html, 200, { 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' })
 }

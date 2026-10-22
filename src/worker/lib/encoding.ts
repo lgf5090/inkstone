@@ -58,3 +58,20 @@ export async function sha256Hex(input: string | Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', data as BufferSource)
   return toHex(digest)
 }
+
+/**
+ * The five markup metacharacters, for a string headed into an HTML document.
+ *
+ * The share shells interpolate a note title into `<title>` and an `og:title` attribute, and a title is
+ * author text: without this a title of `</title><script>` would close the tag the server just opened.
+ * It lives here rather than beside each shell because three routes needed the same rule and a route may
+ * not import another one.
+ */
+export function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}

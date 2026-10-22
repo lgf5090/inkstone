@@ -10,14 +10,14 @@ import { Hono } from 'hono'
 import { describe, expect, it } from 'vitest'
 import { collectionChannelToken, normalizeChannelToken } from '@shared/share-channel'
 import { resolveShareTarget } from '@shared/share-selection'
-import type { AppBindings, Env } from '../env'
-import { SCHEMA_STATEMENTS } from '../db/schema'
-import { errorResponse } from '../lib/errors'
-import { newId, newSlug } from '../lib/id'
-import { hashPassword } from '../lib/password'
-import { SHARE_HUB_SCHEMA_STATEMENTS } from './hub-schema'
-import { serializeShareTags } from './store'
-import { shareSelectionSql } from './selection-sql'
+import type { AppBindings, Env } from '../src/worker/env'
+import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
+import { errorResponse } from '../src/worker/lib/errors'
+import { newId, newSlug } from '../src/worker/lib/id'
+import { hashPassword } from '../src/worker/lib/password'
+import { SHARE_HUB_SCHEMA_STATEMENTS } from '../src/worker/share/hub-schema'
+import { serializeShareTags } from '../src/worker/share/store'
+import { shareSelectionSql } from '../src/worker/share/selection-sql'
 import {
   MAX_MANUAL_COLLECTION_MEMBERS,
   collectionMemberConditions,
@@ -34,8 +34,8 @@ import {
   toShareCollection,
   type CollectionMemberRow,
   type ShareCollectionRow,
-} from './collections'
-import { publicCollectionRoutes, shareCollectionRoutes } from '../routes/share-collections'
+} from '../src/worker/share/collections'
+import { publicCollectionRoutes, shareCollectionRoutes } from '../src/worker/routes/share-collections'
 
 const OWNER = 'owner-account'
 const OTHER = 'other-account'
