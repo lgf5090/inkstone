@@ -164,6 +164,9 @@ const allowed = new Map([
     "// import is promise work, and it should not be made to wait on a clock this test controls.",
     "// The panel takes focus on its own: it appears under a reader who was looking at nothing.",
     "/** The same slot's other answer: the update that never arrived. */",
+    "// The two Templater bridges App mounts read their rows off the settings, so a stub without them is a",
+    "// shell that cannot render — and the defaults are the real ones rather than a hand-made shape, so this",
+    "// cannot drift from what the store actually resolves.",
   ]],
   ["src/client/App.tsx", [
     "// The presenter console is a second window over the same app, and it is a document that has been",
@@ -20946,6 +20949,10 @@ const allowed = new Map([
     "/**\n * The title a body edit just declared for itself, or null to leave the note's\n * title alone. Only a *change* in the front matter `title` counts: comparing\n * against the previous content is what stops a note whose title was renamed\n * while the property stayed behind from snapping back on the next keystroke.\n */",
     "/** The folder a new note belongs to, given the view the reader is looking at. */",
   ]],
+  ["src/client/store/note-templates.test.ts", [
+    "// One icon per built-in category, and the count is the catalog's own length rather than a second number",
+    "// to remember: a new category has to come with an icon and a colour to keep this true.",
+  ]],
   ["src/client/store/note-templates.ts", [
     "/** Coordinates the client-side template library: built-in seeding, categories and CRUD. */",
     "/** Everything a destructive action can take away, kept so one toast button can give it back. */",
@@ -21477,6 +21484,7 @@ const allowed = new Map([
     "/* WCAG 2.5.8's floor for *any* pointer: 24 by 24 CSS pixels. A control painted smaller than this\n     keeps its drawn size and gains the missing area from an invisible overlay (`.ink-tap-pad`), so a\n     dense row stays dense and is still tappable. */",
     "/* ── The reader's type, on one setting for both surfaces they read on ──────────────────────────\n     `settings → appearance → body text size` writes `--prose-size` on the document element, and the note\n     preview has always read it. An assistant answer is the same prose in a narrower column, so it takes the\n     same step down the scale rather than a second size nobody can find: `.ink-chat-prose` used to carry a\n     literal `--text-13`, which meant a reader who raised their text size for the notebook still read the\n     assistant at 13px. The gap between the two is its own named step, not arithmetic in a stylesheet.\n     `--chat-line` is the same trick in the other direction: it is the dense leading until the density\n     selector below says otherwise, and it is the only thing density moves here — a reader's line height,\n     measure and size stay theirs to set. */",
     "/* Interface density is one attribute on the document element, written by `syncAppearanceToDom` from the\n   reader's own setting, and this is the only place a density value is allowed to live: a rule that reaches\n   for a pixel per surface is a second setting under the first. Compact tightens the leading the chat is\n   read at — the rows of the note list already answer it in code — and stops there, because font size, line\n   height and measure are three settings a reader moves by hand and density must not quietly move again.\n   Nothing here is eased: a re-read of the same text at a new leading has to be instant, and an animation\n   of it would be one more thing a reader who asked for reduced motion had to sit through. */",
+    "/* The warning's own wash, same recipe as the accent's: `--warning` is per scheme and per accent\n     theme, so a fixed colour here would be wrong in one of them. Only the text on it is chosen to\n     clear AA — `--warning` on `--bg-raised` is not measured, so a badge never relies on colour alone\n     to say what it means. */",
   ]],
   ["src/client/types/hover-card.ts", [
     "/** The destination exactly as the note wrote it, truncated for display. */",
@@ -22219,6 +22227,13 @@ const allowed = new Map([
     "// the app's own templates interpolate `{{title}}`, while a Templater template asks the engine with",
     "// `tp.file.title`. A Templater body run through the create path is never pre-interpolated, so writing",
     "// `{{title}}` into one would leave those eight characters in the reader's note.",
+    "// Two separate failures would show up here: the exporter interpolating the old `{{…}}` syntax on the",
+    "// way out, or a JSON round trip mangling the angle brackets and the backslash-free quotes.",
+    "// Built-ins are re-seeded from the code, so exporting them would duplicate them on import; a *user*",
+    "// template that happens to sit in that category is the reader's own and must survive.",
+    "// The clamp used to be invisible: a Templater body cut mid-command imports as a template that prints",
+    "// `<% …` forever, and the dialog reported a clean import. `truncated` is the flag the import UI and the",
+    "// save route already refuse on.",
   ]],
   ["src/shared/note-templates.ts", [
     "/**\n * Built-in template library catalog.\n *\n * The gallery is seeded per user from this catalog on first run. Names,\n * descriptions and Markdown bodies live in the locale resources (one entry per\n * language), so the catalog only references message keys. Bump\n * `TEMPLATE_SEED_VERSION` when adding or changing built-in entries: hydration\n * merges the missing/updated entries into existing user libraries without\n * touching user-created templates or user edits.\n */",
@@ -22236,6 +22251,10 @@ const allowed = new Map([
     "// snapshot is the user's library, so it round-trips the marks unchanged.",
     "// The Templater examples are teaching bodies: each one is small and shows one part of the syntax, so a",
     "// reader who has never written a `<% %>` can run it, see what changed, and find the line responsible.",
+    "// A body the reader wrote is code once Templater is in the library, and a command cut in half imports as",
+    "// a template that prints `<% …` forever. The clamp is the right size limit to keep — it is what stops one",
+    "// paste filling the store — but it may not be silent: `truncated` is the flag the import dialog and the",
+    "// save route already refuse on.",
   ]],
   ["src/shared/omnisearch-query.test.ts", [
     "// A half-typed qualifier has no value to filter on, so it searches as the literal.",

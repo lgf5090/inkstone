@@ -473,6 +473,11 @@
   --accent-contrast: oklch(99% 0 0);
   --accent-soft: color-mix(in oklab, var(--accent) 14%, transparent);
   --accent-softer: color-mix(in oklab, var(--accent) 7%, transparent);
+  /* The warning's own wash, same recipe as the accent's: `--warning` is per scheme and per accent
+     theme, so a fixed colour here would be wrong in one of them. Only the text on it is chosen to
+     clear AA — `--warning` on `--bg-raised` is not measured, so a badge never relies on colour alone
+     to say what it means. */
+  --warning-softer: color-mix(in oklab, var(--warning) 12%, transparent);
   /* Text drawn on the accent's own tint. The accent itself does not clear AA on a 14% wash of
      itself for five of the seven accents in the light theme nor for cinnabar in the dark one,
      so this defaults to the accent and only those pairings override it below;

@@ -388,6 +388,7 @@ describe('folder row menu', () => {
         expect(labels(scope)).toEqual([
             t('sidebar.rename'),
             t('sidebar.create_new_note_here'),
+            t('templater.cmd.create'),
             t('sidebar.create_new_drawing_here'),
             t('sidebar.create_new_mindmap_here'),
             t('sidebar.new_subfolder'),
@@ -414,6 +415,7 @@ describe('folder row menu', () => {
             expect(labels(scope)).toEqual([
                 t('sidebar.rename'),
                 t('sidebar.create_new_note_here'),
+                t('templater.cmd.create'),
                 t('sidebar.create_new_drawing_here'),
             t('sidebar.create_new_mindmap_here'),
                 t('sidebar.new_subfolder'),
