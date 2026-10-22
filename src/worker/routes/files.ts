@@ -33,6 +33,15 @@ export const filesRoutes = new Hono<AppBindings>()
 // an unfinished scan here only withholds one asset, which is the safe direction.
 const SHARE_ASSET_SCAN_LIMITS = { maxDepth: 2, maxChars: 200_000 }
 
+// An owner re-reading their own attachment is the one cache that can be trusted to stay valid: the
+// bytes behind an id never change, and the reader is the only party that can delete them.
+const OWNER_ATTACHMENT_CACHE = 'private, max-age=31536000, immutable'
+
+// A share grant, however, is revocable — rotating the share password is documented to cut old asset
+// sessions off at once, and a year-long cache in the visitor's browser would outlive both the
+// rotation and the share itself. Same reasoning as the memos file route.
+const SHARE_ATTACHMENT_CACHE = 'private, no-store'
+
 function readShareAttachmentIds(content: string): string[] {
   return extractAttachmentIds(content, SHARE_ASSET_SCAN_LIMITS)
 }
@@ -132,7 +141,8 @@ filesRoutes.get('/:id', async (c) => {
   if (!row) throw ApiError.notFound('Attachment not found')
 
   const userId = c.get('userId')
-  let allowed = Boolean(userId && userId === row.user_id)
+  const owner = Boolean(userId && userId === row.user_id)
+  let allowed = owner
   if (!allowed && isValidSlug(shareSlug)) {
     const share = await shareForAsset(c.env.DB, shareSlug, row.user_id)
     allowed = Boolean(
@@ -149,21 +159,24 @@ filesRoutes.get('/:id', async (c) => {
   }
   if (!allowed) throw ApiError.unauthenticated('You do not have access to this attachment')
 
+  const cacheControl = owner ? OWNER_ATTACHMENT_CACHE : SHARE_ATTACHMENT_CACHE
   const etag = `"${row.sha256}"`
   const ifNoneMatch = c.req.header('if-none-match')
-  if (ifNoneMatch && matchesETag(ifNoneMatch, row.sha256)) {
+  // Conditional revalidation only means something for a response the reader is allowed to keep, so
+  // the share path answers the bytes every time rather than a 304 backed by a cache it must not have.
+  if (owner && ifNoneMatch && matchesETag(ifNoneMatch, row.sha256)) {
     return new Response(null, {
       status: 304,
       headers: {
         'ETag': etag,
-        'Cache-Control': 'private, max-age=31536000, immutable',
+        'Cache-Control': cacheControl,
       },
     })
   }
 
   const headers = new Headers({
     'Content-Type': row.mime,
-    'Cache-Control': 'private, max-age=31536000, immutable',
+    'Cache-Control': cacheControl,
     'ETag': etag,
     'Content-Disposition': `${isInlineSafe(row.mime) ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeContentDispositionFilename(row.filename)}`,
     'X-Content-Type-Options': 'nosniff',
