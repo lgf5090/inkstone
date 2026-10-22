@@ -137,18 +137,24 @@ export class AttachmentsStore {
       .first<AttachmentRow>()
   }
 
-  /** One keyset page of the account's files, newest first, with whether another page follows. */
+  /**
+   * One keyset page of the notebook's files, newest first, with whether another page follows.
+   *
+   * Narrowed to `scope = 'notes'` because task uploads share this table: without it the notebook's
+   * own listing shows files a task is holding, and the reader can delete one from a screen that
+   * never tells them a task will lose it.
+   */
   async listPage(cursor: AttachmentListCursor | null): Promise<AttachmentListPage> {
     const statement = cursor
       ? this.db.prepare(
           `SELECT ${ATTACHMENT_LIST_COLUMNS}
-             FROM attachments WHERE user_id = ?1
+             FROM attachments WHERE user_id = ?1 AND scope = 'notes'
               AND (created_at < ?2 OR (created_at = ?2 AND id < ?3))
             ORDER BY created_at DESC, id DESC LIMIT ?4`,
         ).bind(this.userId, cursor.createdAt, cursor.id, ATTACHMENT_LIST_PAGE_SIZE + 1)
       : this.db.prepare(
           `SELECT ${ATTACHMENT_LIST_COLUMNS}
-             FROM attachments WHERE user_id = ?1
+             FROM attachments WHERE user_id = ?1 AND scope = 'notes'
             ORDER BY created_at DESC, id DESC LIMIT ?2`,
         ).bind(this.userId, ATTACHMENT_LIST_PAGE_SIZE + 1)
     const { results } = await statement.all<AttachmentRow>()

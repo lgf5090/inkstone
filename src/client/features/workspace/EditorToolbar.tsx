@@ -1,6 +1,6 @@
 import { useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { EditorView } from '@codemirror/view';
-import { Blocks, Bold, Braces, CaseUpper, CheckSquare, ChevronDown, Code, FileText, Heading, Highlighter, Image as ImageIcon, Italic, Link2, List, ListOrdered, ListTodo, MoveVertical, Paperclip, Quote, Sigma, Smile, Sparkles, Strikethrough, Table, Type, Underline, Wand2, WandSparkles } from 'lucide-react';
+import { Blocks, Bold, Braces, CaseUpper, CheckSquare, ChevronDown, Code, FileText, Heading, Highlighter, Image as ImageIcon, Italic, Link2, List, ListOrdered, ListTodo, MoveVertical, Quote, Sigma, Smile, Sparkles, Strikethrough, Table, Type, Underline, Wand2, WandSparkles } from 'lucide-react';
 import { IconButton } from '../../components/primitives';
 import { Menu, Tooltip } from '../../components/overlay';
 import { cn } from '../../lib/cn';
@@ -201,10 +201,6 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
       <Divider />
       {menuButton('reference', <Link2 size={14}/>, { label: t('workspace.link'), combo: editorCombo('link'), onClick: () => run(insertLink()) })}
       {menuButton('image', <ImageIcon size={14}/>, { label: t('workspace.upload_image'), onClick: pickImage })}
-      {/* The hub, not another upload: from here the reader picks a file the notebook already holds,
-          and the hub's own insert writes it in. Kept beside the image control because that is where
-          the row stops formatting text and starts placing things. */}
-      <ToolButton label={t('attachments.manage')} onClick={() => useUi.getState().setAttachmentHub('notes')}><Paperclip size={14}/></ToolButton>
       {menuButton('note', <FileText size={14}/>)}
       {showEmoji && (<ToolButton buttonRef={emojiRef} label={t('emoji.insert')} combo={APP_SHORTCUTS.emoji} expanded={emojiOpen} popup="dialog" onClick={() => {
                 if (isEmojiPickerOpen())

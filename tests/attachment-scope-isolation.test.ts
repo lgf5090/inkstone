@@ -257,7 +257,28 @@ describe('the hub’s sweep, per scope', () => {
   })
 })
 
+describe('the notebook’s own file listing', () => {
+  it('shows its files and not the ones a task is holding', async () => {
+    const uploaded = await uploadTaskFile(TASK, 'task-only.txt')
+    const { attachment } = (await uploaded.json()) as { attachment: { id: string } }
+    insertAttachmentRow({
+      id: id(63),
+      userId: USER,
+      scope: 'notes',
+      noteId: null,
+      filename: 'mine.txt',
+      objectKey: `notes/${USER}/${id(63)}.txt`,
+    })
+
+    const listed = await get('/api/files')
+    const { files } = (await listed.json()) as { files: Array<{ id: string }> }
+    expect(files.map((file) => file.id)).toContain(id(63))
+    expect(files.map((file) => file.id)).not.toContain(attachment.id)
+  })
+})
+
 describe('object keys', () => {
+
   it('writes a new file under its scope prefix', async () => {
     const uploaded = await uploadTaskFile(TASK, 'prefixed.txt')
     const { attachment } = (await uploaded.json()) as { attachment: { id: string } }

@@ -1,7 +1,7 @@
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { EditorView } from '@codemirror/view';
-import { ArrowLeft, Columns2, Download, Eye, FileCode, FileDown, FileText, FolderClosed, Hash, History, Link as LinkIcon, ListTree, MoreHorizontal, PanelRightClose, Pencil, Plus, Presentation, Share2, Sparkles, Star, Waypoints, X, } from 'lucide-react';
+import { ArrowLeft, Columns2, Download, Eye, FileCode, FileDown, FileText, FolderClosed, Hash, History, Link as LinkIcon, ListTree, MoreHorizontal, PanelRightClose, Paperclip, Pencil, Plus, Presentation, Share2, Sparkles, Star, Waypoints, X, } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { insertRenderedTemplate } from '../../editor/commands';
 import { api } from '../../lib/api';
@@ -638,6 +638,11 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
           <Tooltip label={note.isStarred ? t("common.remove_from_favorites") : t("navigation.favorites")} combo={APP_SHORTCUTS.star}>
             <IconButton label={note.isStarred ? t("common.remove_from_favorites") : t("navigation.favorites")} size="sm" active={note.isStarred} onClick={() => void patchNote(note.id, { isStarred: !note.isStarred })}>
               <Star size={14} className={note.isStarred ? 'fill-current' : undefined}/>
+            </IconButton>
+          </Tooltip>
+          <Tooltip label={t("attachments.manage")}>
+            <IconButton label={t("attachments.manage")} size="sm" onClick={() => useUi.getState().setAttachmentHub('notes')}>
+              <Paperclip size={14}/>
             </IconButton>
           </Tooltip>
           <Tooltip label={t("common.backlinks")}>
