@@ -1,38 +1,38 @@
 /**
- * Which engine a library template is handed to.
+ * The gallery's handle on the template shell, and the badge that says which syntax a body is written in.
  *
- * The gallery grew up rendering `{{title}}` itself, and that path is still what an old template needs — a
- * Templater body sent through it comes back with its `<% … %>` commands left as literal text in the reader's
- * note, which is the defect this file exists to prevent. The two renderers are not interchangeable and there
- * is no migration: `detectEngine` reads the body, and the answer decides the route.
+ * Two separate jobs, and the second one is why `isTemplaterTemplate` is exported at all: a card's badge and
+ * the library's filters have to agree with each other, so they read one judgement rather than each carrying
+ * its own copy of the pattern.
  *
- * The Templater half is imported dynamically rather than statically. The engine is a QuickJS wasm binary
- * behind a worker, and a gallery card must not be the reason a reader downloads it — `tests/templater-offline-footprint.test.ts`
- * is what notices if this indirection goes away.
+ * The first job is indirection, not routing. The engine is a QuickJS wasm binary behind a worker, and pressing
+ * a card must not be the reason a reader downloads it, so everything past these two functions arrives through
+ * a dynamic import — `tests/templater-offline-footprint.test.ts` is what notices if that goes away. Which of
+ * the two renderers a body needs is decided one level down, in `run-shell.ts`, so that a card, a chord, a
+ * command and the file-creation trigger cannot give the same template four different answers.
  */
 import { detectEngine } from '../../lib/templater/detection'
 import type { NoteTemplate } from '@shared/types'
 
-/** Whether the Templater engine, and only it, can render this body. */
+/** Whether this body is written in Templater's syntax — the badge, the filter, and the QuickAdd warning. */
 export function isTemplaterTemplate(template: NoteTemplate): boolean {
   return detectEngine(template.content) === 'templater'
 }
 
 /**
- * Make one new note with the engine.
+ * Make one new note from a library template, whichever syntax it is written in.
  *
- * Returns whether a note was made, which is the shape every caller here wants: the legacy path answers with
- * a note id and the engine with a boolean, and none of them can use the id — they close a dialog or say
- * nothing.
+ * Returns whether a note was made, which is the shape every caller here wants: the note's own id means nothing
+ * to a panel that closes itself, and a refusal is already on screen as a toast the shell raised.
  */
 export async function createNoteWithEngine(template: NoteTemplate, folderId: string | null): Promise<boolean> {
   const shell = await import('../templater/run-shell')
-  // An empty title means "whatever the template's own commands produce", which is upstream's behaviour for
+  // An empty title means "whatever the template's own name says", which is upstream's behaviour for
   // `create_new` and this app's behaviour for the picker; a caller that knows the name passes it in.
   return shell.createNoteFromTemplate(template, { folderId, title: '' })
 }
 
-/** Splice one template into the note the reader is looking at, with the engine. */
+/** Splice one library template into the note the reader is looking at. */
 export async function insertNoteWithEngine(template: NoteTemplate): Promise<boolean> {
   const shell = await import('../templater/run-shell')
   return shell.insertTemplateIntoActiveNote(template)

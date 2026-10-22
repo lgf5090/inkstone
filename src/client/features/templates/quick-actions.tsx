@@ -3,8 +3,7 @@ import { LayoutTemplate, Star } from 'lucide-react';
 import type { NoteTemplate } from '@shared/types';
 import { IconButton } from '../../components/primitives';
 import { Menu, Tooltip, type MenuItem } from '../../components/overlay';
-import { createNoteFromTemplate } from '../../lib/template-notes';
-import { createNoteWithEngine, isTemplaterTemplate } from './template-engine';
+import { createNoteWithEngine } from './template-engine';
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { t } from '../../lib/i18n';
 import { useSession } from '../../store/session';
@@ -47,9 +46,7 @@ export function favoriteTemplateItems(templates: NoteTemplate[], folderId?: stri
         id: template.id,
         label: template.name,
         icon: <LayoutTemplate size={13}/>,
-        onSelect: () => void (isTemplaterTemplate(template)
-            ? createNoteWithEngine(template, folderId ?? null)
-            : createNoteFromTemplate(template, folderId ? { folderId } : {}).then((id) => id !== null)),
+        onSelect: () => void createNoteWithEngine(template, folderId ?? null),
     }));
 }
 

@@ -22,6 +22,10 @@
  * - **the note the reader is looking at is the note the run reads.** The body comes from the editor that is
  *   showing it, so an unsaved keystroke is in what the template sees and in what the write is guarded
  *   against. A run with no such editor is refused here rather than answered from a stale row.
+ * - **a body is rendered by the syntax it is written in.** The library holds two: `{{title}}` is this app's
+ *   older placeholder form, which the engine does not know, and `<% … %>` is Templater's. Each door asks
+ *   `detectEngine` first, so a placeholder template bound to a chord produces the same text it does from a
+ *   gallery card instead of dropping `{{title}}` into the reader's note.
  */
 import type { Note, NoteTemplate } from '@shared/types'
 import type { MessageKey } from '@shared/locales/en-US'
@@ -33,12 +37,16 @@ import { templaterErrorText, type TemplaterErrorCode } from '../../lib/templater
 import { virtualBasename, virtualFolderSegment, virtualNoteName } from '../../lib/templater/context/file-wrapper'
 import {
   runTemplateOnNote,
+  writeCode,
   type RunTemplateInput,
   type RunTemplatePorts,
   type RunTemplateResult,
 } from '../../lib/templater/host/run-template'
 import { WRITE_NOTICE_MESSAGES } from '../../lib/templater/host/write'
-import { libraryRows, storeUserScriptPort } from '../../lib/templater/host/store-port'
+import { libraryRows, storeUserScriptPort, storeWriteBody } from '../../lib/templater/host/store-port'
+import { detectEngine } from '../../lib/templater/detection'
+import { renderNewNoteTemplate, type NewNoteContext } from '@shared/note-template-render'
+import { createNoteFromTemplate as createNoteWithPlaceholders } from '../../lib/template-notes'
 import { confirm } from '../../components/overlay'
 import { api } from '../../lib/api'
 import { folderPath } from '../../lib/folders'
@@ -133,6 +141,69 @@ function refuseTarget(reason: TargetRefusal): false {
 }
 
 /**
+ * Whether this body is the engine's to interpret at all.
+ *
+ * The template library holds two syntaxes and nothing in a row says which one it is: `{{title}}` is this app's
+ * older placeholder form, which the engine does not know, and `<% … %>` is Templater's. A body with no command
+ * in it still reaches a working engine — it just comes back with the reader's own `{{title}}` printed in the
+ * note, which looks exactly like a broken template. So every door below asks this question first.
+ */
+function isEngineBody(template: NoteTemplate): boolean {
+  return detectEngine(template.content) === 'templater'
+}
+
+/** The three things the older placeholders answer to, read off the note the output is going into. */
+function placeholderContext(note: Pick<Note, 'title' | 'folderId' | 'tags'>): NewNoteContext {
+  const folders = useNotes.getState().folders
+  const folder = note.folderId === null ? null : folders.find((item) => item.id === note.folderId) ?? null
+  return {
+    title: note.title || t('common.new_note'),
+    folder: folder?.name ?? '',
+    tags: (note.tags ?? []).join(', '),
+  }
+}
+
+/**
+ * Splice a `{{…}}` template into the note the reader is looking at, without the engine.
+ *
+ * This is the gallery's own insert path — the caret marker, the one-transaction undo in the editor, the toast
+ * — reached from the door instead of from the card, so the same body answers the same way whichever way it was
+ * asked for. An empty render is the template having nothing to say, not a failure to report.
+ */
+function insertPlaceholders(template: NoteTemplate, note: Note): boolean {
+  const rendered = renderNewNoteTemplate(template.content, placeholderContext(note))
+  if (rendered.content === '') return false
+  useUi.getState().requestTemplateInsert({ noteId: note.id, content: rendered.content, cursor: rendered.cursor })
+  useUi.getState().toast({ title: t('templates.inserted_into_note'), tone: 'success' })
+  return true
+}
+
+/**
+ * Replace a note's whole body with a `{{…}}` template's output.
+ *
+ * The engine is deliberately not asked to render the interpolated text: a body that quotes `<% … %>` inside a
+ * code fence is data the reader wrote, and parsing what a renderer just produced would turn that quote into a
+ * command. The write goes through the same guarded body port the engine's own writes use, so the on-screen
+ * buffer race and the refusal it can produce are the same rules, told in the same words.
+ */
+async function replaceWithPlaceholders(template: NoteTemplate, note: Note, success: MessageKey): Promise<boolean> {
+  const rendered = renderNewNoteTemplate(template.content, placeholderContext(note))
+  const outcome = await storeWriteBody(note.id, rendered.content, note)
+  if (!outcome.ok) {
+    useUi.getState().toast({ title: templaterErrorText({ code: writeCode(outcome.reason) }, t), tone: 'danger' })
+    return false
+  }
+  useUi.getState().toast({ title: t(success), tone: 'success' })
+  // `{{ai: …}}` is a request, and like the gallery's create path it is answered after the note holds the text
+  // around it. The chat module arrives on demand, so a template with no slot never pays for it.
+  if (rendered.aiSlots.length > 0) {
+    const { startTemplateSlotFill } = await import('../chat/template-fill')
+    startTemplateSlotFill(note.id, rendered.aiSlots)
+  }
+  return true
+}
+
+/**
  * One run, from the rows the page holds to the toast the reader gets.
  *
  * The success line is chosen by the caller rather than read off the plan's kind, because `discard` is a
@@ -213,6 +284,7 @@ async function scriptContext(
 export async function insertTemplateIntoActiveNote(template: NoteTemplate): Promise<boolean> {
   const ready = readyTarget()
   if (typeof ready === 'string') return refuseTarget(ready)
+  if (!isEngineBody(template)) return insertPlaceholders(template, ready.row)
   return run(
     { ...contextFor('append-active', ready.row, ready.row, ready.selection), template: { kind: 'library', row: template } },
     'templates.inserted_into_note',
@@ -229,6 +301,7 @@ export async function insertTemplateIntoActiveNote(template: NoteTemplate): Prom
 export async function replaceActiveNoteWithTemplate(template: NoteTemplate): Promise<boolean> {
   const ready = readyTarget()
   if (typeof ready === 'string') return refuseTarget(ready)
+  if (!isEngineBody(template)) return replaceWithPlaceholders(template, ready.row, 'templater.replaced_note')
   return run(
     { ...contextFor('overwrite-active', ready.row, ready.row, null), template: { kind: 'library', row: template } },
     'templater.replaced_note',
@@ -252,6 +325,15 @@ export interface CreateDestination {
  * into two folders nobody asked for.
  */
 export async function createNoteFromTemplate(template: NoteTemplate, destination: CreateDestination): Promise<boolean> {
+  if (!isEngineBody(template)) {
+    // The legacy helper owns its own notice and its own placement rules; the boolean is all the difference
+    // between the two answers, and every caller here only uses that.
+    const made = await createNoteWithPlaceholders(template, {
+      ...(destination.folderId === null ? {} : { folderId: destination.folderId }),
+      title: destination.title,
+    })
+    return made !== null
+  }
   const base = virtualBasename(destination.title.trim() || template.name)
   if (base === '') return refuseName()
   const folders = useNotes.getState().folders
@@ -280,6 +362,7 @@ export async function createNoteFromTemplate(template: NoteTemplate, destination
  * point of this run.
  */
 export async function applyTemplateToCreatedNote(template: NoteTemplate, note: Note): Promise<boolean> {
+  if (!isEngineBody(template)) return replaceWithPlaceholders(template, note, 'templater.applied_to_new_note')
   return run(
     { ...contextFor('overwrite-file', note, await activeRow(), null), template: { kind: 'library', row: template } },
     'templater.applied_to_new_note',

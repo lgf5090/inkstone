@@ -107,8 +107,8 @@ async function readBody(id: string): Promise<Note | null> {
   }
 }
 
-async function writeBody(id: string, content: string, expected: Note): Promise<PageHostWrite> {
-  const buffer = useNotes.getState().contents[id]
+/** The one guarded body write in this layer: exported for the shell's non-engine route, which needs it too. */
+export async function storeWriteBody(id: string, content: string, expected: Note): Promise<PageHostWrite> {  const buffer = useNotes.getState().contents[id]
   if (onScreen(id) && typeof buffer === 'string') {
     // The reader may have typed since the host read the note; that is the race, and the buffer wins.
     if (buffer !== expected.content) return refused('conflict')
@@ -340,7 +340,7 @@ export function storePageHostPorts(nested: PageHostDeps['nested']): PageHostDeps
     indexCache: createNoteIndexCache({ version: () => libraryVersion(libraryRows()) }),
     notes: {
       read: readBody,
-      write: writeBody,
+      write: storeWriteBody,
       update: updateRow,
       create: createRow,
       remove: removeRow,

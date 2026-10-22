@@ -324,7 +324,7 @@ function reported(
 }
 
 /** The data layer's three refusals, each named with the code a reader can be told about. */
-function writeCode(reason: PageHostFailure): TemplaterErrorCode {
+export function writeCode(reason: PageHostFailure): TemplaterErrorCode {
   if (reason === 'conflict') return 'note-conflict'
   if (reason === 'not-found') return 'note-not-found'
   return 'render-failed'

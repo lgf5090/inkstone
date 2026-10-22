@@ -2,9 +2,7 @@ import { useCallback } from 'react'
 import type { CommunityTemplate, NoteTemplate, NoteTemplateCategory } from '@shared/types'
 import type { MessageKey } from '@shared/locales/en-US'
 import { TEMPLATE_IMPORT_LIMITS } from '@shared/note-templates'
-import { interpolateNewNoteTemplate } from '@shared/note-template-render'
-import { createNoteFromTemplate } from '../../lib/template-notes'
-import { createNoteWithEngine, insertNoteWithEngine, isTemplaterTemplate } from './template-engine'
+import { createNoteWithEngine, insertNoteWithEngine } from './template-engine'
 import { peekNoteContent } from '../preview/card-content'
 import { useNotes } from '../../store/notes'
 import { templateOrderValue, useNoteTemplates } from '../../store/note-templates'
@@ -57,32 +55,12 @@ export function useGalleryNoteBridge(state: GalleryLocalState, onClose: () => vo
     })()
   }, [activeNoteId, activeTitle, setSavingNote])
   const insertActiveNote = useCallback((template: NoteTemplate) => {
-    if (isTemplaterTemplate(template)) {
-      // The engine's own insert path: it reads the note the reader is looking at through the mounted editor,
-      // refuses when there is none, and queues the caret groups this legacy path could not express.
-      void (async () => {
-        if (await insertNoteWithEngine(template))
-          onClose()
-      })()
-      return
-    }
-    const notes = useNotes.getState()
-    const id = useUi.getState().activeNoteId
-    const summary = id ? notes.notes[id] : null
-    if (!id || !summary) {
-      useUi.getState().toast({ title: t('templates.no_note_to_insert_into'), tone: 'danger' })
-      return
-    }
-    const folder = summary.folderId ? notes.folders.find((item) => item.id === summary.folderId) : null
-    const rendered = interpolateNewNoteTemplate(template.content, {
-      title: summary.title || t('common.new_note'),
-      folder: folder?.name ?? '',
-      tags: (summary.tags ?? []).join(', '),
-    })
-    if (!rendered.content) return
-    useUi.getState().requestTemplateInsert({ noteId: id, content: rendered.content, cursor: rendered.cursor })
-    useUi.getState().toast({ title: t('templates.inserted_into_note'), tone: 'success' })
-    onClose()
+    // One call for both syntaxes: `run-shell.ts` is where a body is read as the syntax it is written in, so
+    // the card and the chord cannot give the same template two different answers.
+    void (async () => {
+      if (await insertNoteWithEngine(template))
+        onClose()
+    })()
   }, [onClose])
   return { saveActiveNoteAsTemplate, insertActiveNote, hasActiveNote: Boolean(activeNoteId && activeTitle) }
 }
@@ -120,12 +98,9 @@ export function useGalleryTemplateActions(state: GalleryLocalState, categories: 
   const { onClose } = state
   const useTemplate = useCallback((template: NoteTemplate) => {
     void (async () => {
-      // The branch is here rather than inside the create helper because the two engines answer differently
-      // about what happens next: the legacy one has already made the note by the time it returns an id,
-      // while the engine's own path owns the toast, the caret queue and the conflict refusal.
-      const made = isTemplaterTemplate(template)
-        ? await createNoteWithEngine(template, null)
-        : (await createNoteFromTemplate(template)) !== null
+      // Whichever syntax the body is written in, this is the one call: `run-shell.ts` reads the body and picks
+      // the renderer, and both of them own their toast, their caret and their refusal the same way.
+      const made = await createNoteWithEngine(template, null)
       if (made)
         onClose()
     })()
@@ -174,12 +149,10 @@ export function useGalleryTemplateActions(state: GalleryLocalState, categories: 
         createdAt: item.createdAt || now,
         updatedAt: item.createdAt || now,
       }
-      // Somebody else's Templater body is still a Templater body: sent through the legacy renderer it would
-      // land in the reader's note as literal `<% … %>` text, which reads as a broken template rather than as
-      // the engine it never got.
-      const made = isTemplaterTemplate(template)
-        ? await createNoteWithEngine(template, null)
-        : (await createNoteFromTemplate(template)) !== null
+      // Somebody else's Templater body is still a Templater body, and the same single call covers it: the
+      // shell reads the syntax, and a community template gets the read-only profile that decides what its
+      // commands may reach.
+      const made = await createNoteWithEngine(template, null)
       if (made)
         onClose()
     })()

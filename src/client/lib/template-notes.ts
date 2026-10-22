@@ -13,10 +13,13 @@ import { t } from './i18n'
  * same rules as the `+` button — the open folder, else the inbox — because a
  * template note is still just a new note.
  */
-export async function createNoteFromTemplate(template: NoteTemplate, options: { folderId?: string } = {}): Promise<string | null> {
-  const rendered = renderNewNoteTemplate(template.content, { title: template.name })
+export async function createNoteFromTemplate(template: NoteTemplate, options: { folderId?: string, title?: string } = {}): Promise<string | null> {
+  // A door that lets the reader name the note (the template chooser, a chord bound to "create") says so here;
+  // the gallery does not, and the template's own name is then the note's, as it has always been.
+  const title = options.title?.trim() || template.name
+  const rendered = renderNewNoteTemplate(template.content, { title })
   const id = await createContextualNote({
-    title: template.name,
+    title,
     content: rendered.content,
     cursor: rendered.cursor,
     open: true,
