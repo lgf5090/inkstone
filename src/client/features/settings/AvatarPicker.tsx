@@ -1,6 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, RefreshCw, RotateCcw, Upload } from 'lucide-react'
-import { isBitmapAvatarDataUrl, parseStoredAvatarUrl } from '@shared/avatar'
+import {
+  AVATAR_EMOJI_CHOICES,
+  AVATAR_ICON_CHOICES,
+  avatarEmojiPreference,
+  avatarIconPreference,
+  isBitmapAvatarDataUrl,
+  parseAvatarEmojiPreference,
+  parseAvatarIconPreference,
+  parseStoredAvatarUrl,
+} from '@shared/avatar'
 import { Avatar, Button } from '../../components/primitives'
 import { Modal } from '../../components/overlay'
 import {
@@ -82,9 +91,13 @@ export function AvatarPicker({
 
   const selectionLabel = selected === ''
     ? t('settings.name_based_avatar')
-    : isBitmapAvatarDataUrl(selected) || parseStoredAvatarUrl(selected)
-      ? t('settings.uploaded_avatar')
-      : t('settings.random_avatar')
+    : parseAvatarEmojiPreference(selected)
+      ? t('settings.emoji_avatar')
+      : parseAvatarIconPreference(selected)
+        ? t('settings.icon_avatar')
+        : isBitmapAvatarDataUrl(selected) || parseStoredAvatarUrl(selected)
+          ? t('settings.uploaded_avatar')
+          : t('settings.random_avatar')
 
   return (
     <Modal
@@ -127,6 +140,36 @@ export function AvatarPicker({
             {t('settings.use_name_avatar')}
           </Button>
         </div>
+
+        <section className="rounded-[var(--r-lg)] border border-dashed border-[var(--border-default)] bg-[var(--bg-inset)] p-4">
+          <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+            <div>
+              <h3 className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
+                {t('settings.upload_local_image')}
+              </h3>
+              <p className="mt-1 text-[length:var(--text-11)] leading-relaxed text-[var(--text-quaternary)]">
+                {t('settings.avatar_upload_hint')}
+              </p>
+            </div>
+            <Button
+              variant="secondary"
+              icon={<Upload size={13} />}
+              loading={processing}
+              disabled={busy}
+              onClick={() => inputRef.current?.click()}
+            >
+              {t('settings.choose_image')}
+            </Button>
+          </div>
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            disabled={busy || processing}
+            className="sr-only"
+            onChange={(event) => void chooseFile(event.target.files?.[0])}
+          />
+        </section>
 
         <section>
           <div className="mb-2.5 flex items-center justify-between gap-3">
@@ -177,34 +220,62 @@ export function AvatarPicker({
           </div>
         </section>
 
-        <section className="rounded-[var(--r-lg)] border border-dashed border-[var(--border-default)] bg-[var(--bg-inset)] p-4">
-          <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
-            <div>
-              <h3 className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
-                {t('settings.upload_local_image')}
-              </h3>
-              <p className="mt-1 text-[length:var(--text-11)] leading-relaxed text-[var(--text-quaternary)]">
-                {t('settings.avatar_upload_hint')}
-              </p>
-            </div>
-            <Button
-              variant="secondary"
-              icon={<Upload size={13} />}
-              loading={processing}
-              disabled={busy}
-              onClick={() => inputRef.current?.click()}
-            >
-              {t('settings.choose_image')}
-            </Button>
+        <section>
+          <h3 className="mb-2.5 text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
+            {t('settings.avatar_emoji_title')}
+          </h3>
+          <div className="grid grid-cols-6 gap-2.5 sm:grid-cols-8">
+            {AVATAR_EMOJI_CHOICES.map((emoji) => {
+              const value = avatarEmojiPreference(emoji)
+              const active = selected === value
+              return (
+                <button
+                  key={emoji}
+                  type="button"
+                  aria-label={`${t('settings.avatar_emoji_title')} ${emoji}`}
+                  aria-pressed={active}
+                  disabled={busy || processing}
+                  onClick={() => setSelected(value)}
+                  className={`flex aspect-square min-w-0 items-center justify-center rounded-[var(--r-lg)] border text-[length:var(--text-18)] transition-[border-color,background-color,transform] duration-[var(--dur-fast)] hover:-translate-y-0.5 ${
+                    active
+                      ? 'border-[var(--accent)] bg-[var(--accent-soft)]'
+                      : 'border-[var(--border-subtle)] bg-[var(--bg-base)] hover:border-[var(--border-strong)]'
+                  }`}
+                >
+                  <span aria-hidden="true">{emoji}</span>
+                </button>
+              )
+            })}
           </div>
-          <input
-            ref={inputRef}
-            type="file"
-            accept="image/png,image/jpeg,image/webp"
-            disabled={busy || processing}
-            className="sr-only"
-            onChange={(event) => void chooseFile(event.target.files?.[0])}
-          />
+        </section>
+
+        <section>
+          <h3 className="mb-2.5 text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
+            {t('settings.avatar_icon_title')}
+          </h3>
+          <div className="grid grid-cols-6 gap-2.5 sm:grid-cols-8">
+            {AVATAR_ICON_CHOICES.map((name) => {
+              const value = avatarIconPreference(name)
+              const active = selected === value
+              return (
+                <button
+                  key={name}
+                  type="button"
+                  aria-label={`${t('settings.avatar_icon_title')} ${name}`}
+                  aria-pressed={active}
+                  disabled={busy || processing}
+                  onClick={() => setSelected(value)}
+                  className={`flex aspect-square min-w-0 items-center justify-center rounded-[var(--r-lg)] border transition-[border-color,background-color,transform] duration-[var(--dur-fast)] hover:-translate-y-0.5 ${
+                    active
+                      ? 'border-[var(--accent)] bg-[var(--accent-soft)]'
+                      : 'border-[var(--border-subtle)] bg-[var(--bg-base)] hover:border-[var(--border-strong)]'
+                  }`}
+                >
+                  <Avatar src={value} name={displayName} size={34} />
+                </button>
+              )
+            })}
+          </div>
         </section>
 
         {error && <p role="alert" className="text-[length:var(--text-12)] text-[var(--danger)]">{error}</p>}

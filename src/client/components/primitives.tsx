@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, type ButtonHTMLAttributes, type ReactNode, type Ref } from 'react'
 import { cn } from '../lib/cn'
 import { prettyCombo } from '../lib/hotkeys'
-import { generatedAvatarSeed, isBitmapAvatarDataUrl, parseStoredAvatarUrl } from '@shared/avatar'
+import { generatedAvatarSeed, isBitmapAvatarDataUrl, parseAvatarEmojiPreference, parseAvatarIconPreference, parseStoredAvatarUrl } from '@shared/avatar'
+import { AVATAR_ICONS } from '../lib/avatar-icons'
 
 
 export function Logo({ size = 20, className }: { size?: number; className?: string }) {
@@ -201,10 +202,13 @@ export function Avatar({
     if (parseStoredAvatarUrl(src)) return src
     return null
   }, [src])
+  const emoji = useMemo(() => parseAvatarEmojiPreference(src), [src])
+  const iconName = useMemo(() => parseAvatarIconPreference(src), [src])
+  const Glyph = iconName ? AVATAR_ICONS[iconName] : null
   const [generatedSrc, setGeneratedSrc] = useState<string | null>(null)
   const [fallbackSrc, setFallbackSrc] = useState<string | null>(null)
   useEffect(() => {
-    if (storedSrc) return
+    if (storedSrc || emoji || iconName) return
     let cancelled = false
     // dicebear ships full micah style data; keep it out of the boot chunk.
     void import('../lib/avatar').then(({ createAvatarDataUri }) => {
@@ -213,7 +217,7 @@ export function Avatar({
     return () => {
       cancelled = true
     }
-  }, [src, seed, storedSrc])
+  }, [src, seed, storedSrc, emoji, iconName])
   const resolvedSrc = fallbackSrc ?? storedSrc ?? generatedSrc
   return (
     <span
@@ -225,7 +229,11 @@ export function Avatar({
       )}
       style={{ width: size, height: size, fontSize: size * 0.42 }}
     >
-      {resolvedSrc ? (
+      {emoji ? (
+        <span aria-hidden="true" style={{ fontSize: size * 0.58, lineHeight: 1 }}>{emoji}</span>
+      ) : Glyph ? (
+        <Glyph size={Math.round(size * 0.55)} strokeWidth={1.8} aria-hidden="true" />
+      ) : resolvedSrc ? (
         <img
           src={resolvedSrc}
           alt=""

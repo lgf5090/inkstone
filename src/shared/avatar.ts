@@ -1,13 +1,51 @@
 export const GENERATED_AVATAR_PREFIX = 'dicebear:'
 export const GENERATED_AVATAR_SEED_LENGTH = 32
+export const EMOJI_AVATAR_PREFIX = 'emoji:'
+export const ICON_AVATAR_PREFIX = 'lucide:'
 export const PROFILE_NAME_MAX_LENGTH = 64
 export const AVATAR_SOURCE_FILE_MAX_BYTES = 8 * 1024 * 1024
 export const AVATAR_STORED_MAX_BYTES = 128 * 1024
 export const AVATAR_PROFILE_BODY_MAX_BYTES = 256 * 1024
 const GENERATED_SEED_PATTERN = /^[a-zA-Z0-9_-]{16,64}$/
 
+export const AVATAR_EMOJI_CHOICES = [
+  '😀', '😎', '🤓', '🥳', '😺', '🐶', '🐼', '🦊',
+  '🐸', '🐧', '🦉', '🐝', '🌻', '🌙', '⭐', '🔥',
+  '🌈', '🍀', '☕', '🎧', '📚', '🚀', '💡', '🎨',
+] as const
+
+export const AVATAR_ICON_CHOICES = [
+  'cat', 'dog', 'bird', 'fish', 'leaf', 'sun', 'moon', 'star',
+  'coffee', 'music', 'book', 'code', 'plane', 'rocket', 'camera',
+  'gamepad', 'heart', 'flower', 'mountain', 'waves', 'cloud',
+  'zap', 'bot', 'ghost',
+] as const
+
+export type AvatarEmoji = typeof AVATAR_EMOJI_CHOICES[number]
+export type AvatarIconName = typeof AVATAR_ICON_CHOICES[number]
+
 export function generatedAvatarPreference(seed: string): string {
   return `${GENERATED_AVATAR_PREFIX}${seed}`
+}
+
+export function avatarEmojiPreference(emoji: AvatarEmoji): string {
+  return `${EMOJI_AVATAR_PREFIX}${emoji}`
+}
+
+export function avatarIconPreference(name: AvatarIconName): string {
+  return `${ICON_AVATAR_PREFIX}${name}`
+}
+
+export function parseAvatarEmojiPreference(value: string | null | undefined): AvatarEmoji | null {
+  if (!value?.startsWith(EMOJI_AVATAR_PREFIX)) return null
+  const emoji = value.slice(EMOJI_AVATAR_PREFIX.length)
+  return (AVATAR_EMOJI_CHOICES as readonly string[]).includes(emoji) ? emoji as AvatarEmoji : null
+}
+
+export function parseAvatarIconPreference(value: string | null | undefined): AvatarIconName | null {
+  if (!value?.startsWith(ICON_AVATAR_PREFIX)) return null
+  const name = value.slice(ICON_AVATAR_PREFIX.length)
+  return (AVATAR_ICON_CHOICES as readonly string[]).includes(name) ? name as AvatarIconName : null
 }
 
 export function generatedAvatarSeed(value: string | null | undefined): string | null {
