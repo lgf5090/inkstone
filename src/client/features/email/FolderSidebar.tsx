@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Archive, FileText, Inbox, MoreHorizontal, PanelLeft, Plus, Send, Trash2 } from 'lucide-react'
+import { Archive, FileText, Inbox, MoreHorizontal, PanelLeft, PanelLeftClose, Plus, Send, Trash2 } from 'lucide-react'
 import type { EmailFolder, EmailSystemFolder } from '@shared/email/model'
 import { EMAIL_SIDEBAR_FOLDERS, isEmailSystemFolder } from '@shared/email/model'
 import { cn } from '../../lib/cn'
@@ -32,6 +32,7 @@ export function FolderSidebar({
   onRename,
   onDelete,
   onClose,
+  onCollapse,
 }: {
   folders: readonly EmailFolder[]
   activeFolderId: string | null
@@ -40,6 +41,7 @@ export function FolderSidebar({
   onRename: (folderId: string, name: string) => Promise<void>
   onDelete: (folderId: string) => Promise<void>
   onClose?: () => void
+  onCollapse?: () => void
 }) {
   const [menuFolder, setMenuFolder] = useState<EmailFolder | null>(null)
   const menuAnchor = useRef<HTMLButtonElement>(null)
@@ -108,7 +110,17 @@ export function FolderSidebar({
     : []
 
   return (
-    <nav aria-label={t('email.a11y.folders')} className="flex h-full min-h-0 w-full flex-col gap-3 overflow-y-auto bg-[var(--bg-sunken)] px-2 py-3">
+    <div className="flex h-full min-h-0 w-full flex-col bg-[var(--bg-sunken)]">
+      {onCollapse && (
+        <div className="flex h-11 shrink-0 items-center justify-end px-2">
+          <Tooltip label={t('sidebar.collapse_navigation')} side="right">
+            <IconButton label={t('sidebar.collapse_navigation')} size="xs" onClick={onCollapse}>
+              <PanelLeftClose size={14} aria-hidden="true" />
+            </IconButton>
+          </Tooltip>
+        </div>
+      )}
+      <nav aria-label={t('email.a11y.folders')} className={cn('flex min-h-0 w-full flex-1 flex-col gap-3 overflow-y-auto px-2', onCollapse ? 'pb-3' : 'py-3')}>
       <div className="flex flex-col gap-0.5">
         {EMAIL_SIDEBAR_FOLDERS.map((id) => {
           const Icon = FOLDER_ICONS[id]
@@ -182,7 +194,8 @@ export function FolderSidebar({
         width={168}
         label={t('email.folder.more_actions')}
       />
-    </nav>
+      </nav>
+    </div>
   )
 }
 

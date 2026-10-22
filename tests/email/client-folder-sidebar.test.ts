@@ -5,7 +5,7 @@ import type { EmailFolder } from '@shared/email/model'
 import { renderElement } from '../../src/client/lib/test-render'
 import { t } from '../../src/client/lib/i18n'
 import { useUi } from '../../src/client/store/ui'
-import { FolderSidebarRail } from '../../src/client/features/email/FolderSidebar'
+import { FolderSidebar, FolderSidebarRail } from '../../src/client/features/email/FolderSidebar'
 
 const folders: EmailFolder[] = [
   { id: 'inbox', name: 'Inbox', isDeletable: false, unreadCount: 3 },
@@ -46,6 +46,23 @@ describe('the collapsed folder rail', () => {
     expect(onSelect).toHaveBeenCalledWith('inbox')
     act(() => { button(t('sidebar.expand_navigation')).click() })
     expect(onExpand).toHaveBeenCalledTimes(1)
+    view.unmount()
+  })
+
+  it('collapses from the expanded sidebar and does not offer a second expand button there', () => {
+    const onCollapse = vi.fn()
+    const view = renderElement(createElement(FolderSidebar, {
+      folders,
+      activeFolderId: 'inbox',
+      onSelect: vi.fn(),
+      onCreate: async () => undefined,
+      onRename: async () => undefined,
+      onDelete: async () => undefined,
+      onCollapse,
+    }))
+    expect(() => button(t('sidebar.expand_navigation'))).toThrow()
+    act(() => { button(t('sidebar.collapse_navigation')).click() })
+    expect(onCollapse).toHaveBeenCalledTimes(1)
     view.unmount()
   })
 

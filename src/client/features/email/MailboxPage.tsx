@@ -6,7 +6,6 @@ import {
   Mail,
   MoreHorizontal,
   PanelLeft,
-  PanelLeftClose,
   Paperclip,
   RefreshCw,
   Search,
@@ -316,17 +315,7 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
           <ArrowLeft size={16} />
         </IconButton>
       )}
-      {desktop ? (
-        <IconButton
-          label={t(navCollapsed ? 'sidebar.expand_navigation' : 'sidebar.collapse_navigation')}
-          size="sm"
-          className="size-11 md:size-8"
-          active={navCollapsed}
-          onClick={toggleNav}
-        >
-          {navCollapsed ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}
-        </IconButton>
-      ) : (
+      {!desktop && (
         <IconButton label={t('email.header.folders')} size="sm" className="size-11 md:size-8" onClick={() => setFolderDrawer(true)}>
           <PanelLeft size={16} />
         </IconButton>
@@ -440,6 +429,7 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
       onRename={(id, name) => renameFolder(account.id, id, name)}
       onDelete={removeFolder}
       onClose={() => setFolderDrawer(false)}
+      onCollapse={desktop ? toggleNav : undefined}
     />
   )
 
