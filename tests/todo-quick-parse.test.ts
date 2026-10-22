@@ -12,7 +12,7 @@
  */
 import { expect, it } from 'vitest'
 import { getZonedParts } from '../src/shared/assistant-schedule'
-import { parseQuickAdd } from '../src/shared/todos/quick-parse'
+import { mapToSourceOffset, normalizeQuickAddInput, normalizeWithPositions, parseQuickAdd } from '../src/shared/todos/quick-parse'
 
 /** One instant, read as 01:30 on Tuesday 2026-10-20 in Shanghai and 17:30 on Monday in London. */
 const NOW = Date.parse('2026-10-19T17:30:00Z')
@@ -206,3 +206,113 @@ it('does not claim a number inside a title as a date or a priority', () => {
   expect(parsed.priority).toBeNull()
   expect(parsed.title).toContain('3')
 })
+
+/**
+ * Where the parser says a token is.
+ *
+ * `tokens` is grouped by field for the preview row, so its array order is not the order of the words,
+ * and the parser cuts each span out of a string that keeps shrinking under it. Either of those read as
+ * the same bug in a highlight layer: the right words painted over the wrong ones. The two assertions
+ * below are what a colour is allowed to rest on, and they are the reason `start` exists at all, so
+ * they run over a corpus rather than over the case that motivated them.
+ */
+const OFFSET_CORPUS = [
+  '\u660e\u5929 \u4e70\u725b\u5976',
+  '\u660e\u5929\u4e0b\u53483\u70b9 \u4ea4\u5468\u62a5 #\u5de5\u4f5c !2',
+  '#\u5de5\u4f5c \u660e\u5929\u4e09\u70b9',
+  '\u4ea4\u5468\u62a5 #\u5de5\u4f5c !2 @\u81ea\u5a92\u4f53',
+  '\u5f00\u4f1a10-25\u62a5\u544a3\u70b9',
+  '\u4e0b\u5348 \u63d0\u524d15\u5206\u949f\u63d0\u9192 3\u70b9 \u6253\u75ab\u82d7',
+  '\u63d0\u524d15\u5206\u949f\u63d0\u9192 \u660e\u592910\u70b9 \u6253\u75ab\u82d7',
+  '\u6bcf\u5468\u4e09\u3001\u4e94 \u6253\u5361',
+  '\u6bcf2\u5468\u5468\u4e00\u3001\u5468\u4e09 \u7ad9\u4f1a',
+  '\u6708\u5e95 \u4ea4\u62a5\u8868',
+  '\u660e\u665a \u770b\u7535\u5f71 !1 #\u79c1',
+  '3\u5929\u540e \u4ea4\u623f\u79df \u63d0\u524d1\u5c0f\u65f6\u63d0\u9192',
+  '15:30 \u63a5\u5b69\u5b50',
+  '\u4eca\u665a \u770b\u7535\u5f71',
+  '#a #b #c \u5f00\u4f1a',
+  '\u4e0a\u534810\u70b9 \u8bc4\u5ba1 p2 @\u4ea7\u54c1 #\u5de5\u4f5c \u6bcf\u5468\u4e8c',
+  '2026-11-11 \u9001\u793c @\u81ea\u5a92\u4f53',
+  'submit the report tomorrow 3pm #work p1',
+  'in 3 days ship it',
+  'every 2 weeks review notes on friday',
+  'remind me 15 minutes tomorrow 10:00 call home',
+  '   \u660e\u5929   \u4e0b\u53483\u70b9  \u5f00\u4f1a  ',
+  '\u6bcf\u5929 \u6253\u5361 !3 #habit',
+  '\u4e0b\u5468\u4e94 \u4ea4\u62a5\u544a @\u81ea\u5a92\u4f53 \u5230\u671f\u63d0\u9192',
+]
+
+function expectOffsetsHold(input: string): void {
+  const parsed = parse(input)
+  expect(parsed.source).toBe(normalizeQuickAddInput(input))
+  // A line that yields no token would pass the two loops below by never entering them, so the corpus
+  // is checked for carrying something first.
+  expect(parsed.tokens.length, `nothing was recognised in ${input}`).toBeGreaterThan(0)
+  for (const token of parsed.tokens) {
+    expect(parsed.source.slice(token.start, token.end), `${token.kind} ${token.text} in ${input}`).toBe(token.text)
+  }
+  // In input order the spans are the words themselves: each one inside the line, and none of them
+  // standing on another. A highlight drawn over an overlap would paint one field's colour onto
+  // another's words, which is the same defect wearing a different hat.
+  let after = 0
+  for (const token of [...parsed.tokens].sort((a, b) => a.start - b.start)) {
+    expect(token.start).toBeGreaterThanOrEqual(0)
+    expect(token.end).toBeLessThanOrEqual(parsed.source.length)
+    expect(token.start).toBeGreaterThanOrEqual(after)
+    after = token.end
+  }
+}
+
+it('reports every token at the place in the line where its own words are', () => {
+  for (const input of OFFSET_CORPUS) expectOffsetsHold(input)
+})
+
+it('keeps the array grouped by field while the offsets follow the words', () => {
+  // The chip row is grouped by field and the highlight layer reads in order; one of the two would be
+  // wrong whichever way the array went, so both orders are pinned here rather than inferred.
+  const parsed = parse('#\u5de5\u4f5c \u660e\u5929\u4e09\u70b9')
+  expect(parsed.tokens.map((token) => token.kind)).toEqual(['date', 'time', 'tag'])
+  expect(parsed.tokens.map((token) => token.start)).toEqual([4, 6, 0])
+})
+
+it('records a span the input does not hold together as the pieces it really is', () => {
+  // `xia-wu ti-qian 15 fen-zhong ti-xing 3 dian`: the reminder is cut out first, so the clock reads as
+  // one time across the gap the cut left. No range of the input contains both halves and not the
+  // reminder, so the parser says so instead of drawing one that covers the words in between.
+  const parsed = parse('\u4e0b\u5348 \u63d0\u524d15\u5206\u949f\u63d0\u9192 3\u70b9 \u6253\u75ab\u82d7')
+  const times = parsed.tokens.filter((token) => token.kind === 'time')
+  expect(times.map((token) => token.text)).toEqual(['\u4e0b\u5348', '3\u70b9'])
+  expect(times.map((token) => `${token.start}:${token.end}`)).toEqual(['0:2', '12:14'])
+  const remind = parsed.tokens.find((token) => token.kind === 'remind')!
+  expect(parsed.source.slice(remind.start, remind.end)).toBe('\u63d0\u524d15\u5206\u949f\u63d0\u9192')
+})
+
+it('reads the line the offsets are measured against, not the keystrokes', () => {
+  const parsed = parse('   \u660e\u5929   \u4e0b\u53483\u70b9  \u5f00\u4f1a  ')
+  expect(parsed.source).toBe('\u660e\u5929 \u4e0b\u53483\u70b9 \u5f00\u4f1a')
+  expect(parsed.tokens.find((token) => token.kind === 'date')?.start).toBe(0)
+})
+
+it('maps a working-string index back to the input, and says where there is no input character', () => {
+  // The table is the whole claim: a character the parser still holds points at the input, and the one
+  // space a cut leaves standing, position -1, points nowhere rather than at its neighbour.
+  const positions = [0, 1, 2, -1, 7, 8]
+  expect(mapToSourceOffset(0, positions)).toBe(0)
+  expect(mapToSourceOffset(2, positions)).toBe(2)
+  expect(mapToSourceOffset(3, positions)).toBeNull()
+  expect(mapToSourceOffset(4, positions)).toBe(7)
+  expect(mapToSourceOffset(9, positions)).toBeNull()
+})
+
+it('walks the whitespace to the same line the one-liner normalizes to', () => {
+  // The parser's own surgery and the highlight layer both read the position walk, so the walk has to
+  // answer with exactly the string `normalizeQuickAddInput` answers with. Otherwise a span measured on
+  // one of them lands a character off on the other, and none of the assertions above would notice.
+  for (const input of OFFSET_CORPUS) {
+    const kept = normalizeWithPositions(input, input.split('').map((_, index) => index))
+    expect(kept.text).toBe(normalizeQuickAddInput(input))
+    expect(kept.positions).toHaveLength(kept.text.length)
+  }
+})
+

@@ -33,11 +33,29 @@ export interface QuickAddToken {
   kind: QuickAddTokenKind
   /** The exact words that were understood, as they appeared in the input. */
   text: string
+  /**
+   * Where those words sit in `QuickAddParse.source` — the input with runs of whitespace collapsed to
+   * one space and the ends trimmed, which is what `source` holds and what a highlight layer paints.
+   *
+   * Every coordinate here is measured against that one string, never against the raw keystrokes and
+   * never against the shrinking working string the parser cuts its spans out of. A caller holding the
+   * raw line maps `start`/`end` across with `normalizeWithPositions`; the board's inline field does
+   * exactly that in `features/todos/quick-add-highlight.ts`.
+   */
+  start: number
+  /** One past the last character of the token, in the same coordinates as `start`. */
+  end: number
 }
 
 export interface QuickAddParse {
   /** The input with every recognised span cut out; whitespace collapsed, never invented. */
   title: string
+  /**
+   * The string `tokens` are measured against: `input` with `\s+` collapsed to single spaces and
+   * trimmed, exactly as the parser reads it. The raw input is not it whenever the reader typed two
+   * spaces in a row or left the line open at either end.
+   */
+  source: string
   dueAt: number | null
   remindAt: number | null
   priority: TaskPriority | null
@@ -167,6 +185,65 @@ function readCount(source: string): number | null {
   return head
 }
 
+/**
+ * The line as the parser reads it: every run of whitespace becomes one space, and nothing is left at
+ * either end. Token coordinates are measured against this string and nothing else, so the words a
+ * highlight layer paints are the words the parser measured.
+ */
+export function normalizeQuickAddInput(input: string): string {
+  return input.replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * Where one index of the parser's shrinking working string sits in the input it was cut from, or null
+ * when the character there is the space a cut left behind rather than a character of the input.
+ *
+ * `sourcePositions` is the table the surgery rebuilds on every cut: `sourcePositions[i]` names the
+ * position in the normalized input that the working string's character `i` came from. A list of
+ * deleted intervals is the smaller structure, and it is wrong: a cut puts one space where the words
+ * were, and when the span sat between two characters that were not spaces — a month-day written in
+ * the middle of a run of words — that space is a character the input never had, and every offset
+ * after it drifts by one. Drift by one paints the right words in the wrong place, which is the failure
+ * this table exists to make impossible; `tests/todo-quick-parse.test.ts` pins the property it protects.
+ */
+export function mapToSourceOffset(restIndex: number, sourcePositions: readonly number[]): number | null {
+  const position = sourcePositions[restIndex] ?? -1
+  return position < 0 ? null : position
+}
+
+/**
+ * The same normalization as `normalizeQuickAddInput`, with the characters it dropped named.
+ *
+ * `positions[i]` says where `text[i]` came from, and the answer keeps the characters that were *not*
+ * written down — the space a cut left where the words were carries whatever the table says of it, which
+ * is -1 when no input character is behind it. One walk, one rule, so a caller outside the parser can
+ * carry its own offsets across the same collapse and cannot possibly disagree with the parser about
+ * which line it was reading. `tests/todo-quick-parse.test.ts` holds the two against each other.
+ */
+export function normalizeWithPositions(text: string, positions: readonly number[]): { text: string, positions: number[] } {
+  let kept = ''
+  const keptPositions: number[] = []
+  let index = 0
+  while (index < text.length) {
+    if (!/\s/.test(text[index]!)) {
+      kept += text[index]
+      keptPositions.push(positions[index]!)
+      index += 1
+      continue
+    }
+    let runEnd = index
+    while (runEnd < text.length && /\s/.test(text[runEnd]!)) runEnd += 1
+    // A run keeps one space only where words stand on both sides of it, which is the whole rule the
+    // normalization applies to a line.
+    if (kept.length > 0 && runEnd < text.length) {
+      kept += ' '
+      keptPositions.push(positions[index]!)
+    }
+    index = runEnd
+  }
+  return { text: kept, positions: keptPositions }
+}
+
 export function parseQuickAdd(input: string, now: number, timeZone: string): QuickAddParse {
   const tokens: QuickAddToken[] = []
   const draft: Draft = { dayShift: null, monthDay: null, absolute: null, hour: null, minute: null }
@@ -177,7 +254,60 @@ export function parseQuickAdd(input: string, now: number, timeZone: string): Qui
   let remindOffset: RemindOffset | null = null
   const tagNames: string[] = []
 
-  let rest = input.replace(/\s+/g, ' ').trim()
+  const source = normalizeQuickAddInput(input)
+  let rest = source
+  /** Where each character of `rest` came from in `source`; -1 marks a space a cut left standing. */
+  let restPositions = source.split('').map((_, index) => index)
+
+  /**
+   * Record the span the parser just matched, placed back on `source`.
+   *
+   * `text` stays what it always was — the matched words, edges trimmed — and `start`/`end` are added
+   * beside it, so `source.slice(start, end)` is that text by construction rather than by hope.
+   */
+  const record = (kind: QuickAddTokenKind, restStart: number, restEnd: number): void => {
+    /** One run of characters that were neighbours in the input becomes one token of this kind. */
+    const pushRun = (from: number, to: number): void => {
+      let first = from
+      let last = to
+      while (first < last && (mapToSourceOffset(first, restPositions) === null || /\s/.test(rest[first]!))) first += 1
+      while (last > first && (mapToSourceOffset(last - 1, restPositions) === null || /\s/.test(rest[last - 1]!))) last -= 1
+      const start = mapToSourceOffset(first, restPositions)
+      const tail = mapToSourceOffset(last - 1, restPositions)
+      if (start === null || tail === null) return
+      tokens.push({ kind, text: source.slice(start, tail + 1), start, end: tail + 1 })
+    }
+
+    let runStart: number | null = null
+    let expected = -1
+    for (let index = restStart; index < restEnd; index += 1) {
+      const position = mapToSourceOffset(index, restPositions)
+      if (runStart !== null && position !== null && position === expected) {
+        expected = position + 1
+        continue
+      }
+      if (runStart !== null) pushRun(runStart, index)
+      runStart = position === null ? null : index
+      if (position !== null) expected = position + 1
+    }
+    if (runStart !== null) pushRun(runStart, restEnd)
+  }
+
+  /**
+   * Cut `rest`'s span out, and rebuild the text and its position table in the same pass.
+   *
+   * The surgery is what it always was — the words go, one space is put where they were, and the line is
+   * collapsed and trimmed as `normalizeQuickAddInput` would. What is new is that the table is walked
+   * alongside it, so a character that stops existing stops being counted, and the space the cut leaves
+   * is carried as -1: no character of the input stands behind it.
+   */
+  const cut = (restStart: number, restEnd: number): void => {
+    const merged = `${rest.slice(0, restStart)} ${rest.slice(restEnd)}`
+    const mergedPositions = [...restPositions.slice(0, restStart), -1, ...restPositions.slice(restEnd)]
+    const kept = normalizeWithPositions(merged, mergedPositions)
+    rest = kept.text
+    restPositions = kept.positions
+  }
 
   /** Cut the first span matching `pattern`, record it, and hand the match back for the handler. */
   const consume = (kind: QuickAddTokenKind, pattern: RegExp, apply: (match: RegExpExecArray) => boolean): boolean => {
@@ -186,8 +316,8 @@ export function parseQuickAdd(input: string, now: number, timeZone: string): Qui
     if (!apply(match)) return false
     const start = match.index
     const end = start + match[0].length
-    rest = `${rest.slice(0, start)} ${rest.slice(end)}`.replace(/\s+/g, ' ').trim()
-    tokens.push({ kind, text: match[0].trim() })
+    record(kind, start, end)
+    cut(start, end)
     return true
   }
 
@@ -200,8 +330,8 @@ export function parseQuickAdd(input: string, now: number, timeZone: string): Qui
     const name = match[1]!
     if (name.length > MAX_TAG_CHARS) break
     tagNames.push(name)
-    rest = `${rest.slice(0, match.index)} ${rest.slice(match.index + match[0].length)}`.replace(/\s+/g, ' ').trim()
-    tokens.push({ kind: 'tag', text: match[0].trim() })
+    record('tag', match.index, match.index + match[0].length)
+    cut(match.index, match.index + match[0].length)
     if (!tagPattern.test(rest)) break
   }
 
@@ -465,10 +595,13 @@ export function parseQuickAdd(input: string, now: number, timeZone: string): Qui
     remindAt = dueAt - offsetMs
   }
 
+  // Grouped for the preview row, which reads better by field than by position: the order of this array
+  // is not the order of the words. Anything that paints or speaks the line uses `start` for that.
   tokens.sort((a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind))
 
   return {
     title: rest.trim(),
+    source,
     dueAt,
     remindAt,
     priority,

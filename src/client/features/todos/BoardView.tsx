@@ -6,7 +6,7 @@
  * the board is two columns wide and a list that is not on screen needs a way to be reached.
  */
 
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode, type Ref } from 'react'
 import { ChevronRight, ListChecks, Mic, Plus, Square } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { getLocale, t } from '../../lib/i18n'
@@ -17,8 +17,9 @@ import { TodoPageFooter } from './TodoPageFooter'
 import { Input } from '../../components/form'
 import { ListIcon } from './list-icons'
 import { priorityLabel, repeatLabel } from './todo-ui'
+import { quickAddHighlights } from './quick-add-highlight'
 import { TaskCard, isTodoTaskDrag, moveTodoTask, readTodoTaskDrag, useTaskMoves } from './TaskCard'
-import { parseQuickAdd, type QuickAddParse } from '@shared/todos/quick-parse'
+import { parseQuickAdd, type QuickAddParse, type QuickAddToken, type QuickAddTokenKind } from '@shared/todos/quick-parse'
 import { toLocalMinute } from '@shared/assistant-time'
 import type { MessageKey } from '@shared/locales/en-US'
 import type { TaskList, TodoTask } from '@shared/todos/model'
@@ -80,13 +81,13 @@ function quickAddChips(parsed: QuickAddParse, timezone: string, lists: readonly 
 }
 
 /** The live preview under an inline field: nothing until at least one word was understood. */
-function QuickAddPreview({ input, timezone, lists }: {
-  input: string
+function QuickAddPreview({ parsed, timezone, lists }: {
+  parsed: QuickAddParse | null
   timezone: string
   lists: readonly TaskList[]
 }): ReactNode {
-  if (!input.trim()) return null
-  const chips = quickAddChips(parseQuickAdd(input, Date.now(), timezone), timezone, lists)
+  if (!parsed) return null
+  const chips = quickAddChips(parsed, timezone, lists)
   if (chips.length === 0) return null
   return (
     <ul
@@ -110,6 +111,109 @@ function QuickAddPreview({ input, timezone, lists }: {
       ))}
     </ul>
   )
+}
+
+/**
+ * The box the inline field and its mirror share, spelled once.
+ *
+ * A highlight lands where the field's glyphs are only if the two wear the same font size, the same
+ * padding and the same one-pixel border. The height deliberately is not in here: the mirror stretches to
+ * the field's box instead of carrying its own copy, because the field's height changes at a breakpoint
+ * and a second list of those values is how a mirror ends up a pixel away from the words it colours.
+ */
+const QUICK_ADD_FIELD = 'w-full rounded-[var(--r-md)] border px-2.5 text-[length:var(--text-12)]'
+
+/** One flex item, holding the spaces the reader typed exactly where they were typed. */
+const QUICK_ADD_SEGMENT = 'shrink-0 whitespace-pre'
+
+/**
+ * Which of the two families a recognised span belongs to.
+ *
+ * The words that name *when* a task is due, and the words that name where it belongs: two tints is what
+ * a line of prose can carry without turning into a rainbow, and both are background only. The reader's
+ * own glyphs stay the field's colour, because the mirror's job is to say which words were read, not to
+ * re-render them in a second typeface of the theme.
+ */
+const QUICK_ADD_TINT: Record<QuickAddTokenKind, string> = {
+  date: 'bg-[var(--accent-soft)]',
+  time: 'bg-[var(--accent-soft)]',
+  repeat: 'bg-[var(--accent-soft)]',
+  remind: 'bg-[var(--accent-soft)]',
+  priority: 'bg-[var(--bg-active)]',
+  list: 'bg-[var(--bg-active)]',
+  tag: 'bg-[var(--bg-active)]',
+}
+
+/** The line, cut into the words the parser read and the words it left as prose. */
+function quickAddSegments(input: string, tokens: readonly QuickAddToken[]): ReactNode[] {
+  const segments: ReactNode[] = []
+  let cursor = 0
+  for (const [index, range] of quickAddHighlights(input, tokens).entries()) {
+    if (range.start > cursor) {
+      segments.push(<span key={`rest-${index}`} className={QUICK_ADD_SEGMENT}>{input.slice(cursor, range.start)}</span>)
+    }
+    segments.push(
+      <span
+        key={`${range.kind}-${index}`}
+        data-quickadd-kind={range.kind}
+        className={cn(QUICK_ADD_SEGMENT, QUICK_ADD_TINT[range.kind])}
+      >
+        {input.slice(range.start, range.end)}
+      </span>,
+    )
+    cursor = range.end
+  }
+  if (cursor < input.length) {
+    segments.push(<span key="rest-tail" className={QUICK_ADD_SEGMENT}>{input.slice(cursor)}</span>)
+  }
+  return segments
+}
+
+/**
+ * The mirror under the inline field.
+ *
+ * It paints the same line the field holds, one layer down, and adds a tint wherever the parser read a
+ * field: what a reader sees while typing is the word they typed, coloured, rather than a second row of
+ * answers under it. Its own text is transparent, so the field above it owns every glyph, caret and
+ * selection — and if the two ever came apart by a pixel, the colour would shift without the words
+ * doubling. `aria-hidden` because a copy of the field is not a second thing a screen reader should be
+ * told; the sentence beside it is.
+ */
+function QuickAddMirror({ input, tokens, mirrorRef }: {
+  input: string
+  tokens: readonly QuickAddToken[]
+  mirrorRef: Ref<HTMLDivElement>
+}): ReactNode {
+  return (
+    <div
+      ref={mirrorRef}
+      aria-hidden="true"
+      data-todo-quickadd-mirror=""
+      className={cn(
+        'pointer-events-none absolute inset-0 flex items-center overflow-hidden',
+        'border-transparent bg-[var(--bg-inset)] text-transparent',
+        QUICK_ADD_FIELD,
+      )}
+    >
+      {quickAddSegments(input, tokens)}
+    </div>
+  )
+}
+
+/**
+ * The same answer the tint gives, said in the order the words were written.
+ *
+ * Colour is a thing a screen reader never receives, and the chip row below is grouped by field rather
+ * than read as a sentence: the parser's array puts the day before the tag no matter where either was
+ * typed. So this walks `start`, which is the order a person typed in and the only order a sentence can
+ * be heard in.
+ */
+function quickAddSummary(parsed: QuickAddParse): string {
+  const items = [...parsed.tokens]
+    .sort((a, b) => a.start - b.start)
+    .map((token) => t(`todo.quickadd.kind.${token.kind}` as MessageKey, { text: token.text }))
+  if (items.length === 0) return ''
+  return t('todo.quickadd.summary', { items: items.join(t('todo.quickadd.summary.join')) })
 }
 
 /** The three states the voice button can be in. Absence of the API is not one of them. */
@@ -154,6 +258,9 @@ function speechRecognitionCtor(): SpeechRecognitionCtor | null {
 
 const VOICE_HINT_ID = 'todo-voice-hint'
 
+/** One open inline row at a time, so one id is enough to name its spoken summary. */
+const QUICK_ADD_SUMMARY_ID = 'todo-quickadd-summary'
+
 export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void }) {
   const tasks = useTodos((state) => state.tasks)
   const lists = useTodos((state) => state.lists)
@@ -172,6 +279,16 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
   const filtered = query.trim().length > 0 || dueFrom !== null || dueTo !== null
   const [adding, setAdding] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
+  /**
+   * The line, read once per render for the row that is open.
+   *
+   * The mirror's tints, the chips under it and the sentence a screen reader hears are three answers
+   * about the same words, and three calls to the parser would be three chances to answer differently
+   * about a line that changed in between. The mirror is the one node that outlives a render, so its
+   * scroll position is held in a ref rather than worked out again.
+   */
+  const quick = adding === null || !draft.trim() ? null : parseQuickAdd(draft, Date.now(), timezone)
+  const mirrorRef = useRef<HTMLDivElement | null>(null)
   // The card a drag is hovering, so the whole collection lights up as the drop target it is. A drop
   // on a row is handled by the row itself and never reaches this; a drop on the card appends.
   const [dropCard, setDropCard] = useDropState<string | null>(null)
@@ -405,18 +522,29 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
                       void submit(card)
                     }}
                   >
-                    <Input
-                      autoFocus
-                      value={draft}
-                      placeholder={t('todo.task.title_label')}
-                      aria-label={t('todo.action.add_task')}
-                      onChange={(event) => setDraft(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(card) }
-                        if (event.key === 'Escape') { stopVoice(); setAdding(null); setDraft('') }
-                      }}
-                      className="h-9 min-w-0 flex-1 text-[length:var(--text-12)]"
-                    />
+                    <div className="relative min-w-0 flex-1">
+                      <QuickAddMirror input={draft} tokens={quick?.tokens ?? []} mirrorRef={mirrorRef} />
+                      {/* The field wears no background of its own: the line under it is the box, and the
+                          caret and the selection the browser draws stay legible over the tint. */}
+                      <Input
+                        autoFocus
+                        value={draft}
+                        placeholder={t('todo.task.title_label')}
+                        aria-label={t('todo.action.add_task')}
+                        aria-describedby={quick && quick.tokens.length > 0 ? QUICK_ADD_SUMMARY_ID : undefined}
+                        onChange={(event) => setDraft(event.target.value)}
+                        // A line longer than the card scrolls inside the field, and the tint has to
+                        // scroll with it: the mirror is told where the field is looking.
+                        onScroll={(event) => {
+                          if (mirrorRef.current) mirrorRef.current.scrollLeft = event.currentTarget.scrollLeft
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(card) }
+                          if (event.key === 'Escape') { stopVoice(); setAdding(null); setDraft('') }
+                        }}
+                        className={cn(QUICK_ADD_FIELD, 'relative z-10 h-9 bg-transparent')}
+                      />
+                    </div>
                     <button
                       type="button"
                       data-todo-voice=""
@@ -458,7 +586,12 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
                   >
                     {voiceStatus}
                   </p>
-                  <QuickAddPreview input={draft} timezone={timezone} lists={lists} />
+                  {/* What the tint under the caret means, said in the order the words were typed: the
+                      chips below are grouped by field, and a colour says nothing to a screen reader. */}
+                  <p id={QUICK_ADD_SUMMARY_ID} role="status" className="sr-only">
+                    {quick ? quickAddSummary(quick) : ''}
+                  </p>
+                  <QuickAddPreview parsed={quick} timezone={timezone} lists={lists} />
                 </div>
               ) : (
                 <button

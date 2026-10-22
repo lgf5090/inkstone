@@ -45,6 +45,7 @@ vi.mock('../../lib/api', () => ({
 }))
 
 import { BoardView } from './BoardView'
+import { normalizeQuickAddInput } from '@shared/todos/quick-parse'
 import { useTodos } from './store'
 
 /** 01:30 on Tuesday 2026-10-20 in Shanghai, which is still Monday in London. */
@@ -111,6 +112,17 @@ async function pressEnter(input: HTMLInputElement): Promise<void> {
 
 function preview(section: HTMLElement): HTMLElement | null {
   return section.querySelector<HTMLElement>('[data-todo-quickadd-chips]')
+}
+
+/** The painted line under the field, if the open card is wearing one. */
+function mirror(section: HTMLElement): HTMLElement | null {
+  return section.querySelector<HTMLElement>('[data-todo-quickadd-mirror]')
+}
+
+/** The words the mirror says were read, in the order it paints them. */
+function tinted(section: HTMLElement): string[] {
+  return [...(mirror(section)?.querySelectorAll('[data-quickadd-kind]') ?? [])]
+    .map((node) => node.textContent ?? '')
 }
 
 beforeEach(async () => {
@@ -208,6 +220,64 @@ describe('the board\u2019s inline quick add', () => {
     expect(service.listCreates, 'a mistyped list name created a second list').toEqual([])
     // The card the reader typed into is still the list the task belongs to.
     expect(service.creates[0]!.listId).toBe('L1')
+  })
+
+  it('paints the words it read where those words sit in the line', () => {
+    const section = card(view!.container, '工作')
+    const input = openAdd(section)
+    typeInto(input, '#工作 明天下午3点 交周报')
+
+    const layer = mirror(section)
+    expect(layer, 'the line painted under the field is gone').not.toBeNull()
+    // A picture of the field, not a second control: no name, no focus, nothing to press.
+    expect(layer!.getAttribute('aria-hidden')).toBe('true')
+    // The same words in the same order, or every band of colour sits away from the word it names.
+    expect(normalizeQuickAddInput(layer!.textContent ?? '')).toBe(normalizeQuickAddInput(input.value))
+    expect(tinted(section)).toEqual(['#工作', '明天', '下午3点'])
+
+    // Two halves of one line have to wear one box: same padding, same border, same glyphs. The height is
+    // the field's alone and the mirror stretches to it, because the field's height changes at a
+    // breakpoint and a copy of it is a pixel of drift. The field gives up its own background to the line
+    // under it, which is what keeps the caret and the selection the browser draws legible over a tint.
+    for (const shared of ['px-2.5', 'border', 'rounded-[var(--r-md)]', 'text-[length:var(--text-12)]']) {
+      expect(input.className, `${shared} belongs to both halves of the line`).toContain(shared)
+      expect(layer!.className, `${shared} belongs to both halves of the line`).toContain(shared)
+    }
+    expect(input.className).toContain('h-9')
+    expect(layer!.className).not.toContain('h-9')
+    expect(layer!.className).toContain('inset-0')
+    expect(input.className).toContain('bg-transparent')
+    expect(input.className).not.toContain('var(--bg-inset)')
+    expect(layer!.className).toContain('bg-[var(--bg-inset)]')
+    expect(layer!.className).toContain('pointer-events-none')
+  })
+
+  it('says what it recognised in the order the words were typed', () => {
+    const section = card(view!.container, '工作')
+    const input = openAdd(section)
+    typeInto(input, '#工作 明天下午3点 !2')
+
+    const summary = section.querySelector<HTMLElement>('#todo-quickadd-summary')
+    expect(summary, 'the field promises a description it never writes').not.toBeNull()
+    expect(input.getAttribute('aria-describedby')).toBe('todo-quickadd-summary')
+    expect(summary!.getAttribute('role')).toBe('status')
+    const said = summary!.textContent ?? ''
+    expect(said).toContain(t('todo.quickadd.kind.tag', { text: '#工作' }))
+    expect(said).toContain(t('todo.quickadd.kind.date', { text: '明天' }))
+    // The chips group by field and the parser's array follows them; a sentence has to follow the typing,
+    // which puts the tag first here and the priority last.
+    expect(said.indexOf(t('todo.quickadd.kind.tag', { text: '#工作' })))
+      .toBeLessThan(said.indexOf(t('todo.quickadd.kind.priority', { text: '!2' })))
+  })
+
+  it('leaves a line it read nothing in unpainted and unsaid', () => {
+    const section = card(view!.container, '工作')
+    const input = openAdd(section)
+    typeInto(input, '给花浇水')
+
+    expect(tinted(section)).toEqual([])
+    expect(input.getAttribute('aria-describedby')).toBeNull()
+    expect(section.querySelector<HTMLElement>('#todo-quickadd-summary')?.textContent).toBe('')
   })
 
   it('says a filtered card has no matches instead of reading blank', () => {
