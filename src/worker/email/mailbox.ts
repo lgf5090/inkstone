@@ -128,6 +128,7 @@ export async function handleMailboxInbound(
 
   const emailId = newId()
   let attachmentKeys: string[] = []
+  let emailStored = false
   try {
     const attachments = await persistInboundAttachments(env, account, emailId, parsed.attachments, receivedAt)
     attachmentKeys = attachments.keys
@@ -170,12 +171,20 @@ export async function handleMailboxInbound(
       size: message.rawSize,
     })
     if (!created) throw new Error('The mailbox did not accept the inbound message')
+    emailStored = true
 
     await enqueueAutoDraft(env, account, emailId, threadId, parsed.headers)
     await mailbox.completeInbound(messageKey)
     return 'created'
   } catch (error) {
     console.error('[inkstone] inbound mail could not be stored', error)
+    if (emailStored) {
+      try {
+        await mailbox.deleteEmail(emailId)
+      } catch (deleteError) {
+        console.warn('[inkstone] inbound message row could not be rolled back', deleteError)
+      }
+    }
     await discardEmailAttachments(env, account.user_id, emailId, attachmentKeys)
     try {
       await mailbox.releaseInbound(messageKey)

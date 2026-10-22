@@ -4,15 +4,18 @@ import { applyMailboxMigrations } from '../../../src/worker/email/mailbox-schema
 import { MailboxStore } from '../../../src/worker/email/mailbox-store'
 import { makeD1 } from '../../doubles/d1-sqlite'
 import { makeSqlExec } from '../../doubles/do-sqlite'
+import { fakeEmailMailboxNamespace } from '../../doubles/email-mailbox'
 
 class HarnessMailbox {
   readonly sqlite = new DatabaseSync(':memory:')
   readonly store: MailboxStore
+  readonly namespace: DurableObjectNamespace
 
   constructor() {
     const sql = makeSqlExec(this.sqlite)
     applyMailboxMigrations(sql)
     this.store = new MailboxStore(sql)
+    this.namespace = fakeEmailMailboxNamespace(this.store)
   }
 }
 
@@ -37,32 +40,13 @@ export function mailboxHarness(): MailboxHarness {
     equals: (other: DurableObjectId) => other.toString() === name,
     name,
   }) as unknown as DurableObjectId
-  const stub = (mailbox: HarnessMailbox) => ({
-    async claimInbound(messageKey: string, now?: number) {
-      return mailbox.store.claimInbound(messageKey, now)
-    },
-    async completeInbound(messageKey: string) {
-      mailbox.store.completeInbound(messageKey)
-    },
-    async releaseInbound(messageKey: string) {
-      mailbox.store.releaseInbound(messageKey)
-    },
-    async createEmail(folder: string, email: Parameters<MailboxStore['createEmail']>[1]) {
-      return mailbox.store.createEmail(folder, email)
-    },
-    async findThreadBySubject(subject: string, sender?: string) {
-      return mailbox.store.findThreadBySubject(subject, sender)
-    },
-    async purgeExpiredTrash(cutoff: number) {
-      return mailbox.store.purgeExpiredTrash(cutoff)
-    },
-    async deleteEmail(id: string) {
-      return mailbox.store.deleteEmail(id)
-    },
-  })
-  const namespace = {
+  const namespace: DurableObjectNamespace = {
+    newUniqueId: () => objectId('unique'),
     idFromName: (name: string) => objectId(name),
-    get: (id: DurableObjectId) => stub(box(id.name ?? id.toString())),
+    idFromString: (id: string) => objectId(id),
+    get: (id: DurableObjectId) => box(id.name ?? id.toString()).namespace.get(id),
+    getByName: (name: string) => box(name).namespace.get(objectId(name)),
+    jurisdiction: () => namespace,
   } as unknown as DurableObjectNamespace
   return {
     namespace,

@@ -74,13 +74,6 @@ export async function findEmailAccountByAddress(
   ).bind(addressNormalized).first<EmailAccountOwnerRow>()
 }
 
-export async function emailAddressInUse(db: D1Database, addressNormalized: string): Promise<boolean> {
-  const row = await db.prepare(
-    `SELECT 1 AS found FROM email_accounts WHERE address_normalized = ?1`,
-  ).bind(addressNormalized).first<{ found: number }>()
-  return Boolean(row)
-}
-
 export async function createEmailAccount(
   db: D1Database,
   input: {

@@ -30,7 +30,7 @@ import {
   createEmailAccount,
   deleteEmailAccount,
   deleteEmailAttachmentsForAccount,
-  emailAddressInUse,
+  findEmailAccountByAddress,
   getEmailAccount,
   listEmailAccounts,
   listEmailAttachmentKeys,
@@ -370,11 +370,9 @@ emailRoutes.post('/accounts', async (c) => {
     throw ApiError.badRequest('A local part and a domain are required')
   }
   const address = buildAddress(body.localPart, body.domain, c.env)
-  const existing = await listEmailAccounts(c.env.DB, c.get('userId'))
-  if (existing.some((row) => row.address_normalized === address)) {
-    throw new ApiError(409, 'email_account_exists', 'That mailbox already exists')
+  if (await findEmailAccountByAddress(c.env.DB, address)) {
+    throw new ApiError(409, 'email_account_exists', 'That address is already in use')
   }
-  if (await emailAddressInUse(c.env.DB, address)) throw new ApiError(409, 'email_account_exists', 'That address is already in use')
   const settings = settingsFrom(body.settings)
   const row = await createEmailAccount(c.env.DB, {
     userId: c.get('userId'),

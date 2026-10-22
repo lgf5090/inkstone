@@ -583,8 +583,11 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       total: removeFromList ? Math.max(0, state.total - 1) : state.total,
       selectedId: clearsSelection ? null : state.selectedId,
       selectedMessage: clearsSelection ? null : state.selectedMessage,
+      selectedStatus: clearsSelection ? 'idle' : state.selectedStatus,
+      selectedError: clearsSelection ? null : state.selectedError,
       thread: clearsSelection ? [] : state.thread,
       threadStatus: clearsSelection ? 'idle' : state.threadStatus,
+      threadError: clearsSelection ? null : state.threadError,
       folders: adjustFolderUnread(
         adjustFolderUnread(state.folders, summary.folderId, summary.read ? 0 : -1),
         folderId,
@@ -616,8 +619,11 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       trashTotal: inTrashList ? Math.max(0, state.trashTotal - 1) : state.trashTotal,
       selectedId: clearsSelection ? null : state.selectedId,
       selectedMessage: clearsSelection ? null : state.selectedMessage,
+      selectedStatus: clearsSelection ? 'idle' : state.selectedStatus,
+      selectedError: clearsSelection ? null : state.selectedError,
       thread: clearsSelection ? [] : state.thread,
       threadStatus: clearsSelection ? 'idle' : state.threadStatus,
+      threadError: clearsSelection ? null : state.threadError,
       folders: permanent || summary.read
         ? state.folders
         : adjustFolderUnread(state.folders, summary.folderId, -1),
@@ -635,7 +641,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     try {
       const result = await api.email.retrySend(accountId, messageId)
       if (result.status === 'failed') {
-        set({ actionError: result.error ?? emailErrorText(new Error(t('email.errors.send_failed'))) })
+        set({ actionError: result.error ?? t('email.errors.send_failed') })
         return false
       }
       set((state) => ({

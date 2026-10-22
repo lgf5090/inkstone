@@ -8,6 +8,8 @@ export const EMAIL_TRASH_ACCOUNT_PAGE_SIZE = 50
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
+const ATTACHMENT_DELETE_CHUNK = 50
+
 interface OwnerAccountRow {
   id: string
   user_id: string
@@ -64,7 +66,11 @@ async function removeAttachments(
   messageIds: readonly string[],
   result: EmailTrashCleanupResult,
 ): Promise<void> {
-  const keys = await deleteEmailAttachments(env.DB, userId, messageIds)
+  const keys: string[] = []
+  for (let index = 0; index < messageIds.length; index += ATTACHMENT_DELETE_CHUNK) {
+    const chunk = messageIds.slice(index, index + ATTACHMENT_DELETE_CHUNK)
+    keys.push(...await deleteEmailAttachments(env.DB, userId, chunk))
+  }
   result.attachments += keys.length
   if (!keys.length) return
   if (!env.FILES) {
