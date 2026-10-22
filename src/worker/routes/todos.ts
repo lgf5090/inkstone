@@ -518,9 +518,9 @@ todoRoutes.get('/trash', async (c) => {
 
 todoRoutes.post('/:id/restore', async (c) => {
   const s = store(c)
-  const task = await s.restoreTask(requiredId(c.req.param('id')))
+  const { task, droppedReminders } = await s.restoreTask(requiredId(c.req.param('id')))
   if (!task) throw ApiError.notFound('Task not found')
-  return c.json({ task })
+  return c.json({ task, droppedReminders })
 })
 
 todoRoutes.delete('/:id/purge', async (c) => {

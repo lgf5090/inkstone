@@ -4709,14 +4709,28 @@ export class AssistantStore {
    * success that suggests it had been deleted. Nothing is re-created: the same row — with its steps,
    * tags, reminders and original id — becomes visible again to every read.
    */
-  async restoreTask(id: string): Promise<TodoTask | null> {
+  async restoreTask(id: string): Promise<{ task: TodoTask | null; droppedReminders: number }> {
+    const now = Date.now()
+    // The trash suspends a reminder rather than cancelling it: the sweep reads live tasks only, so every
+    // pending instant that passed while the row was away is still standing there, eligible on the next
+    // minute tick. Bringing a task back must not detonate a batch of alerts for time the reader spent
+    // not looking at it, so the ones whose moment has gone are dropped and only the future ones come
+    // back with the row — the same reading a cleared due date gets, where the distance has no anchor.
+    // The trash predicate is repeated inside the delete so this cannot cost a *live* task its
+    // reminders if a stale id reaches here: nothing moves unless the row really was away.
+    const droppedReminders = await this.write(
+      `DELETE FROM todos_reminders
+        WHERE user_id = ?1 AND task_id = ?2 AND fired_at IS NULL AND remind_at <= ?3
+          AND task_id IN (SELECT id FROM todos_tasks WHERE user_id = ?1 AND id = ?2 AND ${TASK_TRASHED_PREDICATE})`,
+      id, now,
+    )
     const changed = await this.write(
       `UPDATE todos_tasks SET deleted_at = NULL, updated_at = ?3, rev = rev + 1
         WHERE user_id = ?1 AND id = ?2 AND ${TASK_TRASHED_PREDICATE}`,
-      id, Date.now(),
+      id, now,
     )
-    if (!changed) return null
-    return await this.getTask(id)
+    if (!changed) return { task: null, droppedReminders: 0 }
+    return { task: await this.getTask(id), droppedReminders }
   }
 
   /**

@@ -1203,7 +1203,8 @@ export const api = {
      */
     trash: (params: { limit?: number, offset?: number } = {}) =>
       request<TaskTrashPage>(`/api/todos/trash${toQuery(params)}`),
-    restore: (id: string) => request<{ task: TodoTask }>(`/api/todos/${id}/restore`, { method: 'POST' }),
+    restore: (id: string) =>
+      request<{ task: TodoTask, droppedReminders: number }>(`/api/todos/${id}/restore`, { method: 'POST' }),
     purge: (id: string) => request<{ purged: true }>(`/api/todos/${id}/purge`, { method: 'DELETE' }),
 
     /**

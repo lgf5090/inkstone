@@ -232,6 +232,38 @@ describe('restoring a trashed task', () => {
     const rows = sqlite.prepare(`SELECT COUNT(*) AS n FROM todos_tasks WHERE user_id = ?1`).get(USER) as { n: number }
     expect(rows.n).toBe(1)
   })
+
+  it('does not bring back the reminders whose moment passed while the task was away', async () => {
+    const now = Date.now()
+    const s = store(USER)
+    const task = await s.createTask({
+      title: 'Away for a while',
+      dueAt: now - DAY,
+      reminders: [now - 2 * HOUR, now + DAY],
+    })
+    await s.deleteTask(task.id)
+
+    // The sweep reads live tasks only, so both instants are still pending while the row is away.
+    expect(await sweepTaskReminders(env, now)).toMatchObject({ sent: 0 })
+
+    mocks.userId = USER
+    const response = await send('POST', `/${task.id}/restore`)
+    expect(response.status, await response.clone().text()).toBe(200)
+    const body = await json<{ task: TodoTask, droppedReminders: number }>(response)
+    expect(body.droppedReminders).toBe(1)
+    expect(body.task.reminders).toEqual([now + DAY])
+
+    // The one that came back is still in the future, so nothing goes off this minute either.
+    expect(await sweepTaskReminders(env, now)).toMatchObject({ sent: 0 })
+    expect(await sweepTaskReminders(env, now + DAY + HOUR)).toMatchObject({ sent: 1 })
+
+    // A restore that never happened costs a live task nothing: the delete asks the trash the same
+    // question the update does, so a row nobody put away keeps every reminder it had.
+    const kept = await s.createTask({ title: 'Never left', reminders: [now - HOUR] })
+    mocks.userId = USER
+    expect((await send('POST', `/${kept.id}/restore`)).status).toBe(404)
+    expect((await s.getTask(kept.id))?.reminders).toEqual([now - HOUR])
+  })
 })
 
 describe('purging a trashed task', () => {

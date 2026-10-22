@@ -8414,6 +8414,7 @@ console.log(\`Hello, \${name}!\`)
     "todo.toast.failed": "操作没有成功",
     "todo.toast.deleted": "已删除待办",
     "todo.toast.restored": "已恢复待办",
+    "todo.toast.restored_dropped": "已恢复待办，同时跳过了 {count} 条已过期提醒",
     "todo.toast.completed": "已完成待办",
     "todo.toast.created": "已添加待办",
     "todo.toast.moved": "已移动待办",

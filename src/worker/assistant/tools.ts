@@ -959,9 +959,14 @@ export const TASK_TOOLS: ToolDefinition[] = [
       id: { type: 'string', description: 'The trashed task id.', minLength: 1, maxLength: 64 },
     },
     async run(args, ctx) {
-      const restored = await ctx.store.restoreTask(String(args.id))
+      const { task: restored, droppedReminders } = await ctx.store.restoreTask(String(args.id))
       if (!restored) throw new ToolError('No trashed task has that id.')
-      return { restored: presentTask(restored) }
+      // Say so rather than let the model report a clean restore: the reminders that had already passed
+      // were dropped on the way back in, and a model that does not know will promise an alert that never comes.
+      return {
+        restored: presentTask(restored),
+        ...(droppedReminders > 0 ? { dropped_reminders: droppedReminders } : {}),
+      }
     },
   }),
   tool({

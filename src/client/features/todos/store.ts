@@ -1591,8 +1591,13 @@ export const useTodos = create<TodosState>((set, get) => ({
   /** The way back from the trash, shared by the delete undo and the trash screen. */
   restoreTask: async (id) => {
     try {
-      await api.todos.restore(id)
-      useUi.getState().toast({ title: t('todo.toast.restored'), tone: 'success' })
+      const { droppedReminders } = await api.todos.restore(id)
+      useUi.getState().toast({
+        // The row came back, but the alerts whose moment passed while it sat in the trash did not.
+        // Saying only "restored" would let the reader keep expecting a reminder that is already gone.
+        title: droppedReminders > 0 ? t('todo.toast.restored_dropped', { count: droppedReminders }) : t('todo.toast.restored'),
+        tone: 'success',
+      })
       await get().load()
       return true
     } catch (error) {
