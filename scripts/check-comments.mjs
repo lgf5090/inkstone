@@ -636,6 +636,13 @@ const allowed = new Map([
     "// A bar pinned to a selection scrolls away from it; the reader selects again when they",
     "// stop moving.",
   ]],
+  ["src/client/editor/EditorColorMenu.tsx", [
+    "/** What the button already stands for, so reopening the panel points at it rather than at nothing. */",
+    "// One commit per appearance. Committing closes the panel, and tearing a focused field down",
+    "// fires its blur — a second offer of the half-typed value would land on top of this pick.",
+    "// Enter hands the field over rather than offering itself: the panel is about to",
+    "// unmount, and a second offer of the same colour would read as the toggle-off.",
+  ]],
   ["src/client/editor/codeLanguages.ts", [
     "// Highlighting removed: no code languages are loaded.",
     "// Kept as empty array so the editor behaves as plain Markdown without syntax colors.",
@@ -12485,13 +12492,6 @@ const allowed = new Map([
     "/**\n     * One fact the assistant kept from this page.\n     *\n     * The row is the memory's own text, because that is the thing the reader is checking, and the door is the\n     * assistant's memory page — where a fact can be corrected, superseded or forgotten. Drawing an editor\n     * here would put a second copy of that page inside the notebook, and the two would drift.\n     */",
     "/* What the assistant remembered from this page: the third thing a note can be asked about, and the one\n          whose row has been stored since the day it was written. A refusal is drawn as a refusal, never as an\n          empty list, because an empty list is a statement about the reader's own memory that no answer gave. */",
   ]],
-  ["src/client/features/workspace/EditorColorMenu.tsx", [
-    "/** What the button already stands for, so reopening the panel points at it rather than at nothing. */",
-    "// One commit per appearance. Committing closes the panel, and tearing a focused field down",
-    "// fires its blur — a second offer of the half-typed value would land on top of this pick.",
-    "// Enter hands the field over rather than offering itself: the panel is about to",
-    "// unmount, and a second offer of the same colour would read as the toggle-off.",
-  ]],
   ["src/client/features/workspace/EditorToolbar.test.ts", [
     "/** A row of whichever menu or submenu is currently open — a submenu is portalled, so it is not under the toolbar. */",
     "// The two boards differ only in the body they start from, and which one a fence is stays the fence's",
@@ -12501,12 +12501,10 @@ const allowed = new Map([
   ["src/client/features/workspace/EditorToolbar.tsx", [
     "// The dropdown closes before the command runs, so a menu still holding the pointer cannot keep",
     "// the focus the command is about to hand back to the editor.",
-    "/**\n * The palette is a menu header, and a header is placed before it is measured. These are what the\n * panel actually is, so the maths that flips a menu away from the viewport edge can see it.\n */",
     "// The mode is a finger's shortcut for a handle, so it is only offered where a handle is hard to hit.",
     "/**\n     * One of the AI entries, run against whatever the caret is holding.\n     *\n     * The command reads the document itself rather than a copy captured when the menu opened: the\n     * selection is where the reader left it, and a note they kept typing in while the menu was up is a\n     * note whose offsets have moved. The whole document is the subject when nothing is selected, which is\n     * what makes \"summarise this note\" reachable from the same menu.\n     */",
     "// The one AI entry that is about the note rather than the selection: it reads the whole body",
     "// and writes to the front matter, so it sits apart from the five that rewrite a passage.",
-    "/* Beside the list control rather than in a menu: it acts on the line or selection the reader is\n          already looking at, and a menu would hide that it is about this text and not the whole note. */",
   ]],
   ["src/client/features/workspace/VersionsPanel.tsx", [
     "// The middle is only materialized when the LCS actually needs it; the unchanged head and",

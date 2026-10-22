@@ -852,6 +852,7 @@ export const ZH_CN_MESSAGES = {
     "common.the_passwords_do_not_match": "两次输入的密码不一致",
     "common.unarchive": "取消归档",
     "common.undo": "撤销",
+    "common.redo": "重做",
     "common.unordered_list": "无序列表",
     "common.untitled_note": "未命名笔记",
     "common.username": "用户名",
