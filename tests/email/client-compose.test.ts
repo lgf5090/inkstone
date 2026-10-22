@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, createElement } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { EmailAccount, EmailMessage } from '@shared/email/model'
 import { api } from '../../src/client/lib/api'
 import { renderElement, type RenderedElement } from '../../src/client/lib/test-render'
@@ -64,9 +64,13 @@ function change(input: HTMLInputElement, value: string): void {
   })
 }
 
-function panel(mode: 'new' | 'reply' | 'reply-all' | 'forward', draftId: string | null = null): RenderedElement {
+function panel(
+  mode: 'new' | 'reply' | 'reply-all' | 'forward',
+  draftId: string | null = null,
+  accountOverride: EmailAccount = account,
+): RenderedElement {
   return renderElement(createElement(ComposePanel, {
-    account,
+    account: accountOverride,
     mode,
     draftId,
     original: mode === 'new' ? null : original,
@@ -74,6 +78,11 @@ function panel(mode: 'new' | 'reply' | 'reply-all' | 'forward', draftId: string 
     onSent: vi.fn(),
   }))
 }
+
+afterEach(() => {
+  document.body.innerHTML = ''
+  vi.restoreAllMocks()
+})
 
 describe('the compose panel', () => {
   it('states the recipient error instead of sending without one', () => {
@@ -85,6 +94,20 @@ describe('the compose panel', () => {
 
     act(() => { button(t('email.compose.send')).click() })
     expect(document.querySelector('[role="alert"]')?.textContent).toContain(t('email.compose.error_no_recipient'))
+    expect(saveDraft).not.toHaveBeenCalled()
+    saveDraft.mockRestore()
+    view.unmount()
+  })
+
+  it('asks for a body before sending an otherwise complete message', () => {
+    const saveDraft = vi.spyOn(api.email, 'saveDraft')
+    const view = panel('new', null, {
+      ...account,
+      settings: { ...account.settings, signature: { enabled: false, text: '' } },
+    })
+    change(inputFor(t('email.compose.to')), 'grace@example.com')
+    act(() => { button(t('email.compose.send')).click() })
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain(t('email.compose.error_empty'))
     expect(saveDraft).not.toHaveBeenCalled()
     saveDraft.mockRestore()
     view.unmount()

@@ -9,6 +9,6 @@ export const ZH_CN_EMAIL_BACKUP = {
     "settings.email_backup_path_value": "归档：{value0}",
     "settings.email_backup_attachments_path_value": "附件：{value0}",
     "settings.email_backup_last_run": "上次备份",
-    "settings.email_backup_run": "立即备份邮箱",
+    "settings.email_backup_run": "立即备份",
     "settings.email_backup_restore_hint": "在“设置 → 数据 → 恢复备份文件夹”中恢复。已存在的邮箱、文件夹、邮件与附件会跳过；未包含的附件文件会标记为缺失，而不会虚报恢复成功。",
 } as const;

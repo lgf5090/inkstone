@@ -164,8 +164,8 @@ export function MessagePane({
   }
 
   return (
-    <section aria-label={t('email.a11y.message')} aria-busy={busy} className="flex min-h-0 flex-1 flex-col bg-[var(--bg-base)]">
-      <div className="flex h-11 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2">
+    <section aria-label={t('email.a11y.message')} aria-busy={busy} className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--bg-base)]">
+      <div className="flex h-11 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 no-scrollbar">
         <Tooltip label={t('email.detail.reply')}>
           <IconButton label={t('email.detail.reply')} size="sm" className={TOOLBAR_BUTTON} onClick={() => onCompose('reply')}>
             <Reply size={15} />

@@ -140,6 +140,7 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
   const emailSubject = email?.subject ?? null
   const emailSender = email?.sender ?? null
   const emailFolderId = email?.folderId ?? null
+  const emailLabel = emailContext?.subject?.trim() || emailContext?.sender?.trim() || emailContext?.address || ''
   useEffect(() => {
     if (surface !== 'email') return
     useAssistant.getState().setEmailContext(emailAccountId ? email ?? null : null)
@@ -335,10 +336,10 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
         <div role="group" aria-label={t('assistant.context.title')} className="flex flex-wrap items-center gap-1 px-3 pt-1.5">
           <span className="inline-flex min-w-0 items-center gap-1 rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
             <span aria-hidden className="shrink-0 text-[var(--text-quaternary)]"><Mail size={12} /></span>
-            <span className="max-w-[220px] truncate">{emailContext.subject ?? emailContext.sender ?? emailContext.address}</span>
+            <span className="min-w-0 max-w-[220px] truncate">{emailLabel}</span>
             <button
               type="button"
-              aria-label={t('assistant.context.remove', { name: emailContext.subject ?? emailContext.sender ?? emailContext.address })}
+              aria-label={t('assistant.context.remove', { name: emailLabel })}
               onClick={() => setEmailContextOn(false)}
               className="relative shrink-0 p-0.5 text-[var(--text-quaternary)] transition-colors hover:text-[var(--text-secondary)]"
             >

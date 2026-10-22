@@ -349,3 +349,26 @@ describe('the dock beside the subscriptions app', () => {
     expect(useAssistant.getState().subscriptionContext, 'a re-render must not undo a removal').toBeNull()
     expect(document.body.textContent, 'and the chip stays off').not.toContain('Netflix')
   })
+
+describe('the email context chip', () => {
+  it('falls back to the sender when the subject is empty', async () => {
+    const email = {
+      accountId: 'a1',
+      address: 'me@example.com',
+      folderId: 'inbox',
+      messageId: 'm1',
+      threadId: null,
+      subject: '',
+      sender: 'Grace Hopper <grace@example.com>',
+      recipient: null,
+      date: null,
+      snippet: null,
+      threadCount: 1,
+    }
+    await show(
+      { loaded: true, activeId: null, messages: [], messagesReady: true, emailContextOn: true },
+      { surface: 'email', email },
+    )
+    expect(document.body.textContent).toContain('Grace Hopper <grace@example.com>')
+  })
+})

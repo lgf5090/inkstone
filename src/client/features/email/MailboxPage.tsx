@@ -408,7 +408,14 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
     <FolderSidebar
       folders={folders}
       activeFolderId={folderId}
-      onSelect={(id) => navigateToPath(emailFolderPath(account.id, id))}
+      onSelect={(id) => {
+        setFolderDrawer(false)
+        if (id === 'trash') {
+          setTrashOpen(true)
+          return
+        }
+        navigateToPath(emailFolderPath(account.id, id))
+      }}
       onCreate={(name) => createFolder(account.id, name)}
       onRename={(id, name) => renameFolder(account.id, id, name)}
       onDelete={removeFolder}
@@ -440,6 +447,7 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
         else void loadList(account.id, folderId ?? 'inbox', page)
       }}
       onManageTrash={() => setTrashOpen(true)}
+      onCompose={() => compose('new')}
     />
   )
 
@@ -496,10 +504,10 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
             <div className="flex w-[380px] min-w-[360px] max-w-[420px] shrink-0 flex-col border-r border-[var(--border-subtle)]">
               {listPane}
             </div>
-            <div className="flex min-w-0 flex-1 flex-col">{pane}</div>
+            <div className="flex min-w-0 flex-1 flex-col overflow-hidden">{pane}</div>
           </>
         ) : (
-          <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             {messageId || (address.kind === 'mailbox' && address.compose) ? pane : listPane}
           </div>
         )}

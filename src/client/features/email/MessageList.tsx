@@ -1,4 +1,4 @@
-import { Trash2 } from 'lucide-react'
+import { PenLine, Trash2 } from 'lucide-react'
 import type { EmailFolder, EmailSummary } from '@shared/email/model'
 import { EMAIL_PAGE_SIZE } from '@shared/email/model'
 import { Button, IconButton, Spinner } from '../../components/primitives'
@@ -29,6 +29,7 @@ export function MessageList({
   onPage,
   onReload,
   onManageTrash,
+  onCompose,
 }: {
   messages: EmailSummary[]
   total: number
@@ -49,6 +50,7 @@ export function MessageList({
   onPage: (page: number) => void
   onReload: () => void
   onManageTrash: () => void
+  onCompose: () => void
 }) {
   const pageCount = Math.max(1, Math.ceil(total / EMAIL_PAGE_SIZE))
   const title = searchMode ? t('email.search.title') : folderLabel(folderId, folders)
@@ -72,6 +74,9 @@ export function MessageList({
             <Trash2 size={13} />
           </IconButton>
         )}
+        <IconButton label={t('email.compose.title_new')} size="xs" onClick={onCompose}>
+          <PenLine size={13} />
+        </IconButton>
       </div>
       {status === 'loading' && messages.length === 0 ? (
         <LoadingBlock label={t('email.list.loading')} />

@@ -173,6 +173,10 @@ export function ComposePanel({
       setError(t('email.compose.error_no_recipient'))
       return
     }
+    if (!body.trim()) {
+      setError(t('email.compose.error_empty'))
+      return
+    }
     setSending(true)
     setError(null)
     try {
@@ -306,14 +310,14 @@ export function ComposePanel({
           : 'email.compose.title_new'
 
   return (
-    <section className="flex h-full min-h-0 flex-col bg-[var(--bg-base)]" aria-label={t(titleKey)}>
+    <section className="flex h-full min-h-0 min-w-0 flex-col bg-[var(--bg-base)]" aria-label={t(titleKey)}>
       <header className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--border-subtle)] px-3">
         <h2 className="text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">{t(titleKey)}</h2>
         <IconButton label={t('common.close')} size="sm" onClick={() => { void close() }} disabled={sending}>
           <X size={15} />
         </IconButton>
       </header>
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 md:p-4">
+      <div className="min-h-0 min-w-0 flex-1 space-y-3 overflow-y-auto p-3 md:p-4">
         <Field label={t('email.compose.to')} required>
           <Input value={to} onChange={(event) => setTo(event.target.value)} placeholder={t('email.compose.recipient_placeholder')} autoComplete="off" />
         </Field>
@@ -334,7 +338,7 @@ export function ComposePanel({
           <Input value={subject} onChange={(event) => setSubject(event.target.value)} />
         </Field>
         <div className="overflow-hidden rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
-          <div className="flex flex-wrap items-center gap-1 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-1.5 py-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-1 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-1.5 py-1">
             <Segmented
               value={viewMode}
               onChange={setViewMode}

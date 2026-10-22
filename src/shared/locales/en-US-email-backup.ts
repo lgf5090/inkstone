@@ -9,6 +9,6 @@ export const EN_US_EMAIL_BACKUP = {
     "settings.email_backup_path_value": "Archive: {value0}",
     "settings.email_backup_attachments_path_value": "Attachments: {value0}",
     "settings.email_backup_last_run": "Last backup",
-    "settings.email_backup_run": "Back up email now",
+    "settings.email_backup_run": "Back up now",
     "settings.email_backup_restore_hint": "Restore from Settings → Data → Restore backup folder. Existing mailboxes, folders, messages and attachments are skipped, and attachment files that were not included are reported as missing rather than restored.",
 } as const;
