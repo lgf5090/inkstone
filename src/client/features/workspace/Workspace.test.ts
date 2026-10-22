@@ -9,9 +9,20 @@ import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 import { Workspace } from './Workspace'
 
+/**
+ * The props the workspace hands the editor, from the stand-in that takes the real one's place.
+ *
+ * The editor itself is a CodeMirror surface the workspace tests have no business mounting; what is worth
+ * pinning from here is the one decision the workspace makes about it, so the stand-in keeps the props it
+ * was given. `live` and `value` stay read through the DOM, as the cases above already do.
+ */
+const editorProps = vi.hoisted(() => ({ last: null as Record<string, unknown> | null }))
+
 vi.mock('../../editor/CodeEditor', () => ({
-  DeferredCodeEditor: ({ live, value }: { live: boolean; value: string }) =>
-    createElement('div', { 'data-editor-live': String(live) }, value),
+  DeferredCodeEditor: (props: { live: boolean; value: string }) => {
+    editorProps.last = props as unknown as Record<string, unknown>
+    return createElement('div', { 'data-editor-live': String(props.live) }, props.value)
+  },
 }))
 vi.mock('../preview/Preview', () => ({
   Preview: () => createElement('div', { 'data-test-preview': true }),
@@ -45,6 +56,7 @@ beforeEach(async () => {
   })
   useNotes.setState({ notes: { [note.id]: note }, contents: { [note.id]: '# Source\n\n**Markdown**' }, folders: [], tags: [] })
   useUi.setState({ activeNoteId: note.id, mobilePane: 'editor', outlineOpen: false, backlinksOpen: false })
+  editorProps.last = null
   container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)
@@ -109,5 +121,30 @@ describe('workspace live rendering toggle', () => {
     await act(() => root.render(createElement(Workspace)))
     expect(container.querySelector('[role="switch"]')).toBeNull()
     expect(container.querySelector('[data-test-preview]')).not.toBeNull()
+  })
+})
+
+/**
+ * Which of the two highlighting switches reaches the note editor.
+ *
+ * The reader sets one for the desktop and one for a phone, because painting every `<% %>` tag costs work
+ * on a small screen they may not want paid; `editor/templater.test.ts` proves the editor obeys the switch
+ * it is handed, and `settings/TemplaterSettings.test.ts` proves the rows store both. Only the workspace
+ * decides which of the two the editor is handed, and a wrong reading there is invisible on the screen it
+ * was set from — the marks just never appear, or always do, on the other one.
+ */
+describe('the templater highlighting switch the workspace hands down', () => {
+  it.each([
+    { phone: false, desktop: true, touch: false, expected: true },
+    { phone: false, desktop: false, touch: true, expected: false },
+    { phone: true, desktop: true, touch: false, expected: false },
+    { phone: true, desktop: false, touch: true, expected: true },
+  ])('paints according to the form factor it is on (phone: $phone, desktop: $desktop, touch: $touch)', async ({
+    phone, desktop, touch, expected,
+  }) => {
+    mobile = phone
+    useSession.setState({ settings: mergeSettings({ templater: { syntaxHighlighting: desktop, syntaxHighlightingMobile: touch } }) })
+    await act(() => root.render(createElement(Workspace)))
+    expect(editorProps.last?.templaterHighlight, 'the editor is handed one boolean, not the whole settings block').toBe(expected)
   })
 })

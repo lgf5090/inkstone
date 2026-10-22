@@ -74,6 +74,32 @@ describe('templater cursors: grouping by order', () => {
     const [group] = groupCursorMarkers(`${ONE}x${ONE}`)
     expect(group.markers.map((marker) => marker.start)).toEqual([0, ONE.length + 1])
   })
+
+  it('puts every order in the ladder the reader jumps through, at once', () => {
+    // The whole rule from the header in one note, rather than the pairwise readings of it this file also
+    // makes: `-1` before zero and before the bare form, the bare form and `0` as two stops that sort
+    // together, and `1` and `1.0` as one group spelled two ways. No other case here puts a negative order
+    // in the same note as zero or the bare form, so the ladder is what this pins and what a sort keyed on
+    // anything but the number would break.
+    const output = `${ONE_AS_DECIMAL}a${MINUS_ONE}b${BARE}c${ZERO}d${ONE}e${TWO}`
+    expect(groupCursorMarkers(output).map((group) => [group.order, group.markers.length])).toEqual([
+      [-1, 1],
+      [null, 1],
+      [0, 1],
+      [1, 2],
+      [2, 1],
+    ])
+    const walked: (number | null)[] = []
+    let text = output
+    for (;;) {
+      const jump = jumpToNextCursor(text)
+      if (jump === null) break
+      walked.push(jump.order)
+      text = jump.text
+    }
+    expect(walked).toEqual([-1, null, 0, 1, 2])
+    expect(text).toBe('abcde')
+  })
 })
 
 describe('templater cursors: jumping', () => {

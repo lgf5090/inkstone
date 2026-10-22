@@ -213,9 +213,13 @@ describe('what the rows offer', () => {
   })
 
   it('leaves a committed input-method segment alone', async () => {
-    // CodeMirror tags composition input `input.type.compose` and its autocomplete only acts on `input.type`,
-    // so no completion source in this editor carries an IME branch — neither `completion.ts` nor
-    // `task-completion.ts` does. What is left to pin is that half a word in another script is not a path.
+    // The keystroke half is CodeMirror's: its observer drops key events while a composition is open, so the
+    // Enter that picks a candidate never reaches the completion keymap. What is left over for this source is
+    // the text half — composed input still arrives as a doc change its list is rebuilt from — and the answer
+    // is the path's own character set: `ACCESS_PATH` takes word characters and `$`, so half a word in
+    // another script is not a module name, and `validFor` closes the list as soon as the caret sits in text
+    // no identifier could be made of. No completion source in this editor carries an IME branch, because
+    // none needs one: not `completion.ts`, not `task-completion.ts`, not this one.
     // Built from code points so no Han character sits in a source file, which is what the comment gate
     // asks of anything that has to name Chinese.
     const committed = String.fromCharCode(0x4e2d)

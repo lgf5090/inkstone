@@ -126,11 +126,12 @@ function type(value: string): void {
   })
 }
 
-function press(key: string, options: KeyboardEventInit = {}): void {
+function press(key: string, options: KeyboardEventInit = {}): KeyboardEvent {
   const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...options })
   act(() => {
     filter().dispatchEvent(event)
   })
+  return event
 }
 
 function clickText(fragment: string): void {
@@ -247,6 +248,39 @@ describe('the list', () => {
     await settle()
     expect(calls.insert).toEqual([NAMES.meeting])
     expect(closed).toBe(1)
+  })
+
+  it('walks back up the list and turns around at either end', () => {
+    // Two halves of one rule the arrows share: the highlight is a cursor over a ring, not a pointer that
+    // stops at the first row. A reader who lands in the chooser with the arrows, and reaches the top, gets
+    // the same answer as one who came down from the bottom — and `aria-activedescendant` has to follow it,
+    // or the screen reader announces a row the Enter key will not run.
+    open()
+    press('ArrowUp')
+    expect(rows()[2]?.getAttribute('aria-selected'), 'ArrowUp on the first row goes to the last').toBe('true')
+    expect(filter().getAttribute('aria-activedescendant')).toBe(rows()[2]?.id)
+    press('ArrowUp')
+    expect(rows()[1]?.getAttribute('aria-selected')).toBe('true')
+    press('ArrowDown')
+    press('ArrowDown')
+    expect(rows()[0]?.getAttribute('aria-selected'), 'ArrowDown past the last row comes back to the first').toBe('true')
+  })
+
+  it('runs nothing when the arrows and Enter find no row at all', async () => {
+    // The list is empty because the filter hid every template, so the cursor has nowhere to go. Pressing
+    // through it must not be a crash and must not be a run of some row the reader cannot see; and Enter
+    // stays the browser's, because a keystroke that runs nothing should not be swallowed either.
+    open()
+    type(NAMES.noMatch)
+    expect(press('ArrowDown').defaultPrevented, 'the arrows still own the keystroke they answer').toBe(true)
+    expect(press('Enter').defaultPrevented, 'Enter with no row is not consumed').toBe(false)
+    press('ArrowUp')
+    press('Enter')
+    await settle()
+    expect(rows()).toHaveLength(0)
+    expect(calls.insert).toEqual([])
+    expect(closed).toBe(0)
+    expect(filter().getAttribute('aria-activedescendant')).toBeNull()
   })
 
   it('says the library is empty and offers the way out of that', () => {
