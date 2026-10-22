@@ -197,7 +197,7 @@ describe('a surface that shows a note cannot run a template', () => {
       'static:src/client/lib/templater/detection',
     ])
     const seam = readFileSync('src/client/features/templater/dynamic-commands.ts', 'utf8')
-    expect(seam, 'the pass runs through the shell’s one dynamic-command entry').toContain('renderDynamicCommand(')
+    expect(seam, 'the pass runs through the shell’s batched dynamic-command entry').toContain('renderDynamicCommands(')
     for (const mode of ['append-active', 'overwrite-active', 'overwrite-file', 'create-new']) {
       expect(seam, `the pass names a write mode (${mode}) it has no business asking for`).not.toContain(mode)
     }

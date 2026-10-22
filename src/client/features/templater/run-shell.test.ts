@@ -18,7 +18,7 @@ import { useNoteTemplates } from '../../store/note-templates'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 import { registerLinkEditorNote } from '../links/store'
-import { createNoteFromTemplate, insertTemplateIntoActiveNote, renderDynamicCommand, renderTemplateBodyText, replaceActiveNoteWithTemplate } from './run-shell'
+import { createNoteFromTemplate, insertTemplateIntoActiveNote, renderDynamicCommand, renderDynamicCommands, renderTemplateBodyText, replaceActiveNoteWithTemplate } from './run-shell'
 
 /** Everything the stand-in door records, and the answers it can be told to give. */
 const engine = vi.hoisted(() => ({
@@ -31,6 +31,12 @@ const engine = vi.hoisted(() => ({
   /** What the shell handed each `installTemplaterHost` call, so the switches can be read back. */
   hostOptions: [] as Array<{ webRequestsEnabled?: () => boolean }>,
   renders: [] as { context: { mode: string; capabilities: string; selection: string; frozenTitle: string; target: unknown } }[],
+  /** How many times the door was asked at all, including the runs that failed. */
+  calls: 0,
+  /** Answer with the source the run was handed, which is how a batch's split is read back. */
+  echo: false,
+  /** Fail the next run only, so a test can watch the caller fall back and still succeed. */
+  failOnce: false,
   writes: [] as { id: string; content: string }[],
   creates: [] as { title: string; content: string; folderId: string | null }[],
   targets: [] as { runId: string; path: string }[],
@@ -72,10 +78,15 @@ vi.mock('../../lib/templater', () => ({
       },
     }
   },
-  async renderTemplate(args: { context: { mode: string; capabilities: string; selection: string; frozenTitle: string; target: unknown } }) {
-    if (engine.renderFailure !== null) return { ok: false as const, ...engine.renderFailure }
+  async renderTemplate(args: { program: { template: string }; context: { mode: string; capabilities: string; selection: string; frozenTitle: string; target: unknown } }) {
+    engine.calls += 1
+    if (engine.renderFailure !== null) {
+      const failure = engine.renderFailure
+      if (engine.failOnce) engine.renderFailure = null
+      return { ok: false as const, ...failure }
+    }
     engine.renders.push({ context: args.context })
-    return { ok: true as const, output: engine.output, durationMs: 1 }
+    return { ok: true as const, output: engine.echo ? args.program.template : engine.output, durationMs: 1 }
   },
 }))
 
@@ -154,6 +165,9 @@ beforeAll(async () => {
 })
 
 beforeEach(() => {
+  engine.calls = 0
+  engine.echo = false
+  engine.failOnce = false
   engine.output = RENDERED
   engine.renderFailure = null
   engine.writeRefusal = null
@@ -423,5 +437,42 @@ describe('one dynamic command from the preview', () => {
     engine.renderFailure = { code: 'render-failed', detail: 'nope is not defined' }
     expect(await renderDynamicCommand('<% nope() %>', null))
       .toEqual({ ok: false, error: `${t('templater.error.render_failed')} (nope is not defined)` })
+  })
+})
+
+describe('several dynamic commands from one preview', () => {
+  it('answers a note worth of commands in one run', async () => {
+    // The reason this exists: a paragraph that asks the same clock twice used to pay two parses, two
+    // compiled programs and two interpreter contexts. One body with the commands joined is one run, and
+    // the answer comes back in the same order it was asked.
+    engine.echo = true
+    const answers = await renderDynamicCommands(['<% tp.date.now() %>', '<% tp.file.title %>'], null)
+    expect(engine.calls).toBe(1)
+    expect(answers.map((answer) => (answer.ok ? answer.output : null))).toEqual(['<% tp.date.now() %>', '<% tp.file.title %>'])
+  })
+
+  it('asks one at a time when the batch cannot be answered, so a bad command costs only itself', async () => {
+    engine.echo = true
+    engine.failOnce = true
+    engine.renderFailure = { code: 'render-failed', detail: 'nope is not defined' }
+    const answers = await renderDynamicCommands(['<% tp.date.now() %>', '<% tp.file.title %>'], null)
+    // One batch attempt, then one run per command: the pass still has an answer for each place it marks.
+    expect(engine.calls).toBe(3)
+    expect(answers.map((answer) => answer.ok)).toEqual([true, true])
+  })
+
+  it('does not build a batch for a command that has no company', async () => {
+    engine.echo = true
+    expect(await renderDynamicCommands(['<% tp.date.now() %>'], null)).toEqual([{ ok: true, output: '<% tp.date.now() %>' }])
+    expect(engine.calls).toBe(1)
+    expect(await renderDynamicCommands([], null)).toEqual([])
+    expect(engine.calls).toBe(1)
+  })
+
+  it('keeps the read-only profile on the batch that carries several commands', async () => {
+    engine.echo = true
+    await renderDynamicCommands(['<% tp.date.now() %>', '<% tp.file.title %>'], null)
+    expect(engine.renders.at(-1)!.context.capabilities).toBe('dynamic')
+    expect(engine.renders.at(-1)!.context.mode).toBe('dynamic-processor')
   })
 })
