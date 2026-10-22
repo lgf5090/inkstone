@@ -28,11 +28,13 @@ export interface AttachmentRow {
   mime: string
   size: number
   sha256: string
+  object_key: string | null
   width: number | null
   height: number | null
   storage: AttachmentObjectStorage
   created_at: number
 }
+
 
 /** A row as the share read needs it: the note body is scanned for the id the reader asked for. */
 export interface ShareAssetRow {
@@ -79,7 +81,8 @@ export interface PruneOutcome {
 }
 
 /** The columns a listing reads. `sha256` is only the read path's, so the list spells its own set. */
-const ATTACHMENT_LIST_COLUMNS = 'id, user_id, note_id, filename, mime, size, width, height, storage, created_at'
+const ATTACHMENT_LIST_COLUMNS = 'id, user_id, note_id, filename, mime, size, width, height, object_key, storage, created_at'
+
 
 /**
  * One attachment, by id alone.
@@ -90,7 +93,7 @@ const ATTACHMENT_LIST_COLUMNS = 'id, user_id, note_id, filename, mime, size, wid
  */
 export function attachmentById(db: D1Database, id: string): Promise<AttachmentRow | null> {
   return db.prepare(
-    `SELECT id, user_id, note_id, filename, mime, size, sha256, width, height, storage, created_at
+    `SELECT id, user_id, note_id, filename, mime, size, sha256, object_key, width, height, storage, created_at
        FROM attachments WHERE id = ?1`,
   ).bind(id).first<AttachmentRow>()
 }
@@ -168,7 +171,7 @@ export class AttachmentsStore {
   /** The row a deletion is answered from: the object it has to release and the account it belongs to. */
   async forDeletion(id: string): Promise<AttachmentRow | null> {
     return this.db.prepare(
-      `SELECT id, user_id, filename, mime, storage FROM attachments WHERE id = ?1 AND user_id = ?2`,
+      `SELECT id, user_id, filename, mime, object_key, storage FROM attachments WHERE id = ?1 AND user_id = ?2`,
     )
       .bind(id, this.userId)
       .first<AttachmentRow>()
@@ -207,7 +210,7 @@ export class AttachmentsStore {
     const [boundaryResult, cursorResult] = await this.db.batch([
       this.db.prepare(
         `SELECT created_at, id FROM attachments
-          WHERE user_id = ?1 ORDER BY created_at DESC, id DESC LIMIT 1`,
+          WHERE user_id = ?1 AND scope = 'notes' ORDER BY created_at DESC, id DESC LIMIT 1`,
       ).bind(this.userId),
       this.db.prepare(
         `SELECT seq FROM changes WHERE user_id = ?1 AND entity = 'note'
@@ -282,7 +285,7 @@ export class AttachmentsStore {
 
       for (const file of files) {
         if (referenced.has(file.id)) continue
-        const guard = `id = ?1 AND user_id = ?2 AND ?6 = 0`
+        const guard = `id = ?1 AND user_id = ?2 AND scope = 'notes' AND ?6 = 0`
         const needed = 3
         if (statements.length + needed > PRUNE_STATEMENT_LIMIT) await flush()
         statements.push(
@@ -310,7 +313,7 @@ export class AttachmentsStore {
         )
         operations.push({ kind: 'mapping' })
         statements.push(
-          this.db.prepare(`DELETE FROM attachments WHERE id = ?1 AND user_id = ?2 AND ?3 = 0`)
+          this.db.prepare(`DELETE FROM attachments WHERE id = ?1 AND user_id = ?2 AND scope = 'notes' AND ?3 = 0`)
             .bind(file.id, this.userId, stale),
         )
         operations.push({ kind: 'delete', file })
@@ -335,7 +338,7 @@ export class AttachmentsStore {
   ): Promise<Array<{ created_at: number; id: string }>> {
     const query: D1PreparedStatement = cursor
       ? this.db.prepare(
-          `SELECT created_at, id FROM attachments WHERE user_id = ?1
+          `SELECT created_at, id FROM attachments WHERE user_id = ?1 AND scope = 'notes'
             AND (created_at < ?2 OR (created_at = ?2 AND id <= ?3))
             AND (created_at > ?4 OR (created_at = ?4 AND id > ?5))
            ORDER BY created_at ASC, id ASC LIMIT ?6`,
@@ -348,7 +351,7 @@ export class AttachmentsStore {
           ATTACHMENT_SCAN_PAGE_SIZE,
         )
       : this.db.prepare(
-          `SELECT created_at, id FROM attachments WHERE user_id = ?1
+          `SELECT created_at, id FROM attachments WHERE user_id = ?1 AND scope = 'notes'
             AND (created_at < ?2 OR (created_at = ?2 AND id <= ?3))
            ORDER BY created_at ASC, id ASC LIMIT ?4`,
         ).bind(this.userId, boundary.created_at, boundary.id, ATTACHMENT_SCAN_PAGE_SIZE)
@@ -360,7 +363,7 @@ export class AttachmentsStore {
     const query: D1PreparedStatement = cursor
       ? this.db.prepare(
           `SELECT ${ATTACHMENT_LIST_COLUMNS}
-             FROM attachments WHERE user_id = ?1
+             FROM attachments WHERE user_id = ?1 AND scope = 'notes'
               AND (created_at < ?2 OR (created_at = ?2 AND id <= ?3))
               AND (created_at > ?4 OR (created_at = ?4 AND id > ?5))
             ORDER BY created_at ASC, id ASC LIMIT ?6`,
@@ -374,7 +377,7 @@ export class AttachmentsStore {
         )
       : this.db.prepare(
           `SELECT ${ATTACHMENT_LIST_COLUMNS}
-             FROM attachments WHERE user_id = ?1
+             FROM attachments WHERE user_id = ?1 AND scope = 'notes'
               AND (created_at < ?2 OR (created_at = ?2 AND id <= ?3))
             ORDER BY created_at ASC, id ASC LIMIT ?4`,
         ).bind(this.userId, boundary.created_at, boundary.id, ATTACHMENT_SCAN_PAGE_SIZE)

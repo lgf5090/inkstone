@@ -186,6 +186,7 @@ const allowed = new Map([
     "/**\n * The card a build update puts on the screen.\n *\n * `initializePwa` raises `updateAvailable` the moment a new worker finishes caching its own shell, and\n * this is where that flag becomes something a reader can see and press. It used to be a half-minute\n * toast: a notice that expires in front of a change that does not, leaving a new build installed on the\n * device, unreachable except by a reload nobody asks for. So the card has no dismiss control — that is\n * the design, not an oversight. It goes away when the reader takes the update up, or when another tab\n * already did and this page's waiting worker stopped existing.\n *\n * The other thing it can say is that no update is coming. `updateStuck` is raised when a newer build's\n * worker is discarded before it finishes installing, which is the case where this page is pinned to the\n * build it opened with and every reload re-runs the same failed install; the press clears the worker and\n * the caches it was serving from, the only lever a page has. Same corner, same no-dismiss rule, because\n * the condition behind it is just as standing.\n *\n * The corner is the one this app already uses for a standing, actionable status: the template run's card\n * occupies the same slot, above the phone's navigation row and below a notch, which are the insets the\n * manifest's `display: standalone` makes real rather than decorative.\n */",
     "// One card, two answers to the same question — \"where is my update?\". A build that did finish installing",
     "// is the better answer to a jammed channel, so when both flags are somehow up the ready card owns it.",
+    "/**\n * The attachment hub, hosted above the container switch for the same reason the picture viewer is.\n *\n * `AppShell` is the notebook's own container, so a hub mounted there would simply not exist while\n * the reader sits on memos, chat or the task list — the button in those containers would set state\n * with nothing left to render it. The scope is the slot's whole value: one host, four applications,\n * and the `key` is what keeps one application's filters and selection from being read as the next\n * one's when the hub is opened again somewhere else.\n */",
   ]],
   ["src/client/components/DrawerSearchField.tsx", [
     "/** The same text `value` holds, compiled: the box says in its own words what a refused expression cost. */",
@@ -1000,6 +1001,55 @@ const allowed = new Map([
     "/**\n * Width, not typography: the reference plugin's converter also guesses the language from the\n * selection's CJK ratio and rewrites every full stop it finds, which turns an ordered list marker\n * into a sentence terminator. These two commands only swap a character for its counterpart at the\n * other width.\n */",
     "/** `template` fronts every line; `{n}` stands for the running number, which a blank line never spends. */",
   ]],
+  ["src/client/features/attachment-hub/api.ts", [
+    "/**\n * The hub's client, one implementation for four applications.\n *\n * The scope is the only thing a caller supplies that differs; it becomes a path segment, so a\n * caller cannot address another account's files by naming a table, and the server validates the\n * segment against its own registry rather than trusting this module to have listed it correctly.\n */",
+  ]],
+  ["src/client/features/attachment-hub/attachment-grid-view.tsx", [
+    "/* The card is a container, so the two gestures it used to carry belong to the thumbnail:\n            a click inspects, a double click opens. Both stay reachable from the row menu. */",
+  ]],
+  ["src/client/features/attachment-hub/attachment-helpers.ts", [
+    "/** One page of the hub's own list; the server caps the page at the same size. */",
+    "/**\n * Written by a dragged card, read by a folder row. It has to be one constant: the reference shipped\n * two spellings, so the drop never landed.\n */",
+    "/**\n * The sidebar's categories as the list request reads them. 'unreferenced' is a server-side filter,\n * because filtering a page-sized result client-side reports fewer orphans than there are.\n */",
+    "/** A card's id payload arrives as text a third party could have written, so anything odd reads as \"nothing dropped\". */",
+    "/** The hub's folders are the same tree shape the note explorer draws, so its helpers read them as `Folder`s. */",
+    "/** `count` stays zero: the hub tags files, and the file list is what carries how many. */",
+  ]],
+  ["src/client/features/attachment-hub/attachment-hub-modal/hooks.ts", [
+    "/** Images ride the app's shared lightbox; everything else goes to the browser's own viewer. */",
+    "/** All the hub modal's state and commands, so its JSX stays a thin shell. */",
+    "/**\n   * The next page, appended rather than swapped in.\n   *\n   * The server caps a page at 500 and hands back an opaque position marker; without this the\n   * centre would silently stop at the first 500 files for anyone with more, and the count in the\n   * footer would disagree with the grid in a way that reads as \"my files disappeared\".\n   */",
+  ]],
+  ["src/client/features/attachment-hub/attachment-hub-modal/index.tsx", [
+    "/* Only offered while the server says there is more: the grid already shows the count it\n          loaded, and a control that can never finish would sit under a list that looks complete. */",
+  ]],
+  ["src/client/features/attachment-hub/attachment-hub-sidebar/folder-row.tsx", [
+    "// Enter accepts an IME candidate as well as it commits a name, so a reader typing a",
+    "// folder in pinyin would finish with half a word and a closed field.",
+  ]],
+  ["src/client/features/attachment-hub/attachment-hub-toolbar.tsx", [
+    "// The hub searches by plain substring, so it keeps its own box rather than the regex one — but the",
+    "// box is still the app's Escape/IME contract, and an empty box hands Escape back to the modal.",
+  ]],
+  ["src/client/features/attachment-hub/attachment-hub.tsx", [
+    "/** Lets the host refresh its own attachment lists once the hub is put away. */",
+    "/**\n * The hub is mounted by the app that wants it and keyed on its scope: folders, tags and the modal's\n * view state are all per-scope, so a remount is what clears one application's filters from the next.\n */",
+  ]],
+  ["src/client/features/attachment-hub/attachment-item-common.tsx", [
+    "/** The two views are the same set of commands over the same rows, so they share one props shape. */",
+    "/** Non-images have no in-app viewer: the browser's own is the one that can actually show them. */",
+  ]],
+  ["src/client/features/attachment-hub/attachment-store.ts", [
+    "/**\n * One store per scope: four applications organise their own folders and tags, and a single module\n * array would have two open hubs overwrite each other.\n */",
+    "// Rebuilt only when the folders change: every consumer reads the tree on each render, and a fresh",
+    "// array each time would invalidate theirs as well.",
+  ]],
+  ["src/client/features/attachment-hub/hub-scope.tsx", [
+    "/**\n * Every request the hub makes is namespaced by this scope, so a component that cannot see one must\n * fail loudly rather than ask the server for whichever namespace it happened to guess.\n */",
+  ]],
+  ["src/client/features/attachment-hub/qr-colors.ts", [
+    "/**\n * A QR code is painted into an SVG the browser cannot restyle with a CSS variable, so its two colours\n * are absolute values rather than design tokens: a code that inverts with the theme stops scanning.\n */",
+  ]],
   ["src/client/features/auth/LoginPage.tsx", [
     "// Only the OAuth consent page may be resumed after sign-in, so a crafted ?next",
     "// can never send the browser somewhere else with an authenticated session.",
@@ -1797,6 +1847,7 @@ const allowed = new Map([
     "// Beside the money app the notebook's pointers name a document the reader is not looking at, so nothing",
     "// of ours is drawn here; the dock draws the plan the reader opened. Mutating the list rather than",
     "// returning early keeps every hook above on the same path.",
+    "/* A different icon from the clip beside it on purpose: the clip puts a file into this\n                one turn, this one opens everything the chat has ever been sent. */",
   ]],
   ["src/client/features/chat/ComposerControls.tsx", [
     "/** The token count, spelled the way the reference's slider spells it: 32K, 128K, 262K. */",
@@ -12421,6 +12472,7 @@ const allowed = new Map([
     "// The one AI entry that is about the note rather than the selection: it reads the whole body",
     "// and writes to the front matter, so it sits apart from the five that rewrite a passage.",
     "/* Beside the list control rather than in a menu: it acts on the line or selection the reader is\n          already looking at, and a menu would hide that it is about this text and not the whole note. */",
+    "/* The hub, not another upload: from here the reader picks a file the notebook already holds,\n          and the hub's own insert writes it in. Kept beside the image control because that is where\n          the row stops formatting text and starts placing things. */",
   ]],
   ["src/client/features/workspace/VersionsPanel.tsx", [
     "// The middle is only materialized when the LCS actually needs it; the unchanged head and",
@@ -20068,6 +20120,7 @@ const allowed = new Map([
     "// the theme is on screen. `ready` rejects when the browser skips or supersedes the transition, and the",
     "// only thing a reader loses then is the circle growing from the button they pressed.",
     "/**\n   * Whether the assistant's panel is docked beside the notebook.\n   *\n   * The notebook is where the reader writes, so asking about what they are writing should not cost them\n   * the page: the panel is a column of the notebook's own frame rather than a trip to the chat tab, and\n   * the note they have open rides along as context exactly as it does there.\n   */",
+    "/**\n   * Which application's attachment hub is open, or null while none is.\n   *\n   * A scope rather than a boolean because one host serves four applications and has to know which\n   * one to ask. Ephemeral on purpose: a hub reopened after a reload would be showing a listing\n   * whose counts have already moved.\n   */",
   ]],
   ["src/client/store/update.ts", [
     "// Recording a dismissal the reader already got, and the read above answers a refused storage with null,",
@@ -20824,6 +20877,16 @@ const allowed = new Map([
     "/** Overrides the mark inferred from the model id or provider; '' means infer. */",
     "/** The plan this delivery was about, when it was about one. See the in-app channel. */",
     "/**\n   * Where the notice is about, as `<app>:<id>` — `todo:<task id>` first.\n   *\n   * Not a URL, and not the caller's to shape: the client resolves the pair inside its own origin, so a\n   * writer cannot aim a reader's press somewhere this deployment never chose. Null is a notice that\n   * points nowhere — a digest, a finished run — which the notification centre expands instead of\n   * navigating on.\n   */",
+  ]],
+  ["src/shared/attachment-hub.ts", [
+    "/**\n * The attachment hub's wire contract.\n *\n * One shape for all four applications: the scope travels as a path segment, and everything else —\n * filtering, organising, counting usage — is the same request in every application. What differs\n * per application is server-side only (which table, which object prefix, which content holds the\n * references), so a client that works for one works for all four.\n */",
+    "/** A file as the hub presents it. `url` is served by the owning application's existing door. */",
+    "/** Where the file is used, for the \"insert into\" action and the inspector's back-link. */",
+    "/** `'unfiled'` asks for the files no folder has claimed. */",
+    "/** Opaque: the server's own position marker, never parsed on the client. */",
+    "/** Files nothing references any more. Filtered server-side, because a page-sized filter lies. */",
+    "/** The place a file is used, named the way its own application names it. */",
+    "/** False when this scope has no registered way to tell used from unused, so nothing was deleted. */",
   ]],
   ["src/shared/backup-format.ts", [
     "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
@@ -24347,13 +24410,63 @@ const allowed = new Map([
   ["src/worker/attachments/backend.ts", [
     "/**\n * Ranged read for one chunk. R2 serves it storage-side; KV has no ranged get, so callers\n * must fall back to readAttachmentObject and slice in the isolate.\n */",
   ]],
+  ["src/worker/attachments/hub-rows.ts", [
+    "/**\n * Reading and organising hub rows across the three tables the four applications keep them in.\n *\n * Every statement is narrowed twice: by the account taken from the session, and by the scope\n * resolved against the registry before it reached this file. Neither is ever interpolated from a\n * caller — table and column names come from the descriptor's literal union, and anything a client\n * sent arrives as a bound parameter.\n */",
+    "/**\n * Accumulates the bound values so a fragment can ask for the placeholder that comes next.\n *\n * Interpolating `?N` by hand across a growing filter list is where this kind of query goes wrong:\n * one branch that pushes without emitting, or emits without pushing, and every later clause reads a\n * value meant for another. The account id is always first, so the counter starts at one.\n */",
+    "/** The account id, for the fragments that need it a second time in the same statement. */",
+    "/**\n * Memos stamps its rows in seconds and every other scope in milliseconds.\n *\n * Left alone, a listing that spans the two would order every ten-digit memo time before every\n * thirteen-digit note time regardless of when either happened. The hub widens the older clock on the\n * way out rather than asking an application to rewrite its history — the cursor still carries the\n * raw column value, because that is what the keyset comparison reads.\n */",
+    "/** The `WHERE` terms for one request, in the order their values are bound. */",
+    "/**\n * Whether a row may still be deleted, asked of the row's own tables inside the delete statement.\n *\n * A snapshot taken before the sweep is not enough for two of these scopes. Notes can watch the\n * change log, but task and memo links never enter it — `ChangeEntity` has no member for either — so\n * a guard built on sequence numbers would let a link created while the sweep was running be\n * overwritten by a delete that had already decided the file was spare. Re-asking at the moment of\n * deletion closes that window without needing a log the scope does not write.\n */",
+    "/** Chat resolves its backend per call instead of recording it, so a hub read cannot report one. */",
+    "/** One row as the hub presents it, for a mutation's response. Null when this scope has no such row. */",
+    "/** Objects whose rows went but whose bytes did not, handed to the retry queue. */",
+    "/**\n * Deletes the files this scope nothing points at any more.\n *\n * Each candidate is deleted by a statement that re-asks the liveness question rather than by one\n * that trusts the scan which found it. That is deliberate: the scan can be long, and the two scopes\n * whose links are never written to the change log have no way to tell a running sweep that\n * something just claimed a file. A delete that finds the file claimed at the last moment is a\n * delete that does nothing, which is the only safe outcome available.\n */",
+  ]],
+  ["src/worker/attachments/hub-upload.ts", [
+    "/**\n * Writing one file into whichever application asked for it.\n *\n * Each application already owns a careful upload path — memos takes a thumbnail and a motion role\n * and stamps its clock in seconds, chat sniffs an image from a document and caps them\n * differently, notes and todos share the quota lease and the magic-number downgrade. The hub does\n * not reimplement any of that: it calls the door the application already guards, then reads the\n * row back through the hub's own reader so the caller sees one shape regardless.\n *\n * Re-reading rather than reshaping the writer's return is deliberate. Three different row types\n * would otherwise have to be mapped by hand here and kept in step with three tables forever, where\n * one read through the listing path is the same projection the listing itself uses.\n */",
+    "// Memos stamps seconds; the hub's reader widens it on the way out rather than asking this",
+    "// table to carry a second clock.",
+  ]],
   ["src/worker/attachments/index.ts", [
     "/** Object storage entry points shared with other worker modules. */",
+  ]],
+  ["src/worker/attachments/keys.ts", [
+    "/**\n   * The key the object was written under; null for rows that predate the hub.\n   *\n   * Required rather than optional on purpose. A caller that leaves it out of its `SELECT` gets an\n   * object key from the pre-hub branch, which resolves for every old row and for none of the new\n   * ones — a failure that shows up as files that simply cannot be opened any more.\n   */",
+    "/**\n * The object key a row's bytes live under.\n *\n * The persisted key wins. Deriving it from mutable columns instead would mean a rename or a\n * re-file can move an object out from under its own row, which is how the pre-hub layout ended up\n * recomputed identically in eight places that each had to agree with the writer by luck.\n *\n * A null `object_key` is not missing data: it marks a row written before the hub, whose bytes sit in\n * the flat unprefixed layout. Those rows keep resolving the old way, so no backfill has to\n * reproduce the extension rule in SQL and no object has to move. New uploads persist their key.\n */",
+    "/** The columns needed to choose a key for an object that has no row to read one back from. */",
+    "/** The key a scope's newest object will be written under, and the only place a prefix is chosen. */",
+  ]],
+  ["src/worker/attachments/organizer.ts", [
+    "/**\n * Folders and tags for the attachment hub.\n *\n * Both tables carry a `scope` column rather than being one table pair per application, because the\n * row shape, the ordering rules and the detach-on-delete behaviour are identical across all four —\n * the only thing that differs is which application's sidebar is drawing them. Scoping by a column\n * keeps that to one implementation; four table pairs would mean four copies of the same eight\n * statements to keep honest.\n *\n * Names are scoped, not global: a \"Screenshots\" folder in notes and one in chat are unrelated\n * things that happen to share a name, and a rename in one must not reach into the other.\n */",
+    "/**\n * Deletes a folder by detaching first.\n *\n * Both the files that were in it and the folders that were under it move to the root rather than\n * going with it: a folder is a way of looking at files, and deleting the view must not delete the\n * thing viewed.\n */",
+    "/**\n * Creates a tag, reusing the row when the scope already has that name.\n *\n * The unique index is on (user_id, scope, name), and the hub's tag chips are drawn from names\n * rather than ids, so a second create for a name already present is a double-click and not a\n * request to have two indistinguishable tags.\n */",
+    "/**\n * Renames a tag and rewrites the name inside every file that carries it.\n *\n * Tags live twice: as a row here, and as a string inside each file's JSON `tags` column. The row is\n * the definition and the strings are the uses, so a rename that only touches the row would leave\n * every file wearing the old name and the sidebar unable to filter to it.\n *\n * The bodies are rewritten by parsing them rather than by a SQL `replace()`: the column is a JSON\n * array, and cutting one quoted name out of the raw text leaves `[\"a\", \"b\"]` as `[, \"b\"]`, which\n * then fails to parse on every read afterwards.\n */",
+    "/**\n * Applies `edit` to every file in this scope whose tag list mentions `name`.\n *\n * Paged by rowid-ordered id because the whole point is not to hold the account's files in memory at\n * once, and the `instr` prefilter means the JSON is only parsed for the rows that could contain it.\n */",
   ]],
   ["src/worker/attachments/references.ts", [
     "// Retained versions must remain restorable after unused attachments are pruned.",
     "// The instr() predicate discards rows that cannot contain an attachment URL",
     "// so full bodies only cross the wire for rows the regex will actually parse.",
+    "/**\n * The ids a scope's content actually references, counted per id.\n *\n * Each scope answers \"is this file still in use?\" from a different place, and the difference is not\n * cosmetic: notes carry a URL inside free text, todos name their files from a link table, memos\n * point back from the attachment row itself, and chat stores an id array on the turn that consumed\n * the file. A single rule applied across all four deletes the other three, which is what the\n * notes-only scan does to task uploads today.\n */",
+    "/**\n * A reference held as a bare id column rather than as prose.\n *\n * Memos asks the attachment row itself because `memo_id` is that row's own back-pointer: a file\n * bound to a memo that no longer exists cannot be holding a reference, and asking that question is\n * the same test the delete predicate will run.\n */",
+    "/**\n * Chat ids live inside a JSON array on each turn, so the array is decoded rather than matched.\n *\n * An id is a fixed alphabet with no delimiter of its own, and a `LIKE` against a bare id would also\n * hit a turn carrying an id that merely starts with it.\n */",
+    "// A turn whose array will not parse is counted as referencing nothing, which is the direction",
+    "// that keeps the file: a prune that refuses to delete is recoverable, one that guesses is not.",
+  ]],
+  ["src/worker/attachments/scopes.ts", [
+    "/**\n * The attachment hub's scope registry.\n *\n * Every app module that owns files registers here, and the registration is the only per-app\n * difference the hub carries: it says which table holds the rows, which object-key prefix new\n * uploads land under, and which path serves the bytes. Nothing else in the hub branches on the\n * application.\n *\n * The scope reaches the worker from a URL segment, so it is validated against this list rather\n * than trusted: an unvalidated prefix would let one account write objects into another's namespace\n * (`user_id` is the segment that keeps them apart), and an unvalidated table name would be an SQL\n * injection dressed up as configuration.\n */",
+    "/** The table a scope's rows live in, as a literal union so it can be interpolated into SQL safely. */",
+    "/** First path segment of every object this scope writes. */",
+    "/**\n   * Where the bytes are served from.\n   *\n   * This string is already baked into stored note and memo bodies, into backup manifests and into\n   * the restore path's matching regex, so it is a read address, not a routing choice: re-basing it\n   * is a content migration, and the hub deliberately keeps serving through the existing doors.\n   */",
+    "/**\n   * The column pointing at whichever object currently claims this file, or null when no such\n   * column exists. Chat keeps its links on the turn that consumed the file instead, which is why\n   * the hub asks each scope a different question about liveness.\n   */",
+    "/** The column holding the object key. Memos and chat name it differently and store it per row. */",
+    "/** Chat records keep no dimensions, so the inspector's size line has to know when to stay quiet. */",
+    "/**\n   * Whether the scope's rows share the table that notes writes.\n   *\n   * Task uploads have always been ordinary rows here, distinguished only by a null `note_id` —\n   * which is also what a note's file looks like once its note is trashed, so the split has to be\n   * made by the `scope` column and cannot be inferred at read time.\n   */",
+    "/**\n * The SQL that narrows a query to one scope's rows.\n *\n * Only notes and todos share a table, so only they need a discriminator; memos and chat are already\n * separated by which table they are in, and filtering them on a column they do not have would fail.\n *\n * The value is inlined rather than bound because it comes from this module's own closed union and\n * never from a caller — a scope that failed validation cannot reach here — and because a bound\n * parameter that some branches of the fragment omit would leave callers counting placeholders they\n * do not all use.\n */",
+  ]],
+  ["src/worker/attachments/storage.ts", [
+    "/** Which application the file belongs to; decides the object prefix and the hub that lists it. */",
+    "/** The key the bytes were written under, kept so a rollback never has to guess it back. */",
   ]],
   ["src/worker/attachments/store.ts", [
     "/**\n * Every read and write the files HTTP routes make against D1.\n *\n * The shape follows `notes/store.ts` and `assistant/store.ts`: a store built per request from the\n * account it serves, methods that take already-validated input and hand back rows or the answer the\n * route needs, and nothing in between that knows about HTTP. Storing and reading the bytes themselves\n * is not here: that is `attachments/storage.ts` and `attachments/backend.ts`, which take the whole\n * `Env` because an upload lands in R2 or KV and in D1 at once.\n *\n * Two rules hold throughout:\n *  - every statement binds `user_id`, so one account's files cannot surface in another's listing. The\n *    two statements the anonymous share read uses are the deliberate exceptions: an attachment is looked\n *    up by id before anyone knows who is asking, and the caller compares the row's `user_id` against the\n *    session, while the share lookup is scoped by the `user_id` that row just named.\n *  - a mutation's statements stay in the one D1 batch they are written in today. The cleanup row, the\n *    mapping delete and the attachment delete only mean \"this file left the account exactly once\" while\n *    they land together.\n */",
@@ -25002,6 +25115,23 @@ const allowed = new Map([
     "// statement's rows to the ones the count above found missing. The chunk travels as one bound",
     "// JSON document rather than a parameter per value: a hundred rows carry two hundred values,",
     "// past D1's bound-parameter ceiling, and the document also keeps every id out of the SQL text.",
+    "// The hub's own organiser stacks. Folders and tags are per scope rather than global because a",
+    "// \"Screenshots\" folder in notes and one in chat are unrelated things that happen to share a name,",
+    "// and the sidebar that draws them is the same component opened on two scopes.",
+    "// Both lead their key with user_id, which is the shape the tenancy guard asks for: an id that",
+    "// comes from the client cannot address a row belonging to somebody else.",
+    "// Where an attachment's bytes actually are, so a rename or a re-file can no longer move them.",
+    "// Deliberately not backfilled: null reads as \"this row predates the hub\", and those objects are",
+    "// still sitting in the flat unprefixed layout. Reproducing the extension rule in SQL to fill",
+    "// this column in would be the one chance to get a key wrong on a row nobody can otherwise",
+    "// detect, for no benefit a reader does not already get from the fallback.",
+    "// Which application owns an attachment row.",
+    "// Task uploads already shared this table with notes and were told apart by a null `note_id`,",
+    "// which is also what an MCP upload with no note looks like and what a note's file looks like",
+    "// once its note is trashed — so the column cannot be inferred at read time and has to be",
+    "// stamped at write time. The backfill uses the only structured link that exists, the task's own",
+    "// row in `todos_attachments`; a file linked to two tasks lands in `todos` either way, and a",
+    "// file whose task was deleted with the link removed has no home left to be wrong about.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -25193,6 +25323,8 @@ const allowed = new Map([
     "// over, times the most a single one may hold. Nothing smaller can refuse a file this app can produce.",
     "// One draft in the side panel: the most it may hold, times the worst-case bytes per character and the",
     "// escaping a JSON body adds — the same arithmetic the note ceiling above is built from.",
+    "// A hub batch names up to a hundred files, and a tag write can carry a hundred tags of a hundred",
+    "// characters each — the most either route can legitimately be asked to parse.",
   ]],
   ["src/worker/lib/rewrite-drain.ts", [
     "/** Notes a single queue row may rewrite per round; the tail is re-queued for the next one. */",
@@ -25981,6 +26113,10 @@ const allowed = new Map([
     "// A pane of a multi-model workspace is a real thread with real rows, but it is not a",
     "// conversation the reader starts or keeps: `ephemeral` is what keeps it out of the listings,",
     "// search and backup, the same promise a temporary chat already makes.",
+  ]],
+  ["src/worker/routes/attachments.ts", [
+    "/**\n * The attachment hub: one organiser surface for four applications.\n *\n * There is no SQL in this file, by guard as well as by choice — `tests/worker-layering.test.ts`\n * rejects a route that prepares a statement. The reason that matters here is that these rules are\n * shared with each application's own door, so a check written in a handler would apply to the hub\n * and not to the note editor that can delete the same row.\n */",
+    "/**\n * Resolves the path segment against the registry.\n *\n * The scope names a table and an object prefix downstream, so it is the one client-supplied string\n * in this file that must never reach a statement — an unrecognised value is a 404 here rather than\n * a query shape somebody else chooses.\n */",
   ]],
   ["src/worker/routes/auth.ts", [
     "// Account-wide cap so a distributed botnet cannot retry one account",
@@ -28423,6 +28559,9 @@ const allowed = new Map([
     "/**\n * The answer as the row filed it.\n *\n * The sources of a turn live on the stored row, which is what a thread reopened later renders its chips\n * from. The frame that ends a turn carries that same row, so this reads the database rather than the wire\n * and says what was actually filed.\n */",
     "// The self-hosted entry is what these addresses are read as: a vendor engine names its own host, and its",
     "// address is guarded on the way out just the same.",
+  ]],
+  ["tests/attachment-scope-isolation.test.ts", [
+    "/**\n * That a file belongs to the application that claims it, and that no application's sweep can\n * collect another's.\n *\n * The first case is a regression with a body count: task uploads have always been ordinary\n * `attachments` rows with a null `note_id`, and the notebook's \"clean up unreferenced\" decided\n * \"unreferenced\" by reading note bodies only. A task's file therefore looked spare to it and was\n * deleted, while the `todos_attachments` row survived and the task went on listing a file whose\n * bytes were gone — silently, with nothing queued and nothing thrown.\n */",
   ]],
   ["tests/auth-password.test.ts", [
     "// The route reads the session middleware's own variables, so the harness has to bind them the way",

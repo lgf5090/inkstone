@@ -167,7 +167,7 @@ function insertAttachmentRow(
     options.memoId ?? null,
     size,
     options.storage ?? 'r2',
-    `memo/${userId}/${attachmentId}.bin`,
+    `memos/${userId}/${attachmentId}.bin`,
   )
 }
 
@@ -194,7 +194,7 @@ describe('memo attachment uploads', () => {
       body.id,
     )!
     expect(row.storage).toBe('r2')
-    expect(row.storage_key).toMatch(new RegExp(`^memo/${ALICE}/[0-9a-z]{26}\\.png$`))
+    expect(row.storage_key).toMatch(new RegExp(`^memos/${ALICE}/[0-9a-z]{26}\\.png$`))
     expect(row.thumbnail_key).toMatch(/-thumb\.jpg$/)
     expect(r2.objects.has(row.storage_key)).toBe(true)
     expect(r2.objects.has(row.thumbnail_key)).toBe(true)
@@ -489,7 +489,7 @@ describe('memo attachment deletion', () => {
       'SELECT COUNT(*) AS count FROM memos_attachments WHERE id = ?',
       body.id,
     )?.count).toBe(0)
-    const key = `memo/${ALICE}/${body.id}.png`
+    const key = `memos/${ALICE}/${body.id}.png`
     expect(r2.objects.has(key)).toBe(false)
   })
 
@@ -551,7 +551,7 @@ describe('memo attachment deletion', () => {
     })
     expect(removed.status).toBe(200)
     expect(await removed.json()).toEqual({ deleted: 1, freedBytes: jpegBytes().byteLength })
-    expect(r2.objects.has(`memo/${ALICE}/${freeBody.id}.jpg`)).toBe(false)
+    expect(r2.objects.has(`memos/${ALICE}/${freeBody.id}.jpg`)).toBe(false)
   })
 
   it('validates the batch size and ids', async () => {
@@ -603,7 +603,7 @@ describe('memo attachment deletion', () => {
       'SELECT COUNT(*) AS count FROM memos_attachments WHERE user_id = ?',
       ALICE,
     )?.count).toBe(0)
-    expect(r2.objects.has(`memo/${ALICE}/${videoBody.id}.mp4`)).toBe(false)
+    expect(r2.objects.has(`memos/${ALICE}/${videoBody.id}.mp4`)).toBe(false)
   })
 
   it('prunes only unbound attachments', async () => {
@@ -627,8 +627,8 @@ describe('memo attachment deletion', () => {
       'SELECT COUNT(*) AS count FROM memos_attachments WHERE user_id = ?',
       ALICE,
     )?.count).toBe(1)
-    expect(r2.objects.has(`memo/${ALICE}/${unusedBody.id}.png`)).toBe(false)
-    expect(r2.objects.has(`memo/${ALICE}/${boundBody.id}.mp4`)).toBe(true)
+    expect(r2.objects.has(`memos/${ALICE}/${unusedBody.id}.png`)).toBe(false)
+    expect(r2.objects.has(`memos/${ALICE}/${boundBody.id}.mp4`)).toBe(true)
   })
 })
 

@@ -17,13 +17,16 @@ import {
 import { drainAttachmentCleanup } from './cleanup'
 import {
   attachmentCleanupTarget,
-  attachmentObjectKey,
   type AttachmentObjectStorage,
+  newAttachmentObjectKey,
 } from './keys'
+import type { AttachmentScope } from './scopes'
 
 export interface PersistAttachmentInput {
   id: string
   userId: string
+  /** Which application the file belongs to; decides the object prefix and the hub that lists it. */
+  scope: AttachmentScope
   noteId: string | null
   filename: string
   reportedMime: string
@@ -34,6 +37,7 @@ export interface PersistAttachmentInput {
 export interface PersistedAttachment {
   id: string
   userId: string
+  scope: AttachmentScope
   noteId: string | null
   filename: string
   mime: string
@@ -41,8 +45,11 @@ export interface PersistedAttachment {
   width: number | null
   height: number | null
   storage: AttachmentObjectStorage
+  /** The key the bytes were written under, kept so a rollback never has to guess it back. */
+  objectKey: string
   createdAt: number
 }
+
 
 export async function persistAttachmentWithinQuota(
   env: Env,
@@ -110,14 +117,13 @@ export async function persistAttachment(
   const filename = sanitizeAttachmentFilename(input.filename)
   const sha256 = await sha256Hex(input.bytes)
   let storedObject = false
-  const objectRow = {
+
+  const objectKey = newAttachmentObjectKey(input.scope, {
     user_id: input.userId,
     id: input.id,
     mime,
     filename,
-  }
-
-  const objectKey = attachmentObjectKey(objectRow)
+  })
   await putAttachmentObject(env, storage, objectKey, input.bytes, {
     userId: input.userId,
     objectId: input.id,
@@ -130,17 +136,19 @@ export async function persistAttachment(
 
   try {
     await env.DB.prepare(
-      `INSERT INTO attachments (id, user_id, note_id, filename, mime, size, sha256, width, height, storage, created_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+      `INSERT INTO attachments (id, user_id, scope, note_id, filename, mime, size, sha256, object_key, width, height, storage, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
     )
       .bind(
         input.id,
         input.userId,
+        input.scope,
         input.noteId,
         filename,
         mime,
         input.bytes.byteLength,
         sha256,
+        objectKey,
         dimensions?.width ?? null,
         dimensions?.height ?? null,
         storage,
@@ -168,6 +176,7 @@ export async function persistAttachment(
   return {
     id: input.id,
     userId: input.userId,
+    scope: input.scope,
     noteId: input.noteId,
     filename,
     mime,
@@ -175,9 +184,11 @@ export async function persistAttachment(
     width: dimensions?.width ?? null,
     height: dimensions?.height ?? null,
     storage,
+    objectKey,
     createdAt: input.createdAt,
   }
 }
+
 
 export function sanitizeAttachmentFilename(name: string): string {
   const cleaned = name
@@ -203,12 +214,7 @@ export async function rollbackPersistedAttachments(
   for (const attachment of attachments) {
     const needed = 3
     if (statements.length + needed > 100) await flush()
-    const objectKey = attachmentObjectKey({
-      user_id: attachment.userId,
-      id: attachment.id,
-      mime: attachment.mime,
-      filename: attachment.filename,
-    })
+    const objectKey = attachment.objectKey
     statements.push(
       env.DB.prepare(
         `INSERT OR IGNORE INTO attachment_cleanup (object_key, user_id, created_at)

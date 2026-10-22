@@ -100,6 +100,7 @@ filesRoutes.post('/', requireAuth, async (c) => {
   const stored = await persistAttachmentWithinQuota(c.env, {
     id,
     userId,
+    scope: 'notes',
     noteId,
     filename: file.name || 'file',
     reportedMime: file.type,

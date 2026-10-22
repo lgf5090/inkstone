@@ -582,6 +582,7 @@ async function importBackupAttachment(
   const persisted = await persistAttachmentWithinQuota(env, {
     id: newId(),
     userId,
+    scope: 'notes',
     noteId: null,
     filename: entry.filename,
     reportedMime: entry.mime,
@@ -1055,6 +1056,7 @@ async function prepareBundleAttachments(
       const persisted = await persistAttachmentWithinQuota(env, {
         id: destinationId,
         userId,
+        scope: 'notes',
         noteId: null,
         filename: candidate.filename,
         reportedMime: candidate.reportedMime,
@@ -1198,6 +1200,7 @@ async function importMarkdown(
         const persisted = await persistAttachmentWithinQuota(c.env, {
           id: newId(),
           userId,
+          scope: 'notes',
           noteId: null,
           filename: asset.name,
           reportedMime: mimeForAttachmentName(asset.name),

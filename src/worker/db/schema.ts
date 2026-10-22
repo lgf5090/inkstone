@@ -253,19 +253,63 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS attachments (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
+    scope TEXT NOT NULL DEFAULT 'notes',
     note_id TEXT,
+    folder_id TEXT,
     filename TEXT NOT NULL,
     mime TEXT NOT NULL,
     size INTEGER NOT NULL,
     sha256 TEXT NOT NULL,
+    object_key TEXT,
     width INTEGER,
     height INTEGER,
+    is_starred INTEGER NOT NULL DEFAULT 0,
+    is_pinned INTEGER NOT NULL DEFAULT 0,
+    tags TEXT NOT NULL DEFAULT '[]',
     storage TEXT NOT NULL CHECK (storage IN ('r2', 'kv')),
     created_at INTEGER NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_attachments_user ON attachments(user_id, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_attachments_user_sha ON attachments(user_id, sha256)`,
   `CREATE INDEX IF NOT EXISTS idx_attachments_note ON attachments(note_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_attachments_user_scope ON attachments(user_id, scope, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_attachments_user_folder ON attachments(user_id, folder_id)`,
+
+  // The hub's own organiser stacks. Folders and tags are per scope rather than global because a
+  // "Screenshots" folder in notes and one in chat are unrelated things that happen to share a name,
+  // and the sidebar that draws them is the same component opened on two scopes.
+  //
+  // Both lead their key with user_id, which is the shape the tenancy guard asks for: an id that
+  // comes from the client cannot address a row belonging to somebody else.
+  `CREATE TABLE IF NOT EXISTS attachment_folders (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    parent_id TEXT,
+    name TEXT NOT NULL,
+    icon TEXT,
+    color TEXT,
+    position INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_attachment_folders_user
+     ON attachment_folders(user_id, scope, position)`,
+
+  `CREATE TABLE IF NOT EXISTS attachment_tags (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    name TEXT NOT NULL,
+    color TEXT,
+    is_pinned INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id),
+    UNIQUE (user_id, scope, name)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_attachment_tags_user
+     ON attachment_tags(user_id, scope, name)`,
 
   `CREATE TABLE IF NOT EXISTS attachment_cleanup (
     object_key TEXT PRIMARY KEY CHECK (object_key GLOB 'r2:?*' OR object_key GLOB 'kv:?*'),
@@ -2205,6 +2249,39 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 145,
     statements: MEMOS_SCHEMA_STATEMENTS,
   },
+  {
+    // Where an attachment's bytes actually are, so a rename or a re-file can no longer move them.
+    //
+    // Deliberately not backfilled: null reads as "this row predates the hub", and those objects are
+    // still sitting in the flat unprefixed layout. Reproducing the extension rule in SQL to fill
+    // this column in would be the one chance to get a key wrong on a row nobody can otherwise
+    // detect, for no benefit a reader does not already get from the fallback.
+    version: 146,
+    skipIfColumnExists: { table: 'attachments', column: 'object_key' },
+    statements: [
+      `ALTER TABLE attachments ADD COLUMN object_key TEXT`,
+    ],
+  },
+  {
+    // Which application owns an attachment row.
+    //
+    // Task uploads already shared this table with notes and were told apart by a null `note_id`,
+    // which is also what an MCP upload with no note looks like and what a note's file looks like
+    // once its note is trashed — so the column cannot be inferred at read time and has to be
+    // stamped at write time. The backfill uses the only structured link that exists, the task's own
+    // row in `todos_attachments`; a file linked to two tasks lands in `todos` either way, and a
+    // file whose task was deleted with the link removed has no home left to be wrong about.
+    version: 147,
+    skipIfColumnExists: { table: 'attachments', column: 'scope' },
+    statements: [
+      `ALTER TABLE attachments ADD COLUMN scope TEXT NOT NULL DEFAULT 'notes'`,
+      `UPDATE attachments SET scope = 'todos'
+        WHERE EXISTS (
+          SELECT 1 FROM todos_attachments ta
+           WHERE ta.user_id = attachments.user_id AND ta.attachment_id = attachments.id
+        )`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -2234,7 +2311,9 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   note_tags: ['note_id', 'tag_id'],
   links: ['source_note_id', 'target_key', 'target_title', 'target_note_id', 'user_id'],
   note_versions: ['id', 'note_id', 'user_id', 'title', 'content', 'size', 'created_at'],
-  attachments: ['id', 'user_id', 'note_id', 'filename', 'mime', 'size', 'sha256', 'width', 'height', 'storage', 'created_at'],
+  attachments: ['id', 'user_id', 'scope', 'note_id', 'folder_id', 'filename', 'mime', 'size', 'sha256', 'object_key', 'width', 'height', 'is_starred', 'is_pinned', 'tags', 'storage', 'created_at'],
+  attachment_folders: ['user_id', 'id', 'scope', 'parent_id', 'name', 'icon', 'color', 'position', 'created_at', 'updated_at'],
+  attachment_tags: ['user_id', 'id', 'scope', 'name', 'color', 'is_pinned', 'created_at'],
   attachment_cleanup: ['object_key', 'user_id', 'created_at'],
   import_mappings: ['user_id', 'entity', 'source_id', 'target_id', 'updated_at'],
   backup_targets: ['id', 'user_id', 'type', 'name', 'enabled', 'config', 'secret', 'last_run_at', 'last_status', 'last_error', 'created_at', 'updated_at'],
@@ -2278,6 +2357,8 @@ export const REQUIRED_TABLES = [
   'links',
   'note_versions',
   'attachments',
+  'attachment_folders',
+  'attachment_tags',
   'attachment_cleanup',
   'import_mappings',
   'backup_targets',
@@ -2341,6 +2422,10 @@ export const REQUIRED_INDEXES = [
   'idx_attachments_user',
   'idx_attachments_user_sha',
   'idx_attachments_note',
+  'idx_attachments_user_scope',
+  'idx_attachments_user_folder',
+  'idx_attachment_folders_user',
+  'idx_attachment_tags_user',
   'idx_attachment_cleanup_created',
   'idx_attachment_cleanup_user',
   'idx_import_mappings_target',

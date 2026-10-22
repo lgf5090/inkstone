@@ -29,6 +29,7 @@ import { quickAddRoutes } from './routes/quickadd'
 import { searchRoutes } from './routes/search'
 import { syncRoutes } from './routes/sync'
 import { filesRoutes } from './routes/files'
+import { attachmentHubRoutes } from './routes/attachments'
 import { avatarRoutes } from './routes/avatars'
 import { backupRoutes } from './routes/backup'
 import { settingsRoutes } from './routes/settings'
@@ -148,6 +149,7 @@ export function createApp() {
   app.route('/api', searchRoutes)
   app.route('/api/sync', syncRoutes)
   app.route('/api/files', filesRoutes)
+  app.route('/api/attachments', attachmentHubRoutes)
   app.route('/api/avatars', avatarRoutes)
   app.route('/api/backup', backupRoutes)
   app.route('/api/settings', settingsRoutes)

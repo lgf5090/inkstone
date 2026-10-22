@@ -43,6 +43,9 @@ const LintPreviewHost = lazy(() =>
 const Lightbox = lazy(() =>
   import('./features/preview/Lightbox').then((module) => ({ default: module.Lightbox })),
 )
+const AttachmentHub = lazy(() =>
+  import('./features/attachment-hub').then((module) => ({ default: module.AttachmentHub })),
+)
 const TemplateSlotProgress = lazy(() =>
   import('./features/chat/template-progress').then((module) => ({ default: module.TemplateSlotProgress })),
 )
@@ -207,6 +210,7 @@ export function App() {
           out of the boot chunk for everyone who is not presenting. */}
       {status === 'authed' && <ShowOverlay />}
       {status === 'authed' && <LightboxLayer />}
+      {status === 'authed' && <AttachmentHubLayer />}
       {status === 'authed' && <SlotFillLayer />}
       {status === 'authed' && <DecorationLayer />}
       <Toaster />
@@ -333,6 +337,26 @@ function LightboxLayer() {
   return (
     <Suspense fallback={null}>
       <Lightbox />
+    </Suspense>
+  )
+}
+
+/**
+ * The attachment hub, hosted above the container switch for the same reason the picture viewer is.
+ *
+ * `AppShell` is the notebook's own container, so a hub mounted there would simply not exist while
+ * the reader sits on memos, chat or the task list — the button in those containers would set state
+ * with nothing left to render it. The scope is the slot's whole value: one host, four applications,
+ * and the `key` is what keeps one application's filters and selection from being read as the next
+ * one's when the hub is opened again somewhere else.
+ */
+function AttachmentHubLayer() {
+  const scope = useUi((s) => s.attachmentHub)
+  const setAttachmentHub = useUi((s) => s.setAttachmentHub)
+  if (!scope) return null
+  return (
+    <Suspense fallback={null}>
+      <AttachmentHub key={scope} open scope={scope} onClose={() => setAttachmentHub(null)} />
     </Suspense>
   )
 }
