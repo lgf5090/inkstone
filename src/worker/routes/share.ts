@@ -27,6 +27,7 @@ import {
   findShareBySlug,
   loadSharePageMeta,
   loadSharedNote,
+  parseShareTags,
   type SharePageMeta,
   type ShareRow,
 } from '../share/store'
@@ -119,6 +120,10 @@ function toShareInfo(row: ShareRow, origin: string): ShareInfo {
     expiresAt: row.expires_at,
     views: row.views,
     createdAt: row.created_at,
+    isEnabled: row.is_enabled !== 0,
+    lastViewedAt: row.last_viewed_at,
+    folderId: row.folder_id,
+    tags: parseShareTags(row.tags),
   }
 }
 
@@ -137,6 +142,8 @@ shareManageRoutes.get('/', async (c) => {
     ...toShareInfo(row, origin),
     noteTitle: row.note_title,
     deletedAt: row.deleted_at,
+    isPinned: row.is_pinned === 1,
+    isStarred: row.is_starred === 1,
   }))
   return c.json({ shares })
 })

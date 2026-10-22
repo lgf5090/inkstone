@@ -29,6 +29,12 @@ import {
   MEMOS_REQUIRED_TABLES,
   MEMOS_SCHEMA_STATEMENTS,
 } from '../memos/schema'
+import {
+  SHARE_HUB_REQUIRED_COLUMNS,
+  SHARE_HUB_REQUIRED_INDEXES,
+  SHARE_HUB_REQUIRED_TABLES,
+  SHARE_HUB_SCHEMA_STATEMENTS,
+} from '../share/hub-schema'
 
 const BACKUP_ARCHIVES_TABLE = `CREATE TABLE IF NOT EXISTS backup_archives (
   user_id TEXT NOT NULL,
@@ -368,13 +374,24 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     slug TEXT PRIMARY KEY,
     note_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
+    folder_id TEXT,
+    tags TEXT NOT NULL DEFAULT '[]',
     password_hash TEXT,
     expires_at INTEGER,
     views INTEGER NOT NULL DEFAULT 0,
+    is_enabled INTEGER NOT NULL DEFAULT 1,
+    last_viewed_at INTEGER,
     created_at INTEGER NOT NULL
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_shares_note ON shares(note_id)`,
   `CREATE INDEX IF NOT EXISTS idx_shares_user_created ON shares(user_id, created_at DESC, slug DESC)`,
+  // The hub's list is always one account's shares narrowed by a status and, from the sidebar, by a
+  // folder — so the two columns every query filters on lead the index, with the listing's own order
+  // last so a plain "all my links, newest first" walk needs no sort.
+  `CREATE INDEX IF NOT EXISTS idx_shares_user_enabled_folder
+     ON shares(user_id, is_enabled, folder_id, created_at DESC, slug DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_shares_user_expires
+     ON shares(user_id, expires_at)`,
 
   `CREATE TABLE IF NOT EXISTS share_asset_sessions (
     id TEXT PRIMARY KEY,
@@ -408,6 +425,9 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_share_presence_user ON share_presence(user_id)`,
   `CREATE INDEX IF NOT EXISTS idx_share_presence_expiry ON share_presence(expires_at)`,
+
+  ...SHARE_HUB_SCHEMA_STATEMENTS,
+
 
   `CREATE TABLE IF NOT EXISTS changes (
     seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2282,6 +2302,56 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
         )`,
     ],
   },
+  {
+    // The four columns the hub filters and files shares by, one version each so a database that
+    // died halfway through the feature resumes at the column it did not get rather than at the
+    // start of a bundle whose earlier halves `skipIfColumnExists` would have to guess about.
+    //
+    // `is_enabled` is `NOT NULL DEFAULT 1` and the payload reads it as `!== 0`, which makes "the
+    // link answers a reader" one value rather than a value plus a missing case — the ALTER fills
+    // existing rows with 1, so a share that predates the hub is live, exactly as it was.
+    version: 148,
+    skipIfColumnExists: { table: 'shares', column: 'folder_id' },
+    statements: [
+      `ALTER TABLE shares ADD COLUMN folder_id TEXT`,
+    ],
+  },
+  {
+    version: 149,
+    skipIfColumnExists: { table: 'shares', column: 'tags' },
+    statements: [
+      `ALTER TABLE shares ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
+  {
+    version: 150,
+    skipIfColumnExists: { table: 'shares', column: 'is_enabled' },
+    statements: [
+      `ALTER TABLE shares ADD COLUMN is_enabled INTEGER NOT NULL DEFAULT 1`,
+    ],
+  },
+  {
+    // Deliberately not backfilled from `shares.views`: the counter says a link *was* read but not
+    // when, and a wrong timestamp would make a genuinely stale link look freshly opened. A null
+    // reads as "this link predates the log", which the stale report already has to answer for.
+    version: 151,
+    skipIfColumnExists: { table: 'shares', column: 'last_viewed_at' },
+    statements: [
+      `ALTER TABLE shares ADD COLUMN last_viewed_at INTEGER`,
+    ],
+  },
+  {
+    version: 152,
+    statements: [
+      ...SHARE_HUB_SCHEMA_STATEMENTS,
+      // The hub's two list-shaped indexes, after the columns above exist on a migrated database.
+      // Both are `IF NOT EXISTS`, so a fresh install that already carries them from the table
+      // declaration simply finds them there.
+      `CREATE INDEX IF NOT EXISTS idx_shares_user_enabled_folder
+         ON shares(user_id, is_enabled, folder_id, created_at DESC, slug DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_shares_user_expires ON shares(user_id, expires_at)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -2319,7 +2389,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   backup_targets: ['id', 'user_id', 'type', 'name', 'enabled', 'config', 'secret', 'last_run_at', 'last_status', 'last_error', 'created_at', 'updated_at'],
   backup_archives: ['user_id', 'target_id', 'destination', 'archive_path', 'created_at'],
   backup_runs: ['id', 'user_id', 'trigger', 'status', 'started_at', 'finished_at', 'note_count', 'file_count', 'bytes', 'detail'],
-  shares: ['slug', 'note_id', 'user_id', 'password_hash', 'expires_at', 'views', 'created_at'],
+  shares: ['slug', 'note_id', 'user_id', 'folder_id', 'tags', 'password_hash', 'expires_at', 'views', 'is_enabled', 'last_viewed_at', 'created_at'],
   share_asset_sessions: ['id', 'slug', 'password_hash', 'expires_at', 'created_at'],
   changes: ['seq', 'user_id', 'entity', 'entity_id', 'op', 'at'],
   sessions: ['id', 'user_id', 'expires_at', 'created_at'],
@@ -2344,6 +2414,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   ...TODOS_REQUIRED_COLUMNS,
   ...SUBSCRIPTIONS_REQUIRED_COLUMNS,
   ...MEMOS_REQUIRED_COLUMNS,
+  ...SHARE_HUB_REQUIRED_COLUMNS,
 } as const
 
 export const REQUIRED_TABLES = [
@@ -2398,6 +2469,7 @@ export const REQUIRED_TABLES = [
   ...TODOS_REQUIRED_TABLES,
   ...SUBSCRIPTIONS_REQUIRED_TABLES,
   ...MEMOS_REQUIRED_TABLES,
+  ...SHARE_HUB_REQUIRED_TABLES,
 ] as const
 
 export const REQUIRED_INDEXES = [
@@ -2438,6 +2510,8 @@ export const REQUIRED_INDEXES = [
   'idx_runs_user',
   'idx_shares_note',
   'idx_shares_user_created',
+  'idx_shares_user_enabled_folder',
+  'idx_shares_user_expires',
   'idx_share_asset_sessions_slug',
   'idx_share_asset_sessions_expires',
   'idx_changes_user',
@@ -2465,6 +2539,7 @@ export const REQUIRED_INDEXES = [
   ...TODOS_REQUIRED_INDEXES,
   ...SUBSCRIPTIONS_REQUIRED_INDEXES,
   ...MEMOS_REQUIRED_INDEXES,
+  ...SHARE_HUB_REQUIRED_INDEXES,
 ] as const
 
 
