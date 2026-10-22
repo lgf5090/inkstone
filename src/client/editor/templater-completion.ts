@@ -117,6 +117,19 @@ function renderLevel(raw: string): TemplaterIntellisenseRender {
 }
 
 /**
+ * The three things the reader's level decides, one predicate each, as upstream spells them.
+ *
+ * `Autocomplete.ts:119-135` asks these three questions per suggestion, and the levels are the answers'
+ * combinations (`RenderSettings/IntellisenseRenderOption.ts:5-9`): `1` shows all three, `2` drops the return,
+ * `3` drops the parameters, `4` keeps only the description, `0` shows nothing. The signature and, for a
+ * dynamic module, its caveat are not gated — the call itself is the one thing a completion has to say.
+ * Examples are not part of this ladder upstream either, so they belong to the reference panel, not here.
+ */
+const rendersDescription = (level: TemplaterIntellisenseRender): boolean => level !== '0'
+const rendersParameters = (level: TemplaterIntellisenseRender): boolean => level === '1' || level === '2'
+const rendersReturns = (level: TemplaterIntellisenseRender): boolean => level === '1' || level === '3'
+
+/**
  * The text between a bounded window and the caret, when the caret sits inside an unclosed command.
  *
  * The window stops at the caret on purpose: a command still open there is exactly what the engine reports as
@@ -184,7 +197,7 @@ function infoBlock(lines: readonly string[], codeLines: ReadonlySet<number>): No
   return block
 }
 
-/** A member's documentation: the call, then whatever the reader's level asks for. */
+/** A member's documentation: the call, then the parts the reader's level asks for. */
 function memberLines(
   entry: ReferenceDocEntry,
   module: ReferenceModuleDoc,
@@ -195,17 +208,11 @@ function memberLines(
   const code = new Set([0])
   // A dynamic module's blurb is the caveat that the list below it is not a boundary, so it leads.
   if (module.dynamic) lines.push(t(module.descriptionKey))
-  lines.push(t(entry.descriptionKey))
-  for (const arg of entry.args) lines.push(`${arg.name}: ${t(arg.descriptionKey)}`)
-  if (entry.returnsKey) lines.push(t(entry.returnsKey))
-  if (level >= '2') {
-    for (const example of entry.examples) {
-      code.add(lines.length)
-      lines.push(example)
-    }
+  if (rendersDescription(level)) lines.push(t(entry.descriptionKey))
+  if (rendersParameters(level)) {
+    for (const arg of entry.args) lines.push(`${arg.name}: ${t(arg.descriptionKey)}`)
   }
-  // The levels are single digits, so comparing them as strings is the order they are documented in.
-  if (level >= '3' && !module.dynamic) lines.push(t(module.descriptionKey))
+  if (rendersReturns(level) && entry.returnsKey) lines.push(t(entry.returnsKey))
   if (capabilities && !referenceIsAvailable(entry, capabilities)) lines.push(t('templater.error.capability_blocked'))
   return { lines, code }
 }
@@ -218,14 +225,10 @@ function moduleLines(
   const lines = [self ? self.signature : `tp.${module.module}`, t(module.descriptionKey)]
   const code = new Set([0])
   if (!self) return { lines, code }
-  for (const arg of self.args) lines.push(`${arg.name}: ${t(arg.descriptionKey)}`)
-  if (self.returnsKey) lines.push(t(self.returnsKey))
-  if (level >= '2') {
-    for (const example of self.examples) {
-      code.add(lines.length)
-      lines.push(example)
-    }
+  if (rendersParameters(level)) {
+    for (const arg of self.args) lines.push(`${arg.name}: ${t(arg.descriptionKey)}`)
   }
+  if (rendersReturns(level) && self.returnsKey) lines.push(t(self.returnsKey))
   return { lines, code }
 }
 

@@ -252,15 +252,35 @@ describe('the documentation each level shows', () => {
     for (const example of documented.examples) expect(lines, example).not.toContain(example)
   })
 
-  it('adds the examples at level 2', async () => {
+  it('keeps the parameters and drops the return at level 2', async () => {
+    const documented = now()
     const lines = await infoLines(await rowAt('2'))
-    for (const example of now().examples) expect(lines, example).toContain(example)
+    for (const arg of documented.args) expect(lines, arg.name).toContain(`${arg.name}: ${t(arg.descriptionKey)}`)
+    expect(lines).not.toContain(t(documented.returnsKey!))
   })
 
-  it('adds the module the member belongs to at level 3', async () => {
-    const module = referenceModuleDoc('date')!
-    expect(await infoLines(await rowAt('2'))).not.toContain(t(module.descriptionKey))
-    expect(await infoLines(await rowAt('3'))).toContain(t(module.descriptionKey))
+  it('keeps the return and drops the parameters at level 3', async () => {
+    const documented = now()
+    const lines = await infoLines(await rowAt('3'))
+    expect(lines).toContain(t(documented.returnsKey!))
+    for (const arg of documented.args) expect(lines, arg.name).not.toContain(`${arg.name}: ${t(arg.descriptionKey)}`)
+  })
+
+  it('renders the description alone at level 4', async () => {
+    const documented = now()
+    const lines = await infoLines(await rowAt('4'))
+    expect(lines[0], 'the signature is never gated').toBe(documented.signature)
+    expect(lines).toContain(t(documented.descriptionKey))
+    expect(lines).not.toContain(t(documented.returnsKey!))
+    for (const arg of documented.args) expect(lines, arg.name).not.toContain(`${arg.name}: ${t(arg.descriptionKey)}`)
+  })
+
+  it('keeps the documented examples out of every level', async () => {
+    // Upstream's autocomplete asks only the three questions above; an example belongs to the reference page.
+    for (const level of ['1', '2', '3', '4'] as const) {
+      const lines = await infoLines(await rowAt(level))
+      for (const example of now().examples) expect(lines, `${level}:${example}`).not.toContain(example)
+    }
   })
 
   it('says outright that a dynamic module’s list is not a boundary, from level 1 up', async () => {
@@ -269,15 +289,6 @@ describe('the documentation each level shows', () => {
     const lines = await infoLines(await rowAt('1', '<% tp.obsidian.', 'Notice'))
     expect(lines[0]).toBe(findReferenceEntry('obsidian', 'Notice')!.signature)
     expect(lines[1]).toBe(t(module.descriptionKey))
-  })
-
-  it('has nothing further to render at level 4', async () => {
-    // Upstream's fifth level differs only in running the description through Templater itself, and a tooltip
-    // may not start a run to draw one line of prose.
-    const deepest = await infoLines(await rowAt('4'))
-    expect(deepest.length).toBeGreaterThan(3)
-    expect(deepest).toContain(t(referenceModuleDoc('date')!.descriptionKey))
-    expect(deepest).toEqual(await infoLines(await rowAt('3')))
   })
 
   it('documents a module row from the registry’s module blurb', async () => {

@@ -125,6 +125,7 @@ const ALLOWED_IMPORTERS: Record<string, string> = {
   'src/client/features/sidebar/Sidebar.tsx': 'the folder menu raises the template chooser, through `features/templater/picker-request.ts` — a request signal that imports no engine and no worker',
   'src/client/features/templates/template-risk.ts': 'the gallery’s badge/filter judgement, read from `lib/templater/detection.ts`: a regex over text already in memory, no parser, no engine, no worker',
   'src/client/features/templates/template-engine.ts': 'the gallery’s route: which of the two renderers a library body gets. It reads `detection.ts` statically and reaches the QuickJS worker only through a dynamic import, so pressing a card is not what downloads the engine',
+  'src/client/features/settings/TemplaterSettings.tsx': 'the settings page: it draws the chord list with `planTemplaterHotkeys` — the same pure planner the key bindings come from, which imports `run-shell` only on the tick a chord is pressed — and the two device-only switches, which are `lib/templater/device-prefs.ts`: a localStorage read, no parser, no engine, no worker',
 }
 
 function sandboxImporters(): Map<string, Edge[]> {
