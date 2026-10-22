@@ -54,7 +54,7 @@ bucket_name = "inkstone-files"
 
 [[send_email]]
 name = "EMAIL"
-remote = true
+remote = false
 
 [[kv_namespaces]]
 binding = "OAUTH_KV"

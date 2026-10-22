@@ -56,7 +56,7 @@ binding = "OAUTH_KV"
 
 [[send_email]]
 name = "EMAIL"
-remote = true
+remote = false
 
 [[durable_objects.bindings]]
 name = "SYNC_HUB"
