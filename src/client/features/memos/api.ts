@@ -1,4 +1,8 @@
-import { MEMOS_API_PREFIX } from '@shared/memos/constants'
+import {
+  MEMO_ATTACHMENT_SCOPES,
+  MEMOS_API_PREFIX,
+  type MemoAttachmentScope,
+} from '@shared/memos/constants'
 import type {
   Memo,
   MemoAttachment,
@@ -28,8 +32,7 @@ import type {
 } from '@shared/memos/types'
 import { request, type RequestOptions } from '../../lib/api'
 
-export const MEMO_ATTACHMENT_SCOPES = ['all', 'media', 'audio', 'documents', 'unused'] as const
-export type MemoAttachmentScope = (typeof MEMO_ATTACHMENT_SCOPES)[number]
+export { MEMO_ATTACHMENT_SCOPES, type MemoAttachmentScope }
 
 export interface MemoRelationsPair {
   outgoing: MemoRelation[]

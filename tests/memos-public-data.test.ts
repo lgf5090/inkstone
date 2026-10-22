@@ -56,12 +56,12 @@ beforeEach(async () => {
 
 afterEach(() => sqlite.close())
 
-function insertUser(id: string, username: string, name = username): void {
+function insertUser(id: string, username: string, name = username, role = 'member'): void {
   sqlite.prepare(
     `INSERT INTO users (
        id, username, password_hash, login, name, avatar_url, role, settings, created_at, last_seen_at
-     ) VALUES (?, ?, '', ?, ?, ?, 'member', '{}', 100, 100)`,
-  ).run(id, username, username, name, `https://example.test/${username}.png`)
+     ) VALUES (?, ?, '', ?, ?, ?, ?, '{}', 100, 100)`,
+  ).run(id, username, username, name, `https://example.test/${username}.png`, role)
 }
 
 interface MemoSeed {
@@ -73,6 +73,8 @@ interface MemoSeed {
   content?: string
   spaceId?: string | null
   pinned?: boolean
+  hasLink?: boolean
+  location?: { placeholder: string; latitude: number; longitude: number } | null
 }
 
 function insertMemo(id: string, options: MemoSeed = {}): void {
@@ -81,8 +83,8 @@ function insertMemo(id: string, options: MemoSeed = {}): void {
     `INSERT INTO memos_items (
        id, user_id, space_id, parent_id, content, content_search, title, snippet,
        visibility, state, pinned, has_link, has_code, has_task_list, has_incomplete_tasks,
-       has_location, rev, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, 0, 1, ?, ?)`,
+       has_location, location_placeholder, latitude, longitude, rev, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?, 1, ?, ?)`,
   ).run(
     id,
     options.userId ?? ALICE,
@@ -95,6 +97,11 @@ function insertMemo(id: string, options: MemoSeed = {}): void {
     options.visibility ?? 'public',
     options.state ?? 'normal',
     options.pinned ? 1 : 0,
+    options.hasLink ? 1 : 0,
+    options.location ? 1 : 0,
+    options.location?.placeholder ?? null,
+    options.location?.latitude ?? null,
+    options.location?.longitude ?? null,
     options.createdAt ?? 100,
     options.createdAt ?? 100,
   )
@@ -214,6 +221,7 @@ describe('public explore', () => {
     insertTag(BOB_PUBLIC, 'shared')
     insertAttachment('i'.repeat(26), BOB, BOB_PUBLIC)
     insertReaction('j'.repeat(26), BOB, BOB_PUBLIC)
+    sqlite.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(BOB)
 
     const page = await listPage('/explore')
     const memo = page.items.find((item) => item.id === BOB_PUBLIC)!
@@ -233,15 +241,43 @@ describe('public explore', () => {
       createdAt: 100,
     }])
     expect(memo.creator).toEqual({
-      id: BOB,
+      id: '',
       login: BOB_USERNAME,
       name: 'Bob',
       avatarUrl: 'https://example.test/bob.png',
       role: 'member',
-      createdAt: 100,
+      createdAt: 0,
       username: BOB_USERNAME,
     })
+    expect(JSON.stringify(memo)).not.toContain(BOB)
     expect(memo.reactions).toEqual([])
+  })
+
+  it('publishes a whitelisted shape without storage identifiers or derived properties', async () => {
+    const publicId = 'q'.repeat(26)
+    insertMemo(publicId, {
+      spaceId: 'space-secret',
+      hasLink: true,
+      location: { placeholder: 'Somewhere', latitude: 12.5, longitude: 34.5 },
+    })
+
+    const memo = await memoBody(`/users/${ALICE_USERNAME}/memos/${publicId}`)
+
+    expect(memo.spaceId).toBeNull()
+    expect(memo.parentId).toBeNull()
+    expect(memo.rev).toBe(0)
+    expect(memo.location).toBeNull()
+    expect(memo.properties).toEqual({
+      hasLink: false,
+      hasCode: false,
+      hasTaskList: false,
+      hasIncompleteTasks: false,
+      hasLocation: false,
+    })
+    expect(memo.creator?.id).toBe('')
+    expect(memo.creator?.role).toBe('member')
+    expect(memo.creator?.createdAt).toBe(0)
+    expect(JSON.stringify(memo)).not.toContain('space-secret')
   })
 
   it('keeps the comment count without exposing comments, reactions or relations', async () => {

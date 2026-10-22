@@ -154,3 +154,14 @@ entry here before it merges.
   `'unsafe-inline'` to `script-src` for the HTML document so Vite's React refresh
   bootstrap can run; the flag folds to `false` in every deployed bundle, and API
   responses stay strict.
+- **Memos app.** Memo share links and personal access tokens are stored only as
+  SHA-256 hashes; a shared file is reachable only with a valid token for that memo.
+  Public files use a short revalidating cache (`max-age=60, must-revalidate`) so a
+  memo that becomes private is not kept alive by an immutable browser cache. Link
+  previews are fetched through the shared outbound guard (no private hosts, no
+  redirects, bounded time and bytes) and spend a per-user hourly budget. Webhooks
+  must use HTTPS, are signed with a per-hook secret encrypted by the credential
+  vault, and are delivered without redirects; the target URL is shown to its owner
+  but never logged with the signed payload. Personal access tokens carry the
+  account's full memo scope (as in the reference app); create them only for trusted
+  clients and revoke them when no longer needed.

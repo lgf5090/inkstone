@@ -102,7 +102,7 @@ export function LocationPickerMap({ point, label, onPick }: LocationPickerMapPro
     <div className="relative h-full min-h-0 w-full">
       <div
         ref={containerRef}
-        role="application"
+        role="region"
         aria-label={label}
         className="absolute inset-0 isolate rounded-[var(--r-md)]"
       />

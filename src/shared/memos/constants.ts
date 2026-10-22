@@ -17,6 +17,9 @@ export const MEMO_TAGS_MAX = 64
 export const MEMO_TAG_NAME_MAX_LENGTH = LIMITS.tagNameMaxLength
 
 export const MEMO_CONTENT_MAX_BYTES = LIMITS.contentMaxBytes
+export const MEMO_ATTACHMENT_SCOPES = ['all', 'media', 'audio', 'documents', 'unused'] as const
+export type MemoAttachmentScope = (typeof MEMO_ATTACHMENT_SCOPES)[number]
+
 export const MEMO_ATTACHMENT_MAX_BYTES = LIMITS.attachmentMaxBytes
 export const MEMO_ATTACHMENT_QUOTA_BYTES = LIMITS.attachmentQuotaBytes
 export const MEMO_ATTACHMENT_UPLOADS_PER_HOUR = LIMITS.attachmentUploadsPerHour

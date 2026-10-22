@@ -91,6 +91,9 @@ function webhookUrl(value: unknown): string {
   }
   const target = checkTarget(raw)
   if (!target.url) throw ApiError.badRequest(`Webhook URL: ${target.error}`)
+  if (target.url.protocol !== 'https:') {
+    throw ApiError.badRequest('Webhook URL must use HTTPS')
+  }
   return target.url.toString()
 }
 

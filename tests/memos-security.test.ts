@@ -3,10 +3,10 @@ import { describe, expect, it } from 'vitest'
 import { MEMO_PAT_PREFIX } from '../src/shared/memos/constants'
 import { canReadMemo, isProtectedReadable, isPubliclyReadable } from '../src/worker/memos/access'
 import {
-  constantTimeEqual,
   createOpaqueToken,
   createShareToken,
   hashOpaqueToken,
+  memoPatFromAuthorization,
   tokenPrefix,
 } from '../src/worker/memos/tokens'
 
@@ -75,20 +75,18 @@ describe('share tokens', () => {
   })
 })
 
-describe('constant-time comparison', () => {
-  it('accepts identical strings', () => {
-    expect(constantTimeEqual('memo_pat_abc123', 'memo_pat_abc123')).toBe(true)
-    expect(constantTimeEqual('', '')).toBe(true)
+describe('memo personal access token header', () => {
+  it('extracts a bearer token with the memo prefix', () => {
+    expect(memoPatFromAuthorization('Bearer memo_pat_abc123')).toBe('memo_pat_abc123')
+    expect(memoPatFromAuthorization('  Bearer   memo_pat_abc123  ')).toBe('memo_pat_abc123')
   })
 
-  it('rejects strings of the same length that differ', () => {
-    expect(constantTimeEqual('memo_pat_abc123', 'memo_pat_abc124')).toBe(false)
-    expect(constantTimeEqual('abc', 'abd')).toBe(false)
-  })
-
-  it('rejects strings of different lengths', () => {
-    expect(constantTimeEqual('memo_pat_abc123', 'memo_pat_abc1234')).toBe(false)
-    expect(constantTimeEqual('', 'memo_pat_abc123')).toBe(false)
+  it('rejects missing or differently shaped authorization headers', () => {
+    expect(memoPatFromAuthorization(undefined)).toBeNull()
+    expect(memoPatFromAuthorization('')).toBeNull()
+    expect(memoPatFromAuthorization('Basic memo_pat_abc123')).toBeNull()
+    expect(memoPatFromAuthorization('Bearer session_abc123')).toBeNull()
+    expect(memoPatFromAuthorization('memo_pat_abc123')).toBeNull()
   })
 })
 

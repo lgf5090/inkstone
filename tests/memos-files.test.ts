@@ -12,7 +12,7 @@ import { makeD1 } from './doubles/d1-sqlite'
 
 const ALICE = 'user-alice'
 const BOB = 'user-bob'
-const PUBLIC_CACHE = 'public, max-age=31536000, immutable'
+const PUBLIC_CACHE = 'public, max-age=60, must-revalidate'
 const PRIVATE_CACHE = 'private, no-store'
 
 let sqlite: DatabaseSync

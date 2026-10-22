@@ -11,8 +11,7 @@ export const MEMO_MAP_MAX_ZOOM = 19
 export const MEMO_MAP_DEFAULT_ZOOM = 2
 export const MEMO_MAP_FOCUS_ZOOM = 14
 export const MEMO_MAP_GROUP_PRECISION = 5
-export const MEMO_MAP_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
-export const MEMO_MAP_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+export { MEMO_MAP_ATTRIBUTION, MEMO_MAP_TILE_URL } from '@shared/memos/map-endpoints'
 export const MEMO_MAP_WORLD_VIEW = {
   latitude: 20,
   longitude: 0,

@@ -11,11 +11,21 @@ import type { AppBindings } from '../src/worker/env'
 import { errorResponse } from '../src/worker/lib/errors'
 import { fetchMemoLinkMetadata } from '../src/worker/memos/link-meta'
 import { MEMOS_SCHEMA_STATEMENTS } from '../src/worker/memos/schema'
-import { memoLinkMetaRoutes } from '../src/worker/routes/memos/link-meta'
+import {
+  MEMO_LINK_META_HOURLY_ATTEMPTS,
+  memoLinkMetaRoutes,
+} from '../src/worker/routes/memos/link-meta'
 import { testBindings } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
 
 const OWNER = 'user-owner'
+
+const LOGIN_ATTEMPTS_SCHEMA = `CREATE TABLE IF NOT EXISTS login_attempts (
+  key TEXT PRIMARY KEY,
+  fails INTEGER NOT NULL DEFAULT 0,
+  last_fail_at INTEGER NOT NULL,
+  locked_until INTEGER
+)`
 
 const mocks = vi.hoisted(() => ({ userId: '' }))
 
@@ -79,6 +89,7 @@ async function expectBadRequest(response: Response, message: string): Promise<vo
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   sqlite.exec(MEMOS_SCHEMA_STATEMENTS.join(';'))
+  sqlite.exec(LOGIN_ATTEMPTS_SCHEMA)
   db = makeD1(sqlite)
   mocks.userId = OWNER
   fetchMock.mockReset()
@@ -345,6 +356,27 @@ describe('link metadata route', () => {
 
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ items: [] })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('allows the last request in the hourly budget and rejects the next without fetching', async () => {
+    sqlite
+      .prepare('INSERT INTO login_attempts (key, fails, last_fail_at, locked_until) VALUES (?, ?, ?, NULL)')
+      .run(`memo-link-meta:${OWNER}`, MEMO_LINK_META_HOURLY_ATTEMPTS - 1, Date.now())
+
+    const allowed = await post({ urls: ['https://example.com/last'] })
+    expect(allowed.status).toBe(200)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    fetchMock.mockClear()
+    const rejected = await post({ urls: ['https://example.com/over'] })
+
+    expect(rejected.status).toBe(429)
+    const body = await rejected.json() as {
+      error: { code: string; details?: { retryAfter?: number } }
+    }
+    expect(body.error.code).toBe('too_many_attempts')
+    expect(body.error.details?.retryAfter).toBeGreaterThan(0)
     expect(fetchMock).not.toHaveBeenCalled()
   })
 

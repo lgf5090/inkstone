@@ -5,7 +5,7 @@ import {
   MEMO_AI_TRANSCRIBE_PER_HOUR,
 } from '@shared/memos/constants'
 import type { MemoTranscriptionResult } from '@shared/memos/types'
-import { AssistantStore, type ProviderRow } from '../assistant/store'
+import { AssistantStore, type ProviderRow } from '../assistant'
 import type { Env } from '../env'
 import { toBase64 } from '../lib/encoding'
 import { ApiError } from '../lib/errors'

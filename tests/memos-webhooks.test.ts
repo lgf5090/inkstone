@@ -290,6 +290,7 @@ describe('memo webhook management', () => {
       { title: 'Hook', url: 'ftp://hooks.example/receiver' },
       { title: 'Hook', url: 'https://user:password@hooks.example/receiver' },
       { title: 'Hook', url: 'http://127.0.0.1/receiver' },
+      { title: 'Hook', url: 'http://hooks.example/receiver' },
       { title: 'Hook', url: 'http://169.254.169.254/latest/meta-data' },
     ]
     for (const body of bodies) {

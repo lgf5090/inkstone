@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { MEMO_AI_TRANSCRIBE_MAX_BYTES } from '@shared/memos/constants'
-import { AssistantStore } from '../../assistant/store'
+import { AssistantStore } from '../../assistant'
 import type { AppBindings } from '../../env'
 import { ApiError } from '../../lib/errors'
 import { isValidId } from '../../lib/id'

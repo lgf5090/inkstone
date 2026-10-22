@@ -1,3 +1,5 @@
+import { MEMO_MAP_TILE_URL, NOMINATIM_REVERSE_ENDPOINT } from '@shared/memos/map-endpoints'
+
 /**
  * The provider hosts a reader's browser may call directly.
  *
@@ -34,8 +36,8 @@ const BUILTIN_AI_CONNECT_HOSTS: readonly string[] = [
  */
 const CLOUDFLARE_INSIGHTS_SCRIPT_SOURCE = 'https://static.cloudflareinsights.com'
 const CLOUDFLARE_INSIGHTS_REPORT_SOURCE = 'https://cloudflareinsights.com'
-const MEMO_MAP_TILE_SOURCE = 'https://tile.openstreetmap.org'
-const MEMO_MAP_GEOCODE_SOURCE = 'https://nominatim.openstreetmap.org'
+const MEMO_MAP_TILE_SOURCE = new URL(MEMO_MAP_TILE_URL).origin
+const MEMO_MAP_GEOCODE_SOURCE = new URL(NOMINATIM_REVERSE_ENDPOINT).origin
 
 export interface SecurityHeaderOptions {
   // Vite's dev server injects the React Fast Refresh bootstrap as an inline script,

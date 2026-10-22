@@ -29,6 +29,29 @@ export interface MemoPublicListOptions {
 
 type CreatorRow = Parameters<typeof rowToUser>[0]
 
+/** Drop the real account id, role and sign-up time from the public creator. */
+function publicCreator(creator: PublicUser): PublicUser {
+  return {
+    id: '',
+    login: creator.username,
+    name: creator.name,
+    avatarUrl: creator.avatarUrl,
+    role: 'member',
+    createdAt: 0,
+    username: creator.username,
+  }
+}
+
+function emptyProperties() {
+  return {
+    hasLink: false,
+    hasCode: false,
+    hasTaskList: false,
+    hasIncompleteTasks: false,
+    hasLocation: false,
+  }
+}
+
 function encodePublicCursor(offset: number): string {
   return toBase64(utf8(JSON.stringify({ offset })))
 }
@@ -78,6 +101,7 @@ async function loadCreators(
   return creators
 }
 
+/** Build the public shape explicitly so fields added to `Memo` do not leak by default. */
 async function hydratePublicMemos(
   db: D1Database,
   rows: readonly MemoRow[],
@@ -101,10 +125,26 @@ async function hydratePublicMemos(
     if (!memo) continue
     const creator = creators.get(row.user_id)
     items.push({
-      ...memo,
+      id: memo.id,
+      content: memo.content,
+      title: memo.title,
+      snippet: memo.snippet,
+      tags: memo.tags,
+      visibility: memo.visibility,
+      state: memo.state,
+      pinned: memo.pinned,
+      spaceId: null,
+      parentId: null,
+      location: null,
+      properties: emptyProperties(),
+      attachments: memo.attachments,
       reactions: [],
       relations: [],
-      ...(creator ? { creator } : {}),
+      commentCount: memo.commentCount,
+      rev: 0,
+      createdAt: memo.createdAt,
+      updatedAt: memo.updatedAt,
+      ...(creator ? { creator: publicCreator(creator) } : {}),
     })
   }
   return items

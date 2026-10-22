@@ -1,6 +1,8 @@
 import {
   MEMO_ATTACHMENT_MAX_BYTES,
   MEMO_ATTACHMENT_QUOTA_BYTES,
+  MEMO_ATTACHMENT_SCOPES,
+  type MemoAttachmentScope,
 } from '@shared/memos/constants'
 import type {
   MemoApiErrorCode,
@@ -12,15 +14,18 @@ import type {
   MemoVisibility,
 } from '@shared/memos/types'
 import type { Env } from '../env'
-import { deleteAttachmentObjects, putAttachmentObject, selectAttachmentStorage } from '../attachments/backend'
-import { drainAttachmentCleanup } from '../attachments/cleanup'
 import {
   attachmentCleanupTarget,
+  deleteAttachmentObjects,
+  drainAttachmentCleanup,
   memoAttachmentObjectKey,
   memoThumbnailObjectKey,
+  putAttachmentObject,
+  sanitizeAttachmentFilename,
+  selectAttachmentStorage,
+  withAttachmentQuotaLease,
   type AttachmentObjectStorage,
-} from '../attachments/keys'
-import { sanitizeAttachmentFilename, withAttachmentQuotaLease } from '../attachments/storage'
+} from '../attachments'
 import { sha256Hex } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import {
@@ -32,8 +37,7 @@ import { parseMemoMediaMetadata, safeMemoMime } from './media'
 
 export const MEMO_FILE_URL_PREFIX = '/api/memos/files/'
 
-export const MEMO_ATTACHMENT_SCOPES = ['all', 'media', 'audio', 'documents', 'unused'] as const
-export type MemoAttachmentScope = (typeof MEMO_ATTACHMENT_SCOPES)[number]
+export { MEMO_ATTACHMENT_SCOPES, type MemoAttachmentScope }
 
 const MEMO_REFERENCE_LOOKUP_LIMIT = 20
 const MEMO_REFERENCE_WINDOW_CHARS = 300

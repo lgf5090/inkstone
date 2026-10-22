@@ -5,7 +5,7 @@ import {
   readAttachmentObject,
   readAttachmentObjectRange,
   readAttachmentObjectStream,
-} from '../../attachments/backend'
+} from '../../attachments'
 import { ApiError } from '../../lib/errors'
 import { isValidId } from '../../lib/id'
 import { isProtectedReadable, isPubliclyReadable } from '../../memos/access'
@@ -154,8 +154,11 @@ async function fileAccessForRow(
   return null
 }
 
+// A public file cannot be revoked by a cache, so it gets a short window instead of `immutable`.
+const PUBLIC_FILE_CACHE = 'public, max-age=60, must-revalidate'
+
 function cacheControlFor(access: FileAccess): string {
-  return access === 'public' ? 'public, max-age=31536000, immutable' : 'private, no-store'
+  return access === 'public' ? PUBLIC_FILE_CACHE : 'private, no-store'
 }
 
 function contentDisposition(contentType: string, filename: string): string {

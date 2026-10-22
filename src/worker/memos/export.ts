@@ -24,7 +24,7 @@ import type { Env } from '../env'
 import {
   hasAttachmentStorage,
   readAttachmentObject,
-} from '../attachments/backend'
+} from '../attachments'
 import { sha256Hex } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import type { MemoAttachmentRow } from './attachments'

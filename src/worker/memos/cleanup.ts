@@ -1,6 +1,5 @@
 import type { Context } from 'hono'
-import { deleteAttachmentObjects } from '../attachments/backend'
-import type { AttachmentObjectStorage } from '../attachments/keys'
+import { deleteAttachmentObjects, type AttachmentObjectStorage } from '../attachments'
 import type { AppBindings, Env } from '../env'
 import type { MemoAttachmentObjectRef } from './store'
 

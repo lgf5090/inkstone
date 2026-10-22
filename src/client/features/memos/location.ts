@@ -1,6 +1,8 @@
+import { NOMINATIM_REVERSE_ENDPOINT } from '@shared/memos/map-endpoints'
 import type { MemoLocation } from '@shared/memos/types'
 
-export const NOMINATIM_REVERSE_ENDPOINT = 'https://nominatim.openstreetmap.org/reverse'
+export { NOMINATIM_REVERSE_ENDPOINT }
+
 export const NOMINATIM_REVERSE_ZOOM = 18
 
 const DECIMAL_NUMBER = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/

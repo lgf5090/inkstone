@@ -1,4 +1,4 @@
-import type { AttachmentObjectStorage } from '../../attachments/keys'
+import type { AttachmentObjectStorage } from '../../attachments'
 import { loadMemoRow } from './hydrate'
 
 export interface MemoAttachmentObjectRef {

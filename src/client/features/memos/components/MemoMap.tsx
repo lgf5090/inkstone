@@ -30,7 +30,7 @@ const MAP_CLUSTER_CLASS = [
   'text-[var(--accent-contrast)] shadow-[var(--shadow-soft)]',
 ].join(' ')
 const MAP_BADGE_CLASS = [
-  'absolute -right-1 -top-1 inline-flex min-w-[18px] items-center justify-center rounded-full',
+  'absolute -right-1 -top-1 inline-flex min-w-[var(--memo-pin-badge-min)] items-center justify-center rounded-full',
   'border border-[var(--border-default)] bg-[var(--bg-surface)] px-1 text-[length:var(--text-10)]',
   'font-semibold tabular text-[var(--text-primary)] shadow-sm',
 ].join(' ')
@@ -274,7 +274,7 @@ export function MemoMap({
     <div className="relative h-full min-h-0 w-full" data-memo-map="">
       <div
         ref={containerRef}
-        role="application"
+        role="region"
         aria-label={label}
         className="absolute inset-0 isolate"
       />

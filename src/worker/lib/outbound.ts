@@ -108,10 +108,14 @@ async function readCapped(response: Response, maxBytes: number): Promise<string>
       chunks.push(slice)
       size += slice.byteLength
     }
-  } catch {
-    // A body that dies mid-read still leaves what arrived, which is often the interesting part.
+  } catch (error) {
+    // Keep the bytes read so far; log only the error because the target may hold credentials.
+    console.warn('[inkstone] Outbound response body ended early:', error)
   } finally {
-    void reader.cancel().catch(() => undefined)
+    // Cancel is best-effort; the bytes already read are the result either way.
+    void reader.cancel().catch((error) => {
+      console.warn('[inkstone] Outbound response cancel failed:', error)
+    })
   }
   const merged = new Uint8Array(size)
   let offset = 0

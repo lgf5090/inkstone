@@ -1,5 +1,5 @@
 import { MEMO_PAT_BYTES, MEMO_PAT_PREFIX } from '@shared/memos/constants'
-import { sha256Hex, timingSafeEqual, toBase64Url } from '../lib/encoding'
+import { sha256Hex, toBase64Url } from '../lib/encoding'
 
 const SHARE_TOKEN_BYTES = 32
 const TOKEN_PREFIX_LENGTH = 16
@@ -28,5 +28,3 @@ export async function createShareToken(): Promise<{ token: string; hash: string 
   const token = createOpaqueToken('', SHARE_TOKEN_BYTES)
   return { token, hash: await hashOpaqueToken(token) }
 }
-
-export const constantTimeEqual = timingSafeEqual

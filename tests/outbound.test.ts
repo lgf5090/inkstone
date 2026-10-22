@@ -22,6 +22,7 @@ function stubFetch(handler: (url: string, init: RequestInit) => Response | Promi
 afterEach(() => {
   calls = []
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 
 describe('the shared outbound guard', () => {
@@ -74,6 +75,31 @@ describe('the shared outbound request', () => {
     stubFetch(() => new Response('y'.repeat(32)))
     const small = await outbound('https://example.com/hook', { maxBytes: 8 })
     expect(small.text).toBe('yyyyyyyy')
+  })
+
+  it('keeps the bytes read before the body ends early', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    stubFetch(() => {
+      const response = new Response(null)
+      let pulled = 0
+      Object.defineProperty(response, 'body', {
+        value: new ReadableStream({
+          pull(controller) {
+            if (pulled++ === 0) controller.enqueue(new TextEncoder().encode('partial'))
+            else controller.error(new Error('connection reset'))
+          },
+        }),
+      })
+      return response
+    })
+
+    const result = await outbound('https://example.com/hook')
+
+    expect(result).toEqual({ ok: true, status: 200, text: 'partial', error: '' })
+    expect(warn).toHaveBeenCalledWith(
+      '[inkstone] Outbound response body ended early:',
+      expect.any(Error),
+    )
   })
 
   it('answers a timeout as a result rather than a throw', async () => {

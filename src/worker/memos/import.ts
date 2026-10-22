@@ -41,8 +41,8 @@ import {
   putAttachmentObject,
   readAttachmentObject,
   selectAttachmentStorage,
-} from '../attachments/backend'
-import type { AttachmentObjectStorage } from '../attachments/keys'
+  type AttachmentObjectStorage,
+} from '../attachments'
 import { sha256Hex } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
