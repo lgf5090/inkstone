@@ -18,7 +18,8 @@ import { sweepSubscriptions } from './subscriptions/scheduler'
 import { ApiError } from './lib/errors'
 import { withSecurityHeaders } from './lib/security-headers'
 import { normalizeRepeatedOAuthResource } from './lib/oauth-request'
-import { handleInboundMail } from './email/inbound'
+import { dispatchInboundEmail } from './email/dispatch'
+import { runEmailTrashCleanup } from './email/trash'
 
 export { SyncHub } from './realtime/sync-hub'
 export { CredentialVault } from './durable/credential-vault'
@@ -96,6 +97,7 @@ export default {
             purgeRevokedMcpApiKeys(env.DB),
             purgeExpiredEphemeralConversations(env.DB, env),
             purgeExpiredTodoTrash(env.DB),
+            runEmailTrashCleanup(env),
             purgeExpiredSubscriptionData(env.DB),
             providerForScheduled(env).purgeExpiredData(env, { batchSize: 100 }),
           ]
@@ -105,15 +107,16 @@ export default {
   },
 
   /**
-   * Email Routing's inbound door: `u+<token>@<MAIL_DOMAIN>` becomes a task.
+   * Email Routing's inbound door: `u+<token>@<MAIL_DOMAIN>` becomes a task, a mailbox address is
+   * delivered to its owner's mailbox, and anything else is dropped.
    *
-   * The handler is deliberately one call deep — routing, parsing, idempotency and the drops all live
-   * in `email/inbound.ts`, so the Worker entry stays a list of the platform's events. Nothing here
-   * answers the sender: an unknown recipient is dropped, not rejected, which is what keeps the
-   * address space from being enumerable through bounces.
+   * The handler is one call deep — routing, parsing, idempotency and the drops all live in
+   * `email/dispatch.ts` and the modules it calls, so the Worker entry stays a list of the platform's
+   * events. Nothing here answers the sender: an unknown recipient is dropped, not rejected, which is
+   * what keeps the address space from being enumerable through bounces.
    */
-  async email(message: ForwardableEmailMessage, env: Env, _ctx: ExecutionContext): Promise<void> {
-    await handleInboundMail(message, env)
+  async email(message: ForwardableEmailMessage, env: Env, ctx: ExecutionContext): Promise<void> {
+    await dispatchInboundEmail(message, env, ctx)
   },
 } satisfies ExportedHandler<Env>
 
