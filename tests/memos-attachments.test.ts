@@ -2,10 +2,8 @@
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import {
-  MEMO_ATTACHMENT_MAX_BYTES,
-  MEMO_ATTACHMENT_QUOTA_BYTES,
-} from '../src/shared/memos/constants'
+import { LIMITS } from '../src/shared/constants'
+import { MEMO_ATTACHMENT_MAX_BYTES } from '../src/shared/memos/constants'
 import { initializeDatabase } from '../src/worker/db/schema'
 import type { AppBindings, Env } from '../src/worker/env'
 import { errorResponse } from '../src/worker/lib/errors'
@@ -272,8 +270,8 @@ describe('memo attachment uploads', () => {
     sqlite.prepare(
       `INSERT INTO attachments (id, user_id, note_id, filename, mime, size, sha256, storage, created_at)
        VALUES (?, ?, NULL, 'note.bin', 'application/octet-stream', ?, 'hash', 'r2', 1)`,
-    ).run(id(20), ALICE, Math.floor(MEMO_ATTACHMENT_QUOTA_BYTES * 0.6))
-    insertAttachmentRow(id(21), ALICE, Math.floor(MEMO_ATTACHMENT_QUOTA_BYTES * 0.5))
+    ).run(id(20), ALICE, Math.floor(LIMITS.attachmentQuotaBytes * 0.6))
+    insertAttachmentRow(id(21), ALICE, Math.floor(LIMITS.attachmentQuotaBytes * 0.5))
 
     const rejected = await upload(ALICE, pngBytes())
     expect(rejected.status).toBe(413)
@@ -287,7 +285,7 @@ describe('memo attachment uploads', () => {
     sqlite.prepare(
       `INSERT INTO attachments (id, user_id, note_id, filename, mime, size, sha256, storage, created_at)
        VALUES (?, ?, NULL, 'note.bin', 'application/octet-stream', ?, 'hash', 'r2', 1)`,
-    ).run(id(22), CAROL, Math.floor(MEMO_ATTACHMENT_QUOTA_BYTES * 0.6))
+    ).run(id(22), CAROL, Math.floor(LIMITS.attachmentQuotaBytes * 0.6))
     const accepted = await upload(CAROL, pngBytes())
     expect(accepted.status).toBe(201)
   })

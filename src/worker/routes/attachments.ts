@@ -6,6 +6,7 @@ import {
   type HubAttachmentType,
   isAttachmentHubScope,
 } from '@shared/attachment-hub'
+import { attachmentQuotaBytesForEnv } from '../attachments/backend'
 import { drainAttachmentCleanup } from '../attachments/cleanup'
 import {
   deleteHubRow,
@@ -127,7 +128,7 @@ function listParams(search: URLSearchParams): HubAttachmentListParams {
 
 attachmentHubRoutes.get('/:scope/files', async (c) => {
   const scope = scopeOf(c)
-  const result = await listHubAttachments(c.env.DB, c.get('userId'), scope, listParams(new URL(c.req.url).searchParams))
+  const result = await listHubAttachments(c.env.DB, c.get('userId'), scope, listParams(new URL(c.req.url).searchParams), attachmentQuotaBytesForEnv(c.env))
   return c.json(result)
 })
 

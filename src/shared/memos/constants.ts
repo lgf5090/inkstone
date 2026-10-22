@@ -21,7 +21,6 @@ export const MEMO_ATTACHMENT_SCOPES = ['all', 'media', 'audio', 'documents', 'un
 export type MemoAttachmentScope = (typeof MEMO_ATTACHMENT_SCOPES)[number]
 
 export const MEMO_ATTACHMENT_MAX_BYTES = LIMITS.attachmentMaxBytes
-export const MEMO_ATTACHMENT_QUOTA_BYTES = LIMITS.attachmentQuotaBytes
 export const MEMO_ATTACHMENT_UPLOADS_PER_HOUR = LIMITS.attachmentUploadsPerHour
 
 export const MEMO_FILTER_MAX_BYTES = 8 * 1024

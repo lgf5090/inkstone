@@ -10,6 +10,7 @@ import {
   safeAttachmentMime,
 } from '../lib/image'
 import {
+  attachmentQuotaBytesForEnv,
   deleteAttachmentObjects,
   putAttachmentObject,
   selectAttachmentStorage,
@@ -55,8 +56,9 @@ export async function persistAttachmentWithinQuota(
   env: Env,
   input: PersistAttachmentInput,
 ): Promise<PersistedAttachment> {
+  const ceiling = attachmentQuotaBytesForEnv(env)
   return withAttachmentQuotaLease(env, input.userId, async (usedBytes) => {
-    if (usedBytes + input.bytes.byteLength > LIMITS.attachmentQuotaBytes) {
+    if (usedBytes + input.bytes.byteLength > ceiling) {
       throw ApiError.tooLarge('The account attachment quota has been reached')
     }
     return persistAttachment(env, input)

@@ -8,7 +8,6 @@ import {
   type HubAttachmentWithUsage,
   type AttachmentHubScope,
 } from '@shared/attachment-hub'
-import { LIMITS } from '@shared/constants'
 import { isValidId } from '../lib/id'
 import { collectAttachmentReferences } from './references'
 import { attachmentScope, scopeColumnFilter, type AttachmentScopeDescriptor } from './scopes'
@@ -225,6 +224,7 @@ export async function listHubAttachments(
   userId: string,
   scope: AttachmentHubScope,
   params: HubAttachmentListParams,
+  quotaBytes: number,
 ): Promise<HubListResult> {
   const descriptor = attachmentScope(scope)
   const limit = Math.min(Math.max(Math.trunc(params.limit ?? LIST_PAGE_SIZE) || 1, 1), LIST_PAGE_MAX)
@@ -251,7 +251,7 @@ export async function listHubAttachments(
     scope,
   )
   const last = page[page.length - 1]
-  const stats = await loadHubStats(db, userId, scope, descriptor)
+  const stats = await loadHubStats(db, userId, scope, descriptor, quotaBytes)
 
   return {
     files: page
@@ -281,6 +281,7 @@ async function loadHubStats(
   userId: string,
   scope: AttachmentHubScope,
   descriptor: AttachmentScopeDescriptor,
+  quotaBytes: number,
 ): Promise<HubAttachmentStats> {
   const from = `FROM ${descriptor.table} WHERE user_id = ?1 AND ${scopeColumnFilter(scope)}`
   const totals = await db
@@ -337,7 +338,7 @@ async function loadHubStats(
   return {
     totalCount,
     totalBytes,
-    totalQuotaBytes: LIMITS.attachmentQuotaBytes,
+    totalQuotaBytes: quotaBytes,
     imageBytes,
     documentBytes,
     mediaBytes,
