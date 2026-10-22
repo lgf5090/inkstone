@@ -338,6 +338,12 @@ export interface RequestOptions {
    * task routes compare with the row's own revision before they write.
    */
   ifMatch?: string
+  /**
+   * The key that makes a retried create one create. Sent as `Idempotency-Key`, which the task route
+   * answers through the same operation table every MCP write already uses: a create the server landed
+   * but whose response was lost is answered with the row it wrote, not with a second one.
+   */
+  idempotencyKey?: string
   onEtag?: (etag: string | null) => void
   /** A question about *now* must not be answered from the cache; a stored "where is the talk" is a
    * different question's answer. */
@@ -374,7 +380,7 @@ export interface SettingsPatch {
 }
 
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, signal, formData, timeoutMs, ifNoneMatch, ifMatch, onEtag, cache } = options
+  const { method = 'GET', body, signal, formData, timeoutMs, ifNoneMatch, ifMatch, idempotencyKey, onEtag, cache } = options
 
   const headers: Record<string, string> = {
     [CLIENT_HEADER]: '1',
@@ -383,6 +389,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   }
   if (ifNoneMatch) headers['If-None-Match'] = ifNoneMatch
   if (ifMatch) headers['If-Match'] = ifMatch
+  if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey
   let payload: BodyInit | undefined
   if (formData) {
     payload = formData
@@ -1155,8 +1162,18 @@ export const api = {
     } = {}) =>
       request<TaskPage>(`/api/todos${toQuery(params)}`),
     get: (id: string) => request<{ task: TodoTask, steps: TaskStep[] }>(`/api/todos/${id}`),
-    create: (body: Record<string, unknown>) =>
-      request<{ task: TodoTask }>('/api/todos', { method: 'POST', body: withReminderList(body) }),
+    /**
+     * A new task.
+     *
+     * `idempotencyKey` is what a replay of a queued create sends: the row the queue already holds is
+     * the one operation the server must recognise twice, and a fresh press from the app names none.
+     */
+    create: (body: Record<string, unknown>, idempotencyKey?: string) =>
+      request<{ task: TodoTask }>('/api/todos', {
+        method: 'POST',
+        body: withReminderList(body),
+        ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+      }),
     /**
      * `next` is present when the patch finished a repeating task and it filed the next occurrence.
      *

@@ -1107,6 +1107,70 @@ describe('a conditional write', () => {
 })
 
 /**
+ * The key a retried create carries.
+ *
+ * A queued offline create is replayed, and a replay of one whose response was lost while the row had
+ * already landed would otherwise mint a second task. `runIdempotent` — the same door every MCP write
+ * already goes through — is what makes the second answer be the first row, so no second table of
+ * operation records is added here and the sweep that expires MCP operations expires these too.
+ */
+describe('an idempotent task create', () => {
+  const KEY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+
+  // The budget is keyed by caller, so these cases get their own accounts.
+  let caller = 0
+  beforeEach(() => {
+    caller += 1
+    mocks.userId = `idemroute${String(caller).padStart(19, '0')}`
+  })
+
+  it('answers the same task again when the key is sent twice', async () => {
+    const first = await send('POST', '', { title: 'Book the room' }, { 'Idempotency-Key': KEY })
+    expect(first.status).toBe(201)
+    const made = (await json<{ task: TodoTask }>(first)).task
+    const second = await send('POST', '', { title: 'Book the room' }, { 'Idempotency-Key': KEY })
+
+    expect(second.status).toBe(201)
+    expect((await json<{ task: TodoTask }>(second)).task.id).toBe(made.id)
+    // One row, not two: the replay wrote nothing.
+    const page = await json<{ tasks: TodoTask[] }>(await send('GET', '?status=open'))
+    expect(page.tasks.map((task) => task.id)).toEqual([made.id])
+  })
+
+  it('refuses the same key worn by a different body', async () => {
+    expect((await send('POST', '', { title: 'Book the room' }, { 'Idempotency-Key': KEY })).status).toBe(201)
+
+    const clash = await send('POST', '', { title: 'Book another room' }, { 'Idempotency-Key': KEY })
+
+    expect(clash.status).toBe(409)
+    expect((await json<{ tasks: TodoTask[] }>(await send('GET', '?status=open'))).tasks).toHaveLength(1)
+  })
+
+  it('creates once per key, so two keys are two tasks', async () => {
+    const body = { title: 'Book the room' }
+
+    expect((await send('POST', '', body, { 'Idempotency-Key': KEY })).status).toBe(201)
+    expect((await send('POST', '', body, { 'Idempotency-Key': 'ffffffff-1111-2222-3333-444444444444' })).status).toBe(201)
+
+    expect((await json<{ tasks: TodoTask[] }>(await send('GET', '?status=open'))).tasks).toHaveLength(2)
+  })
+
+  it('keeps working with no key at all', async () => {
+    const task = await create({ title: 'No key pressed' })
+
+    expect(task.id).toBeTruthy()
+    expect((await json<{ tasks: TodoTask[] }>(await send('GET', '?status=open'))).tasks).toHaveLength(1)
+  })
+
+  it('refuses a key too short to identify one operation', async () => {
+    const refused = await send('POST', '', { title: 'Book the room' }, { 'Idempotency-Key': 'short' })
+
+    expect(refused.status).toBe(400)
+    expect((await json<{ tasks: TodoTask[] }>(await send('GET', '?status=open'))).tasks).toHaveLength(0)
+  })
+})
+
+/**
  * Manual order: one column, one anchor and the half-fold every drag lands on.
  *
  * The contract pinned here is the one the client draws against: a row is placed before the row it

@@ -647,7 +647,11 @@ export async function replayTodoOutboxItem(
     switch (payload.op) {
       case 'create': {
         const body = payload.task ?? {}
-        const { task } = await api.todos.create(body)
+        // The queued row's own write id is the idempotency key: it was minted when this create was
+        // enqueued and travels with the queue row, so a second attempt at the same queued write —
+        // the one where the server wrote the task and the response was lost — is answered with the
+        // task it already made rather than with a second copy.
+        const { task } = await api.todos.create(body, item.writeId)
         storeServerTask(task, { addIfMissing: true, replaceId: id })
         // Every later queued write for the row this create just minted names the local id. Move them
         // together, or they would edit a task that never existed.

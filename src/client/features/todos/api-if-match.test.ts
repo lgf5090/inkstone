@@ -1,11 +1,15 @@
 // @vitest-environment jsdom
 /**
- * The revision a task write travels with.
+ * The revision and the key a task write travels with.
  *
  * The route refuses a stale write by comparing `If-Match` with the row's revision, so the guard is only
  * real if the client actually puts the header on the request. This pins the wire shape: the third
  * argument of `api.todos.update` becomes `If-Match`, and a write that names no revision stays
  * unconditional, which is what the older surfaces (the assistant's tools, an undo) still send.
+ *
+ * A create has the same problem in the other direction: it is not conditional but repeatable, so the
+ * second argument of `api.todos.create` becomes `Idempotency-Key` and the route can answer a lost
+ * response with the row it already wrote instead of a second one.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../../lib/api'
@@ -50,5 +54,23 @@ describe('a guarded task write', () => {
     await api.todos.update('task-1', { title: 'Edited' })
 
     expect(headersOf()).not.toHaveProperty('If-Match')
+  })
+
+  it('sends a create its idempotency key', async () => {
+    stubFetch()
+
+    await api.todos.create({ title: 'Book the room' }, 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee')
+
+    expect(requests[0]!.url).toBe('/api/todos')
+    expect(requests[0]!.init.method).toBe('POST')
+    expect(headersOf()['Idempotency-Key']).toBe('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee')
+  })
+
+  it('sends a plain create with no key', async () => {
+    stubFetch()
+
+    await api.todos.create({ title: 'Book the room' })
+
+    expect(headersOf()).not.toHaveProperty('Idempotency-Key')
   })
 })

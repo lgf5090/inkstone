@@ -52,6 +52,7 @@ import {
 } from '@shared/todos/model'
 import type { TaskPriority, TaskStatus } from '@shared/assistant'
 import { AssistantStore, type TaskQuery } from '../assistant/store'
+import { runIdempotent } from '../mcp/operations'
 import { insertFeed, listFeeds, revokeFeed, type OwnFeedRow } from '../todos/feeds'
 import { addDays, isStatsDay, loadTodoStats } from '../todos/stats'
 
@@ -779,6 +780,17 @@ todoRoutes.post('/batch', async (c) => {
   return c.json({ done, failed })
 })
 
+/**
+ * A new task.
+ *
+ * `Idempotency-Key` is optional and turns a retried create into one create: the client that queued the
+ * write offline replays it, and a first attempt the server landed but whose response was lost would
+ * otherwise mint a second task. The key is answered by `runIdempotent`, the very door every MCP write
+ * already goes through, so no second operation table is added and the sweep that expires MCP
+ * operations expires these keys too. A key reused with a different body is a 409 rather than a second
+ * row: two different questions cannot share one answer. A key that is not 8-128 safe ASCII characters
+ * is a 400, which is `runIdempotent`'s own rule for the id it stores beside the response.
+ */
 todoRoutes.post('/', async (c) => {
   const s = store(c)
   const settings = await s.getSettings()
@@ -792,7 +804,7 @@ todoRoutes.post('/', async (c) => {
     : body.remind !== undefined
       ? reminderOffsetTimes(body.remind, dueAt)
       : defaultReminderTimes(c.get('user')?.settingsRaw ?? '', dueAt)
-  const task = await s.createTask({
+  const input = {
     title: text(body.title, TITLE_MAX, 'A task title'),
     description: optionalText(body.description, DESCRIPTION_MAX, 'A task note') ?? '',
     status: body.status === undefined ? undefined : asStatus(body.status),
@@ -813,8 +825,28 @@ todoRoutes.post('/', async (c) => {
     conversationId: optionalId(body.conversationId, 'conversationId') ?? null,
     tags: tagNames(body.tags),
     steps: stepTexts(body.steps),
-  })
-  await s.recordActivity('task.created', task.title)
+  }
+  // Everything the request has to say about itself is read above, so a body that is refused never
+  // spends an operation row, and what the key is hashed over is the task this call asks for rather
+  // than the spelling it happened to arrive in.
+  const write = async (): Promise<{ task: TodoTask }> => {
+    const task = await s.createTask(input)
+    await s.recordActivity('task.created', task.title)
+    return { task }
+  }
+  const key = c.req.header('idempotency-key')?.trim()
+  const { task } = key
+    ? await runIdempotent<{ task: TodoTask }>({
+      db: c.env.DB,
+      userId: c.get('userId'),
+      operationId: key,
+      // Named apart from the MCP tool's own `create_todo`, so one account's agent and its app cannot
+      // collide on an id and answer each other's question with a conflict.
+      tool: 'http.todos.create',
+      request: input,
+      execute: write,
+    })
+    : await write()
   return c.json({ task }, 201)
 })
 

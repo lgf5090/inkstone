@@ -166,12 +166,16 @@ describe('a task write made offline', () => {
     expect(mocks.create).not.toHaveBeenCalled()
     expect(mocks.queue).toHaveLength(1)
     expect(mocks.queue[0]).toMatchObject({ entity: 'todo', entityId: task?.id, payload: { op: 'create' } })
+    // The key a replay sends is the queued row's own write id, so it is persisted with the row rather
+    // than minted afresh each pass: the server has to be able to tell two attempts at one create apart
+    // from two creates.
+    const writeId = (mocks.queue[0] as { writeId: string }).writeId
 
     setOnline(true)
     mocks.create.mockResolvedValue({ task: row('server-1', 'Book the room', { rev: 1 }) })
     await useNotes.getState().replayPending()
 
-    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ title: 'Book the room' }))
+    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ title: 'Book the room' }), writeId)
     expect(useTodos.getState().tasks.map((entry) => entry.id)).toEqual(['server-1'])
     expect(mocks.queue).toHaveLength(0)
   })
