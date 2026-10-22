@@ -166,9 +166,12 @@ memoAttachmentRoutes.get('/', async (c) => {
   }
   const memoId = c.req.query('memoId') ?? null
   if (memoId && !isValidId(memoId)) throw ApiError.badRequest('Invalid memo id')
+  const spaceId = c.req.query('spaceId') ?? null
+  if (spaceId && !isValidId(spaceId)) throw ApiError.badRequest('Invalid space id')
 
   const page = await listMemoAttachments(c.env.DB, userId, {
     scope: rawScope as MemoAttachmentScope,
+    spaceId,
     memoId,
     offset: parseOffsetCursor(c.req.query('cursor')),
     limit: clampInt(c.req.query('limit'), 1, MEMO_MAX_PAGE_SIZE, MEMO_PAGE_SIZE),

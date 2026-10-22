@@ -88,6 +88,8 @@ export function MemoAttachmentsPage({ onOpenMemo }: MemoAttachmentsPageProps): R
   const toast = useUi((state) => state.toast)
   const scopeRef = useRef(scope)
   scopeRef.current = scope
+  const spaceRef = useRef(spaceId)
+  spaceRef.current = spaceId
   const [items, setItems] = useState<MemoAttachment[]>([])
   const [loadedScope, setLoadedScope] = useState<MemoAttachmentScope | null>(null)
   const [cursor, setCursor] = useState<string | null>(null)
@@ -112,7 +114,7 @@ export function MemoAttachmentsPage({ onOpenMemo }: MemoAttachmentsPageProps): R
     setStatus('loading')
     setError(null)
     setLightboxIndex(null)
-    memosApi.attachments.list({ scope, limit: ATTACHMENT_LIBRARY_PAGE_SIZE }, controller.signal)
+    memosApi.attachments.list({ scope, spaceId, limit: ATTACHMENT_LIBRARY_PAGE_SIZE }, controller.signal)
       .then((page) => {
         if (controller.signal.aborted) return
         setItems(page.items)
@@ -127,12 +129,12 @@ export function MemoAttachmentsPage({ onOpenMemo }: MemoAttachmentsPageProps): R
         setError(memoErrorMessage(loadError))
       })
     return () => controller.abort()
-  }, [scope, reloadKey])
+  }, [scope, spaceId, reloadKey])
 
   useEffect(() => {
     const controller = new AbortController()
     setTotalsStatus('loading')
-    void loadAllAttachments(controller.signal)
+    void loadAllAttachments(spaceId, controller.signal)
       .then((all) => {
         if (controller.signal.aborted) return
         setTotals(summarizeAttachments(all))
@@ -143,7 +145,7 @@ export function MemoAttachmentsPage({ onOpenMemo }: MemoAttachmentsPageProps): R
         setTotalsStatus('error')
       })
     return () => controller.abort()
-  }, [totalsKey])
+  }, [totalsKey, spaceId])
 
   const groups = useMemo(() => groupAttachmentsByMonth(items), [items])
   const images = useMemo(() => items.filter(isImageAttachment), [items])
@@ -162,14 +164,16 @@ export function MemoAttachmentsPage({ onOpenMemo }: MemoAttachmentsPageProps): R
   const loadMore = async (): Promise<void> => {
     if (!cursor || status !== 'ready' || busy) return
     const requestedScope = scope
+    const requestedSpace = spaceId
     setStatus('loadingMore')
     try {
       const page = await memosApi.attachments.list({
         scope,
+        spaceId,
         cursor,
         limit: ATTACHMENT_LIBRARY_PAGE_SIZE,
       })
-      if (scopeRef.current !== requestedScope) return
+      if (scopeRef.current !== requestedScope || spaceRef.current !== requestedSpace) return
       setItems((current) => {
         const known = new Set(current.map((item) => item.id))
         return [...current, ...page.items.filter((item) => !known.has(item.id))]
@@ -177,7 +181,11 @@ export function MemoAttachmentsPage({ onOpenMemo }: MemoAttachmentsPageProps): R
       setCursor(page.nextCursor)
       setStatus('ready')
     } catch (loadError) {
-      if (memoIsAbortError(loadError) || scopeRef.current !== requestedScope) return
+      if (
+        memoIsAbortError(loadError)
+        || scopeRef.current !== requestedScope
+        || spaceRef.current !== requestedSpace
+      ) return
       setStatus('ready')
       toast({
         title: t('memos.attachments.library.load_more_failed'),
@@ -304,11 +312,6 @@ export function MemoAttachmentsPage({ onOpenMemo }: MemoAttachmentsPageProps): R
               </p>
             ) : null}
           </div>
-          {spaceId ? (
-            <p className="mt-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
-              {t('memos.attachments.library.space_notice')}
-            </p>
-          ) : null}
           <div className="mt-2 overflow-x-auto">
             <Segmented
               value={scope}
@@ -458,12 +461,15 @@ export function MemoAttachmentsPage({ onOpenMemo }: MemoAttachmentsPageProps): R
   )
 }
 
-async function loadAllAttachments(signal: AbortSignal): Promise<MemoAttachment[]> {
+async function loadAllAttachments(
+  spaceId: string | null,
+  signal: AbortSignal,
+): Promise<MemoAttachment[]> {
   const all: MemoAttachment[] = []
   const seen = new Set<string>()
   let cursor: string | null = null
   do {
-    const page = await memosApi.attachments.list({ cursor, limit: MEMO_MAX_PAGE_SIZE }, signal)
+    const page = await memosApi.attachments.list({ spaceId, cursor, limit: MEMO_MAX_PAGE_SIZE }, signal)
     for (const item of page.items) {
       if (seen.has(item.id)) continue
       seen.add(item.id)

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, createElement, Fragment } from 'react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { MEMO_MAX_PAGE_SIZE } from '@shared/memos/constants'
 import type { MemoAttachment } from '@shared/memos/types'
 import { ConfirmHost } from '../../../components/overlay'
 import { initI18n, t } from '../../../lib/i18n'
@@ -72,12 +73,24 @@ const BASE_ITEMS: MemoAttachmentWithSource[] = [
   }),
 ]
 
+const SPACE_ITEMS: Record<string, MemoAttachmentWithSource[]> = {
+  'space-1': [
+    attachment('space-one-photo', { size: 1000 }),
+    attachment('space-one-voice', { filename: 'space-one-voice.mp3', mime: 'audio/mpeg', size: 2000 }),
+  ],
+  'space-2': [
+    attachment('space-two-doc', { filename: 'space-two-doc.pdf', mime: 'application/pdf', size: 3000 }),
+  ],
+}
+
 let items: MemoAttachmentWithSource[] = []
+let spaceItems: Record<string, MemoAttachmentWithSource[]> = {}
 let deleted: Set<string> = new Set()
 let view: RenderedElement | null = null
 
-function scopeItems(scope: string | undefined): MemoAttachment[] {
-  const visible = items.filter((item) => !deleted.has(item.id))
+function scopeItems(scope: string | undefined, spaceId?: string | null): MemoAttachment[] {
+  const source = spaceId ? spaceItems[spaceId] ?? [] : items
+  const visible = source.filter((item) => !deleted.has(item.id))
   if (!scope || scope === 'all') return visible
   if (scope === 'media') {
     return visible.filter((item) => item.mime.startsWith('image/') || item.mime.startsWith('video/'))
@@ -153,9 +166,13 @@ beforeEach(() => {
   useUi.setState({ toasts: [] })
   vi.clearAllMocks()
   items = BASE_ITEMS.map((item) => ({ ...item }))
+  spaceItems = {}
+  for (const [spaceId, entries] of Object.entries(SPACE_ITEMS)) {
+    spaceItems[spaceId] = entries.map((item) => ({ ...item }))
+  }
   deleted = new Set()
   api.attachments.list.mockImplementation((query: MemoAttachmentQuery = {}) => Promise.resolve({
-    items: scopeItems(query.scope),
+    items: scopeItems(query.scope, query.spaceId),
     nextCursor: null,
   }))
   api.attachments.delete.mockImplementation(async (id: string) => {
@@ -299,6 +316,7 @@ describe('the attachment library', () => {
     await flush()
     expect(api.attachments.list).toHaveBeenCalledWith({
       scope: 'all',
+      spaceId: null,
       cursor: 'next-page',
       limit: 24,
     })
@@ -350,10 +368,68 @@ describe('the attachment library', () => {
     expect(document.querySelectorAll('.skeleton')).toHaveLength(8)
   })
 
-  it('explains that a space-scoped route still shows the account library', async () => {
+  it('scopes the library and its counts to the space in the route', async () => {
     setUrl('/memos/spaces/space-1/attachments')
     renderPage()
     await flush()
-    expect(document.body.textContent).toContain(t('memos.attachments.library.space_notice'))
+
+    expect(api.attachments.list).toHaveBeenCalledWith(
+      { scope: 'all', spaceId: 'space-1', limit: 24 },
+      expect.anything(),
+    )
+    expect(api.attachments.list).toHaveBeenCalledWith(
+      { spaceId: 'space-1', cursor: null, limit: MEMO_MAX_PAGE_SIZE },
+      expect.anything(),
+    )
+    expect(radio('All').textContent).toContain('2')
+    expect(radio('Media').textContent).toContain('1')
+    expect(radio('Audio').textContent).toContain('1')
+    expect(radio('Documents').textContent).toContain('0')
+    expect(document.body.textContent).toContain(
+      t('memos.attachments.library.usage', { count: 2, size: '2.9 KB' }),
+    )
+    expect(document.body.textContent).toContain('space-one-photo.jpg')
+    expect(document.body.textContent).not.toContain('space-two-doc.pdf')
+    expect(document.body.textContent).not.toContain('including files from other spaces')
+  })
+
+  it('reloads the library when the route switches to another space', async () => {
+    setUrl('/memos/spaces/space-1/attachments')
+    renderPage()
+    await flush()
+    expect(document.body.textContent).toContain('space-one-photo.jpg')
+
+    act(() => {
+      window.history.pushState(null, '', '/memos/spaces/space-2/attachments')
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+    await flush()
+
+    expect(api.attachments.list).toHaveBeenCalledWith(
+      { scope: 'all', spaceId: 'space-2', limit: 24 },
+      expect.anything(),
+    )
+    expect(api.attachments.list).toHaveBeenCalledWith(
+      { spaceId: 'space-2', cursor: null, limit: MEMO_MAX_PAGE_SIZE },
+      expect.anything(),
+    )
+    expect(radio('All').textContent).toContain('1')
+    expect(document.body.textContent).toContain('space-two-doc.pdf')
+    expect(document.body.textContent).not.toContain('space-one-photo.jpg')
+  })
+
+  it('keeps the space filter when the scope changes', async () => {
+    setUrl('/memos/spaces/space-1/attachments')
+    renderPage()
+    await flush()
+    click(radio('Audio'))
+    await flush()
+
+    expect(api.attachments.list).toHaveBeenCalledWith(
+      { scope: 'audio', spaceId: 'space-1', limit: 24 },
+      expect.anything(),
+    )
+    expect(document.body.textContent).toContain('space-one-voice.mp3')
+    expect(document.body.textContent).not.toContain('space-one-photo.jpg')
   })
 })

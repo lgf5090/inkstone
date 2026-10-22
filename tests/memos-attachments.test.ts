@@ -134,13 +134,20 @@ async function upload(
 function insertMemo(
   memoId: string,
   userId: string,
-  options: { content?: string; title?: string; snippet?: string } = {},
+  options: { content?: string; title?: string; snippet?: string; spaceId?: string | null } = {},
 ): void {
   sqlite.prepare(
     `INSERT INTO memos_items
-       (id, user_id, content, title, snippet, visibility, state, rev, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, 'private', 'normal', 1, 1, 1)`,
-  ).run(memoId, userId, options.content ?? '', options.title ?? '', options.snippet ?? '')
+       (id, user_id, space_id, content, title, snippet, visibility, state, rev, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'private', 'normal', 1, 1, 1)`,
+  ).run(
+    memoId,
+    userId,
+    options.spaceId ?? null,
+    options.content ?? '',
+    options.title ?? '',
+    options.snippet ?? '',
+  )
 }
 
 function insertAttachmentRow(
@@ -360,6 +367,60 @@ describe('memo attachment library', () => {
 
     const foreign = await request('/api/memos/attachments', { headers: { 'x-test-user': BOB } })
     expect((await foreign.json() as { items: unknown[] }).items).toHaveLength(0)
+  })
+
+  it('scopes the library to a single space and validates the space id', async () => {
+    const spaceA = id(80)
+    const spaceB = id(81)
+    insertMemo(id(82), ALICE, { spaceId: spaceA, title: 'Alpha' })
+    insertMemo(id(83), ALICE, { spaceId: spaceB, title: 'Beta' })
+
+    const uploads = [
+      await upload(ALICE, pngBytes(), { filename: 'alpha.png', mime: 'image/png', memoId: id(82) }),
+      await upload(ALICE, pdfBytes(), { filename: 'alpha.pdf', mime: 'application/pdf', memoId: id(82) }),
+      await upload(ALICE, mp4Bytes(), { filename: 'beta.mp4', mime: 'video/mp4', memoId: id(83) }),
+      await upload(ALICE, mp3Bytes(), { filename: 'beta.mp3', mime: 'audio/mpeg', memoId: id(83) }),
+      await upload(ALICE, pngBytes(), { filename: 'free.png', mime: 'image/png' }),
+    ]
+    for (const response of uploads) expect(response.status).toBe(201)
+
+    const filenames = async (query: string, userId = ALICE): Promise<string[]> => {
+      const response = await request(`/api/memos/attachments${query}`, {
+        headers: { 'x-test-user': userId },
+      })
+      expect(response.status).toBe(200)
+      const body = await response.json() as { items: Array<{ filename: string }> }
+      return body.items.map((item) => item.filename).sort()
+    }
+
+    expect(await filenames(`?spaceId=${spaceA}`)).toEqual(['alpha.pdf', 'alpha.png'])
+    expect(await filenames(`?spaceId=${spaceA}&scope=media`)).toEqual(['alpha.png'])
+    expect(await filenames(`?spaceId=${spaceA}&scope=audio`)).toEqual([])
+    expect(await filenames(`?spaceId=${spaceA}&scope=documents`)).toEqual(['alpha.pdf'])
+    expect(await filenames(`?spaceId=${spaceA}&scope=unused`)).toEqual([])
+
+    expect(await filenames(`?spaceId=${spaceB}`)).toEqual(['beta.mp3', 'beta.mp4'])
+    expect(await filenames(`?spaceId=${spaceB}&scope=media`)).toEqual(['beta.mp4'])
+    expect(await filenames(`?spaceId=${spaceB}&scope=audio`)).toEqual(['beta.mp3'])
+    expect(await filenames(`?spaceId=${spaceB}&scope=documents`)).toEqual([])
+    expect(await filenames(`?spaceId=${spaceB}&scope=unused`)).toEqual([])
+
+    expect(await filenames(`?spaceId=${spaceA}&memoId=${id(82)}`)).toEqual(['alpha.pdf', 'alpha.png'])
+    expect(await filenames(`?spaceId=${spaceB}&memoId=${id(82)}`)).toEqual([])
+
+    expect(await filenames('')).toEqual(['alpha.pdf', 'alpha.png', 'beta.mp3', 'beta.mp4', 'free.png'])
+    expect(await filenames('?scope=unused')).toEqual(['free.png'])
+
+    expect(await filenames(`?spaceId=${spaceA}`, BOB)).toEqual([])
+    expect(await filenames(`?spaceId=${spaceA}`, CAROL)).toEqual([])
+
+    const invalid = await request('/api/memos/attachments?spaceId=nope', {
+      headers: { 'x-test-user': ALICE },
+    })
+    expect(invalid.status).toBe(400)
+    expect(await invalid.json()).toEqual({
+      error: { code: 'bad_request', message: 'Invalid space id' },
+    })
   })
 
   it('rejects an unknown scope and a corrupt cursor', async () => {

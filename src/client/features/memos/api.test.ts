@@ -224,16 +224,19 @@ describe('spaces', () => {
 })
 
 describe('attachments', () => {
-  it('lists attachments by scope and memo', async () => {
+  it('lists attachments by scope, space and memo', async () => {
     const fetchMock = stubFetch({ items: [], nextCursor: null })
     const controller = new AbortController()
     await memosApi.attachments.list({
       scope: 'media',
+      spaceId: 'space1',
       memoId: 'memo1',
       cursor: 'next',
       limit: 16,
     }, controller.signal)
-    expect(callOf(fetchMock, 0)[0]).toBe('/api/memos/attachments?scope=media&memoId=memo1&cursor=next&limit=16')
+    expect(callOf(fetchMock, 0)[0]).toBe(
+      '/api/memos/attachments?scope=media&spaceId=space1&memoId=memo1&cursor=next&limit=16',
+    )
     expect(callOf(fetchMock, 0)[1].signal).toBe(controller.signal)
   })
 

@@ -43,6 +43,7 @@ export interface MemoAttachmentPage {
 
 export interface MemoAttachmentQuery {
   scope?: MemoAttachmentScope
+  spaceId?: string | null
   memoId?: string | null
   cursor?: string | null
   limit?: number
@@ -262,6 +263,7 @@ export const memosApi = {
     list(query: MemoAttachmentQuery = {}, signal?: AbortSignal): Promise<MemoAttachmentPage> {      return memoRequest<MemoAttachmentPage>(
         `/attachments${queryString({
           scope: query.scope,
+          spaceId: query.spaceId,
           memoId: query.memoId,
           cursor: query.cursor,
           limit: query.limit,

@@ -124,6 +124,7 @@ export interface MemoAttachmentDeleteResult {
 
 export interface MemoAttachmentListOptions {
   scope: MemoAttachmentScope
+  spaceId: string | null
   memoId: string | null
   offset: number
   limit: number
@@ -312,6 +313,10 @@ export async function listMemoAttachments(
     clauses.push(`a.mime NOT LIKE 'image/%' AND a.mime NOT LIKE 'video/%' AND a.mime NOT LIKE 'audio/%'`)
   } else if (options.scope === 'unused') {
     clauses.push('a.memo_id IS NULL')
+  }
+  if (options.spaceId) {
+    values.push(options.spaceId)
+    clauses.push(`m.space_id = ?${values.length}`)
   }
   if (options.memoId) {
     values.push(options.memoId)

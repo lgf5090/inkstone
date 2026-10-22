@@ -25,7 +25,6 @@ export const EN_US_MEMOS_MEDIA = {
     "memos.attachments.library.scope_option_one": "{label}, {count} attachment",
     "memos.attachments.library.usage": "{count} attachments · {size}",
     "memos.attachments.library.usage_one": "{count} attachment · {size}",
-    "memos.attachments.library.space_notice": "This library covers every attachment in your account, including files from other spaces.",
     "memos.attachments.library.empty_all_title": "No attachments yet",
     "memos.attachments.library.empty_all_description": "Files you attach to memos appear here.",
     "memos.attachments.library.empty_media_title": "No photos or videos",

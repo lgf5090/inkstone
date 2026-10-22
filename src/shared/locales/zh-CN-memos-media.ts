@@ -25,7 +25,6 @@ export const ZH_CN_MEMOS_MEDIA = {
     "memos.attachments.library.scope_option_one": "{label}，{count} 个附件",
     "memos.attachments.library.usage": "{count} 个附件 · {size}",
     "memos.attachments.library.usage_one": "{count} 个附件 · {size}",
-    "memos.attachments.library.space_notice": "此附件库覆盖账号内的全部附件，包括其他空间中的文件。",
     "memos.attachments.library.empty_all_title": "还没有附件",
     "memos.attachments.library.empty_all_description": "附加到 memo 的文件会出现在这里。",
     "memos.attachments.library.empty_media_title": "没有照片或视频",
