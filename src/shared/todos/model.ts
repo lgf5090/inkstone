@@ -108,6 +108,17 @@ export const COMPLETED_PAGE_SIZE = 200
 export const TRASH_PAGE_SIZE = 50
 
 /**
+ * How long a deleted task stays restorable.
+ *
+ * Thirty days is long enough to notice a mistake a week later and short enough that the trash does not
+ * become a second task list. The retention sweep is the only place that acts on it, but the number is
+ * kept here rather than beside that sweep because the surfaces that promise the window — the trash
+ * page and its copy — have to name the same one: a screen that advertises longer than the sweep keeps
+ * promises a restore that will not come.
+ */
+export const TODO_TRASH_RETENTION_DAYS = 30
+
+/**
  * The most tasks one batch may name.
  *
  * A batch is a gesture over a selection a person made on screen, and a hundred rows is more than one

@@ -63,6 +63,8 @@ import {
   MAX_TAG_NAME_CHARS,
   MAX_LIST_NAME_CHARS,
   UPCOMING_DAYS,
+  TODO_TRASH_RETENTION_DAYS,
+  TRASH_PAGE_SIZE,
   defaultColorFor,
   nextOccurrence,
   normalizeReminderTimes,
@@ -481,15 +483,6 @@ export function taskVisible(alias = 'todos_tasks'): string {
 
 /** The same rule for a statement that names the table rather than aliasing it. */
 export const TASK_VISIBLE_PREDICATE = taskVisible()
-
-/**
- * How long a deleted task stays restorable.
- *
- * Thirty days is long enough to notice a mistake a week later and short enough that the trash does not
- * become a second task list. The sweep reads this one constant, and the surfaces that speak about the
- * window (the trash page, its copy) name the same number rather than their own.
- */
-export const TODO_TRASH_RETENTION_DAYS = 30
 
 /**
  * How many expired rows one cron fire purges.
@@ -4747,7 +4740,9 @@ export class AssistantStore {
       this.userId,
     )
     const q = new Query(this.userId).raw(TASK_TRASHED_PREDICATE)
-    const limit = Math.min(Math.max(1, Math.trunc(options.limit ?? MAX_TASKS_PER_QUERY)), MAX_TASKS_PER_QUERY)
+    // The page size is the shared one the trash screen asks for, not the listing's ceiling: a read
+    // nobody narrowed would otherwise hand back a whole shelf of rows no screen can show.
+    const limit = Math.min(Math.max(1, Math.trunc(options.limit ?? TRASH_PAGE_SIZE)), MAX_TASKS_PER_QUERY)
     const offset = Math.max(0, Math.trunc(options.offset ?? 0))
     const rows = await this.rows<TaskRow>(
       `SELECT *, ${TASK_REMINDER_TIMES} FROM todos_tasks WHERE ${q.where}

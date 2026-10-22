@@ -23,12 +23,17 @@ import {
   AssistantStore,
   purgeExpiredTodoTrash,
   TODO_TRASH_PURGE_LIMIT,
-  TODO_TRASH_RETENTION_DAYS,
 } from '../src/worker/assistant/store'
 import { sweepTaskReminders } from '../src/worker/assistant/tasks'
 import { exportAssistant } from '../src/worker/assistant/backup'
 import { loadFeedTasks } from '../src/worker/todos/feeds'
-import type { TaskCounts, TodoStats, TodoTask } from '../src/shared/todos/model'
+import {
+  TODO_TRASH_RETENTION_DAYS,
+  TRASH_PAGE_SIZE,
+  type TaskCounts,
+  type TodoStats,
+  type TodoTask,
+} from '../src/shared/todos/model'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
 
@@ -128,6 +133,11 @@ function countIn(table: string, taskId: string): number {
   return Number((sqlite.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE task_id = ?1`).get(taskId) as { n: number }).n)
 }
 
+/** A valid 26-character id for a row seeded straight into the table rather than created by the app. */
+function trashedId(value: number): string {
+  return String(value + 1).padStart(26, '0')
+}
+
 beforeEach(() => {
   mocks.userId = USER
   sqlite = new DatabaseSync(':memory:')
@@ -194,6 +204,25 @@ describe('a soft-deleted task', () => {
     const rest = await trashPage('?limit=2&offset=2')
     expect(rest.tasks.map((task) => task.id)).toEqual([first.id])
     expect(rest.tasks[0]?.deletedAt).toBeGreaterThan(0)
+  })
+
+  it('answers a page that names no limit with the trash’s own page size', async () => {
+    // One page size for one screen: the shared model names it, the trash page asks for it, and a
+    // read that defaulted to the listing's ceiling instead would be a third number to keep in step.
+    // The rows are seeded straight into the table because the account's write budget would refuse a
+    // page of them; the read being pinned is still the route's own door over that table.
+    for (let index = 0; index < TRASH_PAGE_SIZE + 1; index++) {
+      sqlite.prepare(
+        `INSERT INTO todos_tasks (user_id, id, title, created_at, updated_at, deleted_at)
+         VALUES (?, ?, ?, 1, 1, ?)`,
+      ).run(USER, trashedId(index), `Row ${index}`, 1_000 + index)
+    }
+
+    const page = await trashPage()
+    expect(page.total).toBe(TRASH_PAGE_SIZE + 1)
+    expect(page.tasks).toHaveLength(TRASH_PAGE_SIZE)
+    // The newest deletion still leads the page, so the default changed the size and not the order.
+    expect(page.tasks[0]?.title).toBe(`Row ${TRASH_PAGE_SIZE}`)
   })
 })
 
