@@ -11,15 +11,17 @@
  * list above it. Each surface therefore names its own label per nav, and one that only earns a badge on
  * the phone (`plan`, whose count is today's work) says so — a badge on every sidebar row would be three
  * numbers the reader did not ask for. Since "My Day" arrived, the sidebar's today badge is the one
- * number for both "picked for today" and "due by today", and the plan row beside it carries none.
+ * number for both "picked for today" and "due by today", and the plan row beside it carries none: its
+ * page holds the whole open set, not one day's. The upcoming row does carry one, because the server
+ * counts that horizon through the same filter the row opens.
  */
 import type { ComponentType, ReactNode } from 'react'
-import { CalendarDays, CalendarRange, ChartNoAxesColumn, CheckCircle2, LayoutGrid, Star, Sun } from 'lucide-react'
+import { CalendarClock, CalendarDays, CalendarRange, ChartNoAxesColumn, CheckCircle2, LayoutGrid, Star, Sun } from 'lucide-react'
 import type { TaskCounts } from '@shared/todos/model'
 import type { MessageKey } from '../../../lib/i18n'
 import { useTodos, type TodoView } from '../store'
 import { BoardView } from '../BoardView'
-import { CompletedView, ListTaskView, PlanView, StarredView } from '../TaskViews'
+import { CompletedView, ListTaskView, PlanView, StarredView, UpcomingView } from '../TaskViews'
 import { TodayView } from '../TodayView'
 import { CalendarView } from '../CalendarView'
 import { ListsView } from '../ListsView'
@@ -57,7 +59,7 @@ export const TODO_SURFACES: readonly TodoSurface[] = [
   {
     view: 'board',
     icon: LayoutGrid,
-    sidebar: { order: 5, labelKey: 'todo.smart.all', badge: (counts) => counts?.all ?? 0 },
+    sidebar: { order: 6, labelKey: 'todo.smart.all', badge: (counts) => counts?.all ?? 0 },
     phone: { order: 1, labelKey: 'todo.view.board' },
     render: ({ onOpenList }) => <BoardView onOpenList={onOpenList} />,
   },
@@ -77,25 +79,34 @@ export const TODO_SURFACES: readonly TodoSurface[] = [
     render: () => <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto"><PlanView /></div>,
   },
   {
+    view: 'upcoming',
+    icon: CalendarClock,
+    // The horizon between today and the rest: the server counts it through the same filter the page
+    // reads, so the number on the row is the number behind it. A phone leaves it out — four tabs are
+    // what a thumb can reach, and the plan row above divides the same week among its own headings.
+    sidebar: { order: 4, labelKey: 'todo.view.upcoming', badge: (counts) => counts?.upcoming ?? 0 },
+    render: () => <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto"><UpcomingView /></div>,
+  },
+  {
     view: 'calendar',
     icon: CalendarRange,
     // A calendar is read on a wide window; a phone reaches it from the header instead of a fifth tab.
-    sidebar: { order: 4, labelKey: 'todo.view.calendar' },
+    sidebar: { order: 5, labelKey: 'todo.view.calendar' },
     render: () => <CalendarView />,
   },
   {
     view: 'completed',
     icon: CheckCircle2,
-    sidebar: { order: 6, labelKey: 'todo.smart.completed', badge: (counts) => counts?.completed ?? 0 },
+    sidebar: { order: 7, labelKey: 'todo.smart.completed', badge: (counts) => counts?.completed ?? 0 },
     phone: { order: 4, labelKey: 'todo.view.completed' },
     render: () => <CompletedView />,
   },
   {
     view: 'stats',
     icon: ChartNoAxesColumn,
-    // A wide window has room for a fifth row. A phone's bottom bar does not: four tabs are what a
-    // thumb can reach, so the phone reaches this screen from the header instead.
-    sidebar: { order: 7, labelKey: 'todo.view.stats' },
+    // A wide window has room for a row beyond the phone's four tabs. A phone's bottom bar does not:
+    // four tabs are what a thumb can reach, so the phone reaches this screen from the header instead.
+    sidebar: { order: 8, labelKey: 'todo.view.stats' },
     render: () => <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto"><StatsView /></div>,
   },
 ]

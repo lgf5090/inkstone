@@ -54,7 +54,7 @@ import {
 } from './todo-address'
 import { daysToRange } from './due-range'
 
-export type TodoView = 'board' | 'today' | 'plan' | 'calendar' | 'starred' | 'completed' | 'list' | 'tag' | 'stats'
+export type TodoView = 'board' | 'today' | 'plan' | 'upcoming' | 'calendar' | 'starred' | 'completed' | 'list' | 'tag' | 'stats'
 
 /** The list shape this feature reads, re-exported so its screens do not reach the API module. */
 export type { TaskListEntry } from '../../lib/api'
@@ -470,11 +470,18 @@ const PAGE_SIZE = 100
  */
 const SEARCH_DEBOUNCE_MS = 250
 
-/** The server-side view each aggregate screen reads. A list or a tag names its own collection instead. */
-const SERVER_VIEWS: Record<'board' | 'today' | 'plan' | 'starred', string> = {
+/**
+ * The server-side view each aggregate screen reads. A list or a tag names its own collection instead.
+ *
+ * The plan screen reads the whole open set because that is the set its five headings divide: scoped
+ * to today's shelf, its upcoming, later and no-date groups are empty by construction rather than by
+ * the reader having none of that work.
+ */
+const SERVER_VIEWS: Record<'board' | 'today' | 'plan' | 'upcoming' | 'starred', string> = {
   board: 'open',
   today: 'today',
-  plan: 'today',
+  plan: 'open',
+  upcoming: 'upcoming',
   starred: 'starred',
 }
 

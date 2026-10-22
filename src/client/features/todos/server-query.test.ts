@@ -173,7 +173,9 @@ describe('what the screen asks the server for', () => {
 
     await act(async () => { useTodos.getState().setView('plan') })
     await settle()
-    expect(lastRequest().view).toBe('today')
+    // The plan page divides its rows by when they are owed, so it asks for the set all five answers
+    // need rather than for today's shelf, which left three headings empty by construction.
+    expect(lastRequest().view).toBe('open')
     await act(async () => { useTodos.getState().setView('starred') })
     await settle()
     expect(lastRequest().view).toBe('starred')

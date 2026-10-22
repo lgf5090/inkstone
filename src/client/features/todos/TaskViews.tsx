@@ -1,5 +1,5 @@
 /**
- * The four reading views: plan, starred, completed, and one list or tag.
+ * The reading views: plan, upcoming, starred, completed, and one list or tag.
  *
  * They share one grouped list because they differ only in how the page is split and what the group
  * headings say. Each view owns its own split — the plan groups by when, completed by the day it was
@@ -130,9 +130,9 @@ const PLAN_LABELS: Record<PlanGroupKey, MessageKey> = {
  *
  * The same gesture "My Day" carries in its header, at the top of the plan because an overdue row is
  * the first thing this page has to answer for. The count is the server's account-wide overdue
- * number and the rows are read by the same view it counts, so the banner and the page behind it
- * cannot disagree. A batch names at most `MAX_BATCH_TASKS`, so a longer shelf is sent in chunks and
- * both halves of every answer are summed. Only `due_at` moves: the day a row was picked for is the
+ * number and the press reads that same `overdue` view, so the banner and the rows it moves cannot
+ * disagree. A batch names at most `MAX_BATCH_TASKS`, so a longer shelf is sent in chunks and both
+ * halves of every answer are summed. Only `due_at` moves: the day a row was picked for is the
  * reader's own plan and stays where it was.
  */
 function OverdueShift() {
@@ -217,6 +217,25 @@ export function StarredView() {
       groups={tasks.length ? [{ key: 'starred', tasks }] : []}
       label={() => t('todo.smart.starred')}
       empty={{ title: t('todo.empty.starred'), description: t('todo.empty.starred_hint') }}
+    />
+  )
+}
+
+/**
+ * The next week, as one shelf.
+ *
+ * The server already scopes it — due after the end of today, within `UPCOMING_DAYS` — so nothing here
+ * narrows the page again: a view that filtered its own answer would show fewer rows than the number its
+ * nav row carries. The plan page divides the whole open set by when; this one answers only the question
+ * "what is coming".
+ */
+export function UpcomingView() {
+  const tasks = useTodos((state) => state.tasks)
+  return (
+    <GroupedTaskList
+      groups={tasks.length ? [{ key: 'upcoming', tasks }] : []}
+      label={() => t('todo.group.upcoming')}
+      empty={{ title: t('todo.empty.upcoming'), description: t('todo.empty.upcoming_hint') }}
     />
   )
 }
@@ -351,6 +370,7 @@ export function useViewTitle(): string {
   if (view === 'tag') return tags.find((tag) => tag.id === tagId)?.name ?? t('todo.view.tag')
   if (view === 'today') return t('todo.view.today')
   if (view === 'plan') return t('todo.view.plan')
+  if (view === 'upcoming') return t('todo.view.upcoming')
   if (view === 'calendar') return t('todo.view.calendar')
   if (view === 'starred') return t('todo.view.starred')
   if (view === 'completed') return t('todo.view.completed')
