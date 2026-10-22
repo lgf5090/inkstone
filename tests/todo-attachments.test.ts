@@ -6,7 +6,10 @@ import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings, Env } from '../src/worker/env'
 import { todoAttachmentRoutes } from '../src/worker/routes/todo-attachments'
+import { attachmentHubRoutes } from '../src/worker/routes/attachments'
 import { filesRoutes } from '../src/worker/routes/files'
+import { collectAttachmentReferences } from '../src/worker/attachments/references'
+import { AssistantStore } from '../src/worker/assistant/store'
 import { LIMITS } from '../src/shared/constants'
 import type { Attachment } from '../src/shared/types'
 import { makeD1 } from './doubles/d1-sqlite'
@@ -52,6 +55,9 @@ function app(): Hono<AppBindings> {
   })
   instance.route('/api/files', filesRoutes)
   instance.route('/api/todos', todoAttachmentRoutes)
+  // The hub's sweep is mounted as well: it is the door that reads `todos_attachments` when it asks
+  // whether a task's file is still in use, so it is where a leaked link stops a file from going.
+  instance.route('/api/attachments', attachmentHubRoutes)
   return instance
 }
 
@@ -234,5 +240,63 @@ describe('a task attachment', () => {
     const uploadToTrash = await upload(TRASHED_TASK, new File(['x'], 'x.txt', { type: 'text/plain' }))
     expect(uploadToTrash.status).toBe(404)
     expect(count('SELECT COUNT(*) AS n FROM attachments WHERE user_id = ?', USER)).toBe(1)
+  })
+})
+
+describe('purging a task for good', () => {
+  /**
+   * The hub's sweep for task files.
+   *
+   * This is the door that decides "in use" by reading `todos_attachments`, so it is the door a leaked
+   * link jams: a task whose row is gone but whose link row is not keeps its file alive forever.
+   */
+  async function pruneTaskFiles(): Promise<{ removed: number; freedBytes: number }> {
+    mocks.userId = USER
+    const response = await app().request('/api/attachments/todos/files/prune', { method: 'POST' }, env)
+    expect(response.status).toBe(200)
+    return await json<{ removed: number; freedBytes: number }>(response)
+  }
+
+  /** The trash's own door, then its purge: the two writes that put a task beyond the sweep's reach. */
+  async function trashAndPurge(taskId: string): Promise<void> {
+    sqlite.prepare('UPDATE todos_tasks SET deleted_at = 5 WHERE user_id = ? AND id = ?').run(USER, taskId)
+    expect(await new AssistantStore(env.DB as D1Database, USER, env).purgeTask(taskId)).toBe(true)
+  }
+
+  it('takes its attachment link with it, so the next sweep reclaims the file', async () => {
+    const uploaded = await upload(TASK, new File(['orphan'], 'orphan.txt', { type: 'text/plain' }))
+    const { attachment } = await json<{ attachment: Attachment }>(uploaded)
+    const key = `todos/${USER}/${attachment.id}.txt`
+    expect(bucket.objects.has(key)).toBe(true)
+
+    await trashAndPurge(TASK)
+
+    // ① the link row goes with the task.
+    expect(linkCount(USER, TASK)).toBe(0)
+    // ② the reference scan the sweep asks no longer names the file.
+    const references = await collectAttachmentReferences(env.DB as D1Database, USER, undefined, 'todos')
+    expect(references.has(attachment.id)).toBe(false)
+    // ③ and the sweep takes the file for good — agreeing it is spare is not the same as freeing it.
+    const { removed, freedBytes } = await pruneTaskFiles()
+    expect(removed).toBe(1)
+    expect(freedBytes).toBeGreaterThan(0)
+    expect(count('SELECT COUNT(*) AS n FROM attachments WHERE id = ?', attachment.id)).toBe(0)
+    expect(bucket.objects.has(key)).toBe(false)
+  })
+
+  it('leaves another live task’s link to the same file, and the file, alone', async () => {
+    const uploaded = await upload(TASK, new File(['shared'], 'shared.txt', { type: 'text/plain' }))
+    const { attachment } = await json<{ attachment: Attachment }>(uploaded)
+    sqlite.prepare(
+      'INSERT INTO todos_attachments (user_id, task_id, attachment_id, created_at) VALUES (?, ?, ?, 1)',
+    ).run(USER, SECOND_TASK, attachment.id)
+
+    await trashAndPurge(TASK)
+
+    expect(linkCount(USER, TASK)).toBe(0)
+    expect(linkCount(USER, SECOND_TASK)).toBe(1)
+    expect(count('SELECT COUNT(*) AS n FROM attachments WHERE id = ?', attachment.id)).toBe(1)
+    expect((await pruneTaskFiles()).removed).toBe(0)
+    expect(bucket.objects.has(`todos/${USER}/${attachment.id}.txt`)).toBe(true)
   })
 })

@@ -4761,7 +4761,7 @@ export class AssistantStore {
    * Removes one trashed task for good.
    *
    * Only a stamped row qualifies: the endpoint is the trash's own door, and a live task sent here is a
-   * 404 rather than a delete that bypasses the trash. The five statements run as one batch, so a
+   * 404 rather than a delete that bypasses the trash. The six statements run as one batch, so a
    * task cannot lose its steps while keeping its row.
    */
   async purgeTask(id: string): Promise<boolean> {
@@ -7144,15 +7144,15 @@ export async function purgeExpiredEphemeralConversations(
 }
 
 /**
- * The five statements that remove one account's trashed tasks for good.
+ * The six statements that remove one account's trashed tasks for good.
  *
  * Shared by the endpoint and the retention sweep so the trash is emptied one way: steps, tag links,
- * reminders and the task's history go with their task, and the task delete repeats the trash
- * predicate so a live row can never be caught by a stale id. The `IN` list is built here from ids
- * the account already owns, one place after a scoped read — and cut into chunks, because a sweep
- * page (`TODO_TRASH_PURGE_LIMIT`) names more ids than one statement may bind. The history goes and
- * the trash's soft delete does not: a trashed task still happened, and only a purge says it did
- * not.
+ * reminders, attachment links and the task's history go with their task, and the deletes that could
+ * catch a row a stale id names repeat the trash predicate so a live task can never be one of them.
+ * The `IN` list is built here from ids the account already owns, one place after a scoped read — and
+ * cut into chunks, because a sweep page (`TODO_TRASH_PURGE_LIMIT`) names more ids than one statement
+ * may bind. The history goes and the trash's soft delete does not: a trashed task still happened, and
+ * only a purge says it did not.
  */
 function purgeTaskStatements(db: D1Database, userId: string, ids: readonly string[]): D1PreparedStatement[] {
   if (!ids.length) return []
@@ -7164,6 +7164,18 @@ function purgeTaskStatements(db: D1Database, userId: string, ids: readonly strin
       db.prepare(`DELETE FROM todos_steps WHERE user_id = ?1 AND task_id IN (${marks})`).bind(...binds),
       db.prepare(`DELETE FROM todos_tag_links WHERE user_id = ?1 AND task_id IN (${marks})`).bind(...binds),
       db.prepare(`DELETE FROM todos_reminders WHERE user_id = ?1 AND task_id IN (${marks})`).bind(...binds),
+      // A link row is the one child whose survival costs something outside this account's rows: the
+      // sweep asks `todos_attachments` whether a file is still in use, so a link left behind by a
+      // purge pins that file's bytes forever — the task it names no longer exists to unlink it. It
+      // asks the trash the same question the history and the task delete do, because a link torn off
+      // a task that restored itself in the race would be the same mistake in the other direction:
+      // the next sweep would delete a file a live task still shows.
+      db.prepare(
+        `DELETE FROM todos_attachments
+          WHERE user_id = ?1 AND task_id IN (
+            SELECT id FROM todos_tasks WHERE user_id = ?1 AND id IN (${marks}) AND ${TASK_TRASHED_PREDICATE}
+          )`,
+      ).bind(...binds),
       // The history asks the trash the same question the task delete does, and for the same reason:
       // a stale id must not be able to catch a live row. Without the predicate, a restore that won
       // the race would keep its task while the batch erased the past the task came back with.
@@ -7203,7 +7215,7 @@ export async function purgeExpiredTodoTrash(
       ORDER BY deleted_at ASC, id ASC LIMIT ?2`,
   ).bind(cutoff, capped).all<{ user_id: string, id: string }>()
 
-  // One account is one batch of five statements, however many of its rows the page holds.
+  // One account is one batch of six statements, however many of its rows the page holds.
   const byUser = new Map<string, string[]>()
   for (const row of results ?? []) {
     const bucket = byUser.get(row.user_id) ?? []
