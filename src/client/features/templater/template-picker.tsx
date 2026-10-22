@@ -108,7 +108,7 @@ export function TemplatePicker({ mode, onClose }: { mode: TemplaterPickerMode; o
       ...template.tags,
     ].filter(Boolean).join(' ')
     return templates.filter((template) => queryKeeps(compiled, subject(template))).sort(compareTemplates)
-  }, [categoryNames, compiled, templates])
+  }, [categoryNames, compiled, templates, pinyinVersion])
 
   useEffect(() => {
     setCursor((current) => (rows.length === 0 ? 0 : Math.min(current, rows.length - 1)))
