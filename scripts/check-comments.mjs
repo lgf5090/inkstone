@@ -187,6 +187,9 @@ const allowed = new Map([
     "// One card, two answers to the same question — \"where is my update?\". A build that did finish installing",
     "// is the better answer to a jammed channel, so when both flags are somehow up the ready card owns it.",
     "/**\n * The attachment hub, hosted above the container switch for the same reason the picture viewer is.\n *\n * `AppShell` is the notebook's own container, so a hub mounted there would simply not exist while\n * the reader sits on memos, chat or the task list — the button in those containers would set state\n * with nothing left to render it. The scope is the slot's whole value: one host, four applications,\n * and the `key` is what keeps one application's filters and selection from being read as the next\n * one's when the hub is opened again somewhere else.\n */",
+    "// Only the notebook has somewhere to put a link, and only while one of its notes is open:",
+    "// offering the action with no editor behind it would write a request that lands in whichever",
+    "// note the reader opens next.",
   ]],
   ["src/client/components/DrawerSearchField.tsx", [
     "/** The same text `value` holds, compiled: the box says in its own words what a refused expression cost. */",
@@ -1034,6 +1037,13 @@ const allowed = new Map([
   ["src/client/features/attachment-hub/attachment-hub.tsx", [
     "/** Lets the host refresh its own attachment lists once the hub is put away. */",
     "/**\n * The hub is mounted by the app that wants it and keyed on its scope: folders, tags and the modal's\n * view state are all per-scope, so a remount is what clears one application's filters from the next.\n */",
+  ]],
+  ["src/client/features/attachment-hub/attachment-insert.ts", [
+    "/**\n * The Markdown the attachment centre writes into a note when the reader picks a file.\n *\n * Its own module because the host that offers the action lives above the container switch and must\n * not drag the whole centre — and its tree, filters and QR renderer — into the boot chunk just to\n * know how to spell one link.\n */",
+    "/** A link label or alt text is Markdown, so its own brackets have to survive as text. */",
+    "// The filename becomes the label rather than an empty `![]()`: a note has to stay readable in a",
+    "// plain text editor, and an image with no alt text is a mystery to anyone reading the source.",
+    "// Non-images get their own line so a link cannot end up glued to the end of a sentence.",
   ]],
   ["src/client/features/attachment-hub/attachment-item-common.tsx", [
     "/** The two views are the same set of commands over the same rows, so they share one props shape. */",
@@ -20120,6 +20130,7 @@ const allowed = new Map([
     "// only thing a reader loses then is the circle growing from the button they pressed.",
     "/**\n   * Whether the assistant's panel is docked beside the notebook.\n   *\n   * The notebook is where the reader writes, so asking about what they are writing should not cost them\n   * the page: the panel is a column of the notebook's own frame rather than a trip to the chat tab, and\n   * the note they have open rides along as context exactly as it does there.\n   */",
     "/**\n   * Which application's attachment hub is open, or null while none is.\n   *\n   * A scope rather than a boolean because one host serves four applications and has to know which\n   * one to ask. Ephemeral on purpose: a hub reopened after a reload would be showing a listing\n   * whose counts have already moved.\n   */",
+    "/**\n   * Markdown the attachment centre asked the open note to swallow.\n   *\n   * Carries the note it was meant for, and is applied only by the workspace holding that note: the\n   * centre is hosted above the container switch, so without the id a file inserted while reading\n   * one note could land in whichever note happens to be open when the request is next consumed.\n   */",
   ]],
   ["src/client/store/update.ts", [
     "// Recording a dismissal the reader already got, and the read above answers a refused storage with null,",

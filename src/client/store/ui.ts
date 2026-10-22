@@ -170,6 +170,16 @@ interface UiState {
    * clears it, which keeps the one-transaction undo contract in the editor.
    */
   templateInsert: TemplateInsert | null
+  /**
+   * Markdown the attachment centre asked the open note to swallow.
+   *
+   * Carries the note it was meant for, and is applied only by the workspace holding that note: the
+   * centre is hosted above the container switch, so without the id a file inserted while reading
+   * one note could land in whichever note happens to be open when the request is next consumed.
+   */
+  noteInsert: { noteId: string; text: string } | null
+  requestNoteInsert: (insert: { noteId: string; text: string }) => void
+  clearNoteInsert: () => void
   requestTemplateInsert: (insert: TemplateInsert) => void
   clearTemplateInsert: () => void
   toast: (input: ToastInput) => string
@@ -439,6 +449,7 @@ export const useUi = create<UiState>((set, get) => ({
   lightbox: null,
   attachmentHub: null as AttachmentHubScope | null,
   templateInsert: null as TemplateInsert | null,
+  noteInsert: null as { noteId: string; text: string } | null,
   mobilePane: 'list',
   draggerDragMode: false,
   searchList: false,
@@ -655,6 +666,8 @@ export const useUi = create<UiState>((set, get) => ({
 
   requestTemplateInsert: (templateInsert) => set({ templateInsert }),
   clearTemplateInsert: () => set({ templateInsert: null }),
+  requestNoteInsert: (noteInsert) => set({ noteInsert }),
+  clearNoteInsert: () => set({ noteInsert: null }),
 
   toast: (input) => {
     const id = `t${++toastSeq}`

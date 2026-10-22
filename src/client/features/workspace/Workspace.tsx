@@ -3,7 +3,7 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import type { EditorView } from '@codemirror/view';
 import { ArrowLeft, Columns2, Download, Eye, FileCode, FileDown, FileText, FolderClosed, Hash, History, Link as LinkIcon, ListTree, MoreHorizontal, PanelRightClose, Paperclip, Pencil, Plus, Presentation, Share2, Sparkles, Star, Waypoints, X, } from 'lucide-react';
 import { cn } from '../../lib/cn';
-import { insertRenderedTemplate } from '../../editor/commands';
+import { insertRenderedTemplate, insertText } from '../../editor/commands';
 import { api } from '../../lib/api';
 import { readingMinutes } from '@shared/markdown-utils';
 import { LIMITS } from '@shared/constants';
@@ -359,6 +359,15 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
         view.focus();
         clearTemplateInsert();
     }, [templateInsert, view, note?.id, clearTemplateInsert]);
+    const noteInsert = useUi((state) => state.noteInsert);
+    const clearNoteInsert = useUi((state) => state.clearNoteInsert);
+    useEffect(() => {
+        if (!noteInsert || !view || noteInsert.noteId !== note?.id)
+            return;
+        insertText(noteInsert.text)(view);
+        view.focus();
+        clearNoteInsert();
+    }, [noteInsert, view, note?.id, clearNoteInsert]);
     const invalidateSyncAnchors = useSyncScroll(view, previewScrollerRef, previewSettings.syncScroll && showSplit);
     // Headings arrive in document order, so the cursor's heading is the last one at or above it.
     const outlineCursorActive = useMemo(() => {

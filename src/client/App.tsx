@@ -15,6 +15,8 @@ import { initializePwa, requestOfflineWarmup, usePwa } from './store/pwa'
 import { usePresentation } from './store/presentation'
 import { useSession, watchSystemTheme } from './store/session'
 import { useUi } from './store/ui'
+import { attachmentInsertMarkdown } from './features/attachment-hub/attachment-insert'
+import type { HubAttachmentWithUsage } from '@shared/attachment-hub'
 
 const AppTabHost = lazy(() =>
   import('./features/shell/AppTabHost').then((module) => ({ default: module.AppTabHost })),
@@ -353,10 +355,21 @@ function LightboxLayer() {
 function AttachmentHubLayer() {
   const scope = useUi((s) => s.attachmentHub)
   const setAttachmentHub = useUi((s) => s.setAttachmentHub)
+  const activeNoteId = useUi((s) => s.activeNoteId)
+  const requestNoteInsert = useUi((s) => s.requestNoteInsert)
   if (!scope) return null
+  // Only the notebook has somewhere to put a link, and only while one of its notes is open:
+  // offering the action with no editor behind it would write a request that lands in whichever
+  // note the reader opens next.
+  const onInsertFile = scope === 'notes' && activeNoteId
+    ? (file: HubAttachmentWithUsage) => {
+        requestNoteInsert({ noteId: activeNoteId, text: attachmentInsertMarkdown(file) })
+        setAttachmentHub(null)
+      }
+    : undefined
   return (
     <Suspense fallback={null}>
-      <AttachmentHub key={scope} open scope={scope} onClose={() => setAttachmentHub(null)} />
+      <AttachmentHub key={scope} open scope={scope} onClose={() => setAttachmentHub(null)} onInsertFile={onInsertFile} />
     </Suspense>
   )
 }
