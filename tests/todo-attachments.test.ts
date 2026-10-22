@@ -139,7 +139,7 @@ describe('a task attachment', () => {
     })
     expect(linkCount(USER, TASK)).toBe(1)
     expect(count('SELECT COUNT(*) AS n FROM attachments WHERE id = ? AND user_id = ?', attachment.id, USER)).toBe(1)
-    expect(bucket.objects.has(`${USER}/${attachment.id}.txt`)).toBe(true)
+    expect(bucket.objects.has(`todos/${USER}/${attachment.id}.txt`)).toBe(true)
 
     const listed = await list(TASK)
     expect(listed.status).toBe(200)
@@ -153,7 +153,7 @@ describe('a task attachment', () => {
     expect(response.status).toBe(201)
     const { attachment } = await json<{ attachment: Attachment }>(response)
     expect(attachment.mime).toBe('application/octet-stream')
-    expect(bucket.objects.has(`${USER}/${attachment.id}.html`)).toBe(true)
+    expect(bucket.objects.has(`todos/${USER}/${attachment.id}.html`)).toBe(true)
   })
 
   it('refuses a form without a file field with the existing upload error', async () => {

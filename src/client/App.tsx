@@ -15,6 +15,8 @@ import { initializePwa, requestOfflineWarmup, usePwa } from './store/pwa'
 import { usePresentation } from './store/presentation'
 import { useSession, watchSystemTheme } from './store/session'
 import { useUi } from './store/ui'
+import { attachmentInsertMarkdown } from './features/attachment-hub/attachment-insert'
+import type { HubAttachmentWithUsage } from '@shared/attachment-hub'
 
 const AppTabHost = lazy(() =>
   import('./features/shell/AppTabHost').then((module) => ({ default: module.AppTabHost })),
@@ -42,6 +44,9 @@ const LintPreviewHost = lazy(() =>
 )
 const Lightbox = lazy(() =>
   import('./features/preview/Lightbox').then((module) => ({ default: module.Lightbox })),
+)
+const AttachmentHub = lazy(() =>
+  import('./features/attachment-hub').then((module) => ({ default: module.AttachmentHub })),
 )
 const TemplateSlotProgress = lazy(() =>
   import('./features/chat/template-progress').then((module) => ({ default: module.TemplateSlotProgress })),
@@ -207,6 +212,7 @@ export function App() {
           out of the boot chunk for everyone who is not presenting. */}
       {status === 'authed' && <ShowOverlay />}
       {status === 'authed' && <LightboxLayer />}
+      {status === 'authed' && <AttachmentHubLayer />}
       {status === 'authed' && <SlotFillLayer />}
       {status === 'authed' && <DecorationLayer />}
       <Toaster />
@@ -333,6 +339,37 @@ function LightboxLayer() {
   return (
     <Suspense fallback={null}>
       <Lightbox />
+    </Suspense>
+  )
+}
+
+/**
+ * The attachment hub, hosted above the container switch for the same reason the picture viewer is.
+ *
+ * `AppShell` is the notebook's own container, so a hub mounted there would simply not exist while
+ * the reader sits on memos, chat or the task list — the button in those containers would set state
+ * with nothing left to render it. The scope is the slot's whole value: one host, four applications,
+ * and the `key` is what keeps one application's filters and selection from being read as the next
+ * one's when the hub is opened again somewhere else.
+ */
+function AttachmentHubLayer() {
+  const scope = useUi((s) => s.attachmentHub)
+  const setAttachmentHub = useUi((s) => s.setAttachmentHub)
+  const activeNoteId = useUi((s) => s.activeNoteId)
+  const requestNoteInsert = useUi((s) => s.requestNoteInsert)
+  if (!scope) return null
+  // Only the notebook has somewhere to put a link, and only while one of its notes is open:
+  // offering the action with no editor behind it would write a request that lands in whichever
+  // note the reader opens next.
+  const onInsertFile = scope === 'notes' && activeNoteId
+    ? (file: HubAttachmentWithUsage) => {
+        requestNoteInsert({ noteId: activeNoteId, text: attachmentInsertMarkdown(file) })
+        setAttachmentHub(null)
+      }
+    : undefined
+  return (
+    <Suspense fallback={null}>
+      <AttachmentHub key={scope} open scope={scope} onClose={() => setAttachmentHub(null)} onInsertFile={onInsertFile} />
     </Suspense>
   )
 }

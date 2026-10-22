@@ -2400,6 +2400,11 @@ ${current}` : seed))
             <IconButton label={t('assistant.attach.add_file')} size="sm" onClick={() => fileRef.current?.click()} className="size-7 rounded-[var(--r-md)]">
               <Paperclip size={14} />
             </IconButton>
+            {/* A different icon from the clip beside it on purpose: the clip puts a file into this
+                one turn, this one opens everything the chat has ever been sent. */}
+            <IconButton label={t('attachments.manage')} size="sm" onClick={() => useUi.getState().setAttachmentHub('chat')} className="size-7 rounded-[var(--r-md)]">
+              <FolderOpen size={14} />
+            </IconButton>
             <div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-0.5">
               {settings && (
                 <ApprovalMenu

@@ -1,3 +1,4 @@
+import { LIMITS } from '@shared/constants'
 import type { Env } from '../env'
 import type { AttachmentObjectStorage } from './keys'
 
@@ -20,6 +21,19 @@ export function selectAttachmentStorage(env: Env): AttachmentObjectStorage | nul
   if (env.FILES) return 'r2'
   if (env.FILES_KV) return 'kv'
   return null
+}
+
+/**
+ * The account's attachment ceiling for the backend this deployment actually bound.
+ *
+ * One function on purpose: the refusal in `persistAttachmentWithinQuota`, the memos upload guard and
+ * the number printed in the attachment centre all read it, so the figure a reader is shown is the
+ * figure the server enforces and neither can drift ahead of the other.
+ */
+export function attachmentQuotaBytesForEnv(env: Env): number {
+  return selectAttachmentStorage(env) === 'kv'
+    ? LIMITS.attachmentQuotaBytesKv
+    : LIMITS.attachmentQuotaBytes
 }
 
 export function isAttachmentObjectStorage(value: string): value is AttachmentObjectStorage {

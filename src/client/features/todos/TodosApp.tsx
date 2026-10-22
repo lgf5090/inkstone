@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { CalendarRange, ChartNoAxesColumn, Filter, ListChecks, MoreHorizontal, PanelLeft, Plus, Search, Settings2, Sparkles, Sun, X } from 'lucide-react'
+import { CalendarRange, ChartNoAxesColumn, Filter, ListChecks, MoreHorizontal, PanelLeft, Paperclip, Plus, Search, Settings2, Sparkles, Sun, X } from 'lucide-react'
 import type { SavedTodoFilter } from '@shared/types'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
@@ -305,6 +305,9 @@ export function TodosApp() {
                 <Sparkles size={15} />
               </IconButton>
             )}
+            <IconButton label={t('attachments.manage')} size="sm" className="size-7" onClick={() => useUi.getState().setAttachmentHub('todos')}>
+              <Paperclip size={15} />
+            </IconButton>
             <IconButton label={t('todo.action.lists')} size="sm" className="size-7" active={page === 'lists'} onClick={() => setPage(page === 'lists' ? 'main' : 'lists')}>
               <ListChecks size={15} />
             </IconButton>

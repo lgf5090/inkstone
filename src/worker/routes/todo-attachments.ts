@@ -104,6 +104,7 @@ todoAttachmentRoutes.post('/:id/attachments', requireAuth, async (c) => {
   const stored = await persistAttachmentWithinQuota(c.env, {
     id,
     userId,
+    scope: 'todos',
     noteId: null,
     filename: file.name || 'file',
     reportedMime: file.type,

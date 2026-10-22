@@ -1,0 +1,1 @@
+export { AttachmentHubSidebar } from './sidebar'

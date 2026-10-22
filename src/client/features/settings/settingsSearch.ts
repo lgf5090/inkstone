@@ -334,7 +334,6 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'account', titleKey: 'common.exit', termKeys: ['common.log_out', 'sidebar.log_out'] },
 
   { section: 'data', titleKey: 'settings.overview', termKeys: ['settings.total_words', 'settings.version_history'] },
-  { section: 'data', titleKey: 'attachments.manage', detailKey: 'attachments.manage_description' },
   { section: 'data', titleKey: 'settings.export_to_zip', detailKey: 'settings.includes_every_note_folder_tag_and_attachment_for_a_complete_restore_plu' },
   { section: 'data', titleKey: 'settings.export_to_json', detailKey: 'settings.structured_note_data_without_attachment_binaries_download_zip_for_a_comp' },
   { section: 'data', titleKey: 'settings.restore_backup_folder', detailKey: 'settings.restore_backup_folder_description' },

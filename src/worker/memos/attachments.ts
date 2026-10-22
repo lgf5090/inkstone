@@ -1,6 +1,5 @@
 import {
   MEMO_ATTACHMENT_MAX_BYTES,
-  MEMO_ATTACHMENT_QUOTA_BYTES,
   MEMO_ATTACHMENT_SCOPES,
   type MemoAttachmentScope,
 } from '@shared/memos/constants'
@@ -16,6 +15,7 @@ import type {
 import type { Env } from '../env'
 import {
   attachmentCleanupTarget,
+  attachmentQuotaBytesForEnv,
   deleteAttachmentObjects,
   drainAttachmentCleanup,
   memoAttachmentObjectKey,
@@ -214,7 +214,7 @@ export async function saveMemoAttachment(
   const mediaMetadata = input.mediaMetadata ? JSON.stringify(input.mediaMetadata) : null
 
   return withAttachmentQuotaLease(env, input.userId, async (usedBytes) => {
-    if (usedBytes + input.bytes.byteLength > MEMO_ATTACHMENT_QUOTA_BYTES) {
+    if (usedBytes + input.bytes.byteLength > attachmentQuotaBytesForEnv(env)) {
       throw new MemoAttachmentError(
         413,
         'memo_attachment_quota',

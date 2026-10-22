@@ -2,10 +2,8 @@
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import {
-  MEMO_ATTACHMENT_MAX_BYTES,
-  MEMO_ATTACHMENT_QUOTA_BYTES,
-} from '../src/shared/memos/constants'
+import { LIMITS } from '../src/shared/constants'
+import { MEMO_ATTACHMENT_MAX_BYTES } from '../src/shared/memos/constants'
 import { initializeDatabase } from '../src/worker/db/schema'
 import type { AppBindings, Env } from '../src/worker/env'
 import { errorResponse } from '../src/worker/lib/errors'
@@ -167,7 +165,7 @@ function insertAttachmentRow(
     options.memoId ?? null,
     size,
     options.storage ?? 'r2',
-    `memo/${userId}/${attachmentId}.bin`,
+    `memos/${userId}/${attachmentId}.bin`,
   )
 }
 
@@ -194,7 +192,7 @@ describe('memo attachment uploads', () => {
       body.id,
     )!
     expect(row.storage).toBe('r2')
-    expect(row.storage_key).toMatch(new RegExp(`^memo/${ALICE}/[0-9a-z]{26}\\.png$`))
+    expect(row.storage_key).toMatch(new RegExp(`^memos/${ALICE}/[0-9a-z]{26}\\.png$`))
     expect(row.thumbnail_key).toMatch(/-thumb\.jpg$/)
     expect(r2.objects.has(row.storage_key)).toBe(true)
     expect(r2.objects.has(row.thumbnail_key)).toBe(true)
@@ -272,8 +270,8 @@ describe('memo attachment uploads', () => {
     sqlite.prepare(
       `INSERT INTO attachments (id, user_id, note_id, filename, mime, size, sha256, storage, created_at)
        VALUES (?, ?, NULL, 'note.bin', 'application/octet-stream', ?, 'hash', 'r2', 1)`,
-    ).run(id(20), ALICE, Math.floor(MEMO_ATTACHMENT_QUOTA_BYTES * 0.6))
-    insertAttachmentRow(id(21), ALICE, Math.floor(MEMO_ATTACHMENT_QUOTA_BYTES * 0.5))
+    ).run(id(20), ALICE, Math.floor(LIMITS.attachmentQuotaBytes * 0.6))
+    insertAttachmentRow(id(21), ALICE, Math.floor(LIMITS.attachmentQuotaBytes * 0.5))
 
     const rejected = await upload(ALICE, pngBytes())
     expect(rejected.status).toBe(413)
@@ -287,7 +285,7 @@ describe('memo attachment uploads', () => {
     sqlite.prepare(
       `INSERT INTO attachments (id, user_id, note_id, filename, mime, size, sha256, storage, created_at)
        VALUES (?, ?, NULL, 'note.bin', 'application/octet-stream', ?, 'hash', 'r2', 1)`,
-    ).run(id(22), CAROL, Math.floor(MEMO_ATTACHMENT_QUOTA_BYTES * 0.6))
+    ).run(id(22), CAROL, Math.floor(LIMITS.attachmentQuotaBytes * 0.6))
     const accepted = await upload(CAROL, pngBytes())
     expect(accepted.status).toBe(201)
   })
@@ -489,7 +487,7 @@ describe('memo attachment deletion', () => {
       'SELECT COUNT(*) AS count FROM memos_attachments WHERE id = ?',
       body.id,
     )?.count).toBe(0)
-    const key = `memo/${ALICE}/${body.id}.png`
+    const key = `memos/${ALICE}/${body.id}.png`
     expect(r2.objects.has(key)).toBe(false)
   })
 
@@ -551,7 +549,7 @@ describe('memo attachment deletion', () => {
     })
     expect(removed.status).toBe(200)
     expect(await removed.json()).toEqual({ deleted: 1, freedBytes: jpegBytes().byteLength })
-    expect(r2.objects.has(`memo/${ALICE}/${freeBody.id}.jpg`)).toBe(false)
+    expect(r2.objects.has(`memos/${ALICE}/${freeBody.id}.jpg`)).toBe(false)
   })
 
   it('validates the batch size and ids', async () => {
@@ -603,7 +601,7 @@ describe('memo attachment deletion', () => {
       'SELECT COUNT(*) AS count FROM memos_attachments WHERE user_id = ?',
       ALICE,
     )?.count).toBe(0)
-    expect(r2.objects.has(`memo/${ALICE}/${videoBody.id}.mp4`)).toBe(false)
+    expect(r2.objects.has(`memos/${ALICE}/${videoBody.id}.mp4`)).toBe(false)
   })
 
   it('prunes only unbound attachments', async () => {
@@ -627,8 +625,8 @@ describe('memo attachment deletion', () => {
       'SELECT COUNT(*) AS count FROM memos_attachments WHERE user_id = ?',
       ALICE,
     )?.count).toBe(1)
-    expect(r2.objects.has(`memo/${ALICE}/${unusedBody.id}.png`)).toBe(false)
-    expect(r2.objects.has(`memo/${ALICE}/${boundBody.id}.mp4`)).toBe(true)
+    expect(r2.objects.has(`memos/${ALICE}/${unusedBody.id}.png`)).toBe(false)
+    expect(r2.objects.has(`memos/${ALICE}/${boundBody.id}.mp4`)).toBe(true)
   })
 })
 

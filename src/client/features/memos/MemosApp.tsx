@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
-import { Menu as MenuIcon, Plus, RefreshCw, StickyNote } from 'lucide-react'
+import { Menu as MenuIcon, Paperclip, Plus, RefreshCw, StickyNote } from 'lucide-react'
+import { useUi } from '../../store/ui'
 import { MEMOS_APP_PATH } from '@shared/memos/constants'
 import { MEMOS_MESSAGE_KEYS } from '@shared/memos/keys'
 import type { Memo, MemoDisplayPreferences, MemoState } from '@shared/memos/types'
@@ -300,6 +301,13 @@ export function MemosApp(): ReactElement {
           </span>
         ) : null}
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
+          <IconButton
+            label={t('attachments.manage')}
+            size="sm"
+            onClick={() => useUi.getState().setAttachmentHub('memos')}
+          >
+            <Paperclip size={14} />
+          </IconButton>
           {showRefresh ? (
             <IconButton
               label={t('memos.header.refresh')}

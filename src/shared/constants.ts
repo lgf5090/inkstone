@@ -85,7 +85,18 @@ export const LIMITS = {
   foldersMaxPerUser: 2_000,
   folderDepthMax: 12,
   attachmentMaxBytes: 25 * 1024 * 1024,
-  attachmentQuotaBytes: 1024 * 1024 * 1024,
+  /**
+   * The account ceiling when bytes live in R2.
+   *
+   * Workers KV is a different story and gets its own, smaller number below, so this one is only the
+   * default in the sense of "the backend a real deployment binds".
+   */
+  attachmentQuotaBytes: 10 * 1024 * 1024 * 1024,
+  /**
+   * KV holds one value per attachment and caps a value at 25 MiB, with a namespace ceiling far below
+   * R2's, so promising ten gigabytes here would advertise a limit the backend cannot honour.
+   */
+  attachmentQuotaBytesKv: 1024 * 1024 * 1024,
   attachmentUploadsPerHour: 100,
   /**
    * A book is one file the reader carries, not an image pasted into a note, so it gets a larger single

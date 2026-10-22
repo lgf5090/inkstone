@@ -821,7 +821,7 @@ export async function readMcpAttachment(
   input: { attachmentId: string; cursor?: number; maxBytes?: number },
 ) {
   const row = await env.DB.prepare(
-    `SELECT id, user_id, note_id, filename, mime, size, sha256, storage, created_at
+    `SELECT id, user_id, note_id, filename, mime, size, sha256, object_key, storage, created_at
        FROM attachments WHERE id = ?1 AND user_id = ?2`,
   ).bind(input.attachmentId, userId).first<{
     id: string
@@ -831,6 +831,7 @@ export async function readMcpAttachment(
     mime: string
     size: number
     sha256: string
+    object_key: string | null
     storage: AttachmentObjectStorage
     created_at: number
   }>()
@@ -940,6 +941,7 @@ export async function uploadMcpAttachment(
       const stored = await persistAttachmentWithinQuota(context.env, {
         id,
         userId: context.userId,
+        scope: 'notes',
         noteId: input.noteId ?? null,
         filename: input.filename,
         reportedMime: input.mime,
@@ -976,12 +978,13 @@ export async function deleteMcpAttachment(
     },
     execute: async () => {
       const row = await context.env.DB.prepare(
-        `SELECT id, user_id, filename, mime, storage FROM attachments WHERE id = ?1 AND user_id = ?2`,
+        `SELECT id, user_id, filename, mime, object_key, storage FROM attachments WHERE id = ?1 AND user_id = ?2`,
       ).bind(input.attachmentId, context.userId).first<{
         id: string
         user_id: string
         filename: string
         mime: string
+        object_key: string | null
         storage: AttachmentObjectStorage
       }>()
       if (!row) throw ApiError.notFound('Attachment not found')

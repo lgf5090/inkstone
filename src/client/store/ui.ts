@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import type { AttachmentHubScope } from '@shared/attachment-hub'
 import type { AccentName, BackgroundName, DateRangeFilter, EditorLayout, SidebarTab, SortKey, SortOrder, ThemePref, UiDensity, ViewKind } from '@shared/types'
 import { ACCENTS, LIMITS, SIDEBAR_TABS, VIEW_KINDS } from '@shared/constants'
 import { truncateText } from '@shared/text-utils'
@@ -106,6 +107,14 @@ interface UiState {
   assistantDockOpen: boolean
   toasts: ToastItem[]
   lightbox: { src: string; alt: string } | null
+  /**
+   * Which application's attachment hub is open, or null while none is.
+   *
+   * A scope rather than a boolean because one host serves four applications and has to know which
+   * one to ask. Ephemeral on purpose: a hub reopened after a reload would be showing a listing
+   * whose counts have already moved.
+   */
+  attachmentHub: AttachmentHubScope | null
 
 
   theme: ThemePref
@@ -154,12 +163,23 @@ interface UiState {
   setAssistantDock: (open: boolean) => void
   showBacklinks: () => void
   setLightbox: (value: UiState['lightbox']) => void
+  setAttachmentHub: (scope: AttachmentHubScope | null) => void
   /**
    * A template the gallery asked the open editor to swallow. The gallery is a panel
    * over the workspace, so it has no view of its own; the workspace applies this and
    * clears it, which keeps the one-transaction undo contract in the editor.
    */
   templateInsert: TemplateInsert | null
+  /**
+   * Markdown the attachment centre asked the open note to swallow.
+   *
+   * Carries the note it was meant for, and is applied only by the workspace holding that note: the
+   * centre is hosted above the container switch, so without the id a file inserted while reading
+   * one note could land in whichever note happens to be open when the request is next consumed.
+   */
+  noteInsert: { noteId: string; text: string } | null
+  requestNoteInsert: (insert: { noteId: string; text: string }) => void
+  clearNoteInsert: () => void
   requestTemplateInsert: (insert: TemplateInsert) => void
   clearTemplateInsert: () => void
   toast: (input: ToastInput) => string
@@ -427,7 +447,9 @@ export const useUi = create<UiState>((set, get) => ({
   assistantDockOpen: false,
   toasts: [],
   lightbox: null,
+  attachmentHub: null as AttachmentHubScope | null,
   templateInsert: null as TemplateInsert | null,
+  noteInsert: null as { noteId: string; text: string } | null,
   mobilePane: 'list',
   draggerDragMode: false,
   searchList: false,
@@ -640,9 +662,12 @@ export const useUi = create<UiState>((set, get) => ({
   setAssistantDock: (open) => set({ assistantDockOpen: open }),
   showBacklinks: () => set({ backlinksOpen: true }),
   setLightbox: (lightbox) => set({ lightbox }),
+  setAttachmentHub: (attachmentHub) => set({ attachmentHub }),
 
   requestTemplateInsert: (templateInsert) => set({ templateInsert }),
   clearTemplateInsert: () => set({ templateInsert: null }),
+  requestNoteInsert: (noteInsert) => set({ noteInsert }),
+  clearNoteInsert: () => set({ noteInsert: null }),
 
   toast: (input) => {
     const id = `t${++toastSeq}`

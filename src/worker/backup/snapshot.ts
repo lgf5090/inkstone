@@ -72,9 +72,11 @@ interface AttachmentSnapshotRow {
   mime: string
   size: number
   sha256: string
+  object_key: string | null
   storage: string
   created_at: number
 }
+
 
 const encoder = new TextEncoder()
 const NOTE_PAGE_SIZE = 100
@@ -307,7 +309,7 @@ async function loadReferencedAttachments(
   for (let offset = 0; offset < values.length; offset += ATTACHMENT_LOOKUP_BATCH) {
     const chunk = values.slice(offset, offset + ATTACHMENT_LOOKUP_BATCH)
     const { results } = await db.prepare(
-      `SELECT id, user_id, filename, mime, size, sha256, storage, created_at
+      `SELECT id, user_id, filename, mime, size, sha256, object_key, storage, created_at
          FROM attachments
         WHERE user_id = ?1 AND id IN (SELECT value FROM json_each(?2))`,
     ).bind(userId, JSON.stringify(chunk)).all<AttachmentSnapshotRow>()

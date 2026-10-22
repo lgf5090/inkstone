@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertCircle, Download, FileJson, FileUp, FolderOpen, ImageIcon, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
+import { AlertCircle, Download, FileJson, FileUp, FolderOpen, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { formatBytes, formatNumber } from '../../lib/time';
 import { Button } from '../../components/primitives';
@@ -10,13 +10,11 @@ import { useUi } from '../../store/ui';
 import { useNotes } from '../../store/notes';
 import { useNoteTemplates } from '../../store/note-templates';
 import { useSession } from '../../store/session';
-import { AttachmentManager } from '../attachments/AttachmentManager';
 import { t } from "../../lib/i18n";
 import { restoreMarkdownBackupFolder } from '../../lib/backup-import';
 import { useSettingsResource } from './resource';
 import { statsResource } from './resources';
 export function DataSettings() {
-    const [attachmentManagerOpen, setAttachmentManagerOpen] = useState(false);
     const [stats] = useSettingsResource(statsResource);
     const [statsError, setStatsError] = useState<string | null>(null);
     const [busy, setBusy] = useState<string | null>(null);
@@ -143,14 +141,6 @@ export function DataSettings() {
           {stats.attachmentBytes ? (<p className="mt-2 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t("settings.attachment_storage")}{formatBytes(stats.attachmentBytes)}
             </p>) : null}
         </>)}
-      </section>
-
-      <section>
-        <h3 className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.attachments")}</h3>
-
-        <SettingRow title={t("attachments.manage")} description={t("attachments.manage_description")}>
-          <Button size="sm" icon={<ImageIcon size={13}/>} onClick={() => setAttachmentManagerOpen(true)}>{t("attachments.manage")}</Button>
-        </SettingRow>
       </section>
 
       <section>
@@ -304,7 +294,5 @@ export function DataSettings() {
         })}>{t("common.clear")}</Button>
         </SettingRow>
       </section>
-
-      <AttachmentManager open={attachmentManagerOpen} onClose={() => setAttachmentManagerOpen(false)} onChanged={() => void loadStats()}/>
     </div>);
 }

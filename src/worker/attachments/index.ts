@@ -1,5 +1,6 @@
 /** Object storage entry points shared with other worker modules. */
 export {
+  attachmentQuotaBytesForEnv,
   deleteAttachmentObjects,
   hasAttachmentStorage,
   putAttachmentObject,

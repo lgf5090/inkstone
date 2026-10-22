@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import type { Plugin, UserConfigFnPromise } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { fileViewerRenderers } from '@file-viewer/vite-plugin'
 import { inkstonePwa } from './pwa.config.ts'
 import { applyExcalidrawPatches } from './scripts/excalidraw-patch.mjs'
 import { assertRelayableEndpoint, pickRelayHeaders } from './src/shared/ai-proxy-guard.ts'
@@ -31,9 +32,11 @@ const isLucideModule = (id: string) =>
 
 const isReactModule = (id: string) => {
   const path = normalizeModuleId(id)
+  // Anchor `react` to the top-level package: a bare `/react/` also matches the scoped `@file-viewer/react`
+  // path, which dragged the file viewer (and its core) into the boot `vendor-react` chunk.
   return (
     path.includes('/node_modules/') &&
-    /react-dom|\/react\/|scheduler|use-sync-external-store|zustand/.test(path)
+    /react-dom|\/node_modules\/react\/|scheduler|use-sync-external-store|zustand/.test(path)
   )
 }
 
@@ -325,6 +328,28 @@ const config: UserConfigFnPromise = async ({ mode, command }) => ({
     excalidrawVendorPlugin(),
     pdfjsVendorPlugin(),
     tailwindcss(),
+    // Emits each renderer's worker/wasm/font assets (archive's libarchive worker has no other way to
+    // reach the bundle) and keeps one chunk per renderer. The renderer list is explicit rather than a
+    // preset so the build cannot pull in a package this app does not ship, and `missingRenderer` turns
+    // a typo here into a failed build instead of a viewer that silently cannot render a type.
+    fileViewerRenderers({
+      renderers: [
+        'pdf',
+        'image',
+        'media',
+        'text',
+        'spreadsheet',
+        'word',
+        'presentation',
+        'archive',
+        'ofd',
+      ],
+      copyAssets: true,
+      chunkStrategy: 'none',
+      inject: false,
+      missingRenderer: 'error',
+      scan: false,
+    }),
     inkstonePwa(),
     ...(mode === 'demo'
       ? []
