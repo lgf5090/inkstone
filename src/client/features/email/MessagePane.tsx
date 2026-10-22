@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
+  ArrowLeft,
   Code2,
   FolderInput,
   Forward,
@@ -41,6 +42,8 @@ export function MessagePane({
   onCancelCompose,
   onClosed,
   onReload,
+  onBack,
+  tools,
 }: {
   account: EmailAccount
   folderId: string | null
@@ -58,6 +61,8 @@ export function MessagePane({
   onCancelCompose: () => void
   onClosed: () => void
   onReload: () => void
+  onBack?: () => void
+  tools?: ReactNode
 }) {
   const toggleStar = useEmailStore((state) => state.toggleStar)
   const setRead = useEmailStore((state) => state.setRead)
@@ -87,20 +92,31 @@ export function MessagePane({
   }
 
   if (!summary) {
-    if (selectedStatus === 'loading') return <LoadingBlock label={t('email.detail.loading')} />
-    if (selectedStatus === 'error') {
-      return (
-        <Empty
-          art="folder"
-          title={t('email.detail.error')}
-          description={selectedError}
-          action={<Button size="sm" onClick={onReload}>{t('common.retry')}</Button>}
-        />
-      )
-    }
+    const content = selectedStatus === 'loading'
+      ? <LoadingBlock label={t('email.detail.loading')} />
+      : selectedStatus === 'error'
+        ? (
+            <Empty
+              art="folder"
+              title={t('email.detail.error')}
+              description={selectedError}
+              action={<Button size="sm" onClick={onReload}>{t('common.retry')}</Button>}
+            />
+          )
+        : (
+            <Empty art="select" title={t('email.detail.no_selection')} description={t('email.detail.no_selection_hint')} />
+          )
     return (
-      <section className="flex min-h-0 flex-1 items-center justify-center bg-[var(--bg-base)]">
-        <Empty art="select" title={t('email.detail.no_selection')} description={t('email.detail.no_selection_hint')} />
+      <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--bg-base)]">
+        <div className="flex h-11 shrink-0 items-center gap-0.5 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2">
+          {onBack && (
+            <IconButton label={t('email.header.back')} size="sm" className={TOOLBAR_BUTTON} onClick={onBack}>
+              <ArrowLeft size={15} />
+            </IconButton>
+          )}
+          <span className="ml-auto flex shrink-0 items-center gap-0.5">{tools}</span>
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col">{content}</div>
       </section>
     )
   }
@@ -165,7 +181,16 @@ export function MessagePane({
 
   return (
     <section aria-label={t('email.a11y.message')} aria-busy={busy} className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--bg-base)]">
-      <div className="flex h-11 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 no-scrollbar">
+      <div className="flex h-11 shrink-0 items-center border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2">
+        <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto no-scrollbar">
+        {onBack && (
+          <>
+            <IconButton label={t('email.header.back')} size="sm" className={TOOLBAR_BUTTON} onClick={onBack}>
+              <ArrowLeft size={15} />
+            </IconButton>
+            <span aria-hidden="true" className="mx-1 h-4 w-px shrink-0 bg-[var(--border-subtle)]" />
+          </>
+        )}
         <Tooltip label={t('email.detail.reply')}>
           <IconButton label={t('email.detail.reply')} size="sm" className={TOOLBAR_BUTTON} onClick={() => onCompose('reply')}>
             <Reply size={15} />
@@ -241,6 +266,12 @@ export function MessagePane({
             <Code2 size={15} />
           </IconButton>
         </Tooltip>
+        </div>
+        {tools && (
+          <span className="flex shrink-0 items-center gap-0.5 border-l border-[var(--border-subtle)] pl-1">
+            {tools}
+          </span>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">

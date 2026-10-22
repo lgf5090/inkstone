@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { Archive, FileText, Inbox, MoreHorizontal, PanelLeft, PanelLeftClose, Plus, Send, Trash2 } from 'lucide-react'
 import type { EmailFolder, EmailSystemFolder } from '@shared/email/model'
 import { EMAIL_SIDEBAR_FOLDERS, isEmailSystemFolder } from '@shared/email/model'
@@ -33,6 +33,7 @@ export function FolderSidebar({
   onDelete,
   onClose,
   onCollapse,
+  footer,
 }: {
   folders: readonly EmailFolder[]
   activeFolderId: string | null
@@ -42,6 +43,7 @@ export function FolderSidebar({
   onDelete: (folderId: string) => Promise<void>
   onClose?: () => void
   onCollapse?: () => void
+  footer?: ReactNode
 }) {
   const [menuFolder, setMenuFolder] = useState<EmailFolder | null>(null)
   const menuAnchor = useRef<HTMLButtonElement>(null)
@@ -114,7 +116,7 @@ export function FolderSidebar({
       {onCollapse && (
         <div className="flex h-11 shrink-0 items-center justify-end px-2">
           <Tooltip label={t('sidebar.collapse_navigation')} side="right">
-            <IconButton label={t('sidebar.collapse_navigation')} size="xs" onClick={onCollapse}>
+            <IconButton label={t('sidebar.collapse_navigation')} size="sm" onClick={onCollapse}>
               <PanelLeftClose size={14} aria-hidden="true" />
             </IconButton>
           </Tooltip>
@@ -195,6 +197,11 @@ export function FolderSidebar({
         label={t('email.folder.more_actions')}
       />
       </nav>
+      {footer && (
+        <div className="shrink-0 border-t border-[var(--border-subtle)] p-2">
+          {footer}
+        </div>
+      )}
     </div>
   )
 }
@@ -204,11 +211,13 @@ export function FolderSidebarRail({
   activeFolderId,
   onSelect,
   onExpand,
+  footer,
 }: {
   folders: readonly EmailFolder[]
   activeFolderId: string | null
   onSelect: (folderId: string) => void
   onExpand: () => void
+  footer?: ReactNode
 }) {
   const byId = new Map(folders.map((folder) => [folder.id, folder]))
   return (
@@ -237,6 +246,12 @@ export function FolderSidebarRail({
           </Tooltip>
         )
       })}
+      <span className="flex-1" />
+      {footer && (
+        <div className="flex w-full shrink-0 justify-center border-t border-[var(--border-subtle)] py-2">
+          {footer}
+        </div>
+      )}
     </nav>
   )
 }

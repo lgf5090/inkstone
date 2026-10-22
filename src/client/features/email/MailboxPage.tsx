@@ -1,10 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import {
-  ArrowLeft,
   Bot,
-  ChevronDown,
-  Mail,
-  MoreHorizontal,
   PanelLeft,
   Paperclip,
   RefreshCw,
@@ -16,7 +12,7 @@ import type { EmailAccount, EmailSummary } from '@shared/email/model'
 import { MAX_EMAIL_CONTEXT_SNIPPET, type EmailAssistantContext } from '@shared/email/assistant-context'
 import { Button, IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
-import { Drawer, Menu, confirm, type MenuItem } from '../../components/overlay'
+import { Drawer, confirm } from '../../components/overlay'
 import { t } from '../../lib/i18n'
 import { navigateToAddress, navigateToPath } from '../../lib/app-history'
 import { useBreakpoint } from '../../lib/hooks'
@@ -30,6 +26,7 @@ import { emailFolderPath, emailSettingsPath } from './email-address'
 import { messageSubject } from './format'
 import { useEmailStore } from './store'
 import { FolderSidebar, FolderSidebarRail } from './FolderSidebar'
+import { EmailAccountCard } from './AccountCard'
 import { MessageList } from './MessageList'
 import { MessagePane } from './MessagePane'
 import { TrashPanel } from './TrashPanel'
@@ -56,7 +53,6 @@ function searchMessageAddress(accountId: string, query: string, messageId: strin
 export function MailboxPage({ address, account }: { address: MailboxAddress; account: EmailAccount }) {
   const breakpoint = useBreakpoint()
   const desktop = breakpoint === 'desktop'
-  const compact = breakpoint === 'mobile'
   const folders = useEmailStore((state) => state.folders)
   const foldersError = useEmailStore((state) => state.foldersError)
   const accounts = useEmailStore((state) => state.accounts)
@@ -97,18 +93,14 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
   const query = address.kind === 'search' ? address.query : ''
   const messageId = address.messageId
   const [searchDraft, setSearchDraft] = useState(query)
-  const [searchOpen, setSearchOpen] = useState(false)
   const [folderDrawer, setFolderDrawer] = useState(false)
-  const [accountMenu, setAccountMenu] = useState(false)
-  const [moreOpen, setMoreOpen] = useState(false)
   const [trashOpen, setTrashOpen] = useState(false)
+  const railWidth = breakpoint === 'mobile' ? 48 : 56
   const assistantDockOpen = useUi((state) => state.assistantDockOpen)
   const navCollapsed = useUi((state) => state.emailNavCollapsed)
   const navWidth = useUi((state) => state.emailNavWidth)
   const toggleNav = useUi((state) => state.toggleEmailNav)
   const setLayout = useUi((state) => state.setLayout)
-  const accountAnchor = useRef<HTMLButtonElement>(null)
-  const moreAnchor = useRef<HTMLButtonElement>(null)
   const lastAssistantEmail = useRef<string | null>(null)
 
   const emailContext = useMemo<EmailAssistantContext>(() => ({
@@ -124,6 +116,10 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
     snippet: selectedMessage?.snippet?.slice(0, MAX_EMAIL_CONTEXT_SNIPPET) ?? null,
     threadCount: selectedMessage?.threadCount ?? (thread.length || null),
   }), [account.address, account.id, folderId, selectedMessage, thread.length])
+
+  useEffect(() => {
+    if (desktop) setFolderDrawer(false)
+  }, [desktop])
 
   useEffect(() => {
     setSearchDraft(query)
@@ -187,7 +183,6 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
     event.preventDefault()
     const trimmed = searchDraft.trim()
     if (!trimmed) return
-    setSearchOpen(false)
     navigateToAddress(
       `/email/accounts/${encodeURIComponent(account.id)}/search`,
       `q=${encodeURIComponent(trimmed)}`,
@@ -259,168 +254,63 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
     void refresh()
   }
 
-  const accountItems: MenuItem[] = [
-    ...accounts.map((entry) => ({
-      id: entry.id,
-      label: entry.displayName || entry.address,
-      icon: <Mail size={14} />,
-      checked: entry.id === account.id,
-      onSelect: () => navigateToPath(emailFolderPath(entry.id, 'inbox')),
-    })),
-    {
-      id: 'settings',
-      label: t('email.header.settings'),
-      icon: <Settings size={14} />,
-      separatorBefore: true,
-      onSelect: () => navigateToPath(emailSettingsPath(account.id)),
-    },
-    {
-      id: 'home',
-      label: t('email.header.all_accounts'),
-      icon: <Mail size={14} />,
-      onSelect: () => navigateToPath('/email'),
-    },
-  ]
-
-  const moreItems: MenuItem[] = [
-    { id: 'refresh', label: t('email.header.refresh'), icon: <RefreshCw size={14} />, onSelect: refreshNow },
-    { id: 'attachments', label: t('attachments.manage'), icon: <Paperclip size={14} />, onSelect: () => useUi.getState().setAttachmentHub('email') },
-    { id: 'ai', label: t('email.header.ai'), icon: <Bot size={14} />, onSelect: () => useUi.getState().setAssistantDock(true) },
-    { id: 'settings', label: t('email.header.settings'), icon: <Settings size={14} />, onSelect: () => navigateToPath(emailSettingsPath(account.id)) },
-    { id: 'accounts', label: t('email.header.all_accounts'), icon: <Mail size={14} />, separatorBefore: true, onSelect: () => navigateToPath('/email') },
-  ]
+  const paneTools = (
+    <>
+      <IconButton label={t('attachments.manage')} size="sm" className="size-11 md:size-7" onClick={() => useUi.getState().setAttachmentHub('email')}>
+        <Paperclip size={15} />
+      </IconButton>
+      <IconButton
+        label={t('email.header.ai')}
+        size="sm"
+        className="size-11 md:size-7"
+        active={assistantDockOpen}
+        onClick={() => useUi.getState().setAssistantDock(!assistantDockOpen)}
+      >
+        <Bot size={15} />
+      </IconButton>
+      <IconButton label={t('email.header.settings')} size="sm" className="size-11 md:size-7" onClick={() => navigateToPath(emailSettingsPath(account.id))}>
+        <Settings size={15} />
+      </IconButton>
+    </>
+  )
 
   const searchField = (
-    <form role="search" onSubmit={submitSearch} className="flex min-w-0 items-center gap-1">
-      <Input
-        value={searchDraft}
-        onChange={(event) => setSearchDraft(event.target.value)}
-        placeholder={t('email.search.placeholder')}
-        aria-label={t('email.search.placeholder')}
-        leading={<Search size={12} />}
-        className="h-9 w-44 lg:w-64"
-      />
-      {searchDraft && (
-        <IconButton label={t('email.search.clear')} size="xs" onClick={clearSearch}>
-          <X size={13} />
-        </IconButton>
-      )}
+    <form role="search" onSubmit={submitSearch} className="flex min-w-0 flex-1 items-center">
+      <div className="min-w-0 flex-1">
+        <Input
+          value={searchDraft}
+          onChange={(event) => setSearchDraft(event.target.value)}
+          placeholder={t('email.search.placeholder')}
+          aria-label={t('email.search.placeholder')}
+          leading={<Search size={12} />}
+          trailing={searchDraft
+            ? (
+                <IconButton label={t('email.search.clear')} size="xs" onClick={clearSearch}>
+                  <X size={12} />
+                </IconButton>
+              )
+            : null}
+          className="h-9 w-full"
+        />
+      </div>
     </form>
   )
 
-  const header = (
-    <header className="flex h-11 shrink-0 items-center gap-1 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 md:px-3">
-      {!desktop && messageId && (
-        <IconButton label={t('email.header.back')} size="sm" className="size-11 md:size-8" onClick={goList}>
-          <ArrowLeft size={16} />
-        </IconButton>
-      )}
+  const listToolbar = (
+    <div className="flex h-11 shrink-0 items-center gap-1 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2">
       {!desktop && (
-        <IconButton label={t('email.header.folders')} size="sm" className="size-11 md:size-8" onClick={() => setFolderDrawer(true)}>
+        <IconButton label={t('email.header.folders')} size="sm" className="size-9" onClick={() => setFolderDrawer(true)}>
           <PanelLeft size={16} />
         </IconButton>
       )}
-      <button
-        ref={accountAnchor}
-        type="button"
-        onClick={() => setAccountMenu((open) => !open)}
-        aria-haspopup="menu"
-        aria-expanded={accountMenu}
-        className="flex min-w-0 max-w-56 items-center gap-1 rounded-[var(--r-md)] px-1.5 py-1 text-left hover:bg-[var(--bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-ring)]"
-      >
-        <span className="min-w-0 truncate text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">
-          {account.displayName || account.address}
-        </span>
-        <ChevronDown size={12} aria-hidden="true" className="shrink-0 text-[var(--text-tertiary)]" />
-      </button>
-      {compact ? (
-        searchOpen ? (
-          <div className="flex min-w-0 flex-1 items-center gap-1">
-            <form role="search" onSubmit={submitSearch} className="flex min-w-0 flex-1 items-center gap-1">
-              <Input
-                autoFocus
-                value={searchDraft}
-                onChange={(event) => setSearchDraft(event.target.value)}
-                placeholder={t('email.search.placeholder')}
-                aria-label={t('email.search.placeholder')}
-                leading={<Search size={12} />}
-                className="h-9 w-full"
-              />
-              {searchDraft && (
-                <IconButton label={t('email.search.clear')} size="xs" onClick={clearSearch}>
-                  <X size={13} />
-                </IconButton>
-              )}
-            </form>
-            <IconButton label={t('common.close')} size="sm" className="size-11" onClick={() => setSearchOpen(false)}>
-              <X size={16} />
-            </IconButton>
-          </div>
-        ) : (
-          <div className="ml-auto flex items-center gap-0.5">
-            <IconButton label={t('email.header.search')} size="sm" className="size-11" onClick={() => setSearchOpen(true)}>
-              <Search size={16} />
-            </IconButton>
-            <IconButton
-              ref={moreAnchor}
-              label={t('email.header.more')}
-              size="sm"
-              className="size-11"
-              aria-haspopup="menu"
-              aria-expanded={moreOpen}
-              onClick={() => setMoreOpen((open) => !open)}
-            >
-              <MoreHorizontal size={16} />
-            </IconButton>
-          </div>
-        )
-      ) : (
-        <div className="ml-auto flex min-w-0 items-center gap-1">
-          {searchField}
-          <IconButton label={t('email.header.refresh')} size="sm" className="size-11 md:size-7" onClick={refreshNow} disabled={listRefreshing}>
-            <RefreshCw size={15} className={listRefreshing ? 'animate-[ink-spin_0.7s_linear_infinite]' : undefined} />
-          </IconButton>
-          <IconButton label={t('attachments.manage')} size="sm" className="size-11 md:size-7" onClick={() => useUi.getState().setAttachmentHub('email')}>
-            <Paperclip size={15} />
-          </IconButton>
-          <IconButton
-            label={t('email.header.ai')}
-            size="sm"
-            className="size-11 md:size-7"
-            active={assistantDockOpen}
-            onClick={() => useUi.getState().setAssistantDock(!assistantDockOpen)}
-          >
-            <Bot size={15} />
-          </IconButton>
-          <IconButton label={t('email.header.settings')} size="sm" className="size-11 md:size-7" onClick={() => navigateToPath(emailSettingsPath(account.id))}>
-            <Settings size={15} />
-          </IconButton>
-        </div>
-      )}
-      <Menu
-        anchor={accountAnchor}
-        open={accountMenu}
-        onClose={() => setAccountMenu(false)}
-        items={accountItems}
-        align="start"
-        width={240}
-        label={t('email.a11y.account_menu')}
-      />
-      {compact && (
-        <Menu
-          anchor={moreAnchor}
-          open={moreOpen}
-          onClose={() => setMoreOpen(false)}
-          items={moreItems}
-          align="end"
-          width={200}
-          label={t('email.header.more')}
-        />
-      )}
-    </header>
+      {searchField}
+      <IconButton label={t('email.header.refresh')} size="sm" className="size-9" onClick={refreshNow} disabled={listRefreshing}>
+        <RefreshCw size={15} className={listRefreshing ? 'animate-[ink-spin_0.7s_linear_infinite]' : undefined} />
+      </IconButton>
+    </div>
   )
 
-  const folderSidebar = (
+  const folderSidebar = (compactCard = false) => (
     <FolderSidebar
       folders={folders}
       activeFolderId={folderId}
@@ -430,11 +320,14 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
       onDelete={removeFolder}
       onClose={() => setFolderDrawer(false)}
       onCollapse={desktop ? toggleNav : undefined}
+      footer={<EmailAccountCard accounts={accounts} activeAccountId={account.id} compact={compactCard} onNavigate={() => setFolderDrawer(false)} />}
     />
   )
 
   const listPane = (
-    <MessageList
+    <div className="flex h-full min-h-0 flex-col">
+      {listToolbar}
+      <MessageList
       messages={messages}
       total={total}
       status={listStatus}
@@ -458,7 +351,8 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
       }}
       onManageTrash={() => setTrashOpen(true)}
       onCompose={() => compose('new')}
-    />
+      />
+    </div>
   )
 
   const pane = (
@@ -479,6 +373,8 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
       onCancelCompose={cancelCompose}
       onClosed={goList}
       onReload={() => { if (messageId) void openMessage(account.id, messageId) }}
+      onBack={desktop ? undefined : goList}
+      tools={paneTools}
     />
   )
 
@@ -503,7 +399,6 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--bg-base)]">
-      {header}
       {alerts}
       <div className="flex min-h-0 flex-1">
         {desktop ? (
@@ -519,9 +414,10 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
                       activeFolderId={folderId}
                       onSelect={selectFolder}
                       onExpand={toggleNav}
+                      footer={<EmailAccountCard accounts={accounts} activeAccountId={account.id} compact />}
                     />
                   )
-                : folderSidebar}
+                : folderSidebar()}
             </div>
             {!navCollapsed && (
               <Resizer
@@ -545,15 +441,18 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
         )}
         {assistantDockOpen && <AssistantDock surface="email" email={emailContext} />}
       </div>
-      <Drawer
-        open={folderDrawer}
-        onClose={() => setFolderDrawer(false)}
-        side="left"
-        width={280}
-        title={t('email.header.folders')}
-      >
-        {folderSidebar}
-      </Drawer>
+      {!desktop && (
+        <Drawer
+          open={folderDrawer}
+          onClose={() => setFolderDrawer(false)}
+          side="left"
+          width={280}
+          title={t('email.header.folders')}
+          leftOffset={railWidth}
+        >
+          {folderSidebar()}
+        </Drawer>
+      )}
       <TrashPanel open={trashOpen} accountId={account.id} onClose={() => setTrashOpen(false)} />
     </div>
   )
