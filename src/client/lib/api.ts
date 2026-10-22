@@ -1214,6 +1214,13 @@ export const api = {
     search: (id: string, params: Record<string, string | number | undefined>) =>
       request<EmailListResponse>(`/api/email/accounts/${id}/search${toQuery(params)}`),
     attachmentUrl: (attachmentId: string) => `/api/email/files/${attachmentId}`,
+    exportAccount: async (id: string) => {
+      const { response, filename } = await fetchDownload(
+        `/api/email/accounts/${encodeURIComponent(id)}/export`,
+        'inkstone-email.zip',
+      )
+      await saveResponseDownload(response, filename)
+    },
   },
 
   todos: {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, Plug, Save, Trash2 } from 'lucide-react'
+import { ArrowLeft, Download, Plug, Save, Trash2 } from 'lucide-react'
 import type { EmailAccountSettings } from '@shared/email/model'
 import { Button } from '../../components/primitives'
 import { Empty, LoadingBlock } from '../../components/feedback'
@@ -36,6 +36,7 @@ export function AccountSettingsPage({ accountId }: { accountId: string }) {
   const [autoDraftStatus, setAutoDraftStatus] = useState<{ status: string | null, reason: string | null } | null>(null)
   const [autoDraftStatusError, setAutoDraftStatusError] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const endpoint = useMemo(mcpEndpoint, [])
 
@@ -82,6 +83,19 @@ export function AccountSettingsPage({ accountId }: { accountId: string }) {
       setError(emailErrorText(reason))
     } finally {
       setSaving(false)
+    }
+  }
+
+  const exportMailbox = async (): Promise<void> => {
+    if (!account) return
+    setExporting(true)
+    setError(null)
+    try {
+      await api.email.exportAccount(account.id)
+    } catch (reason) {
+      setError(emailErrorText(reason))
+    } finally {
+      setExporting(false)
     }
   }
 
@@ -240,6 +254,21 @@ export function AccountSettingsPage({ accountId }: { accountId: string }) {
               onClick={() => useUi.getState().openPanel('settings')}
             >
               {t('email.settings.mcp_open')}
+            </Button>
+          </section>
+
+          <section aria-label={t('email.settings.export_title')} className="mt-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4">
+            <h2 className="m-0 text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">{t('email.settings.export_title')}</h2>
+            <p className="mt-1 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">{t('email.settings.export_hint')}</p>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="mt-2"
+              icon={<Download size={14} />}
+              loading={exporting}
+              onClick={() => { void exportMailbox() }}
+            >
+              {t('email.settings.export_button')}
             </Button>
           </section>
 
