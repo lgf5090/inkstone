@@ -3,9 +3,10 @@
  * The revision and the key a task write travels with.
  *
  * The route refuses a stale write by comparing `If-Match` with the row's revision, so the guard is only
- * real if the client actually puts the header on the request. This pins the wire shape: the third
- * argument of `api.todos.update` becomes `If-Match`, and a write that names no revision stays
- * unconditional, which is what the older surfaces (the assistant's tools, an undo) still send.
+ * real if the client actually puts the header on the request. This pins the wire shape: the revision
+ * argument of `api.todos.update`, `api.todos.plan` and `api.todos.snooze` becomes `If-Match`, and a
+ * write that names no revision stays unconditional, which is what the older surfaces (the assistant's
+ * tools, an undo) still send.
  *
  * A create has the same problem in the other direction: it is not conditional but repeatable, so the
  * second argument of `api.todos.create` becomes `Idempotency-Key` and the route can answer a lost
@@ -72,5 +73,27 @@ describe('a guarded task write', () => {
     await api.todos.create({ title: 'Book the room' })
 
     expect(headersOf()).not.toHaveProperty('Idempotency-Key')
+  })
+
+  it('sends a pick and a snooze the revision they were read at', async () => {
+    stubFetch()
+
+    await api.todos.plan('task-1', '2026-10-21', 7)
+    await api.todos.snooze('task-1', 60, 8)
+
+    expect(requests[0]!.url).toBe('/api/todos/task-1/plan')
+    expect(headersOf(0)['If-Match']).toBe('7')
+    expect(requests[1]!.url).toBe('/api/todos/task-1/snooze')
+    expect(headersOf(1)['If-Match']).toBe('8')
+  })
+
+  it('leaves a pick and a snooze unconditional when no revision is named', async () => {
+    stubFetch()
+
+    await api.todos.plan('task-1', null)
+    await api.todos.snooze('task-1', 60)
+
+    expect(headersOf(0)).not.toHaveProperty('If-Match')
+    expect(headersOf(1)).not.toHaveProperty('If-Match')
   })
 })

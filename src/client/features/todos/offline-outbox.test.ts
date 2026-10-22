@@ -214,6 +214,39 @@ describe('a task write made offline', () => {
     expect(mocks.queue).toHaveLength(0)
   })
 
+  it('replays a queued pick against the revision it was made at', async () => {
+    useTodos.setState({ tasks: [row('t1', 'Mine', { rev: 3 })], total: 1 })
+    await useTodos.getState().planTask('t1', '2026-10-21')
+    expect(mocks.queue[0]).toMatchObject({ entity: 'todo', payload: { op: 'plan', date: '2026-10-21', rev: 3 } })
+
+    setOnline(true)
+    mocks.plan.mockResolvedValue({ task: row('t1', 'Mine', { rev: 4, plannedFor: '2026-10-21' }) })
+    await replayTodoOutboxItem(mocks.queue[0] as never)
+
+    // A pick made offline is still a conditional write: the revision the reader was looking at goes
+    // to the route, so a row that moved meanwhile is refused rather than overwritten.
+    expect(mocks.plan).toHaveBeenCalledWith('t1', '2026-10-21', 3)
+  })
+
+  it('replays a queued snooze against its revision and moves the edits behind it', async () => {
+    useTodos.setState({ tasks: [row('t1', 'Mine', { rev: 3 })], total: 1 })
+    await useTodos.getState().snoozeTask('t1', 60)
+    await useTodos.getState().updateTask('t1', { title: 'Renamed' })
+    expect(mocks.queue).toHaveLength(2)
+
+    setOnline(true)
+    mocks.snooze
+      .mockResolvedValueOnce({ task: row('t1', 'Mine', { rev: 4 }), reminders: [Date.now() + 60_000] })
+    mocks.update.mockResolvedValueOnce({ task: row('t1', 'Renamed', { rev: 5 }) })
+    await useNotes.getState().replayPending()
+
+    expect(mocks.snooze).toHaveBeenCalledWith('t1', 60, 3)
+    // The snooze spent a revision of its own, so the edit queued behind it names the one that landed:
+    // left at 3 it would report a conflict this tab created itself.
+    expect(mocks.update).toHaveBeenCalledWith('t1', { title: 'Renamed' }, 4)
+    expect(mocks.queue).toHaveLength(0)
+  })
+
   it('asks which side wins when the replay is refused, without painting over the local row', async () => {
     useTodos.setState({ tasks: [row('t1', 'Mine', { rev: 3 })], total: 1 })
     await useTodos.getState().updateTask('t1', { title: 'Mine, edited' })

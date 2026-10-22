@@ -678,7 +678,9 @@ export async function replayTodoOutboxItem(
         return { status: 'done' }
       }
       case 'plan': {
-        const { task } = await api.todos.plan(id, payload.date ?? null)
+        // The revision the row carried when the pick was queued rides to the route, which is what
+        // makes an offline pick a conditional write rather than a blind one.
+        const { task } = await api.todos.plan(id, payload.date ?? null, todoQueuedRev(payload))
         storeServerTask(task, { addIfMissing: true })
         await advanceTodoDependents(item, payload, task.rev ?? 1, siblings)
         return { status: 'done' }
@@ -689,8 +691,11 @@ export async function replayTodoOutboxItem(
           await localDb.markOutboxFailure(item.id, item.writeId, 'invalid snooze duration').catch(() => {})
           return { status: 'retry' }
         }
-        const { task } = await api.todos.snooze(id, minutes)
+        const { task } = await api.todos.snooze(id, minutes, todoQueuedRev(payload))
         storeServerTask(task, { addIfMissing: true })
+        // A snooze spends a revision like any other write, so the edits queued behind it have to be
+        // moved onto the one that landed — otherwise the next replay reports a conflict this tab made.
+        await advanceTodoDependents(item, payload, task.rev ?? 1, siblings)
         return { status: 'done' }
       }
     }

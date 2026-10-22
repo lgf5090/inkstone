@@ -1191,9 +1191,15 @@ export const api = {
      *
      * The day is an account-zone `YYYY-MM-DD`, not an instant: "planned for today" is a calendar
      * membership that lapses on its own when the day changes, not a timestamp that has to be cleared.
+     * `rev` names the revision the row was read at, so a pick computed from a stale screen is refused
+     * rather than painted over whatever the row became in the meantime.
      */
-    plan: (id: string, date: string | null) =>
-      request<{ task: TodoTask }>(`/api/todos/${id}/plan`, { method: 'POST', body: { date } }),
+    plan: (id: string, date: string | null, rev?: number) =>
+      request<{ task: TodoTask }>(`/api/todos/${id}/plan`, {
+        method: 'POST',
+        body: { date },
+        ...(rev === undefined ? {} : { ifMatch: String(rev) }),
+      }),
     /**
      * Places a task before another row, or at the end when `beforeId` is null.
      *
@@ -1205,10 +1211,15 @@ export const api = {
       request<{ task: TodoTask }>(`/api/todos/${id}/move`, { method: 'POST', body }),
     /**
      * "Remind me again": adds one reminder `minutes` from now and answers with the whole pending list.
-     * The earlier reminders stay — a snooze is a second chance, not a cancellation.
+     * The earlier reminders stay — a snooze is a second chance, not a cancellation. `rev` is the same
+     * conditional guard a pick carries, so a snooze replayed from a row that moved since is refused.
      */
-    snooze: (id: string, minutes: SnoozeMinutes) =>
-      request<{ task: TodoTask, reminders: number[] }>(`/api/todos/${id}/snooze`, { method: 'POST', body: { minutes } }),
+    snooze: (id: string, minutes: SnoozeMinutes, rev?: number) =>
+      request<{ task: TodoTask, reminders: number[] }>(`/api/todos/${id}/snooze`, {
+        method: 'POST',
+        body: { minutes },
+        ...(rev === undefined ? {} : { ifMatch: String(rev) }),
+      }),
     remove: (id: string) => request<{ deleted: true }>(`/api/todos/${id}`, { method: 'DELETE' }),
 
     /**
