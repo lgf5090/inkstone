@@ -335,6 +335,17 @@ export interface ShareAuditFieldChange {
   to?: string | number | boolean | null
 }
 
+/**
+ * What the server settled a link's filing to, echoed back so the hub can move a row between folders
+ * without refetching the list. The slug rides along because a row is addressed by it, not by the note.
+ */
+export interface ShareFiling {
+  noteId: string
+  slug: string
+  folderId: string | null
+  tags: string[]
+}
+
 export interface ShareAuditLogEntry {
   id: string
   noteId: string
