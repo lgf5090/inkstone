@@ -243,7 +243,13 @@ interface TodosState {
   searchTasks: (query: string) => Promise<TodoTask[]>
 
   createList: (input: { name: string; icon?: string | null; color?: string | null }) => Promise<TaskListEntry | null>
-  updateList: (id: string, patch: { name?: string; icon?: string | null; color?: string | null; archived?: boolean; parentId?: string | null }) => Promise<TaskListEntry | null>
+  /**
+   * Save one field set of a list.
+   *
+   * `position` is the slot the organizer page wrote the list into: the route forwards it and the
+   * worker stores it whole, so a reorder is a plain write with no revision to name.
+   */
+  updateList: (id: string, patch: { name?: string; icon?: string | null; color?: string | null; position?: number; archived?: boolean; parentId?: string | null }) => Promise<TaskListEntry | null>
   removeList: (id: string) => Promise<void>
   /** Read the archive shelf; called when the reader opens it, not on every page load. */
   loadArchivedLists: () => Promise<void>

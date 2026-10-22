@@ -4,12 +4,14 @@
  *
  * A child is drawn inside its parent rather than beside it, and the archive shelf starts collapsed so
  * a list the reader put away does not take up the page they are working on. The store is handed a
- * fixed answer, so what is pinned here is the structure a real answer would produce.
+ * fixed answer, so what is pinned here is the structure a real answer would produce — including the
+ * structure a *drag* has to leave alone, which is why the phone's rows still offer the menu that
+ * replaces its drag. The order itself, and the writes one drop sends, are `list-reorder.test.ts`.
  */
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initI18n, t } from '../../lib/i18n'
-import { renderElement, type RenderedElement } from '../../lib/test-render'
+import { renderElement, stubBreakpoint, type RenderedElement } from '../../lib/test-render'
 import { ListsView } from './ListsView'
 import { useTodos } from './store'
 import type { TaskCounts, TaskList } from '@shared/todos/model'
@@ -40,6 +42,9 @@ function counts(open: number): TaskCounts {
 
 let view: RenderedElement | undefined
 
+/** The page's own write, put back after a case has replaced it with a recorder. */
+const realUpdateList = useTodos.getState().updateList
+
 beforeEach(async () => {
   localStorage.clear()
   await initI18n()
@@ -49,6 +54,7 @@ beforeEach(async () => {
     tags: [],
     counts: counts(0),
     loadArchivedLists: async () => {},
+    updateList: realUpdateList,
   })
 })
 
@@ -153,5 +159,45 @@ describe('the list tree', () => {
     })
 
     expect(writes).toEqual([{ id: 'active', patch: { archived: true } }])
+  })
+})
+
+describe('the row a pointer can pick up', () => {
+  /** The box that carries the drag — the row itself, not the item that nests its children. */
+  function rowBox(name: string): HTMLElement {
+    const button = view!.container.querySelector<HTMLButtonElement>(
+      `button[aria-label="${t('todo.action.view_list')} ${name}"]`,
+    )
+    expect(button, `no row for ${name}`).not.toBeNull()
+    return button!.parentElement!
+  }
+
+  it('gives a phone no handle and keeps the menu that moves it', async () => {
+    // A touch pointer cannot start an HTML5 drag at all, so the handle would be a control that does
+    // nothing. The row's menu is the move, and it is built the same either way.
+    stubBreakpoint(false)
+    useTodos.setState({
+      lists: [entry('a', 'Alpha', { position: 0 }), entry('b', 'Bravo', { position: 1 })],
+    })
+    render()
+
+    expect(rowBox('Alpha').getAttribute('data-todo-draggable')).toBeNull()
+    expect(rowBox('Alpha').getAttribute('draggable')).not.toBe('true')
+
+    const menuButton = view!.container.querySelector<HTMLButtonElement>(
+      `button[aria-label="${t('todo.task.actions')}: Alpha"]`,
+    )
+    expect(menuButton, 'the row offers no actions').not.toBeNull()
+    await act(async () => {
+      menuButton!.click()
+      await Promise.resolve()
+    })
+    const rows = [...document.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]')]
+    const up = rows.find((row) => (row.textContent ?? '').trim() === t('todo.move.up'))
+    const down = rows.find((row) => (row.textContent ?? '').trim() === t('todo.move.down'))
+    expect(up, 'the menu offers no move up').not.toBeUndefined()
+    expect(down, 'the menu offers no move down').not.toBeUndefined()
+    expect(up!.disabled, 'the first row has nowhere to move up to').toBe(true)
+    expect(down!.disabled).toBe(false)
   })
 })
