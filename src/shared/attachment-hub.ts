@@ -7,7 +7,7 @@
  * references), so a client that works for one works for all four.
  */
 
-export const ATTACHMENT_HUB_SCOPES = ['notes', 'todos', 'memos', 'chat'] as const
+export const ATTACHMENT_HUB_SCOPES = ['notes', 'todos', 'memos', 'chat', 'email'] as const
 
 export type AttachmentHubScope = (typeof ATTACHMENT_HUB_SCOPES)[number]
 

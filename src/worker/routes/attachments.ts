@@ -85,6 +85,9 @@ function scopeOf(c: Ctx): AttachmentScope {
   if (!isAttachmentScope(scope) || !isAttachmentHubScope(scope)) {
     throw ApiError.notFound('Unknown attachment scope')
   }
+  if (scope === 'email' && c.get('user')?.role !== 'owner') {
+    throw ApiError.forbidden('Email attachments are available to the owner only')
+  }
   return scope
 }
 
@@ -174,6 +177,9 @@ attachmentHubRoutes.post('/:scope/files/batch', async (c) => {
 attachmentHubRoutes.post('/:scope/files/prune', async (c) => {
   const scope = scopeOf(c)
   const userId = c.get('userId')
+  if (scope === 'email') {
+    return c.json({ supported: false, removed: 0, freedBytes: 0, cleanupPending: false })
+  }
   const outcome = await pruneHubAttachments(c.env.DB, userId, scope)
   const drained = await drainAttachmentCleanup(c.env, userId, 500).catch(() => null)
   return c.json({
