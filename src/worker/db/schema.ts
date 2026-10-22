@@ -2424,10 +2424,15 @@ async function createSchema(db: D1Database): Promise<DatabaseState> {
   await migrateTaskTable(db)
   await migrateTodoDayColumns(db)
   await migrateTaskReminders(db)
-  await migrateTaskEvents(db)
+  // The event backfill asks "does this task have a birth/completion yet" once per task, and without
+  // `idx_todos_task_events_task` each answer walks the whole history. On a shelf of ten thousand
+  // rows that turns the boot into minutes, so the indexes have to be in place before the probe, not
+  // after it. Nothing here is reordered across the tables and migrations it reads: this is still
+  // after `applyMigrations`, and the repair functions above never need an index they create.
   if (initialized) {
     await runStatements(db, INDEX_SCHEMA_STATEMENTS)
   }
+  await migrateTaskEvents(db)
   await assertFinalSchema(db)
 
   let state: DatabaseState
@@ -2537,6 +2542,16 @@ async function migrateTaskTable(db: D1Database): Promise<void> {
 }
 
 /**
+ * How many rows one day-column update carries.
+ *
+ * The backfill used to prepare one `UPDATE` per row. A few hundred rows made that a few hundred D1
+ * statements inside the first request, and a shelf of ten thousand held the boot for minutes — the
+ * app appeared down because every API request waits for this. One statement per hundred rows writes
+ * the same values in a handful of statements; the row count is the batch, not the statement.
+ */
+const DAY_BACKFILL_ROWS_PER_STATEMENT = 100
+
+/**
  * Files every task that predates the day columns under its account's calendar day.
  *
  * `created_on` / `completed_on` (versions 131 and 132) hold the day the reader wrote or finished a
@@ -2571,6 +2586,7 @@ async function migrateTodoDayColumns(db: D1Database): Promise<void> {
       `SELECT id, created_at, completed_at FROM todos_tasks
         WHERE user_id = ?1 AND (created_on IS NULL OR (completed_on IS NULL AND completed_at IS NOT NULL))`,
     ).bind(account.user_id).all<{ id: string; created_at: number; completed_at: number | null }>()
+    const filed: { id: string; createdOn: string; completedOn: string | null }[] = []
     for (const row of rows ?? []) {
       let createdOn: string
       let completedOn: string | null
@@ -2585,10 +2601,26 @@ async function migrateTodoDayColumns(db: D1Database): Promise<void> {
           { cause },
         )
       }
+      filed.push({ id: row.id, createdOn, completedOn })
+    }
+    for (const chunk of chunkStatements(filed, DAY_BACKFILL_ROWS_PER_STATEMENT)) {
+      // `COALESCE` keeps the values a previous boot already wrote, and the `WHERE` guard keeps this
+      // statement's rows to the ones the count above found missing. The chunk travels as one bound
+      // JSON document rather than a parameter per value: a hundred rows carry two hundred values,
+      // past D1's bound-parameter ceiling, and the document also keeps every id out of the SQL text.
+      const entries = chunk.map((row) => ({ id: row.id, created: row.createdOn, completed: row.completedOn }))
       updates.push(db.prepare(
-        `UPDATE todos_tasks SET created_on = COALESCE(created_on, ?3), completed_on = COALESCE(completed_on, ?4)
-          WHERE user_id = ?1 AND id = ?2`,
-      ).bind(account.user_id, row.id, createdOn, completedOn))
+        `UPDATE todos_tasks
+            SET created_on = COALESCE(created_on, (
+                  SELECT json_extract(entry.value, '$.created') FROM json_each(?2) AS entry
+                   WHERE json_extract(entry.value, '$.id') = todos_tasks.id)),
+                completed_on = COALESCE(completed_on, (
+                  SELECT json_extract(entry.value, '$.completed') FROM json_each(?2) AS entry
+                   WHERE json_extract(entry.value, '$.id') = todos_tasks.id))
+          WHERE user_id = ?1
+            AND id IN (SELECT json_extract(entry.value, '$.id') FROM json_each(?2) AS entry)
+            AND (created_on IS NULL OR (completed_on IS NULL AND completed_at IS NOT NULL))`,
+      ).bind(account.user_id, JSON.stringify(entries)))
     }
   }
 

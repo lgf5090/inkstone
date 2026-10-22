@@ -143,6 +143,38 @@ describe('backfilling an older database', () => {
     })
   })
 
+  it('files a large legacy shelf in a handful of statements instead of one per row', async () => {
+    const sqlite = await legacyDatabase()
+    seedZone(sqlite, USER, 'Asia/Shanghai')
+    const rows = 250
+    for (let index = 0; index < rows; index++) {
+      seedTask(sqlite, {
+        user: USER,
+        id: `task-${String(index).padStart(21, '0')}`,
+        createdAt: Date.parse('2026-03-08T04:30:00Z') + index * 60_000,
+      })
+    }
+    const statements: string[] = []
+    const inner = makeD1(sqlite)
+    const db = {
+      ...inner,
+      prepare(sql: string) {
+        statements.push(sql)
+        return inner.prepare(sql)
+      },
+    } as D1Database
+
+    await initializeDatabase(testBindings(db))
+
+    // One statement per hundred rows, not one per row: the old loop prepared 250 of these, and a
+    // production shelf held the first request open for minutes.
+    const updates = statements.filter((sql) =>
+      /^\s*UPDATE todos_tasks/i.test(sql) && sql.includes('created_on'))
+    expect(updates.length).toBeLessThanOrEqual(3)
+    expect(sqlite.prepare(`SELECT COUNT(*) AS n FROM todos_tasks WHERE created_on IS NULL`).get())
+      .toEqual({ n: 0 })
+  })
+
   it('fills a second boot with nothing to do, and never rewrites a recorded day', async () => {
     const sqlite = await legacyDatabase()
     seedZone(sqlite, USER, 'Asia/Shanghai')

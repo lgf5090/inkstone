@@ -72,6 +72,30 @@ function eventRows(sqlite: DatabaseSync, taskId: string): {
 }
 
 describe('the task event backfill', () => {
+  it('creates the task index before probing the event table', async () => {
+    const sqlite = database()
+    seedLegacyTasks(sqlite)
+    const statements: string[] = []
+    const inner = makeD1(sqlite)
+    const db = {
+      ...inner,
+      prepare(sql: string) {
+        statements.push(sql)
+        return inner.prepare(sql)
+      },
+    } as D1Database
+
+    await initializeDatabase(testBindings(db))
+
+    // Each "has this task a birth" answer is a lookup only once the index exists; prepared before
+    // it, the same question walks the whole history for every task.
+    const indexAt = statements.findIndex((sql) =>
+      sql.includes('CREATE INDEX IF NOT EXISTS idx_todos_task_events_task'))
+    const probeAt = statements.findIndex((sql) => sql.includes('FROM todos_task_events e'))
+    expect(indexAt).toBeGreaterThanOrEqual(0)
+    expect(probeAt).toBeGreaterThan(indexAt)
+  })
+
   it('files every task its birth and a completion for the ones done now', async () => {
     const sqlite = database()
     seedLegacyTasks(sqlite)
