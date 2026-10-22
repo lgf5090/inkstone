@@ -855,6 +855,11 @@ console.log('[import atomicity]')
 
 console.log('[protected share attachment]')
 if (noteId) {
+  // The route counts the body while it streams, under a ceiling of 25 MiB plus a 512 KiB form
+  // envelope, and a chunked request carries no declared length to check first — so the fixture has
+  // to clear that ceiling to be testing the counter at all. Eleven MiB only ever proved it against
+  // the 10 MiB single-file limit this app had before the ceiling moved to 25 MiB.
+  const chunkedOversize = byteStream(27 * 1024 * 1024)
   const streamedOversize = await fetch(BASE + '/api/files', {
     method: 'POST',
     headers: {
@@ -862,7 +867,7 @@ if (noteId) {
       'X-Inkstone-Client': '1',
       Cookie: owner.jar.cookie,
     },
-    body: byteStream(11 * 1024 * 1024),
+    body: chunkedOversize,
     duplex: 'half',
   })
   const streamedError = await streamedOversize.json().catch(() => null)
@@ -892,8 +897,10 @@ if (noteId) {
       spoofedAttachment?.mime === 'application/octet-stream' &&
       spoofedDownload?.headers.get('content-disposition')?.startsWith('attachment;') === true,
   )
-  check('private attachment responses are never browser-cached',
-    spoofedDownload?.headers.get('cache-control') === 'private, no-store')
+  // The reader's own copy may be held for a year because only that reader can delete the bytes; a
+  // share grant is revocable, so its reads are asserted no-store further below.
+  check('owner attachment reads are cached privately, never by a shared cache',
+    spoofedDownload?.headers.get('cache-control') === 'private, max-age=31536000, immutable')
   if (spoofedAttachment?.id) await owner.req('DELETE', `/api/files/${spoofedAttachment.id}`)
 
   const form = new FormData()
