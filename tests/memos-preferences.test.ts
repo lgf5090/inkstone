@@ -132,6 +132,31 @@ describe('memo preferences store', () => {
     })
   })
 
+  it('round-trips the transcription settings and normalises blanks', async () => {
+    const patched = await patchMemoPreferences(db, OWNER, {
+      transcriptionProviderId: 'provider-1',
+      transcriptionModel: 'whisper-1',
+      transcriptionLanguage: ' zh-CN ',
+      transcriptionPrompt: '  Inkstone, memo  ',
+    })
+    expect(patched.transcriptionProviderId).toBe('provider-1')
+    expect(patched.transcriptionModel).toBe('whisper-1')
+    expect(patched.transcriptionLanguage).toBe('zh-CN')
+    expect(patched.transcriptionPrompt).toBe('Inkstone, memo')
+    await expect(getMemoPreferences(db, OWNER)).resolves.toEqual(patched)
+
+    const cleared = await patchMemoPreferences(db, OWNER, {
+      transcriptionProviderId: '',
+      transcriptionModel: null,
+      transcriptionLanguage: '   ',
+      transcriptionPrompt: '',
+    })
+    expect(cleared.transcriptionProviderId).toBeNull()
+    expect(cleared.transcriptionModel).toBeNull()
+    expect(cleared.transcriptionLanguage).toBe('')
+    expect(cleared.transcriptionPrompt).toBe('')
+  })
+
   it('accepts the documented maxima and every allowed hex length', async () => {
     const tagRules: MemoTagRule[] = [
       rule({ pattern: 'x'.repeat(MEMO_TAG_RULE_MAX_LENGTH), backgroundColor: '#abc' }),
@@ -341,6 +366,16 @@ describe('memo preferences validation', () => {
       name: 'an unknown preference',
       patch: { fontSize: 14 },
       message: 'Unknown memo preference "fontSize"',
+    },
+    {
+      name: 'an overlong transcription language',
+      patch: { transcriptionLanguage: 'x'.repeat(17) },
+      message: 'transcriptionLanguage cannot exceed 16 characters',
+    },
+    {
+      name: 'an overlong transcription prompt',
+      patch: { transcriptionPrompt: 'x'.repeat(2001) },
+      message: 'transcriptionPrompt cannot exceed 2000 characters',
     },
   ]
 

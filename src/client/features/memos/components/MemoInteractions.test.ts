@@ -167,6 +167,57 @@ describe('the memo composer', () => {
     expect(view.container.textContent).toContain(t('memos.composer.empty'))
   })
 
+  it('uploads a Live Photo pair as one motion group and inserts only the still', async () => {
+    let nextId = 0
+    api.attachments.upload.mockImplementation(async (input: {
+      file: File
+      motionGroupId?: string | null
+      motionRole?: string | null
+    }) => {
+      nextId += 1
+      return {
+        id: `att-${nextId}`,
+        filename: input.file.name,
+        mime: input.file.type,
+        size: input.file.size,
+        width: null,
+        height: null,
+        url: `/api/memos/files/att-${nextId}`,
+        thumbnailUrl: null,
+        motion: input.motionGroupId
+          ? { groupId: input.motionGroupId, role: input.motionRole }
+          : null,
+        mediaMetadata: null,
+        createdAt: 100,
+        memoId: null,
+        memo: null,
+      }
+    })
+    saveMemoDraft('guest', memoComposerDraftScope(null), { content: 'trip ', visibility: 'private' })
+    view = renderElement(createElement(MemoComposer, {}))
+    await flush()
+    const input = view.container.querySelector<HTMLInputElement>('input[type="file"]')
+    expect(input).not.toBeNull()
+    await chooseFiles(input!, [
+      new File(['still'], 'IMG_0042.HEIC', { type: 'image/heic' }),
+      new File(['video'], 'IMG_0042.MOV', { type: 'video/quicktime' }),
+    ])
+    expect(api.attachments.upload).toHaveBeenCalledTimes(2)
+    const still = api.attachments.upload.mock.calls[0]![0] as {
+      motionGroupId: string
+      motionRole: string
+    }
+    const video = api.attachments.upload.mock.calls[1]![0] as {
+      motionGroupId: string
+      motionRole: string
+    }
+    expect(still.motionRole).toBe('still')
+    expect(video.motionRole).toBe('video')
+    expect(still.motionGroupId).toBe(video.motionGroupId)
+    expect(editorText(view.container)).toContain('![IMG_0042.HEIC](/api/memos/files/att-1)')
+    expect(editorText(view.container)).not.toContain('/api/memos/files/att-2')
+  })
+
   it('uploads a pasted file and inserts its markdown at the cursor', async () => {
     const attachment = {
       id: 'att-1',

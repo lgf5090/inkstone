@@ -6,6 +6,7 @@ import {
   type Ref,
 } from 'react'
 import { Annotation, Compartment, EditorSelection, EditorState, Prec, type Extension } from '@codemirror/state'
+import { autocompletion, completionKeymap } from '@codemirror/autocomplete'
 import {
   EditorView,
   drawSelection,
@@ -30,11 +31,13 @@ import {
   Quote,
   Strikethrough,
 } from 'lucide-react'
+import { emojiSource, tagSource } from '../../../editor/completion'
 import { editorTheme } from '../../../editor/theme'
 import { IconButton } from '../../../components/primitives'
 import { cn } from '../../../lib/cn'
 import { t, type MessageKey } from '../../../lib/i18n'
 import { codeMirrorKey } from '../../../lib/shortcuts'
+import { memoSlashSource } from '../memo-slash'
 import { applyMemoFormat, insertMemoSnippet, MEMO_ANY_LIST_PREFIX, MEMO_LIST_PATTERNS, type MemoFormatAction } from './memo-editor-format'
 
 const externalValueUpdate = Annotation.define<boolean>()
@@ -122,6 +125,7 @@ export interface MemoEditorProps {
   onSubmit?: () => void
   onFiles?: (files: File[]) => void
   onDragActiveChange?: (active: boolean) => void
+  getTags?: () => { name: string; count: number }[]
   autoFocus?: boolean
   disabled?: boolean
   className?: string
@@ -136,6 +140,7 @@ export function MemoEditor({
   onSubmit,
   onFiles,
   onDragActiveChange,
+  getTags,
   autoFocus = false,
   disabled = false,
   className,
@@ -145,6 +150,8 @@ export function MemoEditor({
   const viewRef = useRef<EditorView | null>(null)
   const callbacks = useRef({ onChange, onSubmit, onFiles, onDragActiveChange })
   callbacks.current = { onChange, onSubmit, onFiles, onDragActiveChange }
+  const tagsRef = useRef(getTags)
+  tagsRef.current = getTags
   const placeholderCompartment = useRef(new Compartment())
   const editableCompartment = useRef(new Compartment())
 
@@ -197,6 +204,17 @@ export function MemoEditor({
           },
         },
       ]),
+      autocompletion({
+        override: [
+          emojiSource,
+          tagSource(() => ({
+            notes: () => [],
+            tags: () => tagsRef.current?.() ?? [],
+          })),
+          memoSlashSource,
+        ],
+      }),
+      keymap.of([...completionKeymap]),
       keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
       EditorView.updateListener.of((update) => {
         const external = update.transactions.some((transaction) => transaction.annotation(externalValueUpdate))

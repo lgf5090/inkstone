@@ -12,6 +12,7 @@ import { GeneralSettings } from './memo-settings/GeneralSettings'
 import { ImportExportSettings } from './memo-settings/ImportExportSettings'
 import { ReactionsSettings } from './memo-settings/ReactionsSettings'
 import { TagRulesSettings } from './memo-settings/TagRulesSettings'
+import { TranscriptionSettings } from './memo-settings/TranscriptionSettings'
 import { WebhooksSettings } from './memo-settings/WebhooksSettings'
 import { MEMO_SETTINGS_SECTION_IDS } from './memo-settings/sections'
 
@@ -22,6 +23,7 @@ interface SettingsSectionLink {
 
 const SECTION_LINKS: readonly SettingsSectionLink[] = [
   { id: MEMO_SETTINGS_SECTION_IDS.general, labelKey: 'memos.settings.general' },
+  { id: MEMO_SETTINGS_SECTION_IDS.transcription, labelKey: 'memos.settings.transcription' },
   { id: MEMO_SETTINGS_SECTION_IDS.reactions, labelKey: 'memos.settings.reactions' },
   { id: MEMO_SETTINGS_SECTION_IDS.tags, labelKey: 'memos.settings.tags' },
   { id: MEMO_SETTINGS_SECTION_IDS.tokens, labelKey: 'memos.settings.tokens' },
@@ -105,6 +107,7 @@ export function MemoSettingsPage(): ReactElement {
         ) : (
           <div className="mt-3 space-y-4">
             <GeneralSettings preferences={draft} saving={saving} save={save} />
+            <TranscriptionSettings preferences={draft} saving={saving} save={save} />
             <ReactionsSettings preferences={draft} saving={saving} save={save} />
             <TagRulesSettings preferences={draft} saving={saving} save={save} />
             <AccessTokensSettings />

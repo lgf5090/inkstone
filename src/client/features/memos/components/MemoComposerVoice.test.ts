@@ -204,6 +204,36 @@ describe('the composer microphone', () => {
     }))
   })
 
+  it('sends the saved provider, model, language and prompt', async () => {
+    api.preferences.get.mockResolvedValue({
+      defaultVisibility: 'private',
+      enableDoubleClickEdit: true,
+      saveMediaMetadata: true,
+      reactions: [],
+      tagRules: [],
+      enableLinkPreview: true,
+      enableReverseGeocoding: false,
+      transcriptionProviderId: 'provider-2',
+      transcriptionModel: 'whisper-large',
+      transcriptionLanguage: 'zh-CN',
+      transcriptionPrompt: 'Inkstone notes',
+    })
+    ai.providers.mockResolvedValue([
+      { id: 'provider-1', label: 'OpenAI', protocol: 'openai', models: ['whisper-1'] },
+      { id: 'provider-2', label: 'Gateway', protocol: 'openai', models: ['whisper-small', 'whisper-large'] },
+    ])
+    view = renderElement(createElement(MemoComposer, {}))
+    await flush()
+
+    await recordOnce()
+
+    const form = ai.transcribe.mock.calls[0]![0] as FormData
+    expect(form.get('providerId')).toBe('provider-2')
+    expect(form.get('model')).toBe('whisper-large')
+    expect(form.get('language')).toBe('zh-CN')
+    expect(form.get('prompt')).toBe('Inkstone notes')
+  })
+
   it('names the provider and model settings when the account has nothing to transcribe with', async () => {
     ai.providers.mockResolvedValue([
       { id: 'claude', label: 'Claude', protocol: 'anthropic', models: ['claude-sonnet-4'] },

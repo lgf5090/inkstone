@@ -89,6 +89,8 @@ export const ZH_CN_MEMOS_CORE = {
     "memos.composer.task_list": "任务列表",
     "memos.composer.link": "链接",
     "memos.composer.heading_level": "标题 {level}",
+    "memos.composer.code_block": "代码块",
+    "memos.composer.divider": "分隔线",
     "memos.composer.attach": "添加附件",
     "memos.composer.location": "添加位置",
     "memos.composer.location_clear": "移除位置",

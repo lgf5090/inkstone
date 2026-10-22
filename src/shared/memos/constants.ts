@@ -74,4 +74,8 @@ export const MEMO_PREFERENCES_DEFAULTS: MemoPreferences = {
   tagRules: [],
   enableLinkPreview: true,
   enableReverseGeocoding: false,
+  transcriptionProviderId: null,
+  transcriptionModel: null,
+  transcriptionLanguage: '',
+  transcriptionPrompt: '',
 }

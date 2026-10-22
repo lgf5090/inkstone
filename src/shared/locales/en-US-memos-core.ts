@@ -89,6 +89,8 @@ export const EN_US_MEMOS_CORE = {
     "memos.composer.task_list": "Task list",
     "memos.composer.link": "Link",
     "memos.composer.heading_level": "Heading {level}",
+    "memos.composer.code_block": "Code block",
+    "memos.composer.divider": "Divider",
     "memos.composer.attach": "Attach files",
     "memos.composer.location": "Add location",
     "memos.composer.location_clear": "Remove location",

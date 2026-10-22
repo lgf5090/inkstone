@@ -32,22 +32,29 @@ export interface MemoTranscriptionTarget {
 }
 
 /**
- * The first provider and model a recording can be sent to, or null when the account has none.
+ * The provider and model a recording is sent to, or null when the account has none.
  *
- * Anthropic has no audio endpoint this app can call, so a listing that only holds one is the same
- * answer as an empty listing: the caller says which settings to fill in rather than spending a request
- * that is certain to be refused. The first model is the reader's first choice — the listing is already
- * in the order their provider screen shows.
+ * A configured provider wins when the listing still holds it; otherwise the first usable one does, so
+ * a deleted provider or model falls back instead of failing the recording. Anthropic has no audio
+ * endpoint this app can call, so a listing that only holds one is the same answer as an empty listing.
  */
 export function memoTranscriptionTarget(
   providers: readonly MemoAiProvider[],
+  preferred?: { providerId?: string | null; model?: string | null },
 ): MemoTranscriptionTarget | null {
-  for (const provider of providers) {
-    if (!(MEMO_TRANSCRIPTION_PROTOCOLS as readonly string[]).includes(provider.protocol)) continue
-    const model = provider.models[0]
-    if (model) return { providerId: provider.id, model }
-  }
-  return null
+  const usable = providers.filter((provider) => (
+    (MEMO_TRANSCRIPTION_PROTOCOLS as readonly string[]).includes(provider.protocol)
+    && provider.models.length > 0
+  ))
+  const chosen = preferred?.providerId
+    ? usable.find((provider) => provider.id === preferred.providerId)
+    : undefined
+  const provider = chosen ?? usable[0]
+  if (!provider) return null
+  const model = preferred?.model && provider.models.includes(preferred.model)
+    ? preferred.model
+    : provider.models[0]
+  return model ? { providerId: provider.id, model } : null
 }
 
 export const memoAi = {

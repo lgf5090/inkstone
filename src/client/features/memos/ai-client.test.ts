@@ -75,4 +75,26 @@ describe('memoTranscriptionTarget', () => {
     expect(memoTranscriptionTarget([])).toBeNull()
     expect(memoTranscriptionTarget(providers.slice(0, 2))).toBeNull()
   })
+
+  it('honours the configured provider and model while they still exist', () => {
+    expect(memoTranscriptionTarget(providers, {
+      providerId: 'gemini',
+      model: 'gemini-2.5-flash',
+    })).toEqual({ providerId: 'gemini', model: 'gemini-2.5-flash' })
+    expect(memoTranscriptionTarget(providers, {
+      providerId: 'openai',
+      model: 'gpt-4o-mini',
+    })).toEqual({ providerId: 'openai', model: 'gpt-4o-mini' })
+  })
+
+  it('falls back to the first usable provider when the setting no longer exists', () => {
+    expect(memoTranscriptionTarget(providers, {
+      providerId: 'deleted',
+      model: 'whisper-1',
+    })).toEqual({ providerId: 'openai', model: 'whisper-1' })
+    expect(memoTranscriptionTarget(providers, {
+      providerId: 'openai',
+      model: 'deleted-model',
+    })).toEqual({ providerId: 'openai', model: 'whisper-1' })
+  })
 })

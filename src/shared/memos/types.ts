@@ -262,6 +262,10 @@ export interface MemoPreferences {
   tagRules: MemoTagRule[]
   enableLinkPreview: boolean
   enableReverseGeocoding: boolean
+  transcriptionProviderId: string | null
+  transcriptionModel: string | null
+  transcriptionLanguage: string
+  transcriptionPrompt: string
 }
 
 export type MemoPreferencesPatch = Partial<MemoPreferences>

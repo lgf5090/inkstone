@@ -25,7 +25,14 @@ const PREFERENCE_KEYS = new Set<string>([
   'tagRules',
   'enableLinkPreview',
   'enableReverseGeocoding',
+  'transcriptionProviderId',
+  'transcriptionModel',
+  'transcriptionLanguage',
+  'transcriptionPrompt',
 ])
+
+const TRANSCRIPTION_LANGUAGE_MAX = 16
+const TRANSCRIPTION_PROMPT_MAX = 2000
 
 const TAG_RULE_KEYS = new Set<string>(['pattern', 'mode', 'backgroundColor', 'blurContent'])
 
@@ -55,6 +62,17 @@ function parseVisibility(value: unknown): MemoVisibility {
 function parseBoolean(value: unknown, field: string): boolean {
   if (typeof value !== 'boolean') throw ApiError.badRequest(`${field} must be a boolean`)
   return value
+}
+
+function parseOptionalText(value: unknown, field: string, maxLength: number): string | null {
+  if (value === null) return null
+  if (typeof value !== 'string') throw ApiError.badRequest(`${field} must be a string or null`)
+  const text = value.trim()
+  if (!text) return null
+  if (text.length > maxLength) {
+    throw ApiError.badRequest(`${field} cannot exceed ${maxLength} characters`)
+  }
+  return text
 }
 
 function parseReactions(value: unknown): string[] {
@@ -168,6 +186,18 @@ function mergePreferences(
     enableReverseGeocoding: patch.enableReverseGeocoding === undefined
       ? current.enableReverseGeocoding
       : parseBoolean(patch.enableReverseGeocoding, 'enableReverseGeocoding'),
+    transcriptionProviderId: patch.transcriptionProviderId === undefined
+      ? current.transcriptionProviderId
+      : parseOptionalText(patch.transcriptionProviderId, 'transcriptionProviderId', 64),
+    transcriptionModel: patch.transcriptionModel === undefined
+      ? current.transcriptionModel
+      : parseOptionalText(patch.transcriptionModel, 'transcriptionModel', 200),
+    transcriptionLanguage: patch.transcriptionLanguage === undefined
+      ? current.transcriptionLanguage
+      : parseOptionalText(patch.transcriptionLanguage, 'transcriptionLanguage', TRANSCRIPTION_LANGUAGE_MAX) ?? '',
+    transcriptionPrompt: patch.transcriptionPrompt === undefined
+      ? current.transcriptionPrompt
+      : parseOptionalText(patch.transcriptionPrompt, 'transcriptionPrompt', TRANSCRIPTION_PROMPT_MAX) ?? '',
   }
 }
 

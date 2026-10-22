@@ -23,6 +23,13 @@ vi.mock('../webhook-client', () => ({
   memoWebhooksClient: { list: vi.fn(() => Promise.resolve([])) },
 }))
 
+const ai = vi.hoisted(() => ({ providers: vi.fn() }))
+
+vi.mock('../ai-client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../ai-client')>()
+  return { ...actual, memoAi: ai }
+})
+
 let currentPreferences: MemoPreferences
 let tokenItems: MemoToken[] = []
 let rendered: RenderedElement | null = null
@@ -77,14 +84,26 @@ function labeledControl<T extends HTMLElement>(text: string): T {
   return control as T
 }
 
-function setValue(element: HTMLInputElement | HTMLSelectElement, value: string): void {
+function setValue(
+  element: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement,
+  value: string,
+): void {
   const prototype = element instanceof HTMLSelectElement
     ? HTMLSelectElement.prototype
-    : HTMLInputElement.prototype
+    : element instanceof HTMLTextAreaElement
+      ? HTMLTextAreaElement.prototype
+      : HTMLInputElement.prototype
   const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set
   act(() => {
     setter?.call(element, value)
     element.dispatchEvent(new Event(element instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true }))
+  })
+}
+
+function blur(element: HTMLElement): void {
+  act(() => {
+    element.focus()
+    element.blur()
   })
 }
 
@@ -115,6 +134,10 @@ beforeEach(async () => {
     currentPreferences = { ...currentPreferences, ...patch }
     return Promise.resolve(currentPreferences)
   })
+  ai.providers.mockResolvedValue([
+    { id: 'provider-1', label: 'OpenAI', protocol: 'openai', models: ['whisper-1', 'gpt-4o-transcribe'] },
+    { id: 'claude', label: 'Claude', protocol: 'anthropic', models: ['claude-sonnet-4'] },
+  ])
   api.tokens.list.mockImplementation(() => Promise.resolve({ tokens: tokenItems }))
   api.tokens.delete.mockImplementation((id: string) => {
     tokenItems = tokenItems.filter((item) => item.id !== id)
@@ -136,6 +159,7 @@ describe('the memo settings page', () => {
     await flush()
     for (const key of [
       'memos.settings.general',
+      'memos.settings.transcription',
       'memos.settings.reactions',
       'memos.settings.tags',
       'memos.settings.tokens',
@@ -146,6 +170,7 @@ describe('the memo settings page', () => {
       expect(host.textContent).toContain(t(key))
     }
     expect(host.querySelector('#memos-settings-general')).not.toBeNull()
+    expect(host.querySelector('#memos-settings-transcription')).not.toBeNull()
     expect(host.querySelector('#memos-settings-tokens')).not.toBeNull()
     expect(host.querySelector('#memos-settings-webhooks')).not.toBeNull()
     expect(host.textContent).toContain(t('memos.settings.about_license'))
@@ -168,6 +193,42 @@ describe('the memo settings page', () => {
     setValue(visibility, 'public')
     await flush()
     expect(api.preferences.patch).toHaveBeenCalledWith({ defaultVisibility: 'public' })
+  })
+
+  it('saves the transcription provider, model, language and prompt', async () => {
+    const host = renderSettings()
+    await flush()
+    const provider = labeledControl<HTMLSelectElement>(t('memos.settings.transcription_provider'))
+    const providerOptions = [...provider.options].map((option) => option.value)
+    expect(providerOptions).toContain('provider-1')
+    expect(providerOptions).not.toContain('claude')
+
+    setValue(provider, 'provider-1')
+    await flush()
+    expect(api.preferences.patch).toHaveBeenCalledWith({
+      transcriptionProviderId: 'provider-1',
+      transcriptionModel: null,
+    })
+
+    const model = labeledControl<HTMLSelectElement>(t('memos.settings.transcription_model'))
+    setValue(model, 'gpt-4o-transcribe')
+    await flush()
+    expect(api.preferences.patch).toHaveBeenCalledWith({
+      transcriptionModel: 'gpt-4o-transcribe',
+    })
+
+    const language = labeledControl<HTMLInputElement>(t('memos.settings.transcription_language'))
+    setValue(language, 'zh-CN')
+    blur(language)
+    await flush()
+    expect(api.preferences.patch).toHaveBeenCalledWith({ transcriptionLanguage: 'zh-CN' })
+
+    const prompt = labeledControl<HTMLTextAreaElement>(t('memos.settings.transcription_prompt'))
+    setValue(prompt, 'Inkstone')
+    blur(prompt)
+    await flush()
+    expect(api.preferences.patch).toHaveBeenCalledWith({ transcriptionPrompt: 'Inkstone' })
+    expect(host.textContent).toContain(t('memos.settings.transcription_description'))
   })
 
   it('adds a reaction and rejects a duplicate in the picker list', async () => {

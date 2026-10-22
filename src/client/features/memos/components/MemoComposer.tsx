@@ -29,7 +29,9 @@ import { memoErrorMessage, memoIsAbortError } from '../errors'
 import { prepareMemoAttachment } from '../image-metadata'
 import { memoPlaceLabel } from '../location'
 import { formatMediaDuration } from '../media'
+import { pairMemoMotionFiles, type MemoMotionAssignment } from '../motion-photo'
 import { loadMemoDraft, useMemos } from '../state'
+import { memoTagCounts } from '../tag-suggestions'
 import { useMemoDraft } from '../use-memo-draft'
 import { useMemoPreferences } from '../use-memo-preferences'
 import { useMemoRecorder } from '../use-memo-recorder'
@@ -209,7 +211,10 @@ export function MemoComposer({
     transcribeAbort.current = controller
     setTranscribing(true)
     try {
-      const target = memoTranscriptionTarget(await memoAi.providers(controller.signal))
+      const target = memoTranscriptionTarget(await memoAi.providers(controller.signal), {
+        providerId: preferences.transcriptionProviderId,
+        model: preferences.transcriptionModel,
+      })
       if (!target) {
         useUi.getState().toast({
           title: t('memos.composer.voice_no_provider'),
@@ -222,6 +227,8 @@ export function MemoComposer({
       form.set('file', file)
       form.set('providerId', target.providerId)
       form.set('model', target.model)
+      if (preferences.transcriptionLanguage) form.set('language', preferences.transcriptionLanguage)
+      if (preferences.transcriptionPrompt) form.set('prompt', preferences.transcriptionPrompt)
       const result = await memoAi.transcribe(form, controller.signal)
       if (controller.signal.aborted) return
       if (!result.text.trim()) {
@@ -261,7 +268,10 @@ export function MemoComposer({
     }
   }
 
-  const uploadOne = async (file: File): Promise<void> => {
+  const uploadOne = async (
+    file: File,
+    motion: MemoMotionAssignment | null = null,
+  ): Promise<boolean> => {
     let attachment: MemoAttachment | null = null
     try {
       const prepared = await prepareMemoAttachment(file, {
@@ -272,11 +282,14 @@ export function MemoComposer({
         thumbnail: prepared.thumbnail,
         metadata: prepared.metadata,
         memoId: memo?.id ?? null,
+        motionGroupId: motion?.groupId ?? null,
+        motionRole: motion?.role ?? null,
       })
       attachment = uploaded
-      appendSnippet(attachmentMarkdown(uploaded))
+      if (motion?.role !== 'video') appendSnippet(attachmentMarkdown(uploaded))
       attachmentIdsRef.current = [...attachmentIdsRef.current, uploaded.id]
       setAttachmentIds((current) => [...current, uploaded.id])
+      return true
     } catch (error) {
       if (attachment) {
         try {
@@ -290,6 +303,7 @@ export function MemoComposer({
         description: memoErrorMessage(error),
         tone: 'danger',
       })
+      return false
     }
   }
 
@@ -309,12 +323,17 @@ export function MemoComposer({
       }
       accepted.push(file)
     }
-    for (const file of accepted) {
+    const pairing = await pairMemoMotionFiles(accepted)
+    const failedGroups = new Set<string>()
+    for (const file of pairing.files) {
+      const motion = pairing.assignments.get(file) ?? null
+      if (motion?.role === 'video' && failedGroups.has(motion.groupId)) continue
       const key = ++uploadKey.current
       uploadingRef.current += 1
       setUploading((current) => [...current, { key, name: file.name }])
       try {
-        await uploadOne(file)
+        const uploaded = await uploadOne(file, motion)
+        if (!uploaded && motion?.role === 'still') failedGroups.add(motion.groupId)
       } finally {
         uploadingRef.current -= 1
         setUploading((current) => current.filter((item) => item.key !== key))
@@ -422,6 +441,7 @@ export function MemoComposer({
       ) : (
         <MemoEditor
           ref={editorRef}
+          getTags={() => memoTagCounts(useMemos.getState().items)}
           value={text}
           label={t(editing ? 'memos.composer.edit_label' : 'memos.composer.label')}
           placeholder={t('memos.composer.placeholder')}
