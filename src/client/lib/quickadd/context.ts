@@ -30,6 +30,33 @@ export interface TemplatePickOption {
   category: string | null
 }
 
+/** What to ask the template engine to render, and where the run has already decided the text is going. */
+export interface TemplaterRenderRequest {
+  /** The library row whose body is being rendered, spelled the way `templateBody` spells one. */
+  templateId: string
+  /**
+   * The title this run settled on.
+   *
+   * The engine freezes it for the whole run, which is what lets `<% tp.file.title %>` name the note the
+   * reader is about to get rather than the one they were looking at when the run started.
+   */
+  title: string
+  /** The note the text is going into, when one exists: the engine reads its body as the target. */
+  noteId?: string | null
+}
+
+/**
+ * What the engine answered for a Template choice's body.
+ *
+ * Three answers because there are three things that can be true, and collapsing them would write a
+ * literal tag into a note: the body is not the engine's to run, the engine ran it, or the engine refused
+ * it — and a refusal has already been said in the engine's own words by the time this comes back.
+ */
+export type TemplaterRender =
+  | { kind: 'not-templater' }
+  | { kind: 'rendered'; text: string; cursor: number | null }
+  | { kind: 'refused' }
+
 export interface NotePort {
   /** The note the reader is looking at, or null when the editor is on nothing. */
   activeNote(): NoteRef | null
@@ -85,6 +112,19 @@ export interface NotePort {
   clipboard(): Promise<string>
   /** Body text of a library template by id or name. */
   templateBody(name: string): Promise<string | null>
+  /**
+   * Render a Templater body through the engine and hand its text back, writing nothing.
+   *
+   * A port because the engine is a sandbox this core may not reach: `lib/quickadd` is guarded against
+   * importing `lib/templater` or `features/templater`, so the decision about which syntax a body is written
+   * in and the run itself both live behind the templates feature's seam, and only its answer crosses here.
+   *
+   * The write stays QuickAdd's — the title, the folder, the tags, the link-back and its own conflict rules
+   * are resolved by the engine of this feature, not by the template — which is why this asks for text and
+   * not for a note. A `refused` answer has already been told to the reader in the engine's own words, so
+   * the run stops instead of dropping a literal `<% … %>` into a note.
+   */
+  renderTemplater(request: TemplaterRenderRequest): Promise<TemplaterRender>
   /** Every template name in the library, for a choice that asks which one to use. */
   templateNames(): string[]
   /**

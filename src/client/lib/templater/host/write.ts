@@ -71,13 +71,19 @@ export const WRITE_NOTICE_MESSAGES: Record<WriteNotice['kind'], MessageKey> = {
 export interface WritePlan {
   mode: RunMode
   kind: WritePlanKind
-  /** The note's whole content after the write; `''` for a discarded output. */
+  /**
+   * The note's whole content after the write.
+   *
+   * `''` for a startup run, whose output is thrown away, and the rendered document for a `render-only`
+   * one, whose write belongs to the caller — see {@link planRenderOnly}.
+   */
   content: string
   /**
    * Where the run's text lands in the note as it stands, and what lands there.
    *
    * The whole new document for `create` and `replace`, whose ranges already cover the note; just the
-   * body for `insert`, whose properties are a separate range.
+   * body for `insert`, whose properties are a separate range; empty for a `discard`, which writes
+   * nothing anywhere even when it carries the text it produced.
    */
   body: { range: WriteRange; text: string }
   /** The properties, when the write touches them. */
@@ -98,7 +104,10 @@ export interface WriteRequest {
   currentContent: string
   /** The markers found in `rendered`, as `groupCursorMarkers` reports them. */
   cursorGroups: CursorGroup[]
-  /** The note the output belongs to; `null` when the run has none, which is only legal for `create-new`. */
+  /**
+   * The note the output belongs to; `null` when the run has none, which is only legal for the two modes
+   * that write no note of their own — `create-new`, whose note does not exist yet, and `render-only`.
+   */
   target?: RunNoteRef | null
   /** Where a created note would live, in the app's virtual `Folder/Note.md` form. */
   path?: string
@@ -157,6 +166,7 @@ export function planWrite(request: WriteRequest): WritePlanResult {
     notes.push({ kind: 'output-discarded' })
     return succeed(request, 'discard', '', null, { start: 0, end: 0 }, '', [], notes)
   }
+  if (mode === 'render-only') return planRenderOnly(request, split, notes)
   if (mode === 'create-new') return planCreate(request, split, notes)
   if (mode === 'append-active') return planInsert(request, split, notes)
   return planReplace(request, split, notes)
@@ -168,13 +178,12 @@ function planReplace(request: WriteRequest, split: RenderedSplit, notes: WriteNo
   // A missing target is a failure, never an invitation to create: `overwrite-active` and `overwrite-file`
   // both promise to replace a note the reader picked.
   if (!request.target) return fail('note-not-found', request.path ?? request.mode)
-  const stripped = takeFirstCursorGroup(split.body, request.cursorGroups, split.bodyStart)
-  const content = split.block ? `${split.block}\n${stripped.text}` : stripped.text
-  if (pastCeiling(0, content.length)) return fail('template-output-too-large', `chars:${content.length}`)
+  const made = renderDocument(request, split)
+  if (pastCeiling(0, made.content.length)) return fail('template-output-too-large', `chars:${made.content.length}`)
   // Replacing is what the mode means, so the note's own properties go with its body: no merge, matching
   // upstream. The reader's confirmation step is where that is made visible, not here.
-  return succeed(request, 'replace', content, null, { start: 0, end: currentContent.length }, content,
-    withBase(stripped.carets, 0), notes)
+  return succeed(request, 'replace', made.content, null, { start: 0, end: currentContent.length }, made.content,
+    made.carets, notes)
 }
 
 /** The create-from-template path: a note that has no text yet gets the whole output. */
@@ -182,12 +191,42 @@ function planCreate(request: WriteRequest, split: RenderedSplit, notes: WriteNot
   if (!request.path) return fail('path-invalid', 'empty')
   if (request.currentContent !== '') return fail('note-conflict', 'not-empty')
   if (request.target && !request.target.isEmpty) return fail('note-conflict', request.target.id)
+  const made = renderDocument(request, split)
+  if (pastCeiling(0, made.content.length)) return fail('template-output-too-large', `chars:${made.content.length}`)
+  return succeed(request, 'create', made.content, null, { start: 0, end: 0 }, made.content, made.carets, notes)
+}
+
+/**
+ * The document a create run would have written, handed back without being written anywhere.
+ *
+ * `render-only` is the mode for a caller that renders a body and keeps ownership of the write: QuickAdd's
+ * Template choice resolves the title, the folder, the tags, the link-back and its own conflict rules, so
+ * handing that run to one of the doors that writes would silently drop them. What has to stay identical is
+ * the text, which is why this shares {@link renderDocument} with the create path rather than assembling it
+ * again — the caller merges *this* string into a note of its own, and two assemblies is two sets of rules
+ * for one rendered template. Nothing of the note's own is consulted: no merge with its properties, and no
+ * `output-discarded` notice, because here the output is the answer rather than a loss.
+ */
+function planRenderOnly(request: WriteRequest, split: RenderedSplit, notes: WriteNotice[]): WritePlanResult {
+  const made = renderDocument(request, split)
+  if (pastCeiling(0, made.content.length)) return fail('template-output-too-large', `chars:${made.content.length}`)
+  return succeed(request, 'discard', made.content, null, { start: 0, end: 0 }, '', made.carets, notes)
+}
+
+/**
+ * The run's own text as a whole document: its properties block as spelled, then the body with the first
+ * caret group taken out.
+ *
+ * Written as the template spelled the block, fences included: there is nothing to merge into in either of
+ * the two modes that use this, so re-emitting the parsed values would only lose the author's own quoting.
+ * The carets come back measured in the result, which is what makes the offsets and the text one answer.
+ */
+function renderDocument(request: WriteRequest, split: RenderedSplit): { content: string; carets: number[] } {
   const stripped = takeFirstCursorGroup(split.body, request.cursorGroups, split.bodyStart)
-  // Written as the template spelled it, fences included: there is nothing to merge into, so re-emitting
-  // the parsed values would only lose the author's own quoting.
-  const content = split.block ? `${split.block}\n${stripped.text}` : stripped.text
-  if (pastCeiling(0, content.length)) return fail('template-output-too-large', `chars:${content.length}`)
-  return succeed(request, 'create', content, null, { start: 0, end: 0 }, content, withBase(stripped.carets, 0), notes)
+  return {
+    content: split.block ? `${split.block}\n${stripped.text}` : stripped.text,
+    carets: withBase(stripped.carets, 0),
+  }
 }
 
 /** Inserting into the note the reader is looking at: body at the selection, properties merged. */

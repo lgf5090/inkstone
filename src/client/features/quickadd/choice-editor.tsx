@@ -366,10 +366,11 @@ function TemplateFields({ draft, patch, renderFormat }: {
 }) {
   const templates = useNoteTemplates((state) => state.templates)
   const categories = useNoteTemplates((state) => state.categories)
-  // A Templater body picked by a Template choice is the one case where this editor has to say out loud
-  // what will happen: the choice writes the text as it is, so the reader would otherwise meet literal
-  // `<% tp.file.title %>` in a note and read that as a broken template. Routing it to the engine is the
-  // other half of this card and is not wired yet — see plan §D16 / card P9-6.
+  // A Templater body picked by a Template choice is the one case where this editor has to say what will
+  // happen before the reader presses anything: running the choice executes the body's commands, and a
+  // reader who expects the text as typed would read the result as a broken template. The notice exists for
+  // that; the run itself answers through `lib/quickadd`'s one port method, which is why this file only ever
+  // reads the same badge judgement the gallery reads and never touches the engine.
   const picked = draft.templatePick === 'fixed' && draft.templateId
     ? templates.find((one) => one.id === draft.templateId) ?? null
     : null
@@ -404,7 +405,7 @@ function TemplateFields({ draft, patch, renderFormat }: {
       )}
       {draft.templatePick === 'fixed' && (
         <Field label={t('quickadd.field_template')} hint={templaterBody
-          ? <span className="text-[var(--warning)]">{t('quickadd.field_template_templater')}</span>
+          ? <span className="text-[var(--text-tertiary)]">{t('quickadd.field_template_templater')}</span>
           : t('quickadd.field_template_hint')}>
           <Select
             aria-label={t('quickadd.field_template')}

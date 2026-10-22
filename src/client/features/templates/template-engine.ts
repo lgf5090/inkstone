@@ -1,21 +1,23 @@
 /**
- * The gallery's handle on the template shell, and the badge that says which syntax a body is written in.
+ * The library's handle on the template shell, and the badge that says which syntax a body is written in.
  *
  * Two separate jobs, and the second one is why `isTemplaterTemplate` is exported at all: a card's badge and
  * the library's filters have to agree with each other, so they read one judgement rather than each carrying
- * its own copy of the pattern.
+ * its own copy of the pattern. It is also the judgement a caller outside this feature has to be able to ask:
+ * QuickAdd's Template choice cannot read `lib/templater/detection.ts` for itself, because that module is part
+ * of the sandbox and `lib/quickadd` is guarded against reaching it.
  *
  * The first job is indirection, not routing. The engine is a QuickJS wasm binary behind a worker, and pressing
- * a card must not be the reason a reader downloads it, so everything past these two functions arrives through
+ * a card must not be the reason a reader downloads it, so everything past these functions arrives through
  * a dynamic import — `tests/templater-offline-footprint.test.ts` is what notices if that goes away. Which of
  * the two renderers a body needs is decided one level down, in `run-shell.ts`, so that a card, a chord, a
  * command and the file-creation trigger cannot give the same template four different answers.
  */
 import { detectEngine } from '../../lib/templater/detection'
 import type { TemplateOrigin } from '../templater/run-shell'
-import type { NoteTemplate } from '@shared/types'
+import type { Note, NoteTemplate } from '@shared/types'
 
-/** Whether this body is written in Templater's syntax — the badge, the filter, and the QuickAdd warning. */
+/** Whether this body is written in Templater's syntax — the badge, the filter, and the QuickAdd route. */
 export function isTemplaterTemplate(template: NoteTemplate): boolean {
   return bodyRunsCode(template.content)
 }
@@ -50,4 +52,21 @@ export async function createNoteWithEngine(template: NoteTemplate, folderId: str
 export async function insertNoteWithEngine(template: NoteTemplate, origin: TemplateOrigin = 'library'): Promise<boolean> {
   const shell = await import('../templater/run-shell')
   return shell.insertTemplateIntoActiveNote(template, origin)
+}
+
+/**
+ * Render one library body and hand back its text, writing nothing.
+ *
+ * The third route the shell offers, for a caller that owns its own write: QuickAdd's Template choice
+ * resolves the title, the folder, the tags, the link-back and its conflict rules, so it needs the document
+ * and not a door that places it. Which syntax the body is written in stays the caller's question to ask —
+ * {@link bodyRunsCode} is right beside this — because this function runs whatever it is handed.
+ */
+export async function renderTemplaterBody(
+  template: NoteTemplate,
+  target: Note | null,
+  frozenTitle: string,
+): Promise<{ text: string; cursor: number | null } | null> {
+  const shell = await import('../templater/run-shell')
+  return shell.renderTemplateBodyText(template, target, frozenTitle)
 }

@@ -18,7 +18,7 @@ import { useNoteTemplates } from '../../store/note-templates'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 import { registerLinkEditorNote } from '../links/store'
-import { createNoteFromTemplate, insertTemplateIntoActiveNote, renderDynamicCommand, replaceActiveNoteWithTemplate } from './run-shell'
+import { createNoteFromTemplate, insertTemplateIntoActiveNote, renderDynamicCommand, renderTemplateBodyText, replaceActiveNoteWithTemplate } from './run-shell'
 
 /** Everything the stand-in door records, and the answers it can be told to give. */
 const engine = vi.hoisted(() => ({
@@ -372,6 +372,35 @@ describe('what a reader is told when a run does not do what was asked', () => {
     expect(engine.writes).toEqual([{ id: 'n1', content: '---\ntitle: T\n---\nXYZbody' }])
     expect(useUi.getState().templateInsert).toEqual({ noteId: 'n1', content: '', cursor: [18, 19] })
     expect(toastTitles()).toEqual([t('templater.notice.insertion_clamped'), t('templates.inserted_into_note')])
+  })
+})
+
+describe('rendering a body for a caller that owns the write', () => {
+  it('answers with the document and the first caret, writing nothing and saying nothing', async () => {
+    // QuickAdd's Template choice resolves its own title, folder, tags and link-back, so this door has to
+    // give back exactly what a create run would have written — and stop there. No success line either:
+    // the run's summary is the caller's sentence to say, and two would be one too many.
+    const answer = await renderTemplateBodyText(TEMPLATE, null, 'Planned title')
+    expect(answer).toEqual({ text: 'XYZ', cursor: 1 })
+    expect(engine.writes).toEqual([])
+    expect(engine.creates).toEqual([])
+    expect(useUi.getState().toasts).toEqual([])
+    const context = engine.renders.at(-1)!.context
+    expect(context.mode).toBe('render-only')
+    expect(context.capabilities, 'a QuickAdd run starts from the reader’s own library row').toBe('local')
+    expect(context.frozenTitle, 'the note the text is going into does not exist yet').toBe('Planned title')
+  })
+
+  it('hands the run the note the text is going into, so its reads see what the reader typed', async () => {
+    await renderTemplateBodyText(TEMPLATE, { ...NOTE_SUMMARY, content: 'typed and unsaved' } as never, 'Target')
+    expect((engine.renders.at(-1)!.context.target as { content: string }).content).toBe('typed and unsaved')
+  })
+
+  it('says a refusal once, in the engine’s own words, and answers with nothing', async () => {
+    engine.renderFailure = { code: 'capability-blocked', detail: 'note.write' }
+    expect(await renderTemplateBodyText(TEMPLATE, null, 'Planned title')).toBeNull()
+    expect(toastTitles()).toHaveLength(1)
+    expect(toastTitles()[0]).toContain(t('templater.error.capability_blocked'))
   })
 })
 

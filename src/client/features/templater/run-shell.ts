@@ -40,6 +40,7 @@ import {
   writeCode,
   type RunTemplateInput,
   type RunTemplatePorts,
+  type RunTemplateApplied,
   type RunTemplateResult,
 } from '../../lib/templater/host/run-template'
 import { WRITE_NOTICE_MESSAGES } from '../../lib/templater/host/write'
@@ -206,23 +207,42 @@ async function replaceWithPlaceholders(template: NoteTemplate, note: Note, succe
 /**
  * One run, from the rows the page holds to the toast the reader gets.
  *
- * The success line is chosen by the caller rather than read off the plan's kind, because `discard` is a
- * kind this feature never starts and a table keyed by it would be a branch no reader can reach.
+ * The success line is chosen by the caller rather than read off the plan's kind, because a kind cannot say
+ * which act produced it: `overwrite-active` is the reader naming a command and `overwrite-file` is a rule
+ * firing on a note they just made, and both plan a `replace`.
  */
 async function run(input: RunTemplateInput, success: MessageKey): Promise<boolean> {
+  if ((await performed(input)) === null) return false
+  useUi.getState().toast({ title: t(success), tone: 'success' })
+  return true
+}
+
+/**
+ * The pipeline call, its script context and its data-layer failure, with the refusal already on screen.
+ *
+ * `null` means the reader has been told and there is nothing to report again: a door that gets `null`
+ * returns false, and a render-only caller returns nothing. The engine's own answer is handed over whole,
+ * because which half of it a caller uses is the caller's business, not this file's.
+ */
+async function performed(input: RunTemplateInput): Promise<RunTemplateApplied | null> {
+  let result: RunTemplateResult
   try {
-    return report(await runTemplateOnNote({ ...input, ...(await scriptContext(input.capabilities)) }, await templaterPorts()), success)
+    result = await runTemplateOnNote({ ...input, ...(await scriptContext(input.capabilities)) }, await templaterPorts())
   }
   catch (error) {
     // A port that throws is this app's own data layer failing, and the pipeline lets it travel on purpose.
     // It is reported the same way as a refusal, with the original text beside the label rather than dropped.
     useUi.getState().toast({ title: templaterErrorText(error, t), tone: 'danger' })
-    return false
+    return null
   }
+  if (!narrate(result)) return null
+  // A refusal has just been said by `narrate`, and the two modes that write nothing still answer with the
+  // text they produced — which is the whole reason a render-only caller is here.
+  return result.ok ? result : null
 }
 
 /** The shared tail of every run: the caveats first, because they are the half the reader cannot recover. */
-function report(result: RunTemplateResult, success: MessageKey): boolean {
+function narrate(result: RunTemplateResult): boolean {
   const ui = useUi.getState()
   if (!result.ok) {
     // `note-conflict` arrives here too, and it is the refusal the reader's own typing survives: the plan is
@@ -234,7 +254,6 @@ function report(result: RunTemplateResult, success: MessageKey): boolean {
   for (const notice of result.notices) {
     ui.toast({ title: t(WRITE_NOTICE_MESSAGES[notice.kind]), tone: 'warning' })
   }
-  ui.toast({ title: t(success), tone: 'success' })
   return true
 }
 
@@ -384,6 +403,37 @@ export async function applyTemplateToCreatedNote(template: NoteTemplate, note: N
     { ...contextFor('overwrite-file', note, await activeRow(), null), template: { kind: 'library', row: template } },
     'templater.applied_to_new_note',
   )
+}
+
+/**
+ * Render a library body and hand its text back, writing nothing.
+ *
+ * This is the door for a caller that owns its own write. QuickAdd's Template choice resolves the title,
+ * the folder, the tags, the link-back and its own conflict rules, so each of the four doors above would
+ * take the note out of its hands; `render-only` is the mode that means "produce the document and stop",
+ * and `host/write.ts` assembles it the way a create run would, so the text is the bytes the note would
+ * have held. Unlike those doors this raises no success line — the run's summary belongs to the caller —
+ * and it makes no placeholder/engine decision, because a `{{…}}` body would come back with its tokens
+ * untouched; the caller picks the renderer first.
+ *
+ * A refusal is still said: it travels through the same `templaterErrorText` sentence every other Templater
+ * refusal uses, and the only answer the caller gets is `null`.
+ */
+export async function renderTemplateBodyText(
+  template: NoteTemplate,
+  target: Note | null,
+  frozenTitle: string,
+): Promise<{ text: string; cursor: number | null } | null> {
+  const result = await performed({
+    // The reader's own row, whatever asked for it: a QuickAdd run starts from the library, never the gallery.
+    ...contextFor('render-only', target, await activeRow(), null, profileForOrigin('library')),
+    template: { kind: 'library', row: template },
+    // The note this text is going into may not exist yet, and a run freezes the title it started with
+    // rather than looking one up afterwards.
+    frozenTitle,
+  })
+  if (result === null) return null
+  return { text: result.output, cursor: result.carets[0] ?? null }
 }
 
 /**

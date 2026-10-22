@@ -29,6 +29,11 @@ export const RUN_MODE_NUMBERS: Record<RunMode, number> = {
   'overwrite-active': 3,
   'dynamic-processor': 4,
   startup: 5,
+  // Upstream has no seventh number, so a render-only run reports the one for the document it produces:
+  // `host/write.ts` assembles its text exactly as a create run's, and a template that branches on
+  // `run_mode` is asking which of the six situations it is in. `worker/bootstrap.ts`'s own table answers
+  // an unnamed mode with 0 for the same reason.
+  'render-only': 0,
 }
 
 export function runModeNumber(mode: RunMode): number {

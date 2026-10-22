@@ -1433,7 +1433,7 @@ export const EN_US_MESSAGES = {
     "quickadd.selection_no": "Always ask",
     "quickadd.selection_yes": "Always use the selection",
     "quickadd.field_template_hint": "From the note template library",
-    "quickadd.field_template_templater": "This template holds Templater commands. The choice writes its text as it is and does not run them, so the note will show <% … %> rather than the result.",
+    "quickadd.field_template_templater": "This template is written in the template engine's syntax. Running the choice executes its commands and writes what comes out; QuickAdd still decides the title, the folder and the tags.",
     "quickadd.field_template_pick": "Which template",
     "quickadd.template_pick_fixed": "The one named below",
     "quickadd.template_pick_ask": "Ask me each time",

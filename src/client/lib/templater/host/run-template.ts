@@ -67,7 +67,12 @@ export interface RunTemplateInput {
   startedAtRev: number | null
   /** Where a `create-new` note is filed, in the app's virtual `Folder/Note.md` form. */
   path?: string
-  /** The title a create run freezes, which the row it names cannot carry yet. */
+  /**
+   * The title a create run freezes, which the row it names cannot carry yet.
+   *
+   * A `render-only` run takes the same value for the same reason: the note QuickAdd is about to make does
+   * not exist while the body is being rendered, and `tp.file.title` reads the freeze rather than a lookup.
+   */
   frozenTitle?: string
   /** CPU budget for the run; the engine's own default applies when the caller has no opinion. */
   deadlineMs?: number
@@ -118,9 +123,9 @@ export interface RunTemplateApplied {
   /**
    * The text the run produced, whatever was done with it.
    *
-   * For a write it is the document that landed in the note; for the two modes that write nothing — `startup`,
-   * which runs for its effects, and `dynamic-processor`, which is a preview asking for one command's answer —
-   * it is the only thing the run has to give back.
+   * For a write it is the document that landed in the note; for the modes that write nothing — `startup`,
+   * which runs for its effects, `dynamic-processor`, which is a preview asking for one command's answer,
+   * and `render-only`, whose write belongs to the caller — it is the only thing the run has to give back.
    */
   output: string
   /** The note the plan wrote, or `null` for a discarded output. */
@@ -181,13 +186,14 @@ function activeOnScreen(input: RunTemplateInput): boolean {
 /**
  * Which row or destination this run is about, decided before anything is rendered.
  *
- * `startup` throws its output away, so it needs neither; `create-new` needs the path it files to, which no
- * row carries yet; the rest need the note they replace. A run that cannot say what it writes is refused here
- * rather than after the worker has been paid for — and a run whose render reached the reader's dialogs may
- * already have written notes of its own by then.
+ * `startup` throws its output away, so it needs neither; `render-only` writes nothing here because its
+ * caller keeps its own write path; `create-new` needs the path it files to, which no row carries yet; the
+ * rest need the note they replace. A run that cannot say what it writes is refused here rather than after
+ * the worker has been paid for — and a run whose render reached the reader's dialogs may already have
+ * written notes of its own by then.
  */
 function subjectOf(input: RunTemplateInput): Subject | RunTemplateFailure {
-  if (input.mode === 'startup' || input.mode === 'dynamic-processor') return { kind: 'none' }
+  if (input.mode === 'startup' || input.mode === 'dynamic-processor' || input.mode === 'render-only') return { kind: 'none' }
   if (input.mode === 'create-new') {
     return input.path === undefined ? fail('path-invalid', 'empty') : { kind: 'create', path: input.path }
   }

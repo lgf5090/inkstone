@@ -208,6 +208,40 @@ describe('a surface that shows a note cannot run a template', () => {
       'contextFor(\'dynamic-processor\', file, file, null, \'dynamic\')',
     )
   })
+
+  it('lets QuickAdd’s Template choice reach the engine through two named seams, and no third', () => {
+    const ENGINE = 'src/client/features/templates/template-engine'
+    const reachesEngine = (file: string) => edgesOf(file).filter((edge) => edge.resolved === ENGINE)
+    // The port is the only place QuickAdd asks for a rendered body, and it asks on demand: pressing a
+    // QuickAdd choice must not be what downloads the interpreter.
+    expect(
+      reachesEngine('src/client/lib/quickadd/runner.ts').map((edge) => edge.form),
+      'the QuickAdd port reaches the library’s route through one dynamic import, and nothing else',
+    ).toEqual(['dynamic'])
+    // The choice editor only paints the warning that says what a body is written in — a regex over text the
+    // reader already has — so a static edge is honest there, and the ban that matters is on running anything.
+    expect(
+      reachesEngine('src/client/features/quickadd/choice-editor.tsx').map((edge) => edge.form),
+      'the choice editor reads the badge judgement, statically and on purpose',
+    ).toEqual(['static'])
+    for (const path of ['src/client/lib/quickadd', 'src/client/features/quickadd']) {
+      for (const file of shippedSources(path)) {
+        if (file === 'src/client/lib/quickadd/runner.ts' || file === 'src/client/features/quickadd/choice-editor.tsx') continue
+        expect(
+          reachesEngine(file).length,
+          `${file} reaches the template engine too, and the two seams above are no longer the whole route`,
+        ).toBe(0)
+      }
+    }
+    const door = readFileSync('src/client/features/templater/run-shell.ts', 'utf8')
+    expect(door, 'QuickAdd’s route is the render-only door, not one of the doors that also write').toContain(
+      'export async function renderTemplateBodyText(',
+    )
+    const core = readFileSync('src/client/lib/quickadd/template.ts', 'utf8')
+    for (const writer of ['createNoteFromTemplate', 'insertTemplateIntoActiveNote', 'replaceActiveNoteWithTemplate', 'applyTemplateToCreatedNote']) {
+      expect(core, `QuickAdd keeps its own write; the core must not call the door that writes (${writer})`).not.toContain(writer)
+    }
+  })
 })
 
 describe('the door has one reacher, and only the wiring touches the sandbox', () => {

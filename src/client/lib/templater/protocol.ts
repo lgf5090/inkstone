@@ -18,7 +18,7 @@
 import type { NoteTemplate } from '@shared/types'
 import type { TemplaterErrorCode } from './errors'
 
-/** Which of Templater's six situations a run is in; decides target, active file and output handling. */
+/** Which of Templater's situations a run is in; decides target, active file and output handling. */
 export type RunMode =
   | 'create-new'
   | 'append-active'
@@ -26,6 +26,11 @@ export type RunMode =
   | 'overwrite-active'
   | 'dynamic-processor'
   | 'startup'
+  // Not one of upstream's six: this app has a caller that needs the rendered document and keeps its own
+  // write — QuickAdd's Template choice resolves the title, the folder, the tags and the link-back itself,
+  // so handing the run to a door that also writes would silently drop them. `host/write.ts` answers it
+  // with a discard plan that carries the text, and nothing else about a run changes.
+  | 'render-only'
 
 /**
  * What one run is allowed to do.

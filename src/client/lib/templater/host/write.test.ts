@@ -20,6 +20,7 @@ const OVERWRITE_ACTIVE: RunMode = 'overwrite-active'
 const OVERWRITE_FILE: RunMode = 'overwrite-file'
 const DYNAMIC: RunMode = 'dynamic-processor'
 const STARTUP: RunMode = 'startup'
+const RENDER: RunMode = 'render-only'
 
 /** `<% tp.file.cursor(1) %>`, the text a run leaves behind for the caret to be placed at. */
 const MARKER = '<% tp.file.cursor(1) %>'
@@ -233,6 +234,38 @@ describe('planWrite create-new', () => {
     const plan = planned({ mode: CREATE, path: 'Notes/New.md', rendered })
     expect(plan.content).toBe(rendered)
     expect(kinds(plan)).toEqual(['template-frontmatter-invalid'])
+  })
+})
+
+describe('planWrite render-only', () => {
+  it('hands back the document a create run would have written, and lands it nowhere', () => {
+    // QuickAdd's Template choice owns its own write — title, folder, tags, link-back, conflict rules — so
+    // this mode answers with the bytes the note would have held and a `discard` kind, which is what keeps
+    // the two callers from assembling the same rendered body two different ways.
+    const rendered = '---\ntitle: "kept as typed"\n---\nBody\n'
+    const plan = planned({ mode: RENDER, rendered, target: null })
+    expect(plan.kind).toBe('discard')
+    expect(plan.content).toBe(rendered)
+    expect(plan.body).toEqual({ range: { start: 0, end: 0 }, text: '' })
+    expect(plan.frontmatter).toBeNull()
+    expect(plan.carets).toEqual([])
+    expect(kinds(plan)).toEqual([])
+  })
+
+  it('takes the first caret group out of the text and reports where it was', () => {
+    const rendered = `before${MARKER}after`
+    const plan = planned({ mode: RENDER, rendered, target: null })
+    expect(plan.content).toBe('beforeafter')
+    expect(plan.carets).toEqual([6])
+  })
+
+  it('needs neither a note nor a path, because it writes no note', () => {
+    expect(planned({ mode: RENDER, rendered: 'Body', target: null }).content).toBe('Body')
+  })
+
+  it('refuses an over-budget output like every other mode, rather than handing back half a document', () => {
+    expect(refused({ mode: RENDER, rendered: 'x'.repeat(MAX_OUTPUT_CHARS + 1), target: null }).code)
+      .toBe('template-output-too-large')
   })
 })
 

@@ -48,6 +48,10 @@ const RUN_MODES: readonly string[] = [
   'overwrite-active',
   'dynamic-processor',
   'startup',
+  // Upstream's six plus the one mode this app added for a caller that renders a body and writes it
+  // itself. The interpreter needs no new behaviour from it — `run_mode` reports create-new's number —
+  // but a name the page can send and this list does not hold would refuse the run before it started.
+  'render-only',
 ]
 
 /** The profiles, for the same reason: a name that is not one of these has no table and no rights. */
