@@ -30,7 +30,6 @@ import { NoteList } from '../list/NoteList';
 import { SearchButton } from './SearchButton';
 import { MobileAccount } from './MobileAccount';import { Resizer, SplitResizer } from './Resizer';
 import { t } from "../../lib/i18n";
-import { SettingsPanel } from '../settings/SettingsPanel';
 import { PinnedWindowsLayer } from '../preview/pinned-windows-layer';
 import { scheduleSettingsWarmup } from '../settings/sections';
 const Workspace = lazy(() => import('../workspace/Workspace').then((m) => ({ default: m.Workspace })));
@@ -268,7 +267,6 @@ function WorkspaceFallback() {
 }
 
 function OverlayHost() {
-    const userId = useSession((s) => s.user?.id);
     const panel = useUi((s) => s.panel);
     const emojiOpen = useEmojiPicker((s) => s.open);
     const linkEditOpen = useLinkEditor((s) => s.request !== null);
@@ -279,7 +277,6 @@ function OverlayHost() {
     const role = useSession((s) => s.user?.role);
     const updateDialogOpen = useUpdate((s) => s.dialogOpen);
     return (<>
-      {panel === 'settings' && <SettingsPanel key={userId} onClose={closePanel}/>}
       <Suspense fallback={null}>
         {panel === 'command' && <CommandPalette initialQuery="> " onClose={closePanel}/>}
         {panel === 'shortcuts' && <ShortcutsPanel onClose={closePanel}/>}
