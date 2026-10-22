@@ -157,7 +157,8 @@ describe('the counts a sidebar and a card show', () => {
     await store.createTask({ title: 'Someday' })
     await store.createTask({ title: 'Starred', starred: true, tags: ['Focus'] })
     const done = await store.createTask({ title: 'Done', listId: list.id, tags: ['Focus'] })
-    await store.updateTask(done.id, { status: 'done' })
+    // Finished through `completeTask`: the general patch now refuses a transition into `done`.
+    await store.completeTask(done.id, 'UTC')
 
     const counts = await store.taskCounts(dayEnd)
 

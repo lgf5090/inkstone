@@ -1162,6 +1162,29 @@ function reminderTimesOf(packed: string | null): number[] {
   return normalizeReminderTimes(packed.split(',').map(Number))
 }
 
+/**
+ * A general patch was asked to finish a task.
+ *
+ * Finishing is not one column: it files the next occurrence of a repeating task, and only
+ * `AssistantStore.completeTask` has ever done that. A caller that wrote `status = 'done'` through
+ * `updateTask` moved the row, wrote its event, and left the rhythm dead — the mistake the card's
+ * checkbox made before the route's own `completing` branch existed, and what a chat tool, a batch and
+ * a CSV import could still make.
+ *
+ * Thrown rather than downgraded: a missed caller has to show up as a red answer naming the task, not
+ * as a second path that runs and means something else. Every caller in this repo goes through
+ * `completeTask` now, and a new one that does not is a bug this error reports.
+ */
+export class TaskCompletionRequiresCompleteTask extends Error {
+  constructor(readonly taskId: string) {
+    super(
+      `Task ${taskId} cannot be finished by a general patch: completing a task goes through `
+      + 'AssistantStore.completeTask, the only place the next occurrence of a repeating task is filed.',
+    )
+    this.name = 'TaskCompletionRequiresCompleteTask'
+  }
+}
+
 export class AssistantStore {
   constructor(
     private readonly db: D1Database,
@@ -4402,14 +4425,18 @@ export class AssistantStore {
   }
 
   /**
-   * A partial write: only the columns the caller named.
+   * The shell every task patch goes through: read the row, refuse a completion, hand the rest down.
    *
-   * Writing the whole row back from a snapshot read a moment earlier is how two edits made at once
-   * lose one of themselves, and it is how a column this method does not know about gets cleared.
-   *
-   * `expectedRev` is the revision the caller read: the statement matches only that one, so a stale
-   * edit is refused with a conflict and writes nothing at all. The revision it needs back is in the
+   * `expectedRev` is the revision the caller read, so a row that moved between that read and this call
+   * is refused with a conflict before anything is written; the revision it needs back is in the
    * error's `details`.
+   *
+   * A real transition into `done` is not this method's to write. Completing a task also files the next
+   * occurrence of a repeating task, and only `completeTask` does that, so a patch naming `done` for an
+   * open row throws instead of moving the row and dropping the rhythm — the half-finished write the
+   * card's checkbox made until the route grew its own `completing` branch. It throws rather than
+   * rerouting the call or ignoring the flag, because a caller that still means it must break loudly and
+   * name the task, not become a second path that runs and means something else.
    */
   async updateTask(
     id: string,
@@ -4419,6 +4446,31 @@ export class AssistantStore {
   ): Promise<TodoTask | null> {
     const existing = await this.getTask(id)
     if (!existing) return null
+    if (expectedRev !== undefined && existing.rev !== expectedRev) throw this.taskConflict(id, existing)
+    if (patch.status === 'done' && existing.status !== 'done') {
+      throw new TaskCompletionRequiresCompleteTask(id)
+    }
+    return await this.applyTaskPatch(id, existing, patch, timeZone, expectedRev)
+  }
+
+  /**
+   * A partial write: only the columns the caller named.
+   *
+   * Writing the whole row back from a snapshot read a moment earlier is how two edits made at once
+   * lose one of themselves, and it is how a column this method does not know about gets cleared.
+   *
+   * `existing` is the row as the caller read it: the guard above and this write share one read, so a
+   * patch costs no second round trip. `expectedRev` is the revision that read carried, checked here as
+   * well because `completeTask` comes to this method directly — the statement matches only that
+   * revision, so a stale edit writes nothing at all and is refused with a conflict.
+   */
+  private async applyTaskPatch(
+    id: string,
+    existing: TodoTask,
+    patch: Partial<NewTask>,
+    timeZone?: string,
+    expectedRev?: number,
+  ): Promise<TodoTask | null> {
     if (expectedRev !== undefined && existing.rev !== expectedRev) throw this.taskConflict(id, existing)
     const at = Date.now()
     const fields: (readonly [string, unknown])[] = []
@@ -4652,15 +4704,26 @@ export class AssistantStore {
   /**
    * Completes a task, and returns the next occurrence when it repeats.
    *
-   * The finished row stays: "I did write that report last week" is a fact worth keeping, and a task
-   * that silently moved its own due date forward would erase it. The next one is a new row with the
-   * same content, its steps unchecked, and a due date counted from the old one.
+   * This is the only door that finishes a task: `updateTask` refuses the transition to `done` so no
+   * caller can move the row and leave the rhythm behind. The finished row stays: "I did write that
+   * report last week" is a fact worth keeping, and a task that silently moved its own due date forward
+   * would erase it. The next one is a new row with the same content, its steps unchecked, and a due
+   * date counted from the old one.
+   *
+   * `expectedRev` guards the completion the same way it guards an edit, which is what lets the batch
+   * bar and the route's checkbox name the revision they read: a row that moved first is refused with a
+   * conflict and files nothing, rather than being finished over whoever changed it. An already finished
+   * row answers with itself and no next occurrence either way — repeating the press owes nothing.
    */
-  async completeTask(id: string, timeZone: string): Promise<{ task: TodoTask; next: TodoTask | null } | null> {
+  async completeTask(
+    id: string,
+    timeZone: string,
+    expectedRev?: number,
+  ): Promise<{ task: TodoTask; next: TodoTask | null } | null> {
     const existing = await this.getTask(id)
     if (!existing) return null
     if (existing.status === 'done') return { task: existing, next: null }
-    const task = await this.updateTask(id, { status: 'done' }, timeZone)
+    const task = await this.applyTaskPatch(id, existing, { status: 'done' }, timeZone, expectedRev)
     if (!task) return null
     if (!existing.repeat) return { task, next: null }
     const anchor = existing.dueAt ?? Date.now()

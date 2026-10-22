@@ -757,7 +757,7 @@ export const TASK_TOOLS: ToolDefinition[] = [
     name: 'update_task',
     permission: 'write',
     maxCallsPerTurn: 5,
-    description: 'Change a task: title, note, status, priority, due or start date, My Day plan, list, tags, star, repeat or reminder.',
+    description: 'Change a task: title, note, status, priority, due or start date, My Day plan, list, tags, star, repeat or reminder. Naming done completes it: a repeating task files its next occurrence, and the answer says its date.',
     fields: {
       task: { type: 'string', description: 'Task id, or a title that matches exactly one task.', minLength: 1, maxLength: 300 },
       title: { type: 'string', minLength: 1, maxLength: MAX_TASK_TITLE_CHARS, optional: true },
@@ -786,10 +786,22 @@ export const TASK_TOOLS: ToolDefinition[] = [
       const planned = plannedDay(args.planned)
       const repeat = repeatRule(args, true)
       const reminders = reminderInstants(args.reminders, ctx)
+      const status = args.status !== undefined ? args.status as Task['status'] : undefined
+      /**
+       * Whether this call is the reader finishing the task.
+       *
+       * Finishing is not a column: a repeating task files its next occurrence, and `completeTask` is
+       * the only place that happens — `updateTask` now refuses the transition, so a chat that ticked a
+       * weekly task by name left it finished with no rhythm to come back. The status therefore leaves
+       * the patch below and lands as its own call, after every other field and in the same order the
+       * single-task route keeps: the row being finished already carries the new title, due date, list
+       * and tags, and the occurrence copied from it carries them too.
+       */
+      const completing = status === 'done' && task.status !== 'done'
       const updated = await ctx.store.updateTask(task.id, {
         ...(args.title !== undefined ? { title: String(args.title) } : {}),
         ...(args.description !== undefined ? { description: String(args.description) } : {}),
-        ...(args.status !== undefined ? { status: args.status as Task['status'] } : {}),
+        ...(status === undefined || completing ? {} : { status }),
         ...(args.priority !== undefined ? { priority: args.priority as Task['priority'] } : {}),
         ...(dueAt !== undefined ? { dueAt } : {}),
         ...(startAt !== undefined ? { startAt } : {}),
@@ -807,11 +819,28 @@ export const TASK_TOOLS: ToolDefinition[] = [
           ? { noteId: typeof args.note === 'string' && args.note.trim() ? await resolveNoteId(args.note, ctx) : null }
           : {}),
       })
-      if (planned !== undefined && updated) {
-        const plannedTask = await ctx.store.planTask(updated.id, planned)
-        return { updated: plannedTask ? presentTask(plannedTask) : null }
+      let finished: TodoTask | null = updated
+      // The next occurrence belongs in the payload: a model that cannot see the date it just filed
+      // would tell the reader a date of its own, and be wrong about it.
+      let next: TodoTask | null = null
+      if (completing) {
+        const done = await ctx.store.completeTask(updated?.id ?? task.id, ctx.timezone)
+        if (!done) throw new ToolError('This task no longer exists.')
+        finished = done.task
+        next = done.next
+        await ctx.store.recordActivity('task.completed', done.task.title)
       }
-      return { updated: updated ? presentTask(updated) : null }
+      if (planned !== undefined && finished) {
+        const plannedTask = await ctx.store.planTask(finished.id, planned)
+        return {
+          updated: plannedTask ? presentTask(plannedTask) : null,
+          ...(next ? { next: presentTask(next) } : {}),
+        }
+      }
+      return {
+        updated: finished ? presentTask(finished) : null,
+        ...(next ? { next: presentTask(next) } : {}),
+      }
     },
   }),
   tool({

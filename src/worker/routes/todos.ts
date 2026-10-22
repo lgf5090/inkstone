@@ -702,8 +702,10 @@ todoRoutes.post('/batch', async (c) => {
       switch (op) {
         case 'complete':
           // The store method, not a status column: a repeating task has to file its next occurrence,
-          // and that happens in exactly one place.
-          if (!(await s.completeTask(id, settings.timezone))) {
+          // and that happens in exactly one place. The row's own revision rides along, so a row that
+          // moved between the read above and this press is refused per row rather than finished over
+          // whoever changed it.
+          if (!(await s.completeTask(id, settings.timezone, expectedRev))) {
             failed.push({ id, reason: 'not found' })
             continue
           }
@@ -1010,7 +1012,8 @@ todoRoutes.patch('/:id', async (c) => {
   const existing = await s.getTask(id)
   if (!existing) throw ApiError.notFound('Task not found')
   // A guard that already disagrees is refused before anything is written, which is what protects the
-  // completion path: `completeTask` has no guarded variant, so the pre-check is its conflict check.
+  // completion path as well: the patch below spends the revision, so the `completeTask` after it runs
+  // unguarded and leans on this pre-check as its conflict check.
   if (expectedRev !== undefined && existing.rev !== expectedRev) throw revisionConflict(id, existing.rev)
   const dueAt = body.dueAt === undefined ? undefined : parseDue(body.dueAt, settings.timezone)
   // Absent leaves the column alone; null clears it, exactly as the due date's own field reads.
