@@ -480,6 +480,12 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
             onSelect: () => openPanel('share'),
         },
         {
+            id: 'share-hub',
+            label: t("share.hub_title"),
+            icon: <Waypoints size={13}/>,
+            onSelect: () => openPanel('share-hub'),
+        },
+        {
             id: 'export-md',
             label: t("workspace.export_markdown"),
             icon: <FileText size={13}/>,
@@ -691,6 +697,11 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
           {!isMobile && (<Tooltip label={t("workspace.share")}>
               <IconButton label={t("workspace.share")} size="sm" onClick={() => openPanel('share')}>
                 <Share2 size={14}/>
+              </IconButton>
+            </Tooltip>)}
+          {!isMobile && (<Tooltip label={t("share.hub_title")}>
+              <IconButton label={t("share.hub_title")} size="sm" onClick={() => openPanel('share-hub')}>
+                <Waypoints size={14}/>
               </IconButton>
             </Tooltip>)}
           {isMobile && (<Tooltip label={t("common.more_actions")} side="left">

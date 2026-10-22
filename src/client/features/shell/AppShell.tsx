@@ -42,6 +42,7 @@ const GraphPanel = lazy(() => import('../graph/GraphPanel').then((m) => ({ defau
 const ManageFoldersPanel = lazy(() => import('../folders/ManageFoldersPanel').then((m) => ({ default: m.ManageFoldersPanel })));
 const TemplateGallery = lazy(() => import('../templates').then((m) => ({ default: m.TemplateGallery })));
 const SharePanel = lazy(() => import('../share/SharePanel').then((m) => ({ default: m.SharePanel })));
+const ShareHubModal = lazy(() => import('../share/hub/share-hub-modal').then((m) => ({ default: m.ShareHubModal })));
 const VersionsPanel = lazy(() => import('../workspace/VersionsPanel').then((m) => ({ default: m.VersionsPanel })));
 const UpdateDialog = lazy(() => import('../update/UpdateDialog').then((m) => ({ default: m.UpdateDialog })));
 const EmojiPickerHost = lazy(() => import('../emoji/EmojiPickerHost').then((m) => ({ default: m.EmojiPickerHost })));
@@ -287,6 +288,7 @@ function OverlayHost() {
         {panel === 'folders' && <ManageFoldersPanel onClose={closePanel}/>}
         {panel === 'templates' && <TemplateGallery onClose={closePanel}/>}
         {panel === 'share' && <SharePanel onClose={closePanel}/>}
+        {panel === 'share-hub' && <ShareHubModal open onClose={closePanel}/>}
         {panel === 'versions' && <VersionsPanel onClose={closePanel}/>}
         {omnisearch.open && <OmnisearchPrompt mode={omnisearch.mode} seed={omnisearch.seed} noteId={omnisearch.noteId}/>}
         {emojiOpen && <EmojiPickerHost />}
