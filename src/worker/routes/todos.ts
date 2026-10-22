@@ -714,7 +714,10 @@ todoRoutes.post('/batch', async (c) => {
           await s.deleteTask(id)
           break
         case 'move':
-          if (!(await s.updateTask(id, { listId: moveListId }, settings.timezone, expectedRev))) {
+          // The same door a card drop uses, with a null anchor: the end of the destination. Naming only
+          // the list would leave the row's old place on it, and it would sort into the middle of an
+          // order the reader never put it in — a batch is not a different kind of move.
+          if (!(await s.moveTask(id, { beforeId: null, listId: moveListId }, expectedRev))) {
             failed.push({ id, reason: 'not found' })
             continue
           }

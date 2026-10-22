@@ -518,6 +518,37 @@ describe('a batch of tasks', () => {
     expect((await send('POST', '/batch', { ids: ['x'], op: 'priority', value: 'someday' })).status).toBe(400)
   })
 
+  it('appends the rows a batch moves to the end of the destination list', async () => {
+    const source = (await json<{ list: TaskList }>(await send('POST', '/lists', { name: 'Source' }))).list
+    const target = (await json<{ list: TaskList }>(await send('POST', '/lists', { name: 'Target' }))).list
+    const t1 = await create({ title: 'T1', listId: target.id })
+    const t2 = await create({ title: 'T2', listId: target.id })
+    const s1 = await create({ title: 'S1', listId: source.id })
+    const s2 = await create({ title: 'S2', listId: source.id })
+
+    // Both lists get a hand-made order, so every row in the way carries a place of its own.
+    expect((await send('POST', `/${t2.id}/move`, { beforeId: t1.id })).status).toBe(200)
+    expect((await send('POST', `/${s2.id}/move`, { beforeId: s1.id })).status).toBe(200)
+    const lastPlace = (sqlite.prepare('SELECT MAX(position) AS p FROM todos_tasks WHERE list_id = ?')
+      .get(target.id) as { p: number }).p!
+
+    const response = await send('POST', '/batch', { ids: [s2.id], op: 'move', value: target.id })
+    expect(response.status).toBe(200)
+    expect(await json<TaskBatchResult>(response)).toEqual({ done: [s2.id], failed: [] })
+
+    // A batch move means the same thing a card drop means: the end of the destination. Keeping the old
+    // place from the source list is how a row slid into the middle of an order nobody put it in.
+    const order = (await json<{ tasks: TodoTask[] }>(await send('GET', `?list=${target.id}`))).tasks
+      .map((task) => task.title)
+    expect(order).toEqual(['T2', 'T1', 'S2'])
+    const movedPlace = (sqlite.prepare('SELECT position AS p FROM todos_tasks WHERE id = ?')
+      .get(s2.id) as { p: number }).p!
+    expect(movedPlace).toBeGreaterThan(lastPlace)
+    // The source list keeps the order the rest of its rows had.
+    expect((await json<{ tasks: TodoTask[] }>(await send('GET', `?list=${source.id}`))).tasks
+      .map((task) => task.title)).toEqual(['S1'])
+  })
+
   it('moves, prioritises, stars and tags the rows it names', async () => {
     const list = await json<{ list: TaskList }>(await send('POST', '/lists', { name: 'Work' })).then((body) => body.list)
     const task = await create({ title: 'One', tags: ['Home'] })
