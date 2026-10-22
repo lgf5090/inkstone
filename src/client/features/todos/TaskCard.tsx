@@ -8,23 +8,32 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { ArrowDown, ArrowUp, CalendarMinus, Check, CircleDot, FolderInput, MoreHorizontal, Star } from 'lucide-react'
+import { CalendarMinus, Check, CircleDot, MoreHorizontal, Star } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { api } from '../../lib/api'
 import { useDropState } from '../../lib/drop-state'
 import { useMediaQuery } from '../../lib/hooks'
 import { TagPill } from '../../components/TagChip'
-import { Menu, MenuSubmenuList, type MenuItem } from '../../components/overlay'
+import { Menu, useContextMenu } from '../../components/overlay'
 import { useUi } from '../../store/ui'
-import { useTodos, snoozeLabel } from './store'
+import { useTodos } from './store'
+import { buildTaskContextMenuItems, buildTaskMenuItems } from './task-menu'
+import { BatchContextMenu } from './BatchBar'
 import { dueLabel, priorityDot, priorityLabel } from './todo-ui'
 import { taskColorOf } from './task-face'
 import { ListIcon } from './list-icons'
-import { SNOOZE_MINUTES, type TaskList, type TodoTask } from '@shared/todos/model'
+import type { SnoozeMinutes, TaskList, TodoTask } from '@shared/todos/model'
 
 /** How long a finger has to stay down before the row joins a selection instead of opening. */
 const LONG_PRESS_MS = 500
+
+/**
+ * How wide a right-click's panel is. Wider than the kebab's, because the strip's rows name a day and a
+ * calendar rather than one status word, and a truncated "Select date" is the label a reader has to
+ * recognise in order to press it.
+ */
+const CONTEXT_MENU_WIDTH = 200
 
 /** What a dragged task carries. The note tree uses the same shape for the same reason. */
 export const TODO_DRAG_TYPE = 'application/x-inkstone-todo'
@@ -161,6 +170,8 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
   const progress = task.stepTotal > 0 ? t('todo.steps.progress', { done: task.stepDone, total: task.stepTotal }) : null
   const menuRef = useRef<HTMLButtonElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  /** The point a right-click opened this row's menu at, or null while no menu is showing. */
+  const rowMenu = useContextMenu()
   /** The row highlight a drag paints: the same before/after grammar the note tree uses. */
   const [dropState, setDropState] = useDropState<'none' | 'before' | 'after'>('none')
   /**
@@ -203,92 +214,42 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
     if (event.metaKey || event.ctrlKey) { event.preventDefault(); toggleSelected(task.id); return }
     onOpen()
   }
-  // The same four durations the editor and the notification row offer, so "10 minutes" means one
-  // thing wherever the reader reads it. The status rows come first, and the rule between them is
-  // what keeps "start this" from reading as one more snooze preset.
-  const statusItems: MenuItem[] = task.status === 'in_progress'
-    ? [{
-        id: 'status-todo',
-        label: t('todo.status.mark_todo'),
-        onSelect: () => {
-          setMenuOpen(false)
-          void updateTask(task.id, { status: 'todo' })
-        },
-      }]
-    : task.status === 'todo'
-      ? [{
-          id: 'status-in-progress',
-          label: t('todo.status.mark_in_progress'),
-          onSelect: () => {
-            setMenuOpen(false)
-            void updateTask(task.id, { status: 'in_progress' })
-          },
-        }]
-      : []
-  // The manual-order rows. They live in the menu rather than on a draggable handle alone because a
-  // phone cannot drag and a keyboard never could: this is the equivalent path, not a secondary one.
-  const moveTargets: { id: string; name: string }[] = move
-    ? [
-        ...(task.listId !== null ? [{ id: 'inbox', name: t('todo.smart.inbox') }] : []),
-        ...lists
-          .filter((list) => list.id !== task.listId)
-          .map((list) => ({ id: list.id, name: list.name })),
-      ]
+
+  /**
+   * The right-click that opens this row's menu.
+   *
+   * A phone's long press is the row's selection gesture, and Android fires `contextmenu` underneath it
+   * at about the same threshold — so a menu that opened beside it would answer a gesture the reader
+   * made for a different reason. Either order is refused: the timer still armed means the press is in
+   * flight, `suppressOpen` means it has already been taken as a selection. A mouse never arms either,
+   * because `startLongPress` stands down for its pointer.
+   */
+  const openRowMenu = (event: React.MouseEvent<HTMLButtonElement>): void => {
+    if (pressTimer.current || suppressOpen.current) return
+    rowMenu.onContextMenu(event)
+  }
+  // One set of rows, two ways to reach it: the kebab writes them as they have always been, and a
+  // right-click opens the same list under a schedule strip. `task-menu.ts` builds both, because a card
+  // that kept a second copy of the list would answer one question twice.
+  const menuHandlers = {
+    timezone,
+    now: bounds.now,
+    lists,
+    move,
+    update: (patch: Record<string, unknown>) => { void updateTask(task.id, patch) },
+    snooze: (minutes: SnoozeMinutes) => { void snooze(task.id, minutes) },
+  }
+  const menuItems = buildTaskMenuItems(task, { ...menuHandlers, onClose: () => setMenuOpen(false) })
+  // A finished row has nothing left to be reminded about, so the right-click leaves those rows out
+  // rather than offering a notification nobody will hear. While rows are picked the group answers
+  // instead, and this list is not built at all.
+  const contextItems = rowMenu.point && !selectionMode
+    ? buildTaskContextMenuItems(task, {
+        ...menuHandlers,
+        onClose: rowMenu.close,
+        snooze: done ? undefined : menuHandlers.snooze,
+      })
     : []
-  const moveItems: MenuItem[] = move
-    ? [
-        {
-          id: 'move-up',
-          label: t('todo.move.up'),
-          icon: <ArrowUp size={13} />,
-          disabled: !move.canMoveUp,
-          separatorBefore: statusItems.length > 0,
-          onSelect: () => {
-            setMenuOpen(false)
-            move.onMoveUp()
-          },
-        },
-        {
-          id: 'move-down',
-          label: t('todo.move.down'),
-          icon: <ArrowDown size={13} />,
-          disabled: !move.canMoveDown,
-          onSelect: () => {
-            setMenuOpen(false)
-            move.onMoveDown()
-          },
-        },
-        {
-          id: 'move-to-list',
-          label: t('todo.move.to_list'),
-          icon: <FolderInput size={13} />,
-          disabled: moveTargets.length === 0,
-          submenu: ({ closeMenu }) => (
-            <MenuSubmenuList
-              label={t('todo.move.to_list')}
-              items={moveTargets.map((target) => ({
-                id: `move-to-${target.id}`,
-                label: target.name,
-                onSelect: () => {
-                  closeMenu()
-                  move.onMoveToList(target.id === 'inbox' ? null : target.id)
-                },
-              }))}
-            />
-          ),
-        },
-      ]
-    : []
-  const snoozeItems: MenuItem[] = SNOOZE_MINUTES.map((minutes, index) => ({
-    id: `snooze-${minutes}`,
-    label: snoozeLabel(minutes),
-    separatorBefore: index === 0 && statusItems.length + moveItems.length > 0,
-    onSelect: () => {
-      setMenuOpen(false)
-      void snooze(task.id, minutes)
-    },
-  }))
-  const menuItems = [...statusItems, ...moveItems, ...snoozeItems]
 
   return (
     <article
@@ -396,7 +357,7 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
         onPointerUp={cancelLongPress}
         onPointerCancel={cancelLongPress}
         onPointerLeave={cancelLongPress}
-        onContextMenu={(event) => { if (selectionMode) event.preventDefault() }}
+        onContextMenu={openRowMenu}
         className={cn(
           'min-w-0 flex-1 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
           // The row a reader taps to open the task is the whole card body, and on a phone it has to be
@@ -527,6 +488,23 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
         )}
       </span>
       <Menu anchor={menuRef} open={menuOpen} onClose={() => setMenuOpen(false)} items={menuItems} align="end" width={184} label={t('todo.task.actions')} />
+      {/*
+       * One menu per right-click, and which one it is follows the mode the reader is in. While rows are
+       * picked every action belongs to the group, so the bar's own vocabulary answers; otherwise the row
+       * answers with its schedule strip above the rows the kebab offers.
+       */}
+      {rowMenu.point && (selectionMode
+        ? <BatchContextMenu point={rowMenu.point} onClose={rowMenu.close} />
+        : (
+          <Menu
+            anchor={rowMenu.point}
+            open
+            onClose={rowMenu.close}
+            items={contextItems}
+            width={CONTEXT_MENU_WIDTH}
+            label={t('todo.task.actions')}
+          />
+        ))}
     </article>
   )
 }
