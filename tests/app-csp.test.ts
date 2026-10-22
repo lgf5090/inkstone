@@ -118,6 +118,13 @@ it('serves a CSP without script-src unsafe-inline', async () => {
   expect(scriptSrc).toContain("'self'")
 })
 
+it('allows a sandboxed same-origin mail frame while refusing to be framed', async () => {
+  const csp = await cspOf('http://localhost/robots.txt')
+  expect(directive(csp, 'frame-src')).toContain("'self'")
+  expect(directive(csp, 'frame-src')).toContain('blob:')
+  expect(directive(csp, 'frame-ancestors')).toContain("'none'")
+})
+
 /** The beacon Cloudflare's edge appends to every HTML response either loads or errors on every visit. */
 it('lets the analytics beacon the edge injects load and report', async () => {
   const csp = await cspOf('http://localhost/robots.txt')
