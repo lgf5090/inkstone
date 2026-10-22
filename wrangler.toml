@@ -17,6 +17,10 @@ run_worker_first = [
   "/s/*",
   "/c",
   "/c/*",
+  # A published collection is a document a reader opens, so the Worker must answer it
+  # rather than the asset router handing out the app shell.
+  "/collections",
+  "/collections/*",
   "/feeds/*",
   "/authorize",
   "/authorize/*",
