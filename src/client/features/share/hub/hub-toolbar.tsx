@@ -49,17 +49,20 @@ export function HubToolbar(props: {
 
       {props.showLayout && (
         <>
-          <SelectMenu
-            label={t('share.hub_sort_label')}
-            value={props.sort}
-            size="sm"
-            width={160}
-            options={SHARE_SORT_KEYS.map((key) => ({ value: key, label: t(SORT_LABELS[key]) }))}
-            onChange={props.onSort}
-          />
+          {/* `SelectMenu`'s trigger is `w-full`, so it needs a bounded box of its own or it claims the
+              whole toolbar row and pushes every other control onto the next line. */}
+          <div className="w-40 shrink-0">
+            <SelectMenu
+              label={t('share.hub_sort_label')}
+              value={props.sort}
+              size="sm"
+              width={160}
+              options={SHARE_SORT_KEYS.map((key) => ({ value: key, label: t(SORT_LABELS[key]) }))}
+              onChange={props.onSort}
+            />
+          </div>
 
           <Segmented
-            size="sm"
             label={t('share.hub_view_label')}
             value={props.view}
             onChange={props.onView}

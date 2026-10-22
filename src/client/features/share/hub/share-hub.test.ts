@@ -177,12 +177,21 @@ function titlesShown(): string[] {
     .filter((text) => text.startsWith('Note '))
 }
 
+/**
+ * Press a control and let React settle.
+ *
+ * Two flushes, not one: a click that changes state re-renders, and the next control the test names
+ * only exists in the tree that render produced. With a single microtask the assertion passes on an
+ * idle machine and fails the moment something else competes for the CPU.
+ */
 async function click(node: Element | null | undefined): Promise<void> {
   if (!node) throw new Error('the control the test names is not on screen')
   await act(async () => {
     node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
   })
-  await act(async () => { await Promise.resolve() })
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
 }
 
 beforeEach(async () => {

@@ -360,6 +360,7 @@ function ShareCard(props: Omit<ShareListProps, 'selected'> & {
 function RowCheckbox(props: { checked: boolean; label: string; onChange: (next: boolean) => void }) {
   return (
     <Checkbox
+      className="ink-tap-pad relative"
       checked={props.checked}
       onChange={props.onChange}
       label={<span className="sr-only">{props.label}</span>}

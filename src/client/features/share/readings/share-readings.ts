@@ -14,6 +14,7 @@ import type { ShareBreakdownItem, ShareTimelineRange } from '@shared/share-hub'
 import type { VisitTrafficSubject } from '@shared/share-selection'
 import type { TrafficParams } from '../../../lib/api-share-hub'
 import { localeTag, t } from '../../../lib/i18n'
+import { localizeDeviceName } from '../dashboard/dashboard-format'
 
 /** The windows every reading accepts, in the order its control lists them. */
 export const SHARE_RANGES = ['24h', '7d', '30d', 'all'] as const satisfies readonly ShareTimelineRange[]
@@ -129,9 +130,16 @@ export function locationLabel(visit: { country: string | null, city: string | nu
   return visit.city ? `${country} · ${visit.city}` : country
 }
 
-/** The device a visit came in on, as one line: type, then the OS and browser the parse found. */
+/**
+ * The device a visit came in on, as one line: type, then the OS and browser the parse found.
+ *
+ * The type goes through the same translator the breakdown cards use, because `desktop` is the
+ * server's stored token, not a word to show an owner: two surfaces naming the same row's value
+ * differently is how one becomes a bug report about the other.
+ */
 export function deviceLabel(visit: { deviceType: string | null, os: string | null, browser: string | null }): string {
-  const parts = [visit.deviceType, visit.os, visit.browser].filter((part): part is string => Boolean(part))
+  const parts = [visit.deviceType && localizeDeviceName(visit.deviceType), visit.os, visit.browser]
+    .filter((part): part is string => Boolean(part))
   return parts.length > 0 ? parts.join(' · ') : t('share.reading_device_unknown')
 }
 
