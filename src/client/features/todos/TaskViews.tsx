@@ -18,7 +18,7 @@ import { useUi } from '../../store/ui'
 import { TodoPageFooter } from './TodoPageFooter'
 import { useTodos } from './store'
 import { TaskCard, useTaskMoves, type TaskMoveControls } from './TaskCard'
-import { LIST_COLUMNS_QUERY, ListLayoutToggle, StatusBoard, useListLayout } from './status-board'
+import { LIST_COLUMNS_QUERY, ListLayoutToggle, StatusBoard, useBoardGroup, useListLayout } from './status-board'
 import { groupByPlan, groupCompleted, groupByList, type TaskGroup, type PlanGroupKey } from './task-groups'
 import type { MessageKey } from '@shared/locales/en-US'
 import { MAX_BATCH_TASKS, MAX_TASKS_PER_QUERY, type TodoTask } from '@shared/todos/model'
@@ -326,10 +326,12 @@ export function ListTaskView() {
   const tasks = useTodos((state) => state.tasks)
   const sort = useTodos((state) => state.sort)
   const view = useTodos((state) => state.view)
-  // Three columns are a reading of the same rows that the plain list draws; a narrower window keeps
-  // the list, and the switch that asks for the split does not exist where the split cannot be drawn.
+  // Columns are a reading of the same rows the plain list draws, cut by whichever field the reader
+  // asked for; a narrower window keeps the list, and the switches that ask for either do not exist
+  // where the columns cannot be drawn.
   const wide = useMediaQuery(LIST_COLUMNS_QUERY)
   const layout = useListLayout()
+  const group = useBoardGroup()
   const columns = view === 'list' && wide && layout === 'columns'
   const groups = useMemo(() => {
     const grouped = groupByList(tasks)
@@ -343,9 +345,9 @@ export function ListTaskView() {
 
   return (
     <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
-      {view === 'list' && wide && <ListLayoutToggle layout={layout} />}
+      {view === 'list' && wide && <ListLayoutToggle layout={layout} group={group} />}
       {columns ? (
-        <StatusBoard tasks={tasks} />
+        <StatusBoard tasks={tasks} group={group} />
       ) : (
         <GroupedTaskList
           groups={groups}

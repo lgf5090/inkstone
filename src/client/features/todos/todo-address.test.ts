@@ -14,7 +14,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initI18n } from '../../lib/i18n'
-import { parseTodoAddress, setTodoLayout, writeTodoSearch } from './todo-address'
+import { parseTodoAddress, setTodoGroup, setTodoLayout, todoGroupFromSearch, writeTodoSearch } from './todo-address'
 
 const EMPTY_COUNTS = { inbox: 0, today: 0, upcoming: 0, overdue: 0, all: 0, completed: 0, starred: 0, byList: {}, byTag: {} }
 
@@ -59,6 +59,33 @@ describe('the to-do address grammar', () => {
     expect(writeTodoSearch({
       view: 'list', listId: 'work', tagId: null, query: '', sort: null, dueFrom: null, dueTo: null, layout: 'list',
     })).toBe('list=work')
+  })
+
+  it('names the dimension a column board is cut by, and only beside the columns', () => {
+    expect(parseTodoAddress('/todo', 'list=work&layout=columns&group=list'))
+      .toMatchObject({ view: 'list', listId: 'work', layout: 'columns', group: 'list' })
+    // Status is the reading an address without `group=` already means, so it is neither written nor
+    // refused: a pasted `group=nonsense` opens the status columns rather than a broken screen.
+    expect(parseTodoAddress('/todo', 'list=work&layout=columns').group).toBe('status')
+    expect(parseTodoAddress('/todo', 'list=work&layout=columns&group=nonsense').group).toBe('status')
+    expect(todoGroupFromSearch('?list=work&layout=columns&group=priority')).toBe('priority')
+    expect(todoGroupFromSearch('')).toBe('status')
+    expect(writeTodoSearch({
+      view: 'list', listId: 'work', tagId: null, query: '', sort: null, dueFrom: null, dueTo: null,
+      layout: 'columns', group: 'priority',
+    })).toBe('list=work&layout=columns&group=priority')
+    expect(writeTodoSearch({
+      view: 'list', listId: 'work', tagId: null, query: '', sort: null, dueFrom: null, dueTo: null,
+      layout: 'columns', group: 'status',
+    })).toBe('list=work&layout=columns')
+    // A dimension belongs to the columns: the plain list has no columns to cut, so nothing is written,
+    // and a smart view or a tag ignores both halves of the arrangement.
+    expect(writeTodoSearch({
+      view: 'list', listId: 'work', tagId: null, query: '', sort: null, dueFrom: null, dueTo: null,
+      layout: 'list', group: 'list',
+    })).toBe('list=work')
+    expect(parseTodoAddress('/todo', 'view=plan&layout=columns&group=list').group).toBeNull()
+    expect(parseTodoAddress('/todo', 'tag=errands&layout=columns&group=list').group).toBeNull()
   })
 
   it('names a list or a tag by its own parameter, which is what makes the view implicit', () => {
@@ -122,6 +149,8 @@ describe('the to-do address grammar', () => {
       { view: 'calendar' as const, listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null },
       { view: 'list' as const, listId: 'work', tagId: null, query: '', sort: null, dueFrom: '2026-10-01T00:00', dueTo: '2026-10-31T00:00' },
       { view: 'list' as const, listId: 'work', tagId: null, query: '', sort: null, dueFrom: null, dueTo: null, layout: 'columns' as const },
+      { view: 'list' as const, listId: 'work', tagId: null, query: '', sort: null, dueFrom: null, dueTo: null, layout: 'columns' as const, group: 'list' as const },
+      { view: 'list' as const, listId: 'work', tagId: null, query: '', sort: null, dueFrom: null, dueTo: null, layout: 'columns' as const, group: 'priority' as const },
       { view: 'tag' as const, listId: null, tagId: 'errands', query: 'a b', sort: 'created' as const, dueFrom: null, dueTo: null },
       { view: 'completed' as const, listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null },
       { view: 'completed' as const, listId: 'work', tagId: null, query: '', sort: null, dueFrom: null, dueTo: null },
@@ -244,6 +273,23 @@ describe('the view state and the address bar', () => {
     useTodos.getState().setQuery('tax')
     expect(window.location.search).toBe('?list=work&layout=columns&q=tax')
 
+    setTodoLayout('list')
+    expect(window.location.search).toBe('?list=work&q=tax')
+  })
+
+  it('keeps the chosen dimension beside the columns, and drops it with them', () => {
+    reset()
+    useTodos.getState().setView('list', { listId: 'work' })
+    setTodoLayout('columns')
+    setTodoGroup('list')
+    expect(window.location.search).toBe('?list=work&layout=columns&group=list')
+
+    // The same rule as the layout: picking another filter is not a move back to the status columns,
+    // and the store's selection says nothing about either half of the arrangement.
+    useTodos.getState().setQuery('tax')
+    expect(window.location.search).toBe('?list=work&layout=columns&group=list&q=tax')
+
+    // Asking for the plain list takes the columns' dimension with it — there is nothing left to cut.
     setTodoLayout('list')
     expect(window.location.search).toBe('?list=work&q=tax')
   })

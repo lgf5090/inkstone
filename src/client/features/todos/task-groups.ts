@@ -7,7 +7,7 @@
  */
 
 import { localDate } from '@shared/assistant-time'
-import { UPCOMING_DAYS, type TaskPriority, type TodoTask } from '@shared/todos/model'
+import { UPCOMING_DAYS, type TaskList, type TaskPriority, type TaskStatus, type TodoTask } from '@shared/todos/model'
 
 export type PlanGroupKey = 'overdue' | 'today' | 'upcoming' | 'later' | 'none'
 
@@ -136,4 +136,60 @@ export function groupCompleted(tasks: readonly TodoTask[], timezone: string): Ta
       key,
       tasks: entries.sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0)),
     }))
+}
+
+/**
+ * The columns a board draws.
+ *
+ * `status` files a row under the state it is in, `list` under the collection that holds it, `priority`
+ * under how urgent it is. One of the three is the column at a time, and the column is a reading of the
+ * row rather than a second place it is kept: there is no table behind these, which is the whole point of
+ * cutting a page into columns instead of storing the cut.
+ */
+export type BoardDimension = 'status' | 'list' | 'priority'
+
+/** The dimensions the switch offers, in the order a reader meets them. */
+export const BOARD_DIMENSIONS: readonly BoardDimension[] = ['status', 'list', 'priority']
+
+/** The three states a task can be in, in the order the columns are read. */
+export const BOARD_STATUS_COLUMNS: readonly TaskStatus[] = ['todo', 'in_progress', 'done']
+
+/** The four priorities, most urgent first — the order a page is scanned in. */
+export const BOARD_PRIORITY_COLUMNS: readonly TaskPriority[] = ['urgent', 'high', 'medium', 'low']
+
+/**
+ * The key of the inbox column.
+ *
+ * The inbox is a collection with no row behind it, so it needs a name of its own the way the store's
+ * `listId` does; the app's existing sentinel for it is `inbox`, and reusing it keeps one word for one
+ * thing across the address, the sidebar and this board.
+ */
+export const BOARD_INBOX_COLUMN = 'inbox'
+
+/**
+ * The columns of one dimension, with the rows of the page filed under each.
+ *
+ * A column is drawn even when nothing is in it: an empty one is still somewhere a task can be dropped,
+ * and a board that lost its last row into another column would take the door away while the reader is
+ * still holding it. Rows keep the order the page arrived in — the server's — because a column that
+ * sorted again would quietly overrule a move or a drag that had just been accepted.
+ */
+export function boardColumns(
+  dimension: BoardDimension,
+  tasks: readonly TodoTask[],
+  lists: readonly TaskList[],
+): TaskGroup[] {
+  const keys: string[] = dimension === 'status'
+    ? [...BOARD_STATUS_COLUMNS]
+    : dimension === 'priority'
+      ? [...BOARD_PRIORITY_COLUMNS]
+      : [BOARD_INBOX_COLUMN, ...lists.map((list) => list.id)]
+  return keys.map((key) => ({ key, tasks: tasks.filter((task) => boardColumnKey(dimension, task) === key) }))
+}
+
+/** Which column of one dimension a row belongs to. */
+export function boardColumnKey(dimension: BoardDimension, task: TodoTask): string {
+  if (dimension === 'status') return task.status
+  if (dimension === 'priority') return task.priority
+  return task.listId ?? BOARD_INBOX_COLUMN
 }
