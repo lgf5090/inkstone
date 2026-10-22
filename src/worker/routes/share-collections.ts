@@ -22,19 +22,13 @@ import { shareBatchNoteIds } from '../share/organizer'
 import { ShareOrganizerStore } from '../share/organizer-store'
 import {
   collectionMemberCounts,
-  collectionMemberCountStatement,
-  collectionMembersStatement,
-  collectionScope,
   collectionTargetName,
-  collectionTargetRecord,
   decodeCollectionCursor,
   findCollectionBySlug,
   isCollectionMemberSort,
-  manualCollectionCountStatement,
-  manualCollectionMembersStatement,
   nextCollectionCursor,
+  readDirectoryPage,
   toShareCollection,
-  type CollectionMemberRow,
   type PublicCollectionRow,
   type ShareCollectionCreate,
   type ShareCollectionPolicy,
@@ -381,72 +375,6 @@ async function directory(c: Context<AppBindings>, password: string): Promise<Res
   return c.json(response)
 }
 
-/**
- * One page of members, whichever kind of collection this is, with the title it answers under and the
- * count the page is drawn from.
- *
- * A tag collection whose tag was deleted resolves to an address that matches nothing, which is a page with
- * no rows and no title rather than an error — the address still exists, and it holds nothing. A row whose
- * kind cannot be read is answered the same way. Page and count come from one batch built by the same
- * module that builds the owner's own count, so a directory and the number beside it in the hub cannot come
- * to mean different sets of links.
- */
-async function readDirectoryPage(
-  db: D1Database,
-  collection: PublicCollectionRow,
-  params: { now: number; cursor: ReturnType<typeof directoryCursor>; limit: number },
-): Promise<{ title: string; cursorSort: string | null; rows: CollectionMemberRow[]; count: number }> {
-  const { now, cursor, limit } = params
-  const record = collectionTargetRecord(collection)
-  // One lookup answers both questions a derived page has: the live name in its title, and the value its
-  // members carry. The record is read from the row, so a rename moves the page with the folder or tag.
-  const name = record ? await collectionTargetName(db, collection.user_id, record) : null
-  const scope = collectionScope(collection, name)
-
-  if (scope.kind === 'unreadable') return { title: '', cursorSort: collection.member_sort, rows: [], count: 0 }
-
-  const statements =
-    scope.kind === 'manual'
-      ? [
-          manualCollectionMembersStatement(db, {
-            userId: collection.user_id,
-            collectionId: collection.id,
-            now,
-            cursor,
-            limit,
-          }),
-          manualCollectionCountStatement(db, { userId: collection.user_id, collectionId: collection.id, now }),
-        ]
-      : [
-          collectionMembersStatement(db, {
-            userId: collection.user_id,
-            target: scope.target,
-            now,
-            cursor,
-            limit,
-            sort: collection.member_sort,
-          }),
-          collectionMemberCountStatement(db, { userId: collection.user_id, target: scope.target, now }),
-        ]
-  const results = await db.batch(statements)
-  return {
-    title: scope.kind === 'manual' ? collection.title ?? '' : name ?? '',
-    cursorSort: scope.kind === 'manual' ? 'manual' : collection.member_sort,
-    rows: rowsOf(results[0]),
-    count: membersOf(results[1]),
-  }
-}
-
-/** A batch slot unpacked the way this repo's D1 reads are: rows first, and no row is not an error. */
-function rowsOf(result: { results?: unknown[] } | undefined): CollectionMemberRow[] {
-  return ((result?.results ?? []) as unknown) as CollectionMemberRow[]
-}
-
-/** The member count out of a batch slot, or zero for a statement that answered with nothing. */
-function membersOf(result: { results?: unknown[] } | undefined): number {
-  const counted = ((result?.results ?? []) as unknown) as Array<{ members: number }>
-  return Number(counted[0]?.members ?? 0)
-}
 
 /**
  * The document a published directory is read from.
