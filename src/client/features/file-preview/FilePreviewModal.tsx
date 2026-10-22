@@ -98,6 +98,7 @@ export default function FilePreviewModal({ open, onClose, file }: FilePreviewMod
       open={open}
       onClose={onClose}
       variant='fullscreen'
+      className='bg-[var(--bg-overlay)]'
       title={<span className='min-w-0 truncate'>{filename}</span>}
     >
       <div className='flex min-h-0 flex-1 flex-col bg-[var(--bg-base)]'>
