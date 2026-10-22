@@ -3,6 +3,7 @@ import type { AppBindings } from '../../env'
 import { ApiError } from '../../lib/errors'
 import { JSON_BODY_LIMITS, readJson } from '../../lib/request'
 import { requireMemoUser } from '../../memos/auth'
+import { scheduleMemoObjectCleanup } from '../../memos/cleanup'
 import {
   createSpace,
   deleteSpace,
@@ -42,7 +43,8 @@ memoSpaceRoutes.patch('/:id', async (c) => {
 
 memoSpaceRoutes.delete('/:id', async (c) => {
   const mode = parseSpaceDeleteMode(c.req.query('mode'))
-  const deleted = await deleteSpace(c.env.DB, c.get('userId'), c.req.param('id'), mode)
-  if (!deleted) throw ApiError.notFound('Space not found')
+  const result = await deleteSpace(c.env.DB, c.get('userId'), c.req.param('id'), mode)
+  if (!result.deleted) throw ApiError.notFound('Space not found')
+  if (result.attachmentObjects.length) scheduleMemoObjectCleanup(c, result.attachmentObjects)
   return c.json({ ok: true })
 })

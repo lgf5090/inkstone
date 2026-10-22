@@ -25,7 +25,6 @@ const SPACE_A = 'a'.repeat(26)
 const SPACE_B = 'b'.repeat(26)
 const SPACE_OTHER = 'c'.repeat(26)
 const ID_SHAPE = /^[0-9a-hjkmnp-tv-z]{26}$/
-const DEFERRED_DELETE_MESSAGE = 'Deleting a space together with its memos is not available yet. Use mode=unfile first'
 
 const mocks = vi.hoisted(() => ({ userId: '' }))
 const ids = vi.hoisted(() => ({ plan: [] as string[] }))
@@ -79,6 +78,21 @@ function insertMemo(
        has_location, rev, created_at, updated_at
      ) VALUES (?, ?, ?, ?, '', '', '', '', 'private', 'normal', 0, 0, 0, 0, 0, 0, 1, ?, ?)`,
   ).run(id, userId, spaceId, parentId, updatedAt, updatedAt)
+}
+
+function insertAttachment(
+  id: string,
+  userId: string,
+  memoId: string | null,
+  storageKey: string,
+  thumbnailKey: string | null = null,
+): void {
+  sqlite.prepare(
+    `INSERT INTO memos_attachments (
+       id, user_id, memo_id, filename, mime, size, storage, storage_key, width, height,
+       thumbnail_key, media_metadata, motion_group_id, motion_role, created_at, updated_at
+     ) VALUES (?, ?, ?, 'file.png', 'image/png', 4, 'r2', ?, 1, 1, ?, NULL, NULL, NULL, 100, 100)`,
+  ).run(id, userId, memoId, storageKey, thumbnailKey)
 }
 
 function countSpaces(): number {
@@ -260,7 +274,10 @@ describe('space store', () => {
     insertMemo('c1', OWNER, SPACE_A, 'm1', 100)
     insertMemo('m2', OTHER, SPACE_A, null, 100)
 
-    await expect(deleteSpace(db, OWNER, SPACE_A, 'unfile')).resolves.toBe(true)
+    await expect(deleteSpace(db, OWNER, SPACE_A, 'unfile')).resolves.toEqual({
+      deleted: true,
+      attachmentObjects: [],
+    })
 
     expect(sqlite.prepare('SELECT id FROM memos_spaces').all()).toEqual([{ id: SPACE_OTHER }])
     const rows = sqlite.prepare('SELECT id, user_id, space_id, updated_at FROM memos_items ORDER BY id').all() as Array<{
@@ -277,27 +294,97 @@ describe('space store', () => {
     for (const row of rows.filter((entry) => entry.user_id === OWNER)) {
       expect(row.updated_at).toBeGreaterThan(100)
     }
-    await expect(deleteSpace(db, OWNER, SPACE_A, 'unfile')).resolves.toBe(false)
+    await expect(deleteSpace(db, OWNER, SPACE_A, 'unfile')).resolves.toEqual({
+      deleted: false,
+      attachmentObjects: [],
+    })
   })
 
   it('cannot delete another account space', async () => {
     insertSpace(SPACE_A, OTHER, 'Theirs', 100)
     insertMemo('m1', OTHER, SPACE_A, null, 100)
 
-    await expect(deleteSpace(db, OWNER, SPACE_A, 'unfile')).resolves.toBe(false)
+    await expect(deleteSpace(db, OWNER, SPACE_A, 'unfile')).resolves.toEqual({
+      deleted: false,
+      attachmentObjects: [],
+    })
+    await expect(deleteSpace(db, OWNER, SPACE_A, 'delete')).resolves.toEqual({
+      deleted: false,
+      attachmentObjects: [],
+    })
+    await expect(deleteSpace(db, OWNER, SPACE_B, 'delete')).resolves.toEqual({
+      deleted: false,
+      attachmentObjects: [],
+    })
 
     expect(sqlite.prepare('SELECT id FROM memos_spaces').all()).toEqual([{ id: SPACE_A }])
     expect(sqlite.prepare('SELECT space_id FROM memos_items WHERE id = ?').get('m1')).toEqual({ space_id: SPACE_A })
   })
 
-  it('refuses mode=delete instead of cascading memos', async () => {
+  it('deletes a space with its memos, comments and attachment objects', async () => {
     insertSpace(SPACE_A, OWNER, 'Work', 100)
+    insertSpace(SPACE_B, OWNER, 'Home', 100)
+    insertSpace(SPACE_OTHER, OTHER, 'Theirs', 100)
     insertMemo('m1', OWNER, SPACE_A, null, 100)
+    insertMemo('c1', OWNER, SPACE_A, 'm1', 100)
+    insertMemo('m2', OWNER, SPACE_A, null, 100)
+    sqlite.prepare(`UPDATE memos_items SET state = 'archived' WHERE id = 'm2'`).run()
+    insertMemo('m3', OWNER, SPACE_B, null, 100)
+    insertMemo('m4', OTHER, SPACE_A, null, 100)
+    insertMemo('m5', OWNER, null, null, 100)
 
-    await expectApiError(deleteSpace(db, OWNER, SPACE_A, 'delete'), 409, DEFERRED_DELETE_MESSAGE)
+    sqlite.prepare('INSERT INTO memos_tags (memo_id, tag) VALUES (?, ?)').run('m1', 'work')
+    sqlite.prepare('INSERT INTO memos_tags (memo_id, tag) VALUES (?, ?)').run('c1', 'reply')
+    sqlite.prepare('INSERT INTO memos_tags (memo_id, tag) VALUES (?, ?)').run('m3', 'home')
+    sqlite.prepare('INSERT INTO memos_reactions (id, user_id, memo_id, type, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run('r'.repeat(26), OWNER, 'm1', 'like', 100)
+    sqlite.prepare(
+      'INSERT INTO memos_shares (id, user_id, memo_id, token_hash, expires_at, created_at, revoked_at) VALUES (?, ?, ?, ?, NULL, ?, NULL)',
+    ).run('s'.repeat(26), OWNER, 'm1', 'token-hash', 100)
+    sqlite.prepare('INSERT INTO memos_relations (memo_id, related_memo_id, created_at) VALUES (?, ?, ?)')
+      .run('m1', 'm3', 100)
+    sqlite.prepare('INSERT INTO memos_relations (memo_id, related_memo_id, created_at) VALUES (?, ?, ?)')
+      .run('m3', 'm1', 100)
+    insertAttachment('a1', OWNER, 'm1', 'memos/first', 'memos/first-thumb')
+    insertAttachment('a2', OWNER, 'c1', 'memos/comment')
+    insertAttachment('a3', OWNER, 'm3', 'memos/kept')
+    insertAttachment('a4', OTHER, 'm4', 'memos/theirs')
+    insertAttachment('a5', OWNER, null, 'memos/unfiled')
 
-    expect(sqlite.prepare('SELECT id FROM memos_spaces').all()).toEqual([{ id: SPACE_A }])
-    expect(sqlite.prepare('SELECT space_id FROM memos_items WHERE id = ?').get('m1')).toEqual({ space_id: SPACE_A })
+    const result = await deleteSpace(db, OWNER, SPACE_A, 'delete')
+
+    expect(result.deleted).toBe(true)
+    expect([...result.attachmentObjects].sort((a, b) => a.key.localeCompare(b.key))).toEqual([
+      { storage: 'r2', key: 'memos/comment' },
+      { storage: 'r2', key: 'memos/first' },
+      { storage: 'r2', key: 'memos/first-thumb' },
+    ])
+    expect(sqlite.prepare('SELECT id FROM memos_items ORDER BY id').all()).toEqual([
+      { id: 'm3' },
+      { id: 'm4' },
+      { id: 'm5' },
+    ])
+    expect(sqlite.prepare('SELECT id FROM memos_spaces ORDER BY id').all()).toEqual([
+      { id: SPACE_B },
+      { id: SPACE_OTHER },
+    ])
+    expect(sqlite.prepare('SELECT memo_id, tag FROM memos_tags').all()).toEqual([{ memo_id: 'm3', tag: 'home' }])
+    expect(sqlite.prepare('SELECT memo_id FROM memos_relations').all()).toEqual([])
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM memos_reactions').get()).toEqual({ count: 0 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM memos_shares').get()).toEqual({ count: 0 })
+    expect(sqlite.prepare('SELECT id FROM memos_attachments ORDER BY id').all()).toEqual([
+      { id: 'a3' },
+      { id: 'a4' },
+      { id: 'a5' },
+    ])
+    expect(sqlite.prepare('SELECT kind, memo_id FROM memos_changes ORDER BY memo_id').all()).toEqual([
+      { kind: 'memo', memo_id: 'm1' },
+      { kind: 'memo', memo_id: 'm2' },
+    ])
+    await expect(deleteSpace(db, OWNER, SPACE_A, 'delete')).resolves.toEqual({
+      deleted: false,
+      attachmentObjects: [],
+    })
   })
 
   it('retries when the generated id is taken by another account', async () => {
@@ -408,18 +495,17 @@ describe('space routes', () => {
     expect(sqlite.prepare('SELECT id FROM memos_spaces').all()).toEqual([{ id: SPACE_OTHER }])
   })
 
-  it('refuses mode=delete with a conflict until memos can be deleted with the space', async () => {
+  it('deletes with mode=delete and removes the memos', async () => {
     insertSpace(SPACE_A, OWNER, 'Work', 100)
     insertMemo('m1', OWNER, SPACE_A, null, 100)
+    insertMemo('c1', OWNER, SPACE_A, 'm1', 100)
 
     const response = await request(`/${SPACE_A}?mode=delete`, { method: 'DELETE' })
 
-    expect(response.status).toBe(409)
-    expect(await response.json()).toEqual({
-      error: { code: 'conflict', message: DEFERRED_DELETE_MESSAGE },
-    })
-    expect(sqlite.prepare('SELECT id FROM memos_spaces').all()).toEqual([{ id: SPACE_A }])
-    expect(sqlite.prepare('SELECT space_id FROM memos_items WHERE id = ?').get('m1')).toEqual({ space_id: SPACE_A })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ok: true })
+    expect(sqlite.prepare('SELECT id FROM memos_spaces').all()).toEqual([])
+    expect(sqlite.prepare('SELECT id FROM memos_items').all()).toEqual([])
   })
 
   it('refuses an unknown delete mode with 400', async () => {

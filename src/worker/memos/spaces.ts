@@ -1,6 +1,7 @@
 import type { MemoSpace } from '@shared/memos/types'
 import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
+import { deleteMemo, type MemoAttachmentObjectRef } from './store/deletion'
 
 export const MEMO_SPACE_TITLE_MAX_LENGTH = 120
 export const MEMO_SPACE_DESCRIPTION_MAX_LENGTH = 1024
@@ -155,18 +156,40 @@ export async function patchSpace(
   return toSpace({ ...row, memo_count: current.memo_count })
 }
 
+export interface MemoSpaceDeleteResult {
+  deleted: boolean
+  attachmentObjects: MemoAttachmentObjectRef[]
+}
+
 export async function deleteSpace(
   db: D1Database,
   userId: string,
   id: string,
   mode: MemoSpaceDeleteMode,
-): Promise<boolean> {
-  if (mode === 'delete') {
-    throw ApiError.conflict(
-      'Deleting a space together with its memos is not available yet. Use mode=unfile first',
-    )
+): Promise<MemoSpaceDeleteResult> {
+  if (!(await spaceBelongsToUser(db, userId, id))) {
+    return { deleted: false, attachmentObjects: [] }
   }
-  if (!(await spaceBelongsToUser(db, userId, id))) return false
+
+  if (mode === 'delete') {
+    const { results } = await db
+      .prepare(
+        `SELECT id FROM memos_items
+          WHERE user_id = ?1 AND space_id = ?2 AND parent_id IS NULL`,
+      )
+      .bind(userId, id)
+      .all<{ id: string }>()
+    const attachmentObjects: MemoAttachmentObjectRef[] = []
+    for (const memo of results) {
+      const result = await deleteMemo(db, userId, memo.id)
+      if (result) attachmentObjects.push(...result.attachmentObjects)
+    }
+    const { meta } = await db
+      .prepare(`DELETE FROM memos_spaces WHERE id = ?2 AND user_id = ?1`)
+      .bind(userId, id)
+      .run()
+    return { deleted: meta.changes > 0, attachmentObjects }
+  }
 
   const results = await db.batch([
     db
@@ -178,7 +201,7 @@ export async function deleteSpace(
       .bind(userId, id, nowSeconds()),
     db.prepare(`DELETE FROM memos_spaces WHERE id = ?2 AND user_id = ?1`).bind(userId, id),
   ])
-  return (results[1]?.meta.changes ?? 0) > 0
+  return { deleted: (results[1]?.meta.changes ?? 0) > 0, attachmentObjects: [] }
 }
 
 export async function spaceBelongsToUser(

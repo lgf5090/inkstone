@@ -3,11 +3,11 @@ import { Folder, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
 import { MEMOS_APP_PATH } from '@shared/memos/constants'
 import type { MemoSpace } from '@shared/memos/types'
 import { Button, IconButton, SectionLabel } from '../../../components/primitives'
-import { Field, Input, Textarea } from '../../../components/form'
+import { Field, Input, Segmented, Textarea } from '../../../components/form'
 import { Skeleton } from '../../../components/feedback'
-import { Menu, Modal, Tooltip, confirm, type MenuItem } from '../../../components/overlay'
+import { Menu, Modal, Tooltip, type MenuItem } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
-import { memosApi } from '../api'
+import { memosApi, type MemoSpaceDeleteMode } from '../api'
 import { memoErrorMessage } from '../errors'
 import { bump } from '../events'
 import { navigateMemoUrl } from '../url-state'
@@ -36,24 +36,12 @@ export function SpacesSection({
   onNavigate,
 }: SpacesSectionProps): ReactElement {
   const [editor, setEditor] = useState<{ space: MemoSpace | null } | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<MemoSpace | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
-  const removeSpace = async (space: MemoSpace): Promise<void> => {
+  const startDelete = (space: MemoSpace): void => {
     setDeleteError(null)
-    const agreed = await confirm({
-      title: t('memos.spaces.delete_title'),
-      description: t('memos.spaces.delete_description', { title: space.title }),
-      confirmLabel: t('memos.common.delete'),
-      cancelLabel: t('memos.common.cancel'),
-      tone: 'danger',
-    })
-    if (!agreed) return
-    try {
-      await memosApi.spaces.delete(space.id, 'unfile')
-      bump('spaces')
-    } catch (failure) {
-      setDeleteError(memoErrorMessage(failure))
-    }
+    setDeleteTarget(space)
   }
 
   return (
@@ -101,7 +89,7 @@ export function SpacesSection({
               active={space.id === activeSpaceId}
               onNavigate={onNavigate}
               onEdit={() => setEditor({ space })}
-              onDelete={() => void removeSpace(space)}
+              onDelete={() => startDelete(space)}
             />
           ))}
         </ul>
@@ -123,7 +111,92 @@ export function SpacesSection({
           onClose={() => setEditor(null)}
         />
       ) : null}
+      {deleteTarget ? (
+        <DeleteSpaceDialog
+          key={deleteTarget.id}
+          space={deleteTarget}
+          active={deleteTarget.id === activeSpaceId}
+          onClose={() => setDeleteTarget(null)}
+          onFailed={(message) => {
+            setDeleteTarget(null)
+            setDeleteError(message)
+          }}
+        />
+      ) : null}
     </div>
+  )
+}
+
+interface DeleteSpaceDialogProps {
+  space: MemoSpace
+  active: boolean
+  onClose: () => void
+  onFailed: (message: string) => void
+}
+
+function DeleteSpaceDialog({ space, active, onClose, onFailed }: DeleteSpaceDialogProps): ReactElement {
+  const hintId = useId()
+  const [mode, setMode] = useState<MemoSpaceDeleteMode>('unfile')
+  const [deleting, setDeleting] = useState(false)
+
+  const remove = async (): Promise<void> => {
+    if (deleting) return
+    setDeleting(true)
+    try {
+      await memosApi.spaces.delete(space.id, mode)
+      if (active) navigateMemoUrl(MEMOS_APP_PATH, '')
+      bump('spaces')
+      onClose()
+    } catch (error) {
+      onFailed(memoErrorMessage(error))
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      dismissible={!deleting}
+      title={t('memos.spaces.delete_title')}
+      description={t('memos.spaces.delete_description', { title: space.title, count: space.memoCount })}
+      width={480}
+      footer={(
+        <>
+          <Button data-autofocus variant="ghost" disabled={deleting} onClick={onClose}>
+            {t('memos.common.cancel')}
+          </Button>
+          <Button variant="danger" loading={deleting} onClick={() => void remove()}>
+            {t('memos.spaces.delete_confirm')}
+          </Button>
+        </>
+      )}
+    >
+      <div className="space-y-2">
+        <Segmented
+          value={mode}
+          onChange={setMode}
+          disabled={deleting}
+          label={t('memos.spaces.delete_mode_label')}
+          aria-describedby={hintId}
+          options={[
+            { value: 'unfile', label: t('memos.spaces.delete_mode_unfile') },
+            { value: 'delete', label: t('memos.spaces.delete_mode_delete') },
+          ]}
+        />
+        <p
+          id={hintId}
+          className={mode === 'delete'
+            ? 'text-[length:var(--text-11-5)] leading-relaxed text-[var(--danger)]'
+            : 'text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]'}
+        >
+          {mode === 'delete'
+            ? t('memos.spaces.delete_mode_delete_hint')
+            : t('memos.spaces.delete_mode_unfile_hint')}
+        </p>
+      </div>
+    </Modal>
   )
 }
 
