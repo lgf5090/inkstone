@@ -125,6 +125,12 @@ it('lets the analytics beacon the edge injects load and report', async () => {
   expect(directive(csp, 'connect-src')).toContain('https://cloudflareinsights.com')
 })
 
+it('lets the memo map load OpenStreetMap tiles and look up place names', async () => {
+  const csp = await cspOf('http://localhost/robots.txt')
+  expect(directive(csp, 'img-src')).toContain('https://tile.openstreetmap.org')
+  expect(directive(csp, 'connect-src')).toContain('https://nominatim.openstreetmap.org')
+})
+
 /**
  * Every base URL a built-in provider preset hands the reader has to be reachable from the browser,
  * because the key stays in the reader's own browser and the request goes straight to the provider.

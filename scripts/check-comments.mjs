@@ -5487,6 +5487,53 @@ const allowed = new Map([
     "// `calendar-activity.test.ts` can hold the fast answer against this slow oracle.",
     "/** The newest edit the note list could actually show (archived and deleted are out); null when nothing qualifies. */",
   ]],
+  ["src/client/features/memos/ai-client.test.ts", [
+    "// The browser owns the multipart boundary; naming a JSON content type would break the upload.",
+  ]],
+  ["src/client/features/memos/ai-client.ts", [
+    "/**\n * The memo app's calls into the account's assistant providers.\n *\n * `api.ts` owns the memo REST surface and is closed to new groups, so the microphone's two calls live\n * here — built on the same `memoRequest` transport, which keeps the shared client headers, the abort\n * signal and the `ApiError` shape the surfaces already know how to report.\n *\n * The provider shape is restated rather than imported from the worker: the display layer may not reach\n * into `src/worker`, and `tests/memos-ai.test.ts` reads the route's own answer so the two cannot drift.\n * Nothing here carries a credential, because the route does not send one.\n */",
+    "/** The protocols the transcription call can put a recording through. */",
+    "/** One provider `GET /api/memos/ai/providers` describes, narrowed to what a recording needs. */",
+    "/** The enabled text models that may answer the transcription call, in the reader's own order. */",
+    "/** The provider and model one recording is sent to. */",
+    "/**\n * The provider and model a recording is sent to, or null when the account has none.\n *\n * A configured provider wins when the listing still holds it; otherwise the first usable one does, so\n * a deleted provider or model falls back instead of failing the recording. Anthropic has no audio\n * endpoint this app can call, so a listing that only holds one is the same answer as an empty listing.\n */",
+  ]],
+  ["src/client/features/memos/components/MemoBody.tsx", [
+    "/** A tag is only a control when the surface gives it a handler; elsewhere it is plain marked-up text. */",
+  ]],
+  ["src/client/features/memos/components/MemoCommentPreview.tsx", [
+    "/**\n * The latest comments under a card. The request waits until the card is near the viewport, so a feed\n * with hundreds of commented memos does not fetch every preview at once.\n */",
+    "// The card keeps working; the preview reports its own failure with a retry.",
+  ]],
+  ["src/client/features/memos/components/MemoQuickFind.tsx", [
+    "/**\n * One dialog for both spellings of a lookup: plain words land in `q`, an expression lands in `filter`\n * only after the server's own validator accepts it.\n */",
+  ]],
+  ["src/client/features/memos/media.ts", [
+    "/** Whether a link stays on this origin, so a share token must never be appended to it. */",
+  ]],
+  ["src/client/features/memos/motion-photo.ts", [
+    "/**\n * Pairs picked files that belong together before any upload starts.\n *\n * A Live Photo arrives as two files with one stem, and an Android Motion Photo carries its video\n * inside the JPEG. Both become one still/video group so the gallery can play the motion instead of\n * showing a second, separate attachment. Anything that does not pair uploads exactly as before.\n */",
+  ]],
+  ["src/client/features/memos/task-toggle.ts", [
+    "/** Rewrites every task marker in place, leaving indentation, quote depth and list bullets untouched. */",
+  ]],
+  ["src/client/features/memos/use-memo-recorder.ts", [
+    "/**\n * The browser's own voice recorder, as much of it as the memo composer uses.\n *\n * It owns exactly one microphone session at a time: the permission prompt, the `MediaRecorder`, the\n * elapsed-time clock and the tracks behind them. Whatever the recording is for — transcription, in this\n * app — is the caller's business, so `stop()` answers with a `File` and no request is made here.\n *\n * Every way the session can end goes through one teardown: the stop button, a recorder error, and the\n * composer unmounting while the microphone is live. That is what keeps a denied prompt from leaving a\n * stream open — the case a browser shows as a recording indicator that never goes away.\n */",
+    "/**\n * Offered in this order: Opus in WebM is what Chromium and Firefox produce, and it is the smallest\n * recording for a given minute. Safari records MP4 instead, which the worker's supported list accepts.\n */",
+    "/** Whole seconds since this session began recording; zero while idle. */",
+    "/** Asks for the microphone and begins recording. Null means it started; otherwise, what to tell. */",
+    "/** Ends the session. Resolves with the recording, or null when nothing usable was captured. */",
+    "/**\n * Why a permission prompt produced no microphone, in the sentence the composer shows.\n *\n * A refusal the browser names is answered by name — the reader can act on \"denied\" differently from\n * \"no device\" — and anything else falls back to the general failure rather than disappearing.\n */",
+    "// The recorder ending itself between the check and the call is the one throw here, and the",
+    "// session is over either way; the tracks below are what would otherwise stay open.",
+    "// The browser said it could record and then refused the constructor: nothing will capture, so",
+    "// the press has to be reported rather than leaving a lit button and no session.",
+    "// A second press before the recorder has packaged the blob must wait for the same session, not",
+    "// start a second one: `MediaRecorder.state` is already `inactive` by then, so a fresh call would",
+    "// answer null and read as an empty recording.",
+    "/** Why a session ended without a recording, for the caller to report once; null when all is well. */",
+    "/** Marks the last `error` as reported, so the same failure can be raised again next time. */",
+  ]],
   ["src/client/features/mindmap/MindmapNotePicker.test.ts", [
     "// Spied rather than replaced: the folder path is what the list shows under each title, and how",
     "// many times it is asked for is the whole point of the tests below.",
@@ -20155,6 +20202,8 @@ const allowed = new Map([
     "/* The label of a quoted turn opens that turn: a note arguing with one exchange should not land the\n   reader at the top of a long thread and leave them to find it. */",
     "/*\n * WCAG 2.5.8 wants 24 by 24 CSS pixels of target, and a task box is painted at 1.05em (17 at the\n * default prose size) because a taller box would push every line of the list apart. So the drawn box\n * stays and the tappable area grows around it — the same invisible overlay `.ink-tap-pad` uses, here\n * on `::before` because `::after` is the check mark. It reaches into the first pixels of the label,\n * which is prose rather than a control, and a query row's own neighbour is 8px further out.\n */",
     "/* The diagram's own node fills are `--pele-bg`, so the block is painted with it too: a shape\n     filled with the page's inset grey on a cream block reads as a mistake in either direction. */",
+    "/* Memo cards, comments and the detail panel are surfaces inside the app, not the note page: the\n   reading column's 42vh tail turned a one-line comment into a 308px card (232px of it blank). */",
+    "/* A search word is a wash behind the text, not a badge: the accent tint stays readable in every\n   theme and leaves the glyph colour to the prose around it. */",
   ]],
   ["src/client/styles/reading.css", [
     "/**\n * The reading surface.\n *\n * Two things here are not decoration and are worth the comments, because both look like a bug in the\n * other direction when they are changed: the column geometry that turns flowing text into pages, and\n * the HUD's habit of floating over the page instead of reserving a row.\n */",
@@ -20944,6 +20993,9 @@ const allowed = new Map([
     "/**\n * Where `needle` occurs in `haystack`, ignoring case the way a reader would.\n *\n * Both sides go through `foldCase`, so the returned index is usable on `haystack` itself.\n */",
     "/**\n * The text a reader sees where the markup is: a wiki link by its alias or target, a\n * markdown link by its label, an embed by its file name.\n *\n * Excerpts are cut around a hit, so they used to carry the `[[…]]` the note happens to\n * contain, which reads as noise in a panel whose whole job is to point at that sentence.\n */",
     "/**\n * What a property can hold. The list case is deliberately not `string[]`: a note that says\n * `nums: [1, 2]` has numbers in it, and a run that adds a third item must not rewrite the first two\n * as text. The reader sees the difference in the properties panel, which colors and sorts by type.\n */",
+  ]],
+  ["src/shared/memos/map-endpoints.ts", [
+    "/** External endpoints shared by the memo map client and the Worker CSP. */",
   ]],
   ["src/shared/note-template-render.test.ts", [
     "// The offset is the place the answer goes, in the content that was actually saved.",
@@ -21935,6 +21987,9 @@ const allowed = new Map([
     "// The attachment surface names a task too, so it is claimed before the task router as well; its",
     "// paths carry the extra `/attachments` segment, which the task router would never match.",
     "// The mail address is the same shape of collision: \"mail-token\" must be a route, not a task id.",
+    "// Public reads and share-authorized files must be registered before the authenticated",
+    "// `/api/memos` mounts: a mounted app's `use('*')` would otherwise turn an anonymous",
+    "// share page into a 401 before these routes ever see it.",
   ]],
   ["src/worker/assistant/attachments.ts", [
     "/**\n * The token each attachment line starts with.\n *\n * It is English on purpose: this block is model-facing prompt text, never the reader's UI, and the\n * reader's own labels come from the locale catalog the composer draws.\n */",
@@ -22186,6 +22241,9 @@ const allowed = new Map([
     "// Not JSON, or not the shape either vendor uses; the raw text is the best available answer.",
     "// The address was vetted, the redirect target was not: a provider that answers with one is not",
     "// allowed to move the request to an address this app never checked.",
+  ]],
+  ["src/worker/assistant/index.ts", [
+    "/** Assistant store entry point used by the memos module. */",
   ]],
   ["src/worker/assistant/mcp-client.ts", [
     "/** A short, safe reason when `ok` is false: never the upstream body, which can carry the key. */",
@@ -24289,6 +24347,9 @@ const allowed = new Map([
   ["src/worker/attachments/backend.ts", [
     "/**\n * Ranged read for one chunk. R2 serves it storage-side; KV has no ranged get, so callers\n * must fall back to readAttachmentObject and slice in the isolate.\n */",
   ]],
+  ["src/worker/attachments/index.ts", [
+    "/** Object storage entry points shared with other worker modules. */",
+  ]],
   ["src/worker/attachments/references.ts", [
     "// Retained versions must remain restorable after unused attachments are pruned.",
     "// The instr() predicate discards rows that cannot contain an attachment URL",
@@ -24956,7 +25017,7 @@ const allowed = new Map([
   ]],
   ["src/worker/durable/credential-vault.ts", [
     "/**\n * How long one field of a record may be, by scope.\n *\n * A password, a TOTP secret and an API key are all short things, and the 4 kB bound is what stops a row\n * from being used to smuggle an archive into the vault. An OAuth token set is not: an access token, a\n * refresh token, a client secret and an in-flight verifier are each somebody else's opaque string, and the\n * large identity providers write JWTs of several kilobytes routinely. The bound stays per scope so the\n * extra room is exactly as wide as the one kind of credential that needs it.\n */",
-    "/**\n * `ai:` carries the chat assistant's provider key. The scope is the account id, so a ciphertext stored\n * for one reader cannot be replayed against another's derived key even by someone who can write rows.\n *\n * `mcp:` carries one server's outbound OAuth material, scoped to that server's id rather than the account\n * so a token minted for one third party cannot be read back out of another's row.\n *\n * `channel:` carries one notification channel's whole configuration, scoped to that channel's row id.\n */",
+    "/**\n * `ai:` carries the chat assistant's provider key. The scope is the account id, so a ciphertext stored\n * for one reader cannot be replayed against another's derived key even by someone who can write rows.\n *\n * `mcp:` carries one server's outbound OAuth material, scoped to that server's id rather than the account\n * so a token minted for one third party cannot be read back out of another's row.\n *\n * `channel:` carries one notification channel's whole configuration, scoped to that channel's row id.\n *\n * `memo-webhook:` carries one memo webhook's signing secret, scoped to that webhook's row id.\n */",
     "/**\n * A channel bundle is not a fixed key list: which fields exist is what the channel definition says, and\n * the nine of them share no vocabulary at all (`botToken`/`chatId`, `serverUrl`/`appToken`, `sendKey`…).\n * So the policy is structural — bounded field names, string or boolean values — rather than a whitelist\n * that would have to be edited in step with every channel form. The switch fields are booleans because\n * the settings screen reads them back as booleans; forcing them to `\"true\"` would make the form lie.\n */",
     "/**\n * The two request guards, exported for the test that builds a sample configuration out of every channel\n * definition and asks whether the vault would take it.\n *\n * They are not product API. The reason they are here is that the only other thing that could have caught\n * the mismatch — the channel routes' own tests — runs against a vault double that accepts anything, so a\n * policy the real vault rejects and the double swallows can only be proven against this file.\n */",
   ]],
@@ -25081,6 +25142,7 @@ const allowed = new Map([
     "/**\n * One MCP server's outbound OAuth material.\n *\n * Scoped to the server's own id rather than to the account, because the thing being kept is not this\n * reader's credential in general but a token one third party minted for one resource: a ciphertext written\n * into another server's row then fails to decrypt instead of leaking a bearer across two issuers.\n *\n * The payload is opaque to the vault — one field, whatever the authorization server handed back — so a\n * large JWT from a large identity provider does not have to be truncated to fit.\n */",
     "/**\n * One subscription channel's configuration.\n *\n * A channel's settings are a bundle — a bot token beside a chat id, a webhook beside a parse mode — and\n * none of them is ever queried, so the whole object is sealed as one ciphertext rather than spread over\n * columns where a backup or a log line could pick a secret up. The scope is the row's own id, which is\n * what keeps one channel's ciphertext from decrypting under another's.\n */",
     "/**\n   * The default sentence is about the one thing only the operator can fix: no binding at all. A caller\n   * that got an answer and did not like it passes its own sentence instead — a refusal and an absent\n   * binding are different failures, and reporting a refusal as \"the binding is missing\" sends whoever\n   * reads it looking in the wrong place. Neither message carries the value that was being stored.\n   */",
+    "/**\n * One memo webhook's signing secret.\n *\n * The scope is the webhook's own row id so a ciphertext moved into another row cannot be read back out,\n * and the prefix is checked on both directions because the string doubles as the HMAC key material:\n * a value that is not a webhook secret would sign deliveries with the wrong bytes.\n */",
   ]],
   ["src/worker/lib/image.ts", [
     "// A header that reads as an image but does not survive the walk is a truncated or hostile file,",
@@ -25106,6 +25168,13 @@ const allowed = new Map([
   ]],
   ["src/worker/lib/oauth-request.ts", [
     "// Rebuild after consuming the bounded body so the provider can read it once.",
+  ]],
+  ["src/worker/lib/outbound.ts", [
+    "/**\n * The one door out.\n *\n * Every channel sends through here, because the address is the reader's and the network is the\n * deployment's — the exact shape of a request that can be aimed at a metadata endpoint. Three rules,\n * and each of them exists because of a way the alternative fails:\n *\n *  - the target is checked against the shared guard, which is the same list the AI relay and the feed\n *    relay use, so a private address is refused once rather than three different ways;\n *  - redirects are not followed, because the guard checks the address that was typed and a redirect\n *    would replace it with one nobody checked;\n *  - every call is bounded in time and in bytes, because a webhook that never answers would otherwise\n *    hold the cron invocation open and a webhook that answers with a video would fill a row.\n *\n * Nothing here throws. A channel that cannot send is a result, not an exception: one broken webhook\n * must not stop the other eight from delivering, and the reason has to reach the log line.\n */",
+    "/** A URL a channel may send to, or the reason it may not. */",
+    "/**\n * Read at most `maxBytes` of a body.\n *\n * The cap is applied while reading rather than after, so a response that never ends cannot become a\n * string in the first place.\n */",
+    "// Keep the bytes read so far; log only the error because the target may hold credentials.",
+    "// Cancel is best-effort; the bytes already read are the result either way.",
   ]],
   ["src/worker/lib/rate-limit.ts", [
     "/** Per-isolate ceiling on tracked callers; a busy minute of distinct users resets the table rather than growing without bound. */",
@@ -25333,6 +25402,18 @@ const allowed = new Map([
     "/** Appended to a write batch so the response body costs no extra round trip. */",
     "/** The same row without `content`: a 1.9 MB body a flag flip never looks at. */",
     "// The conflict payload keeps carrying the body even when the pre-read was metadata only.",
+  ]],
+  ["src/worker/memos/public.ts", [
+    "/** Drop the real account id, role and sign-up time from the public creator. */",
+    "/** Build the public shape explicitly so fields added to `Memo` do not leak by default. */",
+  ]],
+  ["src/worker/memos/webhooks.ts", [
+    "/**\n * Standard Webhooks signs `id.timestamp.body` with the decoded secret, and the versioned prefix is what\n * lets a receiver tell which scheme produced the value. The body is the JSON exactly as sent, so a\n * re-serialised copy at the receiver would not verify.\n */",
+    "// Best-effort by design: a webhook that cannot be reached must not make the memo write disappear,",
+    "// and there is no retry queue, so the row id and the reason are all the record that will exist.",
+    "/**\n * Deliver one memo activity to every webhook the account owns.\n *\n * The caller runs this through `waitUntil`: the mutation has already been committed and answered, and\n * the delivery is not allowed to change that answer. Failures reach the log by webhook id only, never\n * with the secret or the memo body.\n */",
+    "// The mutation already answered; a failure to even list the targets belongs in the log beside the",
+    "// delivery failures, not in the response.",
   ]],
   ["src/worker/middleware/auth.ts", [
     "/**\n * How stale `users.last_seen_at` may get before a request writes a fresh one.\n *\n * A reader's every request would otherwise take a write to the `users` row, so the bump is rate-limited\n * to one per interval; the same number is the guard in the `UPDATE` so two concurrent requests cannot\n * both decide they were the one that crossed the interval.\n */",
@@ -25966,6 +26047,16 @@ const allowed = new Map([
     "/**\n * The switched-off list, checked against the tools this server actually registers.\n *\n * A name that matches nothing is refused rather than stored: it would be a switch the reader cannot see the\n * effect of, and it would survive a rename in the code as a rule that quietly governs nothing. The catalog\n * is read here rather than trusted from the body for the same reason.\n */",
     "/** What a new key should carry, checked against the scopes this server understands. */",
   ]],
+  ["src/worker/routes/memos.ts", [
+    "// The mutation is already committed; without a waitUntil the delivery runs on its own and may be cut",
+    "// short, which is the same best-effort outcome as a receiver that does not answer.",
+  ]],
+  ["src/worker/routes/memos/ai.ts", [
+    "/**\n * The account's providers as the composer's microphone may spend them.\n *\n * A recording has no picker of its own: the composer takes the first provider and model this answers\n * with, so the listing carries only what a transcription call could use — an enabled text model — and\n * otherwise stays in the order the reader's own provider list has. The protocol travels as stored,\n * because the caller is what knows an Anthropic provider has no audio endpoint to send to.\n *\n * Only the label, protocol and model ids travel: the ciphertext, the key hint and the base address\n * stay in the worker, because a browser has nothing to do with any of them.\n */",
+  ]],
+  ["src/worker/routes/memos/files.ts", [
+    "// A public file cannot be revoked by a cache, so it gets a short window instead of `immutable`.",
+  ]],
   ["src/worker/routes/notes.ts", [
     "/** Ids per dependent-table delete when emptying the trash. */",
     "// One statement per dependent table, over 500 ids at a time. The old shape inlined the same",
@@ -26401,10 +26492,6 @@ const allowed = new Map([
     "/**\n * Bark, including the two shapes its server comes in.\n *\n * A reader who runs their own Bark server types its address and nothing else, and that address already\n * carries the device key in its path; the official service needs the key in the body. The reference\n * project distinguished the two by whether the path was empty, which is the only signal available.\n */",
   ]],
   ["src/worker/subscriptions/channels/http.ts", [
-    "/**\n * The one door out.\n *\n * Every channel sends through here, because the address is the reader's and the network is the\n * deployment's — the exact shape of a request that can be aimed at a metadata endpoint. Three rules,\n * and each of them exists because of a way the alternative fails:\n *\n *  - the target is checked against the shared guard, which is the same list the AI relay and the feed\n *    relay use, so a private address is refused once rather than three different ways;\n *  - redirects are not followed, because the guard checks the address that was typed and a redirect\n *    would replace it with one nobody checked;\n *  - every call is bounded in time and in bytes, because a webhook that never answers would otherwise\n *    hold the cron invocation open and a webhook that answers with a video would fill a row.\n *\n * Nothing here throws. A channel that cannot send is a result, not an exception: one broken webhook\n * must not stop the other eight from delivering, and the reason has to reach the log line.\n */",
-    "/** A URL a channel may send to, or the reason it may not. */",
-    "/**\n * Read at most `maxBytes` of a body.\n *\n * The cap is applied while reading rather than after, so a response that never ends cannot become a\n * string in the first place.\n */",
-    "// A body that dies mid-read still leaves what arrived, which is often the interesting part.",
     "/** A response body fit for a log row: short, and with anything that looks like a credential removed. */",
     "/** `JSON.parse` that answers null instead of throwing, for a channel reading somebody else's API. */",
   ]],

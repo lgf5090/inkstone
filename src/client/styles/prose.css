@@ -3003,6 +3003,23 @@
   font-size: 0.88em;
 }
 
+/* Memo cards, comments and the detail panel are surfaces inside the app, not the note page: the
+   reading column's 42vh tail turned a one-line comment into a 308px card (232px of it blank). */
+.ink-memo-prose {
+  max-width: none;
+  margin-inline: 0;
+  padding-block: 0;
+}
+
+/* A search word is a wash behind the text, not a badge: the accent tint stays readable in every
+   theme and leaves the glyph colour to the prose around it. */
+.ink-memo-prose mark[data-memo-hit] {
+  padding-inline: 0.08em;
+  border-radius: var(--r-2);
+  background: color-mix(in oklab, var(--accent) 24%, transparent);
+  color: inherit;
+}
+
 .wiki-hover-body .ink-prose {
   max-width: none;
   margin-inline: 0;

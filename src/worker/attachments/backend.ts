@@ -4,7 +4,7 @@ import type { AttachmentObjectStorage } from './keys'
 export interface AttachmentObjectMetadata {
   userId: string
   objectId: string
-  kind: 'attachment' | 'avatar'
+  kind: 'attachment' | 'avatar' | 'memo' | 'import'
   filename: string
   mime: string
   sha256: string

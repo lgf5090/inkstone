@@ -416,6 +416,13 @@ const CLICK_CONTAINER_EXCEPTIONS = new Map<string, { sites: number; reason: stri
       reason: 'The day column is a drag-to-schedule surface: a press on it starts a box-select that files a task across the dragged hours, and the slot buttons inside it are the click-to-add affordance for the same gesture. A drag handle is a hit target that legitimately holds buttons.',
     },
   ],
+  [
+    'src/client/features/memos/components/MemoLightbox.tsx',
+    {
+      sites: 1,
+      reason: 'The image stage is the gesture surface: pointer handlers pan, zoom and swipe the picture, and the download link in its failure state is a control drawn inside that surface. A press on empty stage space is the gesture, not a button; the arrows and zoom controls sit outside the handler.',
+    },
+  ],
 ])
 
 const SCAN = scan()

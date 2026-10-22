@@ -1,4 +1,10 @@
 import type { BaseMessageKey } from './en-US';
+import { ZH_CN_MEMOS } from './zh-CN-memos';
+import { ZH_CN_MEMOS_CORE } from './zh-CN-memos-core';
+import { ZH_CN_MEMOS_DATA } from './zh-CN-memos-data';
+import { ZH_CN_MEMOS_MEDIA } from './zh-CN-memos-media';
+import { ZH_CN_MEMOS_ORG } from './zh-CN-memos-org';
+import { ZH_CN_MEMOS_SHARE } from './zh-CN-memos-share';
 export const ZH_CN_MESSAGES = {
     "template.kanban_sprint_board.name": "迭代看板",
     "template.kanban_sprint_board.description": "用看板排一个迭代：四条泳道，任务带勾选。",
@@ -8472,4 +8478,10 @@ console.log(\`Hello, \${name}!\`)
     "todo.stats.loading": "正在读取统计…",
     "todo.stats.error": "统计读取失败",
     "todo.stats.retry": "重试",
+    ...ZH_CN_MEMOS,
+    ...ZH_CN_MEMOS_CORE,
+    ...ZH_CN_MEMOS_ORG,
+    ...ZH_CN_MEMOS_MEDIA,
+    ...ZH_CN_MEMOS_SHARE,
+    ...ZH_CN_MEMOS_DATA,
 } as const satisfies Record<BaseMessageKey, string>;

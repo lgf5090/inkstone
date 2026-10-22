@@ -6,6 +6,21 @@ import { loadSession, requireClientHeader } from './middleware/auth'
 import { authRoutes } from './routes/auth'
 import { totpRoutes } from './routes/totp'
 import { notesRoutes } from './routes/notes'
+import { memoListRoutes } from './routes/memos'
+import { memoSpaceRoutes } from './routes/memos/spaces'
+import { memoViewRoutes } from './routes/memos/views'
+import { memoTokenRoutes } from './routes/memos/tokens'
+import { memoPreferenceRoutes } from './routes/memos/preferences'
+import { memoReactionRoutes } from './routes/memos/reactions'
+import { memoShareRoutes } from './routes/memos/shares'
+import { memoWebhookRoutes } from './routes/memos/webhooks'
+import { memoTransferRoutes } from './routes/memos/transfer'
+import { memoPublicDataRoutes } from './routes/memos/public'
+import { memoStatsRoutes } from './routes/memos/stats'
+import { memoAiRoutes } from './routes/memos/ai'
+import { memoLinkMetaRoutes } from './routes/memos/link-meta'
+import { memoAttachmentRoutes } from './routes/memos/attachments'
+import { memoFileRoutes } from './routes/memos/files'
 import { foldersRoutes } from './routes/folders'
 import { tagsRoutes } from './routes/tags'
 import { communityTemplatesRoutes } from './routes/community-templates'
@@ -18,6 +33,7 @@ import { avatarRoutes } from './routes/avatars'
 import { backupRoutes } from './routes/backup'
 import { settingsRoutes } from './routes/settings'
 import { conversationSharePageRoutes, shareManageRoutes, sharePageRoutes, shareRoutes } from './routes/share'
+import { memosPublicPageRoutes } from './routes/memos-public'
 import { transferRoutes } from './routes/transfer'
 import { updateRoutes } from './routes/update'
 import { mcpAuthorizeRoutes } from './routes/mcp-authorize'
@@ -104,6 +120,24 @@ export function createApp() {
   app.route('/api/auth/totp', totpRoutes)
   app.route('/api/auth', authRoutes)
   app.route('/api/notes', notesRoutes)
+  // Public reads and share-authorized files must be registered before the authenticated
+  // `/api/memos` mounts: a mounted app's `use('*')` would otherwise turn an anonymous
+  // share page into a 401 before these routes ever see it.
+  app.route('/api/memos/public', memoPublicDataRoutes)
+  app.route('/api/memos/files', memoFileRoutes)
+  app.route('/api/memos/spaces', memoSpaceRoutes)
+  app.route('/api/memos/views', memoViewRoutes)
+  app.route('/api/memos/tokens', memoTokenRoutes)
+  app.route('/api/memos/preferences', memoPreferenceRoutes)
+  app.route('/api/memos/webhooks', memoWebhookRoutes)
+  app.route('/api/memos', memoTransferRoutes)
+  app.route('/api/memos/stats', memoStatsRoutes)
+  app.route('/api/memos/ai', memoAiRoutes)
+  app.route('/api/memos/link-metadata', memoLinkMetaRoutes)
+  app.route('/api/memos/attachments', memoAttachmentRoutes)
+  app.route('/api/memos', memoShareRoutes)
+  app.route('/api/memos', memoReactionRoutes)
+  app.route('/api/memos', memoListRoutes)
   app.route('/api/folders', foldersRoutes)
   app.route('/api/tags', tagsRoutes)
   app.route('/api/templates/community', communityTemplatesRoutes)
@@ -150,6 +184,7 @@ export function createApp() {
   app.route('/s', sharePageRoutes)
   app.route('/c', conversationSharePageRoutes)
   app.route('/feeds', todoFeedRoutes)
+  app.route('/memos', memosPublicPageRoutes)
   app.route('/', mcpAuthorizeRoutes)
 
 

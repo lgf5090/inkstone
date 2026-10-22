@@ -6,6 +6,7 @@ import { Toaster } from './components/feedback'
 import { Button, Spinner } from './components/primitives'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { LoginPage } from './features/auth/LoginPage'
+import { classifyMemoSurface } from './features/memos/public-route'
 import { dismissBootScreen } from './lib/boot'
 import { peekPropertyDecoration, subscribePropertyDecoration } from './lib/property-commands'
 import { peekTemplateSlotJob, subscribeTemplateSlotJob } from './features/chat/template-slot-job'
@@ -23,6 +24,9 @@ const SharePage = lazy(() =>
 )
 const ConversationSharePage = lazy(() =>
   import('./features/share/ConversationSharePage').then((module) => ({ default: module.ConversationSharePage })),
+)
+const MemosPublicApp = lazy(() =>
+  import('./features/memos/MemosPublicApp').then((module) => ({ default: module.MemosPublicApp })),
 )
 const PresentationOverlay = lazy(() =>
   import('./features/presentation').then((module) => ({ default: module.PresentationOverlay })),
@@ -105,11 +109,13 @@ export function App() {
   // handed a capability rather than an account session: it speaks on the BroadcastChannel and reads
   // nothing of its own. Booting the notebook here would ask it to log in to a room it is already in.
   const [isPresenter] = useState(() => new URLSearchParams(location.search).has('presenter'))
+  const [memoSurface] = useState(() => classifyMemoSurface(location.pathname))
+  const memoAlwaysPublic = memoSurface.kind === 'public'
 
   useEffect(() => {
-    if (shareSlug || conversationShareSlug || isPresenter) return
+    if (shareSlug || conversationShareSlug || isPresenter || memoAlwaysPublic) return
     void load()
-  }, [load, shareSlug, conversationShareSlug, isPresenter])
+  }, [load, shareSlug, conversationShareSlug, isPresenter, memoAlwaysPublic])
 
   useEffect(() => watchSystemTheme(), [])
 
@@ -119,16 +125,16 @@ export function App() {
   }, [isPresenter])
 
   useEffect(() => {
-    if ((shareSlug || conversationShareSlug || isPresenter) || status !== 'loading') return
+    if ((shareSlug || conversationShareSlug || isPresenter || memoAlwaysPublic) || status !== 'loading') return
     requestOfflineWarmup()
-  }, [shareSlug, conversationShareSlug, isPresenter, status])
+  }, [shareSlug, conversationShareSlug, isPresenter, memoAlwaysPublic, status])
 
   useEffect(() => {
-    if (shareSlug || conversationShareSlug || isPresenter || status !== 'loading') dismissBootScreen()
-  }, [status, shareSlug, isPresenter])
+    if (shareSlug || conversationShareSlug || isPresenter || memoAlwaysPublic || status !== 'loading') dismissBootScreen()
+  }, [status, shareSlug, isPresenter, memoAlwaysPublic])
 
   useEffect(() => {
-    if (shareSlug || conversationShareSlug || isPresenter) return
+    if (shareSlug || conversationShareSlug || isPresenter || memoAlwaysPublic) return
     const timer = window.setTimeout(() => {
       dismissBootScreen()
       // Set whether or not the session has resolved by now: the flag only ever paints while the status is
@@ -136,7 +142,7 @@ export function App() {
       setBootStalled(true)
     }, BOOT_WATCHDOG_MS)
     return () => window.clearTimeout(timer)
-  }, [shareSlug, isPresenter])
+  }, [shareSlug, isPresenter, memoAlwaysPublic])
 
   if (isPresenter) {
     return (
@@ -162,13 +168,33 @@ export function App() {
     )
   }
 
+  if (memoSurface.kind === 'public') {
+    return (
+      <>
+        <ErrorBoundary>
+          <Suspense fallback={<PageFallback />}>
+            <MemosPublicApp route={memoSurface.route} />
+          </Suspense>
+        </ErrorBoundary>
+        <Toaster />
+        <UpdateCard />
+      </>
+    )
+  }
+
   return (
     <>
       <ErrorBoundary>
         {status === 'loading' && (bootStalled
           ? <BootStalled onRetry={() => void load()} />
           : <div className="h-full" />)}
-        {status === 'anonymous' && <LoginPage />}
+        {status === 'anonymous' && (memoSurface.kind === 'explore'
+          ? (
+              <Suspense fallback={<PageFallback />}>
+                <MemosPublicApp route={memoSurface} />
+              </Suspense>
+            )
+          : <LoginPage />)}
         {status === 'authed' && (
           <Suspense fallback={<PageFallback />}>
             <AppTabHost />

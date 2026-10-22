@@ -23,6 +23,12 @@ import {
   TODOS_REQUIRED_TABLES,
   TODOS_SCHEMA_STATEMENTS,
 } from '../todos/schema'
+import {
+  MEMOS_REQUIRED_COLUMNS,
+  MEMOS_REQUIRED_INDEXES,
+  MEMOS_REQUIRED_TABLES,
+  MEMOS_SCHEMA_STATEMENTS,
+} from '../memos/schema'
 
 const BACKUP_ARCHIVES_TABLE = `CREATE TABLE IF NOT EXISTS backup_archives (
   user_id TEXT NOT NULL,
@@ -520,6 +526,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   ...ASSISTANT_SCHEMA_STATEMENTS,
   ...TODOS_SCHEMA_STATEMENTS,
   ...SUBSCRIPTIONS_SCHEMA_STATEMENTS,
+  ...MEMOS_SCHEMA_STATEMENTS,
 ]
 
 export interface SchemaMigration {
@@ -2194,6 +2201,10 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     statements: [
       `ALTER TABLE todos_tasks ADD COLUMN color TEXT`,    ],
   },
+  {
+    version: 145,
+    statements: MEMOS_SCHEMA_STATEMENTS,
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -2253,6 +2264,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   ...ASSISTANT_REQUIRED_COLUMNS,
   ...TODOS_REQUIRED_COLUMNS,
   ...SUBSCRIPTIONS_REQUIRED_COLUMNS,
+  ...MEMOS_REQUIRED_COLUMNS,
 } as const
 
 export const REQUIRED_TABLES = [
@@ -2304,6 +2316,7 @@ export const REQUIRED_TABLES = [
   ...ASSISTANT_REQUIRED_TABLES,
   ...TODOS_REQUIRED_TABLES,
   ...SUBSCRIPTIONS_REQUIRED_TABLES,
+  ...MEMOS_REQUIRED_TABLES,
 ] as const
 
 export const REQUIRED_INDEXES = [
@@ -2366,6 +2379,7 @@ export const REQUIRED_INDEXES = [
   ...ASSISTANT_REQUIRED_INDEXES,
   ...TODOS_REQUIRED_INDEXES,
   ...SUBSCRIPTIONS_REQUIRED_INDEXES,
+  ...MEMOS_REQUIRED_INDEXES,
 ] as const
 
 

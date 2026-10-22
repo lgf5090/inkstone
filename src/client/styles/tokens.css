@@ -245,6 +245,31 @@
   --kanban-tag-teal-bg: color-mix(in oklab, var(--kanban-tag-teal-fg) 14%, transparent);
   --kanban-tag-slate-fg: oklch(48.5% 0.041 257.4);
   --kanban-tag-slate-bg: color-mix(in oklab, var(--kanban-tag-slate-fg) 14%, transparent);
+
+  --media-scrim: oklch(0% 0 0 / 92%);
+  --media-control: oklch(0% 0 0 / 35%);
+  --media-control-hover: oklch(0% 0 0 / 55%);
+  --media-text: oklch(100% 0 0 / 80%);
+  --media-text-strong: oklch(100% 0 0);
+  --media-surface: oklch(100% 0 0 / 10%);
+
+  --memo-tag-dot: 6px;
+  --memo-blur: 6px;
+  --memo-sidebar-width: 248px;
+  --memo-detail-width: 400px;
+  --memo-share-image-width: 420px;
+  --memo-setting-control-width: 320px;
+  --memo-field-narrow-width: 150px;
+  --memo-media-max-height: 420px;
+  --memo-pin-badge-min: 18px;
+  --memo-page-width: 1200px;
+  --memo-library-width: 1100px;
+  --memo-settings-width: 980px;
+  --memo-reading-width: 760px;
+  --memo-filter-chip-max-width: 240px;
+  --memo-field-min-width: 160px;
+  --memo-token-field-min-width: 180px;
+  --memo-field-wide-width: 280px;
 }
 
 

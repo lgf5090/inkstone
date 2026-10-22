@@ -8,8 +8,10 @@ import {
   SESSION_RENEW_BEFORE_MS,
   SESSION_TTL_MS,
 } from '@shared/constants'
+import { MEMOS_API_PREFIX } from '@shared/memos/constants'
 import { destroySession, hashToken, isSessionToken, renewSession } from '../lib/session-store'
 import { ApiError } from '../lib/errors'
+import { memoPatFromAuthorization } from '../memos/tokens'
 import type { AppBindings, Variables } from '../env'
 
 interface UserRow {
@@ -118,10 +120,16 @@ export const requireAuth = createMiddleware<AppBindings>(async (c, next) => {
   await next()
 })
 
+function isMemoPatRequest(c: Context<AppBindings>): boolean {
+  const path = c.req.path
+  if (path !== MEMOS_API_PREFIX && !path.startsWith(`${MEMOS_API_PREFIX}/`)) return false
+  return memoPatFromAuthorization(c.req.header('Authorization')) !== null
+}
+
 export const requireClientHeader = createMiddleware<AppBindings>(async (c, next) => {
   const method = c.req.method.toUpperCase()
   if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
-    if (c.req.header(CLIENT_HEADER) !== '1') {
+    if (!isMemoPatRequest(c) && c.req.header(CLIENT_HEADER) !== '1') {
       throw new ApiError(403, 'forbidden', 'Missing client identification header. Refresh and try again')
     }
   }

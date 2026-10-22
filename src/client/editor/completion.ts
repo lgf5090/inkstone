@@ -169,13 +169,13 @@ export function emojiSource(context: CompletionContext): CompletionResult | Prom
                 detail: `:${hit.entry.code}:`,
                 info: hit.entry.name,
                 boost: hit.score / 10,
-                apply: (view: EditorView) => {
+                apply: (view: EditorView, _completion, from: number, to: number) => {
                     const glyph = emojiWithTone(hit.entry, emojiSkinTone);
                     pushRecentEmoji(glyph);
                     const text = emojiInsertFormat === 'shortcode' ? `:${hit.entry.code}:` : glyph;
                     view.dispatch({
-                        changes: { from: before.from, to: context.pos, insert: text },
-                        selection: { anchor: before.from + text.length },
+                        changes: { from, to, insert: text },
+                        selection: { anchor: from + text.length },
                         scrollIntoView: true,
                         userEvent: 'input.complete',
                     });

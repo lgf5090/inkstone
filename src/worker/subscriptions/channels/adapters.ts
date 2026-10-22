@@ -21,7 +21,8 @@ import {
 import { describeTimezone, notifyCopy } from '@shared/subscriptions/notify-copy'
 import { formatLocalDate } from '@shared/subscriptions/time'
 import type { ChannelKind } from '@shared/subscriptions/model'
-import { outbound, parseJson, redact } from './http'
+import { outbound } from '../../lib/outbound'
+import { parseJson, redact } from './http'
 
 type Config = Record<string, unknown>
 

@@ -48,20 +48,36 @@ export async function persistAttachmentWithinQuota(
   env: Env,
   input: PersistAttachmentInput,
 ): Promise<PersistedAttachment> {
+  return withAttachmentQuotaLease(env, input.userId, async (usedBytes) => {
+    if (usedBytes + input.bytes.byteLength > LIMITS.attachmentQuotaBytes) {
+      throw ApiError.tooLarge('The account attachment quota has been reached')
+    }
+    return persistAttachment(env, input)
+  })
+}
+
+export async function attachmentBytesUsed(db: D1Database, userId: string): Promise<number> {
+  const usage = await db.prepare(
+    `SELECT
+       COALESCE((SELECT SUM(size) FROM attachments WHERE user_id = ?1), 0)
+       + COALESCE((SELECT SUM(size) FROM memos_attachments WHERE user_id = ?1), 0) AS bytes`,
+  ).bind(userId).first<{ bytes: number }>()
+  return Number(usage?.bytes ?? 0)
+}
+
+export async function withAttachmentQuotaLease<T>(
+  env: Env,
+  userId: string,
+  run: (usedBytes: number) => Promise<T>,
+): Promise<T> {
   const release = await acquireLease(
     env.DB,
-    `attachment-quota:${input.userId}`,
+    `attachment-quota:${userId}`,
     2 * 60 * 1000,
     'Another attachment upload is being finalized. Try again shortly',
   )
   try {
-    const usage = await env.DB.prepare(
-      `SELECT COALESCE(SUM(size), 0) AS bytes FROM attachments WHERE user_id = ?1`,
-    ).bind(input.userId).first<{ bytes: number }>()
-    if ((usage?.bytes ?? 0) + input.bytes.byteLength > LIMITS.attachmentQuotaBytes) {
-      throw ApiError.tooLarge('The account attachment quota has been reached')
-    }
-    return await persistAttachment(env, input)
+    return await run(await attachmentBytesUsed(env.DB, userId))
   } finally {
     await release()
   }

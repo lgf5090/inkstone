@@ -128,6 +128,33 @@ export async function decryptChannelConfig(
   return value as Record<string, unknown>
 }
 
+/**
+ * One memo webhook's signing secret.
+ *
+ * The scope is the webhook's own row id so a ciphertext moved into another row cannot be read back out,
+ * and the prefix is checked on both directions because the string doubles as the HMAC key material:
+ * a value that is not a webhook secret would sign deliveries with the wrong bytes.
+ */
+export async function encryptMemoWebhookSecret(env: Env, webhookId: string, secret: string): Promise<string> {
+  if (!isValidId(webhookId) || !isMemoWebhookSecret(secret)) throw new Error('invalid_memo_webhook_credential')
+  return encryptCredential(env, `memo-webhook:${webhookId}`, { secret })
+}
+
+export async function decryptMemoWebhookSecret(env: Env, webhookId: string, stored: string): Promise<string | null> {
+  if (!isValidId(webhookId) || stored.length > 24 * 1024) return null
+  const value = await decryptCredential(env, `memo-webhook:${webhookId}`, stored)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const secret = (value as Record<string, unknown>).secret
+  return isMemoWebhookSecret(secret) ? secret : null
+}
+
+function isMemoWebhookSecret(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.startsWith('whsec_')
+    && value.length > 'whsec_'.length
+    && value.length <= 512
+}
+
 async function encryptCredential(env: Env, scope: string, value: unknown): Promise<string> {
   const response = await vaultRequest(env, '/encrypt', { scope, value })
   if (!response.ok) {

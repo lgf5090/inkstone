@@ -66,6 +66,24 @@ export function installTestGlobals(): void {
   if (typeof Element !== 'undefined' && typeof Element.prototype.scrollIntoView !== 'function') {
     Element.prototype.scrollIntoView = function scrollIntoView() {}
   }
+  if (typeof Range !== 'undefined') {
+    const rangePrototype = Range.prototype as unknown as {
+      getClientRects?: () => DOMRectList
+      getBoundingClientRect?: () => DOMRect
+    }
+    if (typeof rangePrototype.getClientRects !== 'function') {
+      Object.defineProperty(rangePrototype, 'getClientRects', {
+        configurable: true,
+        value: () => [] as unknown as DOMRectList,
+      })
+    }
+    if (typeof rangePrototype.getBoundingClientRect !== 'function') {
+      Object.defineProperty(rangePrototype, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => new DOMRect(0, 0, 0, 0),
+      })
+    }
+  }
 }
 
 

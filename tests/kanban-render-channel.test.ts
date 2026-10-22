@@ -52,6 +52,7 @@ describe('kanban render channels', () => {
     const channels = new Map(enhancementCalls().map(({ file, call }) => [file, /kanban:\s*'(\w+)'/.exec(call)?.[1]]))
     expect(Object.fromEntries([...channels].sort())).toEqual({
       [path.join('editor', 'live-preview.ts')]: 'snapshot',
+      [path.join('features', 'memos', 'components', 'MemoBody.tsx')]: 'snapshot',
       [path.join('features', 'preview', 'card-content.ts')]: 'snapshot',
       [path.join('features', 'preview', 'MarkdownBody.tsx')]: 'snapshot',
       [path.join('features', 'preview', 'Preview.tsx')]: 'live',

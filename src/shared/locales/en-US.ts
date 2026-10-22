@@ -1,4 +1,10 @@
 import type { NoteTemplateContentKey } from './en-US-note-template-content';
+import { EN_US_MEMOS } from './en-US-memos';
+import { EN_US_MEMOS_CORE } from './en-US-memos-core';
+import { EN_US_MEMOS_DATA } from './en-US-memos-data';
+import { EN_US_MEMOS_MEDIA } from './en-US-memos-media';
+import { EN_US_MEMOS_ORG } from './en-US-memos-org';
+import { EN_US_MEMOS_SHARE } from './en-US-memos-share';
 export const EN_US_MESSAGES = {
     "template.kanban_sprint_board.name": "Sprint Board",
     "template.kanban_sprint_board.description": "A kanban board with the four columns a sprint actually needs.",
@@ -8471,6 +8477,12 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     "todo.stats.loading": "Reading statistics…",
     "todo.stats.error": "The statistics could not be loaded",
     "todo.stats.retry": "Retry",
+    ...EN_US_MEMOS,
+    ...EN_US_MEMOS_CORE,
+    ...EN_US_MEMOS_ORG,
+    ...EN_US_MEMOS_MEDIA,
+    ...EN_US_MEMOS_SHARE,
+    ...EN_US_MEMOS_DATA,
 } as const;
 export type BaseMessageKey = keyof typeof EN_US_MESSAGES;
 export type MessageKey = BaseMessageKey | NoteTemplateContentKey;

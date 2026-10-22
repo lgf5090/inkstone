@@ -322,7 +322,7 @@ function transferApiError(status: number, body: unknown, headline: string): ApiE
   return new ApiError(status, failure.code, headline, failure.details, failure.serverMessage)
 }
 
-interface RequestOptions {
+export interface RequestOptions {
   method?: string
   body?: unknown
   signal?: AbortSignal
@@ -373,7 +373,7 @@ export interface SettingsPatch {
   rateOverrides?: Record<string, number>
 }
 
-async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body, signal, formData, timeoutMs, ifNoneMatch, ifMatch, onEtag, cache } = options
 
   const headers: Record<string, string> = {
