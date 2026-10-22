@@ -191,7 +191,14 @@ function oauthErrorRedirect(
   return redirect.toString()
 }
 
-function consentPage(input: {
+/**
+ * The consent screen itself.
+ *
+ * Exported so a test can ask what a reader is actually shown: a scope the server honours but this page
+ * never draws is a permission nobody granted, and one drawn without being requested is the widening this
+ * file exists to refuse.
+ */
+export function consentPage(input: {
   client: ClientInfo
   request: AuthRequest
   csrf: string
@@ -203,6 +210,9 @@ function consentPage(input: {
   const requested = new Set(input.request.scope.length ? input.request.scope : [MCP_SCOPES.read])
   const wantsWrite = requested.has(MCP_SCOPES.write)
   const wantsTrash = requested.has(MCP_SCOPES.trash)
+  const wantsTodoRead = requested.has(MCP_SCOPES.todoRead)
+  const wantsTodoWrite = requested.has(MCP_SCOPES.todoWrite)
+  const wantsTodoDanger = requested.has(MCP_SCOPES.todoDanger)
   const copy = authorizationCopy(input.locale)
   const clientName = escapeHtml(input.client.clientName || copy.mcpClient)
   return page(`
@@ -235,6 +245,9 @@ function consentPage(input: {
             <input type="hidden" name="scope" value="${MCP_SCOPES.read}">
             ${wantsWrite ? permission(MCP_SCOPES.write, copy.writeTitle, copy.writeDetail, false) : ''}
             ${wantsTrash ? permission(MCP_SCOPES.trash, copy.trashTitle, copy.trashDetail, false) : ''}
+            ${wantsTodoRead ? permission(MCP_SCOPES.todoRead, copy.todoReadTitle, copy.todoReadDetail, false) : ''}
+            ${wantsTodoWrite ? permission(MCP_SCOPES.todoWrite, copy.todoWriteTitle, copy.todoWriteDetail, false) : ''}
+            ${wantsTodoDanger ? permission(MCP_SCOPES.todoDanger, copy.todoDangerTitle, copy.todoDangerDetail, false) : ''}
           </div>
         </section>
         <section class="form-section" aria-labelledby="privacy-title">
@@ -304,7 +317,7 @@ function authorizationCopy(locale: AppLocale) {
       mcpClient: 'MCP 客户端',
       accessTitle: (clientName: string) => `${clientName} 请求访问`,
       signedInAs: '已登录为 ',
-      accountOnly: '。仅可访问此账户的笔记。',
+      accountOnly: '\u3002\u4ec5\u53ef\u8bbf\u95ee\u6b64\u8d26\u6237\u7684\u7b14\u8bb0\u4e0e\u5f85\u529e\u3002',
       clientSource: (host: string) => `未注册外部客户端，来源地址 ${host}，请核对后再授权。`,
       permissions: '权限',
       readTitle: '读取与搜索笔记',
@@ -314,6 +327,12 @@ function authorizationCopy(locale: AppLocale) {
       writeDetail: '\u53ef\u4fee\u6539\u7b14\u8bb0\u3001\u76ee\u5f55\u3001\u6807\u7b7e\u3001\u5c5e\u6027\u548c\u9644\u4ef6\uff0c\u4e5f\u53ef\u6309\u660e\u786e\u8bf7\u6c42\u521b\u5efa\u5171\u4eab\u94fe\u63a5\u6216\u8fd0\u884c\u5df2\u914d\u7f6e\u7684\u5907\u4efd\uff1b\u5199\u5165\u5305\u542b\u51b2\u7a81\u4fdd\u62a4\u548c\u5e42\u7b49\u952e\u3002',
       trashTitle: '移入回收站',
       trashDetail: '仅软删除；MCP 不提供永久清除功能。',
+      todoReadTitle: '\u8bfb\u53d6\u4e0e\u641c\u7d22\u5f85\u529e',
+      todoReadDetail: '\u4efb\u52a1\u6807\u9898\u3001\u5907\u6ce8\u3001\u5230\u671f\u65e5\u3001\u6b65\u9aa4\u4e0e\u6807\u7b7e\u3002\u5f85\u529e\u7684\u56de\u7b54\u4ece\u4e0d\u8fd4\u56de\u7b14\u8bb0\u6216\u5bf9\u8bdd\u6b63\u6587\u3002',
+      todoWriteTitle: '\u4fee\u6539\u5f85\u529e',
+      todoWriteDetail: '\u53ef\u521b\u5efa\u3001\u4fee\u6539\u5e76\u5b8c\u6210\u5f85\u529e\uff0c\u53ef\u63d0\u4ea4\u6b65\u9aa4\u3001\u6807\u7b7e\u4e0e\u6e05\u5355\u3002\u5b8c\u6210\u91cd\u590d\u4efb\u52a1\u4f1a\u767b\u8bb0\u5b83\u7684\u4e0b\u4e00\u6b21\u3002',
+      todoDangerTitle: '\u6c38\u4e45\u5220\u9664\u5f85\u529e',
+      todoDangerDetail: '\u786c\u5220\u9664\uff1a\u5f85\u529e\u4e0d\u50cf\u7b14\u8bb0\u90a3\u6837\u6709\u53ef\u6062\u590d\u7684\u56de\u6536\u7ad9\u3002',
       privacy: '隐私',
       privacyDetail: (clientName: string) =>
         `Cloudflare 托管静态加密的服务数据。只有工具读取笔记时，内容才会发送给 ${clientName}，之后由该客户端的隐私政策约束。`,
@@ -343,7 +362,7 @@ function authorizationCopy(locale: AppLocale) {
     mcpClient: 'MCP client',
     accessTitle: (clientName: string) => `${clientName} wants access`,
     signedInAs: 'Signed in as ',
-    accountOnly: '. Only this account’s notes are available.',
+    accountOnly: '. Only this account’s notes and to-dos are available.',
     clientSource: (host: string) => `Unregistered external client from ${host} — verify the address before allowing access.`,
     permissions: 'Permissions',
     readTitle: 'Read and search notes',
@@ -353,6 +372,12 @@ function authorizationCopy(locale: AppLocale) {
     writeDetail: 'May modify notes, folders, tags, properties, and attachments, and may create shares or run configured backups when explicitly requested. Writes use conflict protection and idempotency keys.',
     trashTitle: 'Move notes to trash',
     trashDetail: 'Soft-delete only. Permanent purge is not exposed through MCP.',
+    todoReadTitle: 'Read and search to-dos',
+    todoReadDetail: 'Task titles, notes, due dates, steps and tags. A to-do answer never returns note or conversation text.',
+    todoWriteTitle: 'Change to-dos',
+    todoWriteDetail: 'May create, edit and complete tasks and file their steps, tags and lists. Completing a repeating task files its next occurrence.',
+    todoDangerTitle: 'Delete to-dos for good',
+    todoDangerDetail: 'Hard delete: unlike a note there is no trash to restore a task from.',
     privacy: 'Privacy',
     privacyDetail: (clientName: string) =>
       `Cloudflare hosts the encrypted-at-rest service data. Note content is sent to ${clientName} only when a tool reads it, then follows that client’s privacy policy.`,

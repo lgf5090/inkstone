@@ -59,10 +59,6 @@ interface Site {
 /** Sites today, each with how many of them the file writes and why. */
 const DISCARDED_WRITE_BASELINE = new Map<string, { sites: number; reason: string }>([
   [
-    'src/client/features/chat/TasksView.tsx # TaskEditor # updateTask',
-    { sites: 1, reason: 'The task editor closes while its PATCH is in flight. `updateTask` catches and toasts its own failure (assistant-store.ts), so the reader is told — about it, after the editor is gone. Converging it means the same await-then-close the model editor uses.' },
-  ],
-  [
     'src/client/features/chat/MemoryView.tsx # save # addMemory',
     { sites: 1, reason: 'One `void` covers both branches of the save (create and edit), and `addMemory` toasts its own refusal; the editor is a single-line fact, so a rejected write leaves the text in the memory list it was already optimistic about.' },
   ],

@@ -92,6 +92,15 @@ export interface MessageMenuTarget {
    * the module's own decision rather than the caller's.
    */
   onInsertIntoNote?: () => void
+  /**
+   * Present for a stored turn: keeps this message as a task.
+   *
+   * The first line becomes the title and the rest the note, so the row is offered on both roles — what
+   * the reader said ("order water") and what the assistant answered ("here is how to ship it") are both
+   * things to do.
+   * It opens the editor rather than writing a task, because only the reader knows the list and the date.
+   */
+  onSaveAsTask?: () => void
 }
 
 interface ItemSpec {
@@ -156,6 +165,11 @@ export function messageMenuItems(target: MessageMenuTarget): MenuItem[] {
   ]
   if (canSpeak()) {
     specs.push({ id: 'read', icon: Volume2, label: t('assistant.chat.read_aloud'), run: () => readAloud(target.text) })
+  }
+  // Right after quoting, and for either role: "turn this into something to do" is the same thought
+  // whichever side of the conversation said it.
+  if (target.onSaveAsTask) {
+    specs.push({ id: 'save-as-task', icon: ListChecks, label: t('todo.chat.save_as_task'), run: target.onSaveAsTask })
   }
   if (target.role === 'assistant') {
     specs.push(

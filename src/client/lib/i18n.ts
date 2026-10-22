@@ -238,6 +238,11 @@ function detectInitialLocale(): AppLocale {
     return navigator.language.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US';
 }
 function applyLocaleToDom(): void {
+    // Only a browser has a document to paint, and a caller without one is a test seeding through a
+    // client store under the node environment: the locale it reads is the one already in memory, so
+    // there is nothing here for such a caller to want.
+    if (typeof document === 'undefined')
+        return;
     document.documentElement.lang = locale;
     document.title = t('app.document_title');
     const description = document.querySelector<HTMLMetaElement>('meta[name="description"]');

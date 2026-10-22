@@ -111,14 +111,40 @@ import type {
   PendingAction,
   Project as AssistantProject,
   SavedMessage,
-  Task as AssistantTask,
 } from '@shared/assistant'
+import type {
+  RemindOffset,
+  SnoozeMinutes,
+  TaskBatchRequestOp,
+  TaskBatchResult,
+  TaskList,
+  TaskPage,
+  TaskStatsBucket,
+  TaskStep,
+  TaskTag,
+  TaskTrashPage,
+  TodoStats,
+  TodoTask,
+} from '@shared/todos/model'
 import { publishBroadcast } from './db'
 import { randomLocalId } from './random-id'
 import { getLocale, t, translateApiError } from './i18n'
 
 
 export const CLIENT_ID = randomLocalId()
+
+/**
+ * A list as the organizer page reads it: the shared shape plus where it sits.
+ *
+ * `archivedAt` is the moment the reader put the list away, or null while it is in use; `parentId` is
+ * the one container it sits under, or null at the top level. Kept beside the API client rather than
+ * in the shared model because they are fields of this screen's answer, not facts every task surface
+ * reads.
+ */
+export type TaskListEntry = TaskList & {
+  archivedAt: number | null
+  parentId: string | null
+}
 
 export class ApiError extends Error {
   constructor(
@@ -307,6 +333,11 @@ interface RequestOptions {
    * answered with, including on the 304 that carries no body, so the next beat can send it back.
    */
   ifNoneMatch?: string
+  /**
+   * A conditional write's precondition: the revision the caller read. Sent as `If-Match`, which the
+   * task routes compare with the row's own revision before they write.
+   */
+  ifMatch?: string
   onEtag?: (etag: string | null) => void
   /** A question about *now* must not be answered from the cache; a stored "where is the talk" is a
    * different question's answer. */
@@ -343,7 +374,7 @@ export interface SettingsPatch {
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, signal, formData, timeoutMs, ifNoneMatch, onEtag, cache } = options
+  const { method = 'GET', body, signal, formData, timeoutMs, ifNoneMatch, ifMatch, onEtag, cache } = options
 
   const headers: Record<string, string> = {
     [CLIENT_HEADER]: '1',
@@ -351,6 +382,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     'Accept-Language': getLocale(),
   }
   if (ifNoneMatch) headers['If-None-Match'] = ifNoneMatch
+  if (ifMatch) headers['If-Match'] = ifMatch
   let payload: BodyInit | undefined
   if (formData) {
     payload = formData
@@ -528,6 +560,25 @@ function shouldNotifyOtherTabs(path: string): boolean {
 export type PresenceStatus = { running: false, viewers: number } | { running: true, expiresAt: number, presence: PublicSharePresence, viewers: number }
 
 /**
+ * One calendar subscription as its owner's settings screen reads it.
+ *
+ * The worker's public reader (`routes/todo-feeds.ts`) owns the document; this is the management half:
+ * the untrusted slug, the address built from it, whether a passcode stands in front of it, and the two
+ * timestamps. A passcode hash has no field here and never travels — `hasPassword` is the whole marker.
+ *
+ * `url` is the route's answer for convenience, but the screen rebuilds the address from its own
+ * `window.location.origin`: behind a proxy the origin the worker saw is not necessarily the one the
+ * reader can reach, and a copied subscription has to be reachable from their calendar.
+ */
+export interface TodoFeedInfo {
+  slug: string
+  url: string
+  hasPassword: boolean
+  expiresAt: number | null
+  createdAt: number
+}
+
+/**
  * Uploads one chat attachment with a byte counter.
  *
  * `XMLHttpRequest` rather than `request()`: fetch reports nothing while the body is going out, and a
@@ -666,6 +717,35 @@ export interface PushSubscriptionRow {
 export interface PushSubscriptionPayload {
   endpoint: string
   keys: { p256dh: string, auth: string }
+}
+
+/** How far before the due time each quick-add preset sits; "none" removes the reminder. */
+const REMINDER_DELAYS: Readonly<Record<Exclude<RemindOffset, 'none'>, number>> = {
+  due: 0,
+  '15m': 15 * 60_000,
+  '1h': 60 * 60_000,
+  '1d': 24 * 60 * 60_000,
+}
+
+/**
+ * Reads the quick-add offset into the absolute reminder list the route accepts.
+ *
+ * The inline quick-add still speaks "15 minutes before" because that is what a person types, and the
+ * editor speaks absolute instants because that is what a reminder is. The conversion happens here,
+ * at the network boundary, so the offset never reaches the worker — the route has one shape to
+ * validate and the stored row has one meaning. An explicit `reminders` list wins over the offset; a
+ * body carrying neither is sent untouched.
+ */
+function withReminderList(body: Record<string, unknown>): Record<string, unknown> {
+  if (!('remind' in body)) return body
+  const { remind, ...rest } = body
+  if (Array.isArray(rest.reminders)) return rest
+  const dueAt = rest.dueAt
+  if (typeof dueAt !== 'number' || typeof remind !== 'string') return rest
+  if (remind === 'none') return { ...rest, reminders: [] }
+  const delay = REMINDER_DELAYS[remind as Exclude<RemindOffset, 'none'>]
+  if (delay === undefined) return rest
+  return { ...rest, reminders: [dueAt - delay] }
 }
 
 export const api = {
@@ -923,6 +1003,8 @@ export const api = {
       enabled?: boolean
       writeEnabled?: boolean
       trashEnabled?: boolean
+      /** Whether a key may read tasks at all. */
+      todoReadEnabled?: boolean
       /** The server's own tools to switch off, by the name it registers them under. */
       disabledTools?: string[]
     }) => request<{
@@ -1059,6 +1141,149 @@ export const api = {
    * The chat assistant. Its own group because it is its own app container: the rail's Chat tab owns
    * these routes, and nothing in the notebook calls them.
    */
+  todos: {
+    /**
+     * One page of the listing the to-do screen states.
+     *
+     * Every filter is a parameter and the answer is the server's: the view, the collection, the search
+     * text and the offset are decided in SQL, and `total` says how many rows match beside the page.
+     */
+    list: (params: {
+      status?: string, view?: string, list?: string, tag?: string, priority?: string, starred?: string,
+      q?: string, dueFrom?: string, dueTo?: string, completedFrom?: string, completedTo?: string,
+      sort?: string, limit?: number, offset?: number
+    } = {}) =>
+      request<TaskPage>(`/api/todos${toQuery(params)}`),
+    get: (id: string) => request<{ task: TodoTask, steps: TaskStep[] }>(`/api/todos/${id}`),
+    create: (body: Record<string, unknown>) =>
+      request<{ task: TodoTask }>('/api/todos', { method: 'POST', body: withReminderList(body) }),
+    /**
+     * `next` is present when the patch finished a repeating task and it filed the next occurrence.
+     *
+     * `rev` is the revision the row was read at. Naming it makes the write conditional: a stale one is
+     * refused with a 409 instead of replacing an edit this client never saw.
+     */
+    update: (id: string, body: Record<string, unknown>, rev?: number) =>
+      request<{ task: TodoTask, next?: TodoTask }>(`/api/todos/${id}`, {
+        method: 'PATCH',
+        body: withReminderList(body),
+        ...(rev === undefined ? {} : { ifMatch: String(rev) }),
+      }),
+    /**
+     * Picks a task into a day, or takes it back out with `null`.
+     *
+     * The day is an account-zone `YYYY-MM-DD`, not an instant: "planned for today" is a calendar
+     * membership that lapses on its own when the day changes, not a timestamp that has to be cleared.
+     */
+    plan: (id: string, date: string | null) =>
+      request<{ task: TodoTask }>(`/api/todos/${id}/plan`, { method: 'POST', body: { date } }),
+    /**
+     * Places a task before another row, or at the end when `beforeId` is null.
+     *
+     * `listId` is absent for a move inside the task's own list, null for the inbox, and an id for a
+     * cross-list move — the destination and the place land in one write, so a task never sits in the
+     * old list with a position meant for the new one.
+     */
+    move: (id: string, body: { beforeId: string | null, listId?: string | null }) =>
+      request<{ task: TodoTask }>(`/api/todos/${id}/move`, { method: 'POST', body }),
+    /**
+     * "Remind me again": adds one reminder `minutes` from now and answers with the whole pending list.
+     * The earlier reminders stay — a snooze is a second chance, not a cancellation.
+     */
+    snooze: (id: string, minutes: SnoozeMinutes) =>
+      request<{ task: TodoTask, reminders: number[] }>(`/api/todos/${id}/snooze`, { method: 'POST', body: { minutes } }),
+    remove: (id: string) => request<{ deleted: true }>(`/api/todos/${id}`, { method: 'DELETE' }),
+
+    /**
+     * The trash and its two doors.
+     *
+     * `trash` pages the rows every other read hides, newest deletion first. `restore` puts the same
+     * row back — the undo after a delete uses it rather than creating a copy — and `purge` removes a
+     * trashed row for good; both answer 404 for a live task or another account's id.
+     */
+    trash: (params: { limit?: number, offset?: number } = {}) =>
+      request<TaskTrashPage>(`/api/todos/trash${toQuery(params)}`),
+    restore: (id: string) => request<{ task: TodoTask }>(`/api/todos/${id}/restore`, { method: 'POST' }),
+    purge: (id: string) => request<{ purged: true }>(`/api/todos/${id}/purge`, { method: 'DELETE' }),
+
+    /**
+     * One change applied to a set of tasks.
+     *
+     * The answer is always 200 and names both halves: the ids that changed and the ids that did not,
+     * with the reason. A row from another account is `not found`, exactly as it would be on its own
+     * route, so a partial answer never tells the caller which ids exist elsewhere.
+     */
+    batch: (body: { ids: string[], op: TaskBatchRequestOp, value?: string | string[] | null }) =>
+      request<TaskBatchResult>('/api/todos/batch', { method: 'POST', body }),
+
+    /**
+     * One range of the account's statistics.
+     *
+     * The bounds are account-zone calendar days; leaving them out asks for the route's own default
+     * (the last 30 days), and the answer echoes the range it actually measured so the client never
+     * has to guess which days the numbers describe.
+     */
+    stats: (params: { from?: string, to?: string, bucket?: TaskStatsBucket } = {}) =>
+      request<TodoStats>(`/api/todos/stats${toQuery(params)}`),
+
+    addStep: (id: string, text: string) =>
+      request<{ step: TaskStep }>(`/api/todos/${id}/steps`, { method: 'POST', body: { text } }),
+    updateStep: (id: string, stepId: string, body: { text?: string, done?: boolean }) =>
+      request<{ step: TaskStep }>(`/api/todos/${id}/steps/${stepId}`, { method: 'PATCH', body }),
+    removeStep: (id: string, stepId: string) =>
+      request<{ deleted: true }>(`/api/todos/${id}/steps/${stepId}`, { method: 'DELETE' }),
+
+    lists: (params: { archived?: '1' } = {}) =>
+      request<{ lists: TaskListEntry[] }>(`/api/todos/lists${toQuery(params)}`),
+    createList: (body: { name: string, icon?: string | null, color?: string | null }) =>
+      request<{ list: TaskListEntry }>('/api/todos/lists', { method: 'POST', body }),
+    updateList: (id: string, body: { name?: string, icon?: string | null, color?: string | null, position?: number, archived?: boolean, parentId?: string | null }) =>
+      request<{ list: TaskListEntry }>(`/api/todos/lists/${id}`, { method: 'PATCH', body }),
+    removeList: (id: string) => request<{ deleted: true }>(`/api/todos/lists/${id}`, { method: 'DELETE' }),
+
+    tags: () => request<{ tags: TaskTag[] }>('/api/todos/tags'),
+    createTag: (body: { name: string, color?: string | null }) =>
+      request<{ tag: TaskTag }>('/api/todos/tags', { method: 'POST', body }),
+    updateTag: (id: string, body: { name?: string, color?: string | null }) =>
+      request<{ tag: TaskTag }>(`/api/todos/tags/${id}`, { method: 'PATCH', body }),
+    removeTag: (id: string) => request<{ deleted: true }>(`/api/todos/tags/${id}`, { method: 'DELETE' }),
+
+    /**
+     * Import tasks from a CSV the reader picked.
+     *
+     * The file is the document; `conflict` is the one rule it cannot answer for itself — keep what is here,
+     * let the file win, or file a second copy. Rows the parser refused come back in `errors` while the rest
+     * still land, so the screen can honestly print both numbers.
+     */
+    importCsv: (file: File, conflict: 'skip' | 'newer' | 'duplicate' = 'skip') => {
+      const form = new FormData()
+      form.append('file', file)
+      form.append('conflict', conflict)
+      return request<{
+        created: number
+        updated: number
+        skipped: number
+        missingLists: number
+        errors: { line: number, reason: string }[]
+      }>('/api/todos/import', { method: 'POST', formData: form })
+    },
+
+    /**
+     * The calendar subscriptions this account published.
+     *
+     * `create` mints a new address every time — a feed is never replaced, and revoking one never frees
+     * its slug. The passcode is an optional plaintext on the way in only; the answer carries the
+     * `hasPassword` marker, and a protected feed's subscriber appends `?key=` to the copied address.
+     */
+    feed: {
+      list: () => request<{ feeds: TodoFeedInfo[] }>('/api/todos/feed'),
+      create: (body: { password?: string | null, expiresIn?: number | null } = {}) =>
+        request<{ feed: TodoFeedInfo }>('/api/todos/feed', { method: 'POST', body }),
+      remove: (slug: string) =>
+        request<{ ok: true }>(`/api/todos/feed/${slug}`, { method: 'DELETE' }),
+    },
+  },
+
   assistant: {
     /** The conversations that wrote one note: the note's own "from a conversation" backlinks. */
     noteWrites: (noteId: string, signal?: AbortSignal) =>
@@ -1351,12 +1576,6 @@ export const api = {
     reviews: () => request<{ reviews: MemoryReview[] }>('/api/assistant/memories/reviews'),
     resolveReview: (id: string, action: string) =>
       request<{ kept: number, deleted: boolean }>(`/api/assistant/memories/reviews/${id}`, { method: 'POST', body: { action } }),
-    tasks: (params: { status?: string, view?: string, q?: string, project_id?: string, limit?: number } = {}) =>
-      request<{ tasks: AssistantTask[] }>(`/api/assistant/tasks${toQuery(params)}`),
-    createTask: (body: Record<string, unknown>) => request<{ task: AssistantTask }>('/api/assistant/tasks', { method: 'POST', body }),
-    updateTask: (id: string, body: Record<string, unknown>) =>
-      request<{ task: AssistantTask }>(`/api/assistant/tasks/${id}`, { method: 'PATCH', body }),
-    deleteTask: (id: string) => request<{ deleted: true }>(`/api/assistant/tasks/${id}`, { method: 'DELETE' }),
     projects: () => request<{ projects: AssistantProject[] }>('/api/assistant/projects'),
     getProject: (id: string) => request<{ project: AssistantProject }>(`/api/assistant/projects/${id}`),
     createProject: (body: { name: string, description?: string, instructions?: string, noteScope?: string[], noteIds?: string[], modelId?: string | null }) =>

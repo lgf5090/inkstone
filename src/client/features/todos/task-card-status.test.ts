@@ -1,0 +1,182 @@
+// @vitest-environment jsdom
+/**
+ * The status a card shows, and the one it can be moved to.
+ *
+ * `status` has three values, but until now only the checkbox could move a task between two of them:
+ * "in progress" existed in the model and nowhere on screen. The card is where a reader decides to start
+ * something, so the assertion here is made at the API boundary — the menu has to reach the same update
+ * route every other card action uses, with the status the reader picked.
+ */
+import { act, createElement } from 'react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { initI18n, t } from '../../lib/i18n'
+import { renderElement, type RenderedElement } from '../../lib/test-render'
+import type { TodoTask } from '@shared/todos/model'
+
+const service = vi.hoisted(() => ({
+  updates: [] as Array<{ id: string; patch: Record<string, unknown> }>,
+}))
+
+vi.mock('../../lib/api', () => {
+  const counts = { inbox: 0, today: 0, upcoming: 0, overdue: 0, all: 0, completed: 0, starred: 0, byList: {}, byTag: {} }
+  const row = (id: string, status: string): TodoTask => ({
+    id,
+    title: id,
+    description: '',
+    status: status as TodoTask['status'],
+    priority: 'medium',
+    dueAt: null,
+    remindAt: null,
+    completedAt: null,
+    createdAt: 0,
+    updatedAt: 0,
+    listId: null,
+    tags: [],
+    starred: false,
+    repeat: null,
+    remindedAt: null,
+    plannedFor: null,
+    noteId: null,
+    conversationId: null,
+    projectId: null,
+    stepTotal: 0,
+    stepDone: 0,
+  })
+  return {
+    api: {
+      todos: {
+        update: async (id: string, patch: Record<string, unknown>) => {
+          service.updates.push({ id, patch })
+          return { task: row(id, String(patch.status ?? 'todo')), next: null }
+        },
+        // The store re-reads the counts after a write; an empty page is enough for this case.
+        list: async () => ({
+          tasks: [],
+          total: 0,
+          counts,
+          dayEnd: Date.now() + 3_600_000,
+          timezone: 'UTC',
+        }),
+      },
+    },
+  }
+})
+
+import { TaskCard } from './TaskCard'
+import { useTodos } from './store'
+
+const NOW = Date.parse('2026-10-20T09:00:00Z')
+const DAY = 86_400_000
+
+function task(id: string, status: TodoTask['status'], title: string): TodoTask {
+  return {
+    id,
+    title,
+    description: '',
+    status,
+    priority: 'medium',
+    dueAt: null,
+    remindAt: null,
+    completedAt: null,
+    createdAt: 0,
+    updatedAt: 0,
+    listId: null,
+    tags: [],
+    starred: false,
+    repeat: null,
+    remindedAt: null,
+    plannedFor: null,
+    noteId: null,
+    conversationId: null,
+    projectId: null,
+    stepTotal: 0,
+    stepDone: 0,
+  }
+}
+
+const original = useTodos.getState()
+let view: RenderedElement | null = null
+
+beforeEach(async () => {
+  localStorage.clear()
+  await initI18n()
+  service.updates.length = 0
+  useTodos.setState(original, true)
+  useTodos.setState({ lists: [], timezone: 'UTC', dayEnd: NOW + DAY, selectedIds: new Set<string>() })
+})
+
+afterEach(() => {
+  act(() => { view?.unmount() })
+  view = null
+  document.body.innerHTML = ''
+  useTodos.setState(original, true)
+  vi.unstubAllGlobals()
+})
+
+function renderCard(row: TodoTask): void {
+  view = renderElement(createElement(TaskCard, {
+    task: row,
+    lists: [],
+    bounds: { dayEnd: NOW + DAY, now: NOW },
+    timezone: 'UTC',
+    onOpen: () => {},
+    onStar: () => {},
+  }))
+}
+
+function menuTrigger(row: TodoTask): HTMLButtonElement {
+  const trigger = view!.container.querySelector<HTMLButtonElement>(
+    `button[aria-label="${t('todo.task.actions')}: ${row.title}"]`,
+  )
+  if (!trigger) throw new Error('the card offers no menu')
+  return trigger
+}
+
+/** Open the row's menu and press one of its actions, the way a reader does. */
+async function choose(row: TodoTask, label: string): Promise<void> {
+  const trigger = menuTrigger(row)
+  await act(async () => {
+    trigger.click()
+    await Promise.resolve()
+  })
+  const item = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+    .find((node) => (node.textContent ?? '').trim() === label)
+  if (!item) throw new Error(`the menu has no row named “${label}”`)
+  await act(async () => {
+    item.click()
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+}
+
+describe('the status in a card menu', () => {
+  it('shows an in-progress task in words, not only in colour', () => {
+    renderCard(task('a', 'in_progress', 'Write the report'))
+    const article = view!.container.querySelector('article')
+    expect(article, 'the card did not render').not.toBeNull()
+    expect(article!.textContent).toContain(t('todo.status.in_progress'))
+  })
+
+  it('sends the in-progress status to the same update route every other write uses', async () => {
+    const row = task('a', 'todo', 'Write the report')
+    renderCard(row)
+
+    await choose(row, t('todo.status.mark_in_progress'))
+
+    expect(service.updates).toEqual([{ id: 'a', patch: { status: 'in_progress' } }])
+  })
+
+  it('offers the way back out of in progress', async () => {
+    const row = task('a', 'in_progress', 'Write the report')
+    renderCard(row)
+
+    await choose(row, t('todo.status.mark_todo'))
+
+    expect(service.updates).toEqual([{ id: 'a', patch: { status: 'todo' } }])
+  })
+
+  it('gives the menu a finger-sized target', () => {
+    renderCard(task('a', 'todo', 'Write the report'))
+    expect(menuTrigger(task('a', 'todo', 'Write the report')).className).toContain('size-11')
+  })
+})

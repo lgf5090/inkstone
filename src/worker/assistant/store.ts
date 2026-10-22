@@ -47,7 +47,6 @@ import type {
   UsageFilter,
   PendingAction,
   Project,
-  Task,
   TaskPriority,
   TaskStatus,
   ToolActivity,
@@ -56,6 +55,30 @@ import type {
   SavedMessage,
 } from '@shared/assistant'
 import { dialectsForProtocol } from '@shared/reasoning'
+import {
+  COMPLETED_PAGE_SIZE,
+  MAX_STEPS_PER_TASK,
+  MAX_STEP_TEXT_CHARS,
+  MAX_TASKS_PER_QUERY,
+  MAX_TAG_NAME_CHARS,
+  MAX_LIST_NAME_CHARS,
+  UPCOMING_DAYS,
+  defaultColorFor,
+  nextOccurrence,
+  normalizeReminderTimes,
+  normalizeTagNames,
+  parseRepeatRule,
+  taskColorOrNull,
+  taskIconOrNull,
+  type RepeatRule,
+  type TaskCounts,
+  type TaskList,
+  type TaskSort,
+  type TaskStep,
+  type TaskTag,
+  type TaskView,
+  type TodoTask,
+} from '@shared/todos/model'
 import type { McpOAuthSecrets, McpOAuthStatus } from './mcp-oauth'
 import { ASSISTANT_MCP_TOOL_MODES, ASSISTANT_MCP_TRANSPORTS, DEFAULT_MCP_TIMEOUT_SECONDS, EPHEMERAL_CONVERSATION_RETENTION_DAYS, MAX_MCP_DESCRIPTION_CHARS, MAX_MCP_TOOL_OVERRIDES, MAX_MCP_HEADER_VALUE_CHARS, MAX_MCP_LABEL_CHARS, MAX_MCP_TOOL_NAME_CHARS, MAX_MCP_TIMEOUT_SECONDS, MIN_MCP_TIMEOUT_SECONDS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, RUN_PARTIAL_MAX_CHARS, MAX_ANSWER_VERSIONS, MAX_CHAT_ATTACHMENTS, MAX_FEEDBACK_REASON_CHARS, clipReasoning, isMcpHeaderName, parseModelModalities, parseProviderEndpoints, reasoningDialectValue, reasoningValue, type AssistantAnswerVersion, type AssistantMcpServer, type AssistantMcpToolMode, type AssistantMcpTransport, type AssistantModelModality, type ChatAttachment } from '@shared/assistant'
 import {
@@ -74,7 +97,8 @@ import { localDate } from '@shared/assistant-time'
 import { likePattern } from '@shared/markdown-utils'
 import type { Env } from '../env'
 import { tagScopePredicate } from '../db/rows'
-import { MAX_BATCH_STATEMENTS } from '../db/writes'
+import { ID_READ_BATCH, MAX_BATCH_STATEMENTS, chunkMarks, idChunks } from '../db/writes'
+import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
 import { parseStoredJson } from '../lib/json'
 import { decryptAssistantKey, decryptMcpOAuth, encryptAssistantKey, encryptMcpOAuth } from '../lib/crypto'
@@ -285,16 +309,18 @@ export interface ConversationCursor {
   id: string
 }
 
-/** How many ids one delete statement may carry, well under SQLite's parameter ceiling. */
-const ATTACHMENT_DELETE_BATCH = 200
+/** How many ids one delete statement may carry: the bind-variable ceiling, not SQLite's. */
+const ATTACHMENT_DELETE_BATCH = ID_READ_BATCH
 
 /**
- * Ids one read statement may carry.
+ * How long a notification's pointer may be.
  *
- * The ceiling that binds here is D1's bound-variable limit, which is well below SQLite's: the other
- * stores chunk an id list at ninety for exactly that reason (`tags/store.ts`, `sync/store.ts`).
+ * The column holds `<app>:<id>`, which is a couple of dozen characters in every shape written today; the
+ * ceiling is there because the writer is a Worker that may be handed a string it did not build, and a
+ * pointer that has been allowed to become a paragraph is no longer a pointer. Clamped on the way in rather
+ * than refused, so one badly-formed pointer cannot cost the reader the notice it was carried with.
  */
-const ID_READ_BATCH = 90
+const NOTIFICATION_LINK_MAX_CHARS = 200
 
 /** How much of a matched message the search row shows, on each side of the hit. */
 const SEARCH_SNIPPET_RADIUS = 40
@@ -402,6 +428,47 @@ class Query {
     return this.clauses.join(' AND ')
   }
 }
+
+/**
+ * The predicate every read of `todos_tasks` that means "the reader's tasks" has to carry.
+ *
+ * Deleting a task stamps `deleted_at` instead of removing the row, so a query that forgets this
+ * clause brings the task back into a listing, a badge, a statistic, a calendar or the reminder sweep.
+ * The rule is stated once here and imported by the reads that live outside this module (`todos/stats`,
+ * `todos/feeds`, `assistant/tasks`), rather than spelled again at each call: a bare `FROM todos_tasks`
+ * anywhere in this repo is the bug this constant exists to prevent, and a reviewer should read it as
+ * one. The trash list and the retention sweep are the only reads that ask for the opposite and use
+ * `TASK_TRASHED_PREDICATE` instead.
+ */
+export const TASK_LIVE_PREDICATE = 'deleted_at IS NULL'
+
+/** The same rule for a statement that gives `todos_tasks` an alias. */
+export function taskLive(alias = 'todos_tasks'): string {
+  return `${alias}.deleted_at IS NULL`
+}
+
+/** The opposite read: the rows the trash page lists and the retention sweep removes. */
+export const TASK_TRASHED_PREDICATE = 'deleted_at IS NOT NULL'
+
+/**
+ * How long a deleted task stays restorable.
+ *
+ * Thirty days is long enough to notice a mistake a week later and short enough that the trash does not
+ * become a second task list. The sweep reads this one constant, and the surfaces that speak about the
+ * window (the trash page, its copy) name the same number rather than their own.
+ */
+export const TODO_TRASH_RETENTION_DAYS = 30
+
+/**
+ * How many expired rows one cron fire purges.
+ *
+ * A backlog is worked off over several ticks: the sweep is a maintenance job, and a deployment with
+ * years of trash must not spend the whole fire deleting it. Two hundred rows is four bounded batches
+ * per account represented in the page, which keeps one invocation inside the platform's budget.
+ */
+export const TODO_TRASH_PURGE_LIMIT = 200
+
+const DAY_MS = 24 * 60 * 60 * 1000
 
 function decodeAction(value: unknown): PendingAction | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
@@ -881,17 +948,84 @@ export interface NewTask {
   status?: TaskStatus
   priority?: TaskPriority
   dueAt?: number | null
+  /** When the task may be begun. Independent of `dueAt`; null clears it. */
+  startAt?: number | null
   projectId?: string | null
+  listId?: string | null
+  /** The task's own icon — `lucide:<Name>` or a single emoji — or null to wear the list's. */
+  icon?: string | null
+  /** The task's own colour from the shared palette, or null to wear the list's. */
+  color?: string | null
+  starred?: boolean
+  repeat?: RepeatRule | null
+  /** The task's reminders as absolute instants. Replaces the pending list when given to `updateTask`. */
+  reminders?: number[]
+  /**
+   * One reminder as an absolute instant.
+   *
+   * The assistant's tool and the MCP surface still speak a single instant, so the store accepts it and
+   * writes a `todos_reminders` row; the old `todos_tasks.remind_at` column is never written. A caller
+   * that names `reminders` wins over this field.
+   */
+  remindAt?: number | null
+  noteId?: string | null
+  conversationId?: string | null
+  /** Tag names; an unknown one is created. Replaces the task's tags when given to `updateTask`. */
+  tags?: string[]
+  /** Step texts, created in order. Only read by `createTask`. */
+  steps?: string[]
+}
+
+/**
+ * A list as the organizer page reads it: the shared list shape plus where it sits.
+ *
+ * The shared model is what every surface reads; the archive stamp and the parent pointer are
+ * organizer facts rather than properties of a list's tasks, so they travel beside it instead of
+ * widening the model every consumer would have to learn. Both null mean "in use" and "top level".
+ */
+export interface TaskListEntry extends TaskList {
+  archivedAt: number | null
+  parentId: string | null
 }
 
 export interface TaskQuery {
-  status?: TaskStatus | 'open' | 'all'
-  view?: 'today' | 'upcoming' | 'overdue' | 'completed' | 'all'
+  /** One status, the two words that stand for a set of them, or the set itself. */
+  status?: TaskStatus | 'open' | 'all' | readonly TaskStatus[]
+  view?: TaskView
   projectId?: string
+  /** `null` asks for the inbox; leaving it out applies no list filter at all. */
+  listId?: string | null
+  tagId?: string
+  priority?: TaskPriority
+  starred?: boolean
   query?: string
+  /** Only tasks due at or after this instant. An undated task is in no due range. */
+  dueFrom?: number
+  /** Only tasks due before this instant — the bound is the start of the day after the one asked for. */
+  dueTo?: number
+  /**
+   * Completion-day bounds, as the account-zone `YYYY-MM-DD` the task was finished on.
+   *
+   * The route only accepts these on the finished view; the store applies them wherever they are set.
+   * They compare as strings because the column already holds a calendar day in a sortable form: no
+   * zone arithmetic at query time, and a row whose day was never filled is in no window.
+   */
+  completedFrom?: string
+  completedTo?: string
+  /** The order the caller wants. Left out, the view decides, which is how a listing has always read. */
+  sort?: TaskSort
   limit?: number
+  offset?: number
   /** End of the reader's local day, in UTC milliseconds. */
   dayEnd?: number
+  /**
+   * The account-zone day (`YYYY-MM-DD`) `view=today` is read against in its "picked for today" half.
+   *
+   * The route passes the same string it hands `taskCounts`, so the page and the badge answer one
+   * question. Left out, the store resolves it from the account's own zone — the shape the MCP and
+   * assistant callers use, which have a `dayEnd` but no reason to compute a day themselves.
+   */
+  today?: string
 }
 
 /** One day-and-model slice of the usage series, whichever dimension table answered it. */
@@ -907,6 +1041,47 @@ type UsageSeriesRow = {
 } & UsageCounters
 
 const TASK_PRIORITY_ORDER = `CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END`
+
+/**
+ * The reader's own order, ahead of whatever order the view would otherwise use.
+ *
+ * A row that carries a place is read first, by that place; a row nobody has moved carries null and
+ * follows in the view's existing order. That is the whole reading of "position ?? sort key": the
+ * stored place wins where it exists, and its absence costs nothing. The first move materialises the
+ * target list's current order, so the boundary between the two groups never splits a list in half.
+ */
+const TASK_MANUAL_ORDER = `CASE WHEN position IS NULL THEN 1 ELSE 0 END, position ASC`
+
+/** The room between two written places: an append is a whole step past the end, a drop is the midpoint. */
+const TASK_POSITION_STEP = 1000
+
+/**
+ * The order each sort key names, with a tiebreaker written into all of them.
+ *
+ * A page is read by `LIMIT`/`OFFSET`, so rows that share a value have to come out in the same order
+ * twice running: without the `id` tail, the row a second page starts on is whichever one the engine
+ * happened to reach first, and the reader either loses it or reads it twice.
+ */
+const TASK_SORT_ORDERS: Record<TaskSort, string> = {
+  due: `CASE WHEN due_at IS NULL THEN 1 ELSE 0 END, due_at ASC, ${TASK_PRIORITY_ORDER}, created_at ASC, id ASC`,
+  priority: `${TASK_PRIORITY_ORDER}, created_at ASC, id ASC`,
+  created: `created_at DESC, id DESC`,
+  completed: `completed_at DESC, created_at DESC, id DESC`,
+}
+
+/**
+ * The order a listing answers in.
+ *
+ * With no key asked for, the view decides, which is the order a completed list has always had and the
+ * one a plan or a board is read in — dated rows first, soonest first, then anything undated. A stored
+ * manual place leads that order (see `TASK_MANUAL_ORDER`); an explicit sort is the caller's chosen
+ * reading and is not second-guessed by a place the reader left behind in another mode.
+ */
+function taskOrder(sort: TaskSort | undefined, view: TaskView | undefined): string {
+  if (sort) return TASK_SORT_ORDERS[sort]
+  const fallback = view === 'completed' ? TASK_SORT_ORDERS.completed : TASK_SORT_ORDERS.due
+  return `${TASK_MANUAL_ORDER}, ${fallback}`
+}
 
 /** How many rows one page of a backwards read carries, and the size of the newest page `messages` hands back. */
 const MESSAGE_READ_PAGE = 500
@@ -967,6 +1142,26 @@ const MODEL_UPDATES: readonly {
   { key: 'pricePeriods', column: 'price_periods', bind: (patch) => JSON.stringify(parsePricePeriods(patch.pricePeriods ?? [])) },
 ]
 
+/**
+ * A task row's pending reminders as one comma-separated column.
+ *
+ * A correlated subquery rather than a second read for the page: a listing already loads tags and step
+ * counts, and a third round trip made the statement count grow with every page — the contract
+ * `tests/todos-server-filter.test.ts` pins. The `(user_id, task_id)` index answers it per row, and the
+ * values are parsed back into instants and sorted, because `group_concat` makes no ordering promise.
+ * Fired rows stay out: the panel shows what will happen next.
+ */
+const TASK_REMINDER_TIMES = `(
+  SELECT group_concat(r.remind_at, ',') FROM todos_reminders r
+   WHERE r.user_id = todos_tasks.user_id AND r.task_id = todos_tasks.id AND r.fired_at IS NULL
+) AS reminder_times`
+
+/** The instants `TASK_REMINDER_TIMES` packed into one column, or none. */
+function reminderTimesOf(packed: string | null): number[] {
+  if (!packed) return []
+  return normalizeReminderTimes(packed.split(',').map(Number))
+}
+
 export class AssistantStore {
   constructor(
     private readonly db: D1Database,
@@ -1012,7 +1207,7 @@ export class AssistantStore {
    * literals from this module, and the caller-supplied part is only ever a value.
    */
   private async partialUpdate(
-    table: 'chat_models' | 'chat_providers' | 'chat_projects',
+    table: 'chat_models' | 'chat_providers' | 'chat_projects' | 'todos_tasks' | 'todos_lists' | 'todos_tags',
     id: string,
     fields: readonly (readonly [column: string, value: unknown])[],
   ): Promise<number> {
@@ -1892,20 +2087,25 @@ export class AssistantStore {
     conversationIds: readonly string[],
     query: string,
   ): Promise<Map<string, { messageId: string, snippet: string }>> {
-    const q = new Query(this.userId)
-    q.inList('conversation_id', conversationIds)
-    const pattern = q.add(containsPattern(query))
-    const rows = await this.rows<{ conversation_id: string, id: string, content: string }>(
-      `SELECT conversation_id, id, content FROM (
-         SELECT conversation_id, id, content,
-                ROW_NUMBER() OVER (PARTITION BY conversation_id ORDER BY created_at ASC, rowid ASC) AS rn
-           FROM chat_messages
-          WHERE ${q.where} AND content LIKE ${pattern} ESCAPE '\\'
-       ) WHERE rn = 1`,
-      ...q.binds,
-    )
     const found = new Map<string, { messageId: string, snippet: string }>()
-    for (const row of rows) found.set(row.conversation_id, { messageId: row.id, snippet: searchSnippet(row.content, query) })
+    // The listing hands over a page of up to two hundred ids, and one statement may not name them
+    // all: D1 binds at most 100 parameters, so the page is read in chunks and merged. The window
+    // function keeps the earliest hit per conversation, which is the one the reader means.
+    for (const chunk of idChunks(conversationIds)) {
+      const q = new Query(this.userId)
+      q.inList('conversation_id', chunk)
+      const pattern = q.add(containsPattern(query))
+      const rows = await this.rows<{ conversation_id: string, id: string, content: string }>(
+        `SELECT conversation_id, id, content FROM (
+           SELECT conversation_id, id, content,
+                  ROW_NUMBER() OVER (PARTITION BY conversation_id ORDER BY created_at ASC, rowid ASC) AS rn
+             FROM chat_messages
+            WHERE ${q.where} AND content LIKE ${pattern} ESCAPE '\\'
+         ) WHERE rn = 1`,
+        ...q.binds,
+      )
+      for (const row of rows) found.set(row.conversation_id, { messageId: row.id, snippet: searchSnippet(row.content, query) })
+    }
     return found
   }
 
@@ -1957,18 +2157,23 @@ export class AssistantStore {
     const found = new Set<string>([rootId])
     let frontier = [rootId]
     for (let depth = 0; depth < 12 && frontier.length; depth++) {
-      const q = new Query(this.userId)
-      q.inList('parent_id', frontier)
-      const rows = await this.rows<{ id: string }>(
-        `SELECT id FROM folders WHERE ${q.where} AND deleted_at IS NULL`,
-        ...q.binds,
-      )
-      frontier = []
-      for (const row of rows ?? []) {
-        if (found.has(row.id)) continue
-        found.add(row.id)
-        frontier.push(row.id)
+      // A wide level is walked in chunks: D1 binds at most 100 parameters per statement, so a level
+      // holding a hundred folders or more would fail the whole walk rather than the level.
+      const next: string[] = []
+      for (const chunk of idChunks(frontier)) {
+        const q = new Query(this.userId)
+        q.inList('parent_id', chunk)
+        const rows = await this.rows<{ id: string }>(
+          `SELECT id FROM folders WHERE ${q.where} AND deleted_at IS NULL`,
+          ...q.binds,
+        )
+        for (const row of rows ?? []) {
+          if (found.has(row.id)) continue
+          found.add(row.id)
+          next.push(row.id)
+        }
       }
+      frontier = next
     }
     return [...found]
   }
@@ -2005,20 +2210,21 @@ export class AssistantStore {
   /** The tags on these conversations, keyed by conversation id. */
   async tagsForConversations(ids: readonly string[]): Promise<Map<string, ConversationTag[]>> {
     const out = new Map<string, ConversationTag[]>()
-    if (!ids.length) return out
     // Written out rather than through Query: a join makes the builder's unqualified `user_id = ?1`
-    // ambiguous, and the failure is a 500 on every conversation list.
-    const marks = ids.map((_, index) => `?${index + 2}`).join(', ')
-    const rows = await this.rows<{ conversation_id: string, tag_id: string, name: string, color: string | null }>(
-      `SELECT ct.conversation_id, t.id AS tag_id, t.name, t.color
-         FROM chat_conversation_tags ct JOIN tags t ON t.user_id = ct.user_id AND t.id = ct.tag_id
-        WHERE ct.user_id = ?1 AND ct.conversation_id IN (${marks}) ORDER BY t.name`,
-      this.userId, ...ids,
-    )
-    for (const row of rows) {
-      const list = out.get(row.conversation_id) ?? []
-      list.push({ id: row.tag_id, name: row.name, color: row.color ?? null })
-      out.set(row.conversation_id, list)
+    // ambiguous, and the failure is a 500 on every conversation list. The ids arrive a page at a
+    // time, so they are cut into chunks before the join rather than named in one statement.
+    for (const chunk of idChunks(ids)) {
+      const rows = await this.rows<{ conversation_id: string, tag_id: string, name: string, color: string | null }>(
+        `SELECT ct.conversation_id, t.id AS tag_id, t.name, t.color
+           FROM chat_conversation_tags ct JOIN tags t ON t.user_id = ct.user_id AND t.id = ct.tag_id
+          WHERE ct.user_id = ?1 AND ct.conversation_id IN (${chunkMarks(chunk)}) ORDER BY t.name`,
+        this.userId, ...chunk,
+      )
+      for (const row of rows) {
+        const list = out.get(row.conversation_id) ?? []
+        list.push({ id: row.tag_id, name: row.name, color: row.color ?? null })
+        out.set(row.conversation_id, list)
+      }
     }
     return out
   }
@@ -3829,114 +4035,1090 @@ export class AssistantStore {
 
   // ------------------------------------------------------------------- tasks
 
-  async listTasks(query: TaskQuery = {}): Promise<Task[]> {
-    const q = new Query(this.userId)
+  /**
+   * The starting clause every task read shares: this account, and only rows that are not in the trash.
+   *
+   * The one place a query about the reader's tasks is opened. A statement that begins from `Query`
+   * itself instead is how a soft-deleted row stays visible somewhere while every test of the app's
+   * main list still passes.
+   */
+  private taskQuery(): Query {
+    return new Query(this.userId).raw(TASK_LIVE_PREDICATE)
+  }
+
+  /**
+   * The WHERE clause one query names, with its binds.
+   *
+   * One builder rather than a query per view: the smart lists differ only in this clause, and a second
+   * copy of "what is due today" is how the app and the reminder sweep start disagreeing. Both the page
+   * of rows and its count go through here, which is the only reason the two can be trusted to be about
+   * the same tasks.
+   *
+   * Async only because the today view's second half is a stored calendar day: a caller that did not
+   * name one gets it from the account's zone, read here rather than re-derived by every caller. The
+   * route names it, so the page and the badge below share one string even when the request lands on
+   * midnight.
+   */
+  private async taskFilter(query: TaskQuery = {}): Promise<Query> {
+    const q = this.taskQuery()
     const status = query.status ?? 'all'
-    if (status === 'open') q.raw(`status != 'done'`)
+    if (Array.isArray(status)) q.inList(`status`, status)
+    else if (status === 'open') q.raw(`status != 'done'`)
     else if (status !== 'all') q.eq(`status`, status)
     const now = Date.now()
+    const dayEnd = query.dayEnd ?? now
+    const upcomingEnd = dayEnd + UPCOMING_DAYS * 24 * 60 * 60 * 1000
+    const today = query.view === 'today'
+      ? query.today ?? localDate(now, (await this.getSettings()).timezone)
+      : null
     switch (query.view) {
+      case 'inbox':
+        q.raw(`status != 'done' AND list_id IS NULL`)
+        break
       case 'today':
-        q.raw(`status != 'done' AND ((due_at IS NOT NULL AND due_at < ${q.add(query.dayEnd ?? now)})
-          OR (due_at IS NULL AND status = 'in_progress'))`)
+        // Today is two questions with one badge: what is owed by the end of the day, and what the
+        // reader picked for it. A plan from an earlier day is not cleared — it simply stops equalling
+        // today's string — which is what makes the rollover need no sweep.
+        q.raw(`status != 'done' AND ((due_at IS NOT NULL AND due_at < ${q.add(dayEnd)})
+          OR (due_at IS NULL AND status = 'in_progress')
+          ${today === null ? '' : `OR planned_for = ${q.add(today)}`})`)
         break
       case 'upcoming':
-        q.raw(`status != 'done' AND (due_at IS NULL OR due_at >= ${q.add(query.dayEnd ?? now)})`)
+        q.raw(`status != 'done' AND due_at IS NOT NULL AND due_at >= ${q.add(dayEnd)} AND due_at < ${q.add(upcomingEnd)}`)
         break
       case 'overdue':
         q.raw(`status != 'done' AND due_at IS NOT NULL AND due_at < ${q.add(now)}`)
         break
+      case 'open':
+        q.raw(`status != 'done'`)
+        break
       case 'completed':
         q.raw(`status = 'done'`)
+        break
+      case 'starred':
+        q.raw(`status != 'done' AND starred = 1`)
         break
       default:
         break
     }
     if (query.projectId) q.eq(`project_id`, query.projectId)
+    if (query.listId === null) q.raw(`list_id IS NULL`)
+    else if (query.listId) q.eq(`list_id`, query.listId)
+    if (query.tagId) {
+      q.raw(`id IN (SELECT task_id FROM todos_tag_links WHERE user_id = ?1 AND tag_id = ${q.add(query.tagId)})`)
+    }
+    if (query.priority) q.eq(`priority`, query.priority)
+    if (query.starred) q.raw(`starred = 1`)
+    // An undated task is in no due window: a range asks when something is owed, and a task with no date
+    // answers that question with "not yet decided", not with "any time you like".
+    if (query.dueFrom !== undefined) q.raw(`due_at IS NOT NULL AND due_at >= ${q.add(query.dueFrom)}`)
+    if (query.dueTo !== undefined) q.raw(`due_at IS NOT NULL AND due_at < ${q.add(query.dueTo)}`)
+    // A completion window is a calendar-day window on the day the row was finished, not a due window:
+    // the two ends are half-open and the comparison is lexical, which is exact for `YYYY-MM-DD`.
+    // `NULL` fails both comparisons, so a finished row with no recorded day is in no window.
+    if (query.completedFrom !== undefined) q.raw(`completed_on >= ${q.add(query.completedFrom)}`)
+    if (query.completedTo !== undefined) q.raw(`completed_on < ${q.add(query.completedTo)}`)
     if (query.query) {
       const pattern = q.add(containsPattern(query.query))
-      q.or([`title LIKE ${pattern} ESCAPE '\\'`, `description LIKE ${pattern} ESCAPE '\\'`])
+      // A tag's name is part of what a reader sees on the row, so it is part of what a search for
+      // those words should find. The subquery is correlated and tenant-filtered: one statement for
+      // the whole page, not one per tag, and no link from another account can answer it.
+      const byTag = `EXISTS (
+        SELECT 1 FROM todos_tag_links l
+          JOIN todos_tags tag ON tag.user_id = l.user_id AND tag.id = l.tag_id
+         WHERE l.user_id = ?1 AND l.task_id = todos_tasks.id AND tag.name LIKE ${pattern} ESCAPE '\\'
+      )`
+      q.or([
+        `title LIKE ${pattern} ESCAPE '\\'`,
+        `description LIKE ${pattern} ESCAPE '\\'`,
+        byTag,
+      ])
     }
-    const limit = q.add(query.limit ?? 200)
-    const order = query.view === 'completed'
-      ? `completed_at DESC`
-      : `CASE WHEN due_at IS NULL THEN 1 ELSE 0 END, due_at ASC, ${TASK_PRIORITY_ORDER}, created_at ASC`
-    const list = await this.rows<TaskRow>(
-      `SELECT * FROM chat_tasks WHERE ${q.where} ORDER BY ${order} LIMIT ${limit}`,
+    return q
+  }
+
+  /**
+   * The rows a query matches, before tags and step counts are attached.
+   *
+   * The page is cut here rather than in the caller: a reader scrolling for more is asking the database
+   * for the next rows, not asking for a bigger copy of the same answer.
+   */
+  private async taskRows(query: TaskQuery = {}): Promise<TaskRow[]> {
+    const q = await this.taskFilter(query)
+    const pageSize = query.view === 'completed' ? COMPLETED_PAGE_SIZE : MAX_TASKS_PER_QUERY
+    const limit = q.add(Math.min(query.limit ?? pageSize, MAX_TASKS_PER_QUERY))
+    const offset = query.offset && query.offset > 0 ? ` OFFSET ${q.add(Math.trunc(query.offset))}` : ''
+    return await this.rows<TaskRow>(
+      `SELECT *, ${TASK_REMINDER_TIMES} FROM todos_tasks WHERE ${q.where}
+        ORDER BY ${taskOrder(query.sort, query.view)} LIMIT ${limit}${offset}`,
       ...q.binds,
     )
-    return list.map(toTask)
   }
 
-  async getTask(id: string): Promise<Task | null> {
-    const r = await this.one<TaskRow>(`SELECT * FROM chat_tasks WHERE user_id = ?1 AND id = ?2`, this.userId, id)
-    return r ? toTask(r) : null
+  /**
+   * How many tasks a filter matches, whichever page of them is being shown.
+   *
+   * The same clause the rows come from, so the number cannot describe a different question than the
+   * list beside it. It is one `COUNT`, not one per row or per page, and it is what lets a listing say
+   * "there is more" instead of leaving the reader to guess whether the screen is the whole answer.
+   */
+  async countTasks(query: TaskQuery = {}): Promise<number> {
+    const q = await this.taskFilter(query)
+    const row = await this.one<{ n: number | null }>(
+      `SELECT COUNT(*) AS n FROM todos_tasks WHERE ${q.where}`,
+      ...q.binds,
+    )
+    return row?.n ?? 0
   }
 
-  async createTask(input: NewTask): Promise<Task> {
+  /** The step counts of many tasks in one query, so a listing is not a query per row. */
+  private async stepCounts(ids: readonly string[]): Promise<Map<string, { total: number; done: number }>> {
+    const out = new Map<string, { total: number; done: number }>()
+    for (const chunk of idChunks(ids)) {
+      const list = await this.rows<{ task_id: string; total: number; done: number | null }>(
+        `SELECT task_id, COUNT(*) AS total, SUM(CASE WHEN done = 1 THEN 1 ELSE 0 END) AS done
+           FROM todos_steps WHERE user_id = ?1 AND task_id IN (${chunkMarks(chunk)}) GROUP BY task_id`,
+        this.userId, ...chunk,
+      )
+      for (const row of list) out.set(row.task_id, { total: row.total, done: row.done ?? 0 })
+    }
+    return out
+  }
+
+  /** The tags of many tasks in one query, keyed by task. */
+  private async tagsForTasks(ids: readonly string[]): Promise<Map<string, TaskTag[]>> {
+    const out = new Map<string, TaskTag[]>()
+    for (const chunk of idChunks(ids)) {
+      const list = await this.rows<TaskTagRow & { task_id: string }>(
+        `SELECT l.task_id, t.id, t.name, t.color, t.created_at, t.updated_at
+           FROM todos_tag_links l
+           JOIN todos_tags t ON t.user_id = l.user_id AND t.id = l.tag_id
+          WHERE l.user_id = ?1 AND l.task_id IN (${chunkMarks(chunk)})
+          ORDER BY t.name COLLATE NOCASE`,
+        this.userId, ...chunk,
+      )
+      for (const row of list) {
+        const bucket = out.get(row.task_id) ?? []
+        bucket.push(toTaskTag(row, 0))
+        out.set(row.task_id, bucket)
+      }
+    }
+    return out
+  }
+
+  private async tasksWithDetails(rows: TaskRow[]): Promise<TodoTask[]> {
+    if (!rows.length) return []
+    const ids = rows.map((row) => row.id)
+    const [steps, tags] = await Promise.all([this.stepCounts(ids), this.tagsForTasks(ids)])
+    return rows.map((row) => toTask(row, {
+      tags: tags.get(row.id) ?? [],
+      stepTotal: steps.get(row.id)?.total ?? 0,
+      stepDone: steps.get(row.id)?.done ?? 0,
+      // The page's own select packed these in; no separate reminder read per listing.
+      reminders: reminderTimesOf(row.reminder_times),
+    }))
+  }
+
+  async listTasks(query: TaskQuery = {}): Promise<TodoTask[]> {
+    return await this.tasksWithDetails(await this.taskRows(query))
+  }
+
+  async getTask(id: string): Promise<TodoTask | null> {
+    const q = this.taskQuery().eq('id', id)
+    const row = await this.one<TaskRow>(
+      `SELECT *, ${TASK_REMINDER_TIMES} FROM todos_tasks WHERE ${q.where}`,
+      ...q.binds,
+    )
+    if (!row) return null
+    const [task] = await this.tasksWithDetails([row])
+    return task ?? null
+  }
+
+  /**
+   * The reader's calendar day for a task's day column.
+   *
+   * `created_on` and `completed_on` hold `YYYY-MM-DD` in the account's zone, because a day derived at
+   * query time drifts across DST and files work under the wrong date. The zone is the one every due
+   * date and every "today" is already read in; a caller that has just resolved it (`completeTask`)
+   * passes it on, so the two rows one completion writes cannot land on different days.
+   */
+  private async taskDay(at: number, timeZone?: string): Promise<string> {
+    return localDate(at, timeZone ?? (await this.getSettings()).timezone)
+  }
+
+  /**
+   * One row of a task's history: its birth, or one step from one status to another.
+   *
+   * The event is written in the same batch as the row that caused it, which is the whole point of
+   * the table: a task holding a status its history does not explain would replay as work that
+   * vanished from the flow, and a birth that never landed would make the replay subtract a task it
+   * never counted. `on_day` is the account's calendar day of `at`, computed here at write time for
+   * the reason `created_on` is — a day derived at query time drifts across DST and files the event
+   * under the wrong one. A birth's `from_status` is NULL: it only ever adds.
+   */
+  private taskEvent(
+    taskId: string,
+    at: number,
+    onDay: string,
+    kind: 'born' | 'status',
+    fromStatus: TaskStatus | null,
+    toStatus: TaskStatus,
+  ): D1PreparedStatement {
+    return this.db.prepare(
+      `INSERT INTO todos_task_events (user_id, id, task_id, at, on_day, kind, from_status, to_status)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+    ).bind(this.userId, newId(), taskId, at, onDay, kind, fromStatus, toStatus)
+  }
+
+  /**
+   * Writes one task's named columns and moves its revision on.
+   *
+   * The bump rides in the same statement as the edit, so a revision can never describe a row that did
+   * not move with it. With `expectedRev` the statement also matches that revision: a stale caller
+   * changes no row, and the caller above turns the empty result into a conflict.
+   *
+   * `also` carries the statements that must land with the edit or not at all — today the one history
+   * event a status change owes. They ride in the same `db.batch`, so a task can never hold a status
+   * its event table does not explain.
+   */
+  private async updateTaskRow(
+    id: string,
+    fields: readonly (readonly [column: string, value: unknown])[],
+    expectedRev?: number,
+    also?: readonly D1PreparedStatement[],
+  ): Promise<number> {
+    const sets = fields.map(([column], index) => `${column} = ?${index + 2}`)
+    sets.push('rev = rev + 1')
+    const guard = expectedRev === undefined ? '' : ` AND rev = ?${fields.length + 3}`
+    const sql = `UPDATE todos_tasks SET ${sets.join(', ')}
+        WHERE user_id = ?1 AND id = ?${fields.length + 2} AND ${TASK_LIVE_PREDICATE}${guard}`
+    assertScoped(sql)
+    const update = this.db.prepare(sql).bind(
+      this.userId, ...fields.map(([, value]) => value), id, ...(expectedRev === undefined ? [] : [expectedRev]),
+    )
+    if (also?.length) {
+      const results = await this.db.batch([update, ...also])
+      return Number(results[0]?.meta?.changes ?? 0)
+    }
+    const result = await update.run()
+    return result.meta?.changes ?? 0
+  }
+
+  /**
+   * The refusal a guarded task write answers with: the row moved since the caller read it.
+   *
+   * The revision that actually stands rides in `details`, so a client can offer "reload and reapply"
+   * without a second read, and the shape is the one every 409 in this repo already has.
+   */
+  private taskConflict(id: string, current: TodoTask): ApiError {
+    return ApiError.conflict(
+      'The task changed since it was read. Reload it and try again.',
+      { id, rev: current.rev },
+    )
+  }
+
+  async createTask(input: NewTask, timeZone?: string): Promise<TodoTask> {
     const id = newId()
     const at = Date.now()
     const status = input.status ?? 'todo'
-    const task: Task = {
-      id,
-      title: input.title.trim(),
-      description: input.description ?? '',
-      status,
-      priority: input.priority ?? 'medium',
-      dueAt: input.dueAt ?? null,
-      projectId: input.projectId ?? null,
-      createdAt: at,
-      updatedAt: at,
-      completedAt: status === 'done' ? at : null,
-    }
-    await this.write(
-      `INSERT INTO chat_tasks
-         (id, user_id, title, description, status, priority, due_at, project_id, created_at, updated_at, completed_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
-      id, task.title, task.description, task.status, task.priority, task.dueAt, task.projectId, at, at, task.completedAt,
+    const repeat = input.repeat ?? null
+    const createdOn = await this.taskDay(at, timeZone)
+    // The task's birth rides in the same batch as the row it opens: a task whose history starts
+    // late would replay as work the flow never saw arrive.
+    const insert = this.db.prepare(
+      `INSERT INTO todos_tasks
+         (id, user_id, title, description, status, priority, due_at, start_at, project_id, list_id,
+          icon, color, starred, repeat_rule, note_id, conversation_id, created_at, updated_at,
+          completed_at, created_on, completed_on)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)`,
+    ).bind(
+      this.userId, id, input.title.trim().slice(0, 300), input.description ?? '', status, input.priority ?? 'medium',
+      input.dueAt ?? null, input.startAt ?? null, input.projectId ?? null, input.listId ?? null,
+      taskIconOrNull(input.icon), taskColorOrNull(input.color), input.starred ? 1 : 0,
+      repeat ? JSON.stringify(repeat) : null, input.noteId ?? null,
+      input.conversationId ?? null, at, at, status === 'done' ? at : null,
+      createdOn, status === 'done' ? createdOn : null,
     )
-    return task
+    await this.db.batch([insert, this.taskEvent(id, at, createdOn, 'born', null, status)])
+    if (input.tags?.length) await this.replaceTaskTags(id, input.tags)
+    for (const text of input.steps ?? []) await this.addStep(id, text)
+    const reminders = input.reminders ?? (input.remindAt != null ? [input.remindAt] : [])
+    if (reminders.length) await this.replaceTaskReminders(id, reminders)
+    const created = await this.getTask(id)
+    if (!created) throw new Error(`The task ${id} was written but could not be read back.`)
+    return created
   }
 
-  async updateTask(id: string, patch: Partial<NewTask>): Promise<Task | null> {
+  /**
+   * Writes one task's pending reminders, replacing whatever was still to fire.
+   *
+   * One batch, so a list is either the list the reader saved or the one they had before — never half
+   * of each. Fired rows are left alone: they are the record that a reminder was delivered, and
+   * deleting them would erase history the notification list still refers to.
+   */
+  private async replaceTaskReminders(taskId: string, times: readonly number[]): Promise<void> {
+    const at = Date.now()
+    const statements = [
+      this.db.prepare(
+        `DELETE FROM todos_reminders WHERE user_id = ?1 AND task_id = ?2 AND fired_at IS NULL`,
+      ).bind(this.userId, taskId),
+      ...normalizeReminderTimes(times).map((remindAt) => this.db.prepare(
+        `INSERT INTO todos_reminders (user_id, id, task_id, remind_at, fired_at, created_at)
+         VALUES (?1, ?2, ?3, ?4, NULL, ?5)`,
+      ).bind(this.userId, newId(), taskId, remindAt, at)),
+    ]
+    await this.db.batch(statements)
+  }
+
+  /**
+   * Adds one reminder to a task, leaving the ones it already carries in place.
+   *
+   * This is what a "remind me again" press means: a second chance at the same task, not a cancellation
+   * of the reminders the reader set earlier. The route owns the ceiling and the finished-task refusal;
+   * this answers with the row as it now reads, or null when the task is gone.
+   */
+  async snoozeTask(id: string, remindAt: number): Promise<TodoTask | null> {
     const existing = await this.getTask(id)
     if (!existing) return null
-    const at = Date.now()
-    const next: Task = {
-      ...existing,
-      ...(patch.title !== undefined ? { title: patch.title.trim() } : {}),
-      ...(patch.description !== undefined ? { description: patch.description } : {}),
-      ...(patch.status !== undefined ? { status: patch.status } : {}),
-      ...(patch.priority !== undefined ? { priority: patch.priority } : {}),
-      ...(patch.dueAt !== undefined ? { dueAt: patch.dueAt } : {}),
-      ...(patch.projectId !== undefined ? { projectId: patch.projectId } : {}),
-      updatedAt: at,
-    }
-    if (patch.status !== undefined && patch.status !== existing.status) {
-      next.completedAt = patch.status === 'done' ? at : null
-    }
-    await this.write(
-      `UPDATE chat_tasks SET title = ?2, description = ?3, status = ?4, priority = ?5, due_at = ?6,
-              project_id = ?7, updated_at = ?8, completed_at = ?9 WHERE user_id = ?1 AND id = ?10`,
-      next.title, next.description, next.status, next.priority, next.dueAt, next.projectId, at, next.completedAt, id,
-    )
-    return next
+    await this.db.batch([
+      this.db.prepare(
+        `INSERT INTO todos_reminders (user_id, id, task_id, remind_at, fired_at, created_at)
+         VALUES (?1, ?2, ?3, ?4, NULL, ?5)`,
+      ).bind(this.userId, newId(), id, Math.trunc(remindAt), Date.now()),
+      this.db.prepare(`UPDATE todos_tasks SET updated_at = ?3, rev = rev + 1 WHERE user_id = ?1 AND id = ?2`)
+        .bind(this.userId, id, Date.now()),
+    ])
+    return await this.getTask(id)
   }
 
+  /** Moves every pending reminder with its due date, which is what editing the date used to do. */
+  private async shiftTaskReminders(taskId: string, delta: number): Promise<void> {
+    if (!delta) return
+    await this.write(
+      `UPDATE todos_reminders SET remind_at = remind_at + ?3
+        WHERE user_id = ?1 AND task_id = ?2 AND fired_at IS NULL`,
+      taskId, delta,
+    )
+  }
+
+  /**
+   * A partial write: only the columns the caller named.
+   *
+   * Writing the whole row back from a snapshot read a moment earlier is how two edits made at once
+   * lose one of themselves, and it is how a column this method does not know about gets cleared.
+   *
+   * `expectedRev` is the revision the caller read: the statement matches only that one, so a stale
+   * edit is refused with a conflict and writes nothing at all. The revision it needs back is in the
+   * error's `details`.
+   */
+  async updateTask(
+    id: string,
+    patch: Partial<NewTask>,
+    timeZone?: string,
+    expectedRev?: number,
+  ): Promise<TodoTask | null> {
+    const existing = await this.getTask(id)
+    if (!existing) return null
+    if (expectedRev !== undefined && existing.rev !== expectedRev) throw this.taskConflict(id, existing)
+    const at = Date.now()
+    const fields: (readonly [string, unknown])[] = []
+    if (patch.title !== undefined) fields.push(['title', patch.title.trim().slice(0, 300)])
+    if (patch.description !== undefined) fields.push(['description', patch.description])
+    if (patch.priority !== undefined) fields.push(['priority', patch.priority])
+    if (patch.dueAt !== undefined) fields.push(['due_at', patch.dueAt])
+    if (patch.startAt !== undefined) fields.push(['start_at', patch.startAt])
+    if (patch.projectId !== undefined) fields.push(['project_id', patch.projectId])
+    if (patch.listId !== undefined) fields.push(['list_id', patch.listId])
+    // The two face columns answer to the same guards the write above and the route do: a caller that
+    // names an unusable value gets null rather than the value, and null is how a reader clears a
+    // face back to the list's. The guards live in shared so the client can pre-check the same rule.
+    if (patch.icon !== undefined) fields.push(['icon', taskIconOrNull(patch.icon)])
+    if (patch.color !== undefined) fields.push(['color', taskColorOrNull(patch.color)])
+    if (patch.starred !== undefined) fields.push(['starred', patch.starred ? 1 : 0])
+    if (patch.repeat !== undefined) fields.push(['repeat_rule', patch.repeat ? JSON.stringify(patch.repeat) : null])
+    if (patch.noteId !== undefined) fields.push(['note_id', patch.noteId])
+    if (patch.conversationId !== undefined) fields.push(['conversation_id', patch.conversationId])
+    let event: D1PreparedStatement | null = null
+    if (patch.status !== undefined) {
+      const completedAt = patch.status === 'done' ? (existing.completedAt ?? at) : null
+      fields.push(['status', patch.status])
+      fields.push(['completed_at', completedAt])
+      // The day column follows the same transition: reopened clears it, finished files it under the
+      // reader's day. Left untouched when the status did not change, so a zone edit never rewrites a
+      // day that was already recorded.
+      if (patch.status !== existing.status) {
+        const completedOn = completedAt === null ? null : await this.taskDay(completedAt, timeZone)
+        fields.push(['completed_on', completedOn])
+        // One event per real transition, written with the row it explains. Its instant is the one
+        // the row records — the completion's own moment when it has one, the write's otherwise —
+        // and its day is the account's calendar day of that instant, so a completion's row and its
+        // event cannot disagree about when it happened. A patch naming the status the row already
+        // has moves nothing and records nothing.
+        event = this.taskEvent(
+          id,
+          completedAt ?? at,
+          completedOn ?? (await this.taskDay(at, timeZone)),
+          'status',
+          existing.status,
+          patch.status,
+        )
+      }
+    }
+    fields.push(['updated_at', at])
+    const changes = await this.updateTaskRow(id, fields, expectedRev, event ? [event] : undefined)
+    if (!changes) {
+      // The row was gone, or (with a guard) moved between the read and the write. Re-read so the
+      // conflict names the revision that actually stands; the guarded statement wrote nothing.
+      const current = await this.getTask(id)
+      if (!current) return null
+      throw this.taskConflict(id, current)
+    }
+    if (patch.tags !== undefined) await this.replaceTaskTags(id, patch.tags)
+    // Reminders follow their due date unless the caller named a list (or the single instant the
+    // assistant's tools speak). `reminders` wins: it is the whole pending list, not an addition.
+    const named = patch.reminders ?? (patch.remindAt !== undefined
+      ? patch.remindAt === null ? [] : [patch.remindAt]
+      : undefined)
+    if (named !== undefined) await this.replaceTaskReminders(id, named)
+    else if (patch.dueAt !== undefined && patch.dueAt !== null && existing.dueAt !== null) {
+      await this.shiftTaskReminders(id, patch.dueAt - existing.dueAt)
+    }
+    return await this.getTask(id)
+  }
+
+  /**
+   * Places one task before another in a list, or at the end when the anchor is null.
+   *
+   * The anchor is a task id rather than an index because two devices can move rows between the read
+   * and the write: "before this row" means the same thing after somebody else's drop, while "index
+   * three" has already moved. The target collection is the task's own unless the caller names one,
+   * and naming it is what makes a cross-list move one write rather than a move followed by a patch.
+   *
+   * Positions are REAL and folded between the two neighbours, exactly as folders already do it. A
+   * target whose rows have never been moved has no places at all, so the first move writes the order
+   * the list reads in today — otherwise the moved row would sort ahead of every unplaced sibling and
+   * jump to the top of a list the reader only nudged. A gap with no room left is renumbered the same
+   * way and then folded again; a second failure is a conflict rather than a duplicated place.
+   */
+  async moveTask(
+    id: string,
+    placement: { beforeId: string | null; listId?: string | null },
+  ): Promise<TodoTask | null> {
+    const existing = await this.getTask(id)
+    if (!existing) return null
+    const listId = placement.listId === undefined ? existing.listId : placement.listId
+    // `IS` rather than `=` so an inbox move (null) is one shape with a list move, and the order is the
+    // one a listing reads before any manual place exists.
+    const siblings = await this.rows<{ id: string; position: number | null }>(
+      `SELECT id, position FROM todos_tasks
+        WHERE user_id = ?1 AND list_id IS ?2 AND id != ?3 AND ${TASK_LIVE_PREDICATE}
+        ORDER BY ${TASK_MANUAL_ORDER}, ${TASK_SORT_ORDERS.due}`,
+      this.userId, listId, id,
+    )
+    const index = placement.beforeId === null
+      ? siblings.length
+      : siblings.findIndex((row) => row.id === placement.beforeId)
+    if (index < 0) throw ApiError.badRequest('The task to land before is not in that list.')
+
+    if (siblings.some((row) => row.position === null)) await this.materializeTaskPositions(siblings)
+    let position = insertionPosition(siblings[index - 1]?.position ?? undefined, siblings[index]?.position ?? undefined)
+    if (position === null) {
+      await this.materializeTaskPositions(siblings)
+      position = insertionPosition(siblings[index - 1]?.position ?? undefined, siblings[index]?.position ?? undefined)
+      if (position === null) throw ApiError.conflict('The task order changed. Try again.')
+    }
+
+    const changes = await this.updateTaskRow(id, [
+      ['position', position],
+      ['list_id', listId],
+      ['updated_at', Date.now()],
+    ])
+    if (!changes) return null
+    return await this.getTask(id)
+  }
+
+  /**
+   * Writes a whole sibling run as evenly spaced places, in the order it was read.
+   *
+   * This is bookkeeping rather than an edit: no revision moves, because a reader holding one of these
+   * rows did not change it and a conflict would be a lie. The caller has already put the run in the
+   * order the listing reads, so the numbers only make that order explicit.
+   */
+  private async materializeTaskPositions(rows: { id: string; position: number | null }[]): Promise<void> {
+    const statements = rows.map((row, index) => {
+      const position = (index + 1) * TASK_POSITION_STEP
+      row.position = position
+      return this.db.prepare(
+        `UPDATE todos_tasks SET position = ?3 WHERE user_id = ?1 AND id = ?2`,
+      ).bind(this.userId, row.id, position)
+    })
+    if (statements.length) await this.db.batch(statements)
+  }
+
+  /**
+   * Moves one task to the trash.
+   *
+   * The row stays, stamped, with its steps, tag links and pending reminders untouched: that is what
+   * makes a restore the same task rather than a copy, and what lets an undo after a delete put the
+   * original row back instead of minting a second one. The stamp and the revision move together, so a
+   * client holding the row sees a changed version. Every task read filters the stamp out; the reminder
+   * sweep joins the task and skips a trashed one, so a pending reminder cannot be delivered while the
+   * task is away.
+   */
   async deleteTask(id: string): Promise<void> {
-    await this.write(`DELETE FROM chat_tasks WHERE user_id = ?1 AND id = ?2`, id)
+    const at = Date.now()
+    await this.write(
+      `UPDATE todos_tasks SET deleted_at = ?3, updated_at = ?3, rev = rev + 1
+        WHERE user_id = ?1 AND id = ?2 AND ${TASK_LIVE_PREDICATE}`,
+      id, at,
+    )
+  }
+
+  /**
+   * Takes one trashed task back out of the trash.
+   *
+   * Only a stamped row matches, so restoring a live task is a 404 at the route rather than a silent
+   * success that suggests it had been deleted. Nothing is re-created: the same row — with its steps,
+   * tags, reminders and original id — becomes visible again to every read.
+   */
+  async restoreTask(id: string): Promise<TodoTask | null> {
+    const changed = await this.write(
+      `UPDATE todos_tasks SET deleted_at = NULL, updated_at = ?3, rev = rev + 1
+        WHERE user_id = ?1 AND id = ?2 AND ${TASK_TRASHED_PREDICATE}`,
+      id, Date.now(),
+    )
+    if (!changed) return null
+    return await this.getTask(id)
+  }
+
+  /**
+   * One page of the trash, newest deletion first.
+   *
+   * A separate read rather than a view on `listTasks`: these are the rows every other query hides, and
+   * they carry when they were deleted so the screen can say how long is left. The account and the stamp
+   * are the index `idx_todos_tasks_trash`, and the page is read and counted in the same shape the main
+   * listing uses so `total` is the size of the whole trash and not of the page.
+   */
+  async listTrash(options: { limit?: number, offset?: number } = {}): Promise<{ tasks: TodoTask[], total: number }> {
+    const totalRow = await this.one<{ n: number | null }>(
+      `SELECT COUNT(*) AS n FROM todos_tasks WHERE user_id = ?1 AND ${TASK_TRASHED_PREDICATE}`,
+      this.userId,
+    )
+    const q = new Query(this.userId).raw(TASK_TRASHED_PREDICATE)
+    const limit = Math.min(Math.max(1, Math.trunc(options.limit ?? MAX_TASKS_PER_QUERY)), MAX_TASKS_PER_QUERY)
+    const offset = Math.max(0, Math.trunc(options.offset ?? 0))
+    const rows = await this.rows<TaskRow>(
+      `SELECT *, ${TASK_REMINDER_TIMES} FROM todos_tasks WHERE ${q.where}
+        ORDER BY deleted_at DESC, id DESC LIMIT ${q.add(limit)} OFFSET ${q.add(offset)}`,
+      ...q.binds,
+    )
+    return { tasks: await this.tasksWithDetails(rows), total: totalRow?.n ?? 0 }
+  }
+
+  /**
+   * Removes one trashed task for good.
+   *
+   * Only a stamped row qualifies: the endpoint is the trash's own door, and a live task sent here is a
+   * 404 rather than a delete that bypasses the trash. The five statements run as one batch, so a
+   * task cannot lose its steps while keeping its row.
+   */
+  async purgeTask(id: string): Promise<boolean> {
+    const row = await this.one<{ id: string }>(
+      `SELECT id FROM todos_tasks WHERE user_id = ?1 AND id = ?2 AND ${TASK_TRASHED_PREDICATE}`,
+      this.userId, id,
+    )
+    if (!row) return false
+    await this.db.batch(purgeTaskStatements(this.db, this.userId, [id]))
+    return true
+  }
+
+  /**
+   * Picks a task into a day, or clears the pick with `null`.
+   *
+   * The day is a plain `YYYY-MM-DD` in the account's zone and the route is what decides it is a real
+   * calendar day: the store's boundary is the account, not the shape of the text. Planning twice is
+   * one row either way, and a day in the past is kept as written — a backfilled record is still a
+   * record, it simply is not today. Does not touch the due date, the reminder or the status.
+   */
+  async planTask(id: string, date: string | null): Promise<TodoTask | null> {
+    const changed = await this.updateTaskRow(id, [
+      ['planned_for', date],
+      ['updated_at', Date.now()],
+    ])
+    if (!changed) return null
+    return await this.getTask(id)
+  }
+
+  /**
+   * Completes a task, and returns the next occurrence when it repeats.
+   *
+   * The finished row stays: "I did write that report last week" is a fact worth keeping, and a task
+   * that silently moved its own due date forward would erase it. The next one is a new row with the
+   * same content, its steps unchecked, and a due date counted from the old one.
+   */
+  async completeTask(id: string, timeZone: string): Promise<{ task: TodoTask; next: TodoTask | null } | null> {
+    const existing = await this.getTask(id)
+    if (!existing) return null
+    if (existing.status === 'done') return { task: existing, next: null }
+    const task = await this.updateTask(id, { status: 'done' }, timeZone)
+    if (!task) return null
+    if (!existing.repeat) return { task, next: null }
+    const anchor = existing.dueAt ?? Date.now()
+    const dueAt = nextOccurrence(anchor, existing.repeat, timeZone)
+    // Every pending reminder keeps its distance from the due date on the next occurrence, the way the
+    // single reminder used to. A task with no due date has no distance to keep, so its next copy
+    // carries none: a reminder anchored to nothing is not a reminder.
+    const anchorDue = existing.dueAt
+    const offsets = anchorDue === null ? [] : (existing.reminders ?? []).map((remindAt) => remindAt - anchorDue)
+    // A start date is a lead time before the due date, so it travels with the occurrence: shifting the
+    // due date forward without the start would make the next copy immediately actionable. A row with
+    // no due date has no distance to keep, so its next copy starts undated too.
+    const startAt = existing.startAt == null || anchorDue === null
+      ? null
+      : dueAt + (existing.startAt - anchorDue)
+    const steps = await this.listSteps(id)
+    const next = await this.createTask({
+      title: existing.title,
+      description: existing.description,
+      priority: existing.priority,
+      dueAt,
+      startAt,
+      projectId: existing.projectId,
+      listId: existing.listId,
+      starred: existing.starred,
+      repeat: existing.repeat,
+      reminders: offsets.map((offset) => dueAt + offset),
+      noteId: existing.noteId,
+      conversationId: existing.conversationId,
+      tags: existing.tags.map((tag) => tag.name),
+      steps: steps.map((step) => step.text),
+    }, timeZone)
+    return { task, next }
   }
 
   /** By id, or by a title match that is unambiguous: the assistant must not guess which task was meant. */
-  async resolveTask(ref: string): Promise<Task | null> {
+  async resolveTask(ref: string): Promise<TodoTask | null> {
     const direct = await this.getTask(ref)
     if (direct) return direct
+    const q = this.taskQuery()
+    q.raw(`title LIKE ${q.add(containsPattern(ref))} ESCAPE '\\'`)
     const list = await this.rows<TaskRow>(
-      `SELECT * FROM chat_tasks WHERE user_id = ?1 AND title LIKE ?2 ESCAPE '\\'
+      `SELECT *, ${TASK_REMINDER_TIMES} FROM todos_tasks WHERE ${q.where}
         ORDER BY status = 'done', updated_at DESC LIMIT 2`,
-      this.userId, containsPattern(ref),
+      ...q.binds,
     )
-    return list.length === 1 ? toTask(list[0]!) : null
+    if (list.length !== 1) return null
+    const [task] = await this.tasksWithDetails(list)
+    return task ?? null
+  }
+
+  /**
+   * The counts every smart list and every sidebar row shows.
+   *
+   * Computed here rather than in the browser because "today" is a span in the reader's timezone:
+   * two implementations would disagree for exactly the hours around midnight. A list and a tag each
+   * carry an open and a finished number, because a collection's own view shows both groups and one
+   * number cannot be checked against either of them.
+   *
+   * `today` is the account-zone day the today view adds its picked rows by; the route passes the one
+   * it listed with, so the badge and the page cannot land on different sides of midnight. Callers
+   * that do not name it (the MCP and assistant surfaces) get the account's own day, read here.
+   */
+  async taskCounts(dayEnd: number, today?: string): Promise<TaskCounts> {
+    const now = Date.now()
+    const pickedFor = today ?? localDate(now, (await this.getSettings()).timezone)
+    const upcomingEnd = dayEnd + UPCOMING_DAYS * 24 * 60 * 60 * 1000
+    const totals = await this.one<{
+      inbox: number | null; today: number | null; upcoming: number | null; overdue: number | null
+      open: number | null; completed: number | null; starred: number | null
+    }>(
+      // A put-away list's work is out of every count this account shows: the shelf is not part of
+      // what the reader is looking at, and a badge that still counted it would point at a screen
+      // with no row for it. The join keeps inbox rows (no list) and rows whose list was deleted.
+      `SELECT
+         SUM(CASE WHEN t.status != 'done' AND t.list_id IS NULL THEN 1 ELSE 0 END) AS inbox,
+         SUM(CASE WHEN t.status != 'done' AND ((t.due_at IS NOT NULL AND t.due_at < ?2)
+              OR (t.due_at IS NULL AND t.status = 'in_progress')
+              OR t.planned_for = ?5) THEN 1 ELSE 0 END) AS today,
+         SUM(CASE WHEN t.status != 'done' AND t.due_at IS NOT NULL AND t.due_at >= ?2 AND t.due_at < ?3 THEN 1 ELSE 0 END) AS upcoming,
+         SUM(CASE WHEN t.status != 'done' AND t.due_at IS NOT NULL AND t.due_at < ?4 THEN 1 ELSE 0 END) AS overdue,
+         SUM(CASE WHEN t.status != 'done' THEN 1 ELSE 0 END) AS open,
+         SUM(CASE WHEN t.status = 'done' THEN 1 ELSE 0 END) AS completed,
+         SUM(CASE WHEN t.status != 'done' AND t.starred = 1 THEN 1 ELSE 0 END) AS starred
+       FROM todos_tasks t
+       LEFT JOIN todos_lists l ON l.user_id = t.user_id AND l.id = t.list_id
+       WHERE t.user_id = ?1 AND l.archived_at IS NULL AND ${taskLive('t')}`,
+      this.userId, dayEnd, upcomingEnd, now, pickedFor,
+    )
+    // The inbox is folded in under its own key: a card shows the same `done / total` line whether
+    // the list is the reader's or the one every unfiled task lands in.
+    const perList = await this.rows<{ list_id: string; status: string; n: number }>(
+      `SELECT COALESCE(list_id, 'inbox') AS list_id, status, COUNT(*) AS n FROM todos_tasks
+        WHERE user_id = ?1 AND ${TASK_LIVE_PREDICATE} GROUP BY COALESCE(list_id, 'inbox'), status`,
+      this.userId,
+    )
+    const byList: Record<string, { open: number; done: number }> = {}
+    for (const row of perList) {
+      const bucket = byList[row.list_id] ?? { open: 0, done: 0 }
+      if (row.status === 'done') bucket.done += row.n
+      else bucket.open += row.n
+      byList[row.list_id] = bucket
+    }
+    const perTag = await this.rows<{ tag_id: string; status: string; n: number }>(
+      `SELECT l.tag_id, t.status, COUNT(*) AS n FROM todos_tag_links l
+         JOIN todos_tasks t ON t.user_id = l.user_id AND t.id = l.task_id
+        WHERE l.user_id = ?1 AND ${taskLive('t')} GROUP BY l.tag_id, t.status`,
+      this.userId,
+    )
+    const byTag: Record<string, { open: number; done: number }> = {}
+    for (const row of perTag) {
+      const bucket = byTag[row.tag_id] ?? { open: 0, done: 0 }
+      if (row.status === 'done') bucket.done += row.n
+      else bucket.open += row.n
+      byTag[row.tag_id] = bucket
+    }
+    return {
+      inbox: totals?.inbox ?? 0,
+      today: totals?.today ?? 0,
+      upcoming: totals?.upcoming ?? 0,
+      overdue: totals?.overdue ?? 0,
+      all: totals?.open ?? 0,
+      completed: totals?.completed ?? 0,
+      starred: totals?.starred ?? 0,
+      byList,
+      byTag,
+    }
+  }
+
+  // ------------------------------------------------------------------- lists
+
+  async listTaskLists(options: { archived?: boolean } = {}): Promise<TaskListEntry[]> {
+    const where = options.archived ? 'archived_at IS NOT NULL' : 'archived_at IS NULL'
+    const lists = await this.rows<TaskListRow>(
+      `SELECT * FROM todos_lists WHERE user_id = ?1 AND ${where} ORDER BY position ASC, name COLLATE NOCASE ASC`,
+      this.userId,
+    )
+    const counts = await this.rows<{ list_id: string; status: string; n: number }>(
+      `SELECT list_id, status, COUNT(*) AS n FROM todos_tasks
+        WHERE user_id = ?1 AND list_id IS NOT NULL AND ${TASK_LIVE_PREDICATE} GROUP BY list_id, status`,
+      this.userId,
+    )
+    const byList = new Map<string, { open: number; done: number }>()
+    for (const row of counts) {
+      const bucket = byList.get(row.list_id) ?? { open: 0, done: 0 }
+      if (row.status === 'done') bucket.done += row.n
+      else bucket.open += row.n
+      byList.set(row.list_id, bucket)
+    }
+    return lists.map((row) => toTaskList(row, byList.get(row.id) ?? { open: 0, done: 0 }))
+  }
+
+  async getTaskList(id: string): Promise<TaskListEntry | null> {
+    const row = await this.one<TaskListRow>(`SELECT * FROM todos_lists WHERE user_id = ?1 AND id = ?2`, this.userId, id)
+    if (!row) return null
+    const counts = await this.one<{ open: number | null; done: number | null }>(
+      `SELECT SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS done,
+              SUM(CASE WHEN status != 'done' THEN 1 ELSE 0 END) AS open
+         FROM todos_tasks WHERE user_id = ?1 AND list_id = ?2 AND ${TASK_LIVE_PREDICATE}`,
+      this.userId, id,
+    )
+    return toTaskList(row, { open: counts?.open ?? 0, done: counts?.done ?? 0 })
+  }
+
+  async findTaskListByName(name: string): Promise<TaskListEntry | null> {
+    const row = await this.one<TaskListRow>(
+      `SELECT * FROM todos_lists WHERE user_id = ?1 AND lower(name) = lower(?2) LIMIT 1`,
+      this.userId, name.trim(),
+    )
+    return row ? await this.getTaskList(row.id) : null
+  }
+
+  async resolveTaskList(ref: string): Promise<TaskListEntry | null> {
+    return (await this.getTaskList(ref)) ?? (await this.findTaskListByName(ref))
+  }
+
+  async createTaskList(input: { name: string; icon?: string | null; color?: string | null }): Promise<TaskListEntry> {
+    const name = input.name.trim().slice(0, MAX_LIST_NAME_CHARS)
+    if (!name) throw new Error('A list needs a name.')
+    const existing = await this.findTaskListByName(name)
+    if (existing) return existing
+    const id = newId()
+    const at = Date.now()
+    const position = await this.nextListPosition()
+    await this.write(
+      `INSERT INTO todos_lists (id, user_id, name, icon, color, position, created_at, updated_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8)`,
+      id, name, input.icon ?? null, input.color ?? defaultColorFor(name), position, at, at,
+    )
+    const created = await this.getTaskList(id)
+    if (!created) throw new Error(`The list ${id} was written but could not be read back.`)
+    return created
+  }
+
+  async updateTaskList(id: string, patch: { name?: string; icon?: string | null; color?: string | null; position?: number; archivedAt?: number | null; parentId?: string | null }): Promise<TaskListEntry | null> {
+    const existing = await this.getTaskList(id)
+    if (!existing) return null
+    const fields: (readonly [string, unknown])[] = []
+    if (patch.name !== undefined) fields.push(['name', patch.name.trim().slice(0, MAX_LIST_NAME_CHARS)])
+    if (patch.icon !== undefined) fields.push(['icon', patch.icon])
+    if (patch.color !== undefined) fields.push(['color', patch.color])
+    if (patch.position !== undefined) fields.push(['position', Math.trunc(patch.position)])
+    if (patch.archivedAt !== undefined) fields.push(['archived_at', patch.archivedAt])
+    if (patch.parentId !== undefined) fields.push(['parent_id', patch.parentId])
+    fields.push(['updated_at', Date.now()])
+    await this.partialUpdate('todos_lists', id, fields)
+    return await this.getTaskList(id)
+  }
+
+  /** How many lists call this one their container. Used to keep grouping one level deep. */
+  async countTaskListChildren(id: string): Promise<number> {
+    const row = await this.one<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM todos_lists WHERE user_id = ?1 AND parent_id = ?2`,
+      this.userId, id,
+    )
+    return row?.n ?? 0
+  }
+
+  /**
+   * Deletes a list. Its tasks are not deleted with it: they move to the inbox, where nothing is lost.
+   * Its child lists are lifted to the top level for the same reason — deleting a container is not a
+   * statement about the lists inside it.
+   */
+  async deleteTaskList(id: string): Promise<void> {
+    await this.write(`UPDATE todos_tasks SET list_id = NULL, updated_at = ?3, rev = rev + 1 WHERE user_id = ?1 AND list_id = ?2`, id, Date.now())
+    await this.write(`UPDATE todos_lists SET parent_id = NULL, updated_at = ?3 WHERE user_id = ?1 AND parent_id = ?2`, id, Date.now())
+    await this.write(`DELETE FROM todos_lists WHERE user_id = ?1 AND id = ?2`, id)
+  }
+
+  private async nextListPosition(): Promise<number> {
+    const row = await this.one<{ next: number | null }>(
+      `SELECT COALESCE(MAX(position), -1) + 1 AS next FROM todos_lists WHERE user_id = ?1`,
+      this.userId,
+    )
+    return row?.next ?? 0
+  }
+
+  // -------------------------------------------------------------------- tags
+
+  async listTaskTags(): Promise<TaskTag[]> {
+    const tags = await this.rows<TaskTagRow>(
+      `SELECT * FROM todos_tags WHERE user_id = ?1 ORDER BY name COLLATE NOCASE ASC`,
+      this.userId,
+    )
+    const counts = await this.rows<{ tag_id: string; n: number }>(
+      `SELECT l.tag_id, COUNT(*) AS n FROM todos_tag_links l
+         JOIN todos_tasks t ON t.user_id = l.user_id AND t.id = l.task_id
+        WHERE l.user_id = ?1 AND t.status != 'done' AND ${taskLive('t')} GROUP BY l.tag_id`,
+      this.userId,
+    )
+    const byTag = new Map(counts.map((row) => [row.tag_id, row.n]))
+    return tags.map((row) => toTaskTag(row, byTag.get(row.id) ?? 0))
+  }
+
+  async getTaskTag(id: string): Promise<TaskTag | null> {
+    const row = await this.one<TaskTagRow>(`SELECT * FROM todos_tags WHERE user_id = ?1 AND id = ?2`, this.userId, id)
+    return row ? toTaskTag(row, 0) : null
+  }
+
+  async findTaskTagByName(name: string): Promise<TaskTag | null> {
+    const row = await this.one<TaskTagRow>(
+      `SELECT * FROM todos_tags WHERE user_id = ?1 AND lower(name) = lower(?2) LIMIT 1`,
+      this.userId, name.trim(),
+    )
+    return row ? toTaskTag(row, 0) : null
+  }
+
+  async resolveTaskTag(ref: string): Promise<TaskTag | null> {
+    return (await this.getTaskTag(ref)) ?? (await this.findTaskTagByName(ref))
+  }
+
+  async createTaskTag(input: { name: string; color?: string | null }): Promise<TaskTag> {
+    const name = input.name.trim().slice(0, MAX_TAG_NAME_CHARS)
+    if (!name) throw new Error('A tag needs a name.')
+    const existing = await this.findTaskTagByName(name)
+    if (existing) return existing
+    const id = newId()
+    const at = Date.now()
+    await this.write(
+      `INSERT INTO todos_tags (id, user_id, name, color, created_at, updated_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6)`,
+      id, name, input.color ?? defaultColorFor(name), at, at,
+    )
+    const created = await this.getTaskTag(id)
+    if (!created) throw new Error(`The tag ${id} was written but could not be read back.`)
+    return created
+  }
+
+  async updateTaskTag(id: string, patch: { name?: string; color?: string | null }): Promise<TaskTag | null> {
+    const existing = await this.getTaskTag(id)
+    if (!existing) return null
+    const fields: (readonly [string, unknown])[] = []
+    if (patch.name !== undefined) fields.push(['name', patch.name.trim().slice(0, MAX_TAG_NAME_CHARS)])
+    if (patch.color !== undefined) fields.push(['color', patch.color])
+    fields.push(['updated_at', Date.now()])
+    await this.partialUpdate('todos_tags', id, fields)
+    return await this.getTaskTag(id)
+  }
+
+  async deleteTaskTag(id: string): Promise<void> {
+    await this.write(`DELETE FROM todos_tag_links WHERE user_id = ?1 AND tag_id = ?2`, id)
+    await this.write(`DELETE FROM todos_tags WHERE user_id = ?1 AND id = ?2`, id)
+  }
+
+  /**
+   * Replaces a task's tags with the names given, creating the ones this account does not have.
+   *
+   * Names rather than ids because that is what the model and the reader type; the tag list is the
+   * account's own vocabulary, and a name it has not used yet is a new word, not an error. A tag edit
+   * is a task edit, so the row's revision moves on with it.
+   */
+  async setTaskTags(taskId: string, names: readonly string[]): Promise<TaskTag[]> {
+    const wanted = await this.replaceTaskTags(taskId, names)
+    await this.updateTaskRow(taskId, [])
+    return wanted
+  }
+
+  /**
+   * The link replacement both tag writers share.
+   *
+   * It deliberately leaves the revision alone: `createTask` and `updateTask` call it as part of a
+   * write that has already moved (or, at creation, is about to settle on) the row's version, and a
+   * second bump there would make one edit count as two.
+   */
+  private async replaceTaskTags(taskId: string, names: readonly string[]): Promise<TaskTag[]> {
+    const wanted: TaskTag[] = []
+    for (const name of normalizeTagNames(names)) wanted.push(await this.createTaskTag({ name }))
+    await this.write(`DELETE FROM todos_tag_links WHERE user_id = ?1 AND task_id = ?2`, taskId)
+    for (const tag of wanted) {
+      await this.write(
+        `INSERT OR IGNORE INTO todos_tag_links (user_id, task_id, tag_id, created_at) VALUES (?1, ?2, ?3, ?4)`,
+        taskId, tag.id, Date.now(),
+      )
+    }
+    return wanted
+  }
+
+  // ------------------------------------------------------------------- steps
+
+  async listSteps(taskId: string): Promise<TaskStep[]> {
+    const rows = await this.rows<TaskStepRow>(
+      `SELECT * FROM todos_steps WHERE user_id = ?1 AND task_id = ?2 ORDER BY position ASC, created_at ASC`,
+      this.userId, taskId,
+    )
+    return rows.map(toTaskStep)
+  }
+
+  /** Appends a step. Returns null when the task already holds the maximum, rather than growing forever. */
+  async addStep(taskId: string, text: string): Promise<TaskStep | null> {
+    const clean = text.trim().slice(0, MAX_STEP_TEXT_CHARS)
+    if (!clean) return null
+    const count = await this.one<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM todos_steps WHERE user_id = ?1 AND task_id = ?2`,
+      this.userId, taskId,
+    )
+    if ((count?.n ?? 0) >= MAX_STEPS_PER_TASK) return null
+    const id = newId()
+    await this.write(
+      `INSERT INTO todos_steps (id, user_id, task_id, text, done, position, created_at)
+       VALUES (?2, ?1, ?3, ?4, 0,
+         (SELECT COALESCE(MAX(position), -1) + 1 FROM todos_steps WHERE user_id = ?1 AND task_id = ?3), ?5)`,
+      id, taskId, clean, Date.now(),
+    )
+    const row = await this.one<TaskStepRow>(`SELECT * FROM todos_steps WHERE user_id = ?1 AND id = ?2`, this.userId, id)
+    return row ? toTaskStep(row) : null
+  }
+
+  async updateStep(taskId: string, stepId: string, patch: { text?: string; done?: boolean }): Promise<TaskStep | null> {
+    const fields: (readonly [string, unknown])[] = []
+    if (patch.text !== undefined) fields.push(['text', patch.text.trim().slice(0, MAX_STEP_TEXT_CHARS)])
+    if (patch.done !== undefined) fields.push(['done', patch.done ? 1 : 0])
+    if (!fields.length) return null
+    const changes = await this.write(
+      `UPDATE todos_steps SET ${fields.map(([column], index) => `${column} = ?${index + 3}`).join(', ')}
+        WHERE user_id = ?1 AND task_id = ?2 AND id = ?${fields.length + 3}`,
+      taskId, ...fields.map(([, value]) => value), stepId,
+    )
+    if (!changes) return null
+    const row = await this.one<TaskStepRow>(
+      `SELECT * FROM todos_steps WHERE user_id = ?1 AND task_id = ?2 AND id = ?3`,
+      this.userId, taskId, stepId,
+    )
+    return row ? toTaskStep(row) : null
+  }
+
+  /**
+   * Moves one step in its task's order.
+   *
+   * The caller names either the sibling the step should sit before (`null` for the end) or the
+   * zero-based index it should land on; both are resolved against the rows as they stand, so a move
+   * that already matches the order writes nothing. The order itself is fractional: the moved row
+   * takes the midpoint between its new neighbours, and only when that gap is exhausted are the
+   * siblings renumbered to whole thousands — the same scheme folders use, and the reason a reorder
+   * does not rewrite every row on every press.
+   *
+   * Returns null when the step is not this account's: another account's id is a 404, not a 403.
+   */
+  async moveStep(
+    taskId: string,
+    stepId: string,
+    placement: { beforeStepId: string | null } | { position: number },
+  ): Promise<TaskStep | null> {
+    const rows = await this.rows<TaskStepRow>(
+      `SELECT * FROM todos_steps WHERE user_id = ?1 AND task_id = ?2 ORDER BY position ASC, created_at ASC, id ASC`,
+      this.userId, taskId,
+    )
+    const movingAt = rows.findIndex((row) => row.id === stepId)
+    if (movingAt < 0) return null
+    const siblings = rows.filter((row) => row.id !== stepId)
+    let index: number
+    if ('beforeStepId' in placement) {
+      index = placement.beforeStepId === null
+        ? siblings.length
+        : siblings.findIndex((row) => row.id === placement.beforeStepId)
+      if (index < 0) throw ApiError.badRequest('That step is not on this task.')
+    } else {
+      // An index past the end is the end: the caller asked for the last place, not for an error.
+      index = Math.min(Math.max(placement.position, 0), siblings.length)
+    }
+    if (index === movingAt) return toTaskStep(rows[movingAt]!)
+
+    let position = insertionPosition(siblings[index - 1]?.position, siblings[index]?.position)
+    if (position === null) {
+      // The neighbours sit on the same value, or too close for another midpoint. Renumbering to
+      // whole thousands keeps the order the reader is looking at and opens a gap again.
+      for (let at = 0; at < siblings.length; at++) {
+        const sibling = siblings[at]!
+        const next = (at + 1) * 1000
+        if (sibling.position === next) continue
+        const changes = await this.write(
+          `UPDATE todos_steps SET position = ?2 WHERE user_id = ?1 AND task_id = ?3 AND id = ?4`,
+          next, taskId, sibling.id,
+        )
+        if (!changes) throw ApiError.conflict('The step order changed. Try again.')
+        sibling.position = next
+      }
+      position = insertionPosition(siblings[index - 1]?.position, siblings[index]?.position)
+      if (position === null) throw ApiError.conflict('The step order changed. Try again.')
+    }
+
+    const changes = await this.write(
+      `UPDATE todos_steps SET position = ?2 WHERE user_id = ?1 AND task_id = ?3 AND id = ?4`,
+      position, taskId, stepId,
+    )
+    if (!changes) return null
+    const row = await this.one<TaskStepRow>(
+      `SELECT * FROM todos_steps WHERE user_id = ?1 AND task_id = ?2 AND id = ?3`,
+      this.userId, taskId, stepId,
+    )
+    return row ? toTaskStep(row) : null
+  }
+
+  async deleteStep(taskId: string, stepId: string): Promise<boolean> {
+    const changes = await this.write(
+      `DELETE FROM todos_steps WHERE user_id = ?1 AND task_id = ?2 AND id = ?3`,
+      taskId, stepId,
+    )
+    return changes > 0
   }
 
   // ---------------------------------------------------------------- projects
@@ -4014,15 +5196,17 @@ export class AssistantStore {
       // The vectors go with the facts: `memoryEmbeddingCount` is a plain count of rows, so a vector whose
       // memory is gone would keep inflating the number on the settings card while no turn could recall it.
       // The review rows are not cleaned here — `listReviews` already drops the ones whose memory is
-      // missing, so a delete would be a second copy of that rule.
-      const marks = filed.map((_, index) => `?${index + 2}`).join(', ')
-      await this.write(`DELETE FROM chat_memory_embeddings WHERE user_id = ?1 AND memory_id IN (${marks})`, ...filed.map((memory) => memory.id))
+      // missing, so a delete would be a second copy of that rule. A project with a hundred facts or
+      // more deletes in chunks, for the same bound-parameter reason the listings do.
+      for (const chunk of idChunks(filed.map((memory) => memory.id))) {
+        await this.write(`DELETE FROM chat_memory_embeddings WHERE user_id = ?1 AND memory_id IN (${chunkMarks(chunk)})`, ...chunk)
+      }
     }
     await this.write(`DELETE FROM chat_memories WHERE user_id = ?1 AND project_id = ?2`, id)
     // The activity feed quoted each fact when it was learned; the fact is gone, so the quote goes too —
     // the same promise `deleteMemory` keeps, for the same reason.
     for (const memory of filed) await this.deleteActivityQuoting('memory.created', memory.content)
-    await this.write(`UPDATE chat_tasks SET project_id = NULL WHERE user_id = ?1 AND project_id = ?2`, id)
+    await this.write(`UPDATE todos_tasks SET project_id = NULL, rev = rev + 1 WHERE user_id = ?1 AND project_id = ?2`, id)
     await this.write(`DELETE FROM chat_projects WHERE user_id = ?1 AND id = ?2`, id)
   }
 
@@ -4193,17 +5377,32 @@ export class AssistantStore {
     return list.map(toNotification)
   }
 
-  async createNotification(input: { title: string, body: string, automationId?: string | null, subscriptionId?: string | null }): Promise<AssistantNotification> {
+  async createNotification(input: {
+    title: string
+    body: string
+    automationId?: string | null
+    /**
+     * Where the notice is about, as `<app>:<id>` — `todo:<task id>` first.
+     *
+     * Not a URL, and not the caller's to shape: the client resolves the pair inside its own origin, so a
+     * writer cannot aim a reader's press somewhere this deployment never chose. Absent or blank is a notice
+     * that points nowhere — a digest, a finished run — which the notification centre expands instead of
+     * navigating on. Clamped like the title, because the column is a pointer and not a place to park text.
+     */
+    link?: string | null
+    subscriptionId?: string | null
+  }): Promise<AssistantNotification> {
     const id = newId()
     const at = Date.now()
     const title = input.title.slice(0, 200)
     const body = input.body.slice(0, 8000)
+    const link = (input.link ?? '').trim().slice(0, NOTIFICATION_LINK_MAX_CHARS) || null
     await this.write(
-      `INSERT INTO chat_notifications (id, user_id, title, body, automation_id, created_at, subscription_id)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7)`,
-      id, title, body, input.automationId ?? null, at, input.subscriptionId ?? null,
+      `INSERT INTO chat_notifications (id, user_id, title, body, automation_id, link, subscription_id, created_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8)`,
+      id, title, body, input.automationId ?? null, link, input.subscriptionId ?? null, at,
     )
-    return { id, title, body, automationId: input.automationId ?? null, subscriptionId: input.subscriptionId ?? null, readAt: null, createdAt: at }
+    return { id, title, body, automationId: input.automationId ?? null, link, subscriptionId: input.subscriptionId ?? null, readAt: null, createdAt: at }
   }
 
   async unreadCount(): Promise<number> {
@@ -5456,6 +6655,36 @@ export class AssistantStore {
     if (!rows.length) return
     const columns = this.importColumns(table)
     await this.runImportBatch(rows.map((row) => this.importInsert(table, columns, row)), onLanded)
+    // A task row names its reminder in the `remind_at` field the backup format has always carried;
+    // the column itself is no longer written (see `EXPORT_COLUMNS`), this turns the field into the
+    // row that now owns the instants. They are written after the tasks they belong to, and only when
+    // the same instant is not already pending here: importing one file twice must not double its
+    // alarms.
+    if (table === 'todos_tasks') await this.importTaskReminders(rows)
+  }
+
+  /** The `remind_at` fields a backup attached to its task rows, as rows of `todos_reminders`. */
+  private async importTaskReminders(rows: readonly Record<string, unknown>[]): Promise<void> {
+    const at = Date.now()
+    const statements: D1PreparedStatement[] = []
+    for (const row of rows) {
+      const taskId = typeof row.id === 'string' ? row.id : ''
+      if (!taskId) continue
+      const times = Array.isArray(row.reminders)
+        ? row.reminders as number[]
+        : typeof row.remind_at === 'number' ? [row.remind_at] : []
+      for (const remindAt of normalizeReminderTimes(times)) {
+        statements.push(this.db.prepare(
+          `INSERT INTO todos_reminders (user_id, id, task_id, remind_at, fired_at, created_at)
+           SELECT ?1, ?2, ?3, ?4, NULL, ?5
+            WHERE NOT EXISTS (
+              SELECT 1 FROM todos_reminders
+               WHERE user_id = ?1 AND task_id = ?3 AND remind_at = ?4 AND fired_at IS NULL
+            )`,
+        ).bind(this.userId, newId(), taskId, remindAt, at))
+      }
+    }
+    await this.runImportBatch(statements)
   }
 
   /** The same, for the rows this account already holds and the file is allowed to rewrite. */
@@ -5466,6 +6695,9 @@ export class AssistantStore {
       .map((patch) => this.importPatch(table, columns, patch.id, patch.row))
       .filter((statement): statement is D1PreparedStatement => statement !== null)
     await this.runImportBatch(statements, onLanded)
+    // The reminder named by a newer file joins the local task's pending list; the task's own edit
+    // still wins for every column above, and a duplicate instant is not added twice.
+    if (table === 'todos_tasks') await this.importTaskReminders(patches.map((patch) => patch.row))
   }
 
   private async runImportBatch(statements: readonly D1PreparedStatement[], onLanded?: (landed: number) => void): Promise<void> {
@@ -5534,6 +6766,36 @@ export class AssistantStore {
     const onlyKept = 'conversation_id IN (SELECT id FROM chat_conversations WHERE user_id = ?1 AND ephemeral = 0)'
     const select = (table: string, extra = '') => this.db.prepare(`SELECT * FROM ${table} WHERE user_id = ?1 ${extra} ORDER BY created_at`)
       .bind(this.userId).all<Record<string, unknown>>().then((r) => r.results ?? [])
+    // The trash is not part of a backup. A file is a snapshot of what the account still has; a task
+    // the reader deleted is on its way out (the retention sweep will remove it within 30 days), and a
+    // restore must not bring back what they deliberately put away. The children follow their task, so
+    // filtering the task alone would leave orphaned steps, links and reminders in the file.
+    const liveTask = `task_id IN (SELECT id FROM todos_tasks WHERE user_id = ?1 AND ${TASK_LIVE_PREDICATE})`
+    const tasks = await select('todos_tasks', `AND ${TASK_LIVE_PREDICATE}`)
+    // The stamp of a live row is null and carries no information into another account; the format
+    // does not have the column (see `EXPORT_COLUMNS`), so `SELECT *` has to drop it here or a restore
+    // would read a key the allowlist never accepts.
+    for (const task of tasks) delete task.deleted_at
+    // A reminder travels on its task. The backup format has one row per task and no table for these,
+    // so the first pending instant is written into the `remind_at` field the format already had; the
+    // import reads it back as a row of `todos_reminders`. Fired rows stay behind: a restore is not a
+    // delivery, and history the file does not need is not a reason to write it into another account.
+    // The task row's own `remind_at` column is not read — it is superseded and this value is derived
+    // from the reminder rows, then overwritten either way.
+    const pending = await select('todos_reminders', `AND fired_at IS NULL AND ${liveTask}`)
+    const byTask = new Map<string, number[]>()
+    for (const row of pending) {
+      const taskId = typeof row.task_id === 'string' ? row.task_id : ''
+      const remindAt = typeof row.remind_at === 'number' ? row.remind_at : null
+      if (!taskId || remindAt === null) continue
+      const bucket = byTask.get(taskId) ?? []
+      bucket.push(remindAt)
+      byTask.set(taskId, bucket)
+    }
+    for (const task of tasks) {
+      const list = typeof task.id === 'string' ? byTask.get(task.id) : undefined
+      task.remind_at = list?.length ? normalizeReminderTimes(list)[0]! : null
+    }
     return {
       conversations: await select('chat_conversations', 'AND ephemeral = 0'),
       artifacts: await select('chat_artifacts', `AND ${onlyKept}`),
@@ -5542,7 +6804,11 @@ export class AssistantStore {
       messages: await select('chat_messages', `AND ${onlyKept}`),
       answer_versions: await select('chat_answer_versions', `AND ${onlyKept}`),
       memories: await select('chat_memories'),
-      tasks: await select('chat_tasks'),
+      tasks,
+      task_lists: await select('todos_lists'),
+      task_steps: await select('todos_steps', `AND ${liveTask}`),
+      task_tags: await select('todos_tags'),
+      task_tag_links: await select('todos_tag_links', `AND ${liveTask}`),
       projects: await select('chat_projects'),
       automations: await select('chat_automations'),
       notifications: await select('chat_notifications'),
@@ -5597,7 +6863,27 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // `note_id` is the note a fact was written out as: a pointer the management screen shows, so it
   // travels with the fact it belongs to.
   chat_memories: ['id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'project_id', 'note_id', 'created_at', 'updated_at'],
-  chat_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'project_id', 'created_at', 'updated_at', 'completed_at'],
+  // Every column the app reads travels, not only the ones the tool layer writes: a task restored
+  // without its list, star, repeat or note link is a different task, and `reminded_at` is the one
+  // exception — a restore is not a delivery, so the next sweep may announce it again.
+  // `created_on` and `completed_on` are the statistics' day columns: a restore that dropped them
+  // would leave every restored task with no day until a boot backfilled it, and the fingerprint note
+  // means a boot after a restore does not come back through the repair. They are nullable, so an old
+  // backup without the keys still lands.
+  // `remind_at` is deliberately absent: the single reminder column is superseded by `todos_reminders`,
+  // and a restore turns the backup's `remind_at` field into a row of that table instead of writing a
+  // column nothing reads. The field still travels in the file, because that is the format's shape.
+  // `deleted_at` is absent for a different reason: trashed rows are not exported at all (see
+  // `exportTables`), so a column that would only ever be null is not part of the format.
+  // `icon` and `color` are the task's own face: a restore that dropped them would silently hand every
+  // restored task back its list's, which is a different row than the one that was backed up. Both are
+  // nullable, so an old backup without the keys still lands.
+  todos_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'start_at', 'project_id', 'list_id', 'icon', 'color', 'starred', 'repeat_rule', 'note_id', 'conversation_id', 'created_at', 'updated_at', 'completed_at', 'created_on', 'completed_on'],
+  todos_lists: ['id', 'name', 'icon', 'color', 'position', 'created_at', 'updated_at'],
+  todos_steps: ['id', 'task_id', 'text', 'done', 'position', 'created_at'],
+  todos_tags: ['id', 'name', 'color', 'created_at', 'updated_at'],
+  // A link has no id of its own: its key is the pair, so it is only ever inserted, never patched.
+  todos_tag_links: ['task_id', 'tag_id', 'created_at'],
   // The brief and the folders a project reads are what make it a context rather than a folder; a
   // restored project without them is the same name over an empty brief. `note_ids` travels with them: a
   // project that named three pages and came back naming none would answer from the whole vault, which is
@@ -5614,7 +6900,12 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // notifications the new devices were never told about and a marker saying they were — the reader would get
   // no nudge for news they have not seen, which is the quiet direction of the mistake this table has made
   // twice before for the opposite reason.
-  chat_notifications: ['id', 'title', 'body', 'automation_id', 'read_at', 'created_at'],
+  //
+  // `link` does travel, and that is a decision rather than an oversight: it is the notice's own statement of
+  // what it was about, the reader's press is what reads it, and the tasks it points at are in this same file.
+  // A restore that brought back a reminder and threw away its pointer would leave a notice that looks the
+  // same and does less than the one the reader had.
+  chat_notifications: ['id', 'title', 'body', 'automation_id', 'link', 'subscription_id', 'read_at', 'created_at'],
 }
 
 /**
@@ -5622,12 +6913,7 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
  * bind-variable ceiling D1 imposes — the same reason the delete loops above page themselves.
  */
 function idReadChunks(ids: readonly string[]): string[][] {
-  const wanted = [...new Set(ids)]
-  const chunks: string[][] = []
-  for (let start = 0; start < wanted.length; start += ID_READ_BATCH) {
-    chunks.push(wanted.slice(start, start + ID_READ_BATCH))
-  }
-  return chunks
+  return idChunks([...new Set(ids)])
 }
 
 function normaliseBind(value: unknown): string | number | null {
@@ -5694,6 +6980,81 @@ export async function purgeExpiredEphemeralConversations(
   let removed = 0
   for (const row of results ?? []) {
     removed += await new AssistantStore(db, row.user_id, env).purgeEphemeral(before)
+  }
+  return removed
+}
+
+/**
+ * The five statements that remove one account's trashed tasks for good.
+ *
+ * Shared by the endpoint and the retention sweep so the trash is emptied one way: steps, tag links,
+ * reminders and the task's history go with their task, and the task delete repeats the trash
+ * predicate so a live row can never be caught by a stale id. The `IN` list is built here from ids
+ * the account already owns, one place after a scoped read — and cut into chunks, because a sweep
+ * page (`TODO_TRASH_PURGE_LIMIT`) names more ids than one statement may bind. The history goes and
+ * the trash's soft delete does not: a trashed task still happened, and only a purge says it did
+ * not.
+ */
+function purgeTaskStatements(db: D1Database, userId: string, ids: readonly string[]): D1PreparedStatement[] {
+  if (!ids.length) return []
+  const statements: D1PreparedStatement[] = []
+  for (const chunk of idChunks(ids)) {
+    const marks = chunkMarks(chunk)
+    const binds = [userId, ...chunk]
+    statements.push(
+      db.prepare(`DELETE FROM todos_steps WHERE user_id = ?1 AND task_id IN (${marks})`).bind(...binds),
+      db.prepare(`DELETE FROM todos_tag_links WHERE user_id = ?1 AND task_id IN (${marks})`).bind(...binds),
+      db.prepare(`DELETE FROM todos_reminders WHERE user_id = ?1 AND task_id IN (${marks})`).bind(...binds),
+      // The history asks the trash the same question the task delete does, and for the same reason:
+      // a stale id must not be able to catch a live row. Without the predicate, a restore that won
+      // the race would keep its task while the batch erased the past the task came back with.
+      db.prepare(
+        `DELETE FROM todos_task_events
+          WHERE user_id = ?1 AND task_id IN (
+            SELECT id FROM todos_tasks WHERE user_id = ?1 AND id IN (${marks}) AND ${TASK_TRASHED_PREDICATE}
+          )`,
+      ).bind(...binds),
+      db.prepare(
+        `DELETE FROM todos_tasks WHERE user_id = ?1 AND id IN (${marks}) AND ${TASK_TRASHED_PREDICATE}`,
+      ).bind(...binds),
+    )
+  }
+  return statements
+}
+
+/**
+ * Empties the trash that has outlived its retention window, oldest deletion first.
+ *
+ * The hourly cron is the only caller and it spans every account, so this is another query in the
+ * module that is not scoped to one reader — hence the returned ids and the per-account batches below,
+ * the shape `purgeExpiredEphemeralConversations` already uses. The work is bounded per fire: a backlog
+ * is drained over several ticks rather than in one invocation nobody is watching, and the ceiling is
+ * a named constant so a test can pin it.
+ */
+export async function purgeExpiredTodoTrash(
+  db: D1Database,
+  now = Date.now(),
+  limit = TODO_TRASH_PURGE_LIMIT,
+): Promise<number> {
+  const cutoff = now - TODO_TRASH_RETENTION_DAYS * DAY_MS
+  const capped = Math.min(TODO_TRASH_PURGE_LIMIT, Math.max(1, Math.trunc(limit)))
+  const { results } = await db.prepare(
+    `SELECT user_id, id FROM todos_tasks
+      WHERE ${TASK_TRASHED_PREDICATE} AND deleted_at < ?1
+      ORDER BY deleted_at ASC, id ASC LIMIT ?2`,
+  ).bind(cutoff, capped).all<{ user_id: string, id: string }>()
+
+  // One account is one batch of five statements, however many of its rows the page holds.
+  const byUser = new Map<string, string[]>()
+  for (const row of results ?? []) {
+    const bucket = byUser.get(row.user_id) ?? []
+    bucket.push(row.id)
+    byUser.set(row.user_id, bucket)
+  }
+  let removed = 0
+  for (const [userId, ids] of byUser) {
+    await db.batch(purgeTaskStatements(db, userId, ids))
+    removed += ids.length
   }
   return removed
 }
@@ -6205,26 +7566,152 @@ interface TaskRow {
   description: string | null
   status: string
   priority: string
+  /** The reader's place among the list's rows, or null while nobody has moved it. */
+  position: number | null
   due_at: number | null
+  start_at: number | null
   project_id: string | null
+  list_id: string | null
+  /** The task's own icon, or null while it wears its list's. */
+  icon: string | null
+  /** The task's own colour, or null while it wears its list's. */
+  color: string | null
+  starred: number | null
+  repeat_rule: string | null
+  /** `TASK_REMINDER_TIMES`: the pending instants, comma-separated, or null when there are none. */
+  reminder_times: string | null
+  planned_for: string | null
+  note_id: string | null
+  conversation_id: string | null
   created_at: number
   updated_at: number
   completed_at: number | null
+  /** The row's version: 1 when written, moved on by every write path. */
+  rev: number
+  /** When the row was moved to the trash, or null while it is live. */
+  deleted_at: number | null
 }
 
-function toTask(r: TaskRow): Task {
+interface TaskListRow {
+  id: string
+  name: string
+  icon: string | null
+  color: string | null
+  position: number
+  /** When the reader put the list away; null while it is in use. */
+  archived_at: number | null
+  /** The container this list sits under, or null for a top-level list. */
+  parent_id: string | null
+  created_at: number
+  updated_at: number
+}
+
+interface TaskTagRow {
+  id: string
+  name: string
+  color: string | null
+  created_at: number
+  updated_at: number
+}
+
+interface TaskStepRow {
+  id: string
+  task_id: string
+  text: string
+  done: number
+  position: number
+  created_at: number
+}
+
+function toTask(
+  r: TaskRow,
+  extras: { tags: TaskTag[]; stepTotal: number; stepDone: number; reminders: number[] },
+): TodoTask {
   return {
     id: r.id,
     title: r.title,
     description: r.description ?? '',
     status: pickEnum(r.status, TASK_STATUS_VALUES, 'todo'),
     priority: pickEnum(r.priority, TASK_PRIORITY_VALUES, 'medium'),
+    position: num(r.position),
     dueAt: num(r.due_at),
+    startAt: num(r.start_at),
     projectId: r.project_id,
+    listId: r.list_id,
+    icon: r.icon,
+    color: r.color,
+    tags: extras.tags,
+    starred: (r.starred ?? 0) === 1,
+    repeat: parseRepeatRule(parseJson(r.repeat_rule)),
+    reminders: extras.reminders,
+    // The single reminder the quick-add preview and the assistant's task tool read: the next one to
+    // fire, or none. `remindedAt` is always null now — delivery lives on the reminder row itself.
+    remindAt: extras.reminders[0] ?? null,
+    remindedAt: null,
+    plannedFor: r.planned_for ?? null,
+    noteId: r.note_id,
+    conversationId: r.conversation_id,
+    stepTotal: extras.stepTotal,
+    stepDone: extras.stepDone,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     completedAt: num(r.completed_at),
+    rev: r.rev,
+    deletedAt: num(r.deleted_at),
   }
+}
+
+function toTaskList(r: TaskListRow, counts: { open: number; done: number }): TaskListEntry {
+  return {
+    id: r.id,
+    name: r.name,
+    icon: r.icon,
+    color: r.color,
+    position: r.position,
+    archivedAt: r.archived_at ?? null,
+    parentId: r.parent_id ?? null,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    openCount: counts.open,
+    doneCount: counts.done,
+  }
+}
+
+function toTaskTag(r: TaskTagRow, openCount: number): TaskTag {
+  return {
+    id: r.id,
+    name: r.name,
+    color: r.color,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    openCount,
+  }
+}
+
+function toTaskStep(r: TaskStepRow): TaskStep {
+  return {
+    id: r.id,
+    taskId: r.task_id,
+    text: r.text,
+    done: r.done === 1,
+    position: r.position,
+    createdAt: r.created_at,
+  }
+}
+
+/**
+ * A position strictly between two neighbours, or null when that gap has no room left.
+ *
+ * An undefined neighbour is an end: a run's first slot starts at 1000 and an append is a whole
+ * thousand past the last, so the ordinary case does not depend on the midpoint at all. Steps and
+ * tasks share the rule because both store a REAL order and both fold a drop between two rows.
+ */
+function insertionPosition(previous: number | undefined, next: number | undefined): number | null {
+  if (previous === undefined && next === undefined) return 1000
+  if (previous === undefined) return next! - 1000
+  if (next === undefined) return previous + 1000
+  const position = previous + (next - previous) / 2
+  return Number.isFinite(position) && position > previous && position < next ? position : null
 }
 
 interface ProjectRow {
@@ -6328,6 +7815,7 @@ interface NotificationRow {
   title: string
   body: string | null
   automation_id: string | null
+  link: string | null
   read_at: number | null
   created_at: number
   subscription_id: string | null
@@ -6339,6 +7827,7 @@ function toNotification(r: NotificationRow): AssistantNotification {
     title: r.title,
     body: r.body ?? '',
     automationId: r.automation_id,
+    link: r.link ?? null,
     subscriptionId: r.subscription_id,
     readAt: num(r.read_at),
     createdAt: r.created_at,

@@ -22,6 +22,93 @@ import { cn } from '../lib/cn'
 /** Where the count is written, so one prop covers the two spellings in use. */
 export type TagChipCountFormat = 'plain' | 'paren'
 
+/**
+ * The two ways a tag is painted: `outline` is the notebook's chip — a border, a colour dot and a name —
+ * and `tinted` is the to-do app's, where the tag's own colour is mixed into the background so a dense
+ * task row can be read at a glance. One recipe for both, so a tag does not change shape between the
+ * two apps.
+ */
+export type TagChipTone = 'outline' | 'tinted'
+
+/** The box every tag wears, pressed or not. */
+export function tagChipSurface(tone: TagChipTone, pressed?: boolean): string {
+  if (tone === 'tinted') {
+    return cn(
+      'inline-flex max-w-full items-center gap-[var(--sp-1)] rounded-[var(--r-sm)]',
+      'px-[var(--sp-1-5)] py-px font-medium select-none',
+      'text-[length:var(--text-10-5)] leading-[1.5] transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+      pressed ? 'ring-1 ring-[var(--accent)]' : '',
+    )
+  }
+  return cn(
+    'inline-flex max-w-full items-center gap-[var(--sp-1)] rounded-[var(--r-full)]',
+    'border px-[var(--sp-1-5)] py-[var(--sp-0-5)] font-medium select-none',
+    'text-[length:var(--text-11)] transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+    pressed
+      ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[color:var(--text-primary)] hover:bg-[var(--bg-hover)]'
+      : cn(
+          'border-[var(--border-subtle)] text-[color:var(--text-secondary)]',
+          'hover:border-[var(--border-default)] hover:bg-[var(--bg-hover)] hover:text-[color:var(--text-primary)]',
+        ),
+  )
+}
+
+/**
+ * A tag that cannot be pressed — a task row already is one button, and a button inside a button is not
+ * a control a browser or a screen reader can carry. Same surface as {@link TagChip}, no interaction.
+ */
+export function TagPill({
+  label,
+  color,
+  tone = 'outline',
+  pressed,
+  sigil,
+  trailing,
+  className,
+  style,
+  title,
+}: {
+  label: ReactNode
+  color?: string | null
+  tone?: TagChipTone
+  pressed?: boolean
+  sigil?: boolean
+  trailing?: ReactNode
+  className?: string
+  style?: CSSProperties
+  title?: string
+}) {
+  const tinted = tone === 'tinted'
+  return (
+    <span
+      title={title}
+      className={cn(tagChipSurface(tone, pressed), tinted && 'truncate', className)}
+      style={{
+        ...(tinted && color
+          ? {
+              color,
+              backgroundColor: `color-mix(in oklab, ${color} 12%, transparent)`,
+            }
+          : {}),
+        ...style,
+      }}
+    >
+      {!tinted && color ? (
+        <span
+          aria-hidden="true"
+          className="size-[var(--sp-1-5)] shrink-0 rounded-[var(--r-full)]"
+          style={{ backgroundColor: color }}
+        />
+      ) : null}
+      <span className="min-w-0 truncate">
+        {sigil ? <span aria-hidden="true">#</span> : null}
+        {label}
+      </span>
+      {trailing}
+    </span>
+  )
+}
+
 export interface TagChipProps {
   /** The tag's visible name. */
   label: ReactNode
@@ -75,16 +162,7 @@ export function TagChip({
       aria-pressed={pressed}
       aria-label={ariaLabel}
       className={cn(
-        'inline-flex max-w-full items-center gap-[var(--sp-1)] rounded-[var(--r-full)]',
-        'border px-[var(--sp-1-5)] py-[var(--sp-0-5)] font-medium select-none',
-        'text-[length:var(--text-11)] transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)]',
-
-        pressed
-          ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[color:var(--text-primary)] hover:bg-[var(--bg-hover)]'
-          : cn(
-              'border-[var(--border-subtle)] text-[color:var(--text-secondary)]',
-              'hover:border-[var(--border-default)] hover:bg-[var(--bg-hover)] hover:text-[color:var(--text-primary)]',
-            ),
+        tagChipSurface('outline', pressed),
         className,
       )}
       style={style}

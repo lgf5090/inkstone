@@ -1,6 +1,9 @@
 /** Defines the idempotent final D1 schema initialized by every Worker isolate. */
+import { isValidTimeZone } from '@shared/assistant-schedule'
+import { localDate } from '@shared/assistant-time'
 import type { DatabaseState, Env } from '../env'
 import { getMeta, setMeta } from './metadata'
+import { storedObject } from '../lib/json'
 import { READER_BOOK_INDEX, READER_BOOK_TABLE, READER_GROUP_INDEX, READER_GROUP_TABLE, READER_SCHEMA_STATEMENTS } from './reader-schema'
 import {
   ASSISTANT_REQUIRED_COLUMNS,
@@ -14,6 +17,12 @@ import {
   SUBSCRIPTIONS_REQUIRED_TABLES,
   SUBSCRIPTIONS_SCHEMA_STATEMENTS,
 } from '../subscriptions/schema'
+import {
+  TODOS_REQUIRED_COLUMNS,
+  TODOS_REQUIRED_INDEXES,
+  TODOS_REQUIRED_TABLES,
+  TODOS_SCHEMA_STATEMENTS,
+} from '../todos/schema'
 
 const BACKUP_ARCHIVES_TABLE = `CREATE TABLE IF NOT EXISTS backup_archives (
   user_id TEXT NOT NULL,
@@ -419,6 +428,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     user_id TEXT PRIMARY KEY,
     write_enabled INTEGER NOT NULL DEFAULT 1 CHECK (write_enabled IN (0, 1)),
     trash_enabled INTEGER NOT NULL DEFAULT 0 CHECK (trash_enabled IN (0, 1)),
+    todo_read_enabled INTEGER NOT NULL DEFAULT 1,
     disabled_tools TEXT NOT NULL DEFAULT '[]',
     updated_at INTEGER NOT NULL
   )`,
@@ -508,6 +518,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
 
   ...RSS_LIBRARY_STATEMENTS,
   ...ASSISTANT_SCHEMA_STATEMENTS,
+  ...TODOS_SCHEMA_STATEMENTS,
   ...SUBSCRIPTIONS_SCHEMA_STATEMENTS,
 ]
 
@@ -1933,6 +1944,256 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE sub_settings ADD COLUMN budget_categories TEXT NOT NULL DEFAULT '{}'`,
     ],
   },
+  {
+    // Where a delivered notice was about.
+    //
+    // A reminder said what had happened and whether the reader had looked, and nothing said where the thing
+    // itself lives — so pressing it could only ever open a list, which is the half of the loop that makes a
+    // reminder worth having. `link` carries `<app>:<id>`, `todo:<task id>` first, and it is an app-and-id
+    // pair rather than a URL on purpose: a stored address would let whatever wrote the row aim a reader's
+    // press at a site this deployment never chose, while the client resolves the pair inside its own origin
+    // and already knows what to do with a task it cannot read. Nullable with no default because a digest, a
+    // finished run and every row written before this column all genuinely point nowhere — an honest absence,
+    // and the reading the notification centre expands instead of navigating on. One column, one version; no
+    // index, since the only reader reaches the row by the primary key it already has.
+    version: 128,
+    skipIfColumnExists: { table: 'chat_notifications', column: 'link' },
+    statements: [
+      `ALTER TABLE chat_notifications ADD COLUMN link TEXT`,
+    ],
+  },
+  {
+    // The newest-first order the task list gained — `sort=created` — for one account at a time.
+    //
+    // The table's indexes are all built around what a view filters on (`status, due_at`, `list_id,
+    // status`), and none of them can produce `ORDER BY created_at`, so the sort was a full build over
+    // the account's whole shelf on every page: the larger the history, the slower each first page
+    // became. A separate number is what lets a database built before the order existed get the index
+    // on its next boot. The same statement lives in `todos/schema.ts`, so a fresh install creates it
+    // without replaying this history.
+    version: 129,
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_todos_tasks_created
+     ON todos_tasks(user_id, created_at)`,
+    ],
+  },
+  {
+    // The other order the list gained — `sort=completed` — and the same shape of gap as 129.
+    //
+    // Finished tasks are read newest-finish first, and `completed_at` had no index at all: SQLite had
+    // to visit every row the account owns and sort it, even though the view shows one page. Keyed on
+    // the account first for the reason every index here is, so the walk never crosses into another
+    // account's rows. One index, one version.
+    version: 130,
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_todos_tasks_completed
+     ON todos_tasks(user_id, completed_at)`,
+    ],
+  },
+  {
+    // The day the reader finished the task, in the account's own zone.
+    //
+    // The statistics group finished work by day, and a day computed from `completed_at` at query time
+    // is wrong twice a year: a fixed offset shifts by an hour across a DST boundary, and a per-row
+    // conversion in the database grows with the shelf. The stored day is the one fact the group needs,
+    // and a streak then costs one index walk. Nullable with no default because an unfinished task has
+    // no completion day — an honest absence, filled in by `migrateTodoDayColumns` for rows that
+    // finished before this column existed.
+    version: 131,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'completed_on' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN completed_on TEXT`,
+    ],
+  },
+  {
+    // The day the task was written, in the account's own zone, for the same reason as 131.
+    //
+    // Created-versus-completed is the pair the daily trend compares, and both sides have to be read
+    // in one calendar. Nullable because rows written before the column existed have no day until the
+    // backfill computes one from `created_at`.
+    version: 132,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'created_on' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN created_on TEXT`,
+    ],
+  },
+  {
+    // What the statistics read: one account's finished tasks by the day they were finished.
+    //
+    // Keyed on the account first for the reason every index here is — the walk never crosses into
+    // another reader's rows — and on the day second so a streak or a daily trend is one ordered
+    // range instead of a full scan of the shelf. One index, one version.
+    version: 133,
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_todos_tasks_completed_on
+     ON todos_tasks(user_id, completed_on)`,
+    ],
+  },
+  {
+    // The day a reader picked a task into "today" — "My Day", which is not the same question as
+    // "what is due today".
+    //
+    // The value is the account's calendar day (`YYYY-MM-DD`), the same shape `completed_on` uses and
+    // for the same reason: a day derived from an offset drifts across DST. It is a day rather than a
+    // boolean because the membership has to lapse at midnight without a sweep — yesterday's string
+    // simply stops equalling today's, so no cron and no state drift. Nullable with no default because
+    // a task nobody picked is an honest absence, not a different kind of plan. The number follows the index above it: the
+    // to-do read switch this column once left room for arrived later under its own number.
+    version: 134,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'planned_for' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN planned_for TEXT`,
+    ],
+  },
+  {
+    // The today view now reads two predicates — due by the end of the day, or picked for it — and the
+    // second had no index: every listing and every badge walked the account's whole shelf. Keyed on
+    // the account first for the reason every index here is, and on the picked day second so the
+    // membership is one range. One index, one version.
+    version: 135,
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_todos_tasks_planned
+     ON todos_tasks(user_id, planned_for)`,
+    ],
+  },
+  {
+    // The task row's own version, so an edit cannot land on a row somebody else already changed.
+    //
+    // A task stays on screen for as long as the reader takes to edit it, and a route, the assistant and
+    // a second device can all save inside that window: the later write used to replace the other one
+    // without a word. `rev` is moved on by every write path — `updateTask`, `planTask`, `setTaskTags`
+    // and the row-touching ones beside them — and a guarded write names the revision it read, so a
+    // stale one is refused (409, zero writes) instead of overwriting a newer edit. NOT NULL with a
+    // default of 1 because every row written before this column existed is a first revision, and a
+    // nullable column would make "no version" indistinguishable from one. One column, one version.
+    version: 136,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'rev' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN rev INTEGER NOT NULL DEFAULT 1`,
+    ],
+  },
+  {
+    // When a list was put away, or null while it is in use.
+    //
+    // Archiving is a stamp rather than a boolean so the shelf can say when a list was put away, and
+    // nullable because every list that was never archived is an honest absence rather than a date.
+    // The lists endpoint reads it as the difference between the working page and the archive, and
+    // every account-wide count leaves a stamped list's tasks out. One column, one version.
+    version: 137,
+    skipIfColumnExists: { table: 'todos_lists', column: 'archived_at' },
+    statements: [
+      `ALTER TABLE todos_lists ADD COLUMN archived_at INTEGER`,
+    ],
+  },
+  {
+    // The one container a list may sit under.
+    //
+    // Grouping is deliberately one level: the organizer page draws a list inside its parent and a
+    // parent inside nothing, so the column names a root and a route refuses a parent that is itself a
+    // child. Nullable because most lists are roots, and no foreign key because deleting a container
+    // must not delete its lists — the app lifts its children to the top level instead. One column,
+    // one version.
+    version: 138,
+    skipIfColumnExists: { table: 'todos_lists', column: 'parent_id' },
+    statements: [
+      `ALTER TABLE todos_lists ADD COLUMN parent_id TEXT`,
+    ],
+  },
+  {
+    // When a task was moved to the trash, or null while it is live.
+    //
+    // Deleting a task is now a stamp rather than a row removal, so an accidental delete can be taken
+    // back with the row's steps, tags and reminders intact. Nullable because a task that was never
+    // deleted has no deletion day — an honest absence rather than a sentinel. Every task read names
+    // `deleted_at IS NULL` through the predicate in `assistant/store.ts`, and the stamp is what the
+    // trash list and the 30-day sweep read instead. The index pairs the account with the stamp: the
+    // sweep asks for every account's expired rows at once, and the trash page reads one account's
+    // newest first, so the account has to lead. One column and its index, one version.
+    version: 139,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'deleted_at' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN deleted_at INTEGER`,
+      `CREATE INDEX IF NOT EXISTS idx_todos_tasks_trash
+     ON todos_tasks(user_id, deleted_at)`,
+    ],
+  },
+  {
+    // When a task may be begun, or null when the reader named no start.
+    //
+    // A start date is not a second due date: it marks the day the row becomes work, while the due
+    // date says when it is owed. Nullable because most tasks are work from the moment they are filed,
+    // and an absent start is an honest absence rather than a sentinel. The plan view falls back to the
+    // due date when it is absent. One column, one version.
+    version: 140,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'start_at' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN start_at INTEGER`,
+    ],
+  },
+  {
+    // The account switch behind `todos:read`.
+    //
+    // A key that names the to-do scope could read tasks with no account switch to stop it, while the
+    // note family and the to-do writes both answered to one. The column defaults to 1 rather than 0:
+    // every account whose keys already read tasks was allowed to, and a switch that arrives off would
+    // revoke that silently on the boot that added it. One column, one version.
+    version: 141,
+    skipIfColumnExists: { table: 'mcp_preferences', column: 'todo_read_enabled' },
+    statements: [
+      `ALTER TABLE mcp_preferences ADD COLUMN todo_read_enabled INTEGER NOT NULL DEFAULT 1`,
+    ],
+  },
+  {
+    // Where a task sits in the reader's own order, or null while nobody has placed it.
+    //
+    // The to-do list has only ever been read in an order the app computed — due date first — and the
+    // drag and the phone's move menu need the reader's own answer stored somewhere. REAL rather than
+    // INTEGER because a row lands between two neighbours by folding their midpoint: an integer would
+    // run out of room after one drop into the same gap. Nullable with no default because a task
+    // nobody placed is an honest absence, and every read keeps its old order until the first move.
+    // The index leads with the account and the list, which is the scope a move and a listing read,
+    // so a manual order is an ordered range rather than a sort of the whole shelf. One column and its
+    // index, one version.
+    version: 142,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'position' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN position REAL`,
+      `CREATE INDEX IF NOT EXISTS idx_todos_tasks_position
+     ON todos_tasks(user_id, list_id, position)`,
+    ],
+  },
+  {
+    // The task's own icon, or null while it wears its list's.
+    //
+    // A list has carried one since lists existed, and a task that names none reads the list's — the
+    // fallback the inbox gets today. Nullable with no default because "the reader placed nothing here"
+    // and "the reader kept the list's" are different rows, and only one of them is an absence. The
+    // colour below arrives in its own version because the migration ledger counts one column per
+    // version: they reach the reader as one feature but travel one migration at a time. A fresh
+    // database already carries both from the table declaration, so the guard is the icon column
+    // alone; a database that somehow holds one and not the other is completed from that declaration
+    // by `repairMissingColumns`.
+    version: 143,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'icon' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN icon TEXT`,
+    ],
+  },
+  {
+    // The task's own colour, or null while it wears its list's.
+    //
+    // The second half of the face the icon started: an icon with no colour is half a look, and the
+    // editor that sets one sets both. Its own version rather than a second statement above because
+    // the migration ledger counts one new column per version — one feature, two migrations. The
+    // guard is the colour column because a database that ran 143 already carries the icon, and a
+    // fresh database carries both from the table declaration; only a database skipped by 126 needs
+    // this one, and `repairMissingColumns` closes the gap if it ever holds the icon without the
+    // colour.
+    version: 144,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'color' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN color TEXT`,    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -1976,7 +2237,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   totp_credentials: ['user_id', 'secret_ciphertext', 'enabled_at', 'pending_token_hash', 'pending_session_id', 'pending_expires_at', 'recovery_generation', 'last_used_step', 'last_used_by', 'created_at', 'updated_at'],
   totp_recovery_codes: ['user_id', 'code_hash', 'generation', 'created_at', 'used_at', 'used_by'],
   totp_login_challenges: ['id', 'user_id', 'expires_at', 'claimed_by', 'created_at'],
-  mcp_preferences: ['user_id', 'write_enabled', 'trash_enabled', 'disabled_tools', 'updated_at'],
+  mcp_preferences: ['user_id', 'write_enabled', 'trash_enabled', 'todo_read_enabled', 'disabled_tools', 'updated_at'],
   mcp_operations: ['user_id', 'operation_id', 'tool', 'request_hash', 'response_json', 'created_at'],
   mcp_api_keys: ['id', 'user_id', 'name', 'key_hash', 'scopes', 'created_at', 'last_used_at', 'revoked_at'],
   ai_note_embeddings: ['user_id', 'note_id', 'model', 'vector', 'indexed_at', 'norm'],
@@ -1990,6 +2251,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   rss_mark: ['user_id', 'kind', 'entry_id', 'value', 'at'],
   rss_state: ['user_id', 'last_channel', 'saved_at'],
   ...ASSISTANT_REQUIRED_COLUMNS,
+  ...TODOS_REQUIRED_COLUMNS,
   ...SUBSCRIPTIONS_REQUIRED_COLUMNS,
 } as const
 
@@ -2040,6 +2302,7 @@ export const REQUIRED_TABLES = [
   'rss_mark',
   'rss_state',
   ...ASSISTANT_REQUIRED_TABLES,
+  ...TODOS_REQUIRED_TABLES,
   ...SUBSCRIPTIONS_REQUIRED_TABLES,
 ] as const
 
@@ -2101,6 +2364,7 @@ export const REQUIRED_INDEXES = [
   'idx_rss_feed_shelf',
   'idx_rss_mark_recent',
   ...ASSISTANT_REQUIRED_INDEXES,
+  ...TODOS_REQUIRED_INDEXES,
   ...SUBSCRIPTIONS_REQUIRED_INDEXES,
 ] as const
 
@@ -2157,6 +2421,10 @@ async function createSchema(db: D1Database): Promise<DatabaseState> {
   }
   await applyMigrations(db)
   await repairReaderBookTenantKey(db)
+  await migrateTaskTable(db)
+  await migrateTodoDayColumns(db)
+  await migrateTaskReminders(db)
+  await migrateTaskEvents(db)
   if (initialized) {
     await runStatements(db, INDEX_SCHEMA_STATEMENTS)
   }
@@ -2234,6 +2502,286 @@ async function repairReaderBookTenantKey(db: D1Database): Promise<void> {
     db.prepare(READER_BOOK_INDEX),
   ])
   console.warn('[inkstone] Schema repair: rebuilt reader_books on a per-account primary key')
+}
+
+/**
+ * Moves an older database's tasks into the table the to-do app owns.
+ *
+ * The task list began as `chat_tasks` inside the assistant schema. Renaming it is not a migration:
+ * a migration would have to be written against a table name that either exists or does not, and the
+ * ledger cannot express "only when the old table is still here". A repair step can — and, more
+ * importantly, it can refuse to drop anything until every row has landed in the new table. A copy
+ * that silently lost a row would be worse than a boot that stops and says so.
+ */
+async function migrateTaskTable(db: D1Database): Promise<void> {
+  const legacy = await db
+    .prepare(`SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'chat_tasks'`)
+    .first<{ present: number }>()
+  if (!legacy) return
+  const columns = 'user_id, id, title, description, status, priority, due_at, project_id, created_at, updated_at, completed_at'
+  const before = await db.prepare(`SELECT COUNT(*) AS n FROM chat_tasks`).first<{ n: number }>()
+  await db
+    .prepare(`INSERT OR IGNORE INTO todos_tasks (${columns}) SELECT ${columns} FROM chat_tasks`)
+    .run()
+  const after = await db.prepare(`SELECT COUNT(*) AS n FROM todos_tasks`).first<{ n: number }>()
+  const copied = after?.n ?? 0
+  const original = before?.n ?? 0
+  if (copied < original) {
+    throw new Error(
+      `The task table could not be moved: ${copied} of ${original} rows reached todos_tasks. ` +
+      'chat_tasks has been left untouched, so no task was lost; the boot stops here rather than dropping it.',
+    )
+  }
+  await db.prepare(`DROP TABLE chat_tasks`).run()
+  console.warn('[inkstone] Schema repair: moved chat_tasks into todos_tasks')
+}
+
+/**
+ * Files every task that predates the day columns under its account's calendar day.
+ *
+ * `created_on` / `completed_on` (versions 131 and 132) hold the day the reader wrote or finished a
+ * task, because a day derived at query time drifts across DST and files work under the wrong date.
+ * Rows that existed before the columns did have no day, so this one-shot repair computes one from
+ * `created_at` / `completed_at` in the account's stored zone — the same `chat_settings` value every
+ * due date and every "today" is already read in — falling back to UTC when the row or the zone is
+ * missing or unrecognised. `isValidTimeZone` is the check rather than a hand-written parser.
+ *
+ * Two properties make it safe to run on every boot:
+ *  - it only fills columns that are NULL (`COALESCE`), so a reader who changes zones later never has
+ *    yesterday's task re-filed, and a second boot has nothing left to do;
+ *  - every day is computed before the first write, and the filled counts are compared with what was
+ *    missing afterwards. A row that cannot be dated, or a write that did not land, stops the boot
+ *    with the reason instead of leaving a table whose statistics would silently undercount.
+ */
+async function migrateTodoDayColumns(db: D1Database): Promise<void> {
+  const before = await todoDayCounts(db)
+  if (!before.createdMissing && !before.completedMissing) return
+
+  const { results: accounts } = await db.prepare(
+    `SELECT DISTINCT user_id FROM todos_tasks
+      WHERE created_on IS NULL OR (completed_on IS NULL AND completed_at IS NOT NULL)`,
+  ).all<{ user_id: string }>()
+
+  // Computed first, written afterwards: a row whose timestamp is not a date has to stop the boot
+  // before any account's days have landed, or the table would be half filled.
+  const updates: D1PreparedStatement[] = []
+  for (const account of accounts ?? []) {
+    const zone = await accountTimeZone(db, account.user_id)
+    const { results: rows } = await db.prepare(
+      `SELECT id, created_at, completed_at FROM todos_tasks
+        WHERE user_id = ?1 AND (created_on IS NULL OR (completed_on IS NULL AND completed_at IS NOT NULL))`,
+    ).bind(account.user_id).all<{ id: string; created_at: number; completed_at: number | null }>()
+    for (const row of rows ?? []) {
+      let createdOn: string
+      let completedOn: string | null
+      try {
+        createdOn = todoDayColumn(row.created_at, zone)
+        completedOn = row.completed_at === null ? null : todoDayColumn(row.completed_at, zone)
+      } catch (cause) {
+        throw new Error(
+          `The task day columns could not be filled: task ${row.id} of account ${account.user_id} ` +
+          `has a timestamp that is not a date (${String(row.created_at)} / ${String(row.completed_at)}). ` +
+          'No day was written, and the boot stops here rather than leaving a half-filled table.',
+          { cause },
+        )
+      }
+      updates.push(db.prepare(
+        `UPDATE todos_tasks SET created_on = COALESCE(created_on, ?3), completed_on = COALESCE(completed_on, ?4)
+          WHERE user_id = ?1 AND id = ?2`,
+      ).bind(account.user_id, row.id, createdOn, completedOn))
+    }
+  }
+
+  for (const group of chunkStatements(updates, SCHEMA_BATCH_STATEMENTS)) await db.batch(group)
+
+  const after = await todoDayCounts(db)
+  const createdFilled = after.createdFilled - before.createdFilled
+  const completedFilled = after.completedFilled - before.completedFilled
+  if (createdFilled !== before.createdMissing || completedFilled !== before.completedMissing) {
+    throw new Error(
+      `The task day columns could not be filled: ${createdFilled} of ${before.createdMissing} created ` +
+      `days and ${completedFilled} of ${before.completedMissing} completed days landed. The columns are ` +
+      'left as they are, and the boot stops here rather than serving statistics that would undercount.',
+    )
+  }
+  console.warn(
+    `[inkstone] Schema repair: filed ${createdFilled} created and ${completedFilled} completed task day(s)`,
+  )
+}
+
+/** The day counts the backfill compares before and after its writes: what is missing and what is filled. */
+async function todoDayCounts(db: D1Database): Promise<{
+  createdMissing: number
+  createdFilled: number
+  completedMissing: number
+  completedFilled: number
+}> {
+  const row = await db.prepare(
+    `SELECT
+       COALESCE(SUM(CASE WHEN created_on IS NULL THEN 1 ELSE 0 END), 0) AS created_missing,
+       COALESCE(SUM(CASE WHEN created_on IS NOT NULL THEN 1 ELSE 0 END), 0) AS created_filled,
+       COALESCE(SUM(CASE WHEN completed_on IS NULL AND completed_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS completed_missing,
+       COALESCE(SUM(CASE WHEN completed_on IS NOT NULL THEN 1 ELSE 0 END), 0) AS completed_filled
+     FROM todos_tasks`,
+  ).first<{
+    created_missing: number
+    created_filled: number
+    completed_missing: number
+    completed_filled: number
+  }>()
+  return {
+    createdMissing: Number(row?.created_missing ?? 0),
+    createdFilled: Number(row?.created_filled ?? 0),
+    completedMissing: Number(row?.completed_missing ?? 0),
+    completedFilled: Number(row?.completed_filled ?? 0),
+  }
+}
+
+/**
+ * Moves the old single reminder into `todos_reminders`.
+ *
+ * `todos_tasks.remind_at` / `reminded_at` held one instant and its delivery fact. The table is now the
+ * only place a reminder lives, so a database that predates it has to hand its rows over exactly once:
+ * each `remind_at` becomes a row, and a non-null `reminded_at` becomes its `fired_at` — a reminder the
+ * reader was already told about must not be announced a second time by a deployment upgrade.
+ *
+ * Three properties make it safe to run on every boot:
+ *  - it only looks at rows whose `remind_at` is not null, and the same batch clears that column, so a
+ *    converged database pays one count and nothing else;
+ *  - the insert and the clear are one `db.batch`, which D1 runs as a transaction: a failure (a locked
+ *    table, a trigger, a restored backup with a conflicting id) leaves the old columns exactly as they
+ *    were, so no reminder is lost and the next boot tries again;
+ *  - the counts the batch answers with are compared with what was asked for. A mismatch stops the boot
+ *    with the numbers instead of serving a database whose reminders quietly differ from its tasks.
+ *
+ * The ids are `lower(hex(randomblob(13)))`: 26 hex characters, which is exactly the shape `isValidId`
+ * accepts and the alphabet `newId()` draws from — minted in SQL because the rows are copied in one
+ * statement rather than read into memory and written back one at a time.
+ */
+async function migrateTaskReminders(db: D1Database): Promise<void> {
+  const legacy = await db.prepare(
+    `SELECT COUNT(*) AS n FROM todos_tasks WHERE remind_at IS NOT NULL`,
+  ).first<{ n: number | null }>()
+  const expected = Number(legacy?.n ?? 0)
+  if (!expected) return
+
+  const results = await db.batch([
+    db.prepare(
+      `INSERT INTO todos_reminders (user_id, id, task_id, remind_at, fired_at, created_at)
+       SELECT user_id, lower(hex(randomblob(13))), id, remind_at, reminded_at, created_at
+         FROM todos_tasks WHERE remind_at IS NOT NULL`,
+    ),
+    db.prepare(
+      `UPDATE todos_tasks SET remind_at = NULL, reminded_at = NULL WHERE remind_at IS NOT NULL`,
+    ),
+  ])
+  const inserted = Number(results[0]?.meta?.changes ?? 0)
+  const cleared = Number(results[1]?.meta?.changes ?? 0)
+  if (inserted !== expected || cleared !== expected) {
+    throw new Error(
+      `The single task reminders could not be moved: ${inserted} of ${expected} rows reached ` +
+      `todos_reminders and ${cleared} were cleared. The move is one transaction, so the old columns are ` +
+      'either untouched or fully handed over; the boot stops here rather than serving reminders that ' +
+      'disagree with their tasks.',
+    )
+  }
+  console.warn(`[inkstone] Schema repair: moved ${inserted} single task reminder(s) into todos_reminders`)
+}
+
+/**
+ * Seeds an older database's task history from the rows it already holds.
+ *
+ * `todos_task_events` records every status change from the day the table existed; a database that
+ * predates it holds tasks with no history at all, and the cumulative flow would open on an empty
+ * range. Two kinds of row can still be told from the task table alone, and both are filed here: a
+ * `born` for every task (at `created_at`, under `created_on`) and a completion for every task that
+ * is done now (at `completed_at`, under `completed_on`). The day columns already carry the
+ * account's zone, so no row is dated a second time. What cannot be told is left alone: a task
+ * that was started and reopened before this table existed moved through states nothing recorded,
+ * so a completion's `from_status` is the documented approximation `'todo'`, and the flow's
+ * `trackedSince` line marks where the real record begins. A birth is always filed as `'todo'` for
+ * the same reason: a task born and finished long ago has no start event to replay, and filing its
+ * birth under `done` would add it to the finished band a second time when the completion beside it
+ * is replayed.
+ *
+ * Three properties make it safe to run on every boot, the ones `migrateTaskReminders` set:
+ *  - each insert only fills the rows its `NOT EXISTS` guard says are missing, so a converged
+ *    database pays two counts and nothing else, and a second boot has nothing left to write;
+ *  - the two inserts are one `db.batch`, which D1 runs as a transaction: a failure (a locked
+ *    table, a restored backup with a conflicting id) leaves the events exactly as they were, so no
+ *    history is lost and the next boot tries again;
+ *  - the rows the batch answers with are compared with what was missing. A mismatch stops the boot
+ *    with the numbers instead of serving a flow that quietly disagrees with its tasks.
+ *
+ * The ids are `lower(hex(randomblob(13)))` for the reason the reminder move gives: 26 hex
+ * characters, the shape `isValidId` accepts, minted in SQL because the rows are copied in one
+ * statement rather than read into memory and written back one at a time.
+ */
+async function migrateTaskEvents(db: D1Database): Promise<void> {
+  const gaps = await taskEventGaps(db)
+  if (!gaps.born && !gaps.done) return
+
+  const results = await db.batch([
+    db.prepare(
+      `INSERT INTO todos_task_events (id, user_id, task_id, at, on_day, kind, from_status, to_status)
+       SELECT lower(hex(randomblob(13))), user_id, id, created_at, created_on, 'born', NULL, 'todo'
+         FROM todos_tasks t
+        WHERE NOT EXISTS (SELECT 1 FROM todos_task_events e WHERE e.task_id = t.id AND e.kind = 'born')`,
+    ),
+    db.prepare(
+      `INSERT INTO todos_task_events (id, user_id, task_id, at, on_day, kind, from_status, to_status)
+       SELECT lower(hex(randomblob(13))), user_id, id, completed_at, completed_on, 'status', 'todo', 'done'
+         FROM todos_tasks t
+        WHERE t.completed_at IS NOT NULL AND t.status = 'done'
+          AND NOT EXISTS (SELECT 1 FROM todos_task_events e
+                           WHERE e.task_id = t.id AND e.kind = 'status' AND e.at = t.completed_at
+                             AND e.to_status = 'done')`,
+    ),
+  ])
+  const bornFilled = Number(results[0]?.meta?.changes ?? 0)
+  const doneFilled = Number(results[1]?.meta?.changes ?? 0)
+  if (bornFilled !== gaps.born || doneFilled !== gaps.done) {
+    throw new Error(
+      `The task history could not be backfilled: ${bornFilled} of ${gaps.born} born event(s) and ` +
+      `${doneFilled} of ${gaps.done} completion event(s) landed. The two inserts are one transaction, ` +
+      'so the events are either untouched or fully written; the boot stops here rather than serving a ' +
+      'cumulative flow that disagrees with its tasks.',
+    )
+  }
+  console.warn(
+    `[inkstone] Schema repair: backfilled ${bornFilled} born and ${doneFilled} completion task event(s)`,
+  )
+}
+
+/** The rows the backfill still owes, counted under the same guards its two inserts carry. */
+async function taskEventGaps(db: D1Database): Promise<{ born: number; done: number }> {
+  const row = await db.prepare(
+    `SELECT
+       (SELECT COUNT(*) FROM todos_tasks t
+          WHERE NOT EXISTS (SELECT 1 FROM todos_task_events e WHERE e.task_id = t.id AND e.kind = 'born')) AS born,
+       (SELECT COUNT(*) FROM todos_tasks t
+          WHERE t.completed_at IS NOT NULL AND t.status = 'done'
+            AND NOT EXISTS (SELECT 1 FROM todos_task_events e
+                             WHERE e.task_id = t.id AND e.kind = 'status' AND e.at = t.completed_at
+                               AND e.to_status = 'done')) AS done`,
+  ).first<{ born: number | null; done: number | null }>()
+  return { born: Number(row?.born ?? 0), done: Number(row?.done ?? 0) }
+}
+
+/** The account's scheduling zone: the one `getSettings()` reads, or UTC when absent or unrecognised. */
+async function accountTimeZone(db: D1Database, userId: string): Promise<string> {
+  const row = await db.prepare(`SELECT config FROM chat_settings WHERE user_id = ?1`)
+    .bind(userId).first<{ config: string }>()
+  const stored = storedObject(row?.config ?? '{}').timezone
+  return typeof stored === 'string' && isValidTimeZone(stored) ? stored : 'UTC'
+}
+
+/** A stored instant as the account's `YYYY-MM-DD`, refusing text or an out-of-range number. */
+function todoDayColumn(instant: number, zone: string): string {
+  if (typeof instant !== 'number' || !Number.isFinite(instant) || Number.isNaN(new Date(instant).getTime())) {
+    throw new TypeError(`${String(instant)} is not a millisecond timestamp`)
+  }
+  return localDate(instant, zone)
 }
 
 async function applyMigrations(db: D1Database): Promise<void> {

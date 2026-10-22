@@ -2,7 +2,7 @@ import { backupRunsResource, backupTargetsResource, mcpResource, sharesResource,
 import { useSession } from '../../store/session'
 import type { MessageKey } from '../../lib/i18n'
 
-export type SettingsSection = 'appearance' | 'editor' | 'properties' | 'notes' | 'search' | 'backup' | 'sync' | 'mcp' | 'account' | 'data' | 'shares' | 'automation' | 'queries' | 'tasks' | 'linter' | 'excalidraw' | 'mindmap' | 'reading' | 'rss' | 'about'
+export type SettingsSection = 'appearance' | 'editor' | 'properties' | 'notes' | 'search' | 'backup' | 'sync' | 'mcp' | 'account' | 'data' | 'shares' | 'automation' | 'queries' | 'tasks' | 'linter' | 'excalidraw' | 'mindmap' | 'reading' | 'rss' | 'todo' | 'about'
 
 export const SECTION_LABEL_KEYS: Record<SettingsSection, MessageKey> = {
   rss: 'settings.rss',
@@ -21,6 +21,7 @@ export const SECTION_LABEL_KEYS: Record<SettingsSection, MessageKey> = {
   excalidraw: 'settings.excalidraw',
   mindmap: 'settings.mindmap_title',
   reading: 'settings.reading_title',
+  todo: 'todo.title',
   account: 'settings.account',
   data: 'settings.data',
   shares: 'share.shared_notes',
@@ -46,6 +47,7 @@ export const settingsLoaders = {
   excalidraw: () => import('./ExcalidrawSettings').then((m) => ({ default: m.ExcalidrawSettings })),
   mindmap: () => import('./MindmapSettings').then((m) => ({ default: m.MindmapSettings })),
   reading: () => import('./ReaderSettings').then((m) => ({ default: m.ReaderSettings })),
+  todo: () => import('./TodoSettings').then((m) => ({ default: m.TodoSettings })),
   about: () => import('./AboutSettings').then((m) => ({ default: m.AboutSettings })),
 }
 

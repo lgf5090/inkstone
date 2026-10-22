@@ -223,6 +223,61 @@ describe('the docked assistant', () => {
     expect(link, 'the dock drew the answer with nothing saying where it came from').toBeTruthy()
     expect(link!.textContent).toContain('A page')
   })
+
+  it('carries the to-do screen and turns the note context off', async () => {
+    await show({
+      loaded: true,
+      activeId: null,
+      messages: [],
+      messagesReady: true,
+      todoContextOn: true,
+      todoContext: {
+        view: 'list',
+        listId: 'L1',
+        listName: 'Work',
+        tagName: null,
+        taskId: null,
+        taskTitle: null,
+        query: '',
+        dueFrom: null,
+        dueTo: null,
+        tasks: [],
+      },
+    }, { surface: 'todos' })
+    expect(useAssistant.getState().dockSurface).toBe('todos')
+    expect(useAssistant.getState().noteContextOn).toBe(false)
+    expect(useAssistant.getState().folderContextOn).toBe(false)
+    expect(document.body.textContent).toContain(t('assistant.dock.hint_todo'))
+    expect(document.body.textContent).toContain('Work')
+  })
+
+  it('lets the reader take the to-do screen off the next turn', async () => {
+    await show({
+      loaded: true,
+      activeId: null,
+      messages: [],
+      messagesReady: true,
+      todoContextOn: true,
+      todoContext: {
+        view: 'board',
+        listId: null,
+        listName: null,
+        tagName: null,
+        taskId: null,
+        taskTitle: null,
+        query: '',
+        dueFrom: null,
+        dueTo: null,
+        tasks: [],
+      },
+    }, { surface: 'todos' })
+    const remove = [...document.body.querySelectorAll('button')]
+      .find((node) => node.getAttribute('aria-label') === t('assistant.context.remove', { name: t('todo.view.board') }))
+    expect(remove, 'the screen the reader cannot see is one they cannot remove').toBeTruthy()
+    act(() => { remove!.click() })
+    expect(useAssistant.getState().todoContextOn).toBe(false)
+    expect(document.body.textContent).not.toContain(t('todo.view.board'))
+  })
 })
 
 /**

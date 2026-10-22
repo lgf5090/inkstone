@@ -20,6 +20,8 @@ import { hasHistoricalIntent, memoryTokenBudget } from '@shared/assistant-memory
 import { ATTACHMENT_MARKER, expandChatAttachments, type AttachmentPayload } from './attachments'
 import { resolveNoteMentions } from './note-mentions'
 import { resolveSubscriptionMentions, subscriptionContextById } from './subscription-mentions'
+import { renderTodoContext } from './todo-context'
+import type { TodoAssistantContext } from '@shared/todos/assistant-context'
 import { loadExternalTools, type ExternalToolsResult } from './mcp-tools'
 import { buildSystemPrompt, namingPrompt, offlineAnswer, promptCatalog, summarizerPrompt } from '@shared/assistant-prompt'
 import { describeLocalTime, localDayBounds } from '@shared/assistant-time'
@@ -221,6 +223,7 @@ export interface TurnInput {
    * caller cannot point the model at another thread's draft.
    */
   activeArtifactId?: string
+  contextTodo?: TodoAssistantContext
   /**
    * The note this thread began beside.
    *
@@ -373,6 +376,7 @@ export class AssistantRunner {
   private contextNoteId: string | null = null
   private contextFolderId: string | null = null
   private contextSubscriptionId: string | null = null
+  private contextTodo: TodoAssistantContext | null = null
   private contextPromise: Promise<{ openNote: { id: string, title: string } | null, browsingFolder: string | null }> | null = null
   /** The draft the reader has open, read once after the conversation it must belong to is known. */
   private contextArtifactId: string | null = null
@@ -452,6 +456,7 @@ export class AssistantRunner {
     // once the turn knows which conversation that is — including one this turn is about to create.
     this.contextArtifactId = isValidId(input.activeArtifactId ?? '') ? input.activeArtifactId! : null
     this.contextArtifact = null
+    this.contextTodo = input.contextTodo ?? null
     let conversation = input.conversationId ? await this.store.getConversation(input.conversationId) : null
     // The project comes from the row that was just read, so a conversation moved between projects is
     // answered under the one it is in now.
@@ -1636,7 +1641,8 @@ export class AssistantRunner {
       const screen = this.contextSubscriptionId
         ? await subscriptionContextById(this.deps.env.DB, this.store.userId, this.contextSubscriptionId)
         : ''
-      const carried = [block, subscriptionBlock, screen].filter(Boolean).join('\n\n')
+      const todo = this.contextTodo ? renderTodoContext(this.contextTodo) : ''
+      const carried = [block, subscriptionBlock, screen, todo].filter(Boolean).join('\n\n')
       if (carried) lastUser.content = `${lastUser.content}\n\n${carried}`
     }
     return entries

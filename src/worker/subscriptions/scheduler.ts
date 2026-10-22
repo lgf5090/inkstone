@@ -1,12 +1,12 @@
 /**
  * The hourly sweep: who is due, who has already been told, and what actually went out.
  *
- * It runs on every cron fire rather than once an hour, because this deployment fires at :00, :15 and
- * :45 and a reminder that waits for the next hour is a reminder that arrives up to forty-five minutes
- * late. Repeating the sweep is safe for one reason only: a delivery is recorded against the reader's own
- * local hour before it is sent, so the second and third fires of an hour find it already claimed and do
- * nothing. That claim is also what gives an "every N hours after expiry" rule its interval — the last
- * claim is the last delivery, and a rule that asked for twelve hours is not due after one.
+ * It runs on every cron fire rather than once an hour, because the deployment fires every minute and a
+ * reminder that waits for the next hour is a reminder that arrives up to fifty-nine minutes late.
+ * Repeating the sweep is safe for one reason only: a delivery is recorded against the reader's own
+ * local hour before it is sent, so the fires that follow find it already claimed and do nothing. That
+ * claim is also what gives an "every N hours after expiry" rule its interval — the last claim is the last
+ * delivery, and a rule that asked for twelve hours is not due after one.
  *
  * Each account is swept inside its own try, so one broken configuration cannot stop the others, and the
  * per-account log row is written even when the sweep throws: a reader whose reminders stopped needs to

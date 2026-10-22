@@ -30,6 +30,11 @@ import { readerLibraryRoutes } from './routes/reader-library'
 import { readerDiscoveryRoutes } from './routes/reader-discovery'
 import { rssRoutes } from './routes/rss'
 import { subscriptionRoutes } from './routes/subscriptions'
+import { todoRoutes } from './routes/todos'
+import { todoMailRoutes } from './routes/todo-mail'
+import { todoAttachmentRoutes } from './routes/todo-attachments'
+import { todoImportRoutes } from './routes/todo-import'
+import { todoFeedRoutes } from './routes/todo-feeds'
 import { subscriptionInboundRoutes } from './routes/subscriptions-inbound'
 import { INBOUND_HOOK_PATH } from '@shared/subscriptions/channels'
 import type { AppBindings } from './env'
@@ -64,6 +69,10 @@ export function createApp() {
     await next()
   })
   app.use('/s/*', async (c, next) => {
+    c.set('database', await initializeDatabase(c.env))
+    await next()
+  })
+  app.use('/feeds/*', async (c, next) => {
     c.set('database', await initializeDatabase(c.env))
     await next()
   })
@@ -111,6 +120,15 @@ export function createApp() {
   app.route('/api/update', updateRoutes)
   app.route('/api/mcp', mcpSettingsRoutes)
   app.route('/api/ai', aiProxyRoutes)
+  // Before `/api/todos`: Hono matches in registration order and that router owns `/:id`, so the
+  // import path has to be claimed first or it would read as the id of a task called "import".
+  app.route('/api/todos/import', todoImportRoutes)
+  // The mail address is the same shape of collision: "mail-token" must be a route, not a task id.
+  app.route('/api/todos/mail-token', todoMailRoutes)
+  // The attachment surface names a task too, so it is claimed before the task router as well; its
+  // paths carry the extra `/attachments` segment, which the task router would never match.
+  app.route('/api/todos', todoAttachmentRoutes)
+  app.route('/api/todos', todoRoutes)
   app.route('/api/assistant', assistantRoutes)
   app.route('/api/excalidraw/ai', aiProxyRoutes)
   app.route('/api/excalidraw/library', excalidrawLibraryRoutes)
@@ -131,6 +149,7 @@ export function createApp() {
 
   app.route('/s', sharePageRoutes)
   app.route('/c', conversationSharePageRoutes)
+  app.route('/feeds', todoFeedRoutes)
   app.route('/', mcpAuthorizeRoutes)
 
 

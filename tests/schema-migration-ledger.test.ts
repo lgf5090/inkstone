@@ -75,3 +75,95 @@ describe('the migration ledger spends each version number once', () => {
     expect(overSpentVersions(fixed)).toEqual([])
   })
 })
+
+/**
+ * The two sort orders added after the list shipped — `sort=created` and `sort=completed` — each read a
+ * column no index led with, so every page of a long-lived account sorted its whole table. One number per
+ * index, as everywhere else: reusing a number would collapse the ledger row and hide the second index
+ * from every boot after the first.
+ */
+describe('the task sort indexes spend a number each', () => {
+  function statementsAt(version: number): string[] {
+    return SCHEMA_MIGRATIONS
+      .filter((migration) => migration.version === version)
+      .flatMap((migration) => migration.statements)
+  }
+
+  it('gives the created and completed orders one index apiece', () => {
+    expect(statementsAt(129)).toEqual([
+      expect.stringMatching(/CREATE INDEX IF NOT EXISTS idx_todos_tasks_created\s+ON todos_tasks\(user_id, created_at\)/),
+    ])
+    expect(statementsAt(130)).toEqual([
+      expect.stringMatching(/CREATE INDEX IF NOT EXISTS idx_todos_tasks_completed\s+ON todos_tasks\(user_id, completed_at\)/),
+    ])
+  })
+})
+
+/**
+ * The statistics' two day columns and the index they group by.
+ *
+ * The columns store the reader's calendar day rather than a UTC date derived at query time, and each
+ * one arrives under its own number so a ledger that already spent one cannot hide the other. The
+ * index reads `completed_on`, so it has to be numbered after both columns exist.
+ */
+describe('the task day columns spend a number each', () => {
+  function migrationAt(version: number) {
+    return SCHEMA_MIGRATIONS.find((migration) => migration.version === version)
+  }
+
+  it('adds one column per version, guarded so a fresh install can replay them', () => {
+    expect(migrationAt(131)).toMatchObject({
+      skipIfColumnExists: { table: 'todos_tasks', column: 'completed_on' },
+      statements: [`ALTER TABLE todos_tasks ADD COLUMN completed_on TEXT`],
+    })
+    expect(migrationAt(132)).toMatchObject({
+      skipIfColumnExists: { table: 'todos_tasks', column: 'created_on' },
+      statements: [`ALTER TABLE todos_tasks ADD COLUMN created_on TEXT`],
+    })
+  })
+
+  it('gives the completed day its own index under its own number', () => {
+    expect(migrationAt(133)?.statements).toEqual([
+      expect.stringMatching(/CREATE INDEX IF NOT EXISTS idx_todos_tasks_completed_on\s+ON todos_tasks\(user_id, completed_on\)/),
+    ])
+  })
+})
+
+/**
+ * The account switch that lets an MCP key read tasks at all.
+ *
+ * On by default: every key minted before the switch existed already carried `todos:read`, and turning
+ * the switch off by default would silently revoke what those readers were using. One column, one number,
+ * guarded so a fresh install replays nothing twice.
+ */
+describe('the to-do read switch', () => {
+  it('arrives on, under its own guarded number', () => {
+    expect(SCHEMA_MIGRATIONS.find((migration) => migration.version === 141)).toMatchObject({
+      skipIfColumnExists: { table: 'mcp_preferences', column: 'todo_read_enabled' },
+      statements: ['ALTER TABLE mcp_preferences ADD COLUMN todo_read_enabled INTEGER NOT NULL DEFAULT 1'],
+    })
+  })
+})
+
+/**
+ * The two organizer columns a list gained: the archive stamp and the parent pointer.
+ *
+ * Each arrives under its own number and carries its own guard, so a database whose ledger already
+ * spent one number still gets the other column, and a fresh install replays neither twice.
+ */
+describe('the list organizer columns spend a number each', () => {
+  function migrationAt(version: number) {
+    return SCHEMA_MIGRATIONS.find((entry) => entry.version === version)
+  }
+
+  it('adds the archive stamp and the parent pointer under their own numbers', () => {
+    expect(migrationAt(137)).toMatchObject({
+      skipIfColumnExists: { table: 'todos_lists', column: 'archived_at' },
+      statements: [`ALTER TABLE todos_lists ADD COLUMN archived_at INTEGER`],
+    })
+    expect(migrationAt(138)).toMatchObject({
+      skipIfColumnExists: { table: 'todos_lists', column: 'parent_id' },
+      statements: [`ALTER TABLE todos_lists ADD COLUMN parent_id TEXT`],
+    })
+  })
+})

@@ -38,11 +38,11 @@ import type {
   ChatStreamEvent,
   MemoryReview,
   Project,
-  Task as AssistantTask,
   ToolActivity,
   MessageFeedback,
 } from '@shared/assistant'
 import type { AssistantSkill } from '@shared/assistant'
+import type { TodoAssistantContext } from '@shared/todos/assistant-context'
 import { DEBOUNCE } from '@shared/constants'
 import { formatBytes } from '@shared/byte-format'
 import { MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_CHAT_ATTACHMENTS, AUDIO_SEND_MAX_BYTES, MAX_TURN_SCOPES, MAX_TURN_TOOLS, CONVERSATION_PAGE_SIZE, MESSAGE_PAGE_SIZE, attachmentModality, audioFormatFor, modelWire, protocolCarriesAudio, type AssistantModelModality, type AttachmentSense, type AssistantTurnScope, type ChatAttachment, type AssistantSkillInput, type SkillImportResult, type AssistantMcpToolMode } from '@shared/assistant'
@@ -253,7 +253,7 @@ interface AssistantState {
    * that has no note on it. The surface is therefore checked where the chips are drawn and where the turn
    * is sent, not only when the dock appears.
    */
-  dockSurface: 'notebook' | 'subscriptions'
+  dockSurface: 'notebook' | 'subscriptions' | 'todos'
   folderContextOn: boolean
   /**
    * Whether the draft open in the canvas rides along with the next turn.
@@ -263,11 +263,15 @@ interface AssistantState {
    * draft on screen without sending it to the model.
    */
   canvasContextOn: boolean
+  todoContext: TodoAssistantContext | null
+  todoContextOn: boolean
   setNoteContext: (on: boolean) => void
   setSubscriptionContext: (value: { id: string, name: string } | null) => void
-  setDockSurface: (surface: 'notebook' | 'subscriptions') => void
+  setDockSurface: (surface: 'notebook' | 'subscriptions' | 'todos') => void
   setFolderContext: (on: boolean) => void
   setCanvasContext: (on: boolean) => void
+  setTodoContext: (value: TodoAssistantContext | null) => void
+  setTodoContextOn: (on: boolean) => void
   /**
    * Text the composer has been asked to start from — a quote of a turn.
    *
@@ -363,8 +367,6 @@ interface AssistantState {
   memoryCategory: string
   reviews: MemoryReview[]
 
-  tasks: AssistantTask[]
-  taskTab: 'today' | 'upcoming' | 'completed'
   projects: Project[]
 
   automations: AssistantAutomation[]
@@ -631,12 +633,6 @@ interface AssistantState {
   removeMemory: (id: string) => Promise<void>
   resolveReview: (id: string, action: string) => Promise<void>
 
-  loadTasks: () => Promise<void>
-  setTaskTab: (tab: 'today' | 'upcoming' | 'completed') => void
-  addTask: (title: string) => Promise<void>
-  updateTask: (id: string, patch: Record<string, unknown>) => Promise<void>
-  toggleTask: (task: AssistantTask) => Promise<void>
-  removeTask: (id: string) => Promise<void>
   loadProjects: () => Promise<void>
   addProject: (name: string) => Promise<void>
   removeProject: (id: string) => Promise<void>
@@ -1432,6 +1428,8 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   dockSurface: 'notebook',
   folderContextOn: true,
   canvasContextOn: true,
+  todoContext: null,
+  todoContextOn: true,
   composerSeed: null,
   pending: [],
   skills: [],
@@ -1469,7 +1467,6 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   reviews: [],
 
   tasks: [],
-  taskTab: 'today',
   projects: [],
 
   automations: [],
@@ -2073,7 +2070,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     const focus = options?.focusMessageId ?? null
     // A muted chip is this thread's correction, not a setting: the next thread starts from the pointer.
     // The panel starts closed on every thread and shows no draft until that thread's own read lands.
-    set({ activeId: id, messages: [], messagesReady: false, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, noteContextOn: true, folderContextOn: true, canvasContextOn: true, artifacts: [], artifactsReady: false, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: false, messagesBefore: null, messagesHasMore: false, messagesLoadingMore: false, messagesHasNewer: false, focusMessageId: focus })
+    set({ activeId: id, messages: [], messagesReady: false, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, noteContextOn: true, folderContextOn: true, canvasContextOn: true, todoContextOn: true, artifacts: [], artifactsReady: false, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: false, messagesBefore: null, messagesHasMore: false, messagesLoadingMore: false, messagesHasNewer: false, focusMessageId: focus })
     if (!id) {
       set({ messagesReady: true, messagesError: null, artifactsReady: true })
       return
@@ -2160,7 +2157,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     // The pins go with the thread they were added to. They are "this turn's" by definition — the row the
     // composer draws is the record of what this question was asked about — so a new conversation that
     // inherited them would answer a question nobody asked, in a folder nobody named.
-    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, turn: null, noteContextOn: true, folderContextOn: true, canvasContextOn: true, artifacts: [], artifactsReady: true, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: false, turnTools: [], turnScopes: [] })
+    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, turn: null, noteContextOn: true, folderContextOn: true, canvasContextOn: true, todoContextOn: true, artifacts: [], artifactsReady: true, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: false, turnTools: [], turnScopes: [] })
   },
 
   /**
@@ -2173,7 +2170,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     const live = get().turn
     if (live && !live.done) return
     stopRemoteStreamWatch()
-    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, turn: null, noteContextOn: true, folderContextOn: true, canvasContextOn: true, artifacts: [], artifactsReady: true, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: true })
+    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, turn: null, noteContextOn: true, folderContextOn: true, canvasContextOn: true, todoContextOn: true, artifacts: [], artifactsReady: true, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: true })
   },
 
   attachFiles: async (files) => {
@@ -2385,7 +2382,8 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   setNoteContext: (on) => set({ noteContextOn: on }),
   setSubscriptionContext: (value) => set({ subscriptionContext: value }),
   setDockSurface: (surface) => set({ dockSurface: surface }),
-
+  setTodoContext: (value) => set({ todoContext: value }),
+  setTodoContextOn: (on) => set({ todoContextOn: on }),
   setFolderContext: (on) => set({ folderContextOn: on }),
 
   setCanvasContext: (on) => set({ canvasContextOn: on }),
@@ -2604,6 +2602,9 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
             // cannot see in the context row is one they cannot take back off the next question.
             ...(state.canvasOpen && state.canvasContextOn && state.activeArtifactId ? { activeArtifactId: state.activeArtifactId } : {}),
             ...(opts?.activeArtifactId ? { activeArtifactId: opts.activeArtifactId } : {}),
+            // The to-do chip is the same promise one app over: what the reader sees beside the dock is
+            // what the turn may read, and taking it off leaves the list on screen unsent.
+            ...(state.dockSurface === 'todos' && state.todoContextOn && state.todoContext ? { contextTodo: state.todoContext } : {}),
             // Where this thread began. The worker records it once and never re-labels the thread, so a
             // later turn asked beside another note leaves the origin alone.
             //
@@ -2611,7 +2612,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
             // open afterwards is not. `startChatAboutNote` pins exactly one note scope on a fresh thread,
             // so that chip is the record of the request, and the open page stays the fallback for a thread
             // begun beside a note without the command.
-            ...(originNoteId ? { noteId: originNoteId } : {}),
+            ...(state.dockSurface === 'notebook' && originNoteId ? { noteId: originNoteId } : {}),
           }),
           webSearch: state.webSearch,
           ...(opts?.modelId ? { modelId: opts.modelId } : {}),
@@ -2676,7 +2677,6 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   refreshAfterTurn: async () => {
     const state = get()
     if (state.view === 'memory') await state.loadMemories()
-    if (state.view === 'tasks') await state.loadTasks()
     if (state.view === 'automations') await state.loadAutomations()
   },
 
@@ -2886,7 +2886,6 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
           : current.turn,
       }))
       const view = get().view
-      if (view === 'tasks') await get().loadTasks()
       if (view === 'memory') await get().loadMemories()
       if (view === 'automations') await get().loadAutomations()
       if (view === 'skills') await get().loadSkills()
@@ -3012,54 +3011,6 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     }
   },
 
-  loadTasks: async () => {
-    try {
-      const result = await api.assistant.tasks({ limit: 500 })
-      set({ tasks: result.tasks })
-    } catch (error) {
-      toast(error)
-    }
-  },
-
-  setTaskTab: (tab) => set({ taskTab: tab }),
-
-  addTask: async (title) => {
-    try {
-      const today = get().taskTab === 'today'
-      await api.assistant.createTask({ title, ...(today ? { dueAt: endOfTodayLocal() } : {}) })
-      await get().loadTasks()
-    } catch (error) {
-      toast(error)
-    }
-  },
-
-  updateTask: async (id, patch) => {
-    try {
-      await api.assistant.updateTask(id, patch)
-      await get().loadTasks()
-    } catch (error) {
-      toast(error)
-    }
-  },
-
-  toggleTask: async (task) => {
-    try {
-      await api.assistant.updateTask(task.id, { status: task.status === 'done' ? 'todo' : 'done' })
-      await get().loadTasks()
-    } catch (error) {
-      toast(error)
-    }
-  },
-
-  removeTask: async (id) => {
-    try {
-      await api.assistant.deleteTask(id)
-      await get().loadTasks()
-    } catch (error) {
-      toast(error)
-    }
-  },
-
   loadProjects: async () => {
     try {
       const result = await api.assistant.projects()
@@ -3082,7 +3033,6 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     try {
       await api.assistant.deleteProject(id)
       await get().loadProjects()
-      await get().loadTasks()
     } catch (error) {
       toast(error)
     }
@@ -3341,18 +3291,6 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
 
 lastPersisted = persistedSlice(useAssistant.getState())
 useAssistant.subscribe(schedulePersist)
-
-/**
- * The reader's own end of today, as the server reads a due date.
- *
- * A quick-add from the Today tab means "by tonight"; sending a bare date would land at 23:59 in the
- * *server's* zone, which is a different day for a reader in Shanghai or São Paulo.
- */
-function endOfTodayLocal(): string {
-  const now = new Date()
-  const pad = (value: number) => String(value).padStart(2, '0')
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T23:59`
-}
 
 function describeMemoryWrite(result: { superseded: AssistantMemory[], reviews: number }): void {
   const parts = [t('assistant.toast.memory_saved')]

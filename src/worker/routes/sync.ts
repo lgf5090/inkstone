@@ -1,9 +1,10 @@
 import { Hono } from 'hono'
 import { LIMITS } from '@shared/constants'
-import type { SyncDeletion, SyncResponse } from '@shared/types'
+import type { SyncDeletion, SyncResponse, TodosSyncResponse } from '@shared/types'
 import type { AppBindings } from '../env'
 import { toFolder, toNoteSummary, toTag } from '../db/rows'
 import { ApiError } from '../lib/errors'
+import { broadcastCursor } from '../lib/notify'
 import { clampInt } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
 import { SyncStore } from '../sync/store'
@@ -24,6 +25,10 @@ syncRoutes.get('/', requireAuth, async (c) => {
 
 
   const needFull = since <= 0 || (lo > 0 && since < lo - 1)
+  // The task stream has its own clock (`updated_at`), so it is asked about separately and only on
+  // the delta branch: a full snapshot already carries the whole live task set.
+  const todosSince = clampInt(c.req.query('todosSince'), 0, Number.MAX_SAFE_INTEGER, 0)
+  const todoDelta = !needFull && !after && todosSince > 0 ? await store.todosDelta(todosSince) : null
   // A non-empty `after` key always means the caller is mid-way through a
   // full snapshot page chain; keep serving snapshot pages regardless of
   // `since`, so following the returned nextKey can never silently drop
@@ -55,6 +60,9 @@ syncRoutes.get('/', requireAuth, async (c) => {
       folders: [],
       tags: [],
       deletions: [],
+      ...(todoDelta
+        ? { todos: todoDelta.todos, todosDeleted: todoDelta.deleted, todosCursor: todoDelta.cursor }
+        : {}),
       serverTime: Date.now(),
     }
     return c.json(body)
@@ -125,8 +133,38 @@ syncRoutes.get('/', requireAuth, async (c) => {
     folders: folders.map(toFolder),
     tags: tags.map(toTag),
     deletions,
+    ...(todoDelta
+      ? { todos: todoDelta.todos, todosDeleted: todoDelta.deleted, todosCursor: todoDelta.cursor }
+      : {}),
     serverTime: Date.now(),
   }
+  return c.json(body)
+})
+
+/**
+ * The task delta on its own.
+ *
+ * Kept beside the note stream rather than inside its poll: a reader working on the board should not
+ * have to re-read the note library to see another device tick a task off. `since` is the newest
+ * `updated_at` the caller already has; `since=0` asks for the whole live set, which is the first
+ * sync after a fresh install. When the answer is not empty, the sync hub is woken with the note
+ * cursor so other devices pull this stream too.
+ */
+syncRoutes.get('/todos', requireAuth, async (c) => {
+  const userId = c.get('userId')
+  const store = new SyncStore(c.env.DB, userId)
+  const since = clampInt(c.req.query('since'), 0, Number.MAX_SAFE_INTEGER, 0)
+  const page = since > 0 ? await store.todosDelta(since) : await store.todosSnapshot()
+  if (page.todos.length || page.deleted.length) {
+    try {
+      await broadcastCursor(c)
+    } catch {
+      // A host without an ExecutionContext has no background queue to notify — the tests, and a
+      // request served outside the worker runtime. The caller already has this page; other devices
+      // still poll, so the notice is the only thing skipped.
+    }
+  }
+  const body: TodosSyncResponse = { ...page, serverTime: Date.now() }
   return c.json(body)
 })
 

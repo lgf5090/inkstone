@@ -529,7 +529,7 @@ export const useNotes = create<NotesState>((set, get) => ({
                         (noteRequestEpochs.get(id) ?? 0) !== requestEpoch ||
                         !currentSummary)
                         return;
-                    const existing = outbox.find((item) => item.writeId === cached.writeId && item.noteId === id);
+                    const existing = outbox.find((item) => item.entity === 'note' && item.writeId === cached.writeId && item.entityId === id);
                     const currentId = outboxId(id);
                     const existingContent = existing?.payload.content;
                     const existingTitle = existing?.payload.title;
@@ -576,7 +576,8 @@ export const useNotes = create<NotesState>((set, get) => ({
                             id: queueId,
                             clientId: CLIENT_ID,
                             writeId: cached.writeId,
-                            noteId: id,
+                            entity: 'note',
+                            entityId: id,
                             payload: {
                                 content: cached.content,
                                 contentDirty: recoveredContentDirty,
@@ -613,7 +614,7 @@ export const useNotes = create<NotesState>((set, get) => ({
                         });
                     }
                     if (restoredPending) {
-                        const pendingIds = new Set(outbox.map((item) => item.noteId));
+                        const pendingIds = new Set(outbox.filter((item) => item.entity === 'note').map((item) => item.entityId));
                         for (const noteId of dirty.keys())
                             pendingIds.add(noteId);
                         set({ pendingCount: pendingIds.size });
@@ -1659,7 +1660,8 @@ function stageNoteTextWrite(id: string, content: string, title: string | undefin
         clientId: CLIENT_ID,
         writeId,
         dependsOnWriteId,
-        noteId: id,
+        entity: 'note',
+        entityId: id,
         payload,
         attempts: 0,
         createdAt: Date.now(),
@@ -2047,7 +2049,7 @@ async function advanceDependentOutboxWrites(
     await localDb.advanceOutboxDependents(id, sourceWriteId, expectedRev, nextRev).catch(() => { });
     if (visibleBatch) {
         for (const item of visibleBatch) {
-            if (item.noteId !== id ||
+            if (item.entityId !== id ||
                 item.dependsOnWriteId !== sourceWriteId ||
                 item.payload.rev !== expectedRev)
                 continue;
@@ -2076,7 +2078,7 @@ async function saveDirtyBeforeDestructiveMutation(id: string, set: SetNotesState
         return false;
     }
     const remaining = await localDb.getOutbox();
-    return !remaining.some((item) => item.noteId === id);
+    return !remaining.some((item) => item.entity === 'note' && item.entityId === id);
 }
 function markNotesOptimisticallyPurged(ids: string[], set: SetNotesState, get: () => NotesState): void {
     const idSet = new Set(ids);
@@ -2338,7 +2340,8 @@ function dirtyOutboxItem(noteId: string, pending: DirtyNoteWrite): OutboxItem {
         clientId: CLIENT_ID,
         writeId: pending.writeId,
         dependsOnWriteId: pending.dependsOnWriteId,
-        noteId,
+        entity: 'note',
+        entityId: noteId,
         payload: {
             content: pending.content,
             contentDirty: pending.contentDirty,
@@ -2452,7 +2455,7 @@ function publishOutboxResult(item: OutboxItem, result: Pick<OutboxResult, 'outco
         type: 'outbox-result',
         clientId: CLIENT_ID,
         targetClientId: item.clientId,
-        noteId: item.noteId,
+        noteId: item.entityId,
         writeId: item.writeId,
         ...result,
     });
@@ -2498,7 +2501,40 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
             break;
         for (const item of batch) {
             attempted.add(replayAttemptKey(item));
-            const pendingCreate = pendingNoteCreates.get(item.noteId);
+            // The queue is shared with the to-do app. A note write keeps the replay rules below; a task
+            // write is handed to the module that owns its state, so this store never learns how a task
+            // is serialised or what a 409 on one means.
+            if (item.entity === 'todo') {
+                const { replayTodoOutboxItem } = await import('../features/todos/store');
+                const outcome = await replayTodoOutboxItem(item, batch);
+                if (outcome.status === 'done' && outcome.retarget) {
+                    for (const queued of batch) {
+                        if (queued !== item && queued.entity === 'todo' && queued.entityId === outcome.retarget.from)
+                            queued.entityId = outcome.retarget.to;
+                    }
+                }
+                if (outcome.status === 'retry') {
+                    // The row may have moved to a newer revision (a conflict retry); its old key is
+                    // already spent, and asking again inside this pass would put the same choice up
+                    // twice. The next flush or poll starts a new pass.
+                    attempted.add(replayAttemptKey(item));
+                }
+                if (outcome.status === 'offline') {
+                    stoppedOffline = true;
+                    set({ online: false, saveStatus: 'offline' });
+                    break;
+                }
+                if (outcome.status === 'done') {
+                    // Other tabs show their own copy of the task list; the write that just landed is
+                    // how they learn to ask for it. The completed queue row is removed first, so a
+                    // broadcast that fails costs one pull on the next tick rather than a replay.
+                    const completed = await completeOutboxQuietly(item.id, item.writeId);
+                    if (completed)
+                        publishBroadcast({ type: 'local-write', clientId: CLIENT_ID });
+                }
+                continue;
+            }
+            const pendingCreate = pendingNoteCreates.get(item.entityId);
             if (pendingCreate) {
                 try {
                     await pendingCreate;
@@ -2509,20 +2545,20 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
             }
             if (await retryRecoveredOutbox(item))
                 continue;
-            const currentLocal = item.clientId === CLIENT_ID ? dirty.get(item.noteId) : undefined;
+            const currentLocal = item.clientId === CLIENT_ID ? dirty.get(item.entityId) : undefined;
             if (currentLocal?.queueId === item.id && currentLocal.writeId !== item.writeId) {
                 await currentLocal.persisted;
                 continue;
             }
-            let latestLocal = item.clientId === CLIENT_ID && dirty.get(item.noteId)?.writeId === item.writeId
-                ? dirty.get(item.noteId)
+            let latestLocal = item.clientId === CLIENT_ID && dirty.get(item.entityId)?.writeId === item.writeId
+                ? dirty.get(item.entityId)
                 : undefined;
             if (latestLocal)
                 await latestLocal.persisted;
             const durableRev = item.payload.rev;
             if (latestLocal && Number.isInteger(durableRev) && (durableRev as number) > latestLocal.rev) {
-                advanceDirtyRevision(item.noteId, latestLocal.rev, durableRev as number, get);
-                latestLocal = dirty.get(item.noteId);
+                advanceDirtyRevision(item.entityId, latestLocal.rev, durableRev as number, get);
+                latestLocal = dirty.get(item.entityId);
             }
             const content = latestLocal?.content ?? item.payload.content;
             const contentDirty = latestLocal?.contentDirty ?? item.payload.contentDirty !== false;
@@ -2534,20 +2570,20 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
                 continue;
             }
             try {
-                const saved = await api.notes.patch(item.noteId, {
+                const saved = await api.notes.patch(item.entityId, {
                     rev: rev as number,
                     ...(contentDirty ? { content } : {}),
                     ...(typeof title === 'string' ? { title } : {}),
                     ...(item.payload.preserveVersion === true ? { preserveVersion: true } : {}),
                 });
                 if (item.clientId === CLIENT_ID)
-                    await settleSavedPatch(item.noteId, { content, writeId: item.writeId }, saved, set, get);
+                    await settleSavedPatch(item.entityId, { content, writeId: item.writeId }, saved, set, get);
                 else
                     adoptNote(saved, set, get);
                 if (typeof title === 'string')
                     void get().pull({ force: true });
                 await advanceDependentOutboxWrites(
-                    item.noteId,
+                    item.entityId,
                     item.writeId,
                     rev as number,
                     saved.rev,
@@ -2569,7 +2605,7 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
             }
             catch (err) {
                 if (err instanceof ApiError && err.isConflict) {
-                    const localPending = item.clientId === CLIENT_ID ? dirty.get(item.noteId) : undefined;
+                    const localPending = item.clientId === CLIENT_ID ? dirty.get(item.entityId) : undefined;
                     const localContent = localPending?.content ?? content;
                     const localContentDirty = localPending?.contentDirty ?? contentDirty;
                     const localTitle = localPending?.title ?? title;
@@ -2583,11 +2619,11 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
                             : null;
                     if (server && acknowledged) {
                         if (item.clientId === CLIENT_ID)
-                            await settleSavedPatch(item.noteId, acknowledged, server, set, get);
+                            await settleSavedPatch(item.entityId, acknowledged, server, set, get);
                         else
                             adoptNote(server, set, get);
                         await advanceDependentOutboxWrites(
-                            item.noteId,
+                            item.entityId,
                             item.writeId,
                             rev as number,
                             server.rev,
@@ -2617,10 +2653,10 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
                     const server = err.isConflict
                         ? (err.details as { server: Note }).server
                         : undefined;
-                    const localPending = item.clientId === CLIENT_ID ? dirty.get(item.noteId) : undefined;
+                    const localPending = item.clientId === CLIENT_ID ? dirty.get(item.entityId) : undefined;
                     const localContent = server && !(localPending?.contentDirty ?? contentDirty)
                         ? server.content : localPending?.content ?? content;
-                    const localTitle = localPending?.title ?? title ?? server?.title ?? get().notes[item.noteId]?.title ?? '';
+                    const localTitle = localPending?.title ?? title ?? server?.title ?? get().notes[item.entityId]?.title ?? '';
                     const recoveredWriteId = localPending?.writeId ?? item.writeId;
                     if (localPending)
                         await localPending.persisted;
@@ -2642,14 +2678,14 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
                         id: recoveryId,
                         title: server ? duplicateNoteTitle(localTitle, LIMITS.titleMaxLength) : localTitle,
                         content: localContent,
-                        folderId: server?.folderId ?? get().notes[item.noteId]?.folderId ?? null,
+                        folderId: server?.folderId ?? get().notes[item.entityId]?.folderId ?? null,
                         open: false,
                     });
                     if (!copyId)
                         continue;
-                    const recoveredLatest = !localPending || dirty.get(item.noteId)?.writeId === localPending.writeId;
+                    const recoveredLatest = !localPending || dirty.get(item.entityId)?.writeId === localPending.writeId;
                     if (localPending && recoveredLatest)
-                        dirty.delete(item.noteId);
+                        dirty.delete(item.entityId);
                     const recoveryResult = { outcome: 'recovered' as const,
                         recoveryReason: server ? 'conflict' as const : 'deleted' as const, copyId };
                     const completed = await settleRecoveredOutbox(item.id, recoveredWriteId, recoveryResult);
@@ -2657,19 +2693,19 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
                         publishOutboxResult(item, recoveryResult);
                     if (item.clientId === CLIENT_ID) {
                         if (recoveredLatest && !server) {
-                            const openPane = workspacePaneForNote(item.noteId);
-                            const wasActive = useUi.getState().activeNoteId === item.noteId;
+                            const openPane = workspacePaneForNote(item.entityId);
+                            const wasActive = useUi.getState().activeNoteId === item.entityId;
                             const deletionCursor = deletionCursorFrom(err);
-                            discardNoteRuntimeState(item.noteId, deletionCursor);
+                            discardNoteRuntimeState(item.entityId, deletionCursor);
                             set((state) => {
                                 const notes = { ...state.notes };
                                 const contents = { ...state.contents };
-                                delete notes[item.noteId];
-                                delete contents[item.noteId];
+                                delete notes[item.entityId];
+                                delete contents[item.entityId];
                                 return { notes, contents, saveStatus: dirty.size ? 'dirty' : 'synced' };
                             });
                             scheduleShellSave(get);
-                            void localDb.dropContent(item.noteId);
+                            void localDb.dropContent(item.entityId);
                             if (openPane)
                                 useUi.getState().setWorkspaceNote(openPane, copyId, wasActive);
                             if (deletionCursor === null)
@@ -2708,7 +2744,7 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
     set({ pendingCount: pendingNoteCount(remaining) });
 }
 function pendingNoteCount(outbox: OutboxItem[]): number {
-    const ids = new Set(outbox.map((item) => item.noteId));
+    const ids = new Set(outbox.filter((item) => item.entity === 'note').map((item) => item.entityId));
     for (const id of dirty.keys())
         ids.add(id);
     return ids.size;

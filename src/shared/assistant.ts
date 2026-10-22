@@ -1938,10 +1938,30 @@ export interface AssistantMcpProblem {
  */
 export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'create_task', labelKey: 'assistant.tool.create_task', permission: 'write' },
+  { name: 'create_tasks_from_note', labelKey: 'assistant.tool.create_tasks_from_note', permission: 'write' },
   { name: 'list_tasks', labelKey: 'assistant.tool.list_tasks', permission: 'read' },
   { name: 'update_task', labelKey: 'assistant.tool.update_task', permission: 'write' },
   { name: 'complete_task', labelKey: 'assistant.tool.complete_task', permission: 'write' },
+  { name: 'plan_task', labelKey: 'assistant.tool.plan_task', permission: 'write' },
+  { name: 'move_task', labelKey: 'assistant.tool.move_task', permission: 'write' },
+  { name: 'list_trash', labelKey: 'assistant.tool.list_trash', permission: 'read' },
+  { name: 'restore_task', labelKey: 'assistant.tool.restore_task', permission: 'write' },
+  { name: 'snooze_task', labelKey: 'assistant.tool.snooze_task', permission: 'write' },
   { name: 'delete_task', labelKey: 'assistant.tool.delete_task', approvalKey: 'assistant.approval.delete_task', permission: 'destructive' },
+  { name: 'rename_task_tag', labelKey: 'assistant.tool.rename_task_tag', permission: 'write' },
+  { name: 'delete_task_tag', labelKey: 'assistant.tool.delete_task_tag', approvalKey: 'assistant.approval.delete_task_tag', permission: 'destructive' },
+  { name: 'get_task', labelKey: 'assistant.tool.get_task', permission: 'read' },
+  { name: 'list_task_lists', labelKey: 'assistant.tool.list_task_lists', permission: 'read' },
+  { name: 'create_task_list', labelKey: 'assistant.tool.create_task_list', permission: 'write' },
+  { name: 'update_task_list', labelKey: 'assistant.tool.update_task_list', permission: 'write' },
+  { name: 'delete_task_list', labelKey: 'assistant.tool.delete_task_list', approvalKey: 'assistant.approval.delete_task_list', permission: 'destructive' },
+  { name: 'delete_completed_tasks', labelKey: 'assistant.tool.delete_completed_tasks', approvalKey: 'assistant.approval.delete_completed_tasks', permission: 'destructive' },
+  { name: 'add_task_step', labelKey: 'assistant.tool.add_task_step', permission: 'write' },
+  { name: 'delete_task_step', labelKey: 'assistant.tool.delete_task_step', approvalKey: 'assistant.approval.delete_task_step', permission: 'destructive' },
+  { name: 'check_task_step', labelKey: 'assistant.tool.check_task_step', permission: 'write' },
+  { name: 'decompose_task', labelKey: 'assistant.tool.decompose_task', permission: 'write' },
+  { name: 'plan_today', labelKey: 'assistant.tool.plan_today', permission: 'write' },
+  { name: 'task_stats', labelKey: 'assistant.tool.task_stats', permission: 'read' },
   { name: 'remember', labelKey: 'assistant.tool.remember', permission: 'write' },
   { name: 'search_memories', labelKey: 'assistant.tool.search_memories', permission: 'read' },
   { name: 'update_memory', labelKey: 'assistant.tool.update_memory', permission: 'write' },
@@ -2514,6 +2534,15 @@ export interface AssistantNotification {
   automationId: string | null
   /** The plan this delivery was about, when it was about one. See the in-app channel. */
   subscriptionId: string | null
+  /**
+   * Where the notice is about, as `<app>:<id>` — `todo:<task id>` first.
+   *
+   * Not a URL, and not the caller's to shape: the client resolves the pair inside its own origin, so a
+   * writer cannot aim a reader's press somewhere this deployment never chose. Null is a notice that
+   * points nowhere — a digest, a finished run — which the notification centre expands instead of
+   * navigating on.
+   */
+  link: string | null
   readAt: number | null
   createdAt: number
 }

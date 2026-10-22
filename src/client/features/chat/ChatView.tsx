@@ -61,6 +61,7 @@ import { useNotes } from '../../store/notes'
 import { MarkdownBody } from '../preview/MarkdownBody'
 import { attachmentTargetOf, chatModels, MAX_LOADED_MESSAGES, PASTE_FILE_MIN_CHARS, streamInterruptedLine, useAssistant, type AssistantView } from './assistant-store'
 import { MessageMenu, useMessageMenu } from './MessageMenu'
+import { saveMessageAsTask } from './save-as-task'
 import { AssistantBubble, CHAT_MENTION_LINKS } from './MessageParts'
 import { CanvasPanel } from './CanvasPanel'
 import { MultiModelMenu, MultiModelView } from './MultiModelView'
@@ -1224,6 +1225,7 @@ export function UserBubble({
           text,
           ...(removable ? { onEdit: () => setDraft(text), onDelete: askToDelete } : {}),
           ...(messageId ? { onFork: () => void useAssistant.getState().forkFrom(messageId) } : {}),
+          ...(messageId ? { onSaveAsTask: () => saveMessageAsTask(text, useAssistant.getState().activeId) } : {}),
           ...(messageId && onStartPicking ? { onSelect: () => onStartPicking(messageId) } : {}),
           ...(messageId && onShare ? { onShare: () => onShare(messageId) } : {}),
         }}
@@ -1873,9 +1875,12 @@ function ContextStrip() {
   const canvasOn = useAssistant((state) => state.canvasContextOn)
   const activeArtifactId = useAssistant((state) => state.activeArtifactId)
   const artifactTitle = useAssistant((state) => state.artifacts.find((entry) => entry.id === state.activeArtifactId)?.title)
+  const todoContext = useAssistant((state) => state.todoContext)
+  const todoOn = useAssistant((state) => state.todoContextOn)
   const setNoteContext = useAssistant((state) => state.setNoteContext)
   const setFolderContext = useAssistant((state) => state.setFolderContext)
   const setCanvasContext = useAssistant((state) => state.setCanvasContext)
+  const setTodoContextOn = useAssistant((state) => state.setTodoContextOn)
   const chips: Array<{ id: string, icon: React.ReactNode, label: string, onRemove: () => void }> = []
   if (activeNoteId && noteOn) {
     chips.push({ id: 'note', icon: <FileText size={12} />, label: noteTitle || t('assistant.context.note'), onRemove: () => setNoteContext(false) })
@@ -1890,6 +1895,10 @@ function ContextStrip() {
       label: t('assistant.context.canvas', { title: artifactTitle || t('assistant.canvas.untitled') }),
       onRemove: () => setCanvasContext(false),
     })
+  }
+  if (dockSurface === 'todos' && todoContext && todoOn) {
+    const label = todoContext.taskTitle ?? todoContext.listName ?? todoContext.tagName ?? t('todo.view.board')
+    chips.push({ id: 'todo', icon: <ListChecks size={12} />, label, onRemove: () => setTodoContextOn(false) })
   }
   // Beside the money app the notebook's pointers name a document the reader is not looking at, so nothing
   // of ours is drawn here; the dock draws the plan the reader opened. Mutating the list rather than

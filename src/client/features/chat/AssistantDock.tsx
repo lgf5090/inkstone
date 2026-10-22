@@ -15,7 +15,9 @@
  * drawn as a chip the reader can take off, because a context they cannot see is one they cannot correct.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowUpRight, Plus, Sparkles, Wallet, X } from 'lucide-react'
+import { ArrowUpRight, ListChecks, Plus, Sparkles, Wallet, X } from 'lucide-react'
+import type { MessageKey } from '@shared/locales/en-US'
+import type { TodoAssistantContext } from '@shared/todos/assistant-context'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
@@ -40,7 +42,27 @@ import { buildWriteDiff, WriteDiffSummary, WriteDiffView } from './editor-ai-dif
 import { saveReplyAsNote } from './save-to-note'
 
 /** Which app the dock is sitting beside: it decides what "this page" can honestly mean. */
-export type AssistantDockSurface = 'notebook' | 'subscriptions'
+export type AssistantDockSurface = 'notebook' | 'subscriptions' | 'todos'
+
+const TODO_VIEW_LABELS: Record<string, MessageKey> = {
+  board: 'todo.view.board',
+  today: 'todo.view.today',
+  plan: 'todo.view.plan',
+  calendar: 'todo.view.calendar',
+  starred: 'todo.view.starred',
+  completed: 'todo.view.completed',
+  list: 'todo.view.list',
+  tag: 'todo.view.tag',
+  stats: 'todo.view.stats',
+}
+
+function todoLabel(context: TodoAssistantContext): string {
+  if (context.taskTitle) return context.taskTitle
+  if (context.listName) return context.listName
+  if (context.tagName) return context.tagName
+  const key = TODO_VIEW_LABELS[context.view]
+  return key ? t(key) : t('todo.view.board')
+}
 
 export function AssistantDock({ surface = 'notebook', subscription = null }: {
   surface?: AssistantDockSurface
@@ -67,6 +89,9 @@ export function AssistantDock({ surface = 'notebook', subscription = null }: {
   const setFolderContext = useAssistant((state) => state.setFolderContext)
   const noteContextOn = useAssistant((state) => state.noteContextOn)
   const activeNoteId = useUi((state) => state.activeNoteId)
+  const todo = useAssistant((state) => state.todoContext)
+  const todoOn = useAssistant((state) => state.todoContextOn)
+  const setTodoContextOn = useAssistant((state) => state.setTodoContextOn)
   const sendOnEnter = useAssistant((state) => state.settings?.sendOnEnter ?? true)
   const blocked = useAssistant((state) => !state.settings?.activeModelId && !state.settings?.offlineMode)
   const fileIndex = useAssistant((state) => state.fileIndex)
@@ -81,11 +106,11 @@ export function AssistantDock({ surface = 'notebook', subscription = null }: {
 
   useEffect(() => {
     // The panel exists to ask about the page it is on. In the notebook that means the note under the
-    // reader's eyes; in the money app the same pointer still names a note they are not looking at, and a
-    // turn answered from it reads as "summarise this" about the wrong thing. So the notebook's pointers
-    // are switched off there rather than borrowed. The surface also lands in the store, because the strip
-    // and the outgoing turn read it there — a mount effect alone loses to the conversation paths that put
-    // noteContextOn back to true.
+    // reader's eyes; beside the money app or the to-do list the same pointer still names a note they are
+    // not looking at, and a turn answered from it reads as "summarise this" about the wrong thing. So the
+    // notebook's pointers are switched off there rather than borrowed. The surface also lands in the
+    // store, because the strip and the outgoing turn read it there — a mount effect alone loses to the
+    // conversation paths that put noteContextOn back to true.
     useAssistant.getState().setDockSurface(surface)
     if (surface === 'notebook') {
       setNoteContext(true)
@@ -117,22 +142,29 @@ export function AssistantDock({ surface = 'notebook', subscription = null }: {
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight
   }, [messages.length, turnHere?.text, turnHere?.tools.length])
 
-  const suggestions = surface === 'subscriptions'
-    ? ['assistant.dock.suggest_due', 'assistant.dock.suggest_cost', 'assistant.dock.suggest_remind'] as const
-    : ['assistant.dock.suggest_summary', 'assistant.dock.suggest_questions', 'assistant.dock.suggest_next'] as const
+  const suggestions = useMemo(() => (
+    surface === 'subscriptions'
+      ? ['assistant.dock.suggest_due', 'assistant.dock.suggest_cost', 'assistant.dock.suggest_remind'] as const
+      : surface === 'todos'
+        ? ['assistant.dock.suggest_todo_focus', 'assistant.dock.suggest_todo_plan', 'assistant.dock.suggest_todo_review'] as const
+        : ['assistant.dock.suggest_summary', 'assistant.dock.suggest_questions', 'assistant.dock.suggest_next'] as const
+  ), [surface])
 
   /**
    * What the empty thread says about itself.
    *
    * The guidance used to promise that the note under the reader's eyes was already in context on every
    * surface, which in the money app named a thing that was not there and a chip that was deliberately not
-   * drawn. It now names what this dock is actually carrying: the plan, the note, or nothing yet.
+   * drawn. It now names what this dock is actually carrying: the plan, the to-do page, the note, or
+   * nothing yet.
    */
-  const hint = attached
-    ? t('assistant.dock.hint_plan', { name: attached.name })
-    : surface === 'notebook' && noteContextOn && activeNoteId
-      ? t('assistant.dock.hint')
-      : t('assistant.dock.hint_page')
+  const hint = surface === 'todos' && todo && todoOn
+    ? t('assistant.dock.hint_todo')
+    : attached
+      ? t('assistant.dock.hint_plan', { name: attached.name })
+      : surface === 'notebook' && noteContextOn && activeNoteId
+        ? t('assistant.dock.hint')
+        : t('assistant.dock.hint_page')
 
   return (
     <aside
@@ -258,6 +290,22 @@ export function AssistantDock({ surface = 'notebook', subscription = null }: {
               aria-label={t('assistant.context.remove', { name: attached.name })}
               onClick={() => useAssistant.getState().setSubscriptionContext(null)}
               className="ink-tap-pad relative shrink-0 text-[var(--text-quaternary)] transition-colors hover:text-[var(--text-secondary)]"
+            >
+              <X size={11} />
+            </button>
+          </span>
+        </div>
+      )}
+      {surface === 'todos' && todo && todoOn && (
+        <div role="group" aria-label={t('assistant.context.title')} className="flex flex-wrap items-center gap-1 px-3 pt-1.5">
+          <span className="inline-flex min-w-0 items-center gap-1 rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+            <span aria-hidden className="shrink-0 text-[var(--text-quaternary)]"><ListChecks size={12} /></span>
+            <span className="max-w-[220px] truncate">{todoLabel(todo)}</span>
+            <button
+              type="button"
+              aria-label={t('assistant.context.remove', { name: todoLabel(todo) })}
+              onClick={() => setTodoContextOn(false)}
+              className="relative shrink-0 p-0.5 text-[var(--text-quaternary)] transition-colors hover:text-[var(--text-secondary)]"
             >
               <X size={11} />
             </button>

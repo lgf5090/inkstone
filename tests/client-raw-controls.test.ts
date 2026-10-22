@@ -144,6 +144,10 @@ const SHARED_RAW_BUTTONS = new Map<string, string>([
     'src/client/components/activity-calendar/header.tsx',
     'The calendar header control, aligned with the strip it heads rather than sized by the button scale.',
   ],
+  [
+    'src/client/components/select-menu.tsx',
+    'The select\'s own trigger: it opens a menu rather than acting, so it carries `aria-haspopup="menu"` and hands the panel a ref to anchor to, and it wears the same 34/44px two-breakpoint height `Input` and `Select` share. `Button` fixes a height per size and wraps its children in one non-stretching span, so the trigger owns its element.',
+  ],
 ])
 
 /** A control a source file writes by hand, and whether it carries a name of its own. */
@@ -405,6 +409,13 @@ const CLICK_CONTAINER_EXCEPTIONS = new Map<string, { sites: number; reason: stri
       reason: 'The selection toolbar is a role="toolbar" whose children are the action buttons. Its mouse-down handler only stops the press from collapsing the editor selection before a button can act; it is not an affordance of its own.',
     },
   ],
+  [
+    'src/client/features/todos/CalendarView.tsx',
+    {
+      sites: 1,
+      reason: 'The day column is a drag-to-schedule surface: a press on it starts a box-select that files a task across the dragged hours, and the slot buttons inside it are the click-to-add affordance for the same gesture. A drag handle is a hit target that legitimately holds buttons.',
+    },
+  ],
 ])
 
 const SCAN = scan()
@@ -535,10 +546,12 @@ const LIST_FILTER_BASELINE = new Map<string, { sites: number; reason: string }>(
   ['src/client/features/quickadd/launcher.tsx', { sites: 1, reason: 'QuickAdd draft entry (84) — it filters the command list, so it is a real filter that has not been converged onto FilterInput.' }],
   ['src/client/features/quickadd/prompts.tsx', { sites: 4, reason: 'The QuickAdd prompt family (text, number and date prompts) each write a labelled field. Prompts, not list filters.' }],
   ['src/client/features/share/SharePanel.tsx', { sites: 1, reason: 'Read-only share link field that selects on focus (221). Not a filter at all.' }],
+  ['src/client/features/settings/FeedSettings.tsx', { sites: 1, reason: 'The read-only subscription address that selects on focus (236); a copy field, not a list filter.' }],
   ['src/client/features/share/ConversationSharePanel.tsx', { sites: 1, reason: 'The same read-only share link field as SharePanel (178), for a published conversation. Not a filter at all.' }],
   ['src/client/features/tags/tag-row-parts.tsx', { sites: 1, reason: 'Tag rename row (`tags.rename` at 42) with autoFocus and a default value; an inline editor, not a list filter.' }],
   ['src/client/features/workspace/EditorColorMenu.tsx', { sites: 1, reason: 'Colour name draft (87) inside the editor colour menu; an inline editor for one value.' }],
   ['src/client/features/workspace/Workspace.tsx', { sites: 1, reason: 'Inline text field in the workspace surface (557). Not verified as a list filter; baseline so the rule can block new ones.' }],
+  ['src/client/features/todos/OrganizerEditors.tsx', { sites: 1, reason: 'The custom-colour draft (`#rrggbb`, 124) beside the colour wheel: an inline editor for one value, the same shape as the editor colour menu\'s name draft, not a list filter.' }],
 ])
 
 function isFilterishInput(node: ts.JsxOpeningElement | ts.JsxSelfClosingElement): boolean {
@@ -949,7 +962,8 @@ const CLIENT_CATCH_BASELINE = new Map<string, { sites: number; reason: string }>
   ['src/client/lib/markdown/enhance.ts', { sites: 1, reason: 'getPele prefetches the renderer chunk; the diagram that needed it is still drawn by the pass that awaits the same loader and owns its own error state.' }],
   ['src/client/lib/markdown/excalidraw/registry.tsx', { sites: 1, reason: 'Unmounting a React root on a deferred destroy, after the instance was already removed from the registry; the drawing surface is gone from the document either way.' }],
   ['src/client/lib/markdown/kanban/ui/kanban-file-preview-modal.tsx', { sites: 1, reason: 'Cancelling a reader that is being discarded on the over-limit path; the TextPreviewTooLargeError thrown on the next line is what the reader is told.' }],
-  ['src/client/lib/sync.ts', { sites: 6, reason: 'Three are a passive cross-tab notice to re-read the session, settings or site — no reader action waits on them and the next auth check or reload re-reads the same fields; three are the engine own pull, replay and bootstrap, where lastPullAt is not advanced on failure so the next scheduled tick retries, the outbox rows a replay did not drain are still queued, and the engine starts regardless in the then below the bootstrap catch.' }],
+  ['src/client/lib/sync.ts', { sites: 10, reason: 'Three are a passive cross-tab notice to re-read the session, settings or site — no reader action waits on them and the next auth check or reload re-reads the same fields; three are the engine own pull, replay and bootstrap, where lastPullAt is not advanced on failure so the next scheduled tick retries, the outbox rows a replay did not drain are still queued, and the engine starts regardless in the then below the bootstrap catch. The four task-stream sites are the same best-effort shape: the leadership takeover replay, the todo cursor read and write, and the online replay all leave the row queued or the same delta to be read again, and the applied delta is idempotent.' }],
+  ['src/client/features/todos/store.ts', { sites: 5, reason: 'Five IndexedDB bookkeeping writes on the replay path: advancing revisions, marking a poisoned row, retargeting a local id after a create, marking an invalid snooze, and recording a failure after its toast. Each is best-effort — the row stays queued and the same pass retries — and none is a reader action that can be reported twice.' }],
   ['src/client/store/note-templates.ts', { sites: 1, reason: 'Mirroring a template library that was just written to the server, after the fetch that answered it; a failed local copy is re-written by the next mutation and re-read on the next boot.' }],
   ['src/client/store/notes.ts', { sites: 19, reason: 'The outbox and cache bookkeeping around a write that already succeeded or already failed loudly: cross-tab refresh pings, post-mutation re-pulls, markOutboxFailure and advanceOutboxDependents writes whose loss only means a retry, plus a folder reconcile whose next pull rewrites the list.' }],
   ['src/client/store/pinned-windows.ts', { sites: 1, reason: 'Persisting pinned windows that are live in the store; lastPersisted is only advanced on success, so a refused write is retried by the next change.' }],
@@ -988,6 +1002,13 @@ const NATIVE_DATE_BASELINE = new Map<string, { sites: number; reason: string }>(
     {
       sites: 1,
       reason: 'The date prompt answers a free-text draft as well as a picked day: while the reader is typing it switches the element to `text`, and a `DatePicker` has no way to hold a half-typed value. Converging it means teaching the shared picker to carry a draft string, which is a bigger change than this prompt is worth.',
+    },
+  ],
+  [
+    'src/client/features/settings/TodoSettings.tsx',
+    {
+      sites: 1,
+      reason: 'The daily digest schedule (234) edits a time of day with no date attached. The shared `TimeField` carries neither the disabled state the row needs while the schedule loads and saves nor the described-by that points at its hint, so converging it means widening the shared control first.',
     },
   ],
 ])

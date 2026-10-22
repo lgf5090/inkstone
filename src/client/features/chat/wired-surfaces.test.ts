@@ -27,6 +27,7 @@ import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
+import { useTodos } from '../todos/store'
 import type { MenuCtx } from '../workspace/context-menu/types'
 import { buildTaskItems } from '../workspace/context-menu/items-inline'
 import { BehaviourTab } from './AssistantBehaviourTab'
@@ -36,15 +37,15 @@ import { TurnPinRow } from './ComposerTriggers'
 import { useAssistant } from './assistant-store'
 
 const harness = vi.hoisted(() => ({
-  /** What `api.assistant.createTask` was pointed at, in order. */
-  created: [] as { title: string, description: string, dueAt: number | null }[],
+  /** What `api.todos.create` was pointed at, in order. */
+  created: [] as { title: string, description?: string, dueAt: number | null, noteId?: string }[],
   /** The engine keys the fake route holds: the same shape the route answers with, and the same three fields. */
   keys: [] as { engine: string, hasKey: boolean, keyHint: string, updatedAt: number }[],
 }))
 
-const createTask = vi.fn(async (body: { title: string, description: string, dueAt: number | null }) => {
+const createTask = vi.fn(async (body: { title: string, description?: string, dueAt: number | null, noteId?: string }) => {
   harness.created.push(body)
-  return { task: {} }
+  return { task: { id: 'task-1', title: body.title, description: body.description ?? '', status: 'todo', priority: 'medium', dueAt: body.dueAt, completedAt: null, projectId: null, listId: null, starred: false, repeat: null, remindAt: null, remindedAt: null, noteId: body.noteId ?? null, conversationId: null, createdAt: 1, updatedAt: 1, tags: [], stepTotal: 0, stepDone: 0 } }
 })
 
 /**
@@ -72,6 +73,10 @@ vi.mock('../../lib/api', () => ({
     tags: { list: async () => ({ tags: [] }) },
     folders: { list: async () => ({ folders: [] }) },
     notes: {},
+    todos: {
+      create: (body: { title: string, description?: string, dueAt: number | null, noteId?: string }) => createTask(body),
+      list: async () => ({ tasks: [], counts: { inbox: 0, today: 0, upcoming: 0, overdue: 0, all: 0, completed: 0, starred: 0, byList: {}, byTag: {} }, dayEnd: 0, timezone: 'UTC' }),
+    },
     assistant: {
       skills: async () => ({ skills: [] }),
       conversationBranches: async () => ({ parent: null, siblings: [] }),
@@ -176,6 +181,7 @@ function descriptionOf(node: Element | null | undefined): string {
 const assistantOriginal = useAssistant.getState()
 const notesOriginal = useNotes.getState()
 const uiOriginal = useUi.getState()
+const todosOriginal = useTodos.getState()
 
 beforeEach(async () => {
   installTestGlobals()
@@ -193,6 +199,7 @@ afterEach(() => {
   useAssistant.setState(assistantOriginal, true)
   useNotes.setState(notesOriginal, true)
   useUi.setState(uiOriginal, true)
+  useTodos.setState(todosOriginal, true)
   document.body.innerHTML = ''
   vi.clearAllMocks()
 })
@@ -541,7 +548,7 @@ describe('a checkbox’s way out to the task list', () => {
       ...notesOriginal,
       notes: { ...notesOriginal.notes, [NOTE_ID]: { ...notesOriginal.notes[NOTE_ID], id: NOTE_ID, title: 'Reading list' } } as never,
     })
-    useAssistant.setState({ ...assistantOriginal, loadTasks: vi.fn(async () => undefined) })
+    useTodos.setState({ ...todosOriginal, tasks: [], completed: [], status: 'ready' })
     useUi.setState({ ...uiOriginal, toast: vi.fn(() => 'toast-id') })
   })
 
@@ -562,19 +569,8 @@ describe('a checkbox’s way out to the task list', () => {
     await act(async () => { item!.onSelect?.() })
     expect(createTask).toHaveBeenCalledTimes(1)
     expect(harness.created[0]?.title).toBe('Buy more paper')
-    expect(harness.created[0]?.description).toContain(NOTE_ID)
-  })
-
-  it('reads the note title at press time, not when the menu was built', async () => {
-    const item = (buildTaskItems(sourceCtx()) ?? []).find((entry) => entry.id === 'task-to-assistant')
-    expect(item, 'the row is missing').toBeTruthy()
-    // A rename while the menu sat open has to be the name the task carries.
-    useNotes.setState({
-      ...notesOriginal,
-      notes: { ...notesOriginal.notes, [NOTE_ID]: { ...notesOriginal.notes[NOTE_ID], id: NOTE_ID, title: 'Renamed after the menu opened' } } as never,
-    })
-    await act(async () => { item!.onSelect?.() })
-    expect(harness.created[0]?.description).toContain('Renamed after the menu opened')
+    // The way back is the id, not a sentence about the note in the reader's own notes field.
+    expect(harness.created[0]?.noteId).toBe(NOTE_ID)
   })
 
   it('stays away from a checkbox with nothing to make a task of', () => {

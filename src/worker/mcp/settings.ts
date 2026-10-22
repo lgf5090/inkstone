@@ -4,7 +4,20 @@ export const MCP_SCOPES = {
   read: 'notes:read',
   write: 'notes:write',
   trash: 'notes:trash',
+  todoRead: 'todos:read',
+  todoWrite: 'todos:write',
+  todoDanger: 'todos:danger',
 } as const
+
+/**
+ * The note family: what a key carries when nobody named a scope.
+ *
+ * The to-do family is deliberately not in here. A key minted with "whatever this account allows" is what
+ * every client that predates the to-do tools asks for, and handing it a second data domain it never named
+ * would be the quiet widening this file exists to prevent. A to-do scope therefore only ever arrives by
+ * name — in the `requestedScopes` of a minted key, or in the boxes the reader ticks.
+ */
+export const MCP_NOTE_SCOPES = [MCP_SCOPES.read, MCP_SCOPES.write, MCP_SCOPES.trash]
 
 export const MCP_SUPPORTED_SCOPES = Object.values(MCP_SCOPES)
 
@@ -13,6 +26,15 @@ const MCP_ENABLED_KEY = 'mcp-enabled-v1'
 export interface McpPreferences {
   writeEnabled: boolean
   trashEnabled: boolean
+  /**
+   * Whether a key may read tasks at all.
+   *
+   * The to-do reads are a second data domain, so they answer to a switch of their own rather than to the
+   * note endpoint's premise that reading is what it is for. On by default: every key minted with
+   * `todos:read` before this switch existed was allowed to read, and an off default would revoke that on
+   * the boot that added the column.
+   */
+  todoReadEnabled: boolean
   /**
    * The server's own tools the reader has switched off, by the name the server registers them under.
    *
@@ -26,6 +48,7 @@ export interface McpPreferences {
 interface McpPreferencesRow {
   write_enabled: number
   trash_enabled: number
+  todo_read_enabled: number
   disabled_tools: string
   updated_at: number
 }
@@ -95,7 +118,7 @@ export function isMcpEnabledOnce(db: D1Database): Promise<boolean> {
 
 export async function getMcpPreferences(db: D1Database, userId: string): Promise<McpPreferences> {
   const row = await db.prepare(
-    `SELECT write_enabled, trash_enabled, disabled_tools, updated_at
+    `SELECT write_enabled, trash_enabled, todo_read_enabled, disabled_tools, updated_at
        FROM mcp_preferences WHERE user_id = ?1`,
   )
     .bind(userId)
@@ -110,8 +133,8 @@ const PREFERENCES_MEMO_MS = 5_000
  * The same read, memoized per isolate for a few seconds.
  *
  * Every MCP request needs these — to decide which tools to publish, and again to gate each write — and the
- * endpoint is hit once per tool call. Flipping a switch in this isolate drops nothing immediately, so the
- * window is short; another isolate converges within it too.
+ * endpoint is hit once per tool call. Flipping a switch in this isolate drops the entry through
+ * `putMcpPreferences`, so the next request reads the new answer; another isolate converges within the window.
  */
 export function getMcpPreferencesCached(db: D1Database, userId: string): Promise<McpPreferences> {
   let byUser = preferencesMemo.get(db)
@@ -130,7 +153,7 @@ export function getMcpPreferencesCached(db: D1Database, userId: string): Promise
 export async function updateMcpPreferences(
   db: D1Database,
   userId: string,
-  patch: Partial<Pick<McpPreferences, 'writeEnabled' | 'trashEnabled' | 'disabledTools'>>,
+  patch: Partial<Pick<McpPreferences, 'writeEnabled' | 'trashEnabled' | 'todoReadEnabled' | 'disabledTools'>>,
 ): Promise<McpPreferences> {
   const current = await getMcpPreferences(db, userId)
   const next = { ...current, ...patch, updatedAt: Date.now() }
@@ -145,20 +168,25 @@ export async function putMcpPreferences(
 ): Promise<void> {
   await db.prepare(
     `INSERT INTO mcp_preferences (
-       user_id, write_enabled, trash_enabled, disabled_tools, updated_at
-     ) VALUES (?1, ?2, ?3, ?4, ?5)
+       user_id, write_enabled, trash_enabled, todo_read_enabled, disabled_tools, updated_at
+     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
      ON CONFLICT(user_id) DO UPDATE SET
        write_enabled = excluded.write_enabled,
        trash_enabled = excluded.trash_enabled,
+       todo_read_enabled = excluded.todo_read_enabled,
        disabled_tools = excluded.disabled_tools,
        updated_at = excluded.updated_at`,
   ).bind(
     userId,
     value.writeEnabled ? 1 : 0,
     value.trashEnabled ? 1 : 0,
+    value.todoReadEnabled ? 1 : 0,
     JSON.stringify(value.disabledTools),
     value.updatedAt,
   ).run()
+  // The next request in this isolate must see the switch that was just flipped, or a reader who turns
+  // to-do reads off would still be served by the cached answer for the rest of the window.
+  preferencesMemo.get(db)?.delete(userId)
 }
 
 export function grantedMcpScopes(
@@ -169,6 +197,13 @@ export function grantedMcpScopes(
   const granted: string[] = [MCP_SCOPES.read]
   if (preferences.writeEnabled && requestedSet.has(MCP_SCOPES.write)) granted.push(MCP_SCOPES.write)
   if (preferences.trashEnabled && requestedSet.has(MCP_SCOPES.trash)) granted.push(MCP_SCOPES.trash)
+  // The to-do family answers to account switches of its own. A reader who has MCP writes switched off has
+  // not allowed an agent to change their tasks either, and the same for permanent deletion. Reads are a
+  // second data domain rather than the endpoint's own premise, so they have a switch too — named and on by
+  // default, but a key cannot carry the scope past it.
+  if (preferences.todoReadEnabled && requestedSet.has(MCP_SCOPES.todoRead)) granted.push(MCP_SCOPES.todoRead)
+  if (preferences.writeEnabled && requestedSet.has(MCP_SCOPES.todoWrite)) granted.push(MCP_SCOPES.todoWrite)
+  if (preferences.trashEnabled && requestedSet.has(MCP_SCOPES.todoDanger)) granted.push(MCP_SCOPES.todoDanger)
   return granted.filter((scope) => requestedSet.has(scope) || scope === MCP_SCOPES.read)
 }
 
@@ -193,6 +228,7 @@ export function narrowMcpScopes(allowed: readonly string[], requested?: readonly
 function defaultMcpPreferences(): McpPreferences {  return {
     writeEnabled: false,
     trashEnabled: false,
+    todoReadEnabled: true,
     disabledTools: [],
     updatedAt: 0,
   }
@@ -202,6 +238,7 @@ function toPreferences(row: McpPreferencesRow): McpPreferences {
   return {
     writeEnabled: row.write_enabled === 1,
     trashEnabled: row.trash_enabled === 1,
+    todoReadEnabled: row.todo_read_enabled === 1,
     disabledTools: parseDisabledMcpTools(row.disabled_tools),
     updatedAt: row.updated_at,
   }

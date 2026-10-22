@@ -2,6 +2,7 @@
 
 
 import type { CoverPosition, CoverShape } from './property-decorations'
+import type { RemindOffset, TodoTask } from './todos/model'
 
 export type UserRole = 'owner' | 'member'
 
@@ -539,6 +540,50 @@ export interface UserSettings {
   dataview: DataviewSettings
   tasks: TasksSettings
   rss: RssSettings
+  todo: TodoSettings
+}
+
+/**
+ * A filter line kept under a name, so the to-do sidebar can reopen it.
+ *
+ * `query` is the line exactly as the reader typed it in the search box, not the parameters it was read
+ * into: the grammar can grow without rewriting what was saved. `id` is stable so a rename or a
+ * reorder does not look like a delete plus an insert to the account snapshot.
+ */
+export interface SavedTodoFilter {
+  id: string
+  name: string
+  query: string
+}
+
+/**
+ * The to-do app's own preferences.
+ *
+ * `defaultRemind` is a rule for tasks not yet written, so it stores an offset rather than an instant:
+ * there is no due date to measure from until one exists. Null means "no default reminder"; `none` is
+ * folded to null by the merge so there is one spelling for nothing.
+ */
+export interface TodoSettings {
+  defaultRemind: RemindOffset | null
+  /**
+   * A day's completion target, or null when the reader keeps none.
+   *
+   * Zero and an empty field both mean "off", and the settings merge stores that as null so there is
+   * one spelling for no goal. Optional in the type for the same reason {@link savedFilters} is: a
+   * settings object written by hand, or by a build before this field, may leave it out; the merge
+   * fills it in, and every read of account settings goes through that merge.
+   */
+  dailyGoal?: number | null
+  /** A week's completion target; {@link dailyGoal} says how off is spelled. */
+  weeklyGoal?: number | null
+  /**
+   * The filter lines kept under a name.
+   *
+   * Optional in the type because a settings object written by hand (or by a build before this field)
+   * may leave it out; `mergeSettings` always fills it in, and every read of account settings goes
+   * through that merge.
+   */
+  savedFilters?: SavedTodoFilter[]
 }
 
 /** Where an article's pictures come from. `relay` keeps the reader's browser off the author's host. */
@@ -976,6 +1021,25 @@ export interface SyncResponse {
   folders: Folder[]
   tags: Tag[]
   deletions: SyncDeletion[]
+  /**
+   * The task delta, present when the request named `todosSince` (or on a full snapshot).
+   *
+   * Tasks move on their own clock: `updated_at` is the cursor, not the change-log sequence notes use.
+   * A deleted row is still a row (a soft tombstone), so the delta names it in `todosDeleted` rather
+   * than shipping a task the client should never show.
+   */
+  todos?: TodoTask[]
+  todosDeleted?: string[]
+  todosCursor?: number
+  serverTime: number
+}
+
+/** One page of the task delta, served on its own so a poll never re-reads the note library. */
+export interface TodosSyncResponse {
+  todos: TodoTask[]
+  deleted: string[]
+  /** The newest `updated_at` in this page; send it back as `todosSince`. */
+  cursor: number
   serverTime: number
 }
 
@@ -1136,6 +1200,13 @@ export interface ImportResult {
 export interface McpPreferences {
   writeEnabled: boolean
   trashEnabled: boolean
+  /**
+   * Whether a key may read tasks at all.
+   *
+   * Absent reads as on: a payload from an older server, or the demo, predates the switch — and on is the
+   * default the column carries, so a reader who has never seen the switch keeps what keys already had.
+   */
+  todoReadEnabled?: boolean
   /**
    * The server's own tools the reader has switched off, by the name the server registers them under.
    *

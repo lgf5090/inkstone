@@ -102,6 +102,40 @@ function normalisePushLanguage(language: string | null | undefined): string {
   return tag.startsWith('zh') ? PUSH_CHINESE_LOCALE : PUSH_ENGLISH_LOCALE
 }
 
+/** Where a press lands when the notice names nothing: the shelf the reader's notices live on. */
+const NOTIFICATION_CENTER_URL = '/chat?notifications=1'
+
+/** The screen one task lives at, and the prefix that says a pointer means a task. */
+const TODO_TASK_PATH_PREFIX = '/todo/'
+const TODO_TASK_LINK_PREFIX = 'todo:'
+
+/** What a task id is allowed to be spelled of, and so what a pointer may name. */
+const TASK_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
+
+/**
+ * Which screen a pressed notice opens, out of the pointer it carries.
+ *
+ * The pointer is `<app>:<id>` — `todo:<task id>` for a reminder — and it is the notice's own `data`, which
+ * this worker wrote, and never the push payload: the payload reaches the push service in the clear because
+ * `sendPush` declares a content coding it does not implement, so nothing here may be read off it, and a
+ * notice that quoted it would be quoting whatever somebody posted. A notice that was never given a pointer
+ * — every push this deployment sends today, and a hand-edited backup's digest — keeps its old answer, the
+ * notification centre, because "somewhere the reader can read what arrived" is the honest fallback and an
+ * empty tray is not.
+ *
+ * A pointer that is not a task, or names one in a shape that is not an id, is the same case: opening
+ * whatever a stored string says would be following an address the deployment never chose, so it is treated
+ * as having no destination at all.
+ *
+ * Inlined into the worker by value, and exported so `tests/service-worker-push.test.ts` can pin the shipped
+ * source to the same answers this function gives.
+ */
+export function pickNotificationTarget(link: unknown): string {
+  if (typeof link !== 'string' || !link.startsWith(TODO_TASK_LINK_PREFIX)) return NOTIFICATION_CENTER_URL
+  const id = link.slice(TODO_TASK_LINK_PREFIX.length)
+  return TASK_ID_PATTERN.test(id) ? `${TODO_TASK_PATH_PREFIX}${encodeURIComponent(id)}` : NOTIFICATION_CENTER_URL
+}
+
 export function inkstonePwa(): Plugin {
   return {
     name: 'inkstone:pwa',
@@ -253,7 +287,13 @@ function serviceWorkerSource(buildId: string, coreUrls: string[], allUrls: strin
 	const PUSH_COPY = ${JSON.stringify(PUSH_NOTIFICATION_COPY)}
 	// The payload is never read, on purpose. See PUSH_NOTIFICATION_COPY above: the shell is empty because
 	// nothing may be sent unencrypted, so the notice carries no words that could belong to a note.
-	const NOTIFICATION_CENTER_URL = '/chat?notifications=1'
+	const NOTIFICATION_CENTER_URL = ${JSON.stringify(NOTIFICATION_CENTER_URL)}
+	// The same grammar the app reads pointers with, inlined: a notice carrying a todo:<task id> pointer in its
+	// own data opens that task, and anything else — no pointer, another app's prefix, a tail that is not an id —
+	// is a notice without a destination and goes to the shelf. Never a payload read: see above.
+	const TODO_TASK_PATH_PREFIX = ${JSON.stringify(TODO_TASK_PATH_PREFIX)}
+	const TODO_TASK_LINK_PREFIX = ${JSON.stringify(TODO_TASK_LINK_PREFIX)}
+	const TASK_ID_PATTERN = ${JSON.stringify(TASK_ID_PATTERN.source)}
 	let warmPromise = null
 
 self.addEventListener('install', (event) => {
@@ -302,12 +342,27 @@ self.addEventListener('push', (event) => {
 })
 
 self.addEventListener('notificationclick', (event) => {
-  event.waitUntil(revealNotificationCenter(event.notification))
+  event.waitUntil(revealNoticeTarget(event.notification))
 })
 
 function pushCopyForLanguage(language) {
   const tag = String(language || '').toLowerCase()
   return tag.startsWith('zh') ? PUSH_COPY['zh-CN'] : PUSH_COPY['en-US']
+}
+
+/**
+ * The screen a pressed notice names, or the shelf.
+ *
+ * The pointer comes off the notice's own data — written here, never off the payload, whose transport is a
+ * push service this deployment does not encrypt through. A task id is checked rather than trusted, because
+ * the shape the app opens is not something a stored string should be free to decide.
+ */
+function notificationTarget(notification) {
+  const link = notification && notification.data ? notification.data.link : null
+  if (typeof link !== 'string' || !link.startsWith(TODO_TASK_LINK_PREFIX)) return NOTIFICATION_CENTER_URL
+  const id = link.slice(TODO_TASK_LINK_PREFIX.length)
+  if (!new RegExp(TASK_ID_PATTERN).test(id)) return NOTIFICATION_CENTER_URL
+  return TODO_TASK_PATH_PREFIX + encodeURIComponent(id)
 }
 
 /**
@@ -328,17 +383,21 @@ async function showIncomingUpdate() {
 }
 
 /**
- * Takes the reader to the notification centre and leaves no copy of the notice behind.
+ * Takes the reader to the screen the notice names, and leaves no copy of the notice behind.
  *
- * An open page is focused and told, rather than navigated: reloading a page over a push would cost a note
- * that is half written. With nothing open, the new window carries the intent in its address, because there
- * is no page yet to receive a message. The sweep by tag closes what is still up — including a notice an
- * older build left under a different tag scheme, which the browser would otherwise keep showing.
+ * With nothing to open but the shelf, an open page is focused and told rather than navigated: reloading a
+ * page over a push would cost a note that is half written, and the centre is a drawer the page can put up
+ * without moving anybody. A notice that names one task has no such message to lean on — the page that would
+ * have to act on it is whichever tab the reader happens to be standing in — so the window itself is moved,
+ * and a browser that gives a worker no 'navigate' gets a second window instead of a press that did nothing.
+ * The sweep by tag closes what is still up — including a notice an older build left under a different tag
+ * scheme, which the browser would otherwise keep showing.
  */
-async function revealNotificationCenter(notification) {
+async function revealNoticeTarget(notification) {
   const shown = await self.registration.getNotifications({ tag: PUSH_TAG })
   for (const notice of shown) notice.close()
   if (notification && typeof notification.close === 'function') notification.close()
+  const target = notificationTarget(notification)
   const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
   const client = windows.find((entry) => {
     try {
@@ -348,11 +407,19 @@ async function revealNotificationCenter(notification) {
     }
   })
   if (client) {
+    if (target !== NOTIFICATION_CENTER_URL) {
+      if (typeof client.navigate === 'function') {
+        await client.navigate(target)
+        return
+      }
+      await self.clients.openWindow(target)
+      return
+    }
     await client.focus()
     client.postMessage({ type: 'OPEN_NOTIFICATION_CENTER' })
     return
   }
-  await self.clients.openWindow(NOTIFICATION_CENTER_URL)
+  await self.clients.openWindow(target)
 }
 
 self.addEventListener('fetch', (event) => {

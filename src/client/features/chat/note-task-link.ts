@@ -2,7 +2,7 @@
  * A note's checkbox, offered to the assistant's task list — one way, and only one way.
  *
  * The notebook keeps its tasks as checkboxes in the body of a note; the assistant keeps its own task
- * list (`chat_tasks`). Those are two different things, and they are deliberately not kept in step: a
+ * list (`todos_tasks`). Those are two different things, and they are deliberately not kept in step: a
  * checkbox and a task row both own "is this done", and the moment both sides can move, a sync has to
  * pick a winner for every disagreement and loses the reader's intent either way.
  *
@@ -18,24 +18,13 @@
  */
 import { createElement } from 'react'
 import { CheckSquare } from 'lucide-react'
+import { toPlainText } from '@shared/markdown-utils'
+import { parseNoteCheckbox } from '@shared/todos/note-parse'
 import type { MenuItem } from '../../components/overlay'
 import { t } from '../../lib/i18n'
-import { api } from '../../lib/api'
-import { extractInlineFields } from '../../lib/dataview/metadata'
-import { readEitherFormat } from '../../lib/tasks/line'
-import { useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
-import { useAssistant } from './assistant-store'
-
-/** A task checkbox line: optional blockquote/list marker, a `[ ]`/`[x]` box, then the text. */
-const TASK_MARKER = /^((?:[ \t]*>[ \t]?)*[ \t]*(?:[-*+]|\d+[.)])[ \t]+\[)([ xX])\]/
-
-/**
- * A Tasks-plugin emoji date with its day. Matched with the `u` flag so the surrogate pair of each emoji
- * is one token, not two halves: `extractInlineFields` reports these emoji fields by byte index without
- * the flag, which is fine for reading the date but not for cutting the token back out of the title.
- */
-const EMOJI_DATE = /[⌛⌚🛫✕✅📅📆🗓]️?\s*\d{4}-\d{2}-\d{2}/gu
+import { getActiveEditorView } from '../../editor/commands'
+import { useTodos } from '../todos/store'
 
 export interface NoteTaskCheckbox {
   /** The checkbox's own words, with the marker and any inline date fields stripped. */
@@ -44,75 +33,63 @@ export interface NoteTaskCheckbox {
   dueAt: number | null
 }
 
-/** Whether the line is a task checkbox at all, and if so its title and any due date. */
+/**
+ * Whether the line is a task checkbox at all, and if so its title and any due date.
+ *
+ * The grammar is the shared one the worker's batch reader also uses (`@shared/todos/note-parse`), so a
+ * line offered from the menu and the same line swept up by the assistant produce the same task. Only
+ * the day's meaning is local here: a due day written without a zone is the reader's own.
+ */
 export function parseNoteTaskCheckbox(line: string): NoteTaskCheckbox | null {
-  const marker = TASK_MARKER.exec(line)
-  if (!marker) return null
-  const markerEnd = marker[0].length
-  const content = line.slice(markerEnd)
+  const checkbox = parseNoteCheckbox(line)
+  if (!checkbox) return null
+  return { title: checkbox.title, dueAt: endOfLocalDay(checkbox.due) }
+}
 
-  // One scan covers the bracketed spellings the vault reads, and the same ranges are then cut out of
-  // the title — a task's words should not carry the field markers they were parsed from. The due date
-  // itself comes from the task parser, so `📅`, `📆` and `[due:: …]` all answer the same question.
-  const fields = extractInlineFields(line)
-  const dueDate = readEitherFormat(content).dueDate
-  const dueAt = dueDate !== null && Number.isFinite(dueDate.getTime())
-    ? new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate(), 23, 59, 59, 999).getTime()
-    : null
-
-  let title = content
-  for (const hit of fields.filter((entry) => entry.wrapping === '[' || entry.wrapping === '(').sort((a, b) => b.start - a.start)) {
-    // Only the bracketed fields that live inside the text after the box, so nothing negative is spliced at.
-    if (hit.start < markerEnd || hit.end <= markerEnd) continue
-    title = `${title.slice(0, hit.start - markerEnd)}${title.slice(hit.end - markerEnd)}`
-  }
-  // The emoji dates are removed as whole tokens rather than by index (see EMOJI_DATE above).
-  title = title.replace(EMOJI_DATE, ' ').replace(/\s+/g, ' ').trim()
-  return { title, dueAt }
+/** The instant a bare `YYYY-MM-DD` ends in the browser's zone, which is what the task list compares against. */
+function endOfLocalDay(day: string | null): number | null {
+  if (!day) return null
+  const [year, month, date] = day.split('-').map(Number)
+  return new Date(year!, month! - 1, date!, 23, 59, 59, 999).getTime()
 }
 
 export interface NoteTaskInput {
   line: string
   noteId: string
-  noteTitle: string
 }
 
-/** The create-task payload for one checkbox, or null when the line is not a task or says nothing. */
-export function buildNoteTaskPayload(input: NoteTaskInput): { title: string, description: string, dueAt: number | null } | null {
+/**
+ * The create-task payload for one checkbox, or null when the line is not a task or says nothing.
+ *
+ * The note travels as `noteId` and nothing else. It used to be spelled out inside the description, which
+ * put a sentence about where a task came from into the field the reader writes notes in; the app reads
+ * the reference and shows its own way back, so the description is left for what the reader has to say.
+ */
+export function buildNoteTaskPayload(input: NoteTaskInput): { title: string, dueAt: number | null, noteId: string } | null {
   const checkbox = parseNoteTaskCheckbox(input.line)
   if (!checkbox || !checkbox.title) return null
   return {
     title: checkbox.title,
-    // The way back to the page this came from. The task list shows `description` as plain text, so the
-    // note's own deep link is spelled out next to its title rather than left as an unclickable wikilink.
-    description: t('assistant.task.from_note', {
-      title: input.noteTitle || t('common.untitled_note'),
-      id: input.noteId,
-    }),
     dueAt: checkbox.dueAt,
+    noteId: input.noteId,
   }
 }
 
 /**
- * Creates the assistant task. One-way by construction: it writes a `chat_tasks` row and reloads the list,
- * and it never touches the note's content, so the checkbox keeps being whatever the note says it is.
+ * Creates the task through the to-do app's own store, and never touches the note.
+ *
+ * One-way by construction: it writes a `todos_tasks` row and the checkbox keeps being whatever the note
+ * says it is. Going through the store rather than the API is what puts the new row in the app's list
+ * without a reload — the reader who made it here from a note should find it already there when they open
+ * the tab.
  */
 export async function createTaskFromNoteCheckbox(input: NoteTaskInput): Promise<boolean> {
   const payload = buildNoteTaskPayload(input)
   if (!payload) return false
-  try {
-    await api.assistant.createTask(payload)
-    await useAssistant.getState().loadTasks()
-    useUi.getState().toast({ title: t('assistant.task.made_from_note'), tone: 'success' })
-    return true
-  } catch (error) {
-    useUi.getState().toast({
-      title: t('assistant.toast.failed'),
-      description: error instanceof Error ? error.message : String(error),
-      tone: 'danger',
-    })
-    return false
-  }
+  const created = await useTodos.getState().createTask(payload)
+  if (!created) return false
+  useUi.getState().toast({ title: t('assistant.task.made_from_note'), tone: 'success' })
+  return true
 }
 
 /**
@@ -129,11 +106,53 @@ export function buildNoteTaskMenuItem(ctx: NoteTaskInput): MenuItem | null {
     id: 'task-to-assistant',
     label: t('contextmenu.task_to_assistant'),
     icon: createElement(CheckSquare, { size: 14 }),
-    onSelect: () => {
-      // The note title is read at press time, not when the menu was built, so a rename while the menu sat
-      // open does not stamp the task with the page's older name.
-      const note = useNotes.getState().notes[ctx.noteId]
-      void createTaskFromNoteCheckbox({ line: ctx.line, noteId: ctx.noteId, noteTitle: note?.title ?? ctx.noteTitle })
-    },
+    onSelect: () => { void createTaskFromNoteCheckbox({ line: ctx.line, noteId: ctx.noteId }) },
   }
+}
+
+/** The longest title a task may take, matching what the server keeps. */
+const MAX_SELECTION_TITLE = 80
+
+/** The longest note a selection carries; the editor's own field is where the reader may extend it. */
+const MAX_SELECTION_NOTE = 2000
+
+/**
+ * The task a piece of a note becomes.
+ *
+ * The first line is the title and the whole selection is the note, because that is how a reader writes:
+ * a line that names the thing, then the detail. Markdown is flattened — a title is drawn on one line of a
+ * card, and a heading's `##` there reads as a typo. Nothing but whitespace yields no task at all.
+ */
+export function buildSelectionTaskPayload(input: { text: string, noteId: string }): {
+  title: string
+  description: string
+  noteId: string
+} | null {
+  const plain = toPlainText(input.text).trim()
+  if (!plain) return null
+  const [first = ''] = plain.split('\n')
+  const title = first.trim().slice(0, MAX_SELECTION_TITLE)
+  if (!title) return null
+  return { title, description: plain.slice(0, MAX_SELECTION_NOTE), noteId: input.noteId }
+}
+
+/**
+ * Keeps the editor's current selection as a task.
+ *
+ * A selection, or the line the caret is on when nothing is selected: "turn what I am looking at into
+ * something to do" is the same intention either way, and refusing the second case would make the button
+ * look broken to a reader who simply had not dragged across the words first.
+ */
+export async function saveSelectionAsTask(): Promise<boolean> {
+  const view = getActiveEditorView()
+  const noteId = useUi.getState().activeNoteId
+  if (!view || !noteId) return false
+  const range = view.state.selection.main
+  const text = range.empty ? view.state.doc.lineAt(range.from).text : view.state.sliceDoc(range.from, range.to)
+  const payload = buildSelectionTaskPayload({ text, noteId })
+  if (!payload) return false
+  const created = await useTodos.getState().createTask(payload)
+  if (!created) return false
+  useUi.getState().toast({ title: t('assistant.task.made_from_note'), tone: 'success' })
+  return true
 }

@@ -452,6 +452,9 @@ export function runNotice(
   switch (status.kind) {
     case 'written':
       return settings.notifications ? { title: status.summary } : null
+    case 'task':
+      // A filed task is a success like a written note, and its summary already names the task.
+      return settings.notifications ? { title: status.summary, tone: 'success' } : null
     case 'empty':
       return settings.notifications ? { title: t('quickadd.ran_empty', { name: choice.name }) } : null
     case 'cancelled':

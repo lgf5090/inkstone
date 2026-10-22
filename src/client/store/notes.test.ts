@@ -206,7 +206,7 @@ it('waits for a write still travelling on that note instead of linking over it',
   withPristineNote('see Example now')
   const realFlush = useNotes.getState().flush
   useNotes.setState({ flush: async () => {} })
-  mocks.queue.push({ id: 'w1', writeId: 'w1', noteId: PRISTINE, payload: {} })
+  mocks.queue.push({ id: 'w1', clientId: 'c', writeId: 'w1', entity: 'note', entityId: PRISTINE, payload: {}, attempts: 0, createdAt: 1 })
   expect(await useNotes.getState().linkMention('01targetnote', PRISTINE)).toBe('error')
   expect(mocks.linkMention).not.toHaveBeenCalled()
   expect(useNotes.getState().contents[PRISTINE]).toBe('see Example now')

@@ -67,7 +67,7 @@ export async function runIdempotent<T>(options: {
       return recovered
     }
     throw ApiError.conflict(
-      'The previous call may still be completing. Read the note before retrying with a new operation_id',
+      'The previous call may still be completing. Read the affected item before retrying with a new operation_id',
       { operationId, startedAt: existing.created_at },
     )
   }

@@ -17,6 +17,7 @@ run_worker_first = [
   "/s/*",
   "/c",
   "/c/*",
+  "/feeds/*",
   "/authorize",
   "/authorize/*",
   "/oauth/*",
@@ -66,7 +67,7 @@ type = "durable-object"
 storage = "sqlite"
 
 [triggers]
-crons = ["0,15,45 * * * *"]
+crons = ["* * * * *"]
 
 [vars]
 APP_NAME = "Inkstone"

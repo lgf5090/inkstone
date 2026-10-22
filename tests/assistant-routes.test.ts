@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
 import { assistantRoutes } from '../src/worker/routes/assistant'
+import { todoRoutes } from '../src/worker/routes/todos'
 import { shareRoutes } from '../src/worker/routes/share'
 import { CredentialVault } from '../src/worker/durable/credential-vault'
 import type { AppBindings, Env } from '../src/worker/env'
@@ -99,6 +100,7 @@ function buildApp(userId: string): Hono<AppBindings> {
     await next()
   })
   instance.route('/api/assistant', assistantRoutes)
+  instance.route('/api/todos', todoRoutes)
   // The public half of the app is mounted here too: a published conversation is read by somebody with
   // no account, so the two halves are one subject from the reader's side.
   instance.route('/api/public', shareRoutes)
@@ -1115,28 +1117,6 @@ describe('memories', () => {
 
   it('rejects an unknown category rather than storing it', async () => {
     expect(await status('POST', '/api/assistant/memories', { content: 'Something', category: 'vibes' })).toBe(400)
-  })
-})
-
-describe('tasks', () => {
-  it('reads a local due date in the reader timezone', async () => {
-    await call('PATCH', '/api/assistant/settings', { timezone: 'Asia/Shanghai' })
-    const created = await call<{ task: Task }>('POST', '/api/assistant/tasks', { title: 'File the return', dueAt: '2026-12-31T23:30' })
-    // 23:30 in UTC+8 is 15:30 UTC the same day.
-    expect(new Date(created.task.dueAt!).toISOString()).toBe('2026-12-31T15:30:00.000Z')
-  })
-
-  it('keeps a completed task out of the open list', async () => {
-    const created = await call<{ task: Task }>('POST', '/api/assistant/tasks', { title: 'Call the plumber' })
-    await call('PATCH', `/api/assistant/tasks/${created.task.id}`, { status: 'done' })
-    const open = await call<{ tasks: Task[] }>('GET', '/api/assistant/tasks?status=open')
-    expect(open.tasks.map((task) => task.id)).not.toContain(created.task.id)
-    const done = await call<{ tasks: Task[] }>('GET', '/api/assistant/tasks?view=completed')
-    expect(done.tasks.map((task) => task.id)).toContain(created.task.id)
-  })
-
-  it('refuses a project that does not exist', async () => {
-    expect(await status('POST', '/api/assistant/tasks', { title: 'x', projectId: '0000000000abcdefghijklmnopqrzz' })).toBe(400)
   })
 })
 
@@ -2685,20 +2665,20 @@ describe('search', () => {
 
   it('searches memories and tasks without qualifying an aliased table', async () => {
     await call('POST', '/api/assistant/memories', { content: '读者住在上海', category: 'place' })
-    await call('POST', '/api/assistant/tasks', { title: '给妈妈打电话' })
+    await call('POST', '/api/todos', { title: '给妈妈打电话' })
     const memories = await call<{ memories: AssistantMemory[] }>('GET', '/api/assistant/memories?q=上海')
     expect(memories.memories).toHaveLength(1)
-    const tasks = await call<{ tasks: Task[] }>('GET', '/api/assistant/tasks?q=妈妈')
+    const tasks = await call<{ tasks: Task[] }>('GET', '/api/todos?q=妈妈')
     expect(tasks.tasks).toHaveLength(1)
     expect(await status('GET', '/api/assistant/memories?q=%25')).toBe(200)
-    expect(await status('GET', '/api/assistant/tasks?q=_')).toBe(200)
+    expect(await status('GET', '/api/todos?q=_')).toBe(200)
   })
 })
 
 describe('backup', () => {
   it('exports and re-imports without inventing a provider', async () => {
     await call('POST', '/api/assistant/memories', { content: 'Prefers morning meetings', category: 'preference' })
-    await call('POST', '/api/assistant/tasks', { title: 'Review the draft' })
+    await call('POST', '/api/todos', { title: 'Review the draft' })
     const payload = await call('GET', '/api/assistant/export') as Record<string, unknown>
     const text = JSON.stringify(payload)
     expect(text).toContain('Prefers morning meetings')
@@ -2863,16 +2843,16 @@ describe('backup', () => {
     const conversation = (await call<{ conversation: AssistantConversation }>(
       'POST', '/api/assistant/conversations', { title: 'Original' },
     )).conversation
-    const task = (await call<{ task: Task }>('POST', '/api/assistant/tasks', { title: 'File it' })).task
+    const task = (await call<{ task: Task }>('POST', '/api/todos', { title: 'File it' })).task
     const payload = await call<Record<string, unknown>>('GET', '/api/assistant/export')
     await call('PATCH', `/api/assistant/conversations/${conversation.id}`, { title: 'Renamed here' })
-    await call('PATCH', `/api/assistant/tasks/${task.id}`, { title: 'Renamed task' })
+    await call('PATCH', `/api/todos/${task.id}`, { title: 'Renamed task' })
 
     // The same file re-imported over the copy it came from: it must merge, not roll back the newer edits.
     await call('POST', '/api/assistant/import', payload)
     const threads = await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations')
     expect(threads.conversations.find((entry) => entry.id === conversation.id)?.title).toBe('Renamed here')
-    const tasks = await call<{ tasks: Task[] }>('GET', '/api/assistant/tasks')
+    const tasks = await call<{ tasks: Task[] }>('GET', '/api/todos')
     expect(tasks.tasks.find((entry) => entry.id === task.id)?.title).toBe('Renamed task')
   })
 

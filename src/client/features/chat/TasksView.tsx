@@ -1,73 +1,54 @@
 /**
- * The assistant's task list.
+ * The chat's view of the to-do list.
  *
- * Three tabs rather than one long list, because the question a reader opens this for is "what is on
- * me today", and a completed task should leave the way without leaving the database.
+ * Not a second task manager. The app owns creating, editing, listing and deleting, and a full copy of
+ * that here would be two interfaces over one table — and the copy that drifts first is always the one
+ * nobody is looking at. So this answers the one question a reader asks from inside a conversation —
+ * "what is on me today" — and hands everything else to the app with one press.
  *
- * The Today tab's set is decided by the *server*: "today" is a span in the reader's timezone, and a
- * browser in another zone would otherwise disagree with the reminder engine about what is overdue.
+ * The set comes from the same store the app uses rather than from a fetch of its own: a task completed
+ * here and a task completed there are the same row, and a second source would show one of them as open.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { CalendarDays, CheckCircle2, Circle, CircleDot, Flag, Plus, Trash2 } from 'lucide-react'
-import type { Task as AssistantTask } from '@shared/assistant'
-import { TASK_PRIORITIES, TASK_STATUSES } from '@shared/assistant'
+import { ArrowRight, CalendarDays, CheckCircle2, Circle, Plus } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
-import { formatDue } from './time-format'
+import { navigateToPath } from '../../lib/app-history'
 import { Badge, Button } from '../../components/primitives'
-import { Field, Input, Segmented, Select, Textarea } from '../../components/form'
-import { DatePicker } from '../../components/date-picker'
-import { Modal, confirm } from '../../components/overlay'
+import { Input } from '../../components/form'
 import { Empty } from '../../components/feedback'
 import { AssistantHeader } from './AssistantHeader'
-import { useAssistant } from './assistant-store'
+import { useTodos } from '../todos/store'
 
-const TABS = [
-  { value: 'today', label: 'assistant.tasks.today' },
-  { value: 'upcoming', label: 'assistant.tasks.upcoming' },
-  { value: 'completed', label: 'assistant.tasks.completed' },
-] as const
-
-const PRIORITY_LABELS: Record<string, () => string> = {
-  low: () => t('assistant.tasks.priority.low'),
-  medium: () => t('assistant.tasks.priority.medium'),
-  high: () => t('assistant.tasks.priority.high'),
-  urgent: () => t('assistant.tasks.priority.urgent'),
-}
-
-const STATUS_LABELS: Record<string, () => string> = {
-  todo: () => t('assistant.tasks.status.todo'),
-  in_progress: () => t('assistant.tasks.status.in_progress'),
-  done: () => t('assistant.tasks.status.done'),
-}
+/** How many rows the glance shows before it stops being a glance. */
+const MAX_ROWS = 8
 
 export function TasksView() {
-  const tasks = useAssistant((state) => state.tasks)
-  const tab = useAssistant((state) => state.taskTab)
-  const setTab = useAssistant((state) => state.setTaskTab)
-  const loadTasks = useAssistant((state) => state.loadTasks)
-  const addTask = useAssistant((state) => state.addTask)
-  const toggleTask = useAssistant((state) => state.toggleTask)
-  const timezone = useAssistant((state) => state.settings?.timezone)
+  const status = useTodos((state) => state.status)
+  const tasks = useTodos((state) => state.tasks)
+  const counts = useTodos((state) => state.counts)
+  const dayEnd = useTodos((state) => state.dayEnd)
+  const timezone = useTodos((state) => state.timezone)
+  const load = useTodos((state) => state.load)
+  const createTask = useTodos((state) => state.createTask)
+  const toggleTask = useTodos((state) => state.toggleTask)
   const [quick, setQuick] = useState('')
-  const [editing, setEditing] = useState<AssistantTask | null>(null)
 
   useEffect(() => {
-    void loadTasks()
-  }, [loadTasks])
+    if (useTodos.getState().status === 'idle') void load()
+  }, [load])
 
-  const sections = useMemo(() => {
-    const todayEnd = endOfTodayLocalMs()
-    const open = tasks.filter((task) => task.status !== 'done')
-    return {
-      today: open.filter((task) => (task.dueAt !== null && task.dueAt <= todayEnd) || (task.dueAt === null && task.status === 'in_progress')),
-      upcoming: open.filter((task) => !((task.dueAt !== null && task.dueAt <= todayEnd) || (task.dueAt === null && task.status === 'in_progress'))),
-      completed: tasks.filter((task) => task.status === 'done'),
-      all: tasks,
-    }
-  }, [tasks])
+  // Due today or already late: both are "on me today", and the server's own `today` view counts them
+  // the same way, so the number here matches the badge in the app.
+  const today = useMemo(() => {
+    if (!dayEnd) return []
+    return tasks
+      .filter((task) => task.status !== 'done' && task.dueAt !== null && task.dueAt <= dayEnd)
+      .sort((left, right) => (left.dueAt ?? 0) - (right.dueAt ?? 0))
+  }, [tasks, dayEnd])
 
-  const list = sections[tab]
+  const shown = today.slice(0, MAX_ROWS)
+  const rest = today.length - shown.length
   const now = Date.now()
 
   return (
@@ -75,226 +56,104 @@ export function TasksView() {
       <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 py-5 md:px-8">
         <AssistantHeader title={t('assistant.tasks.title')} description={t('assistant.tasks.description')} />
 
-        <Segmented
-          size="sm"
-          // A column stretches its children; the filter is a row of its own size, as it is on the pages
-          // beside this one, rather than a bar the width of the list under it.
-          className="self-start"
-          label={t('assistant.tasks.filter_label')}
-          value={tab}
-          onChange={setTab}
-          options={TABS.map((entry) => ({ value: entry.value, label: `${t(entry.label)} ${sections[entry.value].length}` }))}
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge tone={today.length ? 'accent' : 'neutral'}>{t('todo.chat.today_count', { count: today.length })}</Badge>
+          {counts && counts.overdue > 0 && <Badge tone="danger">{t('todo.chat.overdue_count', { count: counts.overdue })}</Badge>}
+          <Button variant="ghost" size="sm" className="ml-auto" onClick={() => navigateToPath('/todo')}>
+            {t('todo.action.open_todo')}
+            <ArrowRight size={13} />
+          </Button>
+        </div>
 
-        {tab !== 'completed' && (
-          <form
-            className="flex gap-2"
-            onSubmit={(event) => {
-              event.preventDefault()
-              if (!quick.trim()) return
-              void addTask(quick.trim())
-              setQuick('')
-            }}
-          >
-            <Input
-              value={quick}
-              onChange={(event) => setQuick(event.target.value)}
-              placeholder={tab === 'today' ? t('assistant.tasks.add_today') : t('assistant.tasks.add')}
-              maxLength={300}
-              aria-label={t('assistant.tasks.add')}
-              className="h-8 flex-1 text-[length:var(--text-12-5)]"
-            />
-            <Button type="submit" size="sm" variant="primary" icon={<Plus size={14} />} disabled={!quick.trim()} aria-label={t('assistant.tasks.add')}>
-              {t('assistant.tasks.add_short')}
-            </Button>
-          </form>
+        <form
+          className="flex gap-2"
+          onSubmit={(event) => {
+            event.preventDefault()
+            const title = quick.trim()
+            if (!title) return
+            void createTask({ title, dueAt: todayValue() })
+            setQuick('')
+          }}
+        >
+          <Input
+            value={quick}
+            onChange={(event) => setQuick(event.target.value)}
+            placeholder={t('todo.chat.quick_add')}
+            maxLength={300}
+            aria-label={t('todo.chat.quick_add')}
+            className="h-8 flex-1 text-[length:var(--text-12-5)]"
+          />
+          <Button type="submit" size="sm" variant="primary" icon={<Plus size={14} />} disabled={!quick.trim()}>
+            {t('todo.action.add_task')}
+          </Button>
+        </form>
+
+        {status === 'loading' && !tasks.length && (
+          <p className="text-[length:var(--text-12-5)] text-[var(--text-quaternary)]">{t('todo.chat.loading')}</p>
         )}
 
-        {!list.length ? (
-          <Empty
-            art="notes"
-            title={tab === 'completed' ? t('assistant.tasks.empty_done') : t('assistant.tasks.empty_clear')}
-            description={tab === 'today' ? t('assistant.tasks.empty_today') : tab === 'upcoming' ? t('assistant.tasks.empty_upcoming') : t('assistant.tasks.empty_done_hint')}
-          />
-        ) : (
+        {status !== 'loading' && !today.length && (
+          <Empty art="notes" title={t('todo.chat.empty')} description={t('todo.chat.empty_hint')} />
+        )}
+
+        {shown.length > 0 && (
           <ul className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
-            {list.map((task) => {
-              const overdue = task.status !== 'done' && task.dueAt !== null && task.dueAt < now
+            {shown.map((task) => {
+              const overdue = task.dueAt !== null && task.dueAt < now
               return (
                 <li key={task.id} className="flex items-start gap-2.5 border-b border-[var(--border-subtle)] px-3 py-2 last:border-b-0 hover:bg-[var(--bg-hover)]">
                   <button
                     type="button"
                     onClick={() => void toggleTask(task)}
-                    aria-label={task.status === 'done' ? t('assistant.tasks.uncomplete') : t('assistant.tasks.complete')}
-                    className="mt-0.5 shrink-0 text-[var(--text-tertiary)] transition-colors hover:text-[var(--accent)]"
+                    aria-label={t('todo.a11y.mark_done', { title: task.title })}
+                    className="ink-tap-pad mt-0.5 shrink-0 text-[var(--text-tertiary)] transition-colors hover:text-[var(--accent)]"
                   >
-                    {task.status === 'done'
-                      ? <CheckCircle2 size={16} className="text-[var(--accent)]" />
-                      : task.status === 'in_progress'
-                        ? <CircleDot size={16} />
-                        : <Circle size={16} />}
+                    {task.status === 'done' ? <CheckCircle2 size={16} className="text-[var(--accent)]" /> : <Circle size={16} />}
                   </button>
-                  <button type="button" onClick={() => setEditing(task)} className="min-w-0 flex-1 text-left">
-                    <p className={cn('text-[length:var(--text-13)] leading-relaxed', task.status === 'done' ? 'text-[var(--text-quaternary)] line-through' : 'text-[var(--text-primary)]')}>
-                      {task.title}
-                    </p>
-                    {(task.dueAt !== null || task.description) && (
-                      <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
-                        {task.dueAt !== null && (
-                          <span className={cn('inline-flex items-center gap-1', overdue && 'font-medium text-[var(--danger)]')}>
-                            <CalendarDays size={11} />
-                            {overdue && `${t('assistant.tasks.overdue')} · `}
-                            {formatDue(task.dueAt, timezone)}
-                          </span>
-                        )}
-                        {task.description && <span className="max-w-[22rem] truncate">{task.description}</span>}
-                      </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[length:var(--text-13)] leading-relaxed text-[var(--text-primary)]">{task.title}</p>
+                    {task.dueAt !== null && (
+                      <span className={cn(
+                        'mt-0.5 inline-flex items-center gap-1 text-[length:var(--text-11)]',
+                        overdue ? 'font-medium text-[var(--danger)]' : 'text-[var(--text-quaternary)]',
+                      )}>
+                        <CalendarDays size={11} />
+                        {overdue ? t('todo.a11y.overdue') : formatWhen(task.dueAt, dayEnd, timezone)}
+                      </span>
                     )}
-                  </button>
-                  {(task.priority === 'high' || task.priority === 'urgent') && task.status !== 'done' && (
-                    <Badge
-                      tone={task.priority === 'urgent' ? 'danger' : 'warning'}
-                      className="mt-0.5 shrink-0 gap-1"
-                    >
-                      <Flag size={9} />
-                      {PRIORITY_LABELS[task.priority]?.()}
-                    </Badge>
-                  )}
+                  </div>
                 </li>
               )
             })}
           </ul>
         )}
-      </div>
 
-      <TaskEditor task={editing} onClose={() => setEditing(null)} timezone={timezone} />
+        {rest > 0 && (
+          <button
+            type="button"
+            onClick={() => navigateToPath('/todo')}
+            className="self-start text-[length:var(--text-12-5)] text-[var(--accent)] hover:underline"
+          >
+            {t('todo.chat.more', { count: rest })}
+          </button>
+        )}
+      </div>
     </div>
   )
 }
 
-function TaskEditor({ task, onClose, timezone }: { task: AssistantTask | null, onClose: () => void, timezone?: string }) {
-  const updateTask = useAssistant((state) => state.updateTask)
-  const removeTask = useAssistant((state) => state.removeTask)
-  const projects = useAssistant((state) => state.projects)
-  const loadProjects = useAssistant((state) => state.loadProjects)
-  const [form, setForm] = useState({ title: '', description: '', priority: 'medium', status: 'todo', due: '', projectId: '' })
-
-  useEffect(() => {
-    void loadProjects()
-  }, [loadProjects])
-
-  useEffect(() => {
-    if (!task) return
-    setForm({
-      title: task.title,
-      description: task.description,
-      priority: task.priority,
-      status: task.status,
-      due: task.dueAt === null ? '' : toLocalInput(task.dueAt),
-      projectId: task.projectId ?? '',
-    })
-  }, [task])
-
-  return (
-    <Modal
-      open={!!task}
-      onClose={onClose}
-      title={t('assistant.tasks.edit')}
-      width={480}
-      footer={(
-        <div className="flex w-full items-center justify-between gap-2">
-          <Button
-            variant="ghost"
-            className="text-[var(--danger)]"
-            icon={<Trash2 size={14} />}
-            onClick={() => {
-              if (!task) return
-              void confirm({
-                title: t('assistant.tasks.delete'),
-                description: t('assistant.tasks.delete_hint', { title: task.title }),
-                confirmLabel: t('assistant.tasks.delete'),
-                tone: 'danger',
-              }).then((yes) => {
-                if (yes) {
-                  void removeTask(task.id)
-                  onClose()
-                }
-              })
-            }}
-          >
-            {t('assistant.tasks.delete')}
-          </Button>
-          <div className="flex gap-2">
-            <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
-            <Button
-              disabled={!form.title.trim()}
-              onClick={() => {
-                if (!task) return
-                void updateTask(task.id, {
-                  title: form.title.trim(),
-                  description: form.description,
-                  status: form.status,
-                  priority: form.priority,
-                  dueAt: form.due ? localInputToMs(form.due) : null,
-                  projectId: form.projectId || null,
-                })
-                onClose()
-              }}
-            >
-              {t('common.save')}
-            </Button>
-          </div>
-        </div>
-      )}
-    >
-      <div className="flex flex-col gap-3">
-        <Field label={t('assistant.tasks.title_label')}>
-          <Input value={form.title} maxLength={300} onChange={(event) => setForm({ ...form, title: event.target.value })} />
-        </Field>
-        <Field label={t('assistant.tasks.notes_label')}>
-          <Textarea rows={3} value={form.description} maxLength={10_000} onChange={(event) => setForm({ ...form, description: event.target.value })} />
-        </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label={t('assistant.tasks.status_label')}>
-            <Select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>
-              {TASK_STATUSES.map((entry) => <option key={entry} value={entry}>{STATUS_LABELS[entry]?.()}</option>)}
-            </Select>
-          </Field>
-          <Field label={t('assistant.tasks.priority_label')}>
-            <Select value={form.priority} onChange={(event) => setForm({ ...form, priority: event.target.value })}>
-              {TASK_PRIORITIES.map((entry) => <option key={entry} value={entry}>{PRIORITY_LABELS[entry]?.()}</option>)}
-            </Select>
-          </Field>
-        </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label={t('assistant.tasks.due_label')} hint={timezone}>
-            <DatePicker withTime label={t('assistant.tasks.due_label')} value={form.due} onChange={(due) => setForm({ ...form, due })} />
-          </Field>
-          <Field label={t('assistant.tasks.project_label')} hint={t('assistant.tasks.project_optional')}>
-            <Select value={form.projectId} onChange={(event) => setForm({ ...form, projectId: event.target.value })}>
-              <option value="">{t('assistant.tasks.project_none')}</option>
-              {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
-            </Select>
-          </Field>
-        </div>
-      </div>
-    </Modal>
-  )
-}
-
-/** End of the reader's local day, in the same milliseconds the server compares against. */
-function endOfTodayLocalMs(): number {
+/** Today as the reader's own date, which is the form the server reads in their timezone. */
+function todayValue(): string {
   const now = new Date()
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999).getTime()
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
 }
 
-function toLocalInput(ms: number): string {
-  const date = new Date(ms)
-  const pad = (value: number) => String(value).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
-}
-
-function localInputToMs(value: string): number {
-  const parsed = Date.parse(`${value}:00`)
-  return Number.isFinite(parsed) ? parsed : Date.now()
+/** Today, or a date — a due date is read at a glance, so the day it is already on is left out. */
+function formatWhen(dueAt: number, dayEnd: number, timezone: string): string {
+  const due = new Date(dueAt)
+  const end = new Date(dayEnd)
+  const sameDay = due.getFullYear() === end.getFullYear() && due.getMonth() === end.getMonth() && due.getDate() === end.getDate()
+  if (sameDay) return t('todo.chat.due_today')
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', timeZone: timezone }).format(due)
 }

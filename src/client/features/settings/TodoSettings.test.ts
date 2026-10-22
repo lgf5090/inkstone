@@ -1,0 +1,317 @@
+import { act, createElement } from 'react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { AssistantSettings, Automation } from '@shared/assistant'
+import { computeNextRun } from '@shared/assistant-schedule'
+import { DEFAULT_SETTINGS, mergeSettings, mergeSettingsPatch } from '@shared/constants'
+import { initI18n, t } from '../../lib/i18n'
+import { ApiError } from '../../lib/api'
+import { renderElement, type RenderedElement } from '../../lib/test-render'
+import { useSession } from '../../store/session'
+import { TodoSettings } from './TodoSettings'
+
+/**
+ * The daily-plan row.
+ *
+ * It is a view onto the assistant's own `task_digest` automation, so what these cases pin is the wire,
+ * not a second scheduler: turning the switch on creates one daily routine (or resumes the one that is
+ * already there), turning it off pauses it, and a new time is written as a `daily` schedule. The last
+ * case is the one a settings panel most easily gets wrong: a failed read must not leave an enabled-looking
+ * switch that would create a duplicate routine on the next press.
+ */
+
+const {
+  settingsMock,
+  saveSettingsMock,
+  automationsMock,
+  createMock,
+  updateMock,
+  feedListMock,
+  importCsvMock,
+  updateSettingsMock,
+} = vi.hoisted(() => ({
+  settingsMock: vi.fn(),
+  saveSettingsMock: vi.fn(),
+  automationsMock: vi.fn(),
+  createMock: vi.fn(),
+  updateMock: vi.fn(),
+  feedListMock: vi.fn(),
+  importCsvMock: vi.fn(),
+  updateSettingsMock: vi.fn(),
+}))
+
+vi.mock('../../lib/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/api')>()
+  return {
+    ...actual,
+    api: {
+      assistant: {
+        settings: settingsMock,
+        saveSettings: saveSettingsMock,
+        automations: automationsMock,
+        createAutomation: createMock,
+        updateAutomation: updateMock,
+      },
+      // The calendar block loads with the page; a case about the plan row must not trip over it.
+      todos: { feed: { list: feedListMock, create: vi.fn(), remove: vi.fn() }, importCsv: importCsvMock },
+    },
+  }
+})
+
+const TIMEZONE = 'Asia/Shanghai'
+const initialSession = useSession.getState()
+let view: RenderedElement | null = null
+
+function automation(over: Partial<Automation> = {}): Automation {
+  return {
+    id: 'auto-1',
+    name: 'Daily plan',
+    kind: 'task_digest',
+    message: '',
+    schedule: { type: 'daily', time: '09:00' },
+    enabled: true,
+    status: 'scheduled',
+    nextRun: Date.now() + 3_600_000,
+    lastRun: null,
+    lastResult: null,
+    lastError: null,
+    runCount: 0,
+    targetFolderId: null,
+    targetNoteId: null,
+    createdAt: 1,
+    updatedAt: 1,
+    ...over,
+  }
+}
+
+/** Let every promise the row started settle, so the assertions read the finished screen. */
+async function settle(): Promise<void> {
+  await act(async () => {
+    for (let turn = 0; turn < 8; turn++) await Promise.resolve()
+  })
+}
+
+async function render(): Promise<void> {
+  view = renderElement(createElement(TodoSettings))
+  await settle()
+}
+
+function switchControl(): HTMLButtonElement {
+  const node = view?.container.querySelector<HTMLButtonElement>('[role="switch"]')
+  if (!node) throw new Error('the daily-plan switch is not rendered')
+  return node
+}
+
+function timeInput(): HTMLInputElement {
+  const node = view?.container.querySelector<HTMLInputElement>('input[type="time"]')
+  if (!node) throw new Error('the daily-plan time is not rendered')
+  return node
+}
+
+function goalField(label: string): HTMLInputElement {
+  const node = view?.container.querySelector<HTMLInputElement>(`input[type="number"][aria-label="${label}"]`)
+  if (!node) throw new Error(`the ${label} field is not rendered`)
+  return node
+}
+
+/** Hand a value to the field the way typing would, and let the row's state land. */
+async function enterGoal(label: string, value: string): Promise<void> {
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(goalField(label), value)
+    goalField(label).dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await settle()
+}
+
+async function toggle(): Promise<void> {
+  await act(async () => {
+    switchControl().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+  })
+  await settle()
+}
+
+async function chooseTime(value: string): Promise<void> {
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(timeInput(), value)
+    timeInput().dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await settle()
+}
+
+beforeEach(async () => {
+  localStorage.clear()
+  await initI18n()
+  settingsMock.mockReset().mockResolvedValue({ settings: { timezone: TIMEZONE } as AssistantSettings })
+  saveSettingsMock.mockReset().mockResolvedValue({ settings: { timezone: TIMEZONE } as AssistantSettings })
+  automationsMock.mockReset().mockResolvedValue({ automations: [], runs: [], timezone: TIMEZONE })
+  createMock.mockReset().mockImplementation(async (body: Partial<Automation>) => ({ automation: automation(body) }))
+  updateMock.mockReset().mockImplementation(async (id: string, body: Partial<Automation>) => ({
+    automation: automation({ id, ...body }),
+  }))
+  feedListMock.mockReset().mockResolvedValue({ feeds: [] })
+  updateSettingsMock.mockReset()
+  useSession.setState({
+    settings: DEFAULT_SETTINGS,
+    updateSettings: updateSettingsMock,
+  })
+})
+
+afterEach(() => {
+  view?.unmount()
+  view = null
+  useSession.setState(initialSession)
+})
+
+describe('the daily-plan row', () => {
+  it('creates one daily routine when the switch is turned on, and pauses it when turned off', async () => {
+    await render()
+    expect(switchControl().getAttribute('aria-checked')).toBe('false')
+
+    await toggle()
+    expect(createMock).toHaveBeenCalledTimes(1)
+    expect(createMock).toHaveBeenCalledWith({
+      name: t('settings.todo_digest'),
+      kind: 'task_digest',
+      message: '',
+      schedule: { type: 'daily', time: '09:00' },
+      enabled: true,
+    })
+    expect(switchControl().getAttribute('aria-checked')).toBe('true')
+
+    await toggle()
+    expect(updateMock).toHaveBeenCalledWith('auto-1', { enabled: false })
+    expect(switchControl().getAttribute('aria-checked')).toBe('false')
+  })
+
+  it('resumes the routine that is already there instead of creating a second one', async () => {
+    automationsMock.mockResolvedValue({
+      automations: [automation({ enabled: false, status: 'paused', nextRun: null })],
+      runs: [],
+      timezone: TIMEZONE,
+    })
+    await render()
+    expect(switchControl().getAttribute('aria-checked')).toBe('false')
+
+    await toggle()
+    expect(updateMock).toHaveBeenCalledWith('auto-1', { enabled: true })
+    expect(createMock).not.toHaveBeenCalled()
+    expect(switchControl().getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('writes a new time as a daily schedule the account zone can arm at 21:30', async () => {
+    automationsMock.mockResolvedValue({ automations: [automation()], runs: [], timezone: TIMEZONE })
+    await render()
+    expect(timeInput().value).toBe('09:00')
+
+    await chooseTime('21:30')
+    expect(updateMock).toHaveBeenCalledWith('auto-1', { schedule: { type: 'daily', time: '21:30' } })
+    expect(timeInput().value).toBe('21:30')
+
+    // The schedule the row wrote is the one the sweep reads: 21:30 in Shanghai is 13:30 UTC.
+    const next = computeNextRun({ type: 'daily', time: '21:30' }, TIMEZONE, new Date('2026-10-20T00:00:00.000Z'))
+    expect(next?.toISOString()).toBe('2026-10-20T13:30:00.000Z')
+  })
+
+  it('says why it cannot read or write, and keeps the switch from creating a duplicate', async () => {
+    automationsMock.mockRejectedValue(new ApiError(403, 'forbidden', 'The to-do app is not enabled for this account.'))
+    await render()
+
+    expect(view?.container.textContent).toContain(t('api.error.forbidden'))
+    expect(switchControl().disabled).toBe(true)
+    expect(timeInput().disabled).toBe(true)
+    expect(createMock).not.toHaveBeenCalled()
+
+    // The retry reads again; once it answers, the row is usable rather than stuck in its refusal.
+    automationsMock.mockResolvedValue({ automations: [], runs: [], timezone: TIMEZONE })
+    const retry = [...(view?.container.querySelectorAll<HTMLButtonElement>('button') ?? [])]
+      .find((button) => button.textContent === t('common.retry'))
+    expect(retry).toBeTruthy()
+    await act(async () => {
+      retry?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    })
+    await settle()
+    expect(switchControl().disabled).toBe(false)
+    expect(view?.container.textContent).not.toContain(t('api.error.forbidden'))
+  })
+
+  it('reports a refused create and leaves the switch off', async () => {
+    createMock.mockRejectedValue(new ApiError(403, 'forbidden', 'The assistant is not available for this account.'))
+    await render()
+
+    await toggle()
+    expect(view?.container.textContent).toContain(t('api.error.forbidden'))
+    expect(switchControl().getAttribute('aria-checked')).toBe('false')
+  })
+
+  it('hands the chosen file and the duplicate rule to the import endpoint', async () => {
+    importCsvMock.mockResolvedValue({ created: 2, updated: 1, skipped: 3, missingLists: 0, errors: [] })
+    await render()
+
+    const input = view?.container.querySelector<HTMLInputElement>('input[type="file"]')
+    expect(input, 'the import row never drew a file input').toBeTruthy()
+    const file = new File(['title\nBuy milk'], 'tasks.csv', { type: 'text/csv' })
+    // jsdom has no picker, so the selection is handed to the field the way the browser would.
+    Object.defineProperty(input!, 'files', { value: [file], configurable: true })
+    await act(async () => { input!.dispatchEvent(new Event('change', { bubbles: true })) })
+
+    const button = [...(view?.container.querySelectorAll('button') ?? [])]
+      .find((node) => node.textContent?.trim() === t('settings.todo_import_action'))
+    expect(button, 'the row has no way to start the import').toBeTruthy()
+    await act(async () => { button!.click() })
+    await settle()
+
+    expect(importCsvMock).toHaveBeenCalledWith(file, 'skip')
+    expect(view?.container.textContent).toContain(t('settings.todo_import_result', { created: 2, updated: 1, skipped: 3 }))
+  })
+})
+
+describe('the stored goals', () => {
+  it('keeps a goal inside the range and reads zero, a negative number and an empty field as none', () => {
+    expect(mergeSettings({ todo: { dailyGoal: 3, weeklyGoal: 12 } }).todo)
+      .toMatchObject({ dailyGoal: 3, weeklyGoal: 12 })
+    expect(mergeSettings({ todo: { dailyGoal: 0, weeklyGoal: -4 } }).todo)
+      .toMatchObject({ dailyGoal: null, weeklyGoal: null })
+    expect(mergeSettings({ todo: { dailyGoal: null, weeklyGoal: undefined } }).todo)
+      .toMatchObject({ dailyGoal: null, weeklyGoal: null })
+    // A field the reader left empty arrives as an empty string, not as a number.
+    expect(mergeSettings({ todo: { dailyGoal: '', weeklyGoal: '8' } }).todo)
+      .toMatchObject({ dailyGoal: null, weeklyGoal: null })
+  })
+
+  it('caps a goal at the field ceiling and rounds a fraction to a whole task', () => {
+    expect(mergeSettings({ todo: { dailyGoal: 1200, weeklyGoal: 999.6 } }).todo)
+      .toMatchObject({ dailyGoal: 999, weeklyGoal: 999 })
+    expect(mergeSettings({ todo: { dailyGoal: 2.6 } }).todo.dailyGoal).toBe(3)
+  })
+
+  it('merges a patch into the stored goals and lets a later patch turn one off', () => {
+    const stored = mergeSettings({ todo: { dailyGoal: 4, weeklyGoal: 20 } })
+    const patched = mergeSettingsPatch(stored, { todo: { dailyGoal: 6 } })
+    expect(patched.todo).toMatchObject({ dailyGoal: 6, weeklyGoal: 20 })
+    const off = mergeSettingsPatch(patched, { todo: { dailyGoal: 0 } })
+    expect(off.todo).toMatchObject({ dailyGoal: null, weeklyGoal: 20 })
+  })
+})
+
+describe('the goal rows', () => {
+  it('saves each whole count through the account settings and turns a goal off when its field is emptied', async () => {
+    await render()
+    expect([goalField(t('todo.goal.daily')).min, goalField(t('todo.goal.daily')).max]).toEqual(['0', '999'])
+    expect([goalField(t('todo.goal.weekly')).min, goalField(t('todo.goal.weekly')).max]).toEqual(['0', '999'])
+
+    await enterGoal(t('todo.goal.daily'), '3')
+    expect(updateSettingsMock).toHaveBeenLastCalledWith({ todo: { dailyGoal: 3 } })
+    await enterGoal(t('todo.goal.weekly'), '12')
+    expect(updateSettingsMock).toHaveBeenLastCalledWith({ todo: { weeklyGoal: 12 } })
+
+    await enterGoal(t('todo.goal.daily'), '')
+    expect(updateSettingsMock).toHaveBeenLastCalledWith({ todo: { dailyGoal: null } })
+  })
+
+  it('holds a typed count to the ceiling the settings merge applies', async () => {
+    await render()
+    await enterGoal(t('todo.goal.weekly'), '1200')
+    expect(updateSettingsMock).toHaveBeenLastCalledWith({ todo: { weeklyGoal: 999 } })
+    await enterGoal(t('todo.goal.daily'), '-3')
+    expect(updateSettingsMock).toHaveBeenLastCalledWith({ todo: { dailyGoal: null } })
+  })
+})

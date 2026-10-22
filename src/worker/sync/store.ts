@@ -14,7 +14,9 @@
  */
 
 import { LIMITS } from '@shared/constants'
+import type { TaskPriority, TaskStatus } from '@shared/assistant'
 import type { SyncResponse } from '@shared/types'
+import { parseRepeatRule, type TaskTag, type TodoTask } from '@shared/todos/model'
 import {
   NOTE_COLUMNS_NOTAGS,
   attachNoteTags,
@@ -41,6 +43,56 @@ export interface SyncChangeRow {
   entity: string
   entity_id: string
   op: string
+}
+
+/**
+ * The task columns the sync delta reads.
+ *
+ * Deliberately the row, not a `TodoTask`: the delta's clock is `updated_at`, and a tombstoned row
+ * (`deleted_at` set) is the only way this read learns a task was removed. The mapping into the
+ * shared task shape happens below, with tags, steps and reminders attached once per page.
+ */
+interface TodoSyncRow {
+  id: string
+  title: string
+  description: string
+  status: string
+  priority: string
+  due_at: number | null
+  project_id: string | null
+  list_id: string | null
+  /** The task's own icon, or null while it wears its list's. */
+  icon: string | null
+  /** The task's own colour, or null while it wears its list's. */
+  color: string | null
+  starred: number
+  repeat_rule: string | null
+  note_id: string | null
+  conversation_id: string | null
+  planned_for: string | null
+  created_at: number
+  updated_at: number
+  completed_at: number | null
+  rev: number
+  deleted_at: number | null
+}
+
+const TODO_SYNC_COLUMNS = `id, title, description, status, priority, due_at, project_id, list_id, icon, color, starred,
+  repeat_rule, note_id, conversation_id, planned_for, created_at, updated_at, completed_at, rev, deleted_at`
+
+interface TodoTagSyncRow {
+  task_id: string
+  id: string
+  name: string
+  color: string | null
+  created_at: number
+  updated_at: number
+}
+
+export interface TodoSyncPage {
+  todos: TodoTask[]
+  deleted: string[]
+  cursor: number
 }
 
 export class SyncStore {
@@ -180,6 +232,149 @@ export class SyncStore {
   }
 
   /**
+   * The task delta: every row written after `since`, tombstones included.
+   *
+   * The cursor is the newest `updated_at` on the page rather than the change sequence: task writes do
+   * not record change rows, and their own write stamp is the only ordering they share. A deleted task
+   * keeps its row (`deleted_at`), which is what makes a deletion observable here at all. Purges are
+   * the one removal this stream cannot see; a purge is an explicit second gesture from the trash and
+   * the next full snapshot settles it.
+   */
+  async todosDelta(since: number): Promise<TodoSyncPage> {
+    const { results } = await this.db
+      .prepare(
+        `SELECT ${TODO_SYNC_COLUMNS} FROM todos_tasks
+          WHERE user_id = ?1 AND updated_at > ?2
+          ORDER BY updated_at ASC, id ASC`,
+      )
+      .bind(this.userId, since)
+      .all<TodoSyncRow>()
+    const rows = results ?? []
+    const cursor = rows.reduce((newest, row) => Math.max(newest, row.updated_at), since)
+    const deleted = rows.filter((row) => row.deleted_at !== null).map((row) => row.id)
+    const live = rows.filter((row) => row.deleted_at === null)
+    return { todos: await this.todosWithDetails(live), deleted, cursor }
+  }
+
+  /**
+   * Every live task, for the first sync after a fresh install or a cleared cache.
+   *
+   * The cursor starts at the later of the newest row and the server clock, so a task written while
+   * this response is in flight is picked up by the next delta rather than waiting for a full sync.
+   */
+  async todosSnapshot(): Promise<TodoSyncPage> {
+    const { results } = await this.db
+      .prepare(
+        `SELECT ${TODO_SYNC_COLUMNS} FROM todos_tasks
+          WHERE user_id = ?1 AND deleted_at IS NULL
+          ORDER BY updated_at ASC, id ASC`,
+      )
+      .bind(this.userId)
+      .all<TodoSyncRow>()
+    const rows = results ?? []
+    const newest = rows.reduce((max, row) => Math.max(max, row.updated_at), 0)
+    return { todos: await this.todosWithDetails(rows), deleted: [], cursor: Math.max(newest, Date.now()) }
+  }
+
+  /** Tags, step counts and pending reminders for one page of tasks, one query each. */
+  private async todosWithDetails(rows: TodoSyncRow[]): Promise<TodoTask[]> {
+    if (!rows.length) return []
+    const ids = rows.map((row) => row.id)
+    const chunks = chunkIds(ids)
+    const [tagPages, stepPages, reminderPages] = await Promise.all([
+      Promise.all(chunks.map((chunk) => this.db
+        .prepare(
+          `SELECT l.task_id, t.id, t.name, t.color, t.created_at, t.updated_at
+             FROM todos_tag_links l
+             JOIN todos_tags t ON t.user_id = l.user_id AND t.id = l.tag_id
+            WHERE l.user_id = ?1 AND l.task_id IN (${placeholders(chunk.length, 2)})
+            ORDER BY t.name COLLATE NOCASE`,
+        )
+        .bind(this.userId, ...chunk)
+        .all<TodoTagSyncRow>())),
+      Promise.all(chunks.map((chunk) => this.db
+        .prepare(
+          `SELECT task_id, COUNT(*) AS total,
+                  SUM(CASE WHEN done = 1 THEN 1 ELSE 0 END) AS done
+             FROM todos_steps
+            WHERE user_id = ?1 AND task_id IN (${placeholders(chunk.length, 2)})
+            GROUP BY task_id`,
+        )
+        .bind(this.userId, ...chunk)
+        .all<{ task_id: string; total: number; done: number | null }>())),
+      Promise.all(chunks.map((chunk) => this.db
+        .prepare(
+          `SELECT task_id, remind_at FROM todos_reminders
+            WHERE user_id = ?1 AND fired_at IS NULL
+              AND task_id IN (${placeholders(chunk.length, 2)})
+            ORDER BY remind_at ASC`,
+        )
+        .bind(this.userId, ...chunk)
+        .all<{ task_id: string; remind_at: number }>())),
+    ])
+    const tags = new Map<string, TaskTag[]>()
+    for (const page of tagPages) {
+      for (const row of page.results ?? []) {
+        const bucket = tags.get(row.task_id) ?? []
+        bucket.push({
+          id: row.id,
+          name: row.name,
+          color: row.color,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          openCount: 0,
+        })
+        tags.set(row.task_id, bucket)
+      }
+    }
+    const steps = new Map<string, { total: number; done: number }>()
+    for (const page of stepPages) {
+      for (const row of page.results ?? [])
+        steps.set(row.task_id, { total: row.total, done: row.done ?? 0 })
+    }
+    const reminders = new Map<string, number[]>()
+    for (const page of reminderPages) {
+      for (const row of page.results ?? []) {
+        const bucket = reminders.get(row.task_id) ?? []
+        bucket.push(row.remind_at)
+        reminders.set(row.task_id, bucket)
+      }
+    }
+    return rows.map((row) => {
+      const pending = reminders.get(row.id) ?? []
+      const step = steps.get(row.id)
+      return {
+        id: row.id,
+        title: row.title,
+        description: row.description ?? '',
+        status: taskStatus(row.status),
+        priority: taskPriority(row.priority),
+        dueAt: row.due_at,
+        projectId: row.project_id,
+        listId: row.list_id,
+        icon: row.icon,
+        color: row.color,
+        tags: tags.get(row.id) ?? [],
+        starred: row.starred === 1,
+        repeat: parseRepeatRule(parseJson(row.repeat_rule)),
+        reminders: pending,
+        remindAt: pending[0] ?? null,
+        remindedAt: null,
+        plannedFor: row.planned_for ?? null,
+        noteId: row.note_id,
+        conversationId: row.conversation_id,
+        stepTotal: step?.total ?? 0,
+        stepDone: step?.done ?? 0,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        completedAt: row.completed_at,
+        rev: row.rev,
+        deletedAt: row.deleted_at,
+      }
+    })
+  }
+
+  /**
    * The full-snapshot response body.
    *
    * Kept on the store because every statement it runs is a scoped read and the three loads stay in
@@ -187,10 +382,13 @@ export class SyncStore {
    * the keyset `after` come in as parameters, and the row mapping is the shared `to*` helpers.
    */
   async fullSnapshot(cursor: number, after: string): Promise<SyncResponse> {
-    const [rows, folders, tags] = await Promise.all([
+    const [rows, folders, tags, todoPage] = await Promise.all([
       this.snapshotNotes(after),
       !after ? this.snapshotFolders() : Promise.resolve([] as FolderRow[]),
       !after ? this.snapshotTags() : Promise.resolve([] as TagRow[]),
+      // Tasks have no keyset page of their own: the first page carries the whole live set, and a
+      // client that was here before merges it by id.
+      !after ? this.todosSnapshot() : Promise.resolve(null),
     ])
     const pageNotes = rows.slice(0, LIMITS.syncBatchSize)
     const hasMore = rows.length > LIMITS.syncBatchSize
@@ -208,6 +406,7 @@ export class SyncStore {
       folders: folders.map(toFolder),
       tags: tags.map(toTag),
       deletions: [],
+      ...(todoPage ? { todos: todoPage.todos, todosDeleted: [], todosCursor: todoPage.cursor } : {}),
       serverTime: Date.now(),
     }
   }
@@ -215,6 +414,31 @@ export class SyncStore {
 
 function placeholders(count: number, start: number): string {
   return Array.from({ length: count }, (_, i) => `?${start + i}`).join(', ')
+}
+
+/** Ids in the batches a D1 statement can bind; the task detail reads are keyed by them. */
+function chunkIds(ids: readonly string[]): string[][] {
+  const chunks: string[][] = []
+  for (let index = 0; index < ids.length; index += 80)
+    chunks.push(ids.slice(index, index + 80))
+  return chunks
+}
+
+function taskStatus(value: string): TaskStatus {
+  return value === 'in_progress' || value === 'done' ? value : 'todo'
+}
+
+function taskPriority(value: string): TaskPriority {
+  return value === 'low' || value === 'high' || value === 'urgent' ? value : 'medium'
+}
+
+function parseJson(value: string | null): unknown {
+  if (!value) return null
+  try {
+    return JSON.parse(value) as unknown
+  } catch {
+    return null
+  }
 }
 
 async function loadInChunks<T>(

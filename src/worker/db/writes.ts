@@ -41,6 +41,34 @@ export const REWRITE_CONCURRENCY = 5
  */
 export const MAX_BATCH_STATEMENTS = 80
 
+/**
+ * The most ids one statement may name in an `IN` list.
+ *
+ * The ceiling that binds here is D1's bound-variable limit, which is well below SQLite's: the other
+ * stores chunk an id list at ninety for exactly that reason (`tags/store.ts`, `sync/store.ts`). A
+ * read that takes a whole page of ids and names every one of them in a single `IN` list crosses the
+ * limit the moment the page holds a hundred rows — a task listing is `MAX_TASKS_PER_QUERY` (500)
+ * rows, a completed page 200, a sweep page `TODO_TRASH_PURGE_LIMIT` 200 — and every read after that
+ * fails with a 500 no retry can fix. The lists are cut into chunks that cannot reach the limit and
+ * the answers are stitched back together. The chunk sits just under the ceiling rather than at it
+ * because the tenant bind and any predicate binds share the same budget.
+ */
+export const ID_READ_BATCH = 90
+
+/** An id list in chunks no statement can choke on. */
+export function idChunks(ids: readonly string[], size = ID_READ_BATCH): string[][] {
+  const chunks: string[][] = []
+  for (let index = 0; index < ids.length; index += size) {
+    chunks.push(ids.slice(index, index + size) as string[])
+  }
+  return chunks
+}
+
+/** The `IN` placeholders for one chunk, numbered after the tenant bind at `?1`. */
+export function chunkMarks(chunk: readonly string[]): string {
+  return chunk.map((_, index) => `?${index + 2}`).join(', ')
+}
+
 export type RewriteQueueKind = 'note-title' | 'tag-rename' | 'tag-delete'
 
 export function rewriteQueueStatement(

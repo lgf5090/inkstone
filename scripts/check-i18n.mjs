@@ -239,7 +239,7 @@ const assistantPromptBodyFiles = {
 // Chinese is legal in a zh locale catalog and nowhere else; every other file is held to English.
 // The subscription notifications are a catalog of their own because the worker writes them and must
 // not carry the interface's seven thousand keys to reach twenty sentences.
-const hanAllowedCatalogs = [path.join(localeRoot, 'zh-CN.ts'), noteTemplateBodyFiles.zh[0], assistantPromptBodyFiles.zh[0], path.join(localeRoot, 'zh-CN-subscriptions-notify.ts')];
+const hanAllowedCatalogs = [path.join(localeRoot, 'zh-CN.ts'), noteTemplateBodyFiles.zh[0], assistantPromptBodyFiles.zh[0], path.join(localeRoot, 'zh-CN-subscriptions-notify.ts'), path.join(localeRoot, 'zh-CN-todo-notify.ts')];
 function readCatalog(variableFile, variableName, [bodyFile, bodyName]) {
     const messages = readMessages(variableFile, variableName);
     for (const [key, value] of readMessages(bodyFile, bodyName)) {

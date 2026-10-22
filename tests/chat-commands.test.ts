@@ -21,6 +21,10 @@ import { navigateToPath } from '../src/client/lib/app-history'
 vi.mock('../src/client/lib/app-history', () => ({
   navigateToPath: vi.fn(),
   currentPathname: () => '/notes',
+  currentSearch: () => '',
+  navigateToAddress: vi.fn(),
+  replaceAddress: vi.fn(),
+  subscribeToAddress: () => () => {},
   tabIdForPath: () => 'notes',
 }))
 

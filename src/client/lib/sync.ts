@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react'
-import type { RealtimeMessage } from '@shared/types'
+import { CLIENT_HEADER } from '@shared/constants'
+import type { RealtimeMessage, TodosSyncResponse } from '@shared/types'
 import { CLIENT_ID } from './api'
-import { createBroadcast, type BroadcastPayload } from './db'
+import { createBroadcast, localDb, type BroadcastPayload } from './db'
+import { applyTodoSync } from '../features/todos/store'
 import { acknowledgeOutboxBaseAdvanced, acknowledgeOutboxResult, useNotes } from '../store/notes'
 import { useSession } from '../store/session'
 
@@ -27,6 +29,10 @@ export class SyncEngine {
   private pullDueAt = 0
   private lastPullAt = 0
   private lastPong = 0
+  /** The newest task `updated_at` this tab has folded in; sent back as the task delta's `since`. */
+  private todosCursor = 0
+  private todosCursorReady: Promise<void> | null = null
+  private todosPull: Promise<void> | null = null
   private broadcast = createBroadcast((payload) => this.onBroadcast(payload))
 
   constructor(
@@ -64,6 +70,9 @@ export class SyncEngine {
     window.addEventListener('offline', this.onOffline)
     window.addEventListener('pagehide', this.onPageHide)
     this.startPolling()
+    // The first task delta is asked for beside the note bootstrap rather than behind it: the board a
+    // reader lands on should be the one the server holds, not the last page this tab happened to hold.
+    void this.pullTodos()
   }
 
   dispose(): void {
@@ -161,10 +170,19 @@ export class SyncEngine {
       if (payload.cursor > useNotes.getState().cursor) this.schedulePull(150, false)
       return
     }
+    if (payload.type === 'todos-pulled' && payload.clientId !== CLIENT_ID) {
+      // Another tab folded in a task delta this one has not seen. One request, no note pull: the
+      // task page on its own is cheaper than the library.
+      if (payload.cursor > this.todosCursor) void this.pullTodos(false)
+      return
+    }
     if (payload.type === 'local-write') {
 
 
       this.schedulePull(payload.clientId === CLIENT_ID ? 700 : 400, false)
+      // A queued task write is replayed by whichever tab holds the queue lock; this notice is how
+      // the others find out a task moved without waiting for their own poll.
+      void this.pullTodos()
     }
   }
 
@@ -175,6 +193,11 @@ export class SyncEngine {
     }
     this.isLeader = isLeader
     if (isLeader) {
+      // Taking over the tab group is also taking over the writes the previous leader may have left:
+      // the outbox lock is shared by every tab, and a task write has no note store of its own to wait
+      // for. The delta is read here too, so a tab that takes over shows what the queue produced.
+      void useNotes.getState().replayPending().catch(() => {})
+      void this.pullTodos()
       if (this.realtimeEnabled) this.connect()
       return
     }
@@ -222,6 +245,9 @@ export class SyncEngine {
         if (message.type === 'changed') {
           if (message.origin === CLIENT_ID) return
           if (message.cursor > useNotes.getState().cursor) this.schedulePull(180)
+          // A task write does not move the note cursor, so the hub's notice arrives with the cursor
+          // this tab already has. That is the signal to ask the task stream on its own.
+          else void this.pullTodos()
         }
       }
 
@@ -309,6 +335,9 @@ export class SyncEngine {
     } catch {
 
     }
+    // Tasks travel on their own cursor; asking here keeps both streams moving together after a wake,
+    // a focus or a poll, and the run coalesces with any task pull already in flight.
+    await this.pullTodos(shouldBroadcast)
     if (pulled) {
       this.lastPullAt = Date.now()
       const cursor = useNotes.getState().cursor
@@ -318,9 +347,71 @@ export class SyncEngine {
     }
   }
 
+  /**
+   * Fold the task delta into every tab's listing.
+   *
+   * This is deliberately not part of the note pull: tasks have their own clock and their own page,
+   * and a reader on the board should not pay for a note-library read to see a checkbox someone else
+   * ticked. One run is in flight at a time; callers that arrive during it share its answer.
+   */
+  private pullTodos(shouldBroadcast = true): Promise<void> {
+    if (this.disposed) return Promise.resolve()
+    if (this.todosPull) return this.todosPull
+    const tracked = this.fetchTodos(shouldBroadcast).finally(() => {
+      if (this.todosPull === tracked) this.todosPull = null
+    })
+    this.todosPull = tracked
+    return tracked
+  }
+
+  private async ensureTodosCursor(): Promise<void> {
+    if (!this.todosCursorReady) {
+      this.todosCursorReady = localDb.getTodosCursor()
+        .then((cursor) => { this.todosCursor = Math.max(this.todosCursor, cursor) })
+        .catch(() => {})
+    }
+    await this.todosCursorReady
+  }
+
+  private async fetchTodos(shouldBroadcast: boolean): Promise<void> {
+    await this.ensureTodosCursor()
+    // No network, no request to fail: the queue and the page stay as they are until `online`.
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return
+    const since = this.todosCursor
+    // Timer, focus and online alike call this without awaiting it. A failed request is the same
+    // answer as an unreachable note pull: keep what is on screen and ask again on the next tick.
+    try {
+      const response = await fetch(`/api/sync/todos?since=${since}`, {
+        headers: {
+          [CLIENT_HEADER]: '1',
+          'X-Inkstone-Origin': CLIENT_ID,
+          Accept: 'application/json',
+        },
+        credentials: 'same-origin',
+      })
+      if (response.status === 401) {
+        location.reload()
+        return
+      }
+      if (!response.ok) throw new Error(`task sync answered ${response.status}`)
+      const payload: unknown = await response.json()
+      if (!isTodosSyncResponse(payload)) throw new Error('task sync answered an unreadable page')
+      applyTodoSync(payload)
+      if (payload.cursor > this.todosCursor) {
+        this.todosCursor = payload.cursor
+        await localDb.setTodosCursor(payload.cursor).catch(() => {})
+        if (shouldBroadcast)
+          this.broadcast.post({ type: 'todos-pulled', clientId: CLIENT_ID, cursor: payload.cursor })
+      }
+    } catch (error) {
+      console.warn('[inkstone] task sync pull skipped:', error instanceof Error ? error.message : error)
+    }
+  }
+
   private onVisibility = () => {
     if (!document.hidden) {
       this.schedulePull(120)
+      void this.pullTodos()
       if (this.isLeader && this.realtimeEnabled && !this.socket) this.connect()
     }
   }
@@ -331,12 +422,17 @@ export class SyncEngine {
     // re-ran a full pull. One reclaim per minute still takes over after the leader closes.
     if (!this.isLeader && Date.now() - this.ownClaimAt > LEADER_RECLAIM_MS) this.claimLeadership()
     this.schedulePull(200)
+    void this.pullTodos()
   }
 
   private onOnline = () => {
     useNotes.getState().setOnline(true)
     this.failures = 0
     this.schedulePull(50)
+    // The queue is replayed as soon as the browser says the network is back; waiting for the first
+    // poll would leave a task the reader already ticked off still queued.
+    void useNotes.getState().replayPending().catch(() => {})
+    void this.pullTodos()
     if (this.isLeader && this.realtimeEnabled) this.connect()
   }
 
@@ -350,8 +446,29 @@ export class SyncEngine {
   }
 }
 
-function isRealtimeMessage(value: unknown): value is RealtimeMessage {
+/**
+ * The smallest shape the task merge reads before trusting a page.
+ *
+ * The route is this app's own, but a proxy error page or a half-written response must not be folded
+ * into the listing: an id, a title and a status are what the merge decides on.
+ */
+function isTodosSyncResponse(value: unknown): value is TodosSyncResponse {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const page = value as Partial<TodosSyncResponse>
+  return Array.isArray(page.todos) &&
+    page.todos.every((task) => {
+      if (!task || typeof task !== 'object') return false
+      const row = task as { id?: unknown; title?: unknown; status?: unknown }
+      return typeof row.id === 'string' && typeof row.title === 'string' &&
+        (row.status === 'todo' || row.status === 'in_progress' || row.status === 'done')
+    }) &&
+    Array.isArray(page.deleted) &&
+    page.deleted.every((id) => typeof id === 'string') &&
+    typeof page.cursor === 'number' && Number.isSafeInteger(page.cursor) && page.cursor >= 0 &&
+    typeof page.serverTime === 'number'
+}
+
+function isRealtimeMessage(value: unknown): value is RealtimeMessage {  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const message = value as Record<string, unknown>
   if (message.type === 'ping') return true
   if (message.type === 'pong') {

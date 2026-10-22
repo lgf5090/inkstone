@@ -20,6 +20,7 @@ import { useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
 import {
   buildNoteTaskPayload,
+  buildSelectionTaskPayload,
   createTaskFromNoteCheckbox,
   parseNoteTaskCheckbox,
 } from './note-task-link'
@@ -27,14 +28,20 @@ import { CanvasPanel } from './CanvasPanel'
 import { AssistantDock } from './AssistantDock'
 import { useAssistant } from './assistant-store'
 
-const { createTask } = vi.hoisted(() => ({ createTask: vi.fn(async () => ({ task: {} })) }))
+const { createTask, listTasks } = vi.hoisted(() => ({
+  createTask: vi.fn(async (body: Record<string, unknown>) => ({ task: { id: 'task-1', status: 'todo', tags: [], stepTotal: 0, stepDone: 0, starred: false, ...body } })),
+  listTasks: vi.fn(async () => ({ tasks: [], counts: {}, dayEnd: 0, timezone: 'UTC' })),
+}))
 
 vi.mock('../../lib/api', () => ({
   ApiError: class ApiError extends Error {},
   CLIENT_ID: 'test-client',
   api: {
+    todos: {
+      create: createTask,
+      list: listTasks,
+    },
     assistant: {
-      createTask,
       settings: vi.fn(async () => ({ settings: null, models: [] })),
       skills: vi.fn(async () => ({ skills: [] })),
       conversations: vi.fn(async () => ({ conversations: [] })),
@@ -81,6 +88,20 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+describe('a note selection kept as a task', () => {
+  it('takes the first line as the title and the whole passage as the note', () => {
+    expect(buildSelectionTaskPayload({ text: '## 交周报\n周五之前，附上数据', noteId: NOTE.noteId })).toEqual({
+      title: '交周报',
+      description: '交周报\n周五之前，附上数据',
+      noteId: NOTE.noteId,
+    })
+  })
+
+  it('makes no task of a selection with no words in it', () => {
+    expect(buildSelectionTaskPayload({ text: '  \n\t ', noteId: NOTE.noteId })).toBeNull()
+  })
+})
+
 describe('a note checkbox copied out to the task list', () => {
   it('reads the box’s own words without the marker', () => {
     expect(parseNoteTaskCheckbox('- [ ] Buy more paper')?.title).toBe('Buy more paper')
@@ -102,12 +123,9 @@ describe('a note checkbox copied out to the task list', () => {
     expect(parseNoteTaskCheckbox('- [ ] File the tax [due:: 2026-03-01]')?.title).toBe('File the tax')
   })
 
-  it('builds a payload whose description points back at the note', () => {
+  it('builds a payload that carries the note by id and leaves the description empty', () => {
     const payload = buildNoteTaskPayload({ line: '- [ ] Buy more paper', ...NOTE })
-    expect(payload?.title).toBe('Buy more paper')
-    expect(payload?.dueAt).toBeNull()
-    expect(payload?.description).toContain(NOTE.noteId)
-    expect(payload?.description).toContain(NOTE.noteTitle)
+    expect(payload).toEqual({ title: 'Buy more paper', dueAt: null, noteId: NOTE.noteId })
   })
 
   it('returns null for a line with nothing to make a task of', () => {
@@ -116,7 +134,6 @@ describe('a note checkbox copied out to the task list', () => {
   })
 
   it('creates one task and leaves the checkbox alone', async () => {
-    const loadTasks = vi.spyOn(useAssistant.getState(), 'loadTasks').mockResolvedValue(undefined)
     const editContent = vi.spyOn(useNotes.getState(), 'editContent').mockImplementation(() => undefined)
     const toast = vi.spyOn(useUi.getState(), 'toast').mockImplementation(() => 'toast-id')
     try {
@@ -126,12 +143,12 @@ describe('a note checkbox copied out to the task list', () => {
       expect(createTask).toHaveBeenCalledWith(expect.objectContaining({
         title: 'Buy more paper',
         dueAt: endOfDay(2026, 1, 15),
+        noteId: NOTE.noteId,
       }))
       // One way: the note's box is never rewritten here — the note stays the authority for the checkbox.
       expect(editContent).not.toHaveBeenCalled()
       expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: t('assistant.task.made_from_note') }))
     } finally {
-      loadTasks.mockRestore()
       editContent.mockRestore()
       toast.mockRestore()
     }

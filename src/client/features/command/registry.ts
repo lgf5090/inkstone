@@ -37,6 +37,8 @@ import { useAssistant, type AssistantView } from '../chat/assistant-store'
 import { CHAT_SHORTCUTS } from '../chat/chat-shortcuts'
 import { requestChatIntent } from '../chat/chat-intents'
 import { startChatAboutFolder, startChatAboutNote } from '../chat/start-chat'
+import { useTodos, quickAddDraft } from '../todos/store'
+import { saveSelectionAsTask } from '../chat/note-task-link'
 import { summarizeFolder } from '../chat/folder-summary'
 import { suggestNoteMeta } from '../chat/note-suggestions'
 import { startDeepResearch } from '../chat/deep-research'
@@ -52,7 +54,12 @@ export interface AppCommand {
   group: string
   icon: ComponentType<{ size?: number }>
   combo?: string
-  run: () => void
+  /**
+   * The line a caller handed the command, if it reads one. The palette and a macro step call with
+   * nothing; the one entry that uses it is the new-task command, so a caller can open the panel on
+   * a parsed draft rather than on an empty form.
+   */
+  run: (input?: string) => void
 }
 
 function runOnList(command: Command): () => void {
@@ -101,6 +108,49 @@ export function appCommands(): AppCommand[] {
         combo: APP_SHORTCUTS.templates,
         group: t("command.commands"),
         run: () => openPanel('templates'),
+    },
+    {
+        id: 'cmd-new-todo',
+        kind: 'command',
+        label: t("todo.action.new_task"),
+        icon: ListChecks,
+        group: t("command.commands"),
+        run: (input) => {
+            navigateToPath('/todo')
+            const todos = useTodos.getState()
+            // A caller that hands over a line gets the draft the parser read out of it; everybody else
+            // gets the empty form the palette has always opened.
+            todos.openEditor(input ? quickAddDraft(input, Date.now(), todos.timezone, todos.lists) ?? {} : {})
+        },
+    },
+    {
+        id: 'cmd-selection-to-todo',
+        kind: 'command',
+        label: t("todo.chat.save_as_task"),
+        icon: ListChecks,
+        group: t("command.commands"),
+        // The line under the caret when nothing is selected, which is the case a command palette is
+        // usually opened from: the reader is looking at the sentence, not holding a selection.
+        run: () => void saveSelectionAsTask(),
+    },
+    {
+        id: 'cmd-open-todo',
+        kind: 'command',
+        label: t("todo.action.open_todo"),
+        icon: ListChecks,
+        group: t("command.commands"),
+        run: () => navigateToPath('/todo'),
+    },
+    {
+        id: 'cmd-today-todo',
+        kind: 'command',
+        label: t("todo.view.plan"),
+        icon: ListChecks,
+        group: t("command.commands"),
+        run: () => {
+            navigateToPath('/todo')
+            useTodos.getState().setView('plan')
+        },
     },
     {
         id: 'cmd-new-folder',
@@ -892,12 +942,13 @@ export function findAppCommand(id: string): AppCommand | null {
 }
 
 /**
- * Run a command by id without opening the palette. The three refusals are reported rather than
- * swallowed, because a caller in an automation chain has to say why nothing happened.
+ * Run a command by id without opening the palette, optionally handing it the line it reads. The
+ * three refusals are reported rather than swallowed, because a caller in an automation chain has to
+ * say why nothing happened.
  */
-export function runAppCommand(id: string): { ok: true } | { ok: false; reason: 'unavailable' } {
+export function runAppCommand(id: string, input?: string): { ok: true } | { ok: false; reason: 'unavailable' } {
   const command = findAppCommand(id)
   if (!command) return { ok: false, reason: 'unavailable' }
-  command.run()
+  command.run(input)
   return { ok: true }
 }

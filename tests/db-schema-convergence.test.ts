@@ -252,6 +252,74 @@ describe('a boot onto a database whose ledger lies', () => {
     expect(columns).toContain('name')
   })
 
+  it('gives an older database the two indexes its new sort orders read', async () => {
+    const sqlite = await installed()
+    // The shape a database built before versions 129 and 130 has: neither index, and neither number
+    // spent. Both sort paths order by a column only the account scopes, so the index has to exist on
+    // the left of them or every page of a long-lived account sorts its whole table.
+    sqlite.exec('DROP INDEX idx_todos_tasks_created')
+    sqlite.exec('DROP INDEX idx_todos_tasks_completed')
+    sqlite.exec('DELETE FROM schema_migrations WHERE version IN (129, 130)')
+    expect(indexesOf(sqlite)).not.toContain('idx_todos_tasks_created')
+
+    await reboot(sqlite)
+
+    expect(indexesOf(sqlite)).toContain('idx_todos_tasks_created')
+    expect(indexesOf(sqlite)).toContain('idx_todos_tasks_completed')
+    // One number per index, recorded, so the boot after this one does not replay them.
+    expect(sqlite.prepare(`SELECT version FROM schema_migrations WHERE version IN (129, 130) ORDER BY version`).all())
+      .toEqual([{ version: 129 }, { version: 130 }])
+  })
+
+  it('gives an older database the day columns and their index even when its ledger claims both', async () => {
+    const sqlite = await installed()
+    sqlite.exec('DROP INDEX idx_todos_tasks_completed_on')
+    sqlite.exec('ALTER TABLE todos_tasks DROP COLUMN created_on')
+    sqlite.exec('ALTER TABLE todos_tasks DROP COLUMN completed_on')
+    expect(columnsOf(sqlite, 'todos_tasks')).not.toContain('created_on')
+    // The numbers stay spent: a branch that used 131/132/133 for other work is exactly the situation
+    // the shape repair exists for, and a column cannot be hidden behind a ledger note.
+    expect(sqlite.prepare(`SELECT version FROM schema_migrations WHERE version IN (131, 132, 133) ORDER BY version`).all())
+      .toEqual([{ version: 131 }, { version: 132 }, { version: 133 }])
+
+    await reboot(sqlite)
+
+    expect(columnsOf(sqlite, 'todos_tasks')).toEqual(expect.arrayContaining(['created_on', 'completed_on']))
+    expect(indexesOf(sqlite)).toContain('idx_todos_tasks_completed_on')
+  })
+
+  it('gives a list table built before archiving and grouping both columns', async () => {
+    const sqlite = await installed()
+    sqlite.exec('ALTER TABLE todos_lists DROP COLUMN parent_id')
+    sqlite.exec('ALTER TABLE todos_lists DROP COLUMN archived_at')
+    expect(columnsOf(sqlite, 'todos_lists')).not.toContain('archived_at')
+    // Both numbers stay spent: an older list table has to be healed by the shape, not by the note.
+    expect(sqlite.prepare(`SELECT version FROM schema_migrations WHERE version IN (137, 138) ORDER BY version`).all())
+      .toEqual([{ version: 137 }, { version: 138 }])
+
+    await reboot(sqlite)
+
+    expect(columnsOf(sqlite, 'todos_lists')).toEqual(expect.arrayContaining(['archived_at', 'parent_id']))
+  })
+
+  it('gives an account that predates the to-do read switch the switch, on', async () => {
+    const sqlite = await installed()
+    sqlite.exec(`INSERT INTO mcp_preferences (user_id, write_enabled, trash_enabled, disabled_tools, updated_at)
+      VALUES ('u1', 1, 0, '[]', 1)`)
+    // The shape a database built before version 141 has. The number stays spent, because a branch that
+    // used 141 for other work is exactly the collision the shape repair exists for — and 116 was once
+    // reserved for this column, so a ledger note that hides it is not hypothetical.
+    sqlite.exec('ALTER TABLE mcp_preferences DROP COLUMN todo_read_enabled')
+    expect(columnsOf(sqlite, 'mcp_preferences')).not.toContain('todo_read_enabled')
+
+    await reboot(sqlite)
+
+    expect(columnsOf(sqlite, 'mcp_preferences')).toContain('todo_read_enabled')
+    // On, the way it was for every account that could already read tasks through its keys.
+    expect(sqlite.prepare(`SELECT todo_read_enabled FROM mcp_preferences WHERE user_id = 'u1'`).get())
+      .toEqual({ todo_read_enabled: 1 })
+  })
+
   it('is a no-op on a database that already matches', async () => {
     const sqlite = await installed()
     const before = tablesOf(sqlite).join(',')

@@ -12,6 +12,7 @@
 import type { AssistantImportSummary, AssistantSettings } from '@shared/assistant'
 import { clipReasoning, normalizeAssistantSettings } from '@shared/assistant'
 import { parseScheduleSpec } from '@shared/assistant-schedule'
+import { parseRepeatRule } from '@shared/todos/model'
 import { ASSISTANT_MEMORY_CATEGORIES, AUTOMATION_KINDS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_AUTOMATION_TARGET_ID_CHARS, MAX_MESSAGE_CHARS, MAX_PROJECT_NOTES } from '@shared/assistant'
 import { ApiError } from '../lib/errors'
 import { AssistantStore, decodeFeedback, encodeFeedback } from './store'
@@ -49,6 +50,16 @@ export async function exportAssistant(store: AssistantStore): Promise<AssistantB
   }
 }
 
+/** A stored repeat rule, read the way the listing reads it: anything unreadable means "does not repeat". */
+function storedRepeatRule(value: unknown): { freq: string, interval: number } | null {
+  if (typeof value !== 'string') return null
+  try {
+    return parseRepeatRule(JSON.parse(value))
+  } catch {
+    return null
+  }
+}
+
 function rows(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? value.filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object') : []
 }
@@ -79,6 +90,23 @@ function targetIdValue(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const id = value.trim()
   return id && id.length <= MAX_AUTOMATION_TARGET_ID_CHARS ? id : null
+}
+
+/** The bound the notification writer puts on its pointer; a file must not be able to widen it. */
+const NOTIFICATION_LINK_MAX_CHARS = 200
+
+/**
+ * Where a restored notice points, kept as the opaque `<app>:<id>` pair it is.
+ *
+ * Deliberately not `idValue`: the pair is not a key of any row this restore writes — the client is what
+ * reads `todo:` and knows what to do with a task it cannot open — so a shape this build does not read is
+ * still the notice's own statement of what it was about, and dropping it would bring back a notice that
+ * looks the same and does less. Missing and blank both answer null, which is the writer's answer too: a
+ * file that predates the column says its notice points nowhere, rather than failing to say anything.
+ */
+function notificationLinkValue(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  return value.trim().slice(0, NOTIFICATION_LINK_MAX_CHARS) || null
 }
 
 export async function importAssistant(store: AssistantStore, raw: Record<string, unknown>): Promise<ImportSummary> {
@@ -461,9 +489,29 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
   }
   await store.importRows('chat_memories', memoryInserts, (landed) => { summary.memories += landed })
   await store.importUpdates('chat_memories', memoryUpdates, (landed) => { summary.memories += landed })
+  // Lists travel before the tasks that point at them, so a restored task can keep its list. A list
+  // already in the account wins: it is the reader's own object, and the file's copy has no newer claim.
+  const listRows: Record<string, unknown>[] = []
+  const knownLists = new Set<string>()
+  for (const list of rows(data.task_lists)) {
+    const id = idValue(list.id)
+    if (!id) continue
+    knownLists.add(id)
+    listRows.push({
+      id,
+      name: textValue(list.name, 60) || 'List',
+      icon: typeof list.icon === 'string' ? list.icon.slice(0, 40) : null,
+      color: typeof list.color === 'string' && /^#[0-9a-f]{6}$/i.test(list.color) ? list.color : null,
+      position: numberValue(list.position),
+      created_at: numberValue(list.created_at, Date.now()),
+      updated_at: numberValue(list.updated_at, Date.now()),
+    })
+  }
+  await store.importRows('todos_lists', listRows)
+
   const taskEntries = rows(data.tasks)
   const localTaskAt = await store.storedUpdatedAts(
-    'chat_tasks',
+    'todos_tasks',
     taskEntries.map((entry) => idValue(entry.id)).filter((id): id is string => id !== null),
   )
   const taskInserts: Record<string, unknown>[] = []
@@ -472,6 +520,8 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
     const id = idValue(task.id)
     if (!id) continue
     const projectId = idValue(task.project_id)
+    const listId = idValue(task.list_id)
+    const repeat = storedRepeatRule(task.repeat_rule)
     const row = {
       id,
       title: textValue(task.title, 300) || 'Untitled task',
@@ -480,6 +530,16 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
       priority: oneOf(task.priority, ['low', 'medium', 'high', 'urgent'], 'medium'),
       due_at: numberOrNull(task.due_at),
       project_id: projectId && knownProjects.has(projectId) ? projectId : null,
+      // A list the file did not carry leaves the task in the inbox rather than pointing at nothing.
+      list_id: listId && knownLists.has(listId) ? listId : null,
+      starred: task.starred === true || task.starred === 1 ? 1 : 0,
+      repeat_rule: repeat ? JSON.stringify(repeat) : null,
+      remind_at: numberOrNull(task.remind_at),
+      // A restore is not a delivery: the reminder has to be able to fire on the machine that received
+      // the file, so the mark that says it already went out does not travel.
+      reminded_at: null,
+      note_id: idValue(task.note_id),
+      conversation_id: idValue(task.conversation_id),
       created_at: numberValue(task.created_at, Date.now()),
       updated_at: numberValue(task.updated_at, Date.now()),
       completed_at: numberOrNull(task.completed_at),
@@ -493,8 +553,54 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
     if (localAt !== null) taskUpdates.push({ id, row })
     else taskInserts.push(row)
   }
-  await store.importRows('chat_tasks', taskInserts, (landed) => { summary.tasks += landed })
-  await store.importUpdates('chat_tasks', taskUpdates, (landed) => { summary.tasks += landed })
+  await store.importRows('todos_tasks', taskInserts, (landed) => { summary.tasks += landed })
+  await store.importUpdates('todos_tasks', taskUpdates, (landed) => { summary.tasks += landed })
+
+  // Tags are this app's own objects, like a notebook tag: the file's list is restored first, then a
+  // link is kept only when both ends exist here. A link to a tag the reader deleted is not restored.
+  const tagRows: Record<string, unknown>[] = []
+  for (const tag of rows(data.task_tags)) {
+    const id = idValue(tag.id)
+    if (!id) continue
+    tagRows.push({
+      id,
+      name: textValue(tag.name, 40) || 'Tag',
+      color: typeof tag.color === 'string' && /^#[0-9a-f]{6}$/i.test(tag.color) ? tag.color : null,
+      created_at: numberValue(tag.created_at, Date.now()),
+      updated_at: numberValue(tag.updated_at, Date.now()),
+    })
+  }
+  await store.importRows('todos_tags', tagRows)
+  const liveTags = new Set((await store.listTaskTags()).map((tag) => tag.id))
+  const linkEntries = rows(data.task_tag_links)
+  const heldTasks = await store.hasRows('todos_tasks', linkEntries.map((entry) => idValue(entry.task_id)).filter((id): id is string => id !== null))
+  const taskLinkRows: Record<string, unknown>[] = []
+  for (const link of linkEntries) {
+    const taskId = idValue(link.task_id)
+    const tagId = idValue(link.tag_id)
+    if (!taskId || !tagId || !heldTasks.has(taskId) || !liveTags.has(tagId)) continue
+    taskLinkRows.push({ task_id: taskId, tag_id: tagId, created_at: Date.now() })
+  }
+  await store.importRows('todos_tag_links', taskLinkRows)
+
+  const stepEntries = rows(data.task_steps)
+  const stepTaskIds = stepEntries.map((entry) => idValue(entry.task_id)).filter((id): id is string => id !== null)
+  const tasksWithSteps = await store.hasRows('todos_tasks', stepTaskIds)
+  const stepRows: Record<string, unknown>[] = []
+  for (const step of stepEntries) {
+    const id = idValue(step.id)
+    const taskId = idValue(step.task_id)
+    if (!id || !taskId || !tasksWithSteps.has(taskId)) continue
+    stepRows.push({
+      id,
+      task_id: taskId,
+      text: textValue(step.text, 200),
+      done: step.done === true || step.done === 1 ? 1 : 0,
+      position: numberValue(step.position),
+      created_at: numberValue(step.created_at, Date.now()),
+    })
+  }
+  await store.importRows('todos_steps', stepRows)
   const notificationEntries = rows(data.notifications)
   const heldNotifications = await store.hasRows(
     'chat_notifications',
@@ -510,6 +616,11 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
       title: textValue(notification.title, 200) || 'Reminder',
       body: textValue(notification.body, 8000),
       automation_id: idValue(notification.automation_id),
+      // The pointer travels with the notice, and it is named here rather than left to what the row does
+      // not say: `importRows` writes the columns the row names and nothing else, so an import that omits
+      // this one restores a reminder whose press opens a list instead of the task it was about — the
+      // quiet half of the loss, because the row itself still lands.
+      link: notificationLinkValue(notification.link),
       subscription_id: idValue(notification.subscription_id),
       read_at: numberOrNull(notification.read_at),
       created_at: numberValue(notification.created_at, Date.now()),

@@ -435,24 +435,9 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_chat_reviews_other
      ON chat_memory_reviews(user_id, other_id)`,
 
-  `CREATE TABLE IF NOT EXISTS chat_tasks (
-    user_id TEXT NOT NULL,
-    id TEXT NOT NULL,
-    title TEXT NOT NULL,
-    description TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL DEFAULT 'todo',
-    priority TEXT NOT NULL DEFAULT 'medium',
-    due_at INTEGER,
-    project_id TEXT,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    completed_at INTEGER,
-    PRIMARY KEY (user_id, id)
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_chat_tasks_user_status_due
-     ON chat_tasks(user_id, status, due_at)`,
-  `CREATE INDEX IF NOT EXISTS idx_chat_tasks_project
-     ON chat_tasks(user_id, project_id)`,
+  // The task list lives in `todos_tasks` (see `../todos/schema.ts`). It began here, when the chat was
+  // the only surface that could create one; the to-do app now owns the table, and `migrateTaskTable`
+  // moves an older database's rows across once.
 
   `CREATE TABLE IF NOT EXISTS chat_projects (
     user_id TEXT NOT NULL,
@@ -520,6 +505,13 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
    * nudge for this row, and it is what makes a later cron catch-up fire idempotent. Null means "no device
    * ever accepted one" — including every row written before Web Push existed, which is the honest reading
    * rather than a backfill that would claim a send that never happened.
+   *
+   * `link` is where the thing the notice is about lives, spelled `<app>:<id>` — `todo:<task id>` today. It
+   * is deliberately not a URL: a stored address would let whatever wrote the row point a reader's press at
+   * a site this deployment never chose, and the client is the one that knows how to reach a task, what a
+   * task it cannot read falls back to, and that the address it opens is same-origin by construction. Null
+   * means the notice is only a message — a digest, a finished run — and pressing it expands the row instead
+   * of moving the reader.
    */
   `CREATE TABLE IF NOT EXISTS chat_notifications (
     user_id TEXT NOT NULL,
@@ -527,6 +519,7 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     title TEXT NOT NULL,
     body TEXT NOT NULL DEFAULT '',
     automation_id TEXT,
+    link TEXT,
     read_at INTEGER,
     created_at INTEGER NOT NULL,
     pushed_at INTEGER,
@@ -756,7 +749,6 @@ export const ASSISTANT_REQUIRED_TABLES: readonly string[] = [
   'chat_memories',
   'chat_memory_embeddings',
   'chat_memory_reviews',
-  'chat_tasks',
   'chat_projects',
   'chat_automations',
   'chat_runs',
@@ -796,8 +788,6 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
   'idx_chat_memory_embeddings_user',
   'idx_chat_reviews_memory',
   'idx_chat_reviews_other',
-  'idx_chat_tasks_user_status_due',
-  'idx_chat_tasks_project',
   'idx_chat_projects_unique',
   'idx_chat_automations_due',
   'idx_chat_automations_user',
@@ -846,10 +836,9 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_memories: ['user_id', 'id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'project_id', 'note_id', 'created_at', 'updated_at'],
   chat_memory_embeddings: ['user_id', 'memory_id', 'model', 'vector', 'norm', 'updated_at'],
   chat_memory_reviews: ['user_id', 'id', 'memory_id', 'other_id', 'relationship', 'reason', 'created_at'],
-  chat_tasks: ['user_id', 'id', 'title', 'description', 'status', 'priority', 'due_at', 'project_id', 'created_at', 'updated_at', 'completed_at'],
   chat_automations: ['user_id', 'id', 'name', 'kind', 'message', 'schedule', 'enabled', 'status', 'next_run', 'last_run', 'last_result', 'last_error', 'run_count', 'claimed_at', 'target_folder_id', 'target_note_id', 'created_at', 'updated_at'],
   chat_runs: ['user_id', 'id', 'automation_id', 'automation_name', 'started_at', 'finished_at', 'status', 'result', 'error', 'note_id'],
-  chat_notifications: ['user_id', 'id', 'title', 'body', 'automation_id', 'read_at', 'created_at', 'pushed_at', 'subscription_id'],
+  chat_notifications: ['user_id', 'id', 'title', 'body', 'automation_id', 'link', 'read_at', 'created_at', 'pushed_at', 'subscription_id'],
   chat_push_subscriptions: ['user_id', 'id', 'endpoint', 'p256dh', 'auth', 'created_at', 'failures', 'last_error'],
   chat_pending_actions: ['user_id', 'id', 'conversation_id', 'tool', 'target_id', 'target_label', 'args', 'status', 'error', 'created_at', 'expires_at', 'resolved_at'],
   chat_usage_daily: ['user_id', 'day', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'scheduled_runs', 'embeddings', 'errors'],

@@ -612,10 +612,14 @@ describe('prompt catalog', () => {
 describe('message keys and tools', () => {
   const catalog = EN_US_MESSAGES as unknown as Record<string, string>
   const chinese = ZH_CN_MESSAGES as unknown as Record<string, string>
-
   it('names every tool once, in a label both languages carry', () => {
     assertToolsMatchSpecs()
     expect(ASSISTANT_TOOL_BY_NAME.size).toBe(ASSISTANT_TOOL_SPECS.length)
+    const missing = ASSISTANT_TOOL_SPECS
+      .filter((spec) => !catalog[spec.labelKey] || !chinese[spec.labelKey])
+      .map((spec) => spec.labelKey)
+    // No exemption list: a tool is registered only when both catalogs already carry its chip words.
+    expect(missing).toEqual([])
     for (const spec of ASSISTANT_TOOL_SPECS) {
       expect(catalog[spec.labelKey], spec.labelKey).toBeTruthy()
       expect(chinese[spec.labelKey], spec.labelKey).toBeTruthy()
@@ -633,6 +637,17 @@ describe('message keys and tools', () => {
     for (const spec of ASSISTANT_TOOL_SPECS.filter((entry) => entry.permission !== 'destructive')) {
       expect(spec.approvalKey, spec.name).toBeUndefined()
     }
+  })
+
+  it('registers the task list, tag, step, snooze and bulk-clear tools', () => {
+    const permission = new Map(ASSISTANT_TOOL_SPECS.map((spec) => [spec.name, spec.permission]))
+    expect(permission.get('update_task_list')).toBe('write')
+    expect(permission.get('delete_task_list')).toBe('destructive')
+    expect(permission.get('rename_task_tag')).toBe('write')
+    expect(permission.get('delete_task_tag')).toBe('destructive')
+    expect(permission.get('delete_task_step')).toBe('destructive')
+    expect(permission.get('snooze_task')).toBe('write')
+    expect(permission.get('delete_completed_tasks')).toBe('destructive')
   })
 
   it('has a schedule sentence for every repeat type in both languages', () => {

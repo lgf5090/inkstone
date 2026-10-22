@@ -20,10 +20,12 @@ import type {
   PropertyFormatChoice,
   PropertyProgressChoice,
   SavedDataviewQuery,
+  SavedTodoFilter,
   SidebarTab,
   SkinTone,
   TaskStatusSetting,
   TasksSettings,
+  TodoSettings,
   UserSettings,
   ViewKind,
 } from './types'
@@ -487,6 +489,12 @@ export const DEFAULT_SETTINGS: UserSettings = {
     aiEnabled: false,
     aiLanguage: 'interface',
   },
+  todo: {
+    defaultRemind: null,
+    dailyGoal: null,
+    weeklyGoal: null,
+    savedFilters: [],
+  },
 }
 
 /** The choices the RSS panel offers, spelled once so the merge and the panel cannot drift. */
@@ -504,6 +512,26 @@ export const RSS_LINE_HEIGHT_RANGE = [1.4, 2.4] as const
 export const RSS_REFRESH_INTERVALS = [0, 5, 15, 30, 60, 240, 720] as const
 
 export const TODO_TAG_LIST_MAX = 8
+
+/**
+ * The saved filter lines one account may keep.
+ *
+ * A saved filter is a shortcut to a screen the reader already has; a few dozen is more than a sidebar
+ * can show without becoming a second list of views. The name and line ceilings are the settings
+ * blob's own budget, and match the lengths the settings row's fields accept.
+ */
+export const TODO_SAVED_FILTER_MAX = 30
+export const TODO_SAVED_FILTER_NAME_MAX = 60
+export const TODO_SAVED_FILTER_QUERY_MAX = 200
+
+/**
+ * The range a daily or weekly goal may name, in whole tasks.
+ *
+ * A goal is a nudge rather than a workload plan, and a three-digit ceiling is already more finished
+ * tasks than one day or week holds for a person. It is also the field's own `min`/`max`, so the
+ * number the reader types and the number the merge keeps share one edge.
+ */
+export const TODO_GOAL_RANGE = [0, 999] as const
 
 export const PROPERTY_NAME_MAX = 60
 export const PROPERTY_LIST_MAX = 80
@@ -853,6 +881,7 @@ export function mergeSettings(partial: unknown): UserSettings {
   const search = asRecord(src.search)
   const dataview = asRecord(src.dataview)
   const rss = asRecord(src.rss)
+  const todo = asRecord(src.todo)
 
   // the linter section is a nested record, so it is rebuilt from the reader's blob rather than
   // patched onto a default: an unknown rule or an oversized option has to be dropped, not stored
@@ -864,6 +893,10 @@ export function mergeSettings(partial: unknown): UserSettings {
     : base.notes.newNoteTemplate
   base.notes.syncTitleToFrontMatter = booleanValue(notes.syncTitleToFrontMatter, base.notes.syncTitleToFrontMatter)
   base.notes.syncFrontMatterTitle = booleanValue(notes.syncFrontMatterTitle, base.notes.syncFrontMatterTitle)
+  base.todo.defaultRemind = todoRemindOffset(todo.defaultRemind)
+  base.todo.dailyGoal = todoGoal(todo.dailyGoal)
+  base.todo.weeklyGoal = todoGoal(todo.weeklyGoal)
+  base.todo.savedFilters = savedTodoFilters(todo.savedFilters)
 
   base.appearance.theme = enumValue(appearance.theme, THEMES, base.appearance.theme)
   base.appearance.language = enumValue(
@@ -1353,6 +1386,35 @@ function savedDataviewQueries(value: unknown): SavedDataviewQuery[] {
   return out
 }
 
+/**
+ * The saved filter lines, as the account keeps them.
+ *
+ * A line with no name or no query is not a filter anyone can reopen, so it is dropped rather than kept
+ * as a blank row. The id is a local identifier like a saved query's: a shape-matching one is kept so a
+ * rename is one entry, and a stray one is derived from the name and the line. The ceilings are what
+ * keep a few dozen shortcuts from turning the settings blob into a library.
+ */
+function savedTodoFilters(value: unknown): SavedTodoFilter[] {
+  if (!Array.isArray(value)) return []
+  const out: SavedTodoFilter[] = []
+  const seen = new Set<string>()
+  for (const item of value) {
+    const record = asRecord(item)
+    const name = trimmedText(record.name, TODO_SAVED_FILTER_NAME_MAX)
+    const query = typeof record.query === 'string'
+      ? record.query.trim().slice(0, TODO_SAVED_FILTER_QUERY_MAX)
+      : ''
+    if (!name || !query) continue
+    const id = /^[a-z0-9][a-z0-9-]{3,63}$/i.test(String(record.id ?? '')) ? String(record.id).toLowerCase() : ''
+    const key = id || `${name}\u0000${query}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push({ id: key, name, query })
+    if (out.length >= TODO_SAVED_FILTER_MAX) break
+  }
+  return out
+}
+
 function halfStepInRange(value: unknown, range: readonly [number, number], fallback: number): number {
   const clamped = numberInRange(value, range[0], range[1], fallback)
   return Math.round(clamped * 2) / 2
@@ -1537,6 +1599,28 @@ export function normalizeTodoTags(value: unknown): string {
   return [...seen].join(',')
 }
 
+function todoRemindOffset(value: unknown): TodoSettings['defaultRemind'] {
+  if (value === 'due' || value === '15m' || value === '1h' || value === '1d') return value
+  return null
+}
+
+/**
+ * A stored daily or weekly goal: a whole count inside `TODO_GOAL_RANGE`, or null for no goal.
+ *
+ * Zero, a negative number, an empty field and anything that is not a finite number all read as
+ * "off": a goal of nothing is not a goal, and one spelling for that is what keeps every reader of
+ * the settings from testing two shapes. A fraction is rounded because a goal counts tasks, and an
+ * over-long number is held to the same ceiling the field offers.
+ */
+function todoGoal(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value))
+    return null
+  const rounded = Math.round(value)
+  if (rounded <= TODO_GOAL_RANGE[0])
+    return null
+  return Math.min(TODO_GOAL_RANGE[1], rounded)
+}
+
 function sameFlatRecord(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
   const keys = Object.keys(a)
   return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key])
@@ -1612,6 +1696,7 @@ function cloneDefaultSettings(): UserSettings {
       defaultHiddenFields: [],
     },
     rss: { ...DEFAULT_SETTINGS.rss },
+    todo: { ...DEFAULT_SETTINGS.todo, savedFilters: [] },
   }
 }
 

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { DEFAULT_ASSISTANT_SETTINGS, type AssistantSettings, type AssistantToolModes, type Task } from '../src/shared/assistant'
+import { DEFAULT_ASSISTANT_SETTINGS, type AssistantSettings, type AssistantToolModes } from '../src/shared/assistant'
+import type { TodoTask } from '../src/shared/todos/model'
 import { ToolExecutor, runApprovedAction, type ToolContext } from '../src/worker/assistant/tools'
 import type { AssistantStore } from '../src/worker/assistant/store'
 import type { Env } from '../src/worker/env'
@@ -19,9 +20,12 @@ import type { Env } from '../src/worker/env'
 
 const USER = 'user-1'
 
-const TASK: Task = {
+const TASK: TodoTask = {
   id: 't1', title: '买牛奶', description: '', status: 'todo', priority: 'medium',
   dueAt: null, projectId: null, createdAt: 1, updatedAt: 1, completedAt: null,
+  listId: null, tags: [], starred: false, repeat: null, remindAt: null, remindedAt: null,
+  plannedFor: null,
+  noteId: null, conversationId: null, stepTotal: 0, stepDone: 0,
 }
 
 function store(over: Record<string, unknown> = {}) {

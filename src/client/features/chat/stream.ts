@@ -9,6 +9,7 @@
 
 import { CLIENT_HEADER } from '@shared/constants'
 import type { AssistantTurnScope, ChatStreamEvent } from '@shared/assistant'
+import type { TodoAssistantContext } from '@shared/todos/assistant-context'
 import { ApiError, CLIENT_ID, routeApiError } from '../../lib/api'
 import { getLocale, t } from '../../lib/i18n'
 
@@ -27,6 +28,7 @@ export interface StreamTurnInput {
   contextFolderId?: string
   /** The draft open in the canvas, so the model can read and rewrite it. */
   activeArtifactId?: string
+  contextTodo?: TodoAssistantContext
   /** The note this thread is being started from, recorded on the conversation the first time. */
   noteId?: string
   retry?: boolean
@@ -100,6 +102,7 @@ export async function streamAssistantTurn(
         ...(input.contextNoteId ? { contextNoteId: input.contextNoteId } : {}),
         ...(input.contextFolderId ? { contextFolderId: input.contextFolderId } : {}),
         ...(input.activeArtifactId ? { activeArtifactId: input.activeArtifactId } : {}),
+        ...(input.contextTodo ? { contextTodo: input.contextTodo } : {}),
         ...(input.noteId ? { noteId: input.noteId } : {}),
         ...(input.webSearch ? { webSearch: true } : {}),
         ...(input.modelId ? { modelId: input.modelId } : {}),

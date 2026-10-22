@@ -15,6 +15,7 @@ import type { FormatRuntime, PromptAnswer, PromptRequest } from './format'
 import { memoizeStructure } from './format'
 import { buildRuntime, type RunSession } from './runtime'
 import { askOrReuse, applyDateOrigin, asksForDay, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest, type RunOptions } from './session'
+import { createTodoFromQuickAdd } from './todo-sink'
 import { folderJoin, linkOptions, openingOptions, parseTargetFilter, sanitizeTitle, splitTargetPath, targetScope, titleSuggestions, type NotePort, type NoteRef, type QuickAddRunStatus, type TargetCandidate, type TargetFilter } from './context'
 import { bodyOf, parseValueToken, scanTokens, type ValueInputType } from './token-grammar'
 import type { PropertyValueKind } from '@shared/property-values'
@@ -477,6 +478,23 @@ export async function runCaptureChoice(
   const cancelled = await applyDateOrigin(session)
   if (cancelled) return cancelled
   if (session.dismissed) return { kind: 'cancelled' }
+
+  // A task is not a note. The line is formatted exactly as the capture would have formatted it,
+  // without the checkbox the note would have carried, and then filed by the to-do app's own parser.
+  // No target is resolved and no note is created, read or written — a choice that files tasks must
+  // not leave an empty note behind when its destination was never a note at all.
+  if (choice.task && choice.destination === 'todo') {
+    const formatted = await formatPayload({ ...choice, task: false }, runtime, session, '')
+    if (session.dismissed) return { kind: 'cancelled' }
+    const created = await createTodoFromQuickAdd(formatted.text)
+    if (!created) return { kind: 'failed', reason: t('quickadd.error_todo_failed') }
+    port.recordRun(choice.id)
+    return {
+      kind: 'task',
+      taskId: created.id,
+      summary: t('quickadd.todo_created', { title: created.title }),
+    }
+  }
 
   const target = await resolveTarget(choice, session, runtime, port)
   if (session.dismissed) return { kind: 'cancelled' }

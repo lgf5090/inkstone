@@ -46,6 +46,7 @@ const PLAN_DELIVERY: AssistantNotification = {
   body: 'Netflix renews on 2026-11-02.',
   automationId: null,
   subscriptionId: 'sub-1',
+  link: null,
   readAt: null,
   createdAt: 1,
 }

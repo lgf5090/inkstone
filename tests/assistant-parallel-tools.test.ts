@@ -19,7 +19,8 @@ import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { AssistantRunner } from '../src/worker/assistant/runner'
 import { AssistantStore } from '../src/worker/assistant/store'
 import type { Env } from '../src/worker/env'
-import type { AssistantMessage, ChatStreamEvent, Task } from '../src/shared/assistant'
+import type { AssistantMessage, ChatStreamEvent } from '../src/shared/assistant'
+import type { TodoTask } from '../src/shared/todos/model'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
 import { isNamingRequest, namingAnswer } from './doubles/naming-pass'
@@ -34,9 +35,12 @@ const USER = '0123456789abcdefghjkmnpqrs'
  */
 const VIEWS = ['today', 'upcoming', 'completed']
 
-const TASK: Task = {
+const TASK: TodoTask = {
   id: 't1', title: '', description: '', status: 'todo', priority: 'medium',
   dueAt: null, projectId: null, createdAt: 1, updatedAt: 1, completedAt: null,
+  listId: null, tags: [], starred: false, repeat: null, remindAt: null, remindedAt: null,
+  plannedFor: null,
+  noteId: null, conversationId: null, stepTotal: 0, stepDone: 0,
 }
 
 function sse(frames: readonly string[]): ReadableStream<Uint8Array> {
@@ -101,7 +105,7 @@ interface TurnResult {
  * that view could have produced, which is what makes the filed order readable below.
  */
 async function runTurn(input: {
-  listTasks?: (view: string) => Promise<Task[]>
+  listTasks?: (view: string) => Promise<TodoTask[]>
   /**
    * Told about each event as it reaches the reader.
    *

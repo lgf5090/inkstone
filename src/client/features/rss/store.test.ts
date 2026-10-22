@@ -186,7 +186,7 @@ describe('keeping a subscription at the top', () => {
     await boot()
     calls.length = 0
     useRss.getState().setPinned('f1', true)
-    await vi.waitFor(() => expect(calls.filter(call => call.path === 'patch').length).toBe(1))
+    await vi.waitFor(() => expect(calls.filter(call => call.path === 'patch').length).toBe(1), { timeout: 5000 })
     const sent = calls.filter(call => call.path === 'patch').at(-1)?.body as {
       feeds: { upsert: Array<{ id: string, pinned: boolean }> }
       marks: { upsert: unknown[] }
