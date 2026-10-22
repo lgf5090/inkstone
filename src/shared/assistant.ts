@@ -2016,6 +2016,16 @@ export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'remove_subscription_label', labelKey: 'assistant.tool.remove_subscription_label', permission: 'write' },
   { name: 'purge_subscription', labelKey: 'assistant.tool.purge_subscription', approvalKey: 'assistant.approval.purge_subscription', permission: 'destructive' },
   { name: 'empty_subscription_trash', labelKey: 'assistant.tool.empty_subscription_trash', approvalKey: 'assistant.approval.empty_subscription_trash', permission: 'destructive' },
+  { name: 'email_list_accounts', labelKey: 'assistant.tool.email_list_accounts', permission: 'read' },
+  { name: 'email_list', labelKey: 'assistant.tool.email_list', permission: 'read' },
+  { name: 'email_read', labelKey: 'assistant.tool.email_read', permission: 'read' },
+  { name: 'email_thread', labelKey: 'assistant.tool.email_thread', permission: 'read' },
+  { name: 'email_search', labelKey: 'assistant.tool.email_search', permission: 'read' },
+  { name: 'email_draft_reply', labelKey: 'assistant.tool.email_draft_reply', permission: 'write' },
+  { name: 'email_draft', labelKey: 'assistant.tool.email_draft', permission: 'write' },
+  { name: 'email_mark_read', labelKey: 'assistant.tool.email_mark_read', permission: 'write' },
+  { name: 'email_move', labelKey: 'assistant.tool.email_move', permission: 'write' },
+  { name: 'email_discard_draft', labelKey: 'assistant.tool.email_discard_draft', approvalKey: 'assistant.approval.email_discard_draft', permission: 'destructive' },
 ]
 
 /** A page the model actually consulted, as the vendor reported it. */

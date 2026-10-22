@@ -90,3 +90,9 @@ export function buildEmailQuoteMarkdown(date: string | undefined, sender: string
     .join('\n')
   return `\n\n> On ${formatEmailQuotedDate(date)}, ${sender} wrote:\n>\n${quoted}`
 }
+
+export function buildEmailQuoteHtml(date: string | undefined, sender: string, body: string): string {
+  const text = stripEmailHtmlToText(body)
+  if (!text) return ''
+  return `<br><blockquote><p>On ${escapeEmailHtml(formatEmailQuotedDate(date))}, ${escapeEmailHtml(sender)} wrote:</p>${textToEmailHtml(text)}</blockquote>`
+}

@@ -109,6 +109,18 @@ import { modelEndpoint } from './model-config'
 import { searchWeb } from './web-search'
 import { assertRelayableEndpoint } from '@shared/ai-proxy-guard'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
+import {
+  discardDraftTool,
+  draftEmailReplyTool,
+  draftEmailTool,
+  getEmailToolMessage,
+  getEmailToolThread,
+  listEmailToolAccounts,
+  listEmailToolMessages,
+  markEmailReadTool,
+  moveEmailTool,
+  searchEmailToolMessages,
+} from '../email/tools'
 
 export type FieldKind = 'string' | 'number' | 'integer' | 'boolean' | 'object' | 'array'
 
@@ -3325,11 +3337,224 @@ async function resolveSubscriptionOrThrow(ref: unknown, ctx: ToolContext): Promi
   throw new ToolError(`No subscription matches "${wanted.slice(0, 80)}". List them to find the exact name.`)
 }
 
+export const EMAIL_TOOLS: ToolDefinition[] = [
+  tool({
+    name: 'email_list_accounts',
+    permission: 'read',
+    maxCallsPerTurn: 2,
+    description: 'List the owner\'s mailboxes. Use this before naming an account in another email tool.',
+    fields: {},
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async run(_args, ctx) {
+      return { accounts: await listEmailToolAccounts(ctx.env, ctx.store.userId) }
+    },
+  }),
+  tool({
+    name: 'email_list',
+    permission: 'read',
+    maxCallsPerTurn: 4,
+    description: 'List messages in one mailbox folder. Use email_read for the body and email_thread for the whole conversation.',
+    fields: {
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      folder: { type: 'string', description: 'Folder id or name, such as inbox, sent, draft, archive, trash or spam.', maxLength: 200, optional: true },
+      limit: { type: 'integer', description: 'How many messages to return, at most 100.', minimum: 1, maximum: 100, optional: true },
+      page: { type: 'integer', description: 'Page number, starting at 1.', minimum: 1, maximum: 1000, optional: true },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async run(args, ctx) {
+      return {
+        emails: await listEmailToolMessages(ctx.env, ctx.store.userId, {
+          accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+          folder: typeof args.folder === 'string' ? args.folder : undefined,
+          limit: typeof args.limit === 'number' ? args.limit : undefined,
+          page: typeof args.page === 'number' ? args.page : undefined,
+        }),
+      }
+    },
+  }),
+  tool({
+    name: 'email_read',
+    permission: 'read',
+    maxCallsPerTurn: 5,
+    description: 'Read one email with its full body, headers and attachment metadata.',
+    fields: {
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      emailId: { type: 'string', description: 'The email id.', minLength: 1, maxLength: 64 },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async run(args, ctx) {
+      const message = await getEmailToolMessage(ctx.env, ctx.store.userId, {
+        accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+        emailId: String(args.emailId),
+      })
+      if (!message) throw new ToolError('Email not found')
+      return { email: message }
+    },
+  }),
+  tool({
+    name: 'email_thread',
+    permission: 'read',
+    maxCallsPerTurn: 4,
+    description: 'Read every message in one conversation thread, oldest first.',
+    fields: {
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      threadId: { type: 'string', description: 'The thread id from an email.', minLength: 1, maxLength: 64 },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async run(args, ctx) {
+      return getEmailToolThread(ctx.env, ctx.store.userId, {
+        accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+        threadId: String(args.threadId),
+      })
+    },
+  }),
+  tool({
+    name: 'email_search',
+    permission: 'read',
+    maxCallsPerTurn: 4,
+    description: 'Search a mailbox by subject, body, sender or recipient. Returns message metadata, not full bodies.',
+    fields: {
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      query: { type: 'string', description: 'Text to search for.', minLength: 1, maxLength: 500 },
+      folder: { type: 'string', description: 'Optional folder id or name.', maxLength: 200, optional: true },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async run(args, ctx) {
+      return {
+        emails: await searchEmailToolMessages(ctx.env, ctx.store.userId, {
+          accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+          query: String(args.query),
+          folder: typeof args.folder === 'string' ? args.folder : undefined,
+        }),
+      }
+    },
+  }),
+  tool({
+    name: 'email_draft_reply',
+    permission: 'write',
+    maxCallsPerTurn: 3,
+    description: 'Draft a reply to an existing email and save it in Drafts. This never sends; the reader reviews and sends it.',
+    fields: {
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      originalEmailId: { type: 'string', description: 'The id of the email being replied to.', minLength: 1, maxLength: 64 },
+      to: { type: 'string', description: 'Recipient email address.', minLength: 3, maxLength: 320 },
+      subject: { type: 'string', description: 'Subject line, usually Re: ...', minLength: 1, maxLength: 1000 },
+      body: { type: 'string', description: 'Plain-text reply body. No HTML and no agent commentary.', minLength: 1, maxLength: 20000 },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async run(args, ctx) {
+      const draft = await draftEmailReplyTool(ctx.env, ctx.store.userId, {
+        accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+        originalEmailId: String(args.originalEmailId),
+        to: String(args.to),
+        subject: String(args.subject),
+        body: String(args.body),
+      })
+      if (!draft) throw new ToolError('Original email not found')
+      return { status: 'draft_saved', draft }
+    },
+  }),
+  tool({
+    name: 'email_draft',
+    permission: 'write',
+    maxCallsPerTurn: 3,
+    description: 'Draft a new email and save it in Drafts. This never sends.',
+    fields: {
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      to: { type: 'string', description: 'Recipient email address.', minLength: 3, maxLength: 320 },
+      subject: { type: 'string', description: 'Subject line.', minLength: 1, maxLength: 1000 },
+      body: { type: 'string', description: 'Plain-text body. No HTML and no agent commentary.', minLength: 1, maxLength: 20000 },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async run(args, ctx) {
+      return {
+        status: 'draft_saved',
+        draft: await draftEmailTool(ctx.env, ctx.store.userId, {
+          accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+          to: String(args.to),
+          subject: String(args.subject),
+          body: String(args.body),
+        }),
+      }
+    },
+  }),
+  tool({
+    name: 'email_mark_read',
+    permission: 'write',
+    maxCallsPerTurn: 5,
+    description: 'Mark one email read or unread.',
+    fields: {
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      emailId: { type: 'string', description: 'The email id.', minLength: 1, maxLength: 64 },
+      read: { type: 'boolean', description: 'true to mark read, false for unread.' },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async run(args, ctx) {
+      const updated = await markEmailReadTool(ctx.env, ctx.store.userId, {
+        accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+        emailId: String(args.emailId),
+        read: args.read === true,
+      })
+      if (!updated) throw new ToolError('Email not found')
+      return { status: 'updated', emailId: args.emailId, read: args.read === true }
+    },
+  }),
+  tool({
+    name: 'email_move',
+    permission: 'write',
+    maxCallsPerTurn: 3,
+    description: 'Move one email to another folder, such as archive or trash.',
+    fields: {
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      emailId: { type: 'string', description: 'The email id.', minLength: 1, maxLength: 64 },
+      folderId: { type: 'string', description: 'Target folder id or name.', minLength: 1, maxLength: 200 },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async run(args, ctx) {
+      const moved = await moveEmailTool(ctx.env, ctx.store.userId, {
+        accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+        emailId: String(args.emailId),
+        folderId: String(args.folderId),
+      })
+      if (!moved) throw new ToolError('Email or folder not found')
+      return { status: 'moved', emailId: args.emailId, folder: args.folderId }
+    },
+  }),
+  {
+    name: 'email_discard_draft',
+    permission: 'destructive',
+    maxCallsPerTurn: 2,
+    description: 'Permanently discard a draft from the Drafts folder.',
+    fields: {
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      draftId: { type: 'string', description: 'The draft email id.', minLength: 1, maxLength: 64 },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async prepare(args, ctx) {
+      const draft = await getEmailToolMessage(ctx.env, ctx.store.userId, {
+        accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+        emailId: String(args.draftId),
+      })
+      if (!draft || draft.folderId !== 'draft') throw new ToolError('Draft not found')
+      return { targetId: draft.id, targetLabel: draft.subject || draft.id }
+    },
+    async commit(targetId, ctx, args) {
+      const discarded = await discardDraftTool(ctx.env, ctx.store.userId, {
+        accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+        draftId: targetId,
+      })
+      if (!discarded) throw new ToolError('Draft not found')
+      return { status: 'discarded', draftId: targetId }
+    },
+  },
+]
+
 export const ALL_TOOLS: ToolDefinition[] = [
   ...TASK_TOOLS,
   ...MEMORY_TOOLS,
   ...NOTE_TOOLS,
   ...ARTIFACT_TOOLS,
+  ...EMAIL_TOOLS,
   ...AUTOMATION_TOOLS,
   ...PROJECT_TOOLS,
   ...SEARCH_TOOLS,

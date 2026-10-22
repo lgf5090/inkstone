@@ -54,6 +54,11 @@ export type EmailAutoDraftReason =
   | 'model_error'
   | 'no_body'
   | 'duplicate'
+  | 'scanner_unavailable'
+  | 'account_missing'
+  | 'message_missing'
+  | 'disabled'
+  | 'invalid_output'
 
 export interface EmailSignatureSettings {
   enabled: boolean
