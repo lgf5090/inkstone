@@ -5,8 +5,8 @@
  * C3 is not a new feature: the store already restores the stamped row rather than re-creating one
  * (`store-undo.test.ts` pins that), and a row that misses the toast waits in the trash. So the editor
  * was asking a question twice — a dialog, then a write the reader could already take back. The case
- * below is the whole of the change read at the API boundary: one press on 删除 leaves no dialog on the
- * screen, sends exactly one delete, and puts a working undo on the rail.
+ * below is the whole of the change read at the API boundary: one press on the delete row leaves no
+ * dialog on the screen, sends exactly one delete, and puts a working undo on the rail.
  */
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'

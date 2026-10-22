@@ -12503,12 +12503,12 @@ const allowed = new Map([
     "// Every control in the window has a name, including the one that clears the answer.",
   ]],
   ["src/client/features/todos/task-editor-delete.test.tsx", [
-    "/**\n * One press deletes a task, and the toast that follows is the way back.\n *\n * C3 is not a new feature: the store already restores the stamped row rather than re-creating one\n * (`store-undo.test.ts` pins that), and a row that misses the toast waits in the trash. So the editor\n * was asking a question twice — a dialog, then a write the reader could already take back. The case\n * below is the whole of the change read at the API boundary: one press on 删除 leaves no dialog on the\n * screen, sends exactly one delete, and puts a working undo on the rail.\n */",
     "// The export helpers inline KaTeX's stylesheet, which Vite refuses through this checkout's symlinked",
     "// `node_modules`; nothing here exports a note.",
     "/** Let the delete, the toast and the reload run to completion. */",
     "// One press, one delete, and no second dialog left standing where the question used to be asked.",
     "// The way back is the row the delete stamped, not a copy of it.",
+    "/**\n * One press deletes a task, and the toast that follows is the way back.\n *\n * C3 is not a new feature: the store already restores the stamped row rather than re-creating one\n * (`store-undo.test.ts` pins that), and a row that misses the toast waits in the trash. So the editor\n * was asking a question twice — a dialog, then a write the reader could already take back. The case\n * below is the whole of the change read at the API boundary: one press on the delete row leaves no\n * dialog on the screen, sends exactly one delete, and puts a working undo on the rail.\n */",
   ]],
   ["src/client/features/todos/task-editor-markdown.test.ts", [
     "/**\n * The notes field's preview face: Markdown the reader typed, drawn through the note pipeline.\n *\n * The preview hands a string to `dangerouslySetInnerHTML`, and the only reason that is acceptable is\n * that the string comes back from `renderMarkdown`, which sanitizes before it returns. So the cases\n * below are not only about a heading appearing: a hostile note is typed in and the output is read\n * back for the handlers the sanitizer exists to remove. The toggle is a `Segmented` radiogroup, so\n * the state a screen reader hears is asserted on `aria-checked` rather than on a CSS class.\n */",
