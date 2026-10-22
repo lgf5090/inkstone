@@ -451,6 +451,38 @@ export function taskLive(alias = 'todos_tasks'): string {
 export const TASK_TRASHED_PREDICATE = 'deleted_at IS NOT NULL'
 
 /**
+ * The predicate that decides whether a task reaches a screen at all: live, and not filed in a list the
+ * reader has put away.
+ *
+ * A shelved list is the same kind of statement as a trashed row — the work still exists, it is simply
+ * not in front of the reader — so both belong in one rule, stated once. Four surfaces used to spell
+ * "which tasks may this reader see" for themselves: the row set (`taskFilter`), the badges
+ * (`taskCounts`), the board's per-card numbers (`perList`) and the published calendar (`todos/feeds`).
+ * Three of them forgot the shelf and one remembered it, which is how a sidebar could say 3 while the
+ * board it labels drew 5. A fifth spelling of this rule in a view is the bug this constant exists to
+ * prevent; a reviewer should read one as that.
+ *
+ * Statistics deliberately keep reading `TASK_LIVE_PREDICATE`: "how much did I do" is about the work,
+ * not about which shelf holds it, so an archived list's rows stay counted there. The trash page and
+ * the retention sweep still ask for the opposite with `TASK_TRASHED_PREDICATE`.
+ *
+ * `NOT EXISTS` rather than a join because the four surfaces are shaped differently — one is a plain
+ * `FROM todos_tasks`, two alias the table, one groups in SQL — and a correlated subquery reads the same
+ * in all of them. It also keeps a task whose `list_id` points at nothing visible, exactly as the join
+ * it replaces did: only a list that is actually archived hides a row.
+ */
+export function taskVisible(alias = 'todos_tasks'): string {
+  return `${taskLive(alias)} AND NOT EXISTS (
+    SELECT 1 FROM todos_lists put_away
+     WHERE put_away.user_id = ${alias}.user_id
+       AND put_away.id = ${alias}.list_id
+       AND put_away.archived_at IS NOT NULL)`
+}
+
+/** The same rule for a statement that names the table rather than aliasing it. */
+export const TASK_VISIBLE_PREDICATE = taskVisible()
+
+/**
  * How long a deleted task stays restorable.
  *
  * Thirty days is long enough to notice a mistake a week later and short enough that the trash does not
@@ -4059,14 +4091,28 @@ export class AssistantStore {
   // ------------------------------------------------------------------- tasks
 
   /**
-   * The starting clause every task read shares: this account, and only rows that are not in the trash.
+   * The starting clause a read by reference shares: this account, and only rows that are not in the trash.
    *
-   * The one place a query about the reader's tasks is opened. A statement that begins from `Query`
-   * itself instead is how a soft-deleted row stays visible somewhere while every test of the app's
-   * main list still passes.
+   * The one place a read-by-id or a title match is opened. A statement that begins from `Query` itself
+   * instead is how a soft-deleted row stays visible somewhere while every test of the app's main list
+   * still passes. A read that answers "which rows may the reader see" opens with `visibleTaskQuery`,
+   * which adds the shelf on top of this rule.
    */
   private taskQuery(): Query {
     return new Query(this.userId).raw(TASK_LIVE_PREDICATE)
+  }
+
+  /**
+   * The opener for the row sets the app itself draws: live, and not filed on a shelf.
+   *
+   * Split from `taskQuery` on purpose. That one is also what `getTask` and the assistant's title match
+   * open with, and those are reads by reference, not listings: a task in a put-away list is still the
+   * task its id names, and a screen that reached it by name should not answer 404 because its list is
+   * shelved. Anything that draws a set of rows the reader is looking at belongs here instead, and the
+   * badges below open the same way — the equality between the two is the point.
+   */
+  private visibleTaskQuery(): Query {
+    return new Query(this.userId).raw(TASK_VISIBLE_PREDICATE)
   }
 
   /**
@@ -4083,7 +4129,7 @@ export class AssistantStore {
    * midnight.
    */
   private async taskFilter(query: TaskQuery = {}): Promise<Query> {
-    const q = this.taskQuery()
+    const q = this.visibleTaskQuery()
     const status = query.status ?? 'all'
     if (Array.isArray(status)) q.inList(`status`, status)
     else if (status === 'open') q.raw(`status != 'done'`)
@@ -4797,7 +4843,8 @@ export class AssistantStore {
     }>(
       // A put-away list's work is out of every count this account shows: the shelf is not part of
       // what the reader is looking at, and a badge that still counted it would point at a screen
-      // with no row for it. The join keeps inbox rows (no list) and rows whose list was deleted.
+      // with no row for it. The same `taskVisible` clause `taskFilter` opens with is what makes a
+      // badge and the rows under it the same number; a join here instead was how they diverged.
       `SELECT
          SUM(CASE WHEN t.status != 'done' AND t.list_id IS NULL THEN 1 ELSE 0 END) AS inbox,
          SUM(CASE WHEN t.status != 'done' AND ((t.due_at IS NOT NULL AND t.due_at < ?2)
@@ -4809,15 +4856,15 @@ export class AssistantStore {
          SUM(CASE WHEN t.status = 'done' THEN 1 ELSE 0 END) AS completed,
          SUM(CASE WHEN t.status != 'done' AND t.starred = 1 THEN 1 ELSE 0 END) AS starred
        FROM todos_tasks t
-       LEFT JOIN todos_lists l ON l.user_id = t.user_id AND l.id = t.list_id
-       WHERE t.user_id = ?1 AND l.archived_at IS NULL AND ${taskLive('t')}`,
+       WHERE t.user_id = ?1 AND ${taskVisible('t')}`,
       this.userId, dayEnd, upcomingEnd, now, pickedFor,
     )
     // The inbox is folded in under its own key: a card shows the same `done / total` line whether
-    // the list is the reader's or the one every unfiled task lands in.
+    // the list is the reader's or the one every unfiled task lands in. A shelved list has no group
+    // at all here, which is what leaves its board card with no work on it.
     const perList = await this.rows<{ list_id: string; status: string; n: number }>(
       `SELECT COALESCE(list_id, 'inbox') AS list_id, status, COUNT(*) AS n FROM todos_tasks
-        WHERE user_id = ?1 AND ${TASK_LIVE_PREDICATE} GROUP BY COALESCE(list_id, 'inbox'), status`,
+        WHERE user_id = ?1 AND ${TASK_VISIBLE_PREDICATE} GROUP BY COALESCE(list_id, 'inbox'), status`,
       this.userId,
     )
     const byList: Record<string, { open: number; done: number }> = {}
@@ -4830,7 +4877,7 @@ export class AssistantStore {
     const perTag = await this.rows<{ tag_id: string; status: string; n: number }>(
       `SELECT l.tag_id, t.status, COUNT(*) AS n FROM todos_tag_links l
          JOIN todos_tasks t ON t.user_id = l.user_id AND t.id = l.task_id
-        WHERE l.user_id = ?1 AND ${taskLive('t')} GROUP BY l.tag_id, t.status`,
+        WHERE l.user_id = ?1 AND ${taskVisible('t')} GROUP BY l.tag_id, t.status`,
       this.userId,
     )
     const byTag: Record<string, { open: number; done: number }> = {}
@@ -4971,7 +5018,7 @@ export class AssistantStore {
     const counts = await this.rows<{ tag_id: string; n: number }>(
       `SELECT l.tag_id, COUNT(*) AS n FROM todos_tag_links l
          JOIN todos_tasks t ON t.user_id = l.user_id AND t.id = l.task_id
-        WHERE l.user_id = ?1 AND t.status != 'done' AND ${taskLive('t')} GROUP BY l.tag_id`,
+        WHERE l.user_id = ?1 AND t.status != 'done' AND ${taskVisible('t')} GROUP BY l.tag_id`,
       this.userId,
     )
     const byTag = new Map(counts.map((row) => [row.tag_id, row.n]))

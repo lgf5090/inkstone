@@ -248,9 +248,13 @@ describe('list archiving and grouping', () => {
       .not.toContain(list.id)
     expect((await json<{ lists: ListAnswer[] }>(await send('GET', '/lists?archived=1'))).lists.map((entry) => entry.id))
       .toEqual([list.id])
-    // The task itself is not deleted: archiving is a statement about the list, not about its work.
-    const filed = await json<{ tasks: TodoTask[] }>(await send('GET', `?list=${list.id}`))
-    expect(filed.tasks.map((task) => task.title)).toEqual(['Still there'])
+    // Archiving is a statement about the list, not about the rows it holds: nothing is deleted, which is
+    // why un-archiving below brings the very same task back. What does change is visibility — the
+    // put-away list's rows leave every listing, badge, board card and feed. Pinning only the badge is
+    // what let a badge of 0 and a row set of 1 live in the same answer.
+    const filed = await json<{ tasks: TodoTask[], total: number }>(await send('GET', `?list=${list.id}`))
+    expect(filed.tasks).toEqual([])
+    expect(filed.total).toBe(0)
     // Every count that reads the account's open work leaves the put-away list out.
     expect((await json<{ counts: TaskCounts }>(await send('GET', ''))).counts.all).toBe(0)
 
@@ -260,6 +264,53 @@ describe('list archiving and grouping', () => {
       .toEqual([list.id])
     expect((await json<{ lists: ListAnswer[] }>(await send('GET', '/lists?archived=1'))).lists).toEqual([])
     expect((await json<{ counts: TaskCounts }>(await send('GET', ''))).counts.all).toBe(1)
+  })
+
+  it('keeps one visibility rule across the badge, the row set, the board card and the feed', async () => {
+    const shelf = (await json<{ list: ListAnswer }>(await send('POST', '/lists', { name: 'Shelf' }))).list
+    const desk = (await json<{ list: ListAnswer }>(await send('POST', '/lists', { name: 'Desk' }))).list
+    const tag = (await json<{ tag: TaskTag }>(await send('POST', '/tags', { name: 'Home' }))).tag
+    const soon = Date.now() + 60 * 60 * 1000
+    await create({ title: 'On the shelf', listId: shelf.id, dueAt: soon, tags: ['Home'] })
+    await create({ title: 'Also shelved', listId: shelf.id })
+    const visible = await create({ title: 'On the desk', listId: desk.id, dueAt: soon, tags: ['Home'] })
+
+    // The subscription is one of the four surfaces, so it is read before the shelf is put away: a feed
+    // a third-party calendar already holds has to lose the row on the next poll, not keep it forever.
+    const feed = (await json<{ feed: FeedAnswer }>(await send('POST', '/feed', {}))).feed
+    const before = await (await fetchFeed(`/${feed.slug}.ics`)).text()
+    expect(before).toContain('On the shelf')
+    expect(before).toContain('On the desk')
+
+    await send('PATCH', `/lists/${shelf.id}`, { archived: true })
+
+    // The equality that was missing: the badge a screen prints and the rows that same screen draws are
+    // the same number, because both read the same predicate.
+    const open = await json<{ tasks: TodoTask[], total: number, counts: TaskCounts }>(await send('GET', '?view=open'))
+    expect(open.tasks.map((task) => task.id)).toEqual([visible.id])
+    expect(open.total).toBe(1)
+    expect(open.counts.all).toBe(open.tasks.length)
+    // The board card for a put-away list shows no work at all, and the shelf keeps its own number out.
+    expect(open.counts.byList[shelf.id]).toBeUndefined()
+    expect(open.counts.byList[desk.id]).toEqual({ open: 1, done: 0 })
+    expect((await json<{ tasks: TodoTask[] }>(await send('GET', `?list=${shelf.id}`))).tasks).toEqual([])
+    expect((await json<{ tasks: TodoTask[] }>(await send('GET', `?list=${desk.id}`))).tasks).toHaveLength(1)
+
+    // A tag badge is the same promise on a different screen, and so is the tag's own row.
+    const tagged = await json<{ tasks: TodoTask[], counts: TaskCounts }>(await send('GET', `?view=open&tag=${tag.id}`))
+    expect(tagged.tasks.map((task) => task.id)).toEqual([visible.id])
+    expect(tagged.counts.byTag[tag.id]).toEqual({ open: tagged.tasks.length, done: 0 })
+    const tags = await json<{ tags: TaskTag[] }>(await send('GET', '/tags'))
+    expect(tags.tags.find((entry) => entry.id === tag.id)?.openCount).toBe(tagged.tasks.length)
+
+    const after = await (await fetchFeed(`/${feed.slug}.ics`)).text()
+    expect(after).not.toContain('On the shelf')
+    expect(after).toContain('On the desk')
+
+    // Statistics are the one surface the ruling keeps open: "how much did I do" is about the work, not
+    // about which shelf it sits on, so all three rows are still counted there.
+    const stats = await json<{ summary: { open: number } }>(await send('GET', '/stats'))
+    expect(stats.summary.open).toBe(3)
   })
 
   it('groups lists one level deep and refuses a loop or a grandchild', async () => {

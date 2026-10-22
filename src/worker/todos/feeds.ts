@@ -15,7 +15,7 @@
  * owner's listing goes one step further and never selects the hash at all, only whether there is one.
  */
 import { MAX_TASKS_PER_QUERY, parseRepeatRule } from '@shared/todos/model'
-import { TASK_LIVE_PREDICATE } from '../assistant/store'
+import { TASK_VISIBLE_PREDICATE } from '../assistant/store'
 import type { IcsTask } from './ics'
 
 export type FeedRow = {
@@ -120,13 +120,19 @@ export async function revokeFeed(
   return (result.meta?.changes ?? 0) > 0
 }
 
-/** What the calendar may show: open tasks with a due date up to the horizon, oldest first. */
+/**
+ * What the calendar may show: open tasks with a due date up to the horizon, oldest first.
+ *
+ * The same visibility rule the app's own listings open with, so a list put away on the reader's side
+ * is gone from the address a third-party calendar polls on its next fetch as well — a shelf the reader
+ * cannot see past is not a shelf their calendar should see past.
+ */
 export async function loadFeedTasks(db: D1Database, userId: string, horizonEnd: number): Promise<IcsTask[]> {
   const { results } = await db
     .prepare(
       `SELECT id, title, description, priority, due_at, repeat_rule
          FROM todos_tasks
-        WHERE user_id = ?1 AND status != 'done' AND ${TASK_LIVE_PREDICATE}
+        WHERE user_id = ?1 AND status != 'done' AND ${TASK_VISIBLE_PREDICATE}
           AND due_at IS NOT NULL AND due_at <= ?2
         ORDER BY due_at ASC, id ASC
         LIMIT ?3`,
