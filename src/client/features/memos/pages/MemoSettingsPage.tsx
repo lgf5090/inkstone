@@ -9,6 +9,7 @@ import { AccountSettings } from './memo-settings/AccountSettings'
 import { AboutSettings } from './memo-settings/AboutSettings'
 import { AccessTokensSettings } from './memo-settings/AccessTokensSettings'
 import { GeneralSettings } from './memo-settings/GeneralSettings'
+import { ImportExportSettings } from './memo-settings/ImportExportSettings'
 import { ReactionsSettings } from './memo-settings/ReactionsSettings'
 import { TagRulesSettings } from './memo-settings/TagRulesSettings'
 import { WebhooksSettings } from './memo-settings/WebhooksSettings'
@@ -25,6 +26,7 @@ const SECTION_LINKS: readonly SettingsSectionLink[] = [
   { id: MEMO_SETTINGS_SECTION_IDS.tags, labelKey: 'memos.settings.tags' },
   { id: MEMO_SETTINGS_SECTION_IDS.tokens, labelKey: 'memos.settings.tokens' },
   { id: MEMO_SETTINGS_SECTION_IDS.webhooks, labelKey: 'memos.settings.webhooks' },
+  { id: MEMO_SETTINGS_SECTION_IDS.transfer, labelKey: 'memos.settings.transfer' },
   { id: MEMO_SETTINGS_SECTION_IDS.about, labelKey: 'memos.settings.about' },
   { id: MEMO_SETTINGS_SECTION_IDS.account, labelKey: 'memos.settings.account' },
 ]
@@ -107,6 +109,7 @@ export function MemoSettingsPage(): ReactElement {
             <TagRulesSettings preferences={draft} saving={saving} save={save} />
             <AccessTokensSettings />
             <WebhooksSettings />
+            <ImportExportSettings />
             <AboutSettings />
             <AccountSettings />
           </div>
