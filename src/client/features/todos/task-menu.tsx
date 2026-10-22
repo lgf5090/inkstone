@@ -31,8 +31,12 @@ import {
 import type { MessageKey } from '@shared/locales/en-US'
 import type { TaskMoveControls } from './TaskCard'
 
-/** The four priorities a batch may set, in the order the bar has always listed them. */
-const PRIORITIES: readonly TaskPriority[] = ['low', 'medium', 'high', 'urgent']
+/**
+ * The four priorities, in the order every surface that names them lists them — the batch bar's submenu
+ * and a card's own priority row alike. Exported because a test has to be able to say "all four, this
+ * way round" without writing the list out a second time.
+ */
+export const PRIORITIES: readonly TaskPriority[] = ['low', 'medium', 'high', 'urgent']
 
 /**
  * How wide a row's menu is — the one panel a right-click, the kebab's group and a keyboard key all
@@ -126,7 +130,30 @@ export function buildScheduleMenuItems(task: TodoTask, handlers: TaskMenuHandler
   return items
 }
 
-/** The rows the kebab has always offered: the status the reader can move to, the moves, the reminders. */
+/**
+ * The groups of a row's menu, joined with one rule: the divider sits above the first row of every group
+ * after the first. It lives here rather than on each group's own head row because the groups are not all
+ * drawn on every row — a status the reader cannot move to leaves no row behind, and a divider written
+ * onto the head of a group that was skipped lands on nothing.
+ */
+function joinMenuGroups(groups: readonly (readonly MenuItem[])[]): MenuItem[] {
+  const out: MenuItem[] = []
+  for (const group of groups) {
+    if (group.length === 0) continue
+    const [head, ...tail] = group
+    if (out.length === 0) {
+      out.push(...group)
+    } else {
+      out.push({ ...head!, separatorBefore: true }, ...tail)
+    }
+  }
+  return out
+}
+
+/**
+ * The rows the kebab has always offered: the status the reader can move to, the priority, the moves, the
+ * reminders.
+ */
 export function buildTaskMenuItems(task: TodoTask, handlers: TaskMenuHandlers): MenuItem[] {
   const { lists, move, onClose, update, snooze } = handlers
 
@@ -153,6 +180,41 @@ export function buildTaskMenuItems(task: TodoTask, handlers: TaskMenuHandlers): 
         }]
       : []
 
+  /**
+   * The priority, in the same four words the batch bar uses.
+   *
+   * A board cut by priority files its columns by *dragging a card between them*, which is the one way
+   * that dimension offers: a keyboard and a thumb can read the four columns but cannot move a row from
+   * one to the other, and the editor becoming the only door is exactly what AGENTS.md rules 10 and 13
+   * refuse. The write is the card's own patch call, so this is a second way to reach `priority` and
+   * never a second way to save it. A finished row leaves the group out with its status and reminder rows
+   * — the priority of work that is already done sorts nothing.
+   */
+  const priorityItems: MenuItem[] = task.status === 'done'
+    ? []
+    : [{
+        id: 'priority',
+        label: t('todo.layout.group.priority'),
+        icon: <Flag size={13} />,
+        submenu: ({ closeMenu }) => (
+          <MenuSubmenuList
+            label={t('todo.layout.group.priority')}
+            items={PRIORITIES.map((priority) => ({
+              id: `priority-${priority}`,
+              label: priorityLabel(priority),
+              checked: task.priority === priority,
+              onSelect: () => {
+                closeMenu()
+                // Picking the priority the row already wears writes nothing: a gesture that changed
+                // nothing would still bump the row's revision and offer an undo of an empty step.
+                if (task.priority === priority) return
+                update({ priority })
+              },
+            }))}
+          />
+        ),
+      }]
+
   // The manual-order rows. They live in the menu rather than on a draggable handle alone because a
   // phone cannot drag and a keyboard never could: this is the equivalent path, not a secondary one.
   const moveTargets: { id: string; name: string }[] = move
@@ -170,7 +232,6 @@ export function buildTaskMenuItems(task: TodoTask, handlers: TaskMenuHandlers): 
           label: t('todo.move.up'),
           icon: <ArrowUp size={13} />,
           disabled: !move.canMoveUp,
-          separatorBefore: statusItems.length > 0,
           onSelect: () => {
             onClose()
             move.onMoveUp()
@@ -209,10 +270,9 @@ export function buildTaskMenuItems(task: TodoTask, handlers: TaskMenuHandlers): 
     : []
 
   const snoozeItems: MenuItem[] = snooze
-    ? SNOOZE_MINUTES.map((minutes, index) => ({
+    ? SNOOZE_MINUTES.map((minutes) => ({
         id: `snooze-${minutes}`,
         label: snoozeLabel(minutes),
-        separatorBefore: index === 0 && statusItems.length + moveItems.length > 0,
         onSelect: () => {
           onClose()
           snooze(minutes)
@@ -220,7 +280,7 @@ export function buildTaskMenuItems(task: TodoTask, handlers: TaskMenuHandlers): 
       }))
     : []
 
-  return [...statusItems, ...moveItems, ...snoozeItems]
+  return joinMenuGroups([statusItems, priorityItems, moveItems, snoozeItems])
 }
 
 /**
