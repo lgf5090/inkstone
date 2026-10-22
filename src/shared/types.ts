@@ -1364,3 +1364,5 @@ export type ApiErrorCode =
   | 'email_auto_draft_unavailable'
   | 'email_export_too_large'
   | 'email_backup_no_target'
+  | 'email_contact_exists'
+  | 'email_group_exists'

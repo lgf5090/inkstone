@@ -53,6 +53,7 @@ import { todoAttachmentRoutes } from './routes/todo-attachments'
 import { todoImportRoutes } from './routes/todo-import'
 import { todoFeedRoutes } from './routes/todo-feeds'
 import { emailRoutes } from './routes/email'
+import { emailContactsRoutes } from './routes/email-contacts'
 import { emailSendRoutes } from './routes/email-send'
 import { subscriptionInboundRoutes } from './routes/subscriptions-inbound'
 import { INBOUND_HOOK_PATH } from '@shared/subscriptions/channels'
@@ -167,6 +168,7 @@ export function createApp() {
   // paths carry the extra `/attachments` segment, which the task router would never match.
   app.route('/api/todos', todoAttachmentRoutes)
   app.route('/api/todos', todoRoutes)
+  app.route('/api/email', emailContactsRoutes)
   app.route('/api/email', emailSendRoutes)
   app.route('/api/email', emailRoutes)
   app.route('/api/assistant', assistantRoutes)

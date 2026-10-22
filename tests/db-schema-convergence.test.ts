@@ -472,6 +472,7 @@ const ACCOUNT_GLOBAL_KEYS = new Map<string, string>([
   ['memos_webhooks', 'id is a 26-character newId(); every read binds user_id'],
   ['memos_import_sessions', 'id is a 26-character newId(); every read binds user_id'],
   ['memos_changes', 'seq INTEGER PRIMARY KEY AUTOINCREMENT, every read filters on user_id'],
+  ['email_group_members', 'composite (group_id, contact_id) on newId() groups and contacts; every read binds user_id'],
 ])
 
 /** The tables that carry a `user_id` column yet key on something else. */

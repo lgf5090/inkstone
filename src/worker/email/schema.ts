@@ -64,12 +64,55 @@ export const EMAIL_SCHEMA_STATEMENTS: readonly string[] = [
      ON email_attachments(user_id, folder_id)`,
   `CREATE INDEX IF NOT EXISTS idx_email_attachments_created
      ON email_attachments(user_id, created_at DESC)`,
+
+  `CREATE TABLE IF NOT EXISTS email_contacts (
+    id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    email TEXT NOT NULL,
+    email_normalized TEXT NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
+    company TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    starred INTEGER NOT NULL DEFAULT 0,
+    usage_count INTEGER NOT NULL DEFAULT 0,
+    last_used_at INTEGER,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_email_contacts_email
+     ON email_contacts(user_id, email_normalized)`,
+  `CREATE INDEX IF NOT EXISTS idx_email_contacts_name
+     ON email_contacts(user_id, name)`,
+
+  `CREATE TABLE IF NOT EXISTS email_groups (
+    id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_email_groups_name
+     ON email_groups(user_id, name COLLATE NOCASE)`,
+
+  `CREATE TABLE IF NOT EXISTS email_group_members (
+    user_id TEXT NOT NULL,
+    group_id TEXT NOT NULL,
+    contact_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (group_id, contact_id)
+  )`,
 ]
 
 export const EMAIL_REQUIRED_TABLES: readonly string[] = [
   'email_accounts',
   'email_auto_draft_jobs',
   'email_attachments',
+  'email_contacts',
+  'email_groups',
+  'email_group_members',
 ]
 
 export const EMAIL_REQUIRED_INDEXES: readonly string[] = [
@@ -81,10 +124,16 @@ export const EMAIL_REQUIRED_INDEXES: readonly string[] = [
   'idx_email_attachments_email',
   'idx_email_attachments_folder',
   'idx_email_attachments_created',
+  'idx_email_contacts_email',
+  'idx_email_contacts_name',
+  'idx_email_groups_name',
 ]
 
 export const EMAIL_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   email_accounts: ['id', 'user_id', 'address', 'address_normalized', 'display_name', 'settings', 'created_at', 'updated_at'],
   email_auto_draft_jobs: ['user_id', 'account_id', 'message_id', 'thread_id', 'status', 'reason', 'attempts', 'claimed_at', 'created_at', 'updated_at'],
   email_attachments: ['id', 'user_id', 'account_id', 'email_id', 'filename', 'mime', 'size', 'width', 'height', 'content_id', 'disposition', 'object_key', 'storage', 'folder_id', 'is_starred', 'is_pinned', 'tags', 'locked', 'created_at'],
+  email_contacts: ['id', 'user_id', 'email', 'email_normalized', 'name', 'company', 'notes', 'starred', 'usage_count', 'last_used_at', 'created_at', 'updated_at'],
+  email_groups: ['id', 'user_id', 'name', 'description', 'created_at', 'updated_at'],
+  email_group_members: ['user_id', 'group_id', 'contact_id', 'created_at'],
 }
