@@ -20,6 +20,8 @@ Please avoid accessing data that is not yours, degrading a production service, o
 
 Inkstone is self-hosted software, not a hosted service. Deployment owners are responsible for their Cloudflare account, custom domains, access policies, backup destinations, and timely updates. Inkstone does not provide a password-reset bypass; losing the owner password requires restoring from a trusted backup or reinitializing the instance.
 
+The email app is owner-only: member sessions are refused by every mailbox route, attachment route, assistant email tool and MCP email scope. Inbound mail is matched to the exact recipient address recorded for a mailbox, and unknown recipients are dropped. Message bodies render in a sandboxed iframe without `allow-same-origin`, so received HTML cannot read the page's DOM or session. Attachment bytes are served only through the mailbox's own owner-checked route, never the shared note-file route. Automatic drafts are enabled per mailbox by default and send the incoming message to the AI provider the assistant is configured with; turn them off in the mailbox settings when that is not acceptable. MCP access to email is off until the owner enables it, and sending through MCP requires an explicit `confirm: true` per call.
+
 
 ## Reviewed code-execution exception
 
