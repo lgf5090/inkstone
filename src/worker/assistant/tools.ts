@@ -28,6 +28,7 @@ import {
   MAX_TAG_NAME_CHARS,
   REMIND_OFFSETS,
   REPEAT_FREQUENCIES,
+  REPEAT_MONTHLY_MODES,
   SNOOZE_MINUTES,
   UPCOMING_DAYS,
   isSnoozeMinutes,
@@ -310,8 +311,9 @@ function repeatRule(args: Record<string, unknown>, allowNone: boolean): RepeatRu
   }
   if (weekdays && freq !== 'weekly') throw new ToolError('Repeat days only narrow a weekly rhythm.')
   const monthly = args.repeatMonthly
-  if (monthly !== undefined && monthly !== 'day' && monthly !== 'lastDay') {
-    throw new ToolError('A monthly rhythm lands on the same day or the last day.')
+  if (monthly !== undefined
+    && (typeof monthly !== 'string' || !REPEAT_MONTHLY_MODES.includes(monthly as (typeof REPEAT_MONTHLY_MODES)[number]))) {
+    throw new ToolError('A monthly rhythm lands on the same day, the last day, or the same nth weekday.')
   }
   if (monthly !== undefined && freq !== 'monthly') throw new ToolError('That monthly choice only narrows a monthly rhythm.')
   const rule = parseRepeatRule({
@@ -610,7 +612,7 @@ export const TASK_TOOLS: ToolDefinition[] = [
       repeat: { type: 'string', enum: REPEAT_FREQUENCIES, description: 'How often it comes back. Leave it out for a one-off.', optional: true },
       repeatInterval: { type: 'integer', minimum: 1, maximum: 99, description: 'Occurrences every N weeks, months or years. Defaults to 1.', optional: true },
       repeatDays: { type: 'string', description: 'For a weekly rhythm: comma-separated weekdays, 0=Sunday to 6=Saturday.', maxLength: 20, optional: true },
-      repeatMonthly: { type: 'string', enum: ['day', 'lastDay'], description: 'For a monthly rhythm: the same day or the last day.', optional: true },
+      repeatMonthly: { type: 'string', enum: REPEAT_MONTHLY_MODES, description: 'For a monthly rhythm: the same day, the last day, or the same nth weekday of the due date.', optional: true },
       remind: { type: 'string', enum: REMIND_OFFSETS, description: 'When to remind the reader, relative to the due time. Defaults to none.', optional: true },
       reminders: { type: 'array', items: 'string', maxItems: MAX_REMINDERS_PER_TASK, description: 'Absolute reminders as local YYYY-MM-DDTHH:MM values. Replaces remind when given.', optional: true },
       starred: { type: 'boolean', description: 'Mark it as one to keep in sight.', optional: true },
@@ -773,7 +775,7 @@ export const TASK_TOOLS: ToolDefinition[] = [
       repeat: { type: 'string', enum: [...REPEAT_FREQUENCIES, 'none'], description: 'Set or clear how often it repeats.', optional: true },
       repeatInterval: { type: 'integer', minimum: 1, maximum: 99, description: 'Occurrences every N weeks, months or years. Defaults to 1.', optional: true },
       repeatDays: { type: 'string', description: 'For a weekly rhythm: comma-separated weekdays, 0=Sunday to 6=Saturday.', maxLength: 20, optional: true },
-      repeatMonthly: { type: 'string', enum: ['day', 'lastDay'], description: 'For a monthly rhythm: the same day or the last day.', optional: true },
+      repeatMonthly: { type: 'string', enum: REPEAT_MONTHLY_MODES, description: 'For a monthly rhythm: the same day, the last day, or the same nth weekday of the due date.', optional: true },
       remind: { type: 'string', enum: REMIND_OFFSETS, description: 'Set or clear the reminder.', optional: true },
       reminders: { type: 'array', items: 'string', maxItems: MAX_REMINDERS_PER_TASK, description: 'Replace the pending reminders with these local YYYY-MM-DDTHH:MM values.', optional: true },
       starred: { type: 'boolean', optional: true },

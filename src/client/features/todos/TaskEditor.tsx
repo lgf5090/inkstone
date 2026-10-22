@@ -32,6 +32,7 @@ import { ListIconPicker } from './ListIconPicker'
 import { openConversationInChat, startChatAboutTask } from '../chat/start-chat'
 import { sendForAnswerDetailed, type AnswerResult } from '../chat/editor-ai'
 import { parseLocalTime, localDate } from '@shared/assistant-time'
+import { daysInMonth, getZonedParts } from '@shared/assistant-schedule'
 import type { MessageKey } from '@shared/locales/en-US'
 import {
   MAX_REMINDERS_PER_TASK,
@@ -41,6 +42,7 @@ import {
   remindAtFor,
   type RemindOffset,
   type RepeatFrequency,
+  type RepeatMonthlyMode,
   type TaskStep,
 } from '@shared/todos/model'
 
@@ -100,6 +102,41 @@ const WEEKDAY_CHOICES: readonly { day: number, label: MessageKey }[] = [
   { day: 6, label: 'assistant.weekday.6' },
   { day: 0, label: 'assistant.weekday.7' },
 ]
+
+/** The positions a monthly nth-weekday rule can name: a month holds a given weekday at most five times. */
+const NTH_CHOICES = [1, 2, 3, 4, 5] as const
+
+/** The words one of those positions reads as. */
+const NTH_LABELS: Record<(typeof NTH_CHOICES)[number], MessageKey> = {
+  1: 'todo.repeat.nth_1',
+  2: 'todo.repeat.nth_2',
+  3: 'todo.repeat.nth_3',
+  4: 'todo.repeat.nth_4',
+  5: 'todo.repeat.nth_5',
+}
+
+/** The nth weekday of a month that its `day` is, as the repeat rule counts it. */
+function nthOfMonth(day: number): number {
+  return Math.ceil(day / 7)
+}
+
+/** The day of `month` that is the nth `weekday`, falling back to the month's last one when it has four. */
+function dayOfNthWeekday(year: number, month: number, weekday: number, nth: number): number {
+  const firstWeekday = new Date(Date.UTC(year, month - 1, 1)).getUTCDay()
+  const day = 1 + (weekday - firstWeekday + 7) % 7 + (nth - 1) * 7
+  return day <= daysInMonth(year, month) ? day : day - 7
+}
+
+/**
+ * The due field's wall-clock reading, in the one shape the field and the route both take.
+ *
+ * The time is carried only when the date being replaced had one: a task nobody has owed at an hour
+ * yet stays a day, and picking a weekday does not quietly invent a 00:00 it will remind at.
+ */
+function dueKey(year: number, month: number, day: number, hour: number, minute: number, timed: boolean): string {
+  const date = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+  return timed ? `${date}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}` : date
+}
 
 /**
  * What the start field opens with.
@@ -177,7 +214,7 @@ export function TaskEditor() {
   const [interval, setInterval] = useState(1)
   /** The named weekdays of a weekly rule, and which day a monthly rule lands on. */
   const [weekdays, setWeekdays] = useState<number[]>([])
-  const [monthlyMode, setMonthlyMode] = useState<'day' | 'lastDay'>('day')
+  const [monthlyMode, setMonthlyMode] = useState<RepeatMonthlyMode>('day')
   /**
    * The preset picker is an "add" control, not the value: the list on the right of it is what the task
    * saves. The select stays in the form because it is the fastest way to add the common four, and its
@@ -225,7 +262,7 @@ export function TaskEditor() {
     setRepeat(task?.repeat?.freq ?? source.repeat?.freq ?? 'none')
     setInterval(task?.repeat?.interval ?? source.repeat?.interval ?? 1)
     setWeekdays(task?.repeat?.weekdays ?? source.repeat?.weekdays ?? [])
-    setMonthlyMode(task?.repeat?.monthlyMode === 'lastDay' ? 'lastDay' : 'day')
+    setMonthlyMode(task?.repeat?.monthlyMode ?? source.repeat?.monthlyMode ?? 'day')
     // An existing task brings its pending list; a quick-add draft brings one instant. The select shows
     // the preset that instant equals, so a line typed as "15 minutes before" arrives with the same
     // words in the panel, while the list below is what will actually be saved.
@@ -273,6 +310,34 @@ export function TaskEditor() {
     [tags, tagNames],
   )
 
+  /**
+   * The date a monthly nth-weekday rule reads, in the reader's own calendar.
+   *
+   * The rule names no position of its own — `nextOccurrence` takes both the nth and the weekday out of
+   * the due date — so this is that same reading, and the two controls below move the due date rather
+   * than keeping a second answer a save would have to reconcile. With no due date yet, the reader's own
+   * today names the month, and the day the picker writes stays without an hour: nothing was owed at one.
+   */
+  const nthWeekday = useMemo(() => {
+    const at = dueText ? parseLocalTime(dueText, timezone) : null
+    const parts = getZonedParts(new Date(at ?? Date.now()), timezone)
+    return {
+      year: parts.year,
+      month: parts.month,
+      nth: nthOfMonth(parts.day),
+      weekday: parts.weekday,
+      hour: parts.hour,
+      minute: parts.minute,
+      timed: at !== null && dueText.includes('T'),
+    }
+  }, [dueText, timezone])
+
+  /** Makes the due date the nth weekday of its own month, keeping the time it was owed at. */
+  const pickNthWeekday = (nth: number, weekday = nthWeekday.weekday): void => {
+    const { year, month, hour, minute, timed } = nthWeekday
+    setDueText(dueKey(year, month, dayOfNthWeekday(year, month, weekday, nth), hour, minute, timed))
+  }
+
   const save = async (): Promise<void> => {
     const body = {
       title: title.trim(),
@@ -288,7 +353,7 @@ export function TaskEditor() {
         freq: repeat,
         interval: Math.max(1, Math.min(99, interval)),
         ...(repeat === 'weekly' && weekdays.length ? { weekdays: [...weekdays].sort((a, b) => a - b) } : {}),
-        ...(repeat === 'monthly' && monthlyMode === 'lastDay' ? { monthlyMode } : {}),
+        ...(repeat === 'monthly' && monthlyMode !== 'day' ? { monthlyMode } : {}),
       },
       reminders,
       tags: tagNames,
@@ -716,12 +781,43 @@ export function TaskEditor() {
                 <SelectMenu
                   label={t('todo.repeat.monthly_mode')}
                   value={monthlyMode}
-                  onChange={(next) => setMonthlyMode(next === 'lastDay' ? 'lastDay' : 'day')}
+                  onChange={(next) => setMonthlyMode(next as RepeatMonthlyMode)}
                   options={[
                     { value: 'day', label: t('todo.repeat.monthly_day') },
                     { value: 'lastDay', label: t('todo.repeat.last_day') },
+                    { value: 'nthWeekday', label: t('todo.repeat.nth_weekday') },
                   ]}
                 />
+              )}
+              {repeat === 'monthly' && monthlyMode === 'nthWeekday' && (
+                // The rule reads its position off the due date, so these two controls move that date
+                // rather than storing a third answer: picking "the 3rd Friday" makes the task owed on
+                // the 3rd Friday, and every month after it lands on the same one.
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <SelectMenu
+                      className="w-auto min-w-[96px]"
+                      label={t('todo.repeat.nth')}
+                      value={String(nthWeekday.nth)}
+                      onChange={(next) => pickNthWeekday(Number(next))}
+                      options={NTH_CHOICES.map((entry) => ({ value: String(entry), label: t(NTH_LABELS[entry]) }))}
+                    />
+                    <div role="group" aria-label={t('todo.repeat.weekdays')} className="flex flex-wrap items-center gap-1">
+                      {WEEKDAY_CHOICES.map((choice) => (
+                        <button
+                          key={choice.day}
+                          type="button"
+                          aria-pressed={choice.day === nthWeekday.weekday}
+                          aria-label={t(choice.label)}
+                          onClick={() => pickNthWeekday(nthWeekday.nth, choice.day)}
+                          className="flex size-9 items-center justify-center rounded-[var(--r-sm)] border border-[var(--border-subtle)] text-[length:var(--text-11)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] aria-pressed:border-[var(--accent)] aria-pressed:bg-[var(--accent-soft)] aria-pressed:text-[var(--accent-on-soft)] md:size-7"
+                        >
+                          {t(choice.label)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
           </Field>

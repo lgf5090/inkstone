@@ -791,6 +791,19 @@ describe('planning and repeat details', () => {
     expect(updated?.repeat).toEqual({ freq: 'monthly', interval: 1, monthlyMode: 'lastDay' })
   })
 
+  it('sets a monthly rhythm that lands on an nth weekday', async () => {
+    const created = await executor().execute('create_task', {
+      title: 'Third Friday',
+      due: '2026-10-16T09:00',
+      repeat: 'monthly',
+      repeatMonthly: 'nthWeekday',
+    }, 'call-1') as { created: { id: string } }
+
+    const task = await store.getTask(created.created.id)
+    // The mode is the rule's only extra word: which Friday it is comes from the due date it names.
+    expect(task?.repeat).toEqual({ freq: 'monthly', interval: 1, monthlyMode: 'nthWeekday' })
+  })
+
   it('refuses weekdays on a rhythm that is not weekly', async () => {
     await expect(executor().execute('create_task', {
       title: 'Bad rhythm',
