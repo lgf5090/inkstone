@@ -160,11 +160,14 @@ export function EmailAccountCard({
             </span>
           </span>
         </button>
-        <Tooltip label={t('email.header.settings')} side="top">
+        <Tooltip label={t('common.settings')} side="top">
           <IconButton
-            label={t('email.header.settings')}
+            label={t('common.settings')}
             size="sm"
-            onClick={() => navigateToPath(emailSettingsPath(activeAccountId))}
+            onClick={() => {
+              onNavigate?.()
+              openPanel('settings')
+            }}
             className="mr-1 shrink-0 text-[var(--text-quaternary)] group-hover:text-[var(--text-tertiary)]"
           >
             <Settings size={14} />

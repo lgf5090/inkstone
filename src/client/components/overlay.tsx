@@ -1142,7 +1142,7 @@ export function Drawer({ open, onClose, side = 'right', width = 380, children, t
     return createPortal(<div className="app-viewport-fixed fixed" style={{ zIndex, left: leftOffset }}>
       <div className="anim-fade absolute inset-0 bg-[var(--scrim)]" onClick={onClose} aria-hidden="true"/>
       <aside ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} aria-label={title ? undefined : ariaLabel ?? t("overlay.side_panel")} tabIndex={-1} data-surface="drawer" className={cn('absolute top-0 bottom-0 flex flex-col border-[var(--border-default)] bg-[var(--bg-surface)] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] shadow-[var(--shadow-modal)] outline-none md:py-0', side === 'right' ? 'right-0 border-l' : 'left-0 border-r')} style={{
-            width: Math.min(width, window.innerWidth < 768 ? window.innerWidth : window.innerWidth - 32),
+            width: Math.min(width, window.innerWidth < 768 ? window.innerWidth - leftOffset : window.innerWidth - 32),
             animation: `ink-slide-in-${side} var(--dur-slow) var(--ease-out) both`,
         }}>
         {title && (<header className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--border-subtle)] px-3">
