@@ -134,12 +134,24 @@ export class SearchStore {
    *
    * `notes_fts` lags the note table by one drain, so these ids are searched by LIKE and merged with
    * the FTS page instead of being invisible until the queue drains.
+   *
+   * The queue is read newest-queued first and capped at one page of search results, because a lagging
+   * index only surprises a reader about what they just wrote: a flat scan-ordered slice of the queue
+   * (the old `LIMIT 20`, with no ordering at all) kept the newest note — the one an import or save
+   * just queued last — outside the fallback whenever more than that many rows were pending, which is
+   * precisely the case the fallback exists for. One row per note is guaranteed by the queue's
+   * `(user_id, note_id)` primary key, so the ids need no de-duplication to order.
    */
   async pendingFtsNoteIds(): Promise<string[]> {
     const userId = this.userId
     const pendingRows = await this.db
-      .prepare(`SELECT DISTINCT note_id FROM fts_index_queue WHERE user_id = ?1 LIMIT 20`)
-      .bind(userId)
+      .prepare(
+        `SELECT note_id FROM fts_index_queue
+          WHERE user_id = ?1
+          ORDER BY created_at DESC, note_id DESC
+          LIMIT ?2`,
+      )
+      .bind(userId, LIMITS.searchLimit)
       .all<{ note_id: string }>()
     return pendingRows.results.map((r) => r.note_id).filter(Boolean)
   }
