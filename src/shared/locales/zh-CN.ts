@@ -8227,6 +8227,8 @@ console.log(\`Hello, \${name}!\`)
     "todo.batch.tag": "加标签",
     "todo.batch.exit": "退出多选",
     "todo.batch.no_tags": "还没有标签",
+    "todo.drag.move_count": "移动 {count} 项",
+    "todo.attach.too_large": "{count} 个文件超过 {limit} MB 上限",
     "todo.search_placeholder": "搜索待办",
     "todo.today.pick": "从待办里挑一条",
     "todo.today.pick_placeholder": "搜标题",

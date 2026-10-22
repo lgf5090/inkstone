@@ -71,9 +71,11 @@ import {
   normalizeTagNames,
   parseRepeatRule,
   taskColorOrNull,
+  taskFaceDrops,
   taskIconOrNull,
   type RepeatRule,
   type TaskCounts,
+  type TaskFaceDrop,
   type TaskList,
   type TaskSort,
   type TaskStep,
@@ -1192,6 +1194,18 @@ const TASK_REMINDER_TIMES = `(
 function reminderTimesOf(packed: string | null): number[] {
   if (!packed) return []
   return normalizeReminderTimes(packed.split(',').map(Number))
+}
+
+/**
+ * Attach the face a write lost to the row it landed on, leaving the row untouched when it lost nothing.
+ *
+ * The store's door answers an unusable icon or colour with null — a field the caller cannot use must
+ * not undo the rest of the write — and null is also what clearing a face writes, so the row by itself
+ * cannot tell the caller which of the two happened. `droppedFace` is that difference, and it rides only
+ * on the row a write returned, never on one read back.
+ */
+function withDroppedFace(task: TodoTask, dropped: TaskFaceDrop[]): TodoTask {
+  return dropped.length ? { ...task, droppedFace: dropped } : task
 }
 
 /**
@@ -4473,7 +4487,9 @@ export class AssistantStore {
     if (reminders.length) await this.replaceTaskReminders(id, reminders)
     const created = await this.getTask(id)
     if (!created) throw new Error(`The task ${id} was written but could not be read back.`)
-    return created
+    // The face the row could not carry is reported to the caller rather than swallowed: an agent that
+    // set an icon and got null back has to be able to say so instead of promising one.
+    return withDroppedFace(created, taskFaceDrops(input.icon, input.color))
   }
 
   /**
@@ -4546,6 +4562,10 @@ export class AssistantStore {
    * card's checkbox made until the route grew its own `completing` branch. It throws rather than
    * rerouting the call or ignoring the flag, because a caller that still means it must break loudly and
    * name the task, not become a second path that runs and means something else.
+   *
+   * A face the row will not carry is the other kind of half-truth, and it is answered quietly on
+   * purpose: `droppedFace` on the row this write returns names the field and why, so a tool or an agent
+   * that has no 400 to be refused by still cannot report a face the task never got.
    */
   async updateTask(
     id: string,
@@ -4559,7 +4579,10 @@ export class AssistantStore {
     if (patch.status === 'done' && existing.status !== 'done') {
       throw new TaskCompletionRequiresCompleteTask(id)
     }
-    return await this.applyTaskPatch(id, existing, patch, timeZone, expectedRev)
+    const wrote = await this.applyTaskPatch(id, existing, patch, timeZone, expectedRev)
+    // Nothing was refused or moved, so there is no landing to report: a null answer is the caller's
+    // own conflict or 404, and the face has no part in it.
+    return wrote ? withDroppedFace(wrote, taskFaceDrops(patch.icon, patch.color)) : null
   }
 
   /**
@@ -4590,11 +4613,22 @@ export class AssistantStore {
     if (patch.startAt !== undefined) fields.push(['start_at', patch.startAt])
     if (patch.projectId !== undefined) fields.push(['project_id', patch.projectId])
     if (patch.listId !== undefined) fields.push(['list_id', patch.listId])
-    // The two face columns answer to the same guards the write above and the route do: a caller that
-    // names an unusable value gets null rather than the value, and null is how a reader clears a
-    // face back to the list's. The guards live in shared so the client can pre-check the same rule.
-    if (patch.icon !== undefined) fields.push(['icon', taskIconOrNull(patch.icon)])
-    if (patch.color !== undefined) fields.push(['color', taskColorOrNull(patch.color)])
+    // The two face columns answer to the same guards the route uses, and those guards live in shared so
+    // the client can pre-check the same rule. What differs is only how a refusal is answered: the route
+    // sends a 400 and writes nothing, this door writes the rest of the patch and names the loss.
+    // An unusable value is therefore a refused write, not a clear. Null is also what taking the face
+    // away writes, so pushing it here would let a caller's typo erase a face the reader chose
+    // themselves — and the callers behind this door are usually models, which is the last place to
+    // leave "you sent something unusable" and "you asked for none" looking like the same answer.
+    // A refused field is left out of the write and named on `droppedFace` instead.
+    if (patch.icon !== undefined) {
+      const icon = taskIconOrNull(patch.icon)
+      if (icon !== null || patch.icon === null || patch.icon === '') fields.push(['icon', icon])
+    }
+    if (patch.color !== undefined) {
+      const color = taskColorOrNull(patch.color)
+      if (color !== null || patch.color === null || patch.color === '') fields.push(['color', color])
+    }
     if (patch.starred !== undefined) fields.push(['starred', patch.starred ? 1 : 0])
     if (patch.repeat !== undefined) fields.push(['repeat_rule', patch.repeat ? JSON.stringify(patch.repeat) : null])
     if (patch.noteId !== undefined) fields.push(['note_id', patch.noteId])

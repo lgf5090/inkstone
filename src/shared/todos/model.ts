@@ -225,6 +225,19 @@ export interface TodoTask extends Task {
   /** The task's own colour from the shared palette, or null while it wears its list's. */
   color?: string | null
   /**
+   * The face fields *this row's own write* asked for and could not carry, and why.
+   *
+   * A write-time report rather than a column: the row has no memory of what was asked of it. The store
+   * judges a face with {@link taskIconOrNull} and {@link taskColorOrNull} and answers a value outside
+   * that accept set with null rather than a refusal, because one unusable field must not undo the rest
+   * of the write — while the HTTP route, judging the same value, answers 400. Null is also what a
+   * caller that *clears* a face writes, so a tool or an agent that went straight to the store could
+   * report "the icon is set" over a row that carries none. This field is what makes that loss visible
+   * to the caller; see {@link taskFaceDrops}. Absent whenever the write lost nothing, which is every
+   * read of a row and every ordinary write.
+   */
+  droppedFace?: TaskFaceDrop[]
+  /**
    * Where the reader placed this task among its list's rows, or null while nobody has moved it.
    *
    * Only the default listing reads it: rows carrying a place are read in that order first, and rows
@@ -733,6 +746,44 @@ export function taskIconOrNull(value: unknown): string | null {
  */
 export function taskColorOrNull(value: unknown): string | null {
   return typeof value === 'string' ? organizerColorOrNull(value) : null
+}
+
+/** One face field a task write named that its row will not carry. */
+export interface TaskFaceDrop {
+  field: 'icon' | 'color'
+  /** What the caller has to send instead, in the words the surface repeats to whoever asked. */
+  reason: string
+}
+
+/**
+ * The face fields a write asked for and the shared guards refuse, judged by the guards themselves.
+ *
+ * The store's door answers an unusable icon or colour with null rather than a refusal, so a caller that
+ * wrote through it could tell the reader the face was set when the row carries none — and null is also
+ * what *clearing* a face writes, which is why the row alone cannot tell the two apart afterwards. This
+ * is the half that says so: ask it what a patch will land and it names the fields that will not.
+ *
+ * It deliberately calls {@link taskIconOrNull} and {@link taskColorOrNull} rather than restating their
+ * rules. The accept set is one rule with two doors (the route refuses, the store nulls); a second
+ * spelling of it here is how the two would start disagreeing about what a face may be.
+ */
+export function taskFaceDrops(icon: unknown, color: unknown): TaskFaceDrop[] {
+  const dropped: TaskFaceDrop[] = []
+  // Absent, null and empty are the caller asking for no face, which is a write that lands exactly as
+  // asked; only a value that meant something and will not reach the row is a loss.
+  if (icon !== undefined && icon !== null && icon !== '' && taskIconOrNull(icon) === null) {
+    dropped.push({
+      field: 'icon',
+      reason: `An icon is one emoji or an icon name such as Briefcase, at most ${MAX_TASK_ICON_CHARS} characters.`,
+    })
+  }
+  if (color !== undefined && color !== null && color !== '' && taskColorOrNull(color) === null) {
+    dropped.push({
+      field: 'color',
+      reason: 'A colour is one of the palette names or a six-digit hex such as #2563eb.',
+    })
+  }
+  return dropped
 }
 
 /** The `done / total` a list card shows. A list with no tasks reads as `0 / 0`. */

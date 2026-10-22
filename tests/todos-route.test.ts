@@ -12,6 +12,7 @@ import { LIMITS } from '../src/shared/constants'
 import { AssistantStore } from '../src/worker/assistant/store'
 import {
   MAX_BATCH_TASKS,
+  MAX_TASK_ICON_CHARS,
   type TaskBatchResult,
   type TaskCounts,
   type TaskList,
@@ -199,6 +200,35 @@ describe('the task endpoints', () => {
     expect((await send('POST', '', { title: '   ' })).status).toBe(400)
     const task = await create({ title: 'One' })
     expect((await send('PATCH', `/${task.id}`, { status: 'someday' })).status).toBe(400)
+  })
+
+  /**
+   * The HTTP face door, measured against the store's.
+   *
+   * Both doors judge an icon and a colour with the same accept set, and only the way they answer a
+   * value outside it differs: this one refuses, the store's writes null and names the loss. A 400 here
+   * still has to be a 400 — a route that started dropping instead of refusing would be the second
+   * silent door this whole shape exists to close.
+   */
+  it('refuses a task face the pickers could never produce again, and reports nothing when it lands', async () => {
+    // This case spends a caller of its own: the write budget is module-wide and keyed by whoever is
+    // signed in, and `the task endpoints` block already runs close to the ceiling, so five more
+    // writes here would answer the cases after it with a 429 rather than the verdict being tested.
+    mocks.userId = `taskface${'0'.repeat(20)}`
+    const tooLong = 'lucide:'.padEnd(MAX_TASK_ICON_CHARS + 1, 'x')
+
+    expect((await send('POST', '', { title: 'One', icon: tooLong })).status).toBe(400)
+    expect((await send('POST', '', { title: 'One', color: 'crimson' })).status).toBe(400)
+
+    const task = await create({ title: 'One', icon: 'Briefcase', color: '#2563eb' })
+    const body = await json<{ task: TodoTask }>(await send('GET', `/${task.id}`))
+    expect(body.task.icon).toBe('Briefcase')
+    expect(body.task.color).toBe('#2563eb')
+
+    const patched = await json<{ task: TodoTask }>(await send('PATCH', `/${task.id}`, { icon: null }))
+    expect(patched.task.icon).toBeNull()
+    // A face that landed as asked has nothing to report, so the answer stays the shape it always was.
+    expect(patched.task.droppedFace).toBeUndefined()
   })
 
   it('deletes a task', async () => {
