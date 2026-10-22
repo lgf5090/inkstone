@@ -83,9 +83,11 @@ describe('the list', () => {
 
   it('narrows to what the reader typed and says how much is left', async () => {
     await render()
+    // `rename` matches two rows now that the app facade is installed: `tp.file.rename` and
+    // `tp.app.fileManager.renameFile`, one per module section.
     await typeFilter('rename')
-    expect(document.body.textContent).toContain(t('templater.ref.matches', { value0: '1' }))
-    expect([...document.querySelectorAll('button[aria-expanded]')]).toHaveLength(1)
+    expect(document.body.textContent).toContain(t('templater.ref.matches', { value0: '2' }))
+    expect([...document.querySelectorAll('button[aria-expanded]')]).toHaveLength(2)
     await typeFilter('nothingresemblesthis')
     expect(document.body.textContent).toContain(t('templater.ref.none'))
   })

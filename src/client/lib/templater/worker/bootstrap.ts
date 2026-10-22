@@ -1005,29 +1005,691 @@ const PRELUDE = `(() => {
     throw hostError('not-supported', 'obsidian.Notice')
   }
 
-  // The two compatibility façades. Their members are the ported module work; the objects exist here so
-  // those modules have somewhere to be installed and so \`tp.app === app\` and \`tp.obsidian === obsidian\`
-  // hold, which is what the upstream documentation's own examples assume.
+  // A member this app does not have is answered by something that keeps naming the path it was reached by:
+  // templates chain (\`app.vault.adapter.exists(...)\`), and a refusal that stops being a name after one dot
+  // turns "this app does not offer that" into "undefined is not a function".
+  const refusedMember = (path) => new Proxy(function refused() {
+    throw hostError('not-supported', path)
+  }, {
+    get(_target, key) {
+      if (typeof key === 'symbol') return undefined
+      if (key === 'then' || key === 'catch' || key === 'finally') return undefined
+      return refusedMember(path + '.' + String(key))
+    },
+  })
+
+  // A7, shared by every facade object: a member this app does not have answers a call that names the whole
+  // path, so the template fails at the member it wrote instead of at the next thing that read the
+  // \`undefined\`. Symbols and \`then\` keep the exemptions the \`tp.user\` namespace follows — a symbol is the
+  // engine probing the object, and a \`then\` that looked like a method would turn \`await tp.app\` into a call
+  // that never returns.
+  const refuseUnknown = (path) => ({
+    get(members, key) {
+      if (Object.prototype.hasOwnProperty.call(members, key)) return members[key]
+      if (typeof key === 'symbol') return undefined
+      if (key === 'then' || key === 'catch' || key === 'finally') return undefined
+      return refusedMember(path + '.' + String(key))
+    },
+  })
+
+  // A note or folder argument is either the object a facade handed out or the path a template typed. The
+  // shape is read rather than the class, because a record the page answered with has the same path and the
+  // same right to be read as the instance hydrated from it.
+  const pathArgument = (member, value) => {
+    const text = typeof value === 'string'
+      ? value
+      : (value !== null && typeof value === 'object' && typeof value.path === 'string' ? value.path : null)
+    if (text === null) throw hostError('path-invalid', member)
+    return normalizePath(text)
+  }
+
+  const textArgument = (member, value) => {
+    if (typeof value !== 'string') throw hostError('render-failed', member + '.content')
+    return value
+  }
+
+  // A write answers the row it touched, and the row is what the index and the file objects are rebuilt from.
+  // Anything else is the page failing to say, which is a failure of this run rather than a null to carry on
+  // past.
+  const recordAnswer = (member, answer) => {
+    if (answer === null || typeof answer !== 'object' || typeof answer.path !== 'string') {
+      throw hostError('render-failed', member)
+    }
+    return answer
+  }
+
+  const noteEntryOf = (path) => index.notes.find((entry) => entry.path === path) ?? null
+  const folderEntryOf = (path) => index.folders.find((entry) => entry.path === path) ?? null
+
+  // The note bodies the run carries with it: the note being written, the one that was open, the template
+  // being applied and the library rows it was given. Everything else in the index is a path with no text
+  // beside it, which is why \`getFileCache\` answers lightly for those and why reading one is a call.
+  const heldNoteOf = (path) => {
+    const held = [index.target, index.active, index.template].concat(index.templates)
+    for (const ref of held) {
+      if (ref && ref.path === path && typeof ref.content === 'string') return ref
+    }
+    return null
+  }
+
+  // What this run has already changed, laid over the snapshot's index for the synchronous lookups. The page
+  // keeps its own overlay for the same reason (\`written\` in \`host/page-host.ts\`); a vault object that kept
+  // reporting a note it had just created as missing would be the surprise, not this.
+  const rememberNote = (entry) => {
+    const at = index.notes.findIndex((one) => one.path === entry.path)
+    if (at === -1) index.notes.push(entry)
+    else index.notes[at] = entry
+  }
+
+  const forgetNote = (path) => {
+    const at = index.notes.findIndex((one) => one.path === path)
+    if (at !== -1) index.notes.splice(at, 1)
+  }
+
+  // \`folder.create\` walks a chain one segment at a time and makes every level that was missing, so its
+  // answer names one folder while the tree gained several. Recording only the leaf would leave
+  // \`getFolderByPath\` answering null about a folder the reader can already see.
+  const rememberFolderChain = (created) => {
+    let path = ''
+    for (const segment of created.path.split('/')) {
+      path = path === '' ? segment : path + '/' + segment
+      if (folderEntryOf(path) !== null) continue
+      index.folders.push(path === created.path ? created : { name: segment, path: path })
+    }
+  }
+
+  const vaultMembers = {
+    read: async (file) => {
+      const path = pathArgument('tp.app.vault.read', file)
+      const answer = await callHost('note.read', [path])
+      const record = answer !== null && typeof answer === 'object' ? answer : null
+      if (record === null || typeof record.content !== 'string') throw hostError('render-failed', 'note.read')
+      return record.content
+    },
+    // The cached half means the cache: text the snapshot already holds is the answer, and only a note it does
+    // not hold costs a round trip.
+    cachedRead: async (file) => {
+      const path = pathArgument('tp.app.vault.cachedRead', file)
+      const held = heldNoteOf(path)
+      if (held !== null) return held.content
+      return vaultMembers.read(path)
+    },
+    // Obsidian's \`create\` asks the vault for an unused name and quietly makes \`Note 2\`. This app refuses a
+    // taken path instead (\`note-conflict\` from the page), because two rows reading as one path is a state
+    // its index would have to report as ambiguous later — so a template that wants a free name has to ask.
+    create: async (path, data) => {
+      const wanted = pathArgument('tp.app.vault.create', path)
+      const body = textArgument('tp.app.vault.create', data)
+      const answer = await callHost('note.create', [wanted, body])
+      const entry = recordAnswer('note.create', answer)
+      const created = fileOf({ ...entry, content: body })
+      rememberNote(entry)
+      return created
+    },
+    modify: async (file, data) => {
+      const path = pathArgument('tp.app.vault.modify', file)
+      const body = textArgument('tp.app.vault.modify', data)
+      await callHost('note.write', [path, body])
+      const entry = noteEntryOf(path)
+      if (entry !== null) rememberNote({ ...entry, content: body })
+    },
+    // The app's delete is the recycle bin, and the store owns what happens after that, so Obsidian's
+    // \`force\` has nothing here to skip: every delete this facade makes is a soft one.
+    delete: async (file) => {
+      const path = pathArgument('tp.app.vault.delete', file)
+      await callHost('note.delete', [path])
+      forgetNote(path)
+    },
+    exists: (fileOrPath) => {
+      const path = pathArgument('tp.app.vault.exists', fileOrPath)
+      return path === '' || noteEntryOf(path) !== null || folderEntryOf(path) !== null
+    },
+    getAbstractFileByPath: (path) => {
+      const wanted = pathArgument('tp.app.vault.getAbstractFileByPath', path)
+      if (wanted === '') return folderOf({ path: '', name: '' })
+      const note = noteEntryOf(wanted)
+      if (note !== null) return fileOf(note)
+      const folder = folderEntryOf(wanted)
+      return folder === null ? null : folderOf(folder)
+    },
+    getFileByPath: (path) => {
+      const note = noteEntryOf(pathArgument('tp.app.vault.getFileByPath', path))
+      return note === null ? null : fileOf(note)
+    },
+    getFolderByPath: (path) => {
+      const wanted = pathArgument('tp.app.vault.getFolderByPath', path)
+      if (wanted === '') return folderOf({ path: '', name: '' })
+      const folder = folderEntryOf(wanted)
+      return folder === null ? null : folderOf(folder)
+    },
+    getFiles: () => index.notes.map((entry) => fileOf(entry)),
+    // Every note this app stores is Markdown, so the markdown half of the tree is the whole tree. The filter
+    // stays because a template reads the call as "the notes, not the folders", and that is what it gets.
+    getMarkdownFiles: () => index.notes
+      .filter((entry) => extensionOf(entry.path).toLowerCase() === MARKDOWN)
+      .map((entry) => fileOf(entry)),
+    getAllLoadedFiles: () => [folderOf({ path: '', name: '' })]
+      .concat(index.folders.map((entry) => folderOf(entry)))
+      .concat(index.notes.map((entry) => fileOf(entry))),
+    getRoot: () => folderOf({ path: '', name: '' }),
+    createFolder: async (path) => {
+      const wanted = pathArgument('tp.app.vault.createFolder', path)
+      if (wanted === '') throw hostError('path-invalid', 'tp.app.vault.createFolder')
+      const answer = await callHost('folder.create', [wanted])
+      const entry = recordAnswer('folder.create', answer)
+      rememberFolderChain(entry)
+      return folderOf(entry)
+    },
+  }
+
+  const HEADING_LINE = /^ {0,3}(#{1,6})[ \\t]+(.*)$/
+  // \\x60 is a backtick, written as an escape so this file carries no third kind of quote inside the
+  // one template literal that decides which quotes mean what.
+  const FENCE_LINE = /^ {0,3}(\\x60{3}|~{3})/
+
+  const headingsOf = (body) => {
+    const found = []
+    let insideFence = false
+    for (const line of body.split('\\n')) {
+      if (FENCE_LINE.test(line)) {
+        insideFence = !insideFence
+        continue
+      }
+      if (insideFence) continue
+      const match = HEADING_LINE.exec(line)
+      if (match !== null) found.push({ heading: match[2].trim(), level: match[1].length })
+    }
+    return found
+  }
+
+  // \`[[Target]]\` and \`![[Target]]\`, cut at the alias bar the way Obsidian's own link cache cuts them, and
+  // with no positions: the snapshot carries none, so a cache says what the text says and nothing else.
+  const linksOf = (body, wantEmbed) => {
+    const found = []
+    const pattern = /(!?)\\[\\[([^\\]\\n]*)\\]\\]/g
+    let match = pattern.exec(body)
+    while (match !== null) {
+      if ((match[1] === '!') === wantEmbed) found.push({ link: match[2].split('|')[0], original: match[0] })
+      match = pattern.exec(body)
+    }
+    return found
+  }
+
+  const cacheOfPath = (path) => {
+    const held = heldNoteOf(path)
+    if (held === null && noteEntryOf(path) === null) return null
+    const body = held === null ? '' : held.content
+    const tags = held !== null && Array.isArray(held.tagNames) ? held.tagNames.map(withTagMark) : []
+    const matter = held !== null && held.frontmatter !== null && typeof held.frontmatter === 'object'
+      ? held.frontmatter
+      : null
+    return { frontmatter: matter, tags, headings: headingsOf(body), links: linksOf(body, false), embeds: linksOf(body, true) }
+  }
+
+  const metadataMembers = {
+    // A link is resolved the way \`tp.file.find_tfile\` resolves one: the stored path, the path without
+    // \`.md\`, the basename, the title. \`sourcePath\` is Obsidian's parameter and this app has no
+    // folder-relative resolution to do with it, so it cannot change which note a link names.
+    getFirstLinkpathDest: (linkpath) => {
+      const wanted = normalizePath(linkpath)
+      const cut = wanted.indexOf('#')
+      return cut === -1 ? findByTitle(wanted) : findByTitle(wanted.slice(0, cut))
+    },
+    getFileCache: (file) => cacheOfPath(pathArgument('tp.app.metadataCache.getFileCache', file)),
+    getCache: (path) => cacheOfPath(pathArgument('tp.app.metadataCache.getCache', path)),
+  }
+
+  // The editor the run began with, as far as a template may see it, in the shape Obsidian gives it:
+  // \`activeEditor.file\` and \`activeEditor.editor\`. Reading is real — the selection the page took, and the
+  // text of the note when the snapshot carries it. Writing is not this object's job: the run's output and
+  // \`tp.file.cursor_append\` are the two ways text reaches a note, and a method that looked like it changed
+  // the editor would promise an undo history nobody here can offer. \`view\` stays null for the same reason
+  // \`getLeaf\` answers null — the pane is the page's, not something a message can hand over.
+  const editorSurface = {
+    getSelection: () => run.selection,
+    hasSelection: () => run.selection !== '',
+    getValue: () => (config.active_file === null ? '' : config.active_file.content),
+    replaceSelection: () => {
+      throw hostError('not-supported', 'tp.app.workspace.activeEditor.editor.replaceSelection')
+    },
+    replaceRange: () => {
+      throw hostError('not-supported', 'tp.app.workspace.activeEditor.editor.replaceRange')
+    },
+  }
+
+  const activeEditorSurface = {
+    get file() {
+      return config.active_file
+    },
+    editor: editorSurface,
+    view: null,
+  }
+
+  const workspaceMembers = {
+    activeEditor: activeEditorSurface,
+    getActiveFile: () => config.active_file,
+    // The page owns the panes and cannot hand one to a template, so this answers what Obsidian answers when
+    // there is no leaf. \`newLeaf\` has nothing here to ask for.
+    getLeaf: () => null,
+    openFile: async (file) => {
+      await callHost('note.open', [pathArgument('tp.app.workspace.openFile', file)])
+    },
+    // An event bus a template could not listen to in the first place, so firing an internal event would be
+    // a way to ask the app for something no host method allows. The name is said and refused.
+    trigger: (name) => {
+      throw hostError('not-supported', 'tp.app.workspace.trigger.' + String(name))
+    },
+  }
+
+  const fileManagerMembers = {
+    // Obsidian's one call renames and moves at once, which is why this goes to \`note.move\` with a whole new
+    // path: \`tp.file.rename\` and \`tp.file.move\` are the same work split by argument. A destination with no
+    // extension gets \`.md\`, because every note in this app's tree has one and a path without it would file
+    // the note somewhere its own index cannot find it.
+    renameFile: async (file, newPath) => {
+      const from = pathArgument('tp.app.fileManager.renameFile', file)
+      const wanted = pathArgument('tp.app.fileManager.renameFile', newPath)
+      if (wanted === '') throw hostError('path-invalid', 'tp.app.fileManager.renameFile')
+      const destination = extensionOf(wanted) === '' ? wanted + '.' + MARKDOWN : wanted
+      const answer = await callHost('note.move', [from, destination])
+      const entry = recordAnswer('note.move', answer)
+      const moved = fileOf(entry)
+      forgetNote(from)
+      rememberNote(entry)
+      // The live file object is what a move changes in Obsidian, so a template that moved its own note reads
+      // the new path from \`tp.file.path(true)\` afterwards.
+      if (target() !== null && target().path === from) config.target_file = moved
+    },
+  }
+
+  const vault = new Proxy(vaultMembers, refuseUnknown('tp.app.vault'))
+  const metadataCache = new Proxy(metadataMembers, refuseUnknown('tp.app.metadataCache'))
+  const workspace = new Proxy(workspaceMembers, refuseUnknown('tp.app.workspace'))
+  const fileManager = new Proxy(fileManagerMembers, refuseUnknown('tp.app.fileManager'))
+
+  // A5: the front-matter half of Obsidian's text helpers, read off the text rather than parsed. The offsets
+  // are characters and the positions are lines, both counted from the start of what the template passed, and
+  // a block that never closes reports \`exists: false\` — the same answer Obsidian gives a note whose \`---\` is
+  // still waiting for its partner.
+  const getFrontMatterInfo = (text) => {
+    const source = typeof text === 'string' ? text : ''
+    const lines = source.split('\\n')
+    const absent = { exists: false, frontmatter: '', from: 0, to: 0, start: 0, end: 0, lastFrontmatterLine: '' }
+    if (lines[0].replace(/\\r$/, '') !== '---') return absent
+    let offset = lines[0].length + 1
+    let closing = -1
+    for (let line = 1; line < lines.length; line += 1) {
+      const bare = lines[line].replace(/\\r$/, '')
+      if (bare === '---' || bare === '...') {
+        closing = line
+        break
+      }
+      offset += lines[line].length + 1
+    }
+    if (closing < 0) return absent
+    const block = lines.slice(1, closing)
+    let last = ''
+    for (const line of block) {
+      if (line.replace(/\\r$/, '').trim() !== '') last = line.replace(/\\r$/, '')
+    }
+    return {
+      exists: true,
+      frontmatter: block.join('\\n'),
+      from: offset,
+      to: Math.min(offset + lines[closing].length + 1, source.length),
+      start: 0,
+      end: closing,
+      lastFrontmatterLine: last,
+    }
+  }
+
+  // A5: the two YAML helpers. Upstream reaches for Obsidian's \`yaml\` library; this app's page side has that
+  // library, but reaching it from a template would be a new host method, and the host method list is frozen.
+  // So these two cover the shapes a template can actually produce here — a plain object, and the block this
+  // app's own front-matter merge reads back — and refuse by name everything else. An anchor, an alias, a tag,
+  // a block scalar, a flow mapping or a multi-document text would come back as a wrong object, and a wrong
+  // object written into the reader's note is the failure this layer exists to prevent.
+  const YAML_PLAIN_TEXT = /^[A-Za-z][A-Za-z0-9 +_.\\/-]*$/
+  const YAML_NUMBER = /^-?\\d+(\\.\\d+)?([eE][-+]?\\d+)?$/
+  const YAML_RESERVED_TEXT = ['true', 'false', 'null', '~', 'yes', 'no', 'on', 'off']
+
+  // The whitelist is the reason \`2026-01-01\` and \`Note: today\` come out quoted: quoting something that did
+  // not need it is a cosmetic cost, while leaving something unquoted that reads back as another type is a
+  // wrong note.
+  const yamlPlainText = (text) => {
+    if (!YAML_PLAIN_TEXT.test(text)) return false
+    if (YAML_RESERVED_TEXT.includes(text.toLowerCase())) return false
+    return !text.endsWith(' ')
+  }
+
+  const yamlIsScalar = (value) => (typeof value === 'object' ? value === null || value instanceof Date : !Array.isArray(value))
+
+  const yamlScalarText = (value) => {
+    if (value === null || value === undefined) return 'null'
+    if (typeof value === 'boolean') return value ? 'true' : 'false'
+    if (typeof value === 'number') {
+      if (!isFinite(value)) throw hostError('not-supported', 'obsidian.stringifyYaml.number')
+      return String(value)
+    }
+    // A Date is written as the text the app's own YAML reader resolves back to a date; read through this
+    // build's \`parseYaml\` it is text, which is the one direction the round trip does not close.
+    if (value instanceof Date) return value.toISOString()
+    if (typeof value === 'string') return yamlPlainText(value) ? value : JSON.stringify(value)
+    throw hostError('not-supported', 'obsidian.stringifyYaml.' + typeof value)
+  }
+
+  const yamlKeyText = (key) => (yamlPlainText(key) ? key : JSON.stringify(key))
+
+  const yamlMappingLines = (node, indent, seen) => {
+    if (seen.has(node)) throw hostError('not-supported', 'obsidian.stringifyYaml.circular')
+    seen.add(node)
+    const pad = ' '.repeat(indent)
+    const lines = []
+    for (const key of Object.keys(node)) {
+      const value = node[key]
+      if (value === null || value === undefined || yamlIsScalar(value)) {
+        lines.push(pad + yamlKeyText(key) + ': ' + yamlScalarText(value))
+        continue
+      }
+      const inner = Array.isArray(value)
+        ? yamlSequenceLines(value, indent + 2, seen)
+        : yamlMappingLines(value, indent + 2, seen)
+      if (inner.length === 0) {
+        lines.push(pad + yamlKeyText(key) + ': ' + (Array.isArray(value) ? '[]' : '{}'))
+        continue
+      }
+      lines.push(pad + yamlKeyText(key) + ':')
+      for (const line of inner) lines.push(line)
+    }
+    seen.delete(node)
+    return lines
+  }
+
+  const yamlSequenceLines = (list, indent, seen) => {
+    if (seen.has(list)) throw hostError('not-supported', 'obsidian.stringifyYaml.circular')
+    seen.add(list)
+    const pad = ' '.repeat(indent)
+    const lines = []
+    for (const item of list) {
+      if (item === null || item === undefined || yamlIsScalar(item)) {
+        lines.push(pad + '- ' + yamlScalarText(item))
+        continue
+      }
+      if (Array.isArray(item)) throw hostError('not-supported', 'obsidian.stringifyYaml.nested-sequence')
+      const inner = yamlMappingLines(item, indent + 2, seen)
+      if (inner.length === 0) {
+        lines.push(pad + '- {}')
+        continue
+      }
+      // The dash stands where the item's own indent would, so the first line loses two spaces and the rest
+      // already carry them.
+      lines.push(pad + '- ' + inner[0].slice(indent + 2))
+      for (let index = 1; index < inner.length; index += 1) lines.push(inner[index])
+    }
+    seen.delete(list)
+    return lines
+  }
+
+  const textOrEmpty = (lines, fallback) => (lines.length === 0 ? fallback : lines.join('\\n'))
+
+  // An empty container is written in flow form because there is nothing to indent, which is what the app's
+  // own YAML reader resolves from \`{}\` and \`[]\`.
+  const stringifyYaml = (value) => {
+    if (Array.isArray(value)) return textOrEmpty(yamlSequenceLines(value, 0, new Set()), '[]')
+    if (value !== null && typeof value === 'object' && !(value instanceof Date)) {
+      return textOrEmpty(yamlMappingLines(value, 0, new Set()), '{}')
+    }
+    return yamlScalarText(value)
+  }
+
+  // A \`#\` starts a comment only at the beginning of a line or after a space, and never inside a quoted
+  // value: the two rules Obsidian's parser applies to the text a template writes back.
+  const yamlStripComment = (line) => {
+    let quote = ''
+    for (let index = 0; index < line.length; index += 1) {
+      const char = line[index]
+      if (quote !== '') {
+        if (char === quote) quote = ''
+        continue
+      }
+      if (char === '"' || char === "'") {
+        quote = char
+        continue
+      }
+      if (char === '#' && (index === 0 || line[index - 1] === ' ' || line[index - 1] === '\\t')) return line.slice(0, index)
+    }
+    return line
+  }
+
+  const yamlRows = (source) => {
+    const rows = []
+    const lines = source.split('\\n')
+    for (let number = 0; number < lines.length; number += 1) {
+      const line = yamlStripComment(lines[number].replace(/\\r$/, ''))
+      const trimmed = line.trim()
+      if (trimmed === '') continue
+      if (line.startsWith('\\t')) throw hostError('parse-invalid', 'obsidian.parseYaml.tab:' + (number + 1))
+      if (trimmed === '---' || trimmed === '...') throw hostError('not-supported', 'obsidian.parseYaml.document')
+      rows.push({ indent: line.length - line.replace(/^ +/, '').length, text: trimmed, number: number + 1 })
+    }
+    return rows
+  }
+
+  // \`key: value\` split at the first colon that sits outside a quote and is followed by a space or the end of
+  // the line, which is what a plain YAML key has to look like.
+  const yamlKeySplit = (text) => {
+    let quote = ''
+    for (let index = 0; index < text.length; index += 1) {
+      const char = text[index]
+      if (quote !== '') {
+        if (char === quote) quote = ''
+        continue
+      }
+      if (char === '"' || char === "'") {
+        quote = char
+        continue
+      }
+      if (char === ':' && (index + 1 === text.length || text[index + 1] === ' ')) {
+        return { key: text.slice(0, index), value: text.slice(index + 1).trim() }
+      }
+    }
+    return null
+  }
+
+  const yamlFlowSplit = (inner) => {
+    const parts = []
+    let depth = 0
+    let quote = ''
+    let start = 0
+    for (let index = 0; index < inner.length; index += 1) {
+      const char = inner[index]
+      if (quote !== '') {
+        if (char === quote) quote = ''
+        continue
+      }
+      if (char === '"' || char === "'") {
+        quote = char
+        continue
+      }
+      if (char === '[') depth += 1
+      else if (char === ']') depth -= 1
+      else if (char === ',' && depth === 0) {
+        parts.push(inner.slice(start, index).trim())
+        start = index + 1
+      }
+    }
+    parts.push(inner.slice(start).trim())
+    return parts.filter((part) => part !== '')
+  }
+
+  const yamlScalar = (text) => {
+    if (text === '') return null
+    const first = text[0]
+    const last = text[text.length - 1]
+    if (first === '&' || first === '*' || first === '!' || first === '|' || first === '>') {
+      throw hostError('not-supported', 'obsidian.parseYaml.scalar')
+    }
+    if (first === '{') throw hostError('not-supported', 'obsidian.parseYaml.flow-mapping')
+    if (first === '[') {
+      if (last !== ']') throw hostError('parse-invalid', 'obsidian.parseYaml.flow-sequence')
+      const inner = text.slice(1, -1).trim()
+      return inner === '' ? [] : yamlFlowSplit(inner).map((part) => yamlScalar(part))
+    }
+    if (first === '"') {
+      if (last !== '"' || text.length < 2) throw hostError('parse-invalid', 'obsidian.parseYaml.quote')
+      try {
+        return JSON.parse(text)
+      } catch {
+        throw hostError('parse-invalid', 'obsidian.parseYaml.quote')
+      }
+    }
+    if (first === "'") {
+      if (last !== "'" || text.length < 2) throw hostError('parse-invalid', 'obsidian.parseYaml.quote')
+      return text.slice(1, -1).replace(/''/g, "'")
+    }
+    if (text === 'true') return true
+    if (text === 'false') return false
+    if (text === 'null' || text === '~') return null
+    if (text === '.inf' || text === '-.inf' || text === '+.inf' || text === '.nan') {
+      throw hostError('not-supported', 'obsidian.parseYaml.number')
+    }
+    return YAML_NUMBER.test(text) ? Number(text) : text
+  }
+
+  const yamlSequenceRow = (row) => row !== undefined && (row.text === '-' || row.text.startsWith('- '))
+
+  const parseYamlSequence = (rows, cursor) => {
+    const built = []
+    const indent = rows[cursor.at].indent
+    while (cursor.at < rows.length) {
+      const row = rows[cursor.at]
+      if (row.indent !== indent || !yamlSequenceRow(row)) break
+      const rest = row.text === '-' ? '' : row.text.slice(2).trim()
+      cursor.at += 1
+      // \`- key: value\` is a mapping inside a sequence. Emitting it is easy and reading it back is a second
+      // parser, so the shape this build refuses to read is named rather than guessed at.
+      if (rest !== '' && yamlKeySplit(rest) !== null) {
+        throw hostError('not-supported', 'obsidian.parseYaml.sequence-of-mappings')
+      }
+      // \`- - a\` is the same argument about a sequence: reading it as the text \`- a\` would be a wrong list.
+      if (rest === '-' || rest.startsWith('- ')) {
+        throw hostError('not-supported', 'obsidian.parseYaml.nested-sequence')
+      }
+      built.push(yamlScalar(rest))
+    }
+    return built
+  }
+
+  const parseYamlMapping = (rows, cursor) => {
+    const built = {}
+    const indent = rows[cursor.at].indent
+    while (cursor.at < rows.length) {
+      const row = rows[cursor.at]
+      if (row.indent < indent) break
+      if (row.indent > indent) throw hostError('parse-invalid', 'obsidian.parseYaml.indent:' + row.number)
+      const split = yamlKeySplit(row.text)
+      if (split === null) throw hostError('parse-invalid', 'obsidian.parseYaml.line:' + row.number)
+      cursor.at += 1
+      const key = String(yamlScalar(split.key))
+      if (split.value !== '') {
+        built[key] = yamlScalar(split.value)
+        continue
+      }
+      const next = rows[cursor.at]
+      if (next === undefined || next.indent <= indent) {
+        built[key] = null
+        continue
+      }
+      built[key] = yamlSequenceRow(next)
+        ? parseYamlSequence(rows, cursor)
+        : parseYamlMapping(rows, cursor)
+    }
+    return built
+  }
+
+  const parseYaml = (text) => {
+    if (typeof text !== 'string') throw hostError('parse-invalid', 'obsidian.parseYaml')
+    const rows = yamlRows(text)
+    if (rows.length === 0) return null
+    // A one-line document that is neither a key nor a list item is a scalar: \`parseYaml('[]')\` answers the
+    // empty list and \`parseYaml('text')\` the text, which is what Obsidian's parser hands back for them.
+    if (rows.length === 1 && !yamlSequenceRow(rows[0]) && yamlKeySplit(rows[0].text) === null) {
+      return yamlScalar(rows[0].text)
+    }
+    const cursor = { at: 0 }
+    const built = yamlSequenceRow(rows[0]) ? parseYamlSequence(rows, cursor) : parseYamlMapping(rows, cursor)
+    if (cursor.at !== rows.length) {
+      throw hostError('parse-invalid', 'obsidian.parseYaml.indent:' + rows[cursor.at].number)
+    }
+    return built
+  }
+
+  // A6: the platform flags, and only the ones this app can answer. Upstream runs inside the desktop or the
+  // mobile app and reads the device; a template here runs in a browser tab that may be either, and the run's
+  // context says nothing about which. The plan's answer is the fixed one: this is the desktop surface, and it
+  // is not the packaged app. The rest of Obsidian's flags are about hardware the sandbox cannot see.
+  const Platform = { isDesktop: true, isDesktopApp: false, isMobile: false, isMobileApp: false }
+
+  // A6: Obsidian's \`requestUrl\`, over the one door this app has — the same-origin proxy behind
+  // \`web.request\`, which is GET only. The other three request fields are refused by name rather than
+  // dropped: a template that believed its POST had gone out would write a note about a result that never
+  // happened. \`json\` answers null for a body that is not JSON, which is Obsidian's shape, not a swallowed
+  // error: \`text\` still holds everything the far side said.
+  const requestUrl = async (request) => {
+    const given = request !== null && typeof request === 'object' ? request : null
+    if (given === null) throw hostError('path-invalid', 'tp.obsidian.requestUrl')
+    for (const member of ['method', 'headers', 'body']) {
+      if (given[member] !== undefined) throw hostError('not-supported', 'tp.obsidian.requestUrl.' + member)
+    }
+    const url = typeof given.url === 'string' ? given.url : ''
+    if (url.trim() === '') throw hostError('path-invalid', 'tp.obsidian.requestUrl.url')
+    const answer = await callHost('web.request', [{ url }])
+    const response = answer !== null && typeof answer === 'object' ? answer : null
+    if (response === null) throw hostError('web-request-failed', 'web.request')
+    const status = typeof response.status === 'number' ? response.status : 0
+    const text = typeof response.text === 'string' ? response.text : ''
+    const contentType = typeof response.contentType === 'string' ? response.contentType : ''
+    const ok = typeof response.ok === 'boolean' ? response.ok : status >= 200 && status <= 299
+    if (given.throw === true && !ok) throw hostError('web-request-failed', String(status))
+    let parsed = null
+    if (contentType.includes('json') || text.startsWith('{') || text.startsWith('[')) {
+      try {
+        parsed = JSON.parse(text)
+      } catch {
+        parsed = null
+      }
+    }
+    // No \`arrayBuffer\`: the proxy carries text and refuses anything past its size limit, so there is no
+    // binary this build could hand back, and a half-empty one would read as a downloaded file.
+    return { status, ok, headers: { 'content-type': contentType }, text, json: parsed }
+  }
+
+  // \`tp.obsidian\`: the classes the interpreter defines, the pure text helpers, the platform flags and the one
+  // request door. The four \`app\` objects are assembled above and installed beside this, so \`tp.app === app\`
+  // and \`tp.obsidian === obsidian\` hold — which is what the upstream documentation's own examples assume, and
+  // what makes \`obsidian.TFile\` the same class \`tp.obsidian.TFile\` is.
   //
   // Everything the app genuinely offers is on the table; anything else answers a call that throws, because
   // a template reading \`tp.obsidian.MarkdownView\` would otherwise get \`undefined\` and fail somewhere far
   // away from the reason. The name in the error is the member the template wrote.
-  const obsidianMembers = { TFile, TFolder, normalizePath, parseLinktext, getAllTags, Notice: noticeUnsupported }
+  const obsidianMembers = {
+    TAbstractFile,
+    TFile,
+    TFolder,
+    normalizePath,
+    parseLinktext,
+    getAllTags,
+    getFrontMatterInfo,
+    parseYaml,
+    stringifyYaml,
+    requestUrl,
+    Platform,
+    Notice: noticeUnsupported,
+  }
 
-  const obsidian = new Proxy(obsidianMembers, {
-    get(members, key) {
-      if (Object.prototype.hasOwnProperty.call(members, key)) return members[key]
-      // Same rule the user-script namespace follows: a symbol is the engine probing the object, and a
-      // \`then\` that looks like a method turns \`await tp.obsidian\` into a call that never returns.
-      if (typeof key === 'symbol') return undefined
-      if (key === 'then' || key === 'catch' || key === 'finally') return undefined
-      return function obsidianMember() {
-        throw hostError('not-supported', 'tp.obsidian.' + String(key))
-      }
-    },
-  })
+  const obsidian = new Proxy(obsidianMembers, refuseUnknown('tp.obsidian'))
 
-  const app = { vault: {}, metadataCache: {}, workspace: {}, fileManager: {} }
+  const app = new Proxy({ vault, metadataCache, workspace, fileManager }, refuseUnknown('tp.app'))
 
   tp.obsidian = obsidian
   tp.app = app

@@ -257,6 +257,18 @@ function publishedSurface(): Map<string, string[]> {
   for (const match of prelude.matchAll(/^ {2}tp\.(\w+) = ([\w$]+)\r?$/gm)) {
     surface.set(match[1] as string, membersOf(prelude, match[2] as string, new Set()))
   }
+  // The `app` façade is walked one level deeper than every other module. Its own members are the four
+  // Obsidian sub-objects, and what a template calls are the methods sitting on those, so a gate that
+  // stopped at the first level would accept a documented `tp.app.vault.read` the engine never installs —
+  // and refuse one it does. `tp.obsidian` needs no such walk: its façade is one flat object already.
+  const subObjects = surface.get('app') ?? []
+  if (subObjects.length > 0) {
+    const nested: string[] = []
+    for (const sub of subObjects) {
+      for (const member of membersOf(prelude, sub, new Set())) nested.push(`${sub}.${member}`)
+    }
+    surface.set('app', [...subObjects, ...nested])
+  }
   return surface
 }
 

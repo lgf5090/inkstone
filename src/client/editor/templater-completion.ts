@@ -158,14 +158,15 @@ function pathBeforeCaret(text: string): TypedPath | null {
       : { module: null, script: null, partial: segments[0]! }
   }
   // `tp.user.<script>.` is the one two-level chain the editor can answer, and only because the reader's own
-  // scripts are a list the page can hand over: every other module's second level is either a placeholder the
-  // registry refuses to write (`tp.frontmatter.<key>`) or a façade member being ported one at a time.
+  // scripts are a list the page can hand over. Every other module's second level is either a placeholder the
+  // registry refuses to write (`tp.frontmatter.<key>`) or the app facade, whose members are documented one
+  // level up as flat rows — `tp.app.` already offers `vault.read` — so there is no second list to open here.
   if (segments.length === 2 && afterDot && segments[0] === 'user') {
     return { module: 'user', script: segments[1]!, partial: '' }
   }
   if (segments.length === 2 && !afterDot) return { module: segments[0]!, script: null, partial: segments[1]! }
-  // Past two segments the registry has nothing to say: `tp.app.vault.` reaches into the façade's members,
-  // which are being ported one at a time and are not a list this file may write.
+  // Past two segments the registry has nothing to say either: a row is a member path rather than a chain this
+  // file walks, so a third dot answers nothing instead of guessing at what the reader meant.
   return null
 }
 
