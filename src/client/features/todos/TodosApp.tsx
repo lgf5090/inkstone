@@ -5,6 +5,10 @@
  * phone gets a large title, the same board in two columns, a floating bottom bar for the three
  * cross-cutting views, and a button that adds a task. The breakpoint is a `matchMedia` query rather
  * than CSS alone because the two layouts differ in structure, not only in spacing.
+ *
+ * The keys this surface answers, and the `?` panel that lists them, live in `use-todo-shortcuts.ts`.
+ * What stays here is the half only the frame knows: which field to hand the caret to, whether the
+ * sidebar is open, and which page a key was pressed from.
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -13,7 +17,6 @@ import type { SavedTodoFilter } from '@shared/types'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { IS_DEMO_MODE } from '../../lib/runtime'
-import { isEditableTarget } from '../../lib/hotkeys'
 import { isImeComposing } from '../../lib/ime'
 import { useMediaQuery } from '../../lib/hooks'
 import { IconButton } from '../../components/primitives'
@@ -32,6 +35,8 @@ import { ListEditor } from './OrganizerEditors'
 import { useViewTitle } from './TaskViews'
 import { TodoFilters } from './TodoFilters'
 import { ListIcon } from './list-icons'
+import { TodoKeysHelp } from './TodoKeysHelp'
+import { TODO_ROW_MENU_WIDTH, useTodoShortcuts } from './use-todo-shortcuts'
 import { TodoContent, surfaceBadge, surfacesFor } from './views/registry'
 
 type Page = 'main' | 'lists'
@@ -86,7 +91,6 @@ export function TodosApp() {
   const setQuery = useTodos((state) => state.setQuery)
   const openEditor = useTodos((state) => state.openEditor)
   const selecting = useTodos((state) => state.selectedIds.size > 0)
-  const clearSelection = useTodos((state) => state.clearSelection)
   const counts = useTodos((state) => state.counts)
   const lists = useTodos((state) => state.lists)
   const tags = useTodos((state) => state.tags)
@@ -175,39 +179,20 @@ export function TodosApp() {
     updateSettings({ todo: { savedFilters: savedFilters.filter((entry) => entry.id !== id) } })
   }
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return
-      if (isEditableTarget(event.target)) return
-      // Selection is a mode, so Escape is the way out of it before it is the way out of a search or a
-      // page: the reader is looking at the bar, and leaving it is what they asked for.
-      if (event.key === 'Escape' && selecting) { event.preventDefault(); clearSelection(); return }
-      if (event.key === 'n') { event.preventDefault(); newTask(); return }
-      if (event.key === '/') {
-        event.preventDefault()
-        if (wide) searchRef.current?.focus()
-        else setSearchOpen(true)
-        return
-      }
-      if (event.key === '[') { event.preventDefault(); setSidebarOpen((open) => !open); return }
-      if (event.key === 'Escape') {
-        // Out of the field, Escape is the way back out of a search a phone opened full-width; inside it,
-        // the field's own handler answers first.
-        if (searchOpen) { setSearchOpen(false); return }
-        setPage('main')
-        return
-      }
-      if (event.key === 'j' || event.key === 'k') {
-        const nodes = [...(contentRef.current?.querySelectorAll<HTMLElement>('[data-todo-open]') ?? [])]
-        if (!nodes.length) return
-        event.preventDefault()
-        const index = nodes.findIndex((node) => node === document.activeElement)
-        const next = event.key === 'j' ? Math.min(nodes.length - 1, index + 1) : Math.max(0, index - 1)
-        nodes[index === -1 ? 0 : next]?.focus()
-      }
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
+  // Every keystroke the container answers lives in `use-todo-shortcuts.ts`, which also holds the list
+  // the `?` panel prints. What used to sit here was a five-key handler inside an effect with no
+  // dependency list, so each render left another listener on the document behind it (defect A18).
+  const shortcuts = useTodoShortcuts({
+    wide,
+    page,
+    searchOpen,
+    contentRef,
+    searchRef,
+    openSearch: () => setSearchOpen(true),
+    closeSearch: () => setSearchOpen(false),
+    toggleSidebar: () => setSidebarOpen((open) => !open),
+    newTask,
+    goMain: () => setPage('main'),
   })
 
   /** Escape in the box is the reader taking the words back out — and, on a phone, the box with them. */
@@ -556,6 +541,21 @@ export function TodosApp() {
       {/* Rendered here rather than inside the lists page: the sidebar's "+" opens it from any
           screen, so the editor cannot be unmounted with the page that also renders a button for it. */}
       <ListEditor />
+
+      {/* The panel `q` or `s` opened, anchored at the row that asked for it. Its rows come from
+          `task-menu.ts` — the list a kebab and a right-click already answer with — so a key is a third
+          way to reach them rather than a fourth copy of them. */}
+      {shortcuts.menu && (
+        <Menu
+          anchor={shortcuts.menu.point}
+          open
+          onClose={shortcuts.closeMenu}
+          items={shortcuts.menu.items}
+          width={TODO_ROW_MENU_WIDTH}
+          label={shortcuts.menu.label}
+        />
+      )}
+      <TodoKeysHelp open={shortcuts.helpOpen} onClose={shortcuts.closeHelp} />
     </section>
   )
 }
