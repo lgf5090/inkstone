@@ -29577,6 +29577,8 @@ const allowed = new Map([
   ["tests/no-native-dialogs.test.ts", [
     "// A method carries a body and a property carries an initializer; asking the union for both is what",
     "// used to hide behind one cast, so each shape is read under its own guard.",
+    "// public/vendor is rewritten on every build by @file-viewer/vite-plugin; its third-party worker",
+    "// bundles are shipped bytes, not code we can edit, so they are outside the guard's reach.",
   ]],
   ["tests/note-list-tags.test.ts", [
     "// Corrupt row on purpose: tags owned by another account must never surface on this page.",

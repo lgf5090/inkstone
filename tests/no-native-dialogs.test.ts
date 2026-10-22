@@ -18,12 +18,17 @@ function* walk(directory: string): Generator<string> {
   }
 }
 
+const GENERATED_OUTPUT = path.join(ROOT, 'public', 'vendor') + path.sep
+
 function program(): Array<{ file: string; source: ts.SourceFile }> {
+  // public/vendor is rewritten on every build by @file-viewer/vite-plugin; its third-party worker
+  // bundles are shipped bytes, not code we can edit, so they are outside the guard's reach.
   const files = [
     ...walk(path.join(ROOT, 'src')),
     ...walk(path.join(ROOT, 'public')),
     path.join(ROOT, 'index.html'),
-  ].filter((file) => /\.(ts|tsx|js)$/.test(file) && !/\.test\.[cm]?[jt]sx?$/.test(file))
+  ].filter((file) => /\.(ts|tsx|js)$/.test(file) && !/\.test\.[cm]?[jt]sx?$/.test(file)
+    && !file.startsWith(GENERATED_OUTPUT))
   return files.map((file) => ({
     file: path.relative(ROOT, file),
     source: ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true),
