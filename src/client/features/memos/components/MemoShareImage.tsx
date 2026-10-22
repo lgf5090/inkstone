@@ -24,7 +24,7 @@ export function MemoShareImage({ memo, author, ref }: MemoShareImageProps): Reac
   const createdMs = memo.createdAt * 1000
   const name = author?.name.trim() || author?.username || ''
   return (
-    <div ref={ref} className="w-[420px] bg-[var(--bg-base)] p-4" data-memo-share-image="">
+    <div ref={ref} className="w-[var(--memo-share-image-width)] bg-[var(--bg-base)] p-4" data-memo-share-image="">
       <article className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-sm">
         <header className="flex items-center justify-between gap-2 border-b border-[var(--border-subtle)] pb-2">
           <span className="text-[length:var(--text-12)] font-semibold text-[var(--text-primary)]">

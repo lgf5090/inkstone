@@ -19,6 +19,7 @@ import { MemoComments } from './MemoComments'
 import { MemoComposer } from './MemoComposer'
 import { MemoLinkPreviews } from './MemoLinkPreviews'
 import { MemoMaskedBody } from './MemoMaskedBody'
+import { MemoParentLink } from './MemoParentLink'
 import { MemoReactions } from './MemoReactions'
 import { MemoRelations } from './MemoRelations'
 
@@ -134,8 +135,11 @@ export function MemoDetail({
     const createdMs = memo.createdAt * 1000
     const updatedMs = memo.updatedAt * 1000
     content = (
-      <article className="mx-auto w-full max-w-[760px] px-4 py-4">
+      <article className="mx-auto w-full max-w-[var(--memo-reading-width)] px-4 py-4">
         <h2 className="sr-only">{t('memos.detail.title')}</h2>
+        {memo.parentId ? (
+          <MemoParentLink parentId={memo.parentId} onOpen={onOpen} className="mb-2" />
+        ) : null}
         <header className="flex flex-wrap items-center gap-1.5">
           <time
             dateTime={new Date(createdMs).toISOString()}

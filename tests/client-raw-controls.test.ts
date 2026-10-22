@@ -405,6 +405,13 @@ const CLICK_CONTAINER_EXCEPTIONS = new Map<string, { sites: number; reason: stri
       reason: 'The selection toolbar is a role="toolbar" whose children are the action buttons. Its mouse-down handler only stops the press from collapsing the editor selection before a button can act; it is not an affordance of its own.',
     },
   ],
+  [
+    'src/client/features/memos/components/MemoLightbox.tsx',
+    {
+      sites: 1,
+      reason: 'The image stage is the gesture surface: pointer handlers pan, zoom and swipe the picture, and the download link in its failure state is a control drawn inside that surface. A press on empty stage space is the gesture, not a button; the arrows and zoom controls sit outside the handler.',
+    },
+  ],
 ])
 
 const SCAN = scan()

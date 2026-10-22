@@ -452,7 +452,7 @@ export function ImportExportSettings(): ReactElement {
         <div className="mt-2">
           <p className="text-[length:var(--text-12)] text-[var(--text-secondary)]">{fileSummary}</p>
           <PlanSummary plan={plan} />
-          <div className="mt-2 max-w-[280px]">
+          <div className="mt-2 max-w-[var(--memo-field-wide-width)]">
             <Field
               label={t('memos.settings.transfer_conflict')}
               hint={t('memos.settings.transfer_conflict_hint')}

@@ -3009,6 +3009,15 @@
   padding-block: 0;
 }
 
+/* A search word is a wash behind the text, not a badge: the accent tint stays readable in every
+   theme and leaves the glyph colour to the prose around it. */
+.ink-memo-prose mark[data-memo-hit] {
+  padding-inline: 0.08em;
+  border-radius: var(--r-2);
+  background: color-mix(in oklab, var(--accent) 24%, transparent);
+  color: inherit;
+}
+
 .wiki-hover-body .ink-prose {
   max-width: none;
   margin-inline: 0;

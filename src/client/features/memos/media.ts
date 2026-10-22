@@ -29,6 +29,16 @@ export function memoAttachmentUrl(url: string, shareToken: string): string {
   return `${base}${separator}share=${encodeURIComponent(shareToken)}${hash}`
 }
 
+/** Whether a link stays on this origin, so a share token must never be appended to it. */
+export function isSameOriginUrl(href: string): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    return new URL(href, window.location.origin).origin === window.location.origin
+  } catch {
+    return false
+  }
+}
+
 export function motionVideoUrl(attachment: MemoAttachment): string | null {
   if (attachment.motion?.role !== 'still') return null
   return `${attachment.url}${attachment.url.includes('?') ? '&' : '?'}motion=1`

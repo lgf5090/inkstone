@@ -1,10 +1,41 @@
 import { useSyncExternalStore } from 'react'
 import { MEMO_ORDER_FIELDS, type MemoDisplayPreferences, type MemoOrderDirection, type MemoOrderField } from '@shared/memos/types'
 
+export const MEMO_QUICK_FILTERS = [
+  'pinned',
+  'has_link',
+  'has_task_list',
+  'has_incomplete_tasks',
+  'has_code',
+  'has_location',
+  'visibility_public',
+  'visibility_protected',
+  'visibility_private',
+  'recent_7d',
+  'recent_30d',
+] as const
+
+export type MemoQuickFilter = (typeof MEMO_QUICK_FILTERS)[number]
+
+const QUICK_EXPRESSIONS: Record<MemoQuickFilter, string> = {
+  pinned: 'pinned',
+  has_link: 'has_link',
+  has_task_list: 'has_task_list',
+  has_incomplete_tasks: 'has_incomplete_tasks',
+  has_code: 'has_code',
+  has_location: 'has_location',
+  visibility_public: 'visibility == "PUBLIC"',
+  visibility_protected: 'visibility == "PROTECTED"',
+  visibility_private: 'visibility == "PRIVATE"',
+  recent_7d: 'created_ts >= now - duration("7d")',
+  recent_30d: 'created_ts >= now - duration("30d")',
+}
+
 export interface MemoUrlState {
   q: string
   tag: string | null
   filter: string
+  quick: MemoQuickFilter[]
   spaceId: string | null
   orderBy: MemoOrderField | null
   order: MemoOrderDirection | null
@@ -17,6 +48,7 @@ export interface MemoSearchInput {
   q?: string
   tag?: string | null
   filter?: string
+  quick?: readonly MemoQuickFilter[]
   spaceId?: string | null
   orderBy?: MemoOrderField
   order?: MemoOrderDirection
@@ -65,6 +97,21 @@ function displayColumns(value: string): MemoDisplayPreferences['columns'] | null
   return null
 }
 
+function isQuickFilter(value: string): value is MemoQuickFilter {
+  return (MEMO_QUICK_FILTERS as readonly string[]).includes(value)
+}
+
+function readQuickFilters(params: URLSearchParams): MemoQuickFilter[] {
+  const raw = params.get('quick')
+  if (!raw) return []
+  const quick: MemoQuickFilter[] = []
+  for (const token of raw.split(',')) {
+    const value = token.trim()
+    if (isQuickFilter(value) && !quick.includes(value)) quick.push(value)
+  }
+  return quick
+}
+
 export function readMemoUrlState(search: string): MemoUrlState {
   const params = new URLSearchParams(search)
   const sort = params.get('sort')
@@ -90,6 +137,7 @@ export function readMemoUrlState(search: string): MemoUrlState {
     q: params.get('q')?.trim() ?? '',
     tag: tag ? tag : null,
     filter: params.get('filter') ?? '',
+    quick: readQuickFilters(params),
     spaceId: params.get('space')?.trim() || null,
     orderBy: parsedOrderBy && parsedOrder ? parsedOrderBy : null,
     order: parsedOrderBy && parsedOrder ? parsedOrder : null,
@@ -105,6 +153,7 @@ export function buildMemoSearch(input: MemoSearchInput): string {
   if (q) params.set('q', q)
   if (input.tag) params.set('tag', input.tag)
   if (input.filter?.trim()) params.set('filter', input.filter.trim())
+  if (input.quick && input.quick.length > 0) params.set('quick', input.quick.join(','))
   if (input.spaceId) params.set('space', input.spaceId)
   const orderBy = input.orderBy ?? DEFAULT_ORDER_BY
   const order = input.order ?? DEFAULT_ORDER
@@ -133,10 +182,26 @@ export function navigateMemoUrl(pathname: string, search: string, options: { rep
   window.dispatchEvent(new PopStateEvent('popstate'))
 }
 
-export function memoFilterExpression(query: string, filter: string): string {
+export function memoFilterExpression(
+  query: string,
+  filter: string,
+  quick: readonly MemoQuickFilter[] = [],
+): string {
   const clauses: string[] = []
   const needle = query.trim()
-  if (needle) clauses.push(`content.contains(${JSON.stringify(needle)})`)
+  if (needle) {
+    for (const word of needle.split(/\s+/)) {
+      if (word) clauses.push(`content.contains(${JSON.stringify(word)})`)
+    }
+  }
+  const visibility = quick
+    .filter((value) => value.startsWith('visibility_'))
+    .map((value) => QUICK_EXPRESSIONS[value])
+  if (visibility.length === 1) clauses.push(visibility[0]!)
+  else if (visibility.length > 1) clauses.push(`(${visibility.join(' || ')})`)
+  for (const value of quick) {
+    if (!value.startsWith('visibility_')) clauses.push(QUICK_EXPRESSIONS[value])
+  }
   const expression = filter.trim()
   if (expression) clauses.push(`(${expression})`)
   return clauses.join(' && ')

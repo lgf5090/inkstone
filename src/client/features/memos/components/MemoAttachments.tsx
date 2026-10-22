@@ -12,6 +12,12 @@ export interface MemoAttachmentsProps {
   className?: string
 }
 
+function prefersReducedMotion(): boolean {
+  return typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
 function GalleryImage({ attachment, index, compact, multiple, onOpen }: {
   attachment: MemoAttachment
   index: number
@@ -20,7 +26,17 @@ function GalleryImage({ attachment, index, compact, multiple, onOpen }: {
   onOpen: (index: number) => void
 }): ReactElement {
   const source = useAttachmentImageSource(attachment)
+  const [previewActive, setPreviewActive] = useState(false)
+  const [previewFailed, setPreviewFailed] = useState(false)
   const caption = compact ? [] : mediaMetadataLines(attachment)
+  const motion = motionVideoUrl(attachment)
+  const startPreview = (): void => {
+    if (!motion || previewFailed || prefersReducedMotion()) return
+    setPreviewActive(true)
+  }
+  const stopPreview = (): void => {
+    setPreviewActive(false)
+  }
   if (source.failed) {
     return (
       <AttachmentUnavailable
@@ -30,7 +46,6 @@ function GalleryImage({ attachment, index, compact, multiple, onOpen }: {
       />
     )
   }
-  const motion = motionVideoUrl(attachment)
   const dimensions = attachmentDimensions(attachment)
   return (
     <figure className="min-w-0">
@@ -40,6 +55,11 @@ function GalleryImage({ attachment, index, compact, multiple, onOpen }: {
           event.currentTarget.focus()
           onOpen(index)
         }}
+        onPointerEnter={startPreview}
+        onPointerDown={startPreview}
+        onPointerLeave={stopPreview}
+        onPointerUp={stopPreview}
+        onPointerCancel={stopPreview}
         aria-label={t(motion ? 'memos.media.open_live_photo' : 'memos.media.open_image', { name: attachment.filename })}
         className="group relative block w-full overflow-hidden rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
       >
@@ -53,9 +73,27 @@ function GalleryImage({ attachment, index, compact, multiple, onOpen }: {
           onError={source.onError}
           className={cn(
             'w-full',
-            multiple ? 'aspect-square object-cover' : compact ? 'max-h-56 object-contain' : 'max-h-[420px] object-contain',
+            multiple ? 'aspect-square object-cover' : compact ? 'max-h-56 object-contain' : 'max-h-[var(--memo-media-max-height)] object-contain',
           )}
         />
+        {previewActive && motion ? (
+          <video
+            data-memo-motion-preview=""
+            src={motion}
+            muted
+            autoPlay
+            loop
+            playsInline
+            aria-hidden="true"
+            tabIndex={-1}
+            onError={() => {
+              setPreviewFailed(true)
+              setPreviewActive(false)
+              console.warn('[inkstone] A Live Photo hover preview could not be played', attachment.id)
+            }}
+            className="pointer-events-none absolute inset-0 size-full object-cover"
+          />
+        ) : null}
         {motion ? (
           <AttachmentMotionBadge />
         ) : null}
@@ -82,7 +120,7 @@ function GalleryVideo({ attachment, compact, multiple }: {
     <div className="min-w-0">
       <AttachmentVideo
         attachment={attachment}
-        className={cn(multiple ? 'aspect-square object-contain' : compact ? 'max-h-56 object-contain' : 'max-h-[420px] object-contain')}
+        className={cn(multiple ? 'aspect-square object-contain' : compact ? 'max-h-56 object-contain' : 'max-h-[var(--memo-media-max-height)] object-contain')}
       />
       {caption.length > 0 ? (
         <p title={caption.join(' · ')} className="mt-1 truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">

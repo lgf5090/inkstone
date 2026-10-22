@@ -298,7 +298,7 @@ export function MemoAttachmentsPage({ onOpenMemo }: MemoAttachmentsPageProps): R
   return (
     <div className="flex h-full min-h-0 flex-col" data-memos-attachments="">
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-[1100px] px-3 py-3 md:px-5 md:py-4">
+        <div className="mx-auto w-full max-w-[var(--memo-library-width)] px-3 py-3 md:px-5 md:py-4">
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
             <h2 className="min-w-0 truncate text-[length:var(--text-15)] font-semibold text-[var(--text-primary)]">
               {t('memos.nav.attachments')}

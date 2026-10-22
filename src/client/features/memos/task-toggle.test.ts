@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { findMemoTasks, toggleMemoTask } from './task-toggle'
+import { findMemoTasks, setAllMemoTasks, toggleMemoTask } from './task-toggle'
 
 const SAMPLE = [
   '# Tasks',
@@ -54,5 +54,55 @@ describe('the memo task parser', () => {
   it('returns null for an index that is not a task', () => {
     expect(toggleMemoTask(SAMPLE, 99)).toBeNull()
     expect(toggleMemoTask('no tasks here', 0)).toBeNull()
+  })
+})
+
+describe('the memo task bulk toggle', () => {
+  it('checks every existing marker and keeps the surrounding text', () => {
+    expect(setAllMemoTasks(SAMPLE, true)).toBe(
+      SAMPLE
+        .replace('- [ ] first', '- [x] first')
+        .replace('1. [/] third', '1. [x] third'),
+    )
+  })
+
+  it('clears every existing marker without touching list bullets or nesting', () => {
+    const content = [
+      '> - [x] quoted',
+      '>   1. [x] nested',
+      '- [ ] plain',
+    ].join('\n')
+    expect(setAllMemoTasks(content, false)).toBe([
+      '> - [ ] quoted',
+      '>   1. [ ] nested',
+      '- [ ] plain',
+    ].join('\n'))
+  })
+
+  it('never rewrites task-like lines inside a fenced block', () => {
+    const content = [
+      '- [ ] outside',
+      '',
+      '```md',
+      '- [ ] fenced',
+      '```',
+    ].join('\n')
+    expect(setAllMemoTasks(content, true)).toBe([
+      '- [x] outside',
+      '',
+      '```md',
+      '- [ ] fenced',
+      '```',
+    ].join('\n'))
+  })
+
+  it('returns null without tasks and leaves fenced-only task lines alone', () => {
+    expect(setAllMemoTasks('nothing to do', true)).toBeNull()
+    expect(setAllMemoTasks('- [ ] only fenced\n\n```\n- [ ] hidden\n```', true))
+      .toBe('- [x] only fenced\n\n```\n- [ ] hidden\n```')
+  })
+
+  it('keeps CRLF line endings', () => {
+    expect(setAllMemoTasks('- [ ] one\r\n- [x] two', true)).toBe('- [x] one\r\n- [x] two')
   })
 })

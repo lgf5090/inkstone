@@ -126,7 +126,7 @@ export function MemoExplorePage(): ReactElement {
 
   return (
     <div className="h-full min-h-0 overflow-y-auto" data-memos-explore="">
-      <div className="mx-auto w-full max-w-[760px] px-4 py-4 md:px-5 md:py-5">
+      <div className="mx-auto w-full max-w-[var(--memo-reading-width)] px-4 py-4 md:px-5 md:py-5">
         <h2 className="text-[length:var(--text-15)] font-semibold text-[var(--text-primary)]">
           {t('memos.public.explore_title')}
         </h2>

@@ -176,6 +176,21 @@ describe('the memo settings page', () => {
     expect(host.textContent).toContain(t('memos.settings.about_license'))
     expect(host.textContent).toContain(t('memos.settings.tokens_empty'))
     expect(host.textContent).toContain(t('memos.settings.about_version', { version: APP_VERSION }))
+
+    const projectLinks = [
+      ['memos.settings.about_website_link', 'https://usememos.com/'],
+      ['memos.settings.about_docs_link', 'https://usememos.com/docs'],
+      ['memos.settings.about_api_link', 'https://usememos.com/docs/api'],
+      ['memos.settings.about_clipper_link', 'https://github.com/usememos/web-clipper'],
+    ] as const
+    for (const [key, href] of projectLinks) {
+      const link = host.querySelector<HTMLAnchorElement>(`a[href="${href}"]`)
+      expect(link).not.toBeNull()
+      expect(link?.textContent).toContain(t(key))
+      expect(link?.getAttribute('target')).toBe('_blank')
+      expect(link?.getAttribute('rel')).toContain('noreferrer')
+      expect(link?.getAttribute('rel')).toContain('noopener')
+    }
   })
 
   it('patches general preferences as they change', async () => {

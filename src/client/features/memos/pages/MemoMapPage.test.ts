@@ -19,6 +19,39 @@ interface MemoMapDoubleProps {
   onViewChange: (view: { latitude: number; longitude: number; zoom: number }) => void
 }
 
+interface MemoComposerDoubleProps {
+  spaceId?: string | null
+  initialLocation?: { latitude: number; longitude: number; placeholder: string } | null
+  onSaved?: (memo: Memo) => void
+  onCancel?: () => void
+}
+
+vi.mock('../components/MemoComposer', async () => {
+  const React = await import('react')
+  return {
+    MemoComposer: (props: MemoComposerDoubleProps) => React.createElement(
+      'div',
+      {
+        'data-testid': 'memo-composer-double',
+        'data-space': props.spaceId ?? '',
+        'data-location': JSON.stringify(props.initialLocation ?? null),
+      },
+      React.createElement(
+        'button',
+        {
+          type: 'button',
+          onClick: () => props.onSaved?.({
+            id: 'new-memo',
+            location: props.initialLocation ?? null,
+          } as Memo),
+        },
+        'save-memo-double',
+      ),
+      React.createElement('button', { type: 'button', onClick: props.onCancel }, 'cancel-memo-double'),
+    ),
+  }
+})
+
 vi.mock('../components/MemoMap', async () => {
   const React = await import('react')
   return {
@@ -262,5 +295,51 @@ describe('the memo map page', () => {
       expect.any(AbortSignal),
     )
     expect(container.textContent).toContain(t('memos.map.count', { count: 2 }))
+  })
+
+  it('creates a memo at the selected location and refreshes the map', async () => {
+    window.history.replaceState(null, '', '/memos/spaces/space-1/map')
+    api.list.mockResolvedValue({ items: [memo('m-1')], nextCursor: null })
+    const container = renderPage()
+    await flush()
+
+    expect(container.textContent).not.toContain(t('memos.map.new_memo'))
+    click(buttonNamed('pick-group'))
+    await flush()
+    click(buttonNamed(t('memos.map.new_memo')))
+    await flush()
+
+    const composer = document.querySelector<HTMLElement>('[data-testid="memo-composer-double"]')
+    expect(composer).not.toBeNull()
+    expect(composer!.dataset.space).toBe('space-1')
+    const location = JSON.parse(composer!.dataset.location ?? 'null') as {
+      latitude: number
+      longitude: number
+      placeholder: string
+    }
+    expect(location.latitude).toBe(37.7749)
+    expect(location.longitude).toBe(-122.4194)
+    expect(location.placeholder).toContain('37.7749')
+    expect(location.placeholder).toContain('-122.4194')
+
+    click(buttonNamed('save-memo-double'))
+    await flush()
+    expect(document.querySelector('[data-testid="memo-composer-double"]')).toBeNull()
+    expect(api.list).toHaveBeenCalledTimes(2)
+  })
+
+  it('closes the composer without reloading when creation is cancelled', async () => {
+    api.list.mockResolvedValue({ items: [memo('m-1')], nextCursor: null })
+    renderPage()
+    await flush()
+    click(buttonNamed('pick-group'))
+    await flush()
+    click(buttonNamed(t('memos.map.new_memo')))
+    await flush()
+
+    click(buttonNamed('cancel-memo-double'))
+    await flush()
+    expect(document.querySelector('[data-testid="memo-composer-double"]')).toBeNull()
+    expect(api.list).toHaveBeenCalledTimes(1)
   })
 })

@@ -109,7 +109,7 @@ export function ReactionsSettings({ preferences, saving, save }: MemoSettingsSec
         <Field
           label={t('memos.settings.reactions_add_label')}
           hint={formError ? <span role="alert" className="text-[var(--danger)]">{formError}</span> : undefined}
-          className="min-w-[180px] flex-1"
+          className="min-w-[var(--memo-token-field-min-width)] flex-1"
         >
           <Input
             value={draft}

@@ -9,15 +9,17 @@ import {
   type MouseEvent,
   type ReactElement,
 } from 'react'
-import { MapPin, X } from 'lucide-react'
+import { MapPin, Plus, X } from 'lucide-react'
 import { MEMOS_APP_PATH } from '@shared/memos/constants'
 import type { Memo } from '@shared/memos/types'
 import { Button, IconButton } from '../../../components/primitives'
 import { Empty, LoadingBlock } from '../../../components/feedback'
+import { Modal } from '../../../components/overlay'
 import { InlineErrorBoundary } from '../../../components/ErrorBoundary'
 import { usePathname } from '../../../lib/app-history'
 import { t } from '../../../lib/i18n'
 import { memosApi } from '../api'
+import { MemoComposer } from '../components/MemoComposer'
 import { memoErrorMessage, memoIsAbortError } from '../errors'
 import { coordinateLabel, memoPlaceLabel, normalizeMemoLocation } from '../location'
 import {
@@ -101,6 +103,7 @@ export function MemoMapPage({ onOpenMemo }: MemoMapPageProps): ReactElement {
   const [error, setError] = useState<string | null>(null)
   const [capped, setCapped] = useState(false)
   const [selection, setSelection] = useState<MemoMapPointSelection | null>(null)
+  const [composerOpen, setComposerOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const memoParamRef = useRef(urlState.memoId)
   memoParamRef.current = urlState.memoId
@@ -136,6 +139,7 @@ export function MemoMapPage({ onOpenMemo }: MemoMapPageProps): ReactElement {
     setItems([])
     setCapped(false)
     setSelection(null)
+    setComposerOpen(false)
     initialMemoRef.current = memoParamRef.current
     initialSelectionDone.current = false
     collectMemoMapMemos((cursor) => memosApi.list({
@@ -188,8 +192,15 @@ export function MemoMapPage({ onOpenMemo }: MemoMapPageProps): ReactElement {
   }
 
   const clearSelection = (): void => {
+    setComposerOpen(false)
     setSelection(null)
     writeMemoSelection(null)
+  }
+
+  const memoCreatedAtSelection = (memo: Memo): void => {
+    setComposerOpen(false)
+    setRefreshKey((value) => value + 1)
+    writeMemoSelection(memo.id)
   }
 
   const updateView = (view: MemoMapView): void => {
@@ -278,6 +289,15 @@ export function MemoMapPage({ onOpenMemo }: MemoMapPageProps): ReactElement {
                     <X size={13} aria-hidden="true" />
                   </IconButton>
                 </div>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="mt-2 h-8"
+                  icon={<Plus size={12} aria-hidden="true" />}
+                  onClick={() => setComposerOpen(true)}
+                >
+                  {t('memos.map.new_memo')}
+                </Button>
                 <ul className="mt-1 space-y-0.5">
                   {selectedMemos.map((memo) => (
                     <MemoMapEntry key={memo.id} memo={memo} onOpen={onOpenMemo} />
@@ -329,6 +349,25 @@ export function MemoMapPage({ onOpenMemo }: MemoMapPageProps): ReactElement {
         </p>
       ) : null}
       {body}
+      <Modal
+        open={composerOpen && selection !== null}
+        onClose={() => setComposerOpen(false)}
+        title={t('memos.map.new_memo_title')}
+        width={640}
+      >
+        {selection ? (
+          <MemoComposer
+            spaceId={spaceId}
+            initialLocation={{
+              latitude: selection.latitude,
+              longitude: selection.longitude,
+              placeholder: coordinateLabel(selection.latitude, selection.longitude),
+            }}
+            onSaved={memoCreatedAtSelection}
+            onCancel={() => setComposerOpen(false)}
+          />
+        ) : null}
+      </Modal>
     </div>
   )
 }

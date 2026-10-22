@@ -1,22 +1,26 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from 'react'
-import { Pencil, Trash2 } from 'lucide-react'
-import { MEMO_COMMENT_PAGE_SIZE } from '@shared/memos/constants'
-import type { Memo } from '@shared/memos/types'
+import { useEffect, useRef, useState, type ReactElement } from 'react'
+import { Paperclip, Pencil, Trash2, X } from 'lucide-react'
+import { MEMO_ATTACHMENT_MAX_BYTES, MEMO_COMMENT_PAGE_SIZE } from '@shared/memos/constants'
+import type { Memo, MemoAttachment } from '@shared/memos/types'
 import { Button, IconButton, Spinner } from '../../../components/primitives'
-import { Textarea } from '../../../components/form'
 import { Skeleton } from '../../../components/feedback'
 import { confirm } from '../../../components/overlay'
 import { ApiError } from '../../../lib/api'
 import { t } from '../../../lib/i18n'
-import { isImeComposing } from '../../../lib/ime'
 import { shortTime } from '../../../lib/time'
 import { useSession } from '../../../store/session'
 import { memosApi } from '../api'
 import { memoErrorMessage, memoIsAbortError } from '../errors'
 import { bump } from '../events'
+import { prepareMemoAttachment } from '../image-metadata'
 import { loadMemoDraft } from '../state'
 import { useMemoDraft } from '../use-memo-draft'
+import { useMemoPreferences } from '../use-memo-preferences'
+import { MemoAttachments } from './MemoAttachments'
 import { MemoBody } from './MemoBody'
+import { MemoEditor } from './MemoEditor'
+
+const MEGABYTE = 1024 * 1024
 
 interface CommentsState {
   items: Memo[]
@@ -37,15 +41,65 @@ export function memoCommentDraftScope(memoId: string): string {
   return `comment:${memoId}`
 }
 
-function submitOnModEnter(event: KeyboardEvent<HTMLTextAreaElement>, submit: () => void): void {
-  if (event.key !== 'Enter' || event.shiftKey || event.altKey || isImeComposing(event)) return
-  if (!event.metaKey && !event.ctrlKey) return
-  event.preventDefault()
-  submit()
-}
-
 function commentIsOwn(comment: Memo, userId: string): boolean {
   return !comment.creator || comment.creator.id === userId
+}
+
+function sameIds(first: string[], second: string[]): boolean {
+  return first.length === second.length && first.every((id, index) => id === second[index])
+}
+
+async function uploadCommentAttachment(file: File, saveMediaMetadata: boolean): Promise<MemoAttachment> {
+  const prepared = await prepareMemoAttachment(file, { saveMediaMetadata })
+  return memosApi.attachments.upload({
+    file: prepared.file,
+    thumbnail: prepared.thumbnail,
+    metadata: prepared.metadata,
+    memoId: null,
+  })
+}
+
+async function deleteCommentAttachments(attachments: MemoAttachment[]): Promise<void> {
+  for (const attachment of attachments) {
+    try {
+      await memosApi.attachments.delete(attachment.id)
+    } catch (error) {
+      console.warn('[inkstone] Could not roll back a comment attachment', error)
+    }
+  }
+}
+
+function AttachmentDraftList({
+  attachments,
+  disabled,
+  onRemove,
+}: {
+  attachments: MemoAttachment[]
+  disabled: boolean
+  onRemove: (attachment: MemoAttachment) => void
+}): ReactElement | null {
+  if (attachments.length === 0) return null
+  return (
+    <ul className="mt-1.5 space-y-1">
+      {attachments.map((attachment) => (
+        <li
+          key={attachment.id}
+          className="flex min-h-8 items-center gap-1.5 rounded-[var(--r-sm)] bg-[var(--bg-raised)] px-1.5 text-[length:var(--text-11)] text-[var(--text-secondary)]"
+        >
+          <Paperclip size={11} aria-hidden="true" className="shrink-0 text-[var(--text-quaternary)]" />
+          <span className="min-w-0 flex-1 truncate">{attachment.filename}</span>
+          <IconButton
+            label={t('memos.comments.remove_attachment', { name: attachment.filename })}
+            size="xs"
+            disabled={disabled}
+            onClick={() => onRemove(attachment)}
+          >
+            <X size={11} />
+          </IconButton>
+        </li>
+      ))}
+    </ul>
+  )
 }
 
 export function MemoComments(props: MemoCommentsProps): ReactElement {
@@ -59,6 +113,7 @@ function MemoCommentsThread({
   onTagPress,
 }: MemoCommentsProps): ReactElement {
   const userId = useSession((state) => state.user?.id ?? 'guest')
+  const { preferences } = useMemoPreferences()
   const scope = memoCommentDraftScope(memoId)
   const [state, setState] = useState<CommentsState>({
     items: [],
@@ -68,6 +123,9 @@ function MemoCommentsThread({
     loadingMore: false,
   })
   const [text, setText] = useState(() => (disabled ? '' : loadMemoDraft(userId, scope)?.content ?? ''))
+  const [newAttachments, setNewAttachments] = useState<MemoAttachment[]>([])
+  const [uploadingNew, setUploadingNew] = useState(false)
+  const [newAttachmentError, setNewAttachmentError] = useState<string | null>(null)
   const [posting, setPosting] = useState(false)
   const [postError, setPostError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -75,10 +133,16 @@ function MemoCommentsThread({
   const [reloadTicket, setReloadTicket] = useState(0)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingText, setEditingText] = useState('')
+  const [editingAttachments, setEditingAttachments] = useState<MemoAttachment[]>([])
+  const [editingNewIds, setEditingNewIds] = useState<string[]>([])
+  const [uploadingEdit, setUploadingEdit] = useState(false)
+  const [editAttachmentError, setEditAttachmentError] = useState<string | null>(null)
   const [editError, setEditError] = useState<string | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const controllerRef = useRef<AbortController | null>(null)
+  const newFileInputRef = useRef<HTMLInputElement>(null)
+  const editFileInputRef = useRef<HTMLInputElement>(null)
   const { clearDraft } = useMemoDraft({
     userId,
     scope,
@@ -138,20 +202,71 @@ function MemoCommentsThread({
     }
   }
 
+  const uploadFiles = async (
+    files: File[],
+    addUploaded: (attachment: MemoAttachment) => void,
+    setUploading: (value: boolean) => void,
+    setUploadError: (value: string | null) => void,
+  ): Promise<void> => {
+    if (files.length === 0) return
+    setUploading(true)
+    setUploadError(null)
+    try {
+      for (const file of files) {
+        if (file.size > MEMO_ATTACHMENT_MAX_BYTES) {
+          setUploadError(t('memos.composer.upload_too_large', {
+            name: file.name,
+            limit: Math.floor(MEMO_ATTACHMENT_MAX_BYTES / MEGABYTE),
+          }))
+          continue
+        }
+        try {
+          addUploaded(await uploadCommentAttachment(file, preferences.saveMediaMetadata))
+        } catch (error) {
+          setUploadError(memoErrorMessage(error))
+        }
+      }
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const removeNewAttachment = (attachment: MemoAttachment): void => {
+    setNewAttachments((current) => current.filter((item) => item.id !== attachment.id))
+    void deleteCommentAttachments([attachment])
+  }
+
+  const removeEditingAttachment = (attachment: MemoAttachment): void => {
+    setEditingAttachments((current) => current.filter((item) => item.id !== attachment.id))
+    if (editingNewIds.includes(attachment.id)) {
+      setEditingNewIds((current) => current.filter((id) => id !== attachment.id))
+      void deleteCommentAttachments([attachment])
+    }
+  }
+
   const submit = async (): Promise<void> => {
     const content = text.trim()
-    if (!content || posting || disabled) return
+    if (!content || posting || disabled || uploadingNew) return
     setPosting(true)
     setPostError(null)
+    const pending = newAttachments
     try {
-      const comment = await memosApi.comments.create(memoId, { content })
+      const comment = await memosApi.comments.create(memoId, pending.length > 0
+        ? { content, attachmentIds: pending.map((attachment) => attachment.id) }
+        : { content })
       setState((current) => ({ ...current, items: [...current.items, comment] }))
       setAdded((value) => value + 1)
       clearDraft()
       setText('')
+      setNewAttachments([])
+      setNewAttachmentError(null)
       bump('list')
     } catch (error) {
       setPostError(memoErrorMessage(error))
+      if (pending.length > 0) {
+        await deleteCommentAttachments(pending)
+        setNewAttachments([])
+      }
     } finally {
       setPosting(false)
     }
@@ -160,29 +275,43 @@ function MemoCommentsThread({
   const startEdit = (comment: Memo): void => {
     setEditingId(comment.id)
     setEditingText(comment.content)
+    setEditingAttachments(comment.attachments)
+    setEditingNewIds([])
+    setEditAttachmentError(null)
     setEditError(null)
     setActionError(null)
   }
 
   const cancelEdit = (): void => {
+    const pending = editingAttachments.filter((attachment) => editingNewIds.includes(attachment.id))
     setEditingId(null)
     setEditingText('')
+    setEditingAttachments([])
+    setEditingNewIds([])
+    setEditAttachmentError(null)
     setEditError(null)
+    if (pending.length > 0) void deleteCommentAttachments(pending)
   }
 
   const saveEdit = async (comment: Memo): Promise<void> => {
     const content = editingText.trim()
-    if (!content || savingEdit || disabled) return
+    if (!content || savingEdit || uploadingEdit || disabled) return
     setSavingEdit(true)
     setEditError(null)
+    const attachmentIds = editingAttachments.map((attachment) => attachment.id)
+    const input = sameIds(attachmentIds, comment.attachments.map((attachment) => attachment.id))
+      ? { rev: comment.rev, content }
+      : { rev: comment.rev, content, attachmentIds }
     try {
-      const saved = await memosApi.patch(comment.id, { rev: comment.rev, content })
+      const saved = await memosApi.patch(comment.id, input)
       setState((current) => ({
         ...current,
         items: current.items.map((item) => (item.id === comment.id ? saved : item)),
       }))
       setEditingId(null)
       setEditingText('')
+      setEditingAttachments([])
+      setEditingNewIds([])
       bump('list')
     } catch (error) {
       setEditError(error instanceof ApiError && error.isConflict
@@ -253,7 +382,7 @@ function MemoCommentsThread({
         <ul className="mt-2 space-y-1.5">
           {state.items.map((comment) => {
             const canManage = !disabled && commentIsOwn(comment, userId)
-            const busy = savingEdit || deletingId === comment.id
+            const busy = savingEdit || deletingId === comment.id || uploadingEdit
             return (
               <li key={comment.id} className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-2.5">
                 <div className="flex items-center gap-2">
@@ -292,28 +421,76 @@ function MemoCommentsThread({
                       void saveEdit(comment)
                     }}
                   >
-                    <Textarea
-                      aria-label={t('memos.comments.edit_label')}
+                    <MemoEditor
                       value={editingText}
-                      rows={2}
+                      label={t('memos.comments.edit_label')}
+                      placeholder={t('memos.comments.placeholder')}
+                      onChange={setEditingText}
+                      onSubmit={() => void saveEdit(comment)}
                       autoFocus
-                      onChange={(event) => setEditingText(event.target.value)}
-                      onKeyDown={(event) => submitOnModEnter(event, () => void saveEdit(comment))}
+                      disabled={savingEdit}
                     />
-                    <div className="mt-1.5 flex flex-wrap items-center justify-end gap-1.5">
-                      <Button size="sm" variant="ghost" onClick={cancelEdit}>
-                        {t('memos.common.cancel')}
-                      </Button>
-                      <Button
-                        type="submit"
+                    <AttachmentDraftList
+                      attachments={editingAttachments}
+                      disabled={savingEdit || uploadingEdit}
+                      onRemove={removeEditingAttachment}
+                    />
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                      <IconButton
+                        label={t('memos.comments.attach_file')}
                         size="sm"
-                        variant="primary"
-                        loading={savingEdit}
-                        disabled={!editingText.trim()}
+                        disabled={savingEdit || uploadingEdit}
+                        onClick={() => editFileInputRef.current?.click()}
                       >
-                        {savingEdit ? t('memos.comments.saving') : t('memos.comments.save')}
-                      </Button>
+                        <Paperclip size={14} />
+                      </IconButton>
+                      {uploadingEdit ? (
+                        <span role="status" className="inline-flex items-center gap-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+                          <Spinner size={12} />
+                          {t('memos.comments.uploading_attachment')}
+                        </span>
+                      ) : null}
+                      <span className="ml-auto flex items-center gap-1.5">
+                        <Button size="sm" variant="ghost" disabled={savingEdit} onClick={cancelEdit}>
+                          {t('memos.common.cancel')}
+                        </Button>
+                        <Button
+                          type="submit"
+                          size="sm"
+                          variant="primary"
+                          loading={savingEdit}
+                          disabled={!editingText.trim() || uploadingEdit}
+                        >
+                          {savingEdit ? t('memos.comments.saving') : t('memos.comments.save')}
+                        </Button>
+                      </span>
                     </div>
+                    <input
+                      ref={editFileInputRef}
+                      type="file"
+                      multiple
+                      tabIndex={-1}
+                      aria-hidden="true"
+                      className="sr-only"
+                      onChange={(event) => {
+                        const files = Array.from(event.target.files ?? [])
+                        event.target.value = ''
+                        void uploadFiles(
+                          files,
+                          (attachment) => {
+                            setEditingAttachments((current) => [...current, attachment])
+                            setEditingNewIds((current) => [...current, attachment.id])
+                          },
+                          setUploadingEdit,
+                          setEditAttachmentError,
+                        )
+                      }}
+                    />
+                    {editAttachmentError ? (
+                      <p role="alert" className="mt-1 text-[length:var(--text-11)] text-[var(--danger)]">
+                        {editAttachmentError}
+                      </p>
+                    ) : null}
                     {editError ? (
                       <p role="alert" className="mt-1 text-[length:var(--text-11)] text-[var(--danger)]">
                         {editError}
@@ -321,7 +498,10 @@ function MemoCommentsThread({
                     ) : null}
                   </form>
                 ) : (
-                  <MemoBody content={comment.content} onTagPress={onTagPress} className="mt-1 text-[length:var(--text-12)]" />
+                  <>
+                    <MemoBody content={comment.content} onTagPress={onTagPress} className="mt-1 text-[length:var(--text-12)]" />
+                    <MemoAttachments attachments={comment.attachments} compact className="mt-1" />
+                  </>
                 )}
               </li>
             )
@@ -359,15 +539,34 @@ function MemoCommentsThread({
             void submit()
           }}
         >
-          <Textarea
-            aria-label={t('memos.comments.placeholder')}
-            placeholder={t('memos.comments.placeholder')}
-            rows={2}
+          <MemoEditor
             value={text}
-            onChange={(event) => setText(event.target.value)}
-            onKeyDown={(event) => submitOnModEnter(event, () => void submit())}
+            label={t('memos.comments.placeholder')}
+            placeholder={t('memos.comments.placeholder')}
+            onChange={setText}
+            onSubmit={() => void submit()}
+            disabled={posting}
+          />
+          <AttachmentDraftList
+            attachments={newAttachments}
+            disabled={posting || uploadingNew}
+            onRemove={removeNewAttachment}
           />
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <IconButton
+              label={t('memos.comments.attach_file')}
+              size="sm"
+              disabled={posting || uploadingNew}
+              onClick={() => newFileInputRef.current?.click()}
+            >
+              <Paperclip size={14} />
+            </IconButton>
+            {uploadingNew ? (
+              <span role="status" className="inline-flex items-center gap-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+                <Spinner size={12} />
+                {t('memos.comments.uploading_attachment')}
+              </span>
+            ) : null}
             <span className="hidden text-[length:var(--text-10-5)] text-[var(--text-quaternary)] sm:inline">
               {t('memos.comments.hint')}
             </span>
@@ -377,11 +576,34 @@ function MemoCommentsThread({
               variant="primary"
               className="ml-auto"
               loading={posting}
-              disabled={!text.trim()}
+              disabled={!text.trim() || uploadingNew}
             >
               {posting ? t('memos.comments.submitting') : t('memos.comments.submit')}
             </Button>
           </div>
+          <input
+            ref={newFileInputRef}
+            type="file"
+            multiple
+            tabIndex={-1}
+            aria-hidden="true"
+            className="sr-only"
+            onChange={(event) => {
+              const files = Array.from(event.target.files ?? [])
+              event.target.value = ''
+              void uploadFiles(
+                files,
+                (attachment) => setNewAttachments((current) => [...current, attachment]),
+                setUploadingNew,
+                setNewAttachmentError,
+              )
+            }}
+          />
+          {newAttachmentError ? (
+            <p role="alert" className="mt-1 text-[length:var(--text-11)] text-[var(--danger)]">
+              {newAttachmentError}
+            </p>
+          ) : null}
           {postError ? (
             <p role="alert" className="mt-1 text-[length:var(--text-11)] text-[var(--danger)]">
               {postError}

@@ -48,6 +48,7 @@ import {
 } from '../calendar-model'
 import { MemoComposer } from '../components/MemoComposer'
 import { useRevision } from '../events'
+import { isImageAttachment } from '../media'
 import { parseMemoPath } from '../route'
 import { useMemoResource } from '../use-resource'
 import { navigateMemoUrl, useMemoSearch } from '../url-state'
@@ -276,7 +277,7 @@ export function MemoCalendarPage({ onOpenMemo }: MemoCalendarPageProps): ReactEl
   return (
     <div className="flex h-full min-h-0 flex-col" data-memos-calendar="">
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-[1200px] px-3 py-3 md:px-5 md:py-4">
+        <div className="mx-auto w-full max-w-[var(--memo-page-width)] px-3 py-3 md:px-5 md:py-4">
           <h2 className="text-[length:var(--text-15)] font-semibold text-[var(--text-primary)]">
             {t('memos.nav.calendar')}
           </h2>
@@ -503,6 +504,7 @@ export function MemoCalendarPage({ onOpenMemo }: MemoCalendarPageProps): ReactEl
                     const preview = deriveMemoPreview(memo.content)
                     const href = `${MEMOS_APP_PATH}/m/${encodeURIComponent(memo.id)}`
                     const time = timeFormatter.format(new Date(memo.createdAt * 1000))
+                    const thumbnails = memo.attachments.filter(isImageAttachment).slice(0, 3)
                     return (
                       <li key={memo.id}>
                         <a
@@ -517,8 +519,26 @@ export function MemoCalendarPage({ onOpenMemo }: MemoCalendarPageProps): ReactEl
                           >
                             {time}
                           </time>
-                          <span className="line-clamp-2 min-w-0 flex-1 break-words text-[length:var(--text-12)] leading-snug text-[var(--text-secondary)]">
-                            {preview || t('memos.calendar.memo_no_text')}
+                          <span className="min-w-0 flex-1">
+                            <span className="line-clamp-2 min-w-0 break-words text-[length:var(--text-12)] leading-snug text-[var(--text-secondary)]">
+                              {preview || t('memos.calendar.memo_no_text')}
+                            </span>
+                            {thumbnails.length > 0 ? (
+                              <span className="mt-1 flex items-center gap-1">
+                                {thumbnails.map((file) => (
+                                  <img
+                                    key={file.id}
+                                    src={file.thumbnailUrl ?? file.url}
+                                    alt={file.filename}
+                                    width={32}
+                                    height={32}
+                                    loading="lazy"
+                                    decoding="async"
+                                    className="size-[var(--sp-8)] shrink-0 rounded-[var(--r-xs)] border border-[var(--border-subtle)] object-cover"
+                                  />
+                                ))}
+                              </span>
+                            ) : null}
                           </span>
                         </a>
                       </li>

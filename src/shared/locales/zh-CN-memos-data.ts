@@ -221,4 +221,8 @@ export const ZH_CN_MEMOS_DATA = {
   "memos.inbox.empty_title": "没有通知",
   "memos.inbox.empty_description": "Inkstone 将每个账户的 memo 相互隔离，因此不会在此收到其他账户的评论或提及。你自己 memo 上的回复会显示在对应 memo 下。",
   "memos.inbox.go_to_memos": "前往 memos",
+  "memos.settings.about_website_link": "Memos 官网",
+  "memos.settings.about_docs_link": "Memos 文档",
+  "memos.settings.about_api_link": "Memos API 文档",
+  "memos.settings.about_clipper_link": "网页剪藏",
 } as const

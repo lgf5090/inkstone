@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { EditorView } from '@codemirror/view'
 import type { Memo } from '@shared/memos/types'
 import { initI18n, t } from '../../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../../lib/test-render'
@@ -62,11 +63,12 @@ function memo(overrides: Partial<Memo> = {}): Memo {
 
 let view: RenderedElement | null = null
 
-function setFieldValue(field: HTMLTextAreaElement, value: string): void {
-  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
+function setEditorValue(root: HTMLElement, value: string): void {
+  const dom = root.querySelector<HTMLElement>('.cm-editor')
+  const editor = dom ? EditorView.findFromDOM(dom) : null
+  if (!editor) throw new Error('no memo editor')
   act(() => {
-    setter?.call(field, value)
-    field.dispatchEvent(new Event('input', { bubbles: true }))
+    editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: value } })
   })
 }
 
@@ -262,9 +264,8 @@ describe('the comment section', () => {
     view = renderElement(createElement(MemoComments, { memoId: 'memo-1', initialCount: 1 }))
     await flush()
     expect(view.container.textContent).toContain('first comment')
-    const field = view.container.querySelector('textarea')
-    setFieldValue(field!, 'second comment')
-    pressModEnter(field!)
+    setEditorValue(view.container, 'second comment')
+    pressModEnter(view.container.querySelector('.cm-content')!)
     await flush()
     expect(api.comments.create).toHaveBeenCalledWith('memo-1', { content: 'second comment' })
     expect(view.container.textContent).toContain('second comment')
@@ -282,9 +283,10 @@ describe('the comment section', () => {
     const edit = view.container.querySelector<HTMLButtonElement>(`button[aria-label="${t('memos.comments.edit')}"]`)
     expect(edit).not.toBeNull()
     click(edit!)
-    const field = view.container.querySelector<HTMLTextAreaElement>(`textarea[aria-label="${t('memos.comments.edit_label')}"]`)
-    expect(field?.value).toBe('first comment')
-    setFieldValue(field!, 'updated comment')
+    await flush()
+    const item = view.container.querySelector<HTMLElement>('li')
+    expect(item?.querySelector('.cm-content')?.textContent).toBe('first comment')
+    setEditorValue(item!, 'updated comment')
     const save = [...view.container.querySelectorAll('button')].find((button) => button.textContent?.includes(t('memos.comments.save')))
     click(save!)
     await flush()
@@ -320,7 +322,7 @@ describe('the comment section', () => {
     api.comments.list.mockResolvedValue({ items: [], nextCursor: null })
     view = renderElement(createElement(MemoComments, { memoId: 'memo-1', initialCount: 0, disabled: true }))
     await flush()
-    expect(view.container.querySelector('textarea')).toBeNull()
+    expect(view.container.querySelector('.cm-editor')).toBeNull()
     expect(view.container.textContent).toContain(t('memos.comments.disabled'))
   })
 })

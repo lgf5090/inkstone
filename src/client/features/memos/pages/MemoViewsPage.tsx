@@ -113,7 +113,7 @@ export function MemoViewsPage(): ReactElement {
 
   return (
     <div className="h-full min-h-0 overflow-y-auto" data-memos-views="">
-      <div className="mx-auto w-full max-w-[1100px] px-3 py-3 md:px-5 md:py-4">
+      <div className="mx-auto w-full max-w-[var(--memo-library-width)] px-3 py-3 md:px-5 md:py-4">
         <div className="flex flex-wrap items-start gap-3">
           <div className="min-w-0 flex-1">
             <h2 className="text-[length:var(--text-15)] font-semibold text-[var(--text-primary)]">

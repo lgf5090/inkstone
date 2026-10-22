@@ -7,17 +7,19 @@ import { enhancePreview } from '../../../lib/markdown/enhance'
 import { registerFenceBodies } from '../../../lib/markdown/fence-bodies'
 import { renderMarkdown } from '../../../lib/markdown/renderer'
 import { useUi } from '../../../store/ui'
-import { memoAttachmentUrl } from '../media'
+import { isSameOriginUrl, memoAttachmentUrl } from '../media'
 import { findMentionRanges } from '../mentions'
 import { matchingMemoTagRule } from '../tag-rules'
 import { findMemoTasks, toggleMemoTask } from '../task-toggle'
 
 const NO_TAG_RULES: readonly MemoTagRule[] = []
+const HIGHLIGHT_SKIP = 'code, pre, a, script, style, mark'
 
 export interface MemoBodyProps {
   content: string
   shareToken?: string
   tagRules?: readonly MemoTagRule[]
+  highlight?: readonly string[]
   onTagPress?: (tag: string) => void
   onToggleTask?: (nextContent: string) => void
   className?: string
@@ -63,7 +65,7 @@ function paintTagRules(root: DocumentFragment, tagRules: readonly MemoTagRule[])
     const dot = document.createElement('span')
     dot.dataset.memoTagDot = ''
     dot.setAttribute('aria-hidden', 'true')
-    dot.className = 'mr-1 inline-block size-[6px] rounded-[var(--r-full)] align-middle'
+    dot.className = 'mr-1 inline-block size-[var(--memo-tag-dot)] rounded-[var(--r-full)] align-middle'
     dot.style.backgroundColor = rule.backgroundColor
     tag.prepend(dot)
   }
@@ -72,23 +74,80 @@ function paintTagRules(root: DocumentFragment, tagRules: readonly MemoTagRule[])
 function shareAttachmentUrls(root: DocumentFragment, shareToken: string): void {
   for (const anchor of root.querySelectorAll<HTMLAnchorElement>('a[href*="/api/memos/files/"]')) {
     const href = anchor.getAttribute('href')
-    if (href) anchor.setAttribute('href', memoAttachmentUrl(href, shareToken))
+    if (href && isSameOriginUrl(href)) anchor.setAttribute('href', memoAttachmentUrl(href, shareToken))
   }
   for (const image of root.querySelectorAll<HTMLImageElement>('img[src*="/api/memos/files/"]')) {
     const src = image.getAttribute('src')
-    if (src) image.setAttribute('src', memoAttachmentUrl(src, shareToken))
+    if (src && isSameOriginUrl(src)) image.setAttribute('src', memoAttachmentUrl(src, shareToken))
+  }
+}
+
+/** A tag is only a control when the surface gives it a handler; elsewhere it is plain marked-up text. */
+function stripTagInteraction(root: DocumentFragment): void {
+  for (const tag of root.querySelectorAll<HTMLElement>('[data-tag]')) {
+    tag.removeAttribute('role')
+    tag.removeAttribute('tabindex')
+    tag.removeAttribute('draggable')
+  }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function paintHighlights(root: DocumentFragment, terms: readonly string[]): void {
+  const words = [...new Set(terms.map((term) => term.trim()).filter(Boolean))]
+  if (words.length === 0) return
+  const pattern = new RegExp(words.map(escapeRegExp).join('|'), 'gi')
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  const nodes: Text[] = []
+  let node = walker.nextNode()
+  while (node) {
+    if (node instanceof Text) nodes.push(node)
+    node = walker.nextNode()
+  }
+  for (const textNode of nodes) {
+    const text = textNode.data
+    if (!text) continue
+    const parent = textNode.parentElement
+    if (!parent || parent.closest(HIGHLIGHT_SKIP)) continue
+    pattern.lastIndex = 0
+    if (!pattern.test(text)) continue
+    pattern.lastIndex = 0
+    const fragment = document.createDocumentFragment()
+    let cursor = 0
+    let match = pattern.exec(text)
+    while (match) {
+      if (match.index > cursor) fragment.append(document.createTextNode(text.slice(cursor, match.index)))
+      const mark = document.createElement('mark')
+      mark.dataset.memoHit = ''
+      mark.textContent = match[0]
+      fragment.append(mark)
+      cursor = match.index + match[0].length
+      match = pattern.exec(text)
+    }
+    if (cursor < text.length) fragment.append(document.createTextNode(text.slice(cursor)))
+    textNode.replaceWith(fragment)
   }
 }
 
 function memoMarkup(
   content: string,
   interactiveTasks: boolean,
+  interactiveTags: boolean,
   tagRules: readonly MemoTagRule[],
   shareToken: string | undefined,
+  highlight: readonly string[] | undefined,
 ) {
   const rendered = renderMarkdown(content, { hideFrontMatter: true })
-  const hasTags = tagRules.length > 0 && rendered.html.includes('data-tag=')
-  if (!shareToken && !rendered.html.includes('task-list-item-checkbox') && !rendered.html.includes('@') && !hasTags) {
+  const hasTags = rendered.html.includes('data-tag=')
+  const words = highlight ?? []
+  const needsFrame = Boolean(shareToken)
+    || rendered.html.includes('task-list-item-checkbox')
+    || rendered.html.includes('@')
+    || hasTags
+    || words.length > 0
+  if (!needsFrame) {
     return { html: rendered.html, fences: rendered.fences }
   }
   const frame = document.createElement('template')
@@ -99,8 +158,10 @@ function memoMarkup(
     }
   }
   linkMentions(frame.content)
-  if (hasTags) paintTagRules(frame.content, tagRules)
+  if (hasTags && tagRules.length > 0) paintTagRules(frame.content, tagRules)
+  if (hasTags && !interactiveTags) stripTagInteraction(frame.content)
   if (shareToken) shareAttachmentUrls(frame.content, shareToken)
+  if (words.length > 0) paintHighlights(frame.content, words)
   return { html: frame.innerHTML, fences: rendered.fences }
 }
 
@@ -108,14 +169,18 @@ export function MemoBody({
   content,
   shareToken,
   tagRules = NO_TAG_RULES,
+  highlight,
   onTagPress,
   onToggleTask,
   className,
 }: MemoBodyProps): ReactElement | null {
   const interactiveTasks = onToggleTask !== undefined
+  const interactiveTags = onTagPress !== undefined
   const markup = useMemo(
-    () => (content.trim() ? memoMarkup(content, interactiveTasks, tagRules, shareToken) : null),
-    [content, interactiveTasks, tagRules, shareToken],
+    () => (content.trim()
+      ? memoMarkup(content, interactiveTasks, interactiveTags, tagRules, shareToken, highlight)
+      : null),
+    [content, interactiveTasks, interactiveTags, tagRules, shareToken, highlight],
   )
   const hostRef = useRef<HTMLDivElement>(null)
   const theme = useUi((state) => state.theme)
@@ -138,6 +203,8 @@ export function MemoBody({
       dataview: 'source',
       dark,
       codeBlockCollapseLines: 0,
+    }).catch((error: unknown) => {
+      console.warn('[inkstone] Memo body enhancement failed', error)
     })
   }, [markup, dark])
 

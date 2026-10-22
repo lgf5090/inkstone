@@ -66,7 +66,7 @@ export function MemoSettingsPage(): ReactElement {
 
   return (
     <div className="h-full min-h-0 overflow-y-auto" data-memos-settings="">
-      <div className="mx-auto w-full max-w-[980px] px-3 py-3 md:px-5 md:py-4">
+      <div className="mx-auto w-full max-w-[var(--memo-settings-width)] px-3 py-3 md:px-5 md:py-4">
         <header>
           <h2 className="text-[length:var(--text-16)] font-semibold text-[var(--text-primary)]">
             {t('memos.nav.settings')}

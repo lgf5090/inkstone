@@ -60,3 +60,17 @@ export function toggleMemoTask(content: string, index: number): string | null {
   const replacement = marker.checked ? ' ' : 'x'
   return `${content.slice(0, marker.offset)}${replacement}${content.slice(marker.offset + 1)}`
 }
+
+/** Rewrites every task marker in place, leaving indentation, quote depth and list bullets untouched. */
+export function setAllMemoTasks(content: string, checked: boolean): string | null {
+  const markers = findMemoTasks(content)
+  if (markers.length === 0) return null
+  const replacement = checked ? 'x' : ' '
+  let next = ''
+  let cursor = 0
+  for (const marker of markers) {
+    next += content.slice(cursor, marker.offset) + replacement
+    cursor = marker.offset + 1
+  }
+  return next + content.slice(cursor)
+}

@@ -103,6 +103,11 @@ function buttonByText(host: ParentNode, text: string): HTMLButtonElement {
   return found
 }
 
+function stubNativeShare(canShare: (data?: ShareData) => boolean, share: (data?: ShareData) => Promise<void>): void {
+  Object.defineProperty(navigator, 'canShare', { configurable: true, value: canShare })
+  Object.defineProperty(navigator, 'share', { configurable: true, value: share })
+}
+
 beforeEach(async () => {
   installTestGlobals()
   await initI18n()
@@ -116,6 +121,8 @@ afterEach(() => {
   view = null
   document.body.innerHTML = ''
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined })
+  Reflect.deleteProperty(navigator, 'canShare')
+  Reflect.deleteProperty(navigator, 'share')
   vi.unstubAllGlobals()
 })
 
@@ -224,6 +231,45 @@ describe('the share dialog', () => {
     expect(element.dataset.memoShareImage).toBe('')
     expect(geometry).toEqual({ width: 420, height: 240 })
     expect(css).toBe('body { color: red }')
+    expect(image.saveImage).toHaveBeenCalledWith(expect.any(Blob), 'memo-memo-1.png')
+    expect(useUi.getState().toasts.some((toast) => toast.title === t('memos.share.image_saved'))).toBe(true)
+  })
+
+  it('opens the system share sheet instead of downloading when the image can be shared', async () => {
+    const share = vi.fn().mockResolvedValue(undefined)
+    stubNativeShare(() => true, share)
+    render(true, memo())
+    click(buttonByText(document.body, t('memos.share.image_action')))
+    await flush()
+
+    expect(share).toHaveBeenCalledTimes(1)
+    const data = share.mock.calls[0]![0] as ShareData
+    expect(data.title).toBe(t('common.product_name'))
+    expect(data.files).toHaveLength(1)
+    expect(data.files?.[0]?.name).toBe('memo-memo-1.png')
+    expect(data.files?.[0]?.type).toBe('image/png')
+    expect(image.saveImage).not.toHaveBeenCalled()
+    expect(useUi.getState().toasts.some((toast) => toast.title === t('memos.share.image_saved'))).toBe(false)
+  })
+
+  it('treats a cancelled system share as done rather than an error', async () => {
+    const cancelled = Object.assign(new Error('cancelled'), { name: 'AbortError' })
+    stubNativeShare(() => true, vi.fn().mockRejectedValue(cancelled))
+    render(true, memo())
+    click(buttonByText(document.body, t('memos.share.image_action')))
+    await flush()
+
+    expect(image.saveImage).not.toHaveBeenCalled()
+    expect(useUi.getState().toasts.some((toast) => toast.title === t('memos.share.image_failed'))).toBe(false)
+    expect(useUi.getState().toasts.some((toast) => toast.title === t('memos.share.image_saved'))).toBe(false)
+  })
+
+  it('downloads the image when the browser cannot share files', async () => {
+    stubNativeShare(() => false, vi.fn().mockResolvedValue(undefined))
+    render(true, memo())
+    click(buttonByText(document.body, t('memos.share.image_action')))
+    await flush()
+
     expect(image.saveImage).toHaveBeenCalledWith(expect.any(Blob), 'memo-memo-1.png')
     expect(useUi.getState().toasts.some((toast) => toast.title === t('memos.share.image_saved'))).toBe(true)
   })

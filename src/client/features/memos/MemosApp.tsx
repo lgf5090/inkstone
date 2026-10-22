@@ -120,7 +120,7 @@ export function MemosApp(): ReactElement {
     state: feedState,
     spaceId: routeSpaceId ?? urlState.spaceId,
     tag: urlState.tag,
-    filter: memoFilterExpression(urlState.q, urlState.filter),
+    filter: memoFilterExpression(urlState.q, urlState.filter, urlState.quick),
     orderBy: display.timeBasis,
     order: display.order,
   }
@@ -150,6 +150,7 @@ export function MemosApp(): ReactElement {
       q: urlState.q,
       tag: urlState.tag,
       filter: urlState.filter,
+      quick: urlState.quick,
       spaceId: urlState.spaceId,
       orderBy: next.timeBasis,
       order: next.order,
@@ -164,6 +165,7 @@ export function MemosApp(): ReactElement {
       q: next.q,
       tag: next.tag,
       filter: next.filter,
+      quick: next.quick,
       spaceId: next.spaceId,
       orderBy: display.timeBasis,
       order: display.order,
@@ -231,7 +233,13 @@ export function MemosApp(): ReactElement {
       onSearch={(q) => updateSearch({ q })}
       onRemoveTag={() => updateSearch({ tag: null })}
       onRemoveFilter={() => updateSearch({ filter: '' })}
-      onClearFilters={() => updateSearch({ q: '', tag: null, filter: '' })}
+      onToggleQuick={(quick) => updateSearch({
+        quick: urlState.quick.includes(quick)
+          ? urlState.quick.filter((entry) => entry !== quick)
+          : [...urlState.quick, quick],
+      })}
+      onRemoveQuick={(quick) => updateSearch({ quick: urlState.quick.filter((entry) => entry !== quick) })}
+      onClearFilters={() => updateSearch({ q: '', tag: null, filter: '', quick: [] })}
       onSortChange={(orderBy, order) => applyDisplay({ ...display, timeBasis: orderBy, order }, true)}
       onDisplayChange={(patch) => applyDisplay({ ...display, ...patch }, false)}
     />
@@ -320,7 +328,7 @@ export function MemosApp(): ReactElement {
       </header>
       <div className="relative flex min-h-0 flex-1">
         {desktop ? (
-          <aside className="w-[248px] shrink-0 border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)]">
+          <aside className="w-[var(--memo-sidebar-width)] shrink-0 border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)]">
             {sidebar}
           </aside>
         ) : null}
@@ -329,7 +337,7 @@ export function MemosApp(): ReactElement {
         </main>
         {desktop && route.kind === 'memo' ? (
           <aside
-            className="w-[400px] shrink-0 border-l border-[var(--border-subtle)] bg-[var(--bg-surface)]"
+            className="w-[var(--memo-detail-width)] shrink-0 border-l border-[var(--border-subtle)] bg-[var(--bg-surface)]"
             aria-label={t('memos.detail.title')}
             data-memos-detail-panel=""
           >

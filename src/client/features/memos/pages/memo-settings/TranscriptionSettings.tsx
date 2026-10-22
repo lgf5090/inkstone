@@ -189,7 +189,7 @@ export function TranscriptionSettings({ preferences, saving, save }: MemoSetting
           maxLength={PROMPT_MAX_LENGTH}
           placeholder={t('memos.settings.transcription_prompt_placeholder')}
           disabled={saving}
-          className="w-full md:w-[320px]"
+          className="w-full md:w-[var(--memo-setting-control-width)]"
           onChange={(event) => setPrompt(event.target.value)}
           onBlur={commitPrompt}
         />

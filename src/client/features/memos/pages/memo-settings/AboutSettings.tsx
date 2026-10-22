@@ -6,6 +6,11 @@ import { MEMO_SETTINGS_SECTION_IDS } from './sections'
 import { SettingsCard } from './SettingsCard'
 
 const MEMOS_PROJECT_URL = 'https://github.com/usememos/memos'
+const MEMOS_WEBSITE_URL = 'https://usememos.com/'
+const MEMOS_DOCS_URL = 'https://usememos.com/docs'
+const MEMOS_API_DOCS_URL = 'https://usememos.com/docs/api'
+const MEMOS_CLIPPER_URL = 'https://github.com/usememos/web-clipper'
+const ABOUT_LINK_CLASS = 'inline-flex min-h-10 items-center rounded-[var(--r-sm)] border border-[var(--border-subtle)] px-2.5 text-[length:var(--text-11-5)] font-medium text-[var(--text-secondary)] transition-colors hover:border-[var(--border-default)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] md:min-h-0 md:h-7'
 
 export function AboutSettings() {
   const siteVersion = useSession((state) => state.site?.version)
@@ -37,20 +42,22 @@ export function AboutSettings() {
         {t('memos.settings.about_license')}
       </p>
       <div className="mt-3 flex flex-wrap gap-2">
-        <a
-          href={MEMOS_PROJECT_URL}
-          target="_blank"
-          rel="noreferrer noopener"
-          className="inline-flex min-h-10 items-center rounded-[var(--r-sm)] border border-[var(--border-subtle)] px-2.5 text-[length:var(--text-11-5)] font-medium text-[var(--text-secondary)] transition-colors hover:border-[var(--border-default)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] md:min-h-0 md:h-7"
-        >
+        <a href={MEMOS_WEBSITE_URL} target="_blank" rel="noreferrer noopener" className={ABOUT_LINK_CLASS}>
+          {t('memos.settings.about_website_link')}
+        </a>
+        <a href={MEMOS_DOCS_URL} target="_blank" rel="noreferrer noopener" className={ABOUT_LINK_CLASS}>
+          {t('memos.settings.about_docs_link')}
+        </a>
+        <a href={MEMOS_API_DOCS_URL} target="_blank" rel="noreferrer noopener" className={ABOUT_LINK_CLASS}>
+          {t('memos.settings.about_api_link')}
+        </a>
+        <a href={MEMOS_CLIPPER_URL} target="_blank" rel="noreferrer noopener" className={ABOUT_LINK_CLASS}>
+          {t('memos.settings.about_clipper_link')}
+        </a>
+        <a href={MEMOS_PROJECT_URL} target="_blank" rel="noreferrer noopener" className={ABOUT_LINK_CLASS}>
           {t('memos.settings.about_memos_link')}
         </a>
-        <a
-          href={GITHUB_REPOSITORY_URL}
-          target="_blank"
-          rel="noreferrer noopener"
-          className="inline-flex min-h-10 items-center rounded-[var(--r-sm)] border border-[var(--border-subtle)] px-2.5 text-[length:var(--text-11-5)] font-medium text-[var(--text-secondary)] transition-colors hover:border-[var(--border-default)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] md:min-h-0 md:h-7"
-        >
+        <a href={GITHUB_REPOSITORY_URL} target="_blank" rel="noreferrer noopener" className={ABOUT_LINK_CLASS}>
           {t('memos.settings.about_inkstone_link')}
         </a>
       </div>

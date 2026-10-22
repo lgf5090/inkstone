@@ -131,7 +131,7 @@ export function AccessTokensSettings() {
       <form onSubmit={(event) => void create(event)} className="flex flex-wrap items-end gap-2">
         <Field
           label={t('memos.settings.tokens_description_label')}
-          className="min-w-[180px] flex-1"
+          className="min-w-[var(--memo-token-field-min-width)] flex-1"
         >
           <Input
             value={description}
@@ -145,7 +145,7 @@ export function AccessTokensSettings() {
             }}
           />
         </Field>
-        <Field label={t('memos.settings.tokens_expiry_label')} className="w-[150px]">
+        <Field label={t('memos.settings.tokens_expiry_label')} className="w-[var(--memo-field-narrow-width)]">
           <Select
             value={expiry}
             disabled={creating}

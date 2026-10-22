@@ -307,7 +307,7 @@ export function MemosPublicApp({ route }: { route: MemoPublicView }): ReactEleme
         </span>
       </header>
       <main className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-[760px] px-4 py-4 md:px-5 md:py-5">
+        <div className="mx-auto w-full max-w-[var(--memo-reading-width)] px-4 py-4 md:px-5 md:py-5">
           {publicContent(route)}
         </div>
       </main>

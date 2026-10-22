@@ -8,7 +8,7 @@ import { t } from '../../../lib/i18n'
 import { suggestMemoTags } from '../tag-suggestions'
 import { useMemos } from '../state'
 import { useMemoPreferences } from '../use-memo-preferences'
-import type { MemoUrlState } from '../url-state'
+import type { MemoQuickFilter, MemoUrlState } from '../url-state'
 import { MemoCard } from '../components/MemoCard'
 import { MemoComposer } from '../components/MemoComposer'
 import { MemoFilters } from '../components/MemoFilters'
@@ -33,6 +33,8 @@ export interface MemoFeedPageProps {
   onSearch: (value: string) => void
   onRemoveTag: () => void
   onRemoveFilter: () => void
+  onToggleQuick: (quick: MemoQuickFilter) => void
+  onRemoveQuick: (quick: MemoQuickFilter) => void
   onClearFilters: () => void
   onSortChange: (orderBy: MemoOrderField, order: MemoOrderDirection) => void
   onDisplayChange: (patch: Partial<Pick<MemoDisplayPreferences, 'columns' | 'compact' | 'linkPreview'>>) => void
@@ -51,6 +53,8 @@ export function MemoFeedPage({
   onSearch,
   onRemoveTag,
   onRemoveFilter,
+  onToggleQuick,
+  onRemoveQuick,
   onClearFilters,
   onSortChange,
   onDisplayChange,
@@ -63,9 +67,16 @@ export function MemoFeedPage({
   const sentinelRef = useRef<HTMLDivElement>(null)
   const preferences = useMemoPreferences()
   const suggestedTags = useMemo(() => suggestMemoTags(items, urlState.tag), [items, urlState.tag])
+  const highlightWords = useMemo(() => {
+    const words = urlState.q.trim().split(/\s+/).filter(Boolean)
+    return words.length > 0 ? words : undefined
+  }, [urlState.q])
   const initialLoading = (status === 'idle' || status === 'loading') && items.length === 0
   const failedWithoutItems = status === 'error' && items.length === 0
-  const filtered = urlState.q.trim() !== '' || urlState.tag !== null || urlState.filter.trim() !== ''
+  const filtered = urlState.q.trim() !== ''
+    || urlState.tag !== null
+    || urlState.filter.trim() !== ''
+    || urlState.quick.length > 0
   const title = kind === 'archived'
     ? t('memos.nav.archived')
     : spaceId
@@ -92,7 +103,7 @@ export function MemoFeedPage({
   return (
     <div className="flex h-full min-h-0 flex-col" data-memos-feed={kind}>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-[1200px] px-3 py-3 md:px-5 md:py-4">
+        <div className="mx-auto w-full max-w-[var(--memo-page-width)] px-3 py-3 md:px-5 md:py-4">
           <div className="flex flex-wrap items-baseline gap-2">
             <h2 className="min-w-0 truncate text-[length:var(--text-15)] font-semibold text-[var(--text-primary)]">{title}</h2>
             {!initialLoading ? (
@@ -119,6 +130,8 @@ export function MemoFeedPage({
               onSearch={onSearch}
               onRemoveTag={onRemoveTag}
               onRemoveFilter={onRemoveFilter}
+              onToggleQuick={onToggleQuick}
+              onRemoveQuick={onRemoveQuick}
               onClear={onClearFilters}
               onSortChange={onSortChange}
               onDisplayChange={onDisplayChange}
@@ -217,6 +230,7 @@ export function MemoFeedPage({
                     && preferences.preferences.enableLinkPreview
                   }
                   doubleClickEdit={preferences.preferences.enableDoubleClickEdit}
+                  highlight={highlightWords}
                   onOpen={onOpen}
                   onStartEdit={() => setEditingId(memo.id)}
                   onEndEdit={() => setEditingId(null)}

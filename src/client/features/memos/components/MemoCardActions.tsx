@@ -1,5 +1,17 @@
 import { useRef, useState, type ReactElement } from 'react'
-import { Archive, Copy, Link2, MoreHorizontal, Pencil, Pin, RotateCcw, Share2, Trash2 } from 'lucide-react'
+import {
+  Archive,
+  Copy,
+  Link2,
+  ListChecks,
+  ListX,
+  MoreHorizontal,
+  Pencil,
+  Pin,
+  RotateCcw,
+  Share2,
+  Trash2,
+} from 'lucide-react'
 import { MEMOS_APP_PATH } from '@shared/memos/constants'
 import type { Memo } from '@shared/memos/types'
 import { IconButton } from '../../../components/primitives'
@@ -8,6 +20,7 @@ import { copyText } from '../../../lib/clipboard'
 import { t } from '../../../lib/i18n'
 import { useUi } from '../../../store/ui'
 import { useMemos } from '../state'
+import { setAllMemoTasks } from '../task-toggle'
 import { MemoShareDialog } from './MemoShareDialog'
 
 export interface MemoCardActionsProps {
@@ -34,6 +47,23 @@ export function MemoCardActions({ memo, onEdit, onDeleted }: MemoCardActionsProp
   const togglePin = async (): Promise<void> => {
     const saved = await useMemos.getState().patch(memo.id, { rev: memo.rev, pinned: !memo.pinned })
     if (!saved) failed()
+  }
+
+  const setAllTasks = async (checked: boolean): Promise<void> => {
+    const content = setAllMemoTasks(memo.content, checked)
+    if (!content) {
+      failed()
+      return
+    }
+    const saved = await useMemos.getState().patch(memo.id, { rev: memo.rev, content })
+    if (saved) {
+      notify(
+        t(checked ? 'memos.card.tasks_checked' : 'memos.card.tasks_unchecked'),
+        'success',
+      )
+    } else {
+      failed()
+    }
   }
 
   const archive = async (): Promise<void> => {
@@ -82,6 +112,21 @@ export function MemoCardActions({ memo, onEdit, onDeleted }: MemoCardActionsProp
       icon: <Pin size={13} />,
       onSelect: () => void togglePin(),
     })
+    if (memo.properties.hasTaskList) {
+      items.push({
+        id: 'check-all-tasks',
+        label: t('memos.card.check_all_tasks'),
+        icon: <ListChecks size={13} />,
+        separatorBefore: true,
+        onSelect: () => void setAllTasks(true),
+      })
+      items.push({
+        id: 'uncheck-all-tasks',
+        label: t('memos.card.uncheck_all_tasks'),
+        icon: <ListX size={13} />,
+        onSelect: () => void setAllTasks(false),
+      })
+    }
     items.push({
       id: 'archive',
       label: t('memos.card.archive'),

@@ -9,6 +9,7 @@ describe('memo URL state', () => {
       q: '',
       tag: null,
       filter: '',
+      quick: [],
       spaceId: null,
       orderBy: null,
       order: null,
@@ -31,6 +32,12 @@ describe('memo URL state', () => {
     expect(state.linkPreview).toBe(false)
   })
 
+  it('reads quick filters in order and drops unknown or repeated values', () => {
+    expect(readMemoUrlState('?quick=pinned,has_link,pinned,sparkly,recent_7d').quick)
+      .toEqual(['pinned', 'has_link', 'recent_7d'])
+    expect(readMemoUrlState('?quick=').quick).toEqual([])
+  })
+
   it('ignores values it does not understand instead of guessing', () => {
     const state = readMemoUrlState('?sort=sideways-asc&display=9,sparkly')
     expect(state.orderBy).toBeNull()
@@ -49,6 +56,7 @@ describe('memo URL state', () => {
       q: 'hello',
       tag: 'work',
       filter: 'pinned',
+      quick: ['has_link', 'recent_30d'],
       spaceId: 's1',
       orderBy: 'updated',
       order: 'asc',
@@ -58,6 +66,7 @@ describe('memo URL state', () => {
       q: 'hello',
       tag: 'work',
       filter: 'pinned',
+      quick: ['has_link', 'recent_30d'],
       spaceId: 's1',
       orderBy: 'updated',
       order: 'asc',
@@ -67,10 +76,22 @@ describe('memo URL state', () => {
     })
   })
 
-  it('turns free text into a CEL contains clause and keeps an explicit filter', () => {
+  it('turns free text into one contains clause per word and keeps an explicit filter', () => {
     expect(memoFilterExpression('', '')).toBe('')
-    expect(memoFilterExpression('hello "there"', '')).toBe('content.contains("hello \\"there\\"")')
+    expect(memoFilterExpression('hello "there"', ''))
+      .toBe('content.contains("hello") && content.contains("\\"there\\"")')
     expect(memoFilterExpression('', 'pinned && has_link')).toBe('(pinned && has_link)')
     expect(memoFilterExpression('todo', 'has_task_list')).toBe('content.contains("todo") && (has_task_list)')
+  })
+
+  it('joins quick filters into the same CEL expression', () => {
+    expect(memoFilterExpression('', '', ['pinned', 'has_incomplete_tasks']))
+      .toBe('pinned && has_incomplete_tasks')
+    expect(memoFilterExpression('ship', '', ['visibility_public', 'recent_7d']))
+      .toBe('content.contains("ship") && visibility == "PUBLIC" && created_ts >= now - duration("7d")')
+    expect(memoFilterExpression('', 'content.contains("x")', ['has_code']))
+      .toBe('has_code && (content.contains("x"))')
+    expect(memoFilterExpression('', '', ['visibility_public', 'visibility_private']))
+      .toBe('(visibility == "PUBLIC" || visibility == "PRIVATE")')
   })
 })

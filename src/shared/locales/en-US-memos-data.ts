@@ -221,4 +221,8 @@ export const EN_US_MEMOS_DATA = {
   "memos.inbox.empty_title": "No notifications",
   "memos.inbox.empty_description": "Inkstone keeps each account's memos separate, so comments and mentions from other accounts are not delivered here. Replies on your own memos appear under each memo.",
   "memos.inbox.go_to_memos": "Go to memos",
+  "memos.settings.about_website_link": "Memos website",
+  "memos.settings.about_docs_link": "Memos docs",
+  "memos.settings.about_api_link": "Memos API docs",
+  "memos.settings.about_clipper_link": "Web Clipper",
 } as const

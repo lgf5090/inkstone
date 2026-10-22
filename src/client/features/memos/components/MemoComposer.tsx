@@ -66,6 +66,7 @@ export interface MemoComposerProps {
   memo?: Memo
   spaceId?: string | null
   initialCreatedAt?: number
+  initialLocation?: MemoLocation | null
   onSaved?: (memo: Memo) => void
   onCancel?: () => void
 }
@@ -79,6 +80,7 @@ export function MemoComposer({
   memo,
   spaceId = null,
   initialCreatedAt,
+  initialLocation = null,
   onSaved,
   onCancel,
 }: MemoComposerProps): ReactElement {
@@ -92,6 +94,7 @@ export function MemoComposer({
       ? Math.floor(initialCreatedAt)
       : Math.floor(Date.now() / 1000)),
   ).current
+  const startingUpdatedAt = useRef(memo?.updatedAt ?? startingCreatedAt).current
   const revRef = useRef(memo?.rev ?? 0)
   const spaces = useMemoSpaces()
   const { preferences } = useMemoPreferences()
@@ -111,11 +114,13 @@ export function MemoComposer({
     memo?.spaceId ?? spaceId ?? restored?.spaceId ?? null,
   )
   const [location, setLocation] = useState<MemoLocation | null>(
-    memo?.location ?? restored?.location ?? null,
+    initialLocation ?? memo?.location ?? restored?.location ?? null,
   )
   const [locationOpen, setLocationOpen] = useState(false)
   const [attachmentIds, setAttachmentIds] = useState<string[]>(restored?.attachmentIds ?? [])
   const [createdAt, setCreatedAt] = useState(startingCreatedAt)
+  const [updatedAt, setUpdatedAt] = useState(startingUpdatedAt)
+  const [updatedAtEdited, setUpdatedAtEdited] = useState(false)
   const [saving, setSaving] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [focusMode, setFocusMode] = useState(false)
@@ -184,18 +189,40 @@ export function MemoComposer({
           ? t('memos.composer.empty')
           : null
 
-  const dateValue = memoDateValue(createdAt)
-  const timeValue = memoTimeValue(createdAt)
+  const createdDateValue = memoDateValue(createdAt)
+  const createdTimeValue = memoTimeValue(createdAt)
+  const updatedDateValue = memoDateValue(updatedAt)
+  const updatedTimeValue = memoTimeValue(updatedAt)
 
-  const setDate = (value: string): void => {
-    if (!value) return
-    const next = memoLocalTimestamp(value, timeValue)
-    if (next !== null) setCreatedAt(next)
+  const applyCreatedAt = (next: number): void => {
+    if (!editing && !updatedAtEdited && updatedAt === createdAt) setUpdatedAt(next)
+    setCreatedAt(next)
   }
 
-  const setTime = (value: string): void => {
-    const next = memoLocalTimestamp(dateValue, value)
-    if (next !== null) setCreatedAt(next)
+  const setCreatedDate = (value: string): void => {
+    if (!value) return
+    const next = memoLocalTimestamp(value, createdTimeValue)
+    if (next !== null) applyCreatedAt(next)
+  }
+
+  const setCreatedTime = (value: string): void => {
+    const next = memoLocalTimestamp(createdDateValue, value)
+    if (next !== null) applyCreatedAt(next)
+  }
+
+  const setUpdatedDate = (value: string): void => {
+    if (!value) return
+    const next = memoLocalTimestamp(value, updatedTimeValue)
+    if (next === null) return
+    setUpdatedAtEdited(true)
+    setUpdatedAt(next)
+  }
+
+  const setUpdatedTime = (value: string): void => {
+    const next = memoLocalTimestamp(updatedDateValue, value)
+    if (next === null) return
+    setUpdatedAtEdited(true)
+    setUpdatedAt(next)
   }
 
   const appendSnippet = (snippet: string): void => {
@@ -353,6 +380,7 @@ export function MemoComposer({
       if (visibility !== memo.visibility) input.visibility = visibility
       if (space !== memo.spaceId) input.spaceId = space
       if (createdAt !== memo.createdAt) input.createdAt = createdAt
+      if (updatedAt !== memo.updatedAt) input.updatedAt = updatedAt
       if (!sameLocation(location, memo.location)) input.location = location
       saved = await state.patch(memo.id, input)
     } else {
@@ -362,6 +390,7 @@ export function MemoComposer({
         spaceId: space,
         location,
         createdAt,
+        updatedAt,
       }
       if (attachmentIdsRef.current.length > 0) input.attachmentIds = attachmentIdsRef.current
       saved = await state.create(input)
@@ -390,7 +419,10 @@ export function MemoComposer({
       setText('')
       attachmentIdsRef.current = []
       setAttachmentIds([])
-      setCreatedAt(Math.floor(Date.now() / 1000))
+      const now = Math.floor(Date.now() / 1000)
+      setCreatedAt(now)
+      setUpdatedAt(now)
+      setUpdatedAtEdited(false)
       setLocation(null)
       setAttempted(false)
       setShowPreview(false)
@@ -409,6 +441,8 @@ export function MemoComposer({
     setVisibility(conflictHere.memo.visibility)
     setSpace(conflictHere.memo.spaceId)
     setCreatedAt(conflictHere.memo.createdAt)
+    setUpdatedAt(conflictHere.memo.updatedAt)
+    setUpdatedAtEdited(false)
     setLocation(conflictHere.memo.location)
     revRef.current = conflictHere.memo.rev
     clearConflict()
@@ -562,21 +596,44 @@ export function MemoComposer({
           </IconButton>
         </span>
         {timeOpen ? (
-          <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-            <DatePicker
-              label={t('memos.composer.timestamp')}
-              value={dateValue}
-              onChange={setDate}
-              className="w-36"
-            />
-            <span className="block w-24">
-              <TimeField
-                label={t('memos.composer.timestamp')}
-                value={timeValue}
-                onChange={setTime}
+          <div className="flex min-w-0 flex-col gap-1">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span className="w-20 shrink-0 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+                {t('memos.composer.created_at')}
+              </span>
+              <DatePicker
+                label={t('memos.composer.created_at')}
+                value={createdDateValue}
+                onChange={setCreatedDate}
+                className="w-36"
               />
-            </span>
-          </span>
+              <span className="block w-24">
+                <TimeField
+                  label={t('memos.composer.created_at')}
+                  value={createdTimeValue}
+                  onChange={setCreatedTime}
+                />
+              </span>
+            </div>
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span className="w-20 shrink-0 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+                {t('memos.composer.updated_at')}
+              </span>
+              <DatePicker
+                label={t('memos.composer.updated_at')}
+                value={updatedDateValue}
+                onChange={setUpdatedDate}
+                className="w-36"
+              />
+              <span className="block w-24">
+                <TimeField
+                  label={t('memos.composer.updated_at')}
+                  value={updatedTimeValue}
+                  onChange={setUpdatedTime}
+                />
+              </span>
+            </div>
+          </div>
         ) : null}
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
           <IconButton

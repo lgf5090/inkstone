@@ -1,5 +1,5 @@
 import { useRef, useState, type ReactElement } from 'react'
-import { ArrowUpDown, LayoutGrid, Search, X } from 'lucide-react'
+import { ArrowUpDown, Filter, LayoutGrid, Search, TextSearch, X } from 'lucide-react'
 import type { MemoDisplayPreferences, MemoOrderDirection, MemoOrderField } from '@shared/memos/types'
 import { Button, IconButton } from '../../../components/primitives'
 import { Input } from '../../../components/form'
@@ -8,7 +8,8 @@ import { useFilterInput } from '../../../components/FilterInput'
 import { Menu, Tooltip, type MenuItem } from '../../../components/overlay'
 import { useDebouncedDraft } from '../../../lib/hooks'
 import { t, type MessageKey } from '../../../lib/i18n'
-import type { MemoUrlState } from '../url-state'
+import type { MemoQuickFilter, MemoUrlState } from '../url-state'
+import { MemoQuickFind } from './MemoQuickFind'
 
 interface SortOption {
   id: string
@@ -31,12 +32,36 @@ const COLUMN_OPTIONS: readonly (readonly [MemoDisplayPreferences['columns'], Mes
   ['auto', 'memos.feed.columns_auto'],
 ]
 
+interface QuickOption {
+  id: MemoQuickFilter
+  labelKey: MessageKey
+  separatorBefore?: boolean
+}
+
+const QUICK_OPTIONS: readonly QuickOption[] = [
+  { id: 'pinned', labelKey: 'memos.feed.quick_pinned' },
+  { id: 'has_link', labelKey: 'memos.feed.quick_has_link' },
+  { id: 'has_code', labelKey: 'memos.feed.quick_has_code' },
+  { id: 'has_task_list', labelKey: 'memos.feed.quick_has_task_list' },
+  { id: 'has_incomplete_tasks', labelKey: 'memos.feed.quick_has_incomplete_tasks' },
+  { id: 'has_location', labelKey: 'memos.feed.quick_has_location' },
+  { id: 'visibility_public', labelKey: 'memos.visibility.public', separatorBefore: true },
+  { id: 'visibility_protected', labelKey: 'memos.visibility.protected' },
+  { id: 'visibility_private', labelKey: 'memos.visibility.private' },
+  { id: 'recent_7d', labelKey: 'memos.feed.quick_recent_7d', separatorBefore: true },
+  { id: 'recent_30d', labelKey: 'memos.feed.quick_recent_30d' },
+]
+
+const QUICK_BY_ID = new Map(QUICK_OPTIONS.map((option) => [option.id, option]))
+
 export interface MemoFiltersProps {
-  query: Pick<MemoUrlState, 'q' | 'tag' | 'filter'>
+  query: Pick<MemoUrlState, 'q' | 'tag' | 'filter' | 'quick'>
   display: MemoDisplayPreferences
   onSearch: (value: string) => void
   onRemoveTag: () => void
   onRemoveFilter: () => void
+  onToggleQuick: (quick: MemoQuickFilter) => void
+  onRemoveQuick: (quick: MemoQuickFilter) => void
   onClear: () => void
   onSortChange: (orderBy: MemoOrderField, order: MemoOrderDirection) => void
   onDisplayChange: (patch: Partial<Pick<MemoDisplayPreferences, 'columns' | 'compact' | 'linkPreview'>>) => void
@@ -48,6 +73,8 @@ export function MemoFilters({
   onSearch,
   onRemoveTag,
   onRemoveFilter,
+  onToggleQuick,
+  onRemoveQuick,
   onClear,
   onSortChange,
   onDisplayChange,
@@ -60,15 +87,29 @@ export function MemoFilters({
   })
   const [sortOpen, setSortOpen] = useState(false)
   const [displayOpen, setDisplayOpen] = useState(false)
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [quickFindOpen, setQuickFindOpen] = useState(false)
   const sortRef = useRef<HTMLButtonElement>(null)
   const displayRef = useRef<HTMLButtonElement>(null)
-  const hasFilters = query.q.trim() !== '' || query.tag !== null || query.filter.trim() !== ''
+  const filterRef = useRef<HTMLButtonElement>(null)
+  const hasFilters = query.q.trim() !== ''
+    || query.tag !== null
+    || query.filter.trim() !== ''
+    || query.quick.length > 0
 
   const sortItems: MenuItem[] = SORT_OPTIONS.map((option) => ({
     id: option.id,
     label: t(option.labelKey),
     checked: display.timeBasis === option.orderBy && display.order === option.order,
     onSelect: () => onSortChange(option.orderBy, option.order),
+  }))
+
+  const filterItems: MenuItem[] = QUICK_OPTIONS.map((option) => ({
+    id: `quick-${option.id}`,
+    label: t(option.labelKey),
+    checked: query.quick.includes(option.id),
+    separatorBefore: option.separatorBefore,
+    onSelect: () => onToggleQuick(option.id),
   }))
 
   const displayItems: MenuItem[] = [
@@ -108,22 +149,36 @@ export function MemoFilters({
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      <div className="w-full min-w-0 sm:w-60">
-        <Input
-          {...field}
-          type="search"
-          aria-label={t('memos.feed.search_label')}
-          placeholder={t('memos.feed.search_placeholder')}
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          leading={<Search size={13} />}
-          trailing={draft ? (
-            <IconButton label={t('memos.feed.clear_search')} size="xs" onClick={clear}>
-              <X size={12} />
-            </IconButton>
-          ) : undefined}
-          className="h-9 text-[length:var(--text-12)] [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-results-button]:hidden md:h-7"
-        />
+      <div className="flex w-full min-w-0 items-center gap-1 sm:w-72">
+        <div className="min-w-0 flex-1">
+          <Input
+            {...field}
+            type="search"
+            aria-label={t('memos.feed.search_label')}
+            placeholder={t('memos.feed.search_placeholder')}
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            leading={<Search size={13} />}
+            trailing={draft ? (
+              <IconButton label={t('memos.feed.clear_search')} size="xs" onClick={clear}>
+                <X size={12} />
+              </IconButton>
+            ) : undefined}
+            className="h-9 text-[length:var(--text-12)] [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-results-button]:hidden md:h-7"
+          />
+        </div>
+        <Tooltip label={t('memos.feed.quick_find')} side="bottom">
+          <IconButton
+            label={t('memos.feed.quick_find')}
+            size="sm"
+            className="size-9 md:size-7"
+            aria-haspopup="dialog"
+            aria-expanded={quickFindOpen}
+            onClick={() => setQuickFindOpen(true)}
+          >
+            <TextSearch size={14} />
+          </IconButton>
+        </Tooltip>
       </div>
       {query.tag ? (
         <TagChip
@@ -141,16 +196,53 @@ export function MemoFilters({
           pressed
           onPress={onRemoveFilter}
           ariaLabel={t('memos.feed.remove_filter')}
-          className="max-w-[240px]"
+          className="max-w-[var(--memo-filter-chip-max-width)]"
           trailing={<X size={10} aria-hidden="true" />}
         />
       ) : null}
+      {query.quick.map((id) => {
+        const option = QUICK_BY_ID.get(id)
+        if (!option) return null
+        const label = t(option.labelKey)
+        return (
+          <TagChip
+            key={id}
+            label={label}
+            pressed
+            onPress={() => onRemoveQuick(id)}
+            ariaLabel={t('memos.feed.remove_quick', { filter: label })}
+            trailing={<X size={10} aria-hidden="true" />}
+          />
+        )
+      })}
       {hasFilters ? (
         <Button size="sm" variant="ghost" className="h-9 md:h-7" onClick={onClear}>
           {t('memos.feed.clear_filters')}
         </Button>
       ) : null}
       <div className="ml-auto flex shrink-0 items-center gap-1">
+        <Tooltip label={t('memos.feed.filters')} side="bottom">
+          <IconButton
+            ref={filterRef}
+            label={t('memos.feed.filters')}
+            size="sm"
+            active={filterOpen || query.quick.length > 0}
+            aria-haspopup="menu"
+            aria-expanded={filterOpen}
+            onClick={() => setFilterOpen((value) => !value)}
+          >
+            <Filter size={14} />
+          </IconButton>
+        </Tooltip>
+        <Menu
+          anchor={filterRef}
+          open={filterOpen}
+          onClose={() => setFilterOpen(false)}
+          items={filterItems}
+          label={t('memos.feed.filters')}
+          align="end"
+          width={220}
+        />
         <Tooltip label={t('memos.feed.sort')} side="bottom">
           <IconButton
             ref={sortRef}
@@ -196,6 +288,9 @@ export function MemoFilters({
           width={220}
         />
       </div>
+      {quickFindOpen ? (
+        <MemoQuickFind open query={query} onClose={() => setQuickFindOpen(false)} />
+      ) : null}
     </div>
   )
 }

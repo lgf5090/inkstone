@@ -24,7 +24,7 @@ export function MemoMaskedBody({
         data-memo-mask={hidden ? 'hidden' : 'revealed'}
         aria-hidden={hidden || undefined}
         inert={hidden || undefined}
-        className={cn(hidden && 'select-none blur-[6px]')}
+        className={cn(hidden && 'select-none blur-[var(--memo-blur)]')}
       >
         <MemoBody {...body} />
       </div>

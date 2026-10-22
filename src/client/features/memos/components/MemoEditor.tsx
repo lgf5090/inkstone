@@ -1,7 +1,9 @@
 import {
   useEffect,
+  useId,
   useImperativeHandle,
   useRef,
+  useState,
   type ReactElement,
   type Ref,
 } from 'react'
@@ -19,21 +21,30 @@ import { search, searchKeymap } from '@codemirror/search'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import {
   Bold,
+  ChevronsDownUp,
   Code,
   Heading1,
   Heading2,
   Heading3,
+  Image,
   Italic,
   Link2,
   List,
   ListOrdered,
   ListTodo,
+  MessageSquareQuote,
+  Minus,
+  Plus,
   Quote,
+  Sigma,
   Strikethrough,
+  Table,
 } from 'lucide-react'
 import { emojiSource, tagSource } from '../../../editor/completion'
 import { editorTheme } from '../../../editor/theme'
-import { IconButton } from '../../../components/primitives'
+import { Field, Input, Segmented } from '../../../components/form'
+import { Menu, Modal, type MenuItem } from '../../../components/overlay'
+import { Button, IconButton } from '../../../components/primitives'
 import { cn } from '../../../lib/cn'
 import { t, type MessageKey } from '../../../lib/i18n'
 import { codeMirrorKey } from '../../../lib/shortcuts'
@@ -42,6 +53,15 @@ import { applyMemoFormat, insertMemoSnippet, MEMO_ANY_LIST_PREFIX, MEMO_LIST_PAT
 
 const externalValueUpdate = Annotation.define<boolean>()
 const MEMO_EDITOR_MIN_HEIGHT = '6rem'
+const TABLE_SNIPPET = '| Column | Column |\n| --- | --- |\n| Cell | Cell |\n'
+const CALLOUT_SNIPPET = '> [!note]\n> '
+const TOGGLE_CALLOUT_SNIPPET = '> [!note]- Title\n> '
+const MATH_SNIPPET = '$$\n\n$$\n'
+const CODE_SNIPPET = '```ts\n\n```\n'
+const DIVIDER_SNIPPET = '---\n'
+const CODE_CURSOR = '```ts\n'.length
+const MATH_CURSOR = '$$\n'.length
+const MAX_IMAGE_DIMENSION = 10_000
 
 const memoEditorTheme = EditorView.theme({
   '&': {
@@ -112,6 +132,163 @@ function filesFromTransfer(transfer: DataTransfer | null): File[] {
   })
 }
 
+export type MemoImageAlignment = 'left' | 'center' | 'right'
+
+export interface MemoImageInput {
+  url: string
+  alt: string
+  width: string
+  height: string
+  align: MemoImageAlignment
+}
+
+function isValidImageUrl(value: string): boolean {
+  if (!value || /\s/.test(value)) return false
+  if (/^[a-z][a-z0-9+.-]*:/i.test(value)) return /^https?:\/\//i.test(value)
+  return true
+}
+
+function isValidDimension(value: string): boolean {
+  if (!value) return true
+  if (!/^\d+$/.test(value)) return false
+  const size = Number(value)
+  return size > 0 && size <= MAX_IMAGE_DIMENSION
+}
+
+export function memoImageMarkdown({ url, alt, width, height, align }: MemoImageInput): string {
+  const label = alt.trim().replace(/\\/g, '\\\\').replace(/[[\]|]/g, '\\$&')
+  const trimmedWidth = width.trim()
+  const trimmedHeight = trimmedWidth ? height.trim() : ''
+  const size = trimmedWidth ? `|${trimmedWidth}${trimmedHeight ? `x${trimmedHeight}` : ''}` : ''
+  const destination = url.trim().replace(/\\/g, '\\\\').replace(/[()]/g, '\\$&')
+  const image = `![${label}${size}](${destination})`
+  return align === 'left' ? image : `::: ${align}\n${image}\n:::\n`
+}
+
+function MemoImageDialog({ open, onClose, onInsert }: {
+  open: boolean
+  onClose: () => void
+  onInsert: (markdown: string) => void
+}): ReactElement {
+  const [url, setUrl] = useState('')
+  const [alt, setAlt] = useState('')
+  const [width, setWidth] = useState('')
+  const [height, setHeight] = useState('')
+  const [align, setAlign] = useState<MemoImageAlignment>('left')
+  const [error, setError] = useState<string | null>(null)
+  const formId = useId()
+  const errorId = useId()
+
+  useEffect(() => {
+    if (!open) return
+    setUrl('')
+    setAlt('')
+    setWidth('')
+    setHeight('')
+    setAlign('left')
+    setError(null)
+  }, [open])
+
+  const submit = (): void => {
+    const destination = url.trim()
+    if (!destination) {
+      setError(t('memos.composer.image_url_required'))
+      return
+    }
+    if (!isValidImageUrl(destination)) {
+      setError(t('memos.composer.image_url_invalid'))
+      return
+    }
+    const trimmedWidth = width.trim()
+    const trimmedHeight = height.trim()
+    if (!isValidDimension(trimmedWidth) || !isValidDimension(trimmedHeight) || (!trimmedWidth && trimmedHeight)) {
+      setError(t('memos.composer.image_size_invalid'))
+      return
+    }
+    setError(null)
+    onInsert(memoImageMarkdown({
+      url: destination,
+      alt,
+      width: trimmedWidth,
+      height: trimmedHeight,
+      align,
+    }))
+  }
+
+  const footer = (
+    <div className="flex items-center justify-end gap-2">
+      <Button size="sm" variant="secondary" onClick={onClose}>{t('common.cancel')}</Button>
+      <Button size="sm" variant="primary" type="submit" form={formId}>{t('memos.composer.insert')}</Button>
+    </div>
+  )
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={t('memos.composer.image_title')}
+      description={t('memos.composer.image_description')}
+      width={460}
+      footer={footer}
+    >
+      <form
+        id={formId}
+        className="space-y-3 pt-1"
+        onSubmit={(event) => {
+          event.preventDefault()
+          submit()
+        }}
+      >
+        <Field label={t('memos.composer.image_url')} required>
+          <Input
+            value={url}
+            data-autofocus
+            placeholder="https://example.com/image.png"
+            aria-describedby={error ? errorId : undefined}
+            onChange={(event) => setUrl(event.target.value)}
+          />
+        </Field>
+        <Field label={t('memos.composer.image_alt')}>
+          <Input value={alt} onChange={(event) => setAlt(event.target.value)} />
+        </Field>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label={t('memos.composer.image_width')}>
+            <Input
+              value={width}
+              inputMode="numeric"
+              placeholder={t('memos.composer.image_size_auto')}
+              onChange={(event) => setWidth(event.target.value)}
+            />
+          </Field>
+          <Field label={t('memos.composer.image_height')}>
+            <Input
+              value={height}
+              inputMode="numeric"
+              placeholder={t('memos.composer.image_size_auto')}
+              onChange={(event) => setHeight(event.target.value)}
+            />
+          </Field>
+        </div>
+        <Segmented
+          value={align}
+          label={t('memos.composer.image_align')}
+          options={[
+            { value: 'left', label: t('memos.composer.image_align_left') },
+            { value: 'center', label: t('memos.composer.image_align_center') },
+            { value: 'right', label: t('memos.composer.image_align_right') },
+          ]}
+          onChange={setAlign}
+        />
+      </form>
+      {error ? (
+        <p id={errorId} role="alert" className="mt-2 text-[length:var(--text-11-5)] text-[var(--danger)]">
+          {error}
+        </p>
+      ) : null}
+    </Modal>
+  )
+}
+
 export interface MemoEditorHandle {
   insert: (text: string) => void
   focus: () => void
@@ -154,21 +331,29 @@ export function MemoEditor({
   tagsRef.current = getTags
   const placeholderCompartment = useRef(new Compartment())
   const editableCompartment = useRef(new Compartment())
+  const insertButtonRef = useRef<HTMLButtonElement>(null)
+  const insertPanelId = useId()
+  const [insertOpen, setInsertOpen] = useState(false)
+  const [imageOpen, setImageOpen] = useState(false)
+
+  const insertText = (text: string, cursorOffset?: number): void => {
+    const view = viewRef.current
+    if (!view) return
+    const range = view.state.selection.main
+    const source = view.state.doc.toString()
+    const result = insertMemoSnippet(source, range.from, range.to, text, cursorOffset)
+    view.dispatch({
+      changes: { from: 0, to: source.length, insert: result.text },
+      selection: EditorSelection.cursor(result.from),
+      scrollIntoView: true,
+      userEvent: 'input.insert',
+    })
+    view.focus()
+  }
 
   useImperativeHandle(ref, () => ({
     insert(text: string) {
-      const view = viewRef.current
-      if (!view) return
-      const range = view.state.selection.main
-      const source = view.state.doc.toString()
-      const result = insertMemoSnippet(source, range.from, range.to, text)
-      view.dispatch({
-        changes: { from: 0, to: source.length, insert: result.text },
-        selection: EditorSelection.cursor(result.from),
-        scrollIntoView: true,
-        userEvent: 'input.insert',
-      })
-      view.focus()
+      insertText(text)
     },
     focus() {
       viewRef.current?.focus()
@@ -309,6 +494,51 @@ export function MemoEditor({
     { id: 'h2', label: 'memos.composer.heading_level', action: { kind: 'heading', level: 2 }, icon: <Heading2 size={14} /> },
     { id: 'h3', label: 'memos.composer.heading_level', action: { kind: 'heading', level: 3 }, icon: <Heading3 size={14} /> },
   ]
+  const insertItems: MenuItem[] = [
+    {
+      id: 'table',
+      label: t('memos.composer.table'),
+      icon: <Table size={14} />,
+      onSelect: () => insertText(TABLE_SNIPPET),
+    },
+    {
+      id: 'callout',
+      label: t('memos.composer.callout'),
+      icon: <MessageSquareQuote size={14} />,
+      onSelect: () => insertText(CALLOUT_SNIPPET),
+    },
+    {
+      id: 'callout-toggle',
+      label: t('memos.composer.callout_toggle'),
+      icon: <ChevronsDownUp size={14} />,
+      onSelect: () => insertText(TOGGLE_CALLOUT_SNIPPET),
+    },
+    {
+      id: 'math',
+      label: t('memos.composer.math_block'),
+      icon: <Sigma size={14} />,
+      onSelect: () => insertText(MATH_SNIPPET, MATH_CURSOR),
+    },
+    {
+      id: 'code-block',
+      label: t('memos.composer.code_block'),
+      icon: <Code size={14} />,
+      onSelect: () => insertText(CODE_SNIPPET, CODE_CURSOR),
+    },
+    {
+      id: 'divider',
+      label: t('memos.composer.divider'),
+      icon: <Minus size={14} />,
+      onSelect: () => insertText(DIVIDER_SNIPPET),
+    },
+    {
+      id: 'image',
+      label: t('memos.composer.image'),
+      icon: <Image size={14} />,
+      separatorBefore: true,
+      onSelect: () => setImageOpen(true),
+    },
+  ]
 
   return (
     <div className={cn('flex min-w-0 flex-col', className)}>
@@ -333,8 +563,38 @@ export function MemoEditor({
             {button.icon}
           </IconButton>
         ))}
+        <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-[var(--border-subtle)]" />
+        <IconButton
+          ref={insertButtonRef}
+          label={t('memos.composer.insert')}
+          size="sm"
+          disabled={disabled}
+          aria-haspopup="menu"
+          aria-expanded={insertOpen}
+          aria-controls={insertPanelId}
+          onClick={() => setInsertOpen((open) => !open)}
+        >
+          <Plus size={14} />
+        </IconButton>
       </div>
       <div ref={hostRef} data-memo-editor="" className="mt-1.5 min-w-0" />
+      <Menu
+        anchor={insertButtonRef}
+        open={insertOpen}
+        onClose={() => setInsertOpen(false)}
+        items={insertItems}
+        panelId={insertPanelId}
+        label={t('memos.composer.insert_menu')}
+        width={232}
+      />
+      <MemoImageDialog
+        open={imageOpen}
+        onClose={() => setImageOpen(false)}
+        onInsert={(markdown) => {
+          insertText(markdown)
+          setImageOpen(false)
+        }}
+      />
     </div>
   )
 }

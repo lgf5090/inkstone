@@ -39,6 +39,29 @@ function absoluteShareUrl(url: string): string {
   return `${window.location.origin}${url.startsWith('/') ? '' : '/'}${url}`
 }
 
+function isAbortError(error: unknown): boolean {
+  return memoIsAbortError(error)
+    || (typeof error === 'object'
+      && error !== null
+      && 'name' in error
+      && (error as { name: unknown }).name === 'AbortError')
+}
+
+function canShareFile(file: File): boolean {
+  if (typeof navigator === 'undefined') return false
+  const nativeShare = navigator as Navigator & {
+    canShare?: (data?: ShareData) => boolean
+    share?: (data?: ShareData) => Promise<void>
+  }
+  if (typeof nativeShare.share !== 'function' || typeof nativeShare.canShare !== 'function') return false
+  try {
+    return nativeShare.canShare({ files: [file] })
+  } catch (error) {
+    console.warn('[inkstone] The browser could not report image share support', error)
+    return false
+  }
+}
+
 const EXPIRY_LABEL_KEYS = {
   never: 'memos.share.expiry_never',
   '1': 'memos.share.expiry_one_day',
@@ -154,7 +177,21 @@ export function MemoShareDialog({ memoId, memo = null, open, onClose }: MemoShar
       const height = Math.max(element.offsetHeight, MEMO_SHARE_IMAGE_MIN_HEIGHT)
       const css = await collectDocumentCss()
       const blob = await renderElementPng(element, { width, height }, css)
-      saveImage(blob, `memo-${memo.id}.png`)
+      const filename = `memo-${memo.id}.png`
+      const file = new File([blob], filename, { type: 'image/png' })
+      if (canShareFile(file)) {
+        try {
+          await navigator.share({
+            files: [file],
+            title: memo.title.trim() || t('common.product_name'),
+          })
+          return
+        } catch (error) {
+          if (isAbortError(error)) return
+          console.warn('[inkstone] Native image sharing failed; downloading the image instead', error)
+        }
+      }
+      saveImage(blob, filename)
       useUi.getState().toast({ title: t('memos.share.image_saved'), tone: 'success' })
     } catch (error) {
       useUi.getState().toast({
@@ -201,7 +238,7 @@ export function MemoShareDialog({ memoId, memo = null, open, onClose }: MemoShar
       >
       <div className="space-y-4 pt-1">
         <div className="flex flex-wrap items-end gap-2">
-          <Field label={t('memos.share.expiry_label')} className="min-w-[160px] flex-1">
+          <Field label={t('memos.share.expiry_label')} className="min-w-[var(--memo-field-min-width)] flex-1">
             <Select
               value={expiry}
               onChange={(event) => {
@@ -323,7 +360,7 @@ export function MemoShareDialog({ memoId, memo = null, open, onClose }: MemoShar
         <div
           aria-hidden="true"
           inert
-          className="pointer-events-none fixed top-0 left-[-100000px] w-[420px]"
+          className="pointer-events-none fixed top-0 left-[-100000px] w-[var(--memo-share-image-width)]"
         >
           <MemoShareImage ref={imageRef} memo={memo} author={author} />
         </div>,

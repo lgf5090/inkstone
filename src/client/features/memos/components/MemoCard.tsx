@@ -12,6 +12,7 @@ import { memoTagRuleBlursContent, memoTagRulesByTag } from '../tag-rules'
 import { useMemoTaskToggle } from '../use-memo-task-toggle'
 import { MemoAttachments } from './MemoAttachments'
 import { MemoCardActions } from './MemoCardActions'
+import { MemoCommentPreview } from './MemoCommentPreview'
 import { MemoComposer } from './MemoComposer'
 import { MemoLinkPreviews } from './MemoLinkPreviews'
 import { MemoMaskedBody } from './MemoMaskedBody'
@@ -42,6 +43,7 @@ export interface MemoCardProps {
   reactionOptions?: readonly string[]
   enableLinkPreview?: boolean
   doubleClickEdit?: boolean
+  highlight?: readonly string[]
   onOpen: (id: string) => void
   onStartEdit: () => void
   onEndEdit: () => void
@@ -59,6 +61,7 @@ export function MemoCard({
   reactionOptions,
   enableLinkPreview = true,
   doubleClickEdit = false,
+  highlight,
   onOpen,
   onStartEdit,
   onEndEdit,
@@ -139,6 +142,7 @@ export function MemoCard({
             key={`${memo.id}:${blurred ? 'blurred' : 'clear'}`}
             content={memo.content}
             tagRules={tagRules}
+            highlight={highlight}
             blurred={blurred && memo.content.trim() !== ''}
             onTagPress={onTagPress}
             onToggleTask={onToggleTask}
@@ -184,6 +188,9 @@ export function MemoCard({
               <span className="tabular">{memo.commentCount}</span>
             </a>
           </footer>
+          {memo.state === 'normal' && memo.commentCount > 0 ? (
+            <MemoCommentPreview memoId={memo.id} commentCount={memo.commentCount} onOpen={onOpen} />
+          ) : null}
         </>
       )}
     </article>

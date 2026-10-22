@@ -237,6 +237,64 @@ describe('the memo card', () => {
     expect(useUi.getState().toasts.some((toast) => toast.title === t('memos.card.task_failed'))).toBe(true)
   })
 
+  it('checks every task from the actions menu', async () => {
+    const item = memo({
+      content: '- [ ] one\n- [x] two',
+      properties: { ...memo().properties, hasTaskList: true },
+    })
+    useMemos.setState({ items: [item] })
+    api.patch.mockResolvedValue({ ...item, content: '- [x] one\n- [x] two', rev: 2 })
+    render({ memo: item })
+    click(menuTrigger())
+    click(menuItem(t('memos.card.check_all_tasks')))
+    await flush()
+    expect(api.patch).toHaveBeenCalledWith(item.id, { rev: 1, content: '- [x] one\n- [x] two' })
+    expect(useMemos.getState().items[0]?.content).toBe('- [x] one\n- [x] two')
+    expect(useUi.getState().toasts.some((toast) => toast.title === t('memos.card.tasks_checked'))).toBe(true)
+  })
+
+  it('reports a failed bulk task update', async () => {
+    const item = memo({
+      content: '- [ ] one',
+      properties: { ...memo().properties, hasTaskList: true },
+    })
+    useMemos.setState({ items: [item] })
+    api.patch.mockRejectedValue(new Error('offline'))
+    render({ memo: item })
+    click(menuTrigger())
+    click(menuItem(t('memos.card.uncheck_all_tasks')))
+    await flush()
+    expect(useMemos.getState().items[0]?.content).toBe('- [ ] one')
+    expect(useUi.getState().toasts.some((toast) => toast.title === t('memos.card.action_failed'))).toBe(true)
+  })
+
+  it('offers the bulk task actions only on a normal memo with tasks', () => {
+    render({ memo: memo({ content: '- [ ] one' }) })
+    click(menuTrigger())
+    expect(document.body.textContent).not.toContain(t('memos.card.check_all_tasks'))
+
+    act(() => { view?.unmount() })
+    document.body.innerHTML = ''
+    render({ memo: memo({ content: '- [ ] one', state: 'archived', properties: { ...memo().properties, hasTaskList: true } }) })
+    click(menuTrigger())
+    expect(document.body.textContent).not.toContain(t('memos.card.check_all_tasks'))
+  })
+
+  it('shows the comment preview only on a normal memo with comments', () => {
+    const rendered = render({ memo: memo({ commentCount: 2 }) })
+    expect(rendered.container.querySelector('[data-memo-comments-preview]')).not.toBeNull()
+
+    act(() => { view?.unmount() })
+    document.body.innerHTML = ''
+    const archived = render({ memo: memo({ commentCount: 2, state: 'archived' }) })
+    expect(archived.container.querySelector('[data-memo-comments-preview]')).toBeNull()
+
+    act(() => { view?.unmount() })
+    document.body.innerHTML = ''
+    const quiet = render({ memo: memo({ commentCount: 0 }) })
+    expect(quiet.container.querySelector('[data-memo-comments-preview]')).toBeNull()
+  })
+
   it('links mentions and leaves code alone', () => {
     const rendered = render({
       memo: memo({ content: 'Hi @alice\n\n`@bob`\n\n```\n@carol\n```' }),

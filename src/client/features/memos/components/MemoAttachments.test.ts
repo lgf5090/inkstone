@@ -1,11 +1,31 @@
 // @vitest-environment jsdom
 import { act, createElement } from 'react'
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { MEMO_PREFERENCES_DEFAULTS } from '@shared/memos/constants'
 import type { MemoAttachment } from '@shared/memos/types'
 import { initI18n, t } from '../../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../../lib/test-render'
 import { useUi } from '../../../store/ui'
 import { MemoAttachments } from './MemoAttachments'
+
+const api = vi.hoisted(() => ({
+  preferences: { get: vi.fn() },
+}))
+
+vi.mock('../api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../api')>()
+  return { ...actual, memosApi: api }
+})
+
+const ai = vi.hoisted(() => ({
+  providers: vi.fn(),
+  transcribe: vi.fn(),
+}))
+
+vi.mock('../ai-client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../ai-client')>()
+  return { ...actual, memoAi: ai }
+})
 
 let view: RenderedElement | null = null
 let nextId = 0
@@ -45,6 +65,12 @@ function press(key: string, target: EventTarget = window): void {
   })
 }
 
+function pointer(type: string, target: Element, init: PointerEventInit = {}): void {
+  act(() => {
+    target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 1, ...init }))
+  })
+}
+
 function dialog(): HTMLElement | null {
   return document.querySelector<HTMLElement>('[role="dialog"]')
 }
@@ -62,12 +88,24 @@ beforeAll(async () => {
 
 beforeEach(() => {
   useUi.setState({ toasts: [] })
+  vi.clearAllMocks()
+  api.preferences.get.mockResolvedValue(MEMO_PREFERENCES_DEFAULTS)
+  ai.providers.mockResolvedValue([])
 })
+
+async function flush(times = 2): Promise<void> {
+  for (let index = 0; index < times; index += 1) {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+  }
+}
 
 afterEach(() => {
   act(() => { view?.unmount() })
   view = null
   document.body.innerHTML = ''
+  vi.unstubAllGlobals()
 })
 
 describe('the memo attachment gallery', () => {
@@ -123,7 +161,7 @@ describe('the memo attachment gallery', () => {
     expect(document.activeElement).toBe(triggers[0])
   })
 
-  it('renders videos, audio and documents with controls and accessible names', () => {
+  it('renders videos, audio and documents with controls and accessible names', async () => {
     const video = attachment({
       filename: 'clip.mp4',
       mime: 'video/mp4',
@@ -133,6 +171,7 @@ describe('the memo attachment gallery', () => {
     const audio = attachment({ filename: 'voice.mp3', mime: 'audio/mpeg' })
     const document = attachment({ filename: 'notes.pdf', mime: 'application/pdf', size: 4096 })
     const rendered = render([video, audio, document])
+    await flush()
 
     const videoElement = rendered.container.querySelector('video')
     expect(videoElement).not.toBeNull()
@@ -142,8 +181,15 @@ describe('the memo attachment gallery', () => {
 
     const audioElement = rendered.container.querySelector('audio')
     expect(audioElement).not.toBeNull()
-    expect(audioElement?.hasAttribute('controls')).toBe(true)
-    expect(audioElement?.getAttribute('aria-label')).toBe('voice.mp3')
+    expect(audioElement?.hasAttribute('controls')).toBe(false)
+    expect(audioElement?.getAttribute('preload')).toBe('metadata')
+    expect(audioElement?.getAttribute('aria-hidden')).toBe('true')
+    expect(rendered.container.querySelector(`button[aria-label="${t('memos.media.audio_play')}"]`)).not.toBeNull()
+    expect(rendered.container.querySelector('input[type="range"]')).not.toBeNull()
+    expect(rendered.container.querySelector('a[aria-label="Download voice.mp3"]')).not.toBeNull()
+    const transcribe = [...rendered.container.querySelectorAll('button')]
+      .find((item) => item.textContent?.includes(t('memos.media.transcribe')))
+    expect(transcribe?.disabled).toBe(true)
 
     expect(rendered.container.querySelector('a[aria-label="Open notes.pdf"]')).not.toBeNull()
     expect(rendered.container.querySelector('a[aria-label="Download notes.pdf"]')).not.toBeNull()
@@ -224,6 +270,62 @@ describe('the memo attachment gallery', () => {
     click(buttonWithText(t('memos.media.show_still'), dialog()!))
     expect(dialog()?.querySelector('video')).toBeNull()
     expect(dialog()?.querySelector('img')).not.toBeNull()
+  })
+
+  it('previews a Live Photo on a tile while the pointer is over it', () => {
+    const item = attachment({
+      filename: 'live.jpg',
+      url: '/api/memos/files/live',
+      motion: { groupId: 'group-1', role: 'still' },
+    })
+    const rendered = render([item])
+    const tile = rendered.container.querySelector<HTMLButtonElement>('button[aria-label="Open Live Photo live.jpg"]')
+    expect(tile).not.toBeNull()
+    expect(rendered.container.querySelector('video')).toBeNull()
+
+    pointer('pointerover', tile!)
+    const preview = rendered.container.querySelector('video')
+    expect(preview).not.toBeNull()
+    expect(preview?.getAttribute('src')).toBe('/api/memos/files/live?motion=1')
+    expect(preview?.hasAttribute('autoplay')).toBe(true)
+    expect(preview?.hasAttribute('loop')).toBe(true)
+    expect(preview?.muted).toBe(true)
+    expect(preview?.getAttribute('data-memo-motion-preview')).toBe('')
+
+    pointer('pointerout', tile!)
+    expect(rendered.container.querySelector('video')).toBeNull()
+
+    pointer('pointerdown', tile!)
+    expect(rendered.container.querySelector('video')).not.toBeNull()
+    pointer('pointerup', tile!)
+    expect(rendered.container.querySelector('video')).toBeNull()
+  })
+
+  it('keeps a still image still on hover and under reduced motion', () => {
+    const still = attachment({ filename: 'still.jpg' })
+    const rendered = render([still])
+    const tile = rendered.container.querySelector('button[aria-label="Open image still.jpg"]')
+    pointer('pointerover', tile!)
+    expect(rendered.container.querySelector('video')).toBeNull()
+
+    act(() => { view?.unmount() })
+    view = null
+    document.body.innerHTML = ''
+    vi.stubGlobal('matchMedia', vi.fn((query: string) => ({
+      matches: query.includes('prefers-reduced-motion: reduce'),
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    })))
+    const live = attachment({
+      filename: 'live.jpg',
+      motion: { groupId: 'group-2', role: 'still' },
+    })
+    const reduced = render([live])
+    const liveTile = reduced.container.querySelector<HTMLButtonElement>('button[aria-label="Open Live Photo live.jpg"]')
+    pointer('pointerover', liveTile!)
+    pointer('pointerdown', liveTile!)
+    expect(reduced.container.querySelector('video')).toBeNull()
   })
 
   it('builds a collage and reports the attachments a compact card leaves out', () => {
