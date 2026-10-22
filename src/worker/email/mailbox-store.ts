@@ -204,7 +204,7 @@ export class MailboxStore {
     }
     bindings.push(limit, (page - 1) * limit)
     return this.rows<EmailRow>(
-      `SELECT * FROM email_messages WHERE ${clauses.join(' AND ')}
+      `SELECT *, SUBSTR(body, 1, 300) AS snippet FROM email_messages WHERE ${clauses.join(' AND ')}
         ORDER BY ${sortColumn} ${direction}, id ${direction} LIMIT ? OFFSET ?`,
       ...bindings,
     )
@@ -253,6 +253,7 @@ export class MailboxStore {
          )
          SELECT lp.id, lp.subject, lp.sender, lp.recipient, lp.date,
                 lp.read, lp.starred, lp.thread_id, lp.folder_id,
+                lp.cc, lp.bcc, lp.has_attachment, lp.delivery_status,
                 lp.in_reply_to, lp.email_references,
                 SUBSTR(lp.body, 1, 300) AS snippet,
                 ds.thread_count, ds.thread_unread_count, ds.participants
@@ -312,6 +313,7 @@ export class MailboxStore {
        )
        SELECT lif.id, lif.subject, lif.sender, lif.recipient, lif.date,
               lif.read, lif.starred, lif.thread_id, lif.folder_id,
+              lif.cc, lif.bcc, lif.has_attachment, lif.delivery_status,
               lif.in_reply_to, lif.email_references,
               SUBSTR(lif.body, 1, 300) AS snippet,
               cs.thread_count, cs.thread_unread_count, cs.participants,
@@ -437,7 +439,7 @@ export class MailboxStore {
     const page = Math.max(1, Math.trunc(options.page ?? 1))
     const limit = Math.min(Math.max(Math.trunc(options.limit ?? EMAIL_PAGE_SIZE), 1), EMAIL_MAX_PAGE_SIZE)
     return this.rows<EmailRow>(
-      `SELECT * FROM email_messages WHERE deleted_at IS NOT NULL
+      `SELECT *, SUBSTR(body, 1, 300) AS snippet FROM email_messages WHERE deleted_at IS NOT NULL
         ORDER BY deleted_at DESC, id DESC LIMIT ?1 OFFSET ?2`,
       limit,
       (page - 1) * limit,
@@ -478,6 +480,11 @@ export class MailboxStore {
   moveEmail(id: string, folderId: string): boolean {
     const folder = this.one<{ id: string }>(`SELECT id FROM email_folders WHERE id = ?1`, folderId)
     if (!folder) return false
+    const message = this.one<{ id: string }>(
+      `SELECT id FROM email_messages WHERE id = ?1 AND deleted_at IS NULL`,
+      id,
+    )
+    if (!message) return false
     this.sql.exec(
       `UPDATE email_messages SET folder_id = ?1, deleted_at = NULL, updated_at = ?2 WHERE id = ?3`,
       folderId,
@@ -492,7 +499,7 @@ export class MailboxStore {
     const page = Math.max(1, Math.trunc(options.page ?? 1))
     const limit = Math.min(Math.max(Math.trunc(options.limit ?? EMAIL_PAGE_SIZE), 1), EMAIL_MAX_PAGE_SIZE)
     return this.rows<EmailRow>(
-      `SELECT e.*, f.name AS folder_name FROM email_messages e
+      `SELECT e.*, SUBSTR(e.body, 1, 300) AS snippet, f.name AS folder_name FROM email_messages e
          LEFT JOIN email_folders f ON f.id = e.folder_id
         WHERE ${built.where}
         ORDER BY e.date DESC, e.id DESC LIMIT ? OFFSET ?`,
@@ -553,7 +560,10 @@ export class MailboxStore {
       clauses.push(`e.starred = ?`)
       bindings.push(options.isStarred ? 1 : 0)
     }
-    if (options.hasAttachment) clauses.push(`e.has_attachment = 1`)
+    if (options.hasAttachment !== undefined) {
+      clauses.push(`e.has_attachment = ?`)
+      bindings.push(options.hasAttachment ? 1 : 0)
+    }
     return { where: clauses.join(' AND '), bindings }
   }
 
@@ -648,7 +658,7 @@ export class MailboxStore {
     return true
   }
 
-  saveDraft(draftId: string | null, email: EmailData): string {
+  saveDraft(draftId: string | null, email: EmailData): string | null {
     const id = draftId ?? email.id
     const existing = draftId ? this.one<{ id: string }>(`SELECT id FROM email_messages WHERE id = ?1`, draftId) : null
     const now = Date.now()
@@ -656,7 +666,7 @@ export class MailboxStore {
       this.sql.exec(
         `UPDATE email_messages SET folder_id = 'draft', subject = ?1, sender = ?2, recipient = ?3,
            cc = ?4, bcc = ?5, body = ?6, body_source = ?7, in_reply_to = ?8,
-           thread_id = ?9, updated_at = ?10 WHERE id = ?11`,
+           thread_id = ?9, date = ?10, updated_at = ?10 WHERE id = ?11`,
         email.subject,
         email.sender,
         email.recipient,
@@ -666,12 +676,12 @@ export class MailboxStore {
         email.bodySource ?? null,
         email.inReplyTo ?? null,
         email.threadId ?? null,
-        now,
+        email.date || now,
         id,
       )
       return id
     }
-    this.createEmail('draft', { ...email, id, date: email.date || now })
+    if (!this.createEmail('draft', { ...email, id, date: email.date || now })) return null
     return id
   }
 

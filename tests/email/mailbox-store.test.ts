@@ -68,6 +68,48 @@ describe('mailbox store', () => {
     expect(store.countTrash()).toBe(0)
   })
 
+  it('keeps trashed messages out of lists and restores them to the inbox', () => {
+    store.createEmail('inbox', message('m1', { body: 'x'.repeat(400), date: 2_000 }))
+    store.createEmail('inbox', message('m2', { date: 1_000 }))
+    const listed = store.getEmails({ folder: 'inbox' })
+    expect(listed.map((row) => row.id)).toEqual(['m1', 'm2'])
+    expect((listed[0] as typeof listed[number] & { snippet?: string }).snippet).toHaveLength(300)
+    expect(store.trashEmail('m2')).toBe('inbox')
+    expect(store.getEmails({ folder: 'inbox' }).map((row) => row.id)).toEqual(['m1'])
+    expect(store.countEmails({ folder: 'inbox' })).toBe(1)
+    expect(store.listTrash().map((row) => row.id)).toEqual(['m2'])
+    expect(store.restoreEmail('m1')).toBe(false)
+    expect(store.restoreEmail('m2')).toBe(true)
+    expect(store.getEmail('m2')?.folder_id).toBe('inbox')
+  })
+
+  it('deletes a custom folder by moving its messages or deleting them', () => {
+    const moved = store.createFolder('Projects')!
+    store.createEmail(moved.id, message('m1'))
+    const deleted = store.createFolder('Temporary')!
+    store.createEmail(deleted.id, message('m2'))
+    store.createEmail('inbox', message('m3'))
+
+    expect(store.deleteFolder('inbox')).toBeNull()
+    expect(store.deleteFolder(moved.id)).toEqual({ deletedMessageIds: [] })
+    expect(store.getEmail('m1')?.folder_id).toBe('inbox')
+    expect(store.getFolders().some((folder) => folder.id === moved.id)).toBe(false)
+
+    expect(store.deleteFolder(deleted.id, true)).toEqual({ deletedMessageIds: ['m2'] })
+    expect(store.getEmail('m2')).toBeNull()
+    expect(store.getEmail('m3')).not.toBeNull()
+  })
+
+  it('refuses to move a message that is not there and clears its deleted marker on a move', () => {
+    store.createEmail('inbox', message('m1'))
+    expect(store.moveEmail('missing', 'archive')).toBe(false)
+    expect(store.moveEmail('m1', 'missing')).toBe(false)
+    expect(store.moveEmail('m1', 'archive')).toBe(true)
+    expect(store.getEmail('m1')?.folder_id).toBe('archive')
+    expect(store.deleteEmail('m1')).toBe(true)
+    expect(store.deleteEmail('m1')).toBe(false)
+  })
+
   it('claims inbound messages and operations idempotently', () => {
     const now = Date.now()
     expect(store.claimInbound('key', now)).toBe(true)
