@@ -28616,6 +28616,9 @@ const allowed = new Map([
     "// The drawing engine's own file tree is copied in beside the bundler's output, not emitted by it, and",
     "// a classic script is never this document's entry point.",
   ]],
+  ["tests/builtin-templater-bodies.test.ts", [
+    "/**\n * A built-in template is the app's own advertisement of what the engine does.\n *\n * Its body is written inside a JavaScript template literal, so every escape sequence the reader sees as\n * two characters — `'\\n'` inside a script block, for example — is one newline by the time the sandbox\n * parses it, and the template fails with a syntax error the reader cannot fix from the gallery. Only\n * running the engine catches that, so this compiles each body and hands the generated program to a parser\n * that stops at the first unbalanced quote.\n */",
+  ]],
   ["tests/chat-commands.test.ts", [
     "/** Where the palette hands the reader off to, so a case can name it without repeating the address. */",
     "// One implementation per id: a second entry with the same name is a second palette, not a palette.",

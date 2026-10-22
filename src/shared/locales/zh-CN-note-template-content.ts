@@ -2361,7 +2361,7 @@ title: <% tp.file.title %>
 const steps = ['把目标写下来', '拆成三步', '定一个检查时间']
 const lines = []
 for (let i = 0; i < steps.length; i++) lines.push('- [ ] ' + (i + 1) + '. ' + steps[i])
-tR += lines.join('\n')
+tR += lines.join('\\n')
 %>
 `,
     "template.templater_include_snippet.content": `---
@@ -2393,7 +2393,7 @@ title: <% tp.file.title %>
 
 <%*
 const chosen = await tp.system.multi_suggester(["健康", "工作", "学习", "家庭"], ["health", "work", "study", "family"])
-for (const one of chosen) tR += '- [ ] 跟进：' + one + '\n'
+for (const one of chosen) tR += '- [ ] 跟进：' + one + '\\n'
 %>
 `,
     "template.templater_user_script.content": `---
