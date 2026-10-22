@@ -86,9 +86,11 @@ const reachesDoor = (edge: Edge) => edge.resolved === 'src/client/lib/templater/
 const EXECUTORS = ['renderTemplate', 'configureTemplater', 'installTemplaterHost', 'runTemplaterHooks', 'cancelTemplateRun']
 
 /** §7.6's list of surfaces that show text and may not execute it. */
-const SURFACES: Array<{ name: string, paths: string[] }> = [
+const SURFACES: Array<{ name: string, paths: string[], except?: string[] }> = [
   { name: 'a public share page', paths: ['src/client/features/share'] },
-  { name: 'the note preview renderer', paths: ['src/client/features/preview'] },
+  // The one showing surface that may run anything, and only `<%+ … %>`: the plan's P8 asks the note preview to
+  // answer its own dynamic commands. The seam is pinned below rather than by a blanket ban the plan contradicts.
+  { name: 'the note preview renderer', paths: ['src/client/features/preview'], except: ['src/client/features/preview/Preview.tsx'] },
   { name: 'the assistant transcript and its artifacts', paths: ['src/client/features/chat'] },
   { name: 'the markdown engine all of them render with', paths: ['src/client/lib/markdown'] },
   { name: 'the HTML and PDF export, with its print frame', paths: ['src/client/lib/export-note.ts'] },
@@ -126,6 +128,7 @@ const ALLOWED_IMPORTERS: Record<string, string> = {
   'src/client/features/templates/template-risk.ts': 'the gallery’s badge/filter judgement, read from `lib/templater/detection.ts`: a regex over text already in memory, no parser, no engine, no worker',
   'src/client/features/templates/template-engine.ts': 'the gallery’s route: which of the two renderers a library body gets. It reads `detection.ts` statically and reaches the QuickJS worker only through a dynamic import, so pressing a card is not what downloads the engine',
   'src/client/features/settings/TemplaterSettings.tsx': 'the settings page: it draws the chord list with `planTemplaterHotkeys` — the same pure planner the key bindings come from, which imports `run-shell` only on the tick a chord is pressed — and the two device-only switches, which are `lib/templater/device-prefs.ts`: a localStorage read, no parser, no engine, no worker',
+  'src/client/features/preview/Preview.tsx': 'the reading view answers its own `<%+ … %>` dynamic commands, the one showing surface the plan allows that for (P8). It reaches only `features/templater/dynamic-commands`, through a dynamic import, and that pass runs with the read-only `dynamic` profile — pinned by the test above, not by this line',
 }
 
 function sandboxImporters(): Map<string, Edge[]> {
@@ -157,9 +160,13 @@ function doorReachability(): Array<{ file: string, specifier: string, form: Edge
 describe('a surface that shows a note cannot run a template', () => {
   for (const surface of SURFACES) {
     const files = surfaceFiles(surface.paths, surface.name)
+    for (const exempt of surface.except ?? []) {
+      expect(files, `${surface.name} exempts ${exempt}, which is no longer a shipped module there`).toContain(exempt)
+    }
+    const checked = files.filter((file) => !(surface.except ?? []).includes(file))
     it(`keeps the sandbox out of ${surface.name}`, () => {
-      expect(files.length, `${surface.name} has no shipped module left to check`).toBeGreaterThan(0)
-      for (const file of files) {
+      expect(checked.length, `${surface.name} has no shipped module left to check`).toBeGreaterThan(0)
+      for (const file of checked) {
         for (const edge of edgesOf(file)) {
           expect(
             isSandboxEdge(edge),
@@ -178,6 +185,29 @@ describe('a surface that shows a note cannot run a template', () => {
       }
     })
   }
+
+  it('lets the preview answer its own dynamic commands through one named seam', () => {
+    const file = 'src/client/features/preview/Preview.tsx'
+    const edges = edgesOf(file).filter(isSandboxEdge)
+    expect(
+      edges.map((edge) => `${edge.form}:${edge.resolved}`).sort(),
+      'the preview may read the pattern and hand the DOM to the pass, and nothing else',
+    ).toEqual([
+      'dynamic:src/client/features/templater/dynamic-commands',
+      'static:src/client/lib/templater/detection',
+    ])
+    const seam = readFileSync('src/client/features/templater/dynamic-commands.ts', 'utf8')
+    expect(seam, 'the pass runs through the shell’s one dynamic-command entry').toContain('renderDynamicCommand(')
+    for (const mode of ['append-active', 'overwrite-active', 'overwrite-file', 'create-new']) {
+      expect(seam, `the pass names a write mode (${mode}) it has no business asking for`).not.toContain(mode)
+    }
+    expect(seam, 'a failing command is marked where it sits, not announced across the room').not.toContain('toast(')
+    // The profile is chosen by the shell, one call below the pass, so that is where the read-only answer is pinned.
+    const shell = readFileSync('src/client/features/templater/run-shell.ts', 'utf8')
+    expect(shell, 'a dynamic command runs with the `dynamic` profile and no other').toContain(
+      'contextFor(\'dynamic-processor\', file, file, null, \'dynamic\')',
+    )
+  })
 })
 
 describe('the door has one reacher, and only the wiring touches the sandbox', () => {

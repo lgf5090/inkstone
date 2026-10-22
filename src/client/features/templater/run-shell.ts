@@ -408,3 +408,33 @@ export function confirmReplace(template: NoteTemplate): Promise<boolean> {
     confirmLabel: t('templater.cmd.replace'),
   })
 }
+
+/**
+ * One `<%+ … %>` command, asked for its text and nothing else.
+ *
+ * The preview pass in `dynamic-commands.ts` calls this once per command it found in the rendered note. Two
+ * things make it different from every door above: the profile is `dynamic`, which grants the prompt and
+ * refuses writing, creating, moving, the network, the clipboard and the reader's scripts; and the answer is
+ * returned rather than toasted, because the reader is looking at the sentence the command failed inside, and
+ * a notice at the other end of the screen would not tell them which one. `host/write.ts` refuses a
+ * `dynamic-processor` run whatever the command asks for, so this cannot become a write path by accident.
+ */
+export async function renderDynamicCommand(
+  command: string,
+  file: Note | null,
+): Promise<{ ok: true; output: string } | { ok: false; error: string }> {
+  const input: RunTemplateInput = {
+    ...contextFor('dynamic-processor', file, file, null, 'dynamic'),
+    template: { kind: 'source', content: command },
+  }
+  try {
+    const result = await runTemplateOnNote({ ...input, ...(await scriptContext('dynamic')) }, await templaterPorts())
+    if (!result.ok) return { ok: false, error: templaterErrorText(result, t) }
+    return { ok: true, output: result.output }
+  }
+  catch (error) {
+    // A port that throws is this app's data layer failing; the preview still says so beside the command
+    // rather than swallowing it, which is the same rule `run()` follows for a door.
+    return { ok: false, error: templaterErrorText(error, t) }
+  }
+}

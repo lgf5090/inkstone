@@ -115,6 +115,14 @@ export interface RunTemplatePorts {
 export interface RunTemplateApplied {
   ok: true
   kind: WritePlan['kind']
+  /**
+   * The text the run produced, whatever was done with it.
+   *
+   * For a write it is the document that landed in the note; for the two modes that write nothing — `startup`,
+   * which runs for its effects, and `dynamic-processor`, which is a preview asking for one command's answer —
+   * it is the only thing the run has to give back.
+   */
+  output: string
   /** The note the plan wrote, or `null` for a discarded output. */
   noteId: string | null
   /** The caret offsets the plan reported, in the order a reader jumping through them meets them. */
@@ -149,6 +157,12 @@ export async function runTemplateOnNote(input: RunTemplateInput, ports: RunTempl
   if (!isSubject(asked)) return asked
   const rendered = await runProgram(input, templateOf(input), ports)
   if (!rendered.ok) return rendered
+  // A dynamic command's answer belongs to the span of preview text it was found in, which is not a place a
+  // note-level plan can name — so this mode stops here with its text and writes nothing. `planWrite` refuses
+  // the mode as well, which is the backstop for any caller that reaches it a different way.
+  if (input.mode === 'dynamic-processor') {
+    return { ok: true, kind: 'discard', output: rendered.output, noteId: null, carets: [], caretNoteId: null, notices: [] }
+  }
   const planned = planWrite(writeRequest(input, asked, rendered.context, rendered.output))
   if (!planned.ok) return { ok: false, code: planned.code, detail: planned.detail }
   return apply(planned.plan, asked, activeOnScreen(input), rendered.context, ports)
@@ -320,7 +334,7 @@ function reported(
 ): RunTemplateApplied {
   const caretNoteId = showCarets && noteId !== null && plan.carets.length > 0 ? noteId : null
   if (caretNoteId !== null) ports.requestCarets(caretNoteId, plan.carets)
-  return { ok: true, kind: plan.kind, noteId, carets: plan.carets, caretNoteId, notices: plan.notes }
+  return { ok: true, kind: plan.kind, output: plan.content, noteId, carets: plan.carets, caretNoteId, notices: plan.notes }
 }
 
 /** The data layer's three refusals, each named with the code a reader can be told about. */

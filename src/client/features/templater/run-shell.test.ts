@@ -18,7 +18,7 @@ import { useNoteTemplates } from '../../store/note-templates'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 import { registerLinkEditorNote } from '../links/store'
-import { createNoteFromTemplate, insertTemplateIntoActiveNote, replaceActiveNoteWithTemplate } from './run-shell'
+import { createNoteFromTemplate, insertTemplateIntoActiveNote, renderDynamicCommand, replaceActiveNoteWithTemplate } from './run-shell'
 
 /** Everything the stand-in door records, and the answers it can be told to give. */
 const engine = vi.hoisted(() => ({
@@ -30,7 +30,7 @@ const engine = vi.hoisted(() => ({
   configured: true,
   /** What the shell handed each `installTemplaterHost` call, so the switches can be read back. */
   hostOptions: [] as Array<{ webRequestsEnabled?: () => boolean }>,
-  renders: [] as { context: { mode: string; selection: string; frozenTitle: string; target: unknown } }[],
+  renders: [] as { context: { mode: string; capabilities: string; selection: string; frozenTitle: string; target: unknown } }[],
   writes: [] as { id: string; content: string }[],
   creates: [] as { title: string; content: string; folderId: string | null }[],
   targets: [] as { runId: string; path: string }[],
@@ -72,7 +72,7 @@ vi.mock('../../lib/templater', () => ({
       },
     }
   },
-  async renderTemplate(args: { context: { mode: string; selection: string; frozenTitle: string; target: unknown } }) {
+  async renderTemplate(args: { context: { mode: string; capabilities: string; selection: string; frozenTitle: string; target: unknown } }) {
     if (engine.renderFailure !== null) return { ok: false as const, ...engine.renderFailure }
     engine.renders.push({ context: args.context })
     return { ok: true as const, output: engine.output, durationMs: 1 }
@@ -372,5 +372,27 @@ describe('what a reader is told when a run does not do what was asked', () => {
     expect(engine.writes).toEqual([{ id: 'n1', content: '---\ntitle: T\n---\nXYZbody' }])
     expect(useUi.getState().templateInsert).toEqual({ noteId: 'n1', content: '', cursor: [18, 19] })
     expect(toastTitles()).toEqual([t('templater.notice.insertion_clamped'), t('templates.inserted_into_note')])
+  })
+})
+
+describe('one dynamic command from the preview', () => {
+  it('answers with its text and writes nothing', async () => {
+    const note = { ...NOTE_SUMMARY, content: 'Today is <%+ tp.date.now() %>.' } as never
+    const answer = await renderDynamicCommand('<% tp.date.now() %>', note)
+    expect(answer).toEqual({ ok: true, output: RENDERED })
+    // Nothing was asked of the data layer, and nothing was said: the preview is where the answer goes, and
+    // the pass that asked for it is the only one that can say where.
+    expect(engine.writes).toEqual([])
+    expect(engine.creates).toEqual([])
+    expect(useUi.getState().toasts).toEqual([])
+    const context = engine.renders.at(-1)!.context
+    expect(context.mode).toBe('dynamic-processor')
+    expect(context.capabilities).toBe('dynamic')
+  })
+
+  it('carries a failed command back as a sentence, not as a throw', async () => {
+    engine.renderFailure = { code: 'render-failed', detail: 'nope is not defined' }
+    expect(await renderDynamicCommand('<% nope() %>', null))
+      .toEqual({ ok: false, error: `${t('templater.error.render_failed')} (nope is not defined)` })
   })
 })

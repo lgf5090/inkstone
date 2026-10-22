@@ -41,6 +41,25 @@ export function findCommandStart(content: string): number {
   return match ? match.index : -1
 }
 
+/**
+ * A dynamic command — `<%+ … %>` — with the modifiers a writer may put between the tag and the plus.
+ *
+ * Upstream's own shape (`utils/Utils.ts:36`), spelled once here so the cheap "is there anything to run" test a
+ * renderer asks before loading anything, and the walk that replaces each match, cannot disagree about what
+ * counts. Group 1 is the opening tag with its modifiers and group 2 the body and the close: the command that
+ * runs is those two joined without the `+`.
+ */
+export const DYNAMIC_COMMAND = /(<%(?:[-_]\s*)?[*~]?)\+([\s\S]*?%>)/g
+
+/** Whether this text holds at least one dynamic command. */
+export function hasDynamicCommand(content: string): boolean {
+  // `test` on a global pattern advances `lastIndex`, which would make the next answer depend on the last.
+  DYNAMIC_COMMAND.lastIndex = 0
+  const found = DYNAMIC_COMMAND.test(content)
+  DYNAMIC_COMMAND.lastIndex = 0
+  return found
+}
+
 /** Which engine renders this body. Empty text is the legacy engine: nothing to run, nothing to detect. */
 export function detectEngine(content: string): TemplateEngine {
   return findCommandStart(content) === -1 ? 'legacy' : 'templater'
