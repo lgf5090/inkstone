@@ -238,6 +238,21 @@ function report(result: RunTemplateResult, success: MessageKey): boolean {
   return true
 }
 
+/**
+ * Where the row a run is about came from, which is the only thing that decides its rights.
+ *
+ * `library` is the reader's own template — including one they imported after a confirmation, because importing
+ * is the moment they read it. `community` is a gallery row being used without that step, and plan §0.6/§D15
+ * restrict it to reading the target note: no write, no network, no clipboard, no user scripts. A prompt is
+ * still allowed, since the reader is the one answering it.
+ */
+export type TemplateOrigin = 'library' | 'community'
+
+/** The capability profile one origin runs under. The matrix itself is `protocol.ts`'s, never a guess here. */
+export function profileForOrigin(origin: TemplateOrigin): CapabilityProfile {
+  return origin === 'community' ? 'community' : 'local'
+}
+
 /** The rows every mode shares: the library, the reader's language, and the moment this run means by "now". */
 function contextFor(
   mode: RunMode,
@@ -251,9 +266,8 @@ function contextFor(
     target,
     active,
     ...libraryRows(),
-    // Every row this chooser offers is the reader's own library entry, so the run carries the rights they
-    // gave their own templates. Narrowing them by where a row came from is the engine's call, not a guess
-    // made at a call site.
+    // Passed in by the door, because only the door knows where the row came from; the engine then enforces
+    // the profile twice over, once in the snapshot and once at every host call.
     capabilities: profile,
     locale: localeTag(),
     startedAt: Date.now(),
@@ -281,12 +295,13 @@ async function scriptContext(
 }
 
 /** Splice a rendered template into the note the reader is looking at, at their selection. */
-export async function insertTemplateIntoActiveNote(template: NoteTemplate): Promise<boolean> {
+export async function insertTemplateIntoActiveNote(template: NoteTemplate, origin: TemplateOrigin = 'library'): Promise<boolean> {
   const ready = readyTarget()
   if (typeof ready === 'string') return refuseTarget(ready)
   if (!isEngineBody(template)) return insertPlaceholders(template, ready.row)
+  const profile = profileForOrigin(origin)
   return run(
-    { ...contextFor('append-active', ready.row, ready.row, ready.selection), template: { kind: 'library', row: template } },
+    { ...contextFor('append-active', ready.row, ready.row, ready.selection, profile), template: { kind: 'library', row: template } },
     'templates.inserted_into_note',
   )
 }
@@ -298,12 +313,13 @@ export async function insertTemplateIntoActiveNote(template: NoteTemplate): Prom
  * the note's own properties with its body: `host/write.ts` follows upstream and does not merge, and a
  * reader who meant to add a section would otherwise lose the properties they had.
  */
-export async function replaceActiveNoteWithTemplate(template: NoteTemplate): Promise<boolean> {
+export async function replaceActiveNoteWithTemplate(template: NoteTemplate, origin: TemplateOrigin = 'library'): Promise<boolean> {
   const ready = readyTarget()
   if (typeof ready === 'string') return refuseTarget(ready)
   if (!isEngineBody(template)) return replaceWithPlaceholders(template, ready.row, 'templater.replaced_note')
+  const profile = profileForOrigin(origin)
   return run(
-    { ...contextFor('overwrite-active', ready.row, ready.row, null), template: { kind: 'library', row: template } },
+    { ...contextFor('overwrite-active', ready.row, ready.row, null, profile), template: { kind: 'library', row: template } },
     'templater.replaced_note',
   )
 }
@@ -324,23 +340,24 @@ export interface CreateDestination {
  * looked up against them. A hand-rolled sanitiser here is how a folder named `a/b` ends up filing the note
  * into two folders nobody asked for.
  */
-export async function createNoteFromTemplate(template: NoteTemplate, destination: CreateDestination): Promise<boolean> {
+export async function createNoteFromTemplate(template: NoteTemplate, destination: CreateDestination, origin: TemplateOrigin = 'library'): Promise<boolean> {
   if (!isEngineBody(template)) {
-    // The legacy helper owns its own notice and its own placement rules; the boolean is all the difference
-    // between the two answers, and every caller here only uses that.
+    // The legacy renderer has no capability matrix to consult: it interpolates text and cannot write anywhere
+    // but the note it is making, which is the whole of what a restricted run is allowed to do.
     const made = await createNoteWithPlaceholders(template, {
       ...(destination.folderId === null ? {} : { folderId: destination.folderId }),
       title: destination.title,
     })
     return made !== null
   }
+  const profile = profileForOrigin(origin)
   const base = virtualBasename(destination.title.trim() || template.name)
   if (base === '') return refuseName()
   const folders = useNotes.getState().folders
   const path = [...folderPath(folders, destination.folderId).map((folder) => virtualFolderSegment(folder.name)), virtualNoteName(base)].join('/')
   return run(
     {
-      ...contextFor('create-new', null, await activeRow(), null),
+      ...contextFor('create-new', null, await activeRow(), null, profile),
       template: { kind: 'library', row: template },
       path,
       // The row this note is about to become cannot carry its title yet, and a run freezes the one it

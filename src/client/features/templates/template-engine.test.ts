@@ -53,9 +53,15 @@ describe('which engine a library template gets', () => {
   it('hands the engine the folder it was given and no frozen title', async () => {
     shell.createNoteFromTemplate.mockResolvedValue(true)
     expect(await createNoteWithEngine(template(), 'folder-3')).toBe(true)
-    expect(shell.createNoteFromTemplate).toHaveBeenCalledWith(template(), { folderId: 'folder-3', title: '' })
+    expect(shell.createNoteFromTemplate).toHaveBeenCalledWith(template(), { folderId: 'folder-3', title: '' }, 'library')
     // An empty title is not an oversight: the name is what the template's own commands say it is, which is
     // the picker's behaviour and upstream's for `create_new`.
+  })
+
+  it('carries the row’s provenance to the shell, which is what decides its rights', async () => {
+    shell.createNoteFromTemplate.mockResolvedValue(true)
+    await createNoteWithEngine(template(), null, 'community')
+    expect(shell.createNoteFromTemplate).toHaveBeenCalledWith(template(), { folderId: null, title: '' }, 'community')
   })
 
   it('routes the insert through the engine, which is the only path that queues caret groups', async () => {

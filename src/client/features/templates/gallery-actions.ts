@@ -2,10 +2,11 @@ import { useCallback } from 'react'
 import type { CommunityTemplate, NoteTemplate, NoteTemplateCategory } from '@shared/types'
 import type { MessageKey } from '@shared/locales/en-US'
 import { TEMPLATE_IMPORT_LIMITS } from '@shared/note-templates'
-import { createNoteWithEngine, insertNoteWithEngine } from './template-engine'
+import { bodyRunsCode, createNoteWithEngine, insertNoteWithEngine, isTemplaterTemplate } from './template-engine'
 import { peekNoteContent } from '../preview/card-content'
 import { useNotes } from '../../store/notes'
 import { templateOrderValue, useNoteTemplates } from '../../store/note-templates'
+import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 import { confirm } from '../../components/overlay'
 import { api } from '../../lib/api'
@@ -116,22 +117,36 @@ export function useGalleryTemplateActions(state: GalleryLocalState, categories: 
       toastUndoableDelete(1, 'templates.deleted_templates_toast_value0')
   }, [])
   const importCommunityTemplate = useCallback((item: CommunityTemplate) => {
-    const match = categories.find((category) => category.name.toLocaleLowerCase() === item.category.toLocaleLowerCase())
-    const id = useNoteTemplates.getState().createTemplate({
-      name: item.name,
-      description: item.description,
-      content: item.content,
-      categoryId: match?.id ?? null,
-      tags: item.tags,
-    })
-    useUi.getState().toast({
-      title: id ? t('templates.community_imported') : t('common.action_failed'),
-      tone: id ? 'success' : 'danger',
-    })
-    // A use counter for the author's statistics. The template the reader imported is in their own library
-    // and was reported above; this call only tells the server somebody used it, and nothing on screen
-    // reads the count it answers with.
-    if (id) void api.communityTemplates.use(item.id).catch(() => {})
+    void (async () => {
+      // Importing is the moment a stranger's template becomes the reader's own: afterwards it runs with the
+      // reader's rights, because they have now read it. That is why the question is asked here and not at
+      // every use — and why a body with no commands in it needs no question at all.
+      if (bodyRunsCode(item.content)) {
+        const accepted = await confirm({
+          title: t('templates.community_import_title'),
+          description: t('templates.community_import_body'),
+          confirmLabel: t('templates.community_import'),
+          tone: 'danger',
+        })
+        if (!accepted) return
+      }
+      const match = categories.find((category) => category.name.toLocaleLowerCase() === item.category.toLocaleLowerCase())
+      const id = useNoteTemplates.getState().createTemplate({
+        name: item.name,
+        description: item.description,
+        content: item.content,
+        categoryId: match?.id ?? null,
+        tags: item.tags,
+      })
+      useUi.getState().toast({
+        title: id ? t('templates.community_imported') : t('common.action_failed'),
+        tone: id ? 'success' : 'danger',
+      })
+      // A use counter for the author's statistics. The template the reader imported is in their own library
+      // and was reported above; this call only tells the server somebody used it, and nothing on screen
+      // reads the count it answers with.
+      if (id) void api.communityTemplates.use(item.id).catch(() => {})
+    })()
   }, [categories])
   const useCommunityTemplate = useCallback((item: CommunityTemplate) => {
     void (async () => {
@@ -149,10 +164,15 @@ export function useGalleryTemplateActions(state: GalleryLocalState, categories: 
         createdAt: item.createdAt || now,
         updatedAt: item.createdAt || now,
       }
-      // Somebody else's Templater body is still a Templater body, and the same single call covers it: the
-      // shell reads the syntax, and a community template gets the read-only profile that decides what its
-      // commands may reach.
-      const made = await createNoteWithEngine(template, null)
+      // Plan §0.6: a gallery body that runs code is not executed on a reader's word alone. The default
+      // posture says "import it first", which is the step where the confirmation happens; the reader who
+      // turned the policy to "trusted" has already said they want direct use, and gets the run — under the
+      // community profile, which is read-only no matter what the template asks for.
+      if (isTemplaterTemplate(template) && useSession.getState().settings.templater.communityScriptPolicy === 'readonly') {
+        useUi.getState().toast({ title: t('templates.community_direct_blocked'), tone: 'warning' })
+        return
+      }
+      const made = await createNoteWithEngine(template, null, isTemplaterTemplate(template) ? 'community' : 'library')
       if (made)
         onClose()
     })()
