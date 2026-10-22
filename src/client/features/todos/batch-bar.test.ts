@@ -228,6 +228,30 @@ describe('entering selection', () => {
   })
 })
 
+describe('the star the bar owes the picked rows', () => {
+  it('sends a star batch for exactly the ids on screen', async () => {
+    stubBreakpoint(true)
+    await render()
+
+    act(() => {
+      titleButton(view!.container, 'First').dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }),
+      )
+      titleButton(view!.container, 'Second').dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }),
+      )
+    })
+
+    const bar = batchBar(view!.container)
+    expect(bar, 'the selection never reached the bar').not.toBeNull()
+    act(() => { barButton(bar!, t('todo.task.star')).click() })
+    await settle()
+
+    // The route reads an explicit true rather than its own default, so the bar says which way it starred.
+    expect(service.batches).toEqual([{ ids: ['a', 'b'], op: 'star', value: 'true' }])
+  })
+})
+
 describe('a batch that deleted rows', () => {
   it('restores every deleted task when the reader takes the step back', async () => {
     service.tasks = [row('a', 'First', { listId: 'L1', tags: [tag('tag-1', 'Focus')] }), row('b', 'Second')]

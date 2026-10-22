@@ -132,8 +132,9 @@ export const MAX_BATCH_TASKS = 100
  * The changes a batch request can make. One operation for the whole batch, so a mixed request has no
  * order to guess.
  *
- * `due` is the page-level "move every overdue row to today" gesture; the selection bar offers the
- * other six. `value` on a due batch is the day to land on — absent means the end of the reader's
+ * `due` is the page-level "move every overdue row to today" gesture, pressed from the overdue banner;
+ * the selection bar at the foot of the list offers the other six — complete, delete, move, priority,
+ * star and tag. `value` on a due batch is the day to land on — absent means the end of the reader's
  * own today — and the write touches `due_at` alone, never `planned_for`.
  */
 export const TASK_BATCH_OPS = ['complete', 'delete', 'move', 'priority', 'star', 'tag', 'due'] as const
