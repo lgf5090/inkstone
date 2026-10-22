@@ -66,6 +66,7 @@ import {
   listDropPlacement,
   planListDrop,
   planListMove,
+  planListReparent,
 } from './ListsView'
 import { useTodos } from './store'
 
@@ -332,6 +333,67 @@ describe('the row menu is the keyboard and phone equivalent of a drag', () => {
   it('has nowhere to go below the last row of its own group', () => {
     expect(planListMove(lists(), 'two', 'down')).toBeNull()
     expect(planListMove(lists(), 'a', 'down')).not.toBeNull()
+  })
+})
+
+describe('the grouping submenu is the same re-lay as a drop', () => {
+  const base = () => inOrder([
+    entry('a', 'Alpha', { position: STRIDE }),
+    entry('b', 'Bravo', { position: STRIDE * 2 }),
+    entry('one', 'One', { position: STRIDE * 3, parentId: 'b' }),
+    entry('two', 'Two', { position: STRIDE * 4, parentId: 'b' }),
+  ])
+
+  it('lands a moved-under list at the end of its new group with whole distinct positions', () => {
+    const lists = base()
+    const writes = planListReparent(lists, 'a', 'b')
+    expect(writes, 'the move into a container was refused').not.toBeNull()
+    const after = applyPlan(lists, writes!)
+    // The picked group's tail, not the row's old global slot — which is the whole reason a bare
+    // `parentId` write is not the move.
+    expect(displayOrder(after)).toEqual(['Bravo', 'One', 'Two', 'Alpha'])
+    expect(after.find((row) => row.id === 'a')!.parentId).toBe('b')
+    const positions = after.map((row) => row.position)
+    expect(positions.every(Number.isInteger), `the re-lay wrote ${JSON.stringify(positions)}`).toBe(true)
+    expect(new Set(positions).size).toBe(positions.length)
+  })
+
+  it('lands a lifted-out list at the end of the top level', () => {
+    const lists = base()
+    const writes = planListReparent(lists, 'one', null)
+    expect(writes, 'the lift to top level was refused').not.toBeNull()
+    const after = applyPlan(lists, writes!)
+    expect(displayOrder(after)).toEqual(['Alpha', 'Bravo', 'Two', 'One'])
+    expect(after.find((row) => row.id === 'one')!.parentId).toBeNull()
+    const positions = after.map((row) => row.position)
+    expect(positions.every(Number.isInteger), `the re-lay wrote ${JSON.stringify(positions)}`).toBe(true)
+    expect(new Set(positions).size).toBe(positions.length)
+  })
+
+  it('answers null when the row already sits under the picked parent', () => {
+    expect(planListReparent(base(), 'one', 'b')).toBeNull()
+    expect(planListReparent(base(), 'a', null)).toBeNull()
+    expect(planListReparent(base(), 'missing', 'b')).toBeNull()
+  })
+
+  it('refuses a container under another list, exactly as the drop does', () => {
+    // Bravo holds One and Two, so picking it as a parent is not an option the page offers and not
+    // a plan this function makes.
+    expect(planListReparent(base(), 'b', 'a')).toBeNull()
+  })
+
+  it('still clears a parent the page never drew when nothing shifts', () => {
+    // One reads as top level because `gone` is not on the page, yet the row still carries it.
+    // Picking "top level" then changes the stored pointer without moving anybody, so the parent
+    // rides on a position write rather than being silently dropped.
+    const lists = inOrder([
+      entry('a', 'Alpha', { position: STRIDE }),
+      entry('one', 'One', { position: STRIDE * 2, parentId: 'gone' }),
+    ])
+    const writes = planListReparent(lists, 'one', null)
+    expect(writes, 'the clear was refused').not.toBeNull()
+    const mine = writes!.find((write) => write.id === 'one')!
+    expect(mine.parentId).toBeNull()
   })
 })
 
@@ -633,5 +695,42 @@ describe('the row menu moves a list without a pointer', () => {
     await openRowMenu('One')
     expect(menuRow(t('todo.move.up')).disabled).toBe(true)
     expect(menuRow(t('todo.move.down')).disabled).toBe(false)
+  })
+
+  it('re-lays the whole page when the grouping submenu picks a new parent', async () => {
+    await act(async () => {
+      useTodos.setState({
+        lists: inOrder([
+          entry('a', 'Alpha', { position: STRIDE }),
+          entry('b', 'Bravo', { position: STRIDE * 2 }),
+          entry('one', 'One', { position: STRIDE * 3, parentId: 'b' }),
+        ]),
+      })
+    })
+    await openRowMenu('Alpha')
+    const parentRow = menuRow(t('todo.list.parent_label'))
+    // `mouseover` is what React reads for an enter, and a touch pointer opens the flyout the same
+    // way a hover does — the submenu is the phone's only path into a group.
+    await act(async () => {
+      parentRow.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+      await Promise.resolve()
+    })
+    const target = [...document.querySelectorAll<HTMLButtonElement>('button[role="menuitemradio"]')]
+      .find((node) => (node.textContent ?? '').trim() === 'Bravo')
+    expect(target, 'the grouping submenu lists no Bravo').toBeTruthy()
+    await act(async () => {
+      target!.click()
+      await Promise.resolve()
+    })
+
+    // Not just the pointer: every row the crossing passed over is written, and Alpha lands at the
+    // end of Bravo's group with whole positions throughout.
+    const byId = new Map(writes.map((write) => [write.id, write.patch]))
+    expect([...byId.keys()].sort()).toEqual(['a', 'b', 'one'])
+    expect(byId.get('a')).toEqual({ position: STRIDE * 3, parentId: 'b' })
+    expect(byId.get('b')).toEqual({ position: STRIDE })
+    expect(byId.get('one')).toEqual({ position: STRIDE * 2 })
+    expect([...byId.values()].every((patch) => Number.isInteger(patch.position)),
+      JSON.stringify([...byId.values()])).toBe(true)
   })
 })

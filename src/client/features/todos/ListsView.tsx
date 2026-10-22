@@ -204,6 +204,41 @@ export function planListMove(
   return planListDrop(live, id, neighbour.id, direction === 'up' ? 'before' : 'after')
 }
 
+/**
+ * The grouping submenu's move, in the drag's arithmetic.
+ *
+ * Picking a new parent has to land the list at the end of the group it joins: a bare `parentId`
+ * write leaves the row's global position where the old group put it, and the flat re-sort then
+ * reads as an arbitrary slot. `inside` is exactly "append to that container" and beside the last
+ * root is "append to the top level", so this runs the planner a drop runs rather than a second one.
+ * Answers null for a move that changes nothing — the row already sits under the picked list — and
+ * for one the grouping refuses. The parent write is forced onto the row even when the display
+ * order never shifted, because a pointer the page does not draw (an archived parent) still moves.
+ */
+export function planListReparent(
+  lists: readonly TaskListEntry[],
+  id: string,
+  nextParentId: string | null,
+): ListPositionWrite[] | null {
+  const live = lists.filter((list) => list.archivedAt === null)
+  const dragged = live.find((list) => list.id === id)
+  if (!dragged) return null
+  if ((dragged.parentId ?? null) === nextParentId) return null
+  const tree = splitLists(live)
+  let writes: ListPositionWrite[] | null
+  if (nextParentId !== null) {
+    writes = planListDrop(live, id, nextParentId, 'inside')
+  } else {
+    const lastRoot = tree.roots.filter((root) => root.id !== id).at(-1)
+    writes = lastRoot ? planListDrop(live, id, lastRoot.id, 'after') : []
+  }
+  if (writes === null) return null
+  const moved = writes.find((write) => write.id === id)
+  if (!moved) return [...writes, { id, position: dragged.position, parentId: nextParentId }]
+  if (moved.parentId === undefined) moved.parentId = nextParentId
+  return writes
+}
+
 /** The pointer's place in the row, as the fraction the bands are cut from. */
 function pointerRatio(event: React.DragEvent<HTMLElement>): number {
   const rect = event.currentTarget.getBoundingClientRect()
@@ -378,7 +413,10 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
                       onArchive={() => { void updateList(list.id, { archived: true }) }}
                       parents={parentOptions(list, children.length > 0)}
                       parentId={list.parentId}
-                      onReparent={(next) => { void updateList(list.id, { parentId: next }) }}
+                      onReparent={(next) => {
+                        const writes = planListReparent(lists, list.id, next)
+                        if (writes) void applyWrites(writes)
+                      }}
                       drag={finePointer ? dragFor(list, false) : undefined}
                       move={moveFor(list)}
                     />
@@ -398,7 +436,10 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
                               onArchive={() => { void updateList(child.id, { archived: true }) }}
                               parents={parentOptions(child, false)}
                               parentId={child.parentId}
-                              onReparent={(next) => { void updateList(child.id, { parentId: next }) }}
+                              onReparent={(next) => {
+                                const writes = planListReparent(lists, child.id, next)
+                                if (writes) void applyWrites(writes)
+                              }}
                               drag={finePointer ? dragFor(child, true) : undefined}
                               move={moveFor(child)}
                             />
