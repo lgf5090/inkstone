@@ -172,10 +172,10 @@ export function ShareHubModal(props: {
 
           {hub.category === 'collections' && (
             <ShareCollectionsPanel
-              onPreview={() => {
-                // The directory's own address is what the panel previews; the hub only needs to get
-                // out of the way, and the panel owns the passcode gate that goes with it.
-              }}
+              /* The panel previews a directory through the unauthenticated endpoint itself; this is the
+                 separate ask of "take me to the page a reader would see", which is a real address on this
+                 origin rather than a preview inside the hub. */
+              onPreview={(slug) => { window.open(`/collections/${encodeURIComponent(slug)}`, '_blank', 'noopener') }}
             />
           )}
 

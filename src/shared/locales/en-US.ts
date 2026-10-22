@@ -3038,7 +3038,6 @@ export const EN_US_MESSAGES = {
     "share.collection_page_loading": "Loading this collection",
     "share.collection_page_empty": "Nothing in here is open right now.",
     "share.collection_page_more": "Show more",
-    "share.hub_collection_open_page": "Open the published page",
     "shell.add_to_remove_from_favorites": "Add to / remove from favorites",
     "shell.collapse_expand_list": "Collapse/expand list",
     "shell.cycle_editor_split_preview": "Cycle live preview / split view / reading mode",

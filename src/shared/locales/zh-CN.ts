@@ -3038,7 +3038,6 @@ export const ZH_CN_MESSAGES = {
     "share.collection_page_loading": "正在加载这个集合",
     "share.collection_page_empty": "这里暂时没有对外开放的内容。",
     "share.collection_page_more": "显示更多",
-    "share.hub_collection_open_page": "打开发布页",
     "shell.add_to_remove_from_favorites": "收藏 / 取消收藏",
     "shell.collapse_expand_list": "折叠 / 展开列表",
     "shell.cycle_editor_split_preview": "切换即时渲染 / 分栏 / 阅读",

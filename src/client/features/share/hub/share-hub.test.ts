@@ -13,7 +13,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ShareListItem } from '@shared/types'
 import { ConfirmHost } from '../../../components/overlay'
-import { initI18n, t } from '../../../lib/i18n'
+import { initI18n, t, type MessageKey } from '../../../lib/i18n'
 import { installTestGlobals } from '../../../lib/test-render'
 import { useUi } from '../../../store/ui'
 import { ShareHubModal } from './share-hub-modal'
@@ -212,11 +212,12 @@ describe('opening the hub', () => {
 
   it('names every one of the twelve views', async () => {
     await openHub()
-    for (const key of [
+    const RAIL_KEYS: MessageKey[] = [
       'share.cat_all', 'share.cat_active', 'share.cat_pinned', 'share.cat_starred',
       'share.cat_paused', 'share.cat_password', 'share.cat_expiring_soon',
       'share.cat_expiring', 'share.cat_permanent', 'share.cat_expired',
-    ]) {
+    ]
+    for (const key of RAIL_KEYS) {
       expect(document.body.textContent, `${t(key)} is missing from the rail`).toContain(t(key))
     }
   })
