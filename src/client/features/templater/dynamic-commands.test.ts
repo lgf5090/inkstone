@@ -11,13 +11,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { initI18n } from '../../lib/i18n'
 import { useNotes } from '../../store/notes'
 import { processDynamicCommands } from './dynamic-commands'
-import { renderDynamicCommands, type DynamicAnswer } from './run-shell'
+import { renderDynamicCommand } from './run-shell'
 
 vi.mock('./run-shell', () => ({
-  renderDynamicCommands: vi.fn(async (commands: string[]) => commands.map((): DynamicAnswer => ({ ok: true as const, output: 'answered' }))),
+  renderDynamicCommand: vi.fn(async () => ({ ok: true as const, output: 'answered' })),
 }))
 
-const run = vi.mocked(renderDynamicCommands)
+const run = vi.mocked(renderDynamicCommand)
 
 const HOST: Note = {
   id: 'n-host', title: 'Host', content: '', excerpt: '', folderId: null, tags: [], isPinned: false,
@@ -36,9 +36,7 @@ function mount(html: string): HTMLElement {
 beforeEach(async () => {
   await initI18n()
   run.mockReset()
-  // The default answer is per command, not per call: a pass that handed over three commands gets three
-  // answers back, which is the shape `renderDynamicCommands` promises.
-  run.mockImplementation(async (commands: string[]) => commands.map((): DynamicAnswer => ({ ok: true, output: 'answered' })))
+  run.mockResolvedValue({ ok: true, output: 'answered' })
   useNotes.setState({ notes: { [HOST.id]: HOST, [EMBEDDED.id]: EMBEDDED }, contents: {}, folders: [] })
 })
 
@@ -48,10 +46,7 @@ describe('replacing the commands a preview holds', () => {
     const report = await processDynamicCommands(root, HOST)
     expect(report).toEqual({ found: 2, ran: 2, failed: 0, skipped: 0 })
     expect(root.textContent).toBe('Today is answered and so is answered.')
-    // One call for the pair: the pass collects what a note holds and hands it over together, so a paragraph
-    // that asks the same clock twice is one parse, one program and one interpreter context.
-    expect(run).toHaveBeenCalledTimes(1)
-    expect(run.mock.calls[0]![0]).toEqual(['<% tp.date.now() %>', '<% tp.date.now("YYYY") %>'])
+    expect(run.mock.calls.map((call) => call[0])).toEqual(['<% tp.date.now() %>', '<% tp.date.now("YYYY") %>'])
     expect(run.mock.calls[0]![1]).toBe(HOST)
   })
 
@@ -59,7 +54,7 @@ describe('replacing the commands a preview holds', () => {
     const root = mount('<p><%- +tp.file.title %></p>')
     await processDynamicCommands(root, HOST)
     expect(run).toHaveBeenCalledTimes(1)
-    expect(run.mock.calls[0]![0]).toEqual(['<%- tp.file.title %>'])
+    expect(run.mock.calls[0]![0]).toBe('<%- tp.file.title %>')
   })
 
   it('leaves quoted code alone, fenced or inline', async () => {
@@ -72,10 +67,7 @@ describe('replacing the commands a preview holds', () => {
   })
 
   it('runs the rest of the paragraph when one command fails, and says why beside it', async () => {
-    run.mockResolvedValueOnce([
-      { ok: false, error: '模板命令解析失败' },
-      { ok: true, output: 'answered' },
-    ])
+    run.mockResolvedValueOnce({ ok: false, error: '模板命令解析失败' })
     const root = mount('<p>a <%+ broken() %> b <%+ fine() %> c</p>')
     const report = await processDynamicCommands(root, HOST)
     expect(report).toEqual({ found: 2, ran: 1, failed: 1, skipped: 0 })
@@ -93,7 +85,7 @@ describe('replacing the commands a preview holds', () => {
     await processDynamicCommands(root, HOST)
     run.mockClear()
     // An answer that itself reads like a command must not become one: the span that holds it is skipped.
-    run.mockResolvedValue([{ ok: true, output: '<%+ tp.date.now() %>' }])
+    run.mockResolvedValue({ ok: true, output: '<%+ tp.date.now() %>' })
     const again = await processDynamicCommands(root, HOST)
     expect(again.found).toBe(0)
     expect(run).not.toHaveBeenCalled()
@@ -105,17 +97,6 @@ describe('the note a command belongs to', () => {
     const root = mount('<div data-embed-target="Source"><p>From <%+ tp.file.title %></p></div>')
     await processDynamicCommands(root, HOST)
     expect(run.mock.calls[0]![1]!.id).toBe(EMBEDDED.id)
-  })
-
-  it('batches per note, so an embed is never asked against the page holding it', async () => {
-    const root = mount('<p>Host <%+ tp.file.title %></p><div data-embed-target="Source"><p>From <%+ tp.file.title %></p></div>')
-    const report = await processDynamicCommands(root, HOST)
-    expect(report).toEqual({ found: 2, ran: 2, failed: 0, skipped: 0 })
-    expect(run).toHaveBeenCalledTimes(2)
-    expect(run.mock.calls.map((call) => [call[1]?.id, call[0]])).toEqual([
-      ['n-host', ['<% tp.file.title %>']],
-      ['n-embed', ['<% tp.file.title %>']],
-    ])
   })
 
   it('leaves the source where the embedded note cannot be named', async () => {
@@ -147,7 +128,7 @@ describe('a preview with nothing to run', () => {
     const root = mount('<p><%+ slow() %></p>')
     run.mockImplementation(async () => {
       root.innerHTML = '<p>re-rendered</p>'
-      return [{ ok: true, output: 'late' }]
+      return { ok: true, output: 'late' }
     })
     const report = await processDynamicCommands(root, HOST)
     expect(report).toEqual({ found: 1, ran: 0, failed: 0, skipped: 0 })

@@ -476,74 +476,23 @@ export function confirmReplace(template: NoteTemplate): Promise<boolean> {
   })
 }
 
-/** What one dynamic command answers with: its text, or the sentence to leave beside it. */
-export type DynamicAnswer = { ok: true; output: string } | { ok: false; error: string }
-
-/**
- * Text a command cannot print, used to hold several answers apart inside one rendered body. A NUL is not
- * something a date, a title or a prompt answer contains, and a pass that gets the wrong number of pieces
- * back does not guess which answer is whose — it asks one at a time instead.
- */
-const DYNAMIC_BATCH = `\0inkstone-dynamic\0`
-
 /**
  * One `<%+ … %>` command, asked for its text and nothing else.
  *
- * The preview pass calls this for a single command; `renderDynamicCommands` below is what it calls when a
- * note has more than one, which is the common case in a paragraph that asks the same clock twice.
- */
-export async function renderDynamicCommand(
-  command: string,
-  file: Note | null,
-): Promise<DynamicAnswer> {
-  return runDynamicSource(command, file)
-}
-
-/**
- * Several `<%+ … %>` commands of one note, answered by one run.
- *
- * The pass used to pay a worker round-trip per command; a paragraph with four of them paid four parses, four
- * compiled programs and four QuickJS contexts for one paragraph of one note. Joining the sources with a
- * separator no command can print makes the body one run, and the answer one string to split.
- *
- * Two ways that can go wrong, and both take the same way out. A command that throws takes the whole body
- * down with it, and a command that prints the separator splits the answer in the wrong place — neither is
- * something to guess an answer for, so the pass falls back to asking one at a time, which is the behaviour
- * every command was already marked with. A note whose commands all succeed, which is the common case, never
- * pays that path.
- */
-export async function renderDynamicCommands(
-  commands: string[],
-  file: Note | null,
-): Promise<DynamicAnswer[]> {
-  if (commands.length <= 1) {
-    return commands.length === 0 ? [] : [await runDynamicSource(commands[0]!, file)]
-  }
-  const batch = await runDynamicSource(commands.join(DYNAMIC_BATCH), file)
-  if (batch.ok) {
-    const parts = batch.output.split(DYNAMIC_BATCH)
-    if (parts.length === commands.length) {
-      return parts.map((output): DynamicAnswer => ({ ok: true, output }))
-    }
-  }
-  const answers: DynamicAnswer[] = []
-  for (const command of commands) answers.push(await runDynamicSource(command, file))
-  return answers
-}
-
-/**
- * The one run every dynamic command goes through.
- *
- * Two things make it different from every door above: the profile is `dynamic`, which grants the prompt and
+ * The preview pass in `dynamic-commands.ts` calls this once per command it found in the rendered note. Two
+ * things make it different from every door above: the profile is `dynamic`, which grants the prompt and
  * refuses writing, creating, moving, the network, the clipboard and the reader's scripts; and the answer is
  * returned rather than toasted, because the reader is looking at the sentence the command failed inside, and
  * a notice at the other end of the screen would not tell them which one. `host/write.ts` refuses a
  * `dynamic-processor` run whatever the command asks for, so this cannot become a write path by accident.
  */
-async function runDynamicSource(source: string, file: Note | null): Promise<DynamicAnswer> {
+export async function renderDynamicCommand(
+  command: string,
+  file: Note | null,
+): Promise<{ ok: true; output: string } | { ok: false; error: string }> {
   const input: RunTemplateInput = {
     ...contextFor('dynamic-processor', file, file, null, 'dynamic'),
-    template: { kind: 'source', content: source },
+    template: { kind: 'source', content: command },
   }
   try {
     const result = await runTemplateOnNote({ ...input, ...(await scriptContext('dynamic')) }, await templaterPorts())
@@ -551,8 +500,8 @@ async function runDynamicSource(source: string, file: Note | null): Promise<Dyna
     return { ok: true, output: result.output }
   }
   catch (error) {
-    // A port that throws is this app's own data layer failing, and the pipeline lets it travel on purpose.
-    // The preview still says so beside the command rather than swallowing it.
+    // A port that throws is this app's data layer failing; the preview still says so beside the command
+    // rather than swallowing it, which is the same rule `run()` follows for a door.
     return { ok: false, error: templaterErrorText(error, t) }
   }
 }
