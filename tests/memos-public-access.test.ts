@@ -49,8 +49,8 @@ beforeAll(async () => {
   ).run(SHARE_ID, USER, MEMO, await hashOpaqueToken(SHARE_TOKEN), now)
 })
 
-function request(path: string): Promise<Response> {
-  return app.fetch(new Request(`http://localhost${path}`, {
+async function request(path: string): Promise<Response> {
+  return await app.fetch(new Request(`http://localhost${path}`, {
     headers: { 'X-Inkstone-Client': '1' },
   }), env)
 }
