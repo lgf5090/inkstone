@@ -4386,6 +4386,20 @@ export class AssistantStore {
     )
   }
 
+  /**
+   * What a guarded write that matched no row means: the task is gone, or it moved under the caller.
+   *
+   * The statement cannot tell the two apart — it matched no row either way — so the row is read again:
+   * no row answers null and the caller says 404, a row answers with the revision that really stands.
+   * Every guarded task write ends with this, which is the only reason a pick, a move and an edit refuse
+   * a stale caller in the same words.
+   */
+  private async missingOrConflict(id: string): Promise<null> {
+    const current = await this.getTask(id)
+    if (!current) return null
+    throw this.taskConflict(id, current)
+  }
+
   async createTask(input: NewTask, timeZone?: string): Promise<TodoTask> {
     const id = newId()
     const at = Date.now()
@@ -4445,18 +4459,23 @@ export class AssistantStore {
    * This is what a "remind me again" press means: a second chance at the same task, not a cancellation
    * of the reminders the reader set earlier. The route owns the ceiling and the finished-task refusal;
    * this answers with the row as it now reads, or null when the task is gone.
+   *
+   * `expectedRev` is the revision the caller read. It guards the row's own bump, and the reminder is
+   * queued only after that bump lands: a reminder inserted in the same batch as a guarded update would
+   * land even when the guard matched nothing, so a refused "remind me again" would still announce
+   * itself later and quietly spend one of the five slots.
    */
-  async snoozeTask(id: string, remindAt: number): Promise<TodoTask | null> {
+  async snoozeTask(id: string, remindAt: number, expectedRev?: number): Promise<TodoTask | null> {
     const existing = await this.getTask(id)
     if (!existing) return null
-    await this.db.batch([
-      this.db.prepare(
-        `INSERT INTO todos_reminders (user_id, id, task_id, remind_at, fired_at, created_at)
-         VALUES (?1, ?2, ?3, ?4, NULL, ?5)`,
-      ).bind(this.userId, newId(), id, Math.trunc(remindAt), Date.now()),
-      this.db.prepare(`UPDATE todos_tasks SET updated_at = ?3, rev = rev + 1 WHERE user_id = ?1 AND id = ?2`)
-        .bind(this.userId, id, Date.now()),
-    ])
+    if (expectedRev !== undefined && existing.rev !== expectedRev) throw this.taskConflict(id, existing)
+    const changes = await this.updateTaskRow(id, [['updated_at', Date.now()]], expectedRev)
+    if (!changes) return await this.missingOrConflict(id)
+    await this.write(
+      `INSERT INTO todos_reminders (user_id, id, task_id, remind_at, fired_at, created_at)
+       VALUES (?1, ?2, ?3, ?4, NULL, ?5)`,
+      newId(), id, Math.trunc(remindAt), Date.now(),
+    )
     return await this.getTask(id)
   }
 
@@ -4565,11 +4584,9 @@ export class AssistantStore {
     fields.push(['updated_at', at])
     const changes = await this.updateTaskRow(id, fields, expectedRev, event ? [event] : undefined)
     if (!changes) {
-      // The row was gone, or (with a guard) moved between the read and the write. Re-read so the
-      // conflict names the revision that actually stands; the guarded statement wrote nothing.
-      const current = await this.getTask(id)
-      if (!current) return null
-      throw this.taskConflict(id, current)
+      // The row was gone, or (with a guard) moved between the read and the write: the guarded statement
+      // wrote nothing either way, so the caller gets the answer `missingOrConflict` sorts the two out.
+      return await this.missingOrConflict(id)
     }
     if (patch.tags !== undefined) await this.replaceTaskTags(id, patch.tags)
     // Reminders follow their due date unless the caller named a list (or the single instant the
@@ -4597,13 +4614,19 @@ export class AssistantStore {
    * the list reads in today — otherwise the moved row would sort ahead of every unplaced sibling and
    * jump to the top of a list the reader only nudged. A gap with no room left is renumbered the same
    * way and then folded again; a second failure is a conflict rather than a duplicated place.
+   *
+   * `expectedRev` guards the row the way it guards an edit. The neighbours are read before the write,
+   * so a move is exactly the kind of write that can land on a row somebody else already moved: the
+   * fold it computed is a decision about a listing the caller no longer holds.
    */
   async moveTask(
     id: string,
     placement: { beforeId: string | null; listId?: string | null },
+    expectedRev?: number,
   ): Promise<TodoTask | null> {
     const existing = await this.getTask(id)
     if (!existing) return null
+    if (expectedRev !== undefined && existing.rev !== expectedRev) throw this.taskConflict(id, existing)
     const listId = placement.listId === undefined ? existing.listId : placement.listId
     // `IS` rather than `=` so an inbox move (null) is one shape with a list move, and the order is the
     // one a listing reads before any manual place exists.
@@ -4630,8 +4653,8 @@ export class AssistantStore {
       ['position', position],
       ['list_id', listId],
       ['updated_at', Date.now()],
-    ])
-    if (!changes) return null
+    ], expectedRev)
+    if (!changes) return await this.missingOrConflict(id)
     return await this.getTask(id)
   }
 
@@ -4737,13 +4760,18 @@ export class AssistantStore {
    * calendar day: the store's boundary is the account, not the shape of the text. Planning twice is
    * one row either way, and a day in the past is kept as written — a backfilled record is still a
    * record, it simply is not today. Does not touch the due date, the reminder or the status.
+   *
+   * `expectedRev` guards the pick the way it guards an edit: the app sends the revision it rendered,
+   * and a day the reader did not see is not theirs to overwrite.
    */
-  async planTask(id: string, date: string | null): Promise<TodoTask | null> {
+  async planTask(id: string, date: string | null, expectedRev?: number): Promise<TodoTask | null> {
+    // No row is read first: unlike the patch and the move, a pick needs nothing from the row to compute
+    // what it writes, so the guard is the statement's own `rev = ?` and a stale caller costs no read.
     const changed = await this.updateTaskRow(id, [
       ['planned_for', date],
       ['updated_at', Date.now()],
-    ])
-    if (!changed) return null
+    ], expectedRev)
+    if (!changed) return await this.missingOrConflict(id)
     return await this.getTask(id)
   }
 

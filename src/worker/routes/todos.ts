@@ -809,16 +809,18 @@ todoRoutes.post('/', async (c) => {
  * A separate endpoint rather than a `plannedFor` field on PATCH: the pick is its own gesture with its
  * own body shape (`{date}`), and the old client's PATCH never has to learn about a column it does not
  * send. The task id is scoped by the store, so another account's id is a 404 like every other id here.
+ *
+ * The guard is the store's, not a read of this row's own: the route hands over the revision the caller
+ * named and the write either matches it or refuses. Reading the row here to compare first was a second
+ * copy of the same rule, and the two disagreed inside the window between the read and the write — the
+ * exact window a conditional write exists to close.
  */
 todoRoutes.post('/:id/plan', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
   const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
   const expectedRev = requestRevision(c, body)
-  const existing = await s.getTask(id)
-  if (!existing) throw ApiError.notFound('Task not found')
-  if (expectedRev !== undefined && existing.rev !== expectedRev) throw revisionConflict(id, existing.rev)
-  const task = await s.planTask(id, plannedDay(body.date))
+  const task = await s.planTask(id, plannedDay(body.date), expectedRev)
   if (!task) throw ApiError.notFound('Task not found')
   return c.json({ task })
 })
@@ -846,18 +848,19 @@ function moveAnchor(value: unknown, taskId: string): string | null {
  * account's task is a 404 and an anchor outside the destination is a 400 that names the request.
  * `listId` absent keeps the task where it is; null is the inbox, the same reading every other list
  * field in this file gives it.
+ *
+ * The revision the caller named goes to the store rather than being checked against a read here: a
+ * drop computed from a listing the row has already moved past must not land, and the guard that says so
+ * belongs on the write, not beside it.
  */
 todoRoutes.post('/:id/move', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
   const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
   const beforeId = moveAnchor(body.beforeId, id)
-  const existing = await s.getTask(id)
-  if (!existing) throw ApiError.notFound('Task not found')
   const expectedRev = requestRevision(c, body)
-  if (expectedRev !== undefined && existing.rev !== expectedRev) throw revisionConflict(id, existing.rev)
   const listId = body.listId === undefined ? undefined : await listRef(s, body.listId)
-  const task = await s.moveTask(id, { beforeId, listId })
+  const task = await s.moveTask(id, { beforeId, listId }, expectedRev)
   if (!task) throw ApiError.notFound('Task not found')
   return c.json({ task })
 })
@@ -870,6 +873,10 @@ todoRoutes.post('/:id/move', async (c) => {
  * the task endpoints already take, and a second way to say the same thing would be a second validator
  * to keep in step. A finished task is refused because nothing will ever be announced for it, and a
  * task already at the five-reminder ceiling is refused rather than silently dropping one.
+ *
+ * The row is read here for those two questions only — what this request is asking for. Whether the
+ * caller still holds it is the store's guard to answer, so the revision rides to `snoozeTask` and the
+ * reminder is queued only when the row it lands on is the row the caller saw.
  */
 todoRoutes.post('/:id/snooze', async (c) => {
   const s = store(c)
@@ -881,12 +888,11 @@ todoRoutes.post('/:id/snooze', async (c) => {
   const expectedRev = requestRevision(c, body)
   const existing = await s.getTask(id)
   if (!existing) throw ApiError.notFound('Task not found')
-  if (expectedRev !== undefined && existing.rev !== expectedRev) throw revisionConflict(id, existing.rev)
   if (existing.status === 'done') throw ApiError.badRequest('A finished task cannot be snoozed.')
   if ((existing.reminders?.length ?? 0) >= MAX_REMINDERS_PER_TASK) {
     throw ApiError.badRequest(`This task already has ${MAX_REMINDERS_PER_TASK} reminders.`)
   }
-  const task = await s.snoozeTask(id, Date.now() + body.minutes * 60_000)
+  const task = await s.snoozeTask(id, Date.now() + body.minutes * 60_000, expectedRev)
   if (!task) throw ApiError.notFound('Task not found')
   return c.json({ task, reminders: task.reminders ?? [] })
 })
@@ -1011,9 +1017,10 @@ todoRoutes.patch('/:id', async (c) => {
   const expectedRev = requestRevision(c, body)
   const existing = await s.getTask(id)
   if (!existing) throw ApiError.notFound('Task not found')
-  // A guard that already disagrees is refused before anything is written, which is what protects the
-  // completion path as well: the patch below spends the revision, so the `completeTask` after it runs
-  // unguarded and leans on this pre-check as its conflict check.
+  // A guard that already disagrees is refused before anything is written. Once the patch below has
+  // written, that write has spent the revision, and the completion after it can only lean on this
+  // pre-check as its conflict check. While nothing has been written — a bare tick — the revision the
+  // caller named still stands, so `completeTask` is guarded by it too.
   if (expectedRev !== undefined && existing.rev !== expectedRev) throw revisionConflict(id, existing.rev)
   const dueAt = body.dueAt === undefined ? undefined : parseDue(body.dueAt, settings.timezone)
   // Absent leaves the column alone; null clears it, exactly as the due date's own field reads.
@@ -1049,25 +1056,28 @@ todoRoutes.patch('/:id', async (c) => {
     ...(body.conversationId !== undefined ? { conversationId: optionalId(body.conversationId, 'conversationId') } : {}),
     ...(body.tags !== undefined ? { tags: tagNames(body.tags) ?? [] } : {}),
   }
-  let task = Object.keys(patch).length
+  // Whether this request also names content. A write here spends the revision the caller named, so a
+  // second write made by the same request — the completion, or a reopen — must not name it again: the
+  // guard would refuse this caller's own follow-up. A bare tick writes nothing first, and so keeps its
+  // guard: the completion is that request's only write, and it should answer for the read it came from.
+  const wroteFields = Object.keys(patch).length > 0
+  let task = wroteFields
     ? await s.updateTask(id, patch, settings.timezone, expectedRev)
     : existing
   if (!task) throw ApiError.notFound('Task not found')
   let next = null
   if (completing) {
-    const done = await s.completeTask(id, settings.timezone)
+    const done = await s.completeTask(id, settings.timezone, wroteFields ? undefined : expectedRev)
     if (!done) throw ApiError.notFound('Task not found')
     task = done.task
     next = done.next
     await s.recordActivity('task.completed', task.title)
   } else if (nextStatus !== undefined && nextStatus !== task.status) {
-    // The revision was already spent by the patch above; naming it twice would refuse this caller's
-    // own second write.
     task = (await s.updateTask(
       id,
       { status: nextStatus },
       settings.timezone,
-      Object.keys(patch).length ? undefined : expectedRev,
+      wroteFields ? undefined : expectedRev,
     )) ?? task
   }
   return c.json({ task, ...(next ? { next } : {}) })

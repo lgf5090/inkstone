@@ -963,7 +963,8 @@ describe('a conditional write', () => {
     expect((await send('PATCH', `/${task.id}`, { title: 'Unguarded' }, { 'If-Match': 'soon' })).status).toBe(400)
   })
 
-  it('refuses a stale pick and a stale snooze and leaves the row as it was', async () => {
+  it('refuses a stale pick, move and snooze and leaves the row as it was', async () => {
+    const anchor = await create({ title: 'Anchor' })
     const task = await create({ title: 'Plan me' })
     const planned = await send('POST', `/${task.id}/plan`, { date: '2026-10-21', rev: 1 })
     expect(planned.status).toBe(200)
@@ -973,10 +974,21 @@ describe('a conditional write', () => {
     expect(stalePlan.status).toBe(409)
     expect((await json<{ task: TodoTask }>(await send('GET', `/${task.id}`))).task.plannedFor).toBe('2026-10-21')
 
+    // A move is the other write the app makes without naming a column: its place came from a listing,
+    // and a row that moved since that listing is not the reader's to re-place.
+    const staleMove = await send('POST', `/${task.id}/move`, { beforeId: anchor.id, rev: 1 })
+    expect(staleMove.status).toBe(409)
+    expect((await json<{ error: { details: { rev: number } } }>(staleMove)).error.details.rev).toBe(2)
+
     const fresh = (await json<{ task: TodoTask }>(await send('GET', `/${task.id}`))).task
-    const snoozed = await send('POST', `/${task.id}/snooze`, { minutes: 10, rev: fresh.rev })
+    const moved = await send('POST', `/${task.id}/move`, { beforeId: anchor.id, rev: fresh.rev })
+    expect(moved.status).toBe(200)
+    const afterMove = (await json<{ task: TodoTask }>(await send('GET', `/${task.id}`))).task
+    expect(afterMove.rev).toBe(fresh.rev! + 1)
+
+    const snoozed = await send('POST', `/${task.id}/snooze`, { minutes: 10, rev: afterMove.rev })
     expect(snoozed.status).toBe(200)
-    const staleSnooze = await send('POST', `/${task.id}/snooze`, { minutes: 10, rev: fresh.rev })
+    const staleSnooze = await send('POST', `/${task.id}/snooze`, { minutes: 10, rev: afterMove.rev })
     expect(staleSnooze.status).toBe(409)
     // The refused snooze appended nothing: one reminder, not two.
     expect((await json<{ task: TodoTask }>(await send('GET', `/${task.id}`))).task.reminders).toHaveLength(1)
