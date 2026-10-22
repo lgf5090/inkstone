@@ -225,7 +225,15 @@ export function buildTaskMenuItems(task: TodoTask, handlers: TaskMenuHandlers): 
           .map((entry) => ({ id: entry.id, name: entry.name })),
       ]
     : []
-  const moveItems: MenuItem[] = move
+  /**
+   * The pair, drawn together or not at all.
+   *
+   * A row that can move in neither direction has no neighbour to name, and two greyed rows that both
+   * refuse to do anything are not a disabled control but a dead end drawn twice — which is how this
+   * repository has been caught four times. A row at *one* end still wears both, because "up" being grey
+   * is how a reader learns they are standing at the top rather than finding the row missing.
+   */
+  const orderItems: MenuItem[] = move && (move.canMoveUp || move.canMoveDown)
     ? [
         {
           id: 'move-up',
@@ -247,6 +255,10 @@ export function buildTaskMenuItems(task: TodoTask, handlers: TaskMenuHandlers): 
             move.onMoveDown()
           },
         },
+      ]
+    : []
+  const listItems: MenuItem[] = move
+    ? [
         {
           id: 'move-to-list',
           label: t('todo.move.to_list'),
@@ -280,7 +292,7 @@ export function buildTaskMenuItems(task: TodoTask, handlers: TaskMenuHandlers): 
       }))
     : []
 
-  return joinMenuGroups([statusItems, priorityItems, moveItems, snoozeItems])
+  return joinMenuGroups([statusItems, priorityItems, orderItems, listItems, snoozeItems])
 }
 
 /**

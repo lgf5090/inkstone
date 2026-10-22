@@ -25,6 +25,7 @@ import { useMediaQuery } from '../../lib/hooks'
 import { IconButton } from '../../components/primitives'
 import { Menu, type MenuItem } from '../../components/overlay'
 import { useTodos, type TaskListEntry } from './store'
+import { FINE_POINTER_QUERY } from './TaskCard'
 import { TagEditor } from './OrganizerEditors'
 import { TrashPanel } from './TrashPanel'
 import { ListIcon } from './list-icons'
@@ -284,8 +285,9 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
   // is page state rather than the row's own.
   const [draggingId, setDraggingId] = useState<string | null>(null)
   // A phone cannot start an HTML5 drag at all, so its rows get no handle and the menu is the only
-  // path — which is why the menu rows are built whether or not this pointer can drag.
-  const finePointer = useMediaQuery('(hover: hover) and (pointer: fine)')
+  // path — which is why the menu rows are built whether or not this pointer can drag. The question is
+  // the card's own, asked once, so it reads the card's spelling of it.
+  const finePointer = useMediaQuery(FINE_POINTER_QUERY)
 
   const toggleArchive = (): void => {
     const next = !archivedOpen

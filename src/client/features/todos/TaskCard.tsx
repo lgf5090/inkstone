@@ -60,6 +60,16 @@ function pressTravelled(origin: { x: number; y: number } | null, event: { client
 /** What a dragged task carries. The note tree uses the same shape for the same reason. */
 export const TODO_DRAG_TYPE = 'application/x-inkstone-todo'
 
+/**
+ * The pointer a drag is worth drawing for.
+ *
+ * One spelling, shared by every surface in this feature that asks the question — a card deciding whether
+ * to make itself draggable, the board deciding whether to draw a column's drop bands, the organizer
+ * deciding which rows may be picked up. A phone gets the menus instead, so a second copy of the string
+ * is a second answer to the same question the first time a device reports the two halves differently.
+ */
+export const FINE_POINTER_QUERY = '(hover: hover) and (pointer: fine)'
+
 /** Whether a drag over this surface is one of ours rather than a file from the desktop. */
 export function isTodoTaskDrag(event: React.DragEvent): boolean {
   return Array.from(event.dataTransfer.types).includes(TODO_DRAG_TYPE)
@@ -110,14 +120,22 @@ export function openTaskSiblings(tasks: readonly TodoTask[], task: TodoTask): To
 /**
  * What a card's move menu may do, and whether it may be dragged.
  *
- * The siblings are the open rows of the card's own list in the order the page arrived in, which is the
+ * The siblings are the open rows of the card's own list in the order the page read them, which is the
  * order the server read. Up and down therefore name the visible neighbour, and "move down" anchors the
  * row before the sibling *after* that neighbour — the same "before this row" grammar a drop uses.
- * Dragging needs a fine pointer: a phone gets the menu instead, which is why the controls are built
- * whether or not the pointer can drag.
+ *
+ * Two questions about the pointer are answered apart, because a board does not always ask them together.
+ * `dragEnabled` is whether this row may be picked up; `reorderEnabled` is whether another row may be
+ * dropped into the gap beside it, with the line that promises so. Columns cut by status or list have
+ * both; columns cut by priority want the first and refuse the second, since a hand-written place belongs
+ * to a list and not to a priority — and a row that offered a gap it cannot fill is a line to nowhere.
+ * Absent, `reorderEnabled` follows `dragEnabled`, which is every listing that has had the pair together
+ * all along. Dragging needs a fine pointer either way: a phone gets the menu instead, which is why the
+ * controls are built whether or not the pointer can drag.
  */
 export interface TaskMoveControls {
   dragEnabled: boolean
+  reorderEnabled?: boolean
   canMoveUp: boolean
   canMoveDown: boolean
   onMoveUp: () => void
@@ -129,7 +147,7 @@ export interface TaskMoveControls {
 
 export function useTaskMoves(enabled: boolean): (task: TodoTask) => TaskMoveControls | null {
   const tasks = useTodos((state) => state.tasks)
-  const finePointer = useMediaQuery('(hover: hover) and (pointer: fine)')
+  const finePointer = useMediaQuery(FINE_POINTER_QUERY)
   return (task) => {
     if (!enabled) return null
     const siblings = openTaskSiblings(tasks, task)
@@ -146,6 +164,7 @@ export function useTaskMoves(enabled: boolean): (task: TodoTask) => TaskMoveCont
     }
     return {
       dragEnabled: finePointer,
+      reorderEnabled: finePointer,
       canMoveUp: index > 0,
       canMoveDown: index < siblings.length - 1,
       onMoveUp: () => {
@@ -217,6 +236,15 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
   const rowMenu = useContextMenu()
   /** The row highlight a drag paints: the same before/after grammar the note tree uses. */
   const [dropState, setDropState] = useDropState<'none' | 'before' | 'after'>('none')
+  /**
+   * The two halves of the drag, which one column asks for apart from the other.
+   *
+   * Picking this row up and aiming at the gap beside it have always travelled together, and a listing
+   * whose order is the reader's still sends them together. A board cut by priority is the one surface
+   * that takes the first and declines the second, so the line below only ever belongs to `reorderable`.
+   */
+  const draggable = move?.dragEnabled === true
+  const reorderable = move ? (move.reorderEnabled ?? move.dragEnabled) === true : false
   /**
    * The long press a phone uses to enter selection mode.
    *
@@ -382,10 +410,10 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
   return (
     <article
       data-todo-selected={selected ? '' : undefined}
-      data-todo-draggable={move?.dragEnabled ? '' : undefined}
-      draggable={move?.dragEnabled && !selectionMode && !titleOpen ? true : undefined}
+      data-todo-draggable={draggable ? '' : undefined}
+      draggable={draggable && !selectionMode && !titleOpen ? true : undefined}
       onDragStart={(event) => {
-        if (!move?.dragEnabled) {
+        if (!draggable) {
           event.preventDefault()
           return
         }
@@ -393,7 +421,7 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
         event.dataTransfer.effectAllowed = 'move'
       }}
       onDragOver={(event) => {
-        if (!move?.dragEnabled || !isTodoTaskDrag(event)) return
+        if (!reorderable || !isTodoTaskDrag(event)) return
         // The row owns the drop it is under: without this the board card behind it would append the
         // task to the list instead of placing it where the reader pointed.
         event.preventDefault()
@@ -408,7 +436,9 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
         if (!(next instanceof Node) || !event.currentTarget.contains(next)) setDropState('none')
       }}
       onDrop={(event) => {
-        if (!move?.dragEnabled) return
+        // A drag this row cannot read is not its own to swallow: taking it would leave the surface
+        // behind — the column, the board, the day the pointer is really over — never hearing about it.
+        if (!move || !reorderable || !isTodoTaskDrag(event)) return
         event.preventDefault()
         event.stopPropagation()
         setDropState('none')
@@ -425,10 +455,10 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
       )}
     >
       {dropState === 'before' && (
-        <span aria-hidden="true" className="pointer-events-none absolute top-0 right-1 left-1 h-0.5 rounded-full bg-[var(--accent)]" />
+        <span aria-hidden="true" data-todo-drop-line="before" className="pointer-events-none absolute top-0 right-1 left-1 h-0.5 rounded-full bg-[var(--accent)]" />
       )}
       {dropState === 'after' && (
-        <span aria-hidden="true" className="pointer-events-none absolute right-1 bottom-0 left-1 h-0.5 rounded-full bg-[var(--accent)]" />
+        <span aria-hidden="true" data-todo-drop-line="after" className="pointer-events-none absolute right-1 bottom-0 left-1 h-0.5 rounded-full bg-[var(--accent)]" />
       )}
       {selectionMode ? (
         // The selection tick takes the completion box's place rather than sitting beside it: while the

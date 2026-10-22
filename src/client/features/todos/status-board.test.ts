@@ -401,8 +401,14 @@ describe('the board cut by priority', () => {
   it('offers no move up or down for a row of a priority column, while a status column offers them', () => {
     renderBoard([task('a', 'todo', { priority: 'medium' }), task('b', 'todo', { priority: 'medium' })], 'priority')
     openMenu('Task a')
-    expect(menuRow(t('todo.move.up')).disabled).toBe(true)
-    expect(menuRow(t('todo.move.down')).disabled).toBe(true)
+    // A priority column has no hand-written place at either end, so the pair leaves the menu rather than
+    // sitting there as two greyed rows that both refuse to do anything.
+    const offered = [...document.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemcheckbox"]')]
+      .map((node) => (node.textContent ?? '').trim())
+    expect(offered).not.toContain(t('todo.move.up'))
+    expect(offered).not.toContain(t('todo.move.down'))
+    // What the column does answer is still reachable, and the reminder rows are with it.
+    expect(offered).toContain(t('todo.move.to_list'))
 
     // `renderBoard` takes the board — and the menu portal it left on the body — down first.
     renderBoard([task('a', 'todo'), task('b', 'in_progress')], 'status')
