@@ -137,11 +137,16 @@ function Card({ title, hint, action, children, className }: {
 }
 
 /**
- * The four numbers the screen is about.
+ * The five numbers the screen is about.
  *
  * Each carries its own change against the equally long window before it, and the two that have a
  * shape — completed and created — carry a sparkline of the same series the trend draws. A window that
  * held nothing prints a dash rather than an infinity dressed up as a percentage.
+ *
+ * The two rates sit next to each other on purpose (D10): the completion rate counts finished over
+ * finished-plus-owed and leaves the abandonments out of both halves, so the sentence is only honest
+ * when the reader can see what was left out beside it. `DefinitionsTable` spells all three rules for a
+ * screen reader, because a label like "completion rate" carries its whole meaning in its denominator.
  */
 function HeadlineStats({ stats, comparison }: { stats: TodoStats; comparison: PreviousStats }) {
   const { summary, series } = stats
@@ -153,12 +158,22 @@ function HeadlineStats({ stats, comparison }: { stats: TodoStats; comparison: Pr
   const completionDelta = previous !== null && previous.summary.completed > 0
     ? rateDeltaPoints(summary.completionRate, previous.summary.completionRate, previous.summary.completed + previous.summary.open)
     : null
+  const abandonedDelta = previous !== null && previous.summary.abandoned > 0
+    ? rateDeltaPoints(
+      summary.abandonedRate,
+      previous.summary.abandonedRate,
+      previous.summary.completed + previous.summary.abandoned + previous.summary.open,
+    )
+    : null
   const onTimeDelta = previous === null
     ? null
     : rateDeltaPoints(summary.onTimeRate, previous.summary.onTimeRate, previous.summary.onTimeDue)
   return (
     <div className="flex flex-col gap-2">
-    <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+    {/* Five across from `md` up: the two rates have to read as one pair, and a grid that left the
+        fifth card alone on a second row would not say that. Below `md` the cards stay two across and
+        wrap, which is the shape the narrowest window already handles. */}
+    <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
       <KpiCard
         id="completed"
         label={t('todo.stats.completed')}
@@ -184,6 +199,17 @@ function HeadlineStats({ stats, comparison }: { stats: TodoStats; comparison: Pr
         points
       />
       <KpiCard
+        id="abandoned_rate"
+        label={t('todo.stats.abandoned_rate')}
+        value={percent(summary.abandonedRate)}
+        hint={t('todo.stats.abandoned_rate_hint', {
+          abandoned: summary.abandoned,
+          total: summary.completed + summary.abandoned + summary.open,
+        })}
+        delta={abandonedDelta}
+        points
+      />
+      <KpiCard
         id="on_time"
         label={t('todo.stats.on_time')}
         value={summary.onTimeDue === 0 ? '—' : percent(summary.onTimeRate)}
@@ -192,6 +218,7 @@ function HeadlineStats({ stats, comparison }: { stats: TodoStats; comparison: Pr
         points
       />
     </div>
+    <DefinitionsTable />
     {comparison.status === 'loading' && (
       <p role="status" className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
         {t('todo.stats.compare.loading')}
@@ -398,6 +425,43 @@ function GoalReference({ stats, goals }: { stats: TodoStats; goals: TodoGoals })
         )}
       </div>
     </section>
+  )
+}
+
+/**
+ * The three counting rules, as data rather than as prose.
+ *
+ * A rate's whole meaning lives in its denominator, and the denominator of the first one is the thing a
+ * reader cannot see from the label: `completionRate` deliberately does not count the tasks the reader
+ * gave up, because the number was published before that state existed and moving it under their feet
+ * would read as a drop they had caused. The screen says so out loud beside the two cards (their hints)
+ * and again here, where a screen reader gets the same three definitions the worker's own header states
+ * (plan §5 D10) rather than a picture of a bar.
+ */
+function DefinitionsTable() {
+  const rows = [
+    { id: 'completion_rate', label: t('todo.stats.completion_rate'), definition: t('todo.stats.definitions.completion_rate') },
+    { id: 'abandoned_rate', label: t('todo.stats.abandoned_rate'), definition: t('todo.stats.definitions.abandoned_rate') },
+    { id: 'finished_only', label: t('todo.stats.definitions.finished_only_label'), definition: t('todo.stats.definitions.finished_only') },
+  ]
+  return (
+    <table className="sr-only" data-stats-definitions="">
+      <caption>{t('todo.stats.definitions.caption')}</caption>
+      <thead>
+        <tr>
+          <th scope="col">{t('todo.stats.definitions.column.metric')}</th>
+          <th scope="col">{t('todo.stats.definitions.column.definition')}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr key={row.id}>
+            <th scope="row">{row.label}</th>
+            <td>{row.definition}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   )
 }
 

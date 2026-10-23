@@ -1320,7 +1320,7 @@ export const TASK_TOOLS: ToolDefinition[] = [
     name: 'task_stats',
     permission: 'read',
     maxCallsPerTurn: 2,
-    description: 'Read the reader\'s to-do statistics for a date range: completed, created, completion rate, on-time rate, current and longest streak, overdue, and the per-list split. Call this first when writing a weekly review, then base the review on these numbers rather than recounting the list. Defaults to the last seven days ending today in the reader\'s zone.',
+    description: 'Read the reader\'s to-do statistics for a date range: completed, created, completion rate, abandoned rate (tasks given up, counted separately from the completion rate rather than inside it), on-time rate, current and longest streak, overdue, and the per-list split. Call this first when writing a weekly review, then base the review on these numbers rather than recounting the list. Defaults to the last seven days ending today in the reader\'s zone.',
     fields: {
       from: {
         type: 'string',
@@ -1361,6 +1361,8 @@ export const TASK_TOOLS: ToolDefinition[] = [
           created: summary.created,
           open: summary.open,
           completionRate: summary.completionRate,
+          abandoned: summary.abandoned,
+          abandonedRate: summary.abandonedRate,
           onTime: summary.onTime,
           onTimeDue: summary.onTimeDue,
           onTimeRate: summary.onTimeRate,

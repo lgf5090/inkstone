@@ -480,6 +480,21 @@ export interface TaskStatsRange {
   timezone: string
 }
 
+/**
+ * The headline numbers, and the three counting rules they are measured on (plan §5 D10).
+ *
+ * The rules are written down rather than left to each reader because one of these numbers was published
+ * before the third status existed:
+ *
+ * - `completionRate` is finished over finished-plus-owed. A row the reader abandoned is in neither
+ *   half. Widening the denominator when `cancelled` arrived would have moved a number people already
+ *   compare week to week without them doing anything — the screen would have reported a regression
+ *   that was really a change of algorithm.
+ * - `abandonedRate` is the term that was left out, measured on its own over everything that either
+ *   ended or is still owed, so the two rates read side by side without one hiding the other.
+ * - Every *time* series — `net`, the backlog ages, the streaks, the lead times — is finished work only.
+ *   An abandonment says nothing about when the reader finished something, because they did not.
+ */
 export interface TaskStatsSummary {
   /** Finish events in the range: a repeated task counts once per completion, not once per task id. */
   completed: number
@@ -487,10 +502,25 @@ export interface TaskStatsSummary {
   created: number
   /** `completed - created`; positive means the range retired more than it filed. */
   net: number
-  /** Tasks still open when the statistics ran, the "unfinished" half of the completion rate. */
+  /** Tasks still owed when the statistics ran, the unfinished half of the completion rate. */
   open: number
-  /** `completed / (completed + open)`, or 0 when there is nothing either way. */
+  /**
+   * `completed / (completed + open)`, or 0 when there is nothing either way.
+   *
+   * Abandoned rows are in neither half — see the rule above the interface. The number a reader who has
+   * used this screen for months already recognised; `abandonedRate` carries what was left out.
+   */
   completionRate: number
+  /** Rows abandoned in the range, counted once per row that left the plate unfinished. */
+  abandoned: number
+  /**
+   * `abandoned / (completed + abandoned + open)`, or 0 when there is nothing to measure over.
+   *
+   * The denominator is the completion rate's plus the abandonments the first rate deliberately left
+   * out, so the two rates read as one story: of everything that ended or is still owed, this much was
+   * finished, this much given up.
+   */
+  abandonedRate: number
   /** Finished in the range, by their own due date. */
   onTime: number
   /** Finished in the range that carried a due date: the on-time rate's denominator. */
@@ -599,9 +629,14 @@ export interface TaskStatsBacklog {
 /**
  * One bucket of the cumulative flow: how much work stood in each status when the bucket ended.
  *
- * The three numbers always add up to the work that existed at that moment, because every task is in
- * exactly one status. They are replayed from the event table rather than counted from the rows: the
- * rows only say where a task is now, and the question the chart answers is where the backlog was.
+ * The three bands cover the work a reader can still be asked about — owed, under way, finished — and
+ * they add up to the stock that is still on one of those three shelves. They are replayed from the
+ * event table rather than counted from the rows: the rows only say where a task is now, and the
+ * question the chart answers is where the backlog was.
+ *
+ * An abandoned row is in none of them. It is not owed and it was not finished, so the event that
+ * abandoned it takes the task out of the band it stood in and puts it in no band: the chart gets
+ * shorter rather than showing given-up work as work done (D10).
  */
 export interface TaskStatsFlowPoint {
   day: string

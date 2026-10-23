@@ -115,6 +115,8 @@ function fullStats(): TodoStats {
       net: 3,
       open: 4,
       completionRate: 0.75,
+      abandoned: 4,
+      abandonedRate: 0.2,
       onTime: 3,
       onTimeDue: 5,
       onTimeRate: 0.6,
@@ -182,6 +184,8 @@ function emptyStats(): TodoStats {
       created: 0,
       net: 0,
       completionRate: 0,
+      abandoned: 0,
+      abandonedRate: 0,
       onTime: 0,
       onTimeDue: 0,
       onTimeRate: 0,
@@ -340,6 +344,12 @@ describe('the numbers on the screen', () => {
     expect(kpi(container, 'created')).toContain('9')
     expect(kpi(container, 'net')).toContain('+3')
     expect(kpi(container, 'completion_rate')).toContain('75%')
+    // The second rate, spelled with the denominator the first one deliberately left out.
+    expect(kpi(container, 'abandoned_rate')).toContain('20%')
+    expect(kpi(container, 'abandoned_rate')).toContain(t('todo.stats.abandoned_rate_hint', {
+      abandoned: 4,
+      total: 20,
+    }))
     expect(kpi(container, 'on_time')).toContain('60%')
     // The denominator is the one number a reader would otherwise guess at: it is finished rows that
     // carried a due date, not every finished row and not the open ones.
@@ -368,6 +378,20 @@ describe('the numbers on the screen', () => {
     expect(table!.textContent).toContain('2026-10-12')
     expect(table!.querySelectorAll('tbody tr')).toHaveLength(2)
   })
+
+  it('spells the three counting rules somewhere a screen reader can reach', async () => {
+    // D10: a rate whose denominator moved under the reader is the failure this guards against, so the
+    // screen carries the definitions as data rather than only as prose a sighted reader may skip.
+    const container = await mount(`/todo?view=stats&from=${RANGE.from}&to=${RANGE.to}&bucket=${RANGE.bucket}`)
+
+    const table = container.querySelector('table[data-stats-definitions]')
+    expect(table, 'the statistics screen states no counting rules').not.toBeNull()
+    expect(table!.querySelector('caption')?.textContent).toContain(t('todo.stats.definitions.caption'))
+    expect(table!.querySelectorAll('tbody tr')).toHaveLength(3)
+    expect(table!.textContent).toContain(t('todo.stats.definitions.completion_rate'))
+    expect(table!.textContent).toContain(t('todo.stats.definitions.abandoned_rate'))
+    expect(table!.textContent).toContain(t('todo.stats.definitions.finished_only'))
+  })
 })
 
 describe('the previous period', () => {
@@ -376,7 +400,7 @@ describe('the previous period', () => {
     const container = await mount(`/todo?view=stats&from=${RANGE.from}&to=${RANGE.to}&bucket=${RANGE.bucket}`)
 
     const values = [...container.querySelectorAll('[data-stats-delta]')].map((node) => node.textContent?.trim())
-    expect(values, 'a zero denominator must not become a percentage').toEqual(['—', '—', '—', '—'])
+    expect(values, 'a zero denominator must not become a percentage').toEqual(['—', '—', '—', '—', '—'])
     expect(container.textContent, 'an infinite or undefined change reached the screen').not.toMatch(/∞|Infinity|NaN/)
   })
 
@@ -387,6 +411,8 @@ describe('the previous period', () => {
       completed: 9,
       created: 6,
       completionRate: 0.6,
+      abandoned: 2,
+      abandonedRate: 0.1,
       onTime: 3,
       onTimeDue: 6,
       onTimeRate: 0.5,
@@ -399,6 +425,8 @@ describe('the previous period', () => {
     expect(delta(container, 'created')).toBe('+50%')
     // A rate is compared in points: 75% against 60% is +15 points, not +25%.
     expect(delta(container, 'completion_rate')).toBe(t('todo.stats.compare.points', { value: '+15' }))
+    // 20% against 10% is +10 points on the same reading.
+    expect(delta(container, 'abandoned_rate')).toBe(t('todo.stats.compare.points', { value: '+10' }))
     expect(delta(container, 'on_time')).toBe(t('todo.stats.compare.points', { value: '+10' }))
   })
 

@@ -132,7 +132,7 @@ describe('the task event backfill', () => {
       onDay: row.on_day,
     }))
     const points = computeTodoFlow(
-      { createdBefore: 0, doneBefore: 0, inProgressNow: 0 },
+      { createdBefore: 0, doneBefore: 0, cancelledBefore: 0, inProgressNow: 0 },
       events,
       { from: '2026-10-01', to: '2026-10-02', bucket: 'day' },
     )

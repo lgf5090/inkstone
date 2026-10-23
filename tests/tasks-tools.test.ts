@@ -686,6 +686,10 @@ describe('task_stats', () => {
     }, 'Asia/Shanghai')
     await store.completeTask(done.id, 'Asia/Shanghai')
     await store.createTask({ title: 'Still open' }, 'Asia/Shanghai')
+    // The second rate has to reach a review turn too, or the assistant can only ever report what the
+    // reader finished and never what they gave up.
+    const abandoned = await store.createTask({ title: 'Not going to do it' }, 'Asia/Shanghai')
+    await store.updateTask(abandoned.id, { status: 'cancelled' }, 'Asia/Shanghai')
 
     const result = await executor().execute('task_stats', {}, 'call-1') as {
       range: Record<string, unknown>
@@ -707,6 +711,8 @@ describe('task_stats', () => {
       created: expected.summary.created,
       open: expected.summary.open,
       completionRate: expected.summary.completionRate,
+      abandoned: expected.summary.abandoned,
+      abandonedRate: expected.summary.abandonedRate,
       onTime: expected.summary.onTime,
       onTimeDue: expected.summary.onTimeDue,
       onTimeRate: expected.summary.onTimeRate,
@@ -714,6 +720,12 @@ describe('task_stats', () => {
       longestStreak: expected.summary.longestStreak,
     })
     expect(result.summary.completed).toBe(1)
+    expect(result.summary.abandoned).toBe(1)
+    // The abandoned row is in neither half of the completion rate, and it is in both halves of the
+    // other one — the pairing a review turn must not be able to get wrong from the tool alone.
+    expect(result.summary.completionRate).toBeCloseTo(expected.summary.completionRate, 10)
+    expect(expected.summary.completionRate).toBeCloseTo(1 / 2, 10)
+    expect(expected.summary.abandonedRate).toBeCloseTo(1 / 3, 10)
     expect(result.by_list).toEqual(expected.distributions.byList)
   })
 

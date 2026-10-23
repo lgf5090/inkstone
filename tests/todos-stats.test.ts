@@ -109,6 +109,27 @@ function clock(instant: string): void {
   vi.useFakeTimers({ now: new Date(instant) })
 }
 
+/** One row that left the plate without being finished, written at the pinned clock. */
+async function seedAbandoned(title: string): Promise<TodoTask> {
+  const store = storeFor()
+  const task = await store.createTask({ title }, 'UTC')
+  const abandoned = await store.updateTask(task.id, { status: 'cancelled' }, 'UTC')
+  if (!abandoned) throw new Error(`task ${task.id} was written but could not be abandoned`)
+  return abandoned
+}
+
+/**
+ * Ages a row back past the clock, the way a task restored from a backup arrives.
+ *
+ * The store stamps its own day on every write, so the only way to get an old `created_at` under a
+ * recent end moment is the column itself — the same straight write the fixture uses everywhere else.
+ */
+function backdateCreated(id: string, instant: string): void {
+  const at = Date.parse(instant)
+  sqlite.prepare(`UPDATE todos_tasks SET created_at = ?, created_on = ? WHERE id = ?`)
+    .run(at, instant.slice(0, 10), id)
+}
+
 /** One event row in the shape the replay reads, with the instant written as ISO for readability. */
 function flowEvent(
   kind: 'born' | 'status',
@@ -145,6 +166,8 @@ describe('the shape of the answer', () => {
       net: 0,
       open: 0,
       completionRate: 0,
+      abandoned: 0,
+      abandonedRate: 0,
       onTime: 0,
       onTimeDue: 0,
       onTimeRate: 0,
@@ -347,12 +370,114 @@ describe('what the open bucket is measured over', () => {
   })
 })
 
+describe('the abandoned row and the published rates (D10)', () => {
+  // Three readings of the same stock, and the one that was published first must not move: a reader who
+  // sees "completion rate down 12 points" goes looking for a mistake of their own, and the honest answer
+  // would be that the denominator grew a term. So a row that left the plate unfinished belongs to
+  // neither half of `completionRate`, and the abandonments get a rate of their own.
+  it('keeps an abandoned row out of both halves of the completion rate', async () => {
+    clock('2026-03-05T09:00:00Z')
+    const store = await withZone('UTC')
+    await seedCompleted({ title: 'First' })
+    await seedCompleted({ title: 'Second' })
+    await store.createTask({ title: 'Still owed' }, 'UTC')
+    await store.createTask({ title: 'Under way', status: 'in_progress' }, 'UTC')
+    await seedAbandoned('Not going to do it')
+
+    const answer = await stats('?from=2026-03-05&to=2026-03-05')
+
+    expect(answer.summary.completed).toBe(2)
+    expect(answer.summary.open).toBe(2)
+    expect(answer.summary.abandoned).toBe(1)
+    // 2 of 4, not 2 of 5: the abandoned row is in neither the numerator nor the denominator.
+    expect(answer.summary.completionRate).toBeCloseTo(2 / 4, 10)
+  })
+
+  it('measures the abandoned rate over finished, abandoned and owed together', async () => {
+    clock('2026-03-05T09:00:00Z')
+    const store = await withZone('UTC')
+    await seedCompleted({ title: 'First' })
+    await seedCompleted({ title: 'Second' })
+    await store.createTask({ title: 'Still owed' }, 'UTC')
+    await store.createTask({ title: 'Under way', status: 'in_progress' }, 'UTC')
+    await seedAbandoned('Not going to do it')
+
+    const answer = await stats('?from=2026-03-05&to=2026-03-05')
+
+    // 1 of (2 finished + 1 abandoned + 2 owed) — the denominator `completionRate` deliberately refused.
+    expect(answer.summary.abandonedRate).toBeCloseTo(1 / 5, 10)
+    expect(answer.summary.abandoned).toBe(1)
+    expect(answer.summary.completionRate).toBeCloseTo(2 / 4, 10)
+  })
+
+  it('counts only finished work in every completion series', async () => {
+    // A row aged back to forty days, abandoned today: it would be the oldest duration, a completion on
+    // an otherwise empty day, an overdue item and an aged backlog entry all at once if any of those
+    // readings asked "did it leave the plate" instead of "was it finished".
+    clock('2026-03-05T09:00:00Z')
+    const store = await withZone('UTC')
+    const done = await seedCompleted({ title: 'Finished today' })
+    const abandoned = await seedAbandoned('Abandoned after forty days')
+    backdateCreated(abandoned.id, '2026-01-24T09:00:00Z')
+    expect(done.id).not.toBe(abandoned.id)
+
+    const answer = await stats('?from=2026-01-24&to=2026-03-05')
+
+    expect(answer.summary.completed).toBe(1)
+    expect(answer.summary.abandoned).toBe(1)
+    // The only completion was written and finished in one breath, so the median duration is zero.
+    expect(answer.summary.medianLeadTimeMs).toBe(0)
+    expect(answer.leadTime.p50).toBe(0)
+    expect(answer.leadTime.p90).toBe(0)
+    // One finished day inside the range: the abandoned day is not a second day of completion.
+    expect(answer.summary.longestStreak).toBe(1)
+    expect(answer.summary.currentStreak).toBe(1)
+    // An abandoned row is neither owed nor late, so it cannot age the backlog either.
+    expect(answer.summary.overdue).toBe(0)
+    expect(answer.backlog).toEqual({ under7: 0, days7to30: 0, over30: 0, none: 0 })
+    // `net` counts a row by the day it was filed, whatever it became; the abandoned row was filed
+    // inside the range, so it is in `created` and its absence from `completed` is the whole story.
+    expect(answer.summary.net).toBe(answer.summary.completed - answer.summary.created)
+  })
+
+  it('takes an abandoned row out of the flow instead of filing it under done', async () => {
+    clock('2026-03-05T09:00:00Z')
+    const store = await withZone('UTC')
+    const abandoned = await seedAbandoned('Left the plate today')
+
+    const answer = await stats('?from=2026-03-01&to=2026-03-05')
+
+    // The birth adds a `todo` and the abandonment takes it back out; nothing may land in `done`, which
+    // is the band the reader reads as finished work.
+    expect(answer.flow.at(-1)).toEqual({ day: '2026-03-05', todo: 0, inProgress: 0, done: 0 })
+    expect(abandoned.status).toBe('cancelled')
+  })
+
+  it('holds an abandoned row out of the stock the replay starts from', async () => {
+    // Created and abandoned in February, then a range that opens in March: the seed reads the stock on
+    // the day before the range, so the abandonment is invisible to the replay and only the seed can
+    // place it. Counting it as `done` would print finished work that was never finished; leaving it in
+    // the `todo` remainder would print work the reader no longer owes.
+    clock('2026-02-01T09:00:00Z')
+    await withZone('UTC')
+    await seedAbandoned('Dropped before the range')
+
+    const answer = await stats('?from=2026-03-01&to=2026-03-03')
+
+    expect(answer.flow).toEqual([
+      { day: '2026-03-01', todo: 0, inProgress: 0, done: 0 },
+      { day: '2026-03-02', todo: 0, inProgress: 0, done: 0 },
+      { day: '2026-03-03', todo: 0, inProgress: 0, done: 0 },
+    ])
+  })
+})
+
 describe('the cumulative flow replay', () => {
   const ONE_DAY = { from: '2026-03-02', to: '2026-03-02', bucket: 'day' as const }
-  const EMPTY = { createdBefore: 0, doneBefore: 0, inProgressNow: 0 }
+  const EMPTY = { createdBefore: 0, doneBefore: 0, cancelledBefore: 0, inProgressNow: 0 }
 
   it('holds the seed across a range with no events', () => {
-    const points = computeTodoFlow({ createdBefore: 10, doneBefore: 4, inProgressNow: 2 }, [], ONE_DAY)
+    const points = computeTodoFlow({ createdBefore: 10, doneBefore: 4, cancelledBefore: 0, inProgressNow: 2 }, [], ONE_DAY)
 
     expect(points).toEqual([{ day: '2026-03-02', todo: 4, inProgress: 2, done: 4 }])
   })
@@ -366,7 +491,7 @@ describe('the cumulative flow replay', () => {
   })
 
   it('moves a finished task out of todo and into done', () => {
-    const points = computeTodoFlow({ createdBefore: 1, doneBefore: 0, inProgressNow: 0 }, [
+    const points = computeTodoFlow({ createdBefore: 1, doneBefore: 0, cancelledBefore: 0, inProgressNow: 0 }, [
       flowEvent('status', 'todo', 'done', '2026-03-02T09:00:00Z', '2026-03-02'),
     ], ONE_DAY)
 
@@ -374,7 +499,7 @@ describe('the cumulative flow replay', () => {
   })
 
   it('moves a started task out of todo and into in progress', () => {
-    const points = computeTodoFlow({ createdBefore: 1, doneBefore: 0, inProgressNow: 0 }, [
+    const points = computeTodoFlow({ createdBefore: 1, doneBefore: 0, cancelledBefore: 0, inProgressNow: 0 }, [
       flowEvent('status', 'todo', 'in_progress', '2026-03-02T09:00:00Z', '2026-03-02'),
     ], ONE_DAY)
 
@@ -382,11 +507,37 @@ describe('the cumulative flow replay', () => {
   })
 
   it('moves a reopened task back to todo', () => {
-    const points = computeTodoFlow({ createdBefore: 1, doneBefore: 1, inProgressNow: 0 }, [
+    const points = computeTodoFlow({ createdBefore: 1, doneBefore: 1, cancelledBefore: 0, inProgressNow: 0 }, [
       flowEvent('status', 'done', 'todo', '2026-03-02T09:00:00Z', '2026-03-02'),
     ], ONE_DAY)
 
     expect(points).toEqual([{ day: '2026-03-02', todo: 1, inProgress: 0, done: 0 }])
+  })
+
+  it('takes an abandoned task off the plate without filing it as finished', () => {
+    // The three bands are the work that exists; an abandonment leaves the plate rather than moving to a
+    // fourth band, so the count drops out of `todo` and appears in none of them.
+    const points = computeTodoFlow({ createdBefore: 1, doneBefore: 0, cancelledBefore: 0, inProgressNow: 0 }, [
+      flowEvent('status', 'todo', 'cancelled', '2026-03-02T09:00:00Z', '2026-03-02'),
+    ], ONE_DAY)
+
+    expect(points).toEqual([{ day: '2026-03-02', todo: 0, inProgress: 0, done: 0 }])
+  })
+
+  it('clears the band a task stood in when it is abandoned after being finished', () => {
+    const points = computeTodoFlow({ createdBefore: 1, doneBefore: 1, cancelledBefore: 0, inProgressNow: 0 }, [
+      flowEvent('status', 'done', 'cancelled', '2026-03-02T09:00:00Z', '2026-03-02'),
+    ], ONE_DAY)
+
+    expect(points).toEqual([{ day: '2026-03-02', todo: 0, inProgress: 0, done: 0 }])
+  })
+
+  it('leaves the abandoned stock out of the remainder the todo band is made of', () => {
+    // Nothing here replays: the row was created and dropped before the range, so the seed is the whole
+    // answer, and a seed that forgot `cancelledBefore` would hand the remainder to `todo`.
+    const points = computeTodoFlow({ createdBefore: 4, doneBefore: 1, cancelledBefore: 2, inProgressNow: 1 }, [], ONE_DAY)
+
+    expect(points).toEqual([{ day: '2026-03-02', todo: 0, inProgress: 1, done: 1 }])
   })
 
   it('applies a birth before a completion at the same instant', () => {
@@ -412,7 +563,7 @@ describe('the cumulative flow replay', () => {
   it('clamps a seed that disagrees with itself instead of reporting negative work', () => {
     // `inProgressNow` is today's status: a dirty seed can claim more running tasks than the created
     // and finished columns leave room for. The todo band starts at zero rather than below it.
-    const points = computeTodoFlow({ createdBefore: 3, doneBefore: 3, inProgressNow: 2 }, [], ONE_DAY)
+    const points = computeTodoFlow({ createdBefore: 3, doneBefore: 3, cancelledBefore: 0, inProgressNow: 2 }, [], ONE_DAY)
 
     expect(points[0]?.todo).toBe(0)
   })
@@ -541,9 +692,9 @@ describe('the query', () => {
     const large = await countWith()
 
     expect(small).toBeGreaterThan(0)
-    // The seven reads the tables need, the flow's seed and event range, and the one indexed minimum that
-    // says where this account's record begins.
-    expect(small).toBe(9)
+    // The seven reads the tables need, the abandoned count the second rate is measured over, the flow's
+    // seed and event range, and the one indexed minimum that says where this account's record begins.
+    expect(small).toBe(10)
     expect(large).toBe(small)
     expect(statements).toHaveLength(large)
   })
