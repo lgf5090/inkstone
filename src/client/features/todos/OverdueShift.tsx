@@ -14,6 +14,7 @@
  */
 import { useState } from 'react'
 import { MAX_BATCH_TASKS, MAX_TASKS_PER_QUERY } from '@shared/todos/model'
+import { isTaskOpen } from '@shared/todos/status'
 import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { Button } from '../../components/primitives'
@@ -30,7 +31,7 @@ export function OverdueShift({ className }: { className: string }) {
     setBusy(true)
     try {
       const page = await api.todos.list({ view: 'overdue', limit: MAX_TASKS_PER_QUERY })
-      const ids = page.tasks.filter((task) => task.status !== 'done').map((task) => task.id)
+      const ids = page.tasks.filter((task) => isTaskOpen(task.status)).map((task) => task.id)
       let done = 0
       let failed = 0
       for (let start = 0; start < ids.length; start += MAX_BATCH_TASKS) {

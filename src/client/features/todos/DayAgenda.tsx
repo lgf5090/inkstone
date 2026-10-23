@@ -9,6 +9,7 @@
 import { CalendarPlus, Clock } from 'lucide-react'
 import { localDate, toLocalMinute } from '@shared/assistant-time'
 import type { TaskList, TodoTask } from '@shared/todos/model'
+import { isTaskDone } from '@shared/todos/status'
 import { t, localeTag } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { Button } from '../../components/primitives'
@@ -28,7 +29,7 @@ function timeOf(task: TodoTask, timezone: string): string | null {
 function tasksOfDay(tasks: readonly TodoTask[], dayKey: string, timezone: string): TodoTask[] {
   return tasks
     .filter((task) => {
-      if (task.status === 'done' || task.dueAt === null) return false
+      if (isTaskDone(task.status) || task.dueAt === null) return false
       const end = localDate(task.dueAt, timezone)
       const start = task.startAt != null ? localDate(task.startAt, timezone) : end
       return dayKey >= start && dayKey <= end

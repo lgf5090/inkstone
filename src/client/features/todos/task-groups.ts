@@ -8,6 +8,7 @@
 
 import { localDate, toLocalMinute } from '@shared/assistant-time'
 import { UPCOMING_DAYS, type TaskList, type TaskPriority, type TaskStatus, type TodoTask } from '@shared/todos/model'
+import { isTaskDone, isTaskOpen } from '@shared/todos/status'
 
 export type PlanGroupKey = 'overdue' | 'today' | 'upcoming' | 'later' | 'none'
 
@@ -57,7 +58,7 @@ export function groupByPlan(tasks: readonly TodoTask[], bounds: { dayEnd: number
   const upcomingEnd = bounds.dayEnd + UPCOMING_DAYS * DAY
   const groups: Record<PlanGroupKey, TodoTask[]> = { overdue: [], today: [], upcoming: [], later: [], none: [] }
   for (const task of tasks) {
-    if (task.status === 'done') continue
+    if (isTaskDone(task.status)) continue
     const startAt = task.startAt ?? null
     if (task.dueAt === null) {
       if (startAt === null) {
@@ -97,7 +98,7 @@ export function groupToday(
 ): TaskGroup<TodayGroupKey>[] {
   const groups: Record<TodayGroupKey, TodoTask[]> = { planned: [], today: [], overdue: [] }
   for (const task of tasks) {
-    if (task.status === 'done') continue
+    if (isTaskDone(task.status)) continue
     if (task.plannedFor === bounds.today) groups.planned.push(task)
     else if (task.dueAt !== null && task.dueAt < bounds.now) groups.overdue.push(task)
     else groups.today.push(task)
@@ -162,8 +163,8 @@ export function splitTodayLater(
  * first.
  */
 export function groupByList(tasks: readonly TodoTask[]): TaskGroup<'open' | 'done'>[] {
-  const open = tasks.filter((task) => task.status !== 'done')
-  const done = tasks.filter((task) => task.status === 'done').sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0))
+  const open = tasks.filter((task) => isTaskOpen(task.status))
+  const done = tasks.filter((task) => isTaskDone(task.status)).sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0))
   return [
     ...(open.length ? [{ key: 'open' as const, tasks: open }] : []),
     ...(done.length ? [{ key: 'done' as const, tasks: done }] : []),
@@ -179,7 +180,7 @@ export function groupByList(tasks: readonly TodoTask[]): TaskGroup<'open' | 'don
 export function groupCompleted(tasks: readonly TodoTask[], timezone: string): TaskGroup[] {
   const byDay = new Map<string, TodoTask[]>()
   for (const task of tasks) {
-    if (task.status !== 'done') continue
+    if (!isTaskDone(task.status)) continue
     const day = localDate(task.completedAt ?? task.updatedAt, timezone)
     const bucket = byDay.get(day) ?? []
     bucket.push(task)

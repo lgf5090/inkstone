@@ -44,6 +44,7 @@ import {
   type TodoStats,
   type TodoTask,
 } from '@shared/todos/model'
+import { isTaskDone } from '@shared/todos/status'
 import {
   pushTodoAddress,
   pushTodoTaskAddress,
@@ -326,10 +327,10 @@ async function resolveRevisionConflict(
   // The server's row replaces whichever bucket held the old one; a row that finished elsewhere moves
   // to the finished page rather than staying on the open board.
   set((state) => ({
-    tasks: server.status === 'done'
+    tasks: isTaskDone(server.status)
       ? state.tasks.filter((entry) => entry.id !== id)
       : [...state.tasks.filter((entry) => entry.id !== id), server],
-    completed: server.status === 'done'
+    completed: isTaskDone(server.status)
       ? [server, ...state.completed.filter((entry) => entry.id !== id)]
       : state.completed.filter((entry) => entry.id !== id),
   }))
@@ -546,16 +547,16 @@ function storeServerTask(task: TodoTask, options: { addIfMissing?: boolean; repl
   if (!present && !options.addIfMissing) return
   useTodos.setState((state) => {
     const without = (entry: TodoTask) => entry.id !== task.id && entry.id !== options.replaceId
-    const tasks = task.status === 'done'
+    const tasks = isTaskDone(task.status)
       ? state.tasks.filter(without)
       : [...state.tasks.filter(without), task]
-    const completed = task.status === 'done'
+    const completed = isTaskDone(task.status)
       ? [task, ...state.completed.filter(without)]
       : state.completed.filter(without)
     return {
       tasks,
       completed,
-      total: task.status === 'done' || present ? state.total : state.total + 1,
+      total: isTaskDone(task.status) || present ? state.total : state.total + 1,
       selectedId: options.replaceId && state.selectedId === options.replaceId ? task.id : state.selectedId,
       draft: options.replaceId && state.draft?.id === options.replaceId
         ? { ...state.draft, id: task.id }
@@ -803,7 +804,7 @@ function applyTodoPatch(task: TodoTask, patch: Record<string, unknown>): TodoTas
   if (typeof patch.description === 'string') next.description = patch.description
   if (patch.status === 'todo' || patch.status === 'in_progress' || patch.status === 'done') {
     next.status = patch.status
-    next.completedAt = patch.status === 'done' ? (task.completedAt ?? now) : null
+    next.completedAt = isTaskDone(patch.status) ? (task.completedAt ?? now) : null
   }
   if (patch.priority === 'low' || patch.priority === 'medium' || patch.priority === 'high' || patch.priority === 'urgent')
     next.priority = patch.priority
@@ -905,7 +906,7 @@ export function applyTodoSync(payload: { todos: TodoTask[]; deleted: string[] })
       if (deleted.has(task.id)) continue
       const inTasks = tasks.some((entry) => entry.id === task.id)
       const inCompleted = completed.some((entry) => entry.id === task.id)
-      if (task.status === 'done') {
+      if (isTaskDone(task.status)) {
         if (inTasks) {
           tasks = tasks.filter((entry) => entry.id !== task.id)
           total -= 1
@@ -1445,7 +1446,7 @@ export const useTodos = create<TodosState>((set, get) => ({
     if (!found) {
       try {
         const { task } = await api.todos.get(id)
-        set((state) => (task.status === 'done'
+        set((state) => (isTaskDone(task.status)
           ? { completed: [task, ...state.completed.filter((entry) => entry.id !== task.id)] }
           : { tasks: [...state.tasks.filter((entry) => entry.id !== task.id), task] }))
       } catch (error) {
@@ -1523,17 +1524,17 @@ export const useTodos = create<TodosState>((set, get) => ({
         // the box sees the following one on the list instead of finding out about it on the next reload.
         tasks: [
           ...state.tasks.filter((entry) => entry.id !== id && entry.id !== next?.id),
-          ...(task.status === 'done' ? [] : [task]),
+          ...(isTaskDone(task.status) ? [] : [task]),
           ...(next ? [next] : []),
         ],
-        completed: task.status === 'done'
+        completed: isTaskDone(task.status)
           ? [task, ...state.completed.filter((entry) => entry.id !== id)]
           : state.completed.filter((entry) => entry.id !== id),
         saving: false,
       }))
       // A tick is the one write whose answer carries a second row, so its inverse owns both: the
       // occurrence the server filed goes back first, and only then does the original reopen.
-      if (!undoing && before && before.status !== 'done' && patch.status === 'done') {
+      if (!undoing && before && !isTaskDone(before.status) && isTaskDone(patch.status)) {
         const restoreStatus = before.status
         offerUndo(set, get, t('todo.toast.completed'), async () => {
           if (next) {

@@ -9,6 +9,7 @@
  */
 import { localDate, toLocalMinute } from '@shared/assistant-time'
 import type { TodoTask } from '@shared/todos/model'
+import { isTaskDone, isTaskOpen } from '@shared/todos/status'
 
 /** A task that covers more than one day, as a bar across one week's columns. */
 export interface SpanBar {
@@ -123,7 +124,7 @@ export function spansForWeek(tasks: readonly TodoTask[], weekKeys: readonly stri
   const weekEnd = weekKeys[weekKeys.length - 1]!
   const candidates: { task: TodoTask; startCol: number; endCol: number }[] = []
   for (const task of tasks) {
-    if (task.status === 'done') continue
+    if (isTaskDone(task.status)) continue
     const start = taskStartKey(task, timezone)
     const end = taskEndKey(task, timezone)
     if (start === null || end === null || start >= end) continue
@@ -150,7 +151,7 @@ export function spansForWeek(tasks: readonly TodoTask[], weekKeys: readonly stri
 /** The tasks a day draws as chips: due that day and not part of a bar. */
 export function dayChips(tasks: readonly TodoTask[], dayKey: string, timezone: string): TodoTask[] {
   return tasks
-    .filter((task) => task.status !== 'done'
+    .filter((task) => isTaskOpen(task.status)
       && taskEndKey(task, timezone) === dayKey
       && !isSpanning(task, timezone))
     .sort((left, right) => (left.dueAt ?? 0) - (right.dueAt ?? 0))
@@ -186,7 +187,7 @@ export function isAllDay(task: TodoTask, timezone: string): boolean {
 export function timeBlocksForDay(tasks: readonly TodoTask[], dayKey: string, timezone: string): TimeBlock[] {
   const blocks: Omit<TimeBlock, 'lane'>[] = []
   for (const task of tasks) {
-    if (task.status === 'done') continue
+    if (isTaskDone(task.status)) continue
     if (taskEndKey(task, timezone) !== dayKey) continue
     if (isAllDay(task, timezone)) continue
     const due = dueMinuteOf(task, timezone)
@@ -213,7 +214,7 @@ export function timeBlocksForDay(tasks: readonly TodoTask[], dayKey: string, tim
 /** The all-day tasks of one day: no clock time, or a bar that covers it. */
 export function allDayTasksForDay(tasks: readonly TodoTask[], dayKey: string, timezone: string): TodoTask[] {
   return tasks.filter((task) => {
-    if (task.status === 'done') return false
+    if (isTaskDone(task.status)) return false
     const start = taskStartKey(task, timezone)
     const end = taskEndKey(task, timezone)
     if (start === null || end === null) return false

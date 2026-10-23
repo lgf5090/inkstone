@@ -36,15 +36,18 @@ export const TASK_OPEN_STATUSES: readonly TaskStatus[] = ['todo', 'in_progress']
 export const TASK_DONE_STATUSES: readonly TaskStatus[] = ['done']
 
 /**
- * A status written as text, or absent: a decoded row, a patch field, an event's `from_status`.
+ * A status as it arrives at one of these predicates: a row's column, a patch field, an event's
+ * `from_status` — so possibly absent, possibly text this app has never validated.
  *
- * Anything that is not one of the sets answers false — a missing status is neither open nor finished,
- * which is what the literals it replaced (`=== 'done'`) already said about `null` and `undefined`.
+ * `unknown` rather than `TaskStatus` because the callers really do hand over unvalidated payloads: the
+ * client's outbox mirror reads a `Record<string, unknown>` and the row decoders read text. Anything
+ * that is not one of the two sets answers false, which is what the literals these predicates replaced
+ * (`=== 'done'`) already said about `null`, `undefined` and a value from before the enum existed.
  */
-type StatusLike = string | null | undefined
+type StatusLike = unknown
 
 function inSet(status: StatusLike, set: readonly TaskStatus[]): boolean {
-  return status !== null && status !== undefined && (set as readonly string[]).includes(status)
+  return typeof status === 'string' && (set as readonly string[]).includes(status)
 }
 
 /** Whether the task is still owed. */

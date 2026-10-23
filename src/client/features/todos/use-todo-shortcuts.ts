@@ -30,6 +30,7 @@ import { isImeComposing } from '../../lib/ime'
 import { prompt, type MenuItem } from '../../components/overlay'
 import type { MessageKey } from '@shared/locales/en-US'
 import type { TodoTask } from '@shared/todos/model'
+import { isTaskDone } from '@shared/todos/status'
 import { useTodos } from './store'
 import { moveTodoTask, openTaskSiblings, useTaskMoves } from './TaskCard'
 import { buildScheduleMenuItems, buildTaskContextMenuItems, type TaskMenuHandlers } from './task-menu'
@@ -258,7 +259,7 @@ export function useTodoShortcuts(host: TodoShortcutHost): TodoShortcuts {
       move: movesForTask(task) ?? undefined,
       update: (patch) => { void useTodos.getState().updateTask(task.id, patch) },
       // The same rule the card draws: a finished row has nothing left to be reminded about.
-      snooze: task.status === 'done'
+      snooze: isTaskDone(task.status)
         ? undefined
         : (minutes) => { void useTodos.getState().snoozeTask(task.id, minutes) },
       onClose: () => setMenu(null),
@@ -396,7 +397,7 @@ export function useTodoShortcuts(host: TodoShortcutHost): TodoShortcuts {
       case 'start-pause': {
         // The rows the card's own menu offers, and no further: a finished task has nothing left to
         // start, and a key that pretended otherwise would be a button that lies.
-        if (task.status === 'done') return
+        if (isTaskDone(task.status)) return
         event.preventDefault()
         void state.updateTask(task.id, { status: task.status === 'in_progress' ? 'todo' : 'in_progress' })
         return
