@@ -4,7 +4,9 @@ export type EmailComposeMode = 'new' | 'reply' | 'reply-all' | 'forward'
 
 export type EmailAddress =
   | { kind: 'home' }
+  | { kind: 'contacts' }
   | { kind: 'settings'; accountId: string }
+  | { kind: 'stats'; accountId: string }
   | { kind: 'search'; accountId: string; query: string; messageId: string | null }
   | {
       kind: 'mailbox'
@@ -22,11 +24,13 @@ function composeMode(value: string | null): EmailComposeMode | null {
 export function parseEmailAddress(pathname: string, search = ''): EmailAddress {
   const trimmed = pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname
   if (trimmed === EMAIL_PATH) return { kind: 'home' }
+  if (trimmed === `${EMAIL_PATH}/contacts`) return { kind: 'contacts' }
   const params = new URLSearchParams(search)
   const parts = trimmed.slice(EMAIL_PATH.length + 1).split('/').filter(Boolean)
   if (parts[0] !== 'accounts' || !parts[1]) return { kind: 'home' }
   const accountId = parts[1]
   if (parts[2] === 'settings') return { kind: 'settings', accountId }
+  if (parts[2] === 'stats') return { kind: 'stats', accountId }
   if (parts[2] === 'search') {
     return {
       kind: 'search',
@@ -78,4 +82,12 @@ export function emailSearchPath(accountId: string, query: string): string {
 
 export function emailSettingsPath(accountId: string): string {
   return `${EMAIL_PATH}/accounts/${encodeURIComponent(accountId)}/settings`
+}
+
+export function emailStatsPath(accountId: string): string {
+  return `${EMAIL_PATH}/accounts/${encodeURIComponent(accountId)}/stats`
+}
+
+export function emailContactsPath(): string {
+  return `${EMAIL_PATH}/contacts`
 }

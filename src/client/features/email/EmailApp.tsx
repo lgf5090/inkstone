@@ -6,7 +6,9 @@ import { navigateToPath, usePathname, useSearch } from '../../lib/app-history'
 import { useSession } from '../../store/session'
 import { AccountListPage } from './AccountListPage'
 import { AccountSettingsPage } from './AccountSettingsPage'
+import { ContactsPage } from './ContactsPage'
 import { MailboxPage } from './MailboxPage'
+import { StatsPage } from './StatsPage'
 import { parseEmailAddress } from './email-address'
 import { useEmailStore } from './store'
 
@@ -42,6 +44,7 @@ export function EmailApp() {
     )
   }
   if (address.kind === 'home') return <AccountListPage />
+  if (address.kind === 'contacts') return <ContactsPage onBack={() => navigateToPath('/email')} />
   if (address.kind === 'settings') return <AccountSettingsPage accountId={address.accountId} />
 
   const account = accounts.find((entry) => entry.id === address.accountId)
@@ -72,5 +75,6 @@ export function EmailApp() {
       </div>
     )
   }
+  if (address.kind === 'stats') return <StatsPage accountId={address.accountId} />
   return <MailboxPage address={address} account={account} />
 }

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useRef, useState } from 'react'
-import { Camera, LogOut, Mail, Moon, Settings, Settings2, Sun } from 'lucide-react'
+import { Camera, ChartNoAxesColumn, ContactRound, LogOut, Mail, Moon, Settings, Settings2, Sun } from 'lucide-react'
 import type { EmailAccount } from '@shared/email/model'
 import { Avatar, IconButton } from '../../components/primitives'
 import { Menu, Tooltip, type MenuItem } from '../../components/overlay'
@@ -7,7 +7,7 @@ import { t } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
 import { switchThemeWithTransition, useUi } from '../../store/ui'
 import { useSession } from '../../store/session'
-import { emailFolderPath, emailSettingsPath } from './email-address'
+import { emailContactsPath, emailFolderPath, emailSettingsPath, emailStatsPath } from './email-address'
 
 const AvatarPicker = lazy(() => import('../settings/AvatarPicker').then((module) => ({ default: module.AvatarPicker })))
 
@@ -65,6 +65,24 @@ export function EmailAccountCard({
       onSelect: () => {
         onNavigate?.()
         navigateToPath('/email')
+      },
+    },
+    {
+      id: 'stats',
+      label: t('email.stats.title'),
+      icon: <ChartNoAxesColumn size={13} />,
+      onSelect: () => {
+        onNavigate?.()
+        navigateToPath(emailStatsPath(activeAccountId))
+      },
+    },
+    {
+      id: 'contacts',
+      label: t('email.contacts.title'),
+      icon: <ContactRound size={13} />,
+      onSelect: () => {
+        onNavigate?.()
+        navigateToPath(emailContactsPath())
       },
     },
     {

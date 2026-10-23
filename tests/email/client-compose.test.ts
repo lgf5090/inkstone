@@ -64,6 +64,20 @@ function change(input: HTMLInputElement, value: string): void {
   })
 }
 
+function press(input: HTMLInputElement, key: string): void {
+  act(() => {
+    input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
+  })
+}
+
+function recipientChip(address: string): HTMLButtonElement {
+  const label = t('email.recipients.remove', { address })
+  const found = [...document.querySelectorAll<HTMLButtonElement>('button')]
+    .find((node) => node.getAttribute('aria-label') === label)
+  if (!found) throw new Error(`no recipient chip for ${address}`)
+  return found
+}
+
 function panel(
   mode: 'new' | 'reply' | 'reply-all' | 'forward',
   draftId: string | null = null,
@@ -105,7 +119,9 @@ describe('the compose panel', () => {
       ...account,
       settings: { ...account.settings, signature: { enabled: false, text: '' } },
     })
-    change(inputFor(t('email.compose.to')), 'grace@example.com')
+    const to = inputFor(t('email.compose.to'))
+    change(to, 'grace@example.com')
+    press(to, 'Enter')
     act(() => { button(t('email.compose.send')).click() })
     expect(document.querySelector('[role="alert"]')?.textContent).toContain(t('email.compose.error_empty'))
     expect(saveDraft).not.toHaveBeenCalled()
@@ -115,7 +131,8 @@ describe('the compose panel', () => {
 
   it('prefills a reply from the message and keeps the quote in the editor', () => {
     const view = panel('reply')
-    expect(inputFor(t('email.compose.to')).value).toBe('Grace Hopper <grace@example.com>')
+    expect(recipientChip('grace@example.com').textContent).toContain('Grace Hopper')
+    expect(inputFor(t('email.compose.to')).value).toBe('')
     expect(inputFor(t('email.compose.subject')).value).toBe('Re: Quarterly report')
     expect(() => inputFor(t('email.compose.cc'))).toThrow()
     expect(document.querySelector('.cm-content')?.textContent).toContain('The numbers are ready.')
@@ -125,8 +142,8 @@ describe('the compose panel', () => {
 
   it('adds everyone but the mailbox itself when replying to all', () => {
     const view = panel('reply-all')
-    expect(inputFor(t('email.compose.to')).value).toBe('Grace Hopper <grace@example.com>')
-    expect(inputFor(t('email.compose.cc')).value).toBe('team@example.com')
+    expect(recipientChip('grace@example.com').textContent).toContain('Grace Hopper')
+    expect(recipientChip('team@example.com')).toBeTruthy()
     view.unmount()
   })
 
@@ -139,6 +156,7 @@ describe('the compose panel', () => {
       await Promise.resolve()
     })
     expect(saveDraft).toHaveBeenCalledWith('a1', expect.objectContaining({
+      to: 'grace@example.com',
       inReplyTo: 'm1',
       threadId: 't1',
       subject: 'Re: Quarterly report',
@@ -152,7 +170,9 @@ describe('the compose panel', () => {
     const saveDraft = vi.spyOn(api.email, 'saveDraft').mockResolvedValue({ draftId: 'd1' })
     const sendDraft = vi.spyOn(api.email, 'sendDraft').mockRejectedValue(new Error('The mail service refused the message'))
     const view = panel('new')
-    change(inputFor(t('email.compose.to')), 'grace@example.com')
+    const to = inputFor(t('email.compose.to'))
+    change(to, 'grace@example.com')
+    press(to, 'Enter')
     change(inputFor(t('email.compose.subject')), 'Hello')
     await act(async () => {
       button(t('email.compose.send')).click()

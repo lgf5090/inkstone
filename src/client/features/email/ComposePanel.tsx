@@ -18,6 +18,7 @@ import { insertLink } from '../../editor/commands'
 import { prompt } from '../../components/overlay'
 import { emailMarkdownToHtml } from './email-markdown'
 import { EmailComposer } from './EmailComposer'
+import { RecipientField } from './RecipientField'
 import type { EmailComposeMode } from './email-address'
 
 interface ComposeAttachment {
@@ -31,6 +32,16 @@ function signatureBlock(account: EmailAccount): string {
   const signature = account.settings.signature
   if (!signature?.enabled || !signature.text.trim()) return ''
   return `\n\n--\n${signature.text.trim()}`
+}
+
+function recipientAddresses(value: string): string {
+  return splitEmailList(value)
+    .map((entry) => {
+      const match = /^(.*?)<([^<>]+)>$/.exec(entry)
+      return (match?.[2] ?? entry).trim()
+    })
+    .filter(Boolean)
+    .join(', ')
 }
 
 function replyAllRecipients(original: EmailMessage, self: string): { to: string; cc: string } {
@@ -145,9 +156,9 @@ export function ComposePanel({
     setError(null)
     try {
       const saved = await api.email.saveDraft(account.id, {
-        to,
-        cc: cc || undefined,
-        bcc: bcc || undefined,
+        to: recipientAddresses(to),
+        cc: recipientAddresses(cc) || undefined,
+        bcc: recipientAddresses(bcc) || undefined,
         subject,
         body,
         bodyHtml: bodyHtml(),
@@ -183,9 +194,9 @@ export function ComposePanel({
       const id = draft ?? await saveDraft()
       if (!id) return
       await api.email.sendDraft(account.id, id, {
-        to,
-        cc: cc || undefined,
-        bcc: bcc || undefined,
+        to: recipientAddresses(to),
+        cc: recipientAddresses(cc) || undefined,
+        bcc: recipientAddresses(bcc) || undefined,
         subject,
         body,
         bodyHtml: bodyHtml(),
@@ -319,7 +330,7 @@ export function ComposePanel({
       </header>
       <div className="min-h-0 min-w-0 flex-1 space-y-3 overflow-y-auto p-3 md:p-4">
         <Field label={t('email.compose.to')} required>
-          <Input value={to} onChange={(event) => setTo(event.target.value)} placeholder={t('email.compose.recipient_placeholder')} autoComplete="off" />
+          <RecipientField value={to} onChange={setTo} placeholder={t('email.compose.recipient_placeholder')} />
         </Field>
         {!showCc && (
           <Button size="sm" variant="ghost" onClick={() => setShowCc(true)}>{t('email.compose.show_cc')}</Button>
@@ -327,10 +338,10 @@ export function ComposePanel({
         {showCc && (
           <>
             <Field label={t('email.compose.cc')}>
-              <Input value={cc} onChange={(event) => setCc(event.target.value)} placeholder={t('email.compose.recipient_placeholder')} autoComplete="off" />
+              <RecipientField value={cc} onChange={setCc} placeholder={t('email.compose.recipient_placeholder')} />
             </Field>
             <Field label={t('email.compose.bcc')}>
-              <Input value={bcc} onChange={(event) => setBcc(event.target.value)} placeholder={t('email.compose.recipient_placeholder')} autoComplete="off" />
+              <RecipientField value={bcc} onChange={setBcc} placeholder={t('email.compose.recipient_placeholder')} />
             </Field>
           </>
         )}
