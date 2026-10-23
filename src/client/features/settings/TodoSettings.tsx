@@ -1,6 +1,7 @@
 /**
- * The to-do settings page: the zone its days are read in, the reminder a new task starts with, and
- * the daily and weekly goals the statistics screen measures against.
+ * The to-do settings page: the zone its days are read in, the reminder a new task starts with, the
+ * daily and weekly goals the statistics screen measures against, and the focus and finish-day settings
+ * the time-tracking screens run on.
  *
  * The worker answers `dayEnd` and every due-date comparison from a single stored zone, because "today" is
  * a span in the reader's own day rather than something a browser can compute once it is a thousand
@@ -20,9 +21,21 @@ import { useEffect, useId, useMemo, useState } from 'react'
 import { X } from 'lucide-react'
 import type { AssistantSettings, Automation } from '@shared/assistant'
 import { isValidTimeZone } from '@shared/assistant-schedule'
-import { TODO_GOAL_RANGE, TODO_SAVED_FILTER_MAX, TODO_SAVED_FILTER_NAME_MAX, TODO_SAVED_FILTER_QUERY_MAX } from '@shared/constants'
+import {
+  DEFAULT_TODO_FOCUS,
+  DEFAULT_TODO_WORKDAY,
+  TODO_FOCUS_MINUTES_RANGE,
+  TODO_FOCUS_STRATEGIES,
+  TODO_GOAL_RANGE,
+  TODO_POMODORO_EVERY_RANGE,
+  TODO_FLOWTIME_BREAK_PERCENT_RANGE,
+  TODO_SAVED_FILTER_MAX,
+  TODO_SAVED_FILTER_NAME_MAX,
+  TODO_SAVED_FILTER_QUERY_MAX,
+  TODO_WORKDAY_ESTIMATE_RANGE,
+} from '@shared/constants'
 import { REMIND_OFFSETS, type RemindOffset } from '@shared/todos/model'
-import type { SavedTodoFilter } from '@shared/types'
+import type { SavedTodoFilter, TodoFocusSettings, TodoFocusStrategy, TodoWorkdaySettings } from '@shared/types'
 import { t, translateApiError } from '../../lib/i18n'
 import { api, ApiError } from '../../lib/api'
 import { randomLocalId } from '../../lib/random-id'
@@ -54,11 +67,16 @@ export function TodoSettings() {
   const [digestBusy, setDigestBusy] = useState(false)
   const zoneId = useId()
   const remindId = useId()
+  const strategyId = useId()
   const digestHintId = useId()
   const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone
   const defaultRemind = useSession((state) => state.settings.todo.defaultRemind)
   const dailyGoal = useSession((state) => state.settings.todo.dailyGoal) ?? null
   const weeklyGoal = useSession((state) => state.settings.todo.weeklyGoal) ?? null
+  // The two subgroups arrive whole from the settings merge, so the fallback only stands in for a
+  // session object that predates them; the module constant keeps the selector's result stable.
+  const focus = useSession((state) => state.settings.todo.focus) ?? DEFAULT_TODO_FOCUS
+  const workday = useSession((state) => state.settings.todo.workday) ?? DEFAULT_TODO_WORKDAY
   const updateSettings = useSession((state) => state.updateSettings)
 
   useEffect(() => {
@@ -122,6 +140,29 @@ export function TodoSettings() {
 
   function saveDefaultRemind(offset: RemindOffset): void {
     updateSettings({ todo: { defaultRemind: offset === 'none' ? null : offset } })
+  }
+
+  /**
+   * Writes one focus key with the rest of the subgroup around it.
+   *
+   * A settings patch replaces a subgroup whole rather than key by key, so a row that sent only its own
+   * field would have the other five filled back in from the defaults by the merge on the way to the
+   * server. The same rule holds for the two nested groups.
+   */
+  function saveFocus(patch: Partial<TodoFocusSettings>): void {
+    updateSettings({ todo: { focus: { ...focus, ...patch } } })
+  }
+
+  function savePomodoro(patch: Partial<TodoFocusSettings['pomodoro']>): void {
+    saveFocus({ pomodoro: { ...focus.pomodoro, ...patch } })
+  }
+
+  function saveFlowtime(patch: Partial<TodoFocusSettings['flowtime']>): void {
+    saveFocus({ flowtime: { ...focus.flowtime, ...patch } })
+  }
+
+  function saveWorkday(patch: Partial<TodoWorkdaySettings>): void {
+    updateSettings({ todo: { workday: { ...workday, ...patch } } })
   }
 
   /**
@@ -270,17 +311,148 @@ export function TodoSettings() {
         description={t('settings.todo_goals_hint')}
       >
         <div className="flex items-center gap-2">
-          <GoalInput
+          <OptionalCountField
             label={t('todo.goal.daily')}
             value={dailyGoal}
+            min={TODO_GOAL_RANGE[0]}
+            max={TODO_GOAL_RANGE[1]}
             onChange={(value) => updateSettings({ todo: { dailyGoal: value } })}
           />
-          <GoalInput
+          <OptionalCountField
             label={t('todo.goal.weekly')}
             value={weeklyGoal}
+            min={TODO_GOAL_RANGE[0]}
+            max={TODO_GOAL_RANGE[1]}
             onChange={(value) => updateSettings({ todo: { weeklyGoal: value } })}
           />
         </div>
+      </SettingRow>
+      <SettingRow
+        title={t('settings.todo_focus')}
+        description={t('settings.todo_focus_hint')}
+      >
+        <Switch
+          checked={focus.enabled}
+          label={t('settings.todo_focus')}
+          onChange={(next) => saveFocus({ enabled: next })}
+        />
+      </SettingRow>
+      <SettingRow
+        title={t('settings.todo_focus_strategy')}
+        description={t('settings.todo_focus_strategy_hint')}
+        controlId={strategyId}
+      >
+        <Select
+          id={strategyId}
+          value={focus.strategy}
+          onChange={(event) => saveFocus({ strategy: event.target.value as TodoFocusStrategy })}
+          className="max-w-[240px]"
+        >
+          {TODO_FOCUS_STRATEGIES.map((strategy) => (
+            <option key={strategy} value={strategy}>{t(`settings.todo_focus_strategy_${strategy}`)}</option>
+          ))}
+        </Select>
+      </SettingRow>
+      <SettingRow
+        title={t('settings.todo_focus_minutes')}
+        description={t('settings.todo_focus_minutes_hint')}
+      >
+        <CountField
+          label={t('settings.todo_focus_minutes')}
+          value={focus.defaultMinutes}
+          min={TODO_FOCUS_MINUTES_RANGE[0]}
+          max={TODO_FOCUS_MINUTES_RANGE[1]}
+          onChange={(value) => saveFocus({ defaultMinutes: value })}
+        />
+      </SettingRow>
+      {/* Four lengths side by side do not fit the row's default two columns, so the controls stack
+          under their own title. jsdom has no layout: this pairing is on the screenshot list. */}
+      <SettingRow
+        title={t('settings.todo_focus_pomodoro')}
+        description={t('settings.todo_focus_pomodoro_hint')}
+        className="md:flex-col md:items-stretch"
+      >
+        <div className="flex w-full flex-wrap items-center gap-x-4 gap-y-2">
+          <CountField
+            label={t('settings.todo_focus_pomodoro_work')}
+            value={focus.pomodoro.work}
+            min={TODO_FOCUS_MINUTES_RANGE[0]}
+            max={TODO_FOCUS_MINUTES_RANGE[1]}
+            onChange={(value) => savePomodoro({ work: value })}
+          />
+          <CountField
+            label={t('settings.todo_focus_pomodoro_short')}
+            value={focus.pomodoro.short}
+            min={TODO_FOCUS_MINUTES_RANGE[0]}
+            max={TODO_FOCUS_MINUTES_RANGE[1]}
+            onChange={(value) => savePomodoro({ short: value })}
+          />
+          <CountField
+            label={t('settings.todo_focus_pomodoro_long')}
+            value={focus.pomodoro.long}
+            min={TODO_FOCUS_MINUTES_RANGE[0]}
+            max={TODO_FOCUS_MINUTES_RANGE[1]}
+            onChange={(value) => savePomodoro({ long: value })}
+          />
+          <CountField
+            label={t('settings.todo_focus_pomodoro_every')}
+            value={focus.pomodoro.every}
+            min={TODO_POMODORO_EVERY_RANGE[0]}
+            max={TODO_POMODORO_EVERY_RANGE[1]}
+            onChange={(value) => savePomodoro({ every: value })}
+          />
+        </div>
+      </SettingRow>
+      <SettingRow
+        title={t('settings.todo_focus_flowtime')}
+        description={t('settings.todo_focus_flowtime_hint')}
+      >
+        <div className="flex items-center gap-2">
+          <Switch
+            checked={focus.flowtime.breakEnabled}
+            label={t('settings.todo_focus_flowtime_break')}
+            onChange={(next) => saveFlowtime({ breakEnabled: next })}
+          />
+          <CountField
+            label={t('settings.todo_focus_flowtime_percent')}
+            value={focus.flowtime.breakPercentage}
+            min={TODO_FLOWTIME_BREAK_PERCENT_RANGE[0]}
+            max={TODO_FLOWTIME_BREAK_PERCENT_RANGE[1]}
+            onChange={(value) => saveFlowtime({ breakPercentage: value })}
+          />
+        </div>
+      </SettingRow>
+      <SettingRow
+        title={t('settings.todo_focus_pause_break')}
+        description={t('settings.todo_focus_pause_break_hint')}
+      >
+        <Switch
+          checked={focus.pauseTrackingDuringBreak}
+          label={t('settings.todo_focus_pause_break')}
+          onChange={(next) => saveFocus({ pauseTrackingDuringBreak: next })}
+        />
+      </SettingRow>
+      <SettingRow
+        title={t('settings.todo_workday_estimate')}
+        description={t('settings.todo_workday_estimate_hint')}
+      >
+        <OptionalCountField
+          label={t('settings.todo_workday_estimate')}
+          value={workday.dailyEstimateMinutes}
+          min={TODO_WORKDAY_ESTIMATE_RANGE[0]}
+          max={TODO_WORKDAY_ESTIMATE_RANGE[1]}
+          onChange={(value) => saveWorkday({ dailyEstimateMinutes: value })}
+        />
+      </SettingRow>
+      <SettingRow
+        title={t('settings.todo_finish_day')}
+        description={t('settings.todo_finish_day_hint')}
+      >
+        <Switch
+          checked={workday.finishDayEnabled}
+          label={t('settings.todo_finish_day')}
+          onChange={(next) => saveWorkday({ finishDayEnabled: next })}
+        />
       </SettingRow>
       <SavedFiltersRow />
       <FeedSettings />
@@ -290,17 +462,20 @@ export function TodoSettings() {
 }
 
 /**
- * One of the two goals: a whole count inside `TODO_GOAL_RANGE`, where an empty field or zero leaves
- * the goal off.
+ * A whole count the reader may leave out: an empty field or zero means off, and the stored setting
+ * keeps that as null.
  *
  * The field keeps what is being typed while it has focus. Writing every keystroke straight back into
  * the stored setting would let the merge rewrite a half-typed number under the caret — a leading zero
  * vanishing, or a fraction snapping — so the draft is dropped on blur, when the stored count is the
- * one the reader should see.
+ * one the reader should see. `min` and `max` are the same edges the settings merge applies, so a
+ * spinner can never show a count the account would not keep.
  */
-function GoalInput({ label, value, onChange }: {
+function OptionalCountField({ label, value, min, max, onChange }: {
   label: string
   value: number | null
+  min: number
+  max: number
   onChange: (value: number | null) => void
 }) {
   const [draft, setDraft] = useState<string | null>(null)
@@ -309,8 +484,8 @@ function GoalInput({ label, value, onChange }: {
     <Input
       type="number"
       inputMode="numeric"
-      min={TODO_GOAL_RANGE[0]}
-      max={TODO_GOAL_RANGE[1]}
+      min={min}
+      max={max}
       aria-label={label}
       value={shown}
       onChange={(event) => {
@@ -323,9 +498,44 @@ function GoalInput({ label, value, onChange }: {
         const parsed = Number(text)
         if (!Number.isFinite(parsed)) return
         const rounded = Math.round(parsed)
-        // The merge applies the same edges; the field stops a spinner from ever showing a count it
-        // would not keep.
-        onChange(rounded <= TODO_GOAL_RANGE[0] ? null : Math.min(TODO_GOAL_RANGE[1], rounded))
+        onChange(rounded <= 0 ? null : Math.min(max, rounded))
+      }}
+      onBlur={() => setDraft(null)}
+      className="w-24 tabular-nums"
+    />
+  )
+}
+
+/**
+ * A count the setting always has to hold: a focus length, a break ratio.
+ *
+ * There is no off state here, so an emptied field writes nothing and, once the caret leaves it, shows
+ * the stored count again rather than the blank the merge would refuse. While it has focus the draft is
+ * kept for the same reason {@link OptionalCountField} gives.
+ */
+function CountField({ label, value, min, max, onChange }: {
+  label: string
+  value: number
+  min: number
+  max: number
+  onChange: (value: number) => void
+}) {
+  const [draft, setDraft] = useState<string | null>(null)
+  const shown = draft ?? String(value)
+  return (
+    <Input
+      type="number"
+      inputMode="numeric"
+      min={min}
+      max={max}
+      aria-label={label}
+      value={shown}
+      onChange={(event) => {
+        const text = event.target.value
+        setDraft(text)
+        const parsed = Number(text)
+        if (text === '' || !Number.isFinite(parsed)) return
+        onChange(Math.round(Math.min(max, Math.max(min, parsed))))
       }}
       onBlur={() => setDraft(null)}
       className="w-24 tabular-nums"

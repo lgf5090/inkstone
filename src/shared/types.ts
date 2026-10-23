@@ -584,6 +584,64 @@ export interface TodoSettings {
    * through that merge.
    */
   savedFilters?: SavedTodoFilter[]
+  /**
+   * How the focus overlay runs: which strategy, how long, and whether a break keeps counting.
+   *
+   * Optional for the same reason {@link savedFilters} is — the merge rebuilds the whole subgroup from
+   * whatever the stored blob carried, so a blob from before this field reads as the documented
+   * defaults rather than as half an object. `sound` is stored with the rest even while no cue plays
+   * it: the four levels are the overlay's contract, and a setting the merge forgets is one the panel
+   * cannot save.
+   */
+  focus?: TodoFocusSettings
+  /** The finish-day page's inputs: the planned length of a working day, and whether the page is offered. */
+  workday?: TodoWorkdaySettings
+}
+
+/** How a focus session is measured. See `TODO_FOCUS_STRATEGIES` for what each one means. */
+export type TodoFocusStrategy = 'countdown' | 'pomodoro' | 'flowtime'
+
+/**
+ * What a focus session says out loud. `'off'` is the default; see D9 — the cues are synthesised on the
+ * spot by WebAudio, so there is no audio asset behind any of these.
+ */
+export type TodoFocusSound = 'off' | 'tick' | 'chime' | 'both'
+
+/** The four numbers a pomodoro cycle needs: three lengths and the round a long break comes at. */
+export interface TodoPomodoroSettings {
+  work: number
+  short: number
+  long: number
+  every: number
+}
+
+/** Flowtime's only rule: after how much of the work just done a break is suggested. */
+export interface TodoFlowtimeSettings {
+  breakEnabled: boolean
+  breakPercentage: number
+}
+
+export interface TodoFocusSettings {
+  enabled: boolean
+  strategy: TodoFocusStrategy
+  /** The length a countdown session takes when the task it was opened from names no remaining estimate. */
+  defaultMinutes: number
+  pomodoro: TodoPomodoroSettings
+  flowtime: TodoFlowtimeSettings
+  /** Whether time entries keep running across a break, or the break is left out of the worklog. */
+  pauseTrackingDuringBreak: boolean
+  sound: TodoFocusSound
+}
+
+export interface TodoWorkdaySettings {
+  /**
+   * How many minutes of work a day plans for, or null when the reader names none.
+   *
+   * This is the denominator the finish-day page divides its load by. Zero and an empty field both
+   * mean "no plan", stored as null so there is one spelling for it, exactly as {@link dailyGoal} does.
+   */
+  dailyEstimateMinutes: number | null
+  finishDayEnabled: boolean
 }
 
 /** Where an article's pictures come from. `relay` keeps the reader's browser off the author's host. */

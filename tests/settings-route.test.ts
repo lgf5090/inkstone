@@ -8,7 +8,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import type { ExecutionContext } from 'hono'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { DEFAULT_SETTINGS } from '../src/shared/constants'
+import { DEFAULT_SETTINGS, DEFAULT_TODO_FOCUS, DEFAULT_TODO_WORKDAY } from '../src/shared/constants'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings } from '../src/worker/env'
@@ -159,6 +159,44 @@ describe('writing settings', () => {
     expect(written.status).toBe(200)
     expect(JSON.parse(column(BOB)).appearance.proseSize).toBe(21)
     expect(JSON.parse(column(ALICE)).editor.fontSize).toBe(22)
+  })
+
+  it('reads the focus and workday subgroups back after writing them', async () => {
+    // The route is where a subgroup that the merge forgets actually shows up for a reader: the panel
+    // writes it, the PUT answers the defaults, and the switch moves back on the next reload.
+    const written = await send('PUT', '', {
+      todo: {
+        focus: { ...DEFAULT_TODO_FOCUS, strategy: 'pomodoro', defaultMinutes: 45, pomodoro: { ...DEFAULT_TODO_FOCUS.pomodoro, work: 50 } },
+        workday: { ...DEFAULT_TODO_WORKDAY, dailyEstimateMinutes: 320 },
+      },
+    })
+    expect(written.status).toBe(200)
+    const answer = await written.json() as { todo: { focus: Record<string, unknown>, workday: Record<string, unknown> } }
+    expect(answer.todo.focus).toMatchObject({ strategy: 'pomodoro', defaultMinutes: 45, sound: 'off' })
+    expect(answer.todo.focus.pomodoro).toMatchObject({ work: 50, short: DEFAULT_TODO_FOCUS.pomodoro.short })
+    expect(answer.todo.workday).toMatchObject({ dailyEstimateMinutes: 320, finishDayEnabled: true })
+
+    const readBack = await (await send('GET', '')).json() as typeof answer
+    expect(readBack.todo.focus).toEqual(answer.todo.focus)
+    expect(readBack.todo.workday).toEqual(answer.todo.workday)
+    expect(JSON.parse(column(ALICE)).todo.focus).toEqual(answer.todo.focus)
+
+    // A later patch of another key must not wipe the subgroup that is already stored.
+    const next = await (await send('PUT', '', { todo: { dailyGoal: 5 } })).json() as {
+      todo: { dailyGoal: number, focus: Record<string, unknown>, workday: Record<string, unknown> }
+    }
+    expect(next.todo.dailyGoal).toBe(5)
+    expect(next.todo.focus).toMatchObject({ strategy: 'pomodoro', defaultMinutes: 45 })
+    expect(next.todo.workday.dailyEstimateMinutes).toBe(320)
+  })
+
+  it('holds an impossible focus value to its edges over the wire instead of storing it', async () => {
+    const answer = await (await send('PUT', '', {
+      todo: { focus: { defaultMinutes: 9999 }, workday: { dailyEstimateMinutes: -4 } },
+    })).json() as { todo: { focus: Record<string, unknown>, workday: Record<string, unknown> } }
+    expect(answer.todo.focus.defaultMinutes).toBe(240)
+    expect(answer.todo.workday.dailyEstimateMinutes).toBeNull()
+    expect(JSON.parse(column(ALICE)).todo.workday.dailyEstimateMinutes).toBeNull()
   })
 })
 
