@@ -97,7 +97,7 @@ export function groupByPlan(tasks: readonly TodoTask[], bounds: { dayEnd: number
  */
 export function groupToday(
   tasks: readonly TodoTask[],
-  bounds: { dayEnd: number; now: number; today: string },
+  bounds: { dayEnd: number; now: number; today: string; timezone: string },
 ): TaskGroup<TodayGroupKey>[] {
   const groups: Record<TodayGroupKey, TodoTask[]> = { planned: [], today: [], overdue: [] }
   for (const task of tasks) {
@@ -105,7 +105,14 @@ export function groupToday(
     // no place on it, so the skip reads the open set rather than "not done".
     if (!isTaskOpen(task.status)) continue
     if (task.plannedFor === bounds.today) groups.planned.push(task)
-    else if (task.dueAt !== null && task.dueAt < bounds.now) groups.overdue.push(task)
+    // "Overdue" here means the day the row was owed on has already passed, not merely that its hour
+    // has. This group carries the banner that offers to push a missed day into today, and a row due at
+    // 14:00 is not a day the reader missed at 16:00 — filing it there would have the screen declare a
+    // failure for the rest of the afternoon, and the batch would offer to postpone the reader's own
+    // today onto itself. A late hour is still shown: the row keeps its red time in the main list,
+    // which sorts it to the front. The sidebar's overdue badge answers a different question — how many
+    // rows are past the instant they named — and keeps the server's `due_at < now`, deliberately.
+    else if (task.dueAt !== null && localDate(task.dueAt, bounds.timezone) < bounds.today) groups.overdue.push(task)
     else groups.today.push(task)
   }
   return (['planned', 'today', 'overdue'] as const)
