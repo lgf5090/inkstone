@@ -113,7 +113,6 @@ import type {
   SavedMessage,
 } from '@shared/assistant'
 import type {
-  RemindOffset,
   SnoozeMinutes,
   TaskBatchRequestOp,
   TaskBatchResult,
@@ -127,6 +126,7 @@ import type {
   TodoTask,
   TodoTimeEntry,
 } from '@shared/todos/model'
+import { REMIND_OFFSET_MS, type RemindTier } from '@shared/todos/model'
 import { publishBroadcast } from './db'
 import { randomLocalId } from './random-id'
 import { getLocale, t, translateApiError } from './i18n'
@@ -727,14 +727,6 @@ export interface PushSubscriptionPayload {
   keys: { p256dh: string, auth: string }
 }
 
-/** How far before the due time each quick-add preset sits; "none" removes the reminder. */
-const REMINDER_DELAYS: Readonly<Record<Exclude<RemindOffset, 'none'>, number>> = {
-  due: 0,
-  '15m': 15 * 60_000,
-  '1h': 60 * 60_000,
-  '1d': 24 * 60 * 60_000,
-}
-
 /**
  * Reads the quick-add offset into the absolute reminder list the route accepts.
  *
@@ -751,7 +743,7 @@ function withReminderList(body: Record<string, unknown>): Record<string, unknown
   const dueAt = rest.dueAt
   if (typeof dueAt !== 'number' || typeof remind !== 'string') return rest
   if (remind === 'none') return { ...rest, reminders: [] }
-  const delay = REMINDER_DELAYS[remind as Exclude<RemindOffset, 'none'>]
+  const delay = REMIND_OFFSET_MS[remind as RemindTier]
   if (delay === undefined) return rest
   return { ...rest, reminders: [dueAt - delay] }
 }

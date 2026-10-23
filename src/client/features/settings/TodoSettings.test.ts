@@ -9,6 +9,7 @@ import {
   mergeSettings,
   mergeSettingsPatch,
 } from '@shared/constants'
+import { REMIND_OFFSETS } from '@shared/todos/model'
 import { initI18n, t } from '../../lib/i18n'
 import { ApiError } from '../../lib/api'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
@@ -409,6 +410,19 @@ describe('the stored focus subgroup', () => {
     for (const junk of ['focus', 7, [], null]) {
       expect(mergeSettings({ todo: { focus: junk } }).todo.focus).toEqual(DEFAULT_TODO_FOCUS)
     }
+  })
+
+  // The merge decides whether a saved default is a tier at all, and a tier it has never heard of folds to
+  // null — the reader picks "30 minutes before", the panel keeps showing it, and nothing is applied. The
+  // validator reads `REMIND_OFFSETS` now, so walking the list here is what keeps it honest as the list
+  // grows.
+  it('keeps every reminder tier the app offers as a stored default', () => {
+    for (const tier of REMIND_OFFSETS) {
+      if (tier === 'none') continue
+      expect(mergeSettings({ todo: { defaultRemind: tier } }).todo.defaultRemind).toBe(tier)
+    }
+    expect(mergeSettings({ todo: { defaultRemind: 'none' } }).todo.defaultRemind).toBeNull()
+    expect(mergeSettings({ todo: { defaultRemind: '2h' } }).todo.defaultRemind).toBeNull()
   })
 
   it('leaves the rest of the to-do settings alone when only a focus key changes', () => {

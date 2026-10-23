@@ -31,6 +31,7 @@ import type { MessageKey } from '@shared/locales/en-US'
 import {
   MAX_SINGLE_TIME_ENTRY_MS,
   isSnoozeMinutes,
+  remindOffsetForDelta,
   toggledStatus,
   type RemindOffset,
   type SnoozeMinutes,
@@ -423,12 +424,7 @@ export function snoozeLabel(minutes: SnoozeMinutes): string {
 /** The offset a stored reminder stands for, as the forms and the create route speak it. */
 export function remindOffsetOf(task: { remindAt: number | null; dueAt: number | null }): RemindOffset {
   if (task.remindAt === null || task.dueAt === null) return 'none'
-  const delta = task.dueAt - task.remindAt
-  if (delta <= 0) return 'due'
-  if (delta === 15 * 60_000) return '15m'
-  if (delta === 60 * 60_000) return '1h'
-  if (delta === 24 * 60 * 60_000) return '1d'
-  return 'none'
+  return remindOffsetForDelta(task.dueAt - task.remindAt)
 }
 
 /**

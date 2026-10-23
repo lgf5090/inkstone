@@ -105,6 +105,39 @@ it('keeps the interval beside a weekday list', () => {
   expect(parsed.title).toBe('\u7ad9\u4f1a')
 })
 
+// `every weekday` is a rhythm that names five days without spelling them, and it ends in the word `day`.
+// So the case that matters is not the one that works but the neighbours it must not eat: `every day`,
+// `every 2 days` and `every week` all keep the answers they had before this token existed.
+it('reads a work week as five named days rather than a daily rhythm', () => {
+  const weekday = parse('every weekday standup')
+  expect(weekday.repeat).toEqual({ freq: 'weekly', interval: 1, weekdays: [1, 2, 3, 4, 5] })
+  // Today is Tuesday, and a Tuesday is one of the five, so the rhythm opens today rather than tomorrow.
+  // The weekday-list case above lands on Wednesday only because Tuesday was not among the days named.
+  expect(wallClock(weekday.dueAt)).toBe('2026-10-20 23:59')
+  expect(weekday.title).toBe('standup')
+
+  expect(parse('every working day review').repeat).toEqual({ freq: 'weekly', interval: 1, weekdays: [1, 2, 3, 4, 5] })
+  expect(parse('every business days').repeat).toEqual({ freq: 'weekly', interval: 1, weekdays: [1, 2, 3, 4, 5] })
+
+  const cn = parse('\u6bcf\u4e2a\u5de5\u4f5c\u65e5 \u6253\u5361')
+  expect(cn.repeat).toEqual({ freq: 'weekly', interval: 1, weekdays: [1, 2, 3, 4, 5] })
+  expect(wallClock(cn.dueAt)).toBe('2026-10-20 23:59')
+  expect(cn.title).toBe('\u6253\u5361')
+})
+
+it('leaves the rhythms beside a work week exactly as they were', () => {
+  expect(parse('every day jog').repeat).toEqual({ freq: 'daily', interval: 1 })
+  expect(parse('every 2 days water plants').repeat).toEqual({ freq: 'daily', interval: 2 })
+  expect(parse('every week notes').repeat).toEqual({ freq: 'weekly', interval: 1 })
+  expect(parse('every 3 weeks review').repeat).toEqual({ freq: 'weekly', interval: 3 })
+  expect(parse('every month close books').repeat).toEqual({ freq: 'monthly', interval: 1 })
+  // `gong zuo ri` only means a work week behind `mei`; on its own it is prose, and a title that happens
+  // to end in those three characters must not acquire a rhythm nobody asked for.
+  const prose = parse('\u5206\u5de5\u4f5c\u65e5')
+  expect(prose.repeat).toBeNull()
+  expect(prose.title).toBe('\u5206\u5de5\u4f5c\u65e5')
+})
+
 it('reads an absolute day, rolling a passed month-day into next year', () => {
   expect(wallClock(parse('10-25 \u4ea4\u4fdd\u9669').dueAt)).toBe('2026-10-25 23:59')
   expect(wallClock(parse('12-31 \u8de8\u5e74').dueAt)).toBe('2026-12-31 23:59')

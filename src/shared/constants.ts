@@ -32,6 +32,7 @@ import type {
   ViewKind,
 } from './types'
 import { COVER_POSITIONS, COVER_SHAPES } from './property-decorations'
+import { isRemindOffset } from './todos/reminders'
 import { DEFAULT_LINTER_SETTINGS, normalizeLinterSettings } from './linter'
 import { DEFAULT_READING_SPEED_WPM } from './markdown-utils'
 import { version as packageVersion } from '../../package.json'
@@ -1690,9 +1691,15 @@ export function normalizeTodoTags(value: unknown): string {
   return [...seen].join(',')
 }
 
+/**
+ * The reader's default reminder tier.
+ *
+ * Read from the one list rather than a copy of it: a validator that has never heard of a tier folds the
+ * setting to null, and the panel keeps showing the choice the merge silently threw away — which is the
+ * shape this function's four-item list used to be. `none` is not a default, so it means "no reminder".
+ */
 function todoRemindOffset(value: unknown): TodoSettings['defaultRemind'] {
-  if (value === 'due' || value === '15m' || value === '1h' || value === '1d') return value
-  return null
+  return isRemindOffset(value) && value !== 'none' ? value : null
 }
 
 /**

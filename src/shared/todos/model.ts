@@ -130,9 +130,20 @@ export const UPCOMING_DAYS = 7
 export const TASK_SORTS = ['due', 'priority', 'created', 'completed'] as const
 export type TaskSort = (typeof TASK_SORTS)[number]
 
-/** How long a reminder may be set before the due time. Presets are a form shortcut, not a stored unit. */
-export const REMIND_OFFSETS = ['none', 'due', '15m', '1h', '1d'] as const
-export type RemindOffset = (typeof REMIND_OFFSETS)[number]
+/**
+ * The reminder tiers live in `todos/reminders`, a module with no imports of its own, and are re-exported
+ * here so the rest of the app has one door to the to-do vocabulary. They cannot live *in* this file:
+ * `shared/constants.ts` has to read the same list to validate `todo.defaultRemind`, and this module
+ * reaches `organizer-colors`, which reaches `constants` — the ring would close.
+ */
+export {
+  REMIND_OFFSETS,
+  REMIND_OFFSET_MS,
+  isRemindOffset,
+  remindAtFor,
+  remindOffsetForDelta,
+} from './reminders'
+export type { RemindOffset, RemindTier } from './reminders'
 
 /** The most reminders one task may carry. Five is what the reference app's paid tier offers. */
 export const MAX_REMINDERS_PER_TASK = 5
@@ -1029,24 +1040,6 @@ export function advanceRepeat(
   }
   if (rule.untilAt != null && candidate > rule.untilAt) return { dueAt: null, stopped: 'until', rule }
   return { dueAt: candidate, rule: { ...rule, produced: produced + 1 } }
-}
-
-/**
- * When to remind the reader, as an absolute instant.
- *
- * Stored as a time rather than an offset because the sweep has to answer "is it due" without
- * knowing which offset the reader chose, and because a reminder set for "1 day before" must not
- * move when the due date is later edited by hand.
- */
-export function remindAtFor(dueAt: number | null, offset: RemindOffset): number | null {
-  if (dueAt === null || offset === 'none') return null
-  switch (offset) {
-    case 'due': return dueAt
-    case '15m': return dueAt - 15 * 60_000
-    case '1h': return dueAt - 60 * 60_000
-    case '1d': return dueAt - 24 * 60 * 60_000
-    default: return null
-  }
 }
 
 /**

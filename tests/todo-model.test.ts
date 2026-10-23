@@ -5,12 +5,16 @@ import {
   MAX_REPEAT_EXCLUDED_DAYS,
   MAX_REPEAT_UNTIL_MS,
   MAX_TAGS_PER_TASK,
+  REMIND_OFFSETS,
+  REMIND_OFFSET_MS,
   advanceRepeat,
+  isRemindOffset,
   isTaskView,
   nextOccurrence,
   normalizeTagNames,
   parseRepeatRule,
   remindAtFor,
+  remindOffsetForDelta,
   taskColorOrNull,
   taskIconOrNull,
   taskListProgress,
@@ -190,6 +194,46 @@ describe('when a reminder fires', () => {
   it('has nothing to fire without a due date', () => {
     expect(remindAtFor(null, 'due')).toBeNull()
     expect(remindAtFor(due, 'none')).toBeNull()
+  })
+})
+
+describe('the reminder tiers', () => {
+  const due = utc('2026-10-20T09:00:00Z')
+  // The tiers are read in three doors — the arithmetic that files a reminder, the reading that lets a
+  // form open on the stored instant, and the settings merge that decides whether a saved default is a
+  // tier at all. Each of those had its own copy of the list, and a tier missing from one of them fails
+  // quietly: no reminder, or a form that opens on "Off", or a preference that never lands. So the whole
+  // list is walked here rather than sampled.
+  const TIERS = REMIND_OFFSETS.filter((offset) => offset !== 'none')
+
+  it('places every tier at its own distance before the due instant', () => {
+    const instants = TIERS.map((tier) => remindAtFor(due, tier))
+
+    expect(new Set(instants).size).toBe(TIERS.length)
+    expect(instants).toEqual(TIERS.map((tier) => due - REMIND_OFFSET_MS[tier]))
+    expect(remindAtFor(due, 'due')).toBe(due)
+    expect(remindAtFor(due, '1w')).toBe(due - 7 * DAY)
+  })
+
+  it('files nothing for no reminder and for a task owed at no time', () => {
+    expect(remindAtFor(due, 'none')).toBeNull()
+    expect(remindAtFor(null, '15m')).toBeNull()
+  })
+
+  it('reads each tier back from the distance it was filed at', () => {
+    for (const tier of TIERS) {
+      expect(remindOffsetForDelta(due - remindAtFor(due, tier)!)).toBe(tier)
+    }
+    // A distance no preset names is not rounded to the nearest one: a reminder set by hand at 45
+    // minutes is the reader's own answer, and claiming it said "1 hour" would be the form inventing it.
+    expect(remindOffsetForDelta(45 * 60_000)).toBe('none')
+    expect(remindOffsetForDelta(-1)).toBe('due')
+  })
+
+  it('recognises exactly the tiers it lists', () => {
+    for (const tier of REMIND_OFFSETS) expect(isRemindOffset(tier)).toBe(true)
+    expect(isRemindOffset('2h')).toBe(false)
+    expect(isRemindOffset(null)).toBe(false)
   })
 })
 
