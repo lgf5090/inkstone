@@ -328,8 +328,8 @@ describe('a series deciding whether it owes another occurrence', () => {
   const DUE = Date.parse('2026-03-12T09:00:00Z')
   const done = Date.parse('2026-03-13T20:00:00Z')
   const weekly = { freq: 'weekly' as const, interval: 1 }
-  const at = (patch: Record<string, unknown> = {}) => advanceRepeat(
-    { ...weekly, ...patch } as never,
+  const at = (patch: Partial<RepeatRule> = {}) => advanceRepeat(
+    { ...weekly, ...patch },
     { anchorDueAt: DUE, completedAt: done, timeZone: 'UTC' },
   )
 

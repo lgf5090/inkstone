@@ -26,6 +26,7 @@ import { TODO_FOCUS_STRATEGIES } from '@shared/constants'
 import type { TodoTask } from '@shared/todos/model'
 import { formatRunningDuration } from '@shared/todos/duration'
 import { t } from '../../lib/i18n'
+import { isImeComposing } from '../../lib/ime'
 import { useSession } from '../../store/session'
 import { Button, IconButton } from '../../components/primitives'
 import { Input, Segmented, Switch, commitOnEnter } from '../../components/form'
@@ -313,6 +314,9 @@ function TaskLine({ task }: { task: TodoTask | null }) {
       value={draft}
       onChange={(event) => setDraft(event.target.value)}
       onKeyDown={(event) => {
+        // An input method owns the keystroke while a candidate is open: Escape there cancels the word
+        // being composed, not the edit. The Enter below already answers this through `commitOnEnter`.
+        if (isImeComposing(event)) return
         if (event.key === 'Escape') {
           // The keystroke ends the edit here and is not passed on: the panel stays and the block keeps going.
           event.preventDefault()

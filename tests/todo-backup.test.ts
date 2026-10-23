@@ -160,7 +160,9 @@ describe('a backup round trip', () => {
       .filter((entry) => entry.id !== parent.id)
 
     const target = new AssistantStore(env.DB as D1Database, OTHER, env)
-    await importAssistant(target, backup as never)
+    // Re-read through the same door the route would: what comes back from `JSON.parse` is the shape the
+    // importer is written against, so the test hands it a file rather than an object it made up.
+    await importAssistant(target, JSON.parse(JSON.stringify(backup)))
 
     const restored = (await target.listTaskLists()).find((entry) => entry.id === section.id)
     expect(restored?.parentId, 'a child of a missing parent stayed nested').toBeNull()

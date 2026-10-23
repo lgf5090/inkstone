@@ -19,6 +19,7 @@ import { t } from '../../lib/i18n'
 import { api } from '../../lib/api'
 import { useDropState } from '../../lib/drop-state'
 import { useMediaQuery } from '../../lib/hooks'
+import { isImeComposing } from '../../lib/ime'
 import { TagPill } from '../../components/TagChip'
 import { Input } from '../../components/form'
 import { Menu, useContextMenu } from '../../components/overlay'
@@ -801,6 +802,10 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
               onChange={(event) => { setTitleDraft(event.target.value) }}
               onBlur={commitTitle}
               onKeyDown={(event) => {
+                // An input method owns this keystroke while a candidate is open, and both keys below mean
+                // something else inside it: Enter picks the word, Escape drops the composition. Acting on
+                // either would commit half a title the reader was still typing.
+                if (isImeComposing(event)) return
                 // Enter is the commit and Escape the way back out. Both cancel the keystroke: the first
                 // so the browser does not activate the row behind the field, the second so the app's
                 // own Escape does not step the reader out of a screen they were never on.
