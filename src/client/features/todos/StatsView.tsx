@@ -46,7 +46,7 @@ import {
   durationLabel,
   type StatSlice,
 } from './stats-charts'
-import { WorklogSection } from './WorklogSection'
+import { WorklogSection, useWorklog } from './WorklogSection'
 
 const RANGE_CHOICES = [
   { value: '7', labelKey: 'todo.stats.range.7', days: 7 },
@@ -639,6 +639,10 @@ export function StatsView() {
   const statsBucket = useTodos((state) => state.statsBucket)
   const loadStats = useTodos((state) => state.loadStats)
   const setStatsRange = useTodos((state) => state.setStatsRange)
+  // One read of the ledger, shared by the section and the export: two consumers asking separately can
+  // disagree about the same window, and an export that disagrees with the screen is the worse of the
+  // two ways to be wrong.
+  const worklog = useWorklog({ from: statsFrom ?? '', to: statsTo ?? '' })
   const dailyGoal = useSession((state) => state.settings.todo.dailyGoal) ?? null
   const weeklyGoal = useSession((state) => state.settings.todo.weeklyGoal) ?? null
 
@@ -679,7 +683,7 @@ export function StatsView() {
           stats={stats}
           onRange={pickRange}
           onBucket={pickBucket}
-          onExport={() => { downloadStatsCsv(stats) }}
+          onExport={() => { downloadStatsCsv(stats, worklog.answer) }}
         />
       )}
       {status === 'error' ? (
@@ -693,7 +697,7 @@ export function StatsView() {
           <StatsBody stats={stats} comparison={comparison} goals={{ daily: dailyGoal, weekly: weeklyGoal }} />
           {/* The hours the ledger holds, beside the counts the plate moved: the two read different
               tables and are allowed to disagree about the same week. */}
-          <WorklogSection from={stats.range.from} to={stats.range.to} />
+          <WorklogSection state={worklog} />
         </>
       )}
     </div>

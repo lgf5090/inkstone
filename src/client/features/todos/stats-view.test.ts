@@ -12,7 +12,7 @@ import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { localDate } from '@shared/assistant-time'
 import { mergeSettings } from '@shared/constants'
-import type { TaskStatsBucket, TodoStats } from '@shared/todos/model'
+import type { TaskStatsBucket, TodoStats, Worklog } from '@shared/todos/model'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, stubBreakpoint, type RenderedElement } from '../../lib/test-render'
 import { useSession } from '../../store/session'
@@ -481,6 +481,37 @@ describe('the CSV export', () => {
     expect(statsCsvFilename(stats.range)).toBe('inkstone-todo-stats-2026-10-01_2026-10-30.csv')
 
     expect(buttonFor(container, t('todo.stats.export.label')).disabled, 'a populated range cannot export').toBe(false)
+  })
+
+  // The hours travel with the file, in milliseconds rather than the rounded hours the bars draw: a
+  // spreadsheet can divide, and it cannot undo a rounding. And when the read did not arrive the two
+  // tables are absent rather than zero-filled — a file that said nobody worked would be a wrong fact,
+  // while a missing table is a question the reader can ask again.
+  it('carries the tracked time beside the counts, and says what the page left out', async () => {
+    const tracked: Worklog = {
+      range: { from: '2026-10-01', to: '2026-10-30', dimension: 'tag' },
+      totalMs: 5_400_000,
+      entryCount: 3,
+      byDay: [{ day: '2026-10-05', trackedMs: 5_400_000 }],
+      byGroup: [{ key: 'T1', label: 'urgent', trackedMs: 5_400_000 }],
+      truncatedGroups: 2,
+      estimatedCount: 2,
+      overEstimateCount: 1,
+      overEstimateRate: 0.5,
+    }
+
+    const csv = buildStatsCsv(fullStats(), tracked)
+
+    expect(csv).toContain('period,tracked_ms')
+    expect(csv).toContain('2026-10-05,5400000')
+    expect(csv).toContain('# dimension,tag')
+    expect(csv).toContain('group,key,label,tracked_ms')
+    // The label column is the reader's language; the key is what a script joins on.
+    expect(csv).toContain('tag,T1,urgent,5400000')
+    expect(csv).toContain('# truncated_groups,2')
+    expect(csv).toContain('# total_tracked_ms,5400000')
+
+    expect(buildStatsCsv(fullStats())).not.toContain('tracked_ms')
   })
 
   it('keeps the export disabled and explains why when the range is empty', async () => {

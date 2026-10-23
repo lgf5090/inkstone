@@ -11728,6 +11728,9 @@ const allowed = new Map([
     "/**\r\n * The three counting rules, as data rather than as prose.\r\n *\r\n * A rate's whole meaning lives in its denominator, and the denominator of the first one is the thing a\r\n * reader cannot see from the label: `completionRate` deliberately does not count the tasks the reader\r\n * gave up, because the number was published before that state existed and moving it under their feet\r\n * would read as a drop they had caused. The screen says so out loud beside the two cards (their hints)\r\n * and again here, where a screen reader gets the same three definitions the worker's own header states\r\n * (plan §5 D10) rather than a picture of a bar.\r\n */",
     "/**\r\n * The range, the bucket and the export.\r\n *\r\n * One row on a wide window, one scrolling row on a phone: the two segmented controls keep their height\r\n * rather than wrapping into a block, and the export is an icon so the row does not grow a third line.\r\n */",
     "/* The hours the ledger holds, beside the counts the plate moved: the two read different\r\n              tables and are allowed to disagree about the same week. */",
+    "// One read of the ledger, shared by the section and the export: two consumers asking separately can",
+    "// disagree about the same window, and an export that disagrees with the screen is the worse of the",
+    "// two ways to be wrong.",
   ]],
   ["src/client/features/todos/TaskCard.tsx", [
     "// A star that only appears on hover is a star a thumb never finds.",
@@ -12038,10 +12041,12 @@ const allowed = new Map([
     "// The store's restore reports and reloads the listing; the panel only drops the row it sees.",
   ]],
   ["src/client/features/todos/WorklogSection.tsx", [
-    "/**\r\n * The worklog section of the statistics screen: where the hours actually went.\r\n *\r\n * It reads its own endpoint on the range the screen already shows, because the statistics replay the\r\n * plate's rows and this sums the ledger — an account can hold forty hours in a week whose tasks were\r\n * mostly closed later, and the two readings have to be allowed to disagree.\r\n *\r\n * The dimension is this section's own choice rather than a page-wide filter: it answers \"grouped by\r\n * what\", a question the rest of the screen never asks, and lifting it up would make one control\r\n * appear to govern charts it does not touch.\r\n */",
-    "/** Hours, as a bar chart's number. Bars want a plain value; the label beside it carries the unit. */",
-    "/** Bumped by a retry, which is the only way back out of an error the range did not change. */",
     "/* A missing denominator is a dash, not a zero: nothing was planned, so nothing overran\r\n                  is a different statement from never overrunning. */",
+    "/**\r\n * The worklog section of the statistics screen: where the hours actually went.\r\n *\r\n * It reads its own endpoint on the range the screen already shows, because the statistics replay the\r\n * plate's rows and this sums the ledger — an account can hold forty hours in a week whose tasks were\r\n * mostly closed later, and the two readings have to be allowed to disagree.\r\n *\r\n * The read lives in `useWorklog` rather than inside the section for one specific reason: the CSV export\r\n * has to carry the answer the reader is looking at. A section that owned its own fetch would leave the\r\n * export either asking a second time — and so exporting a different number than the screen shows\r\n * whenever one call failed or the range moved in between — or guessing. One read, two consumers.\r\n *\r\n * The dimension stays local, and stays that way: it answers \"grouped by what\", a question the rest of\r\n * the screen never asks, and lifting it into the toolbar would make one control appear to govern charts\r\n * it does not touch.\r\n */",
+    "/** Hours, as a bar chart's number. Bars want a plain value; the caption beside them carries the unit. */",
+    "/** The last answer that arrived. It stays on screen while the next one is in flight. */",
+    "/**\r\n * The worklog for one window, held where the section and the export can both reach it.\r\n *\r\n * An empty `from` means the screen has no range yet — the statistics have not answered the first time —\r\n * and nothing is asked for: a worklog over a window nobody chose would be a number exported from a\r\n * guess.\r\n */",
+    "/** Bumped by a retry, the only way back out of an error the range itself did not change. */",
   ]],
   ["src/client/features/todos/api-if-match.test.ts", [
     "/**\n * The revision and the key a task write travels with.\n *\n * The route refuses a stale write by comparing `If-Match` with the row's revision, so the guard is only\n * real if the client actually puts the header on the request. This pins the wire shape: the revision\n * argument of `api.todos.update`, `api.todos.plan` and `api.todos.snooze` becomes `If-Match`, and a\n * write that names no revision stays unconditional, which is what the older surfaces (the assistant's\n * tools, an undo) still send.\n *\n * A create has the same problem in the other direction: it is not conditional but repeatable, so the\n * second argument of `api.todos.create` becomes `Idempotency-Key` and the route can answer a lost\n * response with the row it already wrote instead of a second one.\n */",
@@ -12557,8 +12562,10 @@ const allowed = new Map([
     "/** One CSV cell: quoted only when the text contains a delimiter, a quote or a line break. */",
     "/** The downloaded file's name, carrying the range it describes. */",
     "/**\n * Hand the CSV to the browser as a download.\n *\n * A Blob and an object URL: the data is already in memory, and a temporary anchor is the platform's\n * own download gesture — no dependency and no server round trip. The URL is revoked on the next task\n * because a browser may start reading the blob after the click handler returns.\n */",
-    "/**\n * The statistics as one CSV file the reader can open in a spreadsheet.\n *\n * Three tables share the file, separated by a blank line and introduced by `#` comment lines: the\n * trend first (`period,completed,created`), then every distribution (`distribution,key,label,count`),\n * then the cumulative flow (`period,todo,in_progress,done`). The column names are fixed English so a\n * script written against one export still reads the next; the label column carries the reader's\n * language. Days are the account-zone `YYYY-MM-DD` strings the answer already holds, never UTC\n * instants re-zoned here. The file starts with a UTF-8 BOM because Excel otherwise reads a Chinese\n * label as mojibake.\n */",
-    "/** The whole answer as one CSV: the trend table, the distribution table, then the flow table. */",
+    "/**\n * The statistics as one CSV file the reader can open in a spreadsheet.\n *\n * Five tables share the file, separated by a blank line and introduced by `#` comment lines: the\n * trend first (`period,completed,created`), then every distribution (`distribution,key,label,count`),\n * then the cumulative flow (`period,todo,in_progress,done`), and — when the screen had a worklog to\n * hand over — the tracked time by day (`period,tracked_ms`) and by whatever the reader was grouping by\n * (`group,key,label,tracked_ms`, with the dimension named in a `# dimension` line of its own).\n * The column names are fixed English so a script written against one export still reads the next; the\n * label column carries the reader's language. Days are the account-zone `YYYY-MM-DD` strings the\n * answer already holds, never UTC instants re-zoned here. Times are milliseconds, not the rounded hours\n * the bars draw: a spreadsheet can divide, and it cannot undo a rounding. The file starts with a UTF-8\n * BOM because Excel otherwise reads a Chinese label as mojibake.\n */",
+    "/**\n * The whole answer as one CSV: the trend, the distributions, the flow, and the hours if there were\n * any to ask about.\n *\n * `worklog` is optional rather than fetched here because this function's job is to serialise what the\n * screen already showed. When the read failed, the two time tables are simply absent — a file that\n * claimed nobody worked would be a wrong fact, while a missing table is a question the reader can ask\n * again.\n */",
+    "// How many groups the page left off, and what the whole window really held. The cap is a screen",
+    "// decision, and a reader who totals the rows would otherwise be quietly short by the rest.",
   ]],
   ["src/client/features/todos/stats-flow.test.ts", [
     "/**\n * The cumulative flow chart and its export.\n *\n * The bands use the trend's geometry, so what a reader can actually check is pinned here: three\n * stacked polygons, a legend that switches one band off, the dashed line that marks where tracking\n * began, an accessible name carrying the range and the closing stock, and the third CSV table with\n * its fixed column names. The one-bucket case is included because it has no width between two x\n * positions and would otherwise write `NaN` into the path data.\n */",
@@ -12603,6 +12610,11 @@ const allowed = new Map([
     "// 20% against 10% is +10 points on the same reading.",
     "/**\r\n * The statistics screen: the range it asks for, the numbers it shows, and the three states.\r\n *\r\n * The range is the load-bearing part. A control that changes a label and re-slices the last answer\r\n * looks right on a fixture and silently answers a different question in the product, so every case\r\n * here reads the request the fake service received rather than only the words on screen. The view is\r\n * mounted through the container, because the sidebar and the phone header are where the screen is\r\n * reached from and a registry entry is only real once both layouts offer it.\r\n */",
     "/**\r\n * The equal-length window before a range, spelled here rather than by importing the view's helper:\r\n * a test that asked the implementation what to expect would agree with it by construction.\r\n */",
+    "// The hours travel with the file, in milliseconds rather than the rounded hours the bars draw: a",
+    "// spreadsheet can divide, and it cannot undo a rounding. And when the read did not arrive the two",
+    "// tables are absent rather than zero-filled — a file that said nobody worked would be a wrong fact,",
+    "// while a missing table is a question the reader can ask again.",
+    "// The label column is the reader's language; the key is what a script joins on.",
   ]],
   ["src/client/features/todos/status-board.test.ts", [
     "/** The task ids a column holds, in the order they are drawn. */",
@@ -13596,6 +13608,7 @@ const allowed = new Map([
     "/**\r\n * The worklog section of the statistics screen.\r\n *\r\n * The case worth pinning is the missing denominator. A range in which nothing was estimated has no\r\n * overrun rate, and showing `0%` there would tell an account that never planned anything that it plans\r\n * perfectly — the mistake the reference app's metric makes. The dash is the honest answer, and beside\r\n * it the counts stay, so the reader can see why there is no rate.\r\n */",
     "// The rate's own cell, not the section's whole text: the single bar in the breakdown is 100% of",
     "// itself, and `100%` contains the `0%` a loose substring check would flag.",
+    "/**\r\n * The section as the screen mounts it: `useWorklog` owns the read so the CSV export can carry the very\r\n * same answer, which means the thing under test is the pair, not the presentation alone.\r\n */",
   ]],
   ["src/client/features/workspace/BacklinksPanel.tsx", [
     "// Debounced refresh on note revision changes; unrelated sync traffic",

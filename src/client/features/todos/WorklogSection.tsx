@@ -5,9 +5,14 @@
  * plate's rows and this sums the ledger — an account can hold forty hours in a week whose tasks were
  * mostly closed later, and the two readings have to be allowed to disagree.
  *
- * The dimension is this section's own choice rather than a page-wide filter: it answers "grouped by
- * what", a question the rest of the screen never asks, and lifting it up would make one control
- * appear to govern charts it does not touch.
+ * The read lives in `useWorklog` rather than inside the section for one specific reason: the CSV export
+ * has to carry the answer the reader is looking at. A section that owned its own fetch would leave the
+ * export either asking a second time — and so exporting a different number than the screen shows
+ * whenever one call failed or the range moved in between — or guessing. One read, two consumers.
+ *
+ * The dimension stays local, and stays that way: it answers "grouped by what", a question the rest of
+ * the screen never asks, and lifting it into the toolbar would make one control appear to govern charts
+ * it does not touch.
  */
 
 import { useEffect, useState } from 'react'
@@ -24,20 +29,43 @@ const DIMENSION_KEYS: Record<WorklogDimension, MessageKey> = {
   task: 'todo.stats.worklog.by_task',
 }
 
-/** Hours, as a bar chart's number. Bars want a plain value; the label beside it carries the unit. */
+/** Hours, as a bar chart's number. Bars want a plain value; the caption beside them carries the unit. */
 function hours(ms: number): number {
   return Math.round((ms / 3_600_000) * 10) / 10
 }
 
-export function WorklogSection({ from, to }: { from: string, to: string }) {
+export interface WorklogState {
+  dimension: WorklogDimension
+  setDimension: (next: WorklogDimension) => void
+  /** The last answer that arrived. It stays on screen while the next one is in flight. */
+  answer: Worklog | null
+  status: 'loading' | 'ready' | 'error'
+  error: string
+  retry: () => void
+}
+
+/**
+ * The worklog for one window, held where the section and the export can both reach it.
+ *
+ * An empty `from` means the screen has no range yet — the statistics have not answered the first time —
+ * and nothing is asked for: a worklog over a window nobody chose would be a number exported from a
+ * guess.
+ */
+export function useWorklog(range: { from: string, to: string }): WorklogState {
   const [dimension, setDimension] = useState<WorklogDimension>('list')
   const [answer, setAnswer] = useState<Worklog | null>(null)
-  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [status, setStatus] = useState<WorklogState['status']>('loading')
   const [error, setError] = useState('')
-  /** Bumped by a retry, which is the only way back out of an error the range did not change. */
+  /** Bumped by a retry, the only way back out of an error the range itself did not change. */
   const [reloadKey, setReloadKey] = useState(0)
+  const { from, to } = range
 
   useEffect(() => {
+    if (!from || !to) {
+      setAnswer(null)
+      setStatus('ready')
+      return undefined
+    }
     let live = true
     setStatus('loading')
     api.todos.worklog({ from, to, group: dimension })
@@ -54,13 +82,26 @@ export function WorklogSection({ from, to }: { from: string, to: string }) {
     return () => { live = false }
   }, [from, to, dimension, reloadKey])
 
+  return {
+    dimension,
+    setDimension,
+    answer,
+    status,
+    error,
+    retry: () => setReloadKey((key) => key + 1),
+  }
+}
+
+export function WorklogSection({ state }: { state: WorklogState }) {
+  const { dimension, setDimension, answer, status, error, retry } = state
+
   if (status === 'error') {
     return (
       <section data-worklog-section="" className="flex flex-col items-start gap-2">
         <p role="alert" className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{error}</p>
         <button
           type="button"
-          onClick={() => setReloadKey((key) => key + 1)}
+          onClick={retry}
           className="rounded-[var(--r-sm)] border border-[var(--border-subtle)] px-2 py-1 text-[length:var(--text-12)] hover:bg-[var(--bg-hover)]"
         >
           {t('common.retry')}

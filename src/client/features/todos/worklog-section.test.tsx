@@ -12,8 +12,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import { chooseOption } from '../../lib/test-menu'
-import { WorklogSection } from './WorklogSection'
+import { WorklogSection, useWorklog } from './WorklogSection'
 import type { Worklog } from '@shared/todos/model'
+
+/**
+ * The section as the screen mounts it: `useWorklog` owns the read so the CSV export can carry the very
+ * same answer, which means the thing under test is the pair, not the presentation alone.
+ */
+function Harness() {
+  return createElement(WorklogSection, { state: useWorklog({ from: '2026-03-01', to: '2026-03-05' }) })
+}
 
 const service = vi.hoisted(() => ({
   calls: [] as Record<string, unknown>[],
@@ -55,7 +63,7 @@ vi.mock('../../lib/api', () => ({
 let view: RenderedElement | null = null
 
 async function mount(): Promise<void> {
-  view = renderElement(createElement(WorklogSection, { from: '2026-03-01', to: '2026-03-05' }))
+  view = renderElement(createElement(Harness))
   await act(async () => {
     await new Promise((resolve) => { setTimeout(resolve, 0) })
   })
