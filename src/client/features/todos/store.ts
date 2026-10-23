@@ -526,11 +526,14 @@ const PICKER_LIMIT = 8
 /**
  * What one queued task write asks the server to do. The queue row's `entity` already says "task".
  *
- * A back-filled span is missing from this set on purpose: `logTimeSpan` is the one door that files
- * hours, and it refuses with a reason when there is no network rather than queueing a write the
- * replay could land twice.
+ * The two timer gestures are here: a start is idempotent (starting on the task already running answers
+ * with the interval that is), and a stop of nothing running is the 404 that means the stop already
+ * landed. A back-filled span is missing from this set on purpose: `logTimeSpan` is the one door that
+ * files hours, and it refuses with a reason when there is no network rather than queueing a write the
+ * replay could land twice — `/time` has no idempotency key, so a lost answer would turn five minutes
+ * into ten.
  */
-type TodoOutboxOp = 'create' | 'update' | 'delete' | 'plan' | 'snooze'
+type TodoOutboxOp = 'create' | 'update' | 'delete' | 'plan' | 'snooze' | 'timer-start' | 'timer-stop'
 
 type TodoOutboxPayload = {
   op: TodoOutboxOp
@@ -541,6 +544,8 @@ type TodoOutboxPayload = {
   rev?: number
   date?: string | null
   minutes?: SnoozeMinutes
+  /** The instant a queued timer gesture was pressed at, in the reader's own clock. */
+  at?: number
 }
 
 /** How a replay pass ended for one row; the note store's loop acts on it. */
@@ -552,6 +557,7 @@ export type TodoOutboxOutcome =
 function isTodoOutboxPayload(value: Record<string, unknown>): value is TodoOutboxPayload {
   return value.op === 'create' || value.op === 'update' || value.op === 'delete'
     || value.op === 'plan' || value.op === 'snooze'
+    || value.op === 'timer-start' || value.op === 'timer-stop'
 }
 
 /** The revision a queued write names, or undefined when the row was created offline. */
@@ -732,6 +738,30 @@ export async function replayTodoOutboxItem(
         // A snooze spends a revision like any other write, so the edits queued behind it have to be
         // moved onto the one that landed — otherwise the next replay reports a conflict this tab made.
         await advanceTodoDependents(item, payload, task.rev ?? 1, siblings)
+        return { status: 'done' }
+      }
+      case 'timer-start': {
+        // The instant travels. A reader who started an interval at two and reconnected at six worked
+        // from two, and replaying the gesture as "now" would move those four hours into a different
+        // day of the ledger — which is the one thing the day buckets and the per-day ceiling read off.
+        const { entry } = await api.todos.startTimer(id, payload.at === undefined ? {} : { startAt: payload.at })
+        // The row this start displaced, if any, spent a revision too — the server closed its interval
+        // where this one begins — so it is re-read alongside the row that now holds the open span.
+        const displaced = timedRowIds(useTodos.getState()).filter((rowId) => rowId !== entry.taskId)
+        paintTimedRow(entry.taskId, entry.startAt)
+        await refreshTimedRows([entry.taskId, ...displaced])
+        return { status: 'done' }
+      }
+      case 'timer-stop': {
+        try {
+          await api.todos.stopTimer(id, payload.at === undefined ? {} : { endAt: payload.at })
+        } catch (error) {
+          // Nothing running on this task is the state a stop wants, exactly as a delete of a row that
+          // is already gone is: the only way here is a replay of a stop that landed and lost its answer.
+          if (!(error instanceof ApiError && error.status === 404)) throw error
+        }
+        paintTimedRow(id, null)
+        await refreshTimedRows([id])
         return { status: 'done' }
       }
     }
@@ -1946,6 +1976,12 @@ export const useTodos = create<TodosState>((set, get) => ({
    * The account holds at most one open interval, and the server closes the previous one where a new one
    * begins, so the mirror of that is taken here rather than asked for: every other row stops claiming a
    * running timer, and the rows the ledger moved are re-read for the revision it spent.
+   *
+   * With no network the press is queued, and it is queued **with its own timestamp**. The route takes
+   * `startAt` for exactly this caller: online, "now" is the server's clock and nothing is sent, but a
+   * device that was away has the only reading of when the reader actually began. Both halves of the
+   * gesture are replayable — a start on the task already running answers with that interval, and the
+   * `in_progress` write ahead of it in the queue has already put the row where a start belongs.
    */
   startTimer: async (task) => {
     if (task.status === 'todo') {
@@ -1955,6 +1991,22 @@ export const useTodos = create<TodosState>((set, get) => ({
       if (!saved) return
     }
     const closed = timedRowIds(get()).filter((id) => id !== task.id)
+    // The press happened at an instant only this device has a clock for. Online, the server's now is
+    // the one the ledger trusts and nothing is sent; away from the network, this reading is the whole
+    // of what the interval is, because by the time the queue drains the press is hours past.
+    const at = Date.now()
+    if (offlineNow()) {
+      try {
+        await localDb.enqueueOutbox(queuedTodoItem(task.id, { op: 'timer-start', at }))
+      } catch (error) {
+        // A gesture that could not be queued has no record anywhere, so it is not painted: an indicator
+        // counting hours that no replay will ever file is the silent failure this door exists to avoid.
+        toastError(error)
+        return
+      }
+      paintTimedRow(task.id, at)
+      return
+    }
     try {
       const { entry } = await api.todos.startTimer(task.id)
       paintTimedRow(entry.taskId, entry.startAt)
@@ -1973,6 +2025,19 @@ export const useTodos = create<TodosState>((set, get) => ({
    * arithmetic here would be a second ledger.
    */
   stopTimer: async (id) => {
+    const at = Date.now()
+    if (offlineNow()) {
+      try {
+        await localDb.enqueueOutbox(queuedTodoItem(id, { op: 'timer-stop', at }))
+      } catch (error) {
+        toastError(error)
+        return
+      }
+      // The row stops counting right here. What the span is finally divided into is the server's
+      // ledger to say, on the pass that lands it — the same reason the online branch re-reads.
+      paintTimedRow(id, null)
+      return
+    }
     try {
       await api.todos.stopTimer(id)
       paintTimedRow(id, null)

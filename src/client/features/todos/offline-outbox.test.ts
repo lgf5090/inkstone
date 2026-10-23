@@ -28,6 +28,8 @@ const mocks = vi.hoisted(() => ({
   plan: vi.fn(),
   snooze: vi.fn(),
   addTime: vi.fn(),
+  startTimer: vi.fn(),
+  stopTimer: vi.fn(),
   updateOutboxRevision: vi.fn(async () => {}),
   markOutboxFailure: vi.fn(async () => {}),
 }))
@@ -101,6 +103,8 @@ vi.mock('../../lib/api', async () => {
         plan: mocks.plan,
         snooze: mocks.snooze,
         addTime: mocks.addTime,
+        startTimer: mocks.startTimer,
+        stopTimer: mocks.stopTimer,
       },
     },
   }
@@ -157,7 +161,8 @@ beforeEach(async () => {
   await initI18n()
   mocks.queue = []
   for (const fn of [mocks.create, mocks.update, mocks.get, mocks.remove, mocks.plan, mocks.snooze,
-    mocks.addTime, mocks.updateOutboxRevision, mocks.markOutboxFailure, confirmMock]) fn.mockReset()
+    mocks.addTime, mocks.startTimer, mocks.stopTimer, mocks.updateOutboxRevision,
+    mocks.markOutboxFailure, confirmMock]) fn.mockReset()
   confirmMock.mockResolvedValue(false)
   setOnline(false)
   useTodos.setState(original, true)
@@ -358,5 +363,101 @@ describe('a task write made offline', () => {
     expect(id).toBe('server-1')
     expect(span.endAt - span.startAt).toBe(5 * 60_000)
     expect(useTodos.getState().tasks[0]).toMatchObject({ timeSpentMs: 5 * 60_000 })
+  })
+
+  // The two timer gestures are queueable where the back-fill above is not, and the reason is the shape
+  // of each door: starting on the task whose interval is already open answers with that interval, and
+  // stopping one that is no longer running is the 404 that says the stop wanted state. Neither can be
+  // filed twice by a replay that lost its answer.
+  describe('a timer gesture made offline', () => {
+    /** The instant the reader pressed, bracketed by the two clock reads around the action. */
+    function queuedInstant(item: unknown): number {
+      return (item as { payload: { at: number } }).payload.at
+    }
+
+    it('queues the press with the instant it happened and puts the indicator up at once', async () => {
+      useTodos.setState({ tasks: [row('t1', 'Mine', { status: 'in_progress' })], total: 1 })
+
+      const before = Date.now()
+      await useTodos.getState().startTimer(row('t1', 'Mine', { status: 'in_progress' }))
+      const after = Date.now()
+
+      expect(mocks.startTimer, 'a gesture with no network reached the route anyway').not.toHaveBeenCalled()
+      expect(mocks.queue).toHaveLength(1)
+      expect(mocks.queue[0]).toMatchObject({ entity: 'todo', entityId: 't1', payload: { op: 'timer-start' } })
+      const at = queuedInstant(mocks.queue[0])
+      expect(at).toBeGreaterThanOrEqual(before)
+      expect(at).toBeLessThanOrEqual(after)
+      // The card counts from the press, not from whenever the device finds a network again.
+      expect(useTodos.getState().tasks[0]?.runningSince).toBe(at)
+    })
+
+    it('replays the start at the instant it was pressed rather than when the queue drained', async () => {
+      useTodos.setState({ tasks: [row('t1', 'Mine', { status: 'in_progress' })], total: 1 })
+      await useTodos.getState().startTimer(row('t1', 'Mine', { status: 'in_progress' }))
+      const at = queuedInstant(mocks.queue[0])
+
+      setOnline(true)
+      mocks.startTimer.mockResolvedValue({ entry: { id: 'e1', taskId: 't1', startAt: at, endAt: null, day: '2026-10-22', source: 'timer' } })
+      await useNotes.getState().replayPending()
+
+      // Four hours of work happened at two o'clock. Filing them as a span that opened at six would move
+      // them into a different row of the day ledger, which is what the day buckets and the ceiling read.
+      expect(mocks.startTimer).toHaveBeenCalledWith('t1', { startAt: at })
+      expect(mocks.queue).toHaveLength(0)
+    })
+
+    it('queues the stop, takes the indicator down at once, and files the span it was pressed at', async () => {
+      useTodos.setState({ tasks: [row('t1', 'Mine', { status: 'in_progress', runningSince: Date.now() - 60_000 })], total: 1 })
+
+      await useTodos.getState().stopTimer('t1')
+      expect(mocks.stopTimer).not.toHaveBeenCalled()
+      expect(useTodos.getState().tasks[0]?.runningSince, 'the card kept counting a span the reader put down')
+        .toBeNull()
+      expect(mocks.queue[0]).toMatchObject({ entityId: 't1', payload: { op: 'timer-stop' } })
+      const at = queuedInstant(mocks.queue[0])
+
+      setOnline(true)
+      mocks.stopTimer.mockResolvedValue({ entries: [{ id: 'e1', taskId: 't1', startAt: at - 60_000, endAt: at }] })
+      await replayTodoOutboxItem(mocks.queue[0] as never)
+
+      expect(mocks.stopTimer).toHaveBeenCalledWith('t1', { endAt: at })
+    })
+
+    it('treats a stop whose interval is already gone as the state it wanted', async () => {
+      useTodos.setState({ tasks: [row('t1', 'Mine', { status: 'in_progress', runningSince: Date.now() - 60_000 })], total: 1 })
+      await useTodos.getState().stopTimer('t1')
+
+      setOnline(true)
+      // The one way here is a replay of a stop that landed and lost its answer — same tombstone rule a
+      // queued delete follows, and for the same reason: retrying it forever would be a failure of ours.
+      mocks.stopTimer.mockRejectedValue(new ApiError(404, 'not-found', 'No timer is running for this task.'))
+      const outcome = await replayTodoOutboxItem(mocks.queue[0] as never)
+
+      expect(outcome).toEqual({ status: 'done' })
+      expect(mocks.markOutboxFailure).not.toHaveBeenCalled()
+    })
+
+    it('moves a queued start onto the id the server minted for the row it was pressed on', async () => {
+      const mine = await useTodos.getState().createTask({ title: 'Written offline' })
+      await useTodos.getState().startTimer(mine!)
+      // Three rows: the create, the move to `in_progress` the gesture makes first, and the interval.
+      expect(mocks.queue).toHaveLength(3)
+      expect(mocks.queue[2]).toMatchObject({ entityId: mine!.id, payload: { op: 'timer-start' } })
+      const at = queuedInstant(mocks.queue[2])
+      expect(mine!.id.startsWith('local-')).toBe(true)
+
+      setOnline(true)
+      mocks.create.mockResolvedValue({ task: row('server-1', 'Written offline') })
+      mocks.update.mockResolvedValue({ task: row('server-1', 'Written offline', { status: 'in_progress', rev: 2 }) })
+      mocks.startTimer.mockResolvedValue({ entry: { id: 'e1', taskId: 'server-1', startAt: at, endAt: null, day: '2026-10-22', source: 'timer' } })
+      mocks.get.mockResolvedValue({ task: row('server-1', 'Written offline', { status: 'in_progress', runningSince: at }), steps: [] })
+      await useNotes.getState().replayPending()
+
+      // The create replays first and retargets what came after it, so the interval is filed against a
+      // task that exists rather than against an id only this device ever saw.
+      expect(mocks.startTimer).toHaveBeenCalledWith('server-1', { startAt: at })
+      expect(mocks.queue).toHaveLength(0)
+    })
   })
 })
