@@ -350,6 +350,17 @@ describe('what a reader is told when a run does not do what was asked', () => {
     expect(engine.writes).toHaveLength(0)
   })
 
+  it('tells a taken name apart from a note that moved', async () => {
+    // Both refusals used to arrive as “the note changed while the template was writing it”, which sends the
+    // reader to press again a command whose only problem is the name it chose.
+    mountEditor('one two', 0, 0)
+    engine.renderFailure = { code: 'name-taken', detail: 'Notes/Standup.md' }
+    expect(await insertTemplateIntoActiveNote(TEMPLATE)).toBe(false)
+    expect(toastTitles()[0]).toContain(t('templater.error.name_taken'))
+    expect(toastTitles()[0]).not.toContain(t('templater.error.note_conflict'))
+    expect(toastTitles()[0]).not.toContain('name-taken')
+  })
+
   it('leaves the reader’s own text alone when the note moved during the run', async () => {
     mountEditor('one two', 4, 7)
     engine.writeRefusal = 'conflict'

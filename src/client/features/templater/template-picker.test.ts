@@ -10,11 +10,12 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import type { NoteSummary, NoteTemplate } from '@shared/types'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
+import { Z_INDEX } from '../../lib/z-index'
 import { useNotes } from '../../store/notes'
 import { useNoteTemplates } from '../../store/note-templates'
 import { useUi } from '../../store/ui'
-import { TemplatePicker } from './template-picker'
-import type { TemplaterPickerMode } from './picker-request'
+import { TemplatePicker, TemplaterPickerHost } from './template-picker'
+import { closeTemplaterPicker, openTemplaterPicker, peekTemplaterPicker, type TemplaterPickerMode } from './picker-request'
 
 const calls = vi.hoisted(() => ({
   insert: [] as string[],
@@ -195,6 +196,8 @@ beforeEach(() => {
     ],
   })
   useUi.setState({ activeNoteId: 'n1', toasts: [], panel: null, folderId: null })
+  // The ask is module state; a case that leaves one standing must not hand it to the next one.
+  closeTemplaterPicker()
 })
 
 afterEach(() => {
@@ -341,6 +344,19 @@ describe('the create form', () => {
     expect(calls.insert).toEqual([])
   })
 
+  it('lifts the destination rail above the dialog that opened it', () => {
+    // The dialog's scrim covers the whole viewport, so a rail left on the drawer tier cannot be pressed at
+    // all: the press lands on the scrim, which closes the dialog — and the reader's half-filled form goes
+    // with it. jsdom does no hit-testing, so the tier the call site asks for is what this can hold; that the
+    // tier itself clears `--z-modal` is policed in `tests/shared-component-contract.test.ts`.
+    open('create')
+    act(() => {
+      dialog().querySelector<HTMLButtonElement>('[aria-haspopup="dialog"]')?.click()
+    })
+    const rail = drawer()?.parentElement
+    expect(rail?.style.zIndex, 'the folder rail carries no stack level').toBe(String(Z_INDEX.picker))
+  })
+
   it('switches between the two modes without leaving the dialog', () => {
     const nameField = () => dialog().querySelector(`input[placeholder="${t('templater.picker.name_placeholder')}"]`)
     open('insert')
@@ -401,5 +417,39 @@ describe('the dialog chrome', () => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
     })
     expect(closed).toBe(1)
+  })
+})
+
+describe('the host', () => {
+  it('drops the ask once the panel that was hosting it has moved on', () => {
+    // The library is what hosts the chooser, so closing the library takes the dialog down with it. An ask
+    // left standing behind that comes back on the next library press — a dialog for a run nobody asked for
+    // twice, which is what this pins shut.
+    useUi.setState({ panel: 'templates' })
+    rendered = renderElement(createElement(TemplaterPickerHost))
+    act(() => {
+      openTemplaterPicker('insert')
+    })
+    expect(document.querySelector('[role="dialog"]'), 'the host adopted the ask').not.toBeNull()
+    useUi.setState({ panel: null })
+    rendered.unmount()
+    rendered = null
+    expect(peekTemplaterPicker()).toBeNull()
+    rendered = renderElement(createElement(TemplaterPickerHost))
+    expect(document.querySelector('[role="dialog"]'), 'reopening the library finds nothing waiting').toBeNull()
+  })
+
+  it('keeps the ask standing through a remount of the same panel', () => {
+    // StrictMode unwinds an effect just after mounting it, and nothing has moved on in that moment. Reading
+    // that teardown as the reader leaving would swallow the press that opened the chooser in the first place.
+    useUi.setState({ panel: 'templates' })
+    const first = renderElement(createElement(TemplaterPickerHost))
+    act(() => {
+      openTemplaterPicker('create')
+    })
+    first.unmount()
+    expect(peekTemplaterPicker(), 'a remount is not a departure').not.toBeNull()
+    rendered = renderElement(createElement(TemplaterPickerHost))
+    expect(document.querySelector('[role="dialog"]'), 'the chooser is back up after the remount').not.toBeNull()
   })
 })

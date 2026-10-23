@@ -390,7 +390,7 @@ export function createPageHost(deps: PageHostDeps): PageHost {
   async function targetFor(run: LiveRun, path: string): Promise<CreateTarget> {
     const title = titleOf(path)
     if (title === null) return { ok: false, code: 'path-invalid', detail: `title-max:${LIMITS.titleMaxLength}` }
-    if (resolve(run, path).entry !== null) return { ok: false, code: 'note-conflict', detail: path }
+    if (resolve(run, path).entry !== null) return { ok: false, code: 'name-taken', detail: path }
     const folder = await resolveFolderPath(run, parentOf(path))
     if (!folder.ok) return { ok: false, code: folder.code, detail: folder.detail }
     return { ok: true, title, folderId: folder.value }
@@ -642,7 +642,7 @@ export function createPageHost(deps: PageHostDeps): PageHost {
     if (!checked.ok) return fail('path-invalid', checked.reason)
     const title = titleOf(checked.path)
     if (title === null) return fail('path-invalid', `title-max:${LIMITS.titleMaxLength}`)
-    if (checked.path !== fromPath && resolve(run, checked.path).entry !== null) return fail('note-conflict', checked.path)
+    if (checked.path !== fromPath && resolve(run, checked.path).entry !== null) return fail('name-taken', checked.path)
     const folder = await resolveFolderPath(run, parentOf(checked.path))
     if (!folder.ok) return folder
     const changes: PageHostChanges = {}

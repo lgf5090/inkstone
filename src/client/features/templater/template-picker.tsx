@@ -19,6 +19,7 @@ import type { NoteTemplate } from '@shared/types'
 import type { MessageKey } from '@shared/locales/en-US'
 import { LIMITS } from '@shared/constants'
 import { cn } from '../../lib/cn'
+import { Z_INDEX } from '../../lib/z-index'
 import { compileQuery, queryKeeps } from '../../lib/query-match'
 import { folderPathLabel } from '../../lib/folders'
 import { usePinyinVersion } from '../../lib/pinyin'
@@ -63,7 +64,16 @@ const HINT_KEY = {
  * from somewhere else.
  */
 export function TemplaterPickerHost() {
-  useEffect(attachTemplaterPickerHost, [])
+  useEffect(() => {
+    const detach = attachTemplaterPickerHost()
+    return () => {
+      detach()
+      // An ask that outlives the panel hosting it comes back as a dialog nobody asked for twice: the next
+      // library press re-adopts it. Only once that panel has actually moved on — the effect also unwinds on
+      // a StrictMode remount, with the reader's ask still standing.
+      if (useUi.getState().panel !== 'templates') closeTemplaterPicker()
+    }
+  }, [])
   const request = useSyncExternalStore(subscribeTemplaterPicker, peekTemplaterPicker)
   if (!request) return null
   return <TemplatePicker key={request.mode} mode={request.mode} onClose={closeTemplaterPicker}/>
@@ -263,6 +273,9 @@ export function TemplatePicker({ mode, onClose }: { mode: TemplaterPickerMode; o
       {folderOpen && (
         <FolderPicker
           open
+          // This chooser opens from inside the dialog, whose scrim covers the viewport at `--z-modal`:
+          // left on the drawer tier it is not merely dimmed, every press closes the dialog behind it.
+          zIndex={Z_INDEX.picker}
           title={t('templater.picker.folder_label')}
           folders={folders}
           currentId={folderId}

@@ -578,7 +578,7 @@ describe('note.create', () => {
     const { host, store } = started('local')
     // Upstream asks Obsidian for a free name and quietly writes `Secret 1.md`; two rows reading as one path
     // is the state the index then has to report as ambiguous, so this refuses and says what was taken.
-    expect(refused(await ask(host, 'note.create', ['Notes/Secret.md', 'x']))).toEqual({ code: 'note-conflict', detail: 'Notes/Secret.md' })
+    expect(refused(await ask(host, 'note.create', ['Notes/Secret.md', 'x']))).toEqual({ code: 'name-taken', detail: 'Notes/Secret.md' })
     expect(store.calls).toEqual([])
   })
 
@@ -648,7 +648,7 @@ describe('note.move and note.rename', () => {
 
   it('refuses a move onto a path that is taken, and one onto nothing', async () => {
     const { host } = started('local')
-    expect(refused(await ask(host, 'note.move', ['Target.md', 'Notes/Secret.md']))).toEqual({ code: 'note-conflict', detail: 'Notes/Secret.md' })
+    expect(refused(await ask(host, 'note.move', ['Target.md', 'Notes/Secret.md']))).toEqual({ code: 'name-taken', detail: 'Notes/Secret.md' })
     expect(refused(await ask(host, 'note.move', ['Notes/Gone.md', 'Elsewhere.md']))).toEqual({ code: 'note-not-found', detail: 'Notes/Gone.md' })
   })
 
@@ -1051,7 +1051,7 @@ describe('createTarget', () => {
   it('refuses a taken path and a traversal without touching the tree', async () => {
     const { host, store, context } = started('local')
     const folders = store.folders.length
-    expect(await host.createTarget(context, 'Target.md')).toEqual({ ok: false, code: 'note-conflict', detail: 'Target.md' })
+    expect(await host.createTarget(context, 'Target.md')).toEqual({ ok: false, code: 'name-taken', detail: 'Target.md' })
     expect(await host.createTarget(context, '../Secret.md')).toEqual({ ok: false, code: 'path-invalid', detail: 'escape' })
     expect(store.folders.length).toBe(folders)
   })

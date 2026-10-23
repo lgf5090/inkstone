@@ -189,8 +189,11 @@ function planReplace(request: WriteRequest, split: RenderedSplit, notes: WriteNo
 /** The create-from-template path: a note that has no text yet gets the whole output. */
 function planCreate(request: WriteRequest, split: RenderedSplit, notes: WriteNotice[]): WritePlanResult {
   if (!request.path) return fail('path-invalid', 'empty')
-  if (request.currentContent !== '') return fail('note-conflict', 'not-empty')
-  if (request.target && !request.target.isEmpty) return fail('note-conflict', request.target.id)
+  // Something already lives at that path, which is a taken name rather than a concurrent edit: saying
+  // `note-conflict` here tells the reader the note moved while the template ran, a thing that did not
+  // happen. The detail is the path the template asked for, per `../errors.ts`.
+  if (request.currentContent !== '') return fail('name-taken', request.path)
+  if (request.target && !request.target.isEmpty) return fail('name-taken', request.path)
   const made = renderDocument(request, split)
   if (pastCeiling(0, made.content.length)) return fail('template-output-too-large', `chars:${made.content.length}`)
   return succeed(request, 'create', made.content, null, { start: 0, end: 0 }, made.content, made.carets, notes)

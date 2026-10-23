@@ -126,14 +126,20 @@ describe('planWrite guards', () => {
     expect(planned({ rendered: 'text' }).expectedRev).toBeNull()
   })
 
-  it('refuses to create over a note that already has text', () => {
-    expect(refused({ mode: CREATE, path: 'Notes/x.md', currentContent: 'written' }).detail).toBe('not-empty')
+  it('names a taken name as itself rather than as a concurrent edit', () => {
+    // `note-conflict` tells the reader the note moved while the template was running — a thing that did not
+    // happen here. Both of these are a path that already holds a note, and the recovery is a different
+    // name, not another press of the same command.
+    expect(refused({ mode: CREATE, path: 'Notes/x.md', currentContent: 'written' })).toEqual({
+      code: 'name-taken',
+      detail: 'Notes/x.md',
+    })
     expect(refused({
       mode: CREATE,
       path: 'Notes/x.md',
       currentContent: '',
       target: note('written', { isEmpty: false }),
-    }).code).toBe('note-conflict')
+    })).toEqual({ code: 'name-taken', detail: 'Notes/x.md' })
   })
 
   it('says a mode it cannot express instead of guessing a span', () => {

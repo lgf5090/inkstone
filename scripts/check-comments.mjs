@@ -5288,6 +5288,9 @@ const allowed = new Map([
     "// own floating panel offset by `levelLeft`, so indenting a row by its `depth` as well would",
     "// shift it a second time. `depth` is kept only for the `data-move-depth` focus walk.",
   ]],
+  ["src/client/features/folders/FolderPicker.tsx", [
+    "/** Only when this chooser opens from inside a dialog, whose scrim would otherwise eat every press. */",
+  ]],
   ["src/client/features/graph/GraphPanel.tsx", [
     "// The header's box takes the app-wide filter contract for its keys — a key that arrives while an",
     "// input method is composing an answer is not the panel's to answer, and no keystroke spent typing a",
@@ -11295,6 +11298,8 @@ const allowed = new Map([
     "// QuickAdd's Template choice resolves its own title, folder, tags and link-back, so this door has to",
     "// give back exactly what a create run would have written — and stop there. No success line either:",
     "// the run's summary is the caller's sentence to say, and two would be one too many.",
+    "// Both refusals used to arrive as “the note changed while the template was writing it”, which sends the",
+    "// reader to press again a command whose only problem is the name it chose.",
   ]],
   ["src/client/features/templater/run-shell.ts", [
     "/** The door, reached only when a run is asked for; its module type is its own, not a second shape. */",
@@ -11475,6 +11480,16 @@ const allowed = new Map([
     "// The list is empty because the filter hid every template, so the cursor has nowhere to go. Pressing",
     "// through it must not be a crash and must not be a run of some row the reader cannot see; and Enter",
     "// stays the browser's, because a keystroke that runs nothing should not be swallowed either.",
+    "// The ask is module state; a case that leaves one standing must not hand it to the next one.",
+    "// The dialog's scrim covers the whole viewport, so a rail left on the drawer tier cannot be pressed at",
+    "// all: the press lands on the scrim, which closes the dialog — and the reader's half-filled form goes",
+    "// with it. jsdom does no hit-testing, so the tier the call site asks for is what this can hold; that the",
+    "// tier itself clears `--z-modal` is policed in `tests/shared-component-contract.test.ts`.",
+    "// The library is what hosts the chooser, so closing the library takes the dialog down with it. An ask",
+    "// left standing behind that comes back on the next library press — a dialog for a run nobody asked for",
+    "// twice, which is what this pins shut.",
+    "// StrictMode unwinds an effect just after mounting it, and nothing has moved on in that moment. Reading",
+    "// that teardown as the reader leaving would swallow the press that opened the chooser in the first place.",
   ]],
   ["src/client/features/templater/template-picker.tsx", [
     "/**\n * The Templater chooser: pick one of the reader's own templates and say what to do with it.\n *\n * It is the surface Templater's `Ctrl+T` / `Ctrl+Alt+N` modals are, and it is built out of the pieces this\n * app already uses for exactly that job — the QuickAdd launcher's searchable list\n * (`features/quickadd/launcher.tsx`), `Modal` for the frame and its focus contract, `FilterInput` for the\n * shared box semantics, `Segmented` for the mode (a radio group, not two buttons that look selected), and\n * `FolderPicker` for the destination, because a folder chooser already exists and a second one would be a\n * second set of keys to learn. What the chooser deliberately does not do is run anything: choosing pulls\n * `run-shell.ts` on demand, so opening this list never parses a template or starts the sandbox.\n *\n * Two modes are offered as a choice the reader can still change, and the third surface — replace this note\n * — is not: it arrives from a command that already named it, and a switch that quietly turned \"replace\"\n * into \"insert\" would be the worse kind of surprise.\n */",
@@ -11488,6 +11503,11 @@ const allowed = new Map([
     "// Closed first, then opened: the chooser's own teardown puts the gallery back down when",
     "// the command raised it, and that has to happen before this request to keep it up.",
     "/** Where a new note goes when the reader has not said: the folder they are in, else the top level. */",
+    "// An ask that outlives the panel hosting it comes back as a dialog nobody asked for twice: the next",
+    "// library press re-adopts it. Only once that panel has actually moved on — the effect also unwinds on",
+    "// a StrictMode remount, with the reader's ask still standing.",
+    "// This chooser opens from inside the dialog, whose scrim covers the viewport at `--z-modal`:",
+    "// left on the drawer tier it is not merely dimmed, every press closes the dialog behind it.",
   ]],
   ["src/client/features/templater/user-script-seed.test.ts", [
     "/** The row the stand-in server hands back, so the store believes the note it just asked for exists. */",
@@ -11559,6 +11579,11 @@ const allowed = new Map([
     "// query back out and only an empty box lets the dialog close, which is what the `data-owns-escape`",
     "// mark below says to the overlay layers.",
   ]],
+  ["src/client/features/templates/gallery-jsx.tsx", [
+    "// Publishing is reached from a library card, so the filter is never `community` in this breath, and the",
+    "// panel's own fetch answers only the first time it is opened — without this the new row stays invisible",
+    "// until the reader closes the library and comes back.",
+  ]],
   ["src/client/features/templates/gallery-keyboard.ts", [
     "/** Keyboard parity with dragging: Shift+Arrow moves the focused card. */",
     "/** True while a dialog, a menu, or a text field owns the keyboard. */",
@@ -11597,6 +11622,8 @@ const allowed = new Map([
     "// The body is a CodeMirror surface now, so the element carrying the error is the editable one rather",
     "// than a textarea — and only the editor's own element matches `.cm-content` in this dialog, since the",
     "// import dialog's paste box is a different component.",
+    "// The sentence under the field is the rule; repeating it as the placeholder made an empty field read the",
+    "// same line twice.",
   ]],
   ["src/client/features/templates/misc-modals.tsx", [
     "// A body with no command in it publishes with nothing to acknowledge; the checkbox only exists for the",
@@ -20213,6 +20240,9 @@ const allowed = new Map([
     "// QuickAdd's Template choice owns its own write — title, folder, tags, link-back, conflict rules — so",
     "// this mode answers with the bytes the note would have held and a `discard` kind, which is what keeps",
     "// the two callers from assembling the same rendered body two different ways.",
+    "// `note-conflict` tells the reader the note moved while the template was running — a thing that did not",
+    "// happen here. Both of these are a path that already holds a note, and the recovery is a different",
+    "// name, not another press of the same command.",
   ]],
   ["src/client/lib/templater/host/write.ts", [
     "/**\n * What a rendered template has to do to a note, worked out as data.\n *\n * Nothing here writes. A run's output, the note's current text and the cursor markers are handed in, and\n * a plan comes out: the whole new document, where the body text goes, what the properties become, where\n * the carets land. The page then applies that in one editor transaction or one store write, because a\n * module that owns the plan but not the screen can be tested without either — and because the half of\n * this that could destroy a reader's note has to be decided before any of it is attempted.\n *\n * The plan is always one document, never a set of steps. That is what makes undo one action: the editor\n * receives the whole result (or the two replacements that add up to it) and the store receives one\n * `content` string against one revision, so there is no state in which the properties were merged and\n * the body was not.\n *\n * Which mode does what is upstream's, from `src/core/Templater.ts` (AGPL-3.0-only, 2.26.0): inserting\n * into the active note splices the body at the selection and merges the properties\n * (`append_template_to_active_file`); overwriting a file replaces it whole and does *not* merge\n * (`overwrite_file_commands` → `vault.modify(file, output_content)`); a startup run's output is thrown\n * away; and a dynamic command's output replaces the command text in the rendered view, which has no\n * note-level counterpart to plan.\n */",
@@ -20278,6 +20308,9 @@ const allowed = new Map([
     "/**\n   * The note the output belongs to; `null` when the run has none, which is only legal for the two modes\n   * that write no note of their own — `create-new`, whose note does not exist yet, and `render-only`.\n   */",
     "/**\n * The document a create run would have written, handed back without being written anywhere.\n *\n * `render-only` is the mode for a caller that renders a body and keeps ownership of the write: QuickAdd's\n * Template choice resolves the title, the folder, the tags, the link-back and its own conflict rules, so\n * handing that run to one of the doors that writes would silently drop them. What has to stay identical is\n * the text, which is why this shares {@link renderDocument} with the create path rather than assembling it\n * again — the caller merges *this* string into a note of its own, and two assemblies is two sets of rules\n * for one rendered template. Nothing of the note's own is consulted: no merge with its properties, and no\n * `output-discarded` notice, because here the output is the answer rather than a loss.\n */",
     "/**\n * The run's own text as a whole document: its properties block as spelled, then the body with the first\n * caret group taken out.\n *\n * Written as the template spelled the block, fences included: there is nothing to merge into in either of\n * the two modes that use this, so re-emitting the parsed values would only lose the author's own quoting.\n * The carets come back measured in the result, which is what makes the offsets and the text one answer.\n */",
+    "// Something already lives at that path, which is a taken name rather than a concurrent edit: saying",
+    "// `note-conflict` here tells the reader the note moved while the template ran, a thing that did not",
+    "// happen. The detail is the path the template asked for, per `../errors.ts`.",
   ]],
   ["src/client/lib/templater/index.ts", [
     "/**\n * The door the app walks through to run a Templater template.\n *\n * Everything above this file is plain data in, plain result out: the save path, the insertion command, the\n * preview and the dynamic-processor pass all come through here, and none of them touches the worker, the\n * interpreter or the wire. The one object callers must not have to think about is the worker itself, so it\n * is a module singleton created on first use — a page that spawned a thread per template would pay for the\n * engine load per template too.\n *\n * Two rules are set here rather than at each call site. A run resolves with a result or a failure code and\n * never rejects, so a save path cannot forget to catch a template written by somebody else. And the page's\n * answer to a host call is installed once, by `configureTemplater`, because it is the capability gate: two\n * different handlers would mean two different policies in one notebook.\n */",
@@ -21148,6 +21181,7 @@ const allowed = new Map([
     "/** `--z-pinned-menu`: a menu opened from a pinned card; the shelf's drop veil rides this tier. */",
     "/**\n * The stacking tiers a surface sets from JavaScript, read off the scale in\n * `src/client/styles/tokens.css`.\n *\n * That list is the authority — this map is a mirror of the bands whose `z-index` reaches a component\n * as a prop or an inline style rather than as a class, and `tests/shared-component-contract.test.ts`\n * fails if a value here stops matching a band there, if the scale stops being strictly increasing, or\n * if a key here stops naming the token it carries. A surface whose stack level is fixed in CSS reads\n * the custom property (`z-[var(--z-modal)]`) and needs no key here.\n */",
     "/** `--z-workspace`: a full-height workspace panel, and the drawer that opens over it. */",
+    "/**\n   * `--z-picker`: a chooser a reader opens *from inside* an open dialog. The dialog's own scrim covers\n   * the viewport at `--z-modal`, so a surface left on the drawer tier is not merely dimmed — every press\n   * lands on the scrim and closes the dialog behind it.\n   */",
   ]],
   ["src/client/main.tsx", [
     "// Every import above `createRoot` is a request for a content-hashed file. After a deploy the names",

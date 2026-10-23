@@ -71,7 +71,7 @@ export function TemplateEditorModal({ template, initial, categories, onClose }: 
         </Field>
       </div>
       <Field label={t('templates.tags')} hint={t('templates.tag_hint')}>
-        <Input value={draft.tags.join(', ')} onChange={(event) => setDraft({ ...draft, tags: splitTagInput(event.target.value) })} placeholder={t('templates.tag_hint')}/>
+        <Input value={draft.tags.join(', ')} onChange={(event) => setDraft({ ...draft, tags: splitTagInput(event.target.value) })}/>
       </Field>
       <Field label={t('templates.description')}>
         <Input maxLength={TEMPLATE_IMPORT_LIMITS.maxDescriptionLength} value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} placeholder={t('templates.description')}/>

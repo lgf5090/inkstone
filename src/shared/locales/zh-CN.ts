@@ -7944,6 +7944,7 @@ console.log(\`Hello, \${name}!\`)
     "templater.error.user_scripts_unavailable": "本次运行不能使用用户脚本",
     "templater.error.note_not_found": "模板要找的笔记不存在",
     "templater.error.note_conflict": "模板写入时这篇笔记已经被改过了",
+    "templater.error.name_taken": "这个名字下已经有笔记了，模板没有覆盖它",
     "templater.error.path_invalid": "模板请求的路径无法使用",
     "templater.error.not_supported": "模板用到了本应用不提供的能力",
     "templater.error.render_failed": "模板运行失败",

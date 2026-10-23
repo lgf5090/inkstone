@@ -309,7 +309,7 @@ describe('runTemplateOnNote create-new', () => {
       selection: null,
       path: 'Notes/Taken.md',
     }), fake)
-    expect(failure).toEqual({ ok: false, code: 'note-conflict', detail: 'note-9' })
+    expect(failure).toEqual({ ok: false, code: 'name-taken', detail: 'Notes/Taken.md' })
     expect(fake.creates).toEqual([])
     expect(fake.stored.size).toBe(0)
   })

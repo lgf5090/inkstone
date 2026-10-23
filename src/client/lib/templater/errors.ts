@@ -34,6 +34,7 @@ export type TemplaterErrorCode =
   | 'user-scripts-unavailable'
   | 'note-not-found'
   | 'note-conflict'
+  | 'name-taken'
   | 'path-invalid'
   | 'not-supported'
   | 'render-failed'
@@ -59,6 +60,7 @@ export const TEMPLATER_ERROR_MESSAGES: Record<TemplaterErrorCode, MessageKey> = 
   'user-scripts-unavailable': 'templater.error.user_scripts_unavailable',
   'note-not-found': 'templater.error.note_not_found',
   'note-conflict': 'templater.error.note_conflict',
+  'name-taken': 'templater.error.name_taken',
   'path-invalid': 'templater.error.path_invalid',
   'not-supported': 'templater.error.not_supported',
   'render-failed': 'templater.error.render_failed',

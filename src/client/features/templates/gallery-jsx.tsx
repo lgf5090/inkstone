@@ -169,7 +169,10 @@ export function GalleryModals({ g }: { g: GalleryController }) {
     {state.isHelpOpen && <KeyboardHelpModal onClose={() => state.setIsHelpOpen(false)}/>}
     {state.publishing && <PublishTemplateDialog template={state.publishing} category={state.publishing.categoryId === null ? t('templates.uncategorized') : filterActions.categoryName(state.publishing.categoryId)} onClose={() => state.setPublishing(null)} onPublished={() => {
       state.setPublishing(null)
-      if (state.filter.kind === 'community') void community.refreshCommunity()
+      // Publishing is reached from a library card, so the filter is never `community` in this breath, and the
+      // panel's own fetch answers only the first time it is opened — without this the new row stays invisible
+      // until the reader closes the library and comes back.
+      void community.refreshCommunity()
     }}/>}
   </>)
 }

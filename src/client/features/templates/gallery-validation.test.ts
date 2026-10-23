@@ -143,6 +143,19 @@ describe('the gallery dialogs name what they reject', () => {
     expect(box!.getAttribute('aria-describedby'), 'the message has to reach assistive tech').toBeTruthy()
   })
 
+  it('says the tag rule once, not once in the field and once under it', async () => {
+    // The sentence under the field is the rule; repeating it as the placeholder made an empty field read the
+    // same line twice.
+    await act(async () => {
+      root.render(createElement(TemplateEditorModal, { template: null, categories: [], onClose: () => {} }))
+      await Promise.resolve()
+    })
+    const echoed = [...document.querySelectorAll('input')]
+      .filter((input) => input.getAttribute('placeholder') === t('templates.tag_hint'))
+    expect(echoed, 'the tag field must not wear its hint as a placeholder too').toHaveLength(0)
+    expect(messages().filter((text) => text === t('templates.tag_hint')).length, 'the rule is still said once').toBe(1)
+  })
+
   it('blames the body, not the name, when only the body is missing', async () => {
     let closed = 0
     await act(async () => {
