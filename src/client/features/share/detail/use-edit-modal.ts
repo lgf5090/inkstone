@@ -134,7 +134,8 @@ export function useShareEditModal({ noteId, onSaved, onClose }: ShareEditModalOp
   }, [noteId, reload]);
 
   useEffect(() => () => {
-    noteIdRef.current = '';
+    // noteIdRef stays as the last render left it: a StrictMode remount runs this teardown without
+    // rendering again, and a cleared guard ref discards every answer that arrives afterwards.
     loadEpoch.current++;
     mutationEpoch.current++;
     busyRef.current = null;

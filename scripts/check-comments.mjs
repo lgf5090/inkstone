@@ -10637,6 +10637,11 @@ const allowed = new Map([
     "// A slide is drawn by the presentation module, which owns its own render and takes no transform from",
     "// this page, so the handles a mention carries have to come out of the source before the deck sees it.",
   ]],
+  ["src/client/features/share/SharePanel.tsx", [
+    "// Deliberately does not clear noteIdRef: that ref is only written during render, and a",
+    "// StrictMode remount runs this teardown without rendering again, which would leave every",
+    "// in-flight guard comparing against null and discard the answers that arrive.",
+  ]],
   ["src/client/features/share/collections/collection-editor.tsx", [
     "/**\n * Publishing a directory, and changing one that is already published.\n *\n * The shape of this form is the shape of the route behind it, and the places where the two agree are the\n * places a UI would otherwise promise something the server cannot give:\n *\n * - a folder or tag is addressed by its *record id* (`targetValue`), never by its name. `shares.tags` holds\n *   names and `share_collections.target_value` holds ids, and `resolveShareTarget()` is the only bridge —\n *   writing the name here would publish a page that matches nothing, which is a real past failure;\n * - the label is optional for a folder or a tag, because a derived page prints the live name of its\n *   target, and a title typed here would freeze that name against the next rename;\n * - a hand-picked set has no order control, because it has no derived members: the roster's own order is\n *   the order the page lists, and the four named sorts move a folder or tag page only;\n * - the passcode travels as plain text to a route that hashes it before it stores anything, and it is sent\n *   only when it changed. Nothing here keeps a copy of it, prints it back, or puts it in an address.\n */",
     "/** The three kinds of directory the route answers for. */",
@@ -10898,6 +10903,10 @@ const allowed = new Map([
     "// The first note's answer lands afterwards; the editor is on n2 and stays there.",
     "// The address field is the row that says which link this editor is on.",
     "// A real button is what makes the browser's own Space and Enter activation apply to the row.",
+    "// main.tsx wraps the app in StrictMode: every effect mounts, tears down, and mounts again with no",
+    "// render in between. A guard ref that only a render restores is then cleared for good, so the answer",
+    "// that arrives is compared against a note id that no longer exists and thrown away — the editor",
+    "// waits forever for a link the server already sent.",
   ]],
   ["src/client/features/share/detail/edit-modal.tsx", [
     "/**\n * One public link, edited: its address, whether it answers readers, who may open it, until when, and\n * where it is filed in the hub.\n *\n * It is the single-note panel's behaviour widened to the hub's filing fields, and it reads and writes\n * the link through the note id it was handed. The shell that opens it does not have to know whether\n * the hub's list had arrived yet.\n */",
@@ -10977,6 +10986,8 @@ const allowed = new Map([
     "// other answer is repeated as it came rather than rounded up into a success.",
     "// Stay open: what failed is on screen and can be tried again, and closing would say the save",
     "// was finished while half of it was not.",
+    "// noteIdRef stays as the last render left it: a StrictMode remount runs this teardown without",
+    "// rendering again, and a cleared guard ref discards every answer that arrives afterwards.",
   ]],
   ["src/client/features/share/hub/batch-bar.tsx", [
     "/**\n * The bar a selection answers with.\n *\n * It reports the count it was given rather than the count the user clicked, because a selection can\n * outlive the rows it named: pause a link from another device, come back, and \"6 selected\" that acts\n * on 4 is a lie the owner only discovers afterwards. The caller passes the number that will actually\n * be sent.\n */",
@@ -11024,6 +11035,7 @@ const allowed = new Map([
     "/**\n * The note titles on screen, read out of the title column.\n *\n * Addressed by cell position rather than by text: the row's own header cell holds the checkbox, whose\n * accessible name also contains the title, so a text search over the row would count every link twice.\n */",
     "// Staged after the fixture's own default, which would otherwise replace it outright.",
     "/**\n   * A row is ticked through its accessible name, because that name is the point: the control is a\n   * `role=\"checkbox\"` button whose only text is the note it selects, so a row that ever loses its\n   * name loses this test with it.\n   */",
+    "/**\n * Press a control and let React settle.\n *\n * Two flushes, not one: a click that changes state re-renders, and the next control the test names\n * only exists in the tree that render produced. With a single microtask the assertion passes on an\n * idle machine and fails the moment something else competes for the CPU.\n */",
   ]],
   ["src/client/features/share/hub/share-list.tsx", [
     "/**\n * The hub's list of published links, as a table or as cards over the same rows.\n *\n * One component owns both because the two are the same data with a different emphasis, and a separate\n * grid would be a second place for \"expired\", \"paused\" and \"locked\" to be spelled — the three states\n * an owner reads most often and the three that must mean the same thing in either layout.\n */",
@@ -11197,6 +11209,13 @@ const allowed = new Map([
     "// however many pictures the page happens to draw.",
     "/**\n   * Present mode hands the note to the presentation module, which renders its own markup and takes no\n   * transform from this page — so the page has to take the handles out of the source first. Asserted\n   * against the deck's own renderer rather than against the deck, because the renderer is the half that\n   * decides whether a mention becomes a handle on a slide.\n   */",
     "// The words a reader needed are the author's and stay: the alias, the prose, the code.",
+  ]],
+  ["src/client/features/share/share-panel.test.ts", [
+    "/**\n * The single-note share panel's opening.\n *\n * The panel has no test at all today, and the one thing a panel like this gets wrong is the transition\n * out of \"loading\": if the answer that arrives is thrown away, the owner stares at a spinner forever and\n * the create button never exists. That is not hypothetical — the panel hangs on a real instance that\n * answers `200 {\"share\":null}` promptly, which is the shape of a note that has never been shared.\n *\n * So every case here asserts the same thing from a different angle: after the read settles, the panel\n * says something about the *link*, not about the wait.\n */",
+    "// AppShell renders `<SharePanel onClose=... />` with no note prop, so the panel resolves the note",
+    "// from the active-note store. And main.tsx wraps the app in StrictMode, which mounts every effect,",
+    "// tears it down, and mounts it again without re-rendering in between — so anything the teardown",
+    "// writes to a ref has to be repaired by the second setup, not by a render.",
   ]],
   ["src/client/features/shell/AppRail.tsx", [
     "/**\n * The left rail: one button per app container, the outermost piece of chrome the notebook has.\n *\n * Each entry is a real `<a>` to the container's own path, with the click intercepted for the\n * in-place case. That keeps the browser's own behaviour on the rail — middle-click and\n * open-in-new-tab reach a container directly, and the address a reader copies is the one they\n * are looking at — while a plain left click still swaps the container without a reload.\n */",

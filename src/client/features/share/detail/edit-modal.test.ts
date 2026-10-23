@@ -10,7 +10,7 @@
  * The link is fetched by the `noteId` the shell hands in, so none of these cases need a hub list to
  * have arrived — that dependency is the defect this port removed.
  */
-import { Fragment, act, createElement } from 'react';
+import { Fragment, act, createElement, StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LIMITS } from '@shared/constants';
@@ -133,6 +133,26 @@ afterEach(() => {
 });
 
 const toastTitles = () => useUi.getState().toasts.map((item) => item.title);
+
+describe('the way the app actually mounts it', () => {
+  // main.tsx wraps the app in StrictMode: every effect mounts, tears down, and mounts again with no
+  // render in between. A guard ref that only a render restores is then cleared for good, so the answer
+  // that arrives is compared against a note id that no longer exists and thrown away — the editor
+  // waits forever for a link the server already sent.
+  it('shows the link it was asked for', async () => {
+    await act(async () => {
+      root.render(createElement(StrictMode, null, createElement(Fragment, null, [
+        createElement(ConfirmHost, { key: 'confirm' }),
+        createElement(ShareEditModal, { key: 'editor', noteId: 'n1', noteTitle: 'Draft', onClose, onSaved }),
+      ])));
+    });
+    await settle();
+    await settle();
+    const text = document.body.textContent ?? '';
+    expect(text, 'still waiting on the read').not.toContain(t('share.loading_share_status'));
+    expect(linkField()?.value ?? 'no link field rendered').toBe('https://notes.test/s/n1');
+  });
+});
 
 describe('the passcode ladder is cleared before anything leaves', () => {
   it('refuses four characters, because the rule the server uses is eight', async () => {
