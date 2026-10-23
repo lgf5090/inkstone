@@ -28,6 +28,7 @@ import { useTodos, type TaskListEntry } from './store'
 import { FINE_POINTER_QUERY } from './TaskCard'
 import { TagEditor } from './OrganizerEditors'
 import { TrashPanel } from './TrashPanel'
+import { ArchivedPanel } from './ArchivedPanel'
 import { ListIcon } from './list-icons'
 import type { TaskTag } from '@shared/todos/model'
 
@@ -280,6 +281,7 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
   const openListEditor = useTodos((state) => state.openListEditor)
   const [archivedOpen, setArchivedOpen] = useState(false)
   const [trashOpen, setTrashOpen] = useState(false)
+  const [shelfOpen, setShelfOpen] = useState(false)
   const [tagEditor, setTagEditor] = useState<{ open: boolean; tag: TaskTag | null }>({ open: false, tag: null })
   // A drag that never reached a row still has to let go of the row it picked up, so the row in hand
   // is page state rather than the row's own.
@@ -494,6 +496,18 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
               <span className="min-w-0 flex-1 truncate text-[length:var(--text-13)]">{t('todo.trash.title')}</span>
               <ChevronRight size={13} className="text-[var(--text-quaternary)]" aria-hidden="true" />
             </button>
+            {/* The shelf beside the trash because they answer the same question two ways: this row is
+                work the reader hid on purpose, and it has no other way back. */}
+            <button
+              type="button"
+              onClick={() => setShelfOpen(true)}
+              aria-label={t('todo.shelf.title')}
+              className="flex min-h-11 w-full items-center gap-2 border-t border-[var(--border-subtle)] px-3 text-left hover:bg-[var(--bg-hover)]"
+            >
+              <Archive size={14} className="text-[var(--text-tertiary)]" aria-hidden="true" />
+              <span className="min-w-0 flex-1 truncate text-[length:var(--text-13)]">{t('todo.shelf.title')}</span>
+              <ChevronRight size={13} className="text-[var(--text-quaternary)]" aria-hidden="true" />
+            </button>
           </div>
         </section>
 
@@ -532,6 +546,7 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
 
       <TagEditor open={tagEditor.open} tag={tagEditor.tag} onClose={() => setTagEditor({ open: false, tag: null })} />
       <TrashPanel open={trashOpen} onClose={() => setTrashOpen(false)} />
+      <ArchivedPanel open={shelfOpen} onClose={() => setShelfOpen(false)} />
     </div>
   )
 }

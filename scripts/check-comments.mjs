@@ -11469,6 +11469,19 @@ const allowed = new Map([
     "/** The tag as written on the template; the `#` is drawn here, so no call site restates it. */",
     "/* Read as a name, not as \"hash sprint\": the sigil is decoration, the same way `TagChip` keeps it. */",
   ]],
+  ["src/client/features/todos/ArchivedPanel.tsx", [
+    "/**\n * The shelf: the tasks the reader put away, and the one way back.\n *\n * Archiving hides a row from every set the reader browses — the working surfaces and the completed list\n * alike — which is what makes closing a day change anything on the screen. That is only survivable\n * because this page exists: a shelf nobody can look at again is a deletion the reader cannot see coming,\n * and the statistics, the export and the row's own record are no consolation to somebody holding a task\n * they meant to come back to.\n *\n * It is opened from the organizer page beside the trash and reads the other side of the same predicate\n * the listings read (`archived=1`), so the answer it gives is the answer the rest of the app already\n * gave: whatever is missing from today is exactly what is here.\n */",
+    "/** When the row was put away, in the reader's own calendar. */",
+    "/** Bumped by the retry button, so the effect below reads the page again. */",
+    "/** The row a request is in flight on, so its button cannot be pressed twice. */",
+    "// The listing behind the panel has to be told, too: a row taken off the shelf belongs on the board",
+    "// the reader will return to, not only in this page's copy of it.",
+    "// A fresh read on every open: another device, the day's close, or a search that picked a row back",
+    "// into today can all have emptied the shelf while this panel was away.",
+    "// The shelf's own door, aimed at one row: the batch route is what stamps and clears",
+    "// `archived_at`, so this page cannot invent a second write that the day's close would disagree",
+    "// with.",
+  ]],
   ["src/client/features/todos/BatchBar.tsx", [
     "/**\n * The bar that appears once a reader has picked out tasks.\n *\n * Selection is a mode rather than a checkbox on every row: the bar is what makes the mode legible — it\n * says how many rows are picked and every action it offers acts on exactly those, through one batch\n * request. It is deliberately not the chat's `SelectionBar`: that one speaks `AssistantMessage`, and a\n * shared bar would either widen the chat's contract for the to-do app's sake or make this one pretend\n * every task is a message.\n *\n * The three menus are made of the vocabulary the screens already have — the account's lists, its four\n * priorities and its tags — so a batch cannot create a list or a tag in a shape the editor would not.\n */",
     "/** How wide a right-clicked row's batch panel is: as wide as the bar's own widest menu. */",
@@ -11668,6 +11681,7 @@ const allowed = new Map([
     "/**\n * The grouping submenu's move, in the drag's arithmetic.\n *\n * Picking a new parent has to land the list at the end of the group it joins: a bare `parentId`\n * write leaves the row's global position where the old group put it, and the flat re-sort then\n * reads as an arbitrary slot. `inside` is exactly \"append to that container\" and beside the last\n * root is \"append to the top level\", so this runs the planner a drop runs rather than a second one.\n * Answers null for a move that changes nothing — the row already sits under the picked list — and\n * for one the grouping refuses. The parent write is forced onto the row even when the display\n * order never shifted, because a pointer the page does not draw (an archived parent) still moves.\n */",
     "// path — which is why the menu rows are built whether or not this pointer can drag. The question is",
     "// the card's own, asked once, so it reads the card's spelling of it.",
+    "/* The shelf beside the trash because they answer the same question two ways: this row is\n                work the reader hid on purpose, and it has no other way back. */",
   ]],
   ["src/client/features/todos/OrganizerEditors.tsx", [
     "/** The two halves of the ramp, drawn under their own labels. */",
@@ -12024,6 +12038,22 @@ const allowed = new Map([
   ]],
   ["src/client/features/todos/api-if-match.test.ts", [
     "/**\n * The revision and the key a task write travels with.\n *\n * The route refuses a stale write by comparing `If-Match` with the row's revision, so the guard is only\n * real if the client actually puts the header on the request. This pins the wire shape: the revision\n * argument of `api.todos.update`, `api.todos.plan` and `api.todos.snooze` becomes `If-Match`, and a\n * write that names no revision stays unconditional, which is what the older surfaces (the assistant's\n * tools, an undo) still send.\n *\n * A create has the same problem in the other direction: it is not conditional but repeatable, so the\n * second argument of `api.todos.create` becomes `Idempotency-Key` and the route can answer a lost\n * response with the row it already wrote instead of a second one.\n */",
+  ]],
+  ["src/client/features/todos/archived-panel.test.tsx", [
+    "/**\r\n * The shelf screen: the rows the reader hid on purpose, and the one door back.\r\n *\r\n * The panel exists because archiving hides a row from **every** listing, the completed list included —\r\n * a shelf nobody can look at again is a deletion the reader cannot see coming. So the case that matters\r\n * here is not that the page renders but that it reads the same predicate the rest of the app reads\r\n * (`archived=1`, asked as its own page rather than filtered out of a normal listing the panel would then\r\n * be lying about), and that taking a row down goes through the door that stamps the column rather than a\r\n * second write this page invented.\r\n */",
+    "/** Every shelf request, in the order the screen made them. */",
+    "/** When set, a batch waits on it: how the in-flight case holds the answer without replacing the door. */",
+    "// One array of every row, two readings of it: the shelf and the ordinary listing are the same",
+    "// predicate seen from either side, which is the property this panel exists to hold.",
+    "// Held: the row stays on the page with its button switched off, which is the state the case",
+    "// below is about. Released: the fake answers the way the server does, by clearing the stamp.",
+    "// `view=all&archived=1` is the other side of the one visibility rule; a listing the panel then",
+    "// trimmed by hand would be a second answer about what the reader put away.",
+    "// The stamp the row carries is the answer to \"when did I put this away\", which is the only context",
+    "// that makes a shelf readable once it holds more than a couple of rows.",
+    "// One row, named value: `false` is the answer that clears the stamp, and an omitted value would let",
+    "// the route's own default decide what the button meant.",
+    "// The row that came back is in the listing behind the panel, not only in this page's copy of it.",
   ]],
   ["src/client/features/todos/batch-bar.test.ts", [
     "/** Every batch request, in the order the client made it. */",
@@ -23049,6 +23079,7 @@ const allowed = new Map([
     "/**\n * The reminder tiers live in `todos/reminders`, a module with no imports of its own, and are re-exported\n * here so the rest of the app has one door to the to-do vocabulary. They cannot live *in* this file:\n * `shared/constants.ts` has to read the same list to validate `todo.defaultRemind`, and this module\n * reaches `organizer-colors`, which reaches `constants` — the ring would close.\n */",
     "/**\n * The changes a batch request can make. One operation for the whole batch, so a mixed request has no\n * order to guess.\n *\n * `due` is the page-level \"move every overdue row to today\" gesture, pressed from the overdue banner;\n * the selection bar at the foot of the list offers the other six — complete, delete, move, priority,\n * star and tag. `value` on a due batch is the day to land on — absent means the end of the reader's\n * own today — and the write touches `due_at` alone, never `planned_for`.\n *\n * `archive` is the shelf the day's closing gesture puts rows on, and `value` on it is a boolean: true\n * files the row, false takes it back — which is what lets the selection bar's undo mean something.\n */",
     "/** The operations the selection bar offers; `due` is the banner's own gesture. */",
+    "/**\n * One page of the shelf, which has the same job: a management screen a reader opens to find one thing,\n * not a list to work in. Its own name rather than `TRASH_PAGE_SIZE` because the two windows answer for\n * different pages — a retention sweep can change how long the trash holds rows, and nothing about that\n * has anything to say about the shelf.\n */",
   ]],
   ["src/shared/todos/note-parse.ts", [
     "/**\n * The checkbox grammar a note's task lines are read with, shared by the notebook and the worker.\n *\n * The notebook offers one checkbox at a time from its context menu; the assistant reads a whole note\n * and turns every box into a task. Both must agree on what a box is and what its words are, or the\n * same line becomes two different tasks depending on which surface was used. The parser therefore\n * lives here, in shared code, and both callers map its answer onto their own shape: the client to a\n * local end-of-day timestamp, the worker to the account's zone.\n *\n * It reads only the conventions the vault already writes — a list marker, `[ ]`/`[x]`, the Dataview\n * `[due:: YYYY-MM-DD]` field and the Tasks-plugin emoji dates. Inline fields are scanned positionally\n * rather than by one regex because a field body may hold nested brackets and escaped characters, and\n * the task's own words must not keep the markers they were parsed from.\n */",

@@ -184,6 +184,13 @@ export const MAX_TASKS_PER_QUERY = 500
 export const COMPLETED_PAGE_SIZE = 200
 /** One page of the trash: a holding area, not a shelf, so its pages are smaller than the listing's. */
 export const TRASH_PAGE_SIZE = 50
+/**
+ * One page of the shelf, which has the same job: a management screen a reader opens to find one thing,
+ * not a list to work in. Its own name rather than `TRASH_PAGE_SIZE` because the two windows answer for
+ * different pages — a retention sweep can change how long the trash holds rows, and nothing about that
+ * has anything to say about the shelf.
+ */
+export const SHELF_PAGE_SIZE = 50
 
 /**
  * How long a deleted task stays restorable.
