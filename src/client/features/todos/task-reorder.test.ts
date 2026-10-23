@@ -84,6 +84,11 @@ function menuRow(label: string): HTMLButtonElement {
   return row
 }
 
+function menuRowOrNull(label: string): HTMLButtonElement | undefined {
+  return [...document.querySelectorAll<HTMLButtonElement>('button[role="menuitem"], button[role="menuitemcheckbox"]')]
+    .find((entry) => (entry.textContent ?? '').trim() === label)
+}
+
 function choose(label: string): void {
   act(() => { menuRow(label).click() })
 }
@@ -211,6 +216,25 @@ describe('a list drawn in sections', () => {
     // An empty section still stands: it is somewhere to drop a row onto, and one that only appears
     // after something landed in it could not be dropped onto.
     expect(headings()).toContain('Retainers')
+  })
+
+  it('reorders inside a section rather than across the page', async () => {
+    await withSections()
+
+    // Bravo is alone in Billing: there is no place to trade within its section, so the menu offers no
+    // ordering rows at all — and it must not offer to trade with the two rows that merely sit above it.
+    openMenu('Bravo')
+    expect(menuRowOrNull(t('todo.move.up'))).toBeUndefined()
+    expect(menuRowOrNull(t('todo.move.down'))).toBeUndefined()
+
+    // Alpha and Charlie share the list's own group, so Alpha may go down — to the end of that group,
+    // which is not the end of the page: Bravo belongs to another section and never becomes a neighbour.
+    openMenu('Alpha')
+    const down = menuRow(t('todo.move.down'))
+    expect(down.disabled).toBe(false)
+    choose(t('todo.move.down'))
+    await settle()
+    expect(service.moves).toEqual([{ id: 'A', body: { beforeId: null } }])
   })
 
   it('asks for the list and its sections in one read', async () => {

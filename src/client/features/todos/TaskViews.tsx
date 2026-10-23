@@ -30,7 +30,7 @@ import { type TodoTask } from '@shared/todos/model'
 export function inServerOrder(groups: TaskGroup[], tasks: readonly TodoTask[]): TaskGroup[] {
   const position = new Map(tasks.map((task, index) => [task.id, index]))
   return groups.map((group) => ({
-    key: group.key,
+    ...group,
     tasks: [...group.tasks].sort((a, b) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0)),
   }))
 }

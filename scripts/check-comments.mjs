@@ -13352,6 +13352,10 @@ const allowed = new Map([
     "/** A section is a child list; the page reads them off the directory it already holds. */",
     "// An empty section still stands: it is somewhere to drop a row onto, and one that only appears",
     "// after something landed in it could not be dropped onto.",
+    "// Bravo is alone in Billing: there is no place to trade within its section, so the menu offers no",
+    "// ordering rows at all — and it must not offer to trade with the two rows that merely sit above it.",
+    "// Alpha and Charlie share the list's own group, so Alpha may go down — to the end of that group,",
+    "// which is not the end of the page: Bravo belongs to another section and never becomes a neighbour.",
   ]],
   ["src/client/features/todos/today-view.test.ts", [
     "/** A row the way the route serialises one. */",
