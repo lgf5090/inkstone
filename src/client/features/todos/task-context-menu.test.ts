@@ -436,6 +436,17 @@ describe('a right-clicked row', () => {
     expect(menuLabels()).toEqual(stripRows())
     expect(kebab(), 'a finished row still offers a kebab').toBeNull()
   })
+
+  it('leaves them off a row that is neither finished nor owed', () => {
+    // The priority and reminder rows sort and schedule work the reader still has. A row in neither set
+    // answers the same way a finished one does — and must not be drawn into the menu by the absence of
+    // a `done` match, which is how a `cancelled` row would otherwise keep arriving with a flag on it.
+    mount(task('a', { status: 'cancelled' as TodoTask['status'] }))
+    rightClick()
+
+    expect(menuLabels()).toEqual(stripRows())
+    expect(kebab(), 'an abandoned row still offers a kebab').toBeNull()
+  })
 })
 
 describe('a right-click while rows are picked', () => {

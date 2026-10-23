@@ -32,6 +32,7 @@ import { dueLabel, priorityDot, priorityLabel } from './todo-ui'
 import { taskColorOf } from './task-face'
 import { ListIcon } from './list-icons'
 import { formatTaskDuration } from '@shared/todos/duration'
+import { isTaskDone, isTaskOpen } from '@shared/todos/status'
 import type { SnoozeMinutes, TaskList, TodoTask } from '@shared/todos/model'
 
 /** How long a finger has to stay down before the row joins a selection instead of opening. */
@@ -199,13 +200,14 @@ export async function moveTodoTask(
  *
  * One function answers this because two questions depend on the same answer: the card's up and down
  * name a visible neighbour, and a keyboard jump to the top or the bottom has to land on the very same
- * row. The finished half of a list is drawn under its own heading, so it is never a neighbour — and a
- * finished task has no place in that order at all, which is why it answers with nothing rather than
- * with the open rows it sits above.
+ * row. The order is walked over the work the reader still owes — which is why a finished task answers
+ * with nothing rather than with the open rows it sits above, and why the question is asked of the open
+ * set twice rather than as one negation of `done`: a status that belongs to neither set has no place
+ * in a manual order either, and that has to be the reading rather than the leftover.
  */
 export function openTaskSiblings(tasks: readonly TodoTask[], task: TodoTask): TodoTask[] {
-  if (task.status === 'done') return []
-  return tasks.filter((entry) => entry.status !== 'done' && entry.listId === task.listId)
+  if (!isTaskOpen(task.status)) return []
+  return tasks.filter((entry) => isTaskOpen(entry.status) && entry.listId === task.listId)
 }
 
 /**
@@ -322,7 +324,18 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
   // chips sit beside other days' work, draws the neutral instead (`task-face.ts`).
   const colour = taskColorOf(task, lists, 'var(--accent)')
   const due = dueLabel(task.dueAt, bounds, timezone)
-  const done = task.status === 'done'
+  /**
+   * The two questions the card used to ask with one boolean.
+   *
+   * `finished` is what the tick and the strikethrough claim — the reader did this — and `owed` is what
+   * every affordance for work still on the plate keys off: the stopwatch, the reminder rows, the late
+   * date painted in the danger colour. While `done` was the only way a row could stop being owed the
+   * two were the same question and one literal answered both. Ask them apart and a row in neither set
+   * — the shape an abandoned task will arrive with — is drawn as what it is: off the plate, unticked,
+   * and not offered the controls of work the reader still has.
+   */
+  const finished = isTaskDone(task.status)
+  const owed = isTaskOpen(task.status)
   const progress = task.stepTotal > 0 ? t('todo.steps.progress', { done: task.stepDone, total: task.stepTotal }) : null
   /**
    * What this row's ledger says, and what it can be made to say.
@@ -566,14 +579,15 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
     snooze: (minutes: SnoozeMinutes) => { void snooze(task.id, minutes) },
   }
   const menuItems = buildTaskMenuItems(task, { ...menuHandlers, onClose: () => setMenuOpen(false) })
-  // A finished row has nothing left to be reminded about, so the right-click leaves those rows out
-  // rather than offering a notification nobody will hear. While rows are picked the group answers
-  // instead, and this list is not built at all.
+  // A row the reader no longer owes has nothing left to be reminded about, so the right-click leaves
+  // those rows out rather than offering a notification nobody will hear — answered from the open set,
+  // not from the absence of a `done`, so a row in neither set is left out too. While rows are picked
+  // the group answers instead, and this list is not built at all.
   const contextItems = rowMenu.point && !selectionMode
     ? buildTaskContextMenuItems(task, {
         ...menuHandlers,
         onClose: rowMenu.close,
-        snooze: done ? undefined : menuHandlers.snooze,
+        snooze: owed ? menuHandlers.snooze : undefined,
       })
     : []
 
@@ -719,8 +733,12 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
         <button
           type="button"
           role="checkbox"
-          aria-checked={done}
-          aria-label={done
+          // Three answers spelled out, rather than one boolean and its leftover: ticked for the row the
+          // reader finished, empty for the row they still owe, and `mixed` for a row in neither set. The
+          // unchecked box is the reading of work still to do, and an abandoned row is not that; the name
+          // stays the one that describes what a press really writes, which is the finished state.
+          aria-checked={finished ? true : owed ? false : 'mixed'}
+          aria-label={finished
             ? t('todo.a11y.mark_open', { title: task.title })
             : t('todo.a11y.mark_done', { title: task.title })}
           onClick={() => { void toggle(task) }}
@@ -729,11 +747,11 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
           <span
             className={cn(
               'flex size-5 items-center justify-center rounded-full border-2 transition-[background-color,border-color,transform] duration-[var(--dur-base)] ease-[var(--ease-spring)]',
-              done ? 'border-transparent text-[var(--accent-contrast)]' : 'bg-transparent',
+              finished ? 'border-transparent text-[var(--accent-contrast)]' : 'bg-transparent',
             )}
-            style={{ borderColor: colour, backgroundColor: done ? colour : undefined }}
+            style={{ borderColor: colour, backgroundColor: finished ? colour : undefined }}
           >
-            {done && <Check size={12} strokeWidth={3} />}
+            {finished && <Check size={12} strokeWidth={3} />}
           </span>
         </button>
       )}
@@ -790,8 +808,9 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
               className={cn(
                 'pointer-events-auto -ml-1 w-auto min-w-0 flex-1 h-auto border-transparent px-1 py-0 leading-snug md:h-auto',
                 // The box wears the row's own type and keeps its border transparent until it is
-                // focused, so opening it moves the title by nothing but the caret.
-                done ? 'text-[var(--text-tertiary)]' : 'text-[var(--text-primary)]',
+                // focused, so opening it moves the title by nothing but the caret. The muted half is
+                // "no longer owed", which is the same reading as the row's own title below.
+                owed ? 'text-[var(--text-primary)]' : 'text-[var(--text-tertiary)]',
               )}
             />
           ) : (
@@ -808,7 +827,13 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
               onContextMenu={openRowMenu}
               className={cn(
                 'line-clamp-2 pointer-events-auto block min-w-0 break-words rounded-[var(--r-sm)] text-left text-[length:var(--text-13)] leading-snug',
-                done ? 'text-[var(--text-tertiary)] line-through' : 'text-[var(--text-primary)]',
+                // The strike is the claim of a row that was finished; a row in neither set is muted
+                // like the work that is off the plate, and does not borrow that claim.
+                finished
+                  ? 'text-[var(--text-tertiary)] line-through'
+                  : owed
+                    ? 'text-[var(--text-primary)]'
+                    : 'text-[var(--text-tertiary)]',
                 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
               )}
             >
@@ -834,10 +859,12 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
             <span
               className={cn(
                 'inline-flex items-center gap-1 text-[length:var(--text-11)]',
-                due.overdue && !done ? 'text-[var(--danger)]' : 'text-[var(--text-tertiary)]',
+                // A date only runs late against work still owed: painting an abandoned row in the
+                // danger colour would ask for attention the reader has already refused.
+                due.overdue && owed ? 'text-[var(--danger)]' : 'text-[var(--text-tertiary)]',
               )}
             >
-              {due.overdue && !done && <span className="sr-only">{t('todo.a11y.overdue')}</span>}
+              {due.overdue && owed && <span className="sr-only">{t('todo.a11y.overdue')}</span>}
               {due.text}
             </span>
           )}
@@ -906,8 +933,10 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
          * the one door to `done` is the checkbox's and the editor's. A running row keeps the control
          * visible with the pointer away, since putting a timer down has to be reachable from wherever the
          * reader happened to be looking; the idle one comes and goes with the hover, the way the star does.
+         * Timing is asked of the open set, so a row that is neither finished nor owed — and so is nobody's
+         * work in progress — offers no stopwatch to start.
          */}
-        {!selectionMode && !compact && (!done || timed) && (
+        {!selectionMode && !compact && (owed || timed) && (
           <button
             type="button"
             data-todo-timer={task.id}
@@ -956,9 +985,9 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
             <CalendarMinus size={14} />
           </button>
         )}
-        {/* A finished task has nothing left to be reminded about; every other card offers the same
-            four durations the editor does. */}
-        {!selectionMode && !done && (
+        {/* A row the reader no longer owes has nothing left to be reminded about — finished or not — so
+            the kebab is offered by the cards that still carry work, in the words the editor uses. */}
+        {!selectionMode && owed && (
           <button
             ref={menuRef}
             type="button"

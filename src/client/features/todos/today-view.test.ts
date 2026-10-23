@@ -289,6 +289,31 @@ describe('the today screen', () => {
     expect(container.querySelector('[data-today-suggestion]')).toBeNull()
   })
 
+  it('offers a started row, and never one that is neither finished nor owed', async () => {
+    stubBreakpoint(true)
+    service.shelf = [
+      // Past its hour and halfway through: the most obviously owed work the shelf can hold.
+      row('started', 'Write the report', { status: 'in_progress', dueAt: Date.now() - 60_000 }),
+      // The shape a `cancelled` row arrives with, read off the future enum: off the plate, so the plan
+      // may not offer it again — and not finished, so no screen may count it as completed either.
+      row('abandoned', 'Learn Esperanto', { status: 'cancelled' as TodoTask['status'] }),
+      row('done', 'Finished', { status: 'done' }),
+    ]
+
+    const container = await mount('/todo?view=today')
+    const trigger = container.querySelector<HTMLButtonElement>(`button[aria-label="${t('todo.today.ai_plan')}"]`)
+    expect(trigger, 'the today screen offers no way to plan the shelf').not.toBeNull()
+    await act(async () => {
+      trigger!.click()
+      await Promise.resolve()
+    })
+    await settle()
+
+    const offered = [...container.querySelectorAll<HTMLElement>('[data-today-suggestion]')]
+      .map((item) => item.getAttribute('data-today-suggestion'))
+    expect(offered).toEqual(['started'])
+  })
+
   it('shifts every overdue row to today from the banner', async () => {
     stubBreakpoint(true)
     service.overdueRows = [

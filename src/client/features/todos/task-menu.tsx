@@ -28,6 +28,7 @@ import {
   type TaskTag,
   type TodoTask,
 } from '@shared/todos/model'
+import { isTaskOpen } from '@shared/todos/status'
 import type { MessageKey } from '@shared/locales/en-US'
 import type { TaskMoveControls } from './TaskCard'
 
@@ -187,10 +188,11 @@ export function buildTaskMenuItems(task: TodoTask, handlers: TaskMenuHandlers): 
    * that dimension offers: a keyboard and a thumb can read the four columns but cannot move a row from
    * one to the other, and the editor becoming the only door is exactly what AGENTS.md rules 10 and 13
    * refuse. The write is the card's own patch call, so this is a second way to reach `priority` and
-   * never a second way to save it. A finished row leaves the group out with its status and reminder rows
-   * — the priority of work that is already done sorts nothing.
+   * never a second way to save it. The group is offered to the rows still owed — the question is asked
+   * of the open set, not of the absence of `done`, because the priority of work that is already off the
+   * plate sorts nothing, whether it was finished or abandoned.
    */
-  const priorityItems: MenuItem[] = task.status === 'done'
+  const priorityItems: MenuItem[] = !isTaskOpen(task.status)
     ? []
     : [{
         id: 'priority',

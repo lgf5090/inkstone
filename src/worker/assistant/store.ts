@@ -90,6 +90,7 @@ import {
   SQL_TASK_DONE,
   SQL_TASK_OPEN,
   isTaskDone,
+  isTaskOpen,
   sqlTaskDone,
   sqlTaskOpen,
 } from '@shared/todos/status'
@@ -5121,8 +5122,10 @@ export class AssistantStore {
     const byList: Record<string, { open: number; done: number }> = {}
     for (const row of perList) {
       const bucket = byList[row.list_id] ?? { open: 0, done: 0 }
+      // Two sets consulted, not one negation: a status in neither belongs to neither half of the pair,
+      // so a card that gains a way to be abandoned cannot quietly grow its `total`.
       if (isTaskDone(row.status)) bucket.done += row.n
-      else bucket.open += row.n
+      else if (isTaskOpen(row.status)) bucket.open += row.n
       byList[row.list_id] = bucket
     }
     const perTag = await this.rows<{ tag_id: string; status: string; n: number }>(
@@ -5134,8 +5137,9 @@ export class AssistantStore {
     const byTag: Record<string, { open: number; done: number }> = {}
     for (const row of perTag) {
       const bucket = byTag[row.tag_id] ?? { open: 0, done: 0 }
+      // The same three-way reading as the lists: the pair beside a tag is finished and owed, nothing else.
       if (isTaskDone(row.status)) bucket.done += row.n
-      else bucket.open += row.n
+      else if (isTaskOpen(row.status)) bucket.open += row.n
       byTag[row.tag_id] = bucket
     }
     return {
@@ -5167,8 +5171,10 @@ export class AssistantStore {
     const byList = new Map<string, { open: number; done: number }>()
     for (const row of counts) {
       const bucket = byList.get(row.list_id) ?? { open: 0, done: 0 }
+      // Read the same way as the badges above, because a sidebar row and the board card that prints
+      // `done / total` off it are one number: work still owed, and work finished, and nothing in between.
       if (isTaskDone(row.status)) bucket.done += row.n
-      else bucket.open += row.n
+      else if (isTaskOpen(row.status)) bucket.open += row.n
       byList.set(row.list_id, bucket)
     }
     return lists.map((row) => toTaskList(row, byList.get(row.id) ?? { open: 0, done: 0 }))

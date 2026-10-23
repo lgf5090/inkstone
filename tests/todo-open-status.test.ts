@@ -23,6 +23,7 @@ import type { AppBindings, Env } from '../src/worker/env'
 import { todoRoutes } from '../src/worker/routes/todos'
 import { AssistantStore } from '../src/worker/assistant/store'
 import type { TaskCounts, TaskList, TaskTag, TodoTask } from '../src/shared/todos/model'
+import { taskListProgress } from '../src/shared/todos/model'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
 
@@ -43,6 +44,8 @@ vi.mock('../src/worker/middleware/auth', () => ({
 
 let env: Env
 let store: AssistantStore
+/** The raw handle, for the one fixture a validated write would refuse — see the board-card cases. */
+let sqlite: DatabaseSync
 
 function app(): Hono<AppBindings> {
   const instance = new Hono<AppBindings>()
@@ -85,7 +88,7 @@ beforeEach(async () => {
   vi.useFakeTimers()
   vi.setSystemTime(new Date(NOON))
   mocks.userId = USER
-  const sqlite = new DatabaseSync(':memory:')
+  sqlite = new DatabaseSync(':memory:')
   sqlite.exec('PRAGMA journal_mode = OFF')
   sqlite.exec(SCHEMA_STATEMENTS.join(';'))
   env = testBindings(makeD1(sqlite), { PUBLIC_URL: 'http://localhost' })
@@ -208,5 +211,42 @@ describe('the badges beside those views', () => {
     expect((await page(`?view=open&tag=${focusTag.id}`)).total).toBe(counts.byTag[focusTag.id]!.open)
     expect((await store.listTaskLists()).find((entry) => entry.id === workList.id)?.openCount).toBe(1)
     expect((await store.listTaskTags()).find((entry) => entry.id === focusTag.id)?.openCount).toBe(2)
+  })
+})
+
+describe('the done / total a card prints', () => {
+  // These three numbers — a list's pair, a tag's pair, and the pair a sidebar row and a board card print
+  // — are the only status reads in the app that are answered by *adding up grouped rows* rather than by a
+  // query. Until now each of them filed every row that was not finished under "open", so they could not
+  // disagree with the open set however that set was written: widening or narrowing it left these numbers
+  // untouched, which is the blind spot. Every case here therefore asserts the pair and nothing before it.
+  it('fills both halves of the pair from the same set every badge uses', async () => {
+    const counts = (await page('?view=open')).counts
+    expect(counts.byList[workList.id]).toEqual({ open: 1, done: 0 })
+    expect(counts.byTag[focusTag.id]).toEqual({ open: 2, done: 0 })
+    const card = (await store.listTaskLists()).find((entry) => entry.id === workList.id)
+    expect(card).toBeDefined()
+    expect({ open: card!.openCount, done: card!.doneCount }).toEqual({ open: 1, done: 0 })
+    // The line on the card itself, one step further out than either number.
+    expect(taskListProgress(card!)).toEqual({ done: 0, total: 1 })
+  })
+
+  it('counts a row that is neither finished nor owed in neither half of the pair', async () => {
+    // The shape a `cancelled` row will arrive with, written straight to the column because no validator
+    // would accept it yet. Whether it lands outside both buckets is a decision these three sums have to
+    // make on purpose: left as "anything not finished is open", an abandoned row inflates every card.
+    const abandoned = await store.createTask({ title: 'Not going to do it', listId: workList.id, tags: ['Focus'] })
+    sqlite.prepare('UPDATE todos_tasks SET status = ? WHERE id = ?').run('cancelled', abandoned.id)
+
+    const counts = (await page('?view=open')).counts
+    expect(counts.byList[workList.id]).toEqual({ open: 1, done: 0 })
+    expect(counts.byTag[focusTag.id]).toEqual({ open: 2, done: 0 })
+    const card = (await store.listTaskLists()).find((entry) => entry.id === workList.id)
+    expect({ open: card!.openCount, done: card!.doneCount }).toEqual({ open: 1, done: 0 })
+    expect(taskListProgress(card!)).toEqual({ done: 0, total: 1 })
+    // The same row read through the SQL half of the rule, so the card and the badges cannot drift apart.
+    expect(counts.all).toBe(5)
+    expect(counts.completed).toBe(1)
+    expect((await store.getTaskList(workList.id))?.openCount).toBe(1)
   })
 })

@@ -17,6 +17,7 @@ import { ChevronDown, ChevronRight, Sparkles, Search } from 'lucide-react'
 import { localDate } from '@shared/assistant-time'
 import type { MessageKey } from '@shared/locales/en-US'
 import { MAX_TASK_QUERY_CHARS, UPCOMING_DAYS, type TodoTask } from '@shared/todos/model'
+import { isTaskOpen } from '@shared/todos/status'
 import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { Input } from '../../components/form'
@@ -76,13 +77,16 @@ interface PlanSuggestion {
  *
  * Read from the open shelf and decided here, because the Today screen owns the question "what is not
  * on the page yet": overdue first, then starred rows due in the coming week, then what has no plan at
- * all. Finished and trashed rows are not work, and a row already on today — planned, due, or in
- * progress with no date — is already the screen's answer rather than a suggestion for it.
+ * all. The candidates are the rows still owed, asked of the open set rather than as the absence of a
+ * finished one — trashed rows and, as soon as the enum gains one, abandoned rows are not work the plan
+ * may hand back, and a row that stopped being owed never becomes a suggestion by not being `done`.
+ * A row already on today — planned, due, or in progress with no date — is already the screen's answer
+ * rather than a suggestion for it.
  */
 function planSuggestions(tasks: TodoTask[], options: { today: string, dayEnd: number, now: number }): PlanSuggestion[] {
   const { today, dayEnd, now } = options
   const upcomingEnd = dayEnd + UPCOMING_DAYS * DAY_MS
-  const live = tasks.filter((task) => task.status !== 'done' && task.deletedAt == null)
+  const live = tasks.filter((task) => isTaskOpen(task.status) && task.deletedAt == null)
   const out: PlanSuggestion[] = []
   const taken = new Set<string>()
   const offer = (task: TodoTask, reason: PlanReason): void => {
