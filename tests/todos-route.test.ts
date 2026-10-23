@@ -229,6 +229,30 @@ describe('the task endpoints', () => {
     expect(back.tasks.map((entry) => entry.id)).toEqual([owed.id])
   })
 
+  // A shelf nobody can look at again is not a shelf but a deletion the reader cannot undo. The three
+  // readings of one parameter are the whole answer, and the widened one only ever exists because a
+  // caller asked for it — a listing that forgets to name `archived` keeps hiding what it always hid.
+  it('reads either side of the shelf when the caller names which one', async () => {
+    mocks.userId = `shelfread${'0'.repeat(20)}`
+    const inFront = await create({ title: 'Still owed' })
+    const shelved = await create({ title: 'Put away' })
+    await send('POST', '/batch', { op: 'archive', value: 'true', ids: [shelved.id] })
+
+    const ordinary = await json<{ tasks: TodoTask[] }>(await send('GET', '?view=all'))
+    expect(ordinary.tasks.map((entry) => entry.id)).toEqual([inFront.id])
+
+    const only = await json<{ tasks: TodoTask[] }>(await send('GET', '?view=all&archived=1'))
+    expect(only.tasks.map((entry) => entry.id)).toEqual([shelved.id])
+
+    const both = await json<{ tasks: TodoTask[] }>(await send('GET', '?view=all&archived=any'))
+    expect(both.tasks.map((entry) => entry.id).sort()).toEqual([inFront.id, shelved.id].sort())
+
+    // A word nobody spelled falls back to the ordinary listing rather than guessing wider.
+    expect((await json<{ tasks: TodoTask[] }>(await send('GET', '?view=all&archived=maybe'))).tasks).toHaveLength(1)
+    // The badges still count the ordinary listing, so the number beside the shelf is not the shelf's.
+    expect((await json<{ counts: TaskCounts }>(await send('GET', '?view=all'))).counts.all).toBe(1)
+  })
+
   it('refuses a batch archive target that is neither true nor false', async () => {
     mocks.userId = `shelfflag${'0'.repeat(20)}`
     const task = await create({ title: 'Ambiguous shelf' })

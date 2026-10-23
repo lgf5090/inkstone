@@ -2066,7 +2066,10 @@ export const useTodos = create<TodosState>((set, get) => ({
     const text = query.trim()
     if (!text) return []
     try {
-      const page = await api.todos.list({ view: 'open', q: text, limit: PICKER_LIMIT })
+      // The shelf is read from both sides here, and this is the surface that makes a put-away task
+      // findable again: every listing hides it, so a search that hid it too would tell the reader the
+      // work never existed. The hit still names which side it came from, so nothing downstream guesses.
+      const page = await api.todos.list({ view: 'open', q: text, limit: PICKER_LIMIT, archived: 'any' })
       return page.tasks
     } catch (error) {
       toastError(error)

@@ -203,6 +203,12 @@ function asRepeat(value: unknown): RepeatRule | null {
  * it would lose the fact rather than the membership. What is refused is text that is not a day at all,
  * including a date that does not exist on the calendar.
  */
+/** Which side of the shelf a listing parameter names, or none for the ordinary listing. */
+function asShelf(value: string | undefined): boolean | 'any' | undefined {
+  if (value === '1' || value === 'true') return true
+  return value === 'any' ? 'any' : undefined
+}
+
 function plannedDay(value: unknown): string | null {
   if (value === null) return null
   if (typeof value !== 'string' || !isStatsDay(value)) {
@@ -467,6 +473,10 @@ function listingQuery(c: Ctx, timezone: string, dayEnd: number, today: string): 
     tagId: tag ? requiredId(tag) : undefined,
     priority: priority ? asPriority(priority) : undefined,
     starred: c.req.query('starred') === '1' ? true : undefined,
+    // `archived=1` asks for the shelf, `archived=any` for both sides of it. Anything else — including a
+    // word nobody spelled — means the ordinary listing, because widening what a reader sees has to be
+    // something they asked for, not a fallback for a malformed parameter.
+    archived: asShelf(c.req.query('archived')),
     query: c.req.query('q')?.trim().slice(0, 200) || undefined,
     dueFrom: optionalDue(c.req.query('dueFrom'), timezone),
     dueTo: optionalDue(c.req.query('dueTo'), timezone),

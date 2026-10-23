@@ -498,28 +498,47 @@ export function taskLive(alias = 'todos_tasks'): string {
 /** The opposite read: the rows the trash page lists and the retention sweep removes. */
 export const TASK_TRASHED_PREDICATE = 'deleted_at IS NOT NULL'
 
+/** The shelf part of the visibility rule, for a caller that names which side of it it wants. */
+function taskShelf(alias = 'todos_tasks', shelf: 'off' | 'on' | 'any'): string {
+  if (shelf === 'any') return ''
+  return ` AND ${alias}.archived_at IS ${shelf === 'on' ? 'NOT NULL' : 'NULL'}`
+}
+
+/** The list half of the rule, restated once so the three readings below cannot drift apart. */
+function taskListNotPutAway(alias = 'todos_tasks'): string {
+  return `AND NOT EXISTS (
+    SELECT 1 FROM todos_lists put_away
+     WHERE put_away.user_id = ${alias}.user_id
+       AND put_away.id = ${alias}.list_id
+       AND put_away.archived_at IS NOT NULL)`
+}
+
 /**
- * The predicate that decides whether a task reaches a screen at all: live, and not filed in a list the
- * reader has put away.
+ * The visibility rule with the caller's own answer about the shelf.
  *
- * A shelved list is the same kind of statement as a trashed row — the work still exists, it is simply
+ * `off` is what every listing has always meant, `on` is the shelf itself, and `any` is for the one
+ * surface whose job is to find a row by what it says rather than by where it is kept: a search that
+ * could not reach a shelved task would answer "no such task" about work the reader only put aside.
+ */
+function taskVisibleOnShelf(shelf: 'off' | 'on' | 'any', alias = 'todos_tasks'): string {
+  return `${taskLive(alias)}${taskShelf(alias, shelf)} ${taskListNotPutAway(alias)}`
+}
+
+/**
+ * The predicate that decides whether a task reaches a listing at all: live, not put away on the row,
+ * and not filed in a list the reader has put away.
+ *
+ * A shelved list and a shelved row are the same kind of statement — the work still exists, it is simply
  * not in front of the reader — so both belong in one rule, stated once. Four surfaces used to spell
  * "which tasks may this reader see" for themselves: the row set (`taskFilter`), the badges
  * (`taskCounts`), the board's per-card numbers (`perList`) and the published calendar (`todos/feeds`).
- * Three of them forgot the shelf and one remembered it, which is how a sidebar could say 3 while the
+ * Three of them forgot one half and one remembered it, which is how a sidebar could say 3 while the
  * board it labels drew 5. A fifth spelling of this rule in a view is the bug this constant exists to
  * prevent; a reviewer should read one as that.
  *
  * Statistics deliberately keep reading `TASK_LIVE_PREDICATE`: "how much did I do" is about the work,
- * not about which shelf holds it, so an archived list's rows stay counted there. The trash page and
- * the retention sweep still ask for the opposite with `TASK_TRASHED_PREDICATE`.
- *
- * `archived_at` on the row is the third condition, and it hides the task from every set the reader
- * browses — the working surfaces *and* the completed list. That is the whole point of the shelf: work
- * put away at the end of a day must leave the day's list, or closing the day would change nothing on
- * the screen. What it does not do is forget: the hours stay in the statistics, the row stays in every
- * export, sync and backup, and `getTask` still answers for its id — the same split `taskQuery` already
- * draws for a shelved list, so a search hit or a deep link is not a 404.
+ * not about which shelf holds it. The trash page and the retention sweep ask for the opposite with
+ * `TASK_TRASHED_PREDICATE`.
  *
  * `NOT EXISTS` rather than a join because the four surfaces are shaped differently — one is a plain
  * `FROM todos_tasks`, two alias the table, one groups in SQL — and a correlated subquery reads the same
@@ -527,11 +546,7 @@ export const TASK_TRASHED_PREDICATE = 'deleted_at IS NOT NULL'
  * it replaces did: only a list that is actually archived hides a row.
  */
 export function taskVisible(alias = 'todos_tasks'): string {
-  return `${taskLive(alias)} AND ${alias}.archived_at IS NULL AND NOT EXISTS (
-    SELECT 1 FROM todos_lists put_away
-     WHERE put_away.user_id = ${alias}.user_id
-       AND put_away.id = ${alias}.list_id
-       AND put_away.archived_at IS NOT NULL)`
+  return taskVisibleOnShelf('off', alias)
 }
 
 /** The same rule for a statement that names the table rather than aliasing it. */
@@ -1100,6 +1115,15 @@ export interface TaskQuery {
   tagId?: string
   priority?: TaskPriority
   starred?: boolean
+  /**
+   * Which side of the shelf to read: omitted or `false` is what every listing has always meant, `true`
+   * is the shelf itself, and `any` is for the surfaces whose job is to find a row by what it says rather
+   * than by where it is kept.
+   *
+   * `any` is not a looser default: it is only reachable when a caller names it, so a screen that forgets
+   * to ask can never start showing the reader work they put away.
+   */
+  archived?: boolean | 'any'
   query?: string
   /** Only tasks due at or after this instant. An undated task is in no due range. */
   dueFrom?: number
@@ -4280,7 +4304,12 @@ export class AssistantStore {
    * midnight.
    */
   private async taskFilter(query: TaskQuery = {}): Promise<Query> {
-    const q = this.visibleTaskQuery()
+    // The shelf is the one condition a caller may want to read from the other side of, so it is settled
+    // here rather than left baked into the default predicate: `visibleTaskQuery` always hides put-away
+    // rows, and a search that used it could answer "no such task" about work the reader only shelved.
+    const q = query.archived === true || query.archived === 'any'
+      ? new Query(this.userId).raw(taskVisibleOnShelf(query.archived === true ? 'on' : 'any'))
+      : this.visibleTaskQuery()
     const status = query.status ?? 'all'
     if (Array.isArray(status)) q.inList(`status`, status)
     else if (status === 'open') q.raw(SQL_TASK_OPEN)
