@@ -18,6 +18,13 @@ export type TodayGroupKey = 'planned' | 'today' | 'overdue'
 export interface TaskGroup<K extends string = string> {
   key: K
   tasks: TodoTask[]
+  /**
+   * Whether the rows here have to name their own list.
+   *
+   * A page of one collection's rows does not repeat the collection on every line; a group that gathers
+   * rows from several collections has no other way to say which one a row came from.
+   */
+  showList?: boolean
 }
 
 const PRIORITY_ORDER: Record<TaskPriority, number> = { urgent: 0, high: 1, medium: 2, low: 3 }
@@ -180,6 +187,38 @@ export function groupByList(tasks: readonly TodoTask[]): TaskGroup<'open' | 'don
   return [
     ...(open.length ? [{ key: 'open' as const, tasks: open }] : []),
     ...(done.length ? [{ key: 'done' as const, tasks: done }] : []),
+  ]
+}
+
+/**
+ * The list page's own reading of its rows: the list first, then one section per child list, then
+ * everything finished today or any other day.
+ *
+ * A section with nothing open in it still gets its group. The section is a place a row is dropped
+ * *onto*, and one that only appears once something has landed in it cannot be dropped onto.
+ *
+ * The finished rows come from every collection on the page at once, so they say which one — unless the
+ * page has no sections, in which case the caller reads `groupByList` instead and there is one answer.
+ */
+export function groupBySection(
+  tasks: readonly TodoTask[],
+  sections: readonly { id: string }[],
+): TaskGroup[] {
+  const open = tasks.filter((task) => isTaskOpen(task.status))
+  const done = tasks.filter((task) => isTaskDone(task.status)).sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0))
+  const bySection = new Map(sections.map((section) => [section.id, [] as TodoTask[]]))
+  // A row that belongs to neither the list nor one of its sections is still on the page the reader asked
+  // for. Dropping it would be the quieter wrong answer, so it rides in the list's own group.
+  const own: TodoTask[] = []
+  for (const task of open) {
+    const bucket = task.listId === null ? undefined : bySection.get(task.listId)
+    if (bucket) bucket.push(task)
+    else own.push(task)
+  }
+  return [
+    { key: 'unsectioned', tasks: own },
+    ...sections.map((section) => ({ key: `section:${section.id}`, tasks: bySection.get(section.id) ?? [] })),
+    ...(done.length ? [{ key: 'done', tasks: done, showList: sections.length > 0 }] : []),
   ]
 }
 

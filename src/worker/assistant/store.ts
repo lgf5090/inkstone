@@ -1112,6 +1112,14 @@ export interface TaskQuery {
   projectId?: string
   /** `null` asks for the inbox; leaving it out applies no list filter at all. */
   listId?: string | null
+  /**
+   * Read a list together with the sections filed under it.
+   *
+   * A section is a child list, and the list page wants it and its parent in one answer: a page built from
+   * one read per section shows whichever sections happened to answer first, and a reader dragging a row
+   * from one to another would be dropping it into a list the page had not finished loading.
+   */
+  listSubtree?: boolean
   tagId?: string
   priority?: TaskPriority
   starred?: boolean
@@ -4375,7 +4383,19 @@ export class AssistantStore {
     }
     if (query.projectId) q.eq(`project_id`, query.projectId)
     if (query.listId === null) q.raw(`list_id IS NULL`)
-    else if (query.listId) q.eq(`list_id`, query.listId)
+    else if (query.listId) {
+      // A list read with its sections: a section is a child list, and nesting is one level deep by the
+      // route's own rule, so one subquery is the whole subtree. The lookup is correlated on `user_id`, so
+      // another account's nesting never reaches this page. Nothing here filters an archived section's
+      // rows — `taskVisible` already hides work filed in a list the reader put away, and spelling that
+      // rule a second time in a clause is the bug that constant exists to prevent.
+      if (query.listSubtree) {
+        q.raw(`(list_id = ${q.add(query.listId)} OR list_id IN (
+            SELECT kid.id FROM todos_lists kid
+             WHERE kid.user_id = ?1 AND kid.parent_id = ${q.add(query.listId)}
+          ))`)
+      } else q.eq(`list_id`, query.listId)
+    }
     if (query.tagId) {
       q.raw(`id IN (SELECT task_id FROM todos_tag_links WHERE user_id = ?1 AND tag_id = ${q.add(query.tagId)})`)
     }

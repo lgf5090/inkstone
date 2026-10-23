@@ -17,7 +17,7 @@ import { OverdueShift } from './OverdueShift'
 import { useTodos } from './store'
 import { TaskCard, useTaskMoves, type TaskMoveControls } from './TaskCard'
 import { LIST_COLUMNS_QUERY, ListLayoutToggle, StatusBoard, useBoardGroup, useListLayout } from './status-board'
-import { groupByPlan, groupCompletedAndAbandoned, groupByList, type TaskGroup, type PlanGroupKey } from './task-groups'
+import { groupByPlan, groupBySection, groupCompletedAndAbandoned, groupByList, type TaskGroup, type PlanGroupKey } from './task-groups'
 import type { MessageKey } from '@shared/locales/en-US'
 import { type TodoTask } from '@shared/todos/model'
 
@@ -96,7 +96,7 @@ export function GroupedTaskList({ groups, label, empty, onUnplan, canUnplan, mov
                   lists={lists}
                   bounds={bounds}
                   timezone={timezone}
-                  showList={showList}
+                  showList={group.showList ?? showList}
                   onOpen={() => openEditor({ id: task.id })}
                   onStar={() => { void updateTask(task.id, { starred: !task.starred }) }}
                   {...(moveFor?.(task) ? { move: moveFor(task)! } : {})}
@@ -262,6 +262,8 @@ export function CompletedView() {
 /** One list, or one tag: the rows the server scoped for it, with the open ones first. */
 export function ListTaskView() {
   const tasks = useTodos((state) => state.tasks)
+  const lists = useTodos((state) => state.lists)
+  const listId = useTodos((state) => state.listId)
   const sort = useTodos((state) => state.sort)
   const view = useTodos((state) => state.view)
   // Columns are a reading of the same rows the plain list draws, cut by whichever field the reader
@@ -271,15 +273,31 @@ export function ListTaskView() {
   const layout = useListLayout()
   const group = useBoardGroup()
   const columns = view === 'list' && wide && layout === 'columns'
+  // A list's page is drawn in sections, and a section is its child lists in the order the reader filed
+  // them — the nesting the sidebar already offers, read as the sections of one page instead. `lists` is
+  // the working set, so a put-away collection is not in it to begin with.
+  const sections = useMemo(
+    () => (view === 'list' && listId && listId !== 'inbox'
+      ? lists.filter((list) => list.parentId === listId)
+      : []),
+    [view, listId, lists],
+  )
   const groups = useMemo(() => {
-    const grouped = groupByList(tasks)
+    const grouped = sections.length ? groupBySection(tasks, sections) : groupByList(tasks)
     return sort ? inServerOrder(grouped, tasks) : grouped
-  }, [tasks, sort])
+  }, [tasks, sort, sections])
   // The manual order is the list's own reading. An explicit sort replaces it, so the controls that
   // would write a place are not offered while that sort is up.
   const moveFor = useTaskMoves(view === 'list' && !sort)
 
-  const label = (key: string): string => (key === 'done' ? t('todo.group.done') : t('todo.group.open'))
+  const label = (key: string): string => {
+    if (key === 'done') return t('todo.group.done')
+    if (key === 'unsectioned') return t('todo.group.unsectioned')
+    if (key.startsWith('section:')) {
+      return lists.find((list) => list.id === key.slice('section:'.length))?.name ?? t('todo.view.list')
+    }
+    return t('todo.group.open')
+  }
 
   return (
     <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">

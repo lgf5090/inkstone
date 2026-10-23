@@ -1162,6 +1162,9 @@ function listingParams(
     // page and a guess about the rest. The inbox is a collection with no row behind it: `none`.
     params.view = 'all'
     params.list = state.listId && state.listId !== 'inbox' ? state.listId : 'none'
+    // A list's page also draws its sections, and a section is a child list: asked in the same read, so
+    // the page cannot draw a section it has not fetched and then offer to drop a row into it.
+    if (params.list !== 'none') params.scope = 'subtree'
   } else if (state.view === 'tag') {
     params.view = 'all'
     if (state.tagId) params.tag = state.tagId

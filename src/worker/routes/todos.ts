@@ -214,6 +214,23 @@ function asShelf(value: string | undefined): boolean | 'any' | undefined {
   return value === 'any' ? 'any' : undefined
 }
 
+/**
+ * Whether a listing wants a list's sections along with it, where a section is a child list.
+ *
+ * Absent is the plain reading. Any other word is a 400: a scope silently dropped hands back one
+ * collection's rows while the reader asked for a whole group of them, and the page would read as short
+ * rather than as wrong. A scope with no list is refused for the same family of reason — there is no
+ * collection whose sections it could mean.
+ */
+function listScope(value: string | undefined, list: string | undefined): boolean | undefined {
+  if (value === undefined || value === '') return undefined
+  if (value !== 'subtree') throw ApiError.badRequest('A list scope is either `subtree` or absent.')
+  if (list === undefined || list === 'none') {
+    throw ApiError.badRequest('A scope of `subtree` names the list it is the subtree of.')
+  }
+  return true
+}
+
 function plannedDay(value: unknown): string | null {
   if (value === null) return null
   if (typeof value !== 'string' || !isStatsDay(value)) {
@@ -475,6 +492,10 @@ function listingQuery(c: Ctx, timezone: string, dayEnd: number, today: string): 
     // The inbox is a collection with no row behind it, so the address spells it `none` rather than
     // leaving the parameter out, which would mean "any list".
     listId: list === undefined ? undefined : list === 'none' ? null : requiredId(list),
+    // `scope=subtree` is how the list page asks for its sections too, where a section is a child list.
+    // It is refused without a list and refused for any other word: a scope that was silently ignored
+    // would answer for one collection while the reader asked about a whole group of them.
+    listSubtree: listScope(c.req.query('scope'), list),
     tagId: tag ? requiredId(tag) : undefined,
     priority: priority ? asPriority(priority) : undefined,
     starred: c.req.query('starred') === '1' ? true : undefined,
