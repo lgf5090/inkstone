@@ -23,6 +23,8 @@ import {
   MIN_REPEAT_INTERVAL,
   isTimeEstimateMs,
   normalizeTagNames,
+  remindAtFor,
+  remindOffsetForDelta,
   type RemindOffset,
   type RepeatFrequency,
   type RepeatRule,
@@ -167,6 +169,28 @@ const WEEKDAY_BY_NAME: Record<string, number> = {
 const WORKDAYS = [1, 2, 3, 4, 5] as const
 
 /**
+ * The unit word a typed reminder may name, and the milliseconds one of it means.
+ *
+ * Both languages in one table because both doors read the same tiers: the value is only ever fed to
+ * `remindOffsetForDelta`, which decides whether a distance is one the app offers. The CJK keys are the
+ * characters a reader types (`fen-zhong`, `xiao-shi`, `tian`, `ri`, `zhou`) and the Latin ones are the
+ * prefixes of the English words, with the trailing `s` removed before the lookup.
+ */
+const REMIND_UNIT_MS: Record<string, number> = {
+  '\u5206\u949f': 60_000,
+  '\u5c0f\u65f6': 3_600_000,
+  '\u5929': 86_400_000,
+  '\u65e5': 86_400_000,
+  '\u5468': 604_800_000,
+  minute: 60_000,
+  min: 60_000,
+  hour: 3_600_000,
+  hr: 3_600_000,
+  day: 86_400_000,
+  week: 604_800_000,
+}
+
+/**
  * The word a reader types after `every`, and the frequency the rule stores for it.
  *
  * They are different vocabularies on purpose: a frequency names the unit a cycle advances by, and the
@@ -228,16 +252,25 @@ interface Draft {
 function readCount(source: string): number | null {
   const digits = /^\d{1,4}/.exec(source)
   if (digits) return Number(digits[0])
+  // `shi-wu` (fifteen) is the teens written with the ten first, which is the opposite of `wu-shi`
+  // (fifty), and its leading character is itself the ten rather than a digit beside one. Read it before
+  // the single-character lookup below, or `shi` resolves to its own value and every teen comes back as
+  // ten — which is what `mei ge shi wu tian` used to mean: a rhythm every ten days.
+  if (source.startsWith('\u5341')) {
+    const tail = source.charAt(1)
+    const extra = tail === '' || !(tail in CN_DIGITS) ? 0 : CN_DIGITS[tail]!
+    return 10 + extra
+  }
   const first = source.charAt(0)
   if (!(first in CN_DIGITS)) return null
   const head = CN_DIGITS[first]!
-  if (head === 10) return 10
-  const ten = /^\u5341(\d|[0-9\u4e00-\u4e5d])?/.exec(source)
-  if (source.startsWith('\u5341')) return 10 + (ten && ten[1] ? (CN_DIGITS[ten[1]] ?? Number(ten[1]) ?? 0) : 0)
-  const pair = /^(\d|[\u4e00-\u4e5d])\u5341/.exec(source)
+  const pair = /^(\d|[\u4e00-\u4e5d])\u5341([\u4e00-\u4e5d]?)/.exec(source)
   if (pair && pair[1]) {
     const tens = CN_DIGITS[pair[1]] ?? Number(pair[1])
-    if (Number.isFinite(tens)) return tens * 10 + (head === 10 ? 0 : head)
+    // `er-shi` is twenty, not twenty-two: the character before `shi` is how many tens there are, and
+    // only a character *after* it names the units.
+    const extra = pair[2] === '' || !(pair[2]! in CN_DIGITS) ? 0 : CN_DIGITS[pair[2]!]!
+    if (Number.isFinite(tens)) return tens * 10 + extra
   }
   return head
 }
@@ -408,16 +441,18 @@ export function parseQuickAdd(input: string, now: number, timeZone: string): Qui
 
   // Reminders, before the date pass: `ti qian 15 fen zhong ti xing wo` contains a numeral that a bare
   // date pattern would otherwise be glad to claim as a day of the month.
-  consume('remind', /\u63d0\u524d\s*(15|\u5341\u4e94)\s*\u5206\u949f(?:\u5185)?(?:\u63d0\u9192|\u901a\u77e5)?(?:\u7ed9\u6211)?/, () => {
-    remindOffset = '15m'
-    return true
-  })
-  consume('remind', /\u63d0\u524d\s*(1|\u4e00)\s*(?:\u4e2a)?\u5c0f\u65f6(?:\u5185)?(?:\u63d0\u9192|\u901a\u77e5)?/, () => {
-    remindOffset = '1h'
-    return true
-  })
-  consume('remind', /\u63d0\u524d\s*(1|\u4e00)\s*\u5929(?:\u63d0\u9192|\u901a\u77e5)?/, () => {
-    remindOffset = '1d'
+  //
+  // One pattern for every distance rather than one per tier, because the tiers are a list that has to
+  // match the forms: it grew from four to nine and the typed grammar would not have noticed. The
+  // distance is read here and judged against the shared table, so a tier nobody offers — `45 minutes` —
+  // stays prose instead of being rounded onto the nearest preset and quietly firing at the wrong hour.
+  consume('remind', /\u63d0\u524d\s*(\d{1,3}|[\u4e00-\u4e5d\u5341]{1,3})?\s*(?:\u4e2a)?(\u5206\u949f|\u5c0f\u65f6|\u5929|\u65e5|\u5468)(?:\u5185)?(?:\u63d0\u9192|\u901a\u77e5)?(?:\u7ed9\u6211)?/, (match) => {
+    const count = match[1] ? readCount(match[1]) : 1
+    const unit = REMIND_UNIT_MS[match[2]!]
+    if (count === null || count < 1 || unit === undefined) return false
+    const tier = remindOffsetForDelta(count * unit)
+    if (tier === 'none') return false
+    remindOffset = tier
     return true
   })
   consume('remind', /(?:\u5230\u671f|\u51c6\u70b9|\u6b63\u786e\u65f6\u95f4)(?:\u63d0\u9192|\u901a\u77e5|\u544a\u8bc9\u6211)?/, (match) => {
@@ -426,12 +461,20 @@ export function parseQuickAdd(input: string, now: number, timeZone: string): Qui
     remindOffset = 'due'
     return true
   })
-  consume('remind', /\bremind(?:er)?\s+me\s+(15\s*minutes?|an?\s*hour|a\s*day|at\s*the\s*due\s*time)?/i, (match) => {
-    const words = match[1]?.toLowerCase() ?? ''
-    remindOffset = words.includes('minute') ? '15m'
-      : words.includes('hour') ? '1h'
-      : words.includes('day') ? '1d'
-      : 'due'
+  // The English door keeps one pattern for the same reason, and it keeps the words a person actually
+  // types: `an hour` and `a day` are read as one of that unit rather than as their own special cases.
+  consume('remind', /\bremind(?:er)?\s+me\s+(?:(?:an?\s+|a\s+)|(\d{1,3})\s*)?(minutes?|mins?|hours?|hrs?|days?|weeks?|at\s+the\s+due\s*time)?/i, (match) => {
+    const words = (match[2] ?? '').toLowerCase()
+    if (words === '' || words.includes('due')) {
+      remindOffset = 'due'
+      return true
+    }
+    const count = match[1] ? Number(match[1]) : 1
+    const unit = REMIND_UNIT_MS[words.replace(/s$/, '')]
+    if (unit === undefined || count < 1) return false
+    const tier = remindOffsetForDelta(count * unit)
+    if (tier === 'none') return false
+    remindOffset = tier
     return true
   })
 
@@ -690,13 +733,11 @@ export function parseQuickAdd(input: string, now: number, timeZone: string): Qui
     dueAt = zonedTimeToUtc(day.year, day.month, day.day, draft.hour, draft.minute ?? 0, timeZone).getTime()
   }
 
-  if (dueAt !== null && remindOffset !== null && remindOffset !== 'none') {
-    const offsetMs = remindOffset === '15m' ? 15 * 60_000
-      : remindOffset === '1h' ? 60 * 60_000
-      : remindOffset === '1d' ? 24 * 60 * 60_000
-      : 0
-    remindAt = dueAt - offsetMs
-  }
+  // The fourth copy of the tier arithmetic, found by the tier list growing: this local ternary chain
+  // only knew 15m/1h/1d, and every other tier fell through its `: 0` to "at the due time" — so a reader
+  // who typed `ti qian 5 fen zhong` got a reminder that fired late, silently, with the words still
+  // painted in the preview. One table now, the same one the server reads.
+  if (dueAt !== null && remindOffset !== null) remindAt = remindAtFor(dueAt, remindOffset)
 
   // Grouped for the preview row, which reads better by field than by position: the order of this array
   // is not the order of the words. Anything that paints or speaks the line uses `start` for that.

@@ -394,6 +394,25 @@ describe('completing a task', () => {
     expect(next?.plannedFor).toBe('2026-10-26')
   })
 
+  // The today view's search box reads both sides of the shelf, so a shelved row is offered as pickable.
+  // A pick that only wrote `planned_for` would then succeed and leave the row invisible — the silent
+  // no-op, on the one screen whose whole job is putting work in front of the reader.
+  it('takes a shelved task off the shelf when it is picked into a day, and only then', async () => {
+    vi.setSystemTime(new Date('2026-10-19T06:00:00Z'))
+    const task = await store.createTask({ title: 'Put away', archivedAt: Date.now() })
+    expect((await store.listTasks({ view: 'all' })).map((row) => row.id)).not.toContain(task.id)
+
+    const picked = await store.planTask(task.id, '2026-10-19')
+
+    expect(picked).toMatchObject({ plannedFor: '2026-10-19', archivedAt: null })
+    expect((await store.listTasks({ view: 'all' })).map((row) => row.id)).toContain(task.id)
+
+    // Un-picking answers "not today" and leaves the shelf where the reader put it.
+    const second = await store.createTask({ title: 'Also away', archivedAt: Date.now() })
+    const unpicked = await store.planTask(second.id, null)
+    expect(unpicked).toMatchObject({ plannedFor: null, archivedAt: expect.any(Number) })
+  })
+
   it('is idempotent: completing a finished task does not clone it again', async () => {
     const task = await store.createTask({ title: 'Weekly', dueAt: Date.parse('2026-10-19T09:00:00Z'), repeat: { freq: 'weekly', interval: 1 } })
     await store.completeTask(task.id, 'UTC')

@@ -182,11 +182,47 @@ it('takes an at-the-due-time reminder as the due instant itself', () => {
 })
 
 it('leaves an offset the app cannot store in the title instead of rounding it', () => {
-  // The shipped offsets are 15m, 1h, 1d and at-due. Ten minutes is not one of them, so promising
-  // "close enough" would be the parser lying about what the task will actually do.
-  const parsed = parse('\u63d0\u524d10\u5206\u949f\u63d0\u9192 \u660e\u5929 \u4ea4\u7a0e')
+  // 45 minutes is not one of the nine tiers, so promising "close enough" would be the parser lying
+  // about what the task will actually do. The words stay in the title, unread and unhidden.
+  const parsed = parse('\u63d0\u524d45\u5206\u949f\u63d0\u9192 \u660e\u5929 \u4ea4\u7a0e')
   expect(parsed.remindAt).toBeNull()
-  expect(parsed.title).toContain('\u63d0\u524d10\u5206\u949f')
+  expect(parsed.title).toContain('\u63d0\u524d45\u5206\u949f')
+
+  const english = parse('remind me 90 minutes before tomorrow pay tax')
+  expect(english.remindAt).toBeNull()
+})
+
+// The tiers are a list the forms, the settings merge and the server all read from one table; the typed
+// grammar used to hardcode three of them, so the other six existed everywhere except where a reader
+// actually types. This is the door that has to keep up.
+it('types every reminder tier in either language', () => {
+  const due = parse('\u660e\u5929 \u4ea4\u7a0e').dueAt!
+  const before = (ms: number) => due - ms
+  const cases: [string, number][] = [
+    ['\u63d0\u524d5\u5206\u949f\u63d0\u9192 \u660e\u5929 \u4ea4\u7a0e', 5 * 60_000],
+    ['\u63d0\u524d10\u5206\u949f \u660e\u5929 \u4ea4\u7a0e', 10 * 60_000],
+    ['\u63d0\u524d15\u5206\u949f\u63d0\u9192\u7ed9\u6211 \u660e\u5929 \u4ea4\u7a0e', 15 * 60_000],
+    ['\u63d0\u524d\u5341\u5206\u949f\u63d0\u9192 \u660e\u5929 \u4ea4\u7a0e', 10 * 60_000],
+    ['\u63d0\u524d30\u5206\u949f\u5185\u63d0\u9192 \u660e\u5929 \u4ea4\u7a0e', 30 * 60_000],
+    ['\u63d0\u524d1\u4e2a\u5c0f\u65f6\u63d0\u9192 \u660e\u5929 \u4ea4\u7a0e', 3_600_000],
+    ['\u63d0\u524d3\u5929\u63d0\u9192 \u660e\u5929 \u4ea4\u7a0e', 3 * 86_400_000],
+    ['\u63d0\u524d1\u5468\u63d0\u9192 \u660e\u5929 \u4ea4\u7a0e', 7 * 86_400_000],
+  ]
+  for (const [line, ms] of cases) expect(parse(line).remindAt, line).toBe(before(ms))
+
+  expect(parse('remind me 30 minutes before the report tomorrow').remindAt).toBe(before(30 * 60_000))
+  // Two hours is not one of the nine tiers, in either language. It is refused rather than snapped to
+  // the nearest one: a reminder that fires at a time nobody wrote is a wrong fact with a confident
+  // face on it, and the words stay in the title where the reader can see them.
+  expect(parse('remind me 2 hours before the report tomorrow').remindAt).toBeNull()
+  expect(parse('\u63d0\u524d2\u4e2a\u5c0f\u65f6\u63d0\u9192 \u660e\u5929 \u4ea4\u7a0e').remindAt).toBeNull()
+  expect(parse('remind me 3 days before the report tomorrow').remindAt).toBe(before(3 * 86_400_000))
+  expect(parse('remind me 1 week before the report tomorrow').remindAt).toBe(before(7 * 86_400_000))
+  // The words a person actually types stay read as one of the unit, not as their own special cases.
+  expect(parse('remind me an hour before the report tomorrow').remindAt).toBe(before(3_600_000))
+  expect(parse('remind me a day before the report tomorrow').remindAt).toBe(before(86_400_000))
+  expect(parse('remind me at the due time the report tomorrow').remindAt).toBe(due)
+  expect(parse('remind me to send the report tomorrow').remindAt).toBe(due)
 })
 
 it('never sets a reminder without a time to count back from', () => {

@@ -5010,10 +5010,16 @@ export class AssistantStore {
   async planTask(id: string, date: string | null, expectedRev?: number): Promise<TodoTask | null> {
     // No row is read first: unlike the patch and the move, a pick needs nothing from the row to compute
     // what it writes, so the guard is the statement's own `rev = ?` and a stale caller costs no read.
-    const changed = await this.updateTaskRow(id, [
-      ['planned_for', date],
-      ['updated_at', Date.now()],
-    ], expectedRev)
+    //
+    // A pick also takes the row off the shelf. `planned_for` alone would be a write that succeeds and
+    // leaves the row invisible — and the today view's own search box is the door that offers a shelved
+    // row as pickable, so that silent no-op is reachable from the screen whose whole job is to put work
+    // in front of the reader. Un-picking (`null`) leaves the shelf exactly where it was: it answers
+    // "not today", not "put it back".
+    const fields: (readonly [string, unknown])[] = [['planned_for', date]]
+    if (date !== null) fields.push(['archived_at', null])
+    fields.push(['updated_at', Date.now()])
+    const changed = await this.updateTaskRow(id, fields, expectedRev)
     if (!changed) return await this.missingOrConflict(id)
     return await this.getTask(id)
   }
