@@ -25,6 +25,7 @@ import { useAssistantToolRefresh } from '../chat/tool-refresh'
 import type { EmailAddress, EmailComposeMode } from './email-address'
 import { emailFolderPath, emailSearchPath, emailSettingsPath } from './email-address'
 import { attachEmailTagToMessage, emailTagSearchQuery, reportEmailFailure } from './email-org'
+import { useEmailShortcuts } from './email-shortcuts'
 import { messageSubject } from './format'
 import { useEmailStore } from './store'
 import { FolderSidebar, FolderSidebarRail } from './FolderSidebar'
@@ -118,6 +119,7 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
   const toggleNav = useUi((state) => state.toggleEmailNav)
   const setLayout = useUi((state) => state.setLayout)
   const lastAssistantEmail = useRef<string | null>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
 
   const emailContext = useMemo<EmailAssistantContext>(() => ({
     accountId: account.id,
@@ -313,6 +315,67 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
     void refresh()
   }
 
+  const composing = address.kind === 'mailbox' && address.compose !== null
+  const selectedSummaries = messages.filter((summary) => selectedIds.has(summary.id))
+
+  const archiveShortcut = (): void => {
+    if (selectedIds.size > 0) {
+      void runBatch('archive')
+      return
+    }
+    if (selectedMessage) archive(selectedMessage)
+  }
+
+  const trashShortcut = async (): Promise<void> => {
+    if (selectedIds.size > 0) {
+      const ok = await confirm({
+        title: t('email.batch.delete_title'),
+        description: t('email.batch.delete_hint'),
+        confirmLabel: t('email.detail.delete'),
+        tone: 'danger',
+      })
+      if (ok) await runBatch('trash')
+      return
+    }
+    if (selectedMessage) await removeSummary(selectedMessage)
+  }
+
+  const toggleReadShortcut = (): void => {
+    if (selectedIds.size > 0) {
+      const allRead = selectedSummaries.length > 0 && selectedSummaries.every((summary) => summary.read)
+      void runBatch(allRead ? 'unread' : 'read')
+      return
+    }
+    if (selectedMessage) void setRead(account.id, selectedMessage.id, !selectedMessage.read)
+  }
+
+  const toggleStarShortcut = (): void => {
+    if (selectedIds.size > 0) {
+      const allStarred = selectedSummaries.length > 0 && selectedSummaries.every((summary) => summary.starred)
+      void runBatch(allStarred ? 'unstar' : 'star')
+      return
+    }
+    if (selectedMessage) void toggleStar(account.id, selectedMessage.id)
+  }
+
+  const focusSearch = (): void => {
+    searchInputRef.current?.focus()
+    searchInputRef.current?.select()
+  }
+
+  useEmailShortcuts({
+    composeNew: () => compose('new'),
+    reply: (mode) => compose(mode),
+    canCompose: () => !composing,
+    canReply: () => !composing && messageId !== null && selectedMessage !== null,
+    archive: archiveShortcut,
+    trash: () => { void trashShortcut() },
+    toggleRead: toggleReadShortcut,
+    toggleStar: toggleStarShortcut,
+    focusSearch,
+    goInbox: () => navigateToPath(emailFolderPath(account.id, 'inbox')),
+  })
+
   const paneTools = (
     <>
       <IconButton label={t('attachments.manage')} size="sm" className="size-11 md:size-7" onClick={() => useUi.getState().setAttachmentHub('email')}>
@@ -337,6 +400,7 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
     <form role="search" onSubmit={submitSearch} className="flex min-w-0 flex-1 items-center">
       <div className="min-w-0 flex-1">
         <Input
+          ref={searchInputRef}
           value={searchDraft}
           onChange={(event) => setSearchDraft(event.target.value)}
           placeholder={t('email.search.placeholder')}
