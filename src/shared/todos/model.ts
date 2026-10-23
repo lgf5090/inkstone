@@ -1234,5 +1234,40 @@ export interface Worklog {
   overEstimateRate: number | null
 }
 
+/**
+ * The end-of-day pass: the four questions one close-out asks about one day.
+ *
+ * Four buckets, not one filtered page, because the four want different answers and share nothing else:
+ * what the day finished, what the day touched but left open, what is already behind the reader, and
+ * what tomorrow already holds. They are read together so the screen answers one snapshot — a pass that
+ * files rows while it is open would otherwise re-cut the other three under the reader's hands.
+ */
+export interface FinishDayBucket {
+  /** The rows, in the order the plate would have shown them. */
+  rows: TodoTask[]
+  /**
+   * Rows the bucket held beyond the page this answer carries.
+   *
+   * Named rather than dropped: a close-out that quietly shows the first fifty of ninety finished tasks
+   * would let the reader believe the day held fifty.
+   */
+  more: number
+}
+
+export interface FinishDay {
+  /** The account-zone day the pass describes, and the one after it, as `YYYY-MM-DD`. */
+  day: string
+  tomorrow: string
+  timezone: string
+  /** Closed on this day, still off the shelf. The bucket the pass files away. */
+  done: FinishDayBucket
+  /** Still open, with a closed span on the ledger for this day. */
+  worked: FinishDayBucket
+  /** Still open, due before the moment the pass was read. */
+  overdue: FinishDayBucket
+  /** Still open, picked for tomorrow or due inside it. */
+  planned: FinishDayBucket
+}
+
 /** The priorities, ordered as the app shows them. Re-exported so callers need one import. */
 export type { TaskPriority, TaskStatus }

@@ -126,7 +126,7 @@ import type {
   TodoTask,
   TodoTimeEntry,
 } from '@shared/todos/model'
-import { REMIND_OFFSET_MS, type RemindTier, type Worklog } from '@shared/todos/model'
+import { REMIND_OFFSET_MS, type FinishDay, type RemindTier, type Worklog } from '@shared/todos/model'
 import { publishBroadcast } from './db'
 import { randomLocalId } from './random-id'
 import { getLocale, t, translateApiError } from './i18n'
@@ -1282,6 +1282,15 @@ export const api = {
      */
     worklog: (params: { from: string, to: string, group?: string }) =>
       request<Worklog>(`/api/todos/worklog${toQuery(params)}`),
+    /**
+     * The end-of-day pass: what the day finished, what it touched and left open, what fell behind, and
+     * what tomorrow already holds.
+     *
+     * One request rather than four listings, because this screen files rows while it is open: four reads
+     * made one at a time would let the third answer describe a day the first two had already changed.
+     */
+    finishDay: (params: { day?: string, limit?: number } = {}) =>
+      request<FinishDay>(`/api/todos/finish-day${toQuery(params)}`),
     stats: (params: { from?: string, to?: string, bucket?: TaskStatsBucket } = {}) =>
       request<TodoStats>(`/api/todos/stats${toQuery(params)}`),
 

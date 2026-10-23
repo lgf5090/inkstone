@@ -108,7 +108,7 @@ import {
   type PendingActionStatus,
 } from '@shared/assistant'
 import { parseScheduleSpec, getZonedParts, zonedTimeToUtc, type ScheduleSpec } from '@shared/assistant-schedule'
-import { localDate, localDayBounds } from '@shared/assistant-time'
+import { dayBounds, localDate, localDayBounds } from '@shared/assistant-time'
 import { likePattern } from '@shared/markdown-utils'
 import type { Env } from '../env'
 import { tagScopePredicate } from '../db/rows'
@@ -1152,6 +1152,23 @@ export interface TaskQuery {
    * assistant callers use, which have a `dayEnd` but no reason to compute a day themselves.
    */
   today?: string
+  /**
+   * Only open tasks the time ledger holds a closed span for on this account-zone day.
+   *
+   * The end-of-day pass asks "what did I actually work on today and leave open". No column on
+   * `todos_tasks` answers that — the answer is in `todos_time_entries`, which is why this filter reaches
+   * across rather than pretending a rollup column knows which day the hours belong to. Closed spans
+   * only: a timer still running is not yet work anybody spent.
+   */
+  workedOn?: string
+  /**
+   * Only open tasks owed on this account-zone day: picked for it, or due somewhere inside it.
+   *
+   * This is what `view=today` means, spelled for a day that is not today — tomorrow's preview needs the
+   * same two halves (a plan the reader made, a date the world set) without today's "and anything already
+   * overdue" and "in progress with no date", which would pull yesterday into a preview of tomorrow.
+   */
+  owedOn?: string
 }
 
 /** One day-and-model slice of the usage series, whichever dimension table answered it. */
@@ -4373,6 +4390,24 @@ export class AssistantStore {
     // `NULL` fails both comparisons, so a finished row with no recorded day is in no window.
     if (query.completedFrom !== undefined) q.raw(`completed_on >= ${q.add(query.completedFrom)}`)
     if (query.completedTo !== undefined) q.raw(`completed_on < ${q.add(query.completedTo)}`)
+    if (query.workedOn !== undefined) {
+      // The day is the entry's own column, written by the statement that closed the span, so the filter
+      // compares a day to a day and never re-zones an instant here.
+      q.raw(`${SQL_TASK_OPEN} AND EXISTS (
+        SELECT 1 FROM todos_time_entries w
+         WHERE w.user_id = ?1 AND w.task_id = todos_tasks.id
+           AND w.day = ${q.add(query.workedOn)} AND w.end_at IS NOT NULL
+      )`)
+    }
+    if (query.owedOn !== undefined) {
+      // A malformed day would match nothing, and "nothing is owed that day" is a fact the screen would
+      // draw as an empty section. The two bounds cannot be compared as strings either, so a day that
+      // cannot be cut into instants is refused at the builder rather than answered quietly.
+      const bounds = dayBounds(query.owedOn, (await this.getSettings()).timezone)
+      if (!bounds) throw new Error(`An owed-on day must be a date like 2026-01-31, not ${query.owedOn}.`)
+      q.raw(`${SQL_TASK_OPEN} AND (planned_for = ${q.add(query.owedOn)}
+        OR (due_at IS NOT NULL AND due_at >= ${q.add(bounds.start)} AND due_at < ${q.add(bounds.end)}))`)
+    }
     if (query.query) {
       const pattern = q.add(containsPattern(query.query))
       // A tag's name is part of what a reader sees on the row, so it is part of what a search for

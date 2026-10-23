@@ -29,6 +29,7 @@ import {
   MAX_BATCH_TASKS,
   WORKLOG_DIMENSIONS,
   WORKLOG_GROUP_LIMIT,
+  type FinishDayBucket,
   type WorklogDimension,
   MAX_LIST_NAME_CHARS,
   MAX_REMINDERS_PER_TASK,
@@ -573,6 +574,57 @@ todoRoutes.get('/worklog', async (c) => {
     limit: WORKLOG_GROUP_LIMIT,
   }))
 })
+
+/**
+ * The end-of-day pass: the four questions one close-out asks about one day.
+ *
+ * Four reads through the listing's own filter builder, not four hand-written statements. Every bucket is
+ * a question this app already knows how to ask — finished on a day, past due, owed on a day — and the one
+ * that is new ("the ledger holds a closed span for it today") is a clause in the same builder. A second
+ * spelling of "overdue" here is how the plate and the close-out start disagreeing about the same task,
+ * which is the defect this plan has been removing all round.
+ *
+ * Registered before `/:id`, like the worklog: "finish-day" is a route, not a task called finish-day.
+ */
+todoRoutes.get('/finish-day', async (c) => {
+  const s = store(c)
+  const settings = await s.getSettings()
+  const day = finishDayQuery(c, settings.timezone)
+  const tomorrow = addDays(day, 1)
+  const limit = finishDayLimit(c)
+  const [done, worked, overdue, planned] = await Promise.all([
+    finishBucket(s, { view: 'completed', completedFrom: day, completedTo: tomorrow }, limit),
+    finishBucket(s, { workedOn: day }, limit),
+    finishBucket(s, { view: 'overdue' }, limit),
+    finishBucket(s, { owedOn: tomorrow }, limit),
+  ])
+  return c.json({ day, tomorrow, timezone: settings.timezone, done, worked, overdue, planned })
+})
+
+/** The day a close-out reads: the one the address names, or the account's own today. */
+function finishDayQuery(c: Ctx, timezone: string): string {
+  const day = c.req.query('day') || localDate(Date.now(), timezone)
+  if (!isStatsDay(day)) throw ApiError.badRequest('An end-of-day pass reads one date like 2026-01-31.')
+  return day
+}
+
+/**
+ * How many rows one bucket carries.
+ *
+ * A close-out is a screen of decisions, not a report, so the ceiling is the listing's own. What a reader
+ * cannot see here is counted into `more` beside it: fifty of ninety finished tasks would otherwise read
+ * as a day that held fifty.
+ */
+function finishDayLimit(c: Ctx): number {
+  const asked = Number(c.req.query('limit'))
+  return Number.isFinite(asked) && asked >= 1 ? Math.min(MAX_TASKS_PER_QUERY, Math.trunc(asked)) : MAX_TASKS_PER_QUERY
+}
+
+/** One bucket: the rows the page carries, and how many the account held behind them. */
+async function finishBucket(s: AssistantStore, query: TaskQuery, limit: number): Promise<FinishDayBucket> {
+  const [rows, total] = await Promise.all([s.listTasks({ ...query, limit }), s.countTasks(query)])
+  return { rows, more: Math.max(0, total - rows.length) }
+}
 
 // --------------------------------------------------------------- time ledger
 
