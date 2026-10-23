@@ -1190,5 +1190,49 @@ export function toggledStatus(status: TaskStatus): TaskStatus {
   return isTaskOpen(status) ? 'done' : 'todo'
 }
 
+/**
+ * The dimensions the worklog groups tracked hours by.
+ *
+ * Three, because those are the three ways the app already files a task: the list it is in, the tags it
+ * wears, and itself. A tag is deliberately allowed to overlap — the same hour appears under each of the
+ * task's tags — which is why the breakdown is read one dimension at a time and never summed.
+ */
+export const WORKLOG_DIMENSIONS = ['list', 'tag', 'task'] as const
+export type WorklogDimension = (typeof WORKLOG_DIMENSIONS)[number]
+
+/** How many groups one reading answers with; the rest is counted, not dropped. */
+export const WORKLOG_GROUP_LIMIT = 8
+
+/** One bucket of the breakdown. */
+export interface WorklogGroup {
+  key: string
+  label: string
+  trackedMs: number
+}
+
+/** The hours the ledger holds over a window, read one dimension at a time. */
+export interface Worklog {
+  range: { from: string, to: string, dimension: WorklogDimension }
+  /** Time the account actually spent inside the window, counting only closed spans. */
+  totalMs: number
+  /** How many closed spans that came from — the difference between forty hours and forty minutes. */
+  entryCount: number
+  /** Every day in the window, worked on or not: a day nobody touched is a zero, not an absence. */
+  byDay: { day: string, trackedMs: number }[]
+  byGroup: WorklogGroup[]
+  /** Groups the window held beyond `WORKLOG_GROUP_LIMIT`, named rather than silently dropped. */
+  truncatedGroups: number
+  /** Tasks that finished in the window with a plan attached, and how many of them outgrew it. */
+  estimatedCount: number
+  overEstimateCount: number
+  /**
+   * `overEstimateCount / estimatedCount`, or `null` when nothing was planned.
+   *
+   * Null rather than zero, because a `0` here reads as "you never overrun" to an account that has
+   * never typed an estimate — the absence of a denominator is not a result.
+   */
+  overEstimateRate: number | null
+}
+
 /** The priorities, ordered as the app shows them. Re-exported so callers need one import. */
 export type { TaskPriority, TaskStatus }

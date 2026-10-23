@@ -52,6 +52,17 @@ vi.mock('../../lib/api', () => ({
       lists: async () => ({ lists: [] }),
       tags: async () => ({ tags: [] }),
       get: async () => ({ task: null, steps: [] }),
+      worklog: async () => ({
+        range: { from: '2026-03-01', to: '2026-03-07', dimension: 'list' },
+        totalMs: 3_600_000,
+        entryCount: 1,
+        byDay: [{ day: '2026-03-01', trackedMs: 3_600_000 }],
+        byGroup: [{ key: 'l1', label: 'Work', trackedMs: 3_600_000 }],
+        truncatedGroups: 0,
+        estimatedCount: 1,
+        overEstimateCount: 0,
+        overEstimateRate: 0,
+      }),
       stats: async (params: StatsCall = {}) => {
         service.calls.push(params)
         if (service.hold) await new Promise<void>((resolve) => service.waiting.push(resolve))

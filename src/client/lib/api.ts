@@ -126,7 +126,7 @@ import type {
   TodoTask,
   TodoTimeEntry,
 } from '@shared/todos/model'
-import { REMIND_OFFSET_MS, type RemindTier } from '@shared/todos/model'
+import { REMIND_OFFSET_MS, type RemindTier, type Worklog } from '@shared/todos/model'
 import { publishBroadcast } from './db'
 import { randomLocalId } from './random-id'
 import { getLocale, t, translateApiError } from './i18n'
@@ -1274,6 +1274,14 @@ export const api = {
      * (the last 30 days), and the answer echoes the range it actually measured so the client never
      * has to guess which days the numbers describe.
      */
+    /**
+     * The worklog over a window, grouped one dimension at a time.
+     *
+     * Its own request rather than a field of `stats`: the two read different tables and answer about
+     * different things, and a screen that shows only one should not pay for the other.
+     */
+    worklog: (params: { from: string, to: string, group?: string }) =>
+      request<Worklog>(`/api/todos/worklog${toQuery(params)}`),
     stats: (params: { from?: string, to?: string, bucket?: TaskStatsBucket } = {}) =>
       request<TodoStats>(`/api/todos/stats${toQuery(params)}`),
 

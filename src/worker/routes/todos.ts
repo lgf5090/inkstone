@@ -27,6 +27,9 @@ import { localDate, localDayBounds, parseLocalTime } from '@shared/assistant-tim
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import {
   MAX_BATCH_TASKS,
+  WORKLOG_DIMENSIONS,
+  WORKLOG_GROUP_LIMIT,
+  type WorklogDimension,
   MAX_LIST_NAME_CHARS,
   MAX_REMINDERS_PER_TASK,
   MAX_SINGLE_TIME_ENTRY_MS,
@@ -61,6 +64,7 @@ import { AssistantStore, type TaskQuery } from '../assistant/store'
 import { runIdempotent } from '../mcp/operations'
 import { insertFeed, listFeeds, revokeFeed, type OwnFeedRow } from '../todos/feeds'
 import { addDays, isStatsDay, loadTodoStats } from '../todos/stats'
+import { loadWorklog } from '../todos/worklog'
 
 const BODY_LIMIT = JSON_BODY_LIMITS.settings
 const TITLE_MAX = 300
@@ -546,6 +550,28 @@ todoRoutes.get('/stats', async (c) => {
     now: Date.now(),
   })
   return c.json(stats)
+})
+
+/**
+ * The worklog: where the hours went, over the same window the statistics read.
+ *
+ * A second endpoint rather than more fields on the first: the statistics replay the plate's rows and
+ * this sums the ledger, and the two answer about different things — an account can hold forty hours in
+ * a week whose tasks were mostly closed later. Folding them would make one number answer two questions,
+ * and one request would always be paying for the half the screen did not show.
+ */
+todoRoutes.get('/worklog', async (c) => {
+  const settings = await store(c).getSettings()
+  const range = statsRange(c, settings.timezone)
+  const asked = c.req.query('group')
+  if (asked !== undefined && !(WORKLOG_DIMENSIONS as readonly string[]).includes(asked))
+    throw ApiError.badRequest('The worklog groups by list, tag or task.')
+  return c.json(await loadWorklog(c.env.DB, c.get('userId'), {
+    from: range.from,
+    to: range.to,
+    dimension: (asked ?? 'list') as WorklogDimension,
+    limit: WORKLOG_GROUP_LIMIT,
+  }))
 })
 
 // --------------------------------------------------------------- time ledger

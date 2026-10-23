@@ -46,6 +46,7 @@ import {
   durationLabel,
   type StatSlice,
 } from './stats-charts'
+import { WorklogSection } from './WorklogSection'
 
 const RANGE_CHOICES = [
   { value: '7', labelKey: 'todo.stats.range.7', days: 7 },
@@ -688,7 +689,12 @@ export function StatsView() {
       ) : stats.summary.completed === 0 && stats.summary.created === 0 ? (
         <Empty title={t('todo.stats.empty')} description={t('todo.stats.empty_hint')} />
       ) : (
-        <StatsBody stats={stats} comparison={comparison} goals={{ daily: dailyGoal, weekly: weeklyGoal }} />
+        <>
+          <StatsBody stats={stats} comparison={comparison} goals={{ daily: dailyGoal, weekly: weeklyGoal }} />
+          {/* The hours the ledger holds, beside the counts the plate moved: the two read different
+              tables and are allowed to disagree about the same week. */}
+          <WorklogSection from={stats.range.from} to={stats.range.to} />
+        </>
       )}
     </div>
   )
