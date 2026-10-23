@@ -1,7 +1,7 @@
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { EditorView } from '@codemirror/view';
-import { ArrowLeft, Columns2, Download, Eye, FileCode, FileDown, FileText, FolderClosed, Hash, History, Link as LinkIcon, ListTree, MoreHorizontal, PanelRightClose, Paperclip, Pencil, Plus, Presentation, Share2, Sparkles, Star, Waypoints, X, } from 'lucide-react';
+import { ArrowLeft, Columns2, Download, Eye, FileCode, FileDown, FileText, FolderClosed, Globe, Hash, History, Link as LinkIcon, ListTree, MoreHorizontal, PanelRightClose, Paperclip, Pencil, Plus, Presentation, Share2, Sparkles, Star, Waypoints, X, } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { insertRenderedTemplate, insertText } from '../../editor/commands';
 import { api } from '../../lib/api';
@@ -482,7 +482,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
         {
             id: 'share-hub',
             label: t("share.hub_title"),
-            icon: <Waypoints size={13}/>,
+            icon: <Globe size={13}/>,
             onSelect: () => openPanel('share-hub'),
         },
         {
@@ -689,11 +689,6 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
               </Tooltip>
               <Menu anchor={exportMenuRef} open={exportMenuOpen} onClose={() => setExportMenuOpen(false)} items={exportMenuItems} align="end" width={200}/>
             </>)}
-          {(<Tooltip label={t("common.outline")} combo={isMobile ? undefined : APP_SHORTCUTS.outline}>
-              <IconButton label={t("common.outline")} size="sm" active={isMobile ? mobileOutlineOpen : outlineOpen} onClick={() => isMobile ? setMobileOutlineOpen((open) => !open) : toggleOutline()}>
-                {(isMobile ? mobileOutlineOpen : outlineOpen) ? <PanelRightClose size={14}/> : <ListTree size={14}/>}
-              </IconButton>
-            </Tooltip>)}
           {!isMobile && (<Tooltip label={t("workspace.share")}>
               <IconButton label={t("workspace.share")} size="sm" onClick={() => openPanel('share')}>
                 <Share2 size={14}/>
@@ -701,7 +696,12 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
             </Tooltip>)}
           {!isMobile && (<Tooltip label={t("share.hub_title")}>
               <IconButton label={t("share.hub_title")} size="sm" onClick={() => openPanel('share-hub')}>
-                <Waypoints size={14}/>
+                <Globe size={14}/>
+              </IconButton>
+            </Tooltip>)}
+          {(<Tooltip label={t("common.outline")} combo={isMobile ? undefined : APP_SHORTCUTS.outline}>
+              <IconButton label={t("common.outline")} size="sm" active={isMobile ? mobileOutlineOpen : outlineOpen} onClick={() => isMobile ? setMobileOutlineOpen((open) => !open) : toggleOutline()}>
+                {(isMobile ? mobileOutlineOpen : outlineOpen) ? <PanelRightClose size={14}/> : <ListTree size={14}/>}
               </IconButton>
             </Tooltip>)}
           {isMobile && (<Tooltip label={t("common.more_actions")} side="left">
