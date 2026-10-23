@@ -6,10 +6,14 @@
  * due today, overdue — because the same row can be here for any of the three and "remove from today"
  * only makes sense for the first. The day itself is the account's, read from the server's `dayEnd`
  * and `timezone` rather than the browser's clock.
+ *
+ * Rows owed today but not yet at their hour wait in a collapsed fourth section below the list, and
+ * the screen re-reads the clock once a minute so a row whose time has come returns to the main list
+ * on its own. That section draws no drag handle: a row nobody may pick up must not look pickable.
  */
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { Sparkles, Search } from 'lucide-react'
+import { ChevronDown, ChevronRight, Sparkles, Search } from 'lucide-react'
 import { localDate } from '@shared/assistant-time'
 import type { MessageKey } from '@shared/locales/en-US'
 import { MAX_TASK_QUERY_CHARS, UPCOMING_DAYS, type TodoTask } from '@shared/todos/model'
@@ -18,13 +22,22 @@ import { t } from '../../lib/i18n'
 import { Input } from '../../components/form'
 import { useTodos } from './store'
 import { OverdueShift } from './OverdueShift'
+import { TaskCard } from './TaskCard'
 import { GroupedTaskList, inServerOrder } from './TaskViews'
-import { groupToday, type TodayGroupKey } from './task-groups'
+import { groupToday, splitTodayLater, type TodayGroupKey } from './task-groups'
 
 /** How long the picker waits after the last keystroke before asking; the header search uses the same idea. */
 const PICKER_DEBOUNCE_MS = 200
 
 const DAY_MS = 24 * 60 * 60 * 1000
+
+/**
+ * How often the screen re-reads the clock for the later section.
+ *
+ * Once a minute, not once a second: the rows are measured in minutes, the reference project ticks at
+ * the same cadence, and a faster clock would re-render the whole screen for no visible change.
+ */
+const CLOCK_TICK_MS = 60 * 1000
 
 /**
  * How many open rows one plan reads, and how many of them it offers.
@@ -313,18 +326,82 @@ function TaskPicker({ timezone, dayEnd }: { timezone: string; dayEnd: number }) 
   )
 }
 
+/**
+ * The collapsed fourth section: rows owed today whose hour has not come yet.
+ *
+ * Collapsed by default, because the point of the section is that today reads as "what can be done
+ * now" and these rows are not that. Opening it draws the very same cards as the main list — finish,
+ * open, star all work — with one thing left out on purpose: no row here is draggable and no handle
+ * is drawn, so the ban reads as the shape of the row rather than as a gesture that does nothing.
+ * The section is not a section of the reader's own (there is no section storage on this screen);
+ * it is a bucket the clock computed, and it empties itself as each row's minute arrives.
+ */
+function LaterToday({ tasks, dayEnd, now }: { tasks: TodoTask[]; dayEnd: number; now: number }) {
+  const lists = useTodos((state) => state.lists)
+  const timezone = useTodos((state) => state.timezone)
+  const openEditor = useTodos((state) => state.openEditor)
+  const updateTask = useTodos((state) => state.updateTask)
+  const panelId = useId()
+  const [expanded, setExpanded] = useState(false)
+  if (!tasks.length) return null
+  const label = t('todo.today.later')
+  return (
+    <section aria-label={label} className="flex flex-col gap-1.5 px-3 pb-2 md:px-5">
+      <button
+        type="button"
+        aria-expanded={expanded}
+        aria-controls={panelId}
+        onClick={() => { setExpanded((current) => !current) }}
+        className="flex w-full items-baseline gap-1.5 rounded-[var(--r-sm)] px-1 py-0.5 text-left text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+      >
+        {expanded
+          ? <ChevronDown size={12} aria-hidden="true" className="shrink-0 self-center" />
+          : <ChevronRight size={12} aria-hidden="true" className="shrink-0 self-center" />}
+        <span className="min-w-0 flex-1">{label}</span>
+        <span className="tabular-nums font-normal text-[var(--text-quaternary)]">{tasks.length}</span>
+      </button>
+      {expanded && (
+        <div id={panelId} role="list" className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-0.5 py-1">
+          {tasks.map((task) => (
+            <TaskCard
+              key={task.id}
+              task={task}
+              lists={lists}
+              bounds={{ dayEnd, now }}
+              timezone={timezone}
+              showList
+              onOpen={() => openEditor({ id: task.id })}
+              onStar={() => { void updateTask(task.id, { starred: !task.starred }) }}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
 export function TodayView() {
   const tasks = useTodos((state) => state.tasks)
   const dayEnd = useTodos((state) => state.dayEnd)
   const timezone = useTodos((state) => state.timezone)
   const sort = useTodos((state) => state.sort)
   const planTask = useTodos((state) => state.planTask)
-  const today = useMemo(() => localDate(Date.now(), timezone), [timezone])
-  const groups = useMemo(() => {
-    const grouped = groupToday(tasks, { dayEnd, now: Date.now(), today })
+  // The screen's own reading of the clock, refreshed once a minute rather than at every render:
+  // the later bucket is measured against it, and a row whose hour has come flows back into the
+  // main list on the next tick with no reload. The same tick is what rolls the day over at
+  // midnight, so `today` is never the day the screen was opened on.
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = setInterval(() => { setNow(Date.now()) }, CLOCK_TICK_MS)
+    return () => { clearInterval(timer) }
+  }, [])
+  const today = useMemo(() => localDate(now, timezone), [now, timezone])
+  const { groups, later } = useMemo(() => {
+    const grouped = groupToday(tasks, { dayEnd, now, today })
     // A chosen order is the server's answer; re-sorting a group here would overrule it.
-    return sort ? inServerOrder(grouped, tasks) : grouped
-  }, [tasks, dayEnd, sort, today])
+    const ordered = sort ? inServerOrder(grouped, tasks) : grouped
+    return splitTodayLater(ordered, { now, dayEnd, timezone })
+  }, [tasks, dayEnd, sort, today, now, timezone])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -334,13 +411,19 @@ export function TodayView() {
         <TaskPicker timezone={timezone} dayEnd={dayEnd} />
       </div>
       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
-        <GroupedTaskList
-          groups={groups}
-          label={(key) => t(TODAY_LABELS[key as TodayGroupKey])}
-          empty={{ title: t('todo.empty.today'), description: t('todo.empty.today_hint') }}
-          onUnplan={(task) => { void planTask(task.id, null) }}
-          canUnplan={(task) => task.plannedFor === today}
-        />
+        {/* The empty-state card speaks only when there is nothing on the screen at all: with rows
+            still owed later today, "nothing in today yet" would be a lie, so the list simply yields
+            the page to the section below it. */}
+        {(groups.length > 0 || later.length === 0) && (
+          <GroupedTaskList
+            groups={groups}
+            label={(key) => t(TODAY_LABELS[key as TodayGroupKey])}
+            empty={{ title: t('todo.empty.today'), description: t('todo.empty.today_hint') }}
+            onUnplan={(task) => { void planTask(task.id, null) }}
+            canUnplan={(task) => task.plannedFor === today}
+          />
+        )}
+        <LaterToday tasks={later} dayEnd={dayEnd} now={now} />
       </div>
     </div>
   )

@@ -6,7 +6,7 @@
  * of the reader's own day), which is why nothing in this file calls `Date.now()` for "today".
  */
 
-import { localDate } from '@shared/assistant-time'
+import { localDate, toLocalMinute } from '@shared/assistant-time'
 import { UPCOMING_DAYS, type TaskList, type TaskPriority, type TaskStatus, type TodoTask } from '@shared/todos/model'
 
 export type PlanGroupKey = 'overdue' | 'today' | 'upcoming' | 'later' | 'none'
@@ -22,6 +22,15 @@ export interface TaskGroup<K extends string = string> {
 const PRIORITY_ORDER: Record<TaskPriority, number> = { urgent: 0, high: 1, medium: 2, low: 3 }
 
 const DAY = 24 * 60 * 60 * 1000
+
+/**
+ * The local minute that means "the reader wrote a day, not an hour".
+ *
+ * A date without a clock time is stored at the day's 23:59 across every screen (`dueLabel`,
+ * the calendar and the board all test for this same suffix), so the today screen's later bucket has
+ * to recognise it the same way rather than invent a fourth reading.
+ */
+const END_OF_DAY_MINUTE = 'T23:59'
 
 /** Overdue first, then by due time, then by priority, then oldest first. */
 export function compareTasks(a: TodoTask, b: TodoTask): number {
@@ -96,6 +105,52 @@ export function groupToday(
   return (['planned', 'today', 'overdue'] as const)
     .map((key) => ({ key, tasks: groups[key].sort(compareTasks) }))
     .filter((group) => group.tasks.length > 0)
+}
+
+/**
+ * Whether a row is owed today but has not reached its hour yet.
+ *
+ * Three conditions, each ruling out a row that must not vanish into the collapsed section:
+ * the due instant lies between `now` and the end of the day, and it carries a clock time —
+ * a day written without one is stored as the local 23:59 the whole app already hides behind the
+ * words "today" (see `dueLabel`), and filing that under "later" would hide half the screen.
+ * `startAt` is deliberately not consulted: the today screen groups by `dueAt` alone (see
+ * `groupToday`), and the two readings of `startAt` — event start in the calendar, future filing
+ * in the lists — are not reconciled yet. A row's due hour, not a hypothetical earliest-start,
+ * is what says "not yet".
+ */
+function isLaterToday(task: TodoTask, bounds: { now: number; dayEnd: number; timezone: string }): boolean {
+  if (task.dueAt === null || task.dueAt <= bounds.now || task.dueAt >= bounds.dayEnd) return false
+  return !toLocalMinute(task.dueAt, bounds.timezone).endsWith(END_OF_DAY_MINUTE)
+}
+
+/**
+ * Pull the not-yet rows out of the today screen's buckets for the screen's collapsed "later" section.
+ *
+ * Only the due-today bucket can hold one: a picked row is here for the pick and keeps its place in
+ * the planned bucket, and an overdue row has by definition passed its hour. The rest of the today
+ * buckets are returned exactly as given — this splits what is drawn, never what `groupToday` decided,
+ * so the three buckets keep one rule and one owner. The keys read as plain strings because a page
+ * that chose its own server order arrives through `inServerOrder`, which hands back the unkeyed
+ * group shape.
+ */
+export function splitTodayLater(
+  groups: readonly TaskGroup[],
+  bounds: { now: number; dayEnd: number; timezone: string },
+): { groups: TaskGroup[]; later: TodoTask[] } {
+  const later: TodoTask[] = []
+  const kept = groups
+    .map((group) => {
+      if (group.key !== 'today') return group
+      const rest: TodoTask[] = []
+      for (const task of group.tasks) {
+        if (isLaterToday(task, bounds)) later.push(task)
+        else rest.push(task)
+      }
+      return { key: group.key, tasks: rest }
+    })
+    .filter((group) => group.tasks.length > 0)
+  return { groups: kept, later }
 }
 
 /**
