@@ -33,6 +33,7 @@ import {
   type TaskView,
   type TodoTask,
 } from '@shared/todos/model'
+import { isTaskDone } from '@shared/todos/status'
 import { AssistantStore, type NewTask } from '../assistant/store'
 import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
@@ -212,7 +213,7 @@ export async function updateMcpTask(context: McpTodoContext, input: McpTaskPatch
       let task = Object.keys(patch).length ? await store.updateTask(existing.id, patch) : existing
       if (!task) throw ApiError.notFound('Task not found')
       let next: TodoTask | null = null
-      if (input.status === 'done') {
+      if (isTaskDone(input.status)) {
         // Ticking a repeating task files its next occurrence here too, so an agent cannot leave a repeat
         // row finished and never coming back — the one state the app itself refuses to write.
         const done = await store.completeTask(task.id, timezone)

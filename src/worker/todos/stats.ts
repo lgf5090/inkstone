@@ -14,6 +14,7 @@
  * else is a pure function over those rows.
  */
 import { getZonedParts, isValidCalendarDate } from '@shared/assistant-schedule'
+import { SQL_TASK_DONE, SQL_TASK_OPEN, isTaskDone, sqlTaskDone } from '@shared/todos/status'
 import { TASK_LIVE_PREDICATE, taskLive } from '../assistant/store'
 import type {
   TaskPriority,
@@ -273,7 +274,7 @@ export function computeTodoFlow(
     for (const event of byBucket.get(day)!) {
       if (event.fromStatus === 'todo') counts.todo = Math.max(0, counts.todo - 1)
       else if (event.fromStatus === 'in_progress') counts.inProgress = Math.max(0, counts.inProgress - 1)
-      else if (event.fromStatus === 'done') counts.done = Math.max(0, counts.done - 1)
+      else if (isTaskDone(event.fromStatus)) counts.done = Math.max(0, counts.done - 1)
       if (event.toStatus === 'todo') counts.todo += 1
       else if (event.toStatus === 'in_progress') counts.inProgress += 1
       else counts.done += 1
@@ -479,7 +480,7 @@ export async function loadTodoStats(db: D1Database, userId: string, query: TodoS
     db.prepare(
       `SELECT id, list_id, priority, due_at, created_at, completed_at, completed_on
          FROM todos_tasks
-        WHERE user_id = ?1 AND status = 'done' AND ${TASK_LIVE_PREDICATE}
+        WHERE user_id = ?1 AND ${SQL_TASK_DONE} AND ${TASK_LIVE_PREDICATE}
           AND completed_on IS NOT NULL AND completed_on >= ?2 AND completed_on < ?3`,
     ).bind(userId, query.from, end).all<CompletedDbRow>(),
     db.prepare(
@@ -491,7 +492,7 @@ export async function loadTodoStats(db: D1Database, userId: string, query: TodoS
     ).bind(userId, query.from, end).all<CreatedDbRow>(),
     db.prepare(
       `SELECT due_at, created_at FROM todos_tasks
-        WHERE user_id = ?1 AND status != 'done' AND ${TASK_LIVE_PREDICATE}`,
+        WHERE user_id = ?1 AND ${SQL_TASK_OPEN} AND ${TASK_LIVE_PREDICATE}`,
     ).bind(userId).all<OpenDbRow>(),
     db.prepare(
       `SELECT id, name FROM todos_lists WHERE user_id = ?1 ORDER BY position ASC, name COLLATE NOCASE ASC`,
@@ -501,7 +502,7 @@ export async function loadTodoStats(db: D1Database, userId: string, query: TodoS
          FROM todos_tag_links l
          JOIN todos_tags t ON t.user_id = l.user_id AND t.id = l.tag_id
          JOIN todos_tasks k ON k.user_id = l.user_id AND k.id = l.task_id
-        WHERE l.user_id = ?1 AND k.status = 'done' AND ${taskLive('k')}
+        WHERE l.user_id = ?1 AND ${sqlTaskDone('k.status')} AND ${taskLive('k')}
           AND k.completed_on IS NOT NULL AND k.completed_on >= ?2 AND k.completed_on < ?3
         GROUP BY t.id, t.name`,
     ).bind(userId, query.from, end).all<TagDbRow>(),
@@ -512,11 +513,11 @@ export async function loadTodoStats(db: D1Database, userId: string, query: TodoS
            + SUM(CASE WHEN EXISTS (
                SELECT 1 FROM todos_task_events e
                 WHERE e.user_id = t.user_id AND e.task_id = t.id AND e.kind = 'status'
-                  AND e.from_status = 'done' AND e.on_day >= ?2 AND e.on_day < ?3
+                  AND ${sqlTaskDone('e.from_status')} AND e.on_day >= ?2 AND e.on_day < ?3
                   AND NOT EXISTS (
                     SELECT 1 FROM todos_task_events d
                      WHERE d.user_id = e.user_id AND d.task_id = e.task_id AND d.kind = 'status'
-                       AND d.to_status = 'done' AND d.on_day >= ?2 AND d.at <= e.at)
+                       AND ${sqlTaskDone('d.to_status')} AND d.on_day >= ?2 AND d.at <= e.at)
              ) THEN 1 ELSE 0 END) AS done_before,
          SUM(CASE WHEN t.status = 'in_progress' AND NOT EXISTS (
                SELECT 1 FROM todos_task_events s

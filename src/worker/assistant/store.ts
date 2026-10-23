@@ -86,6 +86,13 @@ import {
   type TodoTask,
   type TodoTimeEntry,
 } from '@shared/todos/model'
+import {
+  SQL_TASK_DONE,
+  SQL_TASK_OPEN,
+  isTaskDone,
+  sqlTaskDone,
+  sqlTaskOpen,
+} from '@shared/todos/status'
 import type { McpOAuthSecrets, McpOAuthStatus } from './mcp-oauth'
 import { ASSISTANT_MCP_TOOL_MODES, ASSISTANT_MCP_TRANSPORTS, DEFAULT_MCP_TIMEOUT_SECONDS, EPHEMERAL_CONVERSATION_RETENTION_DAYS, MAX_MCP_DESCRIPTION_CHARS, MAX_MCP_TOOL_OVERRIDES, MAX_MCP_HEADER_VALUE_CHARS, MAX_MCP_LABEL_CHARS, MAX_MCP_TOOL_NAME_CHARS, MAX_MCP_TIMEOUT_SECONDS, MIN_MCP_TIMEOUT_SECONDS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, RUN_PARTIAL_MAX_CHARS, MAX_ANSWER_VERSIONS, MAX_CHAT_ATTACHMENTS, MAX_FEEDBACK_REASON_CHARS, clipReasoning, isMcpHeaderName, parseModelModalities, parseProviderEndpoints, reasoningDialectValue, reasoningValue, type AssistantAnswerVersion, type AssistantMcpServer, type AssistantMcpToolMode, type AssistantMcpTransport, type AssistantModelModality, type ChatAttachment } from '@shared/assistant'
 import {
@@ -4257,7 +4264,7 @@ export class AssistantStore {
     const q = this.visibleTaskQuery()
     const status = query.status ?? 'all'
     if (Array.isArray(status)) q.inList(`status`, status)
-    else if (status === 'open') q.raw(`status != 'done'`)
+    else if (status === 'open') q.raw(SQL_TASK_OPEN)
     else if (status !== 'all') q.eq(`status`, status)
     const now = Date.now()
     const dayEnd = query.dayEnd ?? now
@@ -4266,13 +4273,13 @@ export class AssistantStore {
       : null
     switch (query.view) {
       case 'inbox':
-        q.raw(`status != 'done' AND list_id IS NULL`)
+        q.raw(`${SQL_TASK_OPEN} AND list_id IS NULL`)
         break
       case 'today':
         // Today is two questions with one badge: what is owed by the end of the day, and what the
         // reader picked for it. A plan from an earlier day is not cleared — it simply stops equalling
         // today's string — which is what makes the rollover need no sweep.
-        q.raw(`status != 'done' AND ((due_at IS NOT NULL AND due_at < ${q.add(dayEnd)})
+        q.raw(`${SQL_TASK_OPEN} AND ((due_at IS NOT NULL AND due_at < ${q.add(dayEnd)})
           OR (due_at IS NULL AND status = 'in_progress')
           ${today === null ? '' : `OR planned_for = ${q.add(today)}`})`)
         break
@@ -4280,20 +4287,20 @@ export class AssistantStore {
         // Counted in calendar days in the account's own zone, so a window that crosses a
         // daylight-saving change holds the days it names and no part of the one after them.
         const upcomingEnd = upcomingBoundary(dayEnd, (await this.getSettings()).timezone)
-        q.raw(`status != 'done' AND due_at IS NOT NULL AND due_at >= ${q.add(dayEnd)} AND due_at < ${q.add(upcomingEnd)}`)
+        q.raw(`${SQL_TASK_OPEN} AND due_at IS NOT NULL AND due_at >= ${q.add(dayEnd)} AND due_at < ${q.add(upcomingEnd)}`)
         break
       }
       case 'overdue':
-        q.raw(`status != 'done' AND due_at IS NOT NULL AND due_at < ${q.add(now)}`)
+        q.raw(`${SQL_TASK_OPEN} AND due_at IS NOT NULL AND due_at < ${q.add(now)}`)
         break
       case 'open':
-        q.raw(`status != 'done'`)
+        q.raw(SQL_TASK_OPEN)
         break
       case 'completed':
-        q.raw(`status = 'done'`)
+        q.raw(SQL_TASK_DONE)
         break
       case 'starred':
-        q.raw(`status != 'done' AND starred = 1`)
+        q.raw(`${SQL_TASK_OPEN} AND starred = 1`)
         break
       default:
         break
@@ -4547,8 +4554,8 @@ export class AssistantStore {
       input.dueAt ?? null, input.startAt ?? null, input.projectId ?? null, input.listId ?? null,
       taskIconOrNull(input.icon), taskColorOrNull(input.color), input.starred ? 1 : 0,
       repeat ? JSON.stringify(repeat) : null, input.noteId ?? null,
-      input.conversationId ?? null, at, at, status === 'done' ? at : null,
-      createdOn, status === 'done' ? createdOn : null, input.plannedFor ?? null,
+      input.conversationId ?? null, at, at, isTaskDone(status) ? at : null,
+      createdOn, isTaskDone(status) ? createdOn : null, input.plannedFor ?? null,
       input.timeEstimateMs ?? null,
     )
     await this.db.batch([insert, this.taskEvent(id, at, createdOn, 'born', null, status)])
@@ -4647,7 +4654,7 @@ export class AssistantStore {
     const existing = await this.getTask(id)
     if (!existing) return null
     if (expectedRev !== undefined && existing.rev !== expectedRev) throw this.taskConflict(id, existing)
-    if (patch.status === 'done' && existing.status !== 'done') {
+    if (isTaskDone(patch.status) && !isTaskDone(existing.status)) {
       throw new TaskCompletionRequiresCompleteTask(id)
     }
     const wrote = await this.applyTaskPatch(id, existing, patch, timeZone, expectedRev)
@@ -4710,7 +4717,7 @@ export class AssistantStore {
     if (patch.conversationId !== undefined) fields.push(['conversation_id', patch.conversationId])
     let event: D1PreparedStatement | null = null
     if (patch.status !== undefined) {
-      const completedAt = patch.status === 'done' ? (existing.completedAt ?? at) : null
+      const completedAt = isTaskDone(patch.status) ? (existing.completedAt ?? at) : null
       fields.push(['status', patch.status])
       fields.push(['completed_at', completedAt])
       // The day column follows the same transition: reopened clears it, finished files it under the
@@ -4973,7 +4980,7 @@ export class AssistantStore {
   ): Promise<{ task: TodoTask; next: TodoTask | null } | null> {
     const existing = await this.getTask(id)
     if (!existing) return null
-    if (existing.status === 'done') return { task: existing, next: null }
+    if (isTaskDone(existing.status)) return { task: existing, next: null }
     const task = await this.applyTaskPatch(id, existing, { status: 'done' }, timeZone, expectedRev)
     if (!task) return null
     if (!existing.repeat) return { task, next: null }
@@ -5054,7 +5061,7 @@ export class AssistantStore {
     q.raw(`title LIKE ${q.add(containsPattern(ref))} ESCAPE '\\'`)
     const list = await this.rows<TaskRow>(
       `SELECT *, ${TASK_REMINDER_TIMES}, ${TASK_TIME_ROLLUP} FROM todos_tasks WHERE ${q.where}
-        ORDER BY status = 'done', updated_at DESC LIMIT 2`,
+        ORDER BY ${SQL_TASK_DONE}, updated_at DESC LIMIT 2`,
       ...q.binds,
     )
     if (list.length !== 1) return null
@@ -5090,15 +5097,15 @@ export class AssistantStore {
       // with no row for it. The same `taskVisible` clause `taskFilter` opens with is what makes a
       // badge and the rows under it the same number; a join here instead was how they diverged.
       `SELECT
-         SUM(CASE WHEN t.status != 'done' AND t.list_id IS NULL THEN 1 ELSE 0 END) AS inbox,
-         SUM(CASE WHEN t.status != 'done' AND ((t.due_at IS NOT NULL AND t.due_at < ?2)
+         SUM(CASE WHEN ${sqlTaskOpen('t.status')} AND t.list_id IS NULL THEN 1 ELSE 0 END) AS inbox,
+         SUM(CASE WHEN ${sqlTaskOpen('t.status')} AND ((t.due_at IS NOT NULL AND t.due_at < ?2)
               OR (t.due_at IS NULL AND t.status = 'in_progress')
               OR t.planned_for = ?5) THEN 1 ELSE 0 END) AS today,
-         SUM(CASE WHEN t.status != 'done' AND t.due_at IS NOT NULL AND t.due_at >= ?2 AND t.due_at < ?3 THEN 1 ELSE 0 END) AS upcoming,
-         SUM(CASE WHEN t.status != 'done' AND t.due_at IS NOT NULL AND t.due_at < ?4 THEN 1 ELSE 0 END) AS overdue,
-         SUM(CASE WHEN t.status != 'done' THEN 1 ELSE 0 END) AS open,
-         SUM(CASE WHEN t.status = 'done' THEN 1 ELSE 0 END) AS completed,
-         SUM(CASE WHEN t.status != 'done' AND t.starred = 1 THEN 1 ELSE 0 END) AS starred
+         SUM(CASE WHEN ${sqlTaskOpen('t.status')} AND t.due_at IS NOT NULL AND t.due_at >= ?2 AND t.due_at < ?3 THEN 1 ELSE 0 END) AS upcoming,
+         SUM(CASE WHEN ${sqlTaskOpen('t.status')} AND t.due_at IS NOT NULL AND t.due_at < ?4 THEN 1 ELSE 0 END) AS overdue,
+         SUM(CASE WHEN ${sqlTaskOpen('t.status')} THEN 1 ELSE 0 END) AS open,
+         SUM(CASE WHEN ${sqlTaskDone('t.status')} THEN 1 ELSE 0 END) AS completed,
+         SUM(CASE WHEN ${sqlTaskOpen('t.status')} AND t.starred = 1 THEN 1 ELSE 0 END) AS starred
        FROM todos_tasks t
        WHERE t.user_id = ?1 AND ${taskVisible('t')}`,
       this.userId, dayEnd, upcomingEnd, now, pickedFor,
@@ -5114,7 +5121,7 @@ export class AssistantStore {
     const byList: Record<string, { open: number; done: number }> = {}
     for (const row of perList) {
       const bucket = byList[row.list_id] ?? { open: 0, done: 0 }
-      if (row.status === 'done') bucket.done += row.n
+      if (isTaskDone(row.status)) bucket.done += row.n
       else bucket.open += row.n
       byList[row.list_id] = bucket
     }
@@ -5127,7 +5134,7 @@ export class AssistantStore {
     const byTag: Record<string, { open: number; done: number }> = {}
     for (const row of perTag) {
       const bucket = byTag[row.tag_id] ?? { open: 0, done: 0 }
-      if (row.status === 'done') bucket.done += row.n
+      if (isTaskDone(row.status)) bucket.done += row.n
       else bucket.open += row.n
       byTag[row.tag_id] = bucket
     }
@@ -5160,7 +5167,7 @@ export class AssistantStore {
     const byList = new Map<string, { open: number; done: number }>()
     for (const row of counts) {
       const bucket = byList.get(row.list_id) ?? { open: 0, done: 0 }
-      if (row.status === 'done') bucket.done += row.n
+      if (isTaskDone(row.status)) bucket.done += row.n
       else bucket.open += row.n
       byList.set(row.list_id, bucket)
     }
@@ -5171,8 +5178,8 @@ export class AssistantStore {
     const row = await this.one<TaskListRow>(`SELECT * FROM todos_lists WHERE user_id = ?1 AND id = ?2`, this.userId, id)
     if (!row) return null
     const counts = await this.one<{ open: number | null; done: number | null }>(
-      `SELECT SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS done,
-              SUM(CASE WHEN status != 'done' THEN 1 ELSE 0 END) AS open
+      `SELECT SUM(CASE WHEN ${SQL_TASK_DONE} THEN 1 ELSE 0 END) AS done,
+              SUM(CASE WHEN ${SQL_TASK_OPEN} THEN 1 ELSE 0 END) AS open
          FROM todos_tasks WHERE user_id = ?1 AND list_id = ?2 AND ${TASK_LIVE_PREDICATE}`,
       this.userId, id,
     )
@@ -5262,7 +5269,7 @@ export class AssistantStore {
     const counts = await this.rows<{ tag_id: string; n: number }>(
       `SELECT l.tag_id, COUNT(*) AS n FROM todos_tag_links l
          JOIN todos_tasks t ON t.user_id = l.user_id AND t.id = l.task_id
-        WHERE l.user_id = ?1 AND t.status != 'done' AND ${taskVisible('t')} GROUP BY l.tag_id`,
+        WHERE l.user_id = ?1 AND ${sqlTaskOpen('t.status')} AND ${taskVisible('t')} GROUP BY l.tag_id`,
       this.userId,
     )
     const byTag = new Map(counts.map((row) => [row.tag_id, row.n]))

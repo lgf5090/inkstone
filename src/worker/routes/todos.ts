@@ -55,6 +55,7 @@ import {
   type TaskStatsBucket,
   type TodoTask,
 } from '@shared/todos/model'
+import { isTaskDone } from '@shared/todos/status'
 import type { TaskPriority, TaskStatus } from '@shared/assistant'
 import { AssistantStore, type TaskQuery } from '../assistant/store'
 import { runIdempotent } from '../mcp/operations'
@@ -1095,7 +1096,7 @@ todoRoutes.post('/:id/snooze', async (c) => {
   const expectedRev = requestRevision(c, body)
   const existing = await s.getTask(id)
   if (!existing) throw ApiError.notFound('Task not found')
-  if (existing.status === 'done') throw ApiError.badRequest('A finished task cannot be snoozed.')
+  if (isTaskDone(existing.status)) throw ApiError.badRequest('A finished task cannot be snoozed.')
   if ((existing.reminders?.length ?? 0) >= MAX_REMINDERS_PER_TASK) {
     throw ApiError.badRequest(`This task already has ${MAX_REMINDERS_PER_TASK} reminders.`)
   }
@@ -1258,7 +1259,7 @@ todoRoutes.patch('/:id', async (c) => {
    * row and drop the occurrence — which is what the checkbox did until this branch existed, so the same
    * press meant different things depending on whether it came from the app or from the chat.
    */
-  const completing = nextStatus === 'done' && existing.status !== 'done'
+  const completing = isTaskDone(nextStatus) && !isTaskDone(existing.status)
   // Every other column lands first, so the row being completed already carries the new title, due date
   // and tags — `completeTask` copies those into the next occurrence.
   const patch = {

@@ -8,6 +8,7 @@
  */
 
 import type { Task, TaskPriority, TaskStatus } from '../assistant'
+import { isTaskDone } from './status'
 import { daysInMonth, getZonedParts, zonedTimeToUtc } from '../assistant-schedule'
 import { ORGANIZER_COLORS, organizerColorOrNull } from '../organizer-colors'
 
@@ -923,7 +924,7 @@ export function taskListProgress(list: { openCount: number; doneCount: number })
 
 /** The status a task moves to when its checkbox is pressed. */
 export function toggledStatus(status: TaskStatus): TaskStatus {
-  return status === 'done' ? 'todo' : 'done'
+  return isTaskDone(status) ? 'todo' : 'done'
 }
 
 /** The priorities, ordered as the app shows them. Re-exported so callers need one import. */

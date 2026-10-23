@@ -15,6 +15,7 @@
  * owner's listing goes one step further and never selects the hash at all, only whether there is one.
  */
 import { MAX_TASKS_PER_QUERY, parseRepeatRule } from '@shared/todos/model'
+import { SQL_TASK_OPEN } from '@shared/todos/status'
 import { TASK_VISIBLE_PREDICATE } from '../assistant/store'
 import type { IcsTask } from './ics'
 
@@ -132,7 +133,7 @@ export async function loadFeedTasks(db: D1Database, userId: string, horizonEnd: 
     .prepare(
       `SELECT id, title, description, priority, due_at, repeat_rule
          FROM todos_tasks
-        WHERE user_id = ?1 AND status != 'done' AND ${TASK_VISIBLE_PREDICATE}
+        WHERE user_id = ?1 AND ${SQL_TASK_OPEN} AND ${TASK_VISIBLE_PREDICATE}
           AND due_at IS NOT NULL AND due_at <= ?2
         ORDER BY due_at ASC, id ASC
         LIMIT ?3`,

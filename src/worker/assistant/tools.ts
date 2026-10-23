@@ -43,6 +43,7 @@ import {
 } from '@shared/todos/model'
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import { parseNoteCheckboxes } from '@shared/todos/note-parse'
+import { isTaskDone } from '@shared/todos/status'
 import { MEMORY_CATEGORIES_FOR_TOOLS } from './memory-service'
 import { localDate, parseLocalTime, toLocalMinute } from '@shared/assistant-time'
 import { addDays, isStatsDay, loadTodoStats } from '../todos/stats'
@@ -799,7 +800,7 @@ export const TASK_TOOLS: ToolDefinition[] = [
        * single-task route keeps: the row being finished already carries the new title, due date, list
        * and tags, and the occurrence copied from it carries them too.
        */
-      const completing = status === 'done' && task.status !== 'done'
+      const completing = isTaskDone(status) && !isTaskDone(task.status)
       const updated = await ctx.store.updateTask(task.id, {
         ...(args.title !== undefined ? { title: String(args.title) } : {}),
         ...(args.description !== undefined ? { description: String(args.description) } : {}),
@@ -900,7 +901,7 @@ export const TASK_TOOLS: ToolDefinition[] = [
         throw new ToolError(`A snooze must be ${SNOOZE_MINUTES.join(', ')} minutes.`)
       }
       const task = await resolveTaskOrThrow(args.task, ctx)
-      if (task.status === 'done') throw new ToolError('A finished task cannot be snoozed.')
+      if (isTaskDone(task.status)) throw new ToolError('A finished task cannot be snoozed.')
       if ((task.reminders?.length ?? 0) >= MAX_REMINDERS_PER_TASK) {
         throw new ToolError(`This task already has ${MAX_REMINDERS_PER_TASK} reminders.`)
       }
@@ -1161,7 +1162,7 @@ export const TASK_TOOLS: ToolDefinition[] = [
       let deleted = 0
       for (const id of ids) {
         const task = await ctx.store.getTask(id)
-        if (!task || task.status !== 'done') continue
+        if (!task || !isTaskDone(task.status)) continue
         await ctx.store.deleteTask(id)
         deleted++
       }
