@@ -2,7 +2,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { EMAIL_BODY_MAX_BYTES, EMAIL_FOLLOW_UP_MAX_MS, EMAIL_LEGACY_SIGNATURE_ID, EMAIL_SIGNATURES_MAX, EMAIL_SIGNATURE_NAME_MAX_CHARS, EMAIL_SIGNATURE_TEXT_MAX_CHARS, EMAIL_SNOOZE_MAX_MS, EMAIL_SUBJECT_MAX_CHARS } from '../../src/shared/email/model'
+import { EMAIL_BODY_MAX_BYTES, EMAIL_FOLLOW_UP_MAX_MS, EMAIL_LEGACY_SIGNATURE_ID, EMAIL_SIGNATURES_MAX, EMAIL_SIGNATURE_NAME_MAX_CHARS, EMAIL_SIGNATURE_TEXT_MAX_CHARS, EMAIL_SNOOZE_MAX_MS, EMAIL_SUBJECT_MAX_CHARS, EMAIL_VACATION_BODY_MAX_CHARS, EMAIL_VACATION_SUBJECT_MAX_CHARS } from '../../src/shared/email/model'
 import type { EmailAccount, EmailFolder, EmailListResponse, EmailMailboxStats, EmailMessage, EmailTag } from '../../src/shared/email/model'
 import { SCHEMA_STATEMENTS } from '../../src/worker/db/schema'
 import { claimAutoDraftJobs, createEmailAccount, finishAutoDraftJob, queueAutoDraftJob } from '../../src/worker/email/account-store'
@@ -314,6 +314,86 @@ describe('email account settings', () => {
     })
     expect(strayDefault.status).toBe(400)
     expect((await errorOf(strayDefault)).code).toBe('email_settings_invalid')
+  })
+
+  it('saves a normalized vacation reply window', async () => {
+    const start = Date.parse('2026-05-01T09:00:00.000Z')
+    const end = Date.parse('2026-05-03T18:30:00.000Z')
+    const response = await call('PATCH', `/accounts/${accountId}`, {
+      settings: {
+        vacation: {
+          enabled: true,
+          start: '2026-05-01T09:00:00.000Z',
+          end,
+          subject: '  Out of office  ',
+          body: 'Back on Monday',
+          extra: 'ignored',
+        },
+      },
+    })
+    expect(response.status).toBe(200)
+    const saved = await json<EmailAccount>(response)
+    expect(saved.settings.vacation).toEqual({
+      enabled: true,
+      start,
+      end,
+      subject: 'Out of office',
+      body: 'Back on Monday',
+    })
+  })
+
+  it('rejects vacation settings that break the settings contract', async () => {
+    const enabledAsText = await call('PATCH', `/accounts/${accountId}`, {
+      settings: { vacation: { enabled: 'yes', start: null, end: null, subject: '', body: '' } },
+    })
+    expect(enabledAsText.status).toBe(400)
+    expect((await errorOf(enabledAsText)).code).toBe('email_settings_invalid')
+
+    const longSubject = await call('PATCH', `/accounts/${accountId}`, {
+      settings: {
+        vacation: {
+          enabled: true,
+          start: null,
+          end: null,
+          subject: 'x'.repeat(EMAIL_VACATION_SUBJECT_MAX_CHARS + 1),
+          body: '',
+        },
+      },
+    })
+    expect(longSubject.status).toBe(400)
+    expect((await errorOf(longSubject)).code).toBe('email_settings_invalid')
+
+    const longBody = await call('PATCH', `/accounts/${accountId}`, {
+      settings: {
+        vacation: {
+          enabled: true,
+          start: null,
+          end: null,
+          subject: '',
+          body: 'x'.repeat(EMAIL_VACATION_BODY_MAX_CHARS + 1),
+        },
+      },
+    })
+    expect(longBody.status).toBe(400)
+    expect((await errorOf(longBody)).code).toBe('email_settings_invalid')
+
+    const badStart = await call('PATCH', `/accounts/${accountId}`, {
+      settings: { vacation: { enabled: true, start: 'tomorrow', end: null, subject: '', body: '' } },
+    })
+    expect(badStart.status).toBe(400)
+    expect((await errorOf(badStart)).code).toBe('email_settings_invalid')
+
+    const reversed = await call('PATCH', `/accounts/${accountId}`, {
+      settings: { vacation: { enabled: true, start: 2_000, end: 1_000, subject: '', body: '' } },
+    })
+    expect(reversed.status).toBe(400)
+    expect((await errorOf(reversed)).code).toBe('email_settings_invalid')
+
+    const notAnObject = await call('PATCH', `/accounts/${accountId}`, {
+      settings: { vacation: 'on' },
+    })
+    expect(notAnObject.status).toBe(400)
+    expect((await errorOf(notAnObject)).code).toBe('email_settings_invalid')
   })
 })
 

@@ -96,6 +96,13 @@ function ariaButton(label: string): HTMLButtonElement {
   return found
 }
 
+function switchFor(label: string): HTMLButtonElement {
+  const found = [...document.querySelectorAll<HTMLButtonElement>('button[role="switch"]')]
+    .find((node) => node.getAttribute('aria-label') === label)
+  if (!found) throw new Error(`no switch labelled ${label}`)
+  return found
+}
+
 let view: RenderedElement | null = null
 
 beforeAll(async () => {
@@ -165,6 +172,7 @@ describe('the mailbox settings page', () => {
         }],
         defaultSignatureId: EMAIL_LEGACY_SIGNATURE_ID,
         autoDraft: false,
+        vacation: { enabled: false, start: null, end: null, subject: '', body: '' },
       },
     })
     expect(useEmailStore.getState().accounts[0]!.displayName).toBe('Grace Hopper')
@@ -191,6 +199,7 @@ describe('the mailbox settings page', () => {
       ],
       defaultSignatureId: 'work',
       autoDraft: false,
+      vacation: { enabled: false, start: null, end: null, subject: '', body: '' },
     })
     expect(settings).not.toHaveProperty('signature')
   })
@@ -252,7 +261,93 @@ describe('the mailbox settings page', () => {
       signatures: [{ id: 'personal', name: 'Personal', text: 'Ada at home', enabled: true }],
       defaultSignatureId: 'personal',
       autoDraft: false,
+      vacation: { enabled: false, start: null, end: null, subject: '', body: '' },
     })
+  })
+
+  it('round-trips the vacation window, subject and body', async () => {
+    const vacationAccount: EmailAccount = {
+      ...account,
+      settings: {
+        autoDraft: false,
+        vacation: {
+          enabled: true,
+          start: Date.parse('2026-05-01T09:00'),
+          end: Date.parse('2026-05-03T18:30'),
+          subject: 'Out of office',
+          body: 'Back on Monday',
+        },
+      },
+    }
+    useEmailStore.setState({ accounts: [vacationAccount] })
+    const update = vi.spyOn(api.email, 'updateAccount').mockImplementation(async (id, body) => ({
+      ...vacationAccount,
+      id,
+      settings: body.settings as EmailAccountSettings,
+      updatedAt: '2026-01-02T00:00:00.000Z',
+    }))
+    view = renderElement(createElement(AccountSettingsPage, { accountId: 'a1' }))
+    await settle()
+
+    expect(inputFor(t('email.settings.vacation_start')).value).toBe('2026-05-01T09:00')
+    expect(inputFor(t('email.settings.vacation_end')).value).toBe('2026-05-03T18:30')
+    expect(inputFor(t('email.settings.vacation_subject')).value).toBe('Out of office')
+    expect(textareaFor(t('email.settings.vacation_body')).value).toBe('Back on Monday')
+
+    change(inputFor(t('email.settings.vacation_start')), '2026-05-02T08:00')
+    change(inputFor(t('email.settings.vacation_end')), '')
+    change(inputFor(t('email.settings.vacation_subject')), 'Away')
+    changeTextarea(textareaFor(t('email.settings.vacation_body')), 'Back soon')
+    act(() => { button(t('email.settings.save')).click() })
+    await settle()
+
+    expect(update).toHaveBeenCalledTimes(1)
+    const settings = update.mock.calls[0]?.[1].settings as EmailAccountSettings | undefined
+    expect(settings?.vacation).toEqual({
+      enabled: true,
+      start: Date.parse('2026-05-02T08:00'),
+      end: null,
+      subject: 'Away',
+      body: 'Back soon',
+    })
+  })
+
+  it('saves the vacation switch state', async () => {
+    const update = vi.spyOn(api.email, 'updateAccount').mockImplementation(async (id, body) => ({
+      ...account,
+      id,
+      settings: body.settings as EmailAccountSettings,
+      updatedAt: '2026-01-02T00:00:00.000Z',
+    }))
+    view = renderElement(createElement(AccountSettingsPage, { accountId: 'a1' }))
+    await settle()
+    expect(switchFor(t('email.settings.vacation')).getAttribute('aria-checked')).toBe('false')
+    act(() => { switchFor(t('email.settings.vacation')).click() })
+    expect(switchFor(t('email.settings.vacation')).getAttribute('aria-checked')).toBe('true')
+    act(() => { button(t('email.settings.save')).click() })
+    await settle()
+    expect(update).toHaveBeenCalledTimes(1)
+    const settings = update.mock.calls[0]?.[1].settings as EmailAccountSettings | undefined
+    expect(settings?.vacation?.enabled).toBe(true)
+  })
+
+  it('validates the vacation window before saving', async () => {
+    const update = vi.spyOn(api.email, 'updateAccount').mockResolvedValue(account)
+    view = renderElement(createElement(AccountSettingsPage, { accountId: 'a1' }))
+    await settle()
+
+    change(inputFor(t('email.settings.vacation_start')), 'tomorrow')
+    act(() => { button(t('email.settings.save')).click() })
+    await settle()
+    expect(update).not.toHaveBeenCalled()
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain(t('email.settings.vacation_invalid'))
+
+    change(inputFor(t('email.settings.vacation_start')), '2026-05-03T09:00')
+    change(inputFor(t('email.settings.vacation_end')), '2026-05-01T09:00')
+    act(() => { button(t('email.settings.save')).click() })
+    await settle()
+    expect(update).not.toHaveBeenCalled()
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain(t('email.settings.vacation_order'))
   })
 
   it('states the last automatic draft attempt instead of leaving it silent', async () => {

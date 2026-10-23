@@ -29,6 +29,9 @@ export const EMAIL_SIGNATURES_MAX = 8
 export const EMAIL_SIGNATURE_NAME_MAX_CHARS = 60
 export const EMAIL_SIGNATURE_TEXT_MAX_CHARS = 4000
 export const EMAIL_LEGACY_SIGNATURE_ID = 'legacy'
+export const EMAIL_VACATION_SUBJECT_MAX_CHARS = 200
+export const EMAIL_VACATION_BODY_MAX_CHARS = 4000
+export const EMAIL_VACATION_AUTO_SUBJECT_PREFIX = 'Auto:'
 
 export const EMAIL_BATCH_ACTIONS = [
   'read',
@@ -114,12 +117,21 @@ export interface EmailSignature {
   enabled?: boolean
 }
 
+export interface EmailVacationSettings {
+  enabled: boolean
+  start: number | null
+  end: number | null
+  subject: string
+  body: string
+}
+
 export interface EmailAccountSettings {
   signature?: EmailSignatureSettings
   signatures?: EmailSignature[]
   defaultSignatureId?: string
   agentSystemPrompt?: string
   autoDraft?: boolean
+  vacation?: EmailVacationSettings
 }
 
 export interface EmailSignatureSelection {
@@ -148,6 +160,44 @@ export function normalizeEmailSignatures(settings?: EmailAccountSettings | null)
   const explicit = signatures.find((signature) => signature.id === requested && signature.enabled)
   const fallback = signatures.find((signature) => signature.enabled) ?? signatures[0] ?? null
   return { signatures, defaultId: explicit?.id ?? fallback?.id ?? null }
+}
+
+function vacationTimestamp(value: unknown): number | null {
+  if (value === undefined || value === null) return null
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && value >= 0 ? Math.trunc(value) : null
+  }
+  if (typeof value === 'string') {
+    const text = value.trim()
+    if (!text) return null
+    const time = Date.parse(text)
+    return Number.isFinite(time) && time >= 0 ? time : null
+  }
+  return null
+}
+
+export function normalizeEmailVacation(settings?: EmailAccountSettings | null): EmailVacationSettings {
+  const defaults: EmailVacationSettings = { enabled: false, start: null, end: null, subject: '', body: '' }
+  const stored: unknown = settings?.vacation
+  if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return defaults
+  const raw = stored as Record<string, unknown>
+  if (typeof raw.enabled !== 'boolean' || typeof raw.subject !== 'string' || typeof raw.body !== 'string') {
+    return defaults
+  }
+  const start = vacationTimestamp(raw.start)
+  const end = vacationTimestamp(raw.end)
+  if ((raw.start !== undefined && raw.start !== null && start === null)
+    || (raw.end !== undefined && raw.end !== null && end === null)) {
+    return defaults
+  }
+  if (start !== null && end !== null && start > end) return defaults
+  return {
+    enabled: raw.enabled,
+    start,
+    end,
+    subject: raw.subject.slice(0, EMAIL_VACATION_SUBJECT_MAX_CHARS),
+    body: raw.body.slice(0, EMAIL_VACATION_BODY_MAX_CHARS),
+  }
 }
 
 export interface EmailAccount {

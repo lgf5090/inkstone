@@ -16,7 +16,10 @@ import {
   EMAIL_SNOOZE_MAX_MS,
   EMAIL_SUBJECT_MAX_CHARS,
   EMAIL_SYSTEM_FOLDERS,
+  EMAIL_VACATION_BODY_MAX_CHARS,
+  EMAIL_VACATION_SUBJECT_MAX_CHARS,
   normalizeEmailSignatures,
+  normalizeEmailVacation,
 } from '@shared/email/model'
 import type {
   EmailAccountSettings,
@@ -33,6 +36,7 @@ import type {
   EmailSnoozeResult,
   EmailSummary,
   EmailTag,
+  EmailVacationSettings,
 } from '@shared/email/model'
 import {
   emailFolderDepthAllowed,
@@ -171,6 +175,62 @@ function signatureFrom(value: unknown): EmailSignature {
   return { id: raw.id, name, text: raw.text, enabled }
 }
 
+function vacationTimeFrom(value: unknown): number | null {
+  if (value === undefined || value === null) return null
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value) || value < 0) {
+      throw new ApiError(400, 'email_settings_invalid', 'The vacation window is not valid')
+    }
+    return Math.trunc(value)
+  }
+  if (typeof value === 'string') {
+    const text = value.trim()
+    if (!text) return null
+    const time = Date.parse(text)
+    if (!Number.isFinite(time) || time < 0) {
+      throw new ApiError(400, 'email_settings_invalid', 'The vacation window is not valid')
+    }
+    return time
+  }
+  throw new ApiError(400, 'email_settings_invalid', 'The vacation window is not valid')
+}
+
+function vacationFrom(value: unknown): EmailVacationSettings {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new ApiError(400, 'email_settings_invalid', 'The vacation setting is not valid')
+  }
+  const raw = value as Record<string, unknown>
+  if (typeof raw.enabled !== 'boolean') {
+    throw new ApiError(400, 'email_settings_invalid', 'The vacation setting is not valid')
+  }
+  if (raw.subject !== undefined && typeof raw.subject !== 'string') {
+    throw new ApiError(400, 'email_settings_invalid', 'The vacation subject is not valid')
+  }
+  if (typeof raw.subject === 'string' && raw.subject.length > EMAIL_VACATION_SUBJECT_MAX_CHARS) {
+    throw new ApiError(400, 'email_settings_invalid', 'The vacation subject is not valid')
+  }
+  if (raw.body !== undefined && typeof raw.body !== 'string') {
+    throw new ApiError(400, 'email_settings_invalid', 'The vacation body is not valid')
+  }
+  if (typeof raw.body === 'string' && raw.body.length > EMAIL_VACATION_BODY_MAX_CHARS) {
+    throw new ApiError(400, 'email_settings_invalid', 'The vacation body is not valid')
+  }
+  const start = vacationTimeFrom(raw.start)
+  const end = vacationTimeFrom(raw.end)
+  if (start !== null && end !== null && start > end) {
+    throw new ApiError(400, 'email_settings_invalid', 'The vacation window is not valid')
+  }
+  return normalizeEmailVacation({
+    vacation: {
+      enabled: raw.enabled,
+      start,
+      end,
+      subject: typeof raw.subject === 'string' ? raw.subject.trim() : '',
+      body: typeof raw.body === 'string' ? raw.body : '',
+    },
+  })
+}
+
 function settingsFrom(value: unknown): EmailAccountSettings {
   if (value === undefined) return {}
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -228,6 +288,9 @@ function settingsFrom(value: unknown): EmailAccountSettings {
   if (raw.autoDraft !== undefined) {
     if (typeof raw.autoDraft !== 'boolean') throw new ApiError(400, 'email_settings_invalid', 'The auto-draft setting is not valid')
     settings.autoDraft = raw.autoDraft
+  }
+  if (raw.vacation !== undefined) {
+    settings.vacation = vacationFrom(raw.vacation)
   }
   const encoded = JSON.stringify(settings)
   if (encoded.length > EMAIL_ACCOUNT_SETTINGS_MAX_BYTES) throw new ApiError(400, 'email_settings_invalid', 'The mailbox settings are too large')

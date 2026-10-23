@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { EmailAccountSettings, EmailVacationSettings } from '../../src/shared/email/model'
 import type { Env } from '../../src/worker/env'
 import {
   createEmailAccount,
@@ -60,6 +61,46 @@ function deliver(input: ForwardedMailInput): Promise<MailboxInboundResult> {
 
 function inbox() {
   return harness.store(ACCOUNT).getEmails({ folder: 'inbox' })
+}
+
+async function setSettings(settings: EmailAccountSettings): Promise<void> {
+  await database.db.prepare(`UPDATE email_accounts SET settings = ?1 WHERE id = ?2`)
+    .bind(JSON.stringify(settings), ACCOUNT).run()
+  account = (await getEmailAccount(database.db, USER, ACCOUNT))!
+}
+
+interface SentMail {
+  to: string
+  from: string | { email: string; name: string }
+  subject: string
+  text: string
+  html: string
+  headers: Record<string, string>
+}
+
+function vacation(overrides: Partial<EmailVacationSettings> = {}): EmailVacationSettings {
+  return {
+    enabled: true,
+    start: null,
+    end: null,
+    subject: '',
+    body: 'I am away and will reply when I am back.',
+    ...overrides,
+  }
+}
+
+function sendingEnv(): ReturnType<typeof vi.fn> {
+  const send = vi.fn(async () => ({ messageId: 'vacation-reply@example.com' }))
+  env = testBindings(database.db, {
+    EMAIL_MAILBOX: harness.namespace,
+    FILES: r2,
+    EMAIL: { send } as unknown as Env['EMAIL'],
+  })
+  return send
+}
+
+function sentMail(send: ReturnType<typeof vi.fn>, index = 0): SentMail {
+  return send.mock.calls[index]![0] as SentMail
 }
 
 describe('the inbound mailbox handler', () => {
@@ -372,6 +413,202 @@ describe('the inbound mailbox handler', () => {
     ).bind(USER).first<{ total: number }>()
     expect(Number(attachments!.total)).toBe(0)
     expect(harness.store(ACCOUNT).claimInbound('<failure@example.com>', Date.now())).toBe(true)
+  })
+
+  it('sends one vacation reply per sender inside the window', async () => {
+    const send = sendingEnv()
+    await setSettings({ vacation: vacation({ start: Date.now() - 60_000, end: Date.now() + 3_600_000 }) })
+
+    expect(await deliver({
+      to: ADDRESS,
+      from: 'alice@example.com',
+      raw: buildMime({
+        to: ADDRESS,
+        from: 'Alice <alice@example.com>',
+        subject: 'Lunch?',
+        messageId: '<vacation-1@example.com>',
+        text: 'Are you around?',
+      }),
+    })).toBe('created')
+
+    expect(send).toHaveBeenCalledTimes(1)
+    const mail = sentMail(send)
+    expect(mail.to).toBe('alice@example.com')
+    expect(mail.from).toEqual({ email: ADDRESS, name: 'Me' })
+    expect(mail.subject).toBe('Auto: Lunch?')
+    expect(mail.text).toBe('I am away and will reply when I am back.')
+    expect(mail.html).toContain('I am away')
+    expect(mail.headers).toMatchObject({
+      'Auto-Submitted': 'auto-replied',
+      'In-Reply-To': '<vacation-1@example.com>',
+    })
+
+    await deliver({
+      to: ADDRESS,
+      from: 'alice@example.com',
+      raw: buildMime({ to: ADDRESS, from: 'alice@example.com', subject: 'One more', messageId: '<vacation-2@example.com>', text: 'Ping' }),
+    })
+    expect(send).toHaveBeenCalledTimes(1)
+
+    await deliver({
+      to: ADDRESS,
+      from: 'bob@example.com',
+      raw: buildMime({ to: ADDRESS, from: 'bob@example.com', subject: 'Hello', messageId: '<vacation-3@example.com>', text: 'Hi' }),
+    })
+    expect(send).toHaveBeenCalledTimes(2)
+    expect(sentMail(send, 1).to).toBe('bob@example.com')
+  })
+
+  it('uses the configured vacation subject and only safe threading headers', async () => {
+    const send = sendingEnv()
+    await setSettings({ vacation: vacation({ subject: 'Out of office', body: 'Back on Monday' }) })
+
+    await deliver({
+      to: ADDRESS,
+      from: 'carol@example.com',
+      raw: buildMime({ to: ADDRESS, from: 'carol@example.com', subject: 'Hello', messageId: null, text: 'Hi' }),
+    })
+
+    const mail = sentMail(send)
+    expect(mail.subject).toBe('Out of office')
+    expect(mail.text).toBe('Back on Monday')
+    expect(mail.headers).toEqual({ 'Auto-Submitted': 'auto-replied' })
+  })
+
+  it('does not reply while disabled, outside the window or without a body', async () => {
+    const send = sendingEnv()
+    const now = Date.now()
+
+    await setSettings({ vacation: vacation({ enabled: false }) })
+    await deliver({
+      to: ADDRESS,
+      from: 'alice@example.com',
+      raw: buildMime({ to: ADDRESS, from: 'alice@example.com', messageId: '<vacation-off@example.com>', text: 'Hi' }),
+    })
+
+    await setSettings({ vacation: vacation({ start: now - 120_000, end: now - 60_000 }) })
+    await deliver({
+      to: ADDRESS,
+      from: 'alice@example.com',
+      raw: buildMime({ to: ADDRESS, from: 'alice@example.com', messageId: '<vacation-past@example.com>', text: 'Hi' }),
+    })
+
+    await setSettings({ vacation: vacation({ start: now + 60_000, end: now + 120_000 }) })
+    await deliver({
+      to: ADDRESS,
+      from: 'alice@example.com',
+      raw: buildMime({ to: ADDRESS, from: 'alice@example.com', messageId: '<vacation-future@example.com>', text: 'Hi' }),
+    })
+
+    await setSettings({ vacation: vacation({ body: '   ' }) })
+    await deliver({
+      to: ADDRESS,
+      from: 'alice@example.com',
+      raw: buildMime({ to: ADDRESS, from: 'alice@example.com', messageId: '<vacation-empty@example.com>', text: 'Hi' }),
+    })
+
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('never replies to automated, bulk, junk, daemon, blocked or self mail', async () => {
+    const send = sendingEnv()
+    await setSettings({ vacation: vacation() })
+    harness.store(ACCOUNT).addBlockedSender('spam@example.com')
+
+    await deliver({
+      to: ADDRESS,
+      from: 'auto@example.com',
+      raw: buildMime({
+        to: ADDRESS,
+        from: 'auto@example.com',
+        messageId: '<vacation-auto@example.com>',
+        extraHeaders: { 'Auto-Submitted': 'auto-replied' },
+        text: 'Away',
+      }),
+    })
+    await deliver({
+      to: ADDRESS,
+      from: 'bulk@example.com',
+      raw: buildMime({
+        to: ADDRESS,
+        from: 'bulk@example.com',
+        messageId: '<vacation-bulk@example.com>',
+        extraHeaders: { Precedence: 'bulk' },
+        text: 'Newsletter',
+      }),
+    })
+    await deliver({
+      to: ADDRESS,
+      from: 'junk@example.com',
+      raw: buildMime({
+        to: ADDRESS,
+        from: 'junk@example.com',
+        messageId: '<vacation-junk@example.com>',
+        extraHeaders: { Precedence: 'junk' },
+        text: 'Promotion',
+      }),
+    })
+    await deliver({
+      to: ADDRESS,
+      from: 'mailer-daemon@example.com',
+      raw: buildMime({
+        to: ADDRESS,
+        from: 'mailer-daemon@example.com',
+        messageId: '<vacation-daemon@example.com>',
+        text: 'Delivery failed',
+      }),
+    })
+    await deliver({
+      to: ADDRESS,
+      from: 'spam@example.com',
+      raw: buildMime({ to: ADDRESS, from: 'spam@example.com', messageId: '<vacation-blocked@example.com>', text: 'Buy now' }),
+    })
+    expect(await deliver({
+      to: ADDRESS,
+      from: ADDRESS,
+      raw: buildMime({ to: ADDRESS, from: ADDRESS, messageId: '<vacation-self@example.com>', text: 'Loop' }),
+    })).toBe('dropped')
+
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('releases the vacation claim when the provider fails so a retry can reply', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const send = vi.fn()
+      .mockRejectedValueOnce(new Error('provider down'))
+      .mockResolvedValue({ messageId: 'vacation-reply@example.com' })
+    env = testBindings(database.db, {
+      EMAIL_MAILBOX: harness.namespace,
+      FILES: r2,
+      EMAIL: { send } as unknown as Env['EMAIL'],
+    })
+    await setSettings({ vacation: vacation() })
+
+    expect(await deliver({
+      to: ADDRESS,
+      from: 'alice@example.com',
+      raw: buildMime({ to: ADDRESS, from: 'alice@example.com', messageId: '<vacation-retry-1@example.com>', text: 'Hi' }),
+    })).toBe('created')
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(inbox()).toHaveLength(1)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('vacation auto-reply could not be sent'), expect.any(Error))
+    const claimKey = `vacation:${ACCOUNT}:alice@example.com:always`
+    expect(harness.store(ACCOUNT).claimInbound(claimKey, Date.now())).toBe(true)
+    harness.store(ACCOUNT).releaseInbound(claimKey)
+
+    expect(await deliver({
+      to: ADDRESS,
+      from: 'alice@example.com',
+      raw: buildMime({ to: ADDRESS, from: 'alice@example.com', messageId: '<vacation-retry-2@example.com>', text: 'Hi again' }),
+    })).toBe('created')
+    expect(send).toHaveBeenCalledTimes(2)
+
+    await deliver({
+      to: ADDRESS,
+      from: 'alice@example.com',
+      raw: buildMime({ to: ADDRESS, from: 'alice@example.com', messageId: '<vacation-retry-3@example.com>', text: 'Still there?' }),
+    })
+    expect(send).toHaveBeenCalledTimes(2)
   })
 })
 

@@ -5,7 +5,10 @@ import {
   EMAIL_SIGNATURES_MAX,
   EMAIL_SIGNATURE_NAME_MAX_CHARS,
   EMAIL_SIGNATURE_TEXT_MAX_CHARS,
+  EMAIL_VACATION_BODY_MAX_CHARS,
+  EMAIL_VACATION_SUBJECT_MAX_CHARS,
   normalizeEmailSignatures,
+  normalizeEmailVacation,
 } from '@shared/email/model'
 import { Button, IconButton } from '../../components/primitives'
 import { Empty, LoadingBlock } from '../../components/feedback'
@@ -25,6 +28,23 @@ function mcpEndpoint(): string {
   return new URL('/mcp', window.location.origin).toString()
 }
 
+const VACATION_INPUT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/
+
+function vacationInputValue(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const pad = (part: number): string => String(part).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function vacationInputTimestamp(value: string): number | null {
+  const text = value.trim()
+  if (!VACATION_INPUT_RE.test(text)) return null
+  const time = Date.parse(text)
+  return Number.isFinite(time) ? time : null
+}
+
 export function AccountSettingsPage({ accountId }: { accountId: string }) {
   const account = useEmailStore((state) => state.accounts.find((entry) => entry.id === accountId) ?? null)
   const accountsStatus = useEmailStore((state) => state.accountsStatus)
@@ -41,6 +61,11 @@ export function AccountSettingsPage({ accountId }: { accountId: string }) {
   const [editingSignatureId, setEditingSignatureId] = useState<string | null>(null)
   const [agentPrompt, setAgentPrompt] = useState('')
   const [autoDraft, setAutoDraft] = useState(true)
+  const [vacationEnabled, setVacationEnabled] = useState(false)
+  const [vacationStart, setVacationStart] = useState('')
+  const [vacationEnd, setVacationEnd] = useState('')
+  const [vacationSubject, setVacationSubject] = useState('')
+  const [vacationBody, setVacationBody] = useState('')
   const [autoDraftStatus, setAutoDraftStatus] = useState<{ status: string | null, reason: string | null } | null>(null)
   const [autoDraftStatusError, setAutoDraftStatusError] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -70,6 +95,7 @@ export function AccountSettingsPage({ accountId }: { accountId: string }) {
   useEffect(() => {
     if (!account) return
     const normalized = normalizeEmailSignatures(account.settings)
+    const vacation = normalizeEmailVacation(account.settings)
     setDisplayName(account.displayName)
     setSignatures(normalized.signatures.map((signature) => ({
       ...signature,
@@ -79,6 +105,11 @@ export function AccountSettingsPage({ accountId }: { accountId: string }) {
     setEditingSignatureId(null)
     setAgentPrompt(account.settings.agentSystemPrompt ?? '')
     setAutoDraft(account.settings.autoDraft ?? true)
+    setVacationEnabled(vacation.enabled)
+    setVacationStart(vacationInputValue(vacation.start))
+    setVacationEnd(vacationInputValue(vacation.end))
+    setVacationSubject(vacation.subject)
+    setVacationBody(vacation.body)
     setError(null)
   }, [account?.id, account?.updatedAt])
 
@@ -133,12 +164,31 @@ export function AccountSettingsPage({ accountId }: { accountId: string }) {
       setError(t('email.settings.signatures_incomplete'))
       return
     }
+    const startText = vacationStart.trim()
+    const endText = vacationEnd.trim()
+    const vacationStartValue = startText ? vacationInputTimestamp(startText) : null
+    const vacationEndValue = endText ? vacationInputTimestamp(endText) : null
+    if ((startText && vacationStartValue === null) || (endText && vacationEndValue === null)) {
+      setError(t('email.settings.vacation_invalid'))
+      return
+    }
+    if (vacationStartValue !== null && vacationEndValue !== null && vacationStartValue > vacationEndValue) {
+      setError(t('email.settings.vacation_order'))
+      return
+    }
     const selectedDefault = cleaned.some((signature) => signature.id === defaultSignatureId) ? defaultSignatureId : null
     const settings: EmailAccountSettings = {
       signatures: cleaned,
       ...(selectedDefault ? { defaultSignatureId: selectedDefault } : {}),
       autoDraft,
       ...(agentPrompt.trim() ? { agentSystemPrompt: agentPrompt.trim() } : {}),
+      vacation: {
+        enabled: vacationEnabled,
+        start: vacationStartValue,
+        end: vacationEndValue,
+        subject: vacationSubject.trim(),
+        body: vacationBody,
+      },
     }
     setSaving(true)
     setError(null)
@@ -401,6 +451,56 @@ export function AccountSettingsPage({ accountId }: { accountId: string }) {
             <p role="status" className="pb-3 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">
               {t('email.settings.auto_draft_status')} {autoDraftStatusText}
             </p>
+          </section>
+
+          <section aria-label={t('email.settings.vacation')} className="mt-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4">
+            <SettingRow title={t('email.settings.vacation')} description={t('email.settings.vacation_hint')}>
+              <Switch
+                checked={vacationEnabled}
+                onChange={setVacationEnabled}
+                label={t('email.settings.vacation')}
+              />
+            </SettingRow>
+            <div className="space-y-3 pb-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                <Field label={t('email.settings.vacation_start')} hint={t('email.settings.vacation_time_hint')}>
+                  <Input
+                    value={vacationStart}
+                    maxLength={16}
+                    autoComplete="off"
+                    placeholder={t('email.settings.vacation_time_placeholder')}
+                    onChange={(event) => setVacationStart(event.target.value)}
+                  />
+                </Field>
+                <Field label={t('email.settings.vacation_end')} hint={t('email.settings.vacation_time_hint')}>
+                  <Input
+                    value={vacationEnd}
+                    maxLength={16}
+                    autoComplete="off"
+                    placeholder={t('email.settings.vacation_time_placeholder')}
+                    onChange={(event) => setVacationEnd(event.target.value)}
+                  />
+                </Field>
+              </div>
+              <Field label={t('email.settings.vacation_subject')} hint={t('email.settings.vacation_subject_hint')}>
+                <Input
+                  value={vacationSubject}
+                  maxLength={EMAIL_VACATION_SUBJECT_MAX_CHARS}
+                  autoComplete="off"
+                  placeholder={t('email.settings.vacation_subject_placeholder')}
+                  onChange={(event) => setVacationSubject(event.target.value)}
+                />
+              </Field>
+              <Field label={t('email.settings.vacation_body')}>
+                <Textarea
+                  value={vacationBody}
+                  maxLength={EMAIL_VACATION_BODY_MAX_CHARS}
+                  rows={4}
+                  placeholder={t('email.settings.vacation_body_placeholder')}
+                  onChange={(event) => setVacationBody(event.target.value)}
+                />
+              </Field>
+            </div>
           </section>
 
           <section aria-label={t('email.settings.mcp')} className="mt-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4">

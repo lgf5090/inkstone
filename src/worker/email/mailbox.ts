@@ -1,5 +1,13 @@
 import PostalMime from 'postal-mime'
-import { EMAIL_ATTACHMENT_MAX_BYTES, EMAIL_INBOUND_MAX_BYTES } from '@shared/email/model'
+import {
+  EMAIL_ATTACHMENT_MAX_BYTES,
+  EMAIL_INBOUND_MAX_BYTES,
+  EMAIL_SUBJECT_MAX_CHARS,
+  EMAIL_VACATION_AUTO_SUBJECT_PREFIX,
+  normalizeEmailVacation,
+} from '@shared/email/model'
+import type { EmailVacationSettings } from '@shared/email/model'
+import { textToEmailHtml } from '@shared/email/format'
 import { normalizeEmailSenderAddress } from '@shared/email/rules'
 import { deleteAttachmentObjects, selectAttachmentStorage } from '../attachments/backend'
 import { persistEmailAttachment } from '../attachments/storage'
@@ -11,6 +19,7 @@ import { queueAutoDraftJob, readAccountSettings, type EmailAccountRow } from './
 import { deleteEmailAttachments } from './attachments'
 import { rememberRecipientAddresses } from './contacts'
 import { emailMailbox } from './mailbox-stub'
+import { buildThreadingHeaders, sendViaBinding } from './outbound'
 
 export const MAX_MAILBOX_INBOUND_BYTES = EMAIL_INBOUND_MAX_BYTES
 
@@ -193,6 +202,13 @@ export async function handleMailboxInbound(
       await enqueueAutoDraft(env, account, emailId, threadId, parsed.headers)
     }
     await mailbox.completeInbound(messageKey)
+    if (!plan.blocked && !plan.trash && plan.folderId !== 'spam') {
+      try {
+        await sendVacationReply(env, account, sender, parsed, mailbox, receivedAt)
+      } catch (error) {
+        console.warn('[inkstone] vacation auto-reply could not be prepared', error)
+      }
+    }
     return 'created'
   } catch (error) {
     console.error('[inkstone] inbound mail could not be stored', error)
@@ -238,7 +254,7 @@ function isAutomatedMessage(headers: readonly { key: string; value: string }[]):
   const autoSubmitted = headerValue(headers, 'auto-submitted')?.trim().toLowerCase()
   if (autoSubmitted && autoSubmitted !== 'no') return true
   const precedence = headerValue(headers, 'precedence')?.trim().toLowerCase()
-  return precedence === 'bulk' || precedence === 'list'
+  return precedence === 'bulk' || precedence === 'list' || precedence === 'junk'
 }
 
 async function enqueueAutoDraft(
@@ -259,6 +275,90 @@ async function enqueueAutoDraft(
     })
   } catch (error) {
     console.warn('[inkstone] inbound auto-draft job could not be queued', error)
+  }
+}
+
+const VACATION_CLAIM_PREFIX = 'vacation'
+const VACATION_OPEN_WINDOW = 'always'
+const NO_REPLY_LOCAL_PARTS = new Set(['mailer-daemon', 'postmaster'])
+const HEADER_UNSAFE_RE = /[\u0000-\u001f\u007f]+/g
+
+function vacationClaimKey(account: EmailAccountRow, sender: string, vacation: EmailVacationSettings): string {
+  const window = vacation.start === null ? VACATION_OPEN_WINDOW : String(vacation.start)
+  return `${VACATION_CLAIM_PREFIX}:${account.id}:${sender}:${window}`
+}
+
+function vacationReplySubject(vacation: EmailVacationSettings, original: string): string {
+  const configured = vacation.subject.replace(HEADER_UNSAFE_RE, ' ').replace(/\s+/g, ' ').trim()
+  const incoming = original.replace(HEADER_UNSAFE_RE, ' ').replace(/\s+/g, ' ').trim()
+  const subject = configured || `${EMAIL_VACATION_AUTO_SUBJECT_PREFIX} ${incoming}`.trim()
+  return subject.slice(0, EMAIL_SUBJECT_MAX_CHARS)
+}
+
+function vacationHeaders(parsed: ParsedEmail): Record<string, string> {
+  const headers: Record<string, string> = { 'Auto-Submitted': 'auto-replied' }
+  const original = extractInboundMessageIds(parsed.messageId)[0]
+  if (original && original.length <= MAX_MESSAGE_ID_CHARS && !/[\u0000-\u001f\u007f\s<>]/.test(original)) {
+    Object.assign(headers, buildThreadingHeaders(original, []))
+  }
+  return headers
+}
+
+function vacationReplyAllowed(
+  account: EmailAccountRow,
+  sender: string,
+  parsed: ParsedEmail,
+  vacation: EmailVacationSettings,
+  now: number,
+): boolean {
+  if (!vacation.enabled) return false
+  if (!sender || sender === account.address_normalized) return false
+  if (NO_REPLY_LOCAL_PARTS.has((sender.split('@')[0] ?? '').toLowerCase())) return false
+  if (vacation.start !== null && now < vacation.start) return false
+  if (vacation.end !== null && now > vacation.end) return false
+  if (!vacation.body.trim()) return false
+  if (!(parsed.text ?? '').trim() && !(parsed.html ?? '').trim()) return false
+  return !isAutomatedMessage(parsed.headers)
+}
+
+async function sendVacationReply(
+  env: Env,
+  account: EmailAccountRow,
+  sender: string,
+  parsed: ParsedEmail,
+  mailbox: ReturnType<typeof emailMailbox>,
+  now: number,
+): Promise<void> {
+  if (!env.EMAIL) return
+  const vacation = normalizeEmailVacation(readAccountSettings(account.settings))
+  if (!vacationReplyAllowed(account, sender, parsed, vacation, now)) return
+  const claimKey = vacationClaimKey(account, sender, vacation)
+  if (!(await mailbox.claimInbound(claimKey, now))) return
+  const body = vacation.body.trim()
+  try {
+    await sendViaBinding(env, {
+      to: sender,
+      from: account.display_name && account.display_name !== account.address
+        ? { email: account.address, name: account.display_name }
+        : account.address,
+      subject: vacationReplySubject(vacation, parsed.subject ?? ''),
+      html: textToEmailHtml(body),
+      text: body,
+      headers: vacationHeaders(parsed),
+    })
+  } catch (error) {
+    console.warn('[inkstone] vacation auto-reply could not be sent', error)
+    try {
+      await mailbox.releaseInbound(claimKey)
+    } catch (releaseError) {
+      console.warn('[inkstone] vacation auto-reply claim could not be released', releaseError)
+    }
+    return
+  }
+  try {
+    await mailbox.completeInbound(claimKey)
+  } catch (error) {
+    console.warn('[inkstone] vacation auto-reply claim could not be recorded', error)
   }
 }
 
