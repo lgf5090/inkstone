@@ -2,8 +2,8 @@
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { EMAIL_BODY_MAX_BYTES, EMAIL_FOLLOW_UP_MAX_MS, EMAIL_SNOOZE_MAX_MS, EMAIL_SUBJECT_MAX_CHARS } from '../../src/shared/email/model'
-import type { EmailFolder, EmailListResponse, EmailMailboxStats, EmailMessage, EmailTag } from '../../src/shared/email/model'
+import { EMAIL_BODY_MAX_BYTES, EMAIL_FOLLOW_UP_MAX_MS, EMAIL_LEGACY_SIGNATURE_ID, EMAIL_SIGNATURES_MAX, EMAIL_SIGNATURE_NAME_MAX_CHARS, EMAIL_SIGNATURE_TEXT_MAX_CHARS, EMAIL_SNOOZE_MAX_MS, EMAIL_SUBJECT_MAX_CHARS } from '../../src/shared/email/model'
+import type { EmailAccount, EmailFolder, EmailListResponse, EmailMailboxStats, EmailMessage, EmailTag } from '../../src/shared/email/model'
 import { SCHEMA_STATEMENTS } from '../../src/worker/db/schema'
 import { claimAutoDraftJobs, createEmailAccount, finishAutoDraftJob, queueAutoDraftJob } from '../../src/worker/email/account-store'
 import { applyMailboxMigrations } from '../../src/worker/email/mailbox-schema'
@@ -215,6 +215,105 @@ describe('email route auth and ownership', () => {
     userId = newId()
     const other = await call('GET', `/accounts/${accountId}/auto-draft`)
     expect(other.status).toBe(404)
+  })
+})
+
+describe('email account settings', () => {
+  it('saves multiple signatures and their default', async () => {
+    const response = await call('PATCH', `/accounts/${accountId}`, {
+      settings: {
+        signatures: [
+          { id: 'work', name: ' Work ', text: 'Ada at work', enabled: true, extra: 'ignored' },
+          { id: 'personal', name: 'Personal', text: 'Ada at home' },
+        ],
+        defaultSignatureId: 'personal',
+        signature: { enabled: true, text: 'Legacy signature' },
+        autoDraft: false,
+        extra: 'ignored',
+      },
+    })
+    expect(response.status).toBe(200)
+    const saved = await json<EmailAccount>(response)
+    expect(saved.settings.signatures).toEqual([
+      { id: 'work', name: 'Work', text: 'Ada at work', enabled: true },
+      { id: 'personal', name: 'Personal', text: 'Ada at home', enabled: true },
+    ])
+    expect(saved.settings.defaultSignatureId).toBe('personal')
+    expect(saved.settings.signature).toBeUndefined()
+    expect(saved.settings.autoDraft).toBe(false)
+    expect(saved.settings).not.toHaveProperty('extra')
+  })
+
+  it('normalizes a legacy signature into one entry', async () => {
+    const response = await call('PATCH', `/accounts/${accountId}`, {
+      settings: { signature: { enabled: true, text: 'Ada Lovelace' } },
+    })
+    expect(response.status).toBe(200)
+    const saved = await json<EmailAccount>(response)
+    expect(saved.settings.signatures).toEqual([{
+      id: EMAIL_LEGACY_SIGNATURE_ID,
+      name: '',
+      text: 'Ada Lovelace',
+      enabled: true,
+    }])
+    expect(saved.settings.defaultSignatureId).toBe(EMAIL_LEGACY_SIGNATURE_ID)
+    expect(saved.settings.signature).toBeUndefined()
+  })
+
+  it('rejects signature lists that break the settings contract', async () => {
+    const tooMany = await call('PATCH', `/accounts/${accountId}`, {
+      settings: {
+        signatures: Array.from({ length: EMAIL_SIGNATURES_MAX + 1 }, (_, index) => ({
+          id: `s${index}`,
+          name: `Signature ${index}`,
+          text: 'Text',
+        })),
+      },
+    })
+    expect(tooMany.status).toBe(400)
+    expect((await errorOf(tooMany)).code).toBe('email_settings_invalid')
+
+    const missingDefault = await call('PATCH', `/accounts/${accountId}`, {
+      settings: {
+        signatures: [{ id: 'work', name: 'Work', text: 'Ada at work' }],
+        defaultSignatureId: 'personal',
+      },
+    })
+    expect(missingDefault.status).toBe(400)
+    expect((await errorOf(missingDefault)).code).toBe('email_settings_invalid')
+
+    const duplicateIds = await call('PATCH', `/accounts/${accountId}`, {
+      settings: {
+        signatures: [
+          { id: 'work', name: 'Work', text: 'Ada at work' },
+          { id: 'work', name: 'Other', text: 'Ada again' },
+        ],
+      },
+    })
+    expect(duplicateIds.status).toBe(400)
+    expect((await errorOf(duplicateIds)).code).toBe('email_settings_invalid')
+
+    const longName = await call('PATCH', `/accounts/${accountId}`, {
+      settings: {
+        signatures: [{ id: 'work', name: 'x'.repeat(EMAIL_SIGNATURE_NAME_MAX_CHARS + 1), text: 'Ada at work' }],
+      },
+    })
+    expect(longName.status).toBe(400)
+    expect((await errorOf(longName)).code).toBe('email_settings_invalid')
+
+    const longText = await call('PATCH', `/accounts/${accountId}`, {
+      settings: {
+        signatures: [{ id: 'work', name: 'Work', text: 'x'.repeat(EMAIL_SIGNATURE_TEXT_MAX_CHARS + 1) }],
+      },
+    })
+    expect(longText.status).toBe(400)
+    expect((await errorOf(longText)).code).toBe('email_settings_invalid')
+
+    const strayDefault = await call('PATCH', `/accounts/${accountId}`, {
+      settings: { defaultSignatureId: 'work' },
+    })
+    expect(strayDefault.status).toBe(400)
+    expect((await errorOf(strayDefault)).code).toBe('email_settings_invalid')
   })
 })
 

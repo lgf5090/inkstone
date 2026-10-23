@@ -10,9 +10,13 @@ import {
   EMAIL_FOLLOW_UP_MAX_MS,
   EMAIL_MAX_PAGE_SIZE,
   EMAIL_PAGE_SIZE,
+  EMAIL_SIGNATURES_MAX,
+  EMAIL_SIGNATURE_NAME_MAX_CHARS,
+  EMAIL_SIGNATURE_TEXT_MAX_CHARS,
   EMAIL_SNOOZE_MAX_MS,
   EMAIL_SUBJECT_MAX_CHARS,
   EMAIL_SYSTEM_FOLDERS,
+  normalizeEmailSignatures,
 } from '@shared/email/model'
 import type {
   EmailAccountSettings,
@@ -24,6 +28,8 @@ import type {
   EmailListResponse,
   EmailMailboxStats,
   EmailMessage,
+  EmailSignature,
+  EmailSignatureSettings,
   EmailSnoozeResult,
   EmailSummary,
   EmailTag,
@@ -140,6 +146,31 @@ function buildAddress(localPart: string, domain: string, env: AppBindings['Bindi
   return address
 }
 
+const EMAIL_SIGNATURE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
+
+function signatureFrom(value: unknown): EmailSignature {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new ApiError(400, 'email_settings_invalid', 'A signature is not valid')
+  }
+  const raw = value as Record<string, unknown>
+  if (typeof raw.id !== 'string' || !EMAIL_SIGNATURE_ID_RE.test(raw.id)) {
+    throw new ApiError(400, 'email_settings_invalid', 'A signature id is not valid')
+  }
+  if (typeof raw.name !== 'string') throw new ApiError(400, 'email_settings_invalid', 'A signature name is not valid')
+  const name = raw.name.trim()
+  if (!name || name.length > EMAIL_SIGNATURE_NAME_MAX_CHARS) {
+    throw new ApiError(400, 'email_settings_invalid', 'A signature name is not valid')
+  }
+  if (typeof raw.text !== 'string' || raw.text.length > EMAIL_SIGNATURE_TEXT_MAX_CHARS) {
+    throw new ApiError(400, 'email_settings_invalid', 'A signature text is not valid')
+  }
+  if (raw.enabled !== undefined && typeof raw.enabled !== 'boolean') {
+    throw new ApiError(400, 'email_settings_invalid', 'A signature enabled flag is not valid')
+  }
+  const enabled = raw.enabled === undefined ? true : raw.enabled
+  return { id: raw.id, name, text: raw.text, enabled }
+}
+
 function settingsFrom(value: unknown): EmailAccountSettings {
   if (value === undefined) return {}
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -147,13 +178,47 @@ function settingsFrom(value: unknown): EmailAccountSettings {
   }
   const raw = value as Record<string, unknown>
   const settings: EmailAccountSettings = {}
+  let legacySignature: EmailSignatureSettings | undefined
   if (raw.signature !== undefined) {
-    if (!raw.signature || typeof raw.signature !== 'object') throw new ApiError(400, 'email_settings_invalid', 'The signature is not valid')
+    if (!raw.signature || typeof raw.signature !== 'object' || Array.isArray(raw.signature)) {
+      throw new ApiError(400, 'email_settings_invalid', 'The signature is not valid')
+    }
     const signature = raw.signature as Record<string, unknown>
     if (typeof signature.enabled !== 'boolean' || typeof signature.text !== 'string') {
       throw new ApiError(400, 'email_settings_invalid', 'The signature is not valid')
     }
-    settings.signature = { enabled: signature.enabled, text: signature.text.slice(0, 4000) }
+    legacySignature = {
+      enabled: signature.enabled,
+      text: signature.text.slice(0, EMAIL_SIGNATURE_TEXT_MAX_CHARS),
+    }
+  }
+  let signatures: EmailSignature[] | undefined
+  if (raw.signatures !== undefined) {
+    if (!Array.isArray(raw.signatures)) throw new ApiError(400, 'email_settings_invalid', 'The signatures are not valid')
+    if (raw.signatures.length > EMAIL_SIGNATURES_MAX) throw new ApiError(400, 'email_settings_invalid', 'There are too many signatures')
+    signatures = raw.signatures.map(signatureFrom)
+    if (new Set(signatures.map((signature) => signature.id)).size !== signatures.length) {
+      throw new ApiError(400, 'email_settings_invalid', 'The signature ids must be unique')
+    }
+  }
+  if (raw.defaultSignatureId !== undefined && typeof raw.defaultSignatureId !== 'string') {
+    throw new ApiError(400, 'email_settings_invalid', 'The default signature is not valid')
+  }
+  const defaultSignatureId = raw.defaultSignatureId as string | undefined
+  if (signatures !== undefined) {
+    if (defaultSignatureId !== undefined && !signatures.some((signature) => signature.id === defaultSignatureId)) {
+      throw new ApiError(400, 'email_settings_invalid', 'The default signature does not exist')
+    }
+    const normalized = normalizeEmailSignatures({ signatures, defaultSignatureId })
+    settings.signatures = normalized.signatures
+    if (normalized.defaultId) settings.defaultSignatureId = normalized.defaultId
+  } else {
+    if (defaultSignatureId !== undefined) throw new ApiError(400, 'email_settings_invalid', 'The default signature does not exist')
+    if (legacySignature) {
+      const normalized = normalizeEmailSignatures({ signature: legacySignature })
+      settings.signatures = normalized.signatures
+      if (normalized.defaultId) settings.defaultSignatureId = normalized.defaultId
+    }
   }
   if (raw.agentSystemPrompt !== undefined) {
     if (typeof raw.agentSystemPrompt !== 'string') throw new ApiError(400, 'email_settings_invalid', 'The agent prompt is not valid')

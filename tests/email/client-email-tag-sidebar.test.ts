@@ -63,6 +63,7 @@ function renderSidebar(activeTagName: string | null = null, rows: readonly Email
     activeTagName,
     onSelect,
     onReload: async () => undefined,
+    onDropMessages: vi.fn(),
   }))
   return { view, onSelect }
 }

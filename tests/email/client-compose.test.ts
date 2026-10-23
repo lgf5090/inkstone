@@ -20,6 +20,18 @@ const account: EmailAccount = {
   updatedAt: '2026-01-01T00:00:00.000Z',
 }
 
+const multiSignatureAccount: EmailAccount = {
+  ...account,
+  settings: {
+    signatures: [
+      { id: 'work', name: 'Work', text: 'Ada at work', enabled: true },
+      { id: 'personal', name: 'Personal', text: 'Ada at home', enabled: true },
+    ],
+    defaultSignatureId: 'work',
+    autoDraft: true,
+  },
+}
+
 const original: EmailMessage = {
   id: 'm1',
   folderId: 'inbox',
@@ -55,6 +67,21 @@ function button(label: string): HTMLButtonElement {
     .find((node) => node.textContent?.trim() === label)
   if (!found) throw new Error(`no button named ${label}`)
   return found
+}
+
+function ariaButton(label: string): HTMLButtonElement {
+  const found = [...document.querySelectorAll<HTMLButtonElement>('button')]
+    .find((node) => node.getAttribute('aria-label') === label)
+  if (!found) throw new Error(`no button labelled ${label}`)
+  return found
+}
+
+function editorText(): string {
+  return document.querySelector('.cm-content')?.textContent ?? ''
+}
+
+function occurrences(text: string, needle: string): number {
+  return text.split(needle).length - 1
 }
 
 function change(input: HTMLInputElement, value: string): void {
@@ -334,6 +361,60 @@ describe('the compose panel', () => {
     await settle(3000)
     expect(saveDraft).toHaveBeenCalledTimes(1)
     saveDraft.mockRestore()
+    view.unmount()
+  })
+
+  it('prefills a new message with the default signature', () => {
+    const view = panel('new', null, multiSignatureAccount)
+    expect(editorText()).toContain('Ada at work')
+    expect(editorText()).not.toContain('Ada at home')
+    view.unmount()
+  })
+
+  it('swaps the reply signature without touching the quote or duplicating it', () => {
+    const view = panel('reply', null, multiSignatureAccount)
+    expect(editorText()).toContain('Ada at work')
+    act(() => { ariaButton(t('email.compose.signature')).click() })
+    act(() => { button('Personal').click() })
+    expect(editorText()).toContain('Ada at home')
+    expect(editorText()).not.toContain('Ada at work')
+    expect(editorText()).toContain('The numbers are ready.')
+    expect(editorText()).toContain('wrote:')
+    expect(occurrences(editorText(), '--')).toBe(1)
+
+    act(() => { ariaButton(t('email.compose.signature')).click() })
+    act(() => { button('Work').click() })
+    expect(editorText()).toContain('Ada at work')
+    expect(editorText()).not.toContain('Ada at home')
+    expect(editorText()).toContain('The numbers are ready.')
+    expect(occurrences(editorText(), '--')).toBe(1)
+    view.unmount()
+  })
+
+  it('inserts the chosen signature into a draft that has none', async () => {
+    vi.spyOn(api.email, 'getEmail').mockResolvedValue({
+      ...original,
+      id: 'd1',
+      folderId: 'draft',
+      subject: 'Hello',
+      recipient: 'grace@example.com',
+      cc: null,
+      body: 'Hello there',
+      bodySource: 'Hello there',
+      inReplyTo: null,
+      threadId: null,
+    })
+    const view = panel('new', 'd1', multiSignatureAccount)
+    await act(async () => {
+      for (let index = 0; index < 8; index += 1) await Promise.resolve()
+    })
+    expect(editorText()).toContain('Hello there')
+    expect(editorText()).not.toContain('Ada at work')
+    act(() => { ariaButton(t('email.compose.signature')).click() })
+    act(() => { button('Personal').click() })
+    expect(editorText()).toContain('Ada at home')
+    expect(occurrences(editorText(), 'Ada at home')).toBe(1)
+    expect(editorText()).toContain('Hello there')
     view.unmount()
   })
 })

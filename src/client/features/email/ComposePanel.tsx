@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { EditorView } from '@codemirror/view'
-import { ChevronDown, FileText, Paperclip, X } from 'lucide-react'
-import type { EmailAccount, EmailMessage, EmailSendInput } from '@shared/email/model'
-import { EMAIL_ATTACHMENT_MAX_BYTES } from '@shared/email/model'
+import { ChevronDown, FileText, Paperclip, PenLine, X } from 'lucide-react'
+import type { EmailAccount, EmailMessage, EmailSendInput, EmailSignature } from '@shared/email/model'
+import { EMAIL_ATTACHMENT_MAX_BYTES, normalizeEmailSignatures } from '@shared/email/model'
 import type { EmailTemplate } from '@shared/email/templates'
 import { buildEmailQuoteMarkdown, formatEmailQuotedDate, splitEmailList, stripEmailHtmlToText } from '@shared/email/format'
 import { Button, IconButton } from '../../components/primitives'
@@ -47,10 +47,39 @@ function scheduledTime(preset: SchedulePreset, now = new Date()): Date {
   return next
 }
 
-function signatureBlock(account: EmailAccount): string {
-  const signature = account.settings.signature
-  if (!signature?.enabled || !signature.text.trim()) return ''
+interface ComposedSignature {
+  id: string | null
+  block: string
+}
+
+const NO_SIGNATURE: ComposedSignature = { id: null, block: '' }
+
+function signatureBlock(signature: EmailSignature | null): string {
+  if (!signature || signature.enabled === false || !signature.text.trim()) return ''
   return `\n\n--\n${signature.text.trim()}`
+}
+
+function signatureName(signature: EmailSignature): string {
+  return signature.name.trim() || t('email.signatures.untitled')
+}
+
+function initialSignature(account: EmailAccount): ComposedSignature {
+  const { signatures, defaultId } = normalizeEmailSignatures(account.settings)
+  const selected = signatures.find((signature) => signature.id === defaultId && signature.enabled !== false && signature.text.trim())
+    ?? signatures.find((signature) => signature.enabled !== false && signature.text.trim())
+    ?? null
+  return selected ? { id: selected.id, block: signatureBlock(selected) } : NO_SIGNATURE
+}
+
+function insertSignatureBlock(body: string, block: string): string {
+  const match = /\n\n(?:> On [^\n]*wrote:|---------- Forwarded message ----------)/.exec(body)
+  if (!match) {
+    if (!body.trim()) return block.trimStart()
+    return `${body}${body.endsWith('\n') ? '\n' : '\n\n'}${block.trim()}`
+  }
+  const before = body.slice(0, match.index)
+  const quote = body.slice(match.index + 2)
+  return before ? `${before}${block}\n\n${quote}` : `${block.trimStart()}\n\n${quote}`
 }
 
 function recipientAddresses(value: string): string {
@@ -91,23 +120,25 @@ function initialFields(account: EmailAccount, mode: EmailComposeMode, original: 
   subject: string
   body: string
   showCc: boolean
+  signature: ComposedSignature
 } {
-  const signature = signatureBlock(account)
+  const selected = initialSignature(account)
+  const signature = selected.block
   if (!original || mode === 'new') {
-    return { to: '', cc: '', subject: '', body: signature.trimStart(), showCc: false }
+    return { to: '', cc: '', subject: '', body: signature.trimStart(), showCc: false, signature: selected }
   }
   const quote = buildEmailQuoteMarkdown(original.date, original.sender, original.body)
   if (mode === 'forward') {
     const forwarded = `\n\n---------- Forwarded message ----------\nFrom: ${original.sender}\nDate: ${formatEmailQuotedDate(original.date)}\nSubject: ${original.subject}\n\n${stripEmailHtmlToText(original.body)}`
-    return { to: '', cc: '', subject: original.subject.startsWith('Fwd:') ? original.subject : `Fwd: ${original.subject}`, body: `${signature}${forwarded}`.trimStart(), showCc: false }
+    return { to: '', cc: '', subject: original.subject.startsWith('Fwd:') ? original.subject : `Fwd: ${original.subject}`, body: `${signature}${forwarded}`.trimStart(), showCc: false, signature: selected }
   }
   const subject = original.subject.startsWith('Re:') ? original.subject : `Re: ${original.subject}`
   const body = `${signature}${quote}`.trimStart()
   if (mode === 'reply-all') {
     const recipients = replyAllRecipients(original, account.address)
-    return { to: recipients.to, cc: recipients.cc, subject, body, showCc: Boolean(recipients.cc) }
+    return { to: recipients.to, cc: recipients.cc, subject, body, showCc: Boolean(recipients.cc), signature: selected }
   }
-  return { to: original.sender, cc: '', subject, body, showCc: false }
+  return { to: original.sender, cc: '', subject, body, showCc: false, signature: selected }
 }
 
 export function ComposePanel({
@@ -156,6 +187,12 @@ export function ComposePanel({
   ))
   const [attachments, setAttachments] = useState<ComposeAttachment[]>([])
   const [preview, setPreview] = useState<ComposeAttachment | null>(null)
+  const [signature, setSignature] = useState<ComposedSignature>(initial.signature)
+  const [signatureOpen, setSignatureOpen] = useState(false)
+  const signatureOptions = useMemo(() => {
+    const { signatures } = normalizeEmailSignatures(account.settings)
+    return signatures.filter((entry) => entry.enabled !== false && entry.text.trim())
+  }, [account.settings])
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [templates, setTemplates] = useState<EmailTemplate[] | null>(null)
   const [templatesLoading, setTemplatesLoading] = useState(false)
@@ -164,6 +201,7 @@ export function ComposePanel({
   const fileInput = useRef<HTMLInputElement>(null)
   const scheduleAnchor = useRef<HTMLButtonElement>(null)
   const templateAnchor = useRef<HTMLButtonElement>(null)
+  const signatureAnchor = useRef<HTMLButtonElement>(null)
   const saveInFlight = useRef(false)
   const autoSaveTimer = useRef<number | null>(null)
   const undoTimer = useRef<number | null>(null)
@@ -558,6 +596,27 @@ export function ComposePanel({
             onSelect: () => insertTemplate(template),
           }))
 
+  const applySignature = (next: EmailSignature): void => {
+    setSignatureOpen(false)
+    const nextBlock = signatureBlock(next)
+    if (!nextBlock) return
+    const currentBlock = [signature.block, ...signatureOptions.map(signatureBlock)]
+      .map((block) => block.trim())
+      .find((block) => block && body.includes(block)) ?? ''
+    const index = currentBlock ? body.indexOf(currentBlock) : -1
+    setBody(index >= 0
+      ? `${body.slice(0, index)}${nextBlock.trim()}${body.slice(index + currentBlock.length)}`
+      : insertSignatureBlock(body, nextBlock))
+    setSignature({ id: next.id, block: nextBlock })
+  }
+
+  const signatureItems: MenuItem[] = signatureOptions.map((option) => ({
+    id: option.id,
+    label: signatureName(option),
+    checked: signature.id === option.id,
+    onSelect: () => applySignature(option),
+  }))
+
   const titleKey = draft
     ? 'email.compose.title_edit_draft'
     : mode === 'reply'
@@ -635,6 +694,17 @@ export function ComposePanel({
                 >
                   <FileText size={14} />
                 </ToolButton>
+                {signatureOptions.length > 0 && (
+                  <ToolButton
+                    buttonRef={signatureAnchor}
+                    label={t('email.compose.signature')}
+                    popup="menu"
+                    expanded={signatureOpen}
+                    onClick={() => setSignatureOpen((open) => !open)}
+                  >
+                    <PenLine size={14} />
+                  </ToolButton>
+                )}
               </>
             )}
           </div>
@@ -762,6 +832,14 @@ export function ComposePanel({
         items={templateItems}
         width={240}
         label={t('email.templates.insert')}
+      />
+      <Menu
+        anchor={signatureAnchor}
+        open={signatureOpen}
+        onClose={() => setSignatureOpen(false)}
+        items={signatureItems}
+        width={220}
+        label={t('email.compose.signature')}
       />
       {preview && (
         <FilePreviewModal

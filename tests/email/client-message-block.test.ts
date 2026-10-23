@@ -46,6 +46,8 @@ function harness(): RenderedElement {
         message,
         selected: false,
         batchSelected: false,
+        selectedIds: new Set<string>(),
+        dragEnabled: true,
         searchMode: false,
         query: '',
         folders,

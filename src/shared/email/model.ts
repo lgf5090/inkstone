@@ -25,6 +25,10 @@ export const EMAIL_SCHEDULE_MAX_ATTEMPTS = 3
 export const EMAIL_SCHEDULE_RETRY_MS = 5 * 60 * 1000
 export const EMAIL_SCHEDULE_LEASE_MS = 10 * 60 * 1000
 export const EMAIL_SCHEDULE_OPERATION_MAX_CHARS = 200
+export const EMAIL_SIGNATURES_MAX = 8
+export const EMAIL_SIGNATURE_NAME_MAX_CHARS = 60
+export const EMAIL_SIGNATURE_TEXT_MAX_CHARS = 4000
+export const EMAIL_LEGACY_SIGNATURE_ID = 'legacy'
 
 export const EMAIL_BATCH_ACTIONS = [
   'read',
@@ -103,10 +107,47 @@ export interface EmailSignatureSettings {
   text: string
 }
 
+export interface EmailSignature {
+  id: string
+  name: string
+  text: string
+  enabled?: boolean
+}
+
 export interface EmailAccountSettings {
   signature?: EmailSignatureSettings
+  signatures?: EmailSignature[]
+  defaultSignatureId?: string
   agentSystemPrompt?: string
   autoDraft?: boolean
+}
+
+export interface EmailSignatureSelection {
+  signatures: EmailSignature[]
+  defaultId: string | null
+}
+
+export function normalizeEmailSignatures(settings?: EmailAccountSettings | null): EmailSignatureSelection {
+  const stored = settings?.signatures
+  const signatures: EmailSignature[] = Array.isArray(stored)
+    ? stored.map((signature) => ({
+        id: signature.id,
+        name: signature.name,
+        text: signature.text,
+        enabled: signature.enabled !== false,
+      }))
+    : settings?.signature && settings.signature.text.trim()
+      ? [{
+          id: EMAIL_LEGACY_SIGNATURE_ID,
+          name: '',
+          text: settings.signature.text,
+          enabled: settings.signature.enabled,
+        }]
+      : []
+  const requested = settings?.defaultSignatureId
+  const explicit = signatures.find((signature) => signature.id === requested && signature.enabled)
+  const fallback = signatures.find((signature) => signature.enabled) ?? signatures[0] ?? null
+  return { signatures, defaultId: explicit?.id ?? fallback?.id ?? null }
 }
 
 export interface EmailAccount {

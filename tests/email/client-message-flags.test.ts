@@ -59,6 +59,8 @@ function renderRow(row: EmailSummary) {
         message: row,
         selected: false,
         batchSelected: false,
+        selectedIds: new Set<string>(),
+        dragEnabled: true,
         searchMode: false,
         query: '',
         folders,
