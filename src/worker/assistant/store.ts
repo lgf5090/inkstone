@@ -514,13 +514,20 @@ export const TASK_TRASHED_PREDICATE = 'deleted_at IS NOT NULL'
  * not about which shelf holds it, so an archived list's rows stay counted there. The trash page and
  * the retention sweep still ask for the opposite with `TASK_TRASHED_PREDICATE`.
  *
+ * `archived_at` on the row is the third condition, and it hides the task from every set the reader
+ * browses — the working surfaces *and* the completed list. That is the whole point of the shelf: work
+ * put away at the end of a day must leave the day's list, or closing the day would change nothing on
+ * the screen. What it does not do is forget: the hours stay in the statistics, the row stays in every
+ * export, sync and backup, and `getTask` still answers for its id — the same split `taskQuery` already
+ * draws for a shelved list, so a search hit or a deep link is not a 404.
+ *
  * `NOT EXISTS` rather than a join because the four surfaces are shaped differently — one is a plain
  * `FROM todos_tasks`, two alias the table, one groups in SQL — and a correlated subquery reads the same
  * in all of them. It also keeps a task whose `list_id` points at nothing visible, exactly as the join
  * it replaces did: only a list that is actually archived hides a row.
  */
 export function taskVisible(alias = 'todos_tasks'): string {
-  return `${taskLive(alias)} AND NOT EXISTS (
+  return `${taskLive(alias)} AND ${alias}.archived_at IS NULL AND NOT EXISTS (
     SELECT 1 FROM todos_lists put_away
      WHERE put_away.user_id = ${alias}.user_id
        AND put_away.id = ${alias}.list_id
@@ -1035,6 +1042,15 @@ export interface NewTask {
    */
   plannedFor?: string | null
   starred?: boolean
+  /**
+   * When the reader put the task away, or null to take it off the shelf.
+   *
+   * Not a field the task endpoints accept: only the batch door stamps it, because "finish day" is the
+   * gesture that files a set of rows and a single edit is not. `completeTask`'s copy of a repeating row
+   * deliberately does not carry it either — the next occurrence of a task is a new debt, put away or not
+   * is the reader's answer about *this* row.
+   */
+  archivedAt?: number | null
   repeat?: RepeatRule | null
   /** The task's reminders as absolute instants. Replaces the pending list when given to `updateTask`. */
   reminders?: number[]
@@ -4553,8 +4569,8 @@ export class AssistantStore {
       `INSERT INTO todos_tasks
          (id, user_id, title, description, status, priority, due_at, start_at, project_id, list_id,
           icon, color, starred, repeat_rule, note_id, conversation_id, created_at, updated_at,
-          completed_at, created_on, completed_on, planned_for, time_estimate_ms)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)`,
+          completed_at, created_on, completed_on, planned_for, time_estimate_ms, archived_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)`,
     ).bind(
       this.userId, id, input.title.trim().slice(0, 300), input.description ?? '', status, input.priority ?? 'medium',
       input.dueAt ?? null, input.startAt ?? null, input.projectId ?? null, input.listId ?? null,
@@ -4562,7 +4578,7 @@ export class AssistantStore {
       repeat ? JSON.stringify(repeat) : null, input.noteId ?? null,
       input.conversationId ?? null, at, at, !isTaskOpen(status) ? at : null,
       createdOn, !isTaskOpen(status) ? createdOn : null, input.plannedFor ?? null,
-      input.timeEstimateMs ?? null,
+      input.timeEstimateMs ?? null, input.archivedAt ?? null,
     )
     await this.db.batch([insert, this.taskEvent(id, at, createdOn, 'born', null, status)])
     if (input.tags?.length) await this.replaceTaskTags(id, input.tags)
@@ -4714,6 +4730,9 @@ export class AssistantStore {
       if (color !== null || patch.color === null || patch.color === '') fields.push(['color', color])
     }
     if (patch.starred !== undefined) fields.push(['starred', patch.starred ? 1 : 0])
+    // The shelf, not the trash: this writes the stamp that `taskVisible` reads, and leaves status,
+    // hours and the completed list exactly where they were. Only the batch door names it.
+    if (patch.archivedAt !== undefined) fields.push(['archived_at', patch.archivedAt])
     // The estimate is the row's own column, so it is written like one: absent leaves the plan the reader
     // made alone, null takes it back out, and a number replaces it. Nothing here reads the ledger —
     // `timeSpentMs` is derived on the way out and has no column to be written into (D3).
@@ -7565,7 +7584,10 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // `icon` and `color` are the task's own face: a restore that dropped them would silently hand every
   // restored task back its list's, which is a different row than the one that was backed up. Both are
   // nullable, so an old backup without the keys still lands.
-  todos_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'start_at', 'project_id', 'list_id', 'icon', 'color', 'starred', 'repeat_rule', 'note_id', 'conversation_id', 'created_at', 'updated_at', 'completed_at', 'created_on', 'completed_on', 'time_estimate_ms'],
+  // `archived_at` travels, unlike `deleted_at`: a row the reader put away is still theirs, and a restore
+  // that dropped the mark would drop the whole reason for the shelf — every finished day would come
+  // back onto today's board.
+  todos_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'start_at', 'project_id', 'list_id', 'icon', 'color', 'starred', 'repeat_rule', 'note_id', 'conversation_id', 'created_at', 'updated_at', 'completed_at', 'created_on', 'completed_on', 'time_estimate_ms', 'archived_at'],
   todos_lists: ['id', 'name', 'icon', 'color', 'position', 'created_at', 'updated_at'],
   todos_steps: ['id', 'task_id', 'text', 'done', 'position', 'created_at'],
   todos_tags: ['id', 'name', 'color', 'created_at', 'updated_at'],
@@ -8313,6 +8335,8 @@ interface TaskRow {
   rev: number
   /** When the row was moved to the trash, or null while it is live. */
   deleted_at: number | null
+  /** When the reader put the row away, or null while it is on a working surface. */
+  archived_at: number | null
 }
 
 interface TaskListRow {
@@ -8405,6 +8429,7 @@ function toTask(
     runningSince: num(r.running_since),
     rev: r.rev,
     deletedAt: num(r.deleted_at),
+    archivedAt: num(r.archived_at),
   }
 }
 

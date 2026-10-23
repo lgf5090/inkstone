@@ -95,6 +95,26 @@ describe('a backup round trip', () => {
     ])
   })
 
+  // The shelf travels, unlike the trash. A file is a snapshot of what the account still has, and work
+  // the reader put away is still theirs — a restore that lost the stamp would drop the whole reason for
+  // the shelf and refill today's board with the days they have already closed. This is the only case
+  // that proves `EXPORT_COLUMNS` and the export row agree for this column, because `INSERT OR IGNORE`
+  // drops a mismatched row quietly and a missing key lands it back at the column's default of NULL.
+  it('restores a task still on the shelf it was put away on', async () => {
+    const stamp = Date.parse('2026-10-22T20:00:00Z')
+    const task = await store.createTask({ title: 'Old quarter', status: 'done', archivedAt: stamp })
+
+    const backup = await exportAssistant(store)
+    const target = new AssistantStore(env.DB as D1Database, OTHER, env)
+    await importAssistant(target, JSON.parse(JSON.stringify(backup)))
+
+    const restored = await target.getTask(task.id)
+    expect(restored).toMatchObject({ title: 'Old quarter', status: 'done', archivedAt: stamp })
+    // And the shelf still means the shelf on the machine that received the file: the row is readable
+    // by id above, and nowhere in a listing the reader browses.
+    expect((await target.listTasks({ view: 'all' })).map((row) => row.id)).not.toContain(task.id)
+  })
+
   it('leaves a task in the inbox when the file names a list it did not carry', async () => {
     const task = await store.createTask({ title: 'Orphan', listId: (await store.createTaskList({ name: 'Work' })).id })
     const backup = await exportAssistant(store)

@@ -560,6 +560,9 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
       // estimate lost the half of the worklog that compares hours spent against hours intended.
       // Nullable, so a file written before the column exists simply does not name it.
       time_estimate_ms: numberOrNull(task.time_estimate_ms),
+      // The shelf travels, unlike the trash: work the reader put away is still theirs, and a restore
+      // that lost the stamp would refill today's board with the days they have already closed.
+      archived_at: numberOrNull(task.archived_at),
     }
     // A task the reader has checked off or edited here since the file was written stays theirs.
     const localAt = localTaskAt.get(id) ?? null

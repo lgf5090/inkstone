@@ -2307,6 +2307,19 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     ],
   },
   {
+    // The shelf a task is put away on, as distinct from the trash it is deleted into.
+    //
+    // "Finish day" needs a place to send work the reader has looked at and is not going to do — a row
+    // that is neither owed (so it leaves today, the badges, the board and the calendar) nor gone (so its
+    // hours stay in the statistics and its record stays in the completed list). Nullable, because every
+    // row written before this line is, correctly, not put away.
+    version: 149,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'archived_at' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN archived_at INTEGER`,
+    ],
+  },
+  {
     // The two columns a task's one reminder used to live in, and the index that read them.
     //
     // `todos_reminders` (one row per instant, `fired_at` as the delivery mark) superseded both: no code

@@ -188,6 +188,55 @@ describe('the task endpoints', () => {
     expect((await send('POST', '', { title: 'Bad ceiling', repeat: { freq: 'daily', interval: 1, count: 0 } })).status).toBe(400)
   })
 
+  // The shelf, as one rule rather than four screens: it is the batch door that stamps `archived_at`,
+  // and everything below is that one predicate answering consistently across four endpoints. The row is
+  // not deleted, so the statistics keep its finish and a read by id keeps its record; the reader simply
+  // stops being shown it — in the completed list too, which is what makes closing a day do something.
+  it('takes an archived task off every list but keeps its record and its place in the numbers', async () => {
+    mocks.userId = `shelf${'0'.repeat(20)}`
+    const owed = await create({ title: 'Renew the licence' })
+    const finished = await create({ title: 'File the return', dueAt: Date.now() - 60_000 })
+    await send('POST', '/batch', { op: 'complete', ids: [finished.id] })
+
+    const archived = await send('POST', '/batch', { op: 'archive', ids: [owed.id, finished.id] })
+    expect(archived.status).toBe(200)
+    expect((await json<{ failed: unknown[] }>(archived)).failed).toEqual([])
+
+    const page = await json<{ tasks: TodoTask[], counts: TaskCounts }>(await send('GET', ''))
+    expect(page.tasks.map((entry) => entry.id)).toEqual([])
+    // The badges go with the rows, not with the database: a shelf that still counted would put the
+    // number back on the very screen it just emptied.
+    expect(page.counts).toMatchObject({ all: 0, inbox: 0, completed: 0 })
+    expect((await json<{ tasks: TodoTask[] }>(await send('GET', '?view=completed'))).tasks).toEqual([])
+
+    // A read by name still answers: a search hit, a shared link or the assistant's own reference to the
+    // row has to reach the record the shelf only hid.
+    const single = await json<{ task: TodoTask }>(await send('GET', `/${owed.id}`))
+    expect(single.task.title).toBe('Renew the licence')
+    expect(single.task.archivedAt).toBeTypeOf('number')
+
+    const stats = await json<{ summary: { completed: number, open: number } }>(
+      await send('GET', '/stats?from=2020-01-01&to=2099-12-31'))
+    // The statistics read the work, not the shelf, and that is a decision rather than an accident:
+    // putting a task away is neither finishing it (so its finish still counts) nor abandoning it (so the
+    // one still owed stays owed, and can be taken down and done). `cancelled` is the state that leaves
+    // the plate, and it is counted in `abandoned`, apart from this.
+    expect(stats.summary).toMatchObject({ completed: 1, open: 1 })
+
+    // And the same door with `false` is the way back, which is what an undo on the toast would press.
+    await send('POST', '/batch', { op: 'archive', value: false, ids: [owed.id] })
+    const back = await json<{ tasks: TodoTask[] }>(await send('GET', '?view=all'))
+    expect(back.tasks.map((entry) => entry.id)).toEqual([owed.id])
+  })
+
+  it('refuses a batch archive target that is neither true nor false', async () => {
+    mocks.userId = `shelfflag${'0'.repeat(20)}`
+    const task = await create({ title: 'Ambiguous shelf' })
+    const response = await send('POST', '/batch', { op: 'archive', value: 'maybe', ids: [task.id] })
+    expect(response.status).toBe(400)
+    expect((await json<{ error?: { message?: string } }>(response)).error?.message).toContain('archive')
+  })
+
   it('returns the task, its steps and the counts in one read', async () => {
     const task = await create({ title: 'Ship it', steps: ['Write', 'Review'] })
     const detail = await json<{ task: TodoTask, steps: TaskStep[] }>(await send('GET', `/${task.id}`))
@@ -608,7 +657,7 @@ describe('a batch of tasks', () => {
     const tooMany = Array.from({ length: MAX_BATCH_TASKS + 1 }, (_, index) => `batch-task-${index}`)
     expect((await send('POST', '/batch', { ids: tooMany, op: 'complete' })).status).toBe(400)
     expect((await send('POST', '/batch', { ids: [], op: 'complete' })).status).toBe(400)
-    expect((await send('POST', '/batch', { ids: ['x'], op: 'archive' })).status).toBe(400)
+    expect((await send('POST', '/batch', { ids: ['x'], op: 'shelve' })).status).toBe(400)
     expect((await send('POST', '/batch', { ids: ['x'], op: 'move' })).status).toBe(400)
     expect((await send('POST', '/batch', { ids: ['x'], op: 'priority', value: 'someday' })).status).toBe(400)
   })

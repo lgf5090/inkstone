@@ -76,10 +76,11 @@ interface TodoSyncRow {
   completed_at: number | null
   rev: number
   deleted_at: number | null
+  archived_at: number | null
 }
 
 const TODO_SYNC_COLUMNS = `id, title, description, status, priority, due_at, project_id, list_id, icon, color, starred,
-  repeat_rule, note_id, conversation_id, planned_for, created_at, updated_at, completed_at, rev, deleted_at`
+  repeat_rule, note_id, conversation_id, planned_for, created_at, updated_at, completed_at, rev, deleted_at, archived_at`
 
 interface TodoTagSyncRow {
   task_id: string
@@ -393,6 +394,7 @@ export class SyncStore {
         completedAt: row.completed_at,
         rev: row.rev,
         deletedAt: row.deleted_at,
+        archivedAt: row.archived_at,
       }
     })
   }

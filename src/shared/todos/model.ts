@@ -297,11 +297,15 @@ export const MAX_BATCH_TASKS = 100
  * the selection bar at the foot of the list offers the other six — complete, delete, move, priority,
  * star and tag. `value` on a due batch is the day to land on — absent means the end of the reader's
  * own today — and the write touches `due_at` alone, never `planned_for`.
+ *
+ * `archive` is the shelf the day's closing gesture puts rows on, and `value` on it is a boolean: true
+ * files the row, false takes it back. It is not on the selection bar yet, which is why it is excluded
+ * from `TaskBatchOp` below with `due` — the bar's own set, and the toast keys that go with it.
  */
-export const TASK_BATCH_OPS = ['complete', 'delete', 'move', 'priority', 'star', 'tag', 'due'] as const
+export const TASK_BATCH_OPS = ['complete', 'delete', 'move', 'priority', 'star', 'tag', 'due', 'archive'] as const
 export type TaskBatchRequestOp = (typeof TASK_BATCH_OPS)[number]
-/** The operations the selection bar offers; `due` is the banner's own gesture. */
-export type TaskBatchOp = Exclude<TaskBatchRequestOp, 'due'>
+/** The operations the selection bar offers; `due` is the banner's and `archive` the day's close. */
+export type TaskBatchOp = Exclude<TaskBatchRequestOp, 'due' | 'archive'>
 
 export function isTaskBatchRequestOp(value: unknown): value is TaskBatchRequestOp {
   return typeof value === 'string' && (TASK_BATCH_OPS as readonly string[]).includes(value)
@@ -453,6 +457,16 @@ export interface TodoTask extends Task {
    * stamp; every other read filters trashed rows out, so this is null there.
    */
   deletedAt?: number | null
+  /**
+   * When the reader put this task away, or null while it is in front of them.
+   *
+   * The shelf and the trash are different answers, and the difference is what the row keeps: an archived
+   * task is not deleted — its status and its hours are untouched, it stays in the statistics, in every
+   * export, sync and backup, and `getTask` still answers for its id. What it loses is the screens: the
+   * working surfaces *and* the completed list, which is what makes closing a day change anything at all.
+   * One rule states it, in `taskVisible`, rather than four screens each remembering to ask.
+   */
+  archivedAt?: number | null
   /**
    * The task's ledger rows — closed ones and, at most once across the account, the running one — as
    * the sync stream attaches them to every page it sends.

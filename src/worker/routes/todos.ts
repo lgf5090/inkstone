@@ -382,10 +382,21 @@ function revisionConflict(id: string, rev: number | undefined): ApiError {
 }
 
 /** The flag a star batch sets. Absent means "star them", which is the gesture the bar offers. */
-function batchStarValue(value: unknown): boolean {
+/**
+ * A batch's on/off target, in the two shapes a client actually sends.
+ *
+ * `value` arrives as a JSON boolean from the app and as the string a form or a script writes, and
+ * `undefined` is the answer a bare "do it" gesture means: star a batch, archive a batch. `what` names
+ * the operation in the refusal, because a message that blames the wrong control is a dead end.
+ */
+function asBatchFlag(value: unknown, what: string): boolean {
   if (value === undefined || value === null || value === true || value === 'true') return true
   if (value === false || value === 'false') return false
-  throw ApiError.badRequest('A star batch takes true or false.')
+  throw ApiError.badRequest(`A ${what} batch takes true or false.`)
+}
+
+function batchStarValue(value: unknown): boolean {
+  return asBatchFlag(value, 'star')
 }
 
 /**
@@ -811,7 +822,7 @@ todoRoutes.post('/batch', async (c) => {
   const settings = await s.getSettings()
   const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
   if (!isTaskBatchRequestOp(body.op)) {
-    throw ApiError.badRequest('A batch operation must be complete, delete, move, priority, star, tag or due.')
+    throw ApiError.badRequest('A batch operation must be complete, delete, move, priority, star, tag, due or archive.')
   }
   const op = body.op
   const ids = batchIds(body.ids)
@@ -821,6 +832,7 @@ todoRoutes.post('/batch', async (c) => {
   let moveListId: string | null = null
   let priority: TaskPriority = 'medium'
   let starred = true
+  let archive = true
   let tagAdd: string[] = []
   let dueAt: number | null = null
   switch (op) {
@@ -833,6 +845,11 @@ todoRoutes.post('/batch', async (c) => {
       break
     case 'star':
       starred = batchStarValue(body.value)
+      break
+    case 'archive':
+      // The day's close files rows away; the same door with `false` is the way back, which is what makes
+      // a result toast that offers undo a real offer rather than a one-way write.
+      archive = asBatchFlag(body.value, 'archive')
       break
     case 'tag':
       if (typeof body.value !== 'string' && !Array.isArray(body.value)) {
@@ -907,6 +924,14 @@ todoRoutes.post('/batch', async (c) => {
           break
         case 'star':
           if (!(await s.updateTask(id, { starred }, settings.timezone, expectedRev))) {
+            failed.push({ id, reason: 'not found' })
+            continue
+          }
+          break
+        case 'archive':
+          // Only the stamp moves. The status, the hours and the row are untouched — the shelf is about
+          // which screens show it, and `taskVisible` is the one place that knows.
+          if (!(await s.updateTask(id, { archivedAt: archive ? Date.now() : null }, settings.timezone, expectedRev))) {
             failed.push({ id, reason: 'not found' })
             continue
           }

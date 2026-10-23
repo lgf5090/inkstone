@@ -66,6 +66,12 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
     -- read, and a write naming an older one is refused instead of replacing an edit it never saw.
     -- Migration 119 carries the column to databases built before this line existed.
     rev INTEGER NOT NULL DEFAULT 1,
+    -- When the reader put this task away, or NULL while it is in front of them. Archiving is not
+    -- deleting: the status, the hours and the row itself stay, in the statistics, in every export and
+    -- in a read by id. What leaves is every screen the reader browses, the completed list included --
+    -- which is the one rule taskVisible states, so nothing here filters it a second time. Migration
+    -- 149 carries the column to databases built before this line existed.
+    archived_at INTEGER,
     -- When the task was moved to the trash, or NULL while it is live. Deleting stamps this column
     -- instead of removing the row, so a restore brings back the same steps, tags and reminders; every
     -- task read filters on it through TASK_LIVE_PREDICATE in assistant/store.ts. Migration 122
@@ -367,7 +373,7 @@ export const TODOS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>>
     'user_id', 'id', 'title', 'description', 'status', 'priority', 'position', 'due_at', 'start_at', 'completed_at',
     'completed_on', 'created_on',
     'project_id', 'list_id', 'icon', 'color', 'starred', 'repeat_rule', 'planned_for', 'note_id',
-    'conversation_id', 'created_at', 'updated_at', 'rev', 'deleted_at', 'time_estimate_ms',
+    'conversation_id', 'created_at', 'updated_at', 'rev', 'deleted_at', 'archived_at', 'time_estimate_ms',
   ],
   todos_reminders: ['user_id', 'id', 'task_id', 'remind_at', 'fired_at', 'created_at'],
   todos_task_events: ['user_id', 'id', 'task_id', 'at', 'on_day', 'kind', 'from_status', 'to_status'],
