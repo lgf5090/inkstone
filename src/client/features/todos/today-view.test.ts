@@ -544,19 +544,34 @@ describe('the later section of the today screen', () => {
   it('splits the later rows out without touching what groupToday files where', () => {
     const rows = [
       row('picked', 'Draft the brief', { plannedFor: TODAY }),
-      row('due', 'Send the invoice', { dueAt: T0 - 30 * 60_000 }),
+      row('late', 'Send the invoice', { dueAt: T0 - 30 * 60_000 }),
+      row('yesterday', 'Chase the quote', { dueAt: Date.parse('2026-10-18T09:00:00Z') }),
       row('later', 'Call the plumber', { dueAt: T0 + 30 * 60_000 }),
       row('allday', 'File the return', { dueAt: Date.parse('2026-10-19T23:59:00Z') }),
       row('started', 'Write the report', { status: 'in_progress' }),
     ]
-    // The three buckets and their rules are this card's untouchable ground: a row whose hour has
-    // not come still reads as a today row inside groupToday, exactly as it did before the split.
-    expect(groupToday(rows, { dayEnd: DAY_END, now: T0, today: TODAY })
+    const bounds = { dayEnd: DAY_END, now: T0, today: TODAY, timezone: 'UTC' }
+    // A row whose hour passed an hour ago is still today's row: the overdue group is the one that
+    // offers to push a *missed day* into today, and 11:30 today is not a day the reader missed.
+    // Only the row owed yesterday belongs there.
+    expect(groupToday(rows, bounds)
       .map((group) => [group.key, group.tasks.map((entry) => entry.id)]))
-      .toEqual([['planned', ['picked']], ['today', ['later', 'allday', 'started']], ['overdue', ['due']]])
-    const split = splitTodayLater(groupToday(rows, { dayEnd: DAY_END, now: T0, today: TODAY }), { now: T0, dayEnd: DAY_END, timezone: 'UTC' })
+      .toEqual([['planned', ['picked']], ['today', ['late', 'later', 'allday', 'started']], ['overdue', ['yesterday']]])
+    const split = splitTodayLater(groupToday(rows, bounds), { now: T0, dayEnd: DAY_END, timezone: 'UTC' })
     expect(split.groups.map((group) => [group.key, group.tasks.map((entry) => entry.id)]))
-      .toEqual([['planned', ['picked']], ['today', ['allday', 'started']], ['overdue', ['due']]])
+      .toEqual([['planned', ['picked']], ['today', ['late', 'allday', 'started']], ['overdue', ['yesterday']]])
     expect(split.later.map((entry) => entry.id)).toEqual(['later'])
+  })
+
+  it('moves a row into overdue only when the day it was owed on has passed', () => {
+    const bounds = { dayEnd: DAY_END, now: T0, today: TODAY, timezone: 'UTC' }
+    const idsFor = (dueAt: number): string[] =>
+      groupToday([row('x', 'One row', { dueAt })], bounds).find((group) => group.key === 'overdue')
+        ?.tasks.map((entry) => entry.id) ?? []
+    // The last minute of yesterday and the first of today sit on either side of the line.
+    expect(idsFor(Date.parse('2026-10-18T23:59:00Z'))).toEqual(['x'])
+    expect(idsFor(Date.parse('2026-10-19T00:00:00Z'))).toEqual([])
+    // Late in the day, a morning row is still not a missed day.
+    expect(idsFor(T0 - 9 * 60 * 60_000)).toEqual([])
   })
 })

@@ -401,7 +401,7 @@ export function TodayView() {
   }, [])
   const today = useMemo(() => localDate(now, timezone), [now, timezone])
   const { groups, later } = useMemo(() => {
-    const grouped = groupToday(tasks, { dayEnd, now, today })
+    const grouped = groupToday(tasks, { dayEnd, now, today, timezone })
     // A chosen order is the server's answer; re-sorting a group here would overrule it.
     const ordered = sort ? inServerOrder(grouped, tasks) : grouped
     return splitTodayLater(ordered, { now, dayEnd, timezone })
