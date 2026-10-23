@@ -51,7 +51,7 @@ export type AssistantMemoryStatus = (typeof ASSISTANT_MEMORY_STATUSES)[number]
 export const ASSISTANT_MEMORY_SOURCES = ['manual', 'assistant', 'import'] as const
 export type AssistantMemorySource = (typeof ASSISTANT_MEMORY_SOURCES)[number]
 
-export const TASK_STATUSES = ['todo', 'in_progress', 'done'] as const
+export const TASK_STATUSES = ['todo', 'in_progress', 'done', 'cancelled'] as const
 export type TaskStatus = (typeof TASK_STATUSES)[number]
 
 /**

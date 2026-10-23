@@ -47,7 +47,11 @@ import type { TaskList, TaskPriority, TaskStatus, TodoTask } from '@shared/todos
 /** Three columns need a window this wide; below it the list is the honest reading. */
 export const LIST_COLUMNS_QUERY = '(min-width: 1024px)'
 
-const STATUS_LABEL_KEYS: Record<TaskStatus, MessageKey> = {
+// Keyed by the columns this board actually draws, not by every status the enum knows. A fourth
+// terminal state (`cancelled`) is abandoned work that lives in the completed view, not a lane of the
+// status board; keying this map off `TaskStatus` would force a column the board does not show. The
+// labels below line up with `BOARD_STATUS_COLUMNS`, the same hand that decides which columns appear.
+const STATUS_LABEL_KEYS: Record<'todo' | 'in_progress' | 'done', MessageKey> = {
   todo: 'todo.status.todo',
   in_progress: 'todo.status.in_progress',
   done: 'todo.status.done',
@@ -112,7 +116,7 @@ export function ListLayoutToggle({ layout, group }: { layout: TodoLayout; group:
  * What one column stands for, as the words the reader knows the field by.
  */
 function columnLabel(dimension: TodoGroup, key: string, lists: readonly TaskList[]): string {
-  if (dimension === 'status') return t(STATUS_LABEL_KEYS[key as TaskStatus])
+  if (dimension === 'status') return t(STATUS_LABEL_KEYS[key as 'todo' | 'in_progress' | 'done'])
   if (dimension === 'priority') return priorityLabel(key as TaskPriority)
   if (key === BOARD_INBOX_COLUMN) return t('todo.smart.inbox')
   return lists.find((list) => list.id === key)?.name ?? t('todo.view.list')

@@ -56,7 +56,7 @@ import {
   type TodoTask,
 } from '@shared/todos/model'
 import { isTaskDone } from '@shared/todos/status'
-import type { TaskPriority, TaskStatus } from '@shared/assistant'
+import { TASK_STATUSES, type TaskPriority, type TaskStatus } from '@shared/assistant'
 import { AssistantStore, type TaskQuery } from '../assistant/store'
 import { runIdempotent } from '../mcp/operations'
 import { insertFeed, listFeeds, revokeFeed, type OwnFeedRow } from '../todos/feeds'
@@ -137,7 +137,12 @@ function requiredId(value: unknown): string {
 }
 
 function asStatus(value: unknown): TaskStatus {
-  if (value === 'todo' || value === 'in_progress' || value === 'done') return value
+  // Read off the enum the whole app shares, not a re-listed set of words: the moment a status joins
+  // `TASK_STATUSES` the route has to accept it, and a hand-copied list here would silently refuse a
+  // value the store and the schema already understand (a `cancelled` write rejected with 400 while the
+  // row below could hold it). The cast is safe because membership was just proven against the array
+  // that defines the union.
+  if (typeof value === 'string' && (TASK_STATUSES as readonly string[]).includes(value)) return value as TaskStatus
   throw ApiError.badRequest('Unknown task status.')
 }
 
