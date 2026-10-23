@@ -19,7 +19,7 @@ import {
   Star,
   Trash2,
 } from 'lucide-react'
-import { escapeEmailHtml, textToEmailHtml } from '@shared/email/format'
+import { escapeEmailHtml, stripEmailHtmlToText, textToEmailHtml } from '@shared/email/format'
 import type { EmailAccount, EmailFolder, EmailMessage } from '@shared/email/model'
 import { Button, Badge, IconButton } from '../../components/primitives'
 import { Empty, LoadingBlock } from '../../components/feedback'
@@ -31,7 +31,7 @@ import type { EmailComposeMode } from './email-address'
 import { useEmailStore, type EmailLoadStatus } from './store'
 import { emailErrorText } from './errors'
 import { sanitizeEmailHtml } from './email-markdown'
-import { folderLabel, messageFullDate, messageSubject, messageRecipients, senderLabel } from './format'
+import { emailAddresses, folderLabel, messageFullDate, messageSubject, messageRecipients, senderLabel } from './format'
 import { SourceDialog } from './SourceDialog'
 import { ThreadMessage } from './ThreadMessage'
 import { ComposePanel } from './ComposePanel'
@@ -190,9 +190,15 @@ export function MessagePane({
   const snoozeAnchor = useRef<HTMLButtonElement>(null)
   const followUpAnchor = useRef<HTMLButtonElement>(null)
 
+  const draftKey = thread.filter((message) => message.folderId === 'draft').map((message) => message.id).join(',')
+
   useEffect(() => {
-    setExpanded(new Set(summary ? [summary.id] : []))
-  }, [summary?.id])
+    const next = new Set<string>(summary ? [summary.id] : [])
+    for (const message of thread) {
+      if (message.folderId === 'draft') next.add(message.id)
+    }
+    setExpanded(next)
+  }, [summary?.id, draftKey])
 
   if (compose) {
     return (
@@ -316,7 +322,43 @@ export function MessagePane({
     onClosed()
   }
 
-  const discardDraft = async (): Promise<void> => {
+  const refreshAfterDraftChange = (draft: EmailMessage): void => {
+    if (draft.id === summary.id) {
+      onClosed()
+      return
+    }
+    onReload()
+    void useEmailStore.getState().refresh()
+  }
+
+  const sendThreadDraft = async (draft: EmailMessage): Promise<void> => {
+    if (busy) return
+    setBusy(true)
+    try {
+      await api.email.sendDraft(account.id, draft.id, {
+        to: emailAddresses(draft.recipient).join(', '),
+        cc: emailAddresses(draft.cc).join(', ') || undefined,
+        bcc: emailAddresses(draft.bcc).join(', ') || undefined,
+        subject: draft.subject,
+        body: draft.bodySource ?? stripEmailHtmlToText(draft.body),
+        bodyHtml: draft.body,
+        attachmentIds: draft.attachments.map((attachment) => attachment.id),
+        operationId: crypto.randomUUID(),
+      })
+      useUi.getState().toast({ title: t('email.compose.sent'), tone: 'success' })
+      refreshAfterDraftChange(draft)
+    } catch (reason) {
+      useUi.getState().toast({
+        title: t('email.toast.failed'),
+        description: emailErrorText(reason),
+        tone: 'danger',
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const discardThreadDraft = async (draft: EmailMessage): Promise<void> => {
     const ok = await confirm({
       title: t('email.detail.discard_draft_title'),
       description: t('email.detail.discard_draft_hint'),
@@ -325,9 +367,9 @@ export function MessagePane({
     })
     if (!ok) return
     setBusy(true)
-    const removed = await deleteMessage(account.id, summary.id, false)
+    const removed = await deleteMessage(account.id, draft.id, false)
     setBusy(false)
-    if (removed) onClosed()
+    if (removed) refreshAfterDraftChange(draft)
   }
 
   const downloadEml = async (): Promise<void> => {
@@ -578,16 +620,6 @@ export function MessagePane({
               <Badge tone="neutral">{t('email.detail.thread_messages_other', { count: messages.length })}</Badge>
             )}
           </div>
-          {draft && (
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <Button size="sm" variant="secondary" onClick={() => onEditDraft(draftId ?? summary.id)}>
-                {t('email.detail.edit_draft')}
-              </Button>
-              <Button size="sm" variant="ghost" disabled={busy} onClick={() => { void discardDraft() }}>
-                {t('email.detail.discard_draft')}
-              </Button>
-            </div>
-          )}
           {summary.deliveryError && (
             <div role="alert" className="mt-2 rounded-[var(--r-sm)] bg-[var(--danger-soft)] px-2.5 py-1.5 text-[length:var(--text-11)] text-[var(--danger)]">
               {summary.deliveryError}
@@ -606,7 +638,11 @@ export function MessagePane({
             key={message.id}
             message={message}
             expanded={expanded.has(message.id)}
+            busy={busy}
             onToggle={() => toggle(message.id)}
+            onSendDraft={(draft) => { void sendThreadDraft(draft) }}
+            onEditDraft={(draft) => onEditDraft(draft.id)}
+            onDiscardDraft={(draft) => { void discardThreadDraft(draft) }}
           />
         ))}
       </div>

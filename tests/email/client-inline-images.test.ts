@@ -56,8 +56,9 @@ describe('cid image rewriting', () => {
       subject: 'Inline image',
     }))
     const frame = view.container.querySelector('iframe')
-    expect(frame?.getAttribute('sandbox')).toBe('allow-scripts allow-popups allow-popups-to-escape-sandbox')
+    expect(frame?.getAttribute('sandbox')).toBe('allow-same-origin allow-popups allow-popups-to-escape-sandbox')
     const document = frame?.getAttribute('srcdoc') ?? ''
+    expect(document).toContain("script-src 'none'")
     expect(document).toContain('src="/api/email/files/att1"')
     expect(document).not.toContain('cid:')
     expect(document).not.toContain('alert(1)')

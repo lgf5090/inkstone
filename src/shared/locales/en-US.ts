@@ -964,6 +964,8 @@ export const EN_US_MESSAGES = {
     "email.list.empty.search": "No matching messages",
     "email.list.error": "Messages could not be loaded.",
     "email.list.has_attachment": "Has attachments",
+    "email.list.hide": "Hide message list",
+    "email.list.show": "Show message list",
     "email.list.loading": "Loading messages…",
     "email.list.mark_read": "Mark as read",
     "email.list.mark_unread": "Mark as unread",

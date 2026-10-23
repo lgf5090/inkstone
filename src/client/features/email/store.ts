@@ -310,6 +310,8 @@ function findSummary(state: EmailState, id: string): EmailSummary | null {
   return state.messages.find((entry) => entry.id === id)
     ?? state.trash.find((entry) => entry.id === id)
     ?? (state.selectedMessage?.id === id ? state.selectedMessage : null)
+    ?? state.thread.find((entry) => entry.id === id)
+    ?? null
 }
 
 export const useEmailStore = create<EmailState>((set, get) => ({

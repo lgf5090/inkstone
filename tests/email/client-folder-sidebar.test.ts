@@ -162,6 +162,9 @@ describe('the collapsed folder rail', () => {
     expect(useUi.getState().emailNavCollapsed).toBe(true)
     act(() => { useUi.getState().setLayout({ emailNavWidth: 300 }) })
     expect(useUi.getState().emailNavWidth).toBe(300)
+    expect(useUi.getState().emailListCollapsed).toBe(false)
+    act(() => { useUi.getState().toggleEmailList() })
+    expect(useUi.getState().emailListCollapsed).toBe(true)
   })
 })
 

@@ -82,6 +82,22 @@ describe('the mailbox store', () => {
     expect(useEmailStore.getState().actionError).toBe('network down')
   })
 
+  it('deletes a draft that exists only inside the open thread', async () => {
+    const inbound = message({ id: 'm1' })
+    const draft = message({ id: 'd1', folderId: 'draft', threadId: 't1' })
+    useEmailStore.setState({
+      messages: [inbound],
+      total: 1,
+      selectedId: inbound.id,
+      selectedMessage: inbound,
+      thread: [inbound, draft],
+      listStatus: 'ready',
+    })
+    const remove = vi.spyOn(api.email, 'deleteEmail').mockResolvedValue(undefined)
+    await expect(useEmailStore.getState().deleteMessage('a1', 'd1')).resolves.toBe(true)
+    expect(remove).toHaveBeenCalledWith('a1', 'd1', false)
+  })
+
   it('ignores a stale list answer that arrives after a newer one', async () => {
     const first = deferred<{ emails: EmailSummary[]; totalCount: number }>()
     const second = deferred<{ emails: EmailSummary[]; totalCount: number }>()

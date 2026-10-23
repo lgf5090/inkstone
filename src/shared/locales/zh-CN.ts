@@ -964,6 +964,8 @@ export const ZH_CN_MESSAGES = {
     "email.list.empty.search": "没有匹配的邮件",
     "email.list.error": "邮件加载失败。",
     "email.list.has_attachment": "有附件",
+    "email.list.hide": "收起邮件列表",
+    "email.list.show": "展开邮件列表",
     "email.list.loading": "正在加载邮件…",
     "email.list.mark_read": "标为已读",
     "email.list.mark_unread": "标为未读",

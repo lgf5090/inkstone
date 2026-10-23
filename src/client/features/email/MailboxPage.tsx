@@ -3,6 +3,7 @@ import {
   Bookmark,
   Bot,
   PanelLeft,
+  PanelLeftClose,
   Paperclip,
   RefreshCw,
   Search,
@@ -174,9 +175,11 @@ export function MailboxPage({ address, account, panel = null }: { address: Mailb
   const railWidth = breakpoint === 'mobile' ? 48 : 56
   const assistantDockOpen = useUi((state) => state.assistantDockOpen)
   const navCollapsed = useUi((state) => state.emailNavCollapsed)
+  const emailListCollapsed = useUi((state) => state.emailListCollapsed)
   const navWidth = useUi((state) => state.emailNavWidth)
   const emailListWidth = useUi((state) => state.emailListWidth)
   const toggleNav = useUi((state) => state.toggleEmailNav)
+  const toggleEmailList = useUi((state) => state.toggleEmailList)
   const setLayout = useUi((state) => state.setLayout)
   const [accountsOpen, setAccountsOpen] = useState(panel === 'accounts')
   const [accountsCreating, setAccountsCreating] = useState(false)
@@ -567,6 +570,18 @@ export function MailboxPage({ address, account, panel = null }: { address: Mailb
 
   const paneTools = (
     <>
+      {desktop && (
+        <Tooltip label={t(emailListCollapsed ? 'email.list.show' : 'email.list.hide')} side="bottom">
+          <IconButton
+            label={t(emailListCollapsed ? 'email.list.show' : 'email.list.hide')}
+            size="sm"
+            className="size-11 md:size-7"
+            onClick={toggleEmailList}
+          >
+            {emailListCollapsed ? <PanelLeft size={15} /> : <PanelLeftClose size={15} />}
+          </IconButton>
+        </Tooltip>
+      )}
       <Tooltip label={t('attachments.manage')} side="bottom">
         <IconButton label={t('attachments.manage')} size="sm" className="size-11 md:size-7" onClick={() => useUi.getState().setAttachmentHub('email')}>
           <Paperclip size={15} />
@@ -640,6 +655,13 @@ export function MailboxPage({ address, account, panel = null }: { address: Mailb
           <RefreshCw size={15} className={listRefreshing ? 'animate-[ink-spin_0.7s_linear_infinite]' : undefined} />
         </IconButton>
       </Tooltip>
+      {desktop && (
+        <Tooltip label={t('email.list.hide')} side="bottom">
+          <IconButton label={t('email.list.hide')} size="sm" className="size-9" onClick={toggleEmailList}>
+            <PanelLeftClose size={15} />
+          </IconButton>
+        </Tooltip>
+      )}
     </div>
   )
 
@@ -894,17 +916,21 @@ export function MailboxPage({ address, account, panel = null }: { address: Mailb
                 onReset={() => setLayout({ emailNavWidth: DEFAULT_LAYOUT.emailNavWidth })}
               />
             )}
-            <div style={{ width: emailListWidth }} className="flex shrink-0 flex-col border-r border-[var(--border-subtle)]">
-              {listPane}
-            </div>
-            <Resizer
-              label={t('shell.resize_email_list')}
-              value={emailListWidth}
-              min={PANEL_WIDTHS.emailList.min}
-              max={PANEL_WIDTHS.emailList.max}
-              onChange={(width) => setLayout({ emailListWidth: width })}
-              onReset={() => setLayout({ emailListWidth: DEFAULT_LAYOUT.emailListWidth })}
-            />
+            {!emailListCollapsed && (
+              <>
+                <div style={{ width: emailListWidth }} className="flex shrink-0 flex-col border-r border-[var(--border-subtle)]">
+                  {listPane}
+                </div>
+                <Resizer
+                  label={t('shell.resize_email_list')}
+                  value={emailListWidth}
+                  min={PANEL_WIDTHS.emailList.min}
+                  max={PANEL_WIDTHS.emailList.max}
+                  onChange={(width) => setLayout({ emailListWidth: width })}
+                  onReset={() => setLayout({ emailListWidth: DEFAULT_LAYOUT.emailListWidth })}
+                />
+              </>
+            )}
             <div className="flex min-w-0 flex-1 flex-col overflow-hidden">{pane}</div>
           </>
         ) : (

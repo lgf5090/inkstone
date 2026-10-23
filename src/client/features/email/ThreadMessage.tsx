@@ -1,16 +1,20 @@
 import { useId } from 'react'
-import { ChevronDown, ChevronUp } from 'lucide-react'
+import { ChevronDown, ChevronUp, Send } from 'lucide-react'
 import type { EmailMessage } from '@shared/email/model'
-import { Badge } from '../../components/primitives'
+import { Badge, Button } from '../../components/primitives'
 import { t } from '../../lib/i18n'
 import { AttachmentList } from './AttachmentList'
 import { EmailFrame } from './EmailFrame'
 import { senderLabel, messageFullDate, messageSnippet } from './format'
 
-export function ThreadMessage({ message, expanded, onToggle }: {
+export function ThreadMessage({ message, expanded, onToggle, busy = false, onSendDraft, onEditDraft, onDiscardDraft }: {
   message: EmailMessage
   expanded: boolean
   onToggle: () => void
+  busy?: boolean
+  onSendDraft?: (message: EmailMessage) => void
+  onEditDraft?: (message: EmailMessage) => void
+  onDiscardDraft?: (message: EmailMessage) => void
 }) {
   const bodyId = useId()
   return (
@@ -74,6 +78,25 @@ export function ThreadMessage({ message, expanded, onToggle }: {
           <EmailFrame body={message.body} attachments={message.attachments} subject={message.subject} />
         </div>
         <AttachmentList attachments={message.attachments} label={t('email.detail.attachments', { subject: message.subject })} />
+        {message.folderId === 'draft' && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="primary"
+              icon={<Send size={13} />}
+              disabled={busy}
+              onClick={() => onSendDraft?.(message)}
+            >
+              {t('email.compose.send')}
+            </Button>
+            <Button size="sm" variant="secondary" disabled={busy} onClick={() => onEditDraft?.(message)}>
+              {t('email.detail.edit_draft')}
+            </Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => onDiscardDraft?.(message)}>
+              {t('email.detail.discard_draft')}
+            </Button>
+          </div>
+        )}
       </div>
     </article>
   )

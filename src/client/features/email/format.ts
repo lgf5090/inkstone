@@ -116,6 +116,12 @@ export function messageRecipients(message: Pick<EmailMessage, 'recipient' | 'cc'
     .filter((value): value is string => Boolean(value && value.trim()))
 }
 
+export function emailAddresses(value: string | null | undefined): string[] {
+  return [...(value ?? '').matchAll(/<([^<>\s]+@[^<>\s]+)>|([^\s,;<>]+@[^\s,;<>]+)/g)]
+    .map((match) => match[1] ?? match[2])
+    .filter((address): address is string => Boolean(address))
+}
+
 export function highlightNodes(text: string, query: string | null | undefined): ReactNode {
   if (!query) return text
   const terms = parseEmailSearchQuery(query).query

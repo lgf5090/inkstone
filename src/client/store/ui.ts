@@ -54,6 +54,7 @@ interface UiState {
   emailNavWidth: number
   emailListWidth: number
   emailNavCollapsed: boolean
+  emailListCollapsed: boolean
   listCollapsed: boolean
   searchList: boolean
   searchQuery: string
@@ -134,6 +135,7 @@ interface UiState {
   removeWorkspaceNote: (id: string) => void
   toggleNav: () => void
   toggleEmailNav: () => void
+  toggleEmailList: () => void
   toggleNavDrawer: (open?: boolean) => void
   toggleList: () => void
   openSearchList: (seed?: string) => void
@@ -211,6 +213,7 @@ const DEFAULTS = {
   ...DEFAULT_LAYOUT,
   navCollapsed: false,
   emailNavCollapsed: false,
+  emailListCollapsed: false,
   listCollapsed: true,
   view: 'all' as ViewKind,
   sidebarTab: 'library' as SidebarTab,
@@ -243,6 +246,7 @@ const PERSISTED_KEYS = [
   'emailNavWidth',
   'emailListWidth',
   'emailNavCollapsed',
+  'emailListCollapsed',
   'splitRatio',
   'outlineFloatingPosition',
   'workspaceSplitRatio',
@@ -291,6 +295,7 @@ function loadPersisted(): Partial<UiState> {
       out.emailListWidth = clamp(value.emailListWidth, PANEL_WIDTHS.emailList.min, PANEL_WIDTHS.emailList.max)
     }
     if (typeof value.emailNavCollapsed === 'boolean') out.emailNavCollapsed = value.emailNavCollapsed
+    if (typeof value.emailListCollapsed === 'boolean') out.emailListCollapsed = value.emailListCollapsed
     if (isFiniteNumber(value.splitRatio)) out.splitRatio = clamp(value.splitRatio, 0.2, 0.8)
     if (isRatioPoint(value.outlineFloatingPosition)) out.outlineFloatingPosition = value.outlineFloatingPosition
     if (isFiniteNumber(value.workspaceSplitRatio)) {
@@ -571,6 +576,7 @@ export const useUi = create<UiState>((set, get) => ({
   }),
   toggleNav: () => set((s) => ({ navCollapsed: !s.navCollapsed })),
   toggleEmailNav: () => set((s) => ({ emailNavCollapsed: !s.emailNavCollapsed })),
+  toggleEmailList: () => set((s) => ({ emailListCollapsed: !s.emailListCollapsed })),
   toggleNavDrawer: (open) => set((s) => ({ navDrawerOpen: open ?? !s.navDrawerOpen })),
   toggleList: () => set((s) => ({ listCollapsed: !s.listCollapsed })),
   openSearchList: (seed) => set((s) => ({
