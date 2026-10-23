@@ -10405,6 +10405,10 @@ const allowed = new Map([
     "// Already ignored, so already out of the choices: picking it again could only produce a repeat the",
     "// normaliser would drop, and a control that offers a value it will not keep is the trap this avoids.",
     "// Insert is claimed first, the way upstream registers the two commands, so the row that lost is Welcome.",
+    "// The editor keymap is the one claim list the runtime never consults, so this is the one case where",
+    "// promising the reader they cannot have the chord would be a lie: measured in a real browser, the",
+    "// template fires and the editor command stops. The panel has to say which of the two outcomes the",
+    "// reader is choosing.",
   ]],
   ["src/client/features/settings/TemplaterSettings.tsx", [
     "/**\n * Settings → Templater: the switches, the triggers, and the chords.\n *\n * What a reader *runs* is not here — templates are rows in the template library, the way RSS feeds are rows in\n * theirs. This page carries the small always-needed part: the editing switches, the two lists that decide which\n * template fires on a note nobody asked for, the chords, the script folder, and the three answers that gate\n * code. Each one is a field of the account's `templater` blob (`@shared/types` `TemplaterSettings`), which the\n * session store writes as one debounced request; the two dangerous \"may this run at all\" answers are deliberately\n * not in that blob and live on this device only (`lib/templater/device-prefs.ts`).\n *\n * The panel is the third place those device answers appear, after the trigger and the startup bridge, and it is\n * the first one a reader can see them in, which is why turning either on asks a question rather than flipping\n * silently: a switch that starts running code over every new note is not a preference like the font size.\n */",
@@ -10420,6 +10424,8 @@ const allowed = new Map([
     "// No chord means nothing to bind: the row leaves the list rather than sitting in it as an empty string.",
     "// A chord with nothing claimed yet gets both halves off: the reader is about to tick one,",
     "// and defaulting them on would bind two commands to a key they have not chosen yet.",
+    "// Editor claims go first on purpose: the planner keeps the last claim it sees for a chord, and a chord the",
+    "// app really does hold is refused at runtime — that answer is the one the reader has to get.",
   ]],
   ["src/client/features/settings/TemplaterTriggers.tsx", [
     "/**\n * Settings → Templater: the lists that decide which template runs unasked.\n *\n * Every row here is a pair of references — a folder and a template, a pattern and a template — and the shared\n * normaliser (`@shared/constants` `normalizeTemplaterSettings`) is what finally decides whether a row survives,\n * because it is the one place the server, the worker, and this screen agree. The panel therefore writes a whole\n * list on every edit instead of repairing rows locally: a half-valid row is dropped by that normaliser, and a\n * control that kept what the store threw away would be the worst kind of lie on this screen.\n *\n * The root folder is a choice, not a missing half — a rule filed at the root fires on every new note — so it is\n * drawn as its own labelled option rather than an empty box.\n */",
@@ -11204,7 +11210,6 @@ const allowed = new Map([
   ]],
   ["src/client/features/templater/hotkeys.ts", [
     "/** Which of the two runs a chord stands for. */",
-    "/** What kind of claimant already holds the chord a row wanted. */",
     "/** Everything the settings screen has to say about the reader's chord list, as data. */",
     "/** A chord somebody already holds, before Templater's own rows are weighed against it. */",
     "/** The ids this feature puts in the global registry, and the prefix that recognises them again. */",
@@ -11232,6 +11237,7 @@ const allowed = new Map([
     "/**\r\n * The reader's chord rows, worked out against the chords that are already held.\r\n *\r\n * Rows are walked in the order the settings screen shows them, and each row's two halves in the order\r\n * upstream registers them, so the first claim wins and everything after it is reported instead of bound —\r\n * the same rule the QuickAdd bridge applies to two choices that share a shortcut, except that the loser\r\n * here is written down rather than dropped. A row whose template has left the library binds nothing;\r\n * guessing which template the reader meant would be a worse morning than a key that does nothing.\r\n */",
     "/**\r\n * Bind the reader's template chords, and re-bind them when they change.\r\n *\r\n * Both inputs are store reads, so a chord that is edited takes effect on the render that follows the save\r\n * and a row that is deleted stops answering on its cleanup — no reload, and no stale binding left in the\r\n * registry. Nothing is bound until the library has been read, because a template that has not arrived yet\r\n * looks exactly like one that was deleted; the effect re-runs when the rows land.\r\n *\r\n * So the library is asked for here, the same way `bridge.ts` asks for the QuickAdd one: a chord the reader\r\n * set in the settings screen has to work the next time they open the app, not only after they happen to\r\n * have visited the gallery or opened the chooser. `hydrate` answers from what the account already has, so\r\n * this cannot read the library twice.\r\n */",
     "/**\r\n * What is wrong with the reader's chord list, for the screen that edits it.\r\n *\r\n * It runs the same planner the bindings come from, so the panel cannot disagree with the keyboard about\r\n * which chord is contested. The claims are read from the live registry as the component renders: a chord\r\n * taken by something that mounts later (the QuickAdd library, say) is refreshed by the next render of this\r\n * screen, which is the one the reader is in while they are choosing a key.\r\n *\r\n * A row whose template is missing is only reported once the library has actually been read. Before that a\r\n * template has simply not arrived yet, and calling every chord row broken while the notebook loads is a\r\n * worse answer than saying nothing about it.\r\n */",
+    "/**\r\n * What kind of claimant already holds the chord a row wanted.\r\n *\r\n * `editor` is the one claimant the runtime does not ask: the keymap it describes lives in the editor's own\r\n * chunk, and a template chord registered over it wins. The panel is the only place that reads that list, so\r\n * it is the only place that can say \"you are taking this from the editor\" rather than \"you cannot have it\".\r\n */",
   ]],
   ["src/client/features/templater/picker-request.test.ts", [
     "/**\n * The chooser's request signal, which is the only thing a command can actually set.\n *\n * The rule under test is the one `confirm()` states outright: with no host there is no dialog, and the ask\n * must say so rather than vanish. The folder half matters as much — the destination is the folder the\n * explorer is on, because a second channel carrying \"which folder\" is how the two start to disagree.\n */",

@@ -42,8 +42,14 @@ import { useUi } from '../../store/ui'
 /** Which of the two runs a chord stands for. */
 export type TemplaterHotkeyAction = 'insert' | 'create'
 
-/** What kind of claimant already holds the chord a row wanted. */
-export type TemplaterHotkeyClaimant = 'templater' | 'quickadd' | 'app'
+/**
+ * What kind of claimant already holds the chord a row wanted.
+ *
+ * `editor` is the one claimant the runtime does not ask: the keymap it describes lives in the editor's own
+ * chunk, and a template chord registered over it wins. The panel is the only place that reads that list, so
+ * it is the only place that can say "you are taking this from the editor" rather than "you cannot have it".
+ */
+export type TemplaterHotkeyClaimant = 'templater' | 'quickadd' | 'app' | 'editor'
 
 /**
  * One chord a reader asked for that could not be bound, or that was bound over somebody else's head.

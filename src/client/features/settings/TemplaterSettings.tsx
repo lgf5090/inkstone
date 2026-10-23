@@ -66,6 +66,7 @@ const CLAIMANT_LABELS: Record<TemplaterHotkeyClaimant, MessageKey> = {
   app: 'templater.hotkey.by_app',
   quickadd: 'templater.hotkey.by_quickadd',
   templater: 'templater.hotkey.by_other_row',
+  editor: 'templater.hotkey.by_editor',
 }
 
 export function TemplaterSettings() {
@@ -477,7 +478,7 @@ function HotkeyGroup({
           .filter((shortcut: { combo?: string }) => typeof shortcut.combo === 'string' && shortcut.combo !== '')
           .map((shortcut: { id: string, combo: string }) => ({
             combo: shortcut.combo,
-            takenBy: 'app' as const,
+            takenBy: 'editor' as const,
             owner: `editor:${shortcut.id}`,
           })))
       })
@@ -490,7 +491,9 @@ function HotkeyGroup({
   }, [])
 
   const report = useMemo(
-    () => planTemplaterHotkeys(templater.templateHotkeys, templates, [...templaterChordClaims(), ...editorClaims]).report,
+    // Editor claims go first on purpose: the planner keeps the last claim it sees for a chord, and a chord the
+    // app really does hold is refused at runtime — that answer is the one the reader has to get.
+    () => planTemplaterHotkeys(templater.templateHotkeys, templates, [...editorClaims, ...templaterChordClaims()]).report,
     [editorClaims, templates, templater.templateHotkeys],
   )
   const rows = useMemo(() => new Map(templater.templateHotkeys.map((row) => [row.templateId, row])), [templater.templateHotkeys])
@@ -579,11 +582,16 @@ function HotkeyGroup({
                 <ul className="mt-1.5 space-y-0.5">
                   {conflicts.map((conflict) => (
                     <li key={`${conflict.action}:${conflict.owner}`} className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">
-                      {t('templater.hotkey.conflict', {
-                        value0: conflict.combo,
-                        value1: t(conflict.action === 'insert' ? 'templater.hotkey.insert' : 'templater.hotkey.create'),
-                        value2: t(CLAIMANT_LABELS[conflict.takenBy]),
-                      })}
+                      {conflict.takenBy === 'editor'
+                        ? t('templater.hotkey.editor_chord', {
+                          value0: conflict.combo,
+                          value1: t(CLAIMANT_LABELS[conflict.takenBy]),
+                        })
+                        : t('templater.hotkey.conflict', {
+                          value0: conflict.combo,
+                          value1: t(conflict.action === 'insert' ? 'templater.hotkey.insert' : 'templater.hotkey.create'),
+                          value2: t(CLAIMANT_LABELS[conflict.takenBy]),
+                        })}
                     </li>
                   ))}
                 </ul>

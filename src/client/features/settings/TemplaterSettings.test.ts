@@ -423,13 +423,31 @@ describe('the chord list', () => {
     expect(settings().templater.templateHotkeys[0]).toMatchObject({ insert: true, create: false })
   })
 
-  it('names the command that already holds a chord', async () => {
-    await typeChord('Daily', 'mod+shift+arrowup')
+  it('names the app command that already holds a chord, and says the template cannot have it', async () => {
+    await typeChord('Daily', 'mod+shift+o')
     await act(async () => {
       checkboxIn('Daily', t('templater.hotkey.insert')).click()
       await Promise.resolve()
     })
     expect(templateRow('Daily').textContent).toContain(t('templater.hotkey.by_app'))
+  })
+
+  it('says a chord taken from the editor is won, not refused', async () => {
+    // The editor keymap is the one claim list the runtime never consults, so this is the one case where
+    // promising the reader they cannot have the chord would be a lie: measured in a real browser, the
+    // template fires and the editor command stops. The panel has to say which of the two outcomes the
+    // reader is choosing.
+    await typeChord('Daily', 'mod+shift+arrowup')
+    await act(async () => {
+      checkboxIn('Daily', t('templater.hotkey.insert')).click()
+      await Promise.resolve()
+    })
+    const row = templateRow('Daily').textContent ?? ''
+    expect(row).toContain(t('templater.hotkey.editor_chord', {
+      value0: 'mod+shift+arrowup',
+      value1: t('templater.hotkey.by_editor'),
+    }))
+    expect(row, 'an editor chord is not a refusal').not.toContain(t('templater.hotkey.by_app'))
   })
 
   it('tells the later row, not the first, that a chord is taken', async () => {
