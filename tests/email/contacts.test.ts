@@ -3,7 +3,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { EmailContact, EmailGroupWithMembers } from '../../src/shared/email/contacts'
-import { touchContacts } from '../../src/worker/email/contacts'
+import { listEmailContacts, rememberRecipientAddresses, touchContacts } from '../../src/worker/email/contacts'
 import type { AppBindings, Env } from '../../src/worker/env'
 import { errorResponse } from '../../src/worker/lib/errors'
 import { newId } from '../../src/worker/lib/id'
@@ -329,6 +329,17 @@ describe('contact search and ranking', () => {
 })
 
 describe('touchContacts', () => {
+  it('parses display names out of outgoing recipient lists', async () => {
+    const touched = await rememberRecipientAddresses(db, userId, [
+      'Grace Hopper <grace@example.com>, ada@example.com',
+      'Alan Turing <ALAN@example.com>',
+    ])
+    expect(touched).toBe(3)
+    const listed = await listEmailContacts(db, userId, { query: '', limit: 20 })
+    expect(listed.find((entry) => entry.email.toLowerCase() === 'grace@example.com')?.name).toBe('Grace Hopper')
+    expect(listed.find((entry) => entry.email.toLowerCase() === 'alan@example.com')?.name).toBe('Alan Turing')
+  })
+
   it('creates minimal contacts and counts repeated use', async () => {
     const touched = await touchContacts(db, userId, [
       { email: 'New@Example.com', name: 'New Person' },

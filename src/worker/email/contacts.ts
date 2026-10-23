@@ -211,6 +211,26 @@ export async function touchContacts(
   return touched
 }
 
+export async function rememberRecipientAddresses(
+  db: D1Database,
+  userId: string,
+  values: readonly string[],
+  now = Date.now(),
+): Promise<number> {
+  const contacts: EmailContactTouch[] = []
+  for (const value of values) {
+    for (const part of value.split(/[,;]/)) {
+      const trimmed = part.trim()
+      if (!trimmed) continue
+      const match = /^(.*?)<([^<>]+)>$/.exec(trimmed)
+      const email = (match?.[2] ?? trimmed).trim()
+      const name = (match?.[1] ?? '').trim().replace(/^"|"$/g, '')
+      contacts.push({ email, name })
+    }
+  }
+  return contacts.length ? touchContacts(db, userId, contacts, now) : 0
+}
+
 export async function listEmailGroups(db: D1Database, userId: string): Promise<EmailGroupWithMembers[]> {
   const { results: groups } = await db.prepare(
     `SELECT * FROM email_groups WHERE user_id = ?1 ORDER BY name COLLATE NOCASE ASC, created_at ASC`,

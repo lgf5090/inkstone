@@ -18,6 +18,7 @@ import {
   validateBody,
 } from '../email/outbound'
 import { loadEmailAttachments, lockEmailAttachments } from '../email/attachments'
+import { rememberRecipientAddresses } from '../email/contacts'
 
 type Ctx = Context<AppBindings>
 
@@ -149,6 +150,9 @@ async function sendDirect(c: Ctx, account: EmailAccountRow, input: EmailSendInpu
       ...(headers ? { headers } : {}),
     })
     await mailbox.updateDelivery(messageId, 'sent', null, sent.messageId)
+    void rememberRecipientAddresses(c.env.DB, c.get('userId'), [...to, ...cc, ...bcc]).catch((error) => {
+      console.warn('[inkstone] sent recipients could not be saved as contacts:', (error as Error).message)
+    })
     if (mode === 'reply' && original) await mailbox.markThreadRead(threadId)
     return c.json({ id: messageId, status: 'sent', messageId: sent.messageId } satisfies EmailSendResult, 202)
   } catch (error) {
@@ -248,6 +252,9 @@ emailSendRoutes.post('/accounts/:id/drafts/:draftId/send', async (c) => {
       ...(headers ? { headers } : {}),
     })
     await mailbox.updateDelivery(draftId, 'sent', null, sent.messageId)
+    void rememberRecipientAddresses(c.env.DB, c.get('userId'), [...to, ...cc, ...bcc]).catch((error) => {
+      console.warn('[inkstone] sent recipients could not be saved as contacts:', (error as Error).message)
+    })
     if (inReplyTo) await mailbox.markThreadRead(threadId)
     return c.json({ id: draftId, status: 'sent', messageId: sent.messageId } satisfies EmailSendResult, 202)
   } catch (error) {
@@ -297,6 +304,9 @@ emailSendRoutes.post('/accounts/:id/emails/:messageId/retry', async (c) => {
       ...(headers ? { headers } : {}),
     })
     await mailbox.updateDelivery(messageId, 'sent', null, sent.messageId)
+    void rememberRecipientAddresses(c.env.DB, c.get('userId'), [...to, ...cc, ...bcc]).catch((error) => {
+      console.warn('[inkstone] sent recipients could not be saved as contacts:', (error as Error).message)
+    })
     return c.json({ id: messageId, status: 'sent', messageId: sent.messageId } satisfies EmailSendResult, 202)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'The email could not be sent'

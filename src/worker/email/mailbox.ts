@@ -8,6 +8,7 @@ import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
 import { queueAutoDraftJob, readAccountSettings, type EmailAccountRow } from './account-store'
 import { deleteEmailAttachments } from './attachments'
+import { rememberRecipientAddresses } from './contacts'
 import { emailMailbox } from './mailbox-stub'
 
 export const MAX_MAILBOX_INBOUND_BYTES = EMAIL_INBOUND_MAX_BYTES
@@ -172,6 +173,9 @@ export async function handleMailboxInbound(
     })
     if (!created) throw new Error('The mailbox did not accept the inbound message')
     emailStored = true
+    void rememberRecipientAddresses(env.DB, account.user_id, [storedSender]).catch((error) => {
+      console.warn('[inkstone] inbound sender could not be saved as a contact:', (error as Error).message)
+    })
 
     await enqueueAutoDraft(env, account, emailId, threadId, parsed.headers)
     await mailbox.completeInbound(messageKey)
