@@ -4,8 +4,10 @@ import type {
   EmailRestoreData,
   FolderPatch,
   FolderRestoreData,
+  InboundRuleInput,
   TagPatch,
 } from '../../src/worker/email/mailbox-store'
+import type { EmailFilterInput, EmailFilterPatch } from '../../src/shared/email/rules'
 
 export function fakeEmailMailboxNamespace(store: MailboxStore): DurableObjectNamespace {
   const stub = {
@@ -22,6 +24,18 @@ export function fakeEmailMailboxNamespace(store: MailboxStore): DurableObjectNam
     deleteTag: (id: string) => store.deleteTag(id),
     attachTag: (messageId: string, tagId: string) => store.attachTag(messageId, tagId),
     detachTag: (messageId: string, tagId: string) => store.detachTag(messageId, tagId),
+    attachTagPaths: (messageId: string, paths: readonly string[]) => store.attachTagPaths(messageId, paths),
+    listFilters: () => store.listFilters(),
+    getFilter: (id: string) => store.getFilter(id),
+    createFilter: (input: EmailFilterInput) => store.createFilter(input),
+    updateFilter: (id: string, patch: EmailFilterPatch) => store.updateFilter(id, patch),
+    deleteFilter: (id: string) => store.deleteFilter(id),
+    listBlockedSenders: () => store.listBlockedSenders(),
+    getBlockedSender: (address: string) => store.getBlockedSender(address),
+    addBlockedSender: (address: string) => store.addBlockedSender(address),
+    removeBlockedSender: (address: string) => store.removeBlockedSender(address),
+    isBlockedSender: (address: string) => store.isBlockedSender(address),
+    evaluateInboundRules: (input: InboundRuleInput) => store.evaluateInboundRules(input),
     mailboxStats: (now?: number) => store.mailboxStats(now),
     listAllEmails: () => store.listAllEmails(),
     importFolder: (folder: FolderRestoreData) => store.importFolder(folder),

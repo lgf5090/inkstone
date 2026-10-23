@@ -155,6 +155,13 @@ import type {
   EmailGroupPatch,
   EmailGroupWithMembers,
 } from '@shared/email/contacts'
+import type {
+  EmailBlockedSender,
+  EmailBlockSenderResult,
+  EmailFilter,
+  EmailFilterInput,
+  EmailFilterPatch,
+} from '@shared/email/rules'
 import { publishBroadcast } from './db'
 import { randomLocalId } from './random-id'
 import { getLocale, t, translateApiError } from './i18n'
@@ -1209,6 +1216,21 @@ export const api = {
     detachTag: (id: string, messageId: string, tagId: string) =>
       request<void>(`/api/email/accounts/${id}/emails/${messageId}/tags/${tagId}`, { method: 'DELETE' }),
     getStats: (id: string) => request<EmailMailboxStats>(`/api/email/accounts/${id}/stats`),
+    listFilters: (id: string) => request<EmailFilter[]>(`/api/email/accounts/${id}/filters`),
+    createFilter: (id: string, input: EmailFilterInput) =>
+      request<EmailFilter>(`/api/email/accounts/${id}/filters`, { method: 'POST', body: input }),
+    updateFilter: (id: string, filterId: string, patch: EmailFilterPatch) =>
+      request<EmailFilter>(`/api/email/accounts/${id}/filters/${filterId}`, { method: 'PATCH', body: patch }),
+    deleteFilter: (id: string, filterId: string) =>
+      request<void>(`/api/email/accounts/${id}/filters/${filterId}`, { method: 'DELETE' }),
+    listBlockedSenders: (id: string) =>
+      request<EmailBlockedSender[]>(`/api/email/accounts/${id}/blocklist`),
+    addBlockedSender: (id: string, address: string) =>
+      request<EmailBlockedSender>(`/api/email/accounts/${id}/blocklist`, { method: 'POST', body: { address } }),
+    removeBlockedSender: (id: string, address: string) =>
+      request<void>(`/api/email/accounts/${id}/blocklist/${encodeURIComponent(address)}`, { method: 'DELETE' }),
+    blockSender: (id: string, messageId: string) =>
+      request<EmailBlockSenderResult>(`/api/email/accounts/${id}/emails/${messageId}/block-sender`, { method: 'POST' }),
     listContacts: (query = '') =>
       request<EmailContact[]>(`/api/email/contacts${query ? `?q=${encodeURIComponent(query)}` : ''}`),
     createContact: (input: EmailContactInput) =>

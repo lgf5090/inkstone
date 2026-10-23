@@ -11,6 +11,7 @@ import {
   Printer,
   Reply,
   ReplyAll,
+  ShieldBan,
   Star,
   Trash2,
 } from 'lucide-react'
@@ -30,7 +31,7 @@ import { folderLabel, messageFullDate, messageSubject, messageRecipients, sender
 import { SourceDialog } from './SourceDialog'
 import { ThreadMessage } from './ThreadMessage'
 import { ComposePanel } from './ComposePanel'
-import { canSnoozeMessage, snoozeMenuItems } from './MessageRow'
+import { canSnoozeMessage, blockSenderMessage, snoozeMenuItems } from './MessageRow'
 
 const TOOLBAR_BUTTON = 'size-11 md:size-7'
 const PRINT_HTML_TAG = /<[a-z][\s\S]*>/i
@@ -281,6 +282,15 @@ export function MessagePane({
     if (snoozed) onClosed()
   }
 
+  const blockSender = async (): Promise<void> => {
+    setBusy(true)
+    const blocked = await blockSenderMessage(account.id, summary)
+    setBusy(false)
+    if (!blocked) return
+    await useEmailStore.getState().refresh()
+    onClosed()
+  }
+
   const discardDraft = async (): Promise<void> => {
     const ok = await confirm({
       title: t('email.detail.discard_draft_title'),
@@ -409,6 +419,19 @@ export function MessagePane({
               label={t('email.snooze.menu')}
             />
           </>
+        )}
+        {summary.folderId !== 'sent' && summary.folderId !== 'draft' && summary.folderId !== 'trash' && (
+          <Tooltip label={t('email.rules.block_sender')}>
+            <IconButton
+              label={t('email.rules.block_sender')}
+              size="sm"
+              className={TOOLBAR_BUTTON}
+              disabled={busy}
+              onClick={() => { void blockSender() }}
+            >
+              <ShieldBan size={15} />
+            </IconButton>
+          </Tooltip>
         )}
         <Tooltip label={permanent ? t('email.detail.delete_forever') : t('email.detail.delete')}>
           <IconButton

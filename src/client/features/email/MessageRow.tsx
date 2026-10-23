@@ -1,12 +1,14 @@
 import { type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
-import { Archive, Check, Clock, FolderInput, Mail, MailOpen, Minus, Paperclip, RefreshCw, Star, Tag, Trash2 } from 'lucide-react'
+import { Archive, Check, Clock, FolderInput, Mail, MailOpen, Minus, Paperclip, RefreshCw, ShieldBan, Star, Tag, Trash2 } from 'lucide-react'
 import type { EmailFolder, EmailSummary, EmailTag } from '@shared/email/model'
 import { isEmailSystemFolder } from '@shared/email/model'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
+import { api } from '../../lib/api'
 import { Badge, IconButton } from '../../components/primitives'
-import { Menu, MenuSubmenuList, useContextMenu, type MenuItem } from '../../components/overlay'
+import { Menu, MenuSubmenuList, confirm, useContextMenu, type MenuItem } from '../../components/overlay'
 import { useUi } from '../../store/ui'
+import { emailErrorText } from './errors'
 import {
   folderLabel,
   highlightNodes,
@@ -42,6 +44,42 @@ export async function requestEmailSnooze(messageId: string, until: string): Prom
   const ok = await state.snoozeMessage(state.accountId, messageId, until)
   if (ok) useUi.getState().toast({ title: t('email.snooze.done'), tone: 'success' })
   return ok
+}
+
+export async function blockSenderMessage(accountId: string, message: EmailSummary): Promise<boolean> {
+  const ok = await confirm({
+    title: t('email.rules.block_sender_title', { sender: senderLabel(message.sender) || message.sender }),
+    description: t('email.rules.block_sender_hint'),
+    confirmLabel: t('email.rules.block_sender'),
+    tone: 'danger',
+  })
+  if (!ok) return false
+  try {
+    await api.email.blockSender(accountId, message.id)
+    useUi.getState().toast({ title: t('email.rules.block_sender_done'), tone: 'success' })
+    return true
+  } catch (reason) {
+    useUi.getState().toast({
+      title: t('email.toast.failed'),
+      description: emailErrorText(reason),
+      tone: 'danger',
+    })
+    return false
+  }
+}
+
+export async function requestBlockSender(message: EmailSummary): Promise<boolean> {
+  const state = useEmailStore.getState()
+  if (!state.accountId) {
+    useUi.getState().toast({ title: t('email.toast.failed'), tone: 'danger' })
+    return false
+  }
+  const blocked = await blockSenderMessage(state.accountId, message)
+  if (!blocked) return false
+  const latest = useEmailStore.getState()
+  if (latest.selectedId === message.id) latest.clearOpenMessage()
+  await latest.refresh()
+  return true
 }
 
 export function SelectionBox({
@@ -132,6 +170,7 @@ export function MessageRow({
   const unread = !message.read
   const threadCount = message.threadCount ?? 1
   const failed = message.deliveryStatus === 'failed'
+  const canBlockSender = message.folderId !== 'sent' && message.folderId !== 'draft' && message.folderId !== 'trash'
   const sender = senderLabel(message.sender)
   const subject = messageSubject(message)
   const snippet = messageSnippet(message)
@@ -215,12 +254,21 @@ export function MessageRow({
       disabled: message.folderId === 'archive',
       onSelect: onArchive,
     },
+    ...(canBlockSender
+      ? [{
+          id: 'block-sender',
+          label: t('email.rules.block_sender'),
+          icon: <ShieldBan size={13} />,
+          separatorBefore: true,
+          onSelect: () => { void requestBlockSender(message) },
+        }]
+      : []),
     {
       id: 'delete',
       label: t('email.list.delete'),
       icon: <Trash2 size={13} />,
       tone: 'danger',
-      separatorBefore: true,
+      separatorBefore: !canBlockSender,
       onSelect: onDelete,
     },
   ]

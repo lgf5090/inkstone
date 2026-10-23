@@ -1,5 +1,5 @@
 import { lazy, Suspense, useRef, useState } from 'react'
-import { Camera, ChartNoAxesColumn, ContactRound, LogOut, Mail, Moon, Settings, Settings2, Sun } from 'lucide-react'
+import { Camera, ChartNoAxesColumn, ContactRound, ListFilter, LogOut, Mail, Moon, Settings, Settings2, Sun } from 'lucide-react'
 import type { EmailAccount } from '@shared/email/model'
 import { Avatar, IconButton } from '../../components/primitives'
 import { Menu, Tooltip, type MenuItem } from '../../components/overlay'
@@ -7,7 +7,7 @@ import { t } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
 import { switchThemeWithTransition, useUi } from '../../store/ui'
 import { useSession } from '../../store/session'
-import { emailContactsPath, emailFolderPath, emailSettingsPath, emailStatsPath } from './email-address'
+import { emailContactsPath, emailFolderPath, emailRulesPath, emailSettingsPath, emailStatsPath } from './email-address'
 
 const AvatarPicker = lazy(() => import('../settings/AvatarPicker').then((module) => ({ default: module.AvatarPicker })))
 
@@ -74,6 +74,15 @@ export function EmailAccountCard({
       onSelect: () => {
         onNavigate?.()
         navigateToPath(emailStatsPath(activeAccountId))
+      },
+    },
+    {
+      id: 'rules',
+      label: t('email.rules.title'),
+      icon: <ListFilter size={13} />,
+      onSelect: () => {
+        onNavigate?.()
+        navigateToPath(emailRulesPath(activeAccountId))
       },
     },
     {

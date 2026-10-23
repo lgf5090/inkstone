@@ -162,4 +162,24 @@ export const EMAIL_MAILBOX_MIGRATIONS: readonly MailboxMigration[] = [
         ON email_messages(snoozed_until) WHERE snoozed_until IS NOT NULL`)
     },
   },
+  {
+    name: '4_inbound_rules',
+    apply: (sql) => {
+      sql.exec(`CREATE TABLE IF NOT EXISTS email_filters (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        conditions_json TEXT NOT NULL,
+        actions_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )`)
+      sql.exec(`CREATE INDEX IF NOT EXISTS idx_email_filters_order
+        ON email_filters(enabled, sort_order, created_at)`)
+      sql.exec(`CREATE TABLE IF NOT EXISTS email_blocked_senders (
+        email_normalized TEXT PRIMARY KEY,
+        created_at INTEGER NOT NULL
+      )`)
+    },
+  },
 ]

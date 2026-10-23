@@ -7,11 +7,14 @@ import {
   type EmailRestoreData,
   type FolderPatch,
   type FolderRestoreData,
+  type InboundRuleInput,
+  type InboundRulePlan,
   type ListOptions,
   type SearchOptions,
   type TagPatch,
 } from './mailbox-store'
 import type { EmailBatchAction } from '@shared/email/model'
+import type { EmailFilterInput, EmailFilterPatch } from '@shared/email/rules'
 
 export class EmailMailbox extends DurableObject<Env> {
   private readonly store: MailboxStore
@@ -37,6 +40,18 @@ export class EmailMailbox extends DurableObject<Env> {
   deleteTag(id: string) { return this.store.deleteTag(id) }
   attachTag(messageId: string, tagId: string) { return this.store.attachTag(messageId, tagId) }
   detachTag(messageId: string, tagId: string) { return this.store.detachTag(messageId, tagId) }
+  attachTagPaths(messageId: string, paths: readonly string[]) { return this.store.attachTagPaths(messageId, paths) }
+  listFilters() { return this.store.listFilters() }
+  getFilter(id: string) { return this.store.getFilter(id) }
+  createFilter(input: EmailFilterInput) { return this.store.createFilter(input) }
+  updateFilter(id: string, patch: EmailFilterPatch) { return this.store.updateFilter(id, patch) }
+  deleteFilter(id: string) { return this.store.deleteFilter(id) }
+  listBlockedSenders() { return this.store.listBlockedSenders() }
+  getBlockedSender(address: string) { return this.store.getBlockedSender(address) }
+  addBlockedSender(address: string) { return this.store.addBlockedSender(address) }
+  removeBlockedSender(address: string) { return this.store.removeBlockedSender(address) }
+  isBlockedSender(address: string) { return this.store.isBlockedSender(address) }
+  evaluateInboundRules(input: InboundRuleInput): InboundRulePlan { return this.store.evaluateInboundRules(input) }
   mailboxStats(now?: number) { return this.store.mailboxStats(now) }
   listAllEmails() { return this.store.listAllEmails() }
   importFolder(folder: FolderRestoreData) { return this.store.importFolder(folder) }

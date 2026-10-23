@@ -16,6 +16,17 @@ import {
   emailFolderNameTaken,
   type EmailFolderLike,
 } from '@shared/email/folders'
+import {
+  EMAIL_FILTER_ACTION_TYPES,
+  EMAIL_FILTER_MAX_RULES,
+  parseEmailFilterActions,
+  parseEmailFilterConditions,
+  type EmailFilterAction,
+  type EmailFilterCondition,
+  type EmailFilterInput,
+  type EmailFilterPatch,
+} from '@shared/email/rules'
+import { isValidEmailTagPath, normalizeEmailTagPath } from '@shared/email/tags'
 import type { SqlExec } from './mailbox-schema'
 
 export interface EmailData {
@@ -91,6 +102,51 @@ export interface TagRow {
   color: string | null
   created_at: number
   count?: number
+}
+
+export interface EmailFilterRow {
+  id: string
+  name: string
+  enabled: number
+  sort_order: number
+  conditions_json: string
+  actions_json: string
+  created_at: number
+}
+
+export interface EmailFilterRecord {
+  id: string
+  name: string
+  enabled: boolean
+  sortOrder: number
+  conditions: EmailFilterCondition[]
+  actions: EmailFilterAction[]
+  createdAt: number
+}
+
+export interface BlockedSenderRow {
+  email_normalized: string
+  created_at: number
+}
+
+export interface InboundRuleInput {
+  sender: string
+  senderAddress: string
+  recipient: string
+  cc: string | null
+  bcc: string | null
+  subject: string
+  hasAttachment: boolean
+  size: number
+}
+
+export interface InboundRulePlan {
+  blocked: boolean
+  folderId: string
+  read: boolean
+  starred: boolean
+  trash: boolean
+  tagPaths: string[]
 }
 
 export interface FolderRestoreData {
@@ -178,6 +234,34 @@ function escapeLike(value: string): string {
 
 function normalizeSubject(value: string): string {
   return value.replace(/^(?:(?:re|fwd?|fw|aw|wg|r[eé]f|sv)\s*:\s*)+/i, '').trim().toLowerCase()
+}
+
+function emailFilterMatches(conditions: readonly EmailFilterCondition[], input: InboundRuleInput): boolean {
+  const sender = input.sender.toLowerCase()
+  const recipients = `${input.recipient} ${input.cc ?? ''} ${input.bcc ?? ''}`.toLowerCase()
+  const subject = input.subject.toLowerCase()
+  return conditions.every((condition) => {
+    switch (condition.field) {
+      case 'fromContains':
+        return sender.includes(condition.value.toLowerCase())
+      case 'toContains':
+        return recipients.includes(condition.value.toLowerCase())
+      case 'subjectContains':
+        return subject.includes(condition.value.toLowerCase())
+      case 'hasAttachment':
+        return input.hasAttachment === condition.value
+      case 'minBytes':
+        return input.size >= condition.value
+    }
+  })
+}
+
+function resolveFilterFolder(folders: readonly FolderRow[], reference: string): FolderRow | null {
+  const byId = folders.find((folder) => folder.id === reference)
+  if (byId) return byId
+  const normalized = reference.toLowerCase()
+  const named = folders.filter((folder) => folder.name.toLowerCase() === normalized)
+  return named.length === 1 ? named[0]! : null
 }
 
 export class MailboxStore {
@@ -994,6 +1078,212 @@ export class MailboxStore {
     return true
   }
 
+  private filterRecord(row: EmailFilterRow): EmailFilterRecord | null {
+    let conditionsValue: unknown
+    let actionsValue: unknown
+    try {
+      conditionsValue = JSON.parse(row.conditions_json)
+      actionsValue = JSON.parse(row.actions_json)
+    } catch (error) {
+      console.warn('[inkstone] email filter JSON could not be read', row.id, error)
+      return null
+    }
+    const conditions = parseEmailFilterConditions(conditionsValue)
+    const actions = parseEmailFilterActions(actionsValue)
+    if (!conditions || !actions) {
+      console.warn('[inkstone] email filter contents are not valid', row.id)
+      return null
+    }
+    return {
+      id: row.id,
+      name: row.name,
+      enabled: Boolean(row.enabled),
+      sortOrder: Number(row.sort_order),
+      conditions,
+      actions,
+      createdAt: Number(row.created_at),
+    }
+  }
+
+  listFilters(): EmailFilterRecord[] {
+    const records: EmailFilterRecord[] = []
+    for (const row of this.rows<EmailFilterRow>(
+      `SELECT * FROM email_filters ORDER BY sort_order ASC, created_at ASC, id ASC`,
+    )) {
+      const record = this.filterRecord(row)
+      if (record) records.push(record)
+    }
+    return records
+  }
+
+  getFilter(id: string): EmailFilterRecord | null {
+    const row = this.one<EmailFilterRow>(`SELECT * FROM email_filters WHERE id = ?1`, id)
+    return row ? this.filterRecord(row) : null
+  }
+
+  createFilter(input: EmailFilterInput): EmailFilterRecord | null {
+    const count = this.one<{ total: number }>(`SELECT COUNT(*) AS total FROM email_filters`)
+    if (Number(count?.total ?? 0) >= EMAIL_FILTER_MAX_RULES) return null
+    const next = this.one<{ next_order: number }>(
+      `SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM email_filters`,
+    )
+    const id = newId()
+    this.sql.exec(
+      `INSERT INTO email_filters (id, name, enabled, sort_order, conditions_json, actions_json, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+      id,
+      input.name,
+      input.enabled ? 1 : 0,
+      Number(next?.next_order ?? 0),
+      JSON.stringify(input.conditions),
+      JSON.stringify(input.actions),
+      Date.now(),
+    )
+    return this.getFilter(id)
+  }
+
+  updateFilter(id: string, patch: EmailFilterPatch): EmailFilterRecord | null {
+    const existing = this.one<{ id: string }>(`SELECT id FROM email_filters WHERE id = ?1`, id)
+    if (!existing) return null
+    const sets: string[] = []
+    const bindings: unknown[] = []
+    if (patch.name !== undefined) {
+      sets.push('name = ?')
+      bindings.push(patch.name)
+    }
+    if (patch.enabled !== undefined) {
+      sets.push('enabled = ?')
+      bindings.push(patch.enabled ? 1 : 0)
+    }
+    if (patch.conditions !== undefined) {
+      sets.push('conditions_json = ?')
+      bindings.push(JSON.stringify(patch.conditions))
+    }
+    if (patch.actions !== undefined) {
+      sets.push('actions_json = ?')
+      bindings.push(JSON.stringify(patch.actions))
+    }
+    if (!sets.length) return this.getFilter(id)
+    bindings.push(id)
+    this.sql.exec(`UPDATE email_filters SET ${sets.join(', ')} WHERE id = ?`, ...bindings)
+    return this.getFilter(id)
+  }
+
+  deleteFilter(id: string): boolean {
+    const existing = this.one<{ id: string }>(`SELECT id FROM email_filters WHERE id = ?1`, id)
+    if (!existing) return false
+    this.sql.exec(`DELETE FROM email_filters WHERE id = ?1`, id)
+    return true
+  }
+
+  listBlockedSenders(): BlockedSenderRow[] {
+    return this.rows<BlockedSenderRow>(
+      `SELECT email_normalized, created_at FROM email_blocked_senders
+        ORDER BY created_at DESC, email_normalized ASC`,
+    )
+  }
+
+  getBlockedSender(address: string): BlockedSenderRow | null {
+    const normalized = address.trim().toLowerCase()
+    if (!normalized) return null
+    return this.one<BlockedSenderRow>(
+      `SELECT email_normalized, created_at FROM email_blocked_senders WHERE email_normalized = ?1`,
+      normalized,
+    )
+  }
+
+  addBlockedSender(address: string): BlockedSenderRow | null {
+    const normalized = address.trim().toLowerCase()
+    if (!normalized) return null
+    this.sql.exec(
+      `INSERT OR IGNORE INTO email_blocked_senders (email_normalized, created_at) VALUES (?1, ?2)`,
+      normalized,
+      Date.now(),
+    )
+    return this.getBlockedSender(normalized)
+  }
+
+  removeBlockedSender(address: string): boolean {
+    const normalized = address.trim().toLowerCase()
+    if (!normalized) return false
+    if (!this.getBlockedSender(normalized)) return false
+    this.sql.exec(`DELETE FROM email_blocked_senders WHERE email_normalized = ?1`, normalized)
+    return true
+  }
+
+  isBlockedSender(address: string): boolean {
+    const normalized = address.trim().toLowerCase()
+    if (!normalized) return false
+    return Boolean(this.one<{ email_normalized: string }>(
+      `SELECT email_normalized FROM email_blocked_senders WHERE email_normalized = ?1`,
+      normalized,
+    ))
+  }
+
+  evaluateInboundRules(input: InboundRuleInput): InboundRulePlan {
+    if (input.senderAddress && this.isBlockedSender(input.senderAddress)) {
+      return { blocked: true, folderId: 'spam', read: true, starred: false, trash: false, tagPaths: [] }
+    }
+    const folders = this.folderRows()
+    let folderId = 'inbox'
+    let read = false
+    let starred = false
+    let trash = false
+    const tagPaths: string[] = []
+    for (const filter of this.listFilters()) {
+      if (!filter.enabled || !emailFilterMatches(filter.conditions, input)) continue
+      for (const type of EMAIL_FILTER_ACTION_TYPES) {
+        for (const action of filter.actions) {
+          if (action.type !== type) continue
+          if (action.type === 'moveTo') {
+            const target = resolveFilterFolder(folders, action.folder)
+            if (!target) {
+              console.warn('[inkstone] email filter move target was not found', filter.id, action.folder)
+              continue
+            }
+            folderId = target.id
+            if (target.id === 'trash') trash = true
+          } else if (action.type === 'addTag') {
+            if (!tagPaths.some((path) => path.toLowerCase() === action.tag.toLowerCase())) {
+              tagPaths.push(action.tag)
+            }
+          } else if (action.type === 'markRead') {
+            read = true
+          } else if (action.type === 'star') {
+            starred = true
+          } else if (action.type === 'trash') {
+            trash = true
+          }
+        }
+      }
+    }
+    return { blocked: false, folderId, read, starred, trash, tagPaths }
+  }
+
+  attachTagPaths(messageId: string, paths: readonly string[]): string[] {
+    const applied: string[] = []
+    for (const path of paths) {
+      const normalized = normalizeEmailTagPath(path)
+      if (!isValidEmailTagPath(normalized)) {
+        console.warn('[inkstone] email filter tag path is not valid', path)
+        continue
+      }
+      let tag = this.findTagByPath(normalized)
+      if (!tag) tag = this.createTag(normalized, null)
+      if (!tag) tag = this.findTagByPath(normalized)
+      if (!tag) {
+        console.warn('[inkstone] email filter tag could not be created', normalized)
+        continue
+      }
+      if (!this.attachTag(messageId, tag.id)) {
+        console.warn('[inkstone] email filter tag could not be attached', messageId, normalized)
+        continue
+      }
+      applied.push(tag.name)
+    }
+    return applied
+  }
+
   searchEmails(options: SearchOptions): EmailRow[] {
     const built = this.buildSearch(options)
     const page = Math.max(1, Math.trunc(options.page ?? 1))
@@ -1394,7 +1684,7 @@ export class MailboxStore {
   }
 
   deleteAll(): void {
-    for (const table of ['email_message_tags', 'email_tags', 'email_messages', 'email_folders', 'email_inbound_claims', 'email_operations']) {
+    for (const table of ['email_message_tags', 'email_tags', 'email_messages', 'email_folders', 'email_inbound_claims', 'email_operations', 'email_filters', 'email_blocked_senders']) {
       this.sql.exec(`DELETE FROM ${table}`)
     }
   }

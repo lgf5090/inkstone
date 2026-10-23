@@ -8,6 +8,7 @@ import { AccountListPage } from './AccountListPage'
 import { AccountSettingsPage } from './AccountSettingsPage'
 import { ContactsPage } from './ContactsPage'
 import { MailboxPage } from './MailboxPage'
+import { RulesPage } from './RulesPage'
 import { StatsPage } from './StatsPage'
 import { parseEmailAddress } from './email-address'
 import { useEmailStore } from './store'
@@ -76,5 +77,6 @@ export function EmailApp() {
     )
   }
   if (address.kind === 'stats') return <StatsPage accountId={address.accountId} />
+  if (address.kind === 'rules') return <RulesPage accountId={address.accountId} />
   return <MailboxPage address={address} account={account} />
 }

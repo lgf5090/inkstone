@@ -1,5 +1,6 @@
 import PostalMime from 'postal-mime'
 import { EMAIL_ATTACHMENT_MAX_BYTES, EMAIL_INBOUND_MAX_BYTES } from '@shared/email/model'
+import { normalizeEmailSenderAddress } from '@shared/email/rules'
 import { deleteAttachmentObjects, selectAttachmentStorage } from '../attachments/backend'
 import { persistEmailAttachment } from '../attachments/storage'
 import type { Env } from '../env'
@@ -38,11 +39,7 @@ interface PersistedInboundAttachments {
 }
 
 export function normalizeEnvelopeAddress(value: string): string {
-  const text = value.trim()
-  const open = text.lastIndexOf('<')
-  const close = open >= 0 ? text.indexOf('>', open + 1) : -1
-  const address = open >= 0 && close > open ? text.slice(open + 1, close).trim() : text
-  return address.toLowerCase()
+  return normalizeEmailSenderAddress(value)
 }
 
 export function extractInboundMessageIds(value: string | null | undefined): string[] {
@@ -150,7 +147,18 @@ export async function handleMailboxInbound(
     const cc = formatAddressList(parsed.cc) || null
     const bcc = formatAddressList(parsed.bcc) || null
 
-    const created = await mailbox.createEmail('inbox', {
+    const plan = await mailbox.evaluateInboundRules({
+      sender: storedSender,
+      senderAddress: normalizeEmailSenderAddress(parsed.from?.address ?? '') || sender,
+      recipient,
+      cc,
+      bcc,
+      subject,
+      hasAttachment: attachments.count > 0,
+      size: message.rawSize,
+    })
+
+    const created = await mailbox.createEmail(plan.folderId, {
       id: emailId,
       subject,
       sender: storedSender,
@@ -160,8 +168,8 @@ export async function handleMailboxInbound(
       date: clampInboundDate(parsed.date, receivedAt),
       body: parsed.html || parsed.text || '',
       bodySource: null,
-      read: false,
-      starred: false,
+      read: plan.read,
+      starred: plan.starred,
       inReplyTo,
       emailReferences: JSON.stringify(references),
       threadId,
@@ -173,11 +181,17 @@ export async function handleMailboxInbound(
     })
     if (!created) throw new Error('The mailbox did not accept the inbound message')
     emailStored = true
-    void rememberRecipientAddresses(env.DB, account.user_id, [storedSender]).catch((error) => {
-      console.warn('[inkstone] inbound sender could not be saved as a contact:', (error as Error).message)
-    })
+    if (plan.tagPaths.length) await mailbox.attachTagPaths(emailId, plan.tagPaths)
+    if (plan.trash) await mailbox.trashEmail(emailId)
+    if (!plan.blocked && !plan.trash) {
+      void rememberRecipientAddresses(env.DB, account.user_id, [storedSender]).catch((error) => {
+        console.warn('[inkstone] inbound sender could not be saved as a contact:', (error as Error).message)
+      })
+    }
 
-    await enqueueAutoDraft(env, account, emailId, threadId, parsed.headers)
+    if (!plan.trash && plan.folderId !== 'spam') {
+      await enqueueAutoDraft(env, account, emailId, threadId, parsed.headers)
+    }
     await mailbox.completeInbound(messageKey)
     return 'created'
   } catch (error) {
