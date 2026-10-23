@@ -30,6 +30,13 @@ import {
 } from '@shared/email/rules'
 import { isValidEmailTagPath, normalizeEmailTagPath } from '@shared/email/tags'
 import {
+  EMAIL_SAVED_SEARCH_MAX,
+  normalizeEmailSavedSearchName,
+  normalizeEmailSavedSearchQuery,
+  type EmailSavedSearchInput,
+  type EmailSavedSearchPatch,
+} from '@shared/email/searches'
+import {
   EMAIL_TEMPLATE_MAX,
   type EmailTemplateInput,
   type EmailTemplatePatch,
@@ -151,6 +158,13 @@ export interface EmailTemplateRow {
   body: string
   created_at: number
   updated_at: number
+}
+
+export interface EmailSavedSearchRow {
+  id: string
+  name: string
+  query: string
+  created_at: number
 }
 
 export interface InboundRuleInput {
@@ -1406,6 +1420,78 @@ export class MailboxStore {
     return true
   }
 
+  listSavedSearches(): EmailSavedSearchRow[] {
+    return this.rows<EmailSavedSearchRow>(
+      `SELECT id, name, query, created_at FROM email_saved_searches
+        ORDER BY created_at ASC, id ASC`,
+    )
+  }
+
+  countSavedSearches(): number {
+    const row = this.one<{ total: number }>(`SELECT COUNT(*) AS total FROM email_saved_searches`)
+    return Number(row?.total ?? 0)
+  }
+
+  getSavedSearch(id: string): EmailSavedSearchRow | null {
+    return this.one<EmailSavedSearchRow>(
+      `SELECT id, name, query, created_at FROM email_saved_searches WHERE id = ?1`,
+      id,
+    )
+  }
+
+  createSavedSearch(input: EmailSavedSearchInput): EmailSavedSearchRow | null {
+    const name = normalizeEmailSavedSearchName(input.name)
+    const query = normalizeEmailSavedSearchQuery(input.query)
+    if (!name || !query) return null
+    if (this.countSavedSearches() >= EMAIL_SAVED_SEARCH_MAX) return null
+    if (this.one<{ id: string }>(`SELECT id FROM email_saved_searches WHERE name = ?1 COLLATE NOCASE`, name)) {
+      return null
+    }
+    const id = newId()
+    this.sql.exec(
+      `INSERT INTO email_saved_searches (id, name, query, created_at) VALUES (?1, ?2, ?3, ?4)`,
+      id,
+      name,
+      query,
+      Date.now(),
+    )
+    return this.getSavedSearch(id)
+  }
+
+  updateSavedSearch(id: string, patch: EmailSavedSearchPatch): EmailSavedSearchRow | null {
+    if (!this.one<{ id: string }>(`SELECT id FROM email_saved_searches WHERE id = ?1`, id)) return null
+    const sets: string[] = []
+    const bindings: unknown[] = []
+    if (patch.name !== undefined) {
+      const name = normalizeEmailSavedSearchName(patch.name)
+      if (!name) return null
+      const duplicate = this.one<{ id: string }>(
+        `SELECT id FROM email_saved_searches WHERE name = ?1 COLLATE NOCASE AND id != ?2`,
+        name,
+        id,
+      )
+      if (duplicate) return null
+      sets.push('name = ?')
+      bindings.push(name)
+    }
+    if (patch.query !== undefined) {
+      const query = normalizeEmailSavedSearchQuery(patch.query)
+      if (!query) return null
+      sets.push('query = ?')
+      bindings.push(query)
+    }
+    if (!sets.length) return this.getSavedSearch(id)
+    bindings.push(id)
+    this.sql.exec(`UPDATE email_saved_searches SET ${sets.join(', ')} WHERE id = ?`, ...bindings)
+    return this.getSavedSearch(id)
+  }
+
+  deleteSavedSearch(id: string): boolean {
+    if (!this.one<{ id: string }>(`SELECT id FROM email_saved_searches WHERE id = ?1`, id)) return false
+    this.sql.exec(`DELETE FROM email_saved_searches WHERE id = ?1`, id)
+    return true
+  }
+
   listBlockedSenders(): BlockedSenderRow[] {
     return this.rows<BlockedSenderRow>(
       `SELECT email_normalized, created_at FROM email_blocked_senders
@@ -1923,7 +2009,7 @@ export class MailboxStore {
   }
 
   deleteAll(): void {
-    for (const table of ['email_message_tags', 'email_tags', 'email_messages', 'email_folders', 'email_inbound_claims', 'email_operations', 'email_filters', 'email_blocked_senders', 'email_templates']) {
+    for (const table of ['email_message_tags', 'email_tags', 'email_messages', 'email_folders', 'email_inbound_claims', 'email_operations', 'email_filters', 'email_blocked_senders', 'email_templates', 'email_saved_searches']) {
       this.sql.exec(`DELETE FROM ${table}`)
     }
   }

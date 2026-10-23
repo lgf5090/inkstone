@@ -167,6 +167,11 @@ import type {
   EmailTemplateInput,
   EmailTemplatePatch,
 } from '@shared/email/templates'
+import type {
+  EmailSavedSearch,
+  EmailSavedSearchInput,
+  EmailSavedSearchPatch,
+} from '@shared/email/searches'
 import { publishBroadcast } from './db'
 import { randomLocalId } from './random-id'
 import { getLocale, t, translateApiError } from './i18n'
@@ -1236,6 +1241,14 @@ export const api = {
       request<EmailTemplate>(`/api/email/accounts/${id}/templates/${templateId}`, { method: 'PATCH', body: patch }),
     deleteTemplate: (id: string, templateId: string) =>
       request<void>(`/api/email/accounts/${id}/templates/${templateId}`, { method: 'DELETE' }),
+    listSearches: (id: string) =>
+      request<EmailSavedSearch[]>(`/api/email/accounts/${id}/searches`),
+    createSearch: (id: string, input: EmailSavedSearchInput) =>
+      request<EmailSavedSearch>(`/api/email/accounts/${id}/searches`, { method: 'POST', body: input }),
+    updateSearch: (id: string, searchId: string, patch: EmailSavedSearchPatch) =>
+      request<EmailSavedSearch>(`/api/email/accounts/${id}/searches/${searchId}`, { method: 'PATCH', body: patch }),
+    deleteSearch: (id: string, searchId: string) =>
+      request<void>(`/api/email/accounts/${id}/searches/${searchId}`, { method: 'DELETE' }),
     listBlockedSenders: (id: string) =>
       request<EmailBlockedSender[]>(`/api/email/accounts/${id}/blocklist`),
     addBlockedSender: (id: string, address: string) =>

@@ -162,6 +162,7 @@ describe('mailbox migrations', () => {
       '5_email_templates',
       '6_message_flags',
       '7_focused_inbox',
+      '8_saved_searches',
     ])
     const ruleTables = legacy.prepare(
       `SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('email_filters', 'email_blocked_senders')`,
@@ -172,9 +173,14 @@ describe('mailbox migrations', () => {
     ).all() as Array<{ name: string }>
     expect(templateTables.map((table) => table.name)).toEqual(['email_templates'])
 
+    const searchTables = legacy.prepare(
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'email_saved_searches'`,
+    ).all() as Array<{ name: string }>
+    expect(searchTables.map((table) => table.name)).toEqual(['email_saved_searches'])
+
     applyMailboxMigrations(sql)
     const reapplied = legacy.prepare(`SELECT COUNT(*) AS total FROM email_migrations`).get() as { total: number }
-    expect(reapplied.total).toBe(7)
+    expect(reapplied.total).toBe(8)
     const folderCount = legacy.prepare(`SELECT COUNT(*) AS total FROM email_folders`).get() as { total: number }
     expect(folderCount.total).toBe(7)
   })

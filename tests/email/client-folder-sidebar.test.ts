@@ -2,10 +2,11 @@
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EmailFolder } from '@shared/email/model'
+import type { EmailSavedSearch } from '@shared/email/searches'
 import { renderElement } from '../../src/client/lib/test-render'
 import { t } from '../../src/client/lib/i18n'
 import { useUi } from '../../src/client/store/ui'
-import { prompt } from '../../src/client/components/overlay'
+import { confirm, prompt } from '../../src/client/components/overlay'
 import { FolderSidebar, FolderSidebarRail } from '../../src/client/features/email/FolderSidebar'
 
 vi.mock('../../src/client/components/overlay', async (importOriginal) => {
@@ -29,9 +30,16 @@ const folders: EmailFolder[] = [
 
 const uiOriginal = useUi.getState()
 
+const savedSearches: EmailSavedSearch[] = [
+  { id: 's-invoices', name: 'Invoices', query: 'from:billing is:unread', createdAt: '2026-01-01T00:00:00.000Z' },
+  { id: 's-team', name: 'Team', query: 'tag:team', createdAt: '2026-01-02T00:00:00.000Z' },
+]
+
 beforeEach(() => {
   vi.mocked(prompt).mockReset()
   vi.mocked(prompt).mockResolvedValue(null)
+  vi.mocked(confirm).mockReset()
+  vi.mocked(confirm).mockResolvedValue(false)
 })
 
 afterEach(() => {
@@ -60,6 +68,15 @@ function sidebarProps(overrides: Record<string, unknown> = {}) {
     activeTagName: null,
     onSelectTag: vi.fn(),
     onReloadTags: vi.fn(async () => undefined),
+    searches: [],
+    searchesStatus: 'ready' as const,
+    searchesError: null,
+    activeSearchQuery: null,
+    onSelectSearch: vi.fn(),
+    onSaveCurrentSearch: vi.fn(),
+    onRenameSearch: vi.fn(async (_id: string, _name: string) => undefined),
+    onDeleteSearch: vi.fn(async (_id: string) => undefined),
+    onReloadSearches: vi.fn(async () => undefined),
     ...overrides,
   }
 }
@@ -81,6 +98,13 @@ function treeRow(label: string): HTMLButtonElement {
 function maybeTreeRow(label: string): HTMLButtonElement | null {
   return [...document.querySelectorAll<HTMLButtonElement>('button[data-tree-row]')]
     .find((node) => node.textContent?.includes(label)) ?? null
+}
+
+function savedSearchRow(label: string): HTMLButtonElement {
+  const found = [...document.querySelectorAll<HTMLButtonElement>('button[data-email-search-row]')]
+    .find((node) => node.textContent?.includes(label))
+  if (!found) throw new Error(`no saved search row named ${label}`)
+  return found
 }
 
 function menuItem(label: string): HTMLButtonElement {
@@ -212,6 +236,82 @@ describe('the nested folder tree', () => {
     expect(onSelectSystemSearch).toHaveBeenCalledWith('is:important')
     act(() => { followUp.click() })
     expect(onSelectSystemSearch).toHaveBeenCalledWith('is:followup')
+    view.unmount()
+  })
+})
+
+describe('the saved searches section', () => {
+  it('sits under the tags, marks the current query and opens a saved search', () => {
+    const onSelectSearch = vi.fn()
+    const view = renderElement(createElement(FolderSidebar, sidebarProps({
+      searches: savedSearches,
+      activeSearchQuery: 'from:billing is:unread',
+      onSelectSearch,
+    })))
+    const section = document.querySelector<HTMLElement>(`nav[aria-label="${t('email.saved_search.section')}"]`)
+    const tags = document.querySelector<HTMLElement>(`nav[aria-label="${t('email.a11y.tags')}"]`)
+    expect(section).not.toBeNull()
+    expect(tags!.compareDocumentPosition(section!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(savedSearchRow('Invoices').getAttribute('aria-current')).toBe('page')
+    expect(savedSearchRow('Team').getAttribute('aria-current')).toBeNull()
+
+    act(() => { savedSearchRow('Team').click() })
+    expect(onSelectSearch).toHaveBeenCalledWith('tag:team')
+    view.unmount()
+  })
+
+  it('disables the save button outside search and saves the active query', () => {
+    const onSaveCurrentSearch = vi.fn()
+    const idle = renderElement(createElement(FolderSidebar, sidebarProps({
+      searches: savedSearches,
+      onSaveCurrentSearch,
+    })))
+    expect(button(t('email.saved_search.new')).disabled).toBe(true)
+    idle.unmount()
+
+    const active = renderElement(createElement(FolderSidebar, sidebarProps({
+      searches: savedSearches,
+      activeSearchQuery: 'tag:team',
+      onSaveCurrentSearch,
+    })))
+    const save = button(t('email.saved_search.new'))
+    expect(save.disabled).toBe(false)
+    act(() => { save.click() })
+    expect(onSaveCurrentSearch).toHaveBeenCalledTimes(1)
+    active.unmount()
+  })
+
+  it('renames a saved search from its row menu', async () => {
+    const onRenameSearch = vi.fn(async (_id: string, _name: string) => undefined)
+    vi.mocked(prompt).mockResolvedValue('Billing')
+    const view = renderElement(createElement(FolderSidebar, sidebarProps({
+      searches: savedSearches,
+      onRenameSearch,
+    })))
+    openRowMenu(savedSearchRow('Invoices'))
+    expect(menuItem(t('email.saved_search.rename'))).toBeTruthy()
+    expect(menuItem(t('email.saved_search.delete'))).toBeTruthy()
+    await act(async () => {
+      menuItem(t('email.saved_search.rename')).click()
+      for (let index = 0; index < 10; index++) await Promise.resolve()
+    })
+    expect(onRenameSearch).toHaveBeenCalledWith('s-invoices', 'Billing')
+    view.unmount()
+  })
+
+  it('deletes a saved search after confirmation', async () => {
+    const onDeleteSearch = vi.fn(async (_id: string) => undefined)
+    vi.mocked(confirm).mockResolvedValue(true)
+    const view = renderElement(createElement(FolderSidebar, sidebarProps({
+      searches: savedSearches,
+      onDeleteSearch,
+    })))
+    openRowMenu(savedSearchRow('Team'))
+    await act(async () => {
+      menuItem(t('email.saved_search.delete')).click()
+      for (let index = 0; index < 10; index++) await Promise.resolve()
+    })
+    expect(onDeleteSearch).toHaveBeenCalledWith('s-team')
     view.unmount()
   })
 })

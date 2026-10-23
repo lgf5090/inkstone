@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import {
+  Bookmark,
   Bot,
   PanelLeft,
   Paperclip,
@@ -13,7 +14,7 @@ import { MAX_EMAIL_CONTEXT_SNIPPET, type EmailAssistantContext } from '@shared/e
 import { parseEmailSearchQuery } from '@shared/email/search'
 import { Button, IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
-import { Drawer, confirm } from '../../components/overlay'
+import { Drawer, confirm, prompt } from '../../components/overlay'
 import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { navigateToAddress, navigateToPath } from '../../lib/app-history'
@@ -64,6 +65,9 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
   const tags = useEmailStore((state) => state.tags)
   const tagsStatus = useEmailStore((state) => state.tagsStatus)
   const tagsError = useEmailStore((state) => state.tagsError)
+  const searches = useEmailStore((state) => state.searches)
+  const searchesStatus = useEmailStore((state) => state.searchesStatus)
+  const searchesError = useEmailStore((state) => state.searchesError)
   const accounts = useEmailStore((state) => state.accounts)
   const messages = useEmailStore((state) => state.messages)
   const total = useEmailStore((state) => state.total)
@@ -85,6 +89,10 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
   const clearActionError = useEmailStore((state) => state.clearActionError)
   const loadFolders = useEmailStore((state) => state.loadFolders)
   const loadTags = useEmailStore((state) => state.loadTags)
+  const loadSearches = useEmailStore((state) => state.loadSearches)
+  const createSearch = useEmailStore((state) => state.createSearch)
+  const renameSearch = useEmailStore((state) => state.renameSearch)
+  const deleteSearch = useEmailStore((state) => state.deleteSearch)
   const createFolder = useEmailStore((state) => state.createFolder)
   const renameFolder = useEmailStore((state) => state.renameFolder)
   const updateFolder = useEmailStore((state) => state.updateFolder)
@@ -161,6 +169,10 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
   useEffect(() => {
     void loadTags(account.id)
   }, [account.id, loadTags])
+
+  useEffect(() => {
+    void loadSearches(account.id)
+  }, [account.id, loadSearches])
 
   useEffect(() => {
     setFocusFilter('all')
@@ -303,6 +315,27 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
 
   const selectTag = (name: string): void => {
     openSearch(emailTagSearchQuery(name))
+  }
+
+  const saveCurrentSearch = async (): Promise<void> => {
+    if (!searchMode) return
+    const raw = query.trim()
+    if (!raw) return
+    const name = await prompt({
+      title: t('email.saved_search.save_title'),
+      description: t('email.saved_search.save_hint'),
+      placeholder: query,
+      confirmLabel: t('email.saved_search.save'),
+    })
+    if (name === null) return
+    const trimmed = name.trim()
+    if (!trimmed) return
+    try {
+      await createSearch(account.id, trimmed, query)
+      useUi.getState().toast({ title: t('email.saved_search.saved'), tone: 'success' })
+    } catch (reason) {
+      reportEmailFailure(reason)
+    }
   }
 
   const moveTo = (summary: EmailSummary, folderIdTo: string): void => {
@@ -490,6 +523,15 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
         </IconButton>
       )}
       {searchField}
+      <IconButton
+        label={t('email.saved_search.save_action')}
+        size="sm"
+        className="size-9"
+        disabled={!searchMode}
+        onClick={() => { void saveCurrentSearch() }}
+      >
+        <Bookmark size={15} />
+      </IconButton>
       <IconButton label={t('email.header.refresh')} size="sm" className="size-9" onClick={refreshNow} disabled={listRefreshing}>
         <RefreshCw size={15} className={listRefreshing ? 'animate-[ink-spin_0.7s_linear_infinite]' : undefined} />
       </IconButton>
@@ -517,6 +559,15 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
       activeTagName={activeTagName}
       onSelectTag={selectTag}
       onReloadTags={() => loadTags(account.id)}
+      searches={searches}
+      searchesStatus={searchesStatus}
+      searchesError={searchesError}
+      activeSearchQuery={searchMode ? query : null}
+      onSelectSearch={openSearch}
+      onSaveCurrentSearch={() => { void saveCurrentSearch() }}
+      onRenameSearch={(searchId, name) => renameSearch(account.id, searchId, name)}
+      onDeleteSearch={(searchId) => deleteSearch(account.id, searchId)}
+      onReloadSearches={() => loadSearches(account.id)}
       onClose={() => setFolderDrawer(false)}
       onCollapse={desktop ? toggleNav : undefined}
       footer={<EmailAccountCard accounts={accounts} activeAccountId={account.id} compact={compactCard} onNavigate={() => setFolderDrawer(false)} />}

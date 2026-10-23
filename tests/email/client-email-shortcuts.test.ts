@@ -81,6 +81,7 @@ beforeEach(() => {
   window.history.replaceState(null, '', '/email/accounts/a1/folders/inbox')
   vi.spyOn(api.email, 'listFolders').mockResolvedValue(folders)
   vi.spyOn(api.email, 'listTags').mockResolvedValue([])
+  vi.spyOn(api.email, 'listSearches').mockResolvedValue([])
   vi.spyOn(api.email, 'listEmails').mockResolvedValue({ emails: [], totalCount: 0 })
   vi.spyOn(api.email, 'getEmail').mockResolvedValue(message)
 })

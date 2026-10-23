@@ -14,6 +14,7 @@ import {
   type TagPatch,
 } from './mailbox-store'
 import type { EmailBatchAction } from '@shared/email/model'
+import type { EmailSavedSearchInput, EmailSavedSearchPatch } from '@shared/email/searches'
 import type { EmailFilterInput, EmailFilterPatch } from '@shared/email/rules'
 import type { EmailTemplateInput, EmailTemplatePatch } from '@shared/email/templates'
 
@@ -53,6 +54,12 @@ export class EmailMailbox extends DurableObject<Env> {
   createTemplate(input: EmailTemplateInput) { return this.store.createTemplate(input) }
   updateTemplate(id: string, patch: EmailTemplatePatch) { return this.store.updateTemplate(id, patch) }
   deleteTemplate(id: string) { return this.store.deleteTemplate(id) }
+  listSavedSearches() { return this.store.listSavedSearches() }
+  countSavedSearches() { return this.store.countSavedSearches() }
+  getSavedSearch(id: string) { return this.store.getSavedSearch(id) }
+  createSavedSearch(input: EmailSavedSearchInput) { return this.store.createSavedSearch(input) }
+  updateSavedSearch(id: string, patch: EmailSavedSearchPatch) { return this.store.updateSavedSearch(id, patch) }
+  deleteSavedSearch(id: string) { return this.store.deleteSavedSearch(id) }
   listBlockedSenders() { return this.store.listBlockedSenders() }
   getBlockedSender(address: string) { return this.store.getBlockedSender(address) }
   addBlockedSender(address: string) { return this.store.addBlockedSender(address) }

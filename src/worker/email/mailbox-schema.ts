@@ -233,4 +233,17 @@ export const EMAIL_MAILBOX_MIGRATIONS: readonly MailboxMigration[] = [
         ON email_messages(folder_id, focused)`)
     },
   },
+  {
+    name: '8_saved_searches',
+    apply: (sql) => {
+      sql.exec(`CREATE TABLE IF NOT EXISTS email_saved_searches (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        query TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )`)
+      sql.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_email_saved_searches_name
+        ON email_saved_searches(name COLLATE NOCASE)`)
+    },
+  },
 ]

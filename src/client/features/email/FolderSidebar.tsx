@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
-import { AlarmClock, Archive, ChevronRight, FileText, Flag, FolderClosed, FolderPlus, Inbox, MoreHorizontal, PanelLeft, PanelLeftClose, Palette, Pencil, Plus, Send, Trash2 } from 'lucide-react'
+import { AlarmClock, Archive, Bookmark, ChevronRight, FileText, Flag, FolderClosed, FolderPlus, Inbox, MoreHorizontal, PanelLeft, PanelLeftClose, Palette, Pencil, Plus, Send, Trash2 } from 'lucide-react'
 import type { EmailFolder, EmailSystemFolder, EmailTag } from '@shared/email/model'
 import { EMAIL_SIDEBAR_FOLDERS, isEmailSystemFolder } from '@shared/email/model'
+import type { EmailSavedSearch } from '@shared/email/searches'
+import { emailSearchQueriesEqual } from '@shared/email/searches'
 import {
   emailFolderDepthAllowed,
   emailFolderDescendantIds,
@@ -11,7 +13,7 @@ import {
 } from '@shared/email/folders'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
-import { IconButton, SectionLabel } from '../../components/primitives'
+import { Button, IconButton, SectionLabel, Spinner } from '../../components/primitives'
 import { Menu, Tooltip, confirm, prompt, useContextMenu, type MenuItem } from '../../components/overlay'
 import { useDropState } from '../../lib/drop-state'
 import { treeIndent, treeItemProps, useExpandedSet, useTreeKeyboard, type MoveMenuFolder } from '../../lib/tree'
@@ -108,6 +110,15 @@ export function FolderSidebar({
   activeTagName,
   onSelectTag,
   onReloadTags,
+  searches,
+  searchesStatus,
+  searchesError,
+  activeSearchQuery,
+  onSelectSearch,
+  onSaveCurrentSearch,
+  onRenameSearch,
+  onDeleteSearch,
+  onReloadSearches,
   onClose,
   onCollapse,
   footer,
@@ -131,6 +142,15 @@ export function FolderSidebar({
   activeTagName: string | null
   onSelectTag: (name: string) => void
   onReloadTags: () => Promise<void>
+  searches: readonly EmailSavedSearch[]
+  searchesStatus: EmailLoadStatus
+  searchesError: string | null
+  activeSearchQuery: string | null
+  onSelectSearch: (query: string) => void
+  onSaveCurrentSearch: () => void
+  onRenameSearch: (searchId: string, name: string) => Promise<void>
+  onDeleteSearch: (searchId: string) => Promise<void>
+  onReloadSearches: () => Promise<void>
   onClose?: () => void
   onCollapse?: () => void
   footer?: ReactNode
@@ -364,6 +384,20 @@ export function FolderSidebar({
           onReload={onReloadTags}
           onDropMessages={onDropTagMessages}
         />
+        <SavedSearchList
+          searches={searches}
+          status={searchesStatus}
+          error={searchesError}
+          activeSearchQuery={activeSearchQuery}
+          onSelect={(query) => {
+            onSelectSearch(query)
+            onClose?.()
+          }}
+          onSaveCurrent={onSaveCurrentSearch}
+          onRename={onRenameSearch}
+          onDelete={onDeleteSearch}
+          onReload={onReloadSearches}
+        />
       </div>
       {footer && (
         <div className="shrink-0 border-t border-[var(--border-subtle)] p-2">
@@ -583,6 +617,180 @@ function FolderBranch({
       <Menu anchor={moreRef} open={menuOpen} onClose={() => setMenuOpen(false)} items={items} width={FOLDER_MENU_WIDTH} label={t('email.folder.more_actions')} />
       {menu.point && <Menu anchor={menu.point} open onClose={menu.close} items={items} width={FOLDER_MENU_WIDTH} label={t('email.folder.more_actions')} />}
     </div>
+  )
+}
+
+function SavedSearchList({
+  searches,
+  status,
+  error,
+  activeSearchQuery,
+  onSelect,
+  onSaveCurrent,
+  onRename,
+  onDelete,
+  onReload,
+}: {
+  searches: readonly EmailSavedSearch[]
+  status: EmailLoadStatus
+  error: string | null
+  activeSearchQuery: string | null
+  onSelect: (query: string) => void
+  onSaveCurrent: () => void
+  onRename: (searchId: string, name: string) => Promise<void>
+  onDelete: (searchId: string) => Promise<void>
+  onReload: () => Promise<void>
+}) {
+  const rename = async (search: EmailSavedSearch): Promise<void> => {
+    const name = await prompt({
+      title: t('email.saved_search.rename_title', { name: search.name }),
+      defaultValue: search.name,
+      confirmLabel: t('email.saved_search.rename'),
+    })
+    if (name === null) return
+    const trimmed = name.trim()
+    if (!trimmed || trimmed === search.name) return
+    try {
+      await onRename(search.id, trimmed)
+    } catch (failure) {
+      reportEmailFailure(failure)
+    }
+  }
+
+  const remove = async (search: EmailSavedSearch): Promise<void> => {
+    const ok = await confirm({
+      title: t('email.saved_search.delete_title', { name: search.name }),
+      description: t('email.saved_search.delete_hint'),
+      confirmLabel: t('email.saved_search.delete'),
+      tone: 'danger',
+    })
+    if (!ok) return
+    try {
+      await onDelete(search.id)
+    } catch (failure) {
+      reportEmailFailure(failure)
+    }
+  }
+
+  return (
+    <nav aria-label={t('email.saved_search.section')} className="flex flex-col gap-0.5">
+      <div className="flex items-center justify-between gap-1 pr-0.5">
+        <SectionLabel className="p-0">{t('email.saved_search.section')}</SectionLabel>
+        <IconButton
+          label={t('email.saved_search.new')}
+          size="xs"
+          disabled={!activeSearchQuery}
+          onClick={onSaveCurrent}
+        >
+          <Plus size={12} />
+        </IconButton>
+      </div>
+      {status === 'loading' && searches.length === 0 && (
+        <p role="status" className="flex items-center gap-1.5 px-2 py-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+          <Spinner size={11} />
+          {t('email.saved_search.loading')}
+        </p>
+      )}
+      {status === 'error' && (
+        <div role="alert" className="flex flex-col gap-1 rounded-[var(--r-md)] px-2 py-1">
+          <span className="min-w-0 break-words text-[length:var(--text-11)] text-[var(--danger)]">
+            {error ?? t('email.saved_search.error')}
+          </span>
+          <Button size="sm" variant="ghost" className="self-start" onClick={() => { void onReload() }}>
+            {t('common.retry')}
+          </Button>
+        </div>
+      )}
+      {status === 'ready' && searches.length === 0 && (
+        <p className="px-2 py-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('email.saved_search.empty')}</p>
+      )}
+      {searches.length > 0 && (
+        <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
+          {searches.map((search) => (
+            <SavedSearchRow
+              key={search.id}
+              search={search}
+              active={emailSearchQueriesEqual(search.query, activeSearchQuery)}
+              onSelect={onSelect}
+              onRename={(target) => { void rename(target) }}
+              onDelete={(target) => { void remove(target) }}
+            />
+          ))}
+        </ul>
+      )}
+    </nav>
+  )
+}
+
+function SavedSearchRow({
+  search,
+  active,
+  onSelect,
+  onRename,
+  onDelete,
+}: {
+  search: EmailSavedSearch
+  active: boolean
+  onSelect: (query: string) => void
+  onRename: (search: EmailSavedSearch) => void
+  onDelete: (search: EmailSavedSearch) => void
+}) {
+  const menu = useContextMenu()
+  const moreRef = useRef<HTMLButtonElement>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const openMenuFromKeyboard = (event: ReactKeyboardEvent<HTMLButtonElement>): void => {
+    if (event.key !== 'ContextMenu' && !(event.key === 'F10' && event.shiftKey)) return
+    event.preventDefault()
+    setMenuOpen(false)
+    const rect = event.currentTarget.getBoundingClientRect()
+    menu.openAt({ x: rect.left + 12, y: rect.top + Math.min(rect.height / 2, 16) })
+  }
+  const openContextMenu = (event: ReactMouseEvent): void => {
+    setMenuOpen(false)
+    menu.onContextMenu(event)
+  }
+  const items: MenuItem[] = [
+    { id: 'rename', label: t('email.saved_search.rename'), icon: <Pencil size={13} />, onSelect: () => onRename(search) },
+    { id: 'delete', label: t('email.saved_search.delete'), icon: <Trash2 size={13} />, tone: 'danger', separatorBefore: true, onSelect: () => onDelete(search) },
+  ]
+  return (
+    <li className="flex min-h-8 items-center gap-0.5 pr-0.5">
+      <button
+        type="button"
+        data-email-search-row={search.id}
+        aria-current={active ? 'page' : undefined}
+        onContextMenu={openContextMenu}
+        onKeyDown={openMenuFromKeyboard}
+        onClick={() => onSelect(search.query)}
+        className={cn(
+          'flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-[var(--r-md)] px-2 text-left text-[length:var(--text-12-5)]',
+          active
+            ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
+            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+        )}
+      >
+        <span className="flex size-4 shrink-0 items-center justify-center">
+          <Bookmark size={13} aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1 truncate">{search.name}</span>
+      </button>
+      <IconButton
+        label={t('email.saved_search.more', { name: search.name })}
+        size="xs"
+        active={menuOpen}
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        onClick={(event) => {
+          menu.close()
+          moreRef.current = event.currentTarget
+          setMenuOpen(!menuOpen)
+        }}
+      >
+        <MoreHorizontal size={12} />
+      </IconButton>
+      <Menu anchor={moreRef} open={menuOpen} onClose={() => setMenuOpen(false)} items={items} width={FOLDER_MENU_WIDTH} label={t('email.saved_search.more_actions')} />
+      {menu.point && <Menu anchor={menu.point} open onClose={menu.close} items={items} width={FOLDER_MENU_WIDTH} label={t('email.saved_search.more_actions')} />}
+    </li>
   )
 }
 

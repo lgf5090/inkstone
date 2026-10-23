@@ -12,6 +12,7 @@ import type {
 } from '@shared/email/model'
 import { EMAIL_PAGE_SIZE } from '@shared/email/model'
 import { emailSearchParams, parseEmailSearchQuery } from '@shared/email/search'
+import type { EmailSavedSearch } from '@shared/email/searches'
 import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { emailErrorText } from './errors'
@@ -105,6 +106,10 @@ interface EmailState {
   tagsStatus: EmailLoadStatus
   tagsError: string | null
   tagsAccountId: string | null
+  searches: EmailSavedSearch[]
+  searchesStatus: EmailLoadStatus
+  searchesError: string | null
+  searchesAccountId: string | null
   stats: EmailMailboxStats | null
   statsStatus: EmailLoadStatus
   statsError: string | null
@@ -151,6 +156,10 @@ interface EmailState {
   renameFolder: (accountId: string, folderId: string, name: string) => Promise<void>
   deleteFolder: (accountId: string, folderId: string, deleteEmails?: boolean) => Promise<void>
   loadTags: (accountId: string, options?: { silent?: boolean }) => Promise<void>
+  loadSearches: (accountId: string, options?: { silent?: boolean }) => Promise<void>
+  createSearch: (accountId: string, name: string, query: string) => Promise<EmailSavedSearch>
+  renameSearch: (accountId: string, searchId: string, name: string) => Promise<void>
+  deleteSearch: (accountId: string, searchId: string) => Promise<void>
   loadStats: (accountId: string) => Promise<void>
 
   loadList: (accountId: string, folderId: string, page?: number, options?: { silent?: boolean }) => Promise<void>
@@ -201,6 +210,10 @@ const INITIAL = {
   tagsStatus: 'idle' as EmailLoadStatus,
   tagsError: null as string | null,
   tagsAccountId: null as string | null,
+  searches: [] as EmailSavedSearch[],
+  searchesStatus: 'idle' as EmailLoadStatus,
+  searchesError: null as string | null,
+  searchesAccountId: null as string | null,
   stats: null as EmailMailboxStats | null,
   statsStatus: 'idle' as EmailLoadStatus,
   statsError: null as string | null,
@@ -356,6 +369,10 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         tagsStatus: 'idle',
         tagsError: null,
         tagsAccountId: null,
+        searches: [],
+        searchesStatus: 'idle',
+        searchesError: null,
+        searchesAccountId: null,
         stats: null,
         statsStatus: 'idle',
         statsError: null,
@@ -439,6 +456,43 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         tagsError: emailErrorText(reason),
       })
     }
+  },
+
+  loadSearches: async (accountId, options) => {
+    const silent = options?.silent === true
+    set((state) => ({
+      searches: state.searchesAccountId === accountId ? state.searches : [],
+      searchesAccountId: accountId,
+      searchesStatus: silent ? state.searchesStatus : 'loading',
+      searchesError: null,
+    }))
+    try {
+      const searches = await api.email.listSearches(accountId)
+      if (get().searchesAccountId !== accountId) return
+      set({ searches, searchesStatus: 'ready', searchesError: null })
+    } catch (reason) {
+      if (get().searchesAccountId !== accountId) return
+      set({
+        searchesStatus: silent ? get().searchesStatus : 'error',
+        searchesError: emailErrorText(reason),
+      })
+    }
+  },
+
+  createSearch: async (accountId, name, query) => {
+    const created = await api.email.createSearch(accountId, { name, query })
+    await get().loadSearches(accountId, { silent: true })
+    return created
+  },
+
+  renameSearch: async (accountId, searchId, name) => {
+    await api.email.updateSearch(accountId, searchId, { name })
+    await get().loadSearches(accountId, { silent: true })
+  },
+
+  deleteSearch: async (accountId, searchId) => {
+    await api.email.deleteSearch(accountId, searchId)
+    await get().loadSearches(accountId, { silent: true })
   },
 
   loadStats: async (accountId) => {
