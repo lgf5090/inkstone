@@ -5641,12 +5641,6 @@ export class AssistantStore {
     return toTimeEntry(row)
   }
 
-  /** The account's own running row, for surfaces that show the timer rather than drive it. */
-  async getOpenTimeEntry(): Promise<TodoTimeEntry | null> {
-    const open = await this.openTimeEntryRow()
-    return open ? toTimeEntry(open) : null
-  }
-
   /**
    * The ledger rows, newest interval first: one task's history, or a day window.
    *
