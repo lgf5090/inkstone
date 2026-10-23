@@ -36,6 +36,32 @@ export const EMAIL_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_email_auto_draft_user
      ON email_auto_draft_jobs(user_id, status, created_at)`,
 
+  `CREATE TABLE IF NOT EXISTS email_scheduled_sends (
+    id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    draft_id TEXT NOT NULL,
+    operation_id TEXT NOT NULL,
+    send_at INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    claimed_at INTEGER,
+    last_error TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_email_scheduled_due
+     ON email_scheduled_sends(status, send_at)
+     WHERE status = 'queued'`,
+  `CREATE INDEX IF NOT EXISTS idx_email_scheduled_user
+     ON email_scheduled_sends(user_id, account_id, status, send_at)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_email_scheduled_operation
+     ON email_scheduled_sends(user_id, operation_id)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_email_scheduled_pending
+     ON email_scheduled_sends(user_id, account_id, draft_id)
+     WHERE status IN ('queued', 'running')`,
+
   `CREATE TABLE IF NOT EXISTS email_attachments (
     id TEXT NOT NULL,
     user_id TEXT NOT NULL,
@@ -109,6 +135,7 @@ export const EMAIL_SCHEMA_STATEMENTS: readonly string[] = [
 export const EMAIL_REQUIRED_TABLES: readonly string[] = [
   'email_accounts',
   'email_auto_draft_jobs',
+  'email_scheduled_sends',
   'email_attachments',
   'email_contacts',
   'email_groups',
@@ -121,6 +148,10 @@ export const EMAIL_REQUIRED_INDEXES: readonly string[] = [
   'idx_email_accounts_user',
   'idx_email_auto_draft_due',
   'idx_email_auto_draft_user',
+  'idx_email_scheduled_due',
+  'idx_email_scheduled_user',
+  'idx_email_scheduled_operation',
+  'idx_email_scheduled_pending',
   'idx_email_attachments_email',
   'idx_email_attachments_folder',
   'idx_email_attachments_created',
@@ -132,6 +163,7 @@ export const EMAIL_REQUIRED_INDEXES: readonly string[] = [
 export const EMAIL_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   email_accounts: ['id', 'user_id', 'address', 'address_normalized', 'display_name', 'settings', 'created_at', 'updated_at'],
   email_auto_draft_jobs: ['user_id', 'account_id', 'message_id', 'thread_id', 'status', 'reason', 'attempts', 'claimed_at', 'created_at', 'updated_at'],
+  email_scheduled_sends: ['id', 'user_id', 'account_id', 'draft_id', 'operation_id', 'send_at', 'status', 'attempts', 'claimed_at', 'last_error', 'created_at', 'updated_at'],
   email_attachments: ['id', 'user_id', 'account_id', 'email_id', 'filename', 'mime', 'size', 'width', 'height', 'content_id', 'disposition', 'object_key', 'storage', 'folder_id', 'is_starred', 'is_pinned', 'tags', 'locked', 'created_at'],
   email_contacts: ['id', 'user_id', 'email', 'email_normalized', 'name', 'company', 'notes', 'starred', 'usage_count', 'last_used_at', 'created_at', 'updated_at'],
   email_groups: ['id', 'user_id', 'name', 'description', 'created_at', 'updated_at'],

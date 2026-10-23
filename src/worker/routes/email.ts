@@ -45,6 +45,7 @@ import { isValidId, newId } from '../lib/id'
 import { acquireLease } from '../lib/lease'
 import { isInlineSafe } from '../lib/image'
 import { clampInt, JSON_BODY_LIMITS, readJson } from '../lib/request'
+import { deleteScheduledSendsForAccount } from '../email/scheduled-send'
 import { requireAuth, requireOwner } from '../middleware/auth'
 import {
   createEmailAccount,
@@ -689,6 +690,7 @@ emailRoutes.delete('/accounts/:id', async (c) => {
   const pending = await deleteEmailAttachmentObjects(c.env, c.get('userId'), keys)
   if (pending) console.warn('[inkstone] Email attachment cleanup is pending for a deleted mailbox')
   await deleteEmailAttachmentsForAccount(c.env.DB, c.get('userId'), row.id)
+  await deleteScheduledSendsForAccount(c.env.DB, c.get('userId'), row.id)
   try {
     await emailMailbox(c.env, row.id).deleteAll()
   } catch (error) {

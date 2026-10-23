@@ -176,6 +176,7 @@ describe('the compose panel', () => {
   })
 
   it('shows a failed send and keeps the message editable for a retry', async () => {
+    vi.useFakeTimers()
     const saveDraft = vi.spyOn(api.email, 'saveDraft').mockResolvedValue({ draftId: 'd1' })
     const sendDraft = vi.spyOn(api.email, 'sendDraft').mockRejectedValue(new Error('The mail service refused the message'))
     const view = panel('new')
@@ -187,6 +188,8 @@ describe('the compose panel', () => {
       button(t('email.compose.send')).click()
       for (let index = 0; index < 8; index += 1) await Promise.resolve()
     })
+    expect(sendDraft).not.toHaveBeenCalled()
+    await settle(9000)
     expect(sendDraft).toHaveBeenCalledTimes(1)
     expect(document.querySelector('[role="alert"]')?.textContent).toContain('The mail service refused the message')
     expect(button(t('email.compose.send')).disabled).toBe(false)
@@ -299,10 +302,12 @@ describe('the compose panel', () => {
       for (let index = 0; index < 8; index += 1) await Promise.resolve()
     })
     expect(saveDraft).toHaveBeenCalledTimes(1)
-    expect(sendDraft).toHaveBeenCalledTimes(1)
+    expect(sendDraft).not.toHaveBeenCalled()
     change(inputFor(t('email.compose.subject')), 'Hello while sending')
     await settle(5000)
     expect(saveDraft).toHaveBeenCalledTimes(1)
+    await settle(4000)
+    expect(sendDraft).toHaveBeenCalledTimes(1)
     await act(async () => {
       finishSend?.()
       for (let index = 0; index < 8; index += 1) await Promise.resolve()

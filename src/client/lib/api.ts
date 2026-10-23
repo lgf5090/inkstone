@@ -137,6 +137,8 @@ import type {
   EmailMailboxStats,
   EmailMessage,
   EmailMessageTagInput,
+  EmailScheduledSend,
+  EmailScheduledSendInput,
   EmailSendInput,
   EmailSendResult,
   EmailSnoozeResult,
@@ -1265,6 +1267,12 @@ export const api = {
       request<{ draftId: string }>(`/api/email/accounts/${id}/drafts`, { method: 'POST', body: draft }),
     sendDraft: (id: string, draftId: string, body: EmailSendInput) =>
       request<EmailSendResult>(`/api/email/accounts/${id}/drafts/${draftId}/send`, { method: 'POST', body }),
+    scheduleDraftSend: (id: string, draftId: string, body: EmailScheduledSendInput) =>
+      request<EmailScheduledSend>(`/api/email/accounts/${id}/drafts/${draftId}/schedule`, { method: 'POST', body }),
+    cancelScheduledSend: (id: string, jobId: string) =>
+      request<void>(`/api/email/accounts/${id}/scheduled/${jobId}`, { method: 'DELETE' }),
+    listScheduledSends: (id: string) =>
+      request<EmailScheduledSend[]>(`/api/email/accounts/${id}/scheduled`),
     linkAttachment: (id: string, draftId: string, attachmentId: string) =>
       request<void>(`/api/email/accounts/${id}/drafts/${draftId}/attachments`, { method: 'POST', body: { attachmentId } }),
     unlinkAttachment: (id: string, draftId: string, attachmentId: string) =>

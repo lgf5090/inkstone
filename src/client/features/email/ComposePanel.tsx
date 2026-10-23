@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { EditorView } from '@codemirror/view'
-import { FileText, Paperclip, X } from 'lucide-react'
-import type { EmailAccount, EmailMessage } from '@shared/email/model'
+import { ChevronDown, FileText, Paperclip, X } from 'lucide-react'
+import type { EmailAccount, EmailMessage, EmailSendInput } from '@shared/email/model'
 import { EMAIL_ATTACHMENT_MAX_BYTES } from '@shared/email/model'
 import { buildEmailQuoteMarkdown, formatEmailQuotedDate, splitEmailList, stripEmailHtmlToText } from '@shared/email/format'
 import { Button, IconButton } from '../../components/primitives'
 import { Field, Input, Segmented } from '../../components/form'
-import { confirm } from '../../components/overlay'
-import { useUi } from '../../store/ui'
+import { confirm, Menu } from '../../components/overlay'
+import { toastWithUndo, useUi } from '../../store/ui'
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
-import { formatBytes } from '../../lib/time'
+import { formatBytes, fullTime } from '../../lib/time'
 import { api } from '../../lib/api'
 import { attachmentHubApi } from '../attachment-hub/api'
 import { FilePreviewModal } from '../file-preview'
@@ -30,8 +30,21 @@ interface ComposeAttachment {
 }
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
+type SchedulePreset = 'hour' | 'tomorrow' | 'week'
 
 const AUTO_SAVE_DELAY_MS = 1600
+const UNDO_WINDOW_MS = 9000
+const UNDO_TICK_MS = 1000
+const HOUR_MS = 60 * 60 * 1000
+const SCHEDULE_HOUR = 8
+
+function scheduledTime(preset: SchedulePreset, now = new Date()): Date {
+  if (preset === 'hour') return new Date(now.getTime() + HOUR_MS)
+  const next = new Date(now)
+  next.setDate(next.getDate() + (preset === 'tomorrow' ? 1 : 7))
+  next.setHours(SCHEDULE_HOUR, 0, 0, 0)
+  return next
+}
 
 function signatureBlock(account: EmailAccount): string {
   const signature = account.settings.signature
@@ -130,6 +143,9 @@ export function ComposePanel({
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [saveError, setSaveError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
+  const [scheduling, setScheduling] = useState(false)
+  const [undoSeconds, setUndoSeconds] = useState<number | null>(null)
+  const [scheduleOpen, setScheduleOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [draft, setDraft] = useState(draftId)
   const [threading, setThreading] = useState<{ inReplyTo: string | null, threadId: string | null }>(() => (
@@ -141,8 +157,12 @@ export function ComposePanel({
   const [preview, setPreview] = useState<ComposeAttachment | null>(null)
   const viewRef = useRef<EditorView | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
+  const scheduleAnchor = useRef<HTMLButtonElement>(null)
   const saveInFlight = useRef(false)
   const autoSaveTimer = useRef<number | null>(null)
+  const undoTimer = useRef<number | null>(null)
+  const undoInterval = useRef<number | null>(null)
+  const pendingSend = useRef<{ id: string; input: EmailSendInput } | null>(null)
   const autoSave = useRef<(silent: boolean) => Promise<string | null>>(async () => null)
   const sent = useRef(false)
   const dirty = to !== baseline.to || cc !== baseline.cc || bcc !== baseline.bcc || subject !== baseline.subject || body !== baseline.body
@@ -185,6 +205,23 @@ export function ComposePanel({
     window.clearTimeout(autoSaveTimer.current)
     autoSaveTimer.current = null
   }
+
+  const clearUndoTimers = () => {
+    if (undoTimer.current !== null) {
+      window.clearTimeout(undoTimer.current)
+      undoTimer.current = null
+    }
+    if (undoInterval.current !== null) {
+      window.clearInterval(undoInterval.current)
+      undoInterval.current = null
+    }
+  }
+
+  useEffect(() => () => {
+    clearAutoSaveTimer()
+    clearUndoTimers()
+    pendingSend.current = null
+  }, [])
 
   const saveDraft = async (silent = false): Promise<string | null> => {
     if (saveInFlight.current) return null
@@ -232,7 +269,7 @@ export function ComposePanel({
 
   useEffect(() => {
     clearAutoSaveTimer()
-    if (sending || sent.current || !canAutoSave) return
+    if (sending || scheduling || sent.current || !canAutoSave) return
     const schedule = () => {
       autoSaveTimer.current = window.setTimeout(() => {
         autoSaveTimer.current = null
@@ -245,33 +282,28 @@ export function ComposePanel({
     }
     schedule()
     return clearAutoSaveTimer
-  }, [to, cc, bcc, subject, body, attachmentKey, canAutoSave, sending])
+  }, [to, cc, bcc, subject, body, attachmentKey, canAutoSave, sending, scheduling])
 
-  const send = async () => {
-    if (!to.trim()) {
-      setError(t('email.compose.error_no_recipient'))
+  const cancelPendingSend = () => {
+    if (!pendingSend.current) return
+    pendingSend.current = null
+    clearUndoTimers()
+    setUndoSeconds(null)
+    setSending(false)
+    toast(t('email.compose.send_cancelled'))
+  }
+
+  const deliverPendingSend = async () => {
+    const pending = pendingSend.current
+    pendingSend.current = null
+    clearUndoTimers()
+    setUndoSeconds(null)
+    if (!pending) {
+      setSending(false)
       return
     }
-    if (!body.trim()) {
-      setError(t('email.compose.error_empty'))
-      return
-    }
-    clearAutoSaveTimer()
-    setSending(true)
-    setError(null)
     try {
-      const id = draft ?? await saveDraft()
-      if (!id) return
-      await api.email.sendDraft(account.id, id, {
-        to: recipientAddresses(to),
-        cc: recipientAddresses(cc) || undefined,
-        bcc: recipientAddresses(bcc) || undefined,
-        subject,
-        body,
-        bodyHtml: bodyHtml(),
-        attachmentIds: attachments.map((entry) => entry.id),
-        operationId: crypto.randomUUID(),
-      })
+      await api.email.sendDraft(account.id, pending.id, pending.input)
       sent.current = true
       clearAutoSaveTimer()
       toast(t('email.compose.sent'))
@@ -285,7 +317,89 @@ export function ComposePanel({
     }
   }
 
+  const send = async () => {
+    if (sending || scheduling) return
+    if (!to.trim()) {
+      setError(t('email.compose.error_no_recipient'))
+      return
+    }
+    if (!body.trim()) {
+      setError(t('email.compose.error_empty'))
+      return
+    }
+    clearAutoSaveTimer()
+    setSending(true)
+    setError(null)
+    const id = draft ?? await saveDraft()
+    if (!id) {
+      setSending(false)
+      return
+    }
+    const input: EmailSendInput = {
+      to: recipientAddresses(to),
+      cc: recipientAddresses(cc) || undefined,
+      bcc: recipientAddresses(bcc) || undefined,
+      subject,
+      body,
+      bodyHtml: bodyHtml(),
+      attachmentIds: attachments.map((entry) => entry.id),
+      operationId: crypto.randomUUID(),
+    }
+    pendingSend.current = { id, input }
+    setUndoSeconds(Math.ceil(UNDO_WINDOW_MS / UNDO_TICK_MS))
+    toastWithUndo(t('email.compose.sending_toast'), cancelPendingSend, { duration: UNDO_WINDOW_MS })
+    undoInterval.current = window.setInterval(() => {
+      setUndoSeconds((current) => (current === null ? null : Math.max(0, current - 1)))
+    }, UNDO_TICK_MS)
+    undoTimer.current = window.setTimeout(() => { void deliverPendingSend() }, UNDO_WINDOW_MS)
+  }
+
+  const schedule = async (preset: SchedulePreset) => {
+    setScheduleOpen(false)
+    if (sending || scheduling) return
+    if (!to.trim()) {
+      setError(t('email.compose.error_no_recipient'))
+      return
+    }
+    if (!body.trim()) {
+      setError(t('email.compose.error_empty'))
+      return
+    }
+    clearAutoSaveTimer()
+    setScheduling(true)
+    setError(null)
+    try {
+      const id = await saveDraft(true)
+      if (!id) {
+        setError(t('email.compose.schedule_save_failed'))
+        return
+      }
+      const job = await api.email.scheduleDraftSend(account.id, id, {
+        sendAt: scheduledTime(preset).toISOString(),
+        operationId: crypto.randomUUID(),
+      })
+      sent.current = true
+      toast(t('email.compose.schedule_sent', { time: fullTime(Date.parse(job.sendAt)) }))
+      onSent()
+    } catch (reason) {
+      const message = (reason as Error).message || t('email.compose.schedule_failed')
+      setError(message)
+      toast(message, 'danger')
+    } finally {
+      setScheduling(false)
+    }
+  }
+
+  const scheduleItems = [
+    { id: 'hour', label: t('email.compose.schedule_in_hour'), onSelect: () => { void schedule('hour') } },
+    { id: 'tomorrow', label: t('email.compose.schedule_tomorrow'), onSelect: () => { void schedule('tomorrow') } },
+    { id: 'week', label: t('email.compose.schedule_next_week'), onSelect: () => { void schedule('week') } },
+  ]
+
   const discard = async () => {
+    clearUndoTimers()
+    pendingSend.current = null
+    setUndoSeconds(null)
     if (draft) {
       try {
         await api.email.deleteEmail(account.id, draft, true)
@@ -298,7 +412,7 @@ export function ComposePanel({
   }
 
   const close = async () => {
-    if (sending) return
+    if (sending || scheduling) return
     if (dirty || draft) {
       const confirmed = await confirm({
         title: t('email.compose.unsaved_title'),
@@ -403,7 +517,7 @@ export function ComposePanel({
     <section className="flex h-full min-h-0 min-w-0 flex-col bg-[var(--bg-base)]" aria-label={t(titleKey)}>
       <header className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--border-subtle)] px-3">
         <h2 className="text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">{t(titleKey)}</h2>
-        <IconButton label={t('common.close')} size="sm" onClick={() => { void close() }} disabled={sending}>
+        <IconButton label={t('common.close')} size="sm" onClick={() => { void close() }} disabled={sending || scheduling}>
           <X size={15} />
         </IconButton>
       </header>
@@ -475,7 +589,7 @@ export function ComposePanel({
               aria-label={t('email.compose.add_attachment')}
               onChange={(event) => { void addFiles(event.target.files); event.target.value = '' }}
             />
-            <Button size="sm" variant="secondary" icon={<Paperclip size={14} />} onClick={() => fileInput.current?.click()} disabled={sending || saving}>
+            <Button size="sm" variant="secondary" icon={<Paperclip size={14} />} onClick={() => fileInput.current?.click()} disabled={sending || saving || scheduling}>
               {t('email.compose.add_attachment')}
             </Button>
             <span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('email.compose.attachment_hint')}</span>
@@ -508,10 +622,15 @@ export function ComposePanel({
         )}
       </div>
       <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border-subtle)] px-3 py-2">
-        <Button size="sm" variant="ghost" onClick={() => { void discard() }} disabled={sending}>
+        <Button size="sm" variant="ghost" onClick={() => { void discard() }} disabled={sending || scheduling}>
           {t('email.compose.discard')}
         </Button>
         <div className="flex items-center gap-2">
+          {undoSeconds !== null && (
+            <span className="text-[length:var(--text-11-5)] text-[var(--accent)]">
+              {t('email.compose.sending_in', { seconds: undoSeconds })}
+            </span>
+          )}
           <span
             role="status"
             aria-live="polite"
@@ -524,14 +643,44 @@ export function ComposePanel({
             {saveStatus}
             {saveState === 'error' && saveError && <span className="sr-only">: {saveError}</span>}
           </span>
-          <Button size="sm" variant="secondary" onClick={() => { void saveDraft() }} loading={saving} disabled={sending}>
+          <Button size="sm" variant="secondary" onClick={() => { void saveDraft() }} loading={saving} disabled={sending || scheduling}>
             {t('email.compose.save_draft')}
           </Button>
-          <Button size="sm" variant="primary" onClick={() => { void send() }} loading={sending} disabled={saving}>
-            {t('email.compose.send')}
-          </Button>
+          <div className="flex items-center">
+            <Button
+              size="sm"
+              variant="primary"
+              className="rounded-r-none"
+              onClick={() => { void send() }}
+              loading={sending}
+              disabled={saving || scheduling}
+            >
+              {t('email.compose.send')}
+            </Button>
+            <Button
+              ref={scheduleAnchor}
+              size="sm"
+              variant="primary"
+              className="rounded-l-none border-l border-[var(--border-default)] px-1.5"
+              icon={<ChevronDown size={14} />}
+              aria-label={t('email.compose.schedule_send')}
+              aria-haspopup="menu"
+              aria-expanded={scheduleOpen}
+              onClick={() => setScheduleOpen((open) => !open)}
+              disabled={saving || sending || scheduling}
+            />
+          </div>
         </div>
       </footer>
+      <Menu
+        anchor={scheduleAnchor}
+        open={scheduleOpen}
+        onClose={() => setScheduleOpen(false)}
+        items={scheduleItems}
+        align="end"
+        width={220}
+        label={t('email.compose.schedule_send')}
+      />
       {preview && (
         <FilePreviewModal
           open

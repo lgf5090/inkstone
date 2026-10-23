@@ -18,6 +18,11 @@ export const EMAIL_MAX_PAGE_SIZE = 100
 export const EMAIL_BATCH_MAX_MESSAGES = 100
 export const EMAIL_SNOOZE_MAX_MS = 365 * 24 * 60 * 60 * 1000
 export const EMAIL_SNOOZE_WAKE_BATCH = 200
+export const EMAIL_SCHEDULE_MAX_MS = 365 * 24 * 60 * 60 * 1000
+export const EMAIL_SCHEDULE_MAX_ATTEMPTS = 3
+export const EMAIL_SCHEDULE_RETRY_MS = 5 * 60 * 1000
+export const EMAIL_SCHEDULE_LEASE_MS = 10 * 60 * 1000
+export const EMAIL_SCHEDULE_OPERATION_MAX_CHARS = 200
 
 export const EMAIL_BATCH_ACTIONS = [
   'read',
@@ -260,6 +265,25 @@ export interface EmailSendResult {
   status: EmailDeliveryStatus
   messageId?: string
   error?: string
+}
+
+export type EmailScheduledSendStatus = 'queued' | 'running' | 'sent' | 'failed' | 'cancelled'
+
+export interface EmailScheduledSend {
+  id: string
+  accountId: string
+  draftId: string
+  sendAt: string
+  status: EmailScheduledSendStatus
+  attempts: number
+  lastError: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface EmailScheduledSendInput {
+  sendAt: string | number
+  operationId?: string
 }
 
 export interface EmailConfig {

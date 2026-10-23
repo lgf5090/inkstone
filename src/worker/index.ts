@@ -22,6 +22,7 @@ import { dispatchInboundEmail } from './email/dispatch'
 import { runEmailTrashCleanup } from './email/trash'
 import { runEmailAutoDraftJobs } from './email/auto-draft'
 import { runEmailSnoozeWake } from './email/snooze'
+import { runScheduledSends } from './email/scheduled-send'
 
 export { SyncHub } from './realtime/sync-hub'
 export { CredentialVault } from './durable/credential-vault'
@@ -78,8 +79,12 @@ export default {
       const reminderTick = sweepTaskReminders(env, event.scheduledTime, (task) => { ctx.waitUntil(task) })
       const emailDraftTick = runEmailAutoDraftJobs(env, event.scheduledTime, 2)
       const emailSnoozeTick = runEmailSnoozeWake(env, event.scheduledTime)
+      const emailScheduledTick = runScheduledSends(env, event.scheduledTime, 3).catch((error) => {
+        console.warn('[inkstone] scheduled email send sweep failed:', (error as Error).message)
+        return null
+      })
       if (!isDrainFire(event.scheduledTime)) {
-        await Promise.all([assistantTick, subscriptionTick, reminderTick, emailDraftTick, emailSnoozeTick])
+        await Promise.all([assistantTick, subscriptionTick, reminderTick, emailDraftTick, emailSnoozeTick, emailScheduledTick])
         return
       }
       const drains: Promise<unknown>[] = [
@@ -106,7 +111,7 @@ export default {
             providerForScheduled(env).purgeExpiredData(env, { batchSize: 100 }),
           ]
         : []
-      await Promise.all([...drains, ...heavy, subscriptionTick, reminderTick, emailDraftTick, emailSnoozeTick])
+      await Promise.all([...drains, ...heavy, subscriptionTick, reminderTick, emailDraftTick, emailSnoozeTick, emailScheduledTick])
     })())
   },
 
