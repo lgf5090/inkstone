@@ -7581,6 +7581,11 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // (see `fileReminders` in backup.ts).
   // `deleted_at` is absent for a different reason: trashed rows are not exported at all (see
   // `exportTables`), so a column that would only ever be null is not part of the format.
+  // `planned_for` stays out for the same kind of reason, stated here because it is the one column a
+  // reader would expect to come back: the pick is the claim "I chose this for one particular day", and
+  // restoring a file written on another day cannot honour it — the row would land picked into a today
+  // that never saw the choice. `completed_on` and `created_on` do travel, because a day something
+  // *happened* on is a record; a pick is an intention, and intentions are not portable.
   // `icon` and `color` are the task's own face: a restore that dropped them would silently hand every
   // restored task back its list's, which is a different row than the one that was backed up. Both are
   // nullable, so an old backup without the keys still lands.

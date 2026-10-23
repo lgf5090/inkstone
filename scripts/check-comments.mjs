@@ -25458,6 +25458,11 @@ const allowed = new Map([
     "// that dropped the mark would drop the whole reason for the shelf — every finished day would come",
     "// back onto today's board.",
     "/** When the reader put the row away, or null while it is on a working surface. */",
+    "// `planned_for` stays out for the same kind of reason, stated here because it is the one column a",
+    "// reader would expect to come back: the pick is the claim \"I chose this for one particular day\", and",
+    "// restoring a file written on another day cannot honour it — the row would land picked into a today",
+    "// that never saw the choice. `completed_on` and `created_on` do travel, because a day something",
+    "// *happened* on is a record; a pick is an intention, and intentions are not portable.",
   ]],
   ["src/worker/assistant/subscription-mentions.ts", [
     "/**\n * `[[sub:…]]` mentions resolved into the subscription's own facts.\n *\n * A subscription id is the same 26-character shape as a note id, so letting both resolvers claim a bare\n * `[[<id>]]` would mean whichever ran first could report the other's target as missing. The `sub:` prefix\n * is what keeps the two apart, and `note-mentions` skips anything carrying it rather than reporting it\n * as a note that has been deleted.\n *\n * What is quoted is the row's own fields — price, cycle, dates, what has been paid — never the notes\n * field, which is free text a reader may have used for anything. A note is the thing a mention exists to\n * bring words from; a subscription is a row, and the row is what the question is about.\n */",
