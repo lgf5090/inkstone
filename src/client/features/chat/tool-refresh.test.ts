@@ -67,3 +67,31 @@ describe('the assistant tool refresh', () => {
     view.unmount()
   })
 })
+
+describe('the assistant tool refresh after approval', () => {
+  it('refreshes when a held write is approved after the turn finished', () => {
+    const refresh = vi.fn()
+    const view = renderElement(createElement(Probe, { refresh }))
+    act(() => {
+      useAssistant.setState({
+        turn: turn({ done: true, tools: [{ id: 't1', name: 'write_note', status: 'success', approval: { status: 'pending' } }] }),
+      })
+    })
+    expect(refresh).not.toHaveBeenCalled()
+
+    act(() => {
+      useAssistant.setState({
+        turn: turn({ done: true, tools: [{ id: 't1', name: 'write_note', status: 'success', approval: { status: 'approved' } }] }),
+      })
+    })
+    expect(refresh).toHaveBeenCalledTimes(1)
+
+    act(() => {
+      useAssistant.setState({
+        turn: turn({ done: true, tools: [{ id: 't1', name: 'write_note', status: 'success', approval: { status: 'approved' } }] }),
+      })
+    })
+    expect(refresh).toHaveBeenCalledTimes(1)
+    view.unmount()
+  })
+})
