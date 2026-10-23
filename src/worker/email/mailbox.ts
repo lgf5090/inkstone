@@ -19,7 +19,7 @@ import { queueAutoDraftJob, readAccountSettings, type EmailAccountRow } from './
 import { deleteEmailAttachments } from './attachments'
 import { rememberRecipientAddresses, findEmailContactByEmail } from './contacts'
 import { emailMailbox } from './mailbox-stub'
-import { buildThreadingHeaders, sendViaBinding } from './outbound'
+import { buildThreadingHeaders, outgoingMessageId, sendViaBinding } from './outbound'
 
 export const MAX_MAILBOX_INBOUND_BYTES = EMAIL_INBOUND_MAX_BYTES
 
@@ -358,17 +358,39 @@ async function sendVacationReply(
   const claimKey = vacationClaimKey(account, sender, vacation)
   if (!(await mailbox.claimInbound(claimKey, now))) return
   const body = vacation.body.trim()
+  const subject = vacationReplySubject(vacation, parsed.subject ?? '')
+  const inReplyTo = extractInboundMessageIds(parsed.messageId)[0] ?? null
   try {
-    await sendViaBinding(env, {
+    const sent = await sendViaBinding(env, {
       to: sender,
       from: account.display_name && account.display_name !== account.address
         ? { email: account.address, name: account.display_name }
         : account.address,
-      subject: vacationReplySubject(vacation, parsed.subject ?? ''),
+      subject,
       html: textToEmailHtml(body),
       text: body,
       headers: vacationHeaders(parsed),
     })
+    try {
+      const id = newId()
+      const created = await mailbox.createEmail('sent', {
+        id,
+        subject,
+        sender: account.address,
+        recipient: sender,
+        date: now,
+        body: textToEmailHtml(body),
+        bodySource: body,
+        inReplyTo,
+        threadId: id,
+        messageId: outgoingMessageId(id, account.address),
+        deliveryStatus: 'sent',
+        providerMessageId: sent.messageId,
+      })
+      if (!created) console.warn('[inkstone] vacation auto-reply could not be stored in Sent')
+    } catch (error) {
+      console.warn('[inkstone] vacation auto-reply could not be stored in Sent:', error)
+    }
   } catch (error) {
     console.warn('[inkstone] vacation auto-reply could not be sent', error)
     try {

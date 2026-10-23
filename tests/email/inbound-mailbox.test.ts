@@ -504,6 +504,13 @@ describe('the inbound mailbox handler', () => {
       'Auto-Submitted': 'auto-replied',
       'In-Reply-To': '<vacation-1@example.com>',
     })
+    const sentRows = harness.store(ACCOUNT).getEmails({ folder: 'sent' })
+    expect(sentRows).toHaveLength(1)
+    expect(sentRows[0]).toMatchObject({
+      subject: 'Auto: Lunch?',
+      recipient: 'alice@example.com',
+      delivery_status: 'sent',
+    })
 
     await deliver({
       to: ADDRESS,
