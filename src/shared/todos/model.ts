@@ -26,6 +26,12 @@ export type RepeatFrequency = (typeof REPEAT_FREQUENCIES)[number]
  * Friday — and is only read when `freq` is weekly. `monthlyMode` chooses which day a monthly rhythm
  * lands on: the due date's own day (`day`, the default), the last day of the month, or the same
  * nth weekday the due date sits on.
+ *
+ * The rest of the fields describe the *series* rather than the rhythm, and they all live in this one
+ * JSON column on purpose: a series needs a little state (how many occurrences it has produced, which
+ * days the reader let go), and giving it a table would mean a migration, a second place where a task
+ * is copied, and a new way for the two to disagree. The rule rides with the row and is copied with it,
+ * so the counter moves on exactly when the next occurrence is created and nowhere else.
  */
 export interface RepeatRule {
   freq: RepeatFrequency
@@ -34,6 +40,40 @@ export interface RepeatRule {
   weekdays?: number[]
   /** Monthly only: which day of the month the next occurrence lands on. */
   monthlyMode?: RepeatMonthlyMode
+  /**
+   * The last instant this series may produce an occurrence for.
+   *
+   * An instant rather than a day because the ceiling has to be compared with the same clock the
+   * occurrence is computed on; a day would need a zone to become comparable and the zone is the
+   * account's, not the rule's.
+   */
+  untilAt?: number | null
+  /**
+   * How many occurrences the series produces in total, the row being finished counted as one of them.
+   *
+   * Read together with {@link produced}; a rule written before either field existed counts the row it
+   * sits on as the first occurrence, which is the only reading that does not silently restart a
+   * series the reader has already run three times.
+   */
+  count?: number | null
+  /** How many occurrences this series has created, this row included. Maintained by the advance. */
+  produced?: number
+  /**
+   * Count the next occurrence from the day the reader finished rather than from the old due date.
+   *
+   * Off by default, and the default is the whole point: finishing Thursday's report on Friday morning
+   * should put the next one on next Thursday, not permanently move the rhythm onto Fridays.
+   */
+  fromCompletionDate?: boolean
+  /** Stop producing occurrences without deleting the series or losing its place. */
+  paused?: boolean
+  /**
+   * Days (`YYYY-MM-DD`, the reader's own) this series steps over without landing on.
+   *
+   * One missed week can be let go without pausing the whole rhythm, which is what a pause would
+   * wrongly promise: the series would stay stopped until somebody remembered to start it again.
+   */
+  excludedDays?: string[]
 }
 
 export const REPEAT_MONTHLY_MODES = ['day', 'lastDay', 'nthWeekday'] as const
@@ -810,6 +850,71 @@ export function nextOccurrence(dueAt: number, rule: RepeatRule, timeZone: string
     next = shiftMonths(parts.year, parts.month, parts.day, interval * 12)
   }
   return zonedTimeToUtc(next.year, next.month, next.day, parts.hour, parts.minute, timeZone).getTime()
+}
+
+/** How far the skipped-day walk will look ahead before it gives up, so a fully-excluded rhythm cannot spin. */
+const MAX_REPEAT_SKIPS = 400
+
+/** The reader's own `YYYY-MM-DD` for an instant, built from the same parts every day rule already uses. */
+function zonedDay(instant: number, timeZone: string): string {
+  const parts = getZonedParts(new Date(instant), timeZone)
+  return `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`
+}
+
+/** Why a series stopped producing occurrences, in words a surface can repeat back. */
+export type RepeatStop = 'paused' | 'until' | 'count'
+
+export interface RepeatAdvance {
+  /** The instant the next occurrence is owed at, or `null` when the series has stopped. */
+  dueAt: number | null
+  /** Set only when `dueAt` is null: which ceiling the series ran into. */
+  stopped?: RepeatStop
+  /**
+   * The rule to carry onto the next occurrence, with its own counter moved on.
+   *
+   * Equal to the incoming rule when the series stopped — a finished series has no row to write to,
+   * and handing back a moved counter there would make a reopen count an occurrence nobody made.
+   */
+  rule: RepeatRule
+}
+
+/**
+ * The next occurrence a series owes, and whether it owes one at all.
+ *
+ * One function owns every reason a repeat can stop, because each of them is a promise the reader made
+ * through the same JSON column and two of them (`untilAt`, `count`) are only honest if they are checked
+ * against the *same* candidate date the occurrence is created from. Checked against a date computed
+ * elsewhere, a series can silently produce one occurrence too many on the boundary day.
+ *
+ * `anchorDueAt` is the row's own due date, or null when it never had one; `completedAt` is the instant
+ * the reader finished it. A series with no due date and no completion-day anchor has nothing to count
+ * from, and the caller already declines to date the next occurrence in that case — see `completeTask`.
+ */
+export function advanceRepeat(
+  rule: RepeatRule,
+  opts: { anchorDueAt: number | null, completedAt: number, timeZone: string },
+): RepeatAdvance {
+  if (rule.paused) return { dueAt: null, stopped: 'paused', rule }
+  // Counted from the old due date unless the reader asked otherwise. The default is the whole point:
+  // finishing Thursday's report on Friday morning should put the next one on next Thursday.
+  const anchor = rule.fromCompletionDate ? opts.completedAt : (opts.anchorDueAt ?? opts.completedAt)
+  // How many occurrences exist so far, this row included. A rule written before the counter existed
+  // counts its own row as the first, which is the only reading that does not restart a series the
+  // reader has already run three times.
+  const produced = Math.max(1, Math.trunc(rule.produced ?? 1))
+  if (rule.count != null && produced >= rule.count) return { dueAt: null, stopped: 'count', rule }
+  const excluded = rule.excludedDays?.length ? new Set(rule.excludedDays) : null
+  let candidate = nextOccurrence(anchor, rule, opts.timeZone)
+  // A skipped day steps over to the next one rather than cancelling the occurrence: the rhythm goes on,
+  // only this landing is let go. Bounded, so a reader who excluded every day the rule can land on gets
+  // a stopped series rather than a hung request.
+  for (let skips = 0; excluded && excluded.has(zonedDay(candidate, opts.timeZone)); skips += 1) {
+    if (skips >= MAX_REPEAT_SKIPS) return { dueAt: null, stopped: 'until', rule }
+    candidate = nextOccurrence(candidate, rule, opts.timeZone)
+    if (rule.count != null && produced + skips + 1 >= rule.count) return { dueAt: null, stopped: 'count', rule }
+  }
+  if (rule.untilAt != null && candidate > rule.untilAt) return { dueAt: null, stopped: 'until', rule }
+  return { dueAt: candidate, rule: { ...rule, produced: produced + 1 } }
 }
 
 /**
