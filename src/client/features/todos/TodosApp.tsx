@@ -35,6 +35,7 @@ import { ListEditor } from './OrganizerEditors'
 import { useViewTitle } from './TaskViews'
 import { TodoFilters } from './TodoFilters'
 import { ListIcon } from './list-icons'
+import { RunningTimerBar } from './running-timer'
 import { TodoKeysHelp } from './TodoKeysHelp'
 import { TODO_ROW_MENU_WIDTH, useTodoShortcuts } from './use-todo-shortcuts'
 import { TodoContent, surfaceBadge, surfacesFor } from './views/registry'
@@ -479,6 +480,11 @@ export function TodosApp() {
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden bg-[var(--bg-base)]" data-todos-app="">
       {header}
+      {/* The running interval, above every screen and above the filters: it belongs to the account
+          rather than to the view, so it is the one line that has to survive a change of screen. The
+          header itself is the narrowest row in the app on a phone, which is why it is a strip under
+          that row rather than a sixth control inside it. */}
+      <RunningTimerBar />
       <div className="flex min-h-0 flex-1">
         {wide && sidebarOpen && sidebar}
         <div className="flex min-w-0 flex-1 flex-col">

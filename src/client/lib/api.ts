@@ -125,6 +125,7 @@ import type {
   TaskTrashPage,
   TodoStats,
   TodoTask,
+  TodoTimeEntry,
 } from '@shared/todos/model'
 import { publishBroadcast } from './db'
 import { randomLocalId } from './random-id'
@@ -1220,6 +1221,25 @@ export const api = {
         body: { minutes },
         ...(rev === undefined ? {} : { ifMatch: String(rev) }),
       }),
+    /**
+     * The account's one running interval, started on this task.
+     *
+     * A live press names no instant: "now" is the server's clock, and only a client that was away from
+     * the network has a timestamp of its own to defend. Another task's interval is closed where this
+     * one begins — the database holds "at most one open row", not this screen's politeness — and a
+     * start that is already running answers with the row that is.
+     */
+    startTimer: (id: string, body: { startAt?: number } = {}) =>
+      request<{ entry: TodoTimeEntry }>(`/api/todos/${id}/timer/start`, { method: 'POST', body }),
+    /**
+     * Stop this task's running interval, split into one row per account day it crossed.
+     *
+     * `endAt` is absent for the same reason `startAt` is: a reader who presses the button while the
+     * device is online means "now", and the server's now is the one the ledger trusts. A 404 means
+     * nothing was running on this task, which is the state a stop wants.
+     */
+    stopTimer: (id: string, body: { endAt?: number } = {}) =>
+      request<{ entries: TodoTimeEntry[] }>(`/api/todos/${id}/timer/stop`, { method: 'POST', body }),
     remove: (id: string) => request<{ deleted: true }>(`/api/todos/${id}`, { method: 'DELETE' }),
 
     /**

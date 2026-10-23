@@ -8,7 +8,9 @@
  * value, two languages, one screen" is why this file is in `shared/` at all.
  *
  * Parsing lives beside it because the quick-add line and the editor's custom estimate field ask the
- * same question — `1h20m` — and two grammars would eventually disagree about what `90` means.
+ * same question — `1h20m` — and two grammars would eventually disagree about what `90` means. The
+ * running clock lives here too, for the same reason in the other direction: one file owns every way this
+ * app says "ninety minutes", whatever surface is saying it.
  */
 import { formatDurationAbbreviated } from '../property-formats'
 
@@ -40,6 +42,25 @@ const ZERO_DURATION = '0m'
 export function formatTaskDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms <= 0) return ZERO_DURATION
   return formatDurationAbbreviated(ms)
+}
+
+/**
+ * A running interval, printed as a stopwatch: `07:45`, `1:15:05`.
+ *
+ * The row's own ladder is the wrong shape for a clock a reader watches while work is going on.
+ * `formatTaskDuration` answers forty-five seconds with `45s` and ninety minutes with `1h 30m`, so the
+ * number the eye is on would either sit unchanged for a whole minute or shuffle its units sideways
+ * every time one rolled over. Seconds are the unit a running interval is measured in by the person
+ * waiting for it, and the fixed-width pairs are what stop the digits from moving as they change.
+ *
+ * Not translated either, for the same reason {@link formatTaskDuration} is not: it is a count.
+ */
+export function formatRunningDuration(ms: number): string {
+  const seconds = Math.max(0, Math.floor((Number.isFinite(ms) ? ms : 0) / 1000))
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  const tail = `${pad(Math.floor(seconds / 60) % 60)}:${pad(seconds % 60)}`
+  const hours = Math.floor(seconds / 3600)
+  return hours > 0 ? `${hours}:${tail}` : tail
 }
 
 /**

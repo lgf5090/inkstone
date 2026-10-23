@@ -248,6 +248,16 @@ interface TodosState {
   planTask: (id: string, date: string | null) => Promise<TodoTask | null>
   /** Append one reminder `minutes` from now; the task's existing reminders stay. */
   snoozeTask: (id: string, minutes: SnoozeMinutes) => Promise<TodoTask | null>
+  /**
+   * Start the account's one running interval on this task, and move the row to `in_progress` with it.
+   *
+   * One gesture, because "am I working on this" has to have one answer: an interval running under a row
+   * that still says `todo` is the second truth the card rule forbids. The status is written first and
+   * through the row's own guard, and nothing here writes `done` — finishing stays `completeTask`'s path.
+   */
+  startTimer: (task: TodoTask) => Promise<void>
+  /** Close this task's running interval. The row keeps whatever status it had: stopping is not finishing. */
+  stopTimer: (id: string) => Promise<void>
   /** Open tasks matching a title search, for the today screen's picker. Errors are reported, not thrown. */
   searchTasks: (query: string) => Promise<TodoTask[]>
 
@@ -884,6 +894,55 @@ function acceptsNewTasks(view: TodosState['view']): boolean {
 /** The optimistic row a create/edit shows, re-implemented for the queue because the server answered nothing. */
 function storeOptimisticTask(task: TodoTask, replaceId?: string): void {
   storeServerTask(task, { addIfMissing: true, ...(replaceId ? { replaceId } : {}) })
+}
+
+/**
+ * Mirror the account's one open interval onto the rows on screen.
+ *
+ * `ux_todos_time_open` guarantees the server holds at most one running row for the whole account, so
+ * naming the task that holds it is enough to say where every other row no longer does — which is what
+ * makes starting a second task's timer take the first one's indicator away. A row that already reads
+ * the way it is being painted is returned untouched, so a gesture on row B does not re-render row A.
+ */
+function paintTimedRow(id: string, since: number | null): void {
+  const apply = (task: TodoTask): TodoTask => {
+    const next = task.id === id ? since : null
+    return (task.runningSince ?? null) === next ? task : { ...task, runningSince: next }
+  }
+  useTodos.setState((state) => ({
+    tasks: state.tasks.map(apply),
+    completed: state.completed.map(apply),
+  }))
+}
+
+/**
+ * Re-read the rows a ledger write moved, instead of adjusting them here.
+ *
+ * A ledger write spends the task's revision — the interval hangs off the row, and moving `updated_at`
+ * is what carries it to the other devices — while the timer routes answer with the interval alone. So
+ * the mirror of the write has to be read, not guessed: a local `rev + 1` would be a guess about a
+ * number the server holds, and the reader's next edit would then report a conflict this very press
+ * caused. Rows that left the page are left alone, because `storeServerTask` only replaces what is on
+ * screen and the next listing read owns the rest.
+ */
+async function refreshTimedRows(ids: readonly string[]): Promise<void> {
+  await Promise.all(ids.map(async (id) => {
+    try {
+      const { task } = await api.todos.get(id)
+      storeServerTask(task)
+    } catch (error) {
+      // The gesture landed and only its mirror failed; that is said out loud rather than left for the
+      // reader to discover as a conflict on the next edit.
+      toastError(error)
+    }
+  }))
+}
+
+/** The rows the account is holding an open interval on, newest gesture included. */
+function timedRowIds(state: Pick<TodosState, 'tasks' | 'completed'>): string[] {
+  return [...state.tasks, ...state.completed]
+    .filter((entry) => entry.runningSince != null)
+    .map((entry) => entry.id)
 }
 
 /**
@@ -1774,6 +1833,54 @@ export const useTodos = create<TodosState>((set, get) => ({
     } catch (error) {
       toastError(error)
       return null
+    }
+  },
+
+  /**
+   * Start the account's one running interval on this task, and move the row to `in_progress` with it.
+   *
+   * Two writes, and the status first: a row that says `in_progress` with nothing timed yet is a state
+   * the reader can see and put down, while an interval running on a row that still says `todo` is the
+   * second answer this gesture exists to prevent. The status write is the same guarded edit every other
+   * card action makes, and it writes nothing else — `done` is `completeTask`'s own path, so a stopwatch
+   * cannot finish a task by accident.
+   *
+   * The account holds at most one open interval, and the server closes the previous one where a new one
+   * begins, so the mirror of that is taken here rather than asked for: every other row stops claiming a
+   * running timer, and the rows the ledger moved are re-read for the revision it spent.
+   */
+  startTimer: async (task) => {
+    if (task.status === 'todo') {
+      const saved = await get().updateTask(task.id, { status: 'in_progress' })
+      // The row guard has already said what went wrong. Starting an interval on top of a row that
+      // refused to move would put the two truths back together again.
+      if (!saved) return
+    }
+    const closed = timedRowIds(get()).filter((id) => id !== task.id)
+    try {
+      const { entry } = await api.todos.startTimer(task.id)
+      paintTimedRow(entry.taskId, entry.startAt)
+      await refreshTimedRows([entry.taskId, ...closed])
+    } catch (error) {
+      toastError(error)
+    }
+  },
+
+  /**
+   * Stop this task's running interval, and nothing else.
+   *
+   * The status stays as it was: putting a task down is not finishing it, and the one door to `done` is
+   * `completeTask`. The row is read back rather than adjusted because the closed span is the server's
+   * to divide — an interval that crossed the account's midnight became several rows, and re-doing that
+   * arithmetic here would be a second ledger.
+   */
+  stopTimer: async (id) => {
+    try {
+      await api.todos.stopTimer(id)
+      paintTimedRow(id, null)
+      await refreshTimedRows([id])
+    } catch (error) {
+      toastError(error)
     }
   },
 

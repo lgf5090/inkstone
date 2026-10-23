@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * The ledger on the row: what was planned, what it took, and the way to change the plan.
+ * The ledger on the row: what was planned, what it took, how it is started, and the way to change the plan.
  *
  * R1-2 puts the estimate and the spent total where a reader decides to start work, and three things
  * have to be true for that to be an interface rather than a decoration.
@@ -16,6 +16,12 @@
  *
  * And the press has to land: choosing a preset writes the estimate through the same guarded update
  * every other card write uses, and the row the reader is looking at carries the new number afterwards.
+ *
+ * R1-3 adds the stopwatch to the same row, and there the thing being pinned is a decision rather than a
+ * layout: one press starts the interval *and* moves the row to `in_progress`, because a task that is
+ * being timed while still saying `todo` is two answers to "am I working on this". Stopping answers only
+ * the interval — finishing a task is the one path `completeTask` owns, and a control that wrote `done`
+ * as a side effect would be a fourth way to complete a task.
  */
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -23,9 +29,21 @@ import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import type { TodoTask } from '@shared/todos/model'
 
-const server = vi.hoisted(() => ({
-  updates: [] as { id: string; patch: Record<string, unknown> }[],
-}))
+const server = vi.hoisted(() => {
+  /** Shared with the cases below, because an interval is asserted at the instant it was filed. */
+  const STARTED = Date.parse('2026-10-20T08:30:00Z')
+  return {
+    updates: [] as { id: string; patch: Record<string, unknown> }[],
+    /** The ledger gestures the row asked for, in the order they left. */
+    starts: [] as string[],
+    stops: [] as string[],
+    /** The rows re-read after a ledger write; every one of them moves the task's revision. */
+    reads: [] as string[],
+    /** What the refreshed read answers with, per id — the row as the server now holds it. */
+    refreshed: {} as Record<string, Partial<TodoTask>>,
+    STARTED,
+  }
+})
 
 vi.mock('../../lib/api', () => {
   const counts = { inbox: 0, today: 0, upcoming: 0, overdue: 0, all: 0, completed: 0, starred: 0, byList: {}, byTag: {} }
@@ -51,6 +69,15 @@ vi.mock('../../lib/api', () => {
     projectId: null,
     stepTotal: 0,
     stepDone: 0,
+    // The three ledger fields every task read assembles, running row or none: the route answers with a
+    // null rather than with an absent key, and the row on screen follows it.
+    timeEstimateMs: null,
+    timeSpentMs: 0,
+    runningSince: null,
+  })
+  const entry = (id: string, endAt: number | null) => ({
+    id: 'entry-1', taskId: id, startAt: server.STARTED, endAt,
+    day: '2026-10-20', source: 'timer' as const, createdAt: server.STARTED, updatedAt: server.STARTED,
   })
   return {
     api: {
@@ -65,6 +92,20 @@ vi.mock('../../lib/api', () => {
             answer.timeEstimateMs = patch.timeEstimate as number | null
           }
           return { task: { ...base(id), ...answer }, next: null }
+        },
+        startTimer: async (id: string) => {
+          server.starts.push(id)
+          return { entry: entry(id, null) }
+        },
+        stopTimer: async (id: string) => {
+          server.stops.push(id)
+          return { entries: [entry(id, server.STARTED + 30 * 60_000)] }
+        },
+        // The read that follows a ledger write: the interval moved the task's revision, so the row on
+        // screen is re-read rather than guessed at.
+        get: async (id: string) => {
+          server.reads.push(id)
+          return { task: { ...base(id), ...server.refreshed[id] }, steps: [] }
         },
         list: async () => ({ tasks: [], total: 0, counts, dayEnd: Date.now() + 3_600_000, timezone: 'UTC' }),
       },
@@ -114,6 +155,10 @@ beforeEach(async () => {
   localStorage.clear()
   await initI18n()
   server.updates.length = 0
+  server.starts.length = 0
+  server.stops.length = 0
+  server.reads.length = 0
+  server.refreshed = {}
   opened = 0
   useTodos.setState(original, true)
   useTodos.setState({ lists: [], timezone: 'UTC', dayEnd: NOW + 86_400_000, selectedIds: new Set<string>() })
@@ -198,6 +243,29 @@ function typeCustom(value: string): void {
     setter?.call(customField(), value)
     customField().dispatchEvent(new Event('input', { bubbles: true }))
   })
+}
+
+/** The row's stopwatch, whichever side of the gesture it is on. */
+function timerButton(): HTMLButtonElement {
+  const button = view!.container.querySelector<HTMLButtonElement>('[data-todo-timer]')
+  if (!button) throw new Error('the row shows no timer control')
+  return button
+}
+
+async function pressTimer(): Promise<void> {
+  await act(async () => {
+    timerButton().click()
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+}
+
+function stored(id = 'a'): TodoTask {
+  const task = useTodos.getState().tasks.find((entry) => entry.id === id)
+    ?? useTodos.getState().completed.find((entry) => entry.id === id)
+  if (!task) throw new Error(`no row ${id} is on screen`)
+  return task
 }
 
 describe('the durations a row carries', () => {
@@ -301,5 +369,99 @@ describe('the consumption bar', () => {
   it('stays off a running row that has no plan to consume', () => {
     mount(row('a', { timeEstimateMs: null, timeSpentMs: HOUR, runningSince: NOW - MINUTE }))
     expect(view!.container.querySelector('[data-todo-estimate-bar]')).toBeNull()
+  })
+})
+
+describe('the stopwatch on the row', () => {
+  it('starts the interval and moves the row to in progress in one press', async () => {
+    server.refreshed.a = { status: 'in_progress', runningSince: server.STARTED }
+    mount(row('a', { status: 'todo', rev: 2 }))
+
+    await pressTimer()
+
+    // One gesture, two writes, and the status first: a row left `in_progress` with nothing running is a
+    // state the reader can see, while an interval running under a row that still says `todo` is the
+    // second truth the card rule forbids.
+    expect(server.updates).toEqual([{ id: 'a', patch: { status: 'in_progress' } }])
+    expect(server.starts).toEqual(['a'])
+    expect(stored().status).toBe('in_progress')
+    expect(stored().runningSince).toBe(server.STARTED)
+  })
+
+  it('re-reads the row the ledger moved, because the write spent a revision', async () => {
+    server.refreshed.a = { status: 'in_progress', runningSince: server.STARTED, rev: 5 }
+    mount(row('a', { status: 'in_progress', rev: 4 }))
+
+    await pressTimer()
+
+    // The timer route answers with the interval, not the task, and a ledger write moves the task's
+    // revision all the same. Left at 4 the reader's next edit would report a conflict this very press
+    // caused, so the row is re-read rather than guessed forward.
+    expect(server.reads).toEqual(['a'])
+    expect(stored().rev).toBe(5)
+  })
+
+  it('takes the press for itself instead of opening the task behind it', async () => {
+    server.refreshed.a = { status: 'in_progress', runningSince: server.STARTED }
+    mount(row('a', { status: 'todo' }))
+
+    await pressTimer()
+
+    expect(opened).toBe(0)
+    expect(document.querySelector('[role="dialog"]'), 'the timer press opened the editor').toBeNull()
+  })
+
+  it('stops the interval and finishes nothing', async () => {
+    server.refreshed.a = { status: 'in_progress', runningSince: null, timeSpentMs: 30 * MINUTE }
+    mount(row('a', { status: 'in_progress', runningSince: server.STARTED, timeSpentMs: 0 }))
+
+    await pressTimer()
+
+    expect(server.stops).toEqual(['a'])
+    expect(server.updates, 'stopping a timer wrote a status').toEqual([])
+    expect(stored().runningSince).toBeNull()
+    // The one path to `done` is `completeTask`; a stopwatch that finished the work as a side effect of
+    // the button the reader pressed to put it down would be a fourth way to complete a task.
+    expect(stored().status).toBe('in_progress')
+    expect(stored().timeSpentMs).toBe(30 * MINUTE)
+  })
+
+  it('names the task it is being pressed on', () => {
+    mount(row('a', { status: 'todo' }))
+    expect(timerButton().getAttribute('aria-label')).toContain('Write the report')
+  })
+
+  it('offers no start on a row that is already finished', () => {
+    mount(row('a', { status: 'done', completedAt: NOW }))
+    expect(view!.container.querySelector('[data-todo-timer]')).toBeNull()
+  })
+
+  it('stands down while rows are being picked for a batch', () => {
+    useTodos.setState({ selectedIds: new Set(['a']) })
+    mount(row('a', { status: 'todo' }))
+    expect(view!.container.querySelector('[data-todo-timer]')).toBeNull()
+  })
+
+  it('hands the running row back to the ledger when a second task is started', async () => {
+    server.refreshed.b = { status: 'in_progress', runningSince: server.STARTED }
+    const first = row('a', { status: 'in_progress', runningSince: NOW - 10 * MINUTE })
+    const second = row('b', { status: 'todo' })
+    useTodos.setState({ tasks: [first, second], completed: [], total: 2 })
+    view = renderElement(createElement(TaskCard, {
+      task: second,
+      lists: [],
+      bounds: { dayEnd: NOW + 86_400_000, now: NOW },
+      timezone: 'UTC',
+      onOpen: () => { opened += 1 },
+      onStar: () => {},
+    }))
+
+    await pressTimer()
+
+    // At most one interval runs per account, and the database — not the client — holds that line. The
+    // mirror of it is that the row that was running stops looking as though it still is.
+    expect(stored('a').runningSince).toBeNull()
+    expect(stored('b').runningSince).toBe(server.STARTED)
+    expect(server.reads).toEqual(expect.arrayContaining(['a', 'b']))
   })
 })

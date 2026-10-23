@@ -13,7 +13,7 @@
  */
 
 import { useEffect, useId, useRef, useState } from 'react'
-import { CalendarMinus, Check, CircleDot, Hourglass, MoreHorizontal, Paperclip, Star } from 'lucide-react'
+import { CalendarMinus, Check, CircleDot, Hourglass, MoreHorizontal, Paperclip, Pause, Play, Star } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { api } from '../../lib/api'
@@ -311,6 +311,8 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
   const toggle = useTodos((state) => state.toggleTask)
   const snooze = useTodos((state) => state.snoozeTask)
   const updateTask = useTodos((state) => state.updateTask)
+  const startTimer = useTodos((state) => state.startTimer)
+  const stopTimer = useTodos((state) => state.stopTimer)
   const selectionMode = useTodos((state) => state.selectedIds.size > 0)
   const selected = useTodos((state) => state.selectedIds.has(task.id))
   const toggleSelected = useTodos((state) => state.toggleSelected)
@@ -333,6 +335,8 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
   const estimateMs = task.timeEstimateMs ?? null
   const spentMs = task.timeSpentMs ?? 0
   const runningSince = task.runningSince ?? null
+  /** Whether this row is the one interval the account is running. */
+  const timed = runningSince !== null
   // The chip is the only door to a plan that is not the editor, so it is always on the row: a task
   // with neither an estimate nor logged time still has to be able to acquire its first one.
   // What that state shows is the hourglass alone — an empty label would read as a rendering bug.
@@ -893,6 +897,35 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
           per line; the reference card has an icon, a name and the rows, and the star is toggled where
           the task is read in full — the list rows and the editor. */}
       <span className="flex shrink-0 items-center gap-0.5">
+        {/*
+         * The stopwatch, and the one thing it is not: a way to finish the task.
+         *
+         * Pressing it starts the interval and moves the row to `in_progress` in the same gesture, because
+         * a row that is being timed while still reading `todo` would answer "am I working on this" twice.
+         * Pressing it again only stops the interval — the status stays wherever the reader left it, and
+         * the one door to `done` is the checkbox's and the editor's. A running row keeps the control
+         * visible with the pointer away, since putting a timer down has to be reachable from wherever the
+         * reader happened to be looking; the idle one comes and goes with the hover, the way the star does.
+         */}
+        {!selectionMode && !compact && (!done || timed) && (
+          <button
+            type="button"
+            data-todo-timer={task.id}
+            aria-label={timed
+              ? t('todo.timer.stop_aria', { title: task.title })
+              : t('todo.timer.start_aria', { title: task.title })}
+            onClick={() => { void (timed ? stopTimer(task.id) : startTimer(task)) }}
+            className={cn(
+              'flex size-9 items-center justify-center rounded-full transition-colors md:size-7',
+              'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
+              timed
+                ? 'text-[var(--accent)] opacity-100'
+                : 'text-[var(--text-quaternary)] hover:text-[var(--text-secondary)] md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100',
+            )}
+          >
+            {timed ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
+          </button>
+        )}
         {/* A row being picked for a batch offers no single-row writes: the star, the unplan and the
             snooze menu would each act on one task while the bar acts on all of them. */}
         {!selectionMode && !compact && (
