@@ -5,6 +5,19 @@ import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { AssistantStore } from '../src/worker/assistant/store'
 import { exportAssistant, importAssistant } from '../src/worker/assistant/backup'
 import { linkTodoAttachment, listTodoAttachments } from '../src/worker/todos/schema'
+import {
+  addCounterTick,
+  createCounter,
+  getCounter,
+  listCounters,
+  startCounterTimer,
+} from '../src/worker/todos/counters'
+import { addDays, eachDay } from '../src/worker/todos/stats'
+import {
+  COUNTER_WINDOW_DAYS,
+  MAX_COUNTERS_PER_ACCOUNT,
+  MAX_COUNTER_DAY_AMOUNT,
+} from '../src/shared/todos/model'
 import { newId } from '../src/worker/lib/id'
 import type { Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
@@ -366,5 +379,164 @@ describe('a backup round trip', () => {
     expect(notes).toMatch(/calendar feed/i)
     expect(notes).toMatch(/mail/i)
     expect(notes).toMatch(/flow/i)
+  })
+})
+
+/**
+ * The habits travel with their days, and nothing else.
+ *
+ * §4.5's second channel is the one a new table fails quietly: an export that names a column the import
+ * allowlist does not accept, or a day whose habit never landed, produces a restore that looks complete
+ * and is not. Both halves are measured here against the database, because `INSERT OR IGNORE` never
+ * complains — and the size of the pair is measured too, since this deployment's ceiling is four megabytes
+ * and a ten-thousand-task account is already at five.
+ */
+describe('a habit round trip', () => {
+  /** The days one account holds for one habit, read where they live. */
+  function habitDays(userId: string, counterId: string): { day: string, amount: number }[] {
+    return sqlite.prepare(
+      `SELECT day, amount FROM todos_counter_ticks WHERE user_id = ?1 AND counter_id = ?2 ORDER BY day ASC`,
+    ).all(userId, counterId) as { day: string, amount: number }[]
+  }
+
+  function habitRowCount(userId: string): number {
+    return Number((sqlite.prepare(`SELECT COUNT(*) AS n FROM todos_counters WHERE user_id = ?1`)
+      .get(userId) as { n: number | bigint }).n)
+  }
+
+  /** Writes the account's file back into a second one, the way the restore route does. */
+  async function restore(): Promise<void> {
+    await importAssistant(new AssistantStore(env.DB as D1Database, OTHER, env), JSON.parse(JSON.stringify(await exportAssistant(store))))
+  }
+
+  it('restores the habit, its days, and the difference between no target and a target of none', async () => {
+    const counted = await createCounter(env.DB as D1Database, USER, { title: 'Water', kind: 'clicks', goal: 8, icon: '💧', color: '#2563eb' })
+    const openEnded = await createCounter(env.DB as D1Database, USER, { title: 'Breath', kind: 'clicks', goal: null })
+    if (!counted || !openEnded) throw new Error('The habits were not created.')
+    await addCounterTick(env.DB as D1Database, USER, counted.id, '2026-10-20', 3)
+    await addCounterTick(env.DB as D1Database, USER, counted.id, '2026-10-21', 8)
+    await addCounterTick(env.DB as D1Database, USER, openEnded.id, '2026-10-21', 1)
+
+    await restore()
+    const restored = new Map((await listCounters(env.DB as D1Database, OTHER)).map((habit) => [habit.title, habit]))
+    // Read by title, not by position: the listing is stable at `(created_at, id)`, and two habits made in
+    // the same millisecond are ordered by their random tails.
+    expect([...restored.keys()].sort()).toEqual(['Breath', 'Water'])
+    expect(restored.get('Water')).toMatchObject({ kind: 'clicks', goal: 8, icon: '💧', color: '#2563eb' })
+    expect(restored.get('Breath')?.goal).toBeNull()
+    expect(String(restored.get('Breath')?.color)).toMatch(/^#[0-9a-f]{6}$/i)
+    expect(habitDays(OTHER, counted.id)).toEqual([{ day: '2026-10-20', amount: 3 }, { day: '2026-10-21', amount: 8 }])
+    expect(habitDays(OTHER, openEnded.id)).toEqual([{ day: '2026-10-21', amount: 1 }])
+  })
+
+  it('restores a habit stopped, never running', async () => {
+    const running = await createCounter(env.DB as D1Database, USER, { title: 'Meditate', kind: 'stopwatch' })
+    if (!running) throw new Error('The habit was not created.')
+    await startCounterTimer(env.DB as D1Database, USER, running.id, Date.parse('2026-10-21T08:00:00Z'))
+    expect((await getCounter(env.DB as D1Database, USER, running.id))?.runningSince).not.toBeNull()
+
+    await restore()
+    const restored = (await listCounters(env.DB as D1Database, OTHER)).find((habit) => habit.id === running.id)
+    expect(restored?.kind).toBe('stopwatch')
+    // The file says nothing about a run at all — the key is dropped on the way out, so no restore is ever
+    // handed a stopwatch it did not start — and the habit that comes back is at rest.
+    const file = JSON.parse(JSON.stringify(await exportAssistant(store))) as { data: Record<string, Record<string, unknown>[]> }
+    expect(file.data.counters.some((entry) => 'running_since' in entry)).toBe(false)
+    expect(restored?.runningSince).toBeNull()
+    expect(habitDays(OTHER, running.id)).toEqual([])
+  })
+
+  it('drops a day whose habit the file does not carry', async () => {
+    const kept = await createCounter(env.DB as D1Database, USER, { title: 'Walk', kind: 'clicks' })
+    const removed = await createCounter(env.DB as D1Database, USER, { title: 'Prune', kind: 'clicks' })
+    if (!kept || !removed) throw new Error('The habits were not created.')
+    await addCounterTick(env.DB as D1Database, USER, kept.id, '2026-10-20', 1)
+    await addCounterTick(env.DB as D1Database, USER, removed.id, '2026-10-20', 4)
+
+    const file = JSON.parse(JSON.stringify(await exportAssistant(store))) as { data: Record<string, unknown[]> }
+    file.data.counters = file.data.counters.filter((entry) => (entry as { id: string }).id !== removed.id)
+    const target = new AssistantStore(env.DB as D1Database, OTHER, env)
+    await importAssistant(target, file)
+
+    expect(habitRowCount(OTHER)).toBe(1)
+    expect(habitDays(OTHER, kept.id)).toEqual([{ day: '2026-10-20', amount: 1 }])
+    // The orphan is the whole point: a row no habit can name is unreachable by every screen and every
+    // later delete, so the restore that kept it would be writing the leak into the new account.
+    expect(habitDays(OTHER, removed.id)).toEqual([])
+  })
+
+  it('does not count a tap twice when one file is restored twice', async () => {
+    const habit = await createCounter(env.DB as D1Database, USER, { title: 'Read', kind: 'clicks' })
+    if (!habit) throw new Error('The habit was not created.')
+    await addCounterTick(env.DB as D1Database, USER, habit.id, '2026-10-20', 2)
+    const backup = JSON.parse(JSON.stringify(await exportAssistant(store)))
+
+    await importAssistant(new AssistantStore(env.DB as D1Database, OTHER, env), backup)
+    await importAssistant(new AssistantStore(env.DB as D1Database, OTHER, env), backup)
+    expect(habitDays(OTHER, habit.id)).toEqual([{ day: '2026-10-20', amount: 2 }])
+  })
+
+  it('refuses to invent a kind, a day shape, or an amount a day cannot hold', async () => {
+    const file = {
+      format: 'inkstone-assistant-backup',
+      version: 1,
+      exportedAt: Date.now(),
+      data: {
+        settings: {},
+        counters: [{ id: 'aaaaaaaaaaaaaaaaaaaaaaaaaa', title: 'Odd', kind: 'interval', goal: 1e9, created_at: 1, updated_at: 1 }],
+        counter_ticks: [
+          { counter_id: 'aaaaaaaaaaaaaaaaaaaaaaaaaa', day: '2026-10-20', amount: 1e9 },
+          { counter_id: 'aaaaaaaaaaaaaaaaaaaaaaaaaa', day: '2026', amount: 5 },
+          { counter_id: 'aaaaaaaaaaaaaaaaaaaaaaaaaa', day: '2026-10-21', amount: -3 },
+        ],
+      },
+    }
+    await importAssistant(new AssistantStore(env.DB as D1Database, OTHER, env), file)
+
+    const restored = (await listCounters(env.DB as D1Database, OTHER))[0]
+    // An unknown word becomes the habit that needs no timer rather than a timer the restore invented.
+    // Read from the column, not through the row reader: the reader folds an unknown kind too, and a test
+    // that only asked it would pass while the file wrote the invention straight into the database.
+    const storedKind = sqlite.prepare(`SELECT kind FROM todos_counters WHERE user_id = ?1 AND id = ?2`)
+      .get(OTHER, 'aaaaaaaaaaaaaaaaaaaaaaaaaa') as { kind: string }
+    expect(storedKind.kind).toBe('clicks')
+    expect(restored?.kind).toBe('clicks')
+    expect(restored?.goal).toBe(MAX_COUNTER_DAY_AMOUNT)
+    // The oversized day is clamped into what a day holds, the half-written date never lands, and a
+    // negative amount is not a record of anything.
+    expect(habitDays(OTHER, 'aaaaaaaaaaaaaaaaaaaaaaaaaa')).toEqual([{ day: '2026-10-20', amount: MAX_COUNTER_DAY_AMOUNT }])
+  })
+
+  it('keeps a whole shelf of habits far below the ceiling a restore accepts', async () => {
+    const days = eachDay(addDays('2026-10-23', -(COUNTER_WINDOW_DAYS - 1)), '2026-10-23')
+    let written = 0
+    for (let habit = 0; habit < MAX_COUNTERS_PER_ACCOUNT; habit++) {
+      const id = `aaaa${String(habit).padStart(22, '0')}`
+      sqlite.prepare(
+        `INSERT INTO todos_counters (user_id, id, title, kind, goal, created_at, updated_at) VALUES (?, ?, ?, 'clicks', 8, 1, 1)`,
+      ).run(USER, id, `Habit ${habit}`)
+      written += 1
+      for (const day of days) {
+        sqlite.prepare(
+          `INSERT INTO todos_counter_ticks (user_id, counter_id, day, amount) VALUES (?, ?, ?, 8)`,
+        ).run(USER, id, day)
+        written += 1
+      }
+    }
+    // The fixture's own bookkeeping: a shelf this suite measures is worth nothing if it did not fill one.
+    expect(written).toBe(MAX_COUNTERS_PER_ACCOUNT * COUNTER_WINDOW_DAYS + MAX_COUNTERS_PER_ACCOUNT)
+
+    const file = JSON.parse(JSON.stringify(await exportAssistant(store))) as { data: Record<string, unknown[]> }
+    const bytes = JSON.stringify(file.data.counters).length + JSON.stringify(file.data.counter_ticks).length
+    const rows = file.data.counter_ticks.length
+    expect(rows).toBe(MAX_COUNTERS_PER_ACCOUNT * COUNTER_WINDOW_DAYS)
+    // Measured here, and recorded in the plan (§4.5's third channel): 1,426,392 bytes for a whole year of
+    // every habit an account may hold — about 97 bytes a day-row. That is a third of the four-megabyte
+    // ceiling a restore accepts, before a single task is in the file, which is why a tick row carries the
+    // three columns the screen reads and nothing else: no stamp, no id of its own, no per-tap log. A
+    // second year of days doubles the figure, and the history is what a streak is made of, so the file
+    // keeps it whole rather than truncating a reader's longest run to what fits.
+    expect(bytes).toBeLessThan(1_500_000)
+    expect(bytes / rows).toBeLessThan(120)
   })
 })

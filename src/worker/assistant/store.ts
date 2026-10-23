@@ -7555,6 +7555,11 @@ export class AssistantStore {
     const onlyKept = 'conversation_id IN (SELECT id FROM chat_conversations WHERE user_id = ?1 AND ephemeral = 0)'
     const select = (table: string, extra = '') => this.db.prepare(`SELECT * FROM ${table} WHERE user_id = ?1 ${extra} ORDER BY created_at`)
       .bind(this.userId).all<Record<string, unknown>>().then((r) => r.results ?? [])
+    // A habit has a creation stamp; its days do not, so the ledger of days is walked in the order the
+    // reader reads it — one habit after another, one day after another — rather than by a column it
+    // deliberately does not carry.
+    const selectOrdered = (table: string, order: string) => this.db.prepare(`SELECT * FROM ${table} WHERE user_id = ?1 ORDER BY ${order}`)
+      .bind(this.userId).all<Record<string, unknown>>().then((r) => r.results ?? [])
     // The trash is not part of a backup. A file is a snapshot of what the account still has; a task
     // the reader deleted is on its way out (the retention sweep will remove it within 30 days), and a
     // restore must not bring back what they deliberately put away. The children follow their task, so
@@ -7565,6 +7570,12 @@ export class AssistantStore {
     // does not have the column (see `EXPORT_COLUMNS`), so `SELECT *` has to drop it here or a restore
     // would read a key the allowlist never accepts.
     for (const task of tasks) delete task.deleted_at
+    // A habit's open run is one device's state, not a fact the account keeps: the same reason an interval
+    // nobody has stopped is left out of the ledger below, the stamp is dropped here, and the habit comes
+    // back stopped. The file has no column for it, so leaving it in would put a key in front of a restore
+    // that is not allowed to read it.
+    const habits = await select('todos_counters')
+    for (const habit of habits) delete habit.running_since
     // A reminder travels on its task, as the whole pending list rather than one instant: the format used
     // to hold a single `remind_at` per task, so a reader who set five got one back and the other four
     // went out of the file without a word. Fired rows stay behind: a restore is not a delivery, and
@@ -7603,6 +7614,11 @@ export class AssistantStore {
       // The time ledger, closed rows of live tasks only: a running interval is a state on one device,
       // not a fact yet, and it belongs to a task the file may not carry at all (D13).
       task_time_entries: await select('todos_time_entries', `AND end_at IS NOT NULL AND ${liveTask}`),
+      // The habits and their days. A habit hangs off nothing, so the file needs no other row to make
+      // sense of it; the days do hang off a habit, and a day whose habit the file does not carry is a
+      // record of a habit nobody can name, which is what the import refuses to write.
+      counters: habits,
+      counter_ticks: await selectOrdered('todos_counter_ticks', 'counter_id, day'),
       projects: await select('chat_projects'),
       automations: await select('chat_automations'),
       notifications: await select('chat_notifications'),
@@ -7701,6 +7717,11 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // where it runs. Every column the ledger's reads speak travels — a restore that lost `day` would put
   // every hour back on the wrong calendar day, which is the whole thing the column exists to prevent.
   todos_time_entries: ['id', 'task_id', 'start_at', 'end_at', 'day', 'source', 'created_at', 'updated_at'],
+  // The habits, without the run: `running_since` is one device's stopwatch, and a restored account that
+  // came back mid-run would be timing something nobody started. The days travel as the pair the screen
+  // reads them by — a habit and a date — because an amount with no day to sit on is not a habit at all.
+  todos_counters: ['id', 'title', 'kind', 'icon', 'color', 'goal', 'created_at', 'updated_at'],
+  todos_counter_ticks: ['counter_id', 'day', 'amount'],
   // The brief and the folders a project reads are what make it a context rather than a folder; a
   // restored project without them is the same name over an empty brief. `note_ids` travels with them: a
   // project that named three pages and came back naming none would answer from the whole vault, which is

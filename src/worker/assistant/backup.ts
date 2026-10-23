@@ -17,6 +17,8 @@ import {
   parseRepeatRule,
   taskColorOrNull,
   taskIconOrNull,
+  COUNTER_KINDS,
+  MAX_COUNTER_DAY_AMOUNT,
   TIME_ENTRY_SOURCES,
 } from '@shared/todos/model'
 import { isTaskOpen } from '@shared/todos/status'
@@ -715,6 +717,50 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
   }
   await store.importRows('todos_time_entries', timeEntryRows)
 
+  // A habit is nothing's child, so its own id is all the file has to get right. Two things it does not
+  // bring back: a run in progress, which the export deliberately does not carry, and a kind this app has
+  // no screen for — an unknown word reads as the counting habit rather than as a timer the restore
+  // invented beside it.
+  const counterRows: Record<string, unknown>[] = []
+  for (const entry of rows(data.counters)) {
+    const id = idValue(entry.id)
+    if (!id) continue
+    counterRows.push({
+      id,
+      title: textValue(entry.title, 60) || 'Habit',
+      kind: oneOf(entry.kind, COUNTER_KINDS, 'clicks'),
+      icon: taskIconOrNull(entry.icon),
+      color: taskColorOrNull(entry.color),
+      goal: counterGoal(entry.goal),
+      created_at: numberValue(entry.created_at, Date.now()),
+      updated_at: numberValue(entry.updated_at, Date.now()),
+    })
+  }
+  await store.importRows('todos_counters', counterRows)
+
+  // The days follow their habit, and a day whose habit the file does not carry is a record of a habit
+  // nobody can name — the rule the ledger applies to a task that is not in the file, at the same cost:
+  // an orphan row no screen reaches is a leak that outlives the restore. A day of nothing is dropped for
+  // the other half of the same reason: the writer removes a zero rather than storing it, and a restore
+  // that kept one would be a second spelling of "this day held nothing".
+  const tickEntries = rows(data.counter_ticks)
+  const knownCounters = await store.hasRows(
+    'todos_counters',
+    tickEntries.map((entry) => idValue(entry.counter_id)).filter((id): id is string => id !== null),
+  )
+  const tickRows: Record<string, unknown>[] = []
+  for (const entry of tickEntries) {
+    const counterId = idValue(entry.counter_id)
+    // `dayValue` rather than `dateValue`: a habit's day is the whole key of its row and the screen matches
+    // it as a string, so a file's `2026` is a day no window ever lands on.
+    const day = dayValue(entry.day)
+    if (!counterId || day === null || !knownCounters.has(counterId)) continue
+    const amount = counterAmount(entry.amount)
+    if (amount <= 0) continue
+    tickRows.push({ counter_id: counterId, day, amount })
+  }
+  await store.importRows('todos_counter_ticks', tickRows)
+
   // Two things this format leaves out by decision, said on the summary rather than left for the reader to
   // discover by counting what came back. A feed's password hash and a mail address's token are the
   // capability itself, so they go nowhere near a file that may leave the deployment; and the event table
@@ -863,6 +909,24 @@ function dateValue(value: unknown): string | null {
  */
 function dayValue(value: unknown): string | null {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null
+}
+
+/**
+ * One habit's target or one day's amount, in the unit the habit itself speaks.
+ *
+ * Whole, never negative, and never more than a day holds: the two ceilings are the writer's, restated
+ * here because a backup file is input off a disk and a restore that wrote `1e9` taps would be a fact no
+ * screen can draw. A goal of none is a different answer from a goal of zero, so only an unreadable value
+ * falls back to `null` — a zero in the file stays the target the reader set.
+ */
+function counterAmount(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 0
+  return Math.max(0, Math.min(Math.trunc(value), MAX_COUNTER_DAY_AMOUNT))
+}
+
+function counterGoal(value: unknown): number | null {
+  if (value === null || value === undefined || typeof value !== 'number' || !Number.isFinite(value)) return null
+  return Math.max(0, Math.min(Math.trunc(value), MAX_COUNTER_DAY_AMOUNT))
 }
 
 /**
