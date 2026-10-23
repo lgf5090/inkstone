@@ -1240,6 +1240,15 @@ export const api = {
      */
     stopTimer: (id: string, body: { endAt?: number } = {}) =>
       request<{ entries: TodoTimeEntry[] }>(`/api/todos/${id}/timer/stop`, { method: 'POST', body }),
+    /**
+     * Back-fill one span by hand: the answer to "I worked on this and never started the timer".
+     *
+     * The caller names both ends, because unlike the two timer gestures this one is *about* a period
+     * that has already happened. The route refuses a span past its ceiling with a reason rather than
+     * trimming it, and splits what crossed the account's midnight into one row per day.
+     */
+    addTime: (id: string, body: { startAt: number, endAt: number }) =>
+      request<{ entries: TodoTimeEntry[] }>(`/api/todos/${id}/time`, { method: 'POST', body }),
     remove: (id: string) => request<{ deleted: true }>(`/api/todos/${id}`, { method: 'DELETE' }),
 
     /**
