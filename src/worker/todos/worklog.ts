@@ -13,7 +13,7 @@
  * is already on the row (`todos_time_entries.day`), written by the same statement that closed it.
  */
 
-import { addDays, isStatsDay } from './stats'
+import { eachDay, isStatsDay } from './stats'
 import { SQL_TASK_DONE } from '@shared/todos/status'
 import { WORKLOG_DIMENSIONS, type Worklog, type WorklogDimension } from '@shared/todos/model'
 
@@ -85,18 +85,6 @@ function groupQuery(dimension: WorklogDimension): { sql: string } {
            GROUP BY key, label
            ORDER BY n DESC`,
   }
-}
-
-/** Every day from `from` to `to`, inclusive, so a day nobody worked on is a zero and not an absence. */
-function eachDay(from: string, to: string): string[] {
-  const days: string[] = []
-  for (let day = from; day <= to; day = addDays(day, 1)) {
-    days.push(day)
-    // A range that cannot end would be a malformed pair rather than a long window; the route bounds the
-    // span it accepts, so this only stops a hand-built query from spinning forever.
-    if (days.length > 3660) break
-  }
-  return days
 }
 
 /**

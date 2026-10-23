@@ -196,6 +196,24 @@ export function addDays(day: string, days: number): string {
   return utcToDay(dayToUtc(day) + days * DAY_MS)
 }
 
+/**
+ * Every day from `from` to `to`, inclusive.
+ *
+ * Shared because two screens need a window that holds its empty days: the worklog lists a zero for a
+ * day nobody worked on, and the habits screen shades a day nobody tapped. Neither is allowed to answer
+ * an absent day with an absence, which is what a result set grouped by day would hand back.
+ */
+export function eachDay(from: string, to: string): string[] {
+  const days: string[] = []
+  for (let day = from; day <= to; day = addDays(day, 1)) {
+    days.push(day)
+    // A range that cannot end is a malformed pair rather than a long window; the callers bound the
+    // span they ask for, so this only stops a hand-built one from spinning forever.
+    if (days.length > 3660) break
+  }
+  return days
+}
+
 function dayToUtc(day: string): number {
   const [year, month, date] = day.split('-').map(Number)
   return Date.UTC(year!, month! - 1, date!)

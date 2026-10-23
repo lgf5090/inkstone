@@ -1283,5 +1283,93 @@ export interface FinishDay {
   planned: FinishDayBucket
 }
 
+/**
+ * What a habit counts, in its own unit.
+ *
+ * Two kinds, because those are the two questions a habit answers: how many times, and how long. The
+ * reference app carries a third — "every N minutes, ask me" — which is a recurring alarm rather than a
+ * record, and belongs beside the reminder sweep instead of here.
+ */
+export const COUNTER_KINDS = ['clicks', 'stopwatch'] as const
+export type CounterKind = (typeof COUNTER_KINDS)[number]
+
+export function isCounterKind(value: unknown): value is CounterKind {
+  return typeof value === 'string' && (COUNTER_KINDS as readonly string[]).includes(value)
+}
+
+/**
+ * How many habits one account may hold.
+ *
+ * Forty is well past what the screen reads — a row each, with the days behind it — and a ceiling has to
+ * live somewhere before a client's list of habits can be taken at its word.
+ */
+export const MAX_COUNTERS_PER_ACCOUNT = 40
+
+/**
+ * The largest amount one habit-day may hold.
+ *
+ * A day only has this many seconds, and a tap count past it is a client that mistyped a unit. The same
+ * ceiling serves both kinds, so the clamp that enforces it holds no branch.
+ */
+export const MAX_COUNTER_DAY_AMOUNT = 24 * 60 * 60
+
+/** How many days one reading covers: a year and its leap, so the heat map can show a whole year. */
+export const COUNTER_WINDOW_DAYS = 366
+
+/** One habit, as the reader named it: what it counts, and what a full day of it would be. */
+export interface TodoCounter {
+  id: string
+  title: string
+  kind: CounterKind
+  icon: string | null
+  color: string | null
+  /**
+   * What a full day is, in the kind's own unit — seconds for a stopwatch, taps for a counter.
+   *
+   * Null is not zero: "no target" and "a target of nothing" are different answers, and the run of days
+   * a screen counts has to know which one it is measuring.
+   */
+  goal: number | null
+  /** The instant this habit's own stopwatch began running, or null while it is stopped. */
+  runningSince: number | null
+  createdAt: number
+  updatedAt: number
+}
+
+/** One day's amount for one habit — the cell a heat map shades. */
+export interface CounterDay {
+  day: string
+  amount: number
+}
+
+/**
+ * One habit's days over one window, read from the day the account is in.
+ *
+ * Every day between `from` and `to` is present, tapped or not: a day nobody did is a zero rather than
+ * an absence, and a map that skipped it would show a gap the reader never chose.
+ */
+export interface CounterHistory {
+  from: string
+  to: string
+  /** The account's own today, so a run of days is counted back from the right day. */
+  today: string
+  days: CounterDay[]
+}
+
+/** What the habits screen shows for one habit: its row, and the days behind it. */
+export interface CounterReading extends CounterHistory {
+  counter: TodoCounter
+}
+
+/**
+ * Whether one day counts toward a run: the target, or any amount at all when none was set.
+ *
+ * One function rather than a condition at each caller, because the streak beside a row's name and the
+ * shading of its cell must not be able to answer "did today count" differently.
+ */
+export function counterDayMet(amount: number, goal: number | null): boolean {
+  return goal === null ? amount > 0 : amount >= goal
+}
+
 /** The priorities, ordered as the app shows them. Re-exported so callers need one import. */
 export type { TaskPriority, TaskStatus }

@@ -281,6 +281,47 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_todos_time_day
      ON todos_time_entries(user_id, day)`,
 
+  // What the habits screen counts: one row per habit, and one row per habit-day.
+  //
+  // A habit is not a task and its seconds are not a ledger row. `todos_time_entries` keys on `task_id`
+  // and lets an account hold exactly one open timer, so a meditation run beside a running work timer
+  // would be refused by that index. The two answer different questions — "how long did this take" and
+  // "did I do this today" — and share nothing but a clock. Amounts are whole numbers in the kind's own
+  // unit: taps for `clicks`, seconds for `stopwatch`. There is no `position` here, because nothing yet
+  // lets a reader put a habit elsewhere: the column arrives with the drag that writes it, in one change.
+  `CREATE TABLE IF NOT EXISTS todos_counters (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    icon TEXT,
+    color TEXT,
+    -- What a full day is, in the kind's own unit, or NULL while the reader tracks without a target.
+    -- NULL is not zero: "no target" and "a target of nothing" are different answers, and a run of
+    -- days has to know which one it is measuring against.
+    goal INTEGER,
+    -- The instant this habit's own stopwatch began running, or NULL while it is stopped. One column
+    -- rather than a row because a habit holds at most one run; the day a finished run files itself
+    -- under is named by the server at the stop, from the account's zone, for the same reason
+    -- todos_tasks.completed_on is stored at the write instead of derived at read time.
+    running_since INTEGER,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  // How much one habit did on one day — the row a tap upserts and a heatmap reads. The key already is
+  // the whole question the screen asks, so one habit's days come back in day order from the key itself.
+  // The habits screen's other read covers every habit at once over one day window; it filters on the
+  // account prefix of the same key, and an account's habits are capped, so no second index earns a
+  // write on a table this small.
+  `CREATE TABLE IF NOT EXISTS todos_counter_ticks (
+    user_id TEXT NOT NULL,
+    counter_id TEXT NOT NULL,
+    day TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    PRIMARY KEY (user_id, counter_id, day)
+  )`,
+
   // The read-only calendar subscription the to-do app publishes. Keyed on `user_id, slug` — the
   // opposite of `shares`, which keys on `slug` alone — because the schema guard refuses an
   // account-scoped table led by a global key; the unique index below is what lets the public reader
@@ -336,6 +377,8 @@ export const TODOS_REQUIRED_TABLES: readonly string[] = [
   'todos_tags',
   'todos_tag_links',
   'todos_time_entries',
+  'todos_counters',
+  'todos_counter_ticks',
   'todos_feeds',
   'todos_mail_tokens',
   'todos_mail_messages',
@@ -383,6 +426,8 @@ export const TODOS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>>
   todos_tags: ['user_id', 'id', 'name', 'color', 'created_at', 'updated_at'],
   todos_tag_links: ['user_id', 'task_id', 'tag_id', 'created_at'],
   todos_time_entries: ['user_id', 'id', 'task_id', 'start_at', 'end_at', 'day', 'source', 'created_at', 'updated_at'],
+  todos_counters: ['user_id', 'id', 'title', 'kind', 'icon', 'color', 'goal', 'running_since', 'created_at', 'updated_at'],
+  todos_counter_ticks: ['user_id', 'counter_id', 'day', 'amount'],
   todos_feeds: ['slug', 'user_id', 'password_hash', 'expires_at', 'revoked_at', 'created_at'],
   todos_mail_tokens: ['user_id', 'token', 'created_at'],
   todos_mail_messages: ['user_id', 'message_id', 'created_at'],
