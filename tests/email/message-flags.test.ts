@@ -20,30 +20,37 @@ beforeEach(() => {
   store = new MailboxStore(sql)
 })
 
-function seed(id: string, overrides: { threadId?: string; folder?: string; read?: boolean } = {}): void {
+function seed(
+  id: string,
+  overrides: { threadId?: string; folder?: string; read?: boolean; focused?: boolean; sender?: string } = {},
+): void {
   expect(store.createEmail(overrides.folder ?? 'inbox', {
     id,
     subject: `Subject ${id}`,
-    sender: 'sender@example.com',
+    sender: overrides.sender ?? 'sender@example.com',
     recipient: 'me@example.com',
     date: Date.now(),
     body: '<p>Hello</p>',
     read: overrides.read ?? true,
     threadId: overrides.threadId,
+    focused: overrides.focused,
   })).toBe(true)
 }
 
 describe('email search flag operators', () => {
-  it('reads is:important, is:muted and is:followup', () => {
+  it('reads is:important, is:muted, is:followup, is:focused and is:other', () => {
     expect(parseEmailSearchQuery('is:important budget')).toEqual({ query: 'budget', important: true })
     expect(parseEmailSearchQuery('IS:MUTED')).toEqual({ query: '', muted: true })
     expect(parseEmailSearchQuery('is:followup')).toEqual({ query: '', followUp: true })
+    expect(parseEmailSearchQuery('is:focused')).toEqual({ query: '', focused: true })
+    expect(parseEmailSearchQuery('is:other')).toEqual({ query: '', focused: false })
   })
 
   it('serializes the flag filters as query parameters', () => {
     expect(emailSearchParams({ query: '', important: true })).toEqual({ is_important: 'true' })
     expect(emailSearchParams({ query: '', muted: false })).toEqual({ is_muted: 'false' })
     expect(emailSearchParams({ query: '', followUp: true })).toEqual({ is_followup: 'true' })
+    expect(emailSearchParams({ query: '', focused: false })).toEqual({ is_focused: 'false' })
   })
 })
 
@@ -70,6 +77,37 @@ describe('email message flags', () => {
     seed('a')
     expect(store.updateEmail('a', {})?.id).toBe('a')
     expect(store.updateEmail('missing', { important: true })).toBeNull()
+  })
+})
+
+describe('email focused inbox storage', () => {
+  it('defaults new messages to focused and filters lists, counts and search', () => {
+    seed('focused')
+    seed('other', { focused: false })
+
+    expect(store.getEmail('focused')?.focused).toBe(1)
+    expect(store.getEmail('other')?.focused).toBe(0)
+    expect(store.getEmails({ folder: 'inbox' }).map((row) => row.id).sort()).toEqual(['focused', 'other'])
+    expect(store.getEmails({ folder: 'inbox', focused: false }).map((row) => row.id)).toEqual(['other'])
+    expect(store.getEmails({ folder: 'inbox', focused: true }).map((row) => row.id)).toEqual(['focused'])
+    expect(store.countEmails({ folder: 'inbox', focused: false })).toBe(1)
+    expect(store.countEmails({ folder: 'inbox' })).toBe(2)
+    expect(store.searchEmails({ focused: false }).map((row) => row.id)).toEqual(['other'])
+    expect(store.searchEmails({ focused: true }).map((row) => row.id)).toEqual(['focused'])
+    expect(store.countSearchResults({ focused: false })).toBe(1)
+
+    const threaded = store.getThreadedEmails({ folder: 'inbox' })
+    expect(threaded.map((row) => [row.id, row.focused]).sort()).toEqual([['focused', 1], ['other', 0]])
+  })
+
+  it('recognizes existing threads and prior senders', () => {
+    expect(store.hasThread('t1')).toBe(false)
+    expect(store.hasSenderHistory('alice@example.com')).toBe(false)
+    seed('reply', { threadId: 't1', sender: 'Alice <alice@example.com>' })
+    expect(store.hasThread('t1')).toBe(true)
+    expect(store.hasSenderHistory('ALICE@example.com')).toBe(true)
+    expect(store.hasSenderHistory('bob@example.com')).toBe(false)
+    expect(store.hasSenderHistory('')).toBe(false)
   })
 })
 

@@ -127,7 +127,7 @@ describe('mailbox migrations', () => {
       created_at INTEGER NOT NULL
     )`)
     legacy.exec(`CREATE UNIQUE INDEX idx_email_folders_name ON email_folders(name COLLATE NOCASE)`)
-    legacy.exec(`CREATE TABLE email_messages (id TEXT PRIMARY KEY)`)
+    legacy.exec(`CREATE TABLE email_messages (id TEXT PRIMARY KEY, folder_id TEXT NOT NULL DEFAULT 'inbox')`)
     legacy.exec(`INSERT INTO email_folders (id, name, is_deletable, created_at) VALUES
       ('inbox', 'Inbox', 0, 0), ('sent', 'Sent', 0, 0), ('draft', 'Drafts', 0, 0),
       ('archive', 'Archive', 0, 0), ('trash', 'Trash', 0, 0), ('spam', 'Spam', 0, 0),
@@ -143,7 +143,7 @@ describe('mailbox migrations', () => {
     )
     const messageColumns = legacy.prepare(`PRAGMA table_info(email_messages)`).all() as Array<{ name: string }>
     expect(messageColumns.map((column) => column.name)).toEqual(
-      expect.arrayContaining(['snoozed_until', 'important', 'muted', 'follow_up_at']),
+      expect.arrayContaining(['snoozed_until', 'important', 'muted', 'follow_up_at', 'focused']),
     )
     const tables = legacy.prepare(
       `SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('email_tags', 'email_message_tags')`,
@@ -161,6 +161,7 @@ describe('mailbox migrations', () => {
       '4_inbound_rules',
       '5_email_templates',
       '6_message_flags',
+      '7_focused_inbox',
     ])
     const ruleTables = legacy.prepare(
       `SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('email_filters', 'email_blocked_senders')`,
@@ -173,7 +174,7 @@ describe('mailbox migrations', () => {
 
     applyMailboxMigrations(sql)
     const reapplied = legacy.prepare(`SELECT COUNT(*) AS total FROM email_migrations`).get() as { total: number }
-    expect(reapplied.total).toBe(6)
+    expect(reapplied.total).toBe(7)
     const folderCount = legacy.prepare(`SELECT COUNT(*) AS total FROM email_folders`).get() as { total: number }
     expect(folderCount.total).toBe(7)
   })

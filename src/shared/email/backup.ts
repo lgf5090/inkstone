@@ -50,6 +50,7 @@ export interface EmailBackupMessage {
   starred: boolean
   important: boolean
   muted: boolean
+  focused: boolean
   followUpAt: number | null
   body: string
   bodySource: string | null
@@ -254,8 +255,9 @@ function parseMessages(value: unknown[], folders: EmailBackupFolder[]): EmailBac
     ) return null
     const important = raw.important === undefined ? false : raw.important
     const muted = raw.muted === undefined ? false : raw.muted
+    const focused = raw.focused === undefined ? true : raw.focused
     const followUpAt = raw.followUpAt === undefined || raw.followUpAt === null ? null : raw.followUpAt
-    if (typeof important !== 'boolean' || typeof muted !== 'boolean') return null
+    if (typeof important !== 'boolean' || typeof muted !== 'boolean' || typeof focused !== 'boolean') return null
     if (followUpAt !== null && !isTimestamp(followUpAt)) return null
     if (!isFiniteNumber(raw.size) || !isTimestamp(raw.createdAt) || !isTimestamp(raw.updatedAt)) return null
     if (raw.deletedAt !== null && !isTimestamp(raw.deletedAt)) return null
@@ -278,6 +280,7 @@ function parseMessages(value: unknown[], folders: EmailBackupFolder[]): EmailBac
       starred: raw.starred,
       important,
       muted,
+      focused,
       followUpAt,
       body: raw.body,
       bodySource: raw.bodySource,
@@ -372,6 +375,10 @@ function accountSettings(value: unknown): EmailAccountSettings | null {
   if (value.autoDraft !== undefined) {
     if (typeof value.autoDraft !== 'boolean') return null
     settings.autoDraft = value.autoDraft
+  }
+  if (value.focusedInbox !== undefined) {
+    if (typeof value.focusedInbox !== 'boolean') return null
+    settings.focusedInbox = value.focusedInbox
   }
   if (utf8ByteLength(JSON.stringify(settings)) > EMAIL_ACCOUNT_SETTINGS_MAX_BYTES) return null
   return settings

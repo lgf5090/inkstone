@@ -18,6 +18,7 @@ import { emailErrorText } from './errors'
 
 export type EmailLoadStatus = 'idle' | 'loading' | 'ready' | 'error'
 export type EmailListMode = 'folder' | 'search'
+export type EmailFocusFilter = 'all' | 'focused' | 'other'
 
 const POLL_INTERVAL_MS = 30_000
 
@@ -118,6 +119,7 @@ interface EmailState {
   folderId: string | null
   searchQuery: string
   page: number
+  focusFilter: EmailFocusFilter
 
   selectedId: string | null
   selectedMessage: EmailMessage | null
@@ -153,6 +155,7 @@ interface EmailState {
 
   loadList: (accountId: string, folderId: string, page?: number, options?: { silent?: boolean }) => Promise<void>
   searchEmails: (accountId: string, query: string, page?: number, options?: { silent?: boolean }) => Promise<void>
+  setFocusFilter: (filter: EmailFocusFilter) => void
   loadPage: (page: number) => Promise<void>
   refresh: () => Promise<void>
 
@@ -211,6 +214,7 @@ const INITIAL = {
   folderId: null as string | null,
   searchQuery: '',
   page: 1,
+  focusFilter: 'all' as EmailFocusFilter,
   selectedId: null as string | null,
   selectedMessage: null as EmailMessage | null,
   selectedStatus: 'idle' as EmailLoadStatus,
@@ -453,12 +457,14 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   loadList: async (accountId, folderId, page = 1, options) => {
     const silent = options?.silent === true
     const sequence = ++listSequence
+    const focusFilter = get().focusFilter
     set((state) => ({
       accountId,
       folderId,
       listMode: 'folder',
       searchQuery: '',
       page,
+      focusFilter: folderId === 'inbox' ? state.focusFilter : 'all',
       listError: null,
       listRefreshing: silent,
       listStatus: silent ? state.listStatus : 'loading',
@@ -467,6 +473,9 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     try {
       const result = await api.email.listEmails(accountId, {
         folder: folderId,
+        focused: folderId === 'inbox' && focusFilter !== 'all'
+          ? focusFilter === 'focused' ? '1' : '0'
+          : undefined,
         page,
         limit: EMAIL_PAGE_SIZE,
         threaded: 'true',
@@ -553,6 +562,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     }
     if (state.folderId) await get().loadList(state.accountId, state.folderId, page)
   },
+
+  setFocusFilter: (filter) => set({ focusFilter: filter }),
 
   refresh: async () => {
     const state = get()

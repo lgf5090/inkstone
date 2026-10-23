@@ -172,6 +172,7 @@ describe('the mailbox settings page', () => {
         }],
         defaultSignatureId: EMAIL_LEGACY_SIGNATURE_ID,
         autoDraft: false,
+        focusedInbox: true,
         vacation: { enabled: false, start: null, end: null, subject: '', body: '' },
       },
     })
@@ -199,6 +200,7 @@ describe('the mailbox settings page', () => {
       ],
       defaultSignatureId: 'work',
       autoDraft: false,
+      focusedInbox: true,
       vacation: { enabled: false, start: null, end: null, subject: '', body: '' },
     })
     expect(settings).not.toHaveProperty('signature')
@@ -261,6 +263,7 @@ describe('the mailbox settings page', () => {
       signatures: [{ id: 'personal', name: 'Personal', text: 'Ada at home', enabled: true }],
       defaultSignatureId: 'personal',
       autoDraft: false,
+      focusedInbox: true,
       vacation: { enabled: false, start: null, end: null, subject: '', body: '' },
     })
   })
@@ -329,6 +332,25 @@ describe('the mailbox settings page', () => {
     expect(update).toHaveBeenCalledTimes(1)
     const settings = update.mock.calls[0]?.[1].settings as EmailAccountSettings | undefined
     expect(settings?.vacation?.enabled).toBe(true)
+  })
+
+  it('saves the focused inbox switch state', async () => {
+    const update = vi.spyOn(api.email, 'updateAccount').mockImplementation(async (id, body) => ({
+      ...account,
+      id,
+      settings: body.settings as EmailAccountSettings,
+      updatedAt: '2026-01-02T00:00:00.000Z',
+    }))
+    view = renderElement(createElement(AccountSettingsPage, { accountId: 'a1' }))
+    await settle()
+    expect(switchFor(t('email.settings.focused_inbox')).getAttribute('aria-checked')).toBe('true')
+    act(() => { switchFor(t('email.settings.focused_inbox')).click() })
+    expect(switchFor(t('email.settings.focused_inbox')).getAttribute('aria-checked')).toBe('false')
+    act(() => { button(t('email.settings.save')).click() })
+    await settle()
+    expect(update).toHaveBeenCalledTimes(1)
+    const settings = update.mock.calls[0]?.[1].settings as EmailAccountSettings | undefined
+    expect(settings?.focusedInbox).toBe(false)
   })
 
   it('validates the vacation window before saving', async () => {

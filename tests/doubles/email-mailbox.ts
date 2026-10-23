@@ -46,6 +46,8 @@ export function fakeEmailMailboxNamespace(store: MailboxStore): DurableObjectNam
     countThreadedEmails: (folder: string) => store.countThreadedEmails(folder),
     getEmail: (id: string) => store.getEmail(id),
     getThreadEmails: (threadId: string) => store.getThreadEmails(threadId),
+    hasThread: (threadId: string) => store.hasThread(threadId),
+    hasSenderHistory: (address: string) => store.hasSenderHistory(address),
     updateEmail: (id: string, patch: { read?: boolean; starred?: boolean }) => store.updateEmail(id, patch),
     markThreadRead: (threadId: string) => store.markThreadRead(threadId),
     trashEmail: (id: string) => store.trashEmail(id),

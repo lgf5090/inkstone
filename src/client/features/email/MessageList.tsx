@@ -2,12 +2,13 @@ import { PenLine, Trash2 } from 'lucide-react'
 import type { EmailFolder, EmailSummary, EmailTag } from '@shared/email/model'
 import { EMAIL_PAGE_SIZE } from '@shared/email/model'
 import { Button, IconButton, Spinner } from '../../components/primitives'
+import { Segmented } from '../../components/form'
 import { Empty, LoadingBlock } from '../../components/feedback'
 import { t } from '../../lib/i18n'
 import { folderLabel, listEmptyText } from './format'
 import { MessageRow, SelectionBox } from './MessageRow'
 import { Pager } from './Pager'
-import type { EmailLoadStatus } from './store'
+import type { EmailFocusFilter, EmailLoadStatus } from './store'
 
 export function MessageList({
   messages,
@@ -24,6 +25,9 @@ export function MessageList({
   selectedId,
   selectedIds,
   dragEnabled,
+  focusFilter,
+  focusedInboxEnabled,
+  onFocusFilterChange,
   onOpen,
   onToggleSelect,
   onSelectAll,
@@ -53,6 +57,9 @@ export function MessageList({
   selectedId: string | null
   selectedIds: ReadonlySet<string>
   dragEnabled: boolean
+  focusFilter: EmailFocusFilter
+  focusedInboxEnabled: boolean
+  onFocusFilterChange: (filter: EmailFocusFilter) => void
   onOpen: (message: EmailSummary) => void
   onToggleSelect: (message: EmailSummary, modifiers: { shiftKey: boolean }) => void
   onSelectAll: (selected: boolean) => void
@@ -70,6 +77,7 @@ export function MessageList({
 }) {
   const pageCount = Math.max(1, Math.ceil(total / EMAIL_PAGE_SIZE))
   const title = searchMode ? t('email.search.title') : folderLabel(folderId, folders)
+  const showFocusFilter = !searchMode && folderId === 'inbox' && focusedInboxEnabled
   const allSelected = messages.length > 0 && messages.every((message) => selectedIds.has(message.id))
   const someSelected = messages.some((message) => selectedIds.has(message.id))
   return (
@@ -86,6 +94,20 @@ export function MessageList({
         <h2 className="min-w-0 flex-1 truncate text-[length:var(--text-12-5)] font-semibold text-[var(--text-primary)]">
           {title}
         </h2>
+        {showFocusFilter && (
+          <Segmented
+            size="sm"
+            className="shrink-0"
+            value={focusFilter}
+            onChange={onFocusFilterChange}
+            label={t('email.focus.filter')}
+            options={[
+              { value: 'all', label: t('email.focus.all') },
+              { value: 'focused', label: t('email.focus.focused') },
+              { value: 'other', label: t('email.focus.other') },
+            ]}
+          />
+        )}
         {refreshing && <Spinner size={12} />}
         <span
           aria-live={searchMode ? 'polite' : undefined}

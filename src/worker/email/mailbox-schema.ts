@@ -219,4 +219,18 @@ export const EMAIL_MAILBOX_MIGRATIONS: readonly MailboxMigration[] = [
         ON email_messages(follow_up_at) WHERE follow_up_at IS NOT NULL`)
     },
   },
+  {
+    name: '7_focused_inbox',
+    apply: (sql) => {
+      const columns = new Set(
+        [...sql.exec<{ name: string }>(`SELECT name FROM pragma_table_info('email_messages')`)]
+          .map((row) => row.name),
+      )
+      if (!columns.has('focused')) {
+        sql.exec(`ALTER TABLE email_messages ADD COLUMN focused INTEGER NOT NULL DEFAULT 1`)
+      }
+      sql.exec(`CREATE INDEX IF NOT EXISTS idx_email_messages_folder_focused
+        ON email_messages(folder_id, focused)`)
+    },
+  },
 ]

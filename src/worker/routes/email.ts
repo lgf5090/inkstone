@@ -289,6 +289,10 @@ function settingsFrom(value: unknown): EmailAccountSettings {
     if (typeof raw.autoDraft !== 'boolean') throw new ApiError(400, 'email_settings_invalid', 'The auto-draft setting is not valid')
     settings.autoDraft = raw.autoDraft
   }
+  if (raw.focusedInbox !== undefined) {
+    if (typeof raw.focusedInbox !== 'boolean') throw new ApiError(400, 'email_settings_invalid', 'The focused inbox setting is not valid')
+    settings.focusedInbox = raw.focusedInbox
+  }
   if (raw.vacation !== undefined) {
     settings.vacation = vacationFrom(raw.vacation)
   }
@@ -501,6 +505,7 @@ function toSummary(row: SummaryRow): EmailSummary {
     starred: Boolean(row.starred),
     important: Boolean(row.important),
     muted: Boolean(row.muted),
+    focused: Boolean(row.focused),
     followUpAt: row.follow_up_at == null ? null : new Date(row.follow_up_at).toISOString(),
     threadId: row.thread_id ?? null,
     hasAttachment: Boolean(row.has_attachment),
@@ -1035,6 +1040,7 @@ emailRoutes.get('/accounts/:id/emails', async (c) => {
   const threaded = booleanQuery(c.req.query('threaded'), 'threaded') ?? false
   const important = booleanQuery(c.req.query('is_important'), 'is_important')
   const muted = booleanQuery(c.req.query('is_muted'), 'is_muted')
+  const focused = booleanQuery(c.req.query('focused'), 'focused')
   const followUp = booleanQuery(c.req.query('is_followup'), 'is_followup')
   let folder: string | undefined
   if (folderParam) folder = (await resolveFolder(mailbox, folderParam)).id
@@ -1047,18 +1053,19 @@ emailRoutes.get('/accounts/:id/emails', async (c) => {
     threadId,
     important,
     muted,
+    focused,
     followUp,
     page,
     limit,
     sortColumn: c.req.query('sortColumn'),
     sortDirection,
   } as const
-  const filtered = important !== undefined || muted !== undefined || followUp !== undefined
+  const filtered = important !== undefined || muted !== undefined || focused !== undefined || followUp !== undefined
   const grouped = threaded && Boolean(folder) && !threadId && !tag && !filtered
   const rows = grouped ? await mailbox.getThreadedEmails(options) : await mailbox.getEmails(options)
   const totalCount = grouped
     ? await mailbox.countThreadedEmails(folder!)
-    : await mailbox.countEmails({ folder, tag, threadId, important, muted, followUp })
+    : await mailbox.countEmails({ folder, tag, threadId, important, muted, focused, followUp })
   return c.json({ emails: rows.map((entry) => toSummary(entry as unknown as SummaryRow)), totalCount })
 })
 
@@ -1285,6 +1292,7 @@ emailRoutes.get('/accounts/:id/search', async (c) => {
     isStarred: booleanQuery(c.req.query('is_starred'), 'is_starred'),
     important: booleanQuery(c.req.query('is_important'), 'is_important'),
     muted: booleanQuery(c.req.query('is_muted'), 'is_muted'),
+    focused: booleanQuery(c.req.query('is_focused'), 'is_focused'),
     followUp: booleanQuery(c.req.query('is_followup'), 'is_followup'),
     hasAttachment: booleanQuery(c.req.query('has_attachment'), 'has_attachment'),
     page,

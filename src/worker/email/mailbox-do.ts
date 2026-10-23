@@ -69,6 +69,8 @@ export class EmailMailbox extends DurableObject<Env> {
   countThreadedEmails(folder: string) { return this.store.countThreadedEmails(folder) }
   getEmail(id: string) { return this.store.getEmail(id) }
   getThreadEmails(threadId: string) { return this.store.getThreadEmails(threadId) }
+  hasThread(threadId: string) { return this.store.hasThread(threadId) }
+  hasSenderHistory(address: string) { return this.store.hasSenderHistory(address) }
   updateEmail(id: string, patch: { read?: boolean; starred?: boolean; important?: boolean; muted?: boolean }) {
     return this.store.updateEmail(id, patch)
   }

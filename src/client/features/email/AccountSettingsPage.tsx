@@ -61,6 +61,7 @@ export function AccountSettingsPage({ accountId }: { accountId: string }) {
   const [editingSignatureId, setEditingSignatureId] = useState<string | null>(null)
   const [agentPrompt, setAgentPrompt] = useState('')
   const [autoDraft, setAutoDraft] = useState(true)
+  const [focusedInbox, setFocusedInbox] = useState(true)
   const [vacationEnabled, setVacationEnabled] = useState(false)
   const [vacationStart, setVacationStart] = useState('')
   const [vacationEnd, setVacationEnd] = useState('')
@@ -105,6 +106,7 @@ export function AccountSettingsPage({ accountId }: { accountId: string }) {
     setEditingSignatureId(null)
     setAgentPrompt(account.settings.agentSystemPrompt ?? '')
     setAutoDraft(account.settings.autoDraft ?? true)
+    setFocusedInbox(account.settings.focusedInbox !== false)
     setVacationEnabled(vacation.enabled)
     setVacationStart(vacationInputValue(vacation.start))
     setVacationEnd(vacationInputValue(vacation.end))
@@ -181,6 +183,7 @@ export function AccountSettingsPage({ accountId }: { accountId: string }) {
       signatures: cleaned,
       ...(selectedDefault ? { defaultSignatureId: selectedDefault } : {}),
       autoDraft,
+      focusedInbox,
       ...(agentPrompt.trim() ? { agentSystemPrompt: agentPrompt.trim() } : {}),
       vacation: {
         enabled: vacationEnabled,
@@ -451,6 +454,16 @@ export function AccountSettingsPage({ accountId }: { accountId: string }) {
             <p role="status" className="pb-3 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">
               {t('email.settings.auto_draft_status')} {autoDraftStatusText}
             </p>
+          </section>
+
+          <section aria-label={t('email.settings.focused_inbox')} className="mt-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4">
+            <SettingRow title={t('email.settings.focused_inbox')} description={t('email.settings.focused_inbox_hint')}>
+              <Switch
+                checked={focusedInbox}
+                onChange={setFocusedInbox}
+                label={t('email.settings.focused_inbox')}
+              />
+            </SettingRow>
           </section>
 
           <section aria-label={t('email.settings.vacation')} className="mt-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4">

@@ -17,7 +17,7 @@ import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
 import { queueAutoDraftJob, readAccountSettings, type EmailAccountRow } from './account-store'
 import { deleteEmailAttachments } from './attachments'
-import { rememberRecipientAddresses } from './contacts'
+import { rememberRecipientAddresses, findEmailContactByEmail } from './contacts'
 import { emailMailbox } from './mailbox-stub'
 import { buildThreadingHeaders, sendViaBinding } from './outbound'
 
@@ -155,16 +155,23 @@ export async function handleMailboxInbound(
     const recipient = formatAddressList(parsed.to) || account.address
     const cc = formatAddressList(parsed.cc) || null
     const bcc = formatAddressList(parsed.bcc) || null
+    const senderAddress = normalizeEmailSenderAddress(parsed.from?.address ?? '') || sender
 
     const plan = await mailbox.evaluateInboundRules({
       sender: storedSender,
-      senderAddress: normalizeEmailSenderAddress(parsed.from?.address ?? '') || sender,
+      senderAddress,
       recipient,
       cc,
       bcc,
       subject,
       hasAttachment: attachments.count > 0,
       size: message.rawSize,
+    })
+
+    const focused = await resolveInboundFocus(env, account, mailbox, {
+      automated: isAutomatedMessage(parsed.headers),
+      senderAddress,
+      replyThreadId: headerThreadId ?? subjectThreadId,
     })
 
     const created = await mailbox.createEmail(plan.folderId, {
@@ -179,6 +186,7 @@ export async function handleMailboxInbound(
       bodySource: null,
       read: plan.read,
       starred: plan.starred,
+      focused,
       inReplyTo,
       emailReferences: JSON.stringify(references),
       threadId,
@@ -255,6 +263,20 @@ function isAutomatedMessage(headers: readonly { key: string; value: string }[]):
   if (autoSubmitted && autoSubmitted !== 'no') return true
   const precedence = headerValue(headers, 'precedence')?.trim().toLowerCase()
   return precedence === 'bulk' || precedence === 'list' || precedence === 'junk'
+}
+
+async function resolveInboundFocus(
+  env: Env,
+  account: EmailAccountRow,
+  mailbox: ReturnType<typeof emailMailbox>,
+  input: { automated: boolean; senderAddress: string; replyThreadId: string | null },
+): Promise<boolean> {
+  if (readAccountSettings(account.settings).focusedInbox === false) return true
+  if (input.automated) return false
+  if (input.replyThreadId && await mailbox.hasThread(input.replyThreadId)) return true
+  if (!input.senderAddress) return false
+  if (await mailbox.hasSenderHistory(input.senderAddress)) return true
+  return (await findEmailContactByEmail(env.DB, account.user_id, input.senderAddress)) !== null
 }
 
 async function enqueueAutoDraft(

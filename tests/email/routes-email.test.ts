@@ -674,6 +674,41 @@ describe('email updates, trash and moves', () => {
     expect((await call('PATCH', `/accounts/${accountId}/emails/${importantId}`, {})).status).toBe(400)
   })
 
+  it('filters lists and search by focused', async () => {
+    const focusedId = newId()
+    const otherId = newId()
+    seedMessage(focusedId, { focused: true })
+    seedMessage(otherId, { focused: false })
+
+    const other = await json<EmailListResponse>(
+      await call('GET', `/accounts/${accountId}/emails?folder=inbox&focused=0`),
+    )
+    expect(other.emails.map((email) => email.id)).toEqual([otherId])
+    expect(other.emails[0]!.focused).toBe(false)
+    expect(other.totalCount).toBe(1)
+
+    const focused = await json<EmailListResponse>(
+      await call('GET', `/accounts/${accountId}/emails?folder=inbox&focused=1`),
+    )
+    expect(focused.emails.map((email) => email.id)).toEqual([focusedId])
+    expect(focused.emails[0]!.focused).toBe(true)
+    expect(focused.totalCount).toBe(1)
+
+    const everything = await json<EmailListResponse>(
+      await call('GET', `/accounts/${accountId}/emails?folder=inbox`),
+    )
+    expect(everything.totalCount).toBe(2)
+
+    const searched = await json<EmailListResponse>(
+      await call('GET', `/accounts/${accountId}/search?is_focused=false`),
+    )
+    expect(searched.emails.map((email) => email.id)).toEqual([otherId])
+    expect(searched.totalCount).toBe(1)
+
+    expect((await call('GET', `/accounts/${accountId}/emails?folder=inbox&focused=maybe`)).status).toBe(400)
+    expect((await call('GET', `/accounts/${accountId}/search?is_focused=maybe`)).status).toBe(400)
+  })
+
   it('soft-deletes, restores and permanently deletes a message with attachments', async () => {
     const messageId = newId()
     seedMessage(messageId)

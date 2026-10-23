@@ -71,6 +71,8 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
   const listError = useEmailStore((state) => state.listError)
   const listRefreshing = useEmailStore((state) => state.listRefreshing)
   const page = useEmailStore((state) => state.page)
+  const focusFilter = useEmailStore((state) => state.focusFilter)
+  const setFocusFilter = useEmailStore((state) => state.setFocusFilter)
   const selectedId = useEmailStore((state) => state.selectedId)
   const selectedMessage = useEmailStore((state) => state.selectedMessage)
   const selectedStatus = useEmailStore((state) => state.selectedStatus)
@@ -161,9 +163,10 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
   }, [account.id, loadTags])
 
   useEffect(() => {
+    setFocusFilter('all')
     if (searchMode) void searchEmails(account.id, query)
     else void loadList(account.id, folderId ?? 'inbox')
-  }, [account.id, folderId, query, searchMode, loadList, searchEmails])
+  }, [account.id, folderId, query, searchMode, loadList, searchEmails, setFocusFilter])
 
   useEffect(() => {
     if (!messageId) {
@@ -538,6 +541,12 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
       selectedId={selectedId}
       selectedIds={selectedIds}
       dragEnabled={!composing}
+      focusFilter={focusFilter}
+      focusedInboxEnabled={account.settings.focusedInbox !== false}
+      onFocusFilterChange={(filter) => {
+        setFocusFilter(filter)
+        void loadList(account.id, folderId ?? 'inbox')
+      }}
       onOpen={openSummary}
       onToggleSelect={selectMessage}
       onSelectAll={selectPageMessages}

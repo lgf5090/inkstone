@@ -63,6 +63,7 @@ function seedMessage(id: string, overrides: {
   subject?: string
   read?: boolean
   starred?: boolean
+  focused?: boolean
   body?: string
   bodySource?: string | null
   date?: number
@@ -77,6 +78,7 @@ function seedMessage(id: string, overrides: {
     bodySource: overrides.bodySource ?? 'Hello',
     read: overrides.read ?? false,
     starred: overrides.starred ?? false,
+    focused: overrides.focused,
   })).toBe(true)
 }
 
@@ -245,7 +247,7 @@ describe('email backup format and reads', () => {
     await setupAccount()
     const work = store.createFolder('Work')!
     const messageId = newId()
-    seedMessage(messageId, { folder: work.id, subject: 'Release', read: true, starred: true })
+    seedMessage(messageId, { folder: work.id, subject: 'Release', read: true, starred: true, focused: false })
     const attachment = seedAttachment({ emailId: messageId })
 
     const result = await readBackupEmail(env, userId, { includeAttachments: false, snapshot: STAMP })
@@ -271,6 +273,7 @@ describe('email backup format and reads', () => {
       bodySource: 'Hello',
       read: true,
       starred: true,
+      focused: false,
     })
     expect(message.attachments[0]).toMatchObject({
       id: attachment.id,
@@ -364,7 +367,7 @@ describe('email restore', () => {
     await setupAccount()
     const work = store.createFolder('Work')!
     const messageId = newId()
-    seedMessage(messageId, { folder: work.id, read: true, starred: true })
+    seedMessage(messageId, { folder: work.id, read: true, starred: true, focused: false })
     const trashedId = newId()
     seedMessage(trashedId, { subject: 'Trash' })
     expect(store.trashEmail(trashedId)).toBe('inbox')
@@ -383,7 +386,7 @@ describe('email restore', () => {
     expect(first.createdFolders).toBeGreaterThanOrEqual(1)
     expect(first.createdAttachments).toBe(1)
     expect(first.missingAttachments).toBe(0)
-    expect(store.getEmail(messageId)).toMatchObject({ read: 1, starred: 1, folder_id: work.id })
+    expect(store.getEmail(messageId)).toMatchObject({ read: 1, starred: 1, focused: 0, folder_id: work.id })
     expect(store.listTrash().map((row) => row.id)).toEqual([trashedId])
     expect(sqlite.prepare(
       'SELECT object_key, locked FROM email_attachments WHERE user_id = ? AND id = ?',

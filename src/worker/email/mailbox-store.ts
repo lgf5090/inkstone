@@ -50,6 +50,7 @@ export interface EmailData {
   starred?: boolean
   important?: boolean
   muted?: boolean
+  focused?: boolean
   followUpAt?: number | null
   inReplyTo?: string | null
   emailReferences?: string | null
@@ -78,6 +79,7 @@ export interface EmailRow {
   starred: number
   important: number
   muted: number
+  focused: number
   follow_up_at: number | null
   body: string
   body_source: string | null
@@ -198,6 +200,7 @@ export interface ListOptions {
   threadId?: string
   important?: boolean
   muted?: boolean
+  focused?: boolean
   followUp?: boolean
   page?: number
   limit?: number
@@ -218,6 +221,7 @@ export interface SearchOptions {
   isStarred?: boolean
   important?: boolean
   muted?: boolean
+  focused?: boolean
   followUp?: boolean
   hasAttachment?: boolean
   page?: number
@@ -263,7 +267,7 @@ function escapeLike(value: string): string {
 function pushFlagFilters(
   clauses: string[],
   bindings: unknown[],
-  options: { important?: boolean; muted?: boolean; followUp?: boolean },
+  options: { important?: boolean; muted?: boolean; focused?: boolean; followUp?: boolean },
   prefix = '',
 ): void {
   const column = (name: string): string => (prefix ? `${prefix}.${name}` : name)
@@ -274,6 +278,10 @@ function pushFlagFilters(
   if (options.muted !== undefined) {
     clauses.push(`${column('muted')} = ?`)
     bindings.push(options.muted ? 1 : 0)
+  }
+  if (options.focused !== undefined) {
+    clauses.push(`${column('focused')} = ?`)
+    bindings.push(options.focused ? 1 : 0)
   }
   if (options.followUp !== undefined) {
     clauses.push(options.followUp ? `${column('follow_up_at')} IS NOT NULL` : `${column('follow_up_at')} IS NULL`)
@@ -515,11 +523,11 @@ export class MailboxStore {
     this.sql.exec(
       `INSERT INTO email_messages (
          id, folder_id, subject, sender, recipient, cc, bcc, date, received_at,
-         read, starred, important, muted, follow_up_at, body, body_source, in_reply_to, email_references, thread_id,
+         read, starred, important, muted, focused, follow_up_at, body, body_source, in_reply_to, email_references, thread_id,
          message_id, raw_headers, delivery_status, delivery_error, provider_message_id,
          attachments_skipped, has_attachment, size, deleted_at, created_at, updated_at
        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
-         ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30)`,
+         ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31)`,
       email.id,
       email.folderId,
       email.subject,
@@ -533,6 +541,7 @@ export class MailboxStore {
       email.starred ? 1 : 0,
       email.important ? 1 : 0,
       email.muted ? 1 : 0,
+      email.focused === false ? 0 : 1,
       email.followUpAt ?? null,
       email.body,
       email.bodySource ?? null,
@@ -634,7 +643,7 @@ export class MailboxStore {
              FROM folder_emails fe
          )
          SELECT lp.id, lp.subject, lp.sender, lp.recipient, lp.date,
-                lp.read, lp.starred, lp.important, lp.muted, lp.follow_up_at,
+                lp.read, lp.starred, lp.important, lp.muted, lp.focused, lp.follow_up_at,
                 lp.thread_id, lp.folder_id,
                 lp.cc, lp.bcc, lp.has_attachment, lp.delivery_status,
                 lp.in_reply_to, lp.email_references,
@@ -698,7 +707,7 @@ export class MailboxStore {
            LEFT JOIN thread_to_conversation tc ON fe.raw_thread_id = tc.raw_thread_id
        )
        SELECT lif.id, lif.subject, lif.sender, lif.recipient, lif.date,
-              lif.read, lif.starred, lif.important, lif.muted, lif.follow_up_at,
+              lif.read, lif.starred, lif.important, lif.muted, lif.focused, lif.follow_up_at,
               lif.thread_id, lif.folder_id,
               lif.cc, lif.bcc, lif.has_attachment, lif.delivery_status,
               lif.in_reply_to, lif.email_references,
@@ -768,6 +777,24 @@ export class MailboxStore {
         WHERE thread_id = ?1 AND deleted_at IS NULL ORDER BY date ASC, id ASC`,
       threadId,
     )
+  }
+
+  hasThread(threadId: string): boolean {
+    return Boolean(this.one<{ id: string }>(
+      `SELECT id FROM email_messages WHERE thread_id = ?1 LIMIT 1`,
+      threadId,
+    ))
+  }
+
+  hasSenderHistory(address: string): boolean {
+    const normalized = address.trim().toLowerCase()
+    if (!normalized) return false
+    return Boolean(this.one<{ id: string }>(
+      `SELECT id FROM email_messages
+        WHERE lower(sender) = ?1 OR instr(lower(sender), '<' || ?1 || '>') > 0
+        LIMIT 1`,
+      normalized,
+    ))
   }
 
   updateEmail(id: string, patch: { read?: boolean; starred?: boolean; important?: boolean; muted?: boolean }): EmailRow | null {
@@ -1559,6 +1586,10 @@ export class MailboxStore {
       clauses.push(`e.starred = ?`)
       bindings.push(options.isStarred ? 1 : 0)
     }
+    if (options.focused !== undefined) {
+      clauses.push(`e.focused = ?`)
+      bindings.push(options.focused ? 1 : 0)
+    }
     pushFlagFilters(clauses, bindings, options, 'e')
     if (options.hasAttachment !== undefined) {
       clauses.push(`e.has_attachment = ?`)
@@ -1624,11 +1655,11 @@ export class MailboxStore {
     this.sql.exec(
       `INSERT INTO email_messages (
          id, folder_id, subject, sender, recipient, cc, bcc, date, received_at,
-         read, starred, important, muted, follow_up_at, body, body_source, in_reply_to, email_references, thread_id,
+         read, starred, important, muted, focused, follow_up_at, body, body_source, in_reply_to, email_references, thread_id,
          message_id, raw_headers, delivery_status, delivery_error, provider_message_id,
          attachments_skipped, has_attachment, size, deleted_at, created_at, updated_at
        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
-         ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, NULL, ?28, ?28)`,
+         ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, NULL, ?29, ?29)`,
       email.id,
       folderRow.id,
       email.subject,
@@ -1642,6 +1673,7 @@ export class MailboxStore {
       email.starred ? 1 : 0,
       email.important ? 1 : 0,
       email.muted ? 1 : 0,
+      email.focused === false ? 0 : 1,
       email.followUpAt ?? null,
       email.body,
       email.bodySource ?? null,

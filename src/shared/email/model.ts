@@ -132,6 +132,7 @@ export interface EmailAccountSettings {
   agentSystemPrompt?: string
   autoDraft?: boolean
   vacation?: EmailVacationSettings
+  focusedInbox?: boolean
 }
 
 export interface EmailSignatureSelection {
@@ -309,6 +310,7 @@ export interface EmailSummary {
   starred: boolean
   important?: boolean
   muted?: boolean
+  focused?: boolean
   followUpAt?: string | null
   threadId: string | null
   threadCount?: number
@@ -402,6 +404,7 @@ export interface EmailSearchQuery {
   important?: boolean
   muted?: boolean
   followUp?: boolean
+  focused?: boolean
   hasAttachment?: boolean
   tag?: string
   dateStart?: string

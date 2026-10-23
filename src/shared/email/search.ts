@@ -59,6 +59,12 @@ export function parseEmailSearchQuery(input: string): EmailSearchQuery {
           case 'followup':
             result.followUp = true
             break
+          case 'focused':
+            result.focused = true
+            break
+          case 'other':
+            result.focused = false
+            break
         }
         break
       case 'has':
@@ -90,6 +96,7 @@ export function emailSearchParams(query: EmailSearchQuery): Record<string, strin
   if (query.important !== undefined) params.is_important = String(query.important)
   if (query.muted !== undefined) params.is_muted = String(query.muted)
   if (query.followUp !== undefined) params.is_followup = String(query.followUp)
+  if (query.focused !== undefined) params.is_focused = String(query.focused)
   if (query.hasAttachment) params.has_attachment = 'true'
   if (query.tag) params.tag = query.tag
   if (query.dateStart) params.date_start = query.dateStart
