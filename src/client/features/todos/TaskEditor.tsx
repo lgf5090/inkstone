@@ -26,6 +26,7 @@ import { api } from '../../lib/api'
 import { useUi } from '../../store/ui'
 import { useTodos, remindOffsetOf } from './store'
 import { dueValue, priorityDot, priorityLabel } from './todo-ui'
+import { EstimatePicker } from './estimate-picker'
 import { ListIcon } from './list-icons'
 import { ColorPicker } from './OrganizerEditors'
 import { ListIconPicker } from './ListIconPicker'
@@ -200,6 +201,25 @@ export function TaskEditor() {
   const [starred, setStarred] = useState(false)
   const [dueText, setDueText] = useState('')
   const [startText, setStartText] = useState('')
+  /**
+   * What the reader plans the task to take, and whether the words in the box can be honoured.
+   *
+   * The number is the picker's own ladder read back through the shared duration grammar, so the panel and
+   * the row's chip never disagree about what `1h20m` means. `estimateInvalid` is kept beside it rather
+   * than folded in because "no plan" (`null`) and "words nobody has read yet" are different answers: the
+   * first is a value a save must write, the second is a save that must not happen at all.
+   */
+  const [estimate, setEstimate] = useState<number | null>(null)
+  const [estimateInvalid, setEstimateInvalid] = useState(false)
+  /**
+   * How many times this panel has read the row it was opened on.
+   *
+   * The picker holds its own draft of the number — it is the control the chip's dialog mounts per opening,
+   * keyed by what changed — so this panel re-keys it on the same event that re-reads every other field.
+   * Keying it by the estimate itself would be the other mistake: the reader's own pick moves that state,
+   * and remounting then would wipe the custom box mid-word.
+   */
+  const [seed, setSeed] = useState(0)
   const [listId, setListId] = useState('')
   /**
    * The task's own face: a glyph and a colour of its own, or null to wear the list's.
@@ -256,6 +276,11 @@ export function TaskEditor() {
       ? dueValue(task.dueAt, timezone)
       : typeof source.dueAt === 'string' ? source.dueAt : source.dueAt ? dueValue(source.dueAt, timezone) : '')
     setStartText(seedStartText(source, task, timezone))
+    // Both doors hand the same number in milliseconds — the row's own column, or the estimate a
+    // quick-add line wrote into the draft — so the panel opens on it without parsing anything.
+    setEstimate(task?.timeEstimateMs ?? source.timeEstimate ?? null)
+    setEstimateInvalid(false)
+    setSeed((count) => count + 1)
     setListId(task?.listId ?? source.listId ?? '')
     setIcon(task?.icon ?? source.icon ?? null)
     setColor(task?.color ?? source.color ?? null)
@@ -346,6 +371,9 @@ export function TaskEditor() {
       starred,
       dueAt: dueText ? dueText : null,
       startAt: startText ? startText : null,
+      // The plan rides the same write as every other field of this panel. `null` is sent rather than
+      // left out because taking an estimate away is an answer the reader gave, not an absence.
+      timeEstimate: estimate,
       listId: listId || null,
       icon,
       color,
@@ -358,7 +386,11 @@ export function TaskEditor() {
       reminders,
       tags: tagNames,
     }
-    if (!body.title) return
+    // Refused rather than half-written: the words in the estimate box are not a duration, and saving the
+    // rest would drop what the reader typed without saying so. The field itself says it (role="alert"),
+    // and the footer's save is disabled for the same reason, so the panel is never left with a press that
+    // quietly does nothing.
+    if (!body.title || estimateInvalid) return
     if (existing) await updateTask(existing.id, body)
     else await createTask({ ...body, steps: steps.map((step) => step.text) })
     close()
@@ -497,7 +529,7 @@ export function TaskEditor() {
           )}
           <span className="ml-auto" />
           <Button variant="ghost" size="sm" onClick={close}>{t('todo.action.cancel')}</Button>
-          <Button size="sm" disabled={!title.trim() || saving} onClick={() => { void save() }}>{t('todo.action.save')}</Button>
+          <Button size="sm" disabled={!title.trim() || saving || estimateInvalid} onClick={() => { void save() }}>{t('todo.action.save')}</Button>
         </div>
       )}
     >
@@ -717,6 +749,22 @@ export function TaskEditor() {
               ordinary case: a task is actionable from the moment it is filed. */}
           <Field label={t('todo.task.start_label')}>
             <DatePicker label={t('todo.task.start_label')} value={startText} withTime onChange={setStartText} />
+          </Field>
+          {/* How long the reader plans the work to take, on the row's own ladder and in the row's own
+              grammar: the same `EstimatePicker` the chip on the listing opens, so one screen never says
+              `90` while the other means an hour and a half. This is the other door to the plan — the one
+              a task reaches when it is being written up rather than timed. */}
+          <Field label={t('todo.time.label')}>
+            <div className="flex flex-col gap-1.5">
+              <EstimatePicker
+                key={seed}
+                estimate={estimate}
+                onChange={(edit) => {
+                  setEstimate(edit.value)
+                  setEstimateInvalid(edit.invalid)
+                }}
+              />
+            </div>
           </Field>
           {/* The select sits where the single-reminder field always did and adds one instant to the
               list below; the list, not the select, is what the task saves. */}
