@@ -26,6 +26,13 @@ let sqlite: DatabaseSync
 let env: Env
 let store: AssistantStore
 
+/** The two day columns, read where they live: the task's own shape does not carry them. */
+function taskDays(userId: string, taskId: string): { created_on: string | null, completed_on: string | null } {
+  return sqlite.prepare(
+    `SELECT created_on, completed_on FROM todos_tasks WHERE user_id = ?1 AND id = ?2`,
+  ).get(userId, taskId) as { created_on: string | null, completed_on: string | null }
+}
+
 /** How many alarms one account is still owed: the row count, not what a task read chooses to show. */
 function pendingReminderCount(userId: string): number {
   const row = sqlite.prepare(
@@ -113,6 +120,67 @@ describe('a backup round trip', () => {
     // And the shelf still means the shelf on the machine that received the file: the row is readable
     // by id above, and nowhere in a listing the reader browses.
     expect((await target.listTasks({ view: 'all' })).map((row) => row.id)).not.toContain(task.id)
+  })
+
+  // The export takes `SELECT *` and the reader enumerates the columns it writes back, so the two agree
+  // only by somebody remembering. Five columns and one whole status were not remembered: a task that
+  // had been abandoned came back owed, and one with a start, a face of its own and a plan came back
+  // with none of them — every one of those lands silently, because a missing key is what the nullable
+  // columns are for.
+  it('restores every column of a task the file carries', async () => {
+    const due = Date.parse('2026-10-20T09:00:00Z')
+    const task = await store.createTask({
+      title: 'Quarter close',
+      status: 'cancelled',
+      priority: 'high',
+      dueAt: due,
+      startAt: due - 2 * 60 * 60 * 1000,
+      icon: 'lucide:Timer',
+      color: '#2563eb',
+      timeEstimateMs: 90 * 60 * 1000,
+    })
+
+    const backup = await exportAssistant(store)
+    const target = new AssistantStore(env.DB as D1Database, OTHER, env)
+    await importAssistant(target, JSON.parse(JSON.stringify(backup)))
+
+    const restored = await target.getTask(task.id)
+    expect(restored).toMatchObject({
+      title: 'Quarter close',
+      // Abandoning a task is an answer the reader gave; restoring it as `todo` hands the debt back and
+      // moves a number on the statistics page at the same time.
+      status: 'cancelled',
+      priority: 'high',
+      dueAt: due,
+      startAt: due - 2 * 60 * 60 * 1000,
+      icon: 'lucide:Timer',
+      color: '#2563eb',
+      timeEstimateMs: 90 * 60 * 1000,
+    })
+    // The two day columns are what the buckets and the streak read, and a restore that lost them left
+    // every restored task with no day at all until a boot backfilled it — which, after a restore, the
+    // fingerprint note says does not come back through.
+    expect(taskDays(OTHER, task.id)).toEqual(taskDays(USER, task.id))
+    expect(taskDays(OTHER, task.id).created_on).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  })
+
+  it('refuses a day the file spells wrong rather than filing the task under it', async () => {
+    const task = await store.createTask({ title: 'Bad day', status: 'done' })
+
+    const backup = await exportAssistant(store)
+    const file = JSON.parse(JSON.stringify(backup)) as { data: { tasks: Record<string, unknown>[] } }
+    const row = file.data.tasks.find((entry) => entry.id === task.id)!
+    // A year, not a day: `completed_on` is matched as a string against a computed today, so the loose
+    // shape does not sort under the wrong day, it sorts under none at all.
+    row.created_on = '2026'
+    row.completed_on = '2026-10'
+
+    const target = new AssistantStore(env.DB as D1Database, OTHER, env)
+    await importAssistant(target, file)
+
+    const restored = await target.getTask(task.id)
+    expect(restored).toMatchObject({ title: 'Bad day', status: 'done' })
+    expect(taskDays(OTHER, task.id)).toEqual({ created_on: null, completed_on: null })
   })
 
   it('leaves a task in the inbox when the file names a list it did not carry', async () => {

@@ -10,9 +10,16 @@
  */
 
 import type { AssistantImportSummary, AssistantSettings } from '@shared/assistant'
-import { clipReasoning, normalizeAssistantSettings } from '@shared/assistant'
+import { clipReasoning, normalizeAssistantSettings, TASK_PRIORITIES, TASK_STATUSES } from '@shared/assistant'
 import { parseScheduleSpec } from '@shared/assistant-schedule'
-import { normalizeReminderTimes, parseRepeatRule, TIME_ENTRY_SOURCES } from '@shared/todos/model'
+import {
+  normalizeReminderTimes,
+  parseRepeatRule,
+  taskColorOrNull,
+  taskIconOrNull,
+  TIME_ENTRY_SOURCES,
+} from '@shared/todos/model'
+import { isTaskOpen } from '@shared/todos/status'
 import { ASSISTANT_MEMORY_CATEGORIES, AUTOMATION_KINDS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_AUTOMATION_TARGET_ID_CHARS, MAX_MESSAGE_CHARS, MAX_PROJECT_NOTES } from '@shared/assistant'
 import { ApiError } from '../lib/errors'
 import { AssistantStore, decodeFeedback, encodeFeedback } from './store'
@@ -535,16 +542,25 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
     const projectId = idValue(task.project_id)
     const listId = idValue(task.list_id)
     const repeat = storedRepeatRule(task.repeat_rule)
+    const status = oneOf(task.status, TASK_STATUSES, 'todo')
     const row = {
       id,
       title: textValue(task.title, 300) || 'Untitled task',
       description: textValue(task.description, 10_000),
-      status: oneOf(task.status, ['todo', 'in_progress', 'done'], 'todo'),
-      priority: oneOf(task.priority, ['low', 'medium', 'high', 'urgent'], 'medium'),
+      // The shared enums, not a copy: a reader who abandoned a task and restored it as `todo` got work
+      // back they had already let go of, and the second half of that story is a rate on the statistics
+      // page that no longer describes the plate.
+      status,
+      priority: oneOf(task.priority, TASK_PRIORITIES, 'medium'),
       due_at: numberOrNull(task.due_at),
+      start_at: numberOrNull(task.start_at),
       project_id: projectId && knownProjects.has(projectId) ? projectId : null,
       // A list the file did not carry leaves the task in the inbox rather than pointing at nothing.
       list_id: listId && knownLists.has(listId) ? listId : null,
+      // The task's own face, through the same guards that wrote it: a file that names a 400-character
+      // icon or a colour outside the palette gets null, which is "wear the list's", not the junk.
+      icon: taskIconOrNull(task.icon),
+      color: taskColorOrNull(task.color),
       starred: task.starred === true || task.starred === 1 ? 1 : 0,
       repeat_rule: repeat ? JSON.stringify(repeat) : null,
       // The pending instants, both shapes of them folded into one list. They are not a column of the
@@ -556,6 +572,13 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
       created_at: numberValue(task.created_at, Date.now()),
       updated_at: numberValue(task.updated_at, Date.now()),
       completed_at: numberOrNull(task.completed_at),
+      // The two day columns are what the statistics' buckets and the streak read, so a restore that
+      // forgot them left every restored task with no day at all until a boot backfilled it — and the
+      // fingerprint note means a boot after a restore does not come back through that repair.
+      // `completed_on` is carried only for a row that ended: naming a finish day for a task still owed
+      // would let a file invent a day the reader never closed.
+      created_on: dayValue(task.created_on),
+      completed_on: isTaskOpen(status) ? null : dayValue(task.completed_on),
       // The planned length travels with the row it belongs to: a restored task that forgot its
       // estimate lost the half of the worklog that compares hours spent against hours intended.
       // Nullable, so a file written before the column exists simply does not name it.
@@ -814,6 +837,17 @@ function numberOrNull(value: unknown): number | null {
 
 function dateValue(value: unknown): string | null {
   return typeof value === 'string' && /^\d{4}(-\d{2}(-\d{2})?)?$/.test(value) ? value : null
+}
+
+/**
+ * A calendar day, in the one form the day columns store.
+ *
+ * Stricter than `dateValue` above because these two are compared as strings against a computed today:
+ * a file that wrote `2026` or `2026-1` would land as a day no bucket ever matches, which is the loss
+ * again, just quieter.
+ */
+function dayValue(value: unknown): string | null {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null
 }
 
 /**
