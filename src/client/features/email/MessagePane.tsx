@@ -2,28 +2,131 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   ArrowLeft,
   Code2,
+  Download,
   FolderInput,
   Forward,
   Mail,
   MailOpen,
+  Printer,
   Reply,
   ReplyAll,
   Star,
   Trash2,
 } from 'lucide-react'
+import { escapeEmailHtml, textToEmailHtml } from '@shared/email/format'
 import type { EmailAccount, EmailFolder, EmailMessage } from '@shared/email/model'
 import { Button, Badge, IconButton } from '../../components/primitives'
 import { Empty, LoadingBlock } from '../../components/feedback'
 import { Menu, Tooltip, confirm, type MenuItem } from '../../components/overlay'
+import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
+import { useUi } from '../../store/ui'
 import type { EmailComposeMode } from './email-address'
 import { useEmailStore, type EmailLoadStatus } from './store'
+import { emailErrorText } from './errors'
+import { sanitizeEmailHtml } from './email-markdown'
 import { folderLabel, messageFullDate, messageSubject, messageRecipients, senderLabel } from './format'
 import { SourceDialog } from './SourceDialog'
 import { ThreadMessage } from './ThreadMessage'
 import { ComposePanel } from './ComposePanel'
 
 const TOOLBAR_BUTTON = 'size-11 md:size-7'
+const PRINT_HTML_TAG = /<[a-z][\s\S]*>/i
+const PRINT_IFRAME_TIMEOUT_MS = 60_000
+const PRINT_STYLE = [
+  ':root{color-scheme:light}',
+  'html,body{margin:0;padding:0;background:#fff;color:#111}',
+  'body{font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;padding:16px}',
+  '@page{margin:16mm}',
+  'h1{margin:0 0 8px;font-size:18px;line-height:1.3}',
+  '.meta{margin:0 0 16px;font-size:12px;color:#444}',
+  '.meta-row{display:flex;gap:8px;margin:0 0 2px}',
+  '.meta-label{min-width:56px;font-weight:600;color:#222}',
+  '.body{overflow-wrap:anywhere}',
+  'img{max-width:100%;height:auto}',
+  'table{max-width:100%;border-collapse:collapse}',
+  'pre{white-space:pre-wrap}',
+  'a{color:#0b6bcb}',
+  'blockquote{margin:0 0 0 0.8em;padding-left:0.8em;border-left:2px solid #d0d7de;color:#57606a}',
+  'article + article{break-before:page}',
+].join('')
+
+function printBodyHtml(body: string): string {
+  const source = PRINT_HTML_TAG.test(body) ? body : textToEmailHtml(body)
+  return sanitizeEmailHtml(source) || `<p>${escapeEmailHtml(t('email.detail.empty_body'))}</p>`
+}
+
+function printMeta(message: EmailMessage): string {
+  const rows: { label: string; value: string }[] = [
+    { label: t('email.detail.header_from'), value: message.sender },
+    { label: t('email.detail.header_to'), value: message.recipient },
+    ...(message.cc ? [{ label: t('email.detail.header_cc'), value: message.cc }] : []),
+    ...(message.bcc ? [{ label: t('email.detail.header_bcc'), value: message.bcc }] : []),
+    { label: t('email.detail.header_date'), value: messageFullDate(message.date) },
+  ]
+  return rows
+    .map((row) => `<div class="meta-row"><span class="meta-label">${escapeEmailHtml(row.label)}</span><span>${escapeEmailHtml(row.value)}</span></div>`)
+    .join('')
+}
+
+function printDocument(messages: readonly EmailMessage[]): string {
+  const title = messageSubject(messages[0]!)
+  const articles = messages.map((message) => [
+    '<article class="message">',
+    `<h1>${escapeEmailHtml(messageSubject(message))}</h1>`,
+    `<div class="meta">${printMeta(message)}</div>`,
+    `<div class="body">${printBodyHtml(message.body)}</div>`,
+    '</article>',
+  ].join(''))
+  return [
+    '<!doctype html>',
+    `<html lang="${escapeEmailHtml(document.documentElement.lang || 'en')}">`,
+    '<head>',
+    '<meta charset="utf-8">',
+    '<meta name="referrer" content="no-referrer">',
+    `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src http: https: data: blob:; style-src 'unsafe-inline'">`,
+    `<title>${escapeEmailHtml(title)}</title>`,
+    `<style>${PRINT_STYLE}</style>`,
+    '</head>',
+    '<body>',
+    ...articles,
+    '</body>',
+    '</html>',
+  ].join('')
+}
+
+export function printEmailMessages(messages: readonly EmailMessage[]): void {
+  if (messages.length === 0) return
+  const frame = document.createElement('iframe')
+  frame.setAttribute('aria-hidden', 'true')
+  frame.setAttribute('data-email-print', '')
+  frame.tabIndex = -1
+  frame.style.position = 'fixed'
+  frame.style.width = '0'
+  frame.style.height = '0'
+  frame.style.border = '0'
+  frame.style.visibility = 'hidden'
+  frame.srcdoc = printDocument(messages)
+  let removed = false
+  let timer = 0
+  const cleanup = (): void => {
+    if (removed) return
+    removed = true
+    window.clearTimeout(timer)
+    frame.remove()
+  }
+  frame.addEventListener('load', () => {
+    const view = frame.contentWindow
+    if (!view) {
+      cleanup()
+      return
+    }
+    view.addEventListener('afterprint', cleanup, { once: true })
+    view.print()
+  }, { once: true })
+  document.body.append(frame)
+  timer = window.setTimeout(cleanup, PRINT_IFRAME_TIMEOUT_MS)
+}
 
 export function MessagePane({
   account,
@@ -179,6 +282,21 @@ export function MessagePane({
     if (removed) onClosed()
   }
 
+  const downloadEml = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      await api.email.downloadEml(account.id, summary.id)
+    } catch (reason) {
+      useUi.getState().toast({
+        title: t('email.raw.download_failed'),
+        description: emailErrorText(reason),
+        tone: 'danger',
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <section aria-label={t('email.a11y.message')} aria-busy={busy} className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--bg-base)]">
       <div className="flex h-11 shrink-0 items-center border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2">
@@ -259,6 +377,23 @@ export function MessagePane({
             onClick={() => { void remove() }}
           >
             <Trash2 size={15} />
+          </IconButton>
+        </Tooltip>
+        <span aria-hidden="true" className="mx-1 h-4 w-px shrink-0 bg-[var(--border-subtle)]" />
+        <Tooltip label={t('email.raw.download')}>
+          <IconButton
+            label={t('email.raw.download')}
+            size="sm"
+            className={TOOLBAR_BUTTON}
+            disabled={busy}
+            onClick={() => { void downloadEml() }}
+          >
+            <Download size={15} />
+          </IconButton>
+        </Tooltip>
+        <Tooltip label={t('email.raw.print')}>
+          <IconButton label={t('email.raw.print')} size="sm" className={TOOLBAR_BUTTON} onClick={() => printEmailMessages(messages)}>
+            <Printer size={15} />
           </IconButton>
         </Tooltip>
         <Tooltip label={t('email.detail.source')}>

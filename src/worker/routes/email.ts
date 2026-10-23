@@ -91,6 +91,13 @@ const RESERVED_FOLDER_NAMES = new Set<string>([
   ...EMAIL_SYSTEM_FOLDERS,
   ...Object.values(EMAIL_FOLDER_SEED_NAMES).map((name) => name.toLowerCase()),
 ])
+const EML_HEADER_NAME_RE = /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/
+const EML_LINE_LIMIT = 78
+const EML_FILENAME_MAX_CHARS = 100
+const EML_RESERVED_HEADERS = new Set<string>([
+  'from', 'to', 'cc', 'bcc', 'subject', 'date', 'message-id', 'in-reply-to', 'references',
+  'mime-version', 'content-type', 'content-transfer-encoding', 'content-disposition',
+])
 
 function allowedDomains(env: AppBindings['Bindings']): string[] {
   const raw = (env.EMAIL_DOMAINS ?? env.MAIL_DOMAIN ?? '').trim()
@@ -365,6 +372,78 @@ function parseReferences(raw: string | null): string[] {
     console.warn('[inkstone] Email references could not be parsed:', (error as Error).message)
     return []
   }
+}
+
+function emlHeaderValue(value: string): string {
+  return value.replace(/[\r\n]+/g, ' ').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+function foldEmlHeader(name: string, value: string): string {
+  const clean = emlHeaderValue(value)
+  const first = `${name}: `
+  if (first.length + clean.length <= EML_LINE_LIMIT) return `${first}${clean}`
+  const lines: string[] = []
+  let current = first
+  for (const word of clean.split(' ')) {
+    if (!word) continue
+    if (current !== first && current.length + 1 + word.length > EML_LINE_LIMIT) {
+      lines.push(current)
+      current = ` ${word}`
+    } else {
+      current = current === first ? `${current}${word}` : `${current} ${word}`
+    }
+  }
+  lines.push(current)
+  return lines.join('\r\n')
+}
+
+function emlExtraHeaders(raw: string | null): { key: string; value: string }[] {
+  return parseHeaders(raw).flatMap(({ key, value }) => {
+    const name = key.trim()
+    if (!EML_HEADER_NAME_RE.test(name) || EML_RESERVED_HEADERS.has(name.toLowerCase())) return []
+    const clean = emlHeaderValue(value)
+    return clean ? [{ key: name, value: clean }] : []
+  })
+}
+
+function emlFilename(subject: string): string {
+  const clean = subject
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, ' ')
+    .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, ' ')
+    .replace(/[\\/:*?"<>|\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const name = clean ? Array.from(clean).slice(0, EML_FILENAME_MAX_CHARS).join('') : 'message'
+  return `${name}.eml`
+}
+
+function emlAsciiFilename(filename: string): string {
+  return filename.replace(/[^\x20-\x7e]/g, '_')
+}
+
+function buildEml(message: EmailRow, domain: string): string {
+  const lines = [
+    foldEmlHeader('From', message.sender),
+    foldEmlHeader('To', message.recipient),
+  ]
+  if (message.cc) lines.push(foldEmlHeader('Cc', message.cc))
+  if (message.bcc) lines.push(foldEmlHeader('Bcc', message.bcc))
+  lines.push(foldEmlHeader('Subject', message.subject))
+  lines.push(foldEmlHeader('Date', new Date(message.date).toUTCString()))
+  const messageId = emlHeaderValue(message.message_id ?? '') || `<${message.id}@${domain}>`
+  lines.push(foldEmlHeader('Message-ID', messageId))
+  if (message.in_reply_to) lines.push(foldEmlHeader('In-Reply-To', message.in_reply_to))
+  const references = parseReferences(message.email_references)
+  if (references.length) lines.push(foldEmlHeader('References', references.join(' ')))
+  lines.push('MIME-Version: 1.0')
+  lines.push('Content-Type: text/html; charset=utf-8')
+  lines.push('Content-Transfer-Encoding: 8bit')
+  if (message.has_attachment) lines.push('X-Inkstone-Attachments-Omitted: true')
+  for (const header of emlExtraHeaders(message.raw_headers)) {
+    lines.push(foldEmlHeader(header.key, header.value))
+  }
+  const ending = message.body.endsWith('\n') ? '' : '\r\n'
+  return `${lines.join('\r\n')}\r\n\r\n${message.body}${ending}`
 }
 
 function toMessage(row: EmailRow, attachments: EmailAttachment[]): EmailMessage {
@@ -813,6 +892,24 @@ emailRoutes.get('/accounts/:id/emails/:messageId', async (c) => {
   const message = await emailMailbox(c.env, row.id).getEmail(id)
   if (!message) throw messageNotFound()
   return c.json(toMessage(message, await messageAttachments(c.env, c.get('userId'), message)))
+})
+
+emailRoutes.get('/accounts/:id/emails/:messageId/raw', async (c) => {
+  const account = await requireAccount(c, c.req.param('id') ?? '')
+  const id = messageIdParam(c.req.param('messageId') ?? '')
+  const message = await emailMailbox(c.env, account.id).getEmail(id)
+  if (!message) throw messageNotFound()
+  const filename = emlFilename(message.subject)
+  const domain = account.address.split('@')[1] ?? 'inkstone.local'
+  return new Response(buildEml(message, domain), {
+    status: 200,
+    headers: {
+      'Content-Type': 'message/rfc822',
+      'Content-Disposition': `attachment; filename="${emlAsciiFilename(filename)}"; filename*=UTF-8''${encodeContentDispositionFilename(filename)}`,
+      'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff',
+    },
+  })
 })
 
 emailRoutes.patch('/accounts/:id/emails/:messageId', async (c) => {

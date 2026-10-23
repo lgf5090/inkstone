@@ -1273,6 +1273,13 @@ export const api = {
       )
       await saveResponseDownload(response, filename)
     },
+    downloadEml: async (id: string, messageId: string, fallbackName = 'message.eml') => {
+      const { response, filename } = await fetchDownload(
+        `/api/email/accounts/${encodeURIComponent(id)}/emails/${encodeURIComponent(messageId)}/raw`,
+        fallbackName,
+      )
+      await saveResponseDownload(response, filename)
+    },
   },
 
   todos: {

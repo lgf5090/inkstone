@@ -349,6 +349,101 @@ describe('email listing and detail', () => {
   })
 })
 
+describe('email raw download', () => {
+  it('serves a complete .eml with reconstructed headers and the HTML body', async () => {
+    const messageId = newId()
+    seedMessage(messageId, {
+      subject: 'Quarterly report',
+      sender: 'Ada <ada@example.com>',
+      recipient: 'owner@example.com',
+      cc: 'team@example.com',
+      bcc: 'secret@example.com',
+      body: '<p>The numbers are ready.</p>',
+      messageId: '<message-1@example.com>',
+      inReplyTo: '<parent@example.com>',
+      emailReferences: JSON.stringify(['<root@example.com>', '<parent@example.com>']),
+      rawHeaders: JSON.stringify([
+        { key: 'Reply-To', value: 'ada@example.com' },
+        { key: 'Subject', value: 'ignored duplicate' },
+      ]),
+      hasAttachment: true,
+    })
+
+    const response = await call('GET', `/accounts/${accountId}/emails/${messageId}/raw`)
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('message/rfc822')
+    expect(response.headers.get('cache-control')).toBe('private, no-store')
+    const disposition = response.headers.get('content-disposition') ?? ''
+    expect(disposition).toContain('attachment')
+    expect(disposition).toContain('filename="Quarterly report.eml"')
+
+    const eml = await response.text()
+    expect(eml).toContain('From: Ada <ada@example.com>')
+    expect(eml).toContain('To: owner@example.com')
+    expect(eml).toContain('Cc: team@example.com')
+    expect(eml).toContain('Bcc: secret@example.com')
+    expect(eml).toContain('Subject: Quarterly report')
+    expect(eml).toContain('Date: ')
+    expect(eml).toContain('Message-ID: <message-1@example.com>')
+    expect(eml).toContain('In-Reply-To: <parent@example.com>')
+    expect(eml).toContain('References: <root@example.com> <parent@example.com>')
+    expect(eml).toContain('MIME-Version: 1.0')
+    expect(eml).toContain('Content-Type: text/html; charset=utf-8')
+    expect(eml).toContain('Content-Transfer-Encoding: 8bit')
+    expect(eml).toContain('Reply-To: ada@example.com')
+    expect(eml).not.toContain('ignored duplicate')
+    expect(eml).toContain('X-Inkstone-Attachments-Omitted: true')
+    expect(eml).toContain('\r\n\r\n<p>The numbers are ready.</p>')
+  })
+
+  it('strips injected line breaks and folds long header values', async () => {
+    const messageId = newId()
+    const longValue = 'word '.repeat(24).trim()
+    seedMessage(messageId, {
+      subject: 'Hello\r\nBcc: victim@example.com',
+      sender: 'Ada\r\nX-Injected: yes <ada@example.com>',
+      body: '<p>Body</p>',
+      rawHeaders: JSON.stringify([
+        { key: 'X-Note', value: 'safe\r\nX-Injected: no' },
+        { key: 'X-Long', value: longValue },
+        { key: 'Bad Header', value: 'x' },
+      ]),
+    })
+
+    const response = await call('GET', `/accounts/${accountId}/emails/${messageId}/raw`)
+    expect(response.status).toBe(200)
+    const eml = await response.text()
+    expect(eml).not.toContain('\r\nBcc:')
+    expect(eml).not.toContain('\r\nX-Injected:')
+    expect(eml).not.toContain('Bad Header:')
+    expect(eml).toContain('Subject: Hello Bcc: victim@example.com')
+    expect(eml).toContain('From: Ada X-Injected: yes <ada@example.com>')
+    expect(eml).toContain('X-Note: safe X-Injected: no')
+    expect(eml).toContain(`X-Long: ${longValue.slice(0, 60)}`)
+    expect(eml).toContain('\r\n word')
+    expect(eml).toContain('\r\n\r\n<p>Body</p>')
+  })
+
+  it('is owner-only and keeps the message inside its account', async () => {
+    const messageId = newId()
+    seedMessage(messageId)
+    const missing = await call('GET', `/accounts/${accountId}/emails/${newId()}/raw`)
+    expect(missing.status).toBe(404)
+    expect((await errorOf(missing)).code).toBe('email_message_not_found')
+
+    userRole = 'member'
+    const member = await call('GET', `/accounts/${accountId}/emails/${messageId}/raw`)
+    expect(member.status).toBe(403)
+    expect((await errorOf(member)).code).toBe('forbidden')
+
+    userRole = 'owner'
+    userId = newId()
+    const other = await call('GET', `/accounts/${accountId}/emails/${messageId}/raw`)
+    expect(other.status).toBe(404)
+    expect((await errorOf(other)).code).toBe('email_account_not_found')
+  })
+})
+
 describe('email updates, trash and moves', () => {
   it('updates read and starred flags', async () => {
     const messageId = newId()
