@@ -139,6 +139,7 @@ import type {
   EmailMessageTagInput,
   EmailSendInput,
   EmailSendResult,
+  EmailSnoozeResult,
   EmailTag,
   EmailTagInput,
   EmailTagPatch,
@@ -1233,6 +1234,11 @@ export const api = {
       request<EmailMessage>(`/api/email/accounts/${id}/emails/${messageId}`),
     updateEmail: (id: string, messageId: string, body: { read?: boolean, starred?: boolean }) =>
       request<EmailMessage>(`/api/email/accounts/${id}/emails/${messageId}`, { method: 'PATCH', body }),
+    snoozeEmail: (id: string, messageId: string, until: string | number) =>
+      request<EmailSnoozeResult>(`/api/email/accounts/${id}/emails/${messageId}/snooze`, {
+        method: 'POST',
+        body: { until },
+      }),
     batchEmails: (id: string, input: EmailBatchInput) =>
       request<EmailBatchResult>(`/api/email/accounts/${id}/emails/batch`, { method: 'POST', body: input }),
     deleteEmail: (id: string, messageId: string, permanent = false) =>

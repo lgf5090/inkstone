@@ -116,7 +116,7 @@ describe('shared tag path helpers', () => {
   })
 })
 
-describe('mailbox migration 2', () => {
+describe('mailbox migrations', () => {
   it('upgrades a migration 1 mailbox and stays idempotent', () => {
     const legacy = new DatabaseSync(':memory:')
     legacy.exec(`CREATE TABLE email_migrations (name TEXT PRIMARY KEY, applied_at INTEGER NOT NULL)`)
@@ -127,6 +127,7 @@ describe('mailbox migration 2', () => {
       created_at INTEGER NOT NULL
     )`)
     legacy.exec(`CREATE UNIQUE INDEX idx_email_folders_name ON email_folders(name COLLATE NOCASE)`)
+    legacy.exec(`CREATE TABLE email_messages (id TEXT PRIMARY KEY)`)
     legacy.exec(`INSERT INTO email_folders (id, name, is_deletable, created_at) VALUES
       ('inbox', 'Inbox', 0, 0), ('sent', 'Sent', 0, 0), ('draft', 'Drafts', 0, 0),
       ('archive', 'Archive', 0, 0), ('trash', 'Trash', 0, 0), ('spam', 'Spam', 0, 0),
@@ -140,6 +141,8 @@ describe('mailbox migration 2', () => {
     expect(columns.map((column) => column.name)).toEqual(
       expect.arrayContaining(['parent_id', 'color', 'sort_order']),
     )
+    const messageColumns = legacy.prepare(`PRAGMA table_info(email_messages)`).all() as Array<{ name: string }>
+    expect(messageColumns.map((column) => column.name)).toContain('snoozed_until')
     const tables = legacy.prepare(
       `SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('email_tags', 'email_message_tags')`,
     ).all() as Array<{ name: string }>
@@ -149,11 +152,11 @@ describe('mailbox migration 2', () => {
     ).get() as { parent_id: string | null; color: string | null; sort_order: number }
     expect(upgraded).toEqual({ parent_id: null, color: null, sort_order: 0 })
     const applied = legacy.prepare(`SELECT name FROM email_migrations ORDER BY name`).all() as Array<{ name: string }>
-    expect(applied.map((row) => row.name)).toEqual(['1_initial_setup', '2_org_tags'])
+    expect(applied.map((row) => row.name)).toEqual(['1_initial_setup', '2_org_tags', '3_snooze'])
 
     applyMailboxMigrations(sql)
     const reapplied = legacy.prepare(`SELECT COUNT(*) AS total FROM email_migrations`).get() as { total: number }
-    expect(reapplied.total).toBe(2)
+    expect(reapplied.total).toBe(3)
     const folderCount = legacy.prepare(`SELECT COUNT(*) AS total FROM email_folders`).get() as { total: number }
     expect(folderCount.total).toBe(7)
   })

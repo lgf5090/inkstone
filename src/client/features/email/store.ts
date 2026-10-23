@@ -21,6 +21,31 @@ export type EmailListMode = 'folder' | 'search'
 
 const POLL_INTERVAL_MS = 30_000
 
+const SNOOZE_LATER_HOURS = 3
+
+export type EmailSnoozePreset = 'later_today' | 'tomorrow' | 'next_week'
+
+export interface EmailSnoozeOption {
+  preset: EmailSnoozePreset
+  key: 'email.snooze.later_today' | 'email.snooze.tomorrow' | 'email.snooze.next_week'
+  until: string
+}
+
+export function emailSnoozeOptions(now = new Date()): EmailSnoozeOption[] {
+  const laterToday = new Date(now.getTime() + SNOOZE_LATER_HOURS * 60 * 60 * 1000)
+  const tomorrow = new Date(now)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  tomorrow.setHours(8, 0, 0, 0)
+  const nextWeek = new Date(now)
+  nextWeek.setDate(nextWeek.getDate() + 7)
+  nextWeek.setHours(8, 0, 0, 0)
+  return [
+    { preset: 'later_today', key: 'email.snooze.later_today', until: laterToday.toISOString() },
+    { preset: 'tomorrow', key: 'email.snooze.tomorrow', until: tomorrow.toISOString() },
+    { preset: 'next_week', key: 'email.snooze.next_week', until: nextWeek.toISOString() },
+  ]
+}
+
 let overviewSequence = 0
 let listSequence = 0
 let messageSequence = 0
@@ -122,6 +147,7 @@ interface EmailState {
   toggleStar: (accountId: string, messageId: string) => Promise<boolean>
   moveMessage: (accountId: string, messageId: string, folderId: string) => Promise<boolean>
   deleteMessage: (accountId: string, messageId: string, permanent?: boolean) => Promise<boolean>
+  snoozeMessage: (accountId: string, messageId: string, until: string) => Promise<boolean>
   retrySend: (accountId: string, messageId: string) => Promise<boolean>
 
   loadTrash: (accountId: string, page?: number) => Promise<void>
@@ -783,6 +809,18 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       set({ ...before, actionError: emailErrorText(reason) })
       return false
     }
+  },
+
+  snoozeMessage: async (accountId, messageId, until) => {
+    set({ actionError: null })
+    try {
+      await api.email.snoozeEmail(accountId, messageId, until)
+    } catch (reason) {
+      set({ actionError: emailErrorText(reason) })
+      return false
+    }
+    await get().refresh()
+    return true
   },
 
   retrySend: async (accountId, messageId) => {

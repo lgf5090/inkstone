@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   ArrowLeft,
+  Clock,
   Code2,
   Download,
   FolderInput,
@@ -29,6 +30,7 @@ import { folderLabel, messageFullDate, messageSubject, messageRecipients, sender
 import { SourceDialog } from './SourceDialog'
 import { ThreadMessage } from './ThreadMessage'
 import { ComposePanel } from './ComposePanel'
+import { canSnoozeMessage, snoozeMenuItems } from './MessageRow'
 
 const TOOLBAR_BUTTON = 'size-11 md:size-7'
 const PRINT_HTML_TAG = /<[a-z][\s\S]*>/i
@@ -145,6 +147,7 @@ export function MessagePane({
   onCancelCompose,
   onClosed,
   onReload,
+  onSnooze,
   onBack,
   tools,
 }: {
@@ -164,6 +167,7 @@ export function MessagePane({
   onCancelCompose: () => void
   onClosed: () => void
   onReload: () => void
+  onSnooze: (messageId: string, until: string) => Promise<boolean>
   onBack?: () => void
   tools?: ReactNode
 }) {
@@ -174,8 +178,10 @@ export function MessagePane({
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [sourceOpen, setSourceOpen] = useState(false)
   const [moveOpen, setMoveOpen] = useState(false)
+  const [snoozeOpen, setSnoozeOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const moveAnchor = useRef<HTMLButtonElement>(null)
+  const snoozeAnchor = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     setExpanded(new Set(summary ? [summary.id] : []))
@@ -267,6 +273,13 @@ export function MessagePane({
     checked: folder.id === summary.folderId,
     onSelect: () => { void moveTo(folder.id) },
   }))
+
+  const snooze = async (until: string): Promise<void> => {
+    setBusy(true)
+    const snoozed = await onSnooze(summary.id, until)
+    setBusy(false)
+    if (snoozed) onClosed()
+  }
 
   const discardDraft = async (): Promise<void> => {
     const ok = await confirm({
@@ -368,6 +381,35 @@ export function MessagePane({
           width={190}
           label={t('email.a11y.move_menu')}
         />
+        {canSnoozeMessage(summary.folderId) && (
+          <>
+            <Tooltip label={t('email.snooze.menu')}>
+              <IconButton
+                ref={snoozeAnchor}
+                label={t('email.snooze.menu')}
+                size="sm"
+                className={TOOLBAR_BUTTON}
+                aria-haspopup="menu"
+                aria-expanded={snoozeOpen}
+                disabled={busy}
+                onClick={() => setSnoozeOpen((open) => !open)}
+              >
+                <Clock size={15} />
+              </IconButton>
+            </Tooltip>
+            <Menu
+              anchor={snoozeAnchor}
+              open={snoozeOpen}
+              onClose={() => setSnoozeOpen(false)}
+              items={snoozeMenuItems((until) => {
+                setSnoozeOpen(false)
+                void snooze(until)
+              })}
+              width={190}
+              label={t('email.snooze.menu')}
+            />
+          </>
+        )}
         <Tooltip label={permanent ? t('email.detail.delete_forever') : t('email.detail.delete')}>
           <IconButton
             label={permanent ? t('email.detail.delete_forever') : t('email.detail.delete')}

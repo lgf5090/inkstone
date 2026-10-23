@@ -9,6 +9,7 @@ import {
   EMAIL_FOLDER_SEED_NAMES,
   EMAIL_MAX_PAGE_SIZE,
   EMAIL_PAGE_SIZE,
+  EMAIL_SNOOZE_MAX_MS,
   EMAIL_SUBJECT_MAX_CHARS,
   EMAIL_SYSTEM_FOLDERS,
 } from '@shared/email/model'
@@ -22,6 +23,7 @@ import type {
   EmailListResponse,
   EmailMailboxStats,
   EmailMessage,
+  EmailSnoozeResult,
   EmailSummary,
   EmailTag,
 } from '@shared/email/model'
@@ -228,6 +230,22 @@ function dateQuery(value: string | undefined, name: string): number | undefined 
   if (!value) return undefined
   const parsed = /^\d+$/.test(value) ? Number(value) : Date.parse(value)
   if (!Number.isSafeInteger(parsed) || parsed < 0) throw ApiError.badRequest(`The ${name} filter is not a valid date`)
+  return parsed
+}
+
+function snoozeUntil(value: unknown): number {
+  if (typeof value !== 'number' && typeof value !== 'string') {
+    throw ApiError.badRequest('A snooze time is required')
+  }
+  const parsed = typeof value === 'number'
+    ? value
+    : /^\d+$/.test(value)
+      ? Number(value)
+      : Date.parse(value)
+  if (!Number.isSafeInteger(parsed)) throw ApiError.badRequest('The snooze time is not a valid date')
+  const now = Date.now()
+  if (parsed <= now) throw ApiError.badRequest('The snooze time must be in the future')
+  if (parsed > now + EMAIL_SNOOZE_MAX_MS) throw ApiError.badRequest('The snooze time must be within one year')
   return parsed
 }
 
@@ -955,6 +973,27 @@ emailRoutes.post('/accounts/:id/emails/:messageId/restore', async (c) => {
     throw new ApiError(404, 'email_not_in_trash', 'Email is not in the trash')
   }
   return c.body(null, 204)
+})
+
+emailRoutes.post('/accounts/:id/emails/:messageId/snooze', async (c) => {
+  const row = await requireAccount(c, c.req.param('id') ?? '')
+  const id = messageIdParam(c.req.param('messageId') ?? '')
+  const body = await readJson<{ until?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const until = snoozeUntil(body.until)
+  const mailbox = emailMailbox(c.env, row.id)
+  const message = await mailbox.getEmail(id)
+  if (!message) throw messageNotFound()
+  if (message.folder_id !== 'inbox' && message.folder_id !== 'archive') {
+    const folder = (await mailbox.getFolders()).find((entry) => entry.id === message.folder_id)
+    if (!folder?.is_deletable) throw ApiError.badRequest('This message cannot be snoozed')
+  }
+  const updated = await mailbox.snoozeEmail(id, until)
+  if (!updated) throw messageNotFound()
+  if (!updated.snoozed_until) throw new ApiError(500, 'internal', 'The message could not be snoozed')
+  return c.json({
+    id,
+    snoozedUntil: new Date(updated.snoozed_until).toISOString(),
+  } satisfies EmailSnoozeResult)
 })
 
 emailRoutes.post('/accounts/:id/emails/:messageId/move', async (c) => {

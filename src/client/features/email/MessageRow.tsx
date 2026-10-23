@@ -1,11 +1,12 @@
 import { type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
-import { Archive, Check, FolderInput, Mail, MailOpen, Minus, Paperclip, RefreshCw, Star, Tag, Trash2 } from 'lucide-react'
+import { Archive, Check, Clock, FolderInput, Mail, MailOpen, Minus, Paperclip, RefreshCw, Star, Tag, Trash2 } from 'lucide-react'
 import type { EmailFolder, EmailSummary, EmailTag } from '@shared/email/model'
 import { isEmailSystemFolder } from '@shared/email/model'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { Badge, IconButton } from '../../components/primitives'
 import { Menu, MenuSubmenuList, useContextMenu, type MenuItem } from '../../components/overlay'
+import { useUi } from '../../store/ui'
 import {
   folderLabel,
   highlightNodes,
@@ -15,8 +16,33 @@ import {
   senderLabel,
   SYSTEM_FOLDER_LABEL_KEYS,
 } from './format'
+import { emailSnoozeOptions, useEmailStore } from './store'
 
 const MENU_INSET = 12
+
+export function canSnoozeMessage(folderId: string): boolean {
+  return folderId !== 'sent' && folderId !== 'draft' && folderId !== 'trash' && folderId !== 'spam'
+}
+
+export function snoozeMenuItems(onPick: (until: string) => void): MenuItem[] {
+  return emailSnoozeOptions().map((option) => ({
+    id: `snooze-${option.preset}`,
+    label: t(option.key),
+    icon: <Clock size={13} />,
+    onSelect: () => onPick(option.until),
+  }))
+}
+
+export async function requestEmailSnooze(messageId: string, until: string): Promise<boolean> {
+  const state = useEmailStore.getState()
+  if (!state.accountId) {
+    useUi.getState().toast({ title: t('email.toast.failed'), tone: 'danger' })
+    return false
+  }
+  const ok = await state.snoozeMessage(state.accountId, messageId, until)
+  if (ok) useUi.getState().toast({ title: t('email.snooze.done'), tone: 'success' })
+  return ok
+}
 
 export function SelectionBox({
   checked,
@@ -111,6 +137,20 @@ export function MessageRow({
   const snippet = messageSnippet(message)
   const byId = new Map(folders.map((folder) => [folder.id, folder]))
   const moveTargets = folders.filter((folder) => folder.id !== message.folderId)
+  const snoozeItem: MenuItem = {
+    id: 'snooze',
+    label: t('email.snooze.menu'),
+    icon: <Clock size={13} />,
+    submenu: ({ closeMenu }) => (
+      <MenuSubmenuList
+        label={t('email.snooze.menu')}
+        items={snoozeMenuItems((until) => {
+          void requestEmailSnooze(message.id, until)
+          closeMenu()
+        })}
+      />
+    ),
+  }
   const items: MenuItem[] = [
     { id: 'open', label: t('email.message.open'), icon: <MailOpen size={13} />, onSelect: onOpen },
     {
@@ -167,6 +207,7 @@ export function MessageRow({
         />
       ),
     },
+    ...(canSnoozeMessage(message.folderId) ? [snoozeItem] : []),
     {
       id: 'archive',
       label: t('email.message.archive'),

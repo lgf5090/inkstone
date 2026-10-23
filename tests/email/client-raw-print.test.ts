@@ -64,6 +64,7 @@ function pane(thread: EmailMessage[] = []): RenderedElement {
     onCancelCompose: vi.fn(),
     onClosed: vi.fn(),
     onReload: vi.fn(),
+    onSnooze: vi.fn(),
   }))
 }
 

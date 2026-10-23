@@ -100,6 +100,7 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
   const toggleStar = useEmailStore((state) => state.toggleStar)
   const moveMessage = useEmailStore((state) => state.moveMessage)
   const deleteMessage = useEmailStore((state) => state.deleteMessage)
+  const snoozeMessage = useEmailStore((state) => state.snoozeMessage)
   const retrySend = useEmailStore((state) => state.retrySend)
   const startPolling = useEmailStore((state) => state.startPolling)
   const stopPolling = useEmailStore((state) => state.stopPolling)
@@ -260,6 +261,12 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
   const retry = async (summary: EmailSummary): Promise<void> => {
     const sent = await retrySend(account.id, summary.id)
     if (sent) useUi.getState().toast({ title: t('email.list.retry_sent'), tone: 'success' })
+  }
+
+  const snooze = async (messageId: string, until: string): Promise<boolean> => {
+    const snoozed = await snoozeMessage(account.id, messageId, until)
+    if (snoozed) useUi.getState().toast({ title: t('email.snooze.done'), tone: 'success' })
+    return snoozed
   }
 
   const removeFolder = async (id: string): Promise<void> => {
@@ -518,6 +525,7 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
       onCancelCompose={cancelCompose}
       onClosed={goList}
       onReload={() => { if (messageId) void openMessage(account.id, messageId) }}
+      onSnooze={snooze}
       onBack={desktop ? undefined : goList}
       tools={paneTools}
     />

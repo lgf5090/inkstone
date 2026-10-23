@@ -6,6 +6,8 @@ import {
   EMAIL_MAX_PAGE_SIZE,
   EMAIL_SEND_RATE_LIMIT_DAY,
   EMAIL_SEND_RATE_LIMIT_HOUR,
+  EMAIL_SNOOZE_MAX_MS,
+  EMAIL_SNOOZE_WAKE_BATCH,
 } from '@shared/email/model'
 import type { EmailBatchAction, EmailFolderPatch, EmailMailboxStats, EmailTagPatch } from '@shared/email/model'
 import {
@@ -67,6 +69,7 @@ export interface EmailRow {
   has_attachment: number
   size: number
   deleted_at: number | null
+  snoozed_until: number | null
   created_at: number
   updated_at: number
 }
@@ -194,7 +197,8 @@ export class MailboxStore {
   getFolders(): FolderRow[] {
     return this.rows<FolderRow>(
       `SELECT f.id, f.name, f.is_deletable, f.parent_id, f.color, f.sort_order, f.created_at,
-              COALESCE(SUM(CASE WHEN m.read = 0 AND m.deleted_at IS NULL THEN 1 ELSE 0 END), 0) AS unread_count
+              COALESCE(SUM(CASE WHEN m.read = 0 AND m.deleted_at IS NULL
+                AND (m.snoozed_until IS NULL OR m.snoozed_until <= ?1) THEN 1 ELSE 0 END), 0) AS unread_count
          FROM email_folders f
          LEFT JOIN email_messages m ON m.folder_id = f.id
         GROUP BY f.id, f.name, f.is_deletable, f.parent_id, f.color, f.sort_order, f.created_at
@@ -206,6 +210,7 @@ export class MailboxStore {
           f.sort_order ASC,
           f.created_at ASC,
           f.name COLLATE NOCASE ASC`,
+      Date.now(),
     )
   }
 
@@ -419,8 +424,8 @@ export class MailboxStore {
     const limit = Math.min(Math.max(Math.trunc(options.limit ?? EMAIL_PAGE_SIZE), 1), EMAIL_MAX_PAGE_SIZE)
     const sortColumn = SORT_COLUMNS[options.sortColumn ?? 'date'] ?? 'date'
     const direction = options.sortDirection === 'ASC' ? 'ASC' : 'DESC'
-    const clauses = ['deleted_at IS NULL']
-    const bindings: unknown[] = []
+    const clauses = ['deleted_at IS NULL', '(snoozed_until IS NULL OR snoozed_until <= ?)']
+    const bindings: unknown[] = [Date.now()]
     if (options.folder) {
       clauses.push(`folder_id = (SELECT id FROM email_folders WHERE id = ? OR name = ? COLLATE NOCASE LIMIT 1)`)
       bindings.push(options.folder, options.folder)
@@ -444,8 +449,8 @@ export class MailboxStore {
   }
 
   countEmails(options: { folder?: string; tag?: string; threadId?: string } = {}): number {
-    const clauses = ['deleted_at IS NULL']
-    const bindings: unknown[] = []
+    const clauses = ['deleted_at IS NULL', '(snoozed_until IS NULL OR snoozed_until <= ?)']
+    const bindings: unknown[] = [Date.now()]
     if (options.folder) {
       clauses.push(`folder_id = (SELECT id FROM email_folders WHERE id = ? OR name = ? COLLATE NOCASE LIMIT 1)`)
       bindings.push(options.folder, options.folder)
@@ -478,6 +483,7 @@ export class MailboxStore {
            SELECT *, COALESCE(in_reply_to, id) AS draft_group_key
              FROM email_messages
             WHERE deleted_at IS NULL
+              AND (snoozed_until IS NULL OR snoozed_until <= ?4)
               AND folder_id = (SELECT id FROM email_folders WHERE id = ?1 OR name = ?1 COLLATE NOCASE LIMIT 1)
          ),
          draft_stats AS (
@@ -503,6 +509,7 @@ export class MailboxStore {
         options.folder,
         limit,
         offset,
+        Date.now(),
       )
     }
     return this.rows<Record<string, unknown>>(
@@ -511,6 +518,7 @@ export class MailboxStore {
                 ${NORMALIZED_SUBJECT_SQL} AS normalized_subject
            FROM email_messages
           WHERE deleted_at IS NULL
+            AND (snoozed_until IS NULL OR snoozed_until <= ?4)
             AND folder_id = (SELECT id FROM email_folders WHERE id = ?1 OR name = ?1 COLLATE NOCASE LIMIT 1)
        ),
        thread_to_conversation AS (
@@ -525,6 +533,7 @@ export class MailboxStore {
            FROM email_messages e
            LEFT JOIN thread_to_conversation tc ON COALESCE(e.thread_id, e.id) = tc.raw_thread_id
           WHERE e.deleted_at IS NULL
+            AND (e.snoozed_until IS NULL OR e.snoozed_until <= ?4)
        ),
        conversation_stats AS (
          SELECT conversation_id, COUNT(*) AS thread_count,
@@ -568,17 +577,21 @@ export class MailboxStore {
       options.folder,
       limit,
       offset,
+      Date.now(),
     )
   }
 
   countThreadedEmails(folder: string): number {
+    const now = Date.now()
     if (folder === 'draft') {
       const row = this.one<{ total: number }>(
         `SELECT COUNT(DISTINCT COALESCE(in_reply_to, id)) AS total
            FROM email_messages
           WHERE deleted_at IS NULL
+            AND (snoozed_until IS NULL OR snoozed_until <= ?2)
             AND folder_id = (SELECT id FROM email_folders WHERE id = ?1 OR name = ?1 COLLATE NOCASE LIMIT 1)`,
         folder,
+        now,
       )
       return Number(row?.total ?? 0)
     }
@@ -588,6 +601,7 @@ export class MailboxStore {
                 ${NORMALIZED_SUBJECT_SQL} AS normalized_subject
            FROM email_messages
           WHERE deleted_at IS NULL
+            AND (snoozed_until IS NULL OR snoozed_until <= ?2)
             AND folder_id = (SELECT id FROM email_folders WHERE id = ?1 OR name = ?1 COLLATE NOCASE LIMIT 1)
        ),
        thread_to_conversation AS (
@@ -600,6 +614,7 @@ export class MailboxStore {
        )
        SELECT COUNT(DISTINCT conversation_id) AS total FROM thread_to_conversation`,
       folder,
+      now,
     )
     return Number(row?.total ?? 0)
   }
@@ -634,6 +649,54 @@ export class MailboxStore {
     return this.getEmail(id)
   }
 
+  snoozeEmail(id: string, until: number): EmailRow | null {
+    const now = Date.now()
+    if (!Number.isSafeInteger(until) || until <= now || until > now + EMAIL_SNOOZE_MAX_MS) return null
+    const message = this.one<{ folder_id: string }>(
+      `SELECT folder_id FROM email_messages WHERE id = ?1 AND deleted_at IS NULL`,
+      id,
+    )
+    if (!message) return null
+    if (message.folder_id !== 'inbox' && message.folder_id !== 'archive') {
+      const custom = this.one<{ id: string }>(
+        `SELECT id FROM email_folders WHERE id = ?1 AND is_deletable = 1`,
+        message.folder_id,
+      )
+      if (!custom) return null
+    }
+    this.sql.exec(
+      `UPDATE email_messages SET snoozed_until = ?1, updated_at = ?2
+        WHERE id = ?3 AND deleted_at IS NULL`,
+      until,
+      now,
+      id,
+    )
+    return this.getEmail(id)
+  }
+
+  wakeSnoozed(now = Date.now(), limit = EMAIL_SNOOZE_WAKE_BATCH): string[] {
+    const due = this.rows<{ id: string }>(
+      `SELECT id FROM email_messages
+        WHERE snoozed_until IS NOT NULL AND snoozed_until <= ?1
+        ORDER BY snoozed_until ASC, id ASC LIMIT ?2`,
+      now,
+      limit,
+    ).map((row) => row.id)
+    if (!due.length) return []
+    const placeholders = due.map(() => '?').join(', ')
+    const run = () => {
+      this.sql.exec(
+        `UPDATE email_messages SET snoozed_until = NULL, read = 0, updated_at = ?
+          WHERE id IN (${placeholders})`,
+        now,
+        ...due,
+      )
+    }
+    if (this.storage) this.storage.transactionSync(run)
+    else run()
+    return due
+  }
+
   markThreadRead(threadId: string): void {
     this.sql.exec(
       `UPDATE email_messages SET read = 1, updated_at = ?1
@@ -651,7 +714,7 @@ export class MailboxStore {
     if (!row) return null
     const now = Date.now()
     this.sql.exec(
-      `UPDATE email_messages SET folder_id = 'trash', deleted_at = ?1, updated_at = ?1
+      `UPDATE email_messages SET folder_id = 'trash', deleted_at = ?1, snoozed_until = NULL, updated_at = ?1
         WHERE id = ?2 AND deleted_at IS NULL`,
       now,
       id,
@@ -667,7 +730,7 @@ export class MailboxStore {
     if (!row?.deleted_at) return false
     const now = Date.now()
     this.sql.exec(
-      `UPDATE email_messages SET folder_id = 'inbox', deleted_at = NULL, updated_at = ?1 WHERE id = ?2`,
+      `UPDATE email_messages SET folder_id = 'inbox', deleted_at = NULL, snoozed_until = NULL, updated_at = ?1 WHERE id = ?2`,
       now,
       id,
     )
@@ -796,7 +859,7 @@ export class MailboxStore {
         if (!targetFolder) return { updated: 0 }
         if (targetFolder === 'trash') {
           this.sql.exec(
-            `UPDATE email_messages SET folder_id = 'trash', deleted_at = ?, updated_at = ?
+            `UPDATE email_messages SET folder_id = 'trash', deleted_at = ?, snoozed_until = NULL, updated_at = ?
               WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
             now,
             now,
@@ -813,7 +876,7 @@ export class MailboxStore {
         }
       } else if (action === 'trash') {
         this.sql.exec(
-          `UPDATE email_messages SET folder_id = 'trash', deleted_at = ?, updated_at = ?
+          `UPDATE email_messages SET folder_id = 'trash', deleted_at = ?, snoozed_until = NULL, updated_at = ?
             WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
           now,
           now,
@@ -821,7 +884,7 @@ export class MailboxStore {
         )
       } else if (action === 'restore') {
         this.sql.exec(
-          `UPDATE email_messages SET folder_id = 'inbox', deleted_at = NULL, updated_at = ?
+          `UPDATE email_messages SET folder_id = 'inbox', deleted_at = NULL, snoozed_until = NULL, updated_at = ?
             WHERE id IN (${placeholders}) AND deleted_at IS NOT NULL`,
           now,
           ...unique,
@@ -956,8 +1019,8 @@ export class MailboxStore {
   }
 
   private buildSearch(options: SearchOptions): { where: string; bindings: unknown[] } {
-    const clauses = ['e.deleted_at IS NULL']
-    const bindings: unknown[] = []
+    const clauses = ['e.deleted_at IS NULL', '(e.snoozed_until IS NULL OR e.snoozed_until <= ?)']
+    const bindings: unknown[] = [Date.now()]
     const like = (value: string) => `%${escapeLike(value)}%`
     if (options.query) {
       const term = like(options.query)
@@ -1266,7 +1329,9 @@ export class MailboxStore {
               SUM(CASE WHEN has_attachment = 1 THEN 1 ELSE 0 END) AS with_attachments
          FROM email_messages
         WHERE deleted_at IS NULL
+          AND (snoozed_until IS NULL OR snoozed_until <= ?1)
         GROUP BY folder_id`,
+      now,
     )
     const byFolder = new Map(rows.map((row) => [row.folder_id, row]))
     const folders = this.getFolders().map((folder) => {
@@ -1301,20 +1366,23 @@ export class MailboxStore {
       draft: Number(byFolder.get('draft')?.total ?? 0),
       trash: Number(trashed?.total ?? 0),
       folders,
-      receivedLast7Days: this.dailyCounts(`folder_id NOT IN ('sent', 'draft')`, rangeStart, now),
-      sentLast7Days: this.dailyCounts(`folder_id = 'sent'`, rangeStart, now),
+      receivedLast7Days: this.dailyCounts(`folder_id NOT IN ('sent', 'draft')`, rangeStart, now, now),
+      sentLast7Days: this.dailyCounts(`folder_id = 'sent'`, rangeStart, now, now),
     }
   }
 
-  private dailyCounts(condition: string, start: number, end: number): { date: string; count: number }[] {
+  private dailyCounts(condition: string, start: number, end: number, now: number): { date: string; count: number }[] {
     const rows = this.rows<{ day: number; total: number }>(
       `SELECT CAST(date / ?1 AS INTEGER) * ?1 AS day, COUNT(*) AS total
          FROM email_messages
-        WHERE deleted_at IS NULL AND ${condition} AND date >= ?2 AND date <= ?3
+        WHERE deleted_at IS NULL
+          AND (snoozed_until IS NULL OR snoozed_until <= ?4)
+          AND ${condition} AND date >= ?2 AND date <= ?3
         GROUP BY day`,
       DAY_MS,
       start,
       end,
+      now,
     )
     const counts = new Map(rows.map((row) => [Number(row.day), Number(row.total)]))
     const out: { date: string; count: number }[] = []

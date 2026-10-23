@@ -148,4 +148,18 @@ export const EMAIL_MAILBOX_MIGRATIONS: readonly MailboxMigration[] = [
         ON email_message_tags(tag_id, message_id)`)
     },
   },
+  {
+    name: '3_snooze',
+    apply: (sql) => {
+      const columns = new Set(
+        [...sql.exec<{ name: string }>(`SELECT name FROM pragma_table_info('email_messages')`)]
+          .map((row) => row.name),
+      )
+      if (!columns.has('snoozed_until')) {
+        sql.exec(`ALTER TABLE email_messages ADD COLUMN snoozed_until INTEGER`)
+      }
+      sql.exec(`CREATE INDEX IF NOT EXISTS idx_email_messages_snoozed
+        ON email_messages(snoozed_until) WHERE snoozed_until IS NOT NULL`)
+    },
+  },
 ]

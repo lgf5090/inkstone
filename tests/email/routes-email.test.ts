@@ -2,7 +2,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { EMAIL_BODY_MAX_BYTES, EMAIL_SUBJECT_MAX_CHARS } from '../../src/shared/email/model'
+import { EMAIL_BODY_MAX_BYTES, EMAIL_SNOOZE_MAX_MS, EMAIL_SUBJECT_MAX_CHARS } from '../../src/shared/email/model'
 import type { EmailFolder, EmailListResponse, EmailMailboxStats, EmailMessage, EmailTag } from '../../src/shared/email/model'
 import { SCHEMA_STATEMENTS } from '../../src/worker/db/schema'
 import { claimAutoDraftJobs, createEmailAccount, finishAutoDraftJob, queueAutoDraftJob } from '../../src/worker/email/account-store'
@@ -133,8 +133,12 @@ function mailboxNamespace(store: MailboxStore): DurableObjectNamespace {
           action: Parameters<MailboxStore['batchUpdate']>[1],
           folderId?: string,
         ) => { updated: number }
+        snoozeEmail: (id: string, until: number) => ReturnType<MailboxStore['snoozeEmail']>
+        wakeSnoozed: (now?: number, limit?: number) => string[]
       }
       stub.batchUpdate = (ids, action, folderId) => store.batchUpdate(ids, action, folderId)
+      stub.snoozeEmail = (id: string, until: number) => store.snoozeEmail(id, until)
+      stub.wakeSnoozed = (now?: number, limit?: number) => store.wakeSnoozed(now, limit)
       return stub as unknown as DurableObjectStub
     }) as DurableObjectNamespace['get'],
   } as DurableObjectNamespace
@@ -1112,5 +1116,80 @@ describe('email stats route', () => {
     expect(stats.receivedLast7Days.at(-1)?.count).toBe(1)
     expect(stats.sentLast7Days.at(-1)?.count).toBe(1)
     expect(count('SELECT COUNT(*) AS n FROM email_attachments WHERE id = ?', attachmentId)).toBe(1)
+  })
+})
+
+describe('email snooze route', () => {
+  it('snoozes a message, hides it from the inbox and returns the stored time', async () => {
+    const messageId = newId()
+    seedMessage(messageId)
+    const until = Date.now() + 60 * 60 * 1000
+
+    const response = await call('POST', `/accounts/${accountId}/emails/${messageId}/snooze`, {
+      until: new Date(until).toISOString(),
+    })
+    expect(response.status).toBe(200)
+    expect(await json(response)).toEqual({
+      id: messageId,
+      snoozedUntil: new Date(until).toISOString(),
+    })
+
+    const list = await json<EmailListResponse>(await call('GET', `/accounts/${accountId}/emails?folder=inbox`))
+    expect(list.totalCount).toBe(0)
+    expect((await call('GET', `/accounts/${accountId}/emails/${messageId}`)).status).toBe(200)
+    expect(store.getEmail(messageId)?.snoozed_until).toBe(until)
+  })
+
+  it('accepts an epoch value and rejects past, distant and malformed times', async () => {
+    const messageId = newId()
+    seedMessage(messageId)
+
+    const epoch = Date.now() + 60 * 60 * 1000
+    expect((await call('POST', `/accounts/${accountId}/emails/${messageId}/snooze`, { until: epoch })).status).toBe(200)
+
+    const past = await call('POST', `/accounts/${accountId}/emails/${messageId}/snooze`, { until: Date.now() - 1 })
+    expect(past.status).toBe(400)
+    expect((await errorOf(past)).code).toBe('bad_request')
+
+    const distant = await call('POST', `/accounts/${accountId}/emails/${messageId}/snooze`, {
+      until: Date.now() + EMAIL_SNOOZE_MAX_MS + 60 * 60 * 1000,
+    })
+    expect(distant.status).toBe(400)
+
+    const malformed = await call('POST', `/accounts/${accountId}/emails/${messageId}/snooze`, { until: 'not-a-date' })
+    expect(malformed.status).toBe(400)
+
+    const missing = await call('POST', `/accounts/${accountId}/emails/${messageId}/snooze`, {})
+    expect(missing.status).toBe(400)
+  })
+
+  it('refuses drafts, sent mail, trash and spam', async () => {
+    const until = Date.now() + 60 * 60 * 1000
+    for (const folder of ['draft', 'sent', 'trash', 'spam']) {
+      const messageId = newId()
+      seedMessage(messageId, { folder })
+      const response = await call('POST', `/accounts/${accountId}/emails/${messageId}/snooze`, { until })
+      expect(response.status).toBe(400)
+      expect(store.getEmail(messageId)?.snoozed_until).toBeNull()
+    }
+  })
+
+  it('requires the owner, the account and an existing message', async () => {
+    const ownerId = userId
+    const messageId = newId()
+    seedMessage(messageId)
+    const until = Date.now() + 60 * 60 * 1000
+
+    userRole = 'member'
+    expect((await call('POST', `/accounts/${accountId}/emails/${messageId}/snooze`, { until })).status).toBe(403)
+
+    userRole = 'owner'
+    userId = newId()
+    expect((await call('POST', `/accounts/${accountId}/emails/${messageId}/snooze`, { until })).status).toBe(404)
+
+    userId = ownerId
+    const missing = await call('POST', `/accounts/${accountId}/emails/${newId()}/snooze`, { until })
+    expect(missing.status).toBe(404)
+    expect((await errorOf(missing)).code).toBe('email_message_not_found')
   })
 })

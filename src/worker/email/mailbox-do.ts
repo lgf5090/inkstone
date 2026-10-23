@@ -48,6 +48,8 @@ export class EmailMailbox extends DurableObject<Env> {
   getEmail(id: string) { return this.store.getEmail(id) }
   getThreadEmails(threadId: string) { return this.store.getThreadEmails(threadId) }
   updateEmail(id: string, patch: { read?: boolean; starred?: boolean }) { return this.store.updateEmail(id, patch) }
+  snoozeEmail(id: string, until: number) { return this.store.snoozeEmail(id, until) }
+  wakeSnoozed(now?: number, limit?: number) { return this.store.wakeSnoozed(now, limit) }
   markThreadRead(threadId: string) { return this.store.markThreadRead(threadId) }
   trashEmail(id: string) { return this.store.trashEmail(id) }
   restoreEmail(id: string) { return this.store.restoreEmail(id) }

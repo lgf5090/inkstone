@@ -21,6 +21,7 @@ import { normalizeRepeatedOAuthResource } from './lib/oauth-request'
 import { dispatchInboundEmail } from './email/dispatch'
 import { runEmailTrashCleanup } from './email/trash'
 import { runEmailAutoDraftJobs } from './email/auto-draft'
+import { runEmailSnoozeWake } from './email/snooze'
 
 export { SyncHub } from './realtime/sync-hub'
 export { CredentialVault } from './durable/credential-vault'
@@ -76,8 +77,9 @@ export default {
       // what deduplicates them, so a second fire in the same minute finds nothing left to deliver.
       const reminderTick = sweepTaskReminders(env, event.scheduledTime, (task) => { ctx.waitUntil(task) })
       const emailDraftTick = runEmailAutoDraftJobs(env, event.scheduledTime, 2)
+      const emailSnoozeTick = runEmailSnoozeWake(env, event.scheduledTime)
       if (!isDrainFire(event.scheduledTime)) {
-        await Promise.all([assistantTick, subscriptionTick, reminderTick, emailDraftTick])
+        await Promise.all([assistantTick, subscriptionTick, reminderTick, emailDraftTick, emailSnoozeTick])
         return
       }
       const drains: Promise<unknown>[] = [
@@ -104,7 +106,7 @@ export default {
             providerForScheduled(env).purgeExpiredData(env, { batchSize: 100 }),
           ]
         : []
-      await Promise.all([...drains, ...heavy, subscriptionTick, reminderTick, emailDraftTick])
+      await Promise.all([...drains, ...heavy, subscriptionTick, reminderTick, emailDraftTick, emailSnoozeTick])
     })())
   },
 

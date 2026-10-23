@@ -16,6 +16,8 @@ export const EMAIL_ATTACHMENT_R2_PREFIX = 'mail'
 export const EMAIL_PAGE_SIZE = 25
 export const EMAIL_MAX_PAGE_SIZE = 100
 export const EMAIL_BATCH_MAX_MESSAGES = 100
+export const EMAIL_SNOOZE_MAX_MS = 365 * 24 * 60 * 60 * 1000
+export const EMAIL_SNOOZE_WAKE_BATCH = 200
 
 export const EMAIL_BATCH_ACTIONS = [
   'read',
@@ -38,6 +40,11 @@ export interface EmailBatchInput {
 
 export interface EmailBatchResult {
   updated: number
+}
+
+export interface EmailSnoozeResult {
+  id: string
+  snoozedUntil: string
 }
 
 export const EMAIL_ATTACHMENT_CATEGORIES = [
