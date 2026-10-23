@@ -1,12 +1,12 @@
 import { type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
-import { Archive, Check, Clock, FolderInput, Mail, MailOpen, Minus, Paperclip, RefreshCw, ShieldBan, Star, Tag, Trash2 } from 'lucide-react'
+import { AlarmClock, Archive, Bell, BellOff, Check, Clock, Flag, FolderInput, Mail, MailOpen, Minus, Paperclip, RefreshCw, ShieldBan, Star, Tag, Trash2 } from 'lucide-react'
 import type { EmailFolder, EmailSummary, EmailTag } from '@shared/email/model'
 import { isEmailSystemFolder } from '@shared/email/model'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { api } from '../../lib/api'
 import { Badge, IconButton } from '../../components/primitives'
-import { Menu, MenuSubmenuList, confirm, useContextMenu, type MenuItem } from '../../components/overlay'
+import { Menu, MenuSubmenuList, confirm, useContextMenu, type MenuItem, type MenuSubmenuContext } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { emailErrorText } from './errors'
 import {
@@ -18,7 +18,7 @@ import {
   senderLabel,
   SYSTEM_FOLDER_LABEL_KEYS,
 } from './format'
-import { emailSnoozeOptions, useEmailStore } from './store'
+import { emailFollowUpOptions, emailSnoozeOptions, useEmailStore } from './store'
 
 const MENU_INSET = 12
 
@@ -43,6 +43,63 @@ export async function requestEmailSnooze(messageId: string, until: string): Prom
   }
   const ok = await state.snoozeMessage(state.accountId, messageId, until)
   if (ok) useUi.getState().toast({ title: t('email.snooze.done'), tone: 'success' })
+  return ok
+}
+
+export function followUpMenuItems(onPick: (at: string | null) => void, active: boolean): MenuItem[] {
+  return [
+    ...emailFollowUpOptions().map((option) => ({
+      id: `follow-up-${option.preset}`,
+      label: t(option.key),
+      icon: <AlarmClock size={13} />,
+      onSelect: () => onPick(option.at),
+    })),
+    {
+      id: 'follow-up-clear',
+      label: t('email.followup.clear'),
+      icon: <BellOff size={13} />,
+      disabled: !active,
+      separatorBefore: true,
+      onSelect: () => onPick(null),
+    },
+    {
+      id: 'follow-up-hint',
+      label: t('email.followup.hint'),
+      disabled: true,
+    },
+  ]
+}
+
+export async function requestEmailFollowUp(messageId: string, at: string | null): Promise<boolean> {
+  const state = useEmailStore.getState()
+  if (!state.accountId) {
+    useUi.getState().toast({ title: t('email.toast.failed'), tone: 'danger' })
+    return false
+  }
+  const ok = await state.setFollowUp(state.accountId, messageId, at)
+  if (ok) useUi.getState().toast({ title: t(at ? 'email.followup.set' : 'email.followup.cleared'), tone: 'success' })
+  return ok
+}
+
+export async function requestImportantToggle(message: EmailSummary): Promise<boolean> {
+  const state = useEmailStore.getState()
+  if (!state.accountId) {
+    useUi.getState().toast({ title: t('email.toast.failed'), tone: 'danger' })
+    return false
+  }
+  const ok = await state.toggleImportant(state.accountId, message.id)
+  if (ok) useUi.getState().toast({ title: t(message.important ? 'email.important.unmarked' : 'email.important.marked'), tone: 'success' })
+  return ok
+}
+
+export async function requestThreadMute(threadId: string, muted: boolean): Promise<boolean> {
+  const state = useEmailStore.getState()
+  if (!state.accountId) {
+    useUi.getState().toast({ title: t('email.toast.failed'), tone: 'danger' })
+    return false
+  }
+  const ok = await state.muteThread(state.accountId, threadId, muted)
+  if (ok) useUi.getState().toast({ title: t(muted ? 'email.mute.muted' : 'email.mute.unmuted'), tone: 'success' })
   return ok
 }
 
@@ -204,6 +261,22 @@ export function MessageRow({
       icon: <Star size={13} fill={message.starred ? 'currentColor' : 'none'} />,
       onSelect: onToggleStar,
     },
+    ...(canSnoozeMessage(message.folderId)
+      ? [{
+          id: 'important',
+          label: t(message.important ? 'email.important.unmark' : 'email.important.mark'),
+          icon: <Flag size={13} fill={message.important ? 'currentColor' : 'none'} />,
+          onSelect: () => { void requestImportantToggle(message) },
+        }]
+      : []),
+    ...(canSnoozeMessage(message.folderId) && message.threadId
+      ? [{
+          id: 'mute',
+          label: t(message.muted ? 'email.mute.unmute' : 'email.mute.thread'),
+          icon: message.muted ? <Bell size={13} /> : <BellOff size={13} />,
+          onSelect: () => { void requestThreadMute(message.threadId!, !message.muted) },
+        }]
+      : []),
     {
       id: 'move',
       label: t('email.message.move_to'),
@@ -247,6 +320,22 @@ export function MessageRow({
       ),
     },
     ...(canSnoozeMessage(message.folderId) ? [snoozeItem] : []),
+    ...(canSnoozeMessage(message.folderId)
+      ? [{
+          id: 'follow-up',
+          label: t('email.followup.menu'),
+          icon: <AlarmClock size={13} />,
+          submenu: ({ closeMenu }: MenuSubmenuContext) => (
+            <MenuSubmenuList
+              label={t('email.followup.menu')}
+              items={followUpMenuItems((at) => {
+                void requestEmailFollowUp(message.id, at)
+                closeMenu()
+              }, Boolean(message.followUpAt))}
+            />
+          ),
+        }]
+      : []),
     {
       id: 'archive',
       label: t('email.message.archive'),
@@ -335,6 +424,18 @@ export function MessageRow({
           </span>
         </span>
         <span className="flex min-w-0 flex-wrap items-center gap-1 pt-0.5">
+          {message.important && (
+            <span className="inline-flex items-center gap-0.5 text-[length:var(--text-10-5)] text-[var(--warning)]">
+              <Flag size={11} aria-hidden="true" fill="currentColor" />
+              <span className="sr-only">{t('email.important.badge')}</span>
+            </span>
+          )}
+          {message.muted && (
+            <span className="inline-flex items-center gap-0.5 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+              <BellOff size={11} aria-hidden="true" />
+              <span className="sr-only">{t('email.mute.badge')}</span>
+            </span>
+          )}
           {message.hasDraft && <Badge tone="accent">{t('email.list.draft')}</Badge>}
           {message.needsReply && <Badge tone="warning">{t('email.list.needs_reply')}</Badge>}
           {failed && <Badge tone="danger">{t('email.list.send_failed')}</Badge>}

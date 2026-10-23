@@ -31,6 +31,14 @@ export interface EmailSnoozeOption {
   until: string
 }
 
+export type EmailFollowUpPreset = 'tomorrow' | 'next_week'
+
+export interface EmailFollowUpOption {
+  preset: EmailFollowUpPreset
+  key: 'email.followup.tomorrow' | 'email.followup.next_week'
+  at: string
+}
+
 export function emailSnoozeOptions(now = new Date()): EmailSnoozeOption[] {
   const laterToday = new Date(now.getTime() + SNOOZE_LATER_HOURS * 60 * 60 * 1000)
   const tomorrow = new Date(now)
@@ -43,6 +51,19 @@ export function emailSnoozeOptions(now = new Date()): EmailSnoozeOption[] {
     { preset: 'later_today', key: 'email.snooze.later_today', until: laterToday.toISOString() },
     { preset: 'tomorrow', key: 'email.snooze.tomorrow', until: tomorrow.toISOString() },
     { preset: 'next_week', key: 'email.snooze.next_week', until: nextWeek.toISOString() },
+  ]
+}
+
+export function emailFollowUpOptions(now = new Date()): EmailFollowUpOption[] {
+  const tomorrow = new Date(now)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  tomorrow.setHours(8, 0, 0, 0)
+  const nextWeek = new Date(now)
+  nextWeek.setDate(nextWeek.getDate() + 7)
+  nextWeek.setHours(8, 0, 0, 0)
+  return [
+    { preset: 'tomorrow', key: 'email.followup.tomorrow', at: tomorrow.toISOString() },
+    { preset: 'next_week', key: 'email.followup.next_week', at: nextWeek.toISOString() },
   ]
 }
 
@@ -145,6 +166,9 @@ interface EmailState {
   markThreadRead: (accountId: string, message: EmailMessage) => Promise<boolean>
   setRead: (accountId: string, messageId: string, read: boolean) => Promise<boolean>
   toggleStar: (accountId: string, messageId: string) => Promise<boolean>
+  toggleImportant: (accountId: string, messageId: string) => Promise<boolean>
+  muteThread: (accountId: string, threadId: string, muted: boolean) => Promise<boolean>
+  setFollowUp: (accountId: string, messageId: string, at: string | null) => Promise<boolean>
   moveMessage: (accountId: string, messageId: string, folderId: string) => Promise<boolean>
   deleteMessage: (accountId: string, messageId: string, permanent?: boolean) => Promise<boolean>
   snoozeMessage: (accountId: string, messageId: string, until: string) => Promise<boolean>
@@ -735,6 +759,82 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       set({ ...before, actionError: emailErrorText(reason) })
       return false
     }
+  },
+
+  toggleImportant: async (accountId, messageId) => {
+    const state = get()
+    const summary = findSummary(state, messageId)
+    if (!summary) return false
+    const important = !summary.important
+    const before = snapshot(state)
+    set({
+      messages: updateSummary(state.messages, messageId, { important }),
+      trash: updateSummary(state.trash, messageId, { important }),
+      thread: updateThread(state.thread, messageId, { important }),
+      selectedMessage: state.selectedMessage?.id === messageId
+        ? { ...state.selectedMessage, important }
+        : state.selectedMessage,
+    })
+    try {
+      const updated = await api.email.updateEmail(accountId, messageId, { important })
+      set({
+        messages: updateSummary(get().messages, messageId, { important: updated.important }),
+        trash: updateSummary(get().trash, messageId, { important: updated.important }),
+        thread: updateThread(get().thread, messageId, { important: updated.important }),
+        actionError: null,
+      })
+      if (get().listMode === 'search' && parseEmailSearchQuery(get().searchQuery).important === true) {
+        await get().refresh()
+      }
+      return true
+    } catch (reason) {
+      set({ ...before, actionError: emailErrorText(reason) })
+      return false
+    }
+  },
+
+  muteThread: async (accountId, threadId, muted) => {
+    const state = get()
+    const before = snapshot(state)
+    const apply = <T extends EmailSummary>(list: T[]): T[] =>
+      list.map((entry) => entry.threadId === threadId ? { ...entry, muted } : entry)
+    set({
+      messages: apply(state.messages),
+      trash: apply(state.trash),
+      thread: apply(state.thread),
+      selectedMessage: state.selectedMessage?.threadId === threadId
+        ? { ...state.selectedMessage, muted }
+        : state.selectedMessage,
+    })
+    try {
+      await api.email.muteThread(accountId, threadId, muted)
+      await get().refresh()
+      return true
+    } catch (reason) {
+      set({ ...before, actionError: emailErrorText(reason) })
+      return false
+    }
+  },
+
+  setFollowUp: async (accountId, messageId, at) => {
+    set({ actionError: null })
+    try {
+      const updated = await api.email.setFollowUp(accountId, messageId, at)
+      const patch = { important: updated.important, followUpAt: updated.followUpAt }
+      set((state) => ({
+        messages: updateSummary(state.messages, messageId, patch),
+        trash: updateSummary(state.trash, messageId, patch),
+        thread: updateThread(state.thread, messageId, patch),
+        selectedMessage: state.selectedMessage?.id === messageId
+          ? { ...state.selectedMessage, ...patch }
+          : state.selectedMessage,
+      }))
+    } catch (reason) {
+      set({ actionError: emailErrorText(reason) })
+      return false
+    }
+    await get().refresh()
+    return true
   },
 
   moveMessage: async (accountId, messageId, folderId) => {

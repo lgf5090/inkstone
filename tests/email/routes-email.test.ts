@@ -2,7 +2,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { EMAIL_BODY_MAX_BYTES, EMAIL_SNOOZE_MAX_MS, EMAIL_SUBJECT_MAX_CHARS } from '../../src/shared/email/model'
+import { EMAIL_BODY_MAX_BYTES, EMAIL_FOLLOW_UP_MAX_MS, EMAIL_SNOOZE_MAX_MS, EMAIL_SUBJECT_MAX_CHARS } from '../../src/shared/email/model'
 import type { EmailFolder, EmailListResponse, EmailMailboxStats, EmailMessage, EmailTag } from '../../src/shared/email/model'
 import { SCHEMA_STATEMENTS } from '../../src/worker/db/schema'
 import { claimAutoDraftJobs, createEmailAccount, finishAutoDraftJob, queueAutoDraftJob } from '../../src/worker/email/account-store'
@@ -135,10 +135,14 @@ function mailboxNamespace(store: MailboxStore): DurableObjectNamespace {
         ) => { updated: number }
         snoozeEmail: (id: string, until: number) => ReturnType<MailboxStore['snoozeEmail']>
         wakeSnoozed: (now?: number, limit?: number) => string[]
+        muteThread: (threadId: string, muted: boolean) => number
+        setFollowUp: (id: string, at: number | null) => ReturnType<MailboxStore['setFollowUp']>
       }
       stub.batchUpdate = (ids, action, folderId) => store.batchUpdate(ids, action, folderId)
       stub.snoozeEmail = (id: string, until: number) => store.snoozeEmail(id, until)
       stub.wakeSnoozed = (now?: number, limit?: number) => store.wakeSnoozed(now, limit)
+      stub.muteThread = (threadId: string, muted: boolean) => store.muteThread(threadId, muted)
+      stub.setFollowUp = (id: string, at: number | null) => store.setFollowUp(id, at)
       return stub as unknown as DurableObjectStub
     }) as DurableObjectNamespace['get'],
   } as DurableObjectNamespace
@@ -461,6 +465,36 @@ describe('email updates, trash and moves', () => {
     expect(invalid.status).toBe(400)
   })
 
+  it('updates important and muted flags and filters lists by them', async () => {
+    const importantId = newId()
+    const mutedId = newId()
+    seedMessage(importantId)
+    seedMessage(mutedId)
+
+    const response = await call('PATCH', `/accounts/${accountId}/emails/${importantId}`, { important: true })
+    expect(response.status).toBe(200)
+    expect(await json<EmailMessage>(response)).toMatchObject({ important: true, muted: false, followUpAt: null })
+    expect((await call('PATCH', `/accounts/${accountId}/emails/${mutedId}`, { muted: true })).status).toBe(200)
+
+    const importantList = await json<EmailListResponse>(
+      await call('GET', `/accounts/${accountId}/emails?folder=inbox&is_important=true`),
+    )
+    expect(importantList.emails.map((email) => email.id)).toEqual([importantId])
+    expect(importantList.totalCount).toBe(1)
+    const mutedList = await json<EmailListResponse>(
+      await call('GET', `/accounts/${accountId}/emails?folder=inbox&is_muted=true&threaded=true`),
+    )
+    expect(mutedList.emails.map((email) => email.id)).toEqual([mutedId])
+    const everything = await json<EmailListResponse>(
+      await call('GET', `/accounts/${accountId}/emails?folder=inbox`),
+    )
+    expect(everything.totalCount).toBe(2)
+
+    const invalid = await call('PATCH', `/accounts/${accountId}/emails/${importantId}`, { important: 'yes' })
+    expect(invalid.status).toBe(400)
+    expect((await call('PATCH', `/accounts/${accountId}/emails/${importantId}`, {})).status).toBe(400)
+  })
+
   it('soft-deletes, restores and permanently deletes a message with attachments', async () => {
     const messageId = newId()
     seedMessage(messageId)
@@ -686,6 +720,24 @@ describe('email threads and search', () => {
     expect(store.getThreadEmails('thread-1').every((message) => message.read === 1)).toBe(true)
   })
 
+  it('mutes and unmutes every message in a thread', async () => {
+    seedMessage(newId(), { threadId: 'thread-1', date: 1_000 })
+    seedMessage(newId(), { threadId: 'thread-1', date: 2_000 })
+    seedMessage(newId(), { threadId: 'thread-2', date: 3_000 })
+
+    const muted = await call('POST', `/accounts/${accountId}/threads/thread-1/mute`, { muted: true })
+    expect(muted.status).toBe(204)
+    expect(store.getThreadEmails('thread-1').every((message) => message.muted === 1)).toBe(true)
+    expect(store.getThreadEmails('thread-2').every((message) => message.muted === 0)).toBe(true)
+
+    const unmuted = await call('POST', `/accounts/${accountId}/threads/thread-1/mute`, { muted: false })
+    expect(unmuted.status).toBe(204)
+    expect(store.getThreadEmails('thread-1').every((message) => message.muted === 0)).toBe(true)
+
+    expect((await call('POST', `/accounts/${accountId}/threads/thread-1/mute`, {})).status).toBe(400)
+    expect((await call('POST', `/accounts/${accountId}/threads/missing/mute`, { muted: true })).status).toBe(404)
+  })
+
   it('searches with text, folder, flags and dates', async () => {
     const invoice = newId()
     seedMessage(invoice, {
@@ -712,6 +764,19 @@ describe('email threads and search', () => {
     expect(invalidDate.status).toBe(400)
     const invalidFlag = await call('GET', `/accounts/${accountId}/search?is_starred=maybe`)
     expect(invalidFlag.status).toBe(400)
+    const invalidImportant = await call('GET', `/accounts/${accountId}/search?is_important=maybe`)
+    expect(invalidImportant.status).toBe(400)
+
+    const at = Date.now() + 60 * 60 * 1000
+    const flagged = newId()
+    seedMessage(flagged, { subject: 'Tracked' })
+    expect((await call('PATCH', `/accounts/${accountId}/emails/${flagged}`, { important: true })).status).toBe(200)
+    expect((await call('POST', `/accounts/${accountId}/emails/${flagged}/follow-up`, { at })).status).toBe(200)
+    const filtered = await json<EmailListResponse>(
+      await call('GET', `/accounts/${accountId}/search?is_important=true&is_followup=true&is_muted=false`),
+    )
+    expect(filtered.emails.map((email) => email.id)).toEqual([flagged])
+    expect(filtered.totalCount).toBe(1)
   })
 })
 
@@ -1189,6 +1254,74 @@ describe('email snooze route', () => {
 
     userId = ownerId
     const missing = await call('POST', `/accounts/${accountId}/emails/${newId()}/snooze`, { until })
+    expect(missing.status).toBe(404)
+    expect((await errorOf(missing)).code).toBe('email_message_not_found')
+  })
+})
+
+describe('email follow-up route', () => {
+  it('sets and clears a reminder and marks the message important', async () => {
+    const messageId = newId()
+    seedMessage(messageId)
+    const at = Date.now() + 60 * 60 * 1000
+
+    const response = await call('POST', `/accounts/${accountId}/emails/${messageId}/follow-up`, {
+      at: new Date(at).toISOString(),
+    })
+    expect(response.status).toBe(200)
+    expect(await json<EmailMessage>(response)).toMatchObject({
+      important: true,
+      followUpAt: new Date(at).toISOString(),
+    })
+    expect(store.getEmail(messageId)).toMatchObject({ important: 1, follow_up_at: at })
+
+    const listed = await json<EmailListResponse>(await call('GET', `/accounts/${accountId}/search?is_followup=true`))
+    expect(listed.emails.map((email) => email.id)).toEqual([messageId])
+
+    const cleared = await call('POST', `/accounts/${accountId}/emails/${messageId}/follow-up`, { at: null })
+    expect(cleared.status).toBe(200)
+    expect(await json<EmailMessage>(cleared)).toMatchObject({ important: true, followUpAt: null })
+    expect(store.getEmail(messageId)?.follow_up_at).toBeNull()
+  })
+
+  it('accepts an epoch value and rejects past, distant, malformed and missing times', async () => {
+    const messageId = newId()
+    seedMessage(messageId)
+
+    const epoch = Date.now() + 60 * 60 * 1000
+    expect((await call('POST', `/accounts/${accountId}/emails/${messageId}/follow-up`, { at: epoch })).status).toBe(200)
+
+    const past = await call('POST', `/accounts/${accountId}/emails/${messageId}/follow-up`, { at: Date.now() - 1 })
+    expect(past.status).toBe(400)
+    expect((await errorOf(past)).code).toBe('bad_request')
+
+    const distant = await call('POST', `/accounts/${accountId}/emails/${messageId}/follow-up`, {
+      at: Date.now() + EMAIL_FOLLOW_UP_MAX_MS + 60 * 60 * 1000,
+    })
+    expect(distant.status).toBe(400)
+
+    const malformed = await call('POST', `/accounts/${accountId}/emails/${messageId}/follow-up`, { at: 'not-a-date' })
+    expect(malformed.status).toBe(400)
+
+    const missing = await call('POST', `/accounts/${accountId}/emails/${messageId}/follow-up`, {})
+    expect(missing.status).toBe(400)
+  })
+
+  it('requires the owner, the account and an existing message', async () => {
+    const ownerId = userId
+    const messageId = newId()
+    seedMessage(messageId)
+    const at = Date.now() + 60 * 60 * 1000
+
+    userRole = 'member'
+    expect((await call('POST', `/accounts/${accountId}/emails/${messageId}/follow-up`, { at })).status).toBe(403)
+
+    userRole = 'owner'
+    userId = newId()
+    expect((await call('POST', `/accounts/${accountId}/emails/${messageId}/follow-up`, { at })).status).toBe(404)
+
+    userId = ownerId
+    const missing = await call('POST', `/accounts/${accountId}/emails/${newId()}/follow-up`, { at })
     expect(missing.status).toBe(404)
     expect((await errorOf(missing)).code).toBe('email_message_not_found')
   })

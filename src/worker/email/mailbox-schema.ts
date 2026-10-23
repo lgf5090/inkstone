@@ -197,4 +197,26 @@ export const EMAIL_MAILBOX_MIGRATIONS: readonly MailboxMigration[] = [
         ON email_templates(name COLLATE NOCASE)`)
     },
   },
+  {
+    name: '6_message_flags',
+    apply: (sql) => {
+      const columns = new Set(
+        [...sql.exec<{ name: string }>(`SELECT name FROM pragma_table_info('email_messages')`)]
+          .map((row) => row.name),
+      )
+      if (!columns.has('important')) {
+        sql.exec(`ALTER TABLE email_messages ADD COLUMN important INTEGER NOT NULL DEFAULT 0`)
+      }
+      if (!columns.has('muted')) {
+        sql.exec(`ALTER TABLE email_messages ADD COLUMN muted INTEGER NOT NULL DEFAULT 0`)
+      }
+      if (!columns.has('follow_up_at')) {
+        sql.exec(`ALTER TABLE email_messages ADD COLUMN follow_up_at INTEGER`)
+      }
+      sql.exec(`CREATE INDEX IF NOT EXISTS idx_email_messages_important
+        ON email_messages(important) WHERE important = 1`)
+      sql.exec(`CREATE INDEX IF NOT EXISTS idx_email_messages_follow_up
+        ON email_messages(follow_up_at) WHERE follow_up_at IS NOT NULL`)
+    },
+  },
 ]

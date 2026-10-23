@@ -1269,12 +1269,17 @@ export const api = {
       request<EmailListResponse>(`/api/email/accounts/${id}/emails${toQuery(params)}`),
     getEmail: (id: string, messageId: string) =>
       request<EmailMessage>(`/api/email/accounts/${id}/emails/${messageId}`),
-    updateEmail: (id: string, messageId: string, body: { read?: boolean, starred?: boolean }) =>
+    updateEmail: (id: string, messageId: string, body: { read?: boolean, starred?: boolean, important?: boolean, muted?: boolean }) =>
       request<EmailMessage>(`/api/email/accounts/${id}/emails/${messageId}`, { method: 'PATCH', body }),
     snoozeEmail: (id: string, messageId: string, until: string | number) =>
       request<EmailSnoozeResult>(`/api/email/accounts/${id}/emails/${messageId}/snooze`, {
         method: 'POST',
         body: { until },
+      }),
+    setFollowUp: (id: string, messageId: string, at: string | null) =>
+      request<EmailMessage>(`/api/email/accounts/${id}/emails/${messageId}/follow-up`, {
+        method: 'POST',
+        body: { at },
       }),
     batchEmails: (id: string, input: EmailBatchInput) =>
       request<EmailBatchResult>(`/api/email/accounts/${id}/emails/batch`, { method: 'POST', body: input }),
@@ -1292,6 +1297,11 @@ export const api = {
       request<EmailMessage[]>(`/api/email/accounts/${id}/threads/${threadId}`),
     markThreadRead: (id: string, threadId: string) =>
       request<void>(`/api/email/accounts/${id}/threads/${threadId}/read`, { method: 'POST' }),
+    muteThread: (id: string, threadId: string, muted: boolean) =>
+      request<void>(`/api/email/accounts/${id}/threads/${encodeURIComponent(threadId)}/mute`, {
+        method: 'POST',
+        body: { muted },
+      }),
     send: (id: string, body: EmailSendInput) =>
       request<EmailSendResult>(`/api/email/accounts/${id}/emails`, { method: 'POST', body }),
     reply: (id: string, messageId: string, body: EmailSendInput) =>

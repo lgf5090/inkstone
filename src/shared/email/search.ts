@@ -50,6 +50,15 @@ export function parseEmailSearchQuery(input: string): EmailSearchQuery {
           case 'unstarred':
             result.isStarred = false
             break
+          case 'important':
+            result.important = true
+            break
+          case 'muted':
+            result.muted = true
+            break
+          case 'followup':
+            result.followUp = true
+            break
         }
         break
       case 'has':
@@ -78,6 +87,9 @@ export function emailSearchParams(query: EmailSearchQuery): Record<string, strin
   if (query.folder) params.folder = query.folder
   if (query.isRead !== undefined) params.is_read = String(query.isRead)
   if (query.isStarred !== undefined) params.is_starred = String(query.isStarred)
+  if (query.important !== undefined) params.is_important = String(query.important)
+  if (query.muted !== undefined) params.is_muted = String(query.muted)
+  if (query.followUp !== undefined) params.is_followup = String(query.followUp)
   if (query.hasAttachment) params.has_attachment = 'true'
   if (query.tag) params.tag = query.tag
   if (query.dateStart) params.date_start = query.dateStart

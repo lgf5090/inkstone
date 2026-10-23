@@ -44,6 +44,8 @@ function sidebarProps(overrides: Record<string, unknown> = {}) {
     accountId: 'acc-1',
     folders,
     activeFolderId: 'inbox',
+    activeSystemSearch: null,
+    onSelectSystemSearch: vi.fn(),
     onSelect: vi.fn(),
     onCreate: vi.fn(async (_name: string, _parentId: string | null) => undefined),
     onRename: vi.fn(async (_id: string, _name: string) => undefined),
@@ -187,6 +189,27 @@ describe('the nested folder tree', () => {
     })
     expect(document.querySelector('[role="menu"]')).not.toBeNull()
     expect(document.activeElement?.getAttribute('role')).toBe('menuitem')
+    view.unmount()
+  })
+
+  it('opens the Important and Follow up views above the custom folders', () => {
+    const onSelectSystemSearch = vi.fn()
+    const view = renderElement(createElement(FolderSidebar, sidebarProps({
+      activeSystemSearch: 'important',
+      onSelectSystemSearch,
+    })))
+    const important = document.querySelector<HTMLButtonElement>('button[data-email-view="important"]')!
+    const followUp = document.querySelector<HTMLButtonElement>('button[data-email-view="followup"]')!
+    expect(important.textContent).toContain(t('email.folder.important'))
+    expect(followUp.textContent).toContain(t('email.folder.follow_up'))
+    expect(important.getAttribute('aria-current')).toBe('page')
+    expect(followUp.getAttribute('aria-current')).toBeNull()
+    expect(important.compareDocumentPosition(treeRow('Work')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    act(() => { important.click() })
+    expect(onSelectSystemSearch).toHaveBeenCalledWith('is:important')
+    act(() => { followUp.click() })
+    expect(onSelectSystemSearch).toHaveBeenCalledWith('is:followup')
     view.unmount()
   })
 })

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
-import { Archive, ChevronRight, FileText, FolderClosed, FolderPlus, Inbox, MoreHorizontal, PanelLeft, PanelLeftClose, Palette, Pencil, Plus, Send, Trash2 } from 'lucide-react'
+import { AlarmClock, Archive, ChevronRight, FileText, Flag, FolderClosed, FolderPlus, Inbox, MoreHorizontal, PanelLeft, PanelLeftClose, Palette, Pencil, Plus, Send, Trash2 } from 'lucide-react'
 import type { EmailFolder, EmailSystemFolder, EmailTag } from '@shared/email/model'
 import { EMAIL_SIDEBAR_FOLDERS, isEmailSystemFolder } from '@shared/email/model'
 import {
@@ -72,10 +72,14 @@ function moveExclusions(folders: readonly EmailFolder[], folderId: string): Set<
   )
 }
 
+export type EmailSystemSearch = 'important' | 'followup'
+
 export function FolderSidebar({
   accountId,
   folders,
   activeFolderId,
+  activeSystemSearch,
+  onSelectSystemSearch,
   onSelect,
   onCreate,
   onRename,
@@ -95,6 +99,8 @@ export function FolderSidebar({
   accountId: string
   folders: readonly EmailFolder[]
   activeFolderId: string | null
+  activeSystemSearch: EmailSystemSearch | null
+  onSelectSystemSearch: (query: string) => void
   onSelect: (folderId: string) => void
   onCreate: (name: string, parentId: string | null) => Promise<void>
   onRename: (folderId: string, name: string) => Promise<void>
@@ -260,6 +266,38 @@ export function FolderSidebar({
                 actions={actions}
               />
             ))}
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <SectionLabel className="px-2 py-0">{t('email.folder.views')}</SectionLabel>
+            {([
+              { id: 'important', query: 'is:important', label: t('email.folder.important'), Icon: Flag },
+              { id: 'followup', query: 'is:followup', label: t('email.folder.follow_up'), Icon: AlarmClock },
+            ] as const).map(({ id, query, label, Icon }) => {
+              const active = activeSystemSearch === id
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  data-email-view={id}
+                  aria-current={active ? 'page' : undefined}
+                  onClick={() => {
+                    onSelectSystemSearch(query)
+                    onClose?.()
+                  }}
+                  className={cn(
+                    'flex min-h-8 items-center gap-2 rounded-[var(--r-md)] px-2 text-left text-[length:var(--text-12-5)]',
+                    active
+                      ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
+                      : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+                  )}
+                >
+                  <span className="flex size-4 shrink-0 items-center justify-center">
+                    <Icon size={14} aria-hidden="true" />
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">{label}</span>
+                </button>
+              )
+            })}
           </div>
           <div className="flex flex-col gap-0.5">
             <div className="flex items-center justify-between gap-1 pr-0.5">

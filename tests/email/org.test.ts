@@ -142,7 +142,9 @@ describe('mailbox migrations', () => {
       expect.arrayContaining(['parent_id', 'color', 'sort_order']),
     )
     const messageColumns = legacy.prepare(`PRAGMA table_info(email_messages)`).all() as Array<{ name: string }>
-    expect(messageColumns.map((column) => column.name)).toContain('snoozed_until')
+    expect(messageColumns.map((column) => column.name)).toEqual(
+      expect.arrayContaining(['snoozed_until', 'important', 'muted', 'follow_up_at']),
+    )
     const tables = legacy.prepare(
       `SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('email_tags', 'email_message_tags')`,
     ).all() as Array<{ name: string }>
@@ -158,6 +160,7 @@ describe('mailbox migrations', () => {
       '3_snooze',
       '4_inbound_rules',
       '5_email_templates',
+      '6_message_flags',
     ])
     const ruleTables = legacy.prepare(
       `SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('email_filters', 'email_blocked_senders')`,
@@ -170,7 +173,7 @@ describe('mailbox migrations', () => {
 
     applyMailboxMigrations(sql)
     const reapplied = legacy.prepare(`SELECT COUNT(*) AS total FROM email_migrations`).get() as { total: number }
-    expect(reapplied.total).toBe(5)
+    expect(reapplied.total).toBe(6)
     const folderCount = legacy.prepare(`SELECT COUNT(*) AS total FROM email_folders`).get() as { total: number }
     expect(folderCount.total).toBe(7)
   })

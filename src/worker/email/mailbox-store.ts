@@ -2,6 +2,8 @@ import { newId } from '../lib/id'
 import {
   EMAIL_AUTO_DRAFT_LEASE_MS,
   EMAIL_BATCH_MAX_MESSAGES,
+  EMAIL_FOLLOW_UP_MAX_MS,
+  EMAIL_FOLLOW_UP_WAKE_BATCH,
   EMAIL_PAGE_SIZE,
   EMAIL_MAX_PAGE_SIZE,
   EMAIL_SEND_RATE_LIMIT_DAY,
@@ -46,6 +48,9 @@ export interface EmailData {
   bodySource?: string | null
   read?: boolean
   starred?: boolean
+  important?: boolean
+  muted?: boolean
+  followUpAt?: number | null
   inReplyTo?: string | null
   emailReferences?: string | null
   threadId?: string | null
@@ -71,6 +76,9 @@ export interface EmailRow {
   received_at: number
   read: number
   starred: number
+  important: number
+  muted: number
+  follow_up_at: number | null
   body: string
   body_source: string | null
   in_reply_to: string | null
@@ -188,6 +196,9 @@ export interface ListOptions {
   folder?: string
   tag?: string
   threadId?: string
+  important?: boolean
+  muted?: boolean
+  followUp?: boolean
   page?: number
   limit?: number
   sortColumn?: string
@@ -205,6 +216,9 @@ export interface SearchOptions {
   dateEnd?: number
   isRead?: boolean
   isStarred?: boolean
+  important?: boolean
+  muted?: boolean
+  followUp?: boolean
   hasAttachment?: boolean
   page?: number
   limit?: number
@@ -244,6 +258,26 @@ const STATS_DAY_COUNT = 7
 
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (char) => `\\${char}`)
+}
+
+function pushFlagFilters(
+  clauses: string[],
+  bindings: unknown[],
+  options: { important?: boolean; muted?: boolean; followUp?: boolean },
+  prefix = '',
+): void {
+  const column = (name: string): string => (prefix ? `${prefix}.${name}` : name)
+  if (options.important !== undefined) {
+    clauses.push(`${column('important')} = ?`)
+    bindings.push(options.important ? 1 : 0)
+  }
+  if (options.muted !== undefined) {
+    clauses.push(`${column('muted')} = ?`)
+    bindings.push(options.muted ? 1 : 0)
+  }
+  if (options.followUp !== undefined) {
+    clauses.push(options.followUp ? `${column('follow_up_at')} IS NOT NULL` : `${column('follow_up_at')} IS NULL`)
+  }
 }
 
 function normalizeSubject(value: string): string {
@@ -481,11 +515,11 @@ export class MailboxStore {
     this.sql.exec(
       `INSERT INTO email_messages (
          id, folder_id, subject, sender, recipient, cc, bcc, date, received_at,
-         read, starred, body, body_source, in_reply_to, email_references, thread_id,
+         read, starred, important, muted, follow_up_at, body, body_source, in_reply_to, email_references, thread_id,
          message_id, raw_headers, delivery_status, delivery_error, provider_message_id,
          attachments_skipped, has_attachment, size, deleted_at, created_at, updated_at
        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
-         ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)`,
+         ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30)`,
       email.id,
       email.folderId,
       email.subject,
@@ -497,6 +531,9 @@ export class MailboxStore {
       email.receivedAt,
       email.read ? 1 : 0,
       email.starred ? 1 : 0,
+      email.important ? 1 : 0,
+      email.muted ? 1 : 0,
+      email.followUpAt ?? null,
       email.body,
       email.bodySource ?? null,
       email.inReplyTo ?? null,
@@ -538,6 +575,7 @@ export class MailboxStore {
       clauses.push(`thread_id = ?`)
       bindings.push(options.threadId)
     }
+    pushFlagFilters(clauses, bindings, options)
     bindings.push(limit, (page - 1) * limit)
     return this.rows<EmailRow>(
       `SELECT *, SUBSTR(body, 1, 300) AS snippet FROM email_messages WHERE ${clauses.join(' AND ')}
@@ -546,7 +584,7 @@ export class MailboxStore {
     )
   }
 
-  countEmails(options: { folder?: string; tag?: string; threadId?: string } = {}): number {
+  countEmails(options: ListOptions = {}): number {
     const clauses = ['deleted_at IS NULL', '(snoozed_until IS NULL OR snoozed_until <= ?)']
     const bindings: unknown[] = [Date.now()]
     if (options.folder) {
@@ -563,6 +601,7 @@ export class MailboxStore {
       clauses.push(`thread_id = ?`)
       bindings.push(options.threadId)
     }
+    pushFlagFilters(clauses, bindings, options)
     const row = this.one<{ total: number }>(
       `SELECT COUNT(*) AS total FROM email_messages WHERE ${clauses.join(' AND ')}`,
       ...bindings,
@@ -595,7 +634,8 @@ export class MailboxStore {
              FROM folder_emails fe
          )
          SELECT lp.id, lp.subject, lp.sender, lp.recipient, lp.date,
-                lp.read, lp.starred, lp.thread_id, lp.folder_id,
+                lp.read, lp.starred, lp.important, lp.muted, lp.follow_up_at,
+                lp.thread_id, lp.folder_id,
                 lp.cc, lp.bcc, lp.has_attachment, lp.delivery_status,
                 lp.in_reply_to, lp.email_references,
                 SUBSTR(lp.body, 1, 300) AS snippet,
@@ -658,7 +698,8 @@ export class MailboxStore {
            LEFT JOIN thread_to_conversation tc ON fe.raw_thread_id = tc.raw_thread_id
        )
        SELECT lif.id, lif.subject, lif.sender, lif.recipient, lif.date,
-              lif.read, lif.starred, lif.thread_id, lif.folder_id,
+              lif.read, lif.starred, lif.important, lif.muted, lif.follow_up_at,
+              lif.thread_id, lif.folder_id,
               lif.cc, lif.bcc, lif.has_attachment, lif.delivery_status,
               lif.in_reply_to, lif.email_references,
               SUBSTR(lif.body, 1, 300) AS snippet,
@@ -729,7 +770,7 @@ export class MailboxStore {
     )
   }
 
-  updateEmail(id: string, patch: { read?: boolean; starred?: boolean }): EmailRow | null {
+  updateEmail(id: string, patch: { read?: boolean; starred?: boolean; important?: boolean; muted?: boolean }): EmailRow | null {
     const sets: string[] = []
     const bindings: unknown[] = []
     if (patch.read !== undefined) {
@@ -740,11 +781,83 @@ export class MailboxStore {
       sets.push('starred = ?')
       bindings.push(patch.starred ? 1 : 0)
     }
+    if (patch.important !== undefined) {
+      sets.push('important = ?')
+      bindings.push(patch.important ? 1 : 0)
+    }
+    if (patch.muted !== undefined) {
+      sets.push('muted = ?')
+      bindings.push(patch.muted ? 1 : 0)
+    }
     if (!sets.length) return this.getEmail(id)
     sets.push('updated_at = ?')
     bindings.push(Date.now(), id)
     this.sql.exec(`UPDATE email_messages SET ${sets.join(', ')} WHERE id = ? AND deleted_at IS NULL`, ...bindings)
     return this.getEmail(id)
+  }
+
+  muteThread(threadId: string, muted: boolean): number {
+    const row = this.one<{ total: number }>(
+      `SELECT COUNT(*) AS total FROM email_messages WHERE thread_id = ?1`,
+      threadId,
+    )
+    const total = Number(row?.total ?? 0)
+    if (total === 0) return 0
+    this.sql.exec(
+      `UPDATE email_messages SET muted = ?1, updated_at = ?2 WHERE thread_id = ?3`,
+      muted ? 1 : 0,
+      Date.now(),
+      threadId,
+    )
+    return total
+  }
+
+  setFollowUp(id: string, at: number | null): EmailRow | null {
+    const now = Date.now()
+    if (at !== null && (!Number.isSafeInteger(at) || at <= now || at > now + EMAIL_FOLLOW_UP_MAX_MS)) {
+      return null
+    }
+    if (!this.one<{ id: string }>(`SELECT id FROM email_messages WHERE id = ?1 AND deleted_at IS NULL`, id)) {
+      return null
+    }
+    if (at === null) {
+      this.sql.exec(
+        `UPDATE email_messages SET follow_up_at = NULL, updated_at = ?1 WHERE id = ?2`,
+        now,
+        id,
+      )
+    } else {
+      this.sql.exec(
+        `UPDATE email_messages SET follow_up_at = ?1, important = 1, updated_at = ?2 WHERE id = ?3`,
+        at,
+        now,
+        id,
+      )
+    }
+    return this.getEmail(id)
+  }
+
+  wakeFollowUps(now = Date.now(), limit = EMAIL_FOLLOW_UP_WAKE_BATCH): string[] {
+    const due = this.rows<{ id: string }>(
+      `SELECT id FROM email_messages
+        WHERE follow_up_at IS NOT NULL AND follow_up_at <= ?1 AND deleted_at IS NULL
+        ORDER BY follow_up_at ASC, id ASC LIMIT ?2`,
+      now,
+      limit,
+    ).map((row) => row.id)
+    if (!due.length) return []
+    const placeholders = due.map(() => '?').join(', ')
+    const run = () => {
+      this.sql.exec(
+        `UPDATE email_messages SET follow_up_at = NULL, important = 1, read = 0, updated_at = ?
+          WHERE id IN (${placeholders})`,
+        now,
+        ...due,
+      )
+    }
+    if (this.storage) this.storage.transactionSync(run)
+    else run()
+    return due
   }
 
   snoozeEmail(id: string, until: number): EmailRow | null {
@@ -1446,6 +1559,7 @@ export class MailboxStore {
       clauses.push(`e.starred = ?`)
       bindings.push(options.isStarred ? 1 : 0)
     }
+    pushFlagFilters(clauses, bindings, options, 'e')
     if (options.hasAttachment !== undefined) {
       clauses.push(`e.has_attachment = ?`)
       bindings.push(options.hasAttachment ? 1 : 0)
@@ -1510,11 +1624,11 @@ export class MailboxStore {
     this.sql.exec(
       `INSERT INTO email_messages (
          id, folder_id, subject, sender, recipient, cc, bcc, date, received_at,
-         read, starred, body, body_source, in_reply_to, email_references, thread_id,
+         read, starred, important, muted, follow_up_at, body, body_source, in_reply_to, email_references, thread_id,
          message_id, raw_headers, delivery_status, delivery_error, provider_message_id,
          attachments_skipped, has_attachment, size, deleted_at, created_at, updated_at
        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
-         ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, NULL, ?25, ?25)`,
+         ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, NULL, ?28, ?28)`,
       email.id,
       folderRow.id,
       email.subject,
@@ -1526,6 +1640,9 @@ export class MailboxStore {
       email.date,
       sent ? 1 : email.read ? 1 : 0,
       email.starred ? 1 : 0,
+      email.important ? 1 : 0,
+      email.muted ? 1 : 0,
+      email.followUpAt ?? null,
       email.body,
       email.bodySource ?? null,
       email.inReplyTo ?? null,

@@ -48,6 +48,9 @@ export interface EmailBackupMessage {
   receivedAt: number
   read: boolean
   starred: boolean
+  important: boolean
+  muted: boolean
+  followUpAt: number | null
   body: string
   bodySource: string | null
   inReplyTo: string | null
@@ -249,6 +252,11 @@ function parseMessages(value: unknown[], folders: EmailBackupFolder[]): EmailBac
       typeof raw.attachmentsSkipped !== 'boolean' ||
       typeof raw.hasAttachment !== 'boolean'
     ) return null
+    const important = raw.important === undefined ? false : raw.important
+    const muted = raw.muted === undefined ? false : raw.muted
+    const followUpAt = raw.followUpAt === undefined || raw.followUpAt === null ? null : raw.followUpAt
+    if (typeof important !== 'boolean' || typeof muted !== 'boolean') return null
+    if (followUpAt !== null && !isTimestamp(followUpAt)) return null
     if (!isFiniteNumber(raw.size) || !isTimestamp(raw.createdAt) || !isTimestamp(raw.updatedAt)) return null
     if (raw.deletedAt !== null && !isTimestamp(raw.deletedAt)) return null
     if (!Array.isArray(raw.attachments)) return null
@@ -268,6 +276,9 @@ function parseMessages(value: unknown[], folders: EmailBackupFolder[]): EmailBac
       receivedAt: raw.receivedAt,
       read: raw.read,
       starred: raw.starred,
+      important,
+      muted,
+      followUpAt,
       body: raw.body,
       bodySource: raw.bodySource,
       inReplyTo: raw.inReplyTo,

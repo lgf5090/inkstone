@@ -108,7 +108,13 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
   const searchMode = address.kind === 'search'
   const folderId = address.kind === 'mailbox' ? address.folderId : null
   const query = address.kind === 'search' ? address.query : ''
-  const activeTagName = searchMode ? parseEmailSearchQuery(query).tag ?? null : null
+  const parsedQuery = searchMode ? parseEmailSearchQuery(query) : null
+  const activeTagName = parsedQuery?.tag ?? null
+  const activeSystemSearch = parsedQuery?.important === true
+    ? 'important' as const
+    : parsedQuery?.followUp === true
+      ? 'followup' as const
+      : null
   const messageId = address.messageId
   const [searchDraft, setSearchDraft] = useState(query)
   const [folderDrawer, setFolderDrawer] = useState(false)
@@ -283,11 +289,15 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
     navigateToPath(emailFolderPath(account.id, id))
   }
 
-  const selectTag = (name: string): void => {
+  const openSearch = (searchQuery: string): void => {
     setFolderDrawer(false)
-    const target = emailSearchPath(account.id, emailTagSearchQuery(name))
+    const target = emailSearchPath(account.id, searchQuery)
     const cut = target.indexOf('?')
     navigateToAddress(cut < 0 ? target : target.slice(0, cut), cut < 0 ? '' : target.slice(cut + 1))
+  }
+
+  const selectTag = (name: string): void => {
+    openSearch(emailTagSearchQuery(name))
   }
 
   const moveTo = (summary: EmailSummary, folderIdTo: string): void => {
@@ -445,6 +455,8 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
       accountId={account.id}
       folders={folders}
       activeFolderId={folderId}
+      activeSystemSearch={activeSystemSearch}
+      onSelectSystemSearch={openSearch}
       onSelect={selectFolder}
       onCreate={(name, parentId) => createFolder(account.id, name, parentId)}
       onRename={(id, name) => renameFolder(account.id, id, name)}

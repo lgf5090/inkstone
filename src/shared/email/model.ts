@@ -18,6 +18,8 @@ export const EMAIL_MAX_PAGE_SIZE = 100
 export const EMAIL_BATCH_MAX_MESSAGES = 100
 export const EMAIL_SNOOZE_MAX_MS = 365 * 24 * 60 * 60 * 1000
 export const EMAIL_SNOOZE_WAKE_BATCH = 200
+export const EMAIL_FOLLOW_UP_MAX_MS = 365 * 24 * 60 * 60 * 1000
+export const EMAIL_FOLLOW_UP_WAKE_BATCH = 200
 export const EMAIL_SCHEDULE_MAX_MS = 365 * 24 * 60 * 60 * 1000
 export const EMAIL_SCHEDULE_MAX_ATTEMPTS = 3
 export const EMAIL_SCHEDULE_RETRY_MS = 5 * 60 * 1000
@@ -214,6 +216,9 @@ export interface EmailSummary {
   date: string
   read: boolean
   starred: boolean
+  important?: boolean
+  muted?: boolean
+  followUpAt?: string | null
   threadId: string | null
   threadCount?: number
   threadUnreadCount?: number
@@ -303,6 +308,9 @@ export interface EmailSearchQuery {
   folder?: string
   isRead?: boolean
   isStarred?: boolean
+  important?: boolean
+  muted?: boolean
+  followUp?: boolean
   hasAttachment?: boolean
   tag?: string
   dateStart?: string

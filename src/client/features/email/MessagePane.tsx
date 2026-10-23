@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
+  AlarmClock,
   ArrowLeft,
+  Bell,
+  BellOff,
   Clock,
   Code2,
   Download,
+  Flag,
   FolderInput,
   Forward,
   Mail,
@@ -31,7 +35,7 @@ import { folderLabel, messageFullDate, messageSubject, messageRecipients, sender
 import { SourceDialog } from './SourceDialog'
 import { ThreadMessage } from './ThreadMessage'
 import { ComposePanel } from './ComposePanel'
-import { canSnoozeMessage, blockSenderMessage, snoozeMenuItems } from './MessageRow'
+import { canSnoozeMessage, blockSenderMessage, followUpMenuItems, requestEmailFollowUp, requestImportantToggle, requestThreadMute, snoozeMenuItems } from './MessageRow'
 
 const TOOLBAR_BUTTON = 'size-11 md:size-7'
 const PRINT_HTML_TAG = /<[a-z][\s\S]*>/i
@@ -180,9 +184,11 @@ export function MessagePane({
   const [sourceOpen, setSourceOpen] = useState(false)
   const [moveOpen, setMoveOpen] = useState(false)
   const [snoozeOpen, setSnoozeOpen] = useState(false)
+  const [followUpOpen, setFollowUpOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const moveAnchor = useRef<HTMLButtonElement>(null)
   const snoozeAnchor = useRef<HTMLButtonElement>(null)
+  const followUpAnchor = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     setExpanded(new Set(summary ? [summary.id] : []))
@@ -282,6 +288,25 @@ export function MessagePane({
     if (snoozed) onClosed()
   }
 
+  const setFollowUp = async (at: string | null): Promise<void> => {
+    setBusy(true)
+    await requestEmailFollowUp(summary.id, at)
+    setBusy(false)
+  }
+
+  const toggleImportant = async (): Promise<void> => {
+    setBusy(true)
+    await requestImportantToggle(summary)
+    setBusy(false)
+  }
+
+  const toggleMute = async (): Promise<void> => {
+    if (!summary.threadId) return
+    setBusy(true)
+    await requestThreadMute(summary.threadId, !summary.muted)
+    setBusy(false)
+  }
+
   const blockSender = async (): Promise<void> => {
     setBusy(true)
     const blocked = await blockSenderMessage(account.id, summary)
@@ -369,6 +394,34 @@ export function MessagePane({
             {summary.read ? <Mail size={15} /> : <MailOpen size={15} />}
           </IconButton>
         </Tooltip>
+        {canSnoozeMessage(summary.folderId) && (
+          <>
+            <Tooltip label={summary.important ? t('email.important.unmark') : t('email.important.mark')}>
+              <IconButton
+                label={summary.important ? t('email.important.unmark') : t('email.important.mark')}
+                size="sm"
+                className={TOOLBAR_BUTTON}
+                active={summary.important}
+                disabled={busy}
+                onClick={() => { void toggleImportant() }}
+              >
+                <Flag size={15} fill={summary.important ? 'currentColor' : 'none'} />
+              </IconButton>
+            </Tooltip>
+            <Tooltip label={summary.muted ? t('email.mute.unmute') : t('email.mute.thread')}>
+              <IconButton
+                label={summary.muted ? t('email.mute.unmute') : t('email.mute.thread')}
+                size="sm"
+                className={TOOLBAR_BUTTON}
+                active={summary.muted}
+                disabled={busy || !summary.threadId}
+                onClick={() => { void toggleMute() }}
+              >
+                {summary.muted ? <Bell size={15} /> : <BellOff size={15} />}
+              </IconButton>
+            </Tooltip>
+          </>
+        )}
         <Tooltip label={t('email.detail.move')}>
           <IconButton
             ref={moveAnchor}
@@ -417,6 +470,32 @@ export function MessagePane({
               })}
               width={190}
               label={t('email.snooze.menu')}
+            />
+            <Tooltip label={t('email.followup.menu')}>
+              <IconButton
+                ref={followUpAnchor}
+                label={t('email.followup.menu')}
+                size="sm"
+                className={TOOLBAR_BUTTON}
+                aria-haspopup="menu"
+                aria-expanded={followUpOpen}
+                active={Boolean(summary.followUpAt)}
+                disabled={busy}
+                onClick={() => setFollowUpOpen((open) => !open)}
+              >
+                <AlarmClock size={15} />
+              </IconButton>
+            </Tooltip>
+            <Menu
+              anchor={followUpAnchor}
+              open={followUpOpen}
+              onClose={() => setFollowUpOpen(false)}
+              items={followUpMenuItems((at) => {
+                setFollowUpOpen(false)
+                void setFollowUp(at)
+              }, Boolean(summary.followUpAt))}
+              width={230}
+              label={t('email.followup.menu')}
             />
           </>
         )}
@@ -482,6 +561,8 @@ export function MessagePane({
             </h2>
             {draft && <Badge tone="accent">{t('email.list.draft')}</Badge>}
             {summary.deliveryStatus === 'failed' && <Badge tone="danger">{t('email.list.send_failed')}</Badge>}
+            {summary.important && <Badge tone="warning">{t('email.important.badge')}</Badge>}
+            {summary.muted && <Badge tone="neutral">{t('email.mute.badge')}</Badge>}
           </div>
           <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
             <span className="min-w-0 truncate font-medium text-[var(--text-secondary)]">{senderLabel(summary.sender)}</span>

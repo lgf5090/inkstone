@@ -7,6 +7,7 @@ import {
   EMAIL_BATCH_MAX_MESSAGES,
   EMAIL_BODY_MAX_BYTES,
   EMAIL_FOLDER_SEED_NAMES,
+  EMAIL_FOLLOW_UP_MAX_MS,
   EMAIL_MAX_PAGE_SIZE,
   EMAIL_PAGE_SIZE,
   EMAIL_SNOOZE_MAX_MS,
@@ -250,6 +251,23 @@ function snoozeUntil(value: unknown): number {
   return parsed
 }
 
+function followUpAt(value: unknown): number | null {
+  if (value === null) return null
+  if (typeof value !== 'number' && typeof value !== 'string') {
+    throw ApiError.badRequest('A follow-up time is required')
+  }
+  const parsed = typeof value === 'number'
+    ? value
+    : /^\d+$/.test(value)
+      ? Number(value)
+      : Date.parse(value)
+  if (!Number.isSafeInteger(parsed)) throw ApiError.badRequest('The follow-up time is not a valid date')
+  const now = Date.now()
+  if (parsed <= now) throw ApiError.badRequest('The follow-up time must be in the future')
+  if (parsed > now + EMAIL_FOLLOW_UP_MAX_MS) throw ApiError.badRequest('The follow-up time must be within one year')
+  return parsed
+}
+
 function tagQuery(c: Ctx): string | undefined {
   const raw = c.req.query('tag')?.trim() ?? ''
   if (!raw) return undefined
@@ -353,6 +371,9 @@ function toSummary(row: SummaryRow): EmailSummary {
     date: new Date(row.date).toISOString(),
     read: Boolean(row.read),
     starred: Boolean(row.starred),
+    important: Boolean(row.important),
+    muted: Boolean(row.muted),
+    followUpAt: row.follow_up_at == null ? null : new Date(row.follow_up_at).toISOString(),
     threadId: row.thread_id ?? null,
     hasAttachment: Boolean(row.has_attachment),
     snippet: row.snippet ?? null,
@@ -884,6 +905,9 @@ emailRoutes.get('/accounts/:id/emails', async (c) => {
   const threadId = c.req.query('thread_id')?.trim() || undefined
   const tag = tagQuery(c)
   const threaded = booleanQuery(c.req.query('threaded'), 'threaded') ?? false
+  const important = booleanQuery(c.req.query('is_important'), 'is_important')
+  const muted = booleanQuery(c.req.query('is_muted'), 'is_muted')
+  const followUp = booleanQuery(c.req.query('is_followup'), 'is_followup')
   let folder: string | undefined
   if (folderParam) folder = (await resolveFolder(mailbox, folderParam)).id
   else if (!threadId && !tag) folder = 'inbox'
@@ -893,16 +917,20 @@ emailRoutes.get('/accounts/:id/emails', async (c) => {
     folder,
     tag,
     threadId,
+    important,
+    muted,
+    followUp,
     page,
     limit,
     sortColumn: c.req.query('sortColumn'),
     sortDirection,
   } as const
-  const grouped = threaded && Boolean(folder) && !threadId && !tag
+  const filtered = important !== undefined || muted !== undefined || followUp !== undefined
+  const grouped = threaded && Boolean(folder) && !threadId && !tag && !filtered
   const rows = grouped ? await mailbox.getThreadedEmails(options) : await mailbox.getEmails(options)
   const totalCount = grouped
     ? await mailbox.countThreadedEmails(folder!)
-    : await mailbox.countEmails({ folder, tag, threadId })
+    : await mailbox.countEmails({ folder, tag, threadId, important, muted, followUp })
   return c.json({ emails: rows.map((entry) => toSummary(entry as unknown as SummaryRow)), totalCount })
 })
 
@@ -935,8 +963,11 @@ emailRoutes.get('/accounts/:id/emails/:messageId/raw', async (c) => {
 emailRoutes.patch('/accounts/:id/emails/:messageId', async (c) => {
   const row = await requireAccount(c, c.req.param('id') ?? '')
   const id = messageIdParam(c.req.param('messageId') ?? '')
-  const body = await readJson<{ read?: unknown; starred?: unknown }>(c, JSON_BODY_LIMITS.small)
-  const patch: { read?: boolean; starred?: boolean } = {}
+  const body = await readJson<{ read?: unknown; starred?: unknown; important?: unknown; muted?: unknown }>(
+    c,
+    JSON_BODY_LIMITS.small,
+  )
+  const patch: { read?: boolean; starred?: boolean; important?: boolean; muted?: boolean } = {}
   if (body.read !== undefined) {
     if (typeof body.read !== 'boolean') throw ApiError.badRequest('The read flag must be a boolean')
     patch.read = body.read
@@ -945,8 +976,16 @@ emailRoutes.patch('/accounts/:id/emails/:messageId', async (c) => {
     if (typeof body.starred !== 'boolean') throw ApiError.badRequest('The starred flag must be a boolean')
     patch.starred = body.starred
   }
-  if (patch.read === undefined && patch.starred === undefined) {
-    throw ApiError.badRequest('A read or starred flag is required')
+  if (body.important !== undefined) {
+    if (typeof body.important !== 'boolean') throw ApiError.badRequest('The important flag must be a boolean')
+    patch.important = body.important
+  }
+  if (body.muted !== undefined) {
+    if (typeof body.muted !== 'boolean') throw ApiError.badRequest('The muted flag must be a boolean')
+    patch.muted = body.muted
+  }
+  if (Object.keys(patch).length === 0) {
+    throw ApiError.badRequest('A read, starred, important or muted flag is required')
   }
   const message = await emailMailbox(c.env, row.id).updateEmail(id, patch)
   if (!message) throw messageNotFound()
@@ -996,6 +1035,17 @@ emailRoutes.post('/accounts/:id/emails/:messageId/snooze', async (c) => {
     id,
     snoozedUntil: new Date(updated.snoozed_until).toISOString(),
   } satisfies EmailSnoozeResult)
+})
+
+emailRoutes.post('/accounts/:id/emails/:messageId/follow-up', async (c) => {
+  const row = await requireAccount(c, c.req.param('id') ?? '')
+  const id = messageIdParam(c.req.param('messageId') ?? '')
+  const body = await readJson<{ at?: unknown }>(c, JSON_BODY_LIMITS.small)
+  if (body.at === undefined) throw ApiError.badRequest('A follow-up time or null is required')
+  const at = followUpAt(body.at)
+  const message = await emailMailbox(c.env, row.id).setFollowUp(id, at)
+  if (!message) throw messageNotFound()
+  return c.json(toMessage(message, await messageAttachments(c.env, c.get('userId'), message)))
 })
 
 emailRoutes.post('/accounts/:id/emails/:messageId/move', async (c) => {
@@ -1077,6 +1127,17 @@ emailRoutes.post('/accounts/:id/threads/:threadId/read', async (c) => {
   return c.body(null, 204)
 })
 
+emailRoutes.post('/accounts/:id/threads/:threadId/mute', async (c) => {
+  const row = await requireAccount(c, c.req.param('id') ?? '')
+  const threadId = c.req.param('threadId') ?? ''
+  if (!threadId) throw messageNotFound()
+  const body = await readJson<{ muted?: unknown }>(c, JSON_BODY_LIMITS.small)
+  if (typeof body.muted !== 'boolean') throw ApiError.badRequest('The muted flag must be a boolean')
+  const updated = await emailMailbox(c.env, row.id).muteThread(threadId, body.muted)
+  if (updated === 0) throw messageNotFound()
+  return c.body(null, 204)
+})
+
 emailRoutes.get('/accounts/:id/search', async (c) => {
   const row = await requireAccount(c, c.req.param('id') ?? '')
   const mailbox = emailMailbox(c.env, row.id)
@@ -1094,6 +1155,9 @@ emailRoutes.get('/accounts/:id/search', async (c) => {
     dateEnd: dateQuery(c.req.query('date_end'), 'date_end'),
     isRead: booleanQuery(c.req.query('is_read'), 'is_read'),
     isStarred: booleanQuery(c.req.query('is_starred'), 'is_starred'),
+    important: booleanQuery(c.req.query('is_important'), 'is_important'),
+    muted: booleanQuery(c.req.query('is_muted'), 'is_muted'),
+    followUp: booleanQuery(c.req.query('is_followup'), 'is_followup'),
     hasAttachment: booleanQuery(c.req.query('has_attachment'), 'has_attachment'),
     page,
     limit,

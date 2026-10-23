@@ -101,6 +101,9 @@ interface EmailMessageRow {
   received_at: number
   read: number
   starred: number
+  important: number
+  muted: number
+  follow_up_at: number | null
   body: string
   body_source: string | null
   in_reply_to: string | null
@@ -329,6 +332,9 @@ export async function applyBackupEmail(
         receivedAt: message.receivedAt,
         read: message.read,
         starred: message.starred,
+        important: message.important,
+        muted: message.muted,
+        followUpAt: message.followUpAt,
         body: message.body,
         bodySource: message.bodySource,
         inReplyTo: message.inReplyTo,
@@ -493,6 +499,9 @@ function toBackupMessage(
     receivedAt: row.received_at,
     read: row.read === 1,
     starred: row.starred === 1,
+    important: row.important === 1,
+    muted: row.muted === 1,
+    followUpAt: row.follow_up_at,
     body: row.body,
     bodySource: row.body_source,
     inReplyTo: row.in_reply_to,

@@ -64,12 +64,17 @@ export class EmailMailbox extends DurableObject<Env> {
   importFolder(folder: FolderRestoreData) { return this.store.importFolder(folder) }
   importEmail(email: EmailRestoreData) { return this.store.importEmail(email) }
   getEmails(options: ListOptions = {}) { return this.store.getEmails(options) }
-  countEmails(options: { folder?: string; tag?: string; threadId?: string } = {}) { return this.store.countEmails(options) }
+  countEmails(options: ListOptions = {}) { return this.store.countEmails(options) }
   getThreadedEmails(options: ListOptions = {}) { return this.store.getThreadedEmails(options) }
   countThreadedEmails(folder: string) { return this.store.countThreadedEmails(folder) }
   getEmail(id: string) { return this.store.getEmail(id) }
   getThreadEmails(threadId: string) { return this.store.getThreadEmails(threadId) }
-  updateEmail(id: string, patch: { read?: boolean; starred?: boolean }) { return this.store.updateEmail(id, patch) }
+  updateEmail(id: string, patch: { read?: boolean; starred?: boolean; important?: boolean; muted?: boolean }) {
+    return this.store.updateEmail(id, patch)
+  }
+  muteThread(threadId: string, muted: boolean) { return this.store.muteThread(threadId, muted) }
+  setFollowUp(id: string, at: number | null) { return this.store.setFollowUp(id, at) }
+  wakeFollowUps(now?: number, limit?: number) { return this.store.wakeFollowUps(now, limit) }
   snoozeEmail(id: string, until: number) { return this.store.snoozeEmail(id, until) }
   wakeSnoozed(now?: number, limit?: number) { return this.store.wakeSnoozed(now, limit) }
   markThreadRead(threadId: string) { return this.store.markThreadRead(threadId) }
