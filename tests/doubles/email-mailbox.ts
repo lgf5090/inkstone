@@ -1,4 +1,5 @@
 import { MailboxStore } from '../../src/worker/email/mailbox-store'
+import type { EmailBatchAction } from '../../src/shared/email/model'
 import type {
   EmailData,
   EmailRestoreData,
@@ -8,6 +9,8 @@ import type {
   TagPatch,
 } from '../../src/worker/email/mailbox-store'
 import type { EmailFilterInput, EmailFilterPatch } from '../../src/shared/email/rules'
+import type { EmailTemplateInput, EmailTemplatePatch } from '../../src/shared/email/templates'
+import type { EmailSavedSearchInput, EmailSavedSearchPatch } from '../../src/shared/email/searches'
 
 export function fakeEmailMailboxNamespace(store: MailboxStore): DurableObjectNamespace {
   const stub = {
@@ -48,7 +51,26 @@ export function fakeEmailMailboxNamespace(store: MailboxStore): DurableObjectNam
     getThreadEmails: (threadId: string) => store.getThreadEmails(threadId),
     hasThread: (threadId: string) => store.hasThread(threadId),
     hasSenderHistory: (address: string) => store.hasSenderHistory(address),
-    updateEmail: (id: string, patch: { read?: boolean; starred?: boolean }) => store.updateEmail(id, patch),
+    updateEmail: (id: string, patch: { read?: boolean; starred?: boolean; important?: boolean; muted?: boolean }) => store.updateEmail(id, patch),
+    muteThread: (threadId: string, muted: boolean) => store.muteThread(threadId, muted),
+    setFollowUp: (id: string, at: number | null) => store.setFollowUp(id, at),
+    wakeFollowUps: (now?: number, limit?: number) => store.wakeFollowUps(now, limit),
+    snoozeEmail: (id: string, until: number) => store.snoozeEmail(id, until),
+    clearSnooze: (id: string) => store.clearSnooze(id),
+    wakeSnoozed: (now?: number, limit?: number) => store.wakeSnoozed(now, limit),
+    batchUpdate: (ids: string[], action: EmailBatchAction, folderId?: string) => store.batchUpdate(ids, action, folderId),
+    listTemplates: () => store.listTemplates(),
+    countTemplates: () => store.countTemplates(),
+    getTemplate: (id: string) => store.getTemplate(id),
+    createTemplate: (input: EmailTemplateInput) => store.createTemplate(input),
+    updateTemplate: (id: string, patch: EmailTemplatePatch) => store.updateTemplate(id, patch),
+    deleteTemplate: (id: string) => store.deleteTemplate(id),
+    listSavedSearches: () => store.listSavedSearches(),
+    countSavedSearches: () => store.countSavedSearches(),
+    getSavedSearch: (id: string) => store.getSavedSearch(id),
+    createSavedSearch: (input: EmailSavedSearchInput) => store.createSavedSearch(input),
+    updateSavedSearch: (id: string, patch: EmailSavedSearchPatch) => store.updateSavedSearch(id, patch),
+    deleteSavedSearch: (id: string) => store.deleteSavedSearch(id),
     markThreadRead: (threadId: string) => store.markThreadRead(threadId),
     trashEmail: (id: string) => store.trashEmail(id),
     restoreEmail: (id: string) => store.restoreEmail(id),

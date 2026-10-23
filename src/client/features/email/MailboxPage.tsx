@@ -46,6 +46,20 @@ const EMAIL_WRITE_TOOLS = new Set([
   'email_mark_read',
   'email_move',
   'email_discard_draft',
+  'email_folder',
+  'email_tag',
+  'email_update_message',
+  'email_batch',
+  'email_update_draft',
+  'email_send',
+  'email_schedule_send',
+  'email_rule',
+  'email_template',
+  'email_signature',
+  'email_search_recipe',
+  'email_contact',
+  'email_update_settings',
+  'email_delete',
 ])
 
 const NAV_RAIL_WIDTH = 48

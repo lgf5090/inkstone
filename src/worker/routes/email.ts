@@ -514,6 +514,7 @@ function toSummary(row: SummaryRow): EmailSummary {
     muted: Boolean(row.muted),
     focused: Boolean(row.focused),
     followUpAt: row.follow_up_at == null ? null : new Date(row.follow_up_at).toISOString(),
+    snoozedUntil: row.snoozed_until == null ? null : new Date(row.snoozed_until).toISOString(),
     threadId: row.thread_id ?? null,
     hasAttachment: Boolean(row.has_attachment),
     snippet: row.snippet ?? null,

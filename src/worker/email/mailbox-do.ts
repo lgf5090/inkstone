@@ -85,6 +85,7 @@ export class EmailMailbox extends DurableObject<Env> {
   setFollowUp(id: string, at: number | null) { return this.store.setFollowUp(id, at) }
   wakeFollowUps(now?: number, limit?: number) { return this.store.wakeFollowUps(now, limit) }
   snoozeEmail(id: string, until: number) { return this.store.snoozeEmail(id, until) }
+  clearSnooze(id: string) { return this.store.clearSnooze(id) }
   wakeSnoozed(now?: number, limit?: number) { return this.store.wakeSnoozed(now, limit) }
   markThreadRead(threadId: string) { return this.store.markThreadRead(threadId) }
   trashEmail(id: string) { return this.store.trashEmail(id) }

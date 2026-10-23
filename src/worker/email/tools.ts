@@ -50,6 +50,11 @@ export function toEmailSummary(row: EmailRow & { thread_count?: number; thread_u
     date: new Date(row.date).toISOString(),
     read: Boolean(row.read),
     starred: Boolean(row.starred),
+    important: Boolean(row.important),
+    muted: Boolean(row.muted),
+    focused: Boolean(row.focused),
+    followUpAt: iso(row.follow_up_at),
+    snoozedUntil: iso(row.snoozed_until),
     threadId: row.thread_id,
     ...(row.thread_count !== undefined ? { threadCount: Number(row.thread_count) } : {}),
     ...(row.thread_unread_count !== undefined ? { threadUnreadCount: Number(row.thread_unread_count) } : {}),
@@ -122,11 +127,24 @@ export async function listEmailToolFolders(env: Env, userId: string, accountId?:
 export async function listEmailToolMessages(
   env: Env,
   userId: string,
-  input: { accountId?: string; folder?: string; limit?: number; page?: number },
+  input: {
+    accountId?: string
+    folder?: string
+    tag?: string
+    important?: boolean
+    focused?: boolean
+    followUp?: boolean
+    limit?: number
+    page?: number
+  },
 ): Promise<EmailSummary[]> {
   const account = await resolveEmailAccount(env, userId, input.accountId)
   const rows = await emailMailbox(env, account.id).getEmails({
     folder: input.folder ?? 'inbox',
+    tag: input.tag,
+    important: input.important,
+    focused: input.focused,
+    followUp: input.followUp,
     limit: Math.min(Math.max(input.limit ?? 20, 1), 100),
     page: Math.max(input.page ?? 1, 1),
   })

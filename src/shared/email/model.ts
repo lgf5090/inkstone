@@ -312,6 +312,7 @@ export interface EmailSummary {
   muted?: boolean
   focused?: boolean
   followUpAt?: string | null
+  snoozedUntil?: string | null
   threadId: string | null
   threadCount?: number
   threadUnreadCount?: number

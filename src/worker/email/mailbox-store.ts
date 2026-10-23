@@ -926,6 +926,20 @@ export class MailboxStore {
     return this.getEmail(id)
   }
 
+  clearSnooze(id: string): EmailRow | null {
+    const message = this.one<{ id: string }>(
+      `SELECT id FROM email_messages WHERE id = ?1 AND deleted_at IS NULL`,
+      id,
+    )
+    if (!message) return null
+    this.sql.exec(
+      `UPDATE email_messages SET snoozed_until = NULL, updated_at = ?1 WHERE id = ?2`,
+      Date.now(),
+      id,
+    )
+    return this.getEmail(id)
+  }
+
   wakeSnoozed(now = Date.now(), limit = EMAIL_SNOOZE_WAKE_BATCH): string[] {
     const due = this.rows<{ id: string }>(
       `SELECT id FROM email_messages

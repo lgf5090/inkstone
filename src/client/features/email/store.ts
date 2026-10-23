@@ -622,7 +622,11 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   refresh: async () => {
     const state = get()
     if (!state.accountId) return
-    const tasks: Promise<void>[] = [get().loadFolders(state.accountId, { silent: true })]
+    const tasks: Promise<void>[] = [
+      get().loadFolders(state.accountId, { silent: true }),
+      get().loadTags(state.accountId, { silent: true }),
+      get().loadSearches(state.accountId, { silent: true }),
+    ]
     if (state.listMode === 'search') {
       tasks.push(get().searchEmails(state.accountId, state.searchQuery, state.page, { silent: true }))
     } else if (state.folderId) {

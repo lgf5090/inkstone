@@ -647,8 +647,8 @@ export const DEFAULT_LIMITS: AssistantLimits = {
   // The widest ceiling there is, because this one answers for every model that has not set its own: it is
   // the number, not a limit on it, and anything smaller here would silently cap those models.
   maxInputTokens: MAX_TOKEN_CEILING,
-  maxToolCalls: 6,
-  maxAgentSteps: 4,
+  maxToolCalls: 10,
+  maxAgentSteps: 6,
   maxRequestsPerDay: 200,
   maxScheduledRunsPerDay: 6,
   maxEmbeddingsPerDay: 200,
@@ -2026,6 +2026,21 @@ export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'email_mark_read', labelKey: 'assistant.tool.email_mark_read', permission: 'write' },
   { name: 'email_move', labelKey: 'assistant.tool.email_move', permission: 'write' },
   { name: 'email_discard_draft', labelKey: 'assistant.tool.email_discard_draft', approvalKey: 'assistant.approval.email_discard_draft', permission: 'destructive' },
+  { name: 'email_inspect', labelKey: 'assistant.tool.email_inspect', permission: 'read' },
+  { name: 'email_folder', labelKey: 'assistant.tool.email_folder', permission: 'write' },
+  { name: 'email_tag', labelKey: 'assistant.tool.email_tag', permission: 'write' },
+  { name: 'email_update_message', labelKey: 'assistant.tool.email_update_message', permission: 'write' },
+  { name: 'email_batch', labelKey: 'assistant.tool.email_batch', permission: 'write' },
+  { name: 'email_update_draft', labelKey: 'assistant.tool.email_update_draft', permission: 'write' },
+  { name: 'email_send', labelKey: 'assistant.tool.email_send', approvalKey: 'assistant.approval.email_send', permission: 'destructive' },
+  { name: 'email_schedule_send', labelKey: 'assistant.tool.email_schedule_send', approvalKey: 'assistant.approval.email_schedule_send', permission: 'destructive' },
+  { name: 'email_rule', labelKey: 'assistant.tool.email_rule', permission: 'write' },
+  { name: 'email_template', labelKey: 'assistant.tool.email_template', permission: 'write' },
+  { name: 'email_signature', labelKey: 'assistant.tool.email_signature', permission: 'write' },
+  { name: 'email_search_recipe', labelKey: 'assistant.tool.email_search_recipe', permission: 'write' },
+  { name: 'email_contact', labelKey: 'assistant.tool.email_contact', permission: 'write' },
+  { name: 'email_update_settings', labelKey: 'assistant.tool.email_update_settings', permission: 'write' },
+  { name: 'email_delete', labelKey: 'assistant.tool.email_delete', approvalKey: 'assistant.approval.email_delete', permission: 'destructive' },
 ]
 
 /** A page the model actually consulted, as the vendor reported it. */

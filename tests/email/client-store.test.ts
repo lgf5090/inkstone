@@ -189,3 +189,16 @@ describe('the mailbox store', () => {
     expect(batch).toHaveBeenCalledWith('a1', { ids: ['m1'], action: 'move', folderId: 'archive' })
   })
 })
+
+describe('the mailbox refresh', () => {
+  it('reloads folders, tags, and saved searches together', async () => {
+    vi.spyOn(api.email, 'listFolders').mockResolvedValue([])
+    vi.spyOn(api.email, 'listTags').mockResolvedValue([{ id: 't1', name: 'ai/demo', color: null, count: 1 }])
+    vi.spyOn(api.email, 'listSearches').mockResolvedValue([{ id: 's1', name: 'AI Q4', query: 'Q4', createdAt: '2026-01-01T00:00:00.000Z' }])
+    vi.spyOn(api.email, 'listEmails').mockResolvedValue({ emails: [], totalCount: 0 })
+    useEmailStore.setState({ accountId: 'a1', folderId: 'inbox', listMode: 'folder' })
+    await useEmailStore.getState().refresh()
+    expect(useEmailStore.getState().tags.map((tag) => tag.name)).toEqual(['ai/demo'])
+    expect(useEmailStore.getState().searches.map((search) => search.name)).toEqual(['AI Q4'])
+  })
+})
