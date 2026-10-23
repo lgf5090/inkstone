@@ -1,5 +1,5 @@
 import { PenLine, Trash2 } from 'lucide-react'
-import type { EmailFolder, EmailSummary } from '@shared/email/model'
+import type { EmailFolder, EmailSummary, EmailTag } from '@shared/email/model'
 import { EMAIL_PAGE_SIZE } from '@shared/email/model'
 import { Button, IconButton, Spinner } from '../../components/primitives'
 import { Empty, LoadingBlock } from '../../components/feedback'
@@ -20,10 +20,14 @@ export function MessageList({
   query,
   folderId,
   folders,
+  tags,
   selectedId,
   onOpen,
   onToggleStar,
   onToggleRead,
+  onMove,
+  onArchive,
+  onTag,
   onDelete,
   onRetry,
   onPage,
@@ -41,10 +45,14 @@ export function MessageList({
   query: string
   folderId: string | null
   folders: readonly EmailFolder[]
+  tags: readonly EmailTag[]
   selectedId: string | null
   onOpen: (message: EmailSummary) => void
   onToggleStar: (message: EmailSummary) => void
   onToggleRead: (message: EmailSummary) => void
+  onMove: (message: EmailSummary, folderId: string) => void
+  onArchive: (message: EmailSummary) => void
+  onTag: (message: EmailSummary, tag: EmailTag) => void
   onDelete: (message: EmailSummary) => void
   onRetry: (message: EmailSummary) => void
   onPage: (page: number) => void
@@ -118,9 +126,13 @@ export function MessageList({
                 searchMode={searchMode}
                 query={query}
                 folders={folders}
+                tags={tags}
                 onOpen={() => onOpen(message)}
                 onToggleStar={() => onToggleStar(message)}
                 onToggleRead={() => onToggleRead(message)}
+                onMove={(targetFolderId) => onMove(message, targetFolderId)}
+                onArchive={() => onArchive(message)}
+                onTag={(tag) => onTag(message, tag)}
                 onDelete={() => onDelete(message)}
                 onRetry={() => onRetry(message)}
               />

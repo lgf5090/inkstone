@@ -8,8 +8,9 @@ import {
   Settings,
   X,
 } from 'lucide-react'
-import type { EmailAccount, EmailSummary } from '@shared/email/model'
+import type { EmailAccount, EmailSummary, EmailTag } from '@shared/email/model'
 import { MAX_EMAIL_CONTEXT_SNIPPET, type EmailAssistantContext } from '@shared/email/assistant-context'
+import { parseEmailSearchQuery } from '@shared/email/search'
 import { Button, IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
 import { Drawer, confirm } from '../../components/overlay'
@@ -22,7 +23,8 @@ import { useAssistant } from '../chat/assistant-store'
 import { AssistantDock } from '../chat/AssistantDock'
 import { useAssistantToolRefresh } from '../chat/tool-refresh'
 import type { EmailAddress, EmailComposeMode } from './email-address'
-import { emailFolderPath, emailSettingsPath } from './email-address'
+import { emailFolderPath, emailSearchPath, emailSettingsPath } from './email-address'
+import { attachEmailTagToMessage, emailTagSearchQuery, reportEmailFailure } from './email-org'
 import { messageSubject } from './format'
 import { useEmailStore } from './store'
 import { FolderSidebar, FolderSidebarRail } from './FolderSidebar'
@@ -55,6 +57,9 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
   const desktop = breakpoint === 'desktop'
   const folders = useEmailStore((state) => state.folders)
   const foldersError = useEmailStore((state) => state.foldersError)
+  const tags = useEmailStore((state) => state.tags)
+  const tagsStatus = useEmailStore((state) => state.tagsStatus)
+  const tagsError = useEmailStore((state) => state.tagsError)
   const accounts = useEmailStore((state) => state.accounts)
   const messages = useEmailStore((state) => state.messages)
   const total = useEmailStore((state) => state.total)
@@ -72,8 +77,10 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
   const actionError = useEmailStore((state) => state.actionError)
   const clearActionError = useEmailStore((state) => state.clearActionError)
   const loadFolders = useEmailStore((state) => state.loadFolders)
+  const loadTags = useEmailStore((state) => state.loadTags)
   const createFolder = useEmailStore((state) => state.createFolder)
   const renameFolder = useEmailStore((state) => state.renameFolder)
+  const updateFolder = useEmailStore((state) => state.updateFolder)
   const deleteFolder = useEmailStore((state) => state.deleteFolder)
   const loadList = useEmailStore((state) => state.loadList)
   const searchEmails = useEmailStore((state) => state.searchEmails)
@@ -83,6 +90,7 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
   const clearSelection = useEmailStore((state) => state.clearSelection)
   const setRead = useEmailStore((state) => state.setRead)
   const toggleStar = useEmailStore((state) => state.toggleStar)
+  const moveMessage = useEmailStore((state) => state.moveMessage)
   const deleteMessage = useEmailStore((state) => state.deleteMessage)
   const retrySend = useEmailStore((state) => state.retrySend)
   const startPolling = useEmailStore((state) => state.startPolling)
@@ -91,6 +99,7 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
   const searchMode = address.kind === 'search'
   const folderId = address.kind === 'mailbox' ? address.folderId : null
   const query = address.kind === 'search' ? address.query : ''
+  const activeTagName = searchMode ? parseEmailSearchQuery(query).tag ?? null : null
   const messageId = address.messageId
   const [searchDraft, setSearchDraft] = useState(query)
   const [folderDrawer, setFolderDrawer] = useState(false)
@@ -128,6 +137,10 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
   useEffect(() => {
     void loadFolders(account.id)
   }, [account.id, loadFolders])
+
+  useEffect(() => {
+    void loadTags(account.id)
+  }, [account.id, loadTags])
 
   useEffect(() => {
     if (searchMode) void searchEmails(account.id, query)
@@ -250,6 +263,29 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
     navigateToPath(emailFolderPath(account.id, id))
   }
 
+  const selectTag = (name: string): void => {
+    setFolderDrawer(false)
+    const target = emailSearchPath(account.id, emailTagSearchQuery(name))
+    const cut = target.indexOf('?')
+    navigateToAddress(cut < 0 ? target : target.slice(0, cut), cut < 0 ? '' : target.slice(cut + 1))
+  }
+
+  const moveTo = (summary: EmailSummary, folderIdTo: string): void => {
+    void moveMessage(account.id, summary.id, folderIdTo)
+  }
+
+  const archive = (summary: EmailSummary): void => {
+    moveTo(summary, 'archive')
+  }
+
+  const tagMessage = async (summary: EmailSummary, tag: EmailTag): Promise<void> => {
+    try {
+      await attachEmailTagToMessage(account.id, summary.id, tag.id)
+    } catch (error) {
+      reportEmailFailure(error)
+    }
+  }
+
   const refreshNow = (): void => {
     void refresh()
   }
@@ -312,12 +348,21 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
 
   const folderSidebar = (compactCard = false) => (
     <FolderSidebar
+      accountId={account.id}
       folders={folders}
       activeFolderId={folderId}
       onSelect={selectFolder}
-      onCreate={(name) => createFolder(account.id, name)}
+      onCreate={(name, parentId) => createFolder(account.id, name, parentId)}
       onRename={(id, name) => renameFolder(account.id, id, name)}
+      onColor={(id, color) => updateFolder(account.id, id, { color })}
+      onMove={(id, parentId) => updateFolder(account.id, id, { parentId })}
       onDelete={removeFolder}
+      tags={tags}
+      tagsStatus={tagsStatus}
+      tagsError={tagsError}
+      activeTagName={activeTagName}
+      onSelectTag={selectTag}
+      onReloadTags={() => loadTags(account.id)}
       onClose={() => setFolderDrawer(false)}
       onCollapse={desktop ? toggleNav : undefined}
       footer={<EmailAccountCard accounts={accounts} activeAccountId={account.id} compact={compactCard} onNavigate={() => setFolderDrawer(false)} />}
@@ -338,10 +383,14 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
       query={query}
       folderId={folderId}
       folders={folders}
+      tags={tags}
       selectedId={selectedId}
       onOpen={openSummary}
       onToggleStar={(summary) => { void toggleStar(account.id, summary.id) }}
       onToggleRead={(summary) => { void setRead(account.id, summary.id, !summary.read) }}
+      onMove={moveTo}
+      onArchive={archive}
+      onTag={(summary, tag) => { void tagMessage(summary, tag) }}
       onDelete={(summary) => { void removeSummary(summary) }}
       onRetry={(summary) => { void retry(summary) }}
       onPage={(next) => { void loadPage(next) }}

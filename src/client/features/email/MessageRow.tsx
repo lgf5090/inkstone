@@ -1,8 +1,11 @@
-import { Mail, MailOpen, Paperclip, RefreshCw, Star, Trash2 } from 'lucide-react'
-import type { EmailFolder, EmailSummary } from '@shared/email/model'
+import { type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { Archive, FolderInput, Mail, MailOpen, Paperclip, RefreshCw, Star, Tag, Trash2 } from 'lucide-react'
+import type { EmailFolder, EmailSummary, EmailTag } from '@shared/email/model'
+import { isEmailSystemFolder } from '@shared/email/model'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { Badge, IconButton } from '../../components/primitives'
+import { Menu, MenuSubmenuList, useContextMenu, type MenuItem } from '../../components/overlay'
 import {
   folderLabel,
   highlightNodes,
@@ -10,7 +13,22 @@ import {
   messageSnippet,
   messageSubject,
   senderLabel,
+  SYSTEM_FOLDER_LABEL_KEYS,
 } from './format'
+
+const MENU_INSET = 12
+
+function folderPathLabel(folder: EmailFolder, byId: ReadonlyMap<string, EmailFolder>): string {
+  const names: string[] = []
+  const seen = new Set<string>()
+  let current: EmailFolder | undefined = folder
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id)
+    names.unshift(isEmailSystemFolder(current.id) ? t(SYSTEM_FOLDER_LABEL_KEYS[current.id]) : current.name)
+    current = current.parentId ? byId.get(current.parentId) : undefined
+  }
+  return names.join(' / ')
+}
 
 export function MessageRow({
   message,
@@ -18,9 +36,13 @@ export function MessageRow({
   searchMode,
   query,
   folders,
+  tags,
   onOpen,
   onToggleStar,
   onToggleRead,
+  onMove,
+  onArchive,
+  onTag,
   onDelete,
   onRetry,
 }: {
@@ -29,21 +51,108 @@ export function MessageRow({
   searchMode: boolean
   query: string
   folders: readonly EmailFolder[]
+  tags: readonly EmailTag[]
   onOpen: () => void
   onToggleStar: () => void
   onToggleRead: () => void
+  onMove: (folderId: string) => void
+  onArchive: () => void
+  onTag: (tag: EmailTag) => void
   onDelete: () => void
   onRetry: () => void
 }) {
+  const contextMenu = useContextMenu()
   const unread = !message.read
   const threadCount = message.threadCount ?? 1
   const failed = message.deliveryStatus === 'failed'
   const sender = senderLabel(message.sender)
   const subject = messageSubject(message)
   const snippet = messageSnippet(message)
+  const byId = new Map(folders.map((folder) => [folder.id, folder]))
+  const moveTargets = folders.filter((folder) => folder.id !== message.folderId)
+  const items: MenuItem[] = [
+    { id: 'open', label: t('email.message.open'), icon: <MailOpen size={13} />, onSelect: onOpen },
+    {
+      id: 'read',
+      label: t(unread ? 'email.list.mark_read' : 'email.list.mark_unread'),
+      icon: unread ? <MailOpen size={13} /> : <Mail size={13} />,
+      onSelect: onToggleRead,
+    },
+    {
+      id: 'star',
+      label: t(message.starred ? 'email.list.unstar' : 'email.list.star'),
+      icon: <Star size={13} fill={message.starred ? 'currentColor' : 'none'} />,
+      onSelect: onToggleStar,
+    },
+    {
+      id: 'move',
+      label: t('email.message.move_to'),
+      icon: <FolderInput size={13} />,
+      submenu: ({ closeMenu }) => (
+        <MenuSubmenuList
+          label={t('email.message.move_to')}
+          items={moveTargets.length > 0
+            ? moveTargets.map((folder) => ({
+                id: folder.id,
+                label: folderPathLabel(folder, byId),
+                icon: <FolderInput size={13} />,
+                onSelect: () => {
+                  onMove(folder.id)
+                  closeMenu()
+                },
+              }))
+            : [{ id: 'empty', label: t('email.message.move_empty'), disabled: true }]}
+        />
+      ),
+    },
+    {
+      id: 'tag',
+      label: t('email.message.tag'),
+      icon: <Tag size={13} />,
+      submenu: ({ closeMenu }) => (
+        <MenuSubmenuList
+          label={t('email.message.tag')}
+          items={tags.length > 0
+            ? tags.map((tag) => ({
+                id: tag.id,
+                label: tag.name,
+                icon: <Tag size={13} />,
+                onSelect: () => {
+                  onTag(tag)
+                  closeMenu()
+                },
+              }))
+            : [{ id: 'empty', label: t('email.message.tag_empty'), disabled: true }]}
+        />
+      ),
+    },
+    {
+      id: 'archive',
+      label: t('email.message.archive'),
+      icon: <Archive size={13} />,
+      disabled: message.folderId === 'archive',
+      onSelect: onArchive,
+    },
+    {
+      id: 'delete',
+      label: t('email.list.delete'),
+      icon: <Trash2 size={13} />,
+      tone: 'danger',
+      separatorBefore: true,
+      onSelect: onDelete,
+    },
+  ]
+  const openMenuFromKeyboard = (event: ReactKeyboardEvent<HTMLLIElement>): void => {
+    if (event.key !== 'ContextMenu' && !(event.key === 'F10' && event.shiftKey)) return
+    event.preventDefault()
+    const rect = event.currentTarget.getBoundingClientRect()
+    contextMenu.openAt({ x: rect.left + MENU_INSET, y: rect.top + MENU_INSET })
+  }
   return (
     <li
       data-email-row=""
+      onContextMenu={contextMenu.onContextMenu}
+      onKeyDown={openMenuFromKeyboard}
       className={cn(
         'relative flex items-stretch border-b border-[var(--border-subtle)] transition-colors',
         selected ? 'bg-[var(--accent-soft)]' : unread ? 'bg-[var(--bg-surface)]' : 'bg-[var(--bg-base)]',
@@ -125,6 +234,15 @@ export function MessageRow({
           <Trash2 size={13} />
         </IconButton>
       </div>
+      {contextMenu.point && (
+        <Menu
+          anchor={contextMenu.point}
+          open
+          onClose={contextMenu.close}
+          items={items}
+          label={t('email.message.menu')}
+        />
+      )}
     </li>
   )
 }
