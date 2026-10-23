@@ -258,7 +258,6 @@ const MEMORY_STATUS_VALUES = ['active', 'historical', 'uncertain'] as const
 const ACTION_STATUSES = ['pending', 'approved', 'cancelled', 'expired', 'failed'] as const
 const AUTOMATION_STATUS_VALUES = ['scheduled', 'running', 'paused', 'completed', 'failed'] as const
 const RUN_STATUSES = ['running', 'success', 'error', 'skipped'] as const
-const TASK_STATUS_VALUES = ['todo', 'in_progress', 'done'] as const
 const TASK_PRIORITY_VALUES = ['low', 'medium', 'high', 'urgent'] as const
 
 const MEMORY_COLUMNS
@@ -8326,6 +8325,24 @@ interface TaskStepRow {
   created_at: number
 }
 
+/**
+ * The status column read back as the value the row actually carries.
+ *
+ * A status is reported verbatim rather than re-checked against a list of acceptable words and clamped.
+ * The reason is the same one that put `TASK_OPEN_STATUSES` behind the count queries: every downstream
+ * reader — `isTaskOpen`, `isTaskDone`, the badge SQL — decides open/finished/done by set membership, so
+ * a value that is in none of those sets (an abandoned row, or one a newer build wrote straight to the
+ * column) is neither owed nor finished there. If this decoder instead collapsed that same unknown value
+ * to `todo`, the row would read as a debt here while the counts still excluded it — one row, two
+ * answers, and the divergence is invisible until someone compares a badge with the list it summarizes.
+ *
+ * Only a status that is genuinely absent falls back to `todo`, which is the state a fresh task begins
+ * in. The column is `NOT NULL` with a default today, so that branch is a guard, not a live path.
+ */
+function decodeTaskStatus(value: unknown): TaskStatus {
+  return typeof value === 'string' && value !== '' ? (value as TaskStatus) : 'todo'
+}
+
 function toTask(
   r: TaskRow,
   extras: { tags: TaskTag[]; stepTotal: number; stepDone: number; reminders: number[] },
@@ -8334,7 +8351,7 @@ function toTask(
     id: r.id,
     title: r.title,
     description: r.description ?? '',
-    status: pickEnum(r.status, TASK_STATUS_VALUES, 'todo'),
+    status: decodeTaskStatus(r.status),
     priority: pickEnum(r.priority, TASK_PRIORITY_VALUES, 'medium'),
     position: num(r.position),
     dueAt: num(r.due_at),

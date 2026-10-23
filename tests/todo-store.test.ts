@@ -7,6 +7,7 @@ import { listTodoAttachments } from '../src/worker/todos/schema'
 import type { Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
+import { isTaskDone, isTaskOpen } from '../src/shared/todos/status'
 
 const USER = 'user-alice'
 const OTHER = 'user-bob'
@@ -226,6 +227,27 @@ describe('the counts a sidebar and a card show', () => {
     expect(started?.openCount).toBe(1)
     expect(started?.doneCount).toBe(1)
     expect((await store.listTaskLists()).find((entry) => entry.id === list.id)?.openCount).toBe(1)
+  })
+
+  it('reads a cancelled row as neither owed nor finished — the row and the count agree', async () => {
+    // A `cancelled` row is written straight to the column here, the way a newer build or a hand-edited
+    // database would leave it. The SQL counting side already excludes it from `open`, so a badge built
+    // on those counts says the reader owes nothing. The row read has to answer the same way: a decoder
+    // that clamped an unrecognized status back to `todo` would call this same row a debt, and one piece
+    // of data would give two answers depending on which door you entered through.
+    const list = await store.createTaskList({ name: 'Work' })
+    const task = await store.createTask({ title: 'Abandoned', listId: list.id })
+    sqlite.prepare(`UPDATE todos_tasks SET status = 'cancelled' WHERE id = ?`).run(task.id)
+
+    const read = await store.getTask(task.id)
+    expect(read).not.toBeNull()
+    // Not owed: the row read agrees with the SQL open set.
+    expect(isTaskOpen(read!.status)).toBe(false)
+    // Not finished either: abandoning is not completing, so the done set must not claim it.
+    expect(isTaskDone(read!.status)).toBe(false)
+
+    const counts = await store.taskCounts(Date.now() + 6 * HOUR)
+    expect(counts.byList[list.id]).toEqual({ open: 0, done: 0 })
   })
 })
 
