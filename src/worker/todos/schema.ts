@@ -14,7 +14,7 @@
  * `todos_*` declarations those statements are bound against.
  */
 
-import type { TimeEntrySource, TodoTimeEntry } from '@shared/todos/model'
+import { isTimeEntrySource, type TimeEntrySource, type TodoTimeEntry } from '@shared/todos/model'
 
 export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS todos_tasks (
@@ -403,8 +403,7 @@ export interface TodoTimeEntryRow {
  * anything, and the worklog would rather show an unknown source as the timer's own than crash on it.
  */
 export function toTimeEntry(row: TodoTimeEntryRow): TodoTimeEntry {
-  const source: TimeEntrySource =
-    row.source === 'focus' || row.source === 'manual' || row.source === 'timer' ? row.source : 'timer'
+  const source: TimeEntrySource = isTimeEntrySource(row.source) ? row.source : 'timer'
   return {
     id: row.id,
     taskId: row.task_id,
@@ -415,11 +414,6 @@ export function toTimeEntry(row: TodoTimeEntryRow): TodoTimeEntry {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
-}
-
-/** The duration of one closed row in milliseconds; a running row has none to give. */
-export function timeEntryMs(entry: TodoTimeEntry): number {
-  return entry.endAt === null ? 0 : entry.endAt - entry.startAt
 }
 
 // ------------------------------------------------------------- task attachments
