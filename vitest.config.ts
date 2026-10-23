@@ -28,13 +28,19 @@ const wasmAsModule = (): Plugin => ({
     // shape — so that specifier is followed to the file it names. A relative path is resolved against the
     // module that wrote it, which is the only reading that means anything. An id this hook already claimed
     // is left alone, or the marker would be applied to itself.
+    //
+    // A trailing `?url` is accepted and discarded on purpose. The browser wants the asset as a URL the
+    // engine's own glue fetches, while a test wants a compiled module, and the consumer (`templater/worker/
+    // vm.ts`) inspects which it got. Without matching the query here the `?url` spelling would fall through
+    // to Node, which reads the path relative to the process root and fails with a missing file.
     if (source.includes(MARKER)) return null
-    const isPackageSubpath = /^[^./\\][^:]*\/wasm$/.test(source)
-    const isRelative = source.startsWith('.') && source.endsWith('.wasm')
+    const specifier = source.split('?')[0] ?? ''
+    const isPackageSubpath = /^[^./\\][^:]*\/wasm$/.test(specifier)
+    const isRelative = specifier.startsWith('.') && specifier.endsWith('.wasm')
     if (!isRelative && !isPackageSubpath) return null
     const path = isRelative && importer
-      ? resolvePath(dirname(importer.startsWith('file:') ? fileURLToPath(importer) : importer), source)
-      : require.resolve(source)
+      ? resolvePath(dirname(importer.startsWith('file:') ? fileURLToPath(importer) : importer), specifier)
+      : require.resolve(specifier)
     if (!path.endsWith('.wasm')) return null
     return `${path}${MARKER}`
   },

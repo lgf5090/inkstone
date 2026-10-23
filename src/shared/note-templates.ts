@@ -79,7 +79,7 @@ export interface BuiltinTemplateDef {
  * up new or updated entries. User edits to an entry that shares a built-in id
  * are never overwritten by a re-seed.
  */
-export const TEMPLATE_SEED_VERSION = 2
+export const TEMPLATE_SEED_VERSION = 3
 
 export const BUILTIN_TEMPLATE_CATEGORIES: BuiltinTemplateCategoryDef[] = [
   { id: 'productivity', nameKey: 'template.category.productivity', position: 0, icon: '🚀', color: '#0891b2' },
@@ -90,6 +90,7 @@ export const BUILTIN_TEMPLATE_CATEGORIES: BuiltinTemplateCategoryDef[] = [
   { id: 'health', nameKey: 'template.category.health', position: 5, icon: '✨', color: '#65a30d' },
   { id: 'writing', nameKey: 'template.category.writing', position: 6, icon: '📝', color: '#9333ea' },
   { id: 'industry', nameKey: 'template.category.industry', position: 7, icon: '🛠️', color: '#ea580c' },
+  { id: 'templater', nameKey: 'template.category.templater', position: 8, icon: '🧩', color: '#0d9488' },
 ]
 
 export const BUILTIN_TEMPLATE_DEFS: BuiltinTemplateDef[] = [
@@ -781,6 +782,72 @@ export const BUILTIN_TEMPLATE_DEFS: BuiltinTemplateDef[] = [
     contentKey: 'template.flat_comparison.content',
     tags: ['finance', 'table'],
   },
+  // The Templater examples are teaching bodies: each one is small and shows one part of the syntax, so a
+  // reader who has never written a `<% %>` can run it, see what changed, and find the line responsible.
+  {
+    id: 'templater-daily-note',
+    categoryId: 'templater',
+    nameKey: 'template.templater_daily_note.name',
+    descriptionKey: 'template.templater_daily_note.description',
+    contentKey: 'template.templater_daily_note.content',
+    tags: ['daily', 'tech'],
+  },
+  {
+    id: 'templater-meeting-questions',
+    categoryId: 'templater',
+    nameKey: 'template.templater_meeting_questions.name',
+    descriptionKey: 'template.templater_meeting_questions.description',
+    contentKey: 'template.templater_meeting_questions.content',
+    tags: ['meeting', 'work'],
+  },
+  {
+    id: 'templater-selection-note',
+    categoryId: 'templater',
+    nameKey: 'template.templater_selection_note.name',
+    descriptionKey: 'template.templater_selection_note.description',
+    contentKey: 'template.templater_selection_note.content',
+    tags: ['writing', 'tech'],
+  },
+  {
+    id: 'templater-logic-loops',
+    categoryId: 'templater',
+    nameKey: 'template.templater_logic_loops.name',
+    descriptionKey: 'template.templater_logic_loops.description',
+    contentKey: 'template.templater_logic_loops.content',
+    tags: ['tech', 'review'],
+  },
+  {
+    id: 'templater-include-snippet',
+    categoryId: 'templater',
+    nameKey: 'template.templater_include_snippet.name',
+    descriptionKey: 'template.templater_include_snippet.description',
+    contentKey: 'template.templater_include_snippet.content',
+    tags: ['writing', 'tech'],
+  },
+  {
+    id: 'templater-dated-title',
+    categoryId: 'templater',
+    nameKey: 'template.templater_dated_title.name',
+    descriptionKey: 'template.templater_dated_title.description',
+    contentKey: 'template.templater_dated_title.content',
+    tags: ['daily', 'planning'],
+  },
+  {
+    id: 'templater-multi-choice',
+    categoryId: 'templater',
+    nameKey: 'template.templater_multi_choice.name',
+    descriptionKey: 'template.templater_multi_choice.description',
+    contentKey: 'template.templater_multi_choice.content',
+    tags: ['checklist', 'decision'],
+  },
+  {
+    id: 'templater-user-script',
+    categoryId: 'templater',
+    nameKey: 'template.templater_user_script.name',
+    descriptionKey: 'template.templater_user_script.description',
+    contentKey: 'template.templater_user_script.content',
+    tags: ['tech'],
+  },
 ]
 
 /**
@@ -925,6 +992,16 @@ export function parseTemplateLibraryExport(
     if (!template) {
       dropped++
       continue
+    }
+    // A body the reader wrote is code once Templater is in the library, and a command cut in half imports as
+    // a template that prints `<% …` forever. The clamp is the right size limit to keep — it is what stops one
+    // paste filling the store — but it may not be silent: `truncated` is the flag the import dialog and the
+    // save route already refuse on.
+    if (
+      typeof candidate === 'object' && candidate !== null && typeof (candidate as { content?: unknown }).content === 'string'
+      && (candidate as { content: string }).content.length > TEMPLATE_IMPORT_LIMITS.maxContentLength
+    ) {
+      truncated = true
     }
     if (template.content.length > contentBudget) {
       truncated = true

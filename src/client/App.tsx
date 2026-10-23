@@ -10,6 +10,9 @@ import { classifyMemoSurface } from './features/memos/public-route'
 import { dismissBootScreen } from './lib/boot'
 import { peekPropertyDecoration, subscribePropertyDecoration } from './lib/property-commands'
 import { peekTemplateSlotJob, subscribeTemplateSlotJob } from './features/chat/template-slot-job'
+import { useTemplaterStartup } from './features/templater/startup-bridge'
+import { useTemplaterHotkeys } from './features/templater/hotkeys'
+import { installTemplaterCreationTrigger } from './features/templater/creation-trigger'
 import { t, useLocale } from './lib/i18n'
 import { initializePwa, requestOfflineWarmup, usePwa } from './store/pwa'
 import { usePresentation } from './store/presentation'
@@ -137,6 +140,17 @@ export function App() {
     if (isPresenter) return
     initializePwa()
   }, [isPresenter])
+
+  // The reader's startup templates, once, after the account and the library have both arrived. The hook
+  // decides nothing on its own — a device switch has to say yes first — so this line costs a subscription
+  // and no work for the overwhelming majority of readers.
+  useTemplaterStartup()
+  useTemplaterHotkeys()
+
+  // The file-creation trigger listens on the notes store from here, so every way a note can arrive — the
+  // sidebar, a duplicate, an excalidraw or mindmap canvas, a contextual note, a template's own create — is
+  // seen by the same rule. It decides nothing: with the device switch off it answers and does nothing.
+  useEffect(() => installTemplaterCreationTrigger(), [])
 
   useEffect(() => {
     if ((shareSlug || conversationShareSlug || collectionSlug || isPresenter || memoAlwaysPublic) || status !== 'loading') return

@@ -35,13 +35,13 @@ describe('the shared outbound guard', () => {
 
 describe('the shared outbound request', () => {
   it('sends the method, headers and body it was given, with redirects switched off', async () => {
-    stubFetch(() => new Response('ok'))
+    stubFetch(() => new Response('ok', { headers: { 'content-type': 'application/json' } }))
     const result = await outbound('https://example.com/hook', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: '{"a":1}',
     })
-    expect(result).toEqual({ ok: true, status: 200, text: 'ok', error: '' })
+    expect(result).toEqual({ ok: true, status: 200, contentType: 'application/json', text: 'ok', error: '' })
     expect(calls).toHaveLength(1)
     expect(calls[0]!.url).toBe('https://example.com/hook')
     expect(calls[0]!.init.method).toBe('PUT')
@@ -52,10 +52,10 @@ describe('the shared outbound request', () => {
   })
 
   it('posts by default and reports a non-2xx answer as a failure with its status', async () => {
-    stubFetch(() => new Response('nope', { status: 503 }))
+    stubFetch(() => new Response('nope', { status: 503, headers: { 'content-type': 'text/plain' } }))
     const result = await outbound('https://example.com/hook')
     expect(calls[0]!.init.method).toBe('POST')
-    expect(result).toEqual({ ok: false, status: 503, text: 'nope', error: 'HTTP 503' })
+    expect(result).toEqual({ ok: false, status: 503, contentType: 'text/plain', text: 'nope', error: 'HTTP 503' })
   })
 
   it('refuses a redirect instead of following it', async () => {
@@ -80,7 +80,7 @@ describe('the shared outbound request', () => {
   it('keeps the bytes read before the body ends early', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     stubFetch(() => {
-      const response = new Response(null)
+      const response = new Response(null, { headers: { 'content-type': 'text/plain' } })
       let pulled = 0
       Object.defineProperty(response, 'body', {
         value: new ReadableStream({
@@ -95,7 +95,7 @@ describe('the shared outbound request', () => {
 
     const result = await outbound('https://example.com/hook')
 
-    expect(result).toEqual({ ok: true, status: 200, text: 'partial', error: '' })
+    expect(result).toEqual({ ok: true, status: 200, contentType: 'text/plain', text: 'partial', error: '' })
     expect(warn).toHaveBeenCalledWith(
       '[inkstone] Outbound response body ended early:',
       expect.any(Error),
@@ -109,7 +109,7 @@ describe('the shared outbound request', () => {
       throw error
     })
     const result = await outbound('https://example.com/hook', { timeoutMs: 1 })
-    expect(result).toEqual({ ok: false, status: 0, text: '', error: 'The request timed out' })
+    expect(result).toEqual({ ok: false, status: 0, contentType: '', text: '', error: 'The request timed out' })
   })
 
   it('answers a network failure as a result rather than a throw', async () => {
@@ -117,7 +117,7 @@ describe('the shared outbound request', () => {
       throw new TypeError('network down')
     })
     const result = await outbound('https://example.com/hook')
-    expect(result).toEqual({ ok: false, status: 0, text: '', error: 'network down' })
+    expect(result).toEqual({ ok: false, status: 0, contentType: '', text: '', error: 'network down' })
   })
 
   it('refuses a blocked target without calling fetch', async () => {
@@ -127,6 +127,7 @@ describe('the shared outbound request', () => {
     expect(result).toEqual({
       ok: false,
       status: 0,
+      contentType: '',
       text: '',
       error: 'That address is not reachable from this deployment',
     })

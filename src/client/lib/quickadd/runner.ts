@@ -8,6 +8,7 @@
  * reader's back. A lost revision race is reported as a failed run rather than retried blind.
  */
 import type { NotePort, NoteRef, QuickAddRunStatus } from './context'
+import type { Note, NoteTemplate } from '@shared/types'
 import { findNoteByTitle, useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
 import type { ToastInput } from '../../store/ui'
@@ -95,6 +96,27 @@ async function contentOf(id: string): Promise<string> {
 function currentCached(id: string): string | null {
   const state = useNotes.getState()
   return Object.prototype.hasOwnProperty.call(state.contents, id) ? state.contents[id] ?? '' : null
+}
+
+/** The library row a choice names, by id or by the title it shows, which is how every lookup here works. */
+function templateRow(name: string): NoteTemplate | null {
+  const wanted = name.trim().toLowerCase()
+  return useNoteTemplates.getState().templates.find(
+    (template) => template.id === name || template.name.trim().toLowerCase() === wanted,
+  ) ?? null
+}
+
+/**
+ * The note a run is about to write, in the shape the template engine reads.
+ *
+ * The body comes from `contentOf`, which prefers the editor's buffer: a template that reads
+ * `tp.file.content` has to see the same text the write will be guarded against, or a run answers the
+ * question the reader was in the middle of typing and then overwrites it.
+ */
+async function engineTargetRow(id: string): Promise<Note | null> {
+  const summary = useNotes.getState().notes[id]
+  if (!summary || summary.deletedAt !== null) return null
+  return { ...summary, content: await contentOf(id) }
 }
 
 async function replaceContent(id: string, content: string, previous?: string): Promise<boolean> {
@@ -217,10 +239,20 @@ export const notePort: NotePort = {
     }
   },
   async templateBody(name) {
-    const store = useNoteTemplates.getState()
-    const wanted = name.trim().toLowerCase()
-    const found = store.templates.find((template) => template.id === name || template.name.trim().toLowerCase() === wanted)
+    const found = templateRow(name)
     return found ? found.content : null
+  },
+  async renderTemplater({ templateId, title, noteId }) {
+    // The engine's syntax decision and the run both live in `features/templates`, which is the one place
+    // allowed to reach the sandbox; this module reaches it the same way the gallery does — on demand, so a
+    // QuickAdd choice is never the reason a reader downloads the interpreter.
+    const engine = await import('../../features/templates/template-engine')
+    const row = templateRow(templateId)
+    // No row, or a body the engine has nothing to do with: the older `{{ … }}` formatter stays in charge.
+    if (row === null || !engine.bodyRunsCode(row.content)) return { kind: 'not-templater' }
+    const target = noteId ? await engineTargetRow(noteId) : null
+    const rendered = await engine.renderTemplaterBody(row, target, title)
+    return rendered === null ? { kind: 'refused' } : { kind: 'rendered', text: rendered.text, cursor: rendered.cursor }
   },
   templateNames() {
     return useNoteTemplates.getState().templates

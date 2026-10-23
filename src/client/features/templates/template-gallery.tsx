@@ -2,6 +2,7 @@ import { createPortal } from 'react-dom'
 import { Menu } from '../../components/overlay'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
+import { TemplaterPickerHost } from '../templater/template-picker'
 import { useGalleryController } from './gallery-controller'
 import { GalleryHeader } from './gallery-header'
 import { GalleryMain, GalleryModals, GalleryMobileChips, GallerySelectBar, GallerySidebar } from './gallery-jsx'
@@ -33,6 +34,10 @@ export function TemplateGallery({ onClose }: { onClose: () => void }) {
       {state.selectMode && <GallerySelectBar g={g}/>}
     </div>
     <GalleryModals g={g}/>
+    {/* The Templater chooser is hosted here because this is the surface the app already mounts for
+        anything called a template; `openTemplaterPicker` raises the gallery when a command comes from
+        somewhere else, and takes it back down again when the chooser closes. */}
+    <TemplaterPickerHost/>
     <Menu anchor={state.moreButtonRef} open={state.isMoreOpen} onClose={() => state.setIsMoreOpen(false)} items={g.moreItems} align='end' width={MORE_MENU_WIDTH}/>
   </div>, document.body)
 }

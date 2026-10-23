@@ -27,6 +27,7 @@ import { FOLDER_DRAG_TYPE, isNoteDrag, leftDropTarget, moveNotesToFolder, readDr
 import { FolderPicker } from '../folders/FolderPicker';
 import { FolderColorMenu, FolderIconMenu } from '../folders/FolderAppearanceMenus';
 import { FolderMoveMenu } from '../folders/FolderMoveMenu';
+import { openTemplaterPickerForFolder } from '../templater/picker-request';
 import { useLintFolderMenuItems } from '../linter/useLintMenuItems';
 import { treeIndent, treeItemProps, useTreeChildrenMount, useTreeKeyboard } from '../../lib/tree';
 import { SidebarTags } from '../tags/SidebarTags';
@@ -795,6 +796,7 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
             useUi.getState().expandFolder(node.id);
             void useNotes.getState().createNote({ folderId: node.id });
         } },
+        { id: 'new-from-template', label: t("templater.cmd.create"), icon: <FilePlus2 size={13}/>, onSelect: () => openTemplaterPickerForFolder('create', node.id) },
         { id: 'new-drawing', label: t("sidebar.create_new_drawing_here"), icon: <Brush size={13}/>, onSelect: () => {
             useUi.getState().openExplorer(node.id);
             useUi.getState().expandFolder(node.id);

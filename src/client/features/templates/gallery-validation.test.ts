@@ -143,6 +143,19 @@ describe('the gallery dialogs name what they reject', () => {
     expect(box!.getAttribute('aria-describedby'), 'the message has to reach assistive tech').toBeTruthy()
   })
 
+  it('says the tag rule once, not once in the field and once under it', async () => {
+    // The sentence under the field is the rule; repeating it as the placeholder made an empty field read the
+    // same line twice.
+    await act(async () => {
+      root.render(createElement(TemplateEditorModal, { template: null, categories: [], onClose: () => {} }))
+      await Promise.resolve()
+    })
+    const echoed = [...document.querySelectorAll('input')]
+      .filter((input) => input.getAttribute('placeholder') === t('templates.tag_hint'))
+    expect(echoed, 'the tag field must not wear its hint as a placeholder too').toHaveLength(0)
+    expect(messages().filter((text) => text === t('templates.tag_hint')).length, 'the rule is still said once').toBe(1)
+  })
+
   it('blames the body, not the name, when only the body is missing', async () => {
     let closed = 0
     await act(async () => {
@@ -157,7 +170,10 @@ describe('the gallery dialogs name what they reject', () => {
     await press(saveButton(t('templates.create_template')))
     expect(errorText(), 'the name is filled in, so it must not be blamed').toBe('')
     expect(messages().filter((text) => text === t('templates.content_required')).length).toBe(1)
-    const box = document.querySelector('textarea')
+    // The body is a CodeMirror surface now, so the element carrying the error is the editable one rather
+    // than a textarea — and only the editor's own element matches `.cm-content` in this dialog, since the
+    // import dialog's paste box is a different component.
+    const box = document.querySelector('.cm-content')
     expect(box?.getAttribute('aria-invalid'), 'the body field carries the error').toBe('true')
     expect(closed, 'a rejected draft must not be saved').toBe(0)
   })

@@ -1,0 +1,29 @@
+# Notice
+
+## License
+
+Inkstone is licensed under the **GNU Affero General Public License v3.0 only** (`AGPL-3.0-only`). The full text is in [`LICENSE`](./LICENSE).
+
+Inkstone was previously distributed under `LGPL-3.0-only`. It was relicensed so that it can incorporate code derived from projects that are themselves `AGPL-3.0-only`; a work that combines both can only be conveyed under the AGPL. Relicensing is a decision of the copyright holders.
+
+## Clause 13
+
+Inkstone is offered as a network service, so §13 of the license applies: every user who interacts with a deployment over a network must be able to obtain the corresponding source of that deployment, including any modifications made for it. Anyone self-hosting a modified build has to expose that source to their own users.
+
+## Derived components
+
+| Component | Upstream | Version | License | Where |
+|---|---|---|---|---|
+| Templater template engine (`tp.*` modules, template reference texts, ported test cases) | [SilentVoid13/Templater](https://github.com/SilentVoid13/Templater) (`templater-obsidian`) | 2.26.0 | AGPL-3.0-only | listed per file in its header |
+
+Every file that carries copied or adapted text from the upstream project states its origin in a comment of this form, at the file header or at the ported section:
+
+```
+// Derived from Templater 2.26.0 (AGPL-3.0-only) src/<path>, with Inkstone adaptations.
+```
+
+The statement is in English because this repository holds every source comment to English (`scripts/check-i18n.mjs`); reader-facing Chinese lives in the locale catalogs, and a licence notice is not reader-facing copy.
+
+Files that only follow the upstream *documented behaviour* without copying its text carry the opposite statement instead, so a reader can always tell derivation from independent implementation. This table lists the components, not the individual files; the per-file statements are authoritative.
+
+The `AGPL-3.0-only` license of the upstream project also covers anything redistributed with Inkstone that came from it, so removing a derived file does not remove the obligation for a build that already shipped it.

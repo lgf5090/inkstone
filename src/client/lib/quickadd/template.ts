@@ -138,6 +138,44 @@ async function askForTemplate(session: RunSession, port: NotePort, categoryId: s
 }
 
 /**
+ * The body as text, from whichever renderer owns it.
+ *
+ * Two renderers answer for one choice, and which one owns a given body is not this module's question to
+ * ask: `lib/quickadd` may not reach the sandbox, so the port answers `not-templater` for a body written in
+ * the older `{{ … }}` placeholders and this stays the only caller of `formatWithPrompts`. The engine's
+ * answer is the document a create run would have written, and the write below stays QuickAdd's — the title,
+ * the folder, the tags, the link-back and the conflict rules are this feature's, not the template's.
+ */
+async function renderBody(
+  body: string,
+  templateId: string | null,
+  title: string,
+  noteId: string | null,
+  runtime: FormatRuntime,
+  session: RunSession,
+  port: NotePort,
+): Promise<{ text: string; cursor: number | null; refused: boolean }> {
+  if (templateId !== null) {
+    const answer = await port.renderTemplater({ templateId, title, noteId })
+    if (answer.kind === 'rendered') return { text: answer.text, cursor: answer.cursor, refused: false }
+    if (answer.kind === 'refused') return { text: '', cursor: null, refused: true }
+  }
+  const formatted = await formatWithPrompts(body, runtime, session, title)
+  return { text: formatted.text, cursor: formatted.cursor, refused: false }
+}
+
+/**
+ * What a refused engine run leaves the reader with: the refusal, and nothing from here.
+ *
+ * `cancelled` rather than `failed` because the sentence the reader sees is the engine's — it names the
+ * capability, the note or the budget it hit, in the words every other Templater refusal uses. A second
+ * notice from this feature would be two explanations of one event, and the less accurate one.
+ */
+function engineRefusal(): QuickAddRunStatus {
+  return { kind: 'cancelled' }
+}
+
+/**
  * A template dropped into a note that exists: its properties merge into that note's own block and its
  * text lands where the drop says. A caret drop reads the editor, because that is where the reader's
  * unsaved typing and their selection live; every other drop works from the note as stored.
@@ -146,6 +184,7 @@ async function dropIntoNote(
   choice: QuickAddTemplateChoice,
   note: NoteRef,
   body: string,
+  templateId: string | null,
   drop: TemplateDrop,
   runtime: FormatRuntime,
   session: RunSession,
@@ -155,7 +194,8 @@ async function dropIntoNote(
   runtime.title = note.title
   runtime.folderPath = note.folderPath
   session.destination = note
-  const formatted = await formatWithPrompts(body, runtime, session, note.title)
+  const rendered = await renderBody(body, templateId, note.title, note.id, runtime, session, port)
+  if (rendered.refused) return engineRefusal()
   if (session.dismissed) return { kind: 'cancelled' }
   const caret = drop === 'cursor' ? port.activeEditorState?.() ?? null : null
   if (drop === 'cursor' && !caret) return { kind: 'failed', reason: t('quickadd.error_editor_unavailable') }
@@ -165,8 +205,8 @@ async function dropIntoNote(
     from: caret?.from ?? text.length,
     to: caret?.to ?? text.length,
     drop,
-    template: formatted.text,
-    cursor: formatted.cursor,
+    template: rendered.text,
+    cursor: rendered.cursor,
   })
   // A template that carries only properties is not "nothing to write": the merge is the write.
   if (!placed.changed) return { kind: 'empty', noteId: note.id }
@@ -235,7 +275,7 @@ export async function runTemplateChoice(
     const active = port.activeNote()
     if (!active) return { kind: 'failed', reason: t('quickadd.error_no_open_note') }
     // The note is already on screen, so there is nothing to open; only a caret drop reads the editor.
-    return dropIntoNote(choice, active, body, choice.insertPosition ?? 'cursor', runtime, session, port, false)
+    return dropIntoNote(choice, active, body, templateRef, choice.insertPosition ?? 'cursor', runtime, session, port, false)
   }
 
   const named = await resolveTitle(choice, session, runtime, port)
@@ -252,6 +292,7 @@ export async function runTemplateChoice(
       choice,
       existing,
       body,
+      templateRef,
       choice.existing === 'appendTop' ? 'top' : 'bottom',
       runtime,
       session,
@@ -269,12 +310,13 @@ export async function runTemplateChoice(
     })])
     if (answers.get('overwrite') !== 'true') return { kind: 'cancelled' }
     session.destination = existing
-    const formatted = await formatWithPrompts(body, runtime, session, existing.title)
+    const rendered = await renderBody(body, templateRef, existing.title, existing.id, runtime, session, port)
+    if (rendered.refused) return engineRefusal()
     if (session.dismissed) return { kind: 'cancelled' }
     const prior = await port.read(existing.id)
-    const written = await port.write(existing.id, formatted.text, prior)
+    const written = await port.write(existing.id, rendered.text, prior)
     if (!written) return { kind: 'failed', reason: t('quickadd.error_write_refused') }
-    if (choice.openFocus !== false && formatted.cursor !== null) port.placeCursor(formatted.cursor)
+    if (choice.openFocus !== false && rendered.cursor !== null) port.placeCursor(rendered.cursor)
     if (choice.openAfter) await port.open(existing.id, openingOptions(choice))
     port.recordRun(choice.id)
     return {
@@ -287,12 +329,13 @@ export async function runTemplateChoice(
 
   const finalTitle = collides ? nextAvailableTitle(port, title) : title
   session.destination = { id: '', title: finalTitle }
-  const formatted = await formatWithPrompts(body, runtime, session, finalTitle)
+  const rendered = await renderBody(body, templateRef, finalTitle, null, runtime, session, port)
+  if (rendered.refused) return engineRefusal()
   const created = await port.create({
     title: finalTitle,
-    content: withTags(formatted.text, choice.tags),
+    content: withTags(rendered.text, choice.tags),
     folderPath: folder,
-    cursor: formatted.cursor,
+    cursor: rendered.cursor,
   })
   if (!created) return { kind: 'failed', reason: t('quickadd.error_write_refused') }
 

@@ -4,8 +4,10 @@ import type { NoteTemplate } from '@shared/types'
 import { api } from '../../lib/api'
 import { useUi } from '../../store/ui'
 import { Button, Kbd } from '../../components/primitives'
+import { Checkbox } from '../../components/form'
 import { Modal } from '../../components/overlay'
 import { t } from '../../lib/i18n'
+import { bodyRunsCode } from './template-engine'
 import { TemplateTag } from './template-tag'
 
 const HELP_MODAL_WIDTH = 440
@@ -52,8 +54,12 @@ export function PublishTemplateDialog({ template, category, onClose, onPublished
   onPublished: () => void
 }) {
   const [isBusy, setIsBusy] = useState(false)
+  // A body with no command in it publishes with nothing to acknowledge; the checkbox only exists for the
+  // ones that will run code on somebody else's device.
+  const runsCode = bodyRunsCode(template.content)
+  const [acknowledged, setAcknowledged] = useState(!runsCode)
   const publish = async () => {
-    if (isBusy) return
+    if (isBusy || !acknowledged) return
     setIsBusy(true)
     try {
       await api.communityTemplates.publish({
@@ -75,10 +81,20 @@ export function PublishTemplateDialog({ template, category, onClose, onPublished
   }
   return (<Modal open onClose={onClose} title={t('templates.publish_to_community')} width={PUBLISH_MODAL_WIDTH} footer={<>
       <Button variant='ghost' onClick={onClose}>{t('common.cancel')}</Button>
-      <Button variant='primary' icon={<Send size={13}/>} loading={isBusy} onClick={() => void publish()}>{t('templates.publish_to_community')}</Button>
+      <Button variant='primary' icon={<Send size={13}/>} disabled={!acknowledged} loading={isBusy} onClick={() => void publish()}>{t('templates.publish_to_community')}</Button>
     </>}>
     <div className='space-y-3'>
       <p className='text-[length:var(--text-12)] leading-relaxed text-[var(--text-tertiary)]'>{t('templates.publish_hint')}</p>
+      {runsCode && (
+        // Plan §D15: the author is the one person who can say what a script template does, so the publish
+        // path asks them to acknowledge it before the body reaches anybody else's device.
+        <div className='rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3'>
+          <Checkbox
+            label={t('templates.publish_runs_code')}
+            checked={acknowledged}
+            onChange={setAcknowledged}/>
+        </div>
+      )}
       <div className='rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3'>
         <div className='flex items-center gap-1.5'>
           <h3 className='min-w-0 flex-1 truncate text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]'>{template.name}</h3>

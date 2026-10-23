@@ -104,8 +104,13 @@ describe('built-in template catalog', () => {
       expect(zh[key], key).toBeTruthy()
     }
     for (const def of BUILTIN_TEMPLATE_DEFS) {
-      expect(en[def.contentKey], def.contentKey).toContain('{{title}}')
+      // The invariant is "a built-in note names its own title", not "every built-in spells it the same way":
+      // the app's own templates interpolate `{{title}}`, while a Templater template asks the engine with
+      // `tp.file.title`. A Templater body run through the create path is never pre-interpolated, so writing
+      // `{{title}}` into one would leave those eight characters in the reader's note.
       expect(en[def.contentKey], def.contentKey).toMatch(/^---\r?\n/)
+      const namesItsTitle = en[def.contentKey].includes('{{title}}') || en[def.contentKey].includes('tp.file.title')
+      expect(namesItsTitle, def.contentKey).toBe(true)
     }
   })
 })
@@ -327,5 +332,74 @@ describe('the catalog keeps its shape', () => {
     const han = /[\u4e00-\u9fff]/
     for (const [key, body] of Object.entries(EN_US_NOTE_TEMPLATE_CONTENT as Record<string, string>))
       expect(han.test(body), key).toBe(false)
+  })
+})
+
+describe('the template library survives the Templater port (plan §7.3 group M)', () => {
+  function roundTrip(categories: NoteTemplateCategory[], templates: NoteTemplate[]) {
+    const written = JSON.stringify(buildTemplateLibraryExport(categories, templates))
+    const parsed = parseTemplateLibraryExport(written, { keepFlags: true })
+    return { data: parsed.data, dropped: parsed.dropped, truncated: parsed.truncated }
+  }
+
+  it('carries a Templater body through export and import byte for byte', () => {
+    const body = [
+      '---',
+      'tags: [idea]',
+      '---',
+      '# <% tp.file.title %>',
+      '',
+      'On <%+ tp.date.now("YYYY-MM-DD") %> in [[Source#Section]] — <%* tR += "ran" %>',
+      'And a literal brace: {{title}} stays the reader\'s own text.',
+    ].join('\n')
+    const { data, dropped, truncated } = roundTrip([], [template('tp-1', { content: body })])
+    expect(dropped, JSON.stringify(truncated)).toBe(0)
+    expect(data?.templates).toHaveLength(1)
+    // Two separate failures would show up here: the exporter interpolating the old `{{…}}` syntax on the
+    // way out, or a JSON round trip mangling the angle brackets and the backslash-free quotes.
+    expect(data?.templates[0].content).toBe(body)
+  })
+
+  it('keeps the reader\'s own flags and tags, which is what favorites and the filter read', () => {
+    const { data } = roundTrip(
+      [category('cat-1')],
+      [template('keep', { categoryId: 'cat-1', isStarred: true, isPinned: true, tags: ['templater', 'tp.user'] })],
+    )
+    const kept = data?.templates[0]
+    expect(kept?.isStarred).toBe(true)
+    expect(kept?.isPinned).toBe(true)
+    expect(kept?.tags).toEqual(['templater', 'tp.user'])
+    expect(data?.categories.map((one) => one.id)).toEqual(['cat-1'])
+  })
+
+  it('leaves the built-in Templater catalog out of the file and keeps a user template filed inside it', () => {
+    const templaterCategory = BUILTIN_TEMPLATE_CATEGORIES.find((one) => one.id === 'templater')
+    expect(templaterCategory, 'the built-in category the seed adds').toBeTruthy()
+    const { data } = roundTrip(
+      [category('templater', true), category('cat-mine')],
+      [
+        template('builtin-row', { categoryId: 'templater', builtin: true }),
+        template('mine-in-templater', { categoryId: 'templater' }),
+      ],
+    )
+    // Built-ins are re-seeded from the code, so exporting them would duplicate them on import; a *user*
+    // template that happens to sit in that category is the reader's own and must survive.
+    expect(data?.templates.map((one) => one.id)).toEqual(['mine-in-templater'])
+    expect(data?.categories.map((one) => one.id)).toEqual(['cat-mine'])
+  })
+
+  it('says out loud when it clamps a body over the import ceiling', () => {
+    const huge = `<%* const x = "${'y'.repeat(TEMPLATE_IMPORT_LIMITS.maxContentLength + 1)}" %>`
+    const parsed = parseTemplateLibraryExport(
+      JSON.stringify(buildTemplateLibraryExport([], [template('big', { content: huge })])),
+      { keepFlags: true },
+    )
+    const kept = parsed.data?.templates.find((one) => one.id === 'big')
+    expect(kept, 'the entry itself is within the store\'s reach once clamped').toBeTruthy()
+    expect(kept?.content.length).toBeLessThanOrEqual(TEMPLATE_IMPORT_LIMITS.maxContentLength)
+    // The clamp used to be invisible: a Templater body cut mid-command imports as a template that prints
+    // `<% …` forever, and the dialog reported a clean import. `truncated` is the flag the import UI and the
+    // save route already refuse on.
+    expect(parsed.truncated).toBe(true)
   })
 })

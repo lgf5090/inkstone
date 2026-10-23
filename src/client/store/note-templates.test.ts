@@ -1,5 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { BUILTIN_TEMPLATE_DEFS, TEMPLATE_SEED_VERSION, buildTemplateLibraryExport } from '@shared/note-templates'
+import { BUILTIN_TEMPLATE_CATEGORIES, BUILTIN_TEMPLATE_DEFS, TEMPLATE_SEED_VERSION, buildTemplateLibraryExport } from '@shared/note-templates'
 import { DEFAULT_NEW_NOTE_TEMPLATE } from '@shared/constants'
 import type { NoteTemplate } from '@shared/types'
 import { initI18n, t } from '../lib/i18n'
@@ -102,7 +102,7 @@ describe('template library hydration', () => {
     expect(diary.content).toContain('{{title}}')
     expect(diary.content).not.toBe('template.diary.content')
     expect(state.categories.map((item) => item.id)).toEqual([
-      'productivity', 'tasks', 'learning', 'work', 'life', 'health', 'writing', 'industry',
+      'productivity', 'tasks', 'learning', 'work', 'life', 'health', 'writing', 'industry', 'templater',
     ])
     expect(library().seedVersion).toBe(TEMPLATE_SEED_VERSION)
     expect(state.hydrated).toBe(true)
@@ -219,7 +219,9 @@ describe('categories', () => {
     expect(tasks?.icon).toBeTruthy()
     expect(tasks?.color).toBeTruthy()
     const icons = new Set(fresh().categories.filter((item) => item.builtin).map((item) => item.icon))
-    expect(icons.size).toBe(8)
+    // One icon per built-in category, and the count is the catalog's own length rather than a second number
+    // to remember: a new category has to come with an icon and a colour to keep this true.
+    expect(icons.size).toBe(BUILTIN_TEMPLATE_CATEGORIES.length)
   })
 
   it('moves an orphaned template to uncategorized when its category goes', () => {
@@ -534,7 +536,7 @@ describe('account sync of the template library', () => {
     useNoteTemplates.setState({ categories: [], templates: [], hydrated: false, owner: '' })
     await fresh().hydrate('user-b')
     expect(fresh().templates.filter((item) => item.builtin)).toHaveLength(BUILTIN_TEMPLATE_DEFS.length)
-    expect(fresh().categories.filter((item) => item.builtin)).toHaveLength(8)
+    expect(fresh().categories.filter((item) => item.builtin)).toHaveLength(BUILTIN_TEMPLATE_CATEGORIES.length)
     expect(fresh().templates.some((item) => item.id === 'tpl-1')).toBe(true)
     expect(library().seedVersion).toBe(TEMPLATE_SEED_VERSION)
   })

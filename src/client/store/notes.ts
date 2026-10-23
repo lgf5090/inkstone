@@ -75,6 +75,14 @@ interface NotesState {
         tags?: string[];
         /** Caret offset for an explicitly supplied `content`; ignored when the template builds it. */
         cursor?: number | null;
+        /**
+         * Whether a template run is what made this note.
+         *
+         * The file-creation trigger must not fire on it, and this is the only place that can say so: the
+         * trigger listens for created notes, and a template that files a note through the ordinary path would
+         * otherwise trigger on its own output — the recursion upstream guards with a pending-template set.
+         */
+        fromTemplateRun?: boolean;
     }) => Promise<string | null>;
     createExcalidrawNote: (folderId?: string | null) => Promise<string | null>;
     createMindmapNote: (folderId?: string | null) => Promise<string | null>;
@@ -212,6 +220,38 @@ const validatedRevisions = new Map<string, number>();
 const purgedNoteIds = new Map<string, number | null>();
 const noteRequestEpochs = new Map<string, number>();
 const STALE_NOTE_REQUEST = Symbol('stale-note-request');
+
+/**
+ * Who wants to know that a note has just been created.
+ *
+ * A listener set rather than an import from the store into a feature: the templater's file-creation trigger
+ * has to see new notes, and `store/notes.ts` must not learn what a template is. The row is handed over
+ * because a listener needs the id, folder and revision the store actually settled on, and `fromTemplateRun`
+ * travels because only the caller knows whether a template made this note — nothing in the row says so, and
+ * guessing from its content is how a trigger either misses or recurses.
+ */
+type NoteCreatedListener = (note: Note, fromTemplateRun: boolean) => void;
+const noteCreatedListeners = new Set<NoteCreatedListener>();
+
+export function subscribeNoteCreated(listener: NoteCreatedListener): () => void {
+    noteCreatedListeners.add(listener);
+    return () => noteCreatedListeners.delete(listener);
+}
+
+function notifyNoteCreated(note: Note, fromTemplateRun: boolean): void {
+    // Copied first: a listener that unsubscribes while being called must not shift the set being walked.
+    for (const listener of [...noteCreatedListeners]) {
+        try {
+            listener(note, fromTemplateRun);
+        }
+        catch (error) {
+            // A listener is a feature watching an event, not a step of the create. Its failure must not
+            // unmake the note the reader just got, so it is logged and the rest still hear about it.
+            console.error('[inkstone] a note-created listener failed', error);
+        }
+    }
+}
+
 export const useNotes = create<NotesState>((set, get) => ({
     notes: {},
     contents: {},
@@ -737,6 +777,7 @@ export const useNotes = create<NotesState>((set, get) => ({
             try {
                 const note = await request;
                 adoptNote(note, set, get);
+                notifyNoteCreated(note, input?.fromTemplateRun === true);
                 if (isStarred && !note.isStarred)
                     await get().patchNote(note.id, { isStarred: true });
                 return note.id;
@@ -772,6 +813,7 @@ export const useNotes = create<NotesState>((set, get) => ({
         };
         const previousWorkspace = captureWorkspaceState();
         adoptNote(optimistic, set, get);
+        notifyNoteCreated(optimistic, input?.fromTemplateRun === true);
         if (input?.open !== false) {
             useUi.getState().setActiveNote(id);
             useUi.getState().setMobilePane('editor');

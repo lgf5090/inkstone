@@ -2,6 +2,8 @@ import { TAG_LIST_SEPARATOR } from '@shared/markdown-utils'
 export type GalleryFilter =
   | { kind: 'all' }
   | { kind: 'favorites' }
+  | { kind: 'templater' }
+  | { kind: 'script' }
   | { kind: 'uncategorized' }
   | { kind: 'community' }
   | { kind: 'category'; id: string }
@@ -9,7 +11,7 @@ export type GalleryFilter =
 
 export const GALLERY_PERSIST_KEY = 'inkstone.template-gallery.v1'
 
-const FILTER_KINDS = ['all', 'favorites', 'uncategorized', 'community', 'category', 'tag'] as const
+const FILTER_KINDS = ['all', 'favorites', 'templater', 'script', 'uncategorized', 'community', 'category', 'tag'] as const
 
 /**
  * What the gallery remembers between visits. The search text is deliberately not

@@ -25,6 +25,7 @@ import { foldersRoutes } from './routes/folders'
 import { tagsRoutes } from './routes/tags'
 import { communityTemplatesRoutes } from './routes/community-templates'
 import { templateLibraryRoutes } from './routes/template-library'
+import { templaterRoutes } from './routes/templater'
 import { quickAddRoutes } from './routes/quickadd'
 import { searchRoutes } from './routes/search'
 import { syncRoutes } from './routes/sync'
@@ -146,6 +147,7 @@ export function createApp() {
   app.route('/api/tags', tagsRoutes)
   app.route('/api/templates/community', communityTemplatesRoutes)
   app.route('/api/templates', templateLibraryRoutes)
+  app.route('/api/templater', templaterRoutes)
   app.route('/api/quickadd', quickAddRoutes)
   app.route('/api/rss', rssRoutes)
   app.route('/api/subscriptions', subscriptionRoutes)

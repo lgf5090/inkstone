@@ -11,7 +11,7 @@
 <p align="center">
   <a href="./README.md">English</a> ·
   <a href="./CONTRIBUTING.md">参与开发</a> ·
-  <a href="./LICENSE">LGPL-3.0-only</a> ·
+  <a href="./LICENSE">AGPL-3.0-only</a> ·
   <a href="https://inkstone-demo.pages.dev/">在线体验</a>
 </p>
 
@@ -38,6 +38,29 @@ Inkstone 是运行在 Cloudflare Workers 上的浏览器笔记本。笔记始终
 | 可迁移性 | JSON 与 ZIP 导出、可直接阅读的 **Markdown**、附件导出、**手动或定时 WebDAV/S3 备份** |
 | 界面 | **桌面与移动布局**、**深浅主题**、强调色、简体中文和英文，以及仅站长可见的版本更新提醒 |
 | 查询 | **Dataview** 的 `dataview` / `dataviewjs` 代码块支持 DQL 与内联属性，**Tasks** 的 `tasks` 代码块查询库内每一个复选框，分组排序后可在列表里直接勾选或编辑 |
+| 模板 | **模板引擎**在沙箱里运行 `<% … %>`，支持 `tp.*` 模块、用户脚本、预览里的 `<%+ … %>` 动态命令、模板快捷键、按文件夹与按路径正则的新文件触发、启动模板、应用内语法参考，以及一个按只读口径运行的社区模板库 |
+
+## 模板引擎
+
+模板就是代码。`<% … %>` 在模块 worker 里的 QuickJS wasm 中运行，带时间与内存预算；它读的、写的、创建的每一篇笔记，问的每一个问题，请求的每一个地址，都要回到页面这一道能力判定上。
+
+````markdown
+---
+title: <% tp.file.title %>
+day: <% tp.date.now("YYYY-MM-DD") %>
+---
+
+<%*
+const steps = ['把目标写下来', '拆成三步']
+tR += steps.map((one, i) => `- [ ] ${i + 1}. ${one}`).join('\n')
+%>
+````
+
+有三处选择是刻意的，不是顺带的：
+
+- 社区模板库里的模板不会就地运行。默认要求先加入你自己的模板库，而那一步正是你读过它的时刻；允许就地使用是一项需要确认的设置，而且即便允许，社区正文也只按只读运行——它能读的只有它正在应用的那篇笔记。
+- 发布一段会执行代码的正文，要你确认它确实会执行，因为只有你说得清它会在别人的设备上做什么。
+- 语法着色、模板快捷键、启动模板和用户脚本能不能跑，**按设备**保存，刻意不随账号同步——换一台机器登录，不会在那里开始运行代码。
 
 ## 任务查询
 
@@ -175,4 +198,6 @@ tests/        跨模块回归测试
 
 ## 许可证
 
-Inkstone 使用 [GNU Lesser General Public License v3.0 only](./LICENSE)，SPDX 标识为 `LGPL-3.0-only`。
+Inkstone 使用 [GNU Affero General Public License v3.0 only](./LICENSE)，SPDX 标识为 `AGPL-3.0-only`。
+
+Inkstone 以网络服务的形式提供，因此该许可证第 13 条适用于所有通过网络与其交互的使用者：他们必须能取得对应源码，包括为该部署所做的修改。参考源码即本仓库；自行改动代码的部署实例，必须向自己的用户暴露其对应源码。派生自其他 AGPL-3.0-only 项目的部分见 [`NOTICE`](./NOTICE)。

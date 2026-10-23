@@ -11,7 +11,7 @@
 <p align="center">
   <a href="./README_ZH.md">中文</a> ·
   <a href="./CONTRIBUTING.md">Contributing</a> ·
-  <a href="./LICENSE">LGPL-3.0-only</a> ·
+  <a href="./LICENSE">AGPL-3.0-only</a> ·
   <a href="https://inkstone-demo.pages.dev/">Demo</a>
 </p>
 
@@ -37,6 +37,35 @@ Every new account automatically receives two standard starter notes, one in Chin
 | Portability | JSON and ZIP exports, directly readable **Markdown**, attachment export, and **manual or scheduled WebDAV/S3 backups** |
 | Interface | **Desktop and mobile layouts**, **dark/light themes**, accent colors, Simplified Chinese, English, and owner-only update notifications |
 | Queries | **Dataview** `dataview` / `dataviewjs` blocks with DQL and inline fields, and **Tasks** `tasks` blocks that query every checkbox in the vault, group and sort the results, and tick or edit them from the list |
+| Templates | A **Templater engine** that runs `<% … %>` inside a QuickJS sandbox, the `tp.*` modules, user scripts, dynamic `<%+ … %>` commands in preview, per-template hotkeys, folder and pattern triggers, startup templates, an in-app syntax reference, and a shared gallery with its own read-only posture |
+
+## Template engine
+
+A template is code. `<% … %>` runs in QuickJS WebAssembly inside a module worker under a time and memory
+budget, and every note it reads, writes or creates, every prompt it asks and every address it reaches goes
+back through the page's one capability check.
+
+````markdown
+---
+title: <% tp.file.title %>
+day: <% tp.date.now("YYYY-MM-DD") %>
+---
+
+<%*
+const steps = ['write the goal down', 'split it into three']
+tR += steps.map((one, i) => `- [ ] ${i + 1}. ${one}`).join('\n')
+%>
+````
+
+Three choices are deliberate rather than incidental:
+
+- A template from the shared gallery does not run where it stands. The default asks you to add it to your
+  own library first, which is the step where you read it; letting it run directly is a setting you confirm,
+  and even then a gallery body runs read-only — it may read the note it is applied to and nothing else.
+- Publishing a body that runs code asks you to acknowledge that it does, because you are the only person
+  who can say what it will do on somebody else's device.
+- Highlighting, hotkeys, startup templates and user scripts are switched on **per device** and never travel
+  with the account, so signing in on another machine cannot start running code there.
 
 ## Task queries
 
@@ -186,4 +215,6 @@ Read [`SECURITY.md`](./SECURITY.md) before reporting a vulnerability. Developmen
 
 ## License
 
-Inkstone is distributed under the [GNU Lesser General Public License v3.0 only](./LICENSE), using the SPDX identifier `LGPL-3.0-only`.
+Inkstone is distributed under the [GNU Affero General Public License v3.0 only](./LICENSE), using the SPDX identifier `AGPL-3.0-only`.
+
+Because Inkstone is offered as a network service, clause 13 of that license applies to anyone who interacts with it over a network: they must be able to obtain the corresponding source, including any modifications made for that deployment. The reference source is this repository; a self-hosted instance that changes the code has to expose its own corresponding source to its users. See [`NOTICE`](./NOTICE) for the parts of the codebase that are derived from other AGPL-3.0-only projects.

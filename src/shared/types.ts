@@ -526,6 +526,76 @@ export interface SearchSettings {
   indexStorageMb: number
 }
 
+/** Which parts of a template function's documentation the completion popup shows. Upstream numbers these `0`–`4`. */
+export type TemplaterIntellisenseRender = '0' | '1' | '2' | '3' | '4'
+
+/** How a template is picked for a note the reader just created. `none` never applies one. */
+export type TemplaterFileCreationMode = 'none' | 'folder' | 'regex'
+
+/** Whether a community template may carry a user script that runs, or only one that is read. */
+export type TemplaterScriptPolicy = 'readonly' | 'trusted'
+
+/** One folder rule: a new note filed here gets this template applied. */
+export interface TemplaterFolderTrigger {
+  /** `null` is the tree root, which is a folder the reader can pick. */
+  folderId: string | null
+  templateId: string
+}
+
+/** One pattern rule: a new note whose path matches this regex gets this template applied. */
+export interface TemplaterFileTrigger {
+  regex: string
+  templateId: string
+}
+
+/**
+ * The chords a reader bound to one template, and what each chord does.
+ *
+ * `combo` is `null` rather than absent or empty because the settings screen shows one row per template:
+ * a row that exists but has no chord yet is a state the reader is in the middle of, not a different shape.
+ */
+export interface TemplaterHotkey {
+  templateId: string
+  combo: string | null
+  insert: boolean
+  create: boolean
+}
+
+/**
+ * The templater section.
+ *
+ * What a reader *runs* is not here: templates are rows in the template library, like RSS feeds are rows in
+ * their own library. This section carries the switches, the trigger lists and the chords — the small,
+ * always-needed part — because the whole blob is read on every start and written as one request.
+ *
+ * Two upstream settings are deliberately missing: the dangerous ones that decide *whether a template runs at
+ * all* on this device (`triggerOnFileCreation`, `enableStartupTemplates`) live in
+ * `client/lib/templater/device-prefs.ts` instead, so a reader's phone cannot start executing templates on
+ * their desktop just because they enabled it there once.
+ */
+export interface TemplaterSettings {
+  syntaxHighlighting: boolean
+  /** Mobile gets its own switch because upstream found the decorations costly on a small screen. */
+  syntaxHighlightingMobile: boolean
+  /** After a run, jump straight to the first `tp.file.cursor()` spot without waiting for the command. */
+  autoJumpToCursor: boolean
+  /** After creating a note from a template, focus the body rather than the title field. */
+  jumpToContentAfterCreate: boolean
+  intellisenseRender: TemplaterIntellisenseRender
+  fileCreationMode: TemplaterFileCreationMode
+  folderTemplates: TemplaterFolderTrigger[]
+  fileTemplates: TemplaterFileTrigger[]
+  /** Folders whose new notes are never triggered on, whatever the mode says. */
+  ignoreFoldersOnCreation: string[]
+  startupTemplates: string[]
+  templateHotkeys: TemplaterHotkey[]
+  /** The folder user scripts are read from; `null` is "no scripts", and the empty string normalises to it. */
+  userScriptsFolderId: string | null
+  communityScriptPolicy: TemplaterScriptPolicy
+  /** The reader's switch for `tp.web.*`. Off means a template's web calls are refused, not proxied. */
+  webRequestsEnabled: boolean
+}
+
 export interface UserSettings {
   appearance: AppearanceSettings
   /** The markdown linter: which rules are on, what each one wants, and what to leave alone. */
@@ -540,6 +610,7 @@ export interface UserSettings {
   dataview: DataviewSettings
   tasks: TasksSettings
   rss: RssSettings
+  templater: TemplaterSettings
   todo: TodoSettings
 }
 

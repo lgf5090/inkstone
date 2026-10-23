@@ -201,6 +201,24 @@
   text-decoration-color: var(--text-quaternary);
 }
 
+/* Templater commands: text the reader wrote but the renderer replaces. Only the editor's own marks are
+   painted here, so a template's edge stays legible inside running prose without touching the text.
+   The body borrows the inline-code colour because that is what it is; the delimiters take the syntax
+   punctuation token, and an execution command's delimiters take the keyword one so a block of code
+   reads as a block at a glance. */
+.cm-templater-delimiter {
+  color: var(--syntax-punctuation);
+}
+.cm-templater-body {
+  color: var(--code-inline-fg);
+  background: var(--accent-softer);
+  border-radius: var(--r-xs);
+}
+.cm-templater-execute.cm-templater-delimiter,
+.cm-templater-dynamic.cm-templater-delimiter {
+  color: var(--syntax-keyword);
+}
+
 
 .cm-md-codeblock-line {
   background: var(--bg-inset);
@@ -531,4 +549,20 @@
 .ink-editor .cm-foldPlaceholder:hover {
   background: var(--accent-soft);
   color: var(--accent);
+}
+
+/* The template library's body editor wears the note editor's chrome, because the marks, the line-number
+   gutter, the caret and the selection are the same things to paint. What it takes back is the prose: a
+   template body is code being written, so it has no typewriter padding to scroll past after the last line,
+   no measured column to centre itself in, and the monospace size the dialog's textarea carried rather than
+   the size the reader writes notes at. Last in this file on purpose — the `.ink-editor` rules above it,
+   including the phone ones inside the media query, are the ones being answered. */
+.ink-template-editor .cm-editor {
+  font-size: var(--text-12-5);
+}
+.ink-template-editor .cm-scroller {
+  padding-block: 0;
+}
+.ink-template-editor .cm-content {
+  max-width: none;
 }

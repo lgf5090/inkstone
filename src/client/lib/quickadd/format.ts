@@ -58,6 +58,21 @@ export interface PromptRequest {
   dateFormat: string | null
   /** Only for kind `date`: the answer may carry a time of day. */
   withTime: boolean
+  /**
+   * What the empty field says about itself. A token writes its default into the field *and* shows it
+   * while the field is blank, which is the behaviour every caller here has always had; a caller with
+   * hint text of its own — a template's `placeholder` argument — names it here instead.
+   */
+  placeholder?: string
+  /** Only for kind `suggester`: how many rows the list shows. Absent shows every row. */
+  limit?: number
+  /** Only for a multi-select: the options already ticked when the dialog opens. */
+  defaultPicks?: string[]
+  /**
+   * Only for a typed answer: the default is selected when the field takes focus, so the first keystroke
+   * replaces it instead of appending to it.
+   */
+  selectDefaultValue?: boolean
 }
 
 export interface FormatRuntime {

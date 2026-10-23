@@ -92,6 +92,20 @@ function payload(): Record<string, unknown> {
   return create.mock.calls.at(-1)?.[0] as Record<string, unknown>
 }
 
+/**
+ * Let a favorites press finish.
+ *
+ * The card no longer calls the create helper itself: it hands the template to the shell, which is a dynamic
+ * import away so that a menu press does not download the engine. The first press in a file therefore spends
+ * its time loading that module rather than writing the note, and a test that asserts after one microtask
+ * reads an empty mock and calls a working feature broken.
+ */
+async function settle(): Promise<void> {
+  await vi.waitFor(() => {
+    expect(create).toHaveBeenCalled()
+  }, { timeout: 5000, interval: 20 })
+}
+
 beforeEach(async () => {
   localStorage.clear()
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
@@ -151,6 +165,7 @@ describe('the template quick actions', () => {
     await render()
     await click(buttonNamed(t('templates.new_note_from_favorites')))
     await click(menuItems().find((node) => node.textContent?.trim() === 'Zeta'))
+    await settle()
     expect(payload().title).toBe('Zeta')
     expect(payload().folderId).toBe(JOURNAL.id)
   })
@@ -160,6 +175,7 @@ describe('the template quick actions', () => {
     await render({ folderId: IDEAS.id })
     await click(buttonNamed(t('templates.new_note_from_favorites')))
     await click(menuItems().find((node) => node.textContent?.trim() === 'Alpha'))
+    await settle()
     expect(payload().folderId).toBe(IDEAS.id)
   })
 

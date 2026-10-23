@@ -10,12 +10,23 @@
  */
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { DEFAULT_SETTINGS } from '@shared/constants'
 import { renderElement, type RenderedElement } from './lib/test-render'
 
 vi.mock('./store/session', () => {
   // `status: 'loading'` is the one state that renders the shell's layers without rendering a notebook:
   // the card is mounted beside `Toaster`, so proving it is on screen does not need a vault behind it.
-  const state = { status: 'loading', load: vi.fn(), user: null, site: null, logout: vi.fn() }
+  const state = {
+    status: 'loading',
+    load: vi.fn(),
+    user: null,
+    site: null,
+    logout: vi.fn(),
+    // The two Templater bridges App mounts read their rows off the settings, so a stub without them is a
+    // shell that cannot render — and the defaults are the real ones rather than a hand-made shape, so this
+    // cannot drift from what the store actually resolves.
+    settings: { templater: DEFAULT_SETTINGS.templater },
+  }
   return {
     useSession: (selector?: (s: typeof state) => unknown) => (selector ? selector(state) : state),
     watchSystemTheme: () => () => undefined,

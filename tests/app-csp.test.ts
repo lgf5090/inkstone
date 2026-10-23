@@ -118,6 +118,19 @@ it('serves a CSP without script-src unsafe-inline', async () => {
   expect(scriptSrc).toContain("'self'")
 })
 
+/**
+ * The note templates execute inside QuickJS, a WebAssembly module, so the served policy has to let the
+ * browser compile wasm — and must still refuse to let a page execute a string as code. Asserting both
+ * halves matters: `'wasm-unsafe-eval'` is the narrow permission, and a later edit that reaches for
+ * `'unsafe-eval'` instead would open `new Function` to every note while keeping the templates working.
+ */
+it('lets the browser compile the template interpreter, and nothing else', async () => {
+  const csp = await cspOf('http://localhost/robots.txt')
+  const scriptSrc = directive(csp, 'script-src')
+  expect(scriptSrc).toContain("'wasm-unsafe-eval'")
+  expect(scriptSrc).not.toContain("'unsafe-eval'")
+})
+
 /** The beacon Cloudflare's edge appends to every HTML response either loads or errors on every visit. */
 it('lets the analytics beacon the edge injects load and report', async () => {
   const csp = await cspOf('http://localhost/robots.txt')

@@ -15,6 +15,12 @@ export const Z_INDEX = {
   workspace: 230,
   /** `--z-prompt`: a command prompt, omnisearch prompt, filter sheet or preview card. */
   prompt: 240,
+  /**
+   * `--z-picker`: a chooser a reader opens *from inside* an open dialog. The dialog's own scrim covers
+   * the viewport at `--z-modal`, so a surface left on the drawer tier is not merely dimmed — every press
+   * lands on the scrim and closes the dialog behind it.
+   */
+  picker: 255,
   /** `--z-pop`: the floating `Menu` tier, and the image lightbox. */
   pop: 260,
   /** `--z-submenu`: a submenu flyout, one above the menu that opened it. */

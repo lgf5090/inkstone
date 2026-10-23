@@ -1351,6 +1351,9 @@ export function createDemoBackend(): DemoBackend {
   })
   app.post('/api/rss/fetch', () => apiError(400, 'bad_request', 'The demo cannot reach other websites'))
   app.get('/api/rss/relay', () => apiError(400, 'bad_request', 'The demo cannot reach other websites'))
+  // The template proxy answers the same refusal shape as the real route, so a template cannot tell the two
+  // deployments apart except by the reason: `{ error: { code, message } }` with a Templater code, 403.
+  app.post('/api/templater/fetch', () => apiError(403, 'web-blocked', 'The demo cannot reach other websites'))
 
   app.all('/api/*', () => apiError(404, 'not_found', 'Demo endpoint not found'))
 

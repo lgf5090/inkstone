@@ -25,6 +25,10 @@ import type {
   SkinTone,
   TaskStatusSetting,
   TasksSettings,
+  TemplaterFileTrigger,
+  TemplaterFolderTrigger,
+  TemplaterHotkey,
+  TemplaterSettings,
   TodoSettings,
   UserSettings,
   ViewKind,
@@ -35,6 +39,15 @@ import { DEFAULT_READING_SPEED_WPM } from './markdown-utils'
 import { version as packageVersion } from '../../package.json'
 
 export const APP_VERSION = packageVersion
+
+/**
+ * The largest settings request the route will read.
+ *
+ * Spelled here rather than in the worker because two things have to agree on it: the route that refuses a
+ * body, and the list ceilings above that were sized so one group can always be written inside it. A test in
+ * `./templater-settings.test.ts` builds the worst case and measures it against this number.
+ */
+export const SETTINGS_REQUEST_BUDGET_BYTES = 16 * 1024
 export const GITHUB_REPOSITORY_URL = 'https://github.com/shuaiplus/inkstone'
 export const GITHUB_PACKAGE_URL =
   'https://raw.githubusercontent.com/shuaiplus/inkstone/refs/heads/main/package.json'
@@ -166,6 +179,29 @@ export const LIMITS = {
   graphTagsMax: 20,
   graphExcludedMax: 200,
   graphColorGroupMax: 5,
+
+  /**
+   * The templater trigger and hotkey lists. These are ceilings on *count*, and the reason they exist is a
+   * byte budget: the settings screen writes one group in one request, the route refuses a body over
+   * {@link SETTINGS_REQUEST_BUDGET_BYTES}, and a list that could outgrow that budget is a switch the reader
+   * can set and never save again. Twenty of each is the largest set whose worst case — every id at full
+   * width, every pattern written in characters that take three bytes each — still fits the body with room
+   * for the rest of the group. An entry past the ceiling is dropped by `mergeSettings`, and the settings
+   * screen says how many rows it holds, so the drop is not silent.
+   *
+   * The plan asked for 100 and 200. That arithmetic does not survive the budget: a hundred patterns of a
+   * few hundred bytes each is a settings blob the route cannot be asked to take, so the counts came down
+   * rather than the ceiling going up — the budget is the same number every other group writes against.
+   */
+  templaterFolderTriggersMax: 20,
+  templaterFileTriggersMax: 20,
+  templaterIgnoredFoldersMax: 20,
+  templaterStartupMax: 20,
+  templaterHotkeysMax: 20,
+  /** One trigger pattern, one key chord, one row id — the three field widths inside those lists. */
+  templaterRegexMaxLength: 100,
+  templaterComboMaxLength: 40,
+  templaterIdMaxLength: 64,
 
   ftsContentChars: 200_000,
   /** What one note contributes to the client-side search index, in characters. */
@@ -532,6 +568,22 @@ export const DEFAULT_SETTINGS: UserSettings = {
     aiEnabled: false,
     aiLanguage: 'interface',
   },
+  templater: {
+    syntaxHighlighting: true,
+    syntaxHighlightingMobile: false,
+    autoJumpToCursor: false,
+    jumpToContentAfterCreate: false,
+    intellisenseRender: '1',
+    fileCreationMode: 'none',
+    folderTemplates: [],
+    fileTemplates: [],
+    ignoreFoldersOnCreation: [],
+    startupTemplates: [],
+    templateHotkeys: [],
+    userScriptsFolderId: null,
+    communityScriptPolicy: 'readonly',
+    webRequestsEnabled: false,
+  },
   todo: {
     defaultRemind: null,
     dailyGoal: null,
@@ -539,6 +591,11 @@ export const DEFAULT_SETTINGS: UserSettings = {
     savedFilters: [],
   },
 }
+
+/** The choices the templater section offers, spelled once so the merge and the panel cannot drift. */
+export const TEMPLATER_FILE_CREATION_MODES = ['none', 'folder', 'regex'] as const
+export const TEMPLATER_INTELLISENSE_RENDER = ['0', '1', '2', '3', '4'] as const
+export const TEMPLATER_SCRIPT_POLICIES = ['readonly', 'trusted'] as const
 
 /** The choices the RSS panel offers, spelled once so the merge and the panel cannot drift. */
 export const RSS_IMAGE_MODES = ['relay', 'direct', 'off'] as const
@@ -1397,7 +1454,135 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.rss.aiEnabled = booleanValue(rss.aiEnabled, DEFAULT_SETTINGS.rss.aiEnabled)
   base.rss.aiLanguage = enumValue(rss.aiLanguage, RSS_AI_LANGUAGES, DEFAULT_SETTINGS.rss.aiLanguage)
 
+  base.templater = normalizeTemplaterSettings(src.templater)
+
   return base
+}
+
+/**
+ * The templater section, rebuilt from the reader's blob rather than patched onto defaults.
+ *
+ * The lists are the reason. Each one is a set of references — a folder id, a template id, a chord — and a
+ * reference that points at nothing is a rule that silently never fires, which is worse than a rule that is
+ * gone: the reader would keep looking for the trigger they think they set. So an entry missing its id, or
+ * carrying one longer than the ceiling, is dropped here, and a list past its ceiling keeps the entries that
+ * fit in the order the reader wrote them. Nothing is repaired into a half-valid row.
+ *
+ * Ids are not checked against the note and template tables: this module is shared with the worker, which
+ * has no view of them, and a row that has since been deleted is answered where it is read (a trigger whose
+ * template is gone does nothing, and the settings screen says so).
+ */
+function normalizeTemplaterSettings(value: unknown): TemplaterSettings {
+  const source = asRecord(value)
+  const defaults = DEFAULT_SETTINGS.templater
+  return {
+    syntaxHighlighting: booleanValue(source.syntaxHighlighting, defaults.syntaxHighlighting),
+    syntaxHighlightingMobile: booleanValue(source.syntaxHighlightingMobile, defaults.syntaxHighlightingMobile),
+    autoJumpToCursor: booleanValue(source.autoJumpToCursor, defaults.autoJumpToCursor),
+    jumpToContentAfterCreate: booleanValue(source.jumpToContentAfterCreate, defaults.jumpToContentAfterCreate),
+    intellisenseRender: enumValue(source.intellisenseRender, TEMPLATER_INTELLISENSE_RENDER, defaults.intellisenseRender),
+    fileCreationMode: enumValue(source.fileCreationMode, TEMPLATER_FILE_CREATION_MODES, defaults.fileCreationMode),
+    folderTemplates: templaterFolderTriggers(source.folderTemplates),
+    fileTemplates: templaterFileTriggers(source.fileTemplates),
+    ignoreFoldersOnCreation: templaterIds(source.ignoreFoldersOnCreation, LIMITS.templaterIgnoredFoldersMax),
+    startupTemplates: templaterIds(source.startupTemplates, LIMITS.templaterStartupMax),
+    templateHotkeys: templaterHotkeys(source.templateHotkeys),
+    // Upstream stores the empty string for "no scripts folder"; one empty answer here is `null`, so a
+    // settings blob written by an older build cannot leave two ways of saying the same thing in play.
+    userScriptsFolderId: trimmedText(source.userScriptsFolderId, LIMITS.titleMaxLength) || null,
+    communityScriptPolicy: enumValue(source.communityScriptPolicy, TEMPLATER_SCRIPT_POLICIES, defaults.communityScriptPolicy),
+    webRequestsEnabled: booleanValue(source.webRequestsEnabled, defaults.webRequestsEnabled),
+  }
+}
+
+/** A list of ids: strings only, each within the ceiling, no repeats, capped at `max` in the reader's order. */
+function templaterIds(value: unknown, max: number): string[] {
+  if (!Array.isArray(value)) return []
+  const seen = new Set<string>()
+  const kept: string[] = []
+  for (const entry of value) {
+    const id = typeof entry === 'string' ? entry.trim() : ''
+    if (id === '' || id.length > LIMITS.templaterIdMaxLength || seen.has(id)) continue
+    seen.add(id)
+    kept.push(id)
+    if (kept.length === max) break
+  }
+  return kept
+}
+
+/**
+ * The folder trigger rows.
+ *
+ * A row needs a template to apply — that is the row's purpose — while its folder may be the tree root,
+ * which is a real choice a reader can make rather than a missing half.
+ */
+function templaterFolderTriggers(value: unknown): TemplaterFolderTrigger[] {
+  if (!Array.isArray(value)) return []
+  const kept: TemplaterFolderTrigger[] = []
+  const seen = new Set<string>()
+  for (const entry of value) {
+    const row = asRecord(entry)
+    const templateId = typeof row.templateId === 'string' ? row.templateId.trim() : ''
+    if (templateId === '' || templateId.length > LIMITS.templaterIdMaxLength || seen.has(templateId)) continue
+    const rawFolder = typeof row.folderId === 'string' ? row.folderId.trim() : ''
+    // A folder id too long to be one is not "the root": filing the rule at the root would make it fire on
+    // every new note, which is the opposite of what the reader wrote. The row goes instead.
+    if (rawFolder.length > LIMITS.templaterIdMaxLength) continue
+    const folderId = rawFolder === '' ? null : rawFolder
+    seen.add(templateId)
+    kept.push({ folderId, templateId })
+    if (kept.length === LIMITS.templaterFolderTriggersMax) break
+  }
+  return kept
+}
+
+/** The pattern trigger rows. A rule with no pattern would match every path, so such a row is dropped. */
+function templaterFileTriggers(value: unknown): TemplaterFileTrigger[] {
+  if (!Array.isArray(value)) return []
+  const kept: TemplaterFileTrigger[] = []
+  const seen = new Set<string>()
+  for (const entry of value) {
+    const row = asRecord(entry)
+    const templateId = typeof row.templateId === 'string' ? row.templateId.trim() : ''
+    const regex = typeof row.regex === 'string' ? row.regex.trim() : ''
+    if (templateId === '' || templateId.length > LIMITS.templaterIdMaxLength || seen.has(templateId)) continue
+    if (regex === '' || regex.length > LIMITS.templaterRegexMaxLength) continue
+    seen.add(templateId)
+    kept.push({ regex, templateId })
+    if (kept.length === LIMITS.templaterFileTriggersMax) break
+  }
+  return kept
+}
+
+/**
+ * The chord rows, keyed by template: one template can have one chord, because two on one id would be a
+ * row the settings screen cannot draw without asking which one the reader means.
+ */
+function templaterHotkeys(value: unknown): TemplaterHotkey[] {
+  if (!Array.isArray(value)) return []
+  const kept: TemplaterHotkey[] = []
+  const seen = new Set<string>()
+  for (const entry of value) {
+    const row = asRecord(entry)
+    const templateId = typeof row.templateId === 'string' ? row.templateId.trim() : ''
+    if (templateId === '' || templateId.length > LIMITS.templaterIdMaxLength || seen.has(templateId)) continue
+    const rawCombo = typeof row.combo === 'string' ? row.combo.trim() : ''
+    // A chord longer than any key-catcher can produce is a corrupted row, and a sliced chord is a shortcut
+    // that fires on keys nobody pressed. The row keeps its actions and answers "no chord", which the
+    // settings screen draws as the empty state the reader can fill in again.
+    const combo = rawCombo === '' || rawCombo.length > LIMITS.templaterComboMaxLength ? null : rawCombo
+    seen.add(templateId)
+    kept.push({
+      templateId,
+      combo,
+      // A chord with neither action chosen is a row the reader is still filling in, and it must survive
+      // the round trip as the default pair rather than being read as "insert and create".
+      insert: booleanValue(row.insert, false),
+      create: booleanValue(row.create, false),
+    })
+    if (kept.length === LIMITS.templaterHotkeysMax) break
+  }
+  return kept
 }
 
 
@@ -1739,6 +1924,14 @@ function cloneDefaultSettings(): UserSettings {
       defaultHiddenFields: [],
     },
     rss: { ...DEFAULT_SETTINGS.rss },
+    templater: {
+      ...DEFAULT_SETTINGS.templater,
+      folderTemplates: [],
+      fileTemplates: [],
+      ignoreFoldersOnCreation: [],
+      startupTemplates: [],
+      templateHotkeys: [],
+    },
     todo: { ...DEFAULT_SETTINGS.todo, savedFilters: [] },
   }
 }
