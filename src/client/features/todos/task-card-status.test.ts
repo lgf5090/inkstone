@@ -180,3 +180,30 @@ describe('the status in a card menu', () => {
     expect(menuTrigger(task('a', 'todo', 'Write the report')).className).toContain('size-11')
   })
 })
+
+describe('the tick a started row wears', () => {
+  /** The completion control: the row's only `role="checkbox"` outside the batch-selection mode. */
+  function checkbox(row: TodoTask): HTMLButtonElement {
+    const node = view!.container.querySelector<HTMLButtonElement>('button[role="checkbox"]')
+    expect(node, `the card for ${row.title} rendered no completion control`).not.toBeNull()
+    return node!
+  }
+
+  it('leaves a started row unticked and asks for it to be finished', () => {
+    // The row the reader is in the middle of is the row that is still owed: the tick stays empty and
+    // the control's own name offers to complete it, not to reopen it.
+    const row = task('a', 'in_progress', 'Write the report')
+    renderCard(row)
+
+    expect(checkbox(row).getAttribute('aria-checked')).toBe('false')
+    expect(checkbox(row).getAttribute('aria-label')).toBe(t('todo.a11y.mark_done', { title: row.title }))
+  })
+
+  it('ticks only the row that was actually finished', () => {
+    const row = task('a', 'done', 'Write the report')
+    renderCard(row)
+
+    expect(checkbox(row).getAttribute('aria-checked')).toBe('true')
+    expect(checkbox(row).getAttribute('aria-label')).toBe(t('todo.a11y.mark_open', { title: row.title }))
+  })
+})

@@ -327,6 +327,26 @@ describe('what counts as one completion', () => {
   })
 })
 
+describe('what the open bucket is measured over', () => {
+  it('counts a started row as work still owed, in the total and in the rate alike', async () => {
+    // The denominator of `completionRate` is finished-plus-open, so a reading of `in_progress` as
+    // finished does not merely shrink the open number: it quietly reports the account as done.
+    clock('2026-03-05T09:00:00Z')
+    const store = await withZone('UTC')
+    await seedCompleted({ title: 'Finished' })
+    await store.createTask({ title: 'Started late', status: 'in_progress', dueAt: Date.parse('2026-03-04T09:00:00Z') })
+    await store.createTask({ title: 'Started undated', status: 'in_progress' })
+
+    const answer = await stats('?from=2026-03-05&to=2026-03-05')
+
+    expect(answer.summary.completed).toBe(1)
+    expect(answer.summary.open).toBe(2)
+    // Only the dated one is past its hour; an undated row is owed without being late.
+    expect(answer.summary.overdue).toBe(1)
+    expect(answer.summary.completionRate).toBeCloseTo(1 / 3, 10)
+  })
+})
+
 describe('the cumulative flow replay', () => {
   const ONE_DAY = { from: '2026-03-02', to: '2026-03-02', bucket: 'day' as const }
   const EMPTY = { createdBefore: 0, doneBefore: 0, inProgressNow: 0 }

@@ -80,6 +80,22 @@ describe('a list', () => {
     ])
     expect(groups[0]!.tasks.map((entry) => entry.id)).toEqual(['moved-to-top', 'dated-first'])
   })
+
+  it('holds a started row in the open group, beside the untouched ones', () => {
+    // `groupByList` splits on the open/done predicate rather than on a status literal, because the list
+    // screen is where a reader sees the work they are in the middle of. Filed into "done" it would sit
+    // under the finished rows by completion time; dropped from both groups it would simply vanish from
+    // a page the server had just listed it on.
+    const groups = groupByList([
+      task('finished', { status: 'done', completedAt: 5 }),
+      task('started', { status: 'in_progress' }),
+      task('untouched'),
+    ])
+    expect(groups.map((group) => [group.key, group.tasks.map((entry) => entry.id)])).toEqual([
+      ['open', ['started', 'untouched']],
+      ['done', ['finished']],
+    ])
+  })
 })
 
 describe('the completed view', () => {

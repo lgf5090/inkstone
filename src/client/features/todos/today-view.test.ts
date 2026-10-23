@@ -333,6 +333,35 @@ describe('the today screen', () => {
     expect(service.batches.every((batch) => batch.op === 'due')).toBe(true)
   })
 
+  it('names a started row that slipped past its hour in the overdue batch too', async () => {
+    stubBreakpoint(true)
+    // The banner's number comes from the server's overdue count and the rows it acts on come from the
+    // same overdue view, which `OverdueShift` then reads once more through the open predicate before
+    // naming them to the batch route. A row the reader started is owed work, so dropping it at that
+    // last step would leave the toast promising to move two rows and the server moving one.
+    service.overdueRows = [
+      row('late-1', 'Pay rent', { dueAt: Date.now() - 86_400_000 }),
+      row('late-2', 'Send invoice', { dueAt: Date.now() - 3_600_000, status: 'in_progress' }),
+    ]
+    service.pageRows = [...service.overdueRows]
+
+    const container = await mount('/todo?view=today')
+    const shift = container.querySelector<HTMLButtonElement>('[data-todo-overdue-shift]')
+    expect(shift, 'the today screen offers no overdue shift').not.toBeNull()
+    expect(shift!.textContent).toContain('2')
+    // The store mirrors the page it was handed, started row included; the screen has no bucket of its
+    // own to drop it into before the press ever happens.
+    expect(useTodos.getState().tasks.map((task) => task.id)).toContain('late-2')
+
+    await act(async () => {
+      shift!.click()
+      await Promise.resolve()
+    })
+    await settle()
+
+    expect(service.batches).toEqual([{ ids: ['late-1', 'late-2'], op: 'due' }])
+  })
+
   it('caps the picker search to the shared query bound', async () => {
     stubBreakpoint(true)
     const container = await mount('/todo?view=today')

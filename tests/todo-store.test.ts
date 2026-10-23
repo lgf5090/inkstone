@@ -195,6 +195,38 @@ describe('the counts a sidebar and a card show', () => {
     const tag = (await store.listTaskTags()).find((entry) => entry.name === 'Focus')!
     expect(counts.byTag[tag.id]).toEqual({ open: 1, done: 1 })
   })
+
+  it('counts a started task as work the reader still owes in every badge at once', async () => {
+    // Four started rows, placed so each one lands in a different badge: an undated row is today's by
+    // being started, a late row is overdue and today's, a future row is upcoming and sits on a list
+    // card, and a tagged row is the starred one. A badge that read `in_progress` as finished would
+    // drop all four, and the `done` row is here so a badge that read it as finished cannot simply
+    // answer zero everywhere and pass.
+    const now = Date.now()
+    const dayEnd = now + 6 * HOUR
+    const list = await store.createTaskList({ name: 'Work' })
+    await store.createTask({ title: 'Started undated', status: 'in_progress' })
+    await store.createTask({ title: 'Started late', status: 'in_progress', dueAt: now - 2 * DAY, starred: true })
+    await store.createTask({ title: 'Started ahead', status: 'in_progress', dueAt: now + 3 * DAY, listId: list.id, tags: ['Focus'] })
+    await store.createTask({ title: 'Started today', status: 'in_progress', dueAt: now + HOUR, tags: ['Focus'] })
+    const done = await store.createTask({ title: 'Done', listId: list.id, tags: ['Focus'] })
+    await store.completeTask(done.id, 'UTC')
+
+    const counts = await store.taskCounts(dayEnd)
+
+    expect(counts).toMatchObject({ inbox: 3, today: 3, upcoming: 1, overdue: 1, all: 4, completed: 1, starred: 1 })
+    expect(counts.byList[list.id]).toEqual({ open: 1, done: 1 })
+    const tag = (await store.listTaskTags()).find((entry) => entry.name === 'Focus')!
+    expect(counts.byTag[tag.id]).toEqual({ open: 2, done: 1 })
+
+    // The same four rows are what the list, tag and collection screens count for themselves — the
+    // `openCount` a sidebar row prints is read off the open set, not off "not finished".
+    expect(tag.openCount).toBe(2)
+    const started = await store.getTaskList(list.id)
+    expect(started?.openCount).toBe(1)
+    expect(started?.doneCount).toBe(1)
+    expect((await store.listTaskLists()).find((entry) => entry.id === list.id)?.openCount).toBe(1)
+  })
 })
 
 describe('completing a task', () => {

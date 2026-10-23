@@ -7,7 +7,8 @@
  * `YYYY-MM-DD` in the account's zone rather than a flag that has to be cleared at midnight: a row
  * planned for yesterday simply stops equalling today when the calendar moves, which is why no cron
  * is involved. These cases pin that rollover, the pick and the clear, the date the route refuses,
- * and the rows that were in today before planning existed.
+ * the rows that were in today before planning existed, and the started row that is in today because
+ * the reader has it rather than because a date says so.
  */
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
@@ -192,6 +193,41 @@ describe('the today view', () => {
     expect(today.tasks.map((entry) => entry.id)).not.toContain(undated.id)
     expect(today.counts.today).toBe(today.tasks.length)
     expect(today.counts.today).toBe(2)
+  })
+
+  it('holds an in-progress task with no due date as today’s work', async () => {
+    // The started row is a today member for its own reason: it has no date at all, and the reader is
+    // already in it. `taskFilter` spells that reason next to the due and planned halves, and
+    // `taskCounts` repeats it, so a reading of "in progress means finished" would take the row out of
+    // the screen and the badge in the same edit — which is exactly the disagreement this pins.
+    const s = store()
+    const started = await s.createTask({ title: 'Write the draft', status: 'in_progress' })
+    expect(started.dueAt).toBeNull()
+    expect(started.plannedFor).toBeNull()
+
+    const today = await page()
+
+    expect(today.tasks.map((entry) => entry.id)).toEqual([started.id])
+    expect(today.counts.today).toBe(today.tasks.length)
+    expect(today.counts.today).toBe(1)
+  })
+
+  it('lists the started today row everywhere open work is read, and in no finished bucket', async () => {
+    const s = store()
+    const started = await s.createTask({ title: 'Write the draft', status: 'in_progress' })
+
+    // The other screens the same row appears on are reached through the route rather than the store, so
+    // the answer is the page the app renders: the open shelf it pages through, the sidebar total, and
+    // the finished view it must not have been filed under.
+    const open = await page('?view=open')
+    expect(open.tasks.map((entry) => entry.id)).toEqual([started.id])
+    expect(open.total).toBe(1)
+    expect(open.counts.all).toBe(1)
+    expect(open.counts.completed).toBe(0)
+
+    const completed = await page('?view=completed')
+    expect(completed.tasks).toEqual([])
+    expect(completed.total).toBe(0)
   })
 })
 
