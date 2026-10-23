@@ -86,7 +86,9 @@ export function SharePanel({ onClose, targetNote, onChanged }: {
         };
     }, [note?.id, reload]);
     useEffect(() => () => {
-        noteIdRef.current = null;
+        // Deliberately does not clear noteIdRef: that ref is only written during render, and a
+        // StrictMode remount runs this teardown without rendering again, which would leave every
+        // in-flight guard comparing against null and discard the answers that arrive.
         loadEpoch.current++;
         mutationEpoch.current++;
         busyRef.current = null;

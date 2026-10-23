@@ -1141,11 +1141,21 @@ export interface ShareInfo {
   expiresAt: number | null
   views: number
   createdAt: number
+  /** Whether the link answers a reader. A paused link exists, keeps its address, and serves a 410. */
+  isEnabled: boolean
+  /** When a reader last opened the link, or null for a link nobody has ever reached. */
+  lastViewedAt: number | null
+  /** The share's own organizer folder, not the note's — see `@shared/share-selection`. */
+  folderId: string | null
+  /** The share's own tag names, as stored on the row. */
+  tags: string[]
 }
 
 export interface ShareListItem extends ShareInfo {
   noteTitle: string
   deletedAt: number | null
+  isPinned: boolean
+  isStarred: boolean
 }
 
 export interface PublicNote {

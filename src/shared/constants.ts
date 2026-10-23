@@ -73,6 +73,26 @@ export const DEBOUNCE = {
 export const LIMITS = {
   passwordMaxLength: 128,
   sharePasscodeMinLength: 8,
+  /** Custom link tails: long enough to read, short enough to fit a QR code at a printable size. */
+  shareSlugMinLength: 3,
+  shareSlugMaxLength: 64,
+  /**
+   * A stored `Referer` is kept as origin + path only, and this is the ceiling on that. Browsers send
+   * headers far longer than any page a human links to, and the query string is where a token would
+   * ride along into an analytics row.
+   */
+  shareReferrerMaxLength: 500,
+  shareUserAgentMaxLength: 512,
+  /** One share's own tag list; the organizer's per-user ceiling is the outer bound on the records. */
+  shareTagsMaxPerShare: 20,
+  shareFoldersMaxPerUser: 500,
+  shareTagsMaxPerUser: 1_000,
+  shareCollectionsMaxPerUser: 200,
+  /** Rows a visit-log page answers with, and the ceiling on how deep paging may walk. */
+  shareVisitsPerPage: 100,
+  shareVisitsPageMax: 100,
+  shareVisitRetentionDays: 730,
+  shareAuditEntriesPerPage: 100,
   titleMaxLength: 512,
   // D1 limits an entire row to 2,000,000 bytes; reserve room for note metadata.
   contentMaxBytes: 1_900_000,
@@ -151,6 +171,18 @@ export const LIMITS = {
   /** What one note contributes to the client-side search index, in characters. */
   omnisearchDocumentChars: 100_000,
 } as const
+
+/**
+ * How far ahead "expiring soon" reaches.
+ *
+ * The list filter, the sidebar count and the dashboard badge all read this one number, because a
+ * window that means seven days in one place and fourteen in another makes a share appear in a
+ * category its own count says it is not in.
+ */
+export const EXPIRING_SOON_DAYS = 7
+
+/** Days without a single open before the hub calls a public link stale (SH-70). Zero turns the report off. */
+export const SHARE_STALE_DEFAULT_DAYS = 30
 
 /**
  * Cover image types the shelf is willing to keep in the cloud, and the extension each gets in the R2 key.

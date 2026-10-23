@@ -280,7 +280,7 @@ export function Segmented<T extends string>({
       aria-required={ariaRequired}
       aria-disabled={disabled || undefined}
       className={cn(
-        'relative inline-flex items-center gap-0.5 rounded-[var(--r-md)] bg-[var(--bg-inset)] p-[3px]',
+        'relative inline-flex flex-wrap items-center gap-0.5 rounded-[var(--r-md)] bg-[var(--bg-inset)] p-[3px]',
         'border border-[var(--border-subtle)]',
         className,
       )}
@@ -299,7 +299,7 @@ export function Segmented<T extends string>({
             onClick={() => onChange(option.value)}
             onKeyDown={roving.keyHandlerFor(index)}
             className={cn(
-              'relative z-10 inline-flex items-center justify-center gap-1.5 rounded-[var(--r-sm)] font-medium',
+              'relative z-10 inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-[var(--r-sm)] font-medium',
               'transition-[color,background-color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
               'disabled:pointer-events-none disabled:opacity-45',
               size === 'sm' ? 'h-8 px-2.5 text-[length:var(--text-11-5)] md:h-[22px] md:px-2' : 'h-9 px-3 text-[length:var(--text-12-5)] md:h-[26px] md:px-2.5',

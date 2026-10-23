@@ -20,6 +20,7 @@ export type PanelName =
   | 'templates'
   | 'versions'
   | 'share'
+  | 'share-hub'
   | 'quickadd'
 
 export type WorkspacePane = 'primary' | 'secondary'
