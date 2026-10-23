@@ -131,14 +131,16 @@ describe('creating a habit', () => {
 describe('tapping a day', () => {
   it('adds, and takes away, and leaves no row when the day is empty again', async () => {
     const habit = await newHabit('Water', { goal: 8 })
-    await addCounterTick(db, USER, habit.id, '2026-10-20', 1)
-    await addCounterTick(db, USER, habit.id, '2026-10-20', 1)
+    // The press answers with the day's total rather than repeating what it was asked, so a screen never
+    // draws what it hoped the day held.
+    expect(await addCounterTick(db, USER, habit.id, '2026-10-20', 1)).toBe(1)
+    expect(await addCounterTick(db, USER, habit.id, '2026-10-20', 1)).toBe(2)
     expect(tickRows(habit.id)).toEqual([{ day: '2026-10-20', amount: 2 }])
-    await addCounterTick(db, USER, habit.id, '2026-10-20', -1)
+    expect(await addCounterTick(db, USER, habit.id, '2026-10-20', -1)).toBe(1)
     expect(tickRows(habit.id)).toEqual([{ day: '2026-10-20', amount: 1 }])
-    // Undoing the last tap removes the row rather than writing a zero, so an untouched day and a day
-    // whose taps were all taken back are the same record — and the same answer.
-    await addCounterTick(db, USER, habit.id, '2026-10-20', -1)
+    // Undoing the last tap removes the row rather than writing a zero, so "untouched" and "all taken back"
+    // are the same record — and answer the same zero.
+    expect(await addCounterTick(db, USER, habit.id, '2026-10-20', -1)).toBe(0)
     expect(tickRows(habit.id)).toEqual([])
   })
 
@@ -178,7 +180,8 @@ describe('a habit\'s own stopwatch', () => {
     const began = Date.parse('2026-10-20T23:45:00Z')
     await startCounterTimer(db, USER, habit.id, began)
     const stopped = await stopCounterTimer(db, USER, habit.id, began + 30 * MINUTE, 'UTC')
-    expect(stopped?.runningSince).toBeNull()
+    expect(stopped?.counter.runningSince).toBeNull()
+    expect(stopped?.filed).toEqual({ day: '2026-10-20', amount: 1_800 })
     expect(tickRows(habit.id)).toEqual([{ day: '2026-10-20', amount: 1_800 }])
   })
 

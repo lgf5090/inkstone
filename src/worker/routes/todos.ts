@@ -27,8 +27,13 @@ import { localDate, localDayBounds, parseLocalTime } from '@shared/assistant-tim
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import {
   MAX_BATCH_TASKS,
+  COUNTER_KINDS,
+  COUNTER_WINDOW_DAYS,
+  MAX_COUNTERS_PER_ACCOUNT,
+  MAX_COUNTER_DAY_AMOUNT,
   WORKLOG_DIMENSIONS,
   WORKLOG_GROUP_LIMIT,
+  type CounterKind,
   type FinishDayBucket,
   type WorklogDimension,
   MAX_LIST_NAME_CHARS,
@@ -64,6 +69,16 @@ import { TASK_STATUSES, type TaskPriority, type TaskStatus } from '@shared/assis
 import { AssistantStore, type TaskQuery } from '../assistant/store'
 import { runIdempotent } from '../mcp/operations'
 import { insertFeed, listFeeds, revokeFeed, type OwnFeedRow } from '../todos/feeds'
+import {
+  addCounterTick,
+  createCounter,
+  deleteCounter,
+  getCounter,
+  loadCounterReadings,
+  startCounterTimer,
+  stopCounterTimer,
+  updateCounter,
+} from '../todos/counters'
 import { addDays, isStatsDay, loadTodoStats } from '../todos/stats'
 import { loadTrackedTotals, loadWorklog } from '../todos/worklog'
 
@@ -1374,6 +1389,159 @@ todoRoutes.delete('/tags/:id', async (c) => {
   if (!(await s.getTaskTag(id))) throw ApiError.notFound('Tag not found')
   await s.deleteTaskTag(id)
   return c.json({ deleted: true })
+})
+
+// ------------------------------------------------------------------ habits
+
+/**
+ * The habits page in one read: every habit with the days behind it.
+ *
+ * The listing carries each habit's day window as well as its row, because the screen shades a year behind
+ * every name and asking per habit would be one round trip per habit. `today` travels with the answer for
+ * the reason it travels on the end-of-day pass: a run of days is counted back from the reader's day, not
+ * from the server's clock.
+ */
+todoRoutes.get('/counters', async (c) => {
+  const timezone = (await store(c).getSettings()).timezone
+  const today = localDate(Date.now(), timezone)
+  return c.json({ today, readings: await loadCounterReadings(c.env.DB, c.get('userId'), today) })
+})
+
+/**
+ * What a habit asks of a day: a whole number of its own unit, or null for no target at all.
+ *
+ * Three states because the editor's three gestures reach the same field — absent is "leave the target
+ * alone", null is "the reader cleared it" — and folding the second into the first is how a clear silently
+ * keeps the old number.
+ */
+function asCounterGoal(value: unknown): number | null | undefined {
+  if (value === undefined) return undefined
+  if (value === null) return null
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > MAX_COUNTER_DAY_AMOUNT) {
+    throw ApiError.badRequest(`A habit target is a whole number from 0 to ${MAX_COUNTER_DAY_AMOUNT}.`)
+  }
+  return value
+}
+
+/**
+ * The kind a request names, read off the shared enum.
+ *
+ * A habit created without one counts taps, which is what a reader means by a checkbox; a kind the app
+ * does not have is refused by name rather than folded into the nearest one, because a "remind me every
+ * N minutes" habit accepted as a counter would be a silent promise nobody keeps.
+ */
+function asCounterKind(value: unknown): CounterKind {
+  if (value === undefined) return 'clicks'
+  if (typeof value === 'string' && (COUNTER_KINDS as readonly string[]).includes(value)) return value as CounterKind
+  throw ApiError.badRequest('A habit counts taps or seconds.')
+}
+
+/** How much one press adds or takes back, in the habit's unit. Zero is not a press. */
+function counterDelta(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value)) throw ApiError.badRequest('A habit tap is a whole number.')
+  if (value === 0) throw ApiError.badRequest('A tap of nothing changes nothing.')
+  if (Math.abs(value) > MAX_COUNTER_DAY_AMOUNT) {
+    throw ApiError.badRequest(`One tap reaches at most ${MAX_COUNTER_DAY_AMOUNT} times or seconds.`)
+  }
+  return value
+}
+
+/**
+ * The day a tap lands on: the reader's today, or the day they name for one they forgot.
+ *
+ * A habit cannot be tapped on a day that has not arrived, and a back-fill stops where the screen's own
+ * window stops — a day the habits page cannot draw is a day nobody can reach again, so writing one would
+ * be filing a record into the dark.
+ */
+function counterDay(value: unknown, today: string): string {
+  if (value === undefined) return today
+  if (typeof value !== 'string' || !isStatsDay(value)) throw ApiError.badRequest('A habit day is a date like 2026-01-31.')
+  if (value > today) throw ApiError.badRequest('A habit cannot be tapped on a day that has not arrived.')
+  if (value < addDays(today, -(COUNTER_WINDOW_DAYS - 1))) {
+    throw ApiError.badRequest(`A habit back-fill reaches back ${COUNTER_WINDOW_DAYS} days at most.`)
+  }
+  return value
+}
+
+todoRoutes.post('/counters', async (c) => {
+  const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
+  const counter = await createCounter(c.env.DB, c.get('userId'), {
+    title: text(body.title, MAX_LIST_NAME_CHARS, 'A habit name'),
+    kind: asCounterKind(body.kind),
+    icon: iconValue(body.icon) ?? null,
+    color: colorValue(body.color) ?? null,
+    goal: asCounterGoal(body.goal),
+  })
+  if (!counter) throw ApiError.badRequest(`A reader can keep at most ${MAX_COUNTERS_PER_ACCOUNT} habits.`)
+  return c.json({ counter }, 201)
+})
+
+todoRoutes.patch('/counters/:id', async (c) => {
+  const id = requiredId(c.req.param('id'))
+  const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
+  const counter = await updateCounter(c.env.DB, c.get('userId'), id, {
+    ...(body.title !== undefined ? { title: text(body.title, MAX_LIST_NAME_CHARS, 'A habit name') } : {}),
+    ...(body.kind !== undefined ? { kind: asCounterKind(body.kind) } : {}),
+    ...(body.icon !== undefined ? { icon: iconValue(body.icon) ?? null } : {}),
+    ...(body.color !== undefined ? { color: colorValue(body.color) ?? null } : {}),
+    ...(body.goal !== undefined ? { goal: asCounterGoal(body.goal) } : {}),
+  })
+  if (!counter) throw ApiError.notFound('Habit not found')
+  return c.json({ counter })
+})
+
+todoRoutes.delete('/counters/:id', async (c) => {
+  const id = requiredId(c.req.param('id'))
+  if (!await deleteCounter(c.env.DB, c.get('userId'), id)) throw ApiError.notFound('Habit not found')
+  return c.json({ deleted: true })
+})
+
+todoRoutes.post('/counters/:id/tick', async (c) => {
+  const id = requiredId(c.req.param('id'))
+  const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
+  const userId = c.get('userId')
+  if (!await getCounter(c.env.DB, userId, id)) throw ApiError.notFound('Habit not found')
+  const timezone = (await store(c).getSettings()).timezone
+  const today = localDate(Date.now(), timezone)
+  const day = counterDay(body.day, today)
+  return c.json({ day, amount: await addCounterTick(c.env.DB, userId, id, day, counterDelta(body.delta)) })
+})
+
+/**
+ * The habit a stopwatch runs on, or the refusal for one that counts taps.
+ *
+ * The kind is asked here rather than left to the store because "start the timer" on a tap habit is not a
+ * row the ledger cannot hold — it is a request the screen should never have offered, and a 400 naming it
+ * is the answer that says what happened.
+ */
+async function timerHabit(c: Ctx): Promise<string> {
+  const id = requiredId(c.req.param('id'))
+  const existing = await getCounter(c.env.DB, c.get('userId'), id)
+  if (!existing) throw ApiError.notFound('Habit not found')
+  if (existing.kind !== 'stopwatch') throw ApiError.badRequest('Only a habit that counts seconds can run a timer.')
+  return id
+}
+
+/**
+ * Starting a habit's run, on the server's clock.
+ *
+ * The request names no instant, so a device whose clock is wrong cannot move a run to another day, and a
+ * press replayed after a dropped response takes the run that is already going. An offline habit is not
+ * queued the way a task timer is: a tap that arrives an hour late has no honest day to land on.
+ */
+todoRoutes.post('/counters/:id/timer/start', async (c) => {
+  const id = await timerHabit(c)
+  const counter = await startCounterTimer(c.env.DB, c.get('userId'), id, Date.now())
+  if (!counter) throw ApiError.notFound('Habit not found')
+  return c.json({ counter })
+})
+
+todoRoutes.post('/counters/:id/timer/stop', async (c) => {
+  const id = await timerHabit(c)
+  const timezone = (await store(c).getSettings()).timezone
+  const stopped = await stopCounterTimer(c.env.DB, c.get('userId'), id, Date.now(), timezone)
+  if (!stopped) throw ApiError.notFound('Habit not found')
+  return c.json(stopped)
 })
 
 todoRoutes.get('/:id', async (c) => {

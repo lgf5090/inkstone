@@ -18,6 +18,7 @@ import {
   MAX_COUNTERS_PER_ACCOUNT,
   defaultColorFor,
   isCounterKind,
+  type CounterDay,
   type CounterKind,
   type CounterReading,
   type TodoCounter,
@@ -197,12 +198,13 @@ export async function deleteCounter(db: D1Database, userId: string, id: string):
 }
 
 /**
- * Adds to — or takes away from — one habit's day.
+ * Adds to — or takes away from — one habit's day, and answers with the day's new total.
  *
  * Both rules that make a tap safe to press twice on a bad line live in the statement rather than in what
  * the client believed: the day's total is clamped into `0..MAX_COUNTER_DAY_AMOUNT` by the database, and a
  * total that lands back on zero is removed instead of kept, so undoing the last tap leaves no row and an
- * untouched day keeps reading as a day nobody did rather than as a day with a record in it.
+ * untouched day keeps reading as a day nobody did rather than as a day with a record in it. The total
+ * comes back from the row, so the screen is told what the day holds rather than repeating what it asked.
  */
 export async function addCounterTick(
   db: D1Database,
@@ -210,7 +212,7 @@ export async function addCounterTick(
   counterId: string,
   day: string,
   delta: number,
-): Promise<void> {
+): Promise<number> {
   await db.batch([
     db.prepare(
       `INSERT INTO todos_counter_ticks (user_id, counter_id, day, amount)
@@ -222,6 +224,12 @@ export async function addCounterTick(
       .prepare(`DELETE FROM todos_counter_ticks WHERE user_id = ?1 AND counter_id = ?2 AND day = ?3 AND amount <= 0`)
       .bind(userId, counterId, day),
   ])
+  const row = await db
+    .prepare(`SELECT amount FROM todos_counter_ticks WHERE user_id = ?1 AND counter_id = ?2 AND day = ?3`)
+    .bind(userId, counterId, day)
+    .first<{ amount: number | null }>()
+  // No row is the same answer as a row of none: the zero-removal above is what makes them agree.
+  return Number(row?.amount ?? 0)
 }
 
 /**
@@ -274,12 +282,16 @@ export async function claimCounterTimer(
 /**
  * Stops a habit's stopwatch and files what it ran onto one day.
  *
- * Two statements, and the claim between them carries the answer. Reading the instant from the row rather
- * than from the request is what keeps a slow device's clock out of the ledger, and the claim is what keeps
- * a second tab from filing the same run again beside it.
+ * The claim between the read and the write carries the answer: a call that no longer names the run in the
+ * row filed nothing and says so, which is what keeps a late stop from stealing a run that began after it.
+ * Reading the instant from the row rather than from the request is what keeps a slow device's clock out of
+ * the ledger.
  *
  * The run lands on the day it began, in the account's zone, for the reason every other day column in this
  * schema is written at the write instead of derived at the read.
+ *
+ * `filed` is null when nothing was written — the run was already stopped, the clock went backwards, or the
+ * run was shorter than a second — so no caller reports a day it did not touch.
  */
 export async function stopCounterTimer(
   db: D1Database,
@@ -287,16 +299,23 @@ export async function stopCounterTimer(
   id: string,
   now: number,
   timezone: string,
-): Promise<TodoCounter | null> {
+): Promise<{ counter: TodoCounter, filed: CounterDay | null } | null> {
   const existing = await getCounter(db, userId, id)
-  if (!existing || existing.runningSince === null) return existing
-  if (!await claimCounterTimer(db, userId, id, existing.runningSince, now)) return await getCounter(db, userId, id)
+  if (!existing) return null
+  if (existing.runningSince === null) return { counter: existing, filed: null }
   const startedAt = existing.runningSince
+  if (!await claimCounterTimer(db, userId, id, startedAt, now)) {
+    const current = await getCounter(db, userId, id)
+    return current ? { counter: current, filed: null } : null
+  }
   // Whole seconds, floored at none: a clock that went backwards between the two calls did not run a
   // negative habit. The day's own ceiling is what catches a timer nobody stopped.
   const seconds = Math.max(0, Math.floor((now - startedAt) / 1000))
-  if (seconds > 0) await addCounterTick(db, userId, id, localDate(startedAt, timezone), seconds)
-  return await getCounter(db, userId, id)
+  const day = localDate(startedAt, timezone)
+  const amount = seconds > 0 ? await addCounterTick(db, userId, id, day, seconds) : 0
+  const counter = await getCounter(db, userId, id)
+  if (!counter) throw new Error(`The habit ${id} held a run but could not be read back.`)
+  return { counter, filed: amount > 0 ? { day, amount } : null }
 }
 
 /**
