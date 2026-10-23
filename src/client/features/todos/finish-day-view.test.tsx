@@ -18,7 +18,9 @@ import { renderElement, type RenderedElement } from '../../lib/test-render'
 import { FinishDayView } from './FinishDayView'
 import { readsOwnRows, useTodos } from './store'
 import { surfacesFor, TODO_SURFACES } from './views/registry'
+import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
+import { DEFAULT_TODO_WORKDAY } from '@shared/constants'
 import type { FinishDay, TaskCounts, TodoTask } from '@shared/todos/model'
 
 const NOW = 1_700_000_000_000
@@ -32,6 +34,8 @@ const service = vi.hoisted(() => ({
   worked: [] as string[],
   /** Rows the bucket holds but the page does not carry — the answer's way of saying "there is more". */
   extra: 0,
+  /** Closed spans the ledger holds for the day being closed. */
+  trackedMs: 0,
   plans: [] as { id: string, date: string | null }[],
   updates: [] as { id: string, patch: Record<string, unknown> }[],
   batches: [] as { ids: string[], op: string, value?: unknown }[],
@@ -53,6 +57,7 @@ function currentPass(): FinishDay {
     day: DAY,
     tomorrow: TOMORROW,
     timezone: 'UTC',
+    trackedMs: service.trackedMs,
     done: { rows: live.filter((task) => !open(task)), more: service.extra },
     worked: { rows: live.filter((task) => open(task) && service.worked.includes(task.id)), more: 0 },
     overdue: { rows: live.filter((task) => open(task) && task.dueAt !== null && task.dueAt < NOW), more: 0 },
@@ -161,6 +166,17 @@ function buttonWith(text: string): HTMLButtonElement | undefined {
     .find((entry) => (entry.textContent ?? '').includes(text))
 }
 
+/**
+ * The session settings with one planned working day, in minutes — or `null` for "nobody planned a day".
+ *
+ * The pass reads the plan out of the account's settings rather than being told it, so the case has to
+ * write it where the component will actually look.
+ */
+function patchWorkday(minutes: number | null) {
+  const settings = useSession.getState().settings
+  return { ...settings, todo: { ...settings.todo, workday: { ...DEFAULT_TODO_WORKDAY, dailyEstimateMinutes: minutes } } }
+}
+
 async function press(button: HTMLButtonElement): Promise<void> {
   await act(async () => {
     button.click()
@@ -194,7 +210,9 @@ beforeEach(async () => {
   service.batches.length = 0
   service.reads = 0
   service.fail = false
+  service.trackedMs = 0
   overlay.answer = true
+  useSession.setState({ settings: patchWorkday(null) })
   useTodos.setState(original, true)
   useUi.setState({ toasts: [] })
 })
@@ -353,6 +371,50 @@ describe('a pass that cannot be read', () => {
 
     expect(service.reads).toBe(2)
     expect(screen().querySelector('[role="alert"]')).toBeNull()
+  })
+})
+
+describe('the day against the plan', () => {
+  it('prints the planned length of a day beside the hours it actually spent', async () => {
+    useSession.setState({
+      settings: patchWorkday(300),
+    })
+    service.trackedMs = 5_400_000
+
+    await open()
+
+    const line = screen().querySelector('[data-finish-day-spent]')
+    expect(line, 'the pass drew no line about the day’s hours').toBeTruthy()
+    // The two numbers the reader came here to compare: an hour and a half spent, against five planned.
+    // The decimals are pinned rather than the digits alone, so a minutes/hours mix-up cannot pass by
+    // printing a number that happens to contain a five.
+    expect(line!.textContent).toContain('1.5')
+    expect(line!.textContent).toContain('5.0')
+  })
+
+  it('draws a dash rather than a zero for a day nobody planned', async () => {
+    useSession.setState({
+      settings: patchWorkday(null),
+    })
+    service.trackedMs = 5_400_000
+
+    await open()
+
+    // The setting being unset is not a plan of zero minutes: `—` is the worklog's own answer to a
+    // missing denominator, and `0` here would tell the reader they had nothing planned on purpose.
+    expect(screen().querySelector('[data-finish-day-spent]')?.textContent).toContain('—')
+  })
+
+  it('says a day of nothing spent as nothing spent', async () => {
+    useSession.setState({
+      settings: patchWorkday(300),
+    })
+
+    await open()
+
+    // The formatter rounds a small real amount up to one minute so a five-minute task does not vanish;
+    // that rounding must not turn an empty day into a day that held a minute.
+    expect(screen().querySelector('[data-finish-day-spent]')?.textContent).not.toMatch(/\b1\s*(min|m)\b/)
   })
 })
 

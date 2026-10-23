@@ -100,6 +100,33 @@ function eachDay(from: string, to: string): string[] {
 }
 
 /**
+ * The hours the ledger holds for one window, and how many closed spans they came from.
+ *
+ * Exported because two screens ask for exactly this number and must not be able to disagree about it:
+ * the statistics' worklog section, and the end-of-day pass, which reads it against the length the
+ * account planned for a day. `loadWorklog` takes its own totals from here, so there is one statement
+ * for "what time was spent" rather than one per caller.
+ *
+ * The two rules that make the number mean anything live in this one statement: only closed spans count
+ * (a timer nobody has stopped is not yet a fact), and a row the trash took away is out.
+ */
+export async function loadTrackedTotals(
+  db: D1Database,
+  userId: string,
+  range: { from: string, to: string },
+): Promise<{ entryCount: number, totalMs: number }> {
+  if (!isStatsDay(range.from) || !isStatsDay(range.to))
+    throw new Error('A tracked total window is a pair of YYYY-MM-DD days')
+  const row = await db.prepare(
+    `SELECT COUNT(*) AS n, SUM(${tracked('e')}) AS ms
+       FROM todos_time_entries e
+       JOIN todos_tasks t ON t.user_id = e.user_id AND t.id = e.task_id
+      WHERE e.user_id = ?1 AND e.day >= ?2 AND e.day <= ?3 AND e.end_at IS NOT NULL AND t.${LIVE_TASK}`,
+  ).bind(userId, range.from, range.to).first<TrackedRow>()
+  return { entryCount: Number(row?.n ?? 0), totalMs: Number(row?.ms ?? 0) }
+}
+
+/**
  * The worklog for one range, read from the ledger the account already holds.
  *
  * `from` and `to` are account-zone days the caller validated; `limit` caps how many groups come back,
@@ -123,12 +150,7 @@ export async function loadWorklog(
       GROUP BY e.day`,
   ).bind(...window).all<{ d: string; ms: number | null }>()
 
-  const totals = await db.prepare(
-    `SELECT COUNT(*) AS n, SUM(${tracked('e')}) AS ms
-       FROM todos_time_entries e
-       JOIN todos_tasks t ON t.user_id = e.user_id AND t.id = e.task_id
-      WHERE e.user_id = ?1 AND e.day >= ?2 AND e.day <= ?3 AND e.end_at IS NOT NULL AND t.${LIVE_TASK}`,
-  ).bind(...window).first<TrackedRow>()
+  const totals = await loadTrackedTotals(db, userId, { from, to })
 
   const grouped = await db.prepare(groupQuery(dimension).sql)
     .bind(...window).all<GroupRow>()
@@ -156,8 +178,8 @@ export async function loadWorklog(
 
   return {
     range: { from, to, dimension },
-    totalMs: Number(totals?.ms ?? 0),
-    entryCount: Number(totals?.n ?? 0),
+    totalMs: totals.totalMs,
+    entryCount: totals.entryCount,
     byDay: eachDay(from, to).map((day) => ({ day, trackedMs: byDay.get(day) ?? 0 })),
     byGroup: groups.slice(0, limit),
     truncatedGroups: Math.max(0, groups.length - limit),

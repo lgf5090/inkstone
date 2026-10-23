@@ -1259,6 +1259,14 @@ export interface FinishDay {
   day: string
   tomorrow: string
   timezone: string
+  /**
+   * Time the ledger holds for that day, closed spans only.
+   *
+   * This is the worklog's own number for a one-day window, taken from the same statement, because the
+   * day-close page and the statistics must not be able to disagree about how much of the day was spent.
+   * The end-of-day pass reads it against the length the account plans for a working day.
+   */
+  trackedMs: number
   /** Closed on this day, still off the shelf. The bucket the pass files away. */
   done: FinishDayBucket
   /** Still open, with a closed span on the ledger for this day. */

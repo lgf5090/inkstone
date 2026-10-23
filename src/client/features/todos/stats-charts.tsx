@@ -659,6 +659,9 @@ export function StackedBar({ slices, label }: { slices: readonly StatSlice[]; la
 /** A duration in the words a reader would use, not in milliseconds. */
 export function durationLabel(ms: number | null): string {
   if (ms === null) return '—'
+  // A day nobody worked on is zero, and it has to read as zero. The rounding-up below is for a real
+  // amount too small to print as 40 seconds — not for the absence of one, which a rounded-up "1 m" invents.
+  if (ms <= 0) return t('todo.stats.duration.minutes', { value: '0' })
   const minutes = ms / MINUTE_MS
   if (minutes < 60) return t('todo.stats.duration.minutes', { value: String(Math.max(1, Math.round(minutes))) })
   const hours = minutes / 60

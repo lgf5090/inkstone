@@ -230,6 +230,37 @@ describe('what tomorrow already holds', () => {
   })
 })
 
+describe('the hours the day spent', () => {
+  it('sums the closed spans of that day, and of that day only', async () => {
+    const task = await store.createTask({ title: 'Two days of work' })
+    await track(task.id, DAY, 2)
+    await track(task.id, YESTERDAY, 5)
+
+    expect((await pass()).trackedMs).toBe(2 * HOUR)
+    expect((await pass(`?day=${YESTERDAY}`)).trackedMs).toBe(5 * HOUR)
+  })
+
+  it('leaves a running timer and a deleted row out of the day', async () => {
+    const running = await store.createTask({ title: 'Timer still running' })
+    const trashed = await store.createTask({ title: 'Worked, then deleted' })
+    const kept = await store.createTask({ title: 'Kept' })
+    await store.openTimeEntry(running.id, Date.parse(`${DAY}T09:00:00Z`))
+    await track(trashed.id, DAY, 4)
+    await track(kept.id, DAY, 1)
+    await store.deleteTask(trashed.id)
+
+    // The same two rules the worklog answers with, because the day-close page and the statistics have to
+    // be able to sit beside each other and print one number.
+    expect((await pass()).trackedMs).toBe(HOUR)
+  })
+
+  it('is zero, and not an absence, when nothing was tracked', async () => {
+    await store.createTask({ title: 'A day of meetings nobody timed' })
+
+    expect((await pass()).trackedMs).toBe(0)
+  })
+})
+
 describe('the day the pass reads', () => {
   it('defaults to the account’s own today and echoes both days back', async () => {
     const answer = await pass()

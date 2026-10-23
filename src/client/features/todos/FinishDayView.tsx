@@ -20,9 +20,16 @@ import { Button } from '../../components/primitives'
 import { Empty } from '../../components/feedback'
 import { confirm } from '../../components/overlay'
 import { api } from '../../lib/api'
+import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
+import { DEFAULT_TODO_WORKDAY } from '@shared/constants'
+import { durationLabel } from './stats-charts'
+import { dueLabel } from './todo-ui'
 import { useTodos } from './store'
 import type { FinishDay, FinishDayBucket, TodoTask } from '@shared/todos/model'
+
+/** The minutes a planned working day is measured in, against the milliseconds the ledger stores. */
+const MINUTE_MS = 60_000
 
 /** How many the bucket holds: the rows drawn, plus the ones the page could not carry. */
 function bucketCount(bucket: FinishDayBucket): number {
@@ -34,10 +41,9 @@ function dayLabel(day: string): string {
   return new Intl.DateTimeFormat(localeTag(), { dateStyle: 'medium' }).format(new Date(`${day}T12:00:00`))
 }
 
-/** The line under a title that says when the row is owed. An undated row says nothing rather than guess. */
-function dueLine(task: TodoTask): string {
-  if (task.dueAt === null) return ''
-  return new Intl.DateTimeFormat(localeTag(), { dateStyle: 'medium' }).format(new Date(task.dueAt))
+/** The line under a title that says when the row is owed, in the words the plate already uses for it. */
+function dueLine(task: TodoTask, bounds: { dayEnd: number, now: number }, timezone: string): string {
+  return dueLabel(task.dueAt, bounds, timezone)?.text ?? ''
 }
 
 interface Action {
@@ -45,8 +51,7 @@ interface Action {
   run: () => Promise<void>
 }
 
-function TaskRow({ task, actions, busy }: { task: TodoTask, actions: Action[], busy: boolean }) {
-  const meta = dueLine(task)
+function TaskRow({ task, meta, actions, busy }: { task: TodoTask, meta: string, actions: Action[], busy: boolean }) {
   return (
     <li className="border-t border-[var(--border-subtle)] first:border-t-0">
       <div className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1.5 py-2">
@@ -71,6 +76,8 @@ function TaskRow({ task, actions, busy }: { task: TodoTask, actions: Action[], b
 interface SectionProps {
   title: string
   bucket: FinishDayBucket
+  /** The line under each row's title, in the words the plate already uses for the same date. */
+  meta: (task: TodoTask) => string
   /** The heading's own gesture, shown only while the bucket has rows to take. */
   aside?: Action
   asideBusy?: boolean
@@ -85,7 +92,7 @@ interface SectionProps {
  * screen asking the reader to confirm that nothing happened, and a section that vanishes after being
  * filed is the plainest proof the press landed.
  */
-function Section({ title, bucket, aside, asideBusy = false, actions, busyId }: SectionProps) {
+function Section({ title, bucket, meta, aside, asideBusy = false, actions, busyId }: SectionProps) {
   if (bucketCount(bucket) === 0) return null
   return (
     <section className="flex flex-col gap-1 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3">
@@ -101,7 +108,7 @@ function Section({ title, bucket, aside, asideBusy = false, actions, busyId }: S
       {bucket.rows.length > 0 && (
         <ul className="m-0 list-none p-0">
           {bucket.rows.map((task) => (
-            <TaskRow key={task.id} task={task} actions={actions(task)} busy={busyId === task.id} />
+            <TaskRow key={task.id} task={task} meta={meta(task)} actions={actions(task)} busy={busyId === task.id} />
           ))}
         </ul>
       )}
@@ -112,6 +119,17 @@ function Section({ title, bucket, aside, asideBusy = false, actions, busyId }: S
       )}
     </section>
   )
+}
+
+/**
+ * A planned working day, in the milliseconds the ledger speaks.
+ *
+ * `null` is the answer to "the reader named no length", and it stays a dash rather than becoming zero:
+ * a day nobody planned is not a day that hit none of a plan, which is the same missing-denominator rule
+ * the worklog's overrun follows.
+ */
+function plannedDayMs(minutes: number | null): number | null {
+  return minutes === null ? null : minutes * MINUTE_MS
 }
 
 export function FinishDayView() {
@@ -125,8 +143,12 @@ export function FinishDayView() {
   const [filing, setFiling] = useState(false)
 
   const planTask = useTodos((state) => state.planTask)
+  const dayEnd = useTodos((state) => state.dayEnd)
   const updateTask = useTodos((state) => state.updateTask)
   const reportUndo = useTodos((state) => state.reportUndo)
+  // The length the account plans for a working day. `null` is "no plan", and it stays a dash: a day
+  // nobody planned is not a day that hit zero per cent of a plan.
+  const workday = useSession((state) => state.settings.todo.workday) ?? DEFAULT_TODO_WORKDAY
 
   useEffect(() => {
     let live = true
@@ -255,14 +277,28 @@ export function FinishDayView() {
   }
 
   const tomorrow = answer.tomorrow
+  // The date under each row is the plate's own reading of a due date — same words, same "today" — so the
+  // close-out never describes a date differently than the list the row came from.
+  const metaOf = (task: TodoTask): string => dueLine(task, { dayEnd, now: Date.now() }, answer.timezone)
   const sectionsLeft = bucketCount(answer.done) + bucketCount(answer.worked)
     + bucketCount(answer.overdue) + bucketCount(answer.planned) === 0
 
   return (
     <div className="flex flex-col gap-3 p-3 pb-6" data-finish-day-view="">
-      <p className="text-[length:var(--text-12-5)] leading-relaxed text-[var(--text-tertiary)]">
-        {t('todo.finish_day.lead', { day: dayLabel(answer.day), tomorrow: dayLabel(tomorrow) })}
-      </p>
+      <div className="flex flex-col gap-1">
+        <p className="text-[length:var(--text-12-5)] leading-relaxed text-[var(--text-tertiary)]">
+          {t('todo.finish_day.lead', { day: dayLabel(answer.day), tomorrow: dayLabel(tomorrow) })}
+        </p>
+        {/* The day's hours against the length the account planned for one. This is the only screen that
+            reads that setting, which is what its own type comment promises: an input with no consumer is
+            a control that does nothing. */}
+        <p data-finish-day-spent="" className="text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">
+          {t('todo.finish_day.spent_against', {
+            spent: durationLabel(answer.trackedMs),
+            planned: durationLabel(plannedDayMs(workday.dailyEstimateMinutes)),
+          })}
+        </p>
+      </div>
 
       {sectionsLeft && (
         <Empty title={t('todo.empty.finish_day')} description={t('todo.empty.finish_day_hint')} />
@@ -271,6 +307,7 @@ export function FinishDayView() {
       <Section
         title={t('todo.finish_day.finished')}
         bucket={answer.done}
+        meta={metaOf}
         aside={{ label: t('todo.finish_day.file_away', { count: bucketCount(answer.done) }), run: fileAway }}
         asideBusy={filing}
         busyId={busyId}
@@ -280,6 +317,7 @@ export function FinishDayView() {
       <Section
         title={t('todo.finish_day.touched')}
         bucket={answer.worked}
+        meta={metaOf}
         busyId={busyId}
         actions={(task) => [toTomorrow(task), giveUp(task)]}
       />
@@ -287,6 +325,7 @@ export function FinishDayView() {
       <Section
         title={t('todo.finish_day.behind')}
         bucket={answer.overdue}
+        meta={metaOf}
         busyId={busyId}
         actions={(task) => [toTomorrow(task), giveUp(task)]}
       />
@@ -294,6 +333,7 @@ export function FinishDayView() {
       <Section
         title={t('todo.finish_day.tomorrow')}
         bucket={answer.planned}
+        meta={metaOf}
         busyId={busyId}
         actions={(task) => (task.plannedFor === tomorrow ? [unpick(task)] : [])}
       />

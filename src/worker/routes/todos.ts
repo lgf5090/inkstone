@@ -65,7 +65,7 @@ import { AssistantStore, type TaskQuery } from '../assistant/store'
 import { runIdempotent } from '../mcp/operations'
 import { insertFeed, listFeeds, revokeFeed, type OwnFeedRow } from '../todos/feeds'
 import { addDays, isStatsDay, loadTodoStats } from '../todos/stats'
-import { loadWorklog } from '../todos/worklog'
+import { loadTrackedTotals, loadWorklog } from '../todos/worklog'
 
 const BODY_LIMIT = JSON_BODY_LIMITS.settings
 const TITLE_MAX = 300
@@ -592,13 +592,23 @@ todoRoutes.get('/finish-day', async (c) => {
   const day = finishDayQuery(c, settings.timezone)
   const tomorrow = addDays(day, 1)
   const limit = finishDayLimit(c)
-  const [done, worked, overdue, planned] = await Promise.all([
+  const [done, worked, overdue, planned, tracked] = await Promise.all([
     finishBucket(s, { view: 'completed', completedFrom: day, completedTo: tomorrow }, limit),
     finishBucket(s, { workedOn: day }, limit),
     finishBucket(s, { view: 'overdue' }, limit),
     finishBucket(s, { owedOn: tomorrow }, limit),
+    loadTrackedTotals(c.env.DB, c.get('userId'), { from: day, to: day }),
   ])
-  return c.json({ day, tomorrow, timezone: settings.timezone, done, worked, overdue, planned })
+  return c.json({
+    day,
+    tomorrow,
+    timezone: settings.timezone,
+    trackedMs: tracked.totalMs,
+    done,
+    worked,
+    overdue,
+    planned,
+  })
 })
 
 /** The day a close-out reads: the one the address names, or the account's own today. */

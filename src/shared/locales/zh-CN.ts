@@ -8213,6 +8213,7 @@ console.log(\`Hello, \${name}!\`)
     "todo.group.none": "无日期",
     "todo.group.planned": "已排",
     "todo.finish_day.lead": "今天({day})剩下的事,和明天({tomorrow})已经接下的事。",
+    "todo.finish_day.spent_against": "今天花了 {spent},计划的一天是 {planned}。",
     "todo.finish_day.finished": "今天结束的",
     "todo.finish_day.touched": "动过工时,还开着",
     "todo.finish_day.behind": "已经过了日期",
