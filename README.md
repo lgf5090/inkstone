@@ -33,7 +33,7 @@ Every new account automatically receives two standard starter notes, one in Chin
 | Search | D1 FTS5 **full-text search** with Chinese indexing, filters, recent notes, command-palette navigation, and optional private **semantic/hybrid search** powered by Workers AI |
 | **MCP** | Private remote MCP, OAuth 2.1 with PKCE, revocable `ink_...` API keys, standard `search`/`fetch`, bounded reads, revision-safe writes, separate trash permission, and per-account grant management |
 | Reliability | Installable PWA, offline app launch, browser-side cache, **offline write queue and optimistic concurrency control**, immediate local mutations with rollback, stale-sync protection, conflict copies, realtime notifications, and elected-tab polling fallback |
-| Email | Owner-only mailbox after the to-do app: nested folders and tags, threads, search with saved searches, contacts and groups, a 30-day trash, batch actions, snooze, scheduled send with undo, rules, blocked senders, templates, signatures, vacation replies, a focused inbox, a Markdown composer that reuses the notebook's formatting toolbar, inline images, attachments through the shared attachment hub, an email-aware assistant, and opt-in MCP email tools |
+| Email | Owner-only mailbox after the to-do app: nested folders and tags, threads, search with saved searches, contacts and groups, a 30-day trash, batch actions, snooze, scheduled send with undo, rules, blocked senders, templates, signatures, vacation replies, a focused inbox, a Markdown composer that reuses the notebook's formatting toolbar, inline images, attachments through the shared attachment hub, an email-aware assistant that can inspect and change every part of the mailbox (sending, scheduling, and permanent deletion wait for one approval), and opt-in MCP email tools |
 | Sharing | Public note links with optional access passwords and expiration dates |
 | Portability | JSON and ZIP exports, directly readable **Markdown**, attachment export, and **manual or scheduled WebDAV/S3 backups** |
 | Interface | **Desktop and mobile layouts**, **dark/light themes**, accent colors, Simplified Chinese, English, and owner-only update notifications |
@@ -155,8 +155,9 @@ this occurrence and writes the next one, stamped with the dates the rule produce
    to the AI provider configured for the assistant (turn the switch off in the mailbox settings);
    the assistant sees an email only while the context chip is attached; MCP access to email is off
    until the owner enables it in MCP settings, and sending through MCP always needs explicit
-   confirmation. Remote images in received mail load by default, which tells the sender the message
-   was opened.
+   confirmation. The mail assistant can organize and change mailbox data directly; sending,
+   scheduling, and permanent deletion are proposed for one approval first. Remote images in received
+   mail load by default, which tells the sender the message was opened.
 
 Existing databases are upgraded automatically on startup with idempotent schema changes. Keep a current backup before updating any self-hosted deployment. When a newer stable Inkstone release is available, the owner receives a focused reminder without interrupting regular members.
 
