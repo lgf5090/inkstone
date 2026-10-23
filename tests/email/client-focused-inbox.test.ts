@@ -111,6 +111,20 @@ describe('the focused inbox list control', () => {
     expect(document.querySelector('[role="radiogroup"]')).toBeNull()
   })
 
+  it('names the empty view after the chosen focus filter', () => {
+    const empty = { messages: [], total: 0 }
+    view = renderElement(createElement(MessageList, listProps({ ...empty, focusFilter: 'focused' })))
+    expect(document.body.textContent).toContain(t('email.list.empty.focused'))
+    view.unmount()
+
+    view = renderElement(createElement(MessageList, listProps({ ...empty, focusFilter: 'other' })))
+    expect(document.body.textContent).toContain(t('email.list.empty.other'))
+    view.unmount()
+
+    view = renderElement(createElement(MessageList, listProps({ ...empty })))
+    expect(document.body.textContent).toContain(t('email.list.empty.inbox'))
+  })
+
   it('passes the focus filter to the list call and resets it outside the inbox', async () => {
     const list = vi.spyOn(api.email, 'listEmails').mockResolvedValue({ emails: [], totalCount: 0 })
     useEmailStore.getState().setFocusFilter('focused')

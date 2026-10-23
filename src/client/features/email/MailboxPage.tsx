@@ -324,6 +324,7 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
     const name = await prompt({
       title: t('email.saved_search.save_title'),
       description: t('email.saved_search.save_hint'),
+      defaultValue: query,
       placeholder: query,
       confirmLabel: t('email.saved_search.save'),
     })

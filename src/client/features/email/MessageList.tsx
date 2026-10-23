@@ -80,6 +80,11 @@ export function MessageList({
   const showFocusFilter = !searchMode && folderId === 'inbox' && focusedInboxEnabled
   const allSelected = messages.length > 0 && messages.every((message) => selectedIds.has(message.id))
   const someSelected = messages.some((message) => selectedIds.has(message.id))
+  const emptyTitle = searchMode
+    ? t('email.search.empty')
+    : showFocusFilter && focusFilter !== 'all'
+      ? t(focusFilter === 'focused' ? 'email.list.empty.focused' : 'email.list.empty.other')
+      : listEmptyText(folderId ?? 'inbox', false)
   return (
     <section aria-label={t('email.a11y.message_list')} className="flex min-h-0 flex-1 flex-col bg-[var(--bg-base)]">
       <div className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] px-3">
@@ -111,7 +116,7 @@ export function MessageList({
         {refreshing && <Spinner size={12} />}
         <span
           aria-live={searchMode ? 'polite' : undefined}
-          className="shrink-0 text-[length:var(--text-10-5)] tabular-nums text-[var(--text-quaternary)]"
+          className="hidden shrink-0 text-[length:var(--text-10-5)] tabular-nums text-[var(--text-quaternary)] sm:inline"
         >
           {searchMode
             ? t(total === 1 ? 'email.search.results_one' : 'email.search.results_other', { count: total })
@@ -140,7 +145,7 @@ export function MessageList({
         <Empty
           art={searchMode ? 'search' : folderId === 'trash' ? 'trash' : folderId === 'archive' ? 'archive' : 'folder'}
           compact
-          title={searchMode ? t('email.search.empty') : listEmptyText(folderId ?? 'inbox', false)}
+          title={emptyTitle}
           description={searchMode ? t('email.search.empty_hint') : undefined}
           action={folderId === 'trash'
             ? <Button size="sm" variant="ghost" onClick={onManageTrash}>{t('email.trash.manage')}</Button>

@@ -100,6 +100,7 @@ describe('the save search action', () => {
 
     expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
       title: t('email.saved_search.save_title'),
+      defaultValue: query,
       placeholder: query,
     }))
     expect(create).toHaveBeenCalledWith('a1', { name: 'Invoices', query })
