@@ -54,6 +54,25 @@ export type AssistantMemorySource = (typeof ASSISTANT_MEMORY_SOURCES)[number]
 export const TASK_STATUSES = ['todo', 'in_progress', 'done'] as const
 export type TaskStatus = (typeof TASK_STATUSES)[number]
 
+/**
+ * The finished state as the notebook's board and the chat's task surface read it.
+ *
+ * Those surfaces draw a `Task`, so they share this type, but they answer a two-state question —
+ * finished or not — and the notes board has no abandoned state to draw: a kanban column and the
+ * chat's "on me today" list gain nothing from a third terminal status. The to-do app's own rule is
+ * `TASK_OPEN_STATUSES`/`TASK_DONE_STATUSES` in `shared/todos/status`, and widening those sets is
+ * deliberate work with its own tests; this list exists so that widening them cannot quietly move a
+ * notebook UI. A reader who wants a cancelled column on the board should widen this list there, not
+ * borrow the app's sets.
+ */
+export const TASK_DONE_STATUSES_LEGACY: readonly TaskStatus[] = ['done']
+
+/** Whether a task reads as finished on the notes board or the chat's task surface. */
+export function isTaskDoneLegacy(status: unknown): boolean {
+  return typeof status === 'string'
+    && (TASK_DONE_STATUSES_LEGACY as readonly string[]).includes(status)
+}
+
 export const TASK_PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const
 export type TaskPriority = (typeof TASK_PRIORITIES)[number]
 
