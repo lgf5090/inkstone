@@ -92,6 +92,14 @@ export interface TaskDraft {
   conversationId?: string | null
   noteId?: string | null
   steps?: string[]
+  /**
+   * What the reader plans the task to take, in milliseconds, or null for no plan.
+   *
+   * The wire name the task routes read, kept as it goes over the network so a draft is one shape on the
+   * way in and on the way out. A quick-add line that wrote `2h` lands here; the spent half of `5m/2h`
+   * does not, because that is a ledger entry rather than a property of the row.
+   */
+  timeEstimate?: number | null
 }
 
 interface TodosState {
@@ -815,6 +823,12 @@ function applyTodoPatch(task: TodoTask, patch: Record<string, unknown>): TodoTas
   if (patch.projectId === null) next.projectId = null
   else if (typeof patch.projectId === 'string') next.projectId = patch.projectId
   if (typeof patch.starred === 'boolean') next.starred = patch.starred
+  // The estimate is the one ledger field a reader writes directly, so the optimistic row has to move it
+  // too: a chip that kept printing the old plan after a saved change would be a row that disagreed with
+  // itself for as long as the request took. `timeEstimate` is the wire name the routes speak.
+  if ('timeEstimate' in patch) {
+    next.timeEstimateMs = typeof patch.timeEstimate === 'number' ? patch.timeEstimate : null
+  }
   if (Array.isArray(patch.tags)) next.tags = tagsForNames(patch.tags.filter((tag): tag is string => typeof tag === 'string'))
   if (Array.isArray(patch.reminders)) {
     const reminders = patch.reminders.filter((at): at is number => typeof at === 'number' && Number.isFinite(at))

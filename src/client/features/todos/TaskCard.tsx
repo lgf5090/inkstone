@@ -13,7 +13,7 @@
  */
 
 import { useEffect, useId, useRef, useState } from 'react'
-import { CalendarMinus, Check, CircleDot, MoreHorizontal, Paperclip, Star } from 'lucide-react'
+import { CalendarMinus, Check, CircleDot, Hourglass, MoreHorizontal, Paperclip, Star } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { api } from '../../lib/api'
@@ -24,16 +24,27 @@ import { Input } from '../../components/form'
 import { Menu, useContextMenu } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useTodos } from './store'
+import { EstimateDialog } from './estimate-picker'
 import { buildTaskContextMenuItems, buildTaskMenuItems, TASK_ROW_MENU_WIDTH } from './task-menu'
 import { attachFilesToTask } from './task-attachments'
 import { BatchContextMenu } from './BatchBar'
 import { dueLabel, priorityDot, priorityLabel } from './todo-ui'
 import { taskColorOf } from './task-face'
 import { ListIcon } from './list-icons'
+import { formatTaskDuration } from '@shared/todos/duration'
 import type { SnoozeMinutes, TaskList, TodoTask } from '@shared/todos/model'
 
 /** How long a finger has to stay down before the row joins a selection instead of opening. */
 const LONG_PRESS_MS = 500
+
+/**
+ * The whole of the consumption bar, as the share a reader reads.
+ *
+ * A percentage rather than a fraction because the value is handed to the layout as the width of a
+ * strip: `100` is "the plan is spent", and a running row past its plan is clamped to it rather than
+ * being allowed to overflow the row it belongs to.
+ */
+const ESTIMATE_BAR_FULL = 100
 
 /**
  * How far a press on the title may travel before it is the drag the row is draggable for.
@@ -311,6 +322,28 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
   const due = dueLabel(task.dueAt, bounds, timezone)
   const done = task.status === 'done'
   const progress = task.stepTotal > 0 ? t('todo.steps.progress', { done: task.stepDone, total: task.stepTotal }) : null
+  /**
+   * What this row's ledger says, and what it can be made to say.
+   *
+   * Three readings, none of them stored twice: the plan the reader made, the closed intervals the
+   * ledger holds, and the instant of the one interval still running. The chip is shown when either
+   * number means something, and the bar under a *tracked* row is the only one of the three that is
+   * allowed to be seen moving — which is why it is the running row alone that wears it.
+   */
+  const estimateMs = task.timeEstimateMs ?? null
+  const spentMs = task.timeSpentMs ?? 0
+  const runningSince = task.runningSince ?? null
+  // The chip is the only door to a plan that is not the editor, so it is always on the row: a task
+  // with neither an estimate nor logged time still has to be able to acquire its first one.
+  // What that state shows is the hourglass alone — an empty label would read as a rendering bug.
+  const timeLabel = estimateMs === null
+    ? (spentMs > 0 ? formatTaskDuration(spentMs) : '')
+    : `${formatTaskDuration(spentMs)} / ${formatTaskDuration(estimateMs)}`
+  /** How far a tracked row has gone through its plan, as the share of the bar that is filled. */
+  const estimateProgress = runningSince === null || estimateMs === null || estimateMs <= 0
+    ? null
+    : Math.min(ESTIMATE_BAR_FULL, Math.round(((spentMs + Math.max(0, bounds.now - runningSince)) / estimateMs) * ESTIMATE_BAR_FULL))
+  const [estimateOpen, setEstimateOpen] = useState(false)
   const menuRef = useRef<HTMLButtonElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   /**
@@ -625,6 +658,22 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
       {dropState === 'after' && (
         <span aria-hidden="true" data-todo-drop-line="after" className="pointer-events-none absolute right-1 bottom-0 left-1 h-0.5 rounded-full bg-[var(--accent)]" />
       )}
+      {estimateProgress !== null && (
+        // The plan being eaten, drawn where the reader's eye already is.
+        //
+        // Silent by design and marked as such: the numbers it pictures are in the row's own text, so
+        // a second announcement of the same fact would be read twice. The width is a runtime value and
+        // therefore a CSS variable rather than a class, and the strip is the row's — measured against
+        // the row it belongs to, not floated over the page.
+        <span
+          aria-hidden="true"
+          data-todo-estimate-bar=""
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-[3px] bg-[var(--bg-active)]"
+          style={{ ['--todo-estimate-progress' as string]: `${estimateProgress}` }}
+        >
+          <span className="block h-full w-[calc(var(--todo-estimate-progress)*1%)] bg-[var(--accent)]" />
+        </span>
+      )}
       {fileHover && (
         // The row says what it will do with the file before the pointer lets go, in the same words the
         // attachment hub uses for the same gesture. The toast is what a reader is told afterwards; this
@@ -797,6 +846,25 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
           {progress && (
             <span className="text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">{progress}</span>
           )}
+          {(
+            // The ledger on the row, and the door that changes the plan behind it.
+            //
+            // It has to be lifted out of the row's own press: the body of a card is covered by an
+            // absolutely positioned button, and a static sibling painted under it would take the
+            // reader's click as "open the task" — an estimate control that opens something else is
+            // exactly how a hit line goes missing. `relative` plus `pointer-events-auto` is the same
+            // recipe the title's own box uses to sit above that layer.
+            <button
+              type="button"
+              data-todo-estimate=""
+              aria-label={t('todo.time.edit_aria', { title: task.title })}
+              onClick={() => { setEstimateOpen(true) }}
+              className="pointer-events-auto relative inline-flex min-h-7 items-center gap-1 rounded-full border border-[var(--border-subtle)] px-1.5 text-[length:var(--text-11)] tabular-nums text-[var(--text-tertiary)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] md:min-h-6"
+            >
+              <Hourglass size={11} aria-hidden="true" />
+              {timeLabel}
+            </button>
+          )}
           {showList && !compact && list && (
             <span className="inline-flex max-w-[130px] min-w-0 items-center gap-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
               {list.icon
@@ -872,6 +940,19 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
         )}
       </span>
       <Menu anchor={menuRef} open={menuOpen} onClose={() => setMenuOpen(false)} items={menuItems} align="end" width={184} label={t('todo.task.actions')} />
+      <EstimateDialog
+        key={task.id}
+        open={estimateOpen}
+        title={task.title}
+        estimate={estimateMs}
+        onClose={() => { setEstimateOpen(false) }}
+        onSave={(value) => {
+          setEstimateOpen(false)
+          // Nothing is sent when the number did not change: a save that rewrote an identical estimate
+          // would spend the row's revision and offer an undo for a thing the reader never altered.
+          if (value !== estimateMs) void updateTask(task.id, { timeEstimate: value })
+        }}
+      />
       {/*
        * One menu per right-click, and which one it is follows the mode the reader is in. While rows are
        * picked every action belongs to the group, so the bar's own vocabulary answers; otherwise the row

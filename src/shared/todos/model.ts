@@ -175,6 +175,44 @@ export const MAX_SINGLE_TIME_ENTRY_MS = 4 * 60 * 60_000
 export const MAX_DAY_TRACKED_MS = 24 * 60 * 60_000
 
 /**
+ * The largest estimate one task may carry, in milliseconds.
+ *
+ * Ten days of work is the ceiling a reader plans against, and one hundred hours is already a project
+ * rather than a task; a bigger number is a client that mistyped a unit, and storing it would make every
+ * consumption bar on the screen read as empty. Null — no estimate — is always accepted and is what a
+ * clear writes.
+ */
+export const MAX_TIME_ESTIMATE_MS = 10 * 24 * 60 * 60_000
+
+/**
+ * The estimate presets the picker offers, in milliseconds.
+ *
+ * The same ladder the reference app puts beside its free-text field: quarters, halves and whole hours up
+ * to a working day. They are values rather than labels because a label is the reader's language and this
+ * file is not — `formatTaskDuration` renders whichever one is picked, and the custom entry parses the same
+ * words back.
+ */
+export const TIME_ESTIMATE_PRESETS_MS = [
+  5 * 60_000,
+  10 * 60_000,
+  15 * 60_000,
+  30 * 60_000,
+  45 * 60_000,
+  60 * 60_000,
+  90 * 60_000,
+  120 * 60_000,
+  180 * 60_000,
+  240 * 60_000,
+  360 * 60_000,
+  480 * 60_000,
+] as const
+
+/** Whether a value is an estimate the task row may carry: a whole number of milliseconds inside the ceiling. */
+export function isTimeEstimateMs(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= MAX_TIME_ESTIMATE_MS
+}
+
+/**
  * The most tasks one batch may name.
  *
  * A batch is a gesture over a selection a person made on screen, and a hundred rows is more than one
@@ -359,6 +397,31 @@ export interface TodoTask extends Task {
    * arrive at all. Reads outside the sync stream leave it absent, not empty.
    */
   timeEntries?: TodoTimeEntry[]
+  /**
+   * What the reader planned for this task, in milliseconds, or null when nobody estimated one.
+   *
+   * The row's own column (`todos_tasks.time_estimate_ms`, migration 148): a plan is a fact the reader
+   * stated, so it is stored rather than derived. Absent on a row read before the column existed.
+   */
+  timeEstimateMs?: number | null
+  /**
+   * What the ledger says this task has actually taken, in milliseconds.
+   *
+   * Derived, never stored (D3): the sum of the task's *closed* intervals, so a timer still running is
+   * not counted — it is not yet a fact, and counting the open slot is how "yesterday" starts growing
+   * while nobody watches. The listing reads it in the same statement it reads the rows in, so a page of
+   * a hundred tasks costs no second read per row.
+   */
+  timeSpentMs?: number
+  /**
+   * When this task's running interval began, or null while nothing is running on it.
+   *
+   * Derived from the account's one open ledger row, which `ux_todos_time_open` guarantees is at most
+   * one: a non-null value is the whole of "this task is being timed", and the surfaces that show a
+   * running timer read this rather than keeping a second flag of their own. The elapsed clock a screen
+   * paints is interpolated from it locally; nothing asks the server every second.
+   */
+  runningSince?: number | null
   stepTotal: number
   stepDone: number
 }

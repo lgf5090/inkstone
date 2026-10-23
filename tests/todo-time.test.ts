@@ -505,6 +505,127 @@ describe('the sync stream carries the ledger', () => {
   })
 })
 
+// ---------------------------------------------------------- the task's own face
+
+describe('the ledger reaches the task face', () => {
+  /**
+   * Statements prepared while the recorder is on.
+   *
+   * The listing's promise is that a page of a hundred tasks costs the same one aggregate read as a page
+   * of ten: the ledger is cut into the statement that reads the rows, so a second read — especially one
+   * that would have to chunk an id list at `ID_READ_BATCH` — is the regression this counts.
+   */
+  const prepared: string[] = []
+  let recording = false
+
+  function countedD1(inner: D1Database): D1Database {
+    return new Proxy(inner, {
+      get(target, property, receiver) {
+        if (property === 'prepare') {
+          return (sql: string) => {
+            if (recording) prepared.push(sql)
+            return target.prepare(sql)
+          }
+        }
+        const value = Reflect.get(target, property, receiver)
+        return typeof value === 'function' ? value.bind(target) : value
+      },
+    })
+  }
+
+  /** Re-point the fixture's env and store at a recording view of the same database. */
+  function startRecording(): void {
+    const db = countedD1(env.DB as D1Database)
+    env = { ...env, DB: db } as Env
+    store = new AssistantStore(db as D1Database, USER, env)
+    prepared.length = 0
+    recording = true
+  }
+
+  function stopRecording(): number {
+    recording = false
+    return prepared.filter((sql) => /todos_time_entries/.test(sql)).length
+  }
+
+  it('answers the listing with the estimate, the spent total and the running instant', async () => {
+    freeze(Date.parse('2026-06-10T12:00:00Z'), Date.parse('2025-06-10T12:00:00Z'))
+    const now = Date.now()
+    const timed = await store.createTask({ title: 'Measured', timeEstimateMs: 2 * HOUR })
+    const idle = await store.createTask({ title: 'Never touched' })
+    await store.addManualTime(timed.id, now - 3 * HOUR, now - 2 * HOUR)
+    // A closed interval and a running one on the same row: only the closed part is a fact.
+    await store.addManualTime(timed.id, now - 90 * 60_000, now - HOUR)
+    await store.openTimeEntry(timed.id, now - 10 * 60_000)
+
+    const page = await jsonOf(send('GET', ``))
+    const rows = page.tasks as Array<Record<string, unknown>>
+    const timedRow = rows.find((row) => row.id === timed.id)!
+    const idleRow = rows.find((row) => row.id === idle.id)!
+
+    expect(timedRow.timeEstimateMs).toBe(2 * HOUR)
+    expect(timedRow.timeSpentMs).toBe(HOUR + 30 * 60_000)
+    expect(timedRow.runningSince).toBe(now - 10 * 60_000)
+    // No estimate is null rather than zero, and nothing spent is zero rather than absent: the card has
+    // to be able to tell "nobody planned this" from "this took no time".
+    expect(idleRow.timeEstimateMs).toBeNull()
+    expect(idleRow.timeSpentMs).toBe(0)
+    expect(idleRow.runningSince).toBeNull()
+  })
+
+  it('reads the ledger once for a page of a hundred tasks, not once per row', async () => {
+    for (let index = 0; index < 100; index++) {
+      const task = await store.createTask({ title: `Row ${index}` })
+      await store.addManualTime(task.id, 1_000, 1_000 + 10 * 60_000)
+    }
+    startRecording()
+    const page = await jsonOf(send('GET', ``))
+    const ledgerReads = stopRecording()
+    expect((page.tasks as unknown[]).length).toBe(100)
+    expect(ledgerReads, `the listing read the ledger ${ledgerReads} times; it must ride in the page's own statement`)
+      .toBe(1)
+  })
+
+  it('keeps one account\'s running task as the only row answering a running instant', async () => {
+    freeze(Date.parse('2026-06-10T12:00:00Z'), Date.parse('2025-06-10T12:00:00Z'))
+    const now = Date.now()
+    const a = await store.createTask({ title: 'First' })
+    const b = await store.createTask({ title: 'Second' })
+    await store.openTimeEntry(a.id, now - HOUR)
+    await store.openTimeEntry(b.id, now - 5 * 60_000)
+
+    const rows = (await store.listTasks()).filter((task) => task.id === a.id || task.id === b.id)
+    expect(rows.find((task) => task.id === a.id)!.runningSince).toBeNull()
+    expect(rows.find((task) => task.id === b.id)!.runningSince).toBe(now - 5 * 60_000)
+    // The interval the second start closed is already a fact, so the first row's spent total carries it.
+    expect(rows.find((task) => task.id === a.id)!.timeSpentMs).toBe(55 * 60_000)
+  })
+
+  it('accepts an estimate on the way in and refuses a nonsense one out loud', async () => {
+    const created = await jsonOf(send('POST', ``, { title: 'Planned', timeEstimate: HOUR }))
+    const task = created.task as Record<string, unknown>
+    expect(task.timeEstimateMs).toBe(HOUR)
+
+    const patched = await jsonOf(send('PATCH', `/${task.id as string}`, { timeEstimate: 90 * 60_000 }))
+    expect((patched.task as Record<string, unknown>).timeEstimateMs).toBe(90 * 60_000)
+
+    const cleared = await jsonOf(send('PATCH', `/${task.id as string}`, { timeEstimate: null }))
+    expect((cleared.task as Record<string, unknown>).timeEstimateMs).toBeNull()
+
+    for (const bad of ['2h', -1, 1.5, 1e15]) {
+      expect((await send('PATCH', `/${task.id as string}`, { timeEstimate: bad })).status,
+        `an estimate of ${String(bad)} was accepted`)
+        .toBe(400)
+    }
+  })
+
+  it('leaves the estimate alone when a patch does not name one', async () => {
+    const created = await jsonOf(send('POST', ``, { title: 'Keeps its plan', timeEstimate: 2 * HOUR }))
+    const task = created.task as { id: string }
+    const patched = await jsonOf(send('PATCH', `/${task.id}`, { title: 'Renamed' }))
+    expect((patched.task as Record<string, unknown>).timeEstimateMs).toBe(2 * HOUR)
+  })
+})
+
 // --------------------------------------------------------------------- backup
 
 describe('the backup carries the ledger and the estimate', () => {

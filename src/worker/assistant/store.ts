@@ -1042,6 +1042,14 @@ export interface NewTask {
   tags?: string[]
   /** Step texts, created in order. Only read by `createTask`. */
   steps?: string[]
+  /**
+   * What the reader plans this task to take, in milliseconds, or null for no estimate.
+   *
+   * The row's own column rather than a ledger fact: a plan is something a person stated. The route
+   * judges the ceiling and the shape; a caller that names it in `updateTask` replaces it, and null takes
+   * it back out — which is a different answer from `0`, and both are different from "nobody said".
+   */
+  timeEstimateMs?: number | null
 }
 
 /**
@@ -1229,6 +1237,34 @@ function reminderTimesOf(packed: string | null): number[] {
   if (!packed) return []
   return normalizeReminderTimes(packed.split(',').map(Number))
 }
+
+/**
+ * The ledger's two readings of a task, packed into the columns of the page that lists it.
+ *
+ * `time_spent_ms` sums the task's closed intervals and `running_since` is the instant of its open one
+ * — the two derived fields every task face shows, computed by the same statement that reads the rows
+ * rather than by a read per row. That is the whole reason for the shape, and it is the reason a
+ * aggregate over an id list is not: a listing already carries the tags and the step counts of its rows,
+ * and `tests/todos-server-filter.test.ts` pins the number of statements one page costs. A second read
+ * would have to name the page's ids, and ids are chunked at `ID_READ_BATCH` (90) because of the
+ * bound-variable ceiling — so a hundred tasks would be *two* aggregate round trips and a thousand would
+ * be six. Cut into the page's own select, one hundred tasks and five hundred are the same one statement,
+ * which is the contract `tests/todo-time.test.ts` holds this to.
+ *
+ * The running interval is deliberately absent from the sum: a timer nobody has stopped is not yet a
+ * fact, and counting it is how "yesterday" starts growing while nobody watches. It is reported beside
+ * the sum instead, so a screen can show both without guessing which one is live.
+ *
+ * `ux_todos_time_open` makes the open row at most one for the account, so the second subquery returns
+ * a scalar by the same guarantee the timer methods rely on.
+ */
+const TASK_TIME_ROLLUP = `(
+  SELECT COALESCE(SUM(e.end_at - e.start_at), 0) FROM todos_time_entries e
+   WHERE e.user_id = todos_tasks.user_id AND e.task_id = todos_tasks.id AND e.end_at IS NOT NULL
+) AS time_spent_ms, (
+  SELECT o.start_at FROM todos_time_entries o
+   WHERE o.user_id = todos_tasks.user_id AND o.task_id = todos_tasks.id AND o.end_at IS NULL
+) AS running_since`
 
 /**
  * Attach the face a write lost to the row it landed on, leaving the row untouched when it lost nothing.
@@ -4310,7 +4346,7 @@ export class AssistantStore {
     const limit = q.add(Math.min(query.limit ?? pageSize, MAX_TASKS_PER_QUERY))
     const offset = query.offset && query.offset > 0 ? ` OFFSET ${q.add(Math.trunc(query.offset))}` : ''
     return await this.rows<TaskRow>(
-      `SELECT *, ${TASK_REMINDER_TIMES} FROM todos_tasks WHERE ${q.where}
+      `SELECT *, ${TASK_REMINDER_TIMES}, ${TASK_TIME_ROLLUP} FROM todos_tasks WHERE ${q.where}
         ORDER BY ${taskOrder(query.sort, query.view)} LIMIT ${limit}${offset}`,
       ...q.binds,
     )
@@ -4387,7 +4423,7 @@ export class AssistantStore {
   async getTask(id: string): Promise<TodoTask | null> {
     const q = this.taskQuery().eq('id', id)
     const row = await this.one<TaskRow>(
-      `SELECT *, ${TASK_REMINDER_TIMES} FROM todos_tasks WHERE ${q.where}`,
+      `SELECT *, ${TASK_REMINDER_TIMES}, ${TASK_TIME_ROLLUP} FROM todos_tasks WHERE ${q.where}`,
       ...q.binds,
     )
     if (!row) return null
@@ -4504,8 +4540,8 @@ export class AssistantStore {
       `INSERT INTO todos_tasks
          (id, user_id, title, description, status, priority, due_at, start_at, project_id, list_id,
           icon, color, starred, repeat_rule, note_id, conversation_id, created_at, updated_at,
-          completed_at, created_on, completed_on, planned_for)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)`,
+          completed_at, created_on, completed_on, planned_for, time_estimate_ms)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)`,
     ).bind(
       this.userId, id, input.title.trim().slice(0, 300), input.description ?? '', status, input.priority ?? 'medium',
       input.dueAt ?? null, input.startAt ?? null, input.projectId ?? null, input.listId ?? null,
@@ -4513,6 +4549,7 @@ export class AssistantStore {
       repeat ? JSON.stringify(repeat) : null, input.noteId ?? null,
       input.conversationId ?? null, at, at, status === 'done' ? at : null,
       createdOn, status === 'done' ? createdOn : null, input.plannedFor ?? null,
+      input.timeEstimateMs ?? null,
     )
     await this.db.batch([insert, this.taskEvent(id, at, createdOn, 'born', null, status)])
     if (input.tags?.length) await this.replaceTaskTags(id, input.tags)
@@ -4664,6 +4701,10 @@ export class AssistantStore {
       if (color !== null || patch.color === null || patch.color === '') fields.push(['color', color])
     }
     if (patch.starred !== undefined) fields.push(['starred', patch.starred ? 1 : 0])
+    // The estimate is the row's own column, so it is written like one: absent leaves the plan the reader
+    // made alone, null takes it back out, and a number replaces it. Nothing here reads the ledger —
+    // `timeSpentMs` is derived on the way out and has no column to be written into (D3).
+    if (patch.timeEstimateMs !== undefined) fields.push(['time_estimate_ms', patch.timeEstimateMs])
     if (patch.repeat !== undefined) fields.push(['repeat_rule', patch.repeat ? JSON.stringify(patch.repeat) : null])
     if (patch.noteId !== undefined) fields.push(['note_id', patch.noteId])
     if (patch.conversationId !== undefined) fields.push(['conversation_id', patch.conversationId])
@@ -4864,7 +4905,7 @@ export class AssistantStore {
     const limit = Math.min(Math.max(1, Math.trunc(options.limit ?? TRASH_PAGE_SIZE)), MAX_TASKS_PER_QUERY)
     const offset = Math.max(0, Math.trunc(options.offset ?? 0))
     const rows = await this.rows<TaskRow>(
-      `SELECT *, ${TASK_REMINDER_TIMES} FROM todos_tasks WHERE ${q.where}
+      `SELECT *, ${TASK_REMINDER_TIMES}, ${TASK_TIME_ROLLUP} FROM todos_tasks WHERE ${q.where}
         ORDER BY deleted_at DESC, id DESC LIMIT ${q.add(limit)} OFFSET ${q.add(offset)}`,
       ...q.binds,
     )
@@ -5012,7 +5053,7 @@ export class AssistantStore {
     const q = this.taskQuery()
     q.raw(`title LIKE ${q.add(containsPattern(ref))} ESCAPE '\\'`)
     const list = await this.rows<TaskRow>(
-      `SELECT *, ${TASK_REMINDER_TIMES} FROM todos_tasks WHERE ${q.where}
+      `SELECT *, ${TASK_REMINDER_TIMES}, ${TASK_TIME_ROLLUP} FROM todos_tasks WHERE ${q.where}
         ORDER BY status = 'done', updated_at DESC LIMIT 2`,
       ...q.binds,
     )
@@ -8229,6 +8270,12 @@ interface TaskRow {
   created_at: number
   updated_at: number
   completed_at: number | null
+  /** What the reader planned for this task, in milliseconds, or null while nobody estimated one. */
+  time_estimate_ms: number | null
+  /** `TASK_TIME_ROLLUP`: the task's closed ledger total, in milliseconds. */
+  time_spent_ms: number | null
+  /** `TASK_TIME_ROLLUP`: the instant of this task's open interval, or null while none is running. */
+  running_since: number | null
   /** The row's version: 1 when written, moved on by every write path. */
   rev: number
   /** When the row was moved to the trash, or null while it is live. */
@@ -8299,6 +8346,12 @@ function toTask(
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     completedAt: num(r.completed_at),
+    // The ledger's two readings ride in on the page's own select (`TASK_TIME_ROLLUP`); the estimate is
+    // the row's own column. All three are absent — not zero — on a row read without those columns, so a
+    // caller that never asked cannot be handed a number the database did not answer.
+    timeEstimateMs: num(r.time_estimate_ms),
+    timeSpentMs: num(r.time_spent_ms) ?? 0,
+    runningSince: num(r.running_since),
     rev: r.rev,
     deletedAt: num(r.deleted_at),
   }

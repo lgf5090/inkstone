@@ -35,6 +35,7 @@ import {
   MAX_TAG_NAME_CHARS,
   MAX_TASKS_PER_QUERY,
   MAX_TIME_ENTRY_AGE_DAYS,
+  MAX_TIME_ESTIMATE_MS,
   MAX_TIMER_START_FUTURE_MS,
   REMIND_OFFSETS,
   isSnoozeMinutes,
@@ -42,6 +43,7 @@ import {
   isTaskSort,
   isTaskStatsBucket,
   isTaskView,
+  isTimeEstimateMs,
   normalizeReminderTimes,
   normalizeTagNames,
   parseRepeatRule,
@@ -145,6 +147,26 @@ function asPriority(value: unknown): TaskPriority {
 
 function asBoolean(value: unknown, field: string): boolean {
   if (typeof value !== 'boolean') throw ApiError.badRequest(`${field} must be true or false`)
+  return value
+}
+
+/**
+ * A planned duration, in milliseconds — or nothing at all.
+ *
+ * Absent leaves the task's own estimate alone and null takes it back out, because "nobody estimated"
+ * and "the reader estimated zero" are different answers that the worklog has to tell apart. A number is
+ * accepted only as a whole count of milliseconds inside {@link MAX_TIME_ESTIMATE_MS}: a fractional or
+ * wildly large one is a client that mistyped its unit, and storing it would make every consumption bar
+ * on the row read as empty rather than telling the reader what went wrong.
+ */
+function asTimeEstimate(value: unknown): number | null | undefined {
+  if (value === undefined) return undefined
+  if (value === null || value === '') return null
+  if (!isTimeEstimateMs(value)) {
+    throw ApiError.badRequest(
+      `timeEstimate must be a whole number of milliseconds between 0 and ${MAX_TIME_ESTIMATE_MS}.`,
+    )
+  }
   return value
 }
 
@@ -956,6 +978,8 @@ todoRoutes.post('/', async (c) => {
     color: colorValue(body.color) ?? null,
     starred: body.starred === undefined ? undefined : asBoolean(body.starred, 'starred'),
     repeat: asRepeat(body.repeat),
+    // A new row has no plan of its own to leave alone, so an absent field is "none" rather than absent.
+    timeEstimateMs: asTimeEstimate(body.timeEstimate) ?? null,
     reminders,
     noteId: optionalId(body.noteId, 'noteId') ?? null,
     conversationId: optionalId(body.conversationId, 'conversationId') ?? null,
@@ -1251,6 +1275,8 @@ todoRoutes.patch('/:id', async (c) => {
     ...(body.color !== undefined ? { color: colorValue(body.color) ?? null } : {}),
     ...(body.starred !== undefined ? { starred: asBoolean(body.starred, 'starred') } : {}),
     ...(body.repeat !== undefined ? { repeat: asRepeat(body.repeat) } : {}),
+    // Absent leaves the reader's own plan in place; null is the gesture that takes it back out.
+    ...(body.timeEstimate !== undefined ? { timeEstimateMs: asTimeEstimate(body.timeEstimate) ?? null } : {}),
     ...(body.reminders !== undefined ? { reminders: reminderTimes(body.reminders) } : {}),
     ...(body.noteId !== undefined ? { noteId: optionalId(body.noteId, 'noteId') } : {}),
     ...(body.conversationId !== undefined ? { conversationId: optionalId(body.conversationId, 'conversationId') } : {}),
