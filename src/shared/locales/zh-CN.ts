@@ -7,6 +7,9 @@ import { ZH_CN_MEMOS_ORG } from './zh-CN-memos-org';
 import { ZH_CN_MEMOS_SHARE } from './zh-CN-memos-share';
 import { ZH_CN_EMAIL_BACKUP } from './zh-CN-email-backup';
 import { ZH_CN_EMAIL_MCP } from './zh-CN-email-mcp';
+import { ZH_CN_EMAIL_ORG } from './zh-CN-email-org';
+import { ZH_CN_EMAIL_CONTACTS } from './zh-CN-email-contacts';
+import { ZH_CN_EMAIL_STATS } from './zh-CN-email-stats';
 export const ZH_CN_MESSAGES = {
     "template.kanban_sprint_board.name": "迭代看板",
     "template.kanban_sprint_board.description": "用看板排一个迭代：四条泳道，任务带勾选。",
@@ -8846,4 +8849,7 @@ console.log(\`Hello, \${name}!\`)
     ...ZH_CN_MEMOS_DATA,
     ...ZH_CN_EMAIL_MCP,
     ...ZH_CN_EMAIL_BACKUP,
+    ...ZH_CN_EMAIL_ORG,
+    ...ZH_CN_EMAIL_CONTACTS,
+    ...ZH_CN_EMAIL_STATS,
 } as const satisfies Record<BaseMessageKey, string>;

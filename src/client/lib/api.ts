@@ -132,10 +132,24 @@ import type {
   EmailDraftInput,
   EmailFolder,
   EmailListResponse,
+  EmailMailboxStats,
   EmailMessage,
+  EmailMessageTagInput,
   EmailSendInput,
   EmailSendResult,
+  EmailTag,
+  EmailTagInput,
+  EmailTagPatch,
 } from '@shared/email/model'
+import type {
+  EmailContact,
+  EmailContactInput,
+  EmailContactPatch,
+  EmailGroup,
+  EmailGroupInput,
+  EmailGroupPatch,
+  EmailGroupWithMembers,
+} from '@shared/email/contacts'
 import { publishBroadcast } from './db'
 import { randomLocalId } from './random-id'
 import { getLocale, t, translateApiError } from './i18n'
@@ -1169,12 +1183,46 @@ export const api = {
       request<EmailAccount>(`/api/email/accounts/${id}`, { method: 'PATCH', body }),
     deleteAccount: (id: string) => request<void>(`/api/email/accounts/${id}`, { method: 'DELETE' }),
     listFolders: (id: string) => request<EmailFolder[]>(`/api/email/accounts/${id}/folders`),
-    createFolder: (id: string, name: string) =>
-      request<EmailFolder>(`/api/email/accounts/${id}/folders`, { method: 'POST', body: { name } }),
-    updateFolder: (id: string, folderId: string, name: string) =>
-      request<EmailFolder>(`/api/email/accounts/${id}/folders/${folderId}`, { method: 'PATCH', body: { name } }),
+    createFolder: (id: string, name: string, parentId?: string | null, color?: string | null) =>
+      request<EmailFolder>(`/api/email/accounts/${id}/folders`, {
+        method: 'POST',
+        body: { name, ...(parentId ? { parentId } : {}), ...(color ? { color } : {}) },
+      }),
+    updateFolder: (id: string, folderId: string, patch: { name?: string, parentId?: string | null, color?: string | null, sortOrder?: number }) =>
+      request<EmailFolder>(`/api/email/accounts/${id}/folders/${folderId}`, { method: 'PATCH', body: patch }),
     deleteFolder: (id: string, folderId: string, deleteEmails = false) =>
       request<void>(`/api/email/accounts/${id}/folders/${folderId}${deleteEmails ? '?deleteEmails=true' : ''}`, { method: 'DELETE' }),
+    listTags: (id: string) => request<EmailTag[]>(`/api/email/accounts/${id}/tags`),
+    createTag: (id: string, input: EmailTagInput) =>
+      request<EmailTag>(`/api/email/accounts/${id}/tags`, { method: 'POST', body: input }),
+    updateTag: (id: string, tagId: string, patch: EmailTagPatch) =>
+      request<EmailTag>(`/api/email/accounts/${id}/tags/${tagId}`, { method: 'PATCH', body: patch }),
+    deleteTag: (id: string, tagId: string) =>
+      request<void>(`/api/email/accounts/${id}/tags/${tagId}`, { method: 'DELETE' }),
+    attachTag: (id: string, messageId: string, input: EmailMessageTagInput) =>
+      request<void>(`/api/email/accounts/${id}/emails/${messageId}/tags`, { method: 'POST', body: input }),
+    detachTag: (id: string, messageId: string, tagId: string) =>
+      request<void>(`/api/email/accounts/${id}/emails/${messageId}/tags/${tagId}`, { method: 'DELETE' }),
+    getStats: (id: string) => request<EmailMailboxStats>(`/api/email/accounts/${id}/stats`),
+    listContacts: (query = '') =>
+      request<EmailContact[]>(`/api/email/contacts${query ? `?q=${encodeURIComponent(query)}` : ''}`),
+    createContact: (input: EmailContactInput) =>
+      request<EmailContact>('/api/email/contacts', { method: 'POST', body: input }),
+    updateContact: (contactId: string, patch: EmailContactPatch) =>
+      request<EmailContact>(`/api/email/contacts/${contactId}`, { method: 'PATCH', body: patch }),
+    deleteContact: (contactId: string) =>
+      request<void>(`/api/email/contacts/${contactId}`, { method: 'DELETE' }),
+    listGroups: () => request<EmailGroupWithMembers[]>('/api/email/groups'),
+    createGroup: (input: EmailGroupInput) =>
+      request<EmailGroup>('/api/email/groups', { method: 'POST', body: input }),
+    updateGroup: (groupId: string, patch: EmailGroupPatch) =>
+      request<EmailGroup>(`/api/email/groups/${groupId}`, { method: 'PATCH', body: patch }),
+    deleteGroup: (groupId: string) =>
+      request<void>(`/api/email/groups/${groupId}`, { method: 'DELETE' }),
+    addGroupMember: (groupId: string, contactId: string) =>
+      request<void>(`/api/email/groups/${groupId}/members`, { method: 'POST', body: { contactId } }),
+    removeGroupMember: (groupId: string, contactId: string) =>
+      request<void>(`/api/email/groups/${groupId}/members/${contactId}`, { method: 'DELETE' }),
     retrySend: (id: string, messageId: string) =>
       request<EmailSendResult>(`/api/email/accounts/${id}/emails/${messageId}/retry`, { method: 'POST' }),
     listEmails: (id: string, params: Record<string, string | number | undefined> = {}) =>

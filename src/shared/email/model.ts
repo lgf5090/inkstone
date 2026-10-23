@@ -249,6 +249,7 @@ export interface EmailSearchQuery {
   isRead?: boolean
   isStarred?: boolean
   hasAttachment?: boolean
+  tag?: string
   dateStart?: string
   dateEnd?: string
 }

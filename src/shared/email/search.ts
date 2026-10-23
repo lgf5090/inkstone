@@ -1,6 +1,6 @@
 import type { EmailSearchQuery } from './model'
 
-const OPERATOR_RE = /\b(from|to|subject|in|is|has|before|after):(?:"([^"]*?)"|(\S+))/gi
+const OPERATOR_RE = /\b(from|to|subject|in|is|has|tag|before|after):(?:"([^"]*?)"|(\S+))/gi
 
 function normalizeDate(value: string): string | undefined {
   try {
@@ -55,6 +55,9 @@ export function parseEmailSearchQuery(input: string): EmailSearchQuery {
       case 'has':
         if (value.toLowerCase() === 'attachment') result.hasAttachment = true
         break
+      case 'tag':
+        result.tag = value
+        break
       case 'before':
         result.dateEnd = normalizeDate(value)
         break
@@ -76,6 +79,7 @@ export function emailSearchParams(query: EmailSearchQuery): Record<string, strin
   if (query.isRead !== undefined) params.is_read = String(query.isRead)
   if (query.isStarred !== undefined) params.is_starred = String(query.isStarred)
   if (query.hasAttachment) params.has_attachment = 'true'
+  if (query.tag) params.tag = query.tag
   if (query.dateStart) params.date_start = query.dateStart
   if (query.dateEnd) params.date_end = query.dateEnd
   return params

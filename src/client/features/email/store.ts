@@ -4,8 +4,10 @@ import type {
   EmailAccountSettings,
   EmailConfig,
   EmailFolder,
+  EmailMailboxStats,
   EmailMessage,
   EmailSummary,
+  EmailTag,
 } from '@shared/email/model'
 import { EMAIL_PAGE_SIZE } from '@shared/email/model'
 import { emailSearchParams, parseEmailSearchQuery } from '@shared/email/search'
@@ -22,6 +24,7 @@ let overviewSequence = 0
 let listSequence = 0
 let messageSequence = 0
 let trashSequence = 0
+let statsSequence = 0
 let pollTimer: number | null = null
 let visibilityBound = false
 
@@ -47,6 +50,14 @@ interface EmailState {
   foldersStatus: EmailLoadStatus
   foldersError: string | null
   foldersAccountId: string | null
+
+  tags: EmailTag[]
+  tagsStatus: EmailLoadStatus
+  tagsError: string | null
+  tagsAccountId: string | null
+  stats: EmailMailboxStats | null
+  statsStatus: EmailLoadStatus
+  statsError: string | null
 
   messages: EmailSummary[]
   total: number
@@ -81,9 +92,12 @@ interface EmailState {
   deleteAccount: (accountId: string) => Promise<void>
 
   loadFolders: (accountId: string, options?: { silent?: boolean }) => Promise<void>
-  createFolder: (accountId: string, name: string) => Promise<void>
+  createFolder: (accountId: string, name: string, parentId?: string | null, color?: string | null) => Promise<void>
+  updateFolder: (accountId: string, folderId: string, patch: { name?: string, parentId?: string | null, color?: string | null, sortOrder?: number }) => Promise<void>
   renameFolder: (accountId: string, folderId: string, name: string) => Promise<void>
   deleteFolder: (accountId: string, folderId: string, deleteEmails?: boolean) => Promise<void>
+  loadTags: (accountId: string, options?: { silent?: boolean }) => Promise<void>
+  loadStats: (accountId: string) => Promise<void>
 
   loadList: (accountId: string, folderId: string, page?: number, options?: { silent?: boolean }) => Promise<void>
   searchEmails: (accountId: string, query: string, page?: number, options?: { silent?: boolean }) => Promise<void>
@@ -119,6 +133,13 @@ const INITIAL = {
   foldersStatus: 'idle' as EmailLoadStatus,
   foldersError: null as string | null,
   foldersAccountId: null as string | null,
+  tags: [] as EmailTag[],
+  tagsStatus: 'idle' as EmailLoadStatus,
+  tagsError: null as string | null,
+  tagsAccountId: null as string | null,
+  stats: null as EmailMailboxStats | null,
+  statsStatus: 'idle' as EmailLoadStatus,
+  statsError: null as string | null,
   messages: [] as EmailSummary[],
   total: 0,
   listStatus: 'idle' as EmailLoadStatus,
@@ -262,6 +283,13 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         folders: [],
         foldersAccountId: null,
         foldersStatus: 'idle',
+        tags: [],
+        tagsStatus: 'idle',
+        tagsError: null,
+        tagsAccountId: null,
+        stats: null,
+        statsStatus: 'idle',
+        statsError: null,
         selectedId: null,
         selectedMessage: null,
         selectedStatus: 'idle',
@@ -301,20 +329,58 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     }
   },
 
-  createFolder: async (accountId, name) => {
-    await api.email.createFolder(accountId, name)
+  createFolder: async (accountId, name, parentId = null, color = null) => {
+    await api.email.createFolder(accountId, name, parentId, color)
+    await get().loadFolders(accountId, { silent: true })
+  },
+
+  updateFolder: async (accountId, folderId, patch) => {
+    await api.email.updateFolder(accountId, folderId, patch)
     await get().loadFolders(accountId, { silent: true })
   },
 
   renameFolder: async (accountId, folderId, name) => {
-    await api.email.updateFolder(accountId, folderId, name)
-    await get().loadFolders(accountId, { silent: true })
+    await get().updateFolder(accountId, folderId, { name })
   },
 
   deleteFolder: async (accountId, folderId, deleteEmails = false) => {
     await api.email.deleteFolder(accountId, folderId, deleteEmails)
     await get().loadFolders(accountId, { silent: true })
     await get().refresh()
+  },
+
+  loadTags: async (accountId, options) => {
+    const silent = options?.silent === true
+    set((state) => ({
+      tags: state.tagsAccountId === accountId ? state.tags : [],
+      tagsAccountId: accountId,
+      tagsStatus: silent ? state.tagsStatus : 'loading',
+      tagsError: null,
+    }))
+    try {
+      const tags = await api.email.listTags(accountId)
+      if (get().tagsAccountId !== accountId) return
+      set({ tags, tagsStatus: 'ready', tagsError: null })
+    } catch (reason) {
+      if (get().tagsAccountId !== accountId) return
+      set({
+        tagsStatus: silent ? get().tagsStatus : 'error',
+        tagsError: emailErrorText(reason),
+      })
+    }
+  },
+
+  loadStats: async (accountId) => {
+    const sequence = ++statsSequence
+    set({ statsStatus: 'loading', statsError: null })
+    try {
+      const stats = await api.email.getStats(accountId)
+      if (sequence !== statsSequence) return
+      set({ stats, statsStatus: 'ready', statsError: null })
+    } catch (reason) {
+      if (sequence !== statsSequence) return
+      set({ statsStatus: 'error', statsError: emailErrorText(reason) })
+    }
   },
 
   loadList: async (accountId, folderId, page = 1, options) => {

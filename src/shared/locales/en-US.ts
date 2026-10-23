@@ -7,6 +7,9 @@ import { EN_US_MEMOS_ORG } from './en-US-memos-org';
 import { EN_US_MEMOS_SHARE } from './en-US-memos-share';
 import { EN_US_EMAIL_BACKUP } from './en-US-email-backup';
 import { EN_US_EMAIL_MCP } from './en-US-email-mcp';
+import { EN_US_EMAIL_ORG } from './en-US-email-org';
+import { EN_US_EMAIL_CONTACTS } from './en-US-email-contacts';
+import { EN_US_EMAIL_STATS } from './en-US-email-stats';
 export const EN_US_MESSAGES = {
     "template.kanban_sprint_board.name": "Sprint Board",
     "template.kanban_sprint_board.description": "A kanban board with the four columns a sprint actually needs.",
@@ -8845,6 +8848,9 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     ...EN_US_MEMOS_DATA,
     ...EN_US_EMAIL_MCP,
     ...EN_US_EMAIL_BACKUP,
+    ...EN_US_EMAIL_ORG,
+    ...EN_US_EMAIL_CONTACTS,
+    ...EN_US_EMAIL_STATS,
 } as const;
 export type BaseMessageKey = keyof typeof EN_US_MESSAGES;
 export type MessageKey = BaseMessageKey | NoteTemplateContentKey;
