@@ -268,6 +268,9 @@ function TagBranch({
           data-tree-row
           onKeyDown={treeKeyDown}
           aria-current={active ? 'page' : undefined}
+          aria-label={node.isVirtual
+            ? t('email.tag.expand', { name: node.fullPath })
+            : `${t('email.tag.filter')}: ${node.fullPath}`}
           onClick={() => {
             if (node.isVirtual) onToggle(node.fullPath)
             else onFilter(node.fullPath)
