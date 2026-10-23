@@ -52,6 +52,8 @@ function sidebarProps(overrides: Record<string, unknown> = {}) {
     onColor: vi.fn(async (_id: string, _color: string | null) => undefined),
     onMove: vi.fn(async (_id: string, _parentId: string | null) => undefined),
     onDelete: vi.fn(async (_id: string) => undefined),
+    onDropMessages: vi.fn(),
+    onDropTagMessages: vi.fn(),
     tags: [],
     tagsStatus: 'ready' as const,
     tagsError: null,

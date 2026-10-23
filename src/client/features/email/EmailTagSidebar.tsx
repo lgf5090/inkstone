@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { ChevronRight, CornerDownRight, MoreHorizontal, Palette, Pencil, Plus, Search, Trash2 } from 'lucide-react'
 import type { EmailTag } from '@shared/email/model'
 import { emailTagAncestorPaths, emailTagLeafName, isValidEmailTagPath, normalizeEmailTagPath } from '@shared/email/tags'
 import type { Tag } from '@shared/types'
+import { cn } from '../../lib/cn'
+import { useDropState } from '../../lib/drop-state'
 import { buildTagTree, childTagPath, renameTagSegment, type TagTreeNode } from '../../lib/tag-tree'
 import { treeIndent, treeItemProps, useExpandedSet, useTreeKeyboard } from '../../lib/tree'
 import { Button, IconButton, SectionLabel, Spinner } from '../../components/primitives'
@@ -11,6 +13,7 @@ import { Menu, confirm, prompt, useContextMenu, type MenuItem } from '../../comp
 import { t } from '../../lib/i18n'
 import { useUi } from '../../store/ui'
 import { TagColorMenu } from '../tags/TagAppearanceMenus'
+import { dragLeftTarget, hasEmailDrag, readEmailDrag } from './email-drag'
 import { createEmailTag, deleteEmailTag, reportEmailFailure, updateEmailTag } from './email-org'
 import type { EmailLoadStatus } from './store'
 
@@ -33,6 +36,7 @@ export function EmailTagSidebar({
   activeTagName,
   onSelect,
   onReload,
+  onDropMessages,
 }: {
   accountId: string
   tags: readonly EmailTag[]
@@ -41,6 +45,7 @@ export function EmailTagSidebar({
   activeTagName: string | null
   onSelect: (name: string) => void
   onReload: () => Promise<void>
+  onDropMessages: (tag: EmailTag, emailIds: string[]) => void
 }) {
   const { expanded, setMany, toggle } = useExpandedSet()
   const tree = useMemo(() => buildTagTree(tags.map(tagRecord)), [tags])
@@ -163,6 +168,7 @@ export function EmailTagSidebar({
               onColor={(tag, color) => { void setColor(tag, color) }}
               onDelete={(tag) => { void remove(tag) }}
               onFilter={onSelect}
+              onDropMessages={onDropMessages}
             />
           ))}
         </div>
@@ -183,6 +189,7 @@ function TagBranch({
   onColor,
   onDelete,
   onFilter,
+  onDropMessages,
 }: {
   node: TagTreeNode
   setSize: number
@@ -195,10 +202,12 @@ function TagBranch({
   onColor: (tag: EmailTag, color: string | null) => void
   onDelete: (tag: EmailTag) => void
   onFilter: (path: string) => void
+  onDropMessages: (tag: EmailTag, emailIds: string[]) => void
 }) {
   const menu = useContextMenu()
   const moreRef = useRef<HTMLButtonElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [dropping, setDropping] = useDropState(false)
   const treeKeyDown = useTreeKeyboard()
   const hasChildren = node.children.length > 0
   const open = expanded.has(node.fullPath)
@@ -206,6 +215,26 @@ function TagBranch({
   const tag = node.tag
   const count = node.isVirtual ? node.totalCount : node.count
   const childrenId = `email-tag-children-${encodeURIComponent(node.fullPath)}`
+  const acceptsDrop = !node.isVirtual
+  const dragOver = (event: ReactDragEvent<HTMLButtonElement>): void => {
+    if (!acceptsDrop || !hasEmailDrag(event.dataTransfer)) return
+    event.preventDefault()
+    event.stopPropagation()
+    event.dataTransfer.dropEffect = 'move'
+    setDropping(true)
+  }
+  const dragLeave = (event: ReactDragEvent<HTMLButtonElement>): void => {
+    if (dragLeftTarget(event.currentTarget, event.relatedTarget)) setDropping(false)
+  }
+  const drop = (event: ReactDragEvent<HTMLButtonElement>): void => {
+    if (!acceptsDrop) return
+    const emailIds = readEmailDrag(event.dataTransfer)
+    if (emailIds.length === 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    setDropping(false)
+    onDropMessages(tag, emailIds)
+  }
   const openMenuFromKeyboard = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
     if (event.key !== 'ContextMenu' && !(event.key === 'F10' && event.shiftKey)) return
     event.preventDefault()
@@ -266,7 +295,11 @@ function TagBranch({
         <button
           type="button"
           data-tree-row
+          data-email-tag-row={node.isVirtual ? undefined : tag.id}
           onKeyDown={treeKeyDown}
+          onDragOver={dragOver}
+          onDragLeave={dragLeave}
+          onDrop={drop}
           aria-current={active ? 'page' : undefined}
           aria-label={node.isVirtual
             ? t('email.tag.expand', { name: node.fullPath })
@@ -275,7 +308,10 @@ function TagBranch({
             if (node.isVirtual) onToggle(node.fullPath)
             else onFilter(node.fullPath)
           }}
-          className="flex min-w-0 flex-1 items-center rounded-[var(--r-md)] py-0.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+          className={cn(
+            'flex min-w-0 flex-1 items-center rounded-[var(--r-md)] py-0.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
+            dropping && 'ring-1 ring-[var(--accent)]',
+          )}
         >
           <TagPill
             label={node.name}
@@ -317,6 +353,7 @@ function TagBranch({
             onColor={onColor}
             onDelete={onDelete}
             onFilter={onFilter}
+            onDropMessages={onDropMessages}
           />
         ))}
       </div>

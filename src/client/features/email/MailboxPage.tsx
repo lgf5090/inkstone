@@ -14,6 +14,7 @@ import { parseEmailSearchQuery } from '@shared/email/search'
 import { Button, IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
 import { Drawer, confirm } from '../../components/overlay'
+import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { navigateToAddress, navigateToPath } from '../../lib/app-history'
 import { useBreakpoint } from '../../lib/hooks'
@@ -25,6 +26,7 @@ import { useAssistantToolRefresh } from '../chat/tool-refresh'
 import type { EmailAddress, EmailComposeMode } from './email-address'
 import { emailFolderPath, emailSearchPath, emailSettingsPath } from './email-address'
 import { attachEmailTagToMessage, emailTagSearchQuery, reportEmailFailure } from './email-org'
+import { emailErrorText } from './errors'
 import { useEmailShortcuts } from './email-shortcuts'
 import { messageSubject } from './format'
 import { useEmailStore } from './store'
@@ -328,6 +330,47 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
     }
   }
 
+  const dropMessagesOnFolder = async (targetFolderId: string, emailIds: string[]): Promise<void> => {
+    const ids = [...new Set(emailIds)]
+    if (ids.length === 0) return
+    if (targetFolderId === 'draft' || targetFolderId === 'sent') {
+      useUi.getState().toast({ title: t('email.drag.reject'), tone: 'danger' })
+      return
+    }
+    const action: EmailBatchAction = targetFolderId === 'trash'
+      ? 'trash'
+      : targetFolderId === 'archive'
+        ? 'archive'
+        : 'move'
+    const moved = await batchEmails(account.id, action, action === 'move' ? targetFolderId : undefined, ids)
+    if (!moved) {
+      useUi.getState().toast({
+        title: t('email.toast.failed'),
+        description: useEmailStore.getState().actionError ?? undefined,
+        tone: 'danger',
+      })
+      return
+    }
+    clearSelection()
+  }
+
+  const dropMessagesOnTag = async (tag: EmailTag, emailIds: string[]): Promise<void> => {
+    const ids = [...new Set(emailIds)]
+    if (ids.length === 0) return
+    const results = await Promise.allSettled(ids.map((id) => api.email.attachTag(account.id, id, { tagId: tag.id })))
+    await loadTags(account.id, { silent: true })
+    await refresh()
+    clearSelection()
+    const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+    if (failure) {
+      useUi.getState().toast({
+        title: t('email.toast.failed'),
+        description: emailErrorText(failure.reason),
+        tone: 'danger',
+      })
+    }
+  }
+
   const refreshNow = (): void => {
     void refresh()
   }
@@ -463,6 +506,8 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
       onColor={(id, color) => updateFolder(account.id, id, { color })}
       onMove={(id, parentId) => updateFolder(account.id, id, { parentId })}
       onDelete={removeFolder}
+      onDropMessages={(targetFolderId, emailIds) => { void dropMessagesOnFolder(targetFolderId, emailIds) }}
+      onDropTagMessages={(tag, emailIds) => { void dropMessagesOnTag(tag, emailIds) }}
       tags={tags}
       tagsStatus={tagsStatus}
       tagsError={tagsError}
@@ -492,6 +537,7 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
       tags={tags}
       selectedId={selectedId}
       selectedIds={selectedIds}
+      dragEnabled={!composing}
       onOpen={openSummary}
       onToggleSelect={selectMessage}
       onSelectAll={selectPageMessages}

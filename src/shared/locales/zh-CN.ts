@@ -908,6 +908,8 @@ export const ZH_CN_MESSAGES = {
     "email.batch.delete_title": "将所选邮件移入垃圾箱？",
     "email.batch.selected": "已选择 {count} 封",
     "email.batch.working": "正在更新邮件",
+    "email.drag.folder_invalid": "文件夹不能移动到自身或其子文件夹中。",
+    "email.drag.reject": "邮件不能移动到草稿或已发送。",
     "email.folder.inbox": "收件箱",
     "email.folder.sent": "已发送",
     "email.folder.draft": "草稿",

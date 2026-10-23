@@ -1,4 +1,8 @@
-import { type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
+import {
+  type DragEvent as ReactDragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+} from 'react'
 import { AlarmClock, Archive, Bell, BellOff, Check, Clock, Flag, FolderInput, Mail, MailOpen, Minus, Paperclip, RefreshCw, ShieldBan, Star, Tag, Trash2 } from 'lucide-react'
 import type { EmailFolder, EmailSummary, EmailTag } from '@shared/email/model'
 import { isEmailSystemFolder } from '@shared/email/model'
@@ -8,6 +12,7 @@ import { api } from '../../lib/api'
 import { Badge, IconButton } from '../../components/primitives'
 import { Menu, MenuSubmenuList, confirm, useContextMenu, type MenuItem, type MenuSubmenuContext } from '../../components/overlay'
 import { useUi } from '../../store/ui'
+import { emailDragBlocked, hasSelectedTextInside, setEmailDragImage, writeEmailDrag } from './email-drag'
 import { emailErrorText } from './errors'
 import {
   folderLabel,
@@ -192,6 +197,8 @@ export function MessageRow({
   message,
   selected,
   batchSelected,
+  selectedIds,
+  dragEnabled,
   searchMode,
   query,
   folders,
@@ -209,6 +216,8 @@ export function MessageRow({
   message: EmailSummary
   selected: boolean
   batchSelected: boolean
+  selectedIds: ReadonlySet<string>
+  dragEnabled: boolean
   searchMode: boolean
   query: string
   folders: readonly EmailFolder[]
@@ -367,6 +376,15 @@ export function MessageRow({
     const rect = event.currentTarget.getBoundingClientRect()
     contextMenu.openAt({ x: rect.left + MENU_INSET, y: rect.top + MENU_INSET })
   }
+  const startDrag = (event: ReactDragEvent<HTMLButtonElement>): void => {
+    if (!dragEnabled || emailDragBlocked() || hasSelectedTextInside(event.currentTarget)) {
+      event.preventDefault()
+      return
+    }
+    const ids = selectedIds.has(message.id) ? [...selectedIds] : [message.id]
+    writeEmailDrag(event.dataTransfer, ids)
+    setEmailDragImage(event.dataTransfer, event.currentTarget)
+  }
   return (
     <li
       data-email-row=""
@@ -388,6 +406,8 @@ export function MessageRow({
       <button
         type="button"
         data-email-open=""
+        draggable={dragEnabled}
+        onDragStart={startDrag}
         onClick={onOpen}
         aria-current={selected ? 'true' : undefined}
         className="flex min-w-0 flex-1 flex-col gap-0.5 px-3 py-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-ring)] focus-visible:ring-inset"

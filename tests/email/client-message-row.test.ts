@@ -5,6 +5,7 @@ import type { EmailFolder, EmailSummary, EmailTag } from '@shared/email/model'
 import { renderElement } from '../../src/client/lib/test-render'
 import { t } from '../../src/client/lib/i18n'
 import { MessageRow } from '../../src/client/features/email/MessageRow'
+import { EMAIL_DRAG_MIME, decodeEmailDrag } from '../../src/client/features/email/email-drag'
 
 function summary(patch: Partial<EmailSummary> = {}): EmailSummary {
   return {
@@ -46,7 +47,7 @@ function renderRow(message: EmailSummary, callbacks: {
   onTag?: (tag: EmailTag) => void
   onDelete?: () => void
   onRetry?: () => void
-} = {}, batchSelected = false) {
+} = {}, batchSelected = false, selectedIds: readonly string[] = batchSelected ? [message.id] : [], dragEnabled = true) {
   const handlers = {
     onOpen: callbacks.onOpen ?? vi.fn(),
     onToggleSelect: callbacks.onToggleSelect ?? vi.fn(),
@@ -64,6 +65,8 @@ function renderRow(message: EmailSummary, callbacks: {
         message,
         selected: false,
         batchSelected,
+        selectedIds: new Set(selectedIds),
+        dragEnabled,
         searchMode: false,
         query: '',
         folders,
@@ -72,6 +75,25 @@ function renderRow(message: EmailSummary, callbacks: {
       })),
   )
   return { view, handlers }
+}
+
+function dataTransfer(): DataTransfer {
+  const values = new Map<string, string>()
+  return {
+    effectAllowed: 'none',
+    dropEffect: 'none',
+    get types() { return [...values.keys()] },
+    setData(type: string, value: string) { values.set(type, value) },
+    getData(type: string) { return values.get(type) ?? '' },
+    setDragImage: vi.fn(),
+  } as unknown as DataTransfer
+}
+
+function dragStart(target: Element, transfer: DataTransfer): Event {
+  const event = new Event('dragstart', { bubbles: true, cancelable: true })
+  Object.defineProperty(event, 'dataTransfer', { value: transfer })
+  act(() => { target.dispatchEvent(event) })
+  return event
 }
 
 function button(label: string): HTMLButtonElement {
@@ -206,6 +228,50 @@ describe('the message row', () => {
     expect(document.querySelector('[role="menu"]')).not.toBeNull()
     expect(document.activeElement?.getAttribute('role')).toBe('menuitem')
     expect(document.activeElement?.textContent).toContain(t('email.message.open'))
+    view.unmount()
+  })
+
+  it('drags the row alone, or the whole selection when it is selected', () => {
+    const single = renderRow(summary())
+    const main = document.querySelector<HTMLButtonElement>('button[data-email-open]')!
+    expect(main.draggable).toBe(true)
+    const singleTransfer = dataTransfer()
+    dragStart(main, singleTransfer)
+    expect(singleTransfer.effectAllowed).toBe('move')
+    expect(decodeEmailDrag(singleTransfer.getData(EMAIL_DRAG_MIME))).toEqual(['m1'])
+    single.view.unmount()
+    document.body.innerHTML = ''
+
+    const unselected = renderRow(summary(), {}, false, ['m2'])
+    const unselectedTransfer = dataTransfer()
+    dragStart(document.querySelector<HTMLButtonElement>('button[data-email-open]')!, unselectedTransfer)
+    expect(decodeEmailDrag(unselectedTransfer.getData(EMAIL_DRAG_MIME))).toEqual(['m1'])
+    unselected.view.unmount()
+    document.body.innerHTML = ''
+
+    const multi = renderRow(summary(), {}, true, ['m1', 'm2'])
+    const selectedRow = document.querySelector<HTMLButtonElement>('button[data-email-open]')!
+    const multiTransfer = dataTransfer()
+    dragStart(selectedRow, multiTransfer)
+    expect(decodeEmailDrag(multiTransfer.getData(EMAIL_DRAG_MIME))).toEqual(['m1', 'm2'])
+    multi.view.unmount()
+  })
+
+  it('does not start a drag while composing or while a menu is open', () => {
+    const composing = renderRow(summary(), {}, false, [], false)
+    const composingRow = document.querySelector<HTMLButtonElement>('button[data-email-open]')!
+    expect(composingRow.draggable).toBe(false)
+    const composingTransfer = dataTransfer()
+    dragStart(composingRow, composingTransfer)
+    expect(composingTransfer.types).toEqual([])
+    composing.view.unmount()
+    document.body.innerHTML = ''
+
+    const { view } = renderRow(summary())
+    openContextMenu()
+    const menuTransfer = dataTransfer()
+    dragStart(document.querySelector<HTMLButtonElement>('button[data-email-open]')!, menuTransfer)
+    expect(menuTransfer.types).toEqual([])
     view.unmount()
   })
 })

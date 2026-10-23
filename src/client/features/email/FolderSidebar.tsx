@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import { AlarmClock, Archive, ChevronRight, FileText, Flag, FolderClosed, FolderPlus, Inbox, MoreHorizontal, PanelLeft, PanelLeftClose, Palette, Pencil, Plus, Send, Trash2 } from 'lucide-react'
 import type { EmailFolder, EmailSystemFolder, EmailTag } from '@shared/email/model'
 import { EMAIL_SIDEBAR_FOLDERS, isEmailSystemFolder } from '@shared/email/model'
@@ -13,9 +13,21 @@ import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { IconButton, SectionLabel } from '../../components/primitives'
 import { Menu, Tooltip, confirm, prompt, useContextMenu, type MenuItem } from '../../components/overlay'
+import { useDropState } from '../../lib/drop-state'
 import { treeIndent, treeItemProps, useExpandedSet, useTreeKeyboard, type MoveMenuFolder } from '../../lib/tree'
+import { useUi } from '../../store/ui'
 import { FolderColorMenu } from '../folders/FolderAppearanceMenus'
 import { FolderMoveMenu } from '../folders/FolderMoveMenu'
+import {
+  dragLeftTarget,
+  emailDragBlocked,
+  hasEmailDrag,
+  hasEmailFolderDrag,
+  readEmailDrag,
+  readEmailFolderDrag,
+  setEmailDragImage,
+  writeEmailFolderDrag,
+} from './email-drag'
 import { reportEmailFailure } from './email-org'
 import { EmailTagSidebar } from './EmailTagSidebar'
 import { SYSTEM_FOLDER_LABEL_KEYS } from './format'
@@ -44,6 +56,8 @@ interface FolderTreeActions {
   onColor: (folder: EmailFolder, color: string | null) => void
   onMove: (folder: EmailFolder, parentId: string | null) => void
   onDelete: (folder: EmailFolder) => void
+  onDropMessages: (folderId: string, emailIds: string[]) => void
+  onDropFolder: (folderId: string, parentId: string) => void
 }
 
 function placeholderSystemNode(id: EmailSystemFolder): EmailFolderNode {
@@ -86,6 +100,8 @@ export function FolderSidebar({
   onColor,
   onMove,
   onDelete,
+  onDropMessages,
+  onDropTagMessages,
   tags,
   tagsStatus,
   tagsError,
@@ -107,6 +123,8 @@ export function FolderSidebar({
   onColor: (folderId: string, color: string | null) => Promise<void>
   onMove: (folderId: string, parentId: string | null) => Promise<void>
   onDelete: (folderId: string) => Promise<void>
+  onDropMessages: (folderId: string, emailIds: string[]) => void
+  onDropTagMessages: (tag: EmailTag, emailIds: string[]) => void
   tags: readonly EmailTag[]
   tagsStatus: EmailLoadStatus
   tagsError: string | null
@@ -214,6 +232,16 @@ export function FolderSidebar({
     }
   }
 
+  const dropFolder = (draggedId: string, parentId: string): void => {
+    if (draggedId === parentId || !emailFolderMoveAllowed(folders, draggedId, parentId)) {
+      useUi.getState().toast({ title: t('email.drag.folder_invalid'), tone: 'danger' })
+      return
+    }
+    const dragged = folders.find((folder) => folder.id === draggedId)
+    if (!dragged) return
+    void move(dragged, parentId)
+  }
+
   const remove = async (folder: EmailFolder): Promise<void> => {
     const ok = await confirm({
       title: t('email.folder.delete_title', { name: folder.name }),
@@ -241,6 +269,8 @@ export function FolderSidebar({
     onColor: (folder, color) => { void setColor(folder, color) },
     onMove: (folder, parentId) => { void move(folder, parentId) },
     onDelete: (folder) => { void remove(folder) },
+    onDropMessages,
+    onDropFolder: dropFolder,
   }
 
   return (
@@ -332,6 +362,7 @@ export function FolderSidebar({
             onClose?.()
           }}
           onReload={onReloadTags}
+          onDropMessages={onDropTagMessages}
         />
       </div>
       {footer && (
@@ -357,6 +388,7 @@ function FolderBranch({
   const menu = useContextMenu()
   const moreRef = useRef<HTMLButtonElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [dropping, setDropping] = useDropState(false)
   const treeKeyDown = useTreeKeyboard()
   const folder = node.folder
   const systemId = isEmailSystemFolder(folder.id) ? folder.id : null
@@ -377,6 +409,43 @@ function FolderBranch({
   const openContextMenu = (event: ReactMouseEvent): void => {
     setMenuOpen(false)
     menu.onContextMenu(event)
+  }
+  const dragOver = (event: ReactDragEvent<HTMLDivElement>): void => {
+    const acceptsMessages = hasEmailDrag(event.dataTransfer)
+    const acceptsFolder = !systemId && hasEmailFolderDrag(event.dataTransfer)
+    if (!acceptsMessages && !acceptsFolder) return
+    event.preventDefault()
+    event.stopPropagation()
+    event.dataTransfer.dropEffect = 'move'
+    setDropping(true)
+  }
+  const dragLeave = (event: ReactDragEvent<HTMLDivElement>): void => {
+    if (dragLeftTarget(event.currentTarget, event.relatedTarget)) setDropping(false)
+  }
+  const drop = (event: ReactDragEvent<HTMLDivElement>): void => {
+    const emailIds = readEmailDrag(event.dataTransfer)
+    if (emailIds.length > 0) {
+      event.preventDefault()
+      event.stopPropagation()
+      setDropping(false)
+      actions.onDropMessages(folder.id, emailIds)
+      return
+    }
+    const draggedId = readEmailFolderDrag(event.dataTransfer)
+    if (!draggedId) return
+    event.preventDefault()
+    event.stopPropagation()
+    setDropping(false)
+    if (systemId || draggedId === folder.id) return
+    actions.onDropFolder(draggedId, folder.id)
+  }
+  const startDrag = (event: ReactDragEvent<HTMLButtonElement>): void => {
+    if (systemId || emailDragBlocked()) {
+      event.preventDefault()
+      return
+    }
+    writeEmailFolderDrag(event.dataTransfer, folder.id)
+    setEmailDragImage(event.dataTransfer, event.currentTarget)
   }
   const items: MenuItem[] = [
     {
@@ -431,7 +500,16 @@ function FolderBranch({
       onContextMenu={openContextMenu}
       onKeyDown={openMenuFromKeyboard}
     >
-      <div className="group flex min-h-8 items-center gap-0.5 pr-0.5" style={{ paddingLeft: treeIndent(node.depth) }}>
+      <div
+        className={cn(
+          'group flex min-h-8 items-center gap-0.5 pr-0.5',
+          dropping && 'ring-1 ring-[var(--accent)]',
+        )}
+        style={{ paddingLeft: treeIndent(node.depth) }}
+        onDragOver={dragOver}
+        onDragLeave={dragLeave}
+        onDrop={drop}
+      >
         {hasChildren ? (
           <button
             type="button"
@@ -450,6 +528,9 @@ function FolderBranch({
         <button
           type="button"
           data-tree-row
+          data-email-folder-row={folder.id}
+          draggable={!systemId}
+          onDragStart={startDrag}
           onKeyDown={treeKeyDown}
           onClick={() => actions.onSelect(folder.id)}
           aria-current={active ? 'page' : undefined}

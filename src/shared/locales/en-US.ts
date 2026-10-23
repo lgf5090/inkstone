@@ -908,6 +908,8 @@ export const EN_US_MESSAGES = {
     "email.batch.delete_title": "Move the selected messages to trash?",
     "email.batch.selected": "{count} selected",
     "email.batch.working": "Updating messages",
+    "email.drag.folder_invalid": "A folder cannot move into itself or its subfolder.",
+    "email.drag.reject": "Messages cannot be moved to Drafts or Sent.",
     "email.folder.inbox": "Inbox",
     "email.folder.sent": "Sent",
     "email.folder.draft": "Drafts",

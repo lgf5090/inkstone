@@ -162,7 +162,7 @@ interface EmailState {
   selectRange: (id: string) => void
   selectAll: (ids: readonly string[], selected: boolean) => void
   clearSelection: () => void
-  batchEmails: (accountId: string, action: EmailBatchAction, folderId?: string) => Promise<boolean>
+  batchEmails: (accountId: string, action: EmailBatchAction, folderId?: string, ids?: readonly string[]) => Promise<boolean>
   markThreadRead: (accountId: string, message: EmailMessage) => Promise<boolean>
   setRead: (accountId: string, messageId: string, read: boolean) => Promise<boolean>
   toggleStar: (accountId: string, messageId: string) => Promise<boolean>
@@ -662,12 +662,12 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
   clearSelection: () => set({ selectedIds: new Set<string>(), selectionAnchorId: null }),
 
-  batchEmails: async (accountId, action, folderId) => {
-    const ids = [...get().selectedIds]
-    if (ids.length === 0) return false
+  batchEmails: async (accountId, action, folderId, ids) => {
+    const targets = ids && ids.length > 0 ? [...new Set(ids)] : [...get().selectedIds]
+    if (targets.length === 0) return false
     set({ actionError: null })
     try {
-      await api.email.batchEmails(accountId, folderId ? { ids, action, folderId } : { ids, action })
+      await api.email.batchEmails(accountId, folderId ? { ids: targets, action, folderId } : { ids: targets, action })
       set({ selectedIds: new Set<string>(), selectionAnchorId: null })
       await get().refresh()
       return true

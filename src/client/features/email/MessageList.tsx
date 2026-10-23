@@ -23,6 +23,7 @@ export function MessageList({
   tags,
   selectedId,
   selectedIds,
+  dragEnabled,
   onOpen,
   onToggleSelect,
   onSelectAll,
@@ -51,6 +52,7 @@ export function MessageList({
   tags: readonly EmailTag[]
   selectedId: string | null
   selectedIds: ReadonlySet<string>
+  dragEnabled: boolean
   onOpen: (message: EmailSummary) => void
   onToggleSelect: (message: EmailSummary, modifiers: { shiftKey: boolean }) => void
   onSelectAll: (selected: boolean) => void
@@ -140,6 +142,8 @@ export function MessageList({
                 message={message}
                 selected={selectedId === message.id}
                 batchSelected={selectedIds.has(message.id)}
+                selectedIds={selectedIds}
+                dragEnabled={dragEnabled}
                 searchMode={searchMode}
                 query={query}
                 folders={folders}
