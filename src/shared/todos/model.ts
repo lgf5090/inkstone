@@ -940,8 +940,14 @@ function nextWeekdayOn(parts: { year: number; month: number; day: number }, inte
   return shiftDays(parts.year, parts.month, parts.day, interval * 7)
 }
 
-/** The nth (1–5) weekday of a month, falling back to the month's last one when it has only four. */
-function nthWeekdayOfMonth(year: number, month: number, weekday: number, nth: number): number {
+/**
+ * The nth (1–5) weekday of a month, falling back to the month's last one when it has only four.
+ *
+ * Exported because the quick-add parser has to land a typed `every 2nd monday` on the same day this
+ * advance will land the next occurrence on. Two copies of this rule would put the reader's first
+ * occurrence on one day and every occurrence after it on another.
+ */
+export function nthWeekdayOfMonth(year: number, month: number, weekday: number, nth: number): number {
   const first = weekdayOf(year, month, 1)
   const day = 1 + (weekday - first + 7) % 7 + (nth - 1) * 7
   return day <= daysInMonth(year, month) ? day : day - 7

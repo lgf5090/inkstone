@@ -23,6 +23,7 @@ import {
   MIN_REPEAT_INTERVAL,
   isTimeEstimateMs,
   normalizeTagNames,
+  nthWeekdayOfMonth,
   remindAtFor,
   remindOffsetForDelta,
   type RemindOffset,
@@ -202,6 +203,16 @@ const REPEAT_FREQ_BY_UNIT: Record<string, RepeatFrequency | undefined> = {
   week: 'weekly',
   month: 'monthly',
   year: 'yearly',
+}
+
+/**
+ * The written ordinal a reader puts in front of a weekday, as the week number in the month it names.
+ *
+ * Words as well as digits, because both get typed: `every second monday` and `every 2nd monday` are one
+ * rhythm, and a parser that knew only the digits would leave the words behind in the title.
+ */
+const ORDINAL_BY_WORD: Record<string, number> = {
+  first: 1, second: 2, third: 3, fourth: 4, fifth: 5,
 }
 
 const MONTH_BY_NAME: Record<string, number> = {
@@ -532,6 +543,30 @@ export function parseQuickAdd(input: string, now: number, timeZone: string): Qui
     repeat = { freq: 'daily', interval: 1 }
     return true
   })
+  // `mei yue 15 hao` names a rhythm and a date in one phrase. The generic monthly pass below is written
+  // with a lookahead that refuses exactly this pair — it would otherwise read `mei yue` and call the
+  // `15 hao` leftover prose — so this pattern is the only place the day of the month is heard.
+  consume('repeat', /\u6bcf(?:\u4e2a)?\u6708(?:\u7684)?\s*(\d{1,2}|[0-9\u4e00-\u4e5d\u5341]+)\s*[\u53f7\u65e5](?![\u53f7\u65e5])/, (match) => {
+    const dayOfMonth = readCount(match[1]!)
+    if (dayOfMonth === null || dayOfMonth < 1 || dayOfMonth > 31) return false
+    repeat = { freq: 'monthly', interval: 1, monthlyMode: 'day' }
+    draft.dayShift = monthlyDayShift(today, dayOfMonth)
+    return true
+  })
+
+  // `mei yue di er ge zhou yi`: one weekday, at one place in the month. `zui hou` (the last one) is
+  // deliberately absent — see the note in the plan's R2-5c: the stored rule keeps its place from the due
+  // date's own week-number, so a "last Friday" written as the fifth would read back as the fourth in a
+  // month that only holds four. Saying nothing beats saying something different next month.
+  consume('repeat', /\u6bcf(?:\u4e2a)?\u6708(?:\u7684)?\u7b2c\s*([\u4e00-\u4e941-5])\s*(?:\u4e2a)?\s*(?:\u5468|\u661f\u671f|\u793c\u62dc)\s*([0-9\u4e00-\u516d\u65e5\u5929])/, (match) => {
+    const weekday = WEEKDAY_BY_CHAR[match[2]!]
+    const nth = readCount(match[1]!)
+    if (weekday === undefined || nth === null || nth < 1 || nth > 5) return false
+    repeat = { freq: 'monthly', interval: 1, monthlyMode: 'nthWeekday' }
+    draft.dayShift = nthWeekdayShift(today, weekday, nth)
+    return true
+  })
+
   consume('repeat', /(?:\u6bcf|\u6bcf\u9694)\s*(\d{1,2}|[0-9\u4e00-\u4e5d\u5341])?\s*(?:\u4e2a)?(\u5929|\u65e5|\u5468|\u661f\u671f|\u793c\u62dc|\u6708|\u5e74)(?!\s*[\u3001,\u548c\u53ca]?\s*[\u5e95\u672b0-9\u4e00-\u516d\u65e5\u5929])/, (match) => {
     const unit = match[2]!
     const raw = match[1]
@@ -551,6 +586,31 @@ export function parseQuickAdd(input: string, now: number, timeZone: string): Qui
   consume('repeat', /\bevery\s+(?:the\s+)?(?:week|work|working|business)\s*-?\s*days?\b/i, () => {
     repeat = { freq: 'weekly', interval: 1, weekdays: [...WORKDAYS] }
     draft.dayShift = Math.min(...WORKDAYS.map((weekday) => nextWeekdayShift(today, weekday, timeZone)))
+    return true
+  })
+  // `every 2nd monday`, `every second Monday`: one weekday at one place in the month. It is tried before
+  // the day-of-month pass below because both begin with an ordinal, and before the generic unit pass
+  // because none of those three words is a unit the generic pattern knows.
+  consume('repeat', /\b(?:every|each)\s+(?:month\s+)?(?:on\s+)?(?:the\s+)?(first|second|third|fourth|fifth|1st|2nd|3rd|4th|5th)\s+(mon|tues|tue|weds|wed|thurs|thur|thu|fri|sat|suns?|sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/i, (match) => {
+    const weekday = WEEKDAY_BY_NAME[match[2]!.toLowerCase().slice(0, 3)]
+    const word = match[1]!.toLowerCase()
+    const nth = ORDINAL_BY_WORD[word] ?? Number(word.replace(/\D+/g, ''))
+    if (weekday === undefined || !(nth >= 1 && nth <= 5)) return false
+    repeat = { freq: 'monthly', interval: 1, monthlyMode: 'nthWeekday' }
+    draft.dayShift = nthWeekdayShift(today, weekday, nth)
+    return true
+  })
+
+  // `every 15th`, `every month on the 15th`: the same day of every month. A bare `every 15` is not this —
+  // the suffix is what says "a day of the month" rather than an unfinished count — and a month too short
+  // for the number lands on its last day, which is what the stored rule does on its own. The lookahead is
+  // for `every 2nd day`, where the ordinal is the count of a rhythm rather than a day of the month: the
+  // unit pass below owns that line, and taking it here would file a monthly rule nobody meant.
+  consume('repeat', /\b(?:every|each)\s+(?:month(?:ly)?\s+)?(?:on\s+)?(?:the\s+)?(0?[1-9]|[12]\d|3[01])(?:st|nd|rd|th)(?!\s+(?:days?|weeks?|months?|years?))\b/i, (match) => {
+    const dayOfMonth = Number(match[1])
+    if (!Number.isFinite(dayOfMonth) || dayOfMonth < 1 || dayOfMonth > 31) return false
+    repeat = { freq: 'monthly', interval: 1, monthlyMode: 'day' }
+    draft.dayShift = monthlyDayShift(today, dayOfMonth)
     return true
   })
   consume('repeat', /\bevery\s+(?:(\d{1,2})\s+)?(day|week|month|year)s?\b/i, (match) => {
@@ -772,4 +832,47 @@ function shiftDay(parts: { year: number, month: number, day: number }, days: num
 function nextWeekdayShift(parts: { year: number, month: number, day: number }, weekday: number, timeZone: string): number {
   const anchor = new Date(zonedTimeToUtc(parts.year, parts.month, parts.day, 12, 0, timeZone))
   return (weekday - anchor.getUTCDay() + 7) % 7
+}
+
+/** The span between two calendar days, in whole days. Neither end needs a zone: both are days. */
+const DAY_MS = 86_400_000
+
+function dayGap(from: { year: number, month: number, day: number }, year: number, month: number, day: number): number {
+  return Math.round((Date.UTC(year, month - 1, day) - Date.UTC(from.year, from.month - 1, from.day)) / DAY_MS)
+}
+
+/**
+ * How many days from the reader's own today the month next reaches `dayOfMonth`.
+ *
+ * A month too short for the day takes its last one, which is exactly how {@link nextOccurrence} reads the
+ * same rule: a rhythm typed as the 31st must not land on the 31st in the parser and on the 30st in the
+ * advance. Today counts — on the 15th, `every 15th` is due today.
+ */
+function monthlyDayShift(parts: { year: number, month: number, day: number }, dayOfMonth: number): number {
+  let year = parts.year
+  let month = parts.month
+  if (dayOfMonth < parts.day) {
+    month += 1
+    if (month > 12) {
+      month = 1
+      year += 1
+    }
+  }
+  return dayGap(parts, year, month, Math.min(dayOfMonth, daysInMonth(year, month)))
+}
+
+/**
+ * How many days from the reader's own today the next `nth` `weekday` falls, where a fifth of a weekday
+ * the month only holds four of is its last one.
+ *
+ * The month being closed still counts: on the 3rd, a `2nd monday` means this month's, while a
+ * `4th monday` whose day has already passed means next month's fourth. A plan for a day that has gone by
+ * is not a plan for today.
+ */
+function nthWeekdayShift(parts: { year: number, month: number, day: number }, weekday: number, nth: number): number {
+  const thisMonth = nthWeekdayOfMonth(parts.year, parts.month, weekday, nth)
+  if (thisMonth >= parts.day) return thisMonth - parts.day
+  const year = parts.month === 12 ? parts.year + 1 : parts.year
+  const month = parts.month === 12 ? 1 : parts.month + 1
+  return dayGap(parts, year, month, nthWeekdayOfMonth(year, month, weekday, nth))
 }

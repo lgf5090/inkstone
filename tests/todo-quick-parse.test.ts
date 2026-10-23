@@ -138,6 +138,71 @@ it('leaves the rhythms beside a work week exactly as they were', () => {
   expect(prose.title).toBe('\u5206\u5de5\u4f5c\u65e5')
 })
 
+it('reads a day of the month as a monthly rhythm, in both languages', () => {
+  // Today is the 20th in Shanghai, so the 15th has gone and the rhythm opens on November's — a plan for a
+  // day that has passed is not a plan for today.
+  const english = parse('every 15th file taxes')
+  expect(english.repeat).toEqual({ freq: 'monthly', interval: 1, monthlyMode: 'day' })
+  expect(wallClock(english.dueAt)).toBe('2026-11-15 23:59')
+  expect(english.title).toBe('file taxes')
+
+  expect(wallClock(parse('every month on the 3rd standup').dueAt)).toBe('2026-11-03 23:59')
+  // Still ahead inside this month, so it stays in this month.
+  expect(wallClock(parse('every 25th pay rent').dueAt)).toBe('2026-10-25 23:59')
+
+  const cn = parse('每月15号 交税')
+  expect(cn.repeat).toEqual({ freq: 'monthly', interval: 1, monthlyMode: 'day' })
+  expect(wallClock(cn.dueAt)).toBe('2026-11-15 23:59')
+  expect(cn.title).toBe('交税')
+})
+
+it('lands a day of the month the target month does not have on its last day', () => {
+  // Asked on the 20th of October, `every 31st` means October's own 31st — the month has one. Asked in
+  // November, the same line cannot mean the 31st, and lands on the last day it does have. The clamp is the
+  // one `nextOccurrence` applies to the stored rule, so the first occurrence and every one after it
+  // cannot name different days of the month.
+  expect(wallClock(parseQuickAdd('every 31st pay rent', Date.parse('2026-10-20T04:00:00Z'), CN).dueAt))
+    .toBe('2026-10-31 23:59')
+  expect(wallClock(parseQuickAdd('every 31st pay rent', Date.parse('2026-11-20T04:00:00Z'), CN).dueAt))
+    .toBe('2026-11-30 23:59')
+})
+
+it('reads an nth weekday of the month as a monthly rhythm', () => {
+  // The second Monday of October 2026 is the 12th and has passed, so the rhythm opens on November's — and
+  // November begins on a Sunday, making the 9th its second Monday.
+  const english = parse('every 2nd monday review')
+  expect(english.repeat).toEqual({ freq: 'monthly', interval: 1, monthlyMode: 'nthWeekday' })
+  expect(wallClock(english.dueAt)).toBe('2026-11-09 23:59')
+  expect(english.title).toBe('review')
+
+  expect(wallClock(parse('every first friday check-in').dueAt)).toBe('2026-11-06 23:59')
+  expect(wallClock(parse('every second monday review').dueAt)).toBe('2026-11-09 23:59')
+
+  const cn = parse('每月第二个周一 复盘')
+  expect(cn.repeat).toEqual({ freq: 'monthly', interval: 1, monthlyMode: 'nthWeekday' })
+  expect(wallClock(cn.dueAt)).toBe('2026-11-09 23:59')
+  expect(cn.title).toBe('复盘')
+})
+
+it('keeps an ordinal that counts a rhythm out of the day-of-month reading', () => {
+  // `every 2nd day` is not the 2nd of a month. It is not a rhythm this parser knows at all today — the
+  // unit pass wants `every 2 days` — and that is the point worth pinning: the ordinal pattern refuses it,
+  // so no monthly rule is invented and every word the reader typed stays where they can still fix it.
+  const counted = parse('every 2nd day water plants')
+  expect(counted.repeat).toBeNull()
+  expect(counted.title).toBe('every 2nd day water plants')
+})
+
+it('leaves a fifth weekday the month only holds four of unclaimed', () => {
+  // The stored rule keeps its place from the due date's own week number, so a "last Friday" written as the
+  // fifth would read back as the fourth in a short month. Refusing the rhythm keeps the reader's own words
+  // on the row instead of quietly meaning something else next month — and the weekday itself is still read
+  // as the date it names, which is what it has always meant here.
+  const last = parse('every last friday pay dues')
+  expect(last.repeat).toBeNull()
+  expect(last.title).toBe('every last pay dues')
+})
+
 it('reads an absolute day, rolling a passed month-day into next year', () => {
   expect(wallClock(parse('10-25 \u4ea4\u4fdd\u9669').dueAt)).toBe('2026-10-25 23:59')
   expect(wallClock(parse('12-31 \u8de8\u5e74').dueAt)).toBe('2026-12-31 23:59')
