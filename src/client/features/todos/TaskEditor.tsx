@@ -392,7 +392,17 @@ export function TaskEditor() {
     // quietly does nothing.
     if (!body.title || estimateInvalid) return
     if (existing) await updateTask(existing.id, body)
-    else await createTask({ ...body, steps: steps.map((step) => step.text) })
+    // The spent half of a quick-add pair is the one thing this panel hands on without owning it: no
+    // field of the form shows it, because it is a ledger span rather than a column of the row. Reading
+    // it off the opening draft — and only off a draft that names no row — is what keeps this door the
+    // same shape as the board's inline enter, which forwards the same field to the same ledger write.
+    else await createTask({
+      ...body,
+      steps: steps.map((step) => step.text),
+      ...(draft?.id === undefined && draft?.timeLoggedMs !== undefined
+        ? { timeLoggedMs: draft.timeLoggedMs }
+        : {}),
+    })
     close()
   }
 
