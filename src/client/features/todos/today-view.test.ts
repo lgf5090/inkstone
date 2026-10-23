@@ -336,8 +336,9 @@ describe('the plan screen', () => {
     service.pageRows = [...service.overdueRows]
 
     const container = await mount('/todo?view=plan')
-    // The plan's listing is the today listing on the server; the screen is what the address names.
-    expect(lastRequest().view).toBe('today')
+    // The plan divides the whole open set by when each row is owed, so it asks the server for that set
+    // rather than for today's shelf; the screen it renders is still whatever the address names.
+    expect(lastRequest().view).toBe('open')
     expect(useTodos.getState().view).toBe('plan')
     const shift = container.querySelector<HTMLButtonElement>('[data-todo-overdue-shift]')
     expect(shift, 'the plan screen offers no overdue shift').not.toBeNull()
