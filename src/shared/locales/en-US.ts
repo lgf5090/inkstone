@@ -898,6 +898,8 @@ export const EN_US_MESSAGES = {
     "email.accounts.manage_hint": "Switch, create, edit, or remove a mailbox without leaving the inbox.",
     "email.accounts.active": "Active",
     "email.accounts.domain": "Domain",
+    "email.accounts.address": "Address",
+    "email.accounts.address_required": "Choose a configured address.",
     "email.accounts.domain_required": "Choose a domain.",
     "email.accounts.local_part": "Local part",
     "email.accounts.local_part_invalid": "Enter a valid local part.",

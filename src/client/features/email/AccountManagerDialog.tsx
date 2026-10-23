@@ -37,6 +37,7 @@ export function AccountManagerDialog({
   const createAccount = useEmailStore((state) => state.createAccount)
   const deleteAccount = useEmailStore((state) => state.deleteAccount)
   const [creating, setCreating] = useState(false)
+  const [address, setAddress] = useState('')
   const [localPart, setLocalPart] = useState('')
   const [domain, setDomain] = useState('')
   const [displayName, setDisplayName] = useState('')
@@ -44,9 +45,12 @@ export function AccountManagerDialog({
   const [busy, setBusy] = useState(false)
 
   const domains = config?.domains ?? []
-  const canCreate = domains.length > 0
+  const configured = config?.addresses ?? []
+  const availableAddresses = configured.filter((entry) => !accounts.some((account) => account.address.toLowerCase() === entry.toLowerCase()))
+  const canCreate = configured.length > 0 ? availableAddresses.length > 0 : domains.length > 0
 
   const openCreate = (): void => {
+    setAddress(availableAddresses[0] ?? '')
     setLocalPart('')
     setDomain(domains[0] ?? '')
     setDisplayName('')
@@ -62,21 +66,32 @@ export function AccountManagerDialog({
 
   const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault()
-    const trimmed = localPart.trim().toLowerCase()
-    if (!trimmed || !LOCAL_PART.test(trimmed) || trimmed.startsWith('.') || trimmed.endsWith('.') || trimmed.includes('..')) {
-      setFormError(t('email.accounts.local_part_invalid'))
-      return
-    }
-    if (!domain) {
-      setFormError(t('email.accounts.domain_required'))
-      return
+    let trimmedLocalPart = localPart.trim().toLowerCase()
+    let chosenDomain = domain
+    if (configured.length > 0) {
+      if (!availableAddresses.includes(address)) {
+        setFormError(t('email.accounts.address_required'))
+        return
+      }
+      const [local, host] = address.split('@')
+      trimmedLocalPart = local ?? ''
+      chosenDomain = host ?? ''
+    } else {
+      if (!trimmedLocalPart || !LOCAL_PART.test(trimmedLocalPart) || trimmedLocalPart.startsWith('.') || trimmedLocalPart.endsWith('.') || trimmedLocalPart.includes('..')) {
+        setFormError(t('email.accounts.local_part_invalid'))
+        return
+      }
+      if (!chosenDomain) {
+        setFormError(t('email.accounts.domain_required'))
+        return
+      }
     }
     setBusy(true)
     setFormError(null)
     try {
       const account = await createAccount({
-        localPart: trimmed,
-        domain,
+        localPart: trimmedLocalPart,
+        domain: chosenDomain,
         displayName: displayName.trim() || undefined,
       })
       useUi.getState().toast({ title: t('email.accounts.created'), tone: 'success' })
@@ -203,16 +218,24 @@ export function AccountManagerDialog({
             <span className="text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">{t('email.accounts.create_title')}</span>
           </div>
           <p className="m-0 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('email.accounts.create_hint')}</p>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <Field label={t('email.accounts.local_part')} required>
-              <Input value={localPart} onChange={(event) => setLocalPart(event.target.value)} autoComplete="off" data-autofocus />
-            </Field>
-            <Field label={t('email.accounts.domain')} required>
-              <Select value={domain} onChange={(event) => setDomain(event.target.value)}>
-                {domains.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
+          {configured.length > 0 ? (
+            <Field label={t('email.accounts.address')} required>
+              <Select value={address} onChange={(event) => setAddress(event.target.value)}>
+                {availableAddresses.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
               </Select>
             </Field>
-          </div>
+          ) : (
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Field label={t('email.accounts.local_part')} required>
+                <Input value={localPart} onChange={(event) => setLocalPart(event.target.value)} autoComplete="off" data-autofocus />
+              </Field>
+              <Field label={t('email.accounts.domain')} required>
+                <Select value={domain} onChange={(event) => setDomain(event.target.value)}>
+                  {domains.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
+                </Select>
+              </Field>
+            </div>
+          )}
           <Field label={t('email.accounts.display_name')}>
             <Input value={displayName} onChange={(event) => setDisplayName(event.target.value)} autoComplete="off" />
           </Field>

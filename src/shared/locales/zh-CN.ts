@@ -898,6 +898,8 @@ export const ZH_CN_MESSAGES = {
     "email.accounts.manage_hint": "在收件箱内切换、创建、编辑或删除邮箱账号。",
     "email.accounts.active": "当前",
     "email.accounts.domain": "域名",
+    "email.accounts.address": "邮箱地址",
+    "email.accounts.address_required": "请选择一个已配置的地址。",
     "email.accounts.domain_required": "请选择域名。",
     "email.accounts.local_part": "本地部分",
     "email.accounts.local_part_invalid": "请输入有效的本地部分。",

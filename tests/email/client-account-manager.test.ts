@@ -56,6 +56,23 @@ describe('the mailbox manager dialog', () => {
     expect(window.location.pathname).toBe('/email/accounts/a2/folders/inbox')
   })
 
+  it('creates only among the configured addresses when the deployment fixes them', async () => {
+    const createAccount = vi.fn().mockResolvedValue(account('a3', 'sales@example.com', 'Sales'))
+    useEmailStore.setState({
+      createAccount,
+      config: { domains: ['example.com'], addresses: ['owner@example.com', 'sales@example.com'], attachmentsAvailable: true, sendingAvailable: true, autoDraftAvailable: true, canCreate: true },
+      accounts: [account('a1', 'owner@example.com', 'Owner')],
+    })
+    view = renderElement(createElement(AccountManagerDialog, { open: true, onClose: vi.fn(), activeAccountId: 'a1', onOpenSettings: vi.fn() }))
+    act(() => { [...document.querySelectorAll('button')].find((button) => button.textContent?.includes(t('email.accounts.create')))!.click() })
+    expect(document.querySelector('select')).not.toBeNull()
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>('button[type="submit"]')!.click()
+      for (let index = 0; index < 8; index += 1) await Promise.resolve()
+    })
+    expect(createAccount).toHaveBeenCalledWith({ localPart: 'sales', domain: 'example.com', displayName: undefined })
+  })
+
   it('creates a mailbox inside the same dialog', async () => {
     const createAccount = vi.fn().mockResolvedValue(account('a3', 'sales@example.com', 'Sales'))
     useEmailStore.setState({ createAccount })
