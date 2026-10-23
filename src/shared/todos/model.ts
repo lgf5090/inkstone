@@ -348,6 +348,17 @@ export interface TodoTask extends Task {
    * stamp; every other read filters trashed rows out, so this is null there.
    */
   deletedAt?: number | null
+  /**
+   * The task's ledger rows — closed ones and, at most once across the account, the running one — as
+   * the sync stream attaches them to every page it sends.
+   *
+   * The whole list, not a delta: a task the stream names arrives with the complete set of intervals
+   * the server holds for it, so a receiving device replaces rather than merges — which is what lets a
+   * deleted span on one device delete it on the other without a second tombstone stream. Every ledger
+   * write moves the task's `updatedAt`, and that bump is what makes this page-level restatement
+   * arrive at all. Reads outside the sync stream leave it absent, not empty.
+   */
+  timeEntries?: TodoTimeEntry[]
   stepTotal: number
   stepDone: number
 }

@@ -4875,7 +4875,7 @@ export class AssistantStore {
    * Removes one trashed task for good.
    *
    * Only a stamped row qualifies: the endpoint is the trash's own door, and a live task sent here is a
-   * 404 rather than a delete that bypasses the trash. The six statements run as one batch, so a
+   * 404 rather than a delete that bypasses the trash. The seven statements run as one batch, so a
    * task cannot lose its steps while keeping its row.
    */
   async purgeTask(id: string): Promise<boolean> {
@@ -7423,6 +7423,9 @@ export class AssistantStore {
       // same rule the notes side follows — so this carries the link, and a restore onto a device that
       // still holds the file puts the task's attachments back rather than leaving it looking empty.
       task_attachments: await select('todos_attachments', `AND ${liveTask}`),
+      // The time ledger, closed rows of live tasks only: a running interval is a state on one device,
+      // not a fact yet, and it belongs to a task the file may not carry at all (D13).
+      task_time_entries: await select('todos_time_entries', `AND end_at IS NOT NULL AND ${liveTask}`),
       projects: await select('chat_projects'),
       automations: await select('chat_automations'),
       notifications: await select('chat_notifications'),
@@ -7494,7 +7497,7 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // `icon` and `color` are the task's own face: a restore that dropped them would silently hand every
   // restored task back its list's, which is a different row than the one that was backed up. Both are
   // nullable, so an old backup without the keys still lands.
-  todos_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'start_at', 'project_id', 'list_id', 'icon', 'color', 'starred', 'repeat_rule', 'note_id', 'conversation_id', 'created_at', 'updated_at', 'completed_at', 'created_on', 'completed_on'],
+  todos_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'start_at', 'project_id', 'list_id', 'icon', 'color', 'starred', 'repeat_rule', 'note_id', 'conversation_id', 'created_at', 'updated_at', 'completed_at', 'created_on', 'completed_on', 'time_estimate_ms'],
   todos_lists: ['id', 'name', 'icon', 'color', 'position', 'created_at', 'updated_at'],
   todos_steps: ['id', 'task_id', 'text', 'done', 'position', 'created_at'],
   todos_tags: ['id', 'name', 'color', 'created_at', 'updated_at'],
@@ -7504,6 +7507,11 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // the hub's row rather than something this file carries. Without these the restored task lists no
   // attachments at all and says nothing about it.
   todos_attachments: ['task_id', 'attachment_id', 'created_at'],
+  // The time ledger travels closed rows only (the plan's D13): a restored "running timer" would fight
+  // the unique open-row index and the reader's own expectation, so the one interval still going stays
+  // where it runs. Every column the ledger's reads speak travels — a restore that lost `day` would put
+  // every hour back on the wrong calendar day, which is the whole thing the column exists to prevent.
+  todos_time_entries: ['id', 'task_id', 'start_at', 'end_at', 'day', 'source', 'created_at', 'updated_at'],
   // The brief and the folders a project reads are what make it a context rather than a folder; a
   // restored project without them is the same name over an empty brief. `note_ids` travels with them: a
   // project that named three pages and came back naming none would answer from the whole vault, which is
@@ -7605,15 +7613,15 @@ export async function purgeExpiredEphemeralConversations(
 }
 
 /**
- * The six statements that remove one account's trashed tasks for good.
+ * The seven statements that remove one account's trashed tasks for good.
  *
  * Shared by the endpoint and the retention sweep so the trash is emptied one way: steps, tag links,
- * reminders, attachment links and the task's history go with their task, and the deletes that could
- * catch a row a stale id names repeat the trash predicate so a live task can never be one of them.
- * The `IN` list is built here from ids the account already owns, one place after a scoped read — and
- * cut into chunks, because a sweep page (`TODO_TRASH_PURGE_LIMIT`) names more ids than one statement
- * may bind. The history goes and the trash's soft delete does not: a trashed task still happened, and
- * only a purge says it did not.
+ * reminders, attachment links, the task's time ledger and the task's history go with their task, and
+ * the deletes that could catch a row a stale id names repeat the trash predicate so a live task can
+ * never be one of them. The `IN` list is built here from ids the account already owns, one place
+ * after a scoped read — and cut into chunks, because a sweep page (`TODO_TRASH_PURGE_LIMIT`) names
+ * more ids than one statement may bind. The history and the ledger go and the trash's soft delete
+ * does not: a trashed task still happened, and spent time still spent — only a purge says it did not.
  */
 function purgeTaskStatements(db: D1Database, userId: string, ids: readonly string[]): D1PreparedStatement[] {
   if (!ids.length) return []
@@ -7633,6 +7641,15 @@ function purgeTaskStatements(db: D1Database, userId: string, ids: readonly strin
       // the next sweep would delete a file a live task still shows.
       db.prepare(
         `DELETE FROM todos_attachments
+          WHERE user_id = ?1 AND task_id IN (
+            SELECT id FROM todos_tasks WHERE user_id = ?1 AND id IN (${marks}) AND ${TASK_TRASHED_PREDICATE}
+          )`,
+      ).bind(...binds),
+      // The ledger follows the history's rule, stated in the trash-guarded form for the same race:
+      // a stale id must not catch a live task's rows, and a child left behind by a purge is a
+      // permanent orphan no reader reaches — §4.5 counts one leaked child table as a leak forever.
+      db.prepare(
+        `DELETE FROM todos_time_entries
           WHERE user_id = ?1 AND task_id IN (
             SELECT id FROM todos_tasks WHERE user_id = ?1 AND id IN (${marks}) AND ${TASK_TRASHED_PREDICATE}
           )`,
@@ -7676,7 +7693,7 @@ export async function purgeExpiredTodoTrash(
       ORDER BY deleted_at ASC, id ASC LIMIT ?2`,
   ).bind(cutoff, capped).all<{ user_id: string, id: string }>()
 
-  // One account is one batch of six statements, however many of its rows the page holds.
+  // One account is one batch of seven statements, however many of its rows the page holds.
   const byUser = new Map<string, string[]>()
   for (const row of results ?? []) {
     const bucket = byUser.get(row.user_id) ?? []

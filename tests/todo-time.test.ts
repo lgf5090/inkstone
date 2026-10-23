@@ -4,7 +4,9 @@ import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS, initializeDatabase } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
-import { AssistantStore } from '../src/worker/assistant/store'
+import { AssistantStore, purgeExpiredTodoTrash } from '../src/worker/assistant/store'
+import { exportAssistant, importAssistant } from '../src/worker/assistant/backup'
+import { syncRoutes } from '../src/worker/routes/sync'
 import { todoRoutes } from '../src/worker/routes/todos'
 import {
   TODOS_REQUIRED_COLUMNS,
@@ -69,6 +71,7 @@ function app(): Hono<AppBindings> {
   const instance = new Hono<AppBindings>()
   instance.onError((err, c) => errorResponse(c, err))
   instance.route('/api/todos', todoRoutes)
+  instance.route('/api/sync', syncRoutes)
   return instance
 }
 
@@ -144,9 +147,10 @@ afterEach(() => {
 })
 
 /** Pin the wall clock so a fixed calendar date stays inside the 400-day window forever. */
-function freeze(epochMs: number, accountCreatedAt: number): void {
+function freeze(epochMs: number, accountCreatedAt: number): number {
   vi.useFakeTimers({ now: epochMs })
   mocks.createdAt = accountCreatedAt
+  return epochMs
 }
 
 // ---------------------------------------------------------------- the schema
@@ -429,5 +433,111 @@ describe('the aggregate reads', () => {
 
     expect((await send('GET', `/time?from=2026-01-05&to=2026-01-06&group=week`)).status).toBe(400)
     expect((await send('GET', `/time?from=2026-13-01&to=2026-01-06`)).status).toBe(400)
+  })
+})
+
+// -------------------------------------------------------------- trash and purge
+
+describe('the ledger outlives the trash but not the purge', () => {
+  it('keeps the rows of a trashed task and deletes them when the task is purged', async () => {
+    freeze(Date.parse('2026-06-10T12:00:00Z'), Date.parse('2025-06-10T12:00:00Z'))
+    const a = await store.createTask({ title: 'Worn out' })
+    await store.addManualTime(a.id, Date.now() - 2 * HOUR, Date.now() - HOUR)
+    expect((await store.listTimeEntries({ taskId: a.id })).length).toBe(1)
+
+    await store.deleteTask(a.id)
+    const afterTrash = await store.listTimeEntries({ taskId: a.id })
+    expect(afterTrash.length).toBe(1)
+
+    expect(await store.purgeTask(a.id)).toBe(true)
+    expect(await store.listTimeEntries({ taskId: a.id })).toEqual([])
+    expect(countOpen()).toBe(0)
+  })
+
+  it('takes the ledger with the retention sweep', async () => {
+    freeze(Date.parse('2026-06-10T12:00:00Z'), Date.parse('2025-06-10T12:00:00Z'))
+    const a = await store.createTask({ title: 'Expired' })
+    await store.addManualTime(a.id, Date.now() - 2 * HOUR, Date.now() - HOUR)
+    await store.deleteTask(a.id)
+    sqlite.prepare(`UPDATE todos_tasks SET deleted_at = ?3 WHERE user_id = ?1 AND id = ?2`)
+      .run(USER, a.id, Date.now() - 40 * DAY)
+    expect(await purgeExpiredTodoTrash(env.DB as D1Database, Date.now())).toBe(1)
+    expect(entryRows()).toEqual([])
+  })
+})
+
+// ------------------------------------------------------------------ sync stream
+
+describe('the sync stream carries the ledger', () => {
+  async function getSync(path: string): Promise<Record<string, unknown>> {
+    const response = await app().request(`/api/sync${path}`, { method: 'GET' }, env)
+    return await response.json() as Record<string, unknown>
+  }
+
+  it('attaches the ledger rows to both the snapshot and the delta', async () => {
+    const now = freeze(Date.parse('2026-06-10T12:00:00Z'), Date.parse('2025-06-10T12:00:00Z'))
+    const a = await store.createTask({ title: 'Timed elsewhere' })
+    const b = await store.createTask({ title: 'Never timed' })
+    const opened = await store.openTimeEntry(a.id, now - 2 * HOUR)
+    expect(opened).not.toBeNull()
+    const closed = await store.closeTimeEntry(a.id, now - HOUR)
+    expect(closed?.length).toBe(1)
+
+    const snapshot = await getSync('/todos?since=0')
+    const tasks = snapshot.todos as { id: string; timeEntries?: TodoTimeEntry[] }[]
+    const rowA = tasks.find((task) => task.id === a.id)
+    expect(rowA?.timeEntries).toHaveLength(1)
+    expect(rowA!.timeEntries![0]).toMatchObject({ taskId: a.id, source: 'timer' })
+    expect((tasks.find((task) => task.id === b.id))?.timeEntries).toEqual([])
+
+    // Every ledger write moves the task's clock, so the next delta names the task again...
+    const bumpedAt = Number((sqlite.prepare(
+      `SELECT updated_at FROM todos_tasks WHERE user_id = ?1 AND id = ?2`,
+    ).get(USER, a.id) as { updated_at: number }).updated_at)
+    expect(bumpedAt).toBeGreaterThanOrEqual(now)
+    const removed = await store.removeTimeEntry(closed![0]!.id)
+    expect(removed).not.toBeNull()
+
+    const delta = await getSync(`/todos?since=${Math.max(1, bumpedAt - 1)}`)
+    const moved = (delta.todos as { id: string; timeEntries?: TodoTimeEntry[] }[])
+      .find((task) => task.id === a.id)
+    expect(moved?.timeEntries).toEqual([])
+  })
+})
+
+// --------------------------------------------------------------------- backup
+
+describe('the backup carries the ledger and the estimate', () => {
+  it('exports closed rows only, and the aggregate survives the round trip', async () => {
+    const a = await store.createTask({ title: 'Six hours' })
+    const gone = await store.createTask({ title: 'Trashed' })
+    await store.addManualTime(a.id, Date.parse('2026-01-05T09:00:00Z'), Date.parse('2026-01-05T10:00:00Z'))
+    await store.addManualTime(a.id, Date.parse('2026-01-06T09:00:00Z'), Date.parse('2026-01-06T11:00:00Z'))
+    await store.addManualTime(gone.id, Date.parse('2026-01-05T09:00:00Z'), Date.parse('2026-01-05T09:30:00Z'))
+    await store.openTimeEntry(a.id, Date.now() - 10 * 60_000)
+    sqlite.prepare(`UPDATE todos_tasks SET time_estimate_ms = 5400000 WHERE user_id = ?1 AND id = ?2`)
+      .run(USER, a.id)
+    await store.deleteTask(gone.id)
+
+    const backup = await exportAssistant(store)
+    const data = backup.data as Record<string, Record<string, unknown>[]>
+    const exported = data.task_time_entries!
+    // The open row and the trashed task's row both stay behind; only closed rows of live tasks travel.
+    expect(exported).toHaveLength(2)
+    expect(exported.every((row) => row.end_at !== null)).toBe(true)
+    expect(exported.every((row) => row.task_id === a.id)).toBe(true)
+    expect(data.tasks!.find((row) => row.id === a.id)!.time_estimate_ms).toBe(5400000)
+
+    const target = new AssistantStore(env.DB as D1Database, OTHER, env)
+    await importAssistant(target, JSON.parse(JSON.stringify(backup)))
+
+    expect(await target.taskTimeSpent(a.id)).toBe(3 * HOUR)
+    const stored = sqlite.prepare(
+      `SELECT COUNT(*) AS n FROM todos_time_entries WHERE user_id = ?1 AND end_at IS NULL`,
+    ).get(OTHER) as { n: number }
+    expect(Number(stored.n)).toBe(0)
+    expect((sqlite.prepare(
+      `SELECT time_estimate_ms FROM todos_tasks WHERE user_id = ?1 AND id = ?2`,
+    ).get(OTHER, a.id) as { time_estimate_ms: number }).time_estimate_ms).toBe(5400000)
   })
 })

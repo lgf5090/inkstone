@@ -12,7 +12,7 @@
 import type { AssistantImportSummary, AssistantSettings } from '@shared/assistant'
 import { clipReasoning, normalizeAssistantSettings } from '@shared/assistant'
 import { parseScheduleSpec } from '@shared/assistant-schedule'
-import { normalizeReminderTimes, parseRepeatRule } from '@shared/todos/model'
+import { normalizeReminderTimes, parseRepeatRule, TIME_ENTRY_SOURCES } from '@shared/todos/model'
 import { ASSISTANT_MEMORY_CATEGORIES, AUTOMATION_KINDS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_AUTOMATION_TARGET_ID_CHARS, MAX_MESSAGE_CHARS, MAX_PROJECT_NOTES } from '@shared/assistant'
 import { ApiError } from '../lib/errors'
 import { AssistantStore, decodeFeedback, encodeFeedback } from './store'
@@ -556,6 +556,10 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
       created_at: numberValue(task.created_at, Date.now()),
       updated_at: numberValue(task.updated_at, Date.now()),
       completed_at: numberOrNull(task.completed_at),
+      // The planned length travels with the row it belongs to: a restored task that forgot its
+      // estimate lost the half of the worklog that compares hours spent against hours intended.
+      // Nullable, so a file written before the column exists simply does not name it.
+      time_estimate_ms: numberOrNull(task.time_estimate_ms),
     }
     // A task the reader has checked off or edited here since the file was written stays theirs.
     const localAt = localTaskAt.get(id) ?? null
@@ -638,6 +642,37 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
     })
   }
   await store.importRows('todos_attachments', attachmentRows)
+
+  // The time ledger lands after the tasks it belongs to, and an interval whose task is not here goes
+  // with it: the file carries hours spent, and hours no task owns are a fact nothing will ever read
+  // again. A row whose `end_at` is missing is skipped for the export's own reason (D13): the running
+  // timer is one device's state, and no file gets to resurrect it on another. `day` is the day the
+  // server fixed at write time — the restore keeps it rather than recomputing, because the whole
+  // point of the column is that the account's calendar, not this machine's clock, decided it.
+  const timeEntryEntries = rows(data.task_time_entries)
+  const timeEntryTaskIds = timeEntryEntries
+    .map((entry) => idValue(entry.task_id))
+    .filter((id): id is string => id !== null)
+  const tasksWithLedger = await store.hasRows('todos_tasks', timeEntryTaskIds)
+  const timeEntryRows: Record<string, unknown>[] = []
+  for (const entry of timeEntryEntries) {
+    const id = idValue(entry.id)
+    const taskId = idValue(entry.task_id)
+    const day = dateValue(entry.day)
+    const endAt = numberOrNull(entry.end_at)
+    if (!id || !taskId || !tasksWithLedger.has(taskId) || day === null || endAt === null) continue
+    timeEntryRows.push({
+      id,
+      task_id: taskId,
+      start_at: numberValue(entry.start_at),
+      end_at: endAt,
+      day,
+      source: oneOf(entry.source, TIME_ENTRY_SOURCES, 'timer'),
+      created_at: numberValue(entry.created_at, Date.now()),
+      updated_at: numberValue(entry.updated_at, Date.now()),
+    })
+  }
+  await store.importRows('todos_time_entries', timeEntryRows)
 
   // Two things this format leaves out by decision, said on the summary rather than left for the reader to
   // discover by counting what came back. A feed's password hash and a mail address's token are the
