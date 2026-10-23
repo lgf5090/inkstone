@@ -57,6 +57,7 @@ import type {
 import { dialectsForProtocol } from '@shared/reasoning'
 import {
   COMPLETED_PAGE_SIZE,
+  MAX_DAY_TRACKED_MS,
   MAX_STEPS_PER_TASK,
   MAX_STEP_TEXT_CHARS,
   MAX_TASKS_PER_QUERY,
@@ -66,6 +67,7 @@ import {
   TODO_TRASH_RETENTION_DAYS,
   TRASH_PAGE_SIZE,
   defaultColorFor,
+  isTimeEntrySource,
   nextOccurrence,
   normalizeReminderTimes,
   normalizeTagNames,
@@ -82,6 +84,7 @@ import {
   type TaskTag,
   type TaskView,
   type TodoTask,
+  type TodoTimeEntry,
 } from '@shared/todos/model'
 import type { McpOAuthSecrets, McpOAuthStatus } from './mcp-oauth'
 import { ASSISTANT_MCP_TOOL_MODES, ASSISTANT_MCP_TRANSPORTS, DEFAULT_MCP_TIMEOUT_SECONDS, EPHEMERAL_CONVERSATION_RETENTION_DAYS, MAX_MCP_DESCRIPTION_CHARS, MAX_MCP_TOOL_OVERRIDES, MAX_MCP_HEADER_VALUE_CHARS, MAX_MCP_LABEL_CHARS, MAX_MCP_TOOL_NAME_CHARS, MAX_MCP_TIMEOUT_SECONDS, MIN_MCP_TIMEOUT_SECONDS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, RUN_PARTIAL_MAX_CHARS, MAX_ANSWER_VERSIONS, MAX_CHAT_ATTACHMENTS, MAX_FEEDBACK_REASON_CHARS, clipReasoning, isMcpHeaderName, parseModelModalities, parseProviderEndpoints, reasoningDialectValue, reasoningValue, type AssistantAnswerVersion, type AssistantMcpServer, type AssistantMcpToolMode, type AssistantMcpTransport, type AssistantModelModality, type ChatAttachment } from '@shared/assistant'
@@ -97,7 +100,7 @@ import {
   type PendingActionStatus,
 } from '@shared/assistant'
 import { parseScheduleSpec, getZonedParts, zonedTimeToUtc, type ScheduleSpec } from '@shared/assistant-schedule'
-import { localDate } from '@shared/assistant-time'
+import { localDate, localDayBounds } from '@shared/assistant-time'
 import { likePattern } from '@shared/markdown-utils'
 import type { Env } from '../env'
 import { tagScopePredicate } from '../db/rows'
@@ -107,6 +110,37 @@ import { newId } from '../lib/id'
 import { parseStoredJson } from '../lib/json'
 import { decryptAssistantKey, decryptMcpOAuth, encryptAssistantKey, encryptMcpOAuth } from '../lib/crypto'
 import { curatedModelLimits } from './vendor-model-limits'
+import { toTimeEntry, todoTaskIsLive, type TodoTimeEntryRow } from '../todos/schema'
+
+/**
+ * One interval cut at the account's own midnights: every segment lands on a single calendar day.
+ *
+ * The plan's R1-1 split, done at close rather than per tick: a night shift is two days' work, and
+ * filing it whole against either one is the same mistake `completed_on` exists to prevent. The
+ * boundaries come from the account's zone, not UTC, and every segment's `day` is the day its start
+ * instant falls on. A zero-length interval is one segment on its day — a timer started and stopped
+ * within one clock reading is still a row the client can point at.
+ */
+function timeEntrySegments(
+  startAt: number,
+  endAt: number,
+  timeZone: string,
+): { day: string, startAt: number, endAt: number }[] {
+  const segments: { day: string, startAt: number, endAt: number }[] = []
+  let cursor = startAt
+  do {
+    const bounds = localDayBounds(timeZone, new Date(cursor))
+    const segmentEnd = Math.min(endAt, bounds.end)
+    segments.push({ day: localDate(cursor, timeZone), startAt: cursor, endAt: segmentEnd })
+    cursor = segmentEnd
+  } while (cursor < endAt)
+  return segments
+}
+
+/** A stored `source` the way the shared vocabulary reads it: an unknown word is the timer's own. */
+function entrySourceOrTimer(value: string): TodoTimeEntry['source'] {
+  return isTimeEntrySource(value) ? value : 'timer'
+}
 
 /** How long a reader has to approve a destructive proposal. */
 export const PENDING_ACTION_TTL_MS = 30 * 60 * 1000
@@ -5398,6 +5432,299 @@ export class AssistantStore {
       taskId, stepId,
     )
     return changes > 0
+  }
+
+  // ------------------------------------------------------------- time ledger
+
+  /**
+   * The account's one running row, if it has one.
+   *
+   * `ux_todos_time_open` makes "at most one" a database fact, so this read is never ambiguous: a row
+   * is the timer, and no rows means nothing is running.
+   */
+  private async openTimeEntryRow(): Promise<TodoTimeEntryRow | null> {
+    return await this.one<TodoTimeEntryRow>(
+      `SELECT id, task_id, start_at, end_at, day, source, created_at, updated_at
+         FROM todos_time_entries WHERE user_id = ?1 AND end_at IS NULL`,
+      this.userId,
+    )
+  }
+
+  private timeEntryByIdRow(entryId: string): Promise<TodoTimeEntryRow | null> {
+    return this.one<TodoTimeEntryRow>(
+      `SELECT id, task_id, start_at, end_at, day, source, created_at, updated_at
+         FROM todos_time_entries WHERE user_id = ?1 AND id = ?2`,
+      this.userId, entryId,
+    )
+  }
+
+  /**
+   * One ledger row, as the writing methods hand it back after the batch landed.
+   *
+   * The row is built from what was written rather than re-read: a batch is a transaction, so the
+   * values above are exactly the values below, and a second round trip per gesture buys nothing.
+   */
+  private insertTimeEntryStatement(input: {
+    id: string, taskId: string, startAt: number, endAt: number | null, day: string, source: string,
+  }, at: number): D1PreparedStatement {
+    return this.db.prepare(
+      `INSERT INTO todos_time_entries (user_id, id, task_id, start_at, end_at, day, source, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)`,
+    ).bind(this.userId, input.id, input.taskId, input.startAt, input.endAt, input.day, input.source, at)
+  }
+
+  /**
+   * Move the task's clock — and its revision — on, because the ledger hangs off it and sync reads it.
+   *
+   * The task delta's cursor is `updated_at` (the plan's §4.5 channel ①): a ledger write that left the
+   * task row untouched would be invisible to every other device forever, because nothing else about
+   * the task changed. Same reason `snoozeTask` bumps the row before queueing a reminder. The live
+   * predicate keeps a trashed task's stamp from being restamped by a timer gesture.
+   */
+  private touchTaskStatement(taskId: string, at: number): D1PreparedStatement {
+    return this.db.prepare(
+      `UPDATE todos_tasks SET updated_at = ?2, rev = rev + 1
+        WHERE user_id = ?1 AND id = ?3 AND ${TASK_LIVE_PREDICATE}`,
+    ).bind(this.userId, at, taskId)
+  }
+
+  /**
+   * Close one running row into one row per account day, as statements and as the rows they write.
+   *
+   * The first segment reuses the open row's id — the client that has been holding it through the
+   * timer keeps a row that still exists — and any later segment is a fresh row filed under its own
+   * day. The original row survives exactly as the split plan in §8 R1-1 decided: the night shift is
+   * filed against the days the work happened on, not the day it began.
+   */
+  private closeEntryWrite(
+    open: TodoTimeEntryRow,
+    endAt: number,
+    timeZone: string,
+    at: number,
+  ): { entries: TodoTimeEntry[], statements: D1PreparedStatement[] } {
+    const segments = timeEntrySegments(open.start_at, endAt, timeZone)
+    const statements: D1PreparedStatement[] = []
+    const entries: TodoTimeEntry[] = []
+    segments.forEach((segment, index) => {
+      if (index === 0) {
+        statements.push(this.db.prepare(
+          `UPDATE todos_time_entries
+              SET end_at = ?3, day = ?4, updated_at = ?5
+            WHERE user_id = ?1 AND id = ?2`,
+        ).bind(this.userId, open.id, segment.endAt, segment.day, at))
+        entries.push({
+          id: open.id, taskId: open.task_id, startAt: segment.startAt, endAt: segment.endAt,
+          day: segment.day, source: entrySourceOrTimer(open.source), createdAt: open.created_at, updatedAt: at,
+        })
+        return
+      }
+      const id = newId()
+      statements.push(this.insertTimeEntryStatement({
+        id, taskId: open.task_id, startAt: segment.startAt, endAt: segment.endAt,
+        day: segment.day, source: open.source,
+      }, at))
+      entries.push({
+        id, taskId: open.task_id, startAt: segment.startAt, endAt: segment.endAt,
+        day: segment.day, source: entrySourceOrTimer(open.source), createdAt: at, updatedAt: at,
+      })
+    })
+    return { entries, statements }
+  }
+
+  /**
+   * Start the account's one running timer on this task.
+   *
+   * Three answers, none of them an error: the task's own row is already running → return it (a
+   * retried start, or an offline replay, must not mint a second interval); another task is running
+   * → stop it and start this one, "no parallel timers" being the server's rule rather than the
+   * client's politeness; nothing is running → start. The close and the open land in one batch in
+   * that order, because for the instant between two separate batches the unique index would reject
+   * the open row while the old one still held the slot.
+   *
+   * The `day` is the account's own calendar day of the start instant, computed here — a client never
+   * names a day. A unique-index conflict at the end means another start raced this one; the answer
+   * is the row that won, not a 500, and the conflict is judged by re-reading (the database message
+   * names the index's columns but not its WHERE clause, so parsing it is not an option).
+   */
+  async openTimeEntry(taskId: string, startAt: number): Promise<TodoTimeEntry | null> {
+    if (!(await todoTaskIsLive(this.db, this.userId, taskId))) return null
+    const timeZone = (await this.getSettings()).timezone
+    const at = Date.now()
+    const open = await this.openTimeEntryRow()
+    if (open && open.task_id === taskId) return toTimeEntry(open)
+    const statements: D1PreparedStatement[] = []
+    if (open) {
+      // The old timer ends where the new one begins; a start back-dated before the old one started
+      // still cannot make it run backwards, so the close lands at the open instant at the earliest.
+      const closed = this.closeEntryWrite(open, Math.max(open.start_at, startAt), timeZone, at)
+      statements.push(...closed.statements, this.touchTaskStatement(open.task_id, at))
+    }
+    const id = newId()
+    const day = localDate(startAt, timeZone)
+    statements.push(
+      this.insertTimeEntryStatement({ id, taskId, startAt, endAt: null, day, source: 'timer' }, at),
+      this.touchTaskStatement(taskId, at),
+    )
+    try {
+      await this.db.batch(statements)
+    } catch (error) {
+      const raced = await this.openTimeEntryRow()
+      if (raced) return toTimeEntry(raced)
+      throw error
+    }
+    return { id, taskId, startAt, endAt: null, day, source: 'timer', createdAt: at, updatedAt: at }
+  }
+
+  /**
+   * Stop this task's running timer, split at the account's midnight if it crossed one.
+   *
+   * Null when nothing is running on this task — the gesture that did not happen. An interval that
+   * ends before it started is refused out loud rather than clamped: a client whose clock was rebuilt
+   * mid-run has to be told, because silently filing zero hours hides the mistake it needs to fix.
+   * A stopped timer is never refused for its length: it is what actually elapsed, and a refusal
+   * would leave the account's one open slot held forever with no way out.
+   */
+  async closeTimeEntry(taskId: string, endAt: number): Promise<TodoTimeEntry[] | null> {
+    const open = await this.openTimeEntryRow()
+    if (!open || open.task_id !== taskId) return null
+    if (endAt < open.start_at) {
+      throw ApiError.badRequest('A timer cannot stop before it started.')
+    }
+    const timeZone = (await this.getSettings()).timezone
+    const at = Date.now()
+    const closed = this.closeEntryWrite(open, endAt, timeZone, at)
+    await this.db.batch([...closed.statements, this.touchTaskStatement(taskId, at)])
+    return closed.entries
+  }
+
+  /**
+   * Back-fill one hand-entered span, source `manual` and split at the account's midnights it touches.
+   *
+   * The daily ceiling is checked here because it is a fact of the rows, not of the request: an
+   * affected day that already holds its full 24 hours is refused with a reason rather than trimmed
+   * (iron rule 2 — a silent clamp is how a duplicated submit hides). The per-entry ceiling is the
+   * route's, being a property of what the caller sent.
+   */
+  async addManualTime(taskId: string, startAt: number, endAt: number): Promise<TodoTimeEntry[] | null> {
+    if (!(await todoTaskIsLive(this.db, this.userId, taskId))) return null
+    if (endAt <= startAt) throw ApiError.badRequest('A time entry must end after it starts.')
+    const timeZone = (await this.getSettings()).timezone
+    const at = Date.now()
+    const segments = timeEntrySegments(startAt, endAt, timeZone)
+    await this.assertDayBudget(segments)
+    const statements: D1PreparedStatement[] = []
+    const entries: TodoTimeEntry[] = []
+    for (const segment of segments) {
+      const id = newId()
+      statements.push(this.insertTimeEntryStatement({
+        id, taskId, startAt: segment.startAt, endAt: segment.endAt, day: segment.day, source: 'manual',
+      }, at))
+      entries.push({
+        id, taskId, startAt: segment.startAt, endAt: segment.endAt, day: segment.day,
+        source: 'manual', createdAt: at, updatedAt: at,
+      })
+    }
+    await this.db.batch([...statements, this.touchTaskStatement(taskId, at)])
+    return entries
+  }
+
+  /** Delete one ledger row — the back-space key of a back-filled span, or a timer nobody wants kept. */
+  async removeTimeEntry(entryId: string): Promise<TodoTimeEntry | null> {
+    const row = await this.timeEntryByIdRow(entryId)
+    if (!row) return null
+    const at = Date.now()
+    await this.db.batch([
+      this.db.prepare(`DELETE FROM todos_time_entries WHERE user_id = ?1 AND id = ?2`)
+        .bind(this.userId, entryId),
+      this.touchTaskStatement(row.task_id, at),
+    ])
+    return toTimeEntry(row)
+  }
+
+  /** The account's own running row, for surfaces that show the timer rather than drive it. */
+  async getOpenTimeEntry(): Promise<TodoTimeEntry | null> {
+    const open = await this.openTimeEntryRow()
+    return open ? toTimeEntry(open) : null
+  }
+
+  /**
+   * The ledger rows, newest interval first: one task's history, or a day window.
+   *
+   * No task predicate on the task-scoped read, on purpose: the rows of a trashed task are history the
+   * trash does not own, exactly as the task events' rows stay until the purge takes them.
+   */
+  async listTimeEntries(filter: { taskId?: string, from?: string, to?: string } = {}): Promise<TodoTimeEntry[]> {
+    const q = new Query(this.userId)
+    if (filter.taskId) q.eq('task_id', filter.taskId)
+    if (filter.from) q.raw(`day >= ${q.add(filter.from)}`)
+    if (filter.to) q.raw(`day <= ${q.add(filter.to)}`)
+    const rows = await this.rows<TodoTimeEntryRow>(
+      `SELECT id, task_id, start_at, end_at, day, source, created_at, updated_at
+         FROM todos_time_entries WHERE ${q.where} ORDER BY start_at DESC, id DESC`,
+      ...q.binds,
+    )
+    return rows.map(toTimeEntry)
+  }
+
+  /** What one task has spent, in milliseconds: closed rows only — the running one is not yet a fact. */
+  async taskTimeSpent(taskId: string): Promise<number> {
+    const row = await this.one<{ ms: number | null }>(
+      `SELECT SUM(end_at - start_at) AS ms FROM todos_time_entries
+        WHERE user_id = ?1 AND task_id = ?2 AND end_at IS NOT NULL`,
+      this.userId, taskId,
+    )
+    return Number(row?.ms ?? 0)
+  }
+
+  /** One account's closed intervals, bucketed by the day they were filed on — one grouped read. */
+  async timeByDay(from: string, to: string): Promise<{ day: string, ms: number }[]> {
+    const rows = await this.rows<{ day: string, ms: number | null }>(
+      `SELECT day, SUM(end_at - start_at) AS ms FROM todos_time_entries
+        WHERE user_id = ?1 AND end_at IS NOT NULL AND day >= ?2 AND day <= ?3
+        GROUP BY day ORDER BY day ASC`,
+      this.userId, from, to,
+    )
+    return rows.map((row) => ({ day: row.day, ms: Number(row.ms ?? 0) }))
+  }
+
+  /** The same window bucketed by task, biggest spender first — for a worklog's task grouping. */
+  async timeByTask(from: string, to: string): Promise<{ taskId: string, ms: number }[]> {
+    const rows = await this.rows<{ task_id: string, ms: number | null }>(
+      `SELECT task_id, SUM(end_at - start_at) AS ms FROM todos_time_entries
+        WHERE user_id = ?1 AND end_at IS NOT NULL AND day >= ?2 AND day <= ?3
+        GROUP BY task_id ORDER BY ms DESC, task_id ASC`,
+      this.userId, from, to,
+    )
+    return rows.map((row) => ({ taskId: row.task_id, ms: Number(row.ms ?? 0) }))
+  }
+
+  /**
+   * Refuse a write that would push any affected account day past its 24 hours.
+   *
+   * One grouped read over exactly the days the new segments touch — not a query per segment, and not
+   * a clamp: a day that is full is the caller's answer, said out loud with the limit in it.
+   */
+  private async assertDayBudget(segments: readonly { day: string, startAt: number, endAt: number }[]): Promise<void> {
+    const days = [...new Set(segments.map((segment) => segment.day))]
+    if (!days.length) return
+    const q = new Query(this.userId)
+    q.inList('day', days)
+    const rows = await this.rows<{ day: string, ms: number | null }>(
+      `SELECT day, SUM(end_at - start_at) AS ms FROM todos_time_entries
+        WHERE ${q.where} AND end_at IS NOT NULL GROUP BY day`,
+      ...q.binds,
+    )
+    const existing = new Map(rows.map((row) => [row.day, Number(row.ms ?? 0)]))
+    for (const day of days) {
+      const added = segments
+        .filter((segment) => segment.day === day)
+        .reduce((total, segment) => total + (segment.endAt - segment.startAt), 0)
+      if ((existing.get(day) ?? 0) + added > MAX_DAY_TRACKED_MS) {
+        throw ApiError.badRequest(
+          `A single day can hold at most 24 hours of tracked time, and ${day} is already full.`,
+        )
+      }
+    }
   }
 
   // ---------------------------------------------------------------- projects
