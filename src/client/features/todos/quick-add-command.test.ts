@@ -90,4 +90,27 @@ describe('the new-task command', () => {
     expect(selectedLabel(document.body, t('todo.task.list_label'))).toBe('工作')
     expect(selectedLabel(document.body, t('todo.task.reminder_preset')), 'the reminder was parsed but lost before the form').toBe(t('todo.remind.15m'))
   })
+
+  it('carries the plan a line names into the draft and the form', () => {
+    expect(runAppCommand('cmd-new-todo', '写周报 1h20m')).toEqual({ ok: true })
+    const draft = useTodos.getState().draft!
+    expect(draft.title).toBe('写周报')
+    expect(draft.timeEstimate).toBe(80 * 60_000)
+    expect(draft.timeLoggedMs, 'a line that named no pair spent nothing').toBeUndefined()
+
+    // One hour is a rung of the ladder the picker offers, so the form can be read back as the word a
+    // reader would say rather than as a number in a box.
+    runAppCommand('cmd-new-todo', '写周报 1h')
+    view = renderElement(createElement(TaskEditor))
+    expect(selectedLabel(document.body, t('todo.time.label'))).toBe('1h')
+  })
+
+  it('holds the spent half of a pair apart from the row the editor writes', () => {
+    expect(runAppCommand('cmd-new-todo', '写周报 5m/1h')).toEqual({ ok: true })
+    const draft = useTodos.getState().draft!
+    expect(draft.timeEstimate).toBe(60 * 60_000)
+    // The five minutes are a fact about the ledger rather than a column of the row: the draft carries it
+    // for `createTask` to file, and no field of the form owns it.
+    expect(draft.timeLoggedMs).toBe(5 * 60_000)
+  })
 })

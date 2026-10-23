@@ -162,6 +162,131 @@ it('never sets a reminder without a time to count back from', () => {
   expect(parsed.dueAt).toBeNull()
 })
 
+/**
+ * The plan a line carries.
+ *
+ * A duration is the one field whose words are two letters long, so every case below is a case of two
+ * patterns wanting the same characters: the `30` of `30m` is also the `30` of a day of the month, the
+ * `1` of `1h` is also the `1` of a clock hour, and the `/` a spent half is written with is the `/` a
+ * date is written with. The parser's ruling is the order it consumes in — reminder first, so a
+ * reminder's own minutes never become a plan; duration before the rhythm and before the dates, so the
+ * unit letters are still there to be read.
+ */
+it('reads a written duration as the plan the line carries', () => {
+  const hour = parse('\u5199\u5468\u62a5 1h')
+  expect(hour.timeEstimateMs).toBe(60 * 60_000)
+  expect(hour.title, 'the plan was read out of the words left behind').toBe('\u5199\u5468\u62a5')
+  expect(parse('\u5199\u5468\u62a5 30m').timeEstimateMs).toBe(30 * 60_000)
+  expect(parse('\u5199\u5468\u62a5 1h20m').timeEstimateMs).toBe(80 * 60_000)
+  expect(parse('\u5199\u5468\u62a5 1.5h').timeEstimateMs).toBe(90 * 60_000)
+})
+
+it('splits the spent half of a pair from the estimate half', () => {
+  // `5m/1h` is the reference apps' own syntax and it reads spent-first: five minutes gone, one hour planned.
+  const parsed = parse('\u5199\u5468\u62a5 5m/1h')
+  expect(parsed.timeLoggedMs).toBe(5 * 60_000)
+  expect(parsed.timeEstimateMs).toBe(60 * 60_000)
+  expect(parsed.title).toBe('\u5199\u5468\u62a5')
+})
+
+it('names no plan on a line that carries none', () => {
+  const inputs = [
+    '\u4e70\u725b\u5976',
+    '10/25 \u4ea4\u4fdd\u9669',
+    '10-25 \u4ea4\u4fdd\u9669',
+    '30\u53f7 \u4ea4\u4fdd\u9669',
+    '10\u670825\u65e5 \u4ea4\u4fdd\u9669',
+    '\u4e0b\u53483\u70b9 \u63a5\u5b69\u5b50',
+    'remind me 15 minutes tomorrow 10:00 call home',
+    '\u8dd1 5min',
+    'rest 1hour',
+    'run 90minutes',
+  ]
+  for (const input of inputs) {
+    const parsed = parse(input)
+    expect(parsed.timeEstimateMs, input).toBeNull()
+    expect(parsed.timeLoggedMs, input).toBeNull()
+  }
+})
+
+it('takes the estimate without eating the slash a date is written with', () => {
+  const parsed = parse('10/25 \u4ea4\u4fdd\u9669 1h')
+  expect(wallClock(parsed.dueAt), 'the slash still spells a date').toBe('2026-10-25 23:59')
+  expect(parsed.timeEstimateMs).toBe(60 * 60_000)
+  expect(parsed.title).toBe('\u4ea4\u4fdd\u9669')
+
+  // A pair carries its own slash, and it is the only slash the pair gets to take: the one the date is
+  // written with stays where the date is, or the reader loses the day they typed.
+  const paired = parse('10/25 \u4ea4\u4fdd\u9669 5m/1h')
+  expect(wallClock(paired.dueAt)).toBe('2026-10-25 23:59')
+  expect(paired.timeLoggedMs).toBe(5 * 60_000)
+  expect(paired.timeEstimateMs).toBe(60 * 60_000)
+  expect(paired.title).toBe('\u4ea4\u4fdd\u9669')
+})
+
+it('keeps a month-day beside the plan the line names', () => {
+  const parsed = parse('10\u670825\u65e5 \u4ea4\u4fdd\u9669 30m')
+  expect(wallClock(parsed.dueAt)).toBe('2026-10-25 23:59')
+  expect(parsed.timeEstimateMs).toBe(30 * 60_000)
+  expect(parsed.title).toBe('\u4ea4\u4fdd\u9669')
+
+  const dashed = parse('\u5f00\u4f1a10-25\u62a5\u544a3\u70b9 1h20m')
+  expect(wallClock(dashed.dueAt)).toBe('2026-10-25 03:00')
+  expect(dashed.timeEstimateMs).toBe(80 * 60_000)
+})
+
+it('reads a clock hour and a plan in the same line without confusing them', () => {
+  const parsed = parse('\u660e\u5929\u4e0b\u53481\u70b9 \u5f00\u4f1a 1h')
+  expect(wallClock(parsed.dueAt)).toBe('2026-10-21 13:00')
+  expect(parsed.timeEstimateMs).toBe(60 * 60_000)
+  expect(parsed.title).toBe('\u5f00\u4f1a')
+
+  const english = parse('submit the report tomorrow 3pm 1h')
+  expect(wallClock(english.dueAt)).toBe('2026-10-21 15:00')
+  expect(english.timeEstimateMs).toBe(60 * 60_000)
+  expect(english.title).toBe('submit the report')
+})
+
+it('leaves a rhythm word to the rhythm pass and takes only the duration', () => {
+  const parsed = parse('\u6bcf\u5929 \u6253\u5361 30m')
+  expect(parsed.repeat).toEqual({ freq: 'daily', interval: 1 })
+  expect(parsed.timeEstimateMs).toBe(30 * 60_000)
+  expect(parsed.title).toBe('\u6253\u5361')
+})
+
+it('reads the reminder before the plan, so a reminder\u2019s minutes stay the reminder', () => {
+  const han = parse('\u63d0\u524d15\u5206\u949f\u63d0\u9192 \u660e\u592910\u70b9 \u6253\u75ab\u82d7')
+  expect(han.timeEstimateMs).toBeNull()
+  expect(han.timeLoggedMs).toBeNull()
+  expect(wallClock(han.remindAt)).toBe('2026-10-21 09:45')
+
+  const english = parse('remind me 15 minutes tomorrow 10:00 call home')
+  expect(english.timeEstimateMs, '15 minutes is an offset, not a plan').toBeNull()
+  expect(wallClock(english.remindAt)).toBe('2026-10-21 09:45')
+  expect(english.title).toBe('call home')
+
+  const both = parse('\u63d0\u524d15\u5206\u949f\u63d0\u9192 \u660e\u592910\u70b9 \u6253\u75ab\u82d7 1h')
+  expect(both.timeEstimateMs).toBe(60 * 60_000)
+  expect(wallClock(both.remindAt)).toBe('2026-10-21 09:45')
+  expect(both.title).toBe('\u6253\u75ab\u82d7')
+})
+
+it('leaves a plan past the ceiling a row may carry in the title', () => {
+  // Three hundred hours is over the ten working days one task may hold: promising it would be a
+  // create the server answers 400, so the words stay where the reader can see and fix them.
+  const parsed = parse('\u4ea4\u5468\u62a5 300h')
+  expect(parsed.timeEstimateMs).toBeNull()
+  expect(parsed.title).toBe('\u4ea4\u5468\u62a5 300h')
+  expect(parsed.tokens).toEqual([])
+})
+
+it('reports the plan it read as the words it read them from', () => {
+  const parsed = parse('\u5199\u5468\u62a5 5m/1h')
+  const spans = parsed.tokens.filter((token) => token.kind === 'time')
+  expect(spans.map((token) => token.text)).toEqual(['5m/1h'])
+  expect(parsed.source.slice(spans[0]!.start, spans[0]!.end)).toBe('5m/1h')
+})
+
 it('reads the English half of the vocabulary', () => {
   const parsed = parse('submit the report tomorrow 3pm #work p1', 'UTC')
   expect(parsed.title).toBe('submit the report')
@@ -241,6 +366,18 @@ const OFFSET_CORPUS = [
   '   \u660e\u5929   \u4e0b\u53483\u70b9  \u5f00\u4f1a  ',
   '\u6bcf\u5929 \u6253\u5361 !3 #habit',
   '\u4e0b\u5468\u4e94 \u4ea4\u62a5\u544a @\u81ea\u5a92\u4f53 \u5230\u671f\u63d0\u9192',
+  // The plan is the newest span in the line, and every one of these puts it next to a pattern that
+  // would read the same characters as its own: a slash date, a day of the month, a clock, a rhythm.
+  '\u5199\u5468\u62a5 1h',
+  '\u4ea4\u5468\u62a5 5m/1h',
+  '10/25 \u4ea4\u4fdd\u9669 1h',
+  '\u5f00\u4f1a10-25\u62a5\u544a3\u70b9 1h20m',
+  '\u6bcf\u5929 \u6253\u5361 30m !2',
+  '\u4e0b\u5348 \u63d0\u524d15\u5206\u949f\u63d0\u9192 3\u70b9 \u6253\u75ab\u82d7 1h',
+  '\u63d0\u524d15\u5206\u949f\u63d0\u9192 \u660e\u592910\u70b9 \u6253\u75ab\u82d7 1.5h',
+  'remind me 15 minutes tomorrow 10:00 call home 1h',
+  'submit the report tomorrow 3pm 1h #work',
+  '   \u660e\u5929   10/25  \u4ea4\u5468\u62a5  1h  ',
 ]
 
 function expectOffsetsHold(input: string): void {

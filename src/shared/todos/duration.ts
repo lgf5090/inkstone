@@ -19,15 +19,16 @@ const HOUR_MS = 60 * 60_000
 const MINUTE_MS = 60_000
 
 /**
- * What a duration reads as, and what the estimate field accepts: `45m`, `1h`, `1h20m`, `1h 20m`.
+ * What a duration reads as, and what the estimate field accepts: `45m`, `1h`, `1h20m`, `1h 20m`, `1.5h`.
  *
  * Hours and minutes only. Days are left out on purpose — `3d` would eat the `3D` of a title about a
  * printer, and an estimate measured in days is a project, not a task. The unit must be followed by a
  * non-letter, so `5min` and `1hour` stay prose rather than being cut in half; a bare number is read as
  * minutes by {@link parseTaskDuration} alone, never matched here, because `30` on its own is as likely
- * to be a page count as a duration.
+ * to be a page count as a duration. A fraction is allowed on the hours alone, which is how `1.5h` is
+ * typed, and it is the only spelling here that can answer with part of a minute.
  */
-export const TASK_DURATION_PATTERN = String.raw`\d+\s*h(?:\s?\d+\s*m)?|\d+\s*m`
+export const TASK_DURATION_PATTERN = String.raw`\d+(?:\.\d+)?\s*h(?:\s?\d+\s*m)?|\d+\s*m`
 
 /** What a reader who has logged nothing has spent. `formatDurationAbbreviated` prints that as `0ms`. */
 const ZERO_DURATION = '0m'
@@ -78,8 +79,13 @@ export function parseTaskDuration(text: string): number | null {
   const full = new RegExp(`^(?:${TASK_DURATION_PATTERN})$`, 'i').exec(trimmed)
   if (!full) return null
   let total = 0
-  for (const part of trimmed.matchAll(/(\d+)\s*(h|m)/gi)) {
+  for (const part of trimmed.matchAll(/(\d+(?:\.\d+)?)\s*(h|m)/gi)) {
     total += part[2]!.toLowerCase() === 'h' ? Number(part[1]) * HOUR_MS : Number(part[1]) * MINUTE_MS
   }
-  return total > 0 ? total : null
+  // A fraction of an hour is the one spelling that reaches part of a minute, and nothing downstream
+  // stores parts: an estimate is a column that must be a whole number of milliseconds, and a span is a
+  // ledger row that is compared against whole ones. The reader meant `1.5h`, so the rounding is on the
+  // total rather than on the part, and a duration that rounds away answers null like any other zero.
+  const rounded = Math.round(total)
+  return rounded > 0 ? rounded : null
 }

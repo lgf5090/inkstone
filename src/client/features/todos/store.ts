@@ -29,6 +29,7 @@ import { parseTodoFilter, type TodoFilterQuery } from '@shared/todos/filter-quer
 import type { SavedTodoFilter } from '@shared/types'
 import type { MessageKey } from '@shared/locales/en-US'
 import {
+  MAX_SINGLE_TIME_ENTRY_MS,
   isSnoozeMinutes,
   toggledStatus,
   type RemindOffset,
@@ -101,6 +102,13 @@ export interface TaskDraft {
    * does not, because that is a ledger entry rather than a property of the row.
    */
   timeEstimate?: number | null
+  /**
+   * Hours the line says have already gone, filed as a span ending at the press.
+   *
+   * The `5m` half of `5m/1h`. It is a fact about time rather than a column on the row, so it never
+   * reaches the create body: `createTask` writes it through the ledger's back-fill door instead.
+   */
+  timeLoggedMs?: number
 }
 
 interface TodosState {
@@ -450,6 +458,8 @@ export function quickAddDraft(
     ...(parsed.priority ? { priority: parsed.priority } : {}),
     ...(parsed.tags.length ? { tags: parsed.tags } : {}),
     ...(parsed.repeat ? { repeat: parsed.repeat } : {}),
+    ...(parsed.timeEstimateMs !== null ? { timeEstimate: parsed.timeEstimateMs } : {}),
+    ...(parsed.timeLoggedMs !== null ? { timeLoggedMs: parsed.timeLoggedMs } : {}),
   }
 }
 
@@ -883,6 +893,10 @@ function optimisticTask(id: string, input: TaskDraft): TodoTask {
     conversationId: input.conversationId ?? null,
     stepTotal: 0,
     stepDone: 0,
+    // The plan is the row's own column, stated in the same words the create body carries, so the
+    // optimistic row can show it before the server has heard of it. What was already spent is not: that
+    // half is a ledger row, and its number arrives with the replay that files it.
+    timeEstimateMs: input.timeEstimate ?? null,
   }
 }
 
@@ -943,6 +957,47 @@ function timedRowIds(state: Pick<TodosState, 'tasks' | 'completed'>): string[] {
   return [...state.tasks, ...state.completed]
     .filter((entry) => entry.runningSince != null)
     .map((entry) => entry.id)
+}
+
+/**
+ * The span a quick-add line's spent half stands for: as long as the words said, ending at the press.
+ *
+ * The line names no clock of its own, and "the last five minutes" is the only reading that does not
+ * invent one. Past one ledger row's ceiling the span is refused here rather than sent — a queued write
+ * the route is known to answer 400 is a failure the queue would have to carry for nothing, and the
+ * reader is told instead.
+ */
+function loggedSpan(ms: number): { startAt: number, endAt: number } | null {
+  if (!Number.isInteger(ms) || ms <= 0 || ms > MAX_SINGLE_TIME_ENTRY_MS) return null
+  const endAt = Date.now()
+  return { startAt: endAt - ms, endAt }
+}
+
+/** Refuse a span this app may not file, in the reader's own words rather than in a silent return. */
+function refuseLoggedSpan(): void {
+  useUi.getState().toast({ title: t('todo.time.logged_refused'), tone: 'danger' })
+}
+
+/**
+ * File the back-filled span one line asked for, then re-read the row the ledger moved.
+ *
+ * The span is written apart from the create because it is a different kind of fact: the plan is a column
+ * on the row and the hours are rows of their own, and the server decides which account day each of them
+ * belongs to. A refusal is reported with the route's reason and leaves the task standing — the reader
+ * created something real, and losing it over a number they can add again would be the worse failure.
+ */
+async function logTimeSpan(id: string, ms: number): Promise<void> {
+  const span = loggedSpan(ms)
+  if (!span) {
+    refuseLoggedSpan()
+    return
+  }
+  try {
+    await api.todos.addTime(id, span)
+    await refreshTimedRows([id])
+  } catch (error) {
+    toastError(error)
+  }
 }
 
 /**
@@ -1520,14 +1575,20 @@ export const useTodos = create<TodosState>((set, get) => ({
 
   createTask: async (input) => {
     set({ saving: true })
+    // The plan rides the create body as the row's own column; the hours the line says are already gone
+    // do not, because they are ledger rows and the server decides which account day each of them falls
+    // on. Both branches file that half afterwards, through `logTimeSpan` and the one door it has.
+    const { id: _ignored, timeLoggedMs, ...body } = input
     if (offlineNow()) {
       const id = newLocalTodoId()
-      const { id: _ignored, ...body } = input
       const task = optimisticTask(id, input)
       storeOptimisticTask(task)
       try {
         await localDb.enqueueOutbox(queuedTodoItem(id, { op: 'create', task: body as Record<string, unknown> }))
         set({ saving: false })
+        // The ledger has no queue door yet: the span is not something the replay can carry, so it is
+        // attempted here and answered by the failed request's own toast rather than by silence.
+        if (timeLoggedMs !== undefined) await logTimeSpan(id, timeLoggedMs)
         return task
       } catch (error) {
         // A queue write that could not be stored has nothing behind it: take the optimistic row back
@@ -1539,10 +1600,10 @@ export const useTodos = create<TodosState>((set, get) => ({
       }
     }
     try {
-      const { id: _ignored, ...body } = input
       const { task } = await api.todos.create(body as Record<string, unknown>)
       set((state) => ({ tasks: [...state.tasks, task], saving: false }))
       void get().refreshCounts()
+      if (timeLoggedMs !== undefined) await logTimeSpan(task.id, timeLoggedMs)
       return task
     } catch (error) {
       set({ saving: false })

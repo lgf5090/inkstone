@@ -15,18 +15,26 @@
  */
 import type { TaskPriority } from '../assistant'
 import { daysInMonth, getZonedParts, zonedTimeToUtc } from '../assistant-schedule'
+import { TASK_DURATION_PATTERN, parseTaskDuration } from './duration'
 import {
   MAX_LIST_NAME_CHARS,
   MAX_TAG_NAME_CHARS,
   MAX_REPEAT_INTERVAL,
   MIN_REPEAT_INTERVAL,
+  isTimeEstimateMs,
   normalizeTagNames,
   type RemindOffset,
   type RepeatFrequency,
   type RepeatRule,
 } from './model'
 
-/** What the parser recognised, so the input row can show it back before anything is written. */
+/**
+ * What the parser recognised, so the input row can show it back before anything is written.
+ *
+ * `time` carries the clock *and* the plan: the two are one family of words — "when, and for how long" —
+ * and the surfaces that paint or speak a token key their colour and their label off this union, so a
+ * new kind is a change to those files rather than to this one.
+ */
 export type QuickAddTokenKind = 'date' | 'time' | 'repeat' | 'remind' | 'priority' | 'tag' | 'list'
 
 export interface QuickAddToken {
@@ -62,6 +70,20 @@ export interface QuickAddParse {
   tags: string[]
   listName: string | null
   repeat: RepeatRule | null
+  /**
+   * The plan the line carries, in milliseconds, or null when it named none.
+   *
+   * `1h`, `30m`, `1h20m` and the right half of `5m/1h` all land here: it is what the row says the work
+   * will take, which is a column of the row and what the create body carries.
+   */
+  timeEstimateMs: number | null
+  /**
+   * Hours the line says have already gone, in milliseconds: the left half of `5m/1h`.
+   *
+   * Null unless the line was written as a pair. It is a fact about the ledger rather than a property of
+   * the row, so a caller files it through the ledger's back-fill door and not on the create body.
+   */
+  timeLoggedMs: number | null
   tokens: QuickAddToken[]
 }
 
@@ -155,6 +177,18 @@ const EVENING_SHIFT: Record<string, number> = {
   '\u4eca\u665a': 0, // jin-wan, tonight
   '\u660e\u665a': 1, // ming-wan, tomorrow evening
 }
+
+/**
+ * One duration as it is written on a line of prose, or the pair `spent/plan` beside it.
+ *
+ * The words are `duration.ts`'s own grammar, dropped in rather than restated: the quick-add line and
+ * the estimate field have to read `1h20m` the same way, and the one way to guarantee that is for only
+ * one file to know what the letters mean. What lives here is the *edge* of a span, which only exists on
+ * a line of prose — a duration is a plan only when nothing sticks to it, so `x3m` stays a variable,
+ * `5min` and `1hour` stay words, and `10-25` stays the day of the month it was written as.
+ */
+const ONE_DURATION = `(?:${TASK_DURATION_PATTERN})`
+const TIME_PLAN_PATTERN = new RegExp(String.raw`(?<![\w./-])${ONE_DURATION}(?:\s*\/\s*${ONE_DURATION})?(?!\w)`, 'i')
 
 interface Draft {
   dayShift: number | null
@@ -252,6 +286,8 @@ export function parseQuickAdd(input: string, now: number, timeZone: string): Qui
   let repeat: RepeatRule | null = null
   let remindAt: number | null = null
   let remindOffset: RemindOffset | null = null
+  let timeEstimateMs: number | null = null
+  let timeLoggedMs: number | null = null
   const tagNames: string[] = []
 
   const source = normalizeQuickAddInput(input)
@@ -373,6 +409,25 @@ export function parseQuickAdd(input: string, now: number, timeZone: string): Qui
       : words.includes('hour') ? '1h'
       : words.includes('day') ? '1d'
       : 'due'
+    return true
+  })
+
+  // The plan, between the reminder and the rhythm. The order is the whole design of this pass: read
+  // after the reminder, so the minutes a reminder names are spent on the reminder and never become an
+  // estimate; read before the rhythm and the dates, so the `m` of `30m` is still standing when the only
+  // reader that would take it for a day of the month comes round. A pair is read spent-first — `5m/1h`
+  // is five minutes gone of an hour planned — and a half that is not a duration refuses the whole span,
+  // because half a pair cut out of a line would leave the reader with the other half as prose.
+  consume('time', TIME_PLAN_PATTERN, (match) => {
+    const [first, second] = match[0].split('/')
+    const estimate = parseTaskDuration(second ?? first!)
+    if (estimate === null || !isTimeEstimateMs(estimate)) return false
+    timeEstimateMs = estimate
+    if (second !== undefined) {
+      const spent = parseTaskDuration(first!)
+      if (spent === null) return false
+      timeLoggedMs = spent
+    }
     return true
   })
 
@@ -608,6 +663,8 @@ export function parseQuickAdd(input: string, now: number, timeZone: string): Qui
     tags: normalizeTagNames(tagNames),
     listName,
     repeat,
+    timeEstimateMs,
+    timeLoggedMs,
     tokens,
   }
 }
