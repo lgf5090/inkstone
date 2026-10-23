@@ -36,6 +36,7 @@ import { useViewTitle } from './TaskViews'
 import { TodoFilters } from './TodoFilters'
 import { ListIcon } from './list-icons'
 import { RunningTimerBar } from './running-timer'
+import { FocusLayer } from './FocusOverlay'
 import { TodoKeysHelp } from './TodoKeysHelp'
 import { TODO_ROW_MENU_WIDTH, useTodoShortcuts } from './use-todo-shortcuts'
 import { TodoContent, surfaceBadge, surfacesFor } from './views/registry'
@@ -485,6 +486,10 @@ export function TodosApp() {
           header itself is the narrowest row in the app on a phone, which is why it is a strip under
           that row rather than a sixth control inside it. */}
       <RunningTimerBar />
+      {/* The focus session's own two faces, mounted by the frame rather than by a view: a block started on
+          the board has to survive a trip to the calendar, and the strip that stands in for the panel while
+          `Esc` has taken it away belongs to the same lifetime. */}
+      <FocusLayer />
       <div className="flex min-h-0 flex-1">
         {wide && sidebarOpen && sidebar}
         <div className="flex min-w-0 flex-1 flex-col">

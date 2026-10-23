@@ -32,6 +32,7 @@ import type { MessageKey } from '@shared/locales/en-US'
 import type { TodoTask } from '@shared/todos/model'
 import { isTaskDone } from '@shared/todos/status'
 import { useTodos } from './store'
+import { useFocusSession } from './focus-session'
 import { moveTodoTask, openTaskSiblings, useTaskMoves } from './TaskCard'
 import { buildScheduleMenuItems, buildTaskContextMenuItems, type TaskMenuHandlers } from './task-menu'
 
@@ -47,6 +48,7 @@ export type TodoShortcutId =
   | 'complete'
   | 'details'
   | 'start-pause'
+  | 'focus'
   | 'add-step'
   | 'task-menu'
   | 'schedule'
@@ -106,6 +108,7 @@ export const TODO_SHORTCUT_ROWS: readonly TodoShortcutRow[] = [
   { id: 'details', keys: ['i'], group: 'task', label: 'todo.keys.action.details' },
   { id: 'complete', keys: ['d'], group: 'task', label: 'todo.keys.action.complete' },
   { id: 'start-pause', keys: ['y'], group: 'task', label: 'todo.keys.action.start_pause' },
+  { id: 'focus', keys: ['f'], group: 'task', label: 'todo.keys.action.focus' },
   { id: 'add-step', keys: ['a'], group: 'task', label: 'todo.task.step_add' },
   { id: 'task-menu', keys: ['q'], group: 'task', label: 'todo.keys.action.task_menu' },
   { id: 'schedule', keys: ['s'], group: 'schedule', label: 'todo.keys.action.schedule' },
@@ -126,6 +129,7 @@ const SINGLE_KEYS: ReadonlyMap<string, TodoShortcutId> = new Map<string, TodoSho
   ['d', 'complete'],
   ['i', 'details'],
   ['y', 'start-pause'],
+  ['f', 'focus'],
   ['a', 'add-step'],
   ['q', 'task-menu'],
   ['s', 'schedule'],
@@ -143,7 +147,7 @@ const SINGLE_KEYS: ReadonlyMap<string, TodoShortcutId> = new Map<string, TodoSho
  * row-scoped group belongs in both.
  */
 const ROW_KEYS = new Set<TodoShortcutId>([
-  'complete', 'details', 'start-pause', 'add-step', 'task-menu', 'schedule', 'clear-schedule',
+  'complete', 'details', 'start-pause', 'focus', 'add-step', 'task-menu', 'schedule', 'clear-schedule',
   'swap-up', 'swap-down', 'to-top', 'to-bottom',
 ])
 
@@ -400,6 +404,15 @@ export function useTodoShortcuts(host: TodoShortcutHost): TodoShortcuts {
         if (isTaskDone(task.status)) return
         event.preventDefault()
         void state.updateTask(task.id, { status: task.status === 'in_progress' ? 'todo' : 'in_progress' })
+        return
+      }
+      case 'focus': {
+        // The panel opens on the row and starts nothing: the interval begins at the reader's own press,
+        // which is also the gesture the audio cues have to be unlocked by (D9). A finished row has no
+        // block left to work, so the key is not offered for one — the same rule the card draws.
+        if (isTaskDone(task.status)) return
+        event.preventDefault()
+        useFocusSession.getState().open(task.id)
         return
       }
       case 'add-step': {
