@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import { act, createElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { EmailAccount, EmailMessage } from '@shared/email/model'
+import type { EmailAccount, EmailMessage, EmailSendResult } from '@shared/email/model'
 import { api } from '../../src/client/lib/api'
 import { renderElement, type RenderedElement } from '../../src/client/lib/test-render'
 import { t } from '../../src/client/lib/i18n'
+import { useUi } from '../../src/client/store/ui'
 import { ComposePanel } from '../../src/client/features/email/ComposePanel'
 
 const account: EmailAccount = {
@@ -70,6 +71,12 @@ function press(input: HTMLInputElement, key: string): void {
   })
 }
 
+async function settle(ms: number): Promise<void> {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms)
+  })
+}
+
 function recipientChip(address: string): HTMLButtonElement {
   const label = t('email.recipients.remove', { address })
   const found = [...document.querySelectorAll<HTMLButtonElement>('button')]
@@ -96,6 +103,8 @@ function panel(
 afterEach(() => {
   document.body.innerHTML = ''
   vi.restoreAllMocks()
+  vi.useRealTimers()
+  useUi.setState({ toasts: [] })
 })
 
 describe('the compose panel', () => {
@@ -192,6 +201,134 @@ describe('the compose panel', () => {
     act(() => { button(t('email.compose.show_cc')).click() })
     expect(inputFor(t('email.compose.cc')).value).toBe('')
     expect(inputFor(t('email.compose.bcc')).value).toBe('')
+    view.unmount()
+  })
+
+  it('autosaves an edit once the typing pause passes', async () => {
+    vi.useFakeTimers()
+    const saveDraft = vi.spyOn(api.email, 'saveDraft').mockResolvedValue({ draftId: 'd1' })
+    const view = panel('new')
+    change(inputFor(t('email.compose.subject')), 'Hello')
+    await settle(1000)
+    expect(saveDraft).not.toHaveBeenCalled()
+    await settle(700)
+    expect(saveDraft).toHaveBeenCalledTimes(1)
+    expect(saveDraft.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ subject: 'Hello', draftId: undefined }))
+    expect(view.container.querySelector('[role="status"]')?.textContent).toBe(t('email.compose.saved'))
+    expect(useUi.getState().toasts).toEqual([])
+    saveDraft.mockRestore()
+    view.unmount()
+  })
+
+  it('keeps a single draft when edits land during a save', async () => {
+    vi.useFakeTimers()
+    let finishFirst: (() => void) | null = null
+    const saveDraft = vi.spyOn(api.email, 'saveDraft')
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        finishFirst = () => resolve({ draftId: 'd1' })
+      }))
+      .mockResolvedValueOnce({ draftId: 'd1' })
+    const view = panel('new')
+    change(inputFor(t('email.compose.subject')), 'First')
+    await settle(1700)
+    expect(saveDraft).toHaveBeenCalledTimes(1)
+    change(inputFor(t('email.compose.subject')), 'Second')
+    await settle(1700)
+    expect(saveDraft).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      finishFirst?.()
+      for (let index = 0; index < 8; index += 1) await Promise.resolve()
+    })
+    await settle(1700)
+    expect(saveDraft).toHaveBeenCalledTimes(2)
+    expect(saveDraft.mock.calls[1]?.[1]).toEqual(expect.objectContaining({ subject: 'Second', draftId: 'd1' }))
+    saveDraft.mockRestore()
+    view.unmount()
+  })
+
+  it('leaves untouched new and reply panels alone', async () => {
+    vi.useFakeTimers()
+    const saveDraft = vi.spyOn(api.email, 'saveDraft')
+    const fresh = panel('new')
+    await settle(4000)
+    expect(saveDraft).not.toHaveBeenCalled()
+    fresh.unmount()
+    const reply = panel('reply')
+    await settle(4000)
+    expect(saveDraft).not.toHaveBeenCalled()
+    saveDraft.mockRestore()
+    reply.unmount()
+  })
+
+  it('shows a failed autosave and retries after the next edit', async () => {
+    vi.useFakeTimers()
+    const saveDraft = vi.spyOn(api.email, 'saveDraft')
+      .mockRejectedValueOnce(new Error('Draft storage unavailable'))
+      .mockResolvedValueOnce({ draftId: 'd1' })
+    const view = panel('new')
+    change(inputFor(t('email.compose.subject')), 'Hello')
+    await settle(1700)
+    const status = view.container.querySelector('[role="status"]')
+    expect(status?.textContent).toContain(t('email.compose.save_failed'))
+    expect(status?.textContent).toContain('Draft storage unavailable')
+    expect(status?.getAttribute('aria-live')).toBe('polite')
+    expect(inputFor(t('email.compose.subject')).value).toBe('Hello')
+    expect(useUi.getState().toasts).toEqual([])
+    change(inputFor(t('email.compose.subject')), 'Hello again')
+    await settle(1700)
+    expect(saveDraft).toHaveBeenCalledTimes(2)
+    expect(view.container.querySelector('[role="status"]')?.textContent).toBe(t('email.compose.saved'))
+    saveDraft.mockRestore()
+    view.unmount()
+  })
+
+  it('holds autosave while a message is being sent', async () => {
+    vi.useFakeTimers()
+    const saveDraft = vi.spyOn(api.email, 'saveDraft').mockResolvedValue({ draftId: 'd1' })
+    let finishSend: (() => void) | null = null
+    const sendDraft = vi.spyOn(api.email, 'sendDraft').mockImplementation(() => new Promise<EmailSendResult>((resolve) => {
+      finishSend = () => resolve({ id: 'd1', status: 'sent' })
+    }))
+    const view = panel('new')
+    const to = inputFor(t('email.compose.to'))
+    change(to, 'grace@example.com')
+    press(to, 'Enter')
+    change(inputFor(t('email.compose.subject')), 'Hello')
+    await act(async () => {
+      button(t('email.compose.send')).click()
+      for (let index = 0; index < 8; index += 1) await Promise.resolve()
+    })
+    expect(saveDraft).toHaveBeenCalledTimes(1)
+    expect(sendDraft).toHaveBeenCalledTimes(1)
+    change(inputFor(t('email.compose.subject')), 'Hello while sending')
+    await settle(5000)
+    expect(saveDraft).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      finishSend?.()
+      for (let index = 0; index < 8; index += 1) await Promise.resolve()
+    })
+    await settle(5000)
+    expect(saveDraft).toHaveBeenCalledTimes(1)
+    expect(useUi.getState().toasts.map(({ title }) => title)).toContain(t('email.compose.sent'))
+    saveDraft.mockRestore()
+    sendDraft.mockRestore()
+    view.unmount()
+  })
+
+  it('still announces a manual save', async () => {
+    vi.useFakeTimers()
+    const saveDraft = vi.spyOn(api.email, 'saveDraft').mockResolvedValue({ draftId: 'd1' })
+    const view = panel('new')
+    change(inputFor(t('email.compose.subject')), 'Hello')
+    await act(async () => {
+      button(t('email.compose.save_draft')).click()
+      for (let index = 0; index < 8; index += 1) await Promise.resolve()
+    })
+    expect(useUi.getState().toasts.map(({ title }) => title)).toContain(t('email.compose.draft_saved'))
+    expect(view.container.querySelector('[role="status"]')?.textContent).toBe(t('email.compose.saved'))
+    await settle(3000)
+    expect(saveDraft).toHaveBeenCalledTimes(1)
+    saveDraft.mockRestore()
     view.unmount()
   })
 })

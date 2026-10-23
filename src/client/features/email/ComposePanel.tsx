@@ -9,6 +9,7 @@ import { Field, Input, Segmented } from '../../components/form'
 import { confirm } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { t } from '../../lib/i18n'
+import { cn } from '../../lib/cn'
 import { formatBytes } from '../../lib/time'
 import { api } from '../../lib/api'
 import { attachmentHubApi } from '../attachment-hub/api'
@@ -27,6 +28,10 @@ interface ComposeAttachment {
   mime: string
   size: number
 }
+
+type SaveState = 'idle' | 'saving' | 'saved' | 'error'
+
+const AUTO_SAVE_DELAY_MS = 1600
 
 function signatureBlock(account: EmailAccount): string {
   const signature = account.settings.signature
@@ -112,9 +117,18 @@ export function ComposePanel({
   const [bcc, setBcc] = useState('')
   const [subject, setSubject] = useState(initial.subject)
   const [body, setBody] = useState(initial.body)
+  const [baseline, setBaseline] = useState(() => ({
+    to: initial.to,
+    cc: initial.cc,
+    bcc: '',
+    subject: initial.subject,
+    body: initial.body,
+  }))
   const [showCc, setShowCc] = useState(initial.showCc)
   const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit')
   const [saving, setSaving] = useState(false)
+  const [saveState, setSaveState] = useState<SaveState>('idle')
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [draft, setDraft] = useState(draftId)
@@ -127,18 +141,33 @@ export function ComposePanel({
   const [preview, setPreview] = useState<ComposeAttachment | null>(null)
   const viewRef = useRef<EditorView | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
-  const dirty = to !== initial.to || cc !== initial.cc || bcc !== '' || subject !== initial.subject || body !== initial.body
+  const saveInFlight = useRef(false)
+  const autoSaveTimer = useRef<number | null>(null)
+  const autoSave = useRef<(silent: boolean) => Promise<string | null>>(async () => null)
+  const sent = useRef(false)
+  const dirty = to !== baseline.to || cc !== baseline.cc || bcc !== baseline.bcc || subject !== baseline.subject || body !== baseline.body
+  const hasComposeContent = to.trim() !== '' || cc.trim() !== '' || bcc.trim() !== '' || subject.trim() !== '' || body.trim() !== ''
+  const canAutoSave = dirty && hasComposeContent
+  const attachmentKey = attachments.map((entry) => entry.id).join(',')
 
   useEffect(() => {
     if (!draftId) return
     let cancelled = false
     void api.email.getEmail(account.id, draftId).then((message) => {
       if (cancelled) return
-      setTo(message.recipient ?? '')
-      setCc(message.cc ?? '')
-      setBcc(message.bcc ?? '')
-      setSubject(message.subject)
-      setBody(message.bodySource ?? message.body)
+      const loaded = {
+        to: message.recipient ?? '',
+        cc: message.cc ?? '',
+        bcc: message.bcc ?? '',
+        subject: message.subject,
+        body: message.bodySource ?? message.body,
+      }
+      setTo(loaded.to)
+      setCc(loaded.cc)
+      setBcc(loaded.bcc)
+      setSubject(loaded.subject)
+      setBody(loaded.body)
+      setBaseline(loaded)
       setShowCc(Boolean(message.cc || message.bcc))
       setThreading({ inReplyTo: message.inReplyTo, threadId: message.threadId })
       setAttachments(message.attachments.map((entry) => ({ id: entry.id, filename: entry.filename, mime: entry.mime, size: entry.size })))
@@ -151,33 +180,72 @@ export function ComposePanel({
   const toast = (title: string, tone: 'default' | 'danger' = 'default') => useUi.getState().toast({ title, tone })
   const bodyHtml = () => emailMarkdownToHtml(body)
 
-  const saveDraft = async (): Promise<string | null> => {
+  const clearAutoSaveTimer = () => {
+    if (autoSaveTimer.current === null) return
+    window.clearTimeout(autoSaveTimer.current)
+    autoSaveTimer.current = null
+  }
+
+  const saveDraft = async (silent = false): Promise<string | null> => {
+    if (saveInFlight.current) return null
+    saveInFlight.current = true
+    const snapshot = { to, cc, bcc, subject, body }
     setSaving(true)
-    setError(null)
+    setSaveState('saving')
+    setSaveError(null)
+    if (!silent) setError(null)
     try {
       const saved = await api.email.saveDraft(account.id, {
-        to: recipientAddresses(to),
-        cc: recipientAddresses(cc) || undefined,
-        bcc: recipientAddresses(bcc) || undefined,
-        subject,
-        body,
-        bodyHtml: bodyHtml(),
+        to: recipientAddresses(snapshot.to),
+        cc: recipientAddresses(snapshot.cc) || undefined,
+        bcc: recipientAddresses(snapshot.bcc) || undefined,
+        subject: snapshot.subject,
+        body: snapshot.body,
+        bodyHtml: emailMarkdownToHtml(snapshot.body),
         inReplyTo: threading.inReplyTo ?? undefined,
         threadId: threading.threadId ?? undefined,
         draftId: draft ?? undefined,
       })
       setDraft(saved.draftId)
-      toast(t('email.compose.draft_saved'))
+      setBaseline(snapshot)
+      setSaveState('saved')
+      if (!silent) toast(t('email.compose.draft_saved'))
       return saved.draftId
     } catch (reason) {
       const message = (reason as Error).message
-      setError(message)
-      toast(message, 'danger')
+      setSaveState('error')
+      setSaveError(message)
+      if (!silent) {
+        setError(message)
+        toast(message, 'danger')
+      }
       return null
     } finally {
+      saveInFlight.current = false
       setSaving(false)
     }
   }
+
+  useEffect(() => {
+    autoSave.current = saveDraft
+  })
+
+  useEffect(() => {
+    clearAutoSaveTimer()
+    if (sending || sent.current || !canAutoSave) return
+    const schedule = () => {
+      autoSaveTimer.current = window.setTimeout(() => {
+        autoSaveTimer.current = null
+        if (saveInFlight.current) {
+          schedule()
+          return
+        }
+        void autoSave.current(true)
+      }, AUTO_SAVE_DELAY_MS)
+    }
+    schedule()
+    return clearAutoSaveTimer
+  }, [to, cc, bcc, subject, body, attachmentKey, canAutoSave, sending])
 
   const send = async () => {
     if (!to.trim()) {
@@ -188,6 +256,7 @@ export function ComposePanel({
       setError(t('email.compose.error_empty'))
       return
     }
+    clearAutoSaveTimer()
     setSending(true)
     setError(null)
     try {
@@ -203,6 +272,8 @@ export function ComposePanel({
         attachmentIds: attachments.map((entry) => entry.id),
         operationId: crypto.randomUUID(),
       })
+      sent.current = true
+      clearAutoSaveTimer()
       toast(t('email.compose.sent'))
       onSent()
     } catch (reason) {
@@ -320,6 +391,14 @@ export function ComposePanel({
           ? 'email.compose.title_forward'
           : 'email.compose.title_new'
 
+  const saveStatus = saveState === 'saved' && !dirty
+    ? t('email.compose.saved')
+    : saveState === 'saving'
+      ? t('email.compose.saving')
+      : saveState === 'error'
+        ? t('email.compose.save_failed')
+        : ''
+
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-col bg-[var(--bg-base)]" aria-label={t(titleKey)}>
       <header className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--border-subtle)] px-3">
@@ -396,7 +475,7 @@ export function ComposePanel({
               aria-label={t('email.compose.add_attachment')}
               onChange={(event) => { void addFiles(event.target.files); event.target.value = '' }}
             />
-            <Button size="sm" variant="secondary" icon={<Paperclip size={14} />} onClick={() => fileInput.current?.click()} disabled={sending}>
+            <Button size="sm" variant="secondary" icon={<Paperclip size={14} />} onClick={() => fileInput.current?.click()} disabled={sending || saving}>
               {t('email.compose.add_attachment')}
             </Button>
             <span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('email.compose.attachment_hint')}</span>
@@ -433,6 +512,18 @@ export function ComposePanel({
           {t('email.compose.discard')}
         </Button>
         <div className="flex items-center gap-2">
+          <span
+            role="status"
+            aria-live="polite"
+            title={saveState === 'error' ? saveError ?? undefined : undefined}
+            className={cn(
+              'min-w-16 text-right text-[length:var(--text-11-5)]',
+              saveState === 'error' ? 'text-[var(--danger)]' : 'text-[var(--text-tertiary)]',
+            )}
+          >
+            {saveStatus}
+            {saveState === 'error' && saveError && <span className="sr-only">: {saveError}</span>}
+          </span>
           <Button size="sm" variant="secondary" onClick={() => { void saveDraft() }} loading={saving} disabled={sending}>
             {t('email.compose.save_draft')}
           </Button>
