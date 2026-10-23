@@ -118,6 +118,62 @@ export const TRASH_PAGE_SIZE = 50
  */
 export const TODO_TRASH_RETENTION_DAYS = 30
 
+// ------------------------------------------------------------- time ledger
+
+/** Who wrote a ledger row: the stopwatch, the focus overlay, or a hand-entered span. */
+export const TIME_ENTRY_SOURCES = ['timer', 'focus', 'manual'] as const
+export type TimeEntrySource = (typeof TIME_ENTRY_SOURCES)[number]
+
+export function isTimeEntrySource(value: unknown): value is TimeEntrySource {
+  return typeof value === 'string' && (TIME_ENTRY_SOURCES as readonly string[]).includes(value)
+}
+
+/**
+ * One interval on the ledger: a timed run (one row per account day it touched), or a back-filled span.
+ *
+ * `day` is the account's calendar day the interval belongs to, fixed by the server at write time —
+ * a client never names it. `endAt` is null only while a timer is running; every aggregate reads the
+ * closed rows, and a running row's own `day` is display-only. One row per account may run at a time;
+ * the database, not the client, enforces that (`ux_todos_time_open`).
+ */
+export interface TodoTimeEntry {
+  id: string
+  taskId: string
+  /** Instant the interval began, UTC milliseconds. */
+  startAt: number
+  /** Instant it ended, or null while it is still running. */
+  endAt: number | null
+  /** `YYYY-MM-DD` in the account's zone, the day the interval was filed under. */
+  day: string
+  source: TimeEntrySource
+  createdAt: number
+  updatedAt: number
+}
+
+/**
+ * How far a client's clock may run ahead of the server's before a timestamp is refused.
+ *
+ * Five minutes covers the drift a sleeping laptop rebuilds on wake; past that the request is
+ * describing a future that has not happened, and the ledger must not carry it.
+ */
+export const MAX_TIMER_START_FUTURE_MS = 5 * 60_000
+
+/**
+ * How far back the ledger may be written.
+ *
+ * Four hundred days is one remembered year plus its leap, the practical ceiling on "when did I do
+ * this"; anything older is not a back-fill but a client clock nobody set, and a 'yesterday of 25
+ * hours' filed against an ancient day is indistinguishable from real work afterwards. The account's
+ * own creation time floors it further.
+ */
+export const MAX_TIME_ENTRY_AGE_DAYS = 400
+
+/** The longest one interval may hold, in milliseconds. */
+export const MAX_SINGLE_TIME_ENTRY_MS = 4 * 60 * 60_000
+
+/** The most total a single account day may hold, in milliseconds — a day only has this many. */
+export const MAX_DAY_TRACKED_MS = 24 * 60 * 60_000
+
 /**
  * The most tasks one batch may name.
  *

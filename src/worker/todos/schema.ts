@@ -14,6 +14,8 @@
  * `todos_*` declarations those statements are bound against.
  */
 
+import type { TimeEntrySource, TodoTimeEntry } from '@shared/todos/model'
+
 export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS todos_tasks (
     user_id TEXT NOT NULL,
@@ -30,6 +32,11 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
     -- When the task may be begun, or NULL when the reader named no start. Migration 123 carries the
     -- column to databases built before this line existed.
     start_at INTEGER,
+    -- How long the reader expects the task to take, in milliseconds, or NULL when nobody estimated.
+    -- NULL is not zero: "no estimate" and "an estimate of none" are different answers to different
+    -- questions, and the worklog must be able to tell them apart. Migration 148 carries the column to
+    -- databases built before this line existed.
+    time_estimate_ms INTEGER,
     completed_at INTEGER,
     -- The account's calendar day (YYYY-MM-DD) of the two instants beside them. Stored rather than
     -- derived at query time: a day computed from an offset drifts across DST and files a task under
@@ -231,6 +238,43 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_todos_tag_links_tag
      ON todos_tag_links(user_id, tag_id)`,
 
+  // The time ledger: one row per timed interval (or one manual back-fill), detail rather than a
+  // running aggregate on the task row — the plan's D3, because `timeSpent` and every daily total are
+  // derived from these rows and a second stored copy would be a second truth to keep in step.
+  //
+  // `day` is the account's calendar day (YYYY-MM-DD) the interval belongs to, fixed at write time for
+  // the reason `completed_on` carries its own day: a day derived at query time drifts across DST. An
+  // interval that crosses the account's midnight is split at close into one row per day, so a night
+  // shift is filed against the days the work actually happened on; a running row (`end_at IS NULL`)
+  // carries the day it started on, for display only — every aggregate reads closed rows. `source`
+  // says who wrote the row: the stopwatch, the focus overlay (later round), or a hand-entered span.
+  //
+  // The unique partial index is the single source of "no parallel timers": one open row per account,
+  // enforced by the database rather than by client discipline. On a conflict SQLite names only the
+  // index's columns and not its WHERE clause, so callers judge the business condition ("an open row
+  // already exists") instead of parsing the message. Measured on both runtimes this schema runs on —
+  // the D1 double's node:sqlite and the platform — the partial unique index is accepted and enforced.
+  `CREATE TABLE IF NOT EXISTS todos_time_entries (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    start_at INTEGER NOT NULL,
+    end_at INTEGER,
+    day TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'timer',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS ux_todos_time_open
+     ON todos_time_entries(user_id) WHERE end_at IS NULL`,
+  // What a task's own ledger reads: one account's rows for one task, in the order the intervals ran.
+  `CREATE INDEX IF NOT EXISTS idx_todos_time_task
+     ON todos_time_entries(user_id, task_id, start_at)`,
+  // What the worklog groups by: one account's rows by the day the work landed on.
+  `CREATE INDEX IF NOT EXISTS idx_todos_time_day
+     ON todos_time_entries(user_id, day)`,
+
   // The read-only calendar subscription the to-do app publishes. Keyed on `user_id, slug` — the
   // opposite of `shares`, which keys on `slug` alone — because the schema guard refuses an
   // account-scoped table led by a global key; the unique index below is what lets the public reader
@@ -285,6 +329,7 @@ export const TODOS_REQUIRED_TABLES: readonly string[] = [
   'todos_attachments',
   'todos_tags',
   'todos_tag_links',
+  'todos_time_entries',
   'todos_feeds',
   'todos_mail_tokens',
   'todos_mail_messages',
@@ -309,6 +354,9 @@ export const TODOS_REQUIRED_INDEXES: readonly string[] = [
   'idx_todos_steps_task',
   'idx_todos_tags_unique',
   'idx_todos_tag_links_tag',
+  'ux_todos_time_open',
+  'idx_todos_time_task',
+  'idx_todos_time_day',
   'idx_todos_feeds_slug',
   'idx_todos_feeds_user',
   'idx_todos_mail_tokens_token',
@@ -319,7 +367,7 @@ export const TODOS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>>
     'user_id', 'id', 'title', 'description', 'status', 'priority', 'position', 'due_at', 'start_at', 'completed_at',
     'completed_on', 'created_on',
     'project_id', 'list_id', 'icon', 'color', 'starred', 'repeat_rule', 'planned_for', 'note_id',
-    'conversation_id', 'created_at', 'updated_at', 'rev', 'deleted_at',
+    'conversation_id', 'created_at', 'updated_at', 'rev', 'deleted_at', 'time_estimate_ms',
   ],
   todos_reminders: ['user_id', 'id', 'task_id', 'remind_at', 'fired_at', 'created_at'],
   todos_task_events: ['user_id', 'id', 'task_id', 'at', 'on_day', 'kind', 'from_status', 'to_status'],
@@ -328,9 +376,50 @@ export const TODOS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>>
   todos_attachments: ['user_id', 'task_id', 'attachment_id', 'created_at'],
   todos_tags: ['user_id', 'id', 'name', 'color', 'created_at', 'updated_at'],
   todos_tag_links: ['user_id', 'task_id', 'tag_id', 'created_at'],
+  todos_time_entries: ['user_id', 'id', 'task_id', 'start_at', 'end_at', 'day', 'source', 'created_at', 'updated_at'],
   todos_feeds: ['slug', 'user_id', 'password_hash', 'expires_at', 'revoked_at', 'created_at'],
   todos_mail_tokens: ['user_id', 'token', 'created_at'],
   todos_mail_messages: ['user_id', 'message_id', 'created_at'],
+}
+
+// ------------------------------------------------------------- time ledger
+
+/** One row of `todos_time_entries`, as the reads that own it bind against it. */
+export interface TodoTimeEntryRow {
+  id: string
+  task_id: string
+  start_at: number
+  end_at: number | null
+  day: string
+  source: string
+  created_at: number
+  updated_at: number
+}
+
+/**
+ * The row the database holds, as the shape every surface speaks.
+ *
+ * The stored `source` is checked rather than cast: a row written by a hand-edited restore could name
+ * anything, and the worklog would rather show an unknown source as the timer's own than crash on it.
+ */
+export function toTimeEntry(row: TodoTimeEntryRow): TodoTimeEntry {
+  const source: TimeEntrySource =
+    row.source === 'focus' || row.source === 'manual' || row.source === 'timer' ? row.source : 'timer'
+  return {
+    id: row.id,
+    taskId: row.task_id,
+    startAt: row.start_at,
+    endAt: row.end_at,
+    day: row.day,
+    source,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+/** The duration of one closed row in milliseconds; a running row has none to give. */
+export function timeEntryMs(entry: TodoTimeEntry): number {
+  return entry.endAt === null ? 0 : entry.endAt - entry.startAt
 }
 
 // ------------------------------------------------------------- task attachments

@@ -2293,6 +2293,20 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     ],
   },
   {
+    // How long a task's reader expects it to take, in milliseconds.
+    //
+    // Nullable on purpose: "nobody estimated" and "the estimate is zero" are different answers, and
+    // the worklog has to tell them apart. The table declaration carries the column for a fresh
+    // database; this version is what an older one gains it under. `todos_time_entries` itself needs
+    // no number — tables are built before the ledger is consulted, the same way `todos_task_events`
+    // arrived without one.
+    version: 148,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'time_estimate_ms' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN time_estimate_ms INTEGER`,
+    ],
+  },
+  {
     // The two columns a task's one reminder used to live in, and the index that read them.
     //
     // `todos_reminders` (one row per instant, `fired_at` as the delivery mark) superseded both: no code
