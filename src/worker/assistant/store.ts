@@ -68,7 +68,7 @@ import {
   TRASH_PAGE_SIZE,
   defaultColorFor,
   isTimeEntrySource,
-  nextOccurrence,
+  advanceRepeat,
   normalizeReminderTimes,
   normalizeTagNames,
   parseRepeatRule,
@@ -4996,13 +4996,22 @@ export class AssistantStore {
     const task = await this.applyTaskPatch(id, existing, { status: 'done' }, timeZone, expectedRev)
     if (!task) return null
     if (!existing.repeat) return { task, next: null }
+    const advanced = advanceRepeat(existing.repeat, {
+      anchorDueAt: existing.dueAt,
+      completedAt: task.completedAt ?? Date.now(),
+      timeZone,
+    })
+    // A series that has run out says so by producing no next row, and the finished row keeps its own
+    // rule untouched: the counter only moves when an occurrence is actually created, so a reopen and
+    // a second finish cannot spend a turn twice.
+    if (advanced.dueAt === null) return { task, next: null }
+    const nextInstant = advanced.dueAt
     const anchorDue = existing.dueAt
     // The cycle is counted whether or not the finished row was owed on a day: it is also the day the
     // next copy's pick lands on. What a task that never had a due date does not get by being
     // finished is a due date — ticking a box is not the reader asking to be told when, and the old
     // behaviour wrote the completion instant plus one period straight into `due_at`, so an undated
     // task became a dated one the first time it was done.
-    const nextInstant = nextOccurrence(anchorDue ?? Date.now(), existing.repeat, timeZone)
     const dueAt = anchorDue === null ? null : nextInstant
     // Every pending reminder keeps its distance from the due date on the next occurrence, the way the
     // single reminder used to. A task with no due date has no distance to keep, so its next copy
@@ -5033,7 +5042,7 @@ export class AssistantStore {
       projectId: existing.projectId,
       listId: existing.listId,
       starred: existing.starred,
-      repeat: existing.repeat,
+      repeat: advanced.rule,
       reminders: offsets.map((offset) => nextInstant + offset),
       noteId: existing.noteId,
       conversationId: existing.conversationId,
