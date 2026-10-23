@@ -9,7 +9,7 @@
 import { CalendarPlus, Clock } from 'lucide-react'
 import { localDate, toLocalMinute } from '@shared/assistant-time'
 import type { TaskList, TodoTask } from '@shared/todos/model'
-import { isTaskDone } from '@shared/todos/status'
+import { isTaskDone, isTaskOpen } from '@shared/todos/status'
 import { t, localeTag } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { Button } from '../../components/primitives'
@@ -58,7 +58,16 @@ function DayBody({ dayKey, tasks, lists, timezone, onOpenTask, onToggle, onAdd }
               <Checkbox
                 checked={false}
                 onChange={() => onToggle(task)}
-                label={<span className="sr-only">{t('todo.a11y.mark_done', { title: task.title })}</span>}
+                // The name follows what the press really writes (`toggledStatus`): a row still owed
+                // goes finished, and one that already stopped being owed — abandoned — goes back to
+                // `todo`. Hard-coding "mark done" would misdescribe the reopen gesture on an abandoned row.
+                label={(
+                  <span className="sr-only">
+                    {isTaskOpen(task.status)
+                      ? t('todo.a11y.mark_done', { title: task.title })
+                      : t('todo.a11y.mark_open', { title: task.title })}
+                  </span>
+                )}
                 className="mt-0.5 shrink-0"
               />
               <button type="button" onClick={() => onOpenTask(task)} className="min-w-0 flex-1 text-left">

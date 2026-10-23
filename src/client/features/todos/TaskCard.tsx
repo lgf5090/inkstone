@@ -735,12 +735,14 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
           role="checkbox"
           // Three answers spelled out, rather than one boolean and its leftover: ticked for the row the
           // reader finished, empty for the row they still owe, and `mixed` for a row in neither set. The
-          // unchecked box is the reading of work still to do, and an abandoned row is not that; the name
-          // stays the one that describes what a press really writes, which is the finished state.
+          // unchecked box is the reading of work still to do, and an abandoned row is not that. The name
+          // tracks what a press really writes, which is `toggledStatus`: work still owed goes finished,
+          // and a row that already stopped being owed — finished or abandoned — goes back to `todo`. So
+          // an abandoned row is named "reopen", not "mark done": one tap takes the abandonment back.
           aria-checked={finished ? true : owed ? false : 'mixed'}
-          aria-label={finished
-            ? t('todo.a11y.mark_open', { title: task.title })
-            : t('todo.a11y.mark_done', { title: task.title })}
+          aria-label={owed
+            ? t('todo.a11y.mark_done', { title: task.title })
+            : t('todo.a11y.mark_open', { title: task.title })}
           onClick={() => { void toggle(task) }}
           className="mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-full transition-transform duration-[var(--dur-fast)] active:scale-90 motion-reduce:transform-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] md:size-7"
         >

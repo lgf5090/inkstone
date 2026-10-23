@@ -12,6 +12,7 @@ import {
   taskListProgress,
   toggledStatus,
   type RepeatRule,
+  type TaskStatus,
 } from '../src/shared/todos/model'
 
 const HOUR = 60 * 60 * 1000
@@ -155,9 +156,13 @@ describe('the small readings a list card and a checkbox need', () => {
   })
 
   it('toggles a status both ways', () => {
+    // The checkbox flips between owed and not-owed. Work still owed goes finished; a row that already
+    // stopped being owed — finished or abandoned — goes back to `todo`. Pressing an abandoned row
+    // reopens it rather than quietly re-labeling it finished (the ruling recorded in `toggledStatus`).
     expect(toggledStatus('todo')).toBe('done')
     expect(toggledStatus('in_progress')).toBe('done')
     expect(toggledStatus('done')).toBe('todo')
+    expect(toggledStatus('cancelled' as TaskStatus)).toBe('todo')
   })
 
   it('recognises only the views the server answers', () => {

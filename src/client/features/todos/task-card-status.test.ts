@@ -254,6 +254,9 @@ describe('the three readings a card makes of one status', () => {
 
     expect(checkbox()?.getAttribute('aria-checked')).toBe('mixed')
     expect(checkbox()!.querySelector('svg'), 'an abandoned row wears no completion tick').toBeNull()
+    // The name describes what a press really writes — `toggledStatus` reopens an abandoned row to
+    // `todo` — so the control is named "reopen", not "mark done".
+    expect(checkbox()?.getAttribute('aria-label')).toBe(t('todo.a11y.mark_open', { title: 'Learn Esperanto' }))
     expect(title(row)!.className).not.toContain('line-through')
     expect(owedAffordances(row)).toEqual({ kebab: false, timer: false })
   })

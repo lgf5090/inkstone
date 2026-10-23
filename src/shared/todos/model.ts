@@ -8,7 +8,7 @@
  */
 
 import type { Task, TaskPriority, TaskStatus } from '../assistant'
-import { isTaskDone } from './status'
+import { isTaskOpen } from './status'
 import { daysInMonth, getZonedParts, zonedTimeToUtc } from '../assistant-schedule'
 import { ORGANIZER_COLORS, organizerColorOrNull } from '../organizer-colors'
 
@@ -922,9 +922,19 @@ export function taskListProgress(list: { openCount: number; doneCount: number })
   return { done: list.doneCount, total: list.openCount + list.doneCount }
 }
 
-/** The status a task moves to when its checkbox is pressed. */
+/**
+ * The status a task moves to when its checkbox is pressed.
+ *
+ * The checkbox is the gesture for "flip this row between finished and not", so it reads off the open
+ * set: work still owed becomes `done`, and anything that already stopped being owed becomes `todo`
+ * again. A finished row reopens — that was the whole meaning while `done` was the only way to stop
+ * owing a task. When the enum gained `cancelled`, the same press on an abandoned row reopens it rather
+ * than quietly re-labeling it finished: the reader said "not going to do it", and one tap on the box
+ * is the plain way to take that back. Choosing between finished and abandoned stays a deliberate edit
+ * in the row's menu, not something the checkbox guesses at.
+ */
 export function toggledStatus(status: TaskStatus): TaskStatus {
-  return isTaskDone(status) ? 'todo' : 'done'
+  return isTaskOpen(status) ? 'done' : 'todo'
 }
 
 /** The priorities, ordered as the app shows them. Re-exported so callers need one import. */
