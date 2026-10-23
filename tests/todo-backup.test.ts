@@ -122,6 +122,51 @@ describe('a backup round trip', () => {
     expect((await target.listTasks({ view: 'all' })).map((row) => row.id)).not.toContain(task.id)
   })
 
+  // A section of a list *is* a child list in this app, so `parent_id` is the shape of the page rather
+  // than a decoration: a file that lost it comes back as a flat pile of collections, and a file that
+  // lost `archived_at` puts a put-away list back on the working page. Both columns are nullable, so a
+  // dropped key lands at NULL and nothing complains — which is why this is proved by the round trip.
+  it('restores which list a section belongs to, and which lists were put away', async () => {
+    const parent = await store.createTaskList({ name: 'Client work' })
+    const section = await store.createTaskList({ name: 'Billing' })
+    const shelved = await store.createTaskList({ name: 'Old gigs' })
+    const stamp = Date.parse('2026-10-21T09:00:00Z')
+    await store.updateTaskList(section.id, { parentId: parent.id })
+    await store.updateTaskList(shelved.id, { archivedAt: stamp })
+    const filed = await store.createTask({ title: 'Send the invoice', listId: section.id })
+
+    const backup = await exportAssistant(store)
+    const target = new AssistantStore(env.DB as D1Database, OTHER, env)
+    await importAssistant(target, JSON.parse(JSON.stringify(backup)))
+
+    expect(await target.getTask(filed.id)).toMatchObject({ listId: section.id })
+    expect((await target.listTaskLists()).find((entry) => entry.id === section.id))
+      .toMatchObject({ parentId: parent.id, archivedAt: null })
+    const onTheShelf = await target.listTaskLists({ archived: true })
+    expect(onTheShelf.find((entry) => entry.id === shelved.id)?.archivedAt).toBe(stamp)
+    // The shelf still means the shelf on the machine that received the file.
+    expect((await target.listTaskLists()).map((entry) => entry.id)).not.toContain(shelved.id)
+  })
+
+  it('levels a section whose parent the file does not carry', async () => {
+    const parent = await store.createTaskList({ name: 'Client work' })
+    const section = await store.createTaskList({ name: 'Billing' })
+    await store.updateTaskList(section.id, { parentId: parent.id })
+
+    const backup = JSON.parse(JSON.stringify(await exportAssistant(store))) as { data: Record<string, unknown[]> }
+    // A hand-edited file, or one whose parent was pruned: the child comes back at the top level rather
+    // than naming a list no restore can create, because a dangling parent is a section nobody can open.
+    backup.data.task_lists = (backup.data.task_lists as Record<string, unknown>[])
+      .filter((entry) => entry.id !== parent.id)
+
+    const target = new AssistantStore(env.DB as D1Database, OTHER, env)
+    await importAssistant(target, backup as never)
+
+    const restored = (await target.listTaskLists()).find((entry) => entry.id === section.id)
+    expect(restored?.parentId, 'a child of a missing parent stayed nested').toBeNull()
+    expect(restored?.name).toBe('Billing')
+  })
+
   // The export takes `SELECT *` and the reader enumerates the columns it writes back, so the two agree
   // only by somebody remembering. Five columns and one whole status were not remembered: a task that
   // had been abandoned came back owed, and one with a start, a face of its own and a plan came back

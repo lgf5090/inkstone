@@ -7663,7 +7663,11 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // that dropped the mark would drop the whole reason for the shelf — every finished day would come
   // back onto today's board.
   todos_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'start_at', 'project_id', 'list_id', 'icon', 'color', 'starred', 'repeat_rule', 'note_id', 'conversation_id', 'created_at', 'updated_at', 'completed_at', 'created_on', 'completed_on', 'time_estimate_ms', 'archived_at'],
-  todos_lists: ['id', 'name', 'icon', 'color', 'position', 'created_at', 'updated_at'],
+  // A list's `archived_at` and `parent_id` travel for the same reason the task's shelf mark does: the
+  // first is why the collection is off the working page, and the second is which list it sits inside.
+  // Drop either and a restored account is not merely untidy — an archived list reappears as a live one,
+  // and a section loses the list it was a part of.
+  todos_lists: ['id', 'name', 'icon', 'color', 'position', 'archived_at', 'parent_id', 'created_at', 'updated_at'],
   todos_steps: ['id', 'task_id', 'text', 'done', 'position', 'created_at'],
   todos_tags: ['id', 'name', 'color', 'created_at', 'updated_at'],
   // A link has no id of its own: its key is the pair, so it is only ever inserted, never patched.

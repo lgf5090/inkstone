@@ -513,16 +513,31 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
   // already in the account wins: it is the reader's own object, and the file's copy has no newer claim.
   const listRows: Record<string, unknown>[] = []
   const knownLists = new Set<string>()
+  // The nesting is resolved in a second pass on purpose: a file may carry a child list before its parent,
+  // and a parent looked up while walking would be dropped for a reason as accidental as array order.
+  for (const list of rows(data.task_lists)) {
+    const id = idValue(list.id)
+    if (id) knownLists.add(id)
+  }
   for (const list of rows(data.task_lists)) {
     const id = idValue(list.id)
     if (!id) continue
-    knownLists.add(id)
+    // `parent_id` is kept only when it names a list this file actually contains, and a list that names
+    // itself is dropped to the top level: that pair is a cycle no screen can draw. Without the check a
+    // restored account would hold a child whose parent is nobody, and the list it belongs to would be
+    // missing from every screen that reads the nesting.
+    const parentId = idValue(list.parent_id)
     listRows.push({
       id,
       name: textValue(list.name, 60) || 'List',
       icon: typeof list.icon === 'string' ? list.icon.slice(0, 40) : null,
       color: typeof list.color === 'string' && /^#[0-9a-f]{6}$/i.test(list.color) ? list.color : null,
       position: numberValue(list.position),
+      // The stamp and the parent are the two facts a restored account cannot rediscover: an archived
+      // collection that came back un-archived puts every finished day back on the working page, and a
+      // child that lost its parent stops being the section it was inside.
+      archived_at: numberOrNull(list.archived_at),
+      parent_id: parentId !== null && parentId !== id && knownLists.has(parentId) ? parentId : null,
       created_at: numberValue(list.created_at, Date.now()),
       updated_at: numberValue(list.updated_at, Date.now()),
     })
