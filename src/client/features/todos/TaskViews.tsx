@@ -315,6 +315,7 @@ export function useViewTitle(): string {
   if (view === 'starred') return t('todo.view.starred')
   if (view === 'completed') return t('todo.view.completed')
   if (view === 'stats') return t('todo.view.stats')
+  if (view === 'finish-day') return t('todo.view.finish_day')
   return t('todo.view.board')
 }
 

@@ -58,7 +58,7 @@ import {
 } from './todo-address'
 import { daysToRange } from './due-range'
 
-export type TodoView = 'board' | 'today' | 'plan' | 'upcoming' | 'calendar' | 'starred' | 'completed' | 'list' | 'tag' | 'stats'
+export type TodoView = 'board' | 'today' | 'plan' | 'upcoming' | 'calendar' | 'starred' | 'completed' | 'list' | 'tag' | 'stats' | 'finish-day'
 
 /** The list shape this feature reads, re-exported so its screens do not reach the API module. */
 export type { TaskListEntry } from '../../lib/api'
@@ -254,6 +254,14 @@ interface TodosState {
    * removed, because the rail holds one step and a batch is one step.
    */
   batchTasks: (op: TaskBatchOp, value?: string | string[] | null) => Promise<TaskBatchResult | null>
+  /**
+   * Report a write the reader can take back, on the same single-slot rail every other undo shares.
+   *
+   * A surface that owns its own reads (the end-of-day pass) still has to put its step back on the toast
+   * rail, and the rail holds exactly one step with one window. Re-implementing that per screen is how
+   * two toasts start offering to undo the same write.
+   */
+  reportUndo: (label: string, undo: () => Promise<void>) => void
   /** Pick a task into an account-zone day, or clear the pick with `null`; re-reads the listing after. */
   planTask: (id: string, date: string | null) => Promise<TodoTask | null>
   /** Append one reminder `minutes` from now; the task's existing reminders stay. */
@@ -510,6 +518,18 @@ const SERVER_VIEWS: Record<'board' | 'today' | 'plan' | 'upcoming' | 'starred', 
   plan: 'open',
   upcoming: 'upcoming',
   starred: 'starred',
+}
+
+/**
+ * The screens that read their own rows.
+ *
+ * The statistics, the calendar and the end-of-day pass get their content from somewhere other than the
+ * plate's listing, so three things follow at once: the frame does not fetch a page of tasks for them,
+ * it does not resolve a `#tag`/`@list` name they cannot have typed, and it does not draw the filter bar
+ * beside rows nobody is showing. One predicate, because the three followings are one fact.
+ */
+export function readsOwnRows(view: TodoView): view is 'stats' | 'calendar' | 'finish-day' {
+  return view === 'stats' || view === 'calendar' || view === 'finish-day'
 }
 
 /**
@@ -1131,9 +1151,7 @@ function listingParams(
   offset = 0,
 ): ListingParams {
   const params: ListingParams = { limit: PAGE_SIZE }
-  // The statistics and calendar screens have no listing of their own, so they ask for nothing more than
-  // the counts and the lists that their own frame still needs.
-  if (state.view === 'stats' || state.view === 'calendar') return { ...params, limit: 1 }
+  if (readsOwnRows(state.view)) return { ...params, limit: 1 }
   const filter = parseTodoFilter(state.query)
   if (offset > 0) params.offset = offset
   // The order is the reader's when they picked one, and otherwise absent: the route reads the order a
@@ -1212,7 +1230,7 @@ function earlierBound(a: string | null, b: string | null): string | null {
  * current, and a name that still matches nothing is put back into the search words instead.
  */
 function needsDirectory(state: Pick<TodosState, 'view' | 'query' | 'directoryKnown'>): boolean {
-  if (state.directoryKnown || state.view === 'stats' || state.view === 'calendar') return false
+  if (state.directoryKnown || readsOwnRows(state.view)) return false
   const filter: TodoFilterQuery = parseTodoFilter(state.query)
   return filter.list !== null || filter.tag !== null
 }
@@ -1887,6 +1905,10 @@ export const useTodos = create<TodosState>((set, get) => ({
       toastError(error)
       return null
     }
+  },
+
+  reportUndo: (label, undo) => {
+    offerUndo(set, get, label, undo)
   },
 
   /**

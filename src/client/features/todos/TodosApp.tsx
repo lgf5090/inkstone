@@ -20,6 +20,7 @@ import { IS_DEMO_MODE } from '../../lib/runtime'
 import { isImeComposing } from '../../lib/ime'
 import { useMediaQuery } from '../../lib/hooks'
 import { IconButton } from '../../components/primitives'
+import { DEFAULT_TODO_WORKDAY } from '@shared/constants'
 import { Input } from '../../components/form'
 import { Menu, type MenuItem } from '../../components/overlay'
 import { LoadingBlock } from '../../components/feedback'
@@ -27,7 +28,7 @@ import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 import { useAssistant } from '../chat/assistant-store'
 import { AssistantDock } from '../chat/AssistantDock'
-import { useTodos } from './store'
+import { readsOwnRows, useTodos } from './store'
 import { buildTodoAssistantContext } from './assistant-context'
 import { BatchBar } from './BatchBar'
 import { TaskEditor } from './TaskEditor'
@@ -108,6 +109,10 @@ export function TodosApp() {
   const assistantTurn = useAssistant((state) => state.turn)
   const applySavedFilter = useTodos((state) => state.applySavedFilter)
   const savedFilters = useSession((state) => state.settings.todo.savedFilters) ?? NO_SAVED_FILTERS
+  // The two navs ask the account which rows it wants drawn. Read here rather than inside the registry,
+  // so switching the end-of-day page back on redraws the sidebar on the same tick.
+  const workday = useSession((state) => state.settings.todo.workday) ?? DEFAULT_TODO_WORKDAY
+  const navFlags = { finishDayEnabled: workday.finishDayEnabled }
   const updateSettings = useSession((state) => state.updateSettings)
   const title = useViewTitle()
   const [page, setPage] = useState<Page>('main')
@@ -375,7 +380,7 @@ export function TodosApp() {
   const sidebar = (
     <nav aria-label={t('todo.a11y.lists')} className="flex h-full w-[232px] shrink-0 flex-col gap-4 overflow-y-auto border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-3">
       <div className="flex flex-col gap-0.5">
-        {surfacesFor('sidebar').map((surface) => {
+        {surfacesFor('sidebar', navFlags).map((surface) => {
           const Icon = surface.icon
           return (
             <SidebarRow
@@ -494,9 +499,10 @@ export function TodosApp() {
         {wide && sidebarOpen && sidebar}
         <div className="flex min-w-0 flex-1 flex-col">
           {/* The order is a question about the tasks, not about one view: the bar stays above every
-              list, and the lists page is a different screen with no listing behind it. Statistics has
-              no listing either, so its own range controls replace this bar rather than join it. */}
-          {page === 'main' && view !== 'stats' && view !== 'calendar' && <TodoFilters />}
+              list, and the lists page is a different screen with no listing behind it. The statistics,
+              the calendar and the close-out read their own rows, so their own controls replace this bar
+              rather than join it — a filter that narrowed nothing would be a control that lies. */}
+          {page === 'main' && !readsOwnRows(view) && <TodoFilters />}
           {status === 'loading' && !counts ? <LoadingBlock /> : content}
         </div>
         {assistantDockOpen && !IS_DEMO_MODE && <AssistantDock surface="todos" />}
@@ -524,7 +530,7 @@ export function TodosApp() {
           >
             {/* Order, glyphs, labels and the one badge all come from the surface table, so a view that
                 earns a tab on the phone is added there rather than here. */}
-            {surfacesFor('phone').map((surface) => {
+            {surfacesFor('phone', navFlags).map((surface) => {
               const Icon = surface.icon
               return (
                 <MobileTab
