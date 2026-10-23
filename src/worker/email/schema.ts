@@ -17,6 +17,16 @@ export const EMAIL_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_email_accounts_user
      ON email_accounts(user_id, created_at)`,
 
+  `CREATE TABLE IF NOT EXISTS email_deployment_settings (
+    id TEXT PRIMARY KEY,
+    domains TEXT NOT NULL DEFAULT '[]',
+    provider TEXT NOT NULL DEFAULT 'cloudflare',
+    resend_from TEXT NOT NULL DEFAULT '',
+    resend_key_ciphertext TEXT NOT NULL DEFAULT '',
+    resend_key_hint TEXT NOT NULL DEFAULT '',
+    updated_at INTEGER NOT NULL
+  )`,
+
   `CREATE TABLE IF NOT EXISTS email_auto_draft_jobs (
     user_id TEXT NOT NULL,
     account_id TEXT NOT NULL,
@@ -139,6 +149,7 @@ export const EMAIL_SCHEMA_STATEMENTS: readonly string[] = [
 
 export const EMAIL_REQUIRED_TABLES: readonly string[] = [
   'email_accounts',
+  'email_deployment_settings',
   'email_auto_draft_jobs',
   'email_scheduled_sends',
   'email_attachments',
@@ -167,6 +178,7 @@ export const EMAIL_REQUIRED_INDEXES: readonly string[] = [
 
 export const EMAIL_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   email_accounts: ['id', 'user_id', 'address', 'address_normalized', 'display_name', 'settings', 'created_at', 'updated_at'],
+  email_deployment_settings: ['id', 'domains', 'provider', 'resend_from', 'resend_key_ciphertext', 'resend_key_hint', 'updated_at'],
   email_auto_draft_jobs: ['user_id', 'account_id', 'message_id', 'thread_id', 'status', 'reason', 'attempts', 'claimed_at', 'created_at', 'updated_at'],
   email_scheduled_sends: ['id', 'user_id', 'account_id', 'draft_id', 'operation_id', 'send_at', 'status', 'attempts', 'claimed_at', 'last_error', 'created_at', 'updated_at'],
   email_attachments: ['id', 'user_id', 'account_id', 'email_id', 'filename', 'mime', 'size', 'width', 'height', 'content_id', 'disposition', 'object_key', 'storage', 'folder_id', 'is_starred', 'is_pinned', 'tags', 'locked', 'created_at'],

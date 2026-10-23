@@ -133,6 +133,7 @@ export interface EmailAccountSettings {
   autoDraft?: boolean
   vacation?: EmailVacationSettings
   focusedInbox?: boolean
+  replyTo?: string
 }
 
 export interface EmailSignatureSelection {

@@ -146,6 +146,7 @@ import type {
   EmailTagInput,
   EmailTagPatch,
 } from '@shared/email/model'
+import type { EmailDeploymentPatch, EmailDeploymentSettings } from '@shared/email/deployment'
 import type {
   EmailContact,
   EmailContactInput,
@@ -1190,6 +1191,9 @@ export const api = {
    */
   email: {
     getConfig: () => request<EmailConfig>('/api/email/config'),
+    getDeployment: () => request<EmailDeploymentSettings>('/api/email/deployment'),
+    updateDeployment: (body: EmailDeploymentPatch) =>
+      request<EmailDeploymentSettings>('/api/email/deployment', { method: 'PATCH', body }),
     listAccounts: () => request<EmailAccount[]>('/api/email/accounts'),
     createAccount: (body: { localPart: string, domain: string, displayName?: string }) =>
       request<EmailAccount>('/api/email/accounts', { method: 'POST', body }),

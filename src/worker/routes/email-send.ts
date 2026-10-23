@@ -7,13 +7,14 @@ import { isValidId, newId } from '../lib/id'
 import { readJson } from '../lib/request'
 import { requireAuth, requireOwner } from '../middleware/auth'
 import type { AppBindings } from '../env'
-import { getEmailAccount, type EmailAccountRow } from '../email/account-store'
+import { getEmailAccount, readAccountSettings, type EmailAccountRow } from '../email/account-store'
 import { emailMailbox } from '../email/mailbox-stub'
 import {
   buildThreadingHeaders,
   normalizeRecipients,
   outgoingMessageId,
-  sendViaBinding,
+  replyToHeader,
+  sendViaProvider,
   validateBody,
 } from '../email/outbound'
 import { alreadySent, headerList, sendDraftEmail, sendStoredEmail, sender } from '../email/send-service'
@@ -88,9 +89,11 @@ async function sendDirect(c: Ctx, account: EmailAccountRow, input: EmailSendInpu
     references = []
     threadId = messageId
   }
-  const headers = original && mode === 'reply' && inReplyTo
-    ? buildThreadingHeaders(inReplyTo, references)
-    : undefined
+  const headers = {
+    ...(original && mode === 'reply' && inReplyTo ? buildThreadingHeaders(inReplyTo, references) : {}),
+    ...replyToHeader(readAccountSettings(account.settings)),
+  }
+  const hasHeaders = Object.keys(headers).length > 0
   const created = await mailbox.createEmail('sent', {
     id: messageId,
     subject: input.subject,
@@ -111,7 +114,7 @@ async function sendDirect(c: Ctx, account: EmailAccountRow, input: EmailSendInpu
   })
   if (!created) throw new ApiError(500, 'internal', 'The sent message could not be stored')
   try {
-    const sent = await sendViaBinding(c.env, {
+    const sent = await sendViaProvider(c.env, c.get('userId'), {
       to: to.length === 1 ? to[0]! : to,
       cc: cc.length ? (cc.length === 1 ? cc[0]! : cc) : undefined,
       bcc: bcc.length ? (bcc.length === 1 ? bcc[0]! : bcc) : undefined,
@@ -119,7 +122,7 @@ async function sendDirect(c: Ctx, account: EmailAccountRow, input: EmailSendInpu
       subject: input.subject,
       html: body.html,
       text: body.text,
-      ...(headers ? { headers } : {}),
+      ...(hasHeaders ? { headers } : {}),
     })
     await mailbox.updateDelivery(messageId, 'sent', null, sent.messageId)
     void rememberRecipientAddresses(c.env.DB, c.get('userId'), [...to, ...cc, ...bcc]).catch((error) => {

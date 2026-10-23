@@ -116,6 +116,24 @@ beforeEach(() => {
     attempts: 0,
     updatedAt: null,
   })
+  vi.spyOn(api.email, 'getDeployment').mockResolvedValue({
+    domains: [],
+    provider: 'cloudflare',
+    resendFrom: '',
+    hasResendKey: false,
+    resendKeyHint: '',
+    envDomains: ['example.com'],
+    updatedAt: null,
+  })
+  vi.spyOn(api.email, 'updateDeployment').mockImplementation(async (patch) => ({
+    domains: patch.domains ?? [],
+    provider: patch.provider ?? 'cloudflare',
+    resendFrom: patch.resendFrom ?? '',
+    hasResendKey: Boolean(patch.resendApiKey),
+    resendKeyHint: patch.resendApiKey ? patch.resendApiKey.slice(-4) : '',
+    envDomains: ['example.com'],
+    updatedAt: '2026-01-02T00:00:00.000Z',
+  }))
   useEmailStore.setState(original, true)
   useEmailStore.setState({
     accounts: [account],
@@ -143,6 +161,49 @@ afterEach(() => {
 })
 
 describe('the mailbox settings page', () => {
+  it('searches sections and saves reply-to plus deployment delivery settings', async () => {
+    const update = vi.spyOn(api.email, 'updateAccount').mockImplementation(async (id, body) => ({
+      ...account,
+      id,
+      settings: (body.settings ?? account.settings) as EmailAccountSettings,
+      updatedAt: '2026-01-02T00:00:00.000Z',
+    }))
+    const deploymentUpdate = vi.mocked(api.email.updateDeployment)
+    view = renderElement(createElement(AccountSettingsPage, { accountId: 'a1' }))
+    await settle()
+
+    const search = document.querySelector<HTMLInputElement>(`input[aria-label="${t('email.settings.search_placeholder')}"]`)
+    expect(search).not.toBeNull()
+    change(search!, '回复')
+    expect(document.body.textContent).toContain(t('email.settings.reply_to'))
+
+    change(inputFor(t('email.settings.reply_to')), 'replies@example.com')
+    const delivery = [...document.querySelectorAll<HTMLButtonElement>('aside nav button')]
+      .find((node) => node.textContent?.trim() === t('email.settings.delivery'))
+    expect(delivery).toBeTruthy()
+    act(() => delivery!.click())
+    change(inputFor(t('email.settings.delivery_domains')), 'mail.example.com')
+    const provider = [...document.querySelectorAll('select')]
+      .find((node) => node.closest('[hidden]') === null) as HTMLSelectElement | undefined
+    expect(provider).toBeTruthy()
+    act(() => {
+      provider!.value = 'resend'
+      provider!.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    change(inputFor(t('email.settings.delivery_resend_from')), 'Inkstone <mail@example.com>')
+    change(inputFor(t('email.settings.delivery_resend_key')), 're_test_key_1234')
+
+    act(() => { button(t('email.settings.save')).click() })
+    await settle()
+    expect(update.mock.calls[0]?.[1].settings).toMatchObject({ replyTo: 'replies@example.com' })
+    expect(deploymentUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      domains: ['mail.example.com'],
+      provider: 'resend',
+      resendFrom: 'Inkstone <mail@example.com>',
+      resendApiKey: 're_test_key_1234',
+    }))
+  })
+
   it('saves the display name and the full settings object', async () => {
     const update = vi.spyOn(api.email, 'updateAccount').mockImplementation(async (id, body) => {
       const settings = (body.settings ?? account.settings) as EmailAccountSettings

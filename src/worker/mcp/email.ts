@@ -5,7 +5,7 @@ import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
 import { storedStringArray } from '../lib/json'
-import { listEmailAccounts, type EmailAccountRow } from '../email/account-store'
+import { listEmailAccounts, readAccountSettings, type EmailAccountRow } from '../email/account-store'
 import { loadEmailAttachments, lockEmailAttachments } from '../email/attachments'
 import { emailMailbox } from '../email/mailbox-stub'
 import {
@@ -13,7 +13,8 @@ import {
   loadOutgoingAttachments,
   normalizeRecipients,
   outgoingMessageId,
-  sendViaBinding,
+  replyToHeader,
+  sendViaProvider,
 } from '../email/outbound'
 import {
   draftEmailReplyTool,
@@ -98,6 +99,7 @@ function sentHeaders(
   outgoingId: string,
   threading?: Record<string, string>,
 ): string {
+  const replyTo = readAccountSettings(account.settings).replyTo
   return JSON.stringify([
     { key: 'from', value: `${account.display_name} <${account.address}>` },
     { key: 'to', value: recipients.join(', ') },
@@ -105,6 +107,7 @@ function sentHeaders(
     { key: 'date', value: new Date().toISOString() },
     { key: 'message-id', value: `<${outgoingId}>` },
     ...Object.entries(threading ?? {}).map(([key, value]) => ({ key: key.toLowerCase(), value })),
+    ...(replyTo ? [{ key: 'reply-to', value: replyTo }] : []),
   ])
 }
 
@@ -347,12 +350,13 @@ export async function sendMcpEmail(
   })
   if (!created) throw new ApiError(500, 'internal', 'The sent message could not be stored')
   try {
-    const sent = await sendViaBinding(context.env, {
+    const sent = await sendViaProvider(context.env, context.userId, {
       to: sendParams(to),
       from: senderValue(account),
       subject: input.subject,
       html,
       text: input.body.trim(),
+      headers: replyToHeader(readAccountSettings(account.settings)),
     })
     await mailbox.updateDelivery(messageId, 'sent', null, sent.messageId)
   } catch (error) {
@@ -403,13 +407,13 @@ export async function sendMcpEmailReply(
   })
   if (!created) throw new ApiError(500, 'internal', 'The sent message could not be stored')
   try {
-    const sent = await sendViaBinding(context.env, {
+    const sent = await sendViaProvider(context.env, context.userId, {
       to: sendParams(to),
       from: senderValue(account),
       subject,
       html,
       text: input.body.trim(),
-      headers: threading,
+      headers: { ...threading, ...replyToHeader(readAccountSettings(account.settings)) },
     })
     await mailbox.updateDelivery(messageId, 'sent', null, sent.messageId)
     await mailbox.markThreadRead(threadId)
@@ -477,7 +481,7 @@ async function sendStoredDraft(
   if (!moved) throw new ApiError(404, 'email_message_not_found', 'Draft not found')
   await lockEmailAttachments(context.env.DB, context.userId, draftId)
   try {
-    const sent = await sendViaBinding(context.env, {
+    const sent = await sendViaProvider(context.env, context.userId, {
       to: sendParams(to),
       cc: cc.length ? sendParams(cc) : undefined,
       bcc: bcc.length ? sendParams(bcc) : undefined,
@@ -486,7 +490,7 @@ async function sendStoredDraft(
       html,
       text,
       ...(attachments.length ? { attachments } : {}),
-      ...(threading ? { headers: threading } : {}),
+      headers: { ...(threading ?? {}), ...replyToHeader(readAccountSettings(account.settings)) },
     })
     await mailbox.updateDelivery(draftId, 'sent', null, sent.messageId)
     if (inReplyTo) await mailbox.markThreadRead(threadId)

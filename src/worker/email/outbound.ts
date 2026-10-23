@@ -1,8 +1,10 @@
-import type { EmailSendInput } from '@shared/email/model'
+import type { EmailAccountSettings, EmailSendInput } from '@shared/email/model'
 import { EMAIL_BODY_MAX_BYTES, EMAIL_RECIPIENTS_MAX } from '@shared/email/model'
 import { stripEmailHtmlToText } from '@shared/email/format'
 import { ApiError } from '../lib/errors'
+import { decryptEmailSecret } from '../lib/crypto'
 import type { Env } from '../env'
+import { readEmailDeployment } from './deployment'
 
 export interface OutgoingAttachmentRow {
   id: string
@@ -65,6 +67,11 @@ export function buildThreadingHeaders(originalMessageId: string, references: rea
     'In-Reply-To': `<${originalMessageId}>`,
     ...(references.length ? { References: references.map((reference) => `<${reference}>`).join(' ') } : {}),
   }
+}
+
+export function replyToHeader(settings: EmailAccountSettings): Record<string, string> {
+  const replyTo = settings.replyTo?.trim()
+  return replyTo ? { 'Reply-To': replyTo } : {}
 }
 
 export function outgoingMessageId(id: string, address: string): string {
@@ -142,4 +149,64 @@ export async function sendViaBinding(env: Env, params: SendBindingParams): Promi
   if (params.headers && Object.keys(params.headers).length) message.headers = params.headers
   const result = await env.EMAIL.send(message as never)
   return { messageId: result.messageId }
+}
+
+function resendFrom(value: string | { email: string; name: string }): string {
+  return typeof value === 'string' ? value : `${value.name} <${value.email}>`
+}
+
+async function sendViaResend(apiKey: string, from: string, params: SendBindingParams): Promise<{ messageId: string }> {
+  const replyTo = params.headers?.['Reply-To'] ?? params.headers?.['reply-to']
+  const headers = Object.fromEntries(
+    Object.entries(params.headers ?? {}).filter(([key]) => key.toLowerCase() !== 'reply-to'),
+  )
+  const body: Record<string, unknown> = {
+    from,
+    to: Array.isArray(params.to) ? params.to : [params.to],
+    subject: params.subject,
+    ...(params.html ? { html: params.html } : {}),
+    ...(params.text ? { text: params.text } : {}),
+    ...(params.cc ? { cc: Array.isArray(params.cc) ? params.cc : [params.cc] } : {}),
+    ...(params.bcc ? { bcc: Array.isArray(params.bcc) ? params.bcc : [params.bcc] } : {}),
+    ...(replyTo ? { reply_to: replyTo } : {}),
+    ...(Object.keys(headers).length ? { headers } : {}),
+    ...(params.attachments?.length
+      ? {
+          attachments: params.attachments.map((attachment) => ({
+            filename: attachment.filename,
+            content: attachment.content,
+            ...(attachment.type ? { content_type: attachment.type } : {}),
+            ...(attachment.contentId ? { content_id: attachment.contentId } : {}),
+          })),
+        }
+      : {}),
+  }
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) {
+    throw new ApiError(502, 'email_send_failed', `Resend refused the message (${response.status})`)
+  }
+  const result = await response.json() as { id?: unknown }
+  if (typeof result.id !== 'string' || !result.id) {
+    throw new ApiError(502, 'email_send_failed', 'Resend did not return a message id')
+  }
+  return { messageId: result.id }
+}
+
+export async function sendViaProvider(env: Env, userId: string, params: SendBindingParams): Promise<{ messageId: string }> {
+  const deployment = await readEmailDeployment(env.DB)
+  if (deployment?.provider === 'resend') {
+    const apiKey = deployment.resendKeyCiphertext
+      ? await decryptEmailSecret(env, userId, deployment.resendKeyCiphertext)
+      : null
+    if (!apiKey) throw new ApiError(503, 'email_send_unavailable', 'Resend is selected but its API key is not configured')
+    return sendViaResend(apiKey, deployment.resendFrom.trim() || resendFrom(params.from), params)
+  }
+  return sendViaBinding(env, params)
 }

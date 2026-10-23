@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { EMAIL_BODY_MAX_BYTES, EMAIL_FOLLOW_UP_MAX_MS, EMAIL_LEGACY_SIGNATURE_ID, EMAIL_SIGNATURES_MAX, EMAIL_SIGNATURE_NAME_MAX_CHARS, EMAIL_SIGNATURE_TEXT_MAX_CHARS, EMAIL_SNOOZE_MAX_MS, EMAIL_SUBJECT_MAX_CHARS, EMAIL_VACATION_BODY_MAX_CHARS, EMAIL_VACATION_SUBJECT_MAX_CHARS } from '../../src/shared/email/model'
 import type { EmailAccount, EmailFolder, EmailListResponse, EmailMailboxStats, EmailMessage, EmailTag } from '../../src/shared/email/model'
 import { SCHEMA_STATEMENTS } from '../../src/worker/db/schema'
+import { CredentialVault } from '../../src/worker/durable/credential-vault'
 import { claimAutoDraftJobs, createEmailAccount, finishAutoDraftJob, queueAutoDraftJob } from '../../src/worker/email/account-store'
 import { applyMailboxMigrations } from '../../src/worker/email/mailbox-schema'
 import { MailboxStore, type EmailData } from '../../src/worker/email/mailbox-store'
@@ -15,7 +16,7 @@ import { emailRoutes } from '../../src/worker/routes/email'
 import { makeD1 } from '../doubles/d1-sqlite'
 import { makeSqlExec } from '../doubles/do-sqlite'
 import { fakeEmailMailboxNamespace } from '../doubles/email-mailbox'
-import { testBindings, testR2Bucket, type TestR2Bucket } from '../doubles/bindings'
+import { testBindings, testDurableObjectNamespace, testR2Bucket, type TestR2Bucket } from '../doubles/bindings'
 
 let sqlite: DatabaseSync
 let db: D1Database
@@ -122,6 +123,20 @@ function count(sql: string, ...values: Array<string | number | null>): number {
   return Number((sqlite.prepare(sql).get(...values) as { n: number }).n)
 }
 
+const vaultStorage = new Map<string, unknown>()
+
+function fakeVaultState(): DurableObjectState {
+  return {
+    storage: {
+      async get(key: string) { return vaultStorage.get(key) },
+      async put(key: string, value: unknown) { vaultStorage.set(key, value) },
+    },
+    async blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T> {
+      return await fn()
+    },
+  } as unknown as DurableObjectState
+}
+
 function mailboxNamespace(store: MailboxStore): DurableObjectNamespace {
   const base = fakeEmailMailboxNamespace(store)
   return {
@@ -168,6 +183,65 @@ beforeEach(async () => {
     address: 'owner@example.com',
     displayName: 'Owner',
   })).id
+})
+
+describe('email deployment settings', () => {
+  it('stores domains, provider and an encrypted Resend key without reading the key back', async () => {
+    env = testBindings(db, {
+      FILES: bucket,
+      EMAIL_MAILBOX: mailboxNamespace(store),
+      DO_AUTH_KEY: 'test-internal-key',
+      CREDENTIAL_VAULT: testDurableObjectNamespace(
+        async (request) => await new CredentialVault(fakeVaultState(), env).fetch(request),
+      ),
+    })
+    const patched = await call('PATCH', '/deployment', {
+      domains: ['Mail.Example.com'],
+      provider: 'resend',
+      resendFrom: 'Inkstone <mail@example.com>',
+      resendApiKey: 're_live_12345678',
+    })
+    expect(patched.status).toBe(200)
+    const body = await json<Record<string, unknown>>(patched)
+    expect(body).toMatchObject({
+      domains: ['mail.example.com'],
+      provider: 'resend',
+      resendFrom: 'Inkstone <mail@example.com>',
+      hasResendKey: true,
+      resendKeyHint: '5678',
+    })
+    expect(JSON.stringify(body)).not.toContain('re_live_12345678')
+
+    const config = await json<{ domains: string[], sendingAvailable: boolean }>(await call('GET', '/config'))
+    expect(config.domains).toContain('mail.example.com')
+    expect(config.sendingAvailable).toBe(true)
+
+    const created = await call('POST', '/accounts', { localPart: 'ops', domain: 'mail.example.com' })
+    expect(created.status).toBe(201)
+    expect((await json<EmailAccount>(created)).address).toBe('ops@mail.example.com')
+  })
+
+  it('rejects malformed deployment patches instead of silently clearing settings', async () => {
+    env = testBindings(db, {
+      FILES: bucket,
+      EMAIL_MAILBOX: mailboxNamespace(store),
+      DO_AUTH_KEY: 'test-internal-key',
+      CREDENTIAL_VAULT: testDurableObjectNamespace(
+        async (request) => await new CredentialVault(fakeVaultState(), env).fetch(request),
+      ),
+    })
+    await call('PATCH', '/deployment', { domains: ['mail.example.com'] })
+
+    expect((await call('PATCH', '/deployment', { domains: 'mail.example.com' })).status).toBe(400)
+    expect((await call('PATCH', '/deployment', { domains: [42] })).status).toBe(400)
+    expect((await call('PATCH', '/deployment', { provider: 'smtp' })).status).toBe(400)
+    expect((await call('PATCH', '/deployment', { provider: 'resend' })).status).toBe(400)
+    expect((await call('PATCH', '/deployment', { resendApiKey: 1234 })).status).toBe(400)
+
+    const current = await json<{ domains: string[], provider: string }>(await call('GET', '/deployment'))
+    expect(current.domains).toEqual(['mail.example.com'])
+    expect(current.provider).toBe('cloudflare')
+  })
 })
 
 describe('email route auth and ownership', () => {

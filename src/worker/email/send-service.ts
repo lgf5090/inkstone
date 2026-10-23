@@ -3,12 +3,12 @@ import { normalizeRecipients } from './outbound'
 import { buildThreadingHeaders } from './outbound'
 import { loadOutgoingAttachments } from './outbound'
 import { outgoingMessageId } from './outbound'
-import { sendViaBinding } from './outbound'
+import { replyToHeader, sendViaProvider } from './outbound'
 import { validateBody } from './outbound'
 import { ApiError } from '../lib/errors'
 import { sha256Hex } from '../lib/encoding'
 import type { Env } from '../env'
-import type { EmailAccountRow } from './account-store'
+import { readAccountSettings, type EmailAccountRow } from './account-store'
 import { emailMailbox } from './mailbox-stub'
 import type { EmailRow } from './mailbox-store'
 import { loadEmailAttachments, lockEmailAttachments } from './attachments'
@@ -24,6 +24,7 @@ export function headerList(account: EmailAccountRow, input: EmailSendInput, outg
   const to = normalizeRecipients(input.to, 'to')
   const cc = normalizeRecipients(input.cc, 'cc')
   const bcc = normalizeRecipients(input.bcc, 'bcc')
+  const replyTo = readAccountSettings(account.settings).replyTo
   return JSON.stringify([
     { key: 'from', value: `${account.display_name} <${account.address}>` },
     { key: 'to', value: to.join(', ') },
@@ -33,6 +34,7 @@ export function headerList(account: EmailAccountRow, input: EmailSendInput, outg
     { key: 'date', value: new Date().toISOString() },
     { key: 'message-id', value: `<${outgoingId}>` },
     ...(input.inReplyTo ? [{ key: 'in-reply-to', value: `<${input.inReplyTo}>` }] : []),
+    ...(replyTo ? [{ key: 'reply-to', value: replyTo }] : []),
   ])
 }
 
@@ -89,7 +91,11 @@ export async function sendDraftEmail(
     threadId = original.thread_id || original.id
   }
   const outgoingId = outgoingMessageId(draftId, account.address)
-  const headers = inReplyTo ? buildThreadingHeaders(inReplyTo, references) : undefined
+  const headers = {
+    ...(inReplyTo ? buildThreadingHeaders(inReplyTo, references) : {}),
+    ...replyToHeader(readAccountSettings(account.settings)),
+  }
+  const hasHeaders = Object.keys(headers).length > 0
   const moved = await mailbox.sendDraft(draftId, {
     body: body.html,
     bodySource: input.body,
@@ -108,7 +114,7 @@ export async function sendDraftEmail(
   if (!moved) throw ApiError.notFound('Draft not found')
   await lockEmailAttachments(env.DB, userId, draftId)
   try {
-    const sent = await sendViaBinding(env, {
+    const sent = await sendViaProvider(env, userId, {
       to: to.length === 1 ? to[0]! : to,
       cc: cc.length ? (cc.length === 1 ? cc[0]! : cc) : undefined,
       bcc: bcc.length ? (bcc.length === 1 ? bcc[0]! : bcc) : undefined,
@@ -117,7 +123,7 @@ export async function sendDraftEmail(
       html: body.html,
       text: body.text,
       ...(attachments.length ? { attachments } : {}),
-      ...(headers ? { headers } : {}),
+      ...(hasHeaders ? { headers } : {}),
     })
     await mailbox.updateDelivery(draftId, 'sent', null, sent.messageId)
     void rememberRecipientAddresses(env.DB, userId, [...to, ...cc, ...bcc]).catch((error) => {
@@ -155,14 +161,18 @@ export async function sendStoredEmail(
       return []
     }
   })()
-  const headers = row.in_reply_to ? buildThreadingHeaders(row.in_reply_to, references) : undefined
+  const headers = {
+    ...(row.in_reply_to ? buildThreadingHeaders(row.in_reply_to, references) : {}),
+    ...replyToHeader(readAccountSettings(account.settings)),
+  }
+  const hasHeaders = Object.keys(headers).length > 0
   let attachments: Awaited<ReturnType<typeof loadOutgoingAttachments>> = []
   if (row.has_attachment) {
     const attached = (await loadEmailAttachments(env.DB, userId, [row.id])).get(row.id) ?? []
     attachments = await loadOutgoingAttachments(env, userId, row.id, attached.map((entry) => entry.id), false)
   }
   try {
-    const sent = await sendViaBinding(env, {
+    const sent = await sendViaProvider(env, userId, {
       to: to.length === 1 ? to[0]! : to,
       cc: cc.length ? (cc.length === 1 ? cc[0]! : cc) : undefined,
       bcc: bcc.length ? (bcc.length === 1 ? bcc[0]! : bcc) : undefined,
@@ -171,7 +181,7 @@ export async function sendStoredEmail(
       html: row.body,
       text: validateBody({ to: row.recipient, subject: row.subject, body: row.body_source ?? '', bodyHtml: row.body, operationId: 'retry' }).text,
       ...(attachments.length ? { attachments } : {}),
-      ...(headers ? { headers } : {}),
+      ...(hasHeaders ? { headers } : {}),
     })
     await mailbox.updateDelivery(row.id, 'sent', null, sent.messageId)
     void rememberRecipientAddresses(env.DB, userId, [...to, ...cc, ...bcc]).catch((error) => {

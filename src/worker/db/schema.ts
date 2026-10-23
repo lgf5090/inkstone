@@ -2332,6 +2332,20 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE email_groups ADD COLUMN avatar TEXT NOT NULL DEFAULT ''`,
     ],
   },
+  {
+    version: 154,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS email_deployment_settings (
+        id TEXT PRIMARY KEY,
+        domains TEXT NOT NULL DEFAULT '[]',
+        provider TEXT NOT NULL DEFAULT 'cloudflare',
+        resend_from TEXT NOT NULL DEFAULT '',
+        resend_key_ciphertext TEXT NOT NULL DEFAULT '',
+        resend_key_hint TEXT NOT NULL DEFAULT '',
+        updated_at INTEGER NOT NULL
+      )`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

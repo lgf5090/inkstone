@@ -46,6 +46,14 @@ import {
   type EmailFolderLike,
 } from '@shared/email/folders'
 import { isValidEmailTagPath, normalizeEmailTagPath } from '@shared/email/tags'
+import {
+  EMAIL_RESEND_KEY_MAX_CHARS,
+  isValidDeploymentDomain,
+  isValidResendFrom,
+  normalizeDeploymentDomains,
+  type EmailDeploymentPatch,
+  type EmailSendingProvider,
+} from '@shared/email/deployment'
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import { utf8ByteLength } from '@shared/text-utils'
 import type { AppBindings } from '../env'
@@ -57,6 +65,8 @@ import { acquireLease } from '../lib/lease'
 import { isInlineSafe } from '../lib/image'
 import { clampInt, JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { deleteScheduledSendsForAccount } from '../email/scheduled-send'
+import { effectiveEmailDomains, publicEmailDeployment, readEmailDeployment, writeEmailDeployment } from '../email/deployment'
+import { encryptEmailSecret } from '../lib/crypto'
 import { requireAuth, requireOwner } from '../middleware/auth'
 import {
   createEmailAccount,
@@ -114,12 +124,6 @@ const EML_RESERVED_HEADERS = new Set<string>([
 ])
 const EMAIL_CONTENT_ID_RE = /^[A-Za-z0-9._@-]{1,128}$/
 
-function allowedDomains(env: AppBindings['Bindings']): string[] {
-  const raw = (env.EMAIL_DOMAINS ?? env.MAIL_DOMAIN ?? '').trim()
-  if (!raw) return []
-  return raw.split(',').map((domain) => domain.trim().toLowerCase().replace(/\.$/, '')).filter(Boolean)
-}
-
 function configuredAddresses(env: AppBindings['Bindings']): string[] {
   return (env.EMAIL_ADDRESSES ?? '')
     .split(',')
@@ -136,8 +140,7 @@ function validateLocalPart(localPart: string): string {
   return value
 }
 
-function buildAddress(localPart: string, domain: string, env: AppBindings['Bindings']): string {
-  const allowed = allowedDomains(env)
+function buildAddress(localPart: string, domain: string, allowed: readonly string[], env: AppBindings['Bindings']): string {
   const wantedDomain = domain.trim().toLowerCase().replace(/\.$/, '')
   if (!wantedDomain || !allowed.includes(wantedDomain)) {
     throw new ApiError(400, 'email_domain_not_allowed', 'The mailbox domain is not configured')
@@ -293,6 +296,16 @@ function settingsFrom(value: unknown): EmailAccountSettings {
   if (raw.focusedInbox !== undefined) {
     if (typeof raw.focusedInbox !== 'boolean') throw new ApiError(400, 'email_settings_invalid', 'The focused inbox setting is not valid')
     settings.focusedInbox = raw.focusedInbox
+  }
+  if (raw.replyTo !== undefined) {
+    if (typeof raw.replyTo !== 'string' || raw.replyTo.length > 320) {
+      throw new ApiError(400, 'email_settings_invalid', 'The reply-to address is not valid')
+    }
+    const replyTo = raw.replyTo.trim()
+    if (replyTo && !isValidEmailAddress(replyTo)) {
+      throw new ApiError(400, 'email_settings_invalid', 'The reply-to address is not valid')
+    }
+    if (replyTo) settings.replyTo = replyTo
   }
   if (raw.vacation !== undefined) {
     settings.vacation = vacationFrom(raw.vacation)
@@ -701,16 +714,78 @@ export const emailRoutes = new Hono<AppBindings>()
 emailRoutes.use('*', requireAuth)
 emailRoutes.use('*', requireOwner)
 
-emailRoutes.get('/config', (c) => {
+emailRoutes.get('/config', async (c) => {
+  const deployment = await readEmailDeployment(c.env.DB)
+  const resendReady = deployment?.provider === 'resend'
+    && Boolean(deployment.resendKeyCiphertext)
+    && Boolean(deployment.resendFrom.trim())
   const config: EmailConfig = {
-    domains: allowedDomains(c.env),
+    domains: await effectiveEmailDomains(c.env, c.env.DB),
     addresses: configuredAddresses(c.env),
     attachmentsAvailable: Boolean(c.env.FILES) && Boolean(c.env.EMAIL_MAILBOX),
-    sendingAvailable: Boolean(c.env.EMAIL),
+    sendingAvailable: Boolean(c.env.EMAIL) || resendReady,
     autoDraftAvailable: Boolean(c.env.EMAIL_MAILBOX),
     canCreate: true,
   }
   return c.json(config)
+})
+
+emailRoutes.get('/deployment', async (c) => {
+  return c.json(await publicEmailDeployment(c.env, c.env.DB))
+})
+
+emailRoutes.patch('/deployment', async (c) => {
+  const body = await readJson<EmailDeploymentPatch>(c, JSON_BODY_LIMITS.settings)
+  if (body.domains !== undefined && (!Array.isArray(body.domains) || body.domains.some((domain) => typeof domain !== 'string'))) {
+    throw ApiError.badRequest('A mailbox domain is not valid')
+  }
+  if (body.provider !== undefined && body.provider !== 'resend' && body.provider !== 'cloudflare') {
+    throw ApiError.badRequest('The sending provider is not valid')
+  }
+  if (body.resendFrom !== undefined && typeof body.resendFrom !== 'string') {
+    throw ApiError.badRequest('The Resend sender is not valid')
+  }
+  if (body.resendApiKey !== undefined && body.resendApiKey !== null && typeof body.resendApiKey !== 'string') {
+    throw ApiError.badRequest('The Resend API key is not valid')
+  }
+  const current = await publicEmailDeployment(c.env, c.env.DB)
+  const domains = body.domains !== undefined
+    ? normalizeDeploymentDomains(body.domains)
+    : current.domains
+  if (domains.some((domain) => !isValidDeploymentDomain(domain))) {
+    throw ApiError.badRequest('A mailbox domain is not valid')
+  }
+  const provider: EmailSendingProvider = body.provider === 'resend'
+    ? 'resend'
+    : body.provider === 'cloudflare'
+      ? 'cloudflare'
+      : current.provider
+  const resendFrom = body.resendFrom !== undefined ? body.resendFrom.trim() : current.resendFrom
+  if (resendFrom && !isValidResendFrom(resendFrom)) {
+    throw ApiError.badRequest('The Resend sender is not valid')
+  }
+  if (provider === 'resend' && !resendFrom) {
+    throw ApiError.badRequest('A sender is required when Resend is selected')
+  }
+  let resendKeyCiphertext: string | undefined
+  let resendKeyHint: string | undefined
+  if (body.resendApiKey === null) {
+    resendKeyCiphertext = ''
+    resendKeyHint = ''
+  } else if (typeof body.resendApiKey === 'string' && body.resendApiKey.trim()) {
+    const key = body.resendApiKey.trim()
+    if (key.length > EMAIL_RESEND_KEY_MAX_CHARS) throw ApiError.badRequest('The Resend API key is too long')
+    resendKeyCiphertext = await encryptEmailSecret(c.env, c.get('userId'), key)
+    resendKeyHint = key.slice(-4)
+  }
+  await writeEmailDeployment(c.env.DB, {
+    domains,
+    provider,
+    resendFrom,
+    ...(resendKeyCiphertext !== undefined ? { resendKeyCiphertext } : {}),
+    ...(resendKeyHint !== undefined ? { resendKeyHint } : {}),
+  })
+  return c.json(await publicEmailDeployment(c.env, c.env.DB))
 })
 
 emailRoutes.get('/accounts', async (c) => {
@@ -726,7 +801,7 @@ emailRoutes.post('/accounts', async (c) => {
   if (typeof body.localPart !== 'string' || typeof body.domain !== 'string') {
     throw ApiError.badRequest('A local part and a domain are required')
   }
-  const address = buildAddress(body.localPart, body.domain, c.env)
+  const address = buildAddress(body.localPart, body.domain, await effectiveEmailDomains(c.env, c.env.DB), c.env)
   if (await findEmailAccountByAddress(c.env.DB, address)) {
     throw new ApiError(409, 'email_account_exists', 'That address is already in use')
   }

@@ -1,6 +1,28 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, Download, Pencil, Plus, Plug, Save, Trash2 } from 'lucide-react'
+import {
+  Bot,
+  CalendarOff,
+  Download,
+  Inbox,
+  Pencil,
+  PenLine,
+  Plug,
+  Plus,
+  Save,
+  Search,
+  Server,
+  Trash2,
+  UserRound,
+  X,
+} from 'lucide-react'
 import type { EmailAccountSettings, EmailSignature } from '@shared/email/model'
+import type { EmailDeploymentSettings, EmailSendingProvider } from '@shared/email/deployment'
+import {
+  isValidDeploymentDomain,
+  isValidResendFrom,
+  isValidReplyTo,
+  normalizeDeploymentDomains,
+} from '@shared/email/deployment'
 import {
   EMAIL_SIGNATURES_MAX,
   EMAIL_SIGNATURE_NAME_MAX_CHARS,
@@ -12,9 +34,11 @@ import {
 } from '@shared/email/model'
 import { Button, IconButton } from '../../components/primitives'
 import { Empty, LoadingBlock } from '../../components/feedback'
-import { Field, Input, SettingRow, Switch, Textarea, useRovingRadio } from '../../components/form'
+import { Field, Input, Select, SettingRow, Switch, Textarea, useRovingRadio } from '../../components/form'
 import { confirm } from '../../components/overlay'
 import { t } from '../../lib/i18n'
+import { compileQuery, queryKeeps } from '../../lib/query-match'
+import { usePinyinVersion } from '../../lib/pinyin'
 import { cn } from '../../lib/cn'
 import { navigateToPath } from '../../lib/app-history'
 import { api } from '../../lib/api'
@@ -22,6 +46,50 @@ import { useUi } from '../../store/ui'
 import { emailErrorText } from './errors'
 import { emailFolderPath } from './email-address'
 import { useEmailStore } from './store'
+
+type EmailSettingsSection =
+  | 'account'
+  | 'signatures'
+  | 'assistant'
+  | 'autoDraft'
+  | 'focused'
+  | 'vacation'
+  | 'delivery'
+  | 'mcp'
+  | 'export'
+  | 'danger'
+
+const EMAIL_SETTINGS_SECTIONS: { id: EmailSettingsSection, labelKey: Parameters<typeof t>[0], icon: React.ReactNode }[] = [
+  { id: 'account', labelKey: 'email.settings.account', icon: <UserRound size={14} /> },
+  { id: 'signatures', labelKey: 'email.settings.signatures', icon: <PenLine size={14} /> },
+  { id: 'assistant', labelKey: 'email.settings.agent', icon: <Bot size={14} /> },
+  { id: 'autoDraft', labelKey: 'email.settings.auto_draft', icon: <Pencil size={14} /> },
+  { id: 'focused', labelKey: 'email.settings.focused_inbox', icon: <Inbox size={14} /> },
+  { id: 'vacation', labelKey: 'email.settings.vacation', icon: <CalendarOff size={14} /> },
+  { id: 'delivery', labelKey: 'email.settings.delivery', icon: <Server size={14} /> },
+  { id: 'mcp', labelKey: 'email.settings.mcp', icon: <Plug size={14} /> },
+  { id: 'export', labelKey: 'email.settings.export_title', icon: <Download size={14} /> },
+  { id: 'danger', labelKey: 'email.settings.danger', icon: <Trash2 size={14} /> },
+]
+
+const EMAIL_SETTINGS_SEARCH: { section: EmailSettingsSection, titleKey: Parameters<typeof t>[0] }[] = [
+  { section: 'account', titleKey: 'email.settings.display_name' },
+  { section: 'account', titleKey: 'email.settings.reply_to' },
+  { section: 'signatures', titleKey: 'email.settings.signatures' },
+  { section: 'assistant', titleKey: 'email.settings.agent' },
+  { section: 'autoDraft', titleKey: 'email.settings.auto_draft' },
+  { section: 'focused', titleKey: 'email.settings.focused_inbox' },
+  { section: 'vacation', titleKey: 'email.settings.vacation' },
+  { section: 'vacation', titleKey: 'email.settings.vacation_start' },
+  { section: 'vacation', titleKey: 'email.settings.vacation_subject' },
+  { section: 'delivery', titleKey: 'email.settings.delivery_domains' },
+  { section: 'delivery', titleKey: 'email.settings.delivery_provider' },
+  { section: 'delivery', titleKey: 'email.settings.delivery_resend_from' },
+  { section: 'delivery', titleKey: 'email.settings.delivery_resend_key' },
+  { section: 'mcp', titleKey: 'email.settings.mcp' },
+  { section: 'export', titleKey: 'email.settings.export_title' },
+  { section: 'danger', titleKey: 'email.settings.delete_account' },
+]
 
 function mcpEndpoint(): string {
   if (typeof window === 'undefined') return '/mcp'
@@ -56,6 +124,7 @@ export function AccountSettingsPage({ accountId, onBack }: { accountId: string; 
   const deleteAccount = useEmailStore((state) => state.deleteAccount)
 
   const [displayName, setDisplayName] = useState('')
+  const [replyTo, setReplyTo] = useState('')
   const [signatures, setSignatures] = useState<EmailSignature[]>([])
   const [defaultSignatureId, setDefaultSignatureId] = useState<string | null>(null)
   const [editingSignatureId, setEditingSignatureId] = useState<string | null>(null)
@@ -72,6 +141,28 @@ export function AccountSettingsPage({ accountId, onBack }: { accountId: string; 
   const [saving, setSaving] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [section, setSection] = useState<EmailSettingsSection>('account')
+  const [query, setQuery] = useState('')
+  const [deployment, setDeployment] = useState<EmailDeploymentSettings | null>(null)
+  const [deploymentStatus, setDeploymentStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [deploymentError, setDeploymentError] = useState<string | null>(null)
+  const [domainText, setDomainText] = useState('')
+  const [provider, setProvider] = useState<EmailSendingProvider>('cloudflare')
+  const [resendFrom, setResendFrom] = useState('')
+  const [resendKey, setResendKey] = useState('')
+  const [clearResendKey, setClearResendKey] = useState(false)
+  const pinyinVersion = usePinyinVersion()
+  const compiledQuery = useMemo(() => compileQuery(query), [query])
+  const searching = query.trim().length > 0
+  const searchHits = useMemo(() => {
+    if (!searching) return []
+    const sections = EMAIL_SETTINGS_SECTIONS
+      .filter((entry) => queryKeeps(compiledQuery, t(entry.labelKey)))
+      .map((entry) => ({ section: entry.id, titleKey: entry.labelKey }))
+    const fields = EMAIL_SETTINGS_SEARCH.filter((entry) => queryKeeps(compiledQuery, t(entry.titleKey)))
+    const seen = new Set(sections.map((entry) => `${entry.section}:${entry.titleKey}`))
+    return [...sections, ...fields.filter((entry) => !seen.has(`${entry.section}:${entry.titleKey}`))]
+  }, [compiledQuery, pinyinVersion, searching])
   const endpoint = useMemo(mcpEndpoint, [])
   const signatureRoving = useRovingRadio(
     signatures.map((signature) => signature.id),
@@ -82,6 +173,26 @@ export function AccountSettingsPage({ accountId, onBack }: { accountId: string; 
   useEffect(() => {
     if (accountsStatus === 'idle') void loadAccounts()
   }, [accountsStatus, loadAccounts])
+
+  const loadDeployment = async (): Promise<void> => {
+    setDeploymentStatus('loading')
+    setDeploymentError(null)
+    try {
+      const value = await api.email.getDeployment()
+      setDeployment(value)
+      setDomainText(value.domains.join(', '))
+      setProvider(value.provider)
+      setResendFrom(value.resendFrom)
+      setDeploymentStatus('ready')
+    } catch (reason) {
+      setDeploymentStatus('error')
+      setDeploymentError(emailErrorText(reason))
+    }
+  }
+
+  useEffect(() => {
+    void loadDeployment()
+  }, [])
 
   useEffect(() => {
     if (!account) return
@@ -98,6 +209,7 @@ export function AccountSettingsPage({ accountId, onBack }: { accountId: string; 
     const normalized = normalizeEmailSignatures(account.settings)
     const vacation = normalizeEmailVacation(account.settings)
     setDisplayName(account.displayName)
+    setReplyTo(account.settings.replyTo ?? '')
     setSignatures(normalized.signatures.map((signature) => ({
       ...signature,
       name: signature.name || t('email.signatures.untitled'),
@@ -178,6 +290,23 @@ export function AccountSettingsPage({ accountId, onBack }: { accountId: string; 
       setError(t('email.settings.vacation_order'))
       return
     }
+    if (!isValidReplyTo(replyTo)) {
+      setError(t('email.settings.reply_to_invalid'))
+      return
+    }
+    const domains = normalizeDeploymentDomains(domainText.split(/[,\n]/))
+    if (domains.some((domain) => !isValidDeploymentDomain(domain))) {
+      setError(t('email.settings.delivery_domain_invalid'))
+      return
+    }
+    if (provider === 'resend' && !resendFrom.trim()) {
+      setError(t('email.settings.delivery_resend_from_required'))
+      return
+    }
+    if (provider === 'resend' && resendFrom.trim() && !isValidResendFrom(resendFrom)) {
+      setError(t('email.settings.delivery_resend_from_invalid'))
+      return
+    }
     const selectedDefault = cleaned.some((signature) => signature.id === defaultSignatureId) ? defaultSignatureId : null
     const settings: EmailAccountSettings = {
       signatures: cleaned,
@@ -185,6 +314,7 @@ export function AccountSettingsPage({ accountId, onBack }: { accountId: string; 
       autoDraft,
       focusedInbox,
       ...(agentPrompt.trim() ? { agentSystemPrompt: agentPrompt.trim() } : {}),
+      ...(replyTo.trim() ? { replyTo: replyTo.trim() } : {}),
       vacation: {
         enabled: vacationEnabled,
         start: vacationStartValue,
@@ -200,6 +330,21 @@ export function AccountSettingsPage({ accountId, onBack }: { accountId: string; 
         ...(displayName.trim() ? { displayName: displayName.trim() } : {}),
         settings,
       })
+      if (deployment) {
+        const saved = await api.email.updateDeployment({
+          domains,
+          provider,
+          resendFrom: resendFrom.trim(),
+          ...(resendKey.trim() ? { resendApiKey: resendKey.trim() } : {}),
+          ...(clearResendKey ? { resendApiKey: null } : {}),
+        })
+        setDeployment(saved)
+        setDomainText(saved.domains.join(', '))
+        setProvider(saved.provider)
+        setResendFrom(saved.resendFrom)
+        setResendKey('')
+        setClearResendKey(false)
+      }
       useUi.getState().toast({ title: t('email.settings.saved'), tone: 'success' })
     } catch (reason) {
       setError(emailErrorText(reason))
@@ -275,40 +420,117 @@ export function AccountSettingsPage({ accountId, onBack }: { accountId: string; 
     if (autoDraftStatus.reason === 'rate_limited') return t('email.settings.auto_draft_skipped_rate_limited')
     return t('email.settings.auto_draft_skipped_other')
   })()
+  const activeSection = EMAIL_SETTINGS_SECTIONS.find((entry) => entry.id === section) ?? EMAIL_SETTINGS_SECTIONS[0]!
+  const closeSettings = (): void => {
+    if (onBack) onBack()
+    else navigateToPath(emailFolderPath(account.id, 'inbox'))
+  }
+  const chooseSection = (next: EmailSettingsSection): void => {
+    setSection(next)
+    setQuery('')
+  }
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[var(--bg-base)]">
-      <header className="flex h-11 shrink-0 items-center gap-1.5 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 md:px-3">
-        <Button
-          size="sm"
-          variant="ghost"
-          icon={<ArrowLeft size={14} />}
-          onClick={() => navigateToPath(emailFolderPath(account.id, 'inbox'))}
-        >
-          {t('email.header.back')}
-        </Button>
-        <span className="min-w-0 flex-1 truncate text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">
+    <div className="flex h-full min-h-0 flex-col bg-[var(--bg-base)] md:flex-row">
+      <aside className="flex w-full shrink-0 flex-col border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-2 md:w-[224px] md:border-r md:border-b-0">
+        <div className="px-2 py-1 text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
           {t('email.settings.title')}
-        </span>
-        <Button size="sm" icon={<Save size={14} />} loading={saving} onClick={() => { void save() }}>
-          {t('email.settings.save')}
-        </Button>
-      </header>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-2xl px-4 py-4">
-          {error && (
-            <p role="alert" className="mb-3 rounded-[var(--r-sm)] bg-[var(--danger-soft)] px-2.5 py-1.5 text-[length:var(--text-11-5)] text-[var(--danger)]">
-              {error}
-            </p>
+        </div>
+        <div className="relative mb-2">
+          <Search size={13} aria-hidden="true" className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-[var(--text-quaternary)]" />
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={t('email.settings.search_placeholder')}
+            aria-label={t('email.settings.search_placeholder')}
+            className="pl-7"
+          />
+          {query && (
+            <IconButton label={t('common.clear')} size="sm" className="absolute top-1/2 right-1 -translate-y-1/2" onClick={() => setQuery('')}>
+              <X size={12} />
+            </IconButton>
           )}
-          <section aria-label={t('email.settings.account')} className="space-y-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4">
+        </div>
+        <nav aria-label={t('email.settings.title')} className="flex gap-1 overflow-x-auto md:min-h-0 md:flex-col md:overflow-y-auto md:overflow-x-visible">
+          {EMAIL_SETTINGS_SECTIONS.map((entry) => {
+            const active = !searching && section === entry.id
+            return (
+              <button
+                key={entry.id}
+                type="button"
+                aria-current={active ? 'page' : undefined}
+                onClick={() => chooseSection(entry.id)}
+                className={cn(
+                  'flex h-9 shrink-0 items-center gap-2 rounded-[var(--r-md)] px-2.5 text-left text-[length:var(--text-12-5)] md:w-full',
+                  active
+                    ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]'
+                    : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+                )}
+              >
+                <span className={cn('shrink-0', active ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]')}>{entry.icon}</span>
+                <span className="min-w-0 flex-1 truncate">{t(entry.labelKey)}</span>
+              </button>
+            )
+          })}
+        </nav>
+      </aside>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <header className="flex h-12 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] px-4">
+          <div className="min-w-0 flex-1">
+            <h2 className="m-0 truncate text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
+              {searching ? t('email.settings.search_results') : t(activeSection.labelKey)}
+            </h2>
+            <p className="m-0 truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{account.address}</p>
+          </div>
+          <Button size="sm" icon={<Save size={14} />} loading={saving} onClick={() => { void save() }}>
+            {t('email.settings.save')}
+          </Button>
+          <IconButton label={t('common.close')} size="sm" onClick={closeSettings}>
+            <X size={15} />
+          </IconButton>
+        </header>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-2xl px-4 py-4">
+            {error && (
+              <p role="alert" className="mb-3 rounded-[var(--r-sm)] bg-[var(--danger-soft)] px-2.5 py-1.5 text-[length:var(--text-11-5)] text-[var(--danger)]">
+                {error}
+              </p>
+            )}
+            {searching && (
+              <div aria-label={t('email.settings.search_results')} className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2">
+                {searchHits.length === 0 && (
+                  <p className="px-2 py-6 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('email.settings.search_empty')}</p>
+                )}
+                {searchHits.map((hit) => {
+                  const owner = EMAIL_SETTINGS_SECTIONS.find((entry) => entry.id === hit.section)
+                  return (
+                    <button
+                      key={`${hit.section}:${hit.titleKey}`}
+                      type="button"
+                      onClick={() => chooseSection(hit.section)}
+                      className="flex w-full items-center gap-2 rounded-[var(--r-md)] px-2.5 py-2 text-left hover:bg-[var(--bg-hover)]"
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[length:var(--text-12-5)] text-[var(--text-primary)]">{t(hit.titleKey)}</span>
+                        <span className="block text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{owner ? t(owner.labelKey) : ''}</span>
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+            <div hidden={searching} className="space-y-3">
+          <section hidden={section !== 'account'} aria-label={t('email.settings.account')} className="space-y-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4">
             <h2 className="m-0 text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">{t('email.settings.account')}</h2>
             <div className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{account.address}</div>
             <Field label={t('email.settings.display_name')} hint={t('email.settings.display_name_hint')}>
               <Input value={displayName} onChange={(event) => setDisplayName(event.target.value)} autoComplete="off" />
             </Field>
+            <Field label={t('email.settings.reply_to')} hint={t('email.settings.reply_to_hint')}>
+              <Input value={replyTo} onChange={(event) => setReplyTo(event.target.value)} autoComplete="off" placeholder={account.address} />
+            </Field>
           </section>
 
-          <section aria-label={t('email.settings.signatures')} className="mt-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-3">
+          <section hidden={section !== 'signatures'} aria-label={t('email.settings.signatures')} className="mt-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-3">
             <h2 className="m-0 text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">{t('email.settings.signatures')}</h2>
             <p className="mt-1 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">{t('email.settings.signature_hint')}</p>
             {signatures.length > 0 ? (
@@ -424,7 +646,7 @@ export function AccountSettingsPage({ accountId, onBack }: { accountId: string; 
             </div>
           </section>
 
-          <section aria-label={t('email.settings.agent')} className="mt-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4">
+          <section hidden={section !== 'assistant'} aria-label={t('email.settings.agent')} className="mt-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4">
             <div className="mb-2 flex items-center justify-between gap-2">
               <h2 className="m-0 text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">{t('email.settings.agent')}</h2>
               <Button size="sm" variant="ghost" onClick={() => setAgentPrompt('')}>{t('email.settings.agent_reset')}</Button>
@@ -439,7 +661,7 @@ export function AccountSettingsPage({ accountId, onBack }: { accountId: string; 
             </Field>
           </section>
 
-          <section aria-label={t('email.settings.auto_draft')} className="mt-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4">
+          <section hidden={section !== 'autoDraft'} aria-label={t('email.settings.auto_draft')} className="mt-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4">
             <SettingRow
               title={t('email.settings.auto_draft')}
               description={autoDraftAvailable ? t('email.settings.auto_draft_hint') : t('email.settings.auto_draft_unavailable')}
@@ -456,7 +678,7 @@ export function AccountSettingsPage({ accountId, onBack }: { accountId: string; 
             </p>
           </section>
 
-          <section aria-label={t('email.settings.focused_inbox')} className="mt-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4">
+          <section hidden={section !== 'focused'} aria-label={t('email.settings.focused_inbox')} className="mt-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4">
             <SettingRow title={t('email.settings.focused_inbox')} description={t('email.settings.focused_inbox_hint')}>
               <Switch
                 checked={focusedInbox}
@@ -466,7 +688,7 @@ export function AccountSettingsPage({ accountId, onBack }: { accountId: string; 
             </SettingRow>
           </section>
 
-          <section aria-label={t('email.settings.vacation')} className="mt-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4">
+          <section hidden={section !== 'vacation'} aria-label={t('email.settings.vacation')} className="mt-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4">
             <SettingRow title={t('email.settings.vacation')} description={t('email.settings.vacation_hint')}>
               <Switch
                 checked={vacationEnabled}
@@ -516,7 +738,69 @@ export function AccountSettingsPage({ accountId, onBack }: { accountId: string; 
             </div>
           </section>
 
-          <section aria-label={t('email.settings.mcp')} className="mt-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4">
+          <section hidden={section !== 'delivery'} aria-label={t('email.settings.delivery')} className="mt-3 space-y-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4">
+            <h2 className="m-0 text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">{t('email.settings.delivery')}</h2>
+            <p className="m-0 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">{t('email.settings.delivery_hint')}</p>
+            {deploymentStatus === 'loading' && (
+              <p role="status" className="m-0 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('common.loading')}</p>
+            )}
+            {deploymentStatus === 'error' && (
+              <div role="alert" className="flex items-center gap-2 rounded-[var(--r-sm)] bg-[var(--danger-soft)] px-2.5 py-1.5 text-[length:var(--text-11-5)] text-[var(--danger)]">
+                <span className="min-w-0 flex-1">{deploymentError ?? t('email.settings.delivery_load_error')}</span>
+                <Button size="sm" variant="ghost" onClick={() => { void loadDeployment() }}>{t('common.retry')}</Button>
+              </div>
+            )}
+            {deploymentStatus === 'ready' && deployment && (
+              <>
+                {deployment.envDomains.length > 0 && (
+                  <p className="m-0 rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-2.5 py-1.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                    {t('email.settings.delivery_env_domains', { domains: deployment.envDomains.join(', ') })}
+                  </p>
+                )}
+                <Field label={t('email.settings.delivery_domains')} hint={t('email.settings.delivery_domains_hint')}>
+                  <Input value={domainText} onChange={(event) => setDomainText(event.target.value)} autoComplete="off" placeholder={deployment.envDomains[0] ?? 'example.com'} />
+                </Field>
+                <Field label={t('email.settings.delivery_provider')} hint={t('email.settings.delivery_provider_hint')}>
+                  <Select value={provider} onChange={(event) => setProvider(event.target.value as EmailSendingProvider)}>
+                    <option value="cloudflare">{t('email.settings.delivery_provider_cloudflare')}</option>
+                    <option value="resend">{t('email.settings.delivery_provider_resend')}</option>
+                  </Select>
+                </Field>
+                {provider === 'resend' && (
+                  <>
+                    <Field label={t('email.settings.delivery_resend_from')} hint={t('email.settings.delivery_resend_from_hint')}>
+                      <Input value={resendFrom} onChange={(event) => setResendFrom(event.target.value)} autoComplete="off" placeholder={t('email.settings.delivery_resend_from_placeholder')} />
+                    </Field>
+                    <Field
+                      label={t('email.settings.delivery_resend_key')}
+                      hint={deployment.hasResendKey
+                        ? t('email.settings.delivery_resend_key_saved', { hint: deployment.resendKeyHint })
+                        : t('email.settings.delivery_resend_key_hint')}
+                    >
+                      <Input
+                        type="password"
+                        value={resendKey}
+                        onChange={(event) => { setResendKey(event.target.value); setClearResendKey(false) }}
+                        autoComplete="new-password"
+                        placeholder={deployment.hasResendKey ? t('email.settings.delivery_resend_key_keep') : 're_...'}
+                      />
+                    </Field>
+                    {deployment.hasResendKey && (
+                      <Button
+                        size="sm"
+                        variant={clearResendKey ? 'danger' : 'ghost'}
+                        onClick={() => setClearResendKey(!clearResendKey)}
+                      >
+                        {clearResendKey ? t('email.settings.delivery_resend_key_clear_pending') : t('email.settings.delivery_resend_key_clear')}
+                      </Button>
+                    )}
+                  </>
+                )}
+              </>
+            )}
+          </section>
+
+          <section hidden={section !== 'mcp'} aria-label={t('email.settings.mcp')} className="mt-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4">
             <div className="flex items-center gap-2">
               <Plug size={14} aria-hidden="true" className="text-[var(--text-tertiary)]" />
               <h2 className="m-0 text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">{t('email.settings.mcp')}</h2>
@@ -538,7 +822,7 @@ export function AccountSettingsPage({ accountId, onBack }: { accountId: string; 
             </Button>
           </section>
 
-          <section aria-label={t('email.settings.export_title')} className="mt-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4">
+          <section hidden={section !== 'export'} aria-label={t('email.settings.export_title')} className="mt-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4">
             <h2 className="m-0 text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">{t('email.settings.export_title')}</h2>
             <p className="mt-1 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">{t('email.settings.export_hint')}</p>
             <Button
@@ -553,13 +837,15 @@ export function AccountSettingsPage({ accountId, onBack }: { accountId: string; 
             </Button>
           </section>
 
-          <section aria-label={t('email.settings.danger')} className="mt-3 rounded-[var(--r-lg)] border border-[var(--danger-soft)] bg-[var(--bg-surface)] p-4">
+          <section hidden={section !== 'danger'} aria-label={t('email.settings.danger')} className="mt-3 rounded-[var(--r-lg)] border border-[var(--danger-soft)] bg-[var(--bg-surface)] p-4">
             <h2 className="m-0 text-[length:var(--text-13)] font-semibold text-[var(--danger)]">{t('email.settings.danger')}</h2>
             <p className="mt-1 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">{t('email.settings.delete_hint')}</p>
             <Button size="sm" variant="danger" className="mt-2" icon={<Trash2 size={14} />} onClick={() => { void remove() }}>
               {t('email.settings.delete_account')}
             </Button>
           </section>
+            </div>
+          </div>
         </div>
       </div>
     </div>

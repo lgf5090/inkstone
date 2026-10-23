@@ -19,7 +19,7 @@ import { queueAutoDraftJob, readAccountSettings, type EmailAccountRow } from './
 import { deleteEmailAttachments } from './attachments'
 import { rememberRecipientAddresses, findEmailContactByEmail } from './contacts'
 import { emailMailbox } from './mailbox-stub'
-import { buildThreadingHeaders, outgoingMessageId, sendViaBinding } from './outbound'
+import { buildThreadingHeaders, outgoingMessageId, replyToHeader, sendViaProvider } from './outbound'
 
 export const MAX_MAILBOX_INBOUND_BYTES = EMAIL_INBOUND_MAX_BYTES
 
@@ -361,7 +361,7 @@ async function sendVacationReply(
   const subject = vacationReplySubject(vacation, parsed.subject ?? '')
   const inReplyTo = extractInboundMessageIds(parsed.messageId)[0] ?? null
   try {
-    const sent = await sendViaBinding(env, {
+    const sent = await sendViaProvider(env, account.user_id, {
       to: sender,
       from: account.display_name && account.display_name !== account.address
         ? { email: account.address, name: account.display_name }
@@ -369,7 +369,7 @@ async function sendVacationReply(
       subject,
       html: textToEmailHtml(body),
       text: body,
-      headers: vacationHeaders(parsed),
+      headers: { ...vacationHeaders(parsed), ...replyToHeader(readAccountSettings(account.settings)) },
     })
     try {
       const id = newId()
