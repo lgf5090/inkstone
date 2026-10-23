@@ -25,6 +25,8 @@ export interface EmailContactRow {
   company: string
   notes: string
   starred: number
+  pinned: number
+  avatar: string
   usage_count: number
   last_used_at: number | null
   created_at: number
@@ -36,6 +38,9 @@ export interface EmailGroupRow {
   user_id: string
   name: string
   description: string
+  starred: number
+  pinned: number
+  avatar: string
   created_at: number
   updated_at: number
 }
@@ -55,6 +60,8 @@ export function toEmailContact(row: EmailContactRow): EmailContact {
     company: row.company,
     notes: row.notes,
     starred: Boolean(row.starred),
+    pinned: Boolean(row.pinned),
+    avatar: row.avatar,
     usageCount: Number(row.usage_count),
     lastUsedAt: row.last_used_at === null ? null : new Date(row.last_used_at).toISOString(),
     createdAt: new Date(row.created_at).toISOString(),
@@ -67,6 +74,9 @@ export function toEmailGroup(row: EmailGroupRow): EmailGroup {
     id: row.id,
     name: row.name,
     description: row.description,
+    starred: Boolean(row.starred),
+    pinned: Boolean(row.pinned),
+    avatar: row.avatar,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
   }
@@ -86,7 +96,7 @@ export async function listEmailContacts(
     `SELECT * FROM email_contacts
       WHERE user_id = ?1
         AND (?2 = '' OR instr(lower(name), ?2) > 0 OR instr(email_normalized, ?2) > 0)
-      ORDER BY usage_count DESC, COALESCE(last_used_at, 0) DESC, name COLLATE NOCASE ASC, created_at ASC
+      ORDER BY pinned DESC, starred DESC, usage_count DESC, COALESCE(last_used_at, 0) DESC, name COLLATE NOCASE ASC, created_at ASC
       LIMIT ?3`,
   ).bind(userId, query, limit).all<EmailContactRow>()
   return results
@@ -121,9 +131,9 @@ export async function createEmailContact(
   const id = newId()
   await db.prepare(
     `INSERT INTO email_contacts (
-       id, user_id, email, email_normalized, name, company, notes, starred,
+       id, user_id, email, email_normalized, name, company, notes, starred, pinned, avatar,
        usage_count, last_used_at, created_at, updated_at
-     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, NULL, ?9, ?9)`,
+     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, NULL, ?11, ?11)`,
   ).bind(
     id,
     userId,
@@ -133,6 +143,8 @@ export async function createEmailContact(
     input.company.trim(),
     input.notes.trim(),
     input.starred ? 1 : 0,
+    input.pinned ? 1 : 0,
+    input.avatar.trim(),
     now,
   ).run()
   const created = await getEmailContact(db, userId, id)
@@ -152,8 +164,9 @@ export async function updateEmailContact(
   const email = patch.email?.trim() ?? current.email
   await db.prepare(
     `UPDATE email_contacts
-        SET email = ?1, email_normalized = ?2, name = ?3, company = ?4, notes = ?5, starred = ?6, updated_at = ?7
-      WHERE user_id = ?8 AND id = ?9`,
+        SET email = ?1, email_normalized = ?2, name = ?3, company = ?4, notes = ?5, starred = ?6,
+            pinned = ?7, avatar = ?8, updated_at = ?9
+      WHERE user_id = ?10 AND id = ?11`,
   ).bind(
     email,
     patch.email === undefined ? current.email_normalized : normalizeContactEmail(patch.email),
@@ -161,6 +174,8 @@ export async function updateEmailContact(
     patch.company?.trim() ?? current.company,
     patch.notes?.trim() ?? current.notes,
     patch.starred === undefined ? current.starred : patch.starred ? 1 : 0,
+    patch.pinned === undefined ? current.pinned : patch.pinned ? 1 : 0,
+    patch.avatar?.trim() ?? current.avatar,
     now,
     userId,
     id,
@@ -233,7 +248,7 @@ export async function rememberRecipientAddresses(
 
 export async function listEmailGroups(db: D1Database, userId: string): Promise<EmailGroupWithMembers[]> {
   const { results: groups } = await db.prepare(
-    `SELECT * FROM email_groups WHERE user_id = ?1 ORDER BY name COLLATE NOCASE ASC, created_at ASC`,
+    `SELECT * FROM email_groups WHERE user_id = ?1 ORDER BY pinned DESC, starred DESC, name COLLATE NOCASE ASC, created_at ASC`,
   ).bind(userId).all<EmailGroupRow>()
   if (!groups.length) return []
   const { results: members } = await db.prepare(
@@ -297,9 +312,18 @@ export async function createEmailGroup(
 ): Promise<EmailGroupRow> {
   const id = newId()
   await db.prepare(
-    `INSERT INTO email_groups (id, user_id, name, description, created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?5)`,
-  ).bind(id, userId, input.name.trim(), input.description.trim(), now).run()
+    `INSERT INTO email_groups (id, user_id, name, description, starred, pinned, avatar, created_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)`,
+  ).bind(
+    id,
+    userId,
+    input.name.trim(),
+    input.description.trim(),
+    input.starred ? 1 : 0,
+    input.pinned ? 1 : 0,
+    input.avatar.trim(),
+    now,
+  ).run()
   const created = await getEmailGroup(db, userId, id)
   if (!created) throw new Error('The group could not be read back after creation')
   return created
@@ -315,10 +339,15 @@ export async function updateEmailGroup(
   const current = await getEmailGroup(db, userId, id)
   if (!current) return null
   await db.prepare(
-    `UPDATE email_groups SET name = ?1, description = ?2, updated_at = ?3 WHERE user_id = ?4 AND id = ?5`,
+    `UPDATE email_groups
+        SET name = ?1, description = ?2, starred = ?3, pinned = ?4, avatar = ?5, updated_at = ?6
+      WHERE user_id = ?7 AND id = ?8`,
   ).bind(
     patch.name?.trim() ?? current.name,
     patch.description?.trim() ?? current.description,
+    patch.starred === undefined ? current.starred : patch.starred ? 1 : 0,
+    patch.pinned === undefined ? current.pinned : patch.pinned ? 1 : 0,
+    patch.avatar?.trim() ?? current.avatar,
     now,
     userId,
     id,

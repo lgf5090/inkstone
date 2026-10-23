@@ -2297,6 +2297,41 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE mcp_preferences ADD COLUMN email_enabled INTEGER NOT NULL DEFAULT 0`,
     ],
   },
+  {
+    version: 149,
+    skipIfColumnExists: { table: 'email_contacts', column: 'pinned' },
+    statements: [
+      `ALTER TABLE email_contacts ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    version: 150,
+    skipIfColumnExists: { table: 'email_contacts', column: 'avatar' },
+    statements: [
+      `ALTER TABLE email_contacts ADD COLUMN avatar TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
+  {
+    version: 151,
+    skipIfColumnExists: { table: 'email_groups', column: 'starred' },
+    statements: [
+      `ALTER TABLE email_groups ADD COLUMN starred INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    version: 152,
+    skipIfColumnExists: { table: 'email_groups', column: 'pinned' },
+    statements: [
+      `ALTER TABLE email_groups ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    version: 153,
+    skipIfColumnExists: { table: 'email_groups', column: 'avatar' },
+    statements: [
+      `ALTER TABLE email_groups ADD COLUMN avatar TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

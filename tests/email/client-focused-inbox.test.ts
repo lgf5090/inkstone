@@ -51,6 +51,8 @@ function listProps(overrides: Partial<Parameters<typeof MessageList>[0]> = {}): 
     dragEnabled: true,
     focusFilter: 'all',
     focusedInboxEnabled: true,
+    readFilter: 'all',
+    onReadFilterChange: vi.fn(),
     onFocusFilterChange: vi.fn(),
     onOpen: vi.fn(),
     onToggleSelect: vi.fn(),
@@ -104,11 +106,11 @@ describe('the focused inbox list control', () => {
 
   it('hides the control on other folders and when the account disables the focused inbox', () => {
     view = renderElement(createElement(MessageList, listProps({ folderId: 'archive' })))
-    expect(document.querySelector('[role="radiogroup"]')).toBeNull()
+    expect(document.querySelector(`[role="radiogroup"][aria-label="${t('email.focus.filter')}"]`)).toBeNull()
     view.unmount()
 
     view = renderElement(createElement(MessageList, listProps({ focusedInboxEnabled: false })))
-    expect(document.querySelector('[role="radiogroup"]')).toBeNull()
+    expect(document.querySelector(`[role="radiogroup"][aria-label="${t('email.focus.filter')}"]`)).toBeNull()
   })
 
   it('names the empty view after the chosen focus filter', () => {
@@ -123,6 +125,19 @@ describe('the focused inbox list control', () => {
 
     view = renderElement(createElement(MessageList, listProps({ ...empty })))
     expect(document.body.textContent).toContain(t('email.list.empty.inbox'))
+  })
+
+  it('passes the read filter to the list call', async () => {
+    const list = vi.spyOn(api.email, 'listEmails').mockResolvedValue({ emails: [], totalCount: 0 })
+    useEmailStore.setState({ readFilter: 'unread' })
+    await useEmailStore.getState().loadList('a1', 'inbox')
+    expect(list.mock.calls.at(-1)?.[1]?.is_read).toBe('0')
+    useEmailStore.setState({ readFilter: 'read' })
+    await useEmailStore.getState().loadList('a1', 'inbox')
+    expect(list.mock.calls.at(-1)?.[1]?.is_read).toBe('1')
+    useEmailStore.setState({ readFilter: 'all' })
+    await useEmailStore.getState().loadList('a1', 'inbox')
+    expect(list.mock.calls.at(-1)?.[1]?.is_read).toBeUndefined()
   })
 
   it('passes the focus filter to the list call and resets it outside the inbox', async () => {

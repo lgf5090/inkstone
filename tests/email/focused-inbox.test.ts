@@ -67,6 +67,8 @@ describe('focused inbox classification', () => {
       company: '',
       notes: '',
       starred: false,
+      pinned: false,
+      avatar: '',
     })
 
     await deliver({

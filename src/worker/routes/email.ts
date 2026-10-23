@@ -1050,6 +1050,7 @@ emailRoutes.get('/accounts/:id/emails', async (c) => {
   const muted = booleanQuery(c.req.query('is_muted'), 'is_muted')
   const focused = booleanQuery(c.req.query('focused'), 'focused')
   const followUp = booleanQuery(c.req.query('is_followup'), 'is_followup')
+  const isRead = booleanQuery(c.req.query('is_read'), 'is_read')
   let folder: string | undefined
   if (folderParam) folder = (await resolveFolder(mailbox, folderParam)).id
   else if (!threadId && !tag) folder = 'inbox'
@@ -1063,17 +1064,18 @@ emailRoutes.get('/accounts/:id/emails', async (c) => {
     muted,
     focused,
     followUp,
+    isRead,
     page,
     limit,
     sortColumn: c.req.query('sortColumn'),
     sortDirection,
   } as const
-  const filtered = important !== undefined || muted !== undefined || focused !== undefined || followUp !== undefined
+  const filtered = important !== undefined || muted !== undefined || focused !== undefined || followUp !== undefined || isRead !== undefined
   const grouped = threaded && Boolean(folder) && !threadId && !tag && !filtered
   const rows = grouped ? await mailbox.getThreadedEmails(options) : await mailbox.getEmails(options)
   const totalCount = grouped
     ? await mailbox.countThreadedEmails(folder!)
-    : await mailbox.countEmails({ folder, tag, threadId, important, muted, focused, followUp })
+    : await mailbox.countEmails({ folder, tag, threadId, important, muted, focused, followUp, isRead })
   return c.json({ emails: rows.map((entry) => toSummary(entry as unknown as SummaryRow)), totalCount })
 })
 

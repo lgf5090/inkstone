@@ -10,7 +10,7 @@ import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { api } from '../../lib/api'
 import { Badge, IconButton } from '../../components/primitives'
-import { Menu, MenuSubmenuList, confirm, useContextMenu, type MenuItem, type MenuSubmenuContext } from '../../components/overlay'
+import { Menu, MenuSubmenuList, Tooltip, confirm, useContextMenu, type MenuItem, type MenuSubmenuContext } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { emailDragBlocked, hasSelectedTextInside, setEmailDragImage, writeEmailDrag } from './email-drag'
 import { emailErrorText } from './errors'
@@ -415,7 +415,7 @@ export function MessageRow({
         <span className="flex min-w-0 items-center gap-1.5">
           {unread && <span data-unread="" aria-hidden="true" className="size-2 shrink-0 rounded-full bg-[var(--accent)]" />}
           {unread && <span className="sr-only">{t('email.list.unread')}</span>}
-          <span className={cn('min-w-0 flex-1 truncate text-[length:var(--text-12-5)] text-[var(--text-primary)]', unread && 'font-semibold')}>
+          <span className={cn('min-w-0 flex-1 truncate text-[length:var(--text-12-5)] font-normal text-[var(--text-secondary)]', unread && 'font-semibold text-[var(--text-primary)]')}>
             {sender}
           </span>
           {searchMode && (
@@ -426,7 +426,7 @@ export function MessageRow({
           </span>
         </span>
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className={cn('min-w-0 flex-1 truncate text-[length:var(--text-12-5)] text-[var(--text-secondary)]', unread && 'text-[var(--text-primary)]')}>
+          <span className={cn('min-w-0 flex-1 truncate text-[length:var(--text-12-5)] font-normal text-[var(--text-secondary)]', unread && 'font-semibold text-[var(--text-primary)]')}>
             {highlightNodes(subject, query)}
           </span>
           {threadCount > 1 && (
@@ -473,24 +473,30 @@ export function MessageRow({
             <RefreshCw size={13} />
           </IconButton>
         )}
-        <IconButton
-          label={message.starred ? t('email.list.unstar') : t('email.list.star')}
-          size="xs"
-          active={message.starred}
-          onClick={onToggleStar}
-        >
-          <Star size={13} fill={message.starred ? 'currentColor' : 'none'} />
-        </IconButton>
-        <IconButton
-          label={message.read ? t('email.list.mark_unread') : t('email.list.mark_read')}
-          size="xs"
-          onClick={onToggleRead}
-        >
-          {message.read ? <Mail size={13} /> : <MailOpen size={13} />}
-        </IconButton>
-        <IconButton label={t('email.list.delete')} size="xs" onClick={onDelete}>
-          <Trash2 size={13} />
-        </IconButton>
+        <Tooltip label={message.starred ? t('email.list.unstar') : t('email.list.star')} side="left">
+          <IconButton
+            label={message.starred ? t('email.list.unstar') : t('email.list.star')}
+            size="xs"
+            active={message.starred}
+            onClick={onToggleStar}
+          >
+            <Star size={13} fill={message.starred ? 'currentColor' : 'none'} />
+          </IconButton>
+        </Tooltip>
+        <Tooltip label={message.read ? t('email.list.mark_unread') : t('email.list.mark_read')} side="left">
+          <IconButton
+            label={message.read ? t('email.list.mark_unread') : t('email.list.mark_read')}
+            size="xs"
+            onClick={onToggleRead}
+          >
+            {message.read ? <Mail size={13} /> : <MailOpen size={13} />}
+          </IconButton>
+        </Tooltip>
+        <Tooltip label={t('email.list.delete')} side="left">
+          <IconButton label={t('email.list.delete')} size="xs" onClick={onDelete}>
+            <Trash2 size={13} />
+          </IconButton>
+        </Tooltip>
       </div>
       {contextMenu.point && (
         <Menu

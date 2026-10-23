@@ -153,6 +153,14 @@ describe('contact CRUD', () => {
     expect((await errorOf(missing)).code).toBe('not_found')
   })
 
+  it('keeps a contact icon and pin state', async () => {
+    const created = await createContact({ pinned: true, avatar: 'emoji:🦊' })
+    expect(created).toMatchObject({ pinned: true, avatar: 'emoji:🦊' })
+    const updated = await call('PATCH', `/contacts/${created.id}`, { pinned: false, starred: true, avatar: 'lucide:star' })
+    expect(updated.status).toBe(200)
+    expect(await json<EmailContact>(updated)).toMatchObject({ pinned: false, starred: true, avatar: 'lucide:star' })
+  })
+
   it('keeps email unique per user, ignoring case', async () => {
     await createContact({ email: 'Alice@Example.com' })
     const duplicate = await call('POST', '/contacts', { email: 'alice@example.com' })
@@ -236,6 +244,15 @@ describe('group CRUD and membership', () => {
     userId = other
     const created = await call('POST', '/groups', { name: 'Team' })
     expect(created.status).toBe(201)
+  })
+
+  it('keeps a group icon, star and pin', async () => {
+    const response = await call('POST', '/groups', { name: 'VIP', starred: true, pinned: true, avatar: 'lucide:star' })
+    expect(response.status).toBe(201)
+    const group = await json<EmailGroupWithMembers>(response)
+    expect(group).toMatchObject({ starred: true, pinned: true, avatar: 'lucide:star' })
+    const updated = await call('PATCH', `/groups/${group.id}`, { pinned: false })
+    expect(await json<EmailGroupWithMembers>(updated)).toMatchObject({ starred: true, pinned: false, avatar: 'lucide:star' })
   })
 
   it('adds, lists and removes members', async () => {

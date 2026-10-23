@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
-import { AlarmClock, Archive, Bookmark, ChevronRight, FileText, Flag, FolderClosed, FolderPlus, Inbox, MoreHorizontal, PanelLeft, PanelLeftClose, Palette, Pencil, Plus, Send, Trash2 } from 'lucide-react'
+import { AlarmClock, Archive, Bookmark, ChevronRight, FileText, Flag, FolderClosed, FolderPlus, Inbox, MailPlus, MoreHorizontal, PanelLeft, PanelLeftClose, Palette, Pencil, Plus, Send, Trash2 } from 'lucide-react'
 import type { EmailFolder, EmailSystemFolder, EmailTag } from '@shared/email/model'
 import { EMAIL_SIDEBAR_FOLDERS, isEmailSystemFolder } from '@shared/email/model'
 import type { EmailSavedSearch } from '@shared/email/searches'
@@ -110,6 +110,7 @@ export function FolderSidebar({
   activeTagName,
   onSelectTag,
   onReloadTags,
+  contactsSection,
   searches,
   searchesStatus,
   searchesError,
@@ -121,6 +122,7 @@ export function FolderSidebar({
   onReloadSearches,
   onClose,
   onCollapse,
+  onManageAccounts,
   footer,
 }: {
   accountId: string
@@ -153,6 +155,8 @@ export function FolderSidebar({
   onReloadSearches: () => Promise<void>
   onClose?: () => void
   onCollapse?: () => void
+  onManageAccounts?: () => void
+  contactsSection?: ReactNode
   footer?: ReactNode
 }) {
   const { expanded, toggle, setMany, setExpanded } = useExpandedSet()
@@ -295,13 +299,22 @@ export function FolderSidebar({
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col bg-[var(--bg-sunken)]">
-      {onCollapse && (
-        <div className="flex h-11 shrink-0 items-center justify-end px-2">
-          <Tooltip label={t('sidebar.collapse_navigation')} side="right">
-            <IconButton label={t('sidebar.collapse_navigation')} size="sm" onClick={onCollapse}>
-              <PanelLeftClose size={14} aria-hidden="true" />
-            </IconButton>
-          </Tooltip>
+      {(onCollapse || onManageAccounts) && (
+        <div className="flex h-11 shrink-0 items-center justify-end gap-1 px-2">
+          {onManageAccounts && (
+            <Tooltip label={t('email.accounts.manage_title')} side="right">
+              <IconButton label={t('email.accounts.manage_title')} size="sm" onClick={onManageAccounts}>
+                <MailPlus size={14} aria-hidden="true" />
+              </IconButton>
+            </Tooltip>
+          )}
+          {onCollapse && (
+            <Tooltip label={t('sidebar.collapse_navigation')} side="right">
+              <IconButton label={t('sidebar.collapse_navigation')} size="sm" onClick={onCollapse}>
+                <PanelLeftClose size={14} aria-hidden="true" />
+              </IconButton>
+            </Tooltip>
+          )}
         </div>
       )}
       <div className={cn('flex min-h-0 w-full flex-1 flex-col gap-3 overflow-y-auto px-2', onCollapse ? 'pb-3' : 'py-3')}>
@@ -371,6 +384,7 @@ export function FolderSidebar({
             )}
           </div>
         </nav>
+        {contactsSection}
         <EmailTagSidebar
           accountId={accountId}
           tags={tags}
@@ -799,17 +813,26 @@ export function FolderSidebarRail({
   activeFolderId,
   onSelect,
   onExpand,
+  onManageAccounts,
   footer,
 }: {
   folders: readonly EmailFolder[]
   activeFolderId: string | null
   onSelect: (folderId: string) => void
   onExpand: () => void
+  onManageAccounts?: () => void
   footer?: ReactNode
 }) {
   const byId = new Map(folders.map((folder) => [folder.id, folder]))
   return (
     <nav aria-label={t('email.a11y.folders')} className="flex h-full min-h-0 w-full flex-col items-center gap-1 overflow-y-auto bg-[var(--bg-sunken)] py-2">
+      {onManageAccounts && (
+        <Tooltip label={t('email.accounts.manage_title')} side="right">
+          <IconButton label={t('email.accounts.manage_title')} onClick={onManageAccounts}>
+            <MailPlus size={16} aria-hidden="true" />
+          </IconButton>
+        </Tooltip>
+      )}
       <Tooltip label={t('sidebar.expand_navigation')} side="right">
         <IconButton label={t('sidebar.expand_navigation')} onClick={onExpand}>
           <PanelLeft size={16} aria-hidden="true" />

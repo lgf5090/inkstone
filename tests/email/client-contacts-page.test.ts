@@ -14,6 +14,8 @@ const grace: EmailContact = {
   company: 'Navy',
   notes: '',
   starred: true,
+  pinned: false,
+  avatar: '',
   usageCount: 3,
   lastUsedAt: null,
   createdAt: '2026-01-01T00:00:00.000Z',
@@ -27,6 +29,8 @@ const alan: EmailContact = {
   company: '',
   notes: '',
   starred: false,
+  pinned: false,
+  avatar: '',
   usageCount: 1,
   lastUsedAt: null,
   createdAt: '2026-01-01T00:00:00.000Z',
@@ -37,6 +41,9 @@ const team: EmailGroupWithMembers = {
   id: 'g1',
   name: 'Team',
   description: 'Everyone',
+  starred: false,
+  pinned: false,
+  avatar: '',
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
   members: [grace, alan],
@@ -115,6 +122,8 @@ describe('the contacts page', () => {
       company: '',
       notes: '',
       starred: false,
+      pinned: false,
+      avatar: '',
     })
     expect(document.querySelector('[role="dialog"]')).toBeNull()
   })

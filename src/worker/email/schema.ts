@@ -100,6 +100,8 @@ export const EMAIL_SCHEMA_STATEMENTS: readonly string[] = [
     company TEXT NOT NULL DEFAULT '',
     notes TEXT NOT NULL DEFAULT '',
     starred INTEGER NOT NULL DEFAULT 0,
+    pinned INTEGER NOT NULL DEFAULT 0,
+    avatar TEXT NOT NULL DEFAULT '',
     usage_count INTEGER NOT NULL DEFAULT 0,
     last_used_at INTEGER,
     created_at INTEGER NOT NULL,
@@ -116,6 +118,9 @@ export const EMAIL_SCHEMA_STATEMENTS: readonly string[] = [
     user_id TEXT NOT NULL,
     name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
+    starred INTEGER NOT NULL DEFAULT 0,
+    pinned INTEGER NOT NULL DEFAULT 0,
+    avatar TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
@@ -165,7 +170,7 @@ export const EMAIL_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>>
   email_auto_draft_jobs: ['user_id', 'account_id', 'message_id', 'thread_id', 'status', 'reason', 'attempts', 'claimed_at', 'created_at', 'updated_at'],
   email_scheduled_sends: ['id', 'user_id', 'account_id', 'draft_id', 'operation_id', 'send_at', 'status', 'attempts', 'claimed_at', 'last_error', 'created_at', 'updated_at'],
   email_attachments: ['id', 'user_id', 'account_id', 'email_id', 'filename', 'mime', 'size', 'width', 'height', 'content_id', 'disposition', 'object_key', 'storage', 'folder_id', 'is_starred', 'is_pinned', 'tags', 'locked', 'created_at'],
-  email_contacts: ['id', 'user_id', 'email', 'email_normalized', 'name', 'company', 'notes', 'starred', 'usage_count', 'last_used_at', 'created_at', 'updated_at'],
-  email_groups: ['id', 'user_id', 'name', 'description', 'created_at', 'updated_at'],
+  email_contacts: ['id', 'user_id', 'email', 'email_normalized', 'name', 'company', 'notes', 'starred', 'pinned', 'avatar', 'usage_count', 'last_used_at', 'created_at', 'updated_at'],
+  email_groups: ['id', 'user_id', 'name', 'description', 'starred', 'pinned', 'avatar', 'created_at', 'updated_at'],
   email_group_members: ['user_id', 'group_id', 'contact_id', 'created_at'],
 }

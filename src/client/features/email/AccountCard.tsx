@@ -16,11 +16,13 @@ export function EmailAccountCard({
   activeAccountId,
   compact = false,
   onNavigate,
+  onManageAccounts,
 }: {
   accounts: readonly EmailAccount[]
   activeAccountId: string
   compact?: boolean
   onNavigate?: () => void
+  onManageAccounts?: () => void
 }) {
   const user = useSession((state) => state.user)
   const theme = useSession((state) => state.settings.appearance.theme)
@@ -64,7 +66,8 @@ export function EmailAccountCard({
       icon: <Mail size={13} />,
       onSelect: () => {
         onNavigate?.()
-        navigateToPath('/email')
+        if (onManageAccounts) onManageAccounts()
+        else navigateToPath('/email')
       },
     },
     {

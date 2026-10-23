@@ -1,18 +1,47 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import { MailPlus } from 'lucide-react'
 import { Button, Spinner } from '../../components/primitives'
 import { Empty, LoadingBlock } from '../../components/feedback'
 import { useLocale, t } from '../../lib/i18n'
-import { navigateToPath, usePathname, useSearch } from '../../lib/app-history'
+import { usePathname, useSearch } from '../../lib/app-history'
 import { useSession } from '../../store/session'
-import { AccountListPage } from './AccountListPage'
-import { AccountSettingsPage } from './AccountSettingsPage'
-import { ContactsPage } from './ContactsPage'
-import { MailboxPage } from './MailboxPage'
-import { RulesPage } from './RulesPage'
-import { StatsPage } from './StatsPage'
-import { TemplatesPage } from './TemplatesPage'
+import { AccountManagerDialog } from './AccountManagerDialog'
+import { MailboxPage, type EmailWorkspacePanel } from './MailboxPage'
 import { parseEmailAddress } from './email-address'
 import { useEmailStore } from './store'
+
+function baseAddress(accountId: string): Parameters<typeof MailboxPage>[0]['address'] {
+  return { kind: 'mailbox', accountId, folderId: 'inbox', messageId: null, compose: null, draftId: null }
+}
+
+function panelFor(kind: 'home' | 'contacts' | 'settings' | 'stats' | 'rules' | 'templates'): EmailWorkspacePanel | null {
+  if (kind === 'home') return null
+  return kind
+}
+
+function NoMailboxState() {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="flex h-full items-center justify-center bg-[var(--bg-base)]">
+      <Empty
+        art="archive"
+        title={t('email.empty_title')}
+        description={t('email.empty_hint')}
+        action={(
+          <Button size="sm" icon={<MailPlus size={14} />} onClick={() => setOpen(true)}>
+            {t('email.accounts.create')}
+          </Button>
+        )}
+      />
+      <AccountManagerDialog
+        open={open}
+        onClose={() => setOpen(false)}
+        activeAccountId=""
+        onOpenSettings={() => undefined}
+      />
+    </div>
+  )
+}
 
 export function EmailApp() {
   useLocale()
@@ -45,40 +74,62 @@ export function EmailApp() {
       </div>
     )
   }
-  if (address.kind === 'home') return <AccountListPage />
-  if (address.kind === 'contacts') return <ContactsPage onBack={() => navigateToPath('/email')} />
-  if (address.kind === 'settings') return <AccountSettingsPage accountId={address.accountId} />
+  if (accountsStatus === 'loading' || accountsStatus === 'idle') {
+    return <LoadingBlock label={t('email.loading')} />
+  }
+  if (accountsStatus === 'error' && accounts.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center bg-[var(--bg-base)]">
+        <Empty
+          art="archive"
+          title={t('email.error_load')}
+          description={accountsError}
+          action={<Button size="sm" onClick={() => { void loadAccounts() }}>{t('common.retry')}</Button>}
+        />
+      </div>
+    )
+  }
 
-  const account = accounts.find((entry) => entry.id === address.accountId)
-  if (!account) {
-    if (accountsStatus === 'loading' || accountsStatus === 'idle') {
-      return <LoadingBlock label={t('email.loading')} />
-    }
-    if (accountsStatus === 'error') {
+  if (address.kind === 'home') {
+    const account = accounts[0]
+    if (!account) return <NoMailboxState />
+    return <MailboxPage address={baseAddress(account.id)} account={account} />
+  }
+  if (address.kind === 'contacts') {
+    const account = accounts[0]
+    if (!account) return <NoMailboxState />
+    return <MailboxPage address={baseAddress(account.id)} account={account} panel={panelFor('contacts')} />
+  }
+  if (address.kind === 'settings' || address.kind === 'stats' || address.kind === 'rules' || address.kind === 'templates') {
+    const account = accounts.find((entry) => entry.id === address.accountId)
+    if (!account) {
       return (
         <div className="flex h-full items-center justify-center bg-[var(--bg-base)]">
           <Empty
-            art="archive"
-            title={t('email.error_load')}
-            description={accountsError}
+            art="folder"
+            title={t('email.account_missing')}
+            description={t('email.account_missing_hint')}
             action={<Button size="sm" onClick={() => { void loadAccounts() }}>{t('common.retry')}</Button>}
           />
         </div>
       )
     }
+    const panel: EmailWorkspacePanel = address.kind
+    return <MailboxPage address={baseAddress(account.id)} account={account} panel={panel} />
+  }
+
+  const account = accounts.find((entry) => entry.id === address.accountId)
+  if (!account) {
     return (
       <div className="flex h-full items-center justify-center bg-[var(--bg-base)]">
         <Empty
           art="folder"
           title={t('email.account_missing')}
           description={t('email.account_missing_hint')}
-          action={<Button size="sm" onClick={() => navigateToPath('/email')}>{t('email.back')}</Button>}
+          action={<Button size="sm" onClick={() => { void loadAccounts() }}>{t('common.retry')}</Button>}
         />
       </div>
     )
   }
-  if (address.kind === 'stats') return <StatsPage accountId={address.accountId} />
-  if (address.kind === 'rules') return <RulesPage accountId={address.accountId} />
-  if (address.kind === 'templates') return <TemplatesPage accountId={address.accountId} />
   return <MailboxPage address={address} account={account} />
 }

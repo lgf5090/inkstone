@@ -136,7 +136,7 @@ function StatsBody({ stats, folders }: { stats: EmailMailboxStats; folders: read
   )
 }
 
-export function StatsPage({ accountId }: { accountId: string }) {
+export function StatsPage({ accountId, onBack }: { accountId: string; onBack?: () => void }) {
   const account = useEmailStore((state) => state.accounts.find((entry) => entry.id === accountId) ?? null)
   const stats = useEmailStore((state) => state.stats)
   const statsStatus = useEmailStore((state) => state.statsStatus)
@@ -165,7 +165,7 @@ export function StatsPage({ accountId }: { accountId: string }) {
           size="sm"
           variant="ghost"
           icon={<ArrowLeft size={14} />}
-          onClick={() => navigateToPath(emailFolderPath(accountId, 'inbox'))}
+          onClick={() => { if (onBack) onBack(); else navigateToPath(emailFolderPath(accountId, 'inbox')) }}
         >
           {t('email.header.back')}
         </Button>

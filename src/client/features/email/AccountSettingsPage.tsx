@@ -45,7 +45,7 @@ function vacationInputTimestamp(value: string): number | null {
   return Number.isFinite(time) ? time : null
 }
 
-export function AccountSettingsPage({ accountId }: { accountId: string }) {
+export function AccountSettingsPage({ accountId, onBack }: { accountId: string; onBack?: () => void }) {
   const account = useEmailStore((state) => state.accounts.find((entry) => entry.id === accountId) ?? null)
   const accountsStatus = useEmailStore((state) => state.accountsStatus)
   const accountsError = useEmailStore((state) => state.accountsError)
@@ -257,7 +257,7 @@ export function AccountSettingsPage({ accountId }: { accountId: string }) {
       <Empty
         art="folder"
         title={t('email.settings.not_found')}
-        action={<Button size="sm" onClick={() => navigateToPath('/email')}>{t('email.back')}</Button>}
+        action={<Button size="sm" onClick={() => { if (onBack) onBack(); else navigateToPath('/email') }}>{t('email.back')}</Button>}
       />
     )
   }

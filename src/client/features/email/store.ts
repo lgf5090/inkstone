@@ -13,6 +13,7 @@ import type {
 import { EMAIL_PAGE_SIZE } from '@shared/email/model'
 import { emailSearchParams, parseEmailSearchQuery } from '@shared/email/search'
 import type { EmailSavedSearch } from '@shared/email/searches'
+import type { EmailContact, EmailGroupWithMembers } from '@shared/email/contacts'
 import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { emailErrorText } from './errors'
@@ -20,6 +21,7 @@ import { emailErrorText } from './errors'
 export type EmailLoadStatus = 'idle' | 'loading' | 'ready' | 'error'
 export type EmailListMode = 'folder' | 'search'
 export type EmailFocusFilter = 'all' | 'focused' | 'other'
+export type EmailReadFilter = 'all' | 'unread' | 'read'
 
 const POLL_INTERVAL_MS = 30_000
 
@@ -74,6 +76,7 @@ let listSequence = 0
 let messageSequence = 0
 let trashSequence = 0
 let statsSequence = 0
+let contactsSequence = 0
 let pollTimer: number | null = null
 let visibilityBound = false
 
@@ -113,6 +116,12 @@ interface EmailState {
   stats: EmailMailboxStats | null
   statsStatus: EmailLoadStatus
   statsError: string | null
+  contacts: EmailContact[]
+  contactsStatus: EmailLoadStatus
+  contactsError: string | null
+  groups: EmailGroupWithMembers[]
+  groupsStatus: EmailLoadStatus
+  groupsError: string | null
 
   messages: EmailSummary[]
   total: number
@@ -125,6 +134,7 @@ interface EmailState {
   searchQuery: string
   page: number
   focusFilter: EmailFocusFilter
+  readFilter: EmailReadFilter
 
   selectedId: string | null
   selectedMessage: EmailMessage | null
@@ -165,6 +175,8 @@ interface EmailState {
   loadList: (accountId: string, folderId: string, page?: number, options?: { silent?: boolean }) => Promise<void>
   searchEmails: (accountId: string, query: string, page?: number, options?: { silent?: boolean }) => Promise<void>
   setFocusFilter: (filter: EmailFocusFilter) => void
+  setReadFilter: (filter: EmailReadFilter) => void
+  loadContacts: (options?: { silent?: boolean }) => Promise<void>
   loadPage: (page: number) => Promise<void>
   refresh: () => Promise<void>
 
@@ -217,6 +229,12 @@ const INITIAL = {
   stats: null as EmailMailboxStats | null,
   statsStatus: 'idle' as EmailLoadStatus,
   statsError: null as string | null,
+  contacts: [] as EmailContact[],
+  contactsStatus: 'idle' as EmailLoadStatus,
+  contactsError: null as string | null,
+  groups: [] as EmailGroupWithMembers[],
+  groupsStatus: 'idle' as EmailLoadStatus,
+  groupsError: null as string | null,
   messages: [] as EmailSummary[],
   total: 0,
   listStatus: 'idle' as EmailLoadStatus,
@@ -228,6 +246,7 @@ const INITIAL = {
   searchQuery: '',
   page: 1,
   focusFilter: 'all' as EmailFocusFilter,
+  readFilter: 'all' as EmailReadFilter,
   selectedId: null as string | null,
   selectedMessage: null as EmailMessage | null,
   selectedStatus: 'idle' as EmailLoadStatus,
@@ -376,6 +395,12 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         stats: null,
         statsStatus: 'idle',
         statsError: null,
+        contacts: [],
+        contactsStatus: 'idle',
+        contactsError: null,
+        groups: [],
+        groupsStatus: 'idle',
+        groupsError: null,
         selectedId: null,
         selectedMessage: null,
         selectedStatus: 'idle',
@@ -495,6 +520,37 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     await get().loadSearches(accountId, { silent: true })
   },
 
+  setReadFilter: (filter) => {
+    set({ readFilter: filter })
+  },
+
+  loadContacts: async (options) => {
+    const silent = options?.silent === true
+    const sequence = ++contactsSequence
+    set((state) => ({
+      contactsStatus: silent ? state.contactsStatus : 'loading',
+      contactsError: null,
+      groupsStatus: silent ? state.groupsStatus : 'loading',
+      groupsError: null,
+    }))
+    try {
+      const [contacts, groups] = await Promise.all([
+        api.email.listContacts(''),
+        api.email.listGroups(),
+      ])
+      if (sequence !== contactsSequence) return
+      set({ contacts, contactsStatus: 'ready', contactsError: null, groups, groupsStatus: 'ready', groupsError: null })
+    } catch (reason) {
+      if (sequence !== contactsSequence) return
+      set({
+        contactsStatus: silent ? get().contactsStatus : 'error',
+        contactsError: emailErrorText(reason),
+        groupsStatus: silent ? get().groupsStatus : 'error',
+        groupsError: emailErrorText(reason),
+      })
+    }
+  },
+
   loadStats: async (accountId) => {
     const sequence = ++statsSequence
     set({ statsStatus: 'loading', statsError: null })
@@ -512,6 +568,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     const silent = options?.silent === true
     const sequence = ++listSequence
     const focusFilter = get().focusFilter
+    const readFilter = get().readFilter
     set((state) => ({
       accountId,
       folderId,
@@ -530,6 +587,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         focused: folderId === 'inbox' && focusFilter !== 'all'
           ? focusFilter === 'focused' ? '1' : '0'
           : undefined,
+        is_read: readFilter === 'all' ? undefined : readFilter === 'read' ? '1' : '0',
         page,
         limit: EMAIL_PAGE_SIZE,
         threaded: 'true',
@@ -626,6 +684,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       get().loadFolders(state.accountId, { silent: true }),
       get().loadTags(state.accountId, { silent: true }),
       get().loadSearches(state.accountId, { silent: true }),
+      get().loadContacts({ silent: true }),
     ]
     if (state.listMode === 'search') {
       tasks.push(get().searchEmails(state.accountId, state.searchQuery, state.page, { silent: true }))

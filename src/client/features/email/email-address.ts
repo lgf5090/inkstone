@@ -9,7 +9,7 @@ export type EmailAddress =
   | { kind: 'stats'; accountId: string }
   | { kind: 'rules'; accountId: string }
   | { kind: 'templates'; accountId: string }
-  | { kind: 'search'; accountId: string; query: string; messageId: string | null }
+  | { kind: 'search'; accountId: string; query: string; messageId: string | null; contactId?: string | null }
   | {
       kind: 'mailbox'
       accountId: string
@@ -41,6 +41,7 @@ export function parseEmailAddress(pathname: string, search = ''): EmailAddress {
       accountId,
       query: params.get('q') ?? '',
       messageId: params.get('message'),
+      contactId: params.get('contact'),
     }
   }
   if (parts[2] === 'folders' && parts[3]) {

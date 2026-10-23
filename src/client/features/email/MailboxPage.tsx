@@ -10,14 +10,15 @@ import {
   X,
 } from 'lucide-react'
 import type { EmailAccount, EmailBatchAction, EmailSummary, EmailTag } from '@shared/email/model'
+import type { EmailContact, EmailGroupWithMembers } from '@shared/email/contacts'
 import { MAX_EMAIL_CONTEXT_SNIPPET, type EmailAssistantContext } from '@shared/email/assistant-context'
 import { parseEmailSearchQuery } from '@shared/email/search'
-import { Button, IconButton } from '../../components/primitives'
+import { Avatar, Button, IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
-import { Drawer, confirm, prompt } from '../../components/overlay'
+import { Drawer, Modal, Tooltip, confirm, prompt } from '../../components/overlay'
 import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
-import { navigateToAddress, navigateToPath } from '../../lib/app-history'
+import { navigateToAddress, navigateToPath, usePathname } from '../../lib/app-history'
 import { useBreakpoint } from '../../lib/hooks'
 import { DEFAULT_LAYOUT, PANEL_WIDTHS, useUi } from '../../store/ui'
 import { Resizer } from '../shell/Resizer'
@@ -32,6 +33,15 @@ import { useEmailShortcuts } from './email-shortcuts'
 import { messageSubject } from './format'
 import { useEmailStore } from './store'
 import { FolderSidebar, FolderSidebarRail } from './FolderSidebar'
+import { AccountManagerDialog } from './AccountManagerDialog'
+import { AccountSettingsPage } from './AccountSettingsPage'
+import { ContactsPage } from './ContactsPage'
+import { RulesPage } from './RulesPage'
+import { StatsPage } from './StatsPage'
+import { TemplatesPage } from './TemplatesPage'
+import { ContactEditor } from './ContactEditor'
+import { GroupEditor } from './GroupEditor'
+import { EmailContactSidebar } from './EmailContactSidebar'
 import { EmailAccountCard } from './AccountCard'
 import { MessageBatchBar } from './MessageBatchBar'
 import { MessageList } from './MessageList'
@@ -39,6 +49,18 @@ import { MessagePane } from './MessagePane'
 import { TrashPanel } from './TrashPanel'
 
 type MailboxAddress = Extract<EmailAddress, { kind: 'mailbox' | 'search' }>
+
+export type EmailWorkspacePanel = 'accounts' | 'settings' | 'rules' | 'templates' | 'stats' | 'contacts'
+
+interface ContactEditorState {
+  open: boolean
+  value: EmailContact | null
+}
+
+interface GroupEditorState {
+  open: boolean
+  value: EmailGroupWithMembers | null
+}
 
 const EMAIL_WRITE_TOOLS = new Set([
   'email_draft_reply',
@@ -64,15 +86,16 @@ const EMAIL_WRITE_TOOLS = new Set([
 
 const NAV_RAIL_WIDTH = 48
 
-function searchMessageAddress(accountId: string, query: string, messageId: string): { path: string; search: string } {
+function searchMessageAddress(accountId: string, query: string, messageId: string, contactId?: string | null): { path: string; search: string } {
   return {
     path: `/email/accounts/${encodeURIComponent(accountId)}/search`,
-    search: `q=${encodeURIComponent(query)}&message=${encodeURIComponent(messageId)}`,
+    search: `q=${encodeURIComponent(query)}&message=${encodeURIComponent(messageId)}${contactId ? `&contact=${encodeURIComponent(contactId)}` : ''}`,
   }
 }
 
-export function MailboxPage({ address, account }: { address: MailboxAddress; account: EmailAccount }) {
+export function MailboxPage({ address, account, panel = null }: { address: MailboxAddress; account: EmailAccount; panel?: EmailWorkspacePanel | null }) {
   const breakpoint = useBreakpoint()
+  const pathname = usePathname()
   const desktop = breakpoint === 'desktop'
   const folders = useEmailStore((state) => state.folders)
   const foldersError = useEmailStore((state) => state.foldersError)
@@ -91,6 +114,8 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
   const page = useEmailStore((state) => state.page)
   const focusFilter = useEmailStore((state) => state.focusFilter)
   const setFocusFilter = useEmailStore((state) => state.setFocusFilter)
+  const readFilter = useEmailStore((state) => state.readFilter)
+  const setReadFilter = useEmailStore((state) => state.setReadFilter)
   const selectedId = useEmailStore((state) => state.selectedId)
   const selectedMessage = useEmailStore((state) => state.selectedMessage)
   const selectedStatus = useEmailStore((state) => state.selectedStatus)
@@ -149,8 +174,21 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
   const assistantDockOpen = useUi((state) => state.assistantDockOpen)
   const navCollapsed = useUi((state) => state.emailNavCollapsed)
   const navWidth = useUi((state) => state.emailNavWidth)
+  const emailListWidth = useUi((state) => state.emailListWidth)
   const toggleNav = useUi((state) => state.toggleEmailNav)
   const setLayout = useUi((state) => state.setLayout)
+  const [accountsOpen, setAccountsOpen] = useState(panel === 'accounts')
+  const [contactsOpen, setContactsOpen] = useState(panel === 'contacts')
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
+  const [contactEditor, setContactEditor] = useState<ContactEditorState>({ open: false, value: null })
+  const [groupEditor, setGroupEditor] = useState<GroupEditorState>({ open: false, value: null })
+  const contacts = useEmailStore((state) => state.contacts)
+  const contactsStatus = useEmailStore((state) => state.contactsStatus)
+  const contactsError = useEmailStore((state) => state.contactsError)
+  const groups = useEmailStore((state) => state.groups)
+  const groupsStatus = useEmailStore((state) => state.groupsStatus)
+  const groupsError = useEmailStore((state) => state.groupsError)
+  const loadContacts = useEmailStore((state) => state.loadContacts)
   const lastAssistantEmail = useRef<string | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
 
@@ -187,6 +225,15 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
   useEffect(() => {
     void loadSearches(account.id)
   }, [account.id, loadSearches])
+
+  useEffect(() => {
+    void loadContacts()
+  }, [loadContacts])
+
+  useEffect(() => {
+    setAccountsOpen(panel === 'accounts')
+    setContactsOpen(panel === 'contacts')
+  }, [panel, pathname])
 
   useEffect(() => {
     setFocusFilter('all')
@@ -231,9 +278,12 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
     navigateToPath(emailFolderPath(account.id, folderId ?? 'inbox'))
   }
 
+  const activeContactId = address.kind === 'search' ? address.contactId ?? null : null
+  const activeContact = activeContactId ? contacts.find((contact) => contact.id === activeContactId) ?? null : null
+
   const openSummary = (summary: EmailSummary): void => {
     if (searchMode) {
-      const target = searchMessageAddress(account.id, query, summary.id)
+      const target = searchMessageAddress(account.id, query, summary.id, activeContactId)
       navigateToAddress(target.path, target.search)
       return
     }
@@ -318,6 +368,24 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
       return
     }
     navigateToPath(emailFolderPath(account.id, id))
+  }
+
+  const openContact = (contact: EmailContact): void => {
+    setFolderDrawer(false)
+    navigateToAddress(
+      `/email/accounts/${encodeURIComponent(account.id)}/search`,
+      `q=${encodeURIComponent(contact.email)}&contact=${encodeURIComponent(contact.id)}`,
+    )
+  }
+
+  const closeContactsDrawer = (): void => {
+    setContactsOpen(false)
+    if (panel === 'contacts') goList()
+  }
+
+  const closeAccountManager = (): void => {
+    setAccountsOpen(false)
+    if (panel === 'accounts') goList()
   }
 
   const openSearch = (searchQuery: string): void => {
@@ -489,21 +557,27 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
 
   const paneTools = (
     <>
-      <IconButton label={t('attachments.manage')} size="sm" className="size-11 md:size-7" onClick={() => useUi.getState().setAttachmentHub('email')}>
-        <Paperclip size={15} />
-      </IconButton>
-      <IconButton
-        label={t('email.header.ai')}
-        size="sm"
-        className="size-11 md:size-7"
-        active={assistantDockOpen}
-        onClick={() => useUi.getState().setAssistantDock(!assistantDockOpen)}
-      >
-        <Bot size={15} />
-      </IconButton>
-      <IconButton label={t('email.header.settings')} size="sm" className="size-11 md:size-7" onClick={() => navigateToPath(emailSettingsPath(account.id))}>
-        <Settings size={15} />
-      </IconButton>
+      <Tooltip label={t('attachments.manage')} side="bottom">
+        <IconButton label={t('attachments.manage')} size="sm" className="size-11 md:size-7" onClick={() => useUi.getState().setAttachmentHub('email')}>
+          <Paperclip size={15} />
+        </IconButton>
+      </Tooltip>
+      <Tooltip label={t('email.header.ai')} side="bottom">
+        <IconButton
+          label={t('email.header.ai')}
+          size="sm"
+          className="size-11 md:size-7"
+          active={assistantDockOpen}
+          onClick={() => useUi.getState().setAssistantDock(!assistantDockOpen)}
+        >
+          <Bot size={15} />
+        </IconButton>
+      </Tooltip>
+      <Tooltip label={t('email.header.settings')} side="bottom">
+        <IconButton label={t('email.header.settings')} size="sm" className="size-11 md:size-7" onClick={() => navigateToPath(emailSettingsPath(account.id))}>
+          <Settings size={15} />
+        </IconButton>
+      </Tooltip>
     </>
   )
 
@@ -533,23 +607,29 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
   const listToolbar = (
     <div className="flex h-11 shrink-0 items-center gap-1 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2">
       {!desktop && (
-        <IconButton label={t('email.header.folders')} size="sm" className="size-9" onClick={() => setFolderDrawer(true)}>
-          <PanelLeft size={16} />
-        </IconButton>
+        <Tooltip label={t('email.header.folders')} side="bottom">
+          <IconButton label={t('email.header.folders')} size="sm" className="size-9" onClick={() => setFolderDrawer(true)}>
+            <PanelLeft size={16} />
+          </IconButton>
+        </Tooltip>
       )}
       {searchField}
-      <IconButton
-        label={t('email.saved_search.save_action')}
-        size="sm"
-        className="size-9"
-        disabled={!searchMode}
-        onClick={() => { void saveCurrentSearch() }}
-      >
-        <Bookmark size={15} />
-      </IconButton>
-      <IconButton label={t('email.header.refresh')} size="sm" className="size-9" onClick={refreshNow} disabled={listRefreshing}>
-        <RefreshCw size={15} className={listRefreshing ? 'animate-[ink-spin_0.7s_linear_infinite]' : undefined} />
-      </IconButton>
+      <Tooltip label={t('email.saved_search.save_action')} side="bottom">
+        <IconButton
+          label={t('email.saved_search.save_action')}
+          size="sm"
+          className="size-9"
+          disabled={!searchMode}
+          onClick={() => { void saveCurrentSearch() }}
+        >
+          <Bookmark size={15} />
+        </IconButton>
+      </Tooltip>
+      <Tooltip label={t('email.header.refresh')} side="bottom">
+        <IconButton label={t('email.header.refresh')} size="sm" className="size-9" onClick={refreshNow} disabled={listRefreshing}>
+          <RefreshCw size={15} className={listRefreshing ? 'animate-[ink-spin_0.7s_linear_infinite]' : undefined} />
+        </IconButton>
+      </Tooltip>
     </div>
   )
 
@@ -585,13 +665,55 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
       onReloadSearches={() => loadSearches(account.id)}
       onClose={() => setFolderDrawer(false)}
       onCollapse={desktop ? toggleNav : undefined}
-      footer={<EmailAccountCard accounts={accounts} activeAccountId={account.id} compact={compactCard} onNavigate={() => setFolderDrawer(false)} />}
+      onManageAccounts={() => setAccountsOpen(true)}
+      contactsSection={(
+        <EmailContactSidebar
+          contacts={contacts}
+          contactsStatus={contactsStatus}
+          contactsError={contactsError}
+          groups={groups}
+          groupsStatus={groupsStatus}
+          groupsError={groupsError}
+          activeContactId={activeContactId}
+          activeGroupId={activeGroupId}
+          onSelectContact={openContact}
+          onSelectGroup={(group) => { setActiveGroupId(group.id); setContactsOpen(true) }}
+          onNewContact={() => setContactEditor({ open: true, value: null })}
+          onNewGroup={() => setGroupEditor({ open: true, value: null })}
+          onEditContact={(contact) => setContactEditor({ open: true, value: contact })}
+          onEditGroup={(group) => setGroupEditor({ open: true, value: group })}
+          onManage={() => setContactsOpen(true)}
+          onChanged={() => { void loadContacts({ silent: true }) }}
+          onReload={() => { void loadContacts() }}
+          onClose={() => setFolderDrawer(false)}
+        />
+      )}
+      footer={<EmailAccountCard accounts={accounts} activeAccountId={account.id} compact={compactCard} onNavigate={() => setFolderDrawer(false)} onManageAccounts={() => { setFolderDrawer(false); setAccountsOpen(true) }} />}
     />
+  )
+
+  const activeContactBanner = activeContact && (
+    <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2">
+      <Avatar src={activeContact.avatar || undefined} name={activeContact.name || activeContact.email} size={26} />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[length:var(--text-12)] font-medium text-[var(--text-primary)]">
+          {activeContact.name || activeContact.email}
+        </span>
+        <span className="block truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{activeContact.email}</span>
+      </span>
+      <span className="shrink-0 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('email.contacts.related_mail')}</span>
+      <Tooltip label={t('common.clear')} side="top">
+        <IconButton label={t('common.clear')} size="xs" onClick={goList}>
+          <X size={12} />
+        </IconButton>
+      </Tooltip>
+    </div>
   )
 
   const listPane = (
     <div className="relative flex h-full min-h-0 flex-col">
       {listToolbar}
+      {activeContactBanner}
       <MessageList
       messages={messages}
       total={total}
@@ -609,6 +731,11 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
       dragEnabled={!composing}
       focusFilter={focusFilter}
       focusedInboxEnabled={account.settings.focusedInbox !== false}
+      readFilter={readFilter}
+      onReadFilterChange={(filter) => {
+        setReadFilter(filter)
+        void loadList(account.id, folderId ?? 'inbox')
+      }}
       onFocusFilterChange={(filter) => {
         setFocusFilter(filter)
         void loadList(account.id, folderId ?? 'inbox')
@@ -700,7 +827,8 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
                       activeFolderId={folderId}
                       onSelect={selectFolder}
                       onExpand={toggleNav}
-                      footer={<EmailAccountCard accounts={accounts} activeAccountId={account.id} compact />}
+                      onManageAccounts={() => setAccountsOpen(true)}
+                      footer={<EmailAccountCard accounts={accounts} activeAccountId={account.id} compact onManageAccounts={() => setAccountsOpen(true)} />}
                     />
                   )
                 : folderSidebar()}
@@ -715,9 +843,17 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
                 onReset={() => setLayout({ emailNavWidth: DEFAULT_LAYOUT.emailNavWidth })}
               />
             )}
-            <div className="flex w-[380px] min-w-[360px] max-w-[420px] shrink-0 flex-col border-r border-[var(--border-subtle)]">
+            <div style={{ width: emailListWidth }} className="flex shrink-0 flex-col border-r border-[var(--border-subtle)]">
               {listPane}
             </div>
+            <Resizer
+              label={t('shell.resize_email_list')}
+              value={emailListWidth}
+              min={PANEL_WIDTHS.emailList.min}
+              max={PANEL_WIDTHS.emailList.max}
+              onChange={(width) => setLayout({ emailListWidth: width })}
+              onReset={() => setLayout({ emailListWidth: DEFAULT_LAYOUT.emailListWidth })}
+            />
             <div className="flex min-w-0 flex-1 flex-col overflow-hidden">{pane}</div>
           </>
         ) : (
@@ -740,6 +876,73 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
         </Drawer>
       )}
       <TrashPanel open={trashOpen} accountId={account.id} onClose={() => setTrashOpen(false)} />
+      <AccountManagerDialog
+        open={accountsOpen}
+        onClose={closeAccountManager}
+        activeAccountId={account.id}
+        onOpenSettings={(id) => navigateToPath(emailSettingsPath(id))}
+      />
+      <Modal
+        open={panel === 'settings'}
+        onClose={goList}
+        ariaLabel={t('email.settings.title')}
+        width={980}
+        className="h-[min(88dvh,900px)]"
+        bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden p-0 md:p-0"
+      >
+        <div className="h-full min-h-0"><AccountSettingsPage accountId={account.id} onBack={goList} /></div>
+      </Modal>
+      <Modal
+        open={panel === 'rules'}
+        onClose={goList}
+        ariaLabel={t('email.rules.title')}
+        width={920}
+        className="h-[min(86dvh,820px)]"
+        bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden p-0 md:p-0"
+      >
+        <div className="h-full min-h-0"><RulesPage accountId={account.id} onBack={goList} /></div>
+      </Modal>
+      <Modal
+        open={panel === 'templates'}
+        onClose={goList}
+        ariaLabel={t('email.templates.title')}
+        width={920}
+        className="h-[min(86dvh,820px)]"
+        bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden p-0 md:p-0"
+      >
+        <div className="h-full min-h-0"><TemplatesPage accountId={account.id} onBack={goList} /></div>
+      </Modal>
+      <Modal
+        open={panel === 'stats'}
+        onClose={goList}
+        ariaLabel={t('email.stats.title')}
+        width={1120}
+        className="h-[min(88dvh,900px)]"
+        bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden p-0 md:p-0"
+      >
+        <div className="h-full min-h-0"><StatsPage accountId={account.id} onBack={goList} /></div>
+      </Modal>
+      <Drawer
+        open={contactsOpen || panel === 'contacts'}
+        onClose={closeContactsDrawer}
+        side="right"
+        width={460}
+        ariaLabel={t('email.contacts.title')}
+      >
+        <ContactsPage onBack={closeContactsDrawer} onChanged={() => { void loadContacts({ silent: true }) }} />
+      </Drawer>
+      <ContactEditor
+        open={contactEditor.open}
+        contact={contactEditor.value}
+        onClose={() => setContactEditor({ open: false, value: null })}
+        onSaved={() => { void loadContacts({ silent: true }) }}
+      />
+      <GroupEditor
+        open={groupEditor.open}
+        group={groupEditor.value}
+        onClose={() => setGroupEditor({ open: false, value: null })}
+        onSaved={() => { void loadContacts({ silent: true }) }}
+      />
     </div>
   )
 }

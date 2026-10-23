@@ -21,7 +21,7 @@ function bodyPreview(body: string): string {
   return body.replace(/\s+/g, ' ').trim().slice(0, BODY_PREVIEW_CHARS)
 }
 
-export function TemplatesPage({ accountId }: { accountId: string }) {
+export function TemplatesPage({ accountId, onBack }: { accountId: string; onBack?: () => void }) {
   const account = useEmailStore((state) => state.accounts.find((entry) => entry.id === accountId) ?? null)
   const [templates, setTemplates] = useState<EmailTemplate[]>([])
   const [status, setStatus] = useState<TemplatesStatus>('loading')
@@ -105,7 +105,7 @@ export function TemplatesPage({ accountId }: { accountId: string }) {
           size="sm"
           variant="ghost"
           icon={<ArrowLeft size={14} />}
-          onClick={() => navigateToPath(emailFolderPath(accountId, 'inbox'))}
+          onClick={() => { if (onBack) onBack(); else navigateToPath(emailFolderPath(accountId, 'inbox')) }}
         >
           {t('email.header.back')}
         </Button>

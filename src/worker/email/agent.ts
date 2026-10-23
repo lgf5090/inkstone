@@ -1086,6 +1086,8 @@ export async function manageEmailContactAgent(
     company?: string
     notes?: string
     starred?: boolean
+    pinned?: boolean
+    avatar?: string
     description?: string
   },
 ): Promise<Record<string, unknown>> {
@@ -1097,6 +1099,8 @@ export async function manageEmailContactAgent(
       company: input.company ?? '',
       notes: input.notes ?? '',
       starred: input.starred ?? false,
+      pinned: input.pinned ?? false,
+      avatar: input.avatar ?? '',
     })
     if (!parsed) throw ApiError.badRequest('The contact is not valid')
     if (await findEmailContactByEmail(env.DB, userId, normalizeContactEmail(parsed.email))) {
@@ -1114,6 +1118,8 @@ export async function manageEmailContactAgent(
       ...(input.company !== undefined ? { company: input.company } : {}),
       ...(input.notes !== undefined ? { notes: input.notes } : {}),
       ...(input.starred !== undefined ? { starred: input.starred } : {}),
+      ...(input.pinned !== undefined ? { pinned: input.pinned } : {}),
+      ...(input.avatar !== undefined ? { avatar: input.avatar } : {}),
     })
     if (!patch) throw ApiError.badRequest('The contact is not valid')
     if (patch.email !== undefined) {
@@ -1125,7 +1131,7 @@ export async function manageEmailContactAgent(
     return { status: 'updated', contact: toEmailContact(updated) }
   }
   if (input.action === 'group_create') {
-    const parsed = parseEmailGroupInput({ name: input.name, description: input.description ?? '' })
+    const parsed = parseEmailGroupInput({ name: input.name, description: input.description ?? '', starred: input.starred ?? false, pinned: input.pinned ?? false, avatar: input.avatar ?? '' })
     if (!parsed) throw ApiError.badRequest('The group is not valid')
     if (await findEmailGroupByName(env.DB, userId, parsed.name)) throw new ApiError(409, 'email_group_exists', 'A group with that name already exists')
     const created = await createEmailGroup(env.DB, userId, parsed)
@@ -1137,6 +1143,9 @@ export async function manageEmailContactAgent(
     const patch = parseEmailGroupPatch({
       ...(input.name !== undefined ? { name: input.name } : {}),
       ...(input.description !== undefined ? { description: input.description } : {}),
+      ...(input.starred !== undefined ? { starred: input.starred } : {}),
+      ...(input.pinned !== undefined ? { pinned: input.pinned } : {}),
+      ...(input.avatar !== undefined ? { avatar: input.avatar } : {}),
     })
     if (!patch) throw ApiError.badRequest('The group is not valid')
     if (patch.name !== undefined) {

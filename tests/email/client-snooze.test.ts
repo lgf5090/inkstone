@@ -124,8 +124,11 @@ describe('email snooze UI', () => {
     const later = new Date(options[0]!.until)
     expect(later.getTime() - now.getTime()).toBe(3 * 60 * 60 * 1000)
     const nextWeek = new Date(options[2]!.until)
+    const expected = new Date(now)
+    expected.setDate(expected.getDate() + 7)
+    expected.setHours(8, 0, 0, 0)
     expect(nextWeek.getHours()).toBe(8)
-    expect(Math.round((nextWeek.getTime() - now.getTime()) / (24 * 60 * 60 * 1000))).toBe(7)
+    expect(nextWeek.getTime()).toBe(expected.getTime())
   })
 
   it('hides the snooze menu for sent, draft, trash and spam', () => {

@@ -69,4 +69,18 @@ export const EN_US_EMAIL_CONTACTS = {
   'email.contacts.company_placeholder': 'Where they work',
   'email.contacts.notes_placeholder': 'Anything worth remembering',
   'email.contacts.description_placeholder': 'What this group is for',
+  'email.contacts.change_icon': 'Change icon',
+  'email.contacts.pinned': 'Pinned',
+  'email.contacts.manage': 'Manage contacts and groups',
+  'email.contacts.more': 'More actions for {name}',
+  'email.contacts.more_actions': 'Contact actions',
+  'email.contacts.group_members': 'Show members',
+  'email.contacts.related_mail': 'Related mail',
+  'email.contacts.edit_action': 'Edit',
+  'email.contacts.delete_action': 'Delete',
+  'email.contacts.star_action': 'Star',
+  'email.contacts.unstar_action': 'Unstar',
+  'email.contacts.pin_action': 'Pin',
+  'email.contacts.unpin_action': 'Unpin',
 } as const
+

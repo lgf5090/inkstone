@@ -216,6 +216,7 @@ export interface ListOptions {
   muted?: boolean
   focused?: boolean
   followUp?: boolean
+  isRead?: boolean
   page?: number
   limit?: number
   sortColumn?: string
@@ -281,7 +282,7 @@ function escapeLike(value: string): string {
 function pushFlagFilters(
   clauses: string[],
   bindings: unknown[],
-  options: { important?: boolean; muted?: boolean; focused?: boolean; followUp?: boolean },
+  options: { important?: boolean; muted?: boolean; focused?: boolean; followUp?: boolean; isRead?: boolean },
   prefix = '',
 ): void {
   const column = (name: string): string => (prefix ? `${prefix}.${name}` : name)
@@ -299,6 +300,10 @@ function pushFlagFilters(
   }
   if (options.followUp !== undefined) {
     clauses.push(options.followUp ? `${column('follow_up_at')} IS NOT NULL` : `${column('follow_up_at')} IS NULL`)
+  }
+  if (options.isRead !== undefined) {
+    clauses.push(`${column('read')} = ?`)
+    bindings.push(options.isRead ? 1 : 0)
   }
 }
 

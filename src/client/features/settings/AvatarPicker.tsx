@@ -27,11 +27,13 @@ export function AvatarPicker({
   onClose,
   displayName,
   preference,
+  onSave,
 }: {
   open: boolean
   onClose: () => void
   displayName: string
   preference: string
+  onSave?: (preference: string) => Promise<void>
 }) {
   const updateProfile = useSession((state) => state.updateProfile)
   const toast = useUi((state) => state.toast)
@@ -62,8 +64,11 @@ export function AvatarPicker({
     setBusy(true)
     setError(null)
     try {
-      await updateProfile({ avatarUrl: selected })
-      toast({ title: t('settings.avatar_saved'), tone: 'success' })
+      if (onSave) await onSave(selected)
+      else {
+        await updateProfile({ avatarUrl: selected })
+        toast({ title: t('settings.avatar_saved'), tone: 'success' })
+      }
       onClose()
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : t('settings.action_failed_try_again'))

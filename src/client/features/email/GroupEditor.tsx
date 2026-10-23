@@ -1,15 +1,17 @@
-import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react'
+import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Search } from 'lucide-react'
 import type { EmailContact, EmailGroupWithMembers } from '@shared/email/contacts'
 import { EMAIL_GROUP_DESCRIPTION_MAX_CHARS, EMAIL_GROUP_NAME_MAX_CHARS } from '@shared/email/contacts'
-import { Button } from '../../components/primitives'
-import { Checkbox, Field, Input, Textarea } from '../../components/form'
+import { Avatar, Button } from '../../components/primitives'
+import { Checkbox, Field, Input, SettingRow, Switch, Textarea } from '../../components/form'
 import { Modal } from '../../components/overlay'
 import { LoadingBlock } from '../../components/feedback'
 import { ApiError, api } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { useUi } from '../../store/ui'
 import { emailErrorText } from './errors'
+
+const AvatarPicker = lazy(() => import('../settings/AvatarPicker').then((module) => ({ default: module.AvatarPicker })))
 
 const SEARCH_DEBOUNCE_MS = 200
 
@@ -33,6 +35,10 @@ export function GroupEditor({
   const directoryRequest = useRef(0)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [avatar, setAvatar] = useState('')
+  const [starred, setStarred] = useState(false)
+  const [pinned, setPinned] = useState(false)
+  const [avatarOpen, setAvatarOpen] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [query, setQuery] = useState('')
   const [directory, setDirectory] = useState<EmailContact[]>([])
@@ -46,6 +52,10 @@ export function GroupEditor({
     if (!open) return
     setName(group?.name ?? '')
     setDescription(group?.description ?? '')
+    setAvatar(group?.avatar ?? '')
+    setStarred(group?.starred ?? false)
+    setPinned(group?.pinned ?? false)
+    setAvatarOpen(false)
     setSelected(new Set(group?.members.map((member) => member.id) ?? []))
     setQuery('')
     setSaving(false)
@@ -110,7 +120,7 @@ export function GroupEditor({
     }
     setSaving(true)
     setError(null)
-    const input = { name: trimmed, description: description.trim() }
+    const input = { name: trimmed, description: description.trim(), avatar, starred, pinned }
     try {
       let groupId: string
       let previous: Set<string>
@@ -161,6 +171,12 @@ export function GroupEditor({
       )}
     >
       <form id={formId} onSubmit={(event) => { void submit(event) }} className="space-y-3">
+        <div className="flex items-center gap-3">
+          <Avatar src={avatar || undefined} name={name || '?'} size={48} />
+          <Button size="sm" variant="secondary" onClick={() => setAvatarOpen(true)}>
+            {t('email.contacts.change_icon')}
+          </Button>
+        </div>
         <Field label={t('email.contacts.group_name')} required>
           <Input
             value={name}
@@ -170,6 +186,12 @@ export function GroupEditor({
             data-autofocus
           />
         </Field>
+        <SettingRow title={t('email.contacts.starred')} className="border-b-0 py-2">
+          <Switch checked={starred} onChange={setStarred} label={t('email.contacts.starred')} />
+        </SettingRow>
+        <SettingRow title={t('email.contacts.pinned')} className="border-b-0 py-2">
+          <Switch checked={pinned} onChange={setPinned} label={t('email.contacts.pinned')} />
+        </SettingRow>
         <Field label={t('email.contacts.group_description')}>
           <Textarea
             value={description}
@@ -237,6 +259,17 @@ export function GroupEditor({
           </p>
         )}
       </form>
+      {avatarOpen && (
+        <Suspense fallback={null}>
+          <AvatarPicker
+            open
+            onClose={() => setAvatarOpen(false)}
+            displayName={name || '?'}
+            preference={avatar}
+            onSave={async (value) => { setAvatar(value) }}
+          />
+        </Suspense>
+      )}
     </Modal>
   )
 }

@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type FormEvent } from 'react'
+import { lazy, Suspense, useEffect, useId, useState, type FormEvent } from 'react'
 import type { EmailContact } from '@shared/email/contacts'
 import {
   EMAIL_CONTACT_COMPANY_MAX_CHARS,
@@ -8,13 +8,15 @@ import {
   isValidContactEmail,
   normalizeContactEmail,
 } from '@shared/email/contacts'
-import { Button } from '../../components/primitives'
+import { Avatar, Button } from '../../components/primitives'
 import { Field, Input, SettingRow, Switch, Textarea } from '../../components/form'
 import { Modal } from '../../components/overlay'
 import { ApiError, api } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { useUi } from '../../store/ui'
 import { emailErrorText } from './errors'
+
+const AvatarPicker = lazy(() => import('../settings/AvatarPicker').then((module) => ({ default: module.AvatarPicker })))
 
 function contactSaveError(reason: unknown): string {
   if (reason instanceof ApiError && reason.code === 'email_contact_exists') return t('email.contacts.error_exists')
@@ -38,6 +40,9 @@ export function ContactEditor({
   const [company, setCompany] = useState('')
   const [notes, setNotes] = useState('')
   const [starred, setStarred] = useState(false)
+  const [pinned, setPinned] = useState(false)
+  const [avatar, setAvatar] = useState('')
+  const [avatarOpen, setAvatarOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -48,6 +53,9 @@ export function ContactEditor({
     setCompany(contact?.company ?? '')
     setNotes(contact?.notes ?? '')
     setStarred(contact?.starred ?? false)
+    setPinned(contact?.pinned ?? false)
+    setAvatar(contact?.avatar ?? '')
+    setAvatarOpen(false)
     setSaving(false)
     setError(null)
   }, [open, contact])
@@ -72,6 +80,8 @@ export function ContactEditor({
       company: company.trim(),
       notes: notes.trim(),
       starred,
+      pinned,
+      avatar,
     }
     try {
       if (contact) await api.email.updateContact(contact.id, input)
@@ -101,6 +111,12 @@ export function ContactEditor({
       )}
     >
       <form id={formId} onSubmit={(event) => { void submit(event) }} className="space-y-3">
+        <div className="flex items-center gap-3">
+          <Avatar src={avatar || undefined} name={name || email || '?'} size={48} />
+          <Button size="sm" variant="secondary" onClick={() => setAvatarOpen(true)}>
+            {t('email.contacts.change_icon')}
+          </Button>
+        </div>
         <Field label={t('email.contacts.email')} required>
           <Input
             type="email"
@@ -142,12 +158,26 @@ export function ContactEditor({
         <SettingRow title={t('email.contacts.starred')} className="border-b-0 py-2">
           <Switch checked={starred} onChange={setStarred} label={t('email.contacts.starred')} />
         </SettingRow>
+        <SettingRow title={t('email.contacts.pinned')} className="border-b-0 py-2">
+          <Switch checked={pinned} onChange={setPinned} label={t('email.contacts.pinned')} />
+        </SettingRow>
         {error && (
           <p role="alert" className="rounded-[var(--r-sm)] bg-[var(--danger-soft)] px-2.5 py-1.5 text-[length:var(--text-11-5)] text-[var(--danger)]">
             {error}
           </p>
         )}
       </form>
+      {avatarOpen && (
+        <Suspense fallback={null}>
+          <AvatarPicker
+            open
+            onClose={() => setAvatarOpen(false)}
+            displayName={name || email || '?'}
+            preference={avatar}
+            onSave={async (value) => { setAvatar(value) }}
+          />
+        </Suspense>
+      )}
     </Modal>
   )
 }

@@ -69,4 +69,18 @@ export const ZH_CN_EMAIL_CONTACTS = {
   'email.contacts.company_placeholder': '对方所在的公司',
   'email.contacts.notes_placeholder': '值得记住的信息',
   'email.contacts.description_placeholder': '这个通讯组的用途',
+  'email.contacts.change_icon': '更换图标',
+  'email.contacts.pinned': '置顶',
+  'email.contacts.manage': '管理联系人与群组',
+  'email.contacts.more': '{name} 的更多操作',
+  'email.contacts.more_actions': '联系人操作',
+  'email.contacts.group_members': '查看成员',
+  'email.contacts.related_mail': '相关邮件',
+  'email.contacts.edit_action': '编辑',
+  'email.contacts.delete_action': '删除',
+  'email.contacts.star_action': '收藏',
+  'email.contacts.unstar_action': '取消收藏',
+  'email.contacts.pin_action': '置顶',
+  'email.contacts.unpin_action': '取消置顶',
 } as const
+

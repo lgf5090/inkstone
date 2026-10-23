@@ -24,7 +24,7 @@ interface EditorState<T> {
   value: T | null
 }
 
-export function ContactsPage({ onBack }: { onBack?: () => void }) {
+export function ContactsPage({ onBack, onChanged }: { onBack?: () => void; onChanged?: () => void }) {
   const [query, setQuery] = useState('')
   const [contacts, setContacts] = useState<EmailContact[]>([])
   const [contactsStatus, setContactsStatus] = useState<LoadStatus>('loading')
@@ -87,12 +87,14 @@ export function ContactsPage({ onBack }: { onBack?: () => void }) {
   const reload = () => {
     setContactsRetry((current) => current + 1)
     loadGroups()
+    onChanged?.()
   }
 
   const toggleStar = async (contact: EmailContact) => {
     try {
       const updated = await api.email.updateContact(contact.id, { starred: !contact.starred })
       setContacts((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)))
+      onChanged?.()
     } catch (reason) {
       useUi.getState().toast({ title: emailErrorText(reason), tone: 'danger' })
     }
@@ -143,6 +145,7 @@ export function ContactsPage({ onBack }: { onBack?: () => void }) {
           ? { ...entry, members: entry.members.filter((member) => member.id !== contact.id) }
           : entry
       )))
+      onChanged?.()
     } catch (reason) {
       useUi.getState().toast({ title: emailErrorText(reason), tone: 'danger' })
     }
@@ -247,7 +250,7 @@ export function ContactsPage({ onBack }: { onBack?: () => void }) {
                 const name = contact.name || contact.email
                 return (
                   <li key={contact.id} className="flex items-center gap-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2">
-                    <Avatar name={name} size={32} />
+                    <Avatar src={contact.avatar || undefined} name={name} size={32} />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{name}</p>
                       <p className="truncate text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">
@@ -316,7 +319,7 @@ export function ContactsPage({ onBack }: { onBack?: () => void }) {
                 {groups.map((group) => (
                   <li key={group.id} className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
                     <div className="flex items-start gap-2">
-                      <Users size={15} className="mt-0.5 shrink-0 text-[var(--text-tertiary)]" aria-hidden="true" />
+                      <Avatar src={group.avatar || undefined} name={group.name} size={32} />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{group.name}</p>
                         {group.description && (
@@ -384,7 +387,7 @@ export function ContactsPage({ onBack }: { onBack?: () => void }) {
         open={groupEditor.open}
         group={groupEditor.value}
         onClose={() => setGroupEditor({ open: false, value: null })}
-        onSaved={loadGroups}
+        onSaved={() => { loadGroups(); onChanged?.() }}
       />
     </div>
   )
