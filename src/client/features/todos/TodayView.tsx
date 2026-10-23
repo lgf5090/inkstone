@@ -12,7 +12,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Sparkles, Search } from 'lucide-react'
 import { localDate } from '@shared/assistant-time'
 import type { MessageKey } from '@shared/locales/en-US'
-import { UPCOMING_DAYS, type TodoTask } from '@shared/todos/model'
+import { MAX_TASK_QUERY_CHARS, UPCOMING_DAYS, type TodoTask } from '@shared/todos/model'
 import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { Input } from '../../components/form'
@@ -281,6 +281,9 @@ function TaskPicker({ timezone, dayEnd }: { timezone: string; dayEnd: number }) 
         onChange={(event) => setQuery(event.target.value)}
         placeholder={t('todo.today.pick_placeholder')}
         aria-label={t('todo.today.pick')}
+        // The search runs the route's own `q`, which accepts at most MAX_TASK_QUERY_CHARS; bounding the
+        // field here keeps the reader inside the cap the server answers rather than past a silent cut.
+        maxLength={MAX_TASK_QUERY_CHARS}
         leading={<Search size={12} />}
         className="h-9"
       />

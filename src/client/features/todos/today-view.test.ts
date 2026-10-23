@@ -15,6 +15,7 @@ import { localDate } from '@shared/assistant-time'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, stubBreakpoint, type RenderedElement } from '../../lib/test-render'
 import type { TaskCounts, TodoTask } from '@shared/todos/model'
+import { MAX_TASK_QUERY_CHARS } from '@shared/todos/model'
 
 // This checkout's `node_modules` is a junction outside the Vite root, so the KaTeX stylesheet that
 // the note export helpers inline is refused before a test can run. Nothing here exports a note.
@@ -326,6 +327,17 @@ describe('the today screen', () => {
     // The batch route names at most a hundred rows; the second chunk carries the rest.
     expect(service.batches.map((batch) => batch.ids.length)).toEqual([100, 1])
     expect(service.batches.every((batch) => batch.op === 'due')).toBe(true)
+  })
+
+  it('caps the picker search to the shared query bound', async () => {
+    stubBreakpoint(true)
+    const container = await mount('/todo?view=today')
+    // The picker forwards what the reader types to the search; the server accepts at most
+    // MAX_TASK_QUERY_CHARS, so the field has to bound the same way rather than let a longer word be
+    // silently refused downstream.
+    const field = container.querySelector<HTMLInputElement>(`input[aria-label="${t('todo.today.pick')}"]`)
+    expect(field, 'the today picker has no search field').not.toBeNull()
+    expect(field!.maxLength, 'the picker search does not bound to the shared query length').toBe(MAX_TASK_QUERY_CHARS)
   })
 })
 
