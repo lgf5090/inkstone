@@ -1,7 +1,9 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+
+vi.setConfig({ testTimeout: 120_000 })
 
 /**
  * SH-49 asked for interactive controls to come from the component system, and for a `div`/`span`

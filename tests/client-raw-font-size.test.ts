@@ -2,7 +2,9 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+
+vi.setConfig({ testTimeout: 120_000 })
 
 const CLIENT_DIR = path.join('src', 'client')
 

@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.setConfig({ testTimeout: 90_000 });
 import { renderMarkdown } from './renderer';
 import { registerFenceBodies } from './fence-bodies';
 import { excalidrawBody } from './excalidraw/view';

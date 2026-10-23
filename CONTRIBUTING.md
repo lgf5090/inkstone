@@ -40,6 +40,17 @@ $env:NODE_OPTIONS = "--localstorage-file=$env:TEMP\inkstone-localstorage"; npm r
 
 The file is a runtime artifact of your machine, not project output: keep it outside the working tree, as the paths above do, and remove it when you are done. Comparison between a run before your change and a run after it only means something when both used the same Node version and the same flag.
 
+### Keep the edit loop focused
+
+`npm run test:unit` is the release gate: it starts more than 1,200 files, each in a fresh environment, and takes minutes even when nothing is wrong. While editing, name the files or directories involved so Vitest builds only those:
+
+```bash
+npm run test:file -- tests/email/client-account-settings.test.ts
+npm run test:file -- tests/email src/client/features/email
+```
+
+`npm run test:changed` follows the module graph from uncommitted files, and `npm run test:related -- <file>` does the same for one explicit file. Both spend roughly a minute building that graph before any test runs, so they pay off once a change touches a bounded area; a change to a widely imported module (locales, shared types) still selects most of the suite. `npm run test:watch` keeps the selected files running while you edit. Run `npm run test:unit` before committing.
+
 ## Required checks
 
 Run the relevant focused tests while developing, then run the complete release gates before opening a pull request:
