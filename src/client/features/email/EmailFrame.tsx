@@ -3,6 +3,7 @@ import type { EmailAttachment } from '@shared/email/model'
 import { textToEmailHtml } from '@shared/email/format'
 import { t } from '../../lib/i18n'
 import { sanitizeEmailHtml } from './email-markdown'
+import { rewriteEmailCidSources } from './format'
 
 const MIN_HEIGHT = 96
 const MAX_HEIGHT = 20_000
@@ -21,36 +22,9 @@ const BASE_STYLE = [
 
 const HEIGHT_SCRIPT = `<script>(function(){function send(){parent.postMessage({type:'inkstone-email-height',height:document.documentElement.scrollHeight},'*')}window.addEventListener('load',send);if(typeof ResizeObserver==='function'){new ResizeObserver(send).observe(document.body)}setTimeout(send,60)})()</script>`
 
-function decodeCid(value: string): string {
-  try {
-    return decodeURIComponent(value)
-  } catch {
-    return value
-  }
-}
-
-function cidValue(value: string): string {
-  return value.trim().replace(/^<+/, '').replace(/>+$/, '').toLowerCase()
-}
-
-function rewriteCid(html: string, attachments: readonly EmailAttachment[]): string {
-  const urls = new Map<string, string>()
-  for (const attachment of attachments) {
-    if (!attachment.contentId || !attachment.url) continue
-    urls.set(cidValue(attachment.contentId), attachment.url)
-    const decoded = decodeCid(attachment.contentId)
-    if (decoded !== attachment.contentId) urls.set(cidValue(decoded), attachment.url)
-  }
-  if (urls.size === 0) return html
-  return html.replace(/(src\s*=\s*["'])cid:([^"']+)(["'])/gi, (match, prefix: string, cid: string, suffix: string) => {
-    const url = urls.get(cidValue(cid)) ?? urls.get(cidValue(decodeCid(cid)))
-    return url ? `${prefix}${url}${suffix}` : match
-  })
-}
-
 function buildDocument(body: string, attachments: readonly EmailAttachment[], subject: string): string {
   const source = HTML_TAG.test(body) ? body : textToEmailHtml(body)
-  const content = sanitizeEmailHtml(rewriteCid(source, attachments)) || `<p>${t('email.detail.empty_body')}</p>`
+  const content = sanitizeEmailHtml(rewriteEmailCidSources(source, attachments)) || `<p>${t('email.detail.empty_body')}</p>`
   return [
     '<!doctype html><html><head><meta charset="utf-8">',
     '<meta name="referrer" content="no-referrer">',

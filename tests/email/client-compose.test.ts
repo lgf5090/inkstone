@@ -2,7 +2,10 @@
 import { act, createElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { EmailAccount, EmailMessage, EmailSendResult } from '@shared/email/model'
+import { EMAIL_ATTACHMENT_MAX_BYTES } from '@shared/email/model'
+import type { HubAttachmentWithUsage } from '@shared/attachment-hub'
 import { api } from '../../src/client/lib/api'
+import { attachmentHubApi } from '../../src/client/features/attachment-hub/api'
 import { renderElement, type RenderedElement } from '../../src/client/lib/test-render'
 import { t } from '../../src/client/lib/i18n'
 import { useUi } from '../../src/client/store/ui'
@@ -74,6 +77,47 @@ function ariaButton(label: string): HTMLButtonElement {
     .find((node) => node.getAttribute('aria-label') === label)
   if (!found) throw new Error(`no button labelled ${label}`)
   return found
+}
+
+function fileInput(label: string): HTMLInputElement {
+  const found = [...document.querySelectorAll<HTMLInputElement>('input[type="file"]')]
+    .find((node) => node.getAttribute('aria-label') === label)
+  if (!found) throw new Error(`no file input labelled ${label}`)
+  return found
+}
+
+function chooseFile(input: HTMLInputElement, file: File): void {
+  Object.defineProperty(input, 'files', { value: [file], configurable: true })
+  act(() => {
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+}
+
+function hubAttachment(overrides: Partial<HubAttachmentWithUsage> = {}): HubAttachmentWithUsage {
+  return {
+    id: 'att1',
+    scope: 'email',
+    filename: 'photo.png',
+    mime: 'image/png',
+    size: 3,
+    width: null,
+    height: null,
+    url: '/api/attachments/email/files/att1',
+    folderId: null,
+    isStarred: false,
+    isPinned: false,
+    tags: [],
+    ownerId: null,
+    createdAt: 1,
+    references: 0,
+    ...overrides,
+  }
+}
+
+async function flush(): Promise<void> {
+  await act(async () => {
+    for (let index = 0; index < 10; index += 1) await Promise.resolve()
+  })
 }
 
 function editorText(): string {
@@ -415,6 +459,79 @@ describe('the compose panel', () => {
     expect(editorText()).toContain('Ada at home')
     expect(occurrences(editorText(), 'Ada at home')).toBe(1)
     expect(editorText()).toContain('Hello there')
+    view.unmount()
+  })
+
+  it('uploads a chosen image inline and inserts its cid reference', async () => {
+    vi.spyOn(api.email, 'saveDraft').mockResolvedValue({ draftId: 'd1' })
+    const upload = vi.spyOn(attachmentHubApi, 'upload').mockResolvedValue(hubAttachment())
+    const link = vi.spyOn(api.email, 'linkAttachment').mockResolvedValue({
+      attachmentId: 'att1',
+      contentId: 'inline-1',
+      disposition: 'inline',
+    })
+    const view = panel('new')
+    const file = new File([new Uint8Array([1, 2, 3])], 'photo.png', { type: 'image/png' })
+    chooseFile(fileInput(t('email.compose.insert_image')), file)
+    await flush()
+
+    expect(upload).toHaveBeenCalledWith('email', file)
+    expect(link).toHaveBeenCalledWith('a1', 'd1', 'att1', { inline: true })
+    expect(editorText()).toContain('![photo.png](cid:inline-1)')
+    expect([...view.container.querySelectorAll('li')].some((item) => item.textContent?.includes('photo.png'))).toBe(true)
+    view.unmount()
+  })
+
+  it('rejects a non-image or oversized file before uploading it', async () => {
+    const upload = vi.spyOn(attachmentHubApi, 'upload')
+    const view = panel('new')
+
+    chooseFile(fileInput(t('email.compose.insert_image')), new File(['hello'], 'notes.txt', { type: 'text/plain' }))
+    expect(upload).not.toHaveBeenCalled()
+    expect(useUi.getState().toasts.map(({ title }) => title)).toContain(t('email.compose.image_type_invalid'))
+
+    const oversized = new File(['x'], 'huge.png', { type: 'image/png' })
+    Object.defineProperty(oversized, 'size', { value: EMAIL_ATTACHMENT_MAX_BYTES + 1 })
+    chooseFile(fileInput(t('email.compose.insert_image')), oversized)
+    expect(upload).not.toHaveBeenCalled()
+    expect(useUi.getState().toasts.map(({ title }) => title)).toContain(t('email.compose.attachment_too_large'))
+    view.unmount()
+  })
+
+  it('previews inline images through the attachment url and keeps cid in the source', async () => {
+    vi.spyOn(api.email, 'getEmail').mockResolvedValue({
+      ...original,
+      id: 'd1',
+      folderId: 'draft',
+      subject: 'Inline',
+      recipient: 'grace@example.com',
+      cc: null,
+      body: '<p><img src="cid:inline-1" alt="photo"></p>',
+      bodySource: '![photo.png](cid:inline-1)',
+      inReplyTo: null,
+      threadId: null,
+      attachments: [{
+        id: 'att1',
+        filename: 'photo.png',
+        mime: 'image/png',
+        size: 3,
+        width: null,
+        height: null,
+        contentId: 'inline-1',
+        disposition: 'inline',
+        url: '/api/email/files/att1',
+        createdAt: '2026-10-20T09:00:00.000Z',
+      }],
+    })
+    const view = panel('new', 'd1')
+    await flush()
+    expect([...view.container.querySelectorAll('li')].some((item) => item.textContent?.includes('photo.png'))).toBe(true)
+
+    act(() => { button(t('email.compose.preview')).click() })
+    const preview = view.container.querySelector('.ink-prose')
+    const image = preview?.querySelector('img')
+    expect(image?.getAttribute('src')).toBe('/api/email/files/att1')
+    expect(preview?.innerHTML).not.toContain('cid:')
     view.unmount()
   })
 })

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { EditorView } from '@codemirror/view'
-import { ChevronDown, FileText, Paperclip, PenLine, X } from 'lucide-react'
+import { ChevronDown, FileText, Image as ImageIcon, Paperclip, PenLine, X } from 'lucide-react'
 import type { EmailAccount, EmailMessage, EmailSendInput, EmailSignature } from '@shared/email/model'
 import { EMAIL_ATTACHMENT_MAX_BYTES, normalizeEmailSignatures } from '@shared/email/model'
 import type { EmailTemplate } from '@shared/email/templates'
@@ -21,6 +21,7 @@ import { prompt } from '../../components/overlay'
 import { emailMarkdownToHtml } from './email-markdown'
 import { EmailComposer } from './EmailComposer'
 import { RecipientField } from './RecipientField'
+import { rewriteEmailCidSources } from './format'
 import type { EmailComposeMode } from './email-address'
 
 interface ComposeAttachment {
@@ -28,6 +29,8 @@ interface ComposeAttachment {
   filename: string
   mime: string
   size: number
+  contentId?: string | null
+  disposition?: string | null
 }
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
@@ -38,6 +41,12 @@ const UNDO_WINDOW_MS = 9000
 const UNDO_TICK_MS = 1000
 const HOUR_MS = 60 * 60 * 1000
 const SCHEDULE_HOUR = 8
+const INLINE_IMAGE_ACCEPT = 'image/png,image/jpeg,image/gif,image/webp'
+const INLINE_IMAGE_TYPES = new Set(INLINE_IMAGE_ACCEPT.split(','))
+
+function inlineImageAlt(filename: string): string {
+  return filename.replace(/[\r\n\\[\]]/g, ' ').trim() || t('email.compose.insert_image')
+}
 
 function scheduledTime(preset: SchedulePreset, now = new Date()): Date {
   if (preset === 'hour') return new Date(now.getTime() + HOUR_MS)
@@ -199,6 +208,7 @@ export function ComposePanel({
   const [templatesError, setTemplatesError] = useState<string | null>(null)
   const viewRef = useRef<EditorView | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
+  const imageInput = useRef<HTMLInputElement>(null)
   const scheduleAnchor = useRef<HTMLButtonElement>(null)
   const templateAnchor = useRef<HTMLButtonElement>(null)
   const signatureAnchor = useRef<HTMLButtonElement>(null)
@@ -213,6 +223,14 @@ export function ComposePanel({
   const hasComposeContent = to.trim() !== '' || cc.trim() !== '' || bcc.trim() !== '' || subject.trim() !== '' || body.trim() !== ''
   const canAutoSave = dirty && hasComposeContent
   const attachmentKey = attachments.map((entry) => entry.id).join(',')
+  const previewHtml = useMemo(() => {
+    if (viewMode !== 'preview') return ''
+    const sources = attachments.map((entry) => ({
+      contentId: entry.contentId ?? null,
+      url: api.email.attachmentUrl(entry.id),
+    }))
+    return rewriteEmailCidSources(emailMarkdownToHtml(body), sources)
+  }, [attachments, body, viewMode])
 
   useEffect(() => {
     if (!draftId) return
@@ -234,7 +252,14 @@ export function ComposePanel({
       setBaseline(loaded)
       setShowCc(Boolean(message.cc || message.bcc))
       setThreading({ inReplyTo: message.inReplyTo, threadId: message.threadId })
-      setAttachments(message.attachments.map((entry) => ({ id: entry.id, filename: entry.filename, mime: entry.mime, size: entry.size })))
+      setAttachments(message.attachments.map((entry) => ({
+        id: entry.id,
+        filename: entry.filename,
+        mime: entry.mime,
+        size: entry.size,
+        contentId: entry.contentId,
+        disposition: entry.disposition,
+      })))
     }).catch((reason) => {
       if (!cancelled) setError((reason as Error).message)
     })
@@ -485,11 +510,70 @@ export function ComposePanel({
           if (!activeDraft) return
         }
         const uploaded = await attachmentHubApi.upload('email', file)
-        await api.email.linkAttachment(account.id, activeDraft, uploaded.id)
-        setAttachments((current) => [...current, { id: uploaded.id, filename: uploaded.filename, mime: uploaded.mime, size: uploaded.size }])
+        const linked = await api.email.linkAttachment(account.id, activeDraft, uploaded.id)
+        setAttachments((current) => [...current, {
+          id: uploaded.id,
+          filename: uploaded.filename,
+          mime: uploaded.mime,
+          size: uploaded.size,
+          contentId: linked.contentId,
+          disposition: linked.disposition,
+        }])
       } catch (reason) {
         toast((reason as Error).message, 'danger')
       }
+    }
+  }
+
+  const insertImage = async (file: File) => {
+    if (!INLINE_IMAGE_TYPES.has(file.type)) {
+      toast(t('email.compose.image_type_invalid'), 'danger')
+      return
+    }
+    if (file.size > EMAIL_ATTACHMENT_MAX_BYTES) {
+      toast(t('email.compose.attachment_too_large'), 'danger')
+      return
+    }
+    setError(null)
+    let activeDraft = draft
+    try {
+      if (!activeDraft) {
+        activeDraft = await saveDraft()
+        if (!activeDraft) return
+      }
+      const uploaded = await attachmentHubApi.upload('email', file)
+      const linked = await api.email.linkAttachment(account.id, activeDraft, uploaded.id, { inline: true })
+      if (!linked.contentId) {
+        toast(t('email.compose.image_failed'), 'danger')
+        return
+      }
+      const markdown = `![${inlineImageAlt(uploaded.filename)}](cid:${linked.contentId})`
+      const view = viewRef.current
+      if (view) {
+        const range = view.state.selection.main
+        const before = view.state.sliceDoc(0, range.from)
+        const after = view.state.sliceDoc(range.to)
+        const prefix = before && !before.endsWith('\n') ? '\n\n' : ''
+        const suffix = after && !after.startsWith('\n') ? '\n\n' : ''
+        const insert = `${prefix}${markdown}${suffix}`
+        view.dispatch({
+          changes: { from: range.from, to: range.to, insert },
+          selection: { anchor: range.from + insert.length },
+        })
+        view.focus()
+      } else {
+        setBody((current) => `${current}${current.endsWith('\n') ? '' : '\n\n'}${markdown}`)
+      }
+      setAttachments((current) => [...current, {
+        id: uploaded.id,
+        filename: uploaded.filename,
+        mime: uploaded.mime,
+        size: uploaded.size,
+        contentId: linked.contentId,
+        disposition: linked.disposition,
+      }])
+    } catch (reason) {
+      toast((reason as Error).message, 'danger')
     }
   }
 
@@ -686,6 +770,12 @@ export function ComposePanel({
                   />
                 </div>
                 <ToolButton
+                  label={t('email.compose.insert_image')}
+                  onClick={() => imageInput.current?.click()}
+                >
+                  <ImageIcon size={14} />
+                </ToolButton>
+                <ToolButton
                   buttonRef={templateAnchor}
                   label={t('email.templates.insert')}
                   popup="menu"
@@ -719,7 +809,7 @@ export function ComposePanel({
           ) : (
             <div
               className="ink-prose min-h-[180px] p-3 text-[length:var(--text-13)]"
-              dangerouslySetInnerHTML={{ __html: emailMarkdownToHtml(body) }}
+              dangerouslySetInnerHTML={{ __html: previewHtml }}
             />
           )}
         </div>
@@ -732,6 +822,18 @@ export function ComposePanel({
               className="hidden"
               aria-label={t('email.compose.add_attachment')}
               onChange={(event) => { void addFiles(event.target.files); event.target.value = '' }}
+            />
+            <input
+              ref={imageInput}
+              type="file"
+              accept={INLINE_IMAGE_ACCEPT}
+              className="hidden"
+              aria-label={t('email.compose.insert_image')}
+              onChange={(event) => {
+                const file = event.target.files?.[0]
+                event.target.value = ''
+                if (file) void insertImage(file)
+              }}
             />
             <Button size="sm" variant="secondary" icon={<Paperclip size={14} />} onClick={() => fileInput.current?.click()} disabled={sending || saving || scheduling}>
               {t('email.compose.add_attachment')}

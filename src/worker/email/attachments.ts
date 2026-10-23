@@ -97,12 +97,19 @@ export async function linkEmailAttachment(
   attachmentId: string,
   accountId: string,
   emailId: string,
+  inlineContentId: string | null = null,
 ): Promise<boolean> {
-  const result = await db.prepare(
-    `UPDATE email_attachments
-        SET email_id = ?1, account_id = ?2
-      WHERE user_id = ?3 AND id = ?4 AND email_id IS NULL AND locked = 0`,
-  ).bind(emailId, accountId, userId, attachmentId).run()
+  const result = inlineContentId
+    ? await db.prepare(
+        `UPDATE email_attachments
+            SET email_id = ?1, account_id = ?2, disposition = 'inline', content_id = ?5
+          WHERE user_id = ?3 AND id = ?4 AND email_id IS NULL AND locked = 0`,
+      ).bind(emailId, accountId, userId, attachmentId, inlineContentId).run()
+    : await db.prepare(
+        `UPDATE email_attachments
+            SET email_id = ?1, account_id = ?2
+          WHERE user_id = ?3 AND id = ?4 AND email_id IS NULL AND locked = 0`,
+      ).bind(emailId, accountId, userId, attachmentId).run()
   return Boolean(result.meta.changes)
 }
 

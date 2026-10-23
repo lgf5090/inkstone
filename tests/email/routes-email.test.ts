@@ -1063,7 +1063,8 @@ describe('email drafts and attachments', () => {
     const key = `mail/docs/${attachmentId}.pdf`
 
     const linked = await call('POST', `/accounts/${accountId}/drafts/${draftId}/attachments`, { attachmentId })
-    expect(linked.status).toBe(204)
+    expect(linked.status).toBe(200)
+    expect(await json(linked)).toEqual({ attachmentId, contentId: null, disposition: 'attachment' })
     const row = sqlite.prepare('SELECT email_id, account_id FROM email_attachments WHERE id = ?').get(attachmentId) as {
       email_id: string
       account_id: string
@@ -1100,6 +1101,132 @@ describe('email drafts and attachments', () => {
     })
     expect(notFound.status).toBe(404)
     expect((await errorOf(notFound)).code).toBe('email_attachment_not_found')
+  })
+
+  it('links an image inline with a generated content id', async () => {
+    const { draftId } = await json<{ draftId: string }>(await call('POST', `/accounts/${accountId}/drafts`, {
+      to: 'bob@example.com',
+      subject: 'Inline image',
+      body: '',
+      bodyHtml: '',
+    }))
+    const attachmentId = await seedAttachment({
+      emailId: null,
+      account: null,
+      filename: 'photo.png',
+      mime: 'image/png',
+    })
+    const response = await call('POST', `/accounts/${accountId}/drafts/${draftId}/attachments`, {
+      attachmentId,
+      inline: true,
+    })
+    expect(response.status).toBe(200)
+    const body = await json<{ attachmentId: string; contentId: string; disposition: string }>(response)
+    expect(body.attachmentId).toBe(attachmentId)
+    expect(body.contentId).toMatch(/^[0-9a-z]{26}$/)
+    expect(body.disposition).toBe('inline')
+    const row = sqlite.prepare('SELECT email_id, content_id, disposition FROM email_attachments WHERE id = ?')
+      .get(attachmentId)
+    expect(row).toEqual({ email_id: draftId, content_id: body.contentId, disposition: 'inline' })
+  })
+
+  it('validates a supplied content id and requires inline mode', async () => {
+    const { draftId } = await json<{ draftId: string }>(await call('POST', `/accounts/${accountId}/drafts`, {
+      to: 'bob@example.com',
+      subject: 'Inline image',
+      body: '',
+      bodyHtml: '',
+    }))
+    const supplied = await seedAttachment({
+      emailId: null,
+      account: null,
+      filename: 'photo.png',
+      mime: 'image/png',
+    })
+    const accepted = await call('POST', `/accounts/${accountId}/drafts/${draftId}/attachments`, {
+      attachmentId: supplied,
+      inline: true,
+      contentId: '<photo@inkstone>',
+    })
+    expect(accepted.status).toBe(200)
+    expect(await json(accepted)).toEqual({
+      attachmentId: supplied,
+      contentId: 'photo@inkstone',
+      disposition: 'inline',
+    })
+
+    const unsafe = await seedAttachment({
+      emailId: null,
+      account: null,
+      filename: 'other.png',
+      mime: 'image/png',
+    })
+    const rejected = await call('POST', `/accounts/${accountId}/drafts/${draftId}/attachments`, {
+      attachmentId: unsafe,
+      inline: true,
+      contentId: 'bad id;',
+    })
+    expect(rejected.status).toBe(400)
+    expect((await errorOf(rejected)).code).toBe('email_draft_invalid')
+
+    const withoutInline = await call('POST', `/accounts/${accountId}/drafts/${draftId}/attachments`, {
+      attachmentId: unsafe,
+      contentId: 'photo@inkstone',
+    })
+    expect(withoutInline.status).toBe(400)
+    expect((await errorOf(withoutInline)).code).toBe('email_draft_invalid')
+  })
+
+  it('rejects inline linking for non-image and unsafe image attachments', async () => {
+    const { draftId } = await json<{ draftId: string }>(await call('POST', `/accounts/${accountId}/drafts`, {
+      to: 'bob@example.com',
+      subject: 'Inline image',
+      body: '',
+      bodyHtml: '',
+    }))
+    const document = await seedAttachment({ emailId: null, account: null })
+    const documentResponse = await call('POST', `/accounts/${accountId}/drafts/${draftId}/attachments`, {
+      attachmentId: document,
+      inline: true,
+    })
+    expect(documentResponse.status).toBe(400)
+    expect((await errorOf(documentResponse)).code).toBe('bad_request')
+
+    const vector = await seedAttachment({
+      emailId: null,
+      account: null,
+      filename: 'shape.svg',
+      mime: 'image/svg+xml',
+    })
+    const vectorResponse = await call('POST', `/accounts/${accountId}/drafts/${draftId}/attachments`, {
+      attachmentId: vector,
+      inline: true,
+    })
+    expect(vectorResponse.status).toBe(400)
+    expect((await errorOf(vectorResponse)).code).toBe('bad_request')
+    expect(count('SELECT COUNT(*) AS n FROM email_attachments WHERE email_id = ?', draftId)).toBe(0)
+  })
+
+  it('does not link another user image inline', async () => {
+    const { draftId } = await json<{ draftId: string }>(await call('POST', `/accounts/${accountId}/drafts`, {
+      to: 'bob@example.com',
+      subject: 'Inline image',
+      body: '',
+      bodyHtml: '',
+    }))
+    const attachmentId = await seedAttachment({
+      emailId: null,
+      account: null,
+      owner: newId(),
+      filename: 'photo.png',
+      mime: 'image/png',
+    })
+    const response = await call('POST', `/accounts/${accountId}/drafts/${draftId}/attachments`, {
+      attachmentId,
+      inline: true,
+    })
+    expect(response.status).toBe(404)
+    expect((await errorOf(response)).code).toBe('email_attachment_not_found')
   })
 })
 

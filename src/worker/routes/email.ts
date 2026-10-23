@@ -112,6 +112,7 @@ const EML_RESERVED_HEADERS = new Set<string>([
   'from', 'to', 'cc', 'bcc', 'subject', 'date', 'message-id', 'in-reply-to', 'references',
   'mime-version', 'content-type', 'content-transfer-encoding', 'content-disposition',
 ])
+const EMAIL_CONTENT_ID_RE = /^[A-Za-z0-9._@-]{1,128}$/
 
 function allowedDomains(env: AppBindings['Bindings']): string[] {
   const raw = (env.EMAIL_DOMAINS ?? env.MAIL_DOMAIN ?? '').trim()
@@ -343,6 +344,12 @@ function readBatchAction(value: unknown): EmailBatchAction {
 function attachmentIdParam(value: string): string {
   if (!isValidId(value)) throw attachmentNotFound()
   return value
+}
+
+function contentIdParam(value: string): string {
+  const trimmed = value.trim().replace(/^<+/, '').replace(/>+$/, '')
+  if (!EMAIL_CONTENT_ID_RE.test(trimmed)) throw draftInvalid('The content id is not valid')
+  return trimmed
 }
 
 function pageParams(c: Ctx): { page: number; limit: number } {
@@ -1372,8 +1379,26 @@ emailRoutes.post('/accounts/:id/drafts', async (c) => {
 emailRoutes.post('/accounts/:id/drafts/:draftId/attachments', async (c) => {
   const row = await requireAccount(c, c.req.param('id') ?? '')
   const draftId = messageIdParam(c.req.param('draftId') ?? '')
-  const body = await readJson<{ attachmentId?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<{ attachmentId?: unknown; inline?: unknown; contentId?: unknown }>(
+    c,
+    JSON_BODY_LIMITS.small,
+  )
   if (typeof body.attachmentId !== 'string') throw attachmentNotFound()
+  if (body.inline !== undefined && typeof body.inline !== 'boolean') {
+    throw draftInvalid('The inline flag must be a boolean')
+  }
+  const inline = body.inline === true
+  let contentId: string | null = null
+  if (inline) {
+    if (body.contentId !== undefined && body.contentId !== null && typeof body.contentId !== 'string') {
+      throw draftInvalid('The content id must be a string')
+    }
+    contentId = typeof body.contentId === 'string' && body.contentId.trim()
+      ? contentIdParam(body.contentId)
+      : newId()
+  } else if (body.contentId !== undefined && body.contentId !== null) {
+    throw draftInvalid('The content id requires an inline attachment')
+  }
   const attachmentId = attachmentIdParam(body.attachmentId)
   const mailbox = emailMailbox(c.env, row.id)
   const draft = await mailbox.getEmail(draftId)
@@ -1382,14 +1407,28 @@ emailRoutes.post('/accounts/:id/drafts/:draftId/attachments', async (c) => {
   if (!attachment || (attachment.account_id && attachment.account_id !== row.id)) throw attachmentNotFound()
   if (attachment.locked) throw new ApiError(409, 'email_attachment_locked', 'The attachment can no longer be changed')
   if (attachment.email_id !== null) throw attachmentNotFound()
-  const linked = await linkEmailAttachment(c.env.DB, c.get('userId'), attachmentId, row.id, draftId)
+  if (inline && !isInlineSafe(attachment.mime)) {
+    throw new ApiError(400, 'bad_request', 'Only image attachments can be inline')
+  }
+  const linked = await linkEmailAttachment(
+    c.env.DB,
+    c.get('userId'),
+    attachmentId,
+    row.id,
+    draftId,
+    inline ? contentId : null,
+  )
   if (!linked) {
     const latest = await getEmailAttachmentRow(c.env.DB, c.get('userId'), attachmentId)
     if (latest?.locked) throw new ApiError(409, 'email_attachment_locked', 'The attachment can no longer be changed')
     throw attachmentNotFound()
   }
   await mailbox.setHasAttachment(draftId, true)
-  return c.body(null, 204)
+  return c.json({
+    attachmentId,
+    contentId: inline ? contentId : attachment.content_id,
+    disposition: inline ? 'inline' : attachment.disposition ?? 'attachment',
+  })
 })
 
 emailRoutes.delete('/accounts/:id/drafts/:draftId/attachments/:attachmentId', async (c) => {

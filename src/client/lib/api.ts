@@ -1318,8 +1318,16 @@ export const api = {
       request<void>(`/api/email/accounts/${id}/scheduled/${jobId}`, { method: 'DELETE' }),
     listScheduledSends: (id: string) =>
       request<EmailScheduledSend[]>(`/api/email/accounts/${id}/scheduled`),
-    linkAttachment: (id: string, draftId: string, attachmentId: string) =>
-      request<void>(`/api/email/accounts/${id}/drafts/${draftId}/attachments`, { method: 'POST', body: { attachmentId } }),
+    linkAttachment: (
+      id: string,
+      draftId: string,
+      attachmentId: string,
+      options: { inline?: boolean; contentId?: string } = {},
+    ) =>
+      request<{ attachmentId: string; contentId: string | null; disposition: string | null }>(
+        `/api/email/accounts/${id}/drafts/${draftId}/attachments`,
+        { method: 'POST', body: { attachmentId, ...options } },
+      ),
     unlinkAttachment: (id: string, draftId: string, attachmentId: string) =>
       request<void>(`/api/email/accounts/${id}/drafts/${draftId}/attachments/${attachmentId}`, { method: 'DELETE' }),
     search: (id: string, params: Record<string, string | number | undefined>) =>

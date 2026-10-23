@@ -12,6 +12,38 @@ import { parseEmailSearchQuery } from '@shared/email/search'
 import { localeTag, t } from '../../lib/i18n'
 import { isSameDay } from '../../lib/time'
 
+export interface EmailCidSource {
+  contentId: string | null
+  url: string
+}
+
+function decodeCidValue(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+function normalizedCid(value: string): string {
+  return value.trim().replace(/^<+/, '').replace(/>+$/, '').toLowerCase()
+}
+
+export function rewriteEmailCidSources(html: string, attachments: readonly EmailCidSource[]): string {
+  const urls = new Map<string, string>()
+  for (const attachment of attachments) {
+    if (!attachment.contentId || !attachment.url) continue
+    urls.set(normalizedCid(attachment.contentId), attachment.url)
+    const decoded = decodeCidValue(attachment.contentId)
+    if (decoded !== attachment.contentId) urls.set(normalizedCid(decoded), attachment.url)
+  }
+  if (urls.size === 0) return html
+  return html.replace(/(src\s*=\s*["'])cid:([^"']+)(["'])/gi, (match, prefix: string, cid: string, suffix: string) => {
+    const url = urls.get(normalizedCid(cid)) ?? urls.get(normalizedCid(decodeCidValue(cid)))
+    return url ? `${prefix}${url}${suffix}` : match
+  })
+}
+
 export const SYSTEM_FOLDER_LABEL_KEYS: Record<EmailSystemFolder, MessageKey> = {
   inbox: 'email.folder.inbox',
   sent: 'email.folder.sent',
