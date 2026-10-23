@@ -157,15 +157,20 @@ describe('mailbox migrations', () => {
       '2_org_tags',
       '3_snooze',
       '4_inbound_rules',
+      '5_email_templates',
     ])
     const ruleTables = legacy.prepare(
       `SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('email_filters', 'email_blocked_senders')`,
     ).all() as Array<{ name: string }>
     expect(ruleTables.map((table) => table.name).sort()).toEqual(['email_blocked_senders', 'email_filters'])
+    const templateTables = legacy.prepare(
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'email_templates'`,
+    ).all() as Array<{ name: string }>
+    expect(templateTables.map((table) => table.name)).toEqual(['email_templates'])
 
     applyMailboxMigrations(sql)
     const reapplied = legacy.prepare(`SELECT COUNT(*) AS total FROM email_migrations`).get() as { total: number }
-    expect(reapplied.total).toBe(4)
+    expect(reapplied.total).toBe(5)
     const folderCount = legacy.prepare(`SELECT COUNT(*) AS total FROM email_folders`).get() as { total: number }
     expect(folderCount.total).toBe(7)
   })

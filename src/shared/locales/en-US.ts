@@ -14,6 +14,7 @@ import { EN_US_EMAIL_SHORTCUTS } from './en-US-email-shortcuts';
 import { EN_US_EMAIL_COMPOSE } from './en-US-email-compose';
 import { EN_US_EMAIL_RAW } from './en-US-email-raw';
 import { EN_US_EMAIL_RULES } from './en-US-email-rules';
+import { EN_US_EMAIL_TEMPLATES } from './en-US-email-templates';
 export const EN_US_MESSAGES = {
     "template.kanban_sprint_board.name": "Sprint Board",
     "template.kanban_sprint_board.description": "A kanban board with the four columns a sprint actually needs.",
@@ -8882,6 +8883,7 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     ...EN_US_EMAIL_COMPOSE,
     ...EN_US_EMAIL_RAW,
     ...EN_US_EMAIL_RULES,
+    ...EN_US_EMAIL_TEMPLATES,
 } as const;
 export type BaseMessageKey = keyof typeof EN_US_MESSAGES;
 export type MessageKey = BaseMessageKey | NoteTemplateContentKey;

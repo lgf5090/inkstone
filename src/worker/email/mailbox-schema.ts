@@ -182,4 +182,19 @@ export const EMAIL_MAILBOX_MIGRATIONS: readonly MailboxMigration[] = [
       )`)
     },
   },
+  {
+    name: '5_email_templates',
+    apply: (sql) => {
+      sql.exec(`CREATE TABLE IF NOT EXISTS email_templates (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        subject TEXT NOT NULL DEFAULT '',
+        body TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )`)
+      sql.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_email_templates_name
+        ON email_templates(name COLLATE NOCASE)`)
+    },
+  },
 ]

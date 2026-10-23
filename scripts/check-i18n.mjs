@@ -265,6 +265,7 @@ const emailCatalogFiles = {
         [path.join(localeRoot, 'en-US-email-compose.ts'), 'EN_US_EMAIL_COMPOSE'],
         [path.join(localeRoot, 'en-US-email-raw.ts'), 'EN_US_EMAIL_RAW'],
         [path.join(localeRoot, 'en-US-email-rules.ts'), 'EN_US_EMAIL_RULES'],
+        [path.join(localeRoot, 'en-US-email-templates.ts'), 'EN_US_EMAIL_TEMPLATES'],
     ],
     zh: [
         [path.join(localeRoot, 'zh-CN-email-mcp.ts'), 'ZH_CN_EMAIL_MCP'],
@@ -276,6 +277,7 @@ const emailCatalogFiles = {
         [path.join(localeRoot, 'zh-CN-email-compose.ts'), 'ZH_CN_EMAIL_COMPOSE'],
         [path.join(localeRoot, 'zh-CN-email-raw.ts'), 'ZH_CN_EMAIL_RAW'],
         [path.join(localeRoot, 'zh-CN-email-rules.ts'), 'ZH_CN_EMAIL_RULES'],
+        [path.join(localeRoot, 'zh-CN-email-templates.ts'), 'ZH_CN_EMAIL_TEMPLATES'],
     ],
 };
 const catalogFragments = {

@@ -27,6 +27,11 @@ import {
   type EmailFilterPatch,
 } from '@shared/email/rules'
 import { isValidEmailTagPath, normalizeEmailTagPath } from '@shared/email/tags'
+import {
+  EMAIL_TEMPLATE_MAX,
+  type EmailTemplateInput,
+  type EmailTemplatePatch,
+} from '@shared/email/templates'
 import type { SqlExec } from './mailbox-schema'
 
 export interface EmailData {
@@ -127,6 +132,15 @@ export interface EmailFilterRecord {
 export interface BlockedSenderRow {
   email_normalized: string
   created_at: number
+}
+
+export interface EmailTemplateRow {
+  id: string
+  name: string
+  subject: string
+  body: string
+  created_at: number
+  updated_at: number
 }
 
 export interface InboundRuleInput {
@@ -1176,6 +1190,82 @@ export class MailboxStore {
     return true
   }
 
+  listTemplates(): EmailTemplateRow[] {
+    return this.rows<EmailTemplateRow>(
+      `SELECT id, name, subject, body, created_at, updated_at FROM email_templates
+        ORDER BY name COLLATE NOCASE ASC, id ASC`,
+    )
+  }
+
+  countTemplates(): number {
+    const row = this.one<{ total: number }>(`SELECT COUNT(*) AS total FROM email_templates`)
+    return Number(row?.total ?? 0)
+  }
+
+  getTemplate(id: string): EmailTemplateRow | null {
+    return this.one<EmailTemplateRow>(
+      `SELECT id, name, subject, body, created_at, updated_at FROM email_templates WHERE id = ?1`,
+      id,
+    )
+  }
+
+  createTemplate(input: EmailTemplateInput): EmailTemplateRow | null {
+    if (this.countTemplates() >= EMAIL_TEMPLATE_MAX) return null
+    if (this.one<{ id: string }>(`SELECT id FROM email_templates WHERE name = ?1 COLLATE NOCASE`, input.name)) {
+      return null
+    }
+    const id = newId()
+    const now = Date.now()
+    this.sql.exec(
+      `INSERT INTO email_templates (id, name, subject, body, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?5)`,
+      id,
+      input.name,
+      input.subject,
+      input.body,
+      now,
+    )
+    return this.getTemplate(id)
+  }
+
+  updateTemplate(id: string, patch: EmailTemplatePatch): EmailTemplateRow | null {
+    const existing = this.one<{ id: string }>(`SELECT id FROM email_templates WHERE id = ?1`, id)
+    if (!existing) return null
+    if (patch.name !== undefined) {
+      const duplicate = this.one<{ id: string }>(
+        `SELECT id FROM email_templates WHERE name = ?1 COLLATE NOCASE AND id != ?2`,
+        patch.name,
+        id,
+      )
+      if (duplicate) return null
+    }
+    const sets: string[] = []
+    const bindings: unknown[] = []
+    if (patch.name !== undefined) {
+      sets.push('name = ?')
+      bindings.push(patch.name)
+    }
+    if (patch.subject !== undefined) {
+      sets.push('subject = ?')
+      bindings.push(patch.subject)
+    }
+    if (patch.body !== undefined) {
+      sets.push('body = ?')
+      bindings.push(patch.body)
+    }
+    if (!sets.length) return this.getTemplate(id)
+    sets.push('updated_at = ?')
+    bindings.push(Date.now(), id)
+    this.sql.exec(`UPDATE email_templates SET ${sets.join(', ')} WHERE id = ?`, ...bindings)
+    return this.getTemplate(id)
+  }
+
+  deleteTemplate(id: string): boolean {
+    if (!this.one<{ id: string }>(`SELECT id FROM email_templates WHERE id = ?1`, id)) return false
+    this.sql.exec(`DELETE FROM email_templates WHERE id = ?1`, id)
+    return true
+  }
+
   listBlockedSenders(): BlockedSenderRow[] {
     return this.rows<BlockedSenderRow>(
       `SELECT email_normalized, created_at FROM email_blocked_senders
@@ -1684,7 +1774,7 @@ export class MailboxStore {
   }
 
   deleteAll(): void {
-    for (const table of ['email_message_tags', 'email_tags', 'email_messages', 'email_folders', 'email_inbound_claims', 'email_operations', 'email_filters', 'email_blocked_senders']) {
+    for (const table of ['email_message_tags', 'email_tags', 'email_messages', 'email_folders', 'email_inbound_claims', 'email_operations', 'email_filters', 'email_blocked_senders', 'email_templates']) {
       this.sql.exec(`DELETE FROM ${table}`)
     }
   }

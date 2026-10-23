@@ -8,6 +8,7 @@ export type EmailAddress =
   | { kind: 'settings'; accountId: string }
   | { kind: 'stats'; accountId: string }
   | { kind: 'rules'; accountId: string }
+  | { kind: 'templates'; accountId: string }
   | { kind: 'search'; accountId: string; query: string; messageId: string | null }
   | {
       kind: 'mailbox'
@@ -33,6 +34,7 @@ export function parseEmailAddress(pathname: string, search = ''): EmailAddress {
   if (parts[2] === 'settings') return { kind: 'settings', accountId }
   if (parts[2] === 'stats') return { kind: 'stats', accountId }
   if (parts[2] === 'rules') return { kind: 'rules', accountId }
+  if (parts[2] === 'templates') return { kind: 'templates', accountId }
   if (parts[2] === 'search') {
     return {
       kind: 'search',
@@ -92,6 +94,10 @@ export function emailStatsPath(accountId: string): string {
 
 export function emailRulesPath(accountId: string): string {
   return `${EMAIL_PATH}/accounts/${encodeURIComponent(accountId)}/rules`
+}
+
+export function emailTemplatesPath(accountId: string): string {
+  return `${EMAIL_PATH}/accounts/${encodeURIComponent(accountId)}/templates`
 }
 
 export function emailContactsPath(): string {

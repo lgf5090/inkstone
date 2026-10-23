@@ -3,10 +3,11 @@ import type { EditorView } from '@codemirror/view'
 import { ChevronDown, FileText, Paperclip, X } from 'lucide-react'
 import type { EmailAccount, EmailMessage, EmailSendInput } from '@shared/email/model'
 import { EMAIL_ATTACHMENT_MAX_BYTES } from '@shared/email/model'
+import type { EmailTemplate } from '@shared/email/templates'
 import { buildEmailQuoteMarkdown, formatEmailQuotedDate, splitEmailList, stripEmailHtmlToText } from '@shared/email/format'
 import { Button, IconButton } from '../../components/primitives'
 import { Field, Input, Segmented } from '../../components/form'
-import { confirm, Menu } from '../../components/overlay'
+import { confirm, Menu, type MenuItem } from '../../components/overlay'
 import { toastWithUndo, useUi } from '../../store/ui'
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
@@ -14,7 +15,7 @@ import { formatBytes, fullTime } from '../../lib/time'
 import { api } from '../../lib/api'
 import { attachmentHubApi } from '../attachment-hub/api'
 import { FilePreviewModal } from '../file-preview'
-import { FormatToolbar } from '../../editor/FormatToolbar'
+import { FormatToolbar, ToolButton } from '../../editor/FormatToolbar'
 import { insertLink } from '../../editor/commands'
 import { prompt } from '../../components/overlay'
 import { emailMarkdownToHtml } from './email-markdown'
@@ -155,9 +156,14 @@ export function ComposePanel({
   ))
   const [attachments, setAttachments] = useState<ComposeAttachment[]>([])
   const [preview, setPreview] = useState<ComposeAttachment | null>(null)
+  const [templatesOpen, setTemplatesOpen] = useState(false)
+  const [templates, setTemplates] = useState<EmailTemplate[] | null>(null)
+  const [templatesLoading, setTemplatesLoading] = useState(false)
+  const [templatesError, setTemplatesError] = useState<string | null>(null)
   const viewRef = useRef<EditorView | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const scheduleAnchor = useRef<HTMLButtonElement>(null)
+  const templateAnchor = useRef<HTMLButtonElement>(null)
   const saveInFlight = useRef(false)
   const autoSaveTimer = useRef<number | null>(null)
   const undoTimer = useRef<number | null>(null)
@@ -495,6 +501,63 @@ export function ComposePanel({
     view.focus()
   }
 
+  const openTemplatesMenu = (): void => {
+    if (templatesOpen) {
+      setTemplatesOpen(false)
+      return
+    }
+    setTemplatesOpen(true)
+    if (templates || templatesLoading) return
+    setTemplatesLoading(true)
+    void api.email.listTemplates(account.id).then((rows) => {
+      setTemplates(rows)
+      setTemplatesError(null)
+    }).catch((reason) => {
+      const message = (reason as Error).message
+      setTemplatesError(message)
+      toast(message, 'danger')
+    }).finally(() => {
+      setTemplatesLoading(false)
+    })
+  }
+
+  const insertTemplate = (template: EmailTemplate): void => {
+    setTemplatesOpen(false)
+    if (subject.trim() === '') setSubject(template.subject)
+    const view = viewRef.current
+    if (!body.trim()) {
+      setBody(template.body)
+    } else if (view) {
+      const range = view.state.selection.main
+      const before = view.state.sliceDoc(0, range.from)
+      const after = view.state.sliceDoc(range.to)
+      const prefix = before && !before.endsWith('\n') ? '\n\n' : ''
+      const suffix = after && !after.startsWith('\n') ? '\n\n' : ''
+      const insert = `${prefix}${template.body}${suffix}`
+      view.dispatch({
+        changes: { from: range.from, to: range.to, insert },
+        selection: { anchor: range.from + insert.length },
+      })
+      view.focus()
+    } else {
+      setBody((current) => `${current}${current.endsWith('\n') ? '' : '\n\n'}${template.body}`)
+    }
+    toast(t('email.templates.inserted', { name: template.name }))
+  }
+
+  const templateItems: MenuItem[] = templatesLoading
+    ? [{ id: 'templates-loading', label: t('email.templates.loading'), disabled: true }]
+    : templatesError
+      ? [{ id: 'templates-error', label: t('email.templates.menu_error'), disabled: true }]
+      : !templates || templates.length === 0
+        ? [{ id: 'templates-empty', label: t('email.templates.empty'), disabled: true }]
+        : templates.map((template) => ({
+            id: template.id,
+            label: template.name,
+            icon: <FileText size={13} />,
+            onSelect: () => insertTemplate(template),
+          }))
+
   const titleKey = draft
     ? 'email.compose.title_edit_draft'
     : mode === 'reply'
@@ -553,15 +616,26 @@ export function ComposePanel({
               ]}
             />
             {viewMode === 'edit' && (
-              <div className="min-w-0 flex-1 overflow-x-auto no-scrollbar">
-                <FormatToolbar
-                  run={run}
-                  variant="email"
-                  onInsertLink={insertEmailLink}
-                  onAlign={align}
-                  showHistory
-                />
-              </div>
+              <>
+                <div className="min-w-0 flex-1 overflow-x-auto no-scrollbar">
+                  <FormatToolbar
+                    run={run}
+                    variant="email"
+                    onInsertLink={insertEmailLink}
+                    onAlign={align}
+                    showHistory
+                  />
+                </div>
+                <ToolButton
+                  buttonRef={templateAnchor}
+                  label={t('email.templates.insert')}
+                  popup="menu"
+                  expanded={templatesOpen}
+                  onClick={openTemplatesMenu}
+                >
+                  <FileText size={14} />
+                </ToolButton>
+              </>
             )}
           </div>
           {viewMode === 'edit' ? (
@@ -680,6 +754,14 @@ export function ComposePanel({
         align="end"
         width={220}
         label={t('email.compose.schedule_send')}
+      />
+      <Menu
+        anchor={templateAnchor}
+        open={templatesOpen}
+        onClose={() => setTemplatesOpen(false)}
+        items={templateItems}
+        width={240}
+        label={t('email.templates.insert')}
       />
       {preview && (
         <FilePreviewModal

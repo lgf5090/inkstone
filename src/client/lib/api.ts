@@ -162,6 +162,11 @@ import type {
   EmailFilterInput,
   EmailFilterPatch,
 } from '@shared/email/rules'
+import type {
+  EmailTemplate,
+  EmailTemplateInput,
+  EmailTemplatePatch,
+} from '@shared/email/templates'
 import { publishBroadcast } from './db'
 import { randomLocalId } from './random-id'
 import { getLocale, t, translateApiError } from './i18n'
@@ -1223,6 +1228,14 @@ export const api = {
       request<EmailFilter>(`/api/email/accounts/${id}/filters/${filterId}`, { method: 'PATCH', body: patch }),
     deleteFilter: (id: string, filterId: string) =>
       request<void>(`/api/email/accounts/${id}/filters/${filterId}`, { method: 'DELETE' }),
+    listTemplates: (id: string) =>
+      request<EmailTemplate[]>(`/api/email/accounts/${id}/templates`),
+    createTemplate: (id: string, input: EmailTemplateInput) =>
+      request<EmailTemplate>(`/api/email/accounts/${id}/templates`, { method: 'POST', body: input }),
+    updateTemplate: (id: string, templateId: string, patch: EmailTemplatePatch) =>
+      request<EmailTemplate>(`/api/email/accounts/${id}/templates/${templateId}`, { method: 'PATCH', body: patch }),
+    deleteTemplate: (id: string, templateId: string) =>
+      request<void>(`/api/email/accounts/${id}/templates/${templateId}`, { method: 'DELETE' }),
     listBlockedSenders: (id: string) =>
       request<EmailBlockedSender[]>(`/api/email/accounts/${id}/blocklist`),
     addBlockedSender: (id: string, address: string) =>

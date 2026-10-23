@@ -15,6 +15,7 @@ import {
 } from './mailbox-store'
 import type { EmailBatchAction } from '@shared/email/model'
 import type { EmailFilterInput, EmailFilterPatch } from '@shared/email/rules'
+import type { EmailTemplateInput, EmailTemplatePatch } from '@shared/email/templates'
 
 export class EmailMailbox extends DurableObject<Env> {
   private readonly store: MailboxStore
@@ -46,6 +47,12 @@ export class EmailMailbox extends DurableObject<Env> {
   createFilter(input: EmailFilterInput) { return this.store.createFilter(input) }
   updateFilter(id: string, patch: EmailFilterPatch) { return this.store.updateFilter(id, patch) }
   deleteFilter(id: string) { return this.store.deleteFilter(id) }
+  listTemplates() { return this.store.listTemplates() }
+  countTemplates() { return this.store.countTemplates() }
+  getTemplate(id: string) { return this.store.getTemplate(id) }
+  createTemplate(input: EmailTemplateInput) { return this.store.createTemplate(input) }
+  updateTemplate(id: string, patch: EmailTemplatePatch) { return this.store.updateTemplate(id, patch) }
+  deleteTemplate(id: string) { return this.store.deleteTemplate(id) }
   listBlockedSenders() { return this.store.listBlockedSenders() }
   getBlockedSender(address: string) { return this.store.getBlockedSender(address) }
   addBlockedSender(address: string) { return this.store.addBlockedSender(address) }

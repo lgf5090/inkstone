@@ -10,6 +10,7 @@ import { ContactsPage } from './ContactsPage'
 import { MailboxPage } from './MailboxPage'
 import { RulesPage } from './RulesPage'
 import { StatsPage } from './StatsPage'
+import { TemplatesPage } from './TemplatesPage'
 import { parseEmailAddress } from './email-address'
 import { useEmailStore } from './store'
 
@@ -78,5 +79,6 @@ export function EmailApp() {
   }
   if (address.kind === 'stats') return <StatsPage accountId={address.accountId} />
   if (address.kind === 'rules') return <RulesPage accountId={address.accountId} />
+  if (address.kind === 'templates') return <TemplatesPage accountId={address.accountId} />
   return <MailboxPage address={address} account={account} />
 }
