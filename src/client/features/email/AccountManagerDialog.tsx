@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Mail, Plus, Settings2, Trash2 } from 'lucide-react'
 import type { EmailAccount } from '@shared/email/model'
 import { Avatar, Button, IconButton } from '../../components/primitives'
@@ -23,11 +23,13 @@ export function AccountManagerDialog({
   onClose,
   activeAccountId,
   onOpenSettings,
+  startCreating = false,
 }: {
   open: boolean
   onClose: () => void
   activeAccountId: string
   onOpenSettings: (accountId: string) => void
+  startCreating?: boolean
 }) {
   const config = useEmailStore((state) => state.config)
   const accounts = useEmailStore((state) => state.accounts)
@@ -57,6 +59,11 @@ export function AccountManagerDialog({
     setFormError(null)
     setCreating(true)
   }
+
+  useEffect(() => {
+    if (!open || !startCreating) return
+    openCreate()
+  }, [open, startCreating])
 
   const close = (): void => {
     if (busy) return

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
-import { AlarmClock, Archive, Bookmark, ChevronRight, FileText, Flag, FolderClosed, FolderPlus, Inbox, MailPlus, MoreHorizontal, PanelLeft, PanelLeftClose, Palette, Pencil, Plus, Send, Trash2 } from 'lucide-react'
+import { AlarmClock, Archive, Bookmark, ChevronRight, ChevronsUpDown, FileText, Flag, FolderClosed, FolderPlus, Inbox, MoreHorizontal, PanelLeft, PanelLeftClose, Palette, Pencil, Plus, Send, Trash2 } from 'lucide-react'
 import type { EmailFolder, EmailSystemFolder, EmailTag } from '@shared/email/model'
 import { EMAIL_SIDEBAR_FOLDERS, isEmailSystemFolder } from '@shared/email/model'
 import type { EmailSavedSearch } from '@shared/email/searches'
@@ -14,7 +14,10 @@ import {
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { Button, IconButton, SectionLabel, Spinner } from '../../components/primitives'
+import { FilterInput } from '../../components/FilterInput'
 import { Menu, Tooltip, confirm, prompt, useContextMenu, type MenuItem } from '../../components/overlay'
+import { compileQuery, queryKeeps, type Query } from '../../lib/query-match'
+import { usePinyinVersion } from '../../lib/pinyin'
 import { useDropState } from '../../lib/drop-state'
 import { treeIndent, treeItemProps, useExpandedSet, useTreeKeyboard, type MoveMenuFolder } from '../../lib/tree'
 import { useUi } from '../../store/ui'
@@ -32,6 +35,7 @@ import {
 } from './email-drag'
 import { reportEmailFailure } from './email-org'
 import { EmailTagSidebar } from './EmailTagSidebar'
+import { EMAIL_SIDEBAR_PANEL_ID, EmailSidebarTabs, emailSidebarTabId, type EmailSidebarTab } from './EmailSidebarTabs'
 import { SYSTEM_FOLDER_LABEL_KEYS } from './format'
 import type { EmailLoadStatus } from './store'
 
@@ -50,6 +54,7 @@ interface FolderTreeActions {
   folders: readonly EmailFolder[]
   activeFolderId: string | null
   expanded: ReadonlySet<string>
+  forceOpen: boolean
   moveTree: MoveMenuFolder[]
   onToggle: (folderId: string) => void
   onSelect: (folderId: string) => void
@@ -88,6 +93,22 @@ function moveExclusions(folders: readonly EmailFolder[], folderId: string): Set<
   )
 }
 
+function folderLabel(folder: EmailFolder): string {
+  return isEmailSystemFolder(folder.id) ? t(SYSTEM_FOLDER_LABEL_KEYS[folder.id]) : folder.name
+}
+
+function filterFolderNodes(nodes: readonly EmailFolderNode[], query: Query): EmailFolderNode[] {
+  return nodes.flatMap((node) => {
+    const children = filterFolderNodes(node.children, query)
+    if (queryKeeps(query, folderLabel(node.folder))) return [node]
+    return children.length ? [{ ...node, children }] : []
+  })
+}
+
+function collectParentFolderIds(nodes: readonly EmailFolderNode[]): string[] {
+  return nodes.flatMap((node) => node.children.length ? [node.folder.id, ...collectParentFolderIds(node.children)] : [])
+}
+
 export type EmailSystemSearch = 'important' | 'followup'
 
 export function FolderSidebar({
@@ -110,7 +131,6 @@ export function FolderSidebar({
   activeTagName,
   onSelectTag,
   onReloadTags,
-  contactsSection,
   searches,
   searchesStatus,
   searchesError,
@@ -122,7 +142,10 @@ export function FolderSidebar({
   onReloadSearches,
   onClose,
   onCollapse,
-  onManageAccounts,
+  accountSwitcher,
+  favoritesTab,
+  contactsTab,
+  groupsTab,
   footer,
 }: {
   accountId: string
@@ -155,11 +178,18 @@ export function FolderSidebar({
   onReloadSearches: () => Promise<void>
   onClose?: () => void
   onCollapse?: () => void
-  onManageAccounts?: () => void
-  contactsSection?: ReactNode
+  accountSwitcher?: ReactNode
+  favoritesTab?: ReactNode
+  contactsTab?: ReactNode
+  groupsTab?: ReactNode
   footer?: ReactNode
 }) {
   const { expanded, toggle, setMany, setExpanded } = useExpandedSet()
+  const [tab, setTab] = useState<EmailSidebarTab>('folders')
+  const [folderQuery, setFolderQuery] = useState('')
+  const pinyinVersion = usePinyinVersion()
+  const compiledFolderQuery = useMemo(() => compileQuery(folderQuery), [folderQuery])
+  const searchingFolders = Boolean(folderQuery.trim()) && !compiledFolderQuery.error
   const tree = useMemo(() => emailFolderTree(folders), [folders])
   const systemNodes = useMemo(
     () => EMAIL_SIDEBAR_FOLDERS.map((id) => tree.find((node) => node.folder.id === id) ?? placeholderSystemNode(id)),
@@ -179,6 +209,17 @@ export function FolderSidebar({
   )
   const customTree = useMemo(() => emailFolderTree(customRoots), [customRoots])
   const moveTree = useMemo(() => toMoveMenuTree(emailFolderTree(customFolders)), [customFolders])
+  const shownSystemNodes = useMemo(
+    () => searchingFolders ? systemNodes.filter((node) => queryKeeps(compiledFolderQuery, folderLabel(node.folder))) : systemNodes,
+    [compiledFolderQuery, pinyinVersion, searchingFolders, systemNodes],
+  )
+  const shownCustomTree = useMemo(
+    () => searchingFolders ? filterFolderNodes(customTree, compiledFolderQuery) : customTree,
+    [compiledFolderQuery, customTree, pinyinVersion, searchingFolders],
+  )
+  const treeParentIds = useMemo(() => collectParentFolderIds(tree), [tree])
+  const allParentsExpanded = treeParentIds.length > 0 && treeParentIds.every((id) => expanded.has(id))
+  const noFolderMatches = searchingFolders && shownSystemNodes.length === 0 && shownCustomTree.length === 0
 
   useEffect(() => {
     if (!activeFolderId) return
@@ -285,6 +326,7 @@ export function FolderSidebar({
     folders,
     activeFolderId,
     expanded,
+    forceOpen: searchingFolders,
     moveTree,
     onToggle: toggle,
     onSelect: choose,
@@ -299,119 +341,157 @@ export function FolderSidebar({
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col bg-[var(--bg-sunken)]">
-      {(onCollapse || onManageAccounts) && (
-        <div className="flex h-11 shrink-0 items-center justify-end gap-1 px-2">
-          {onManageAccounts && (
-            <Tooltip label={t('email.accounts.manage_title')} side="right">
-              <IconButton label={t('email.accounts.manage_title')} size="sm" onClick={onManageAccounts}>
-                <MailPlus size={14} aria-hidden="true" />
-              </IconButton>
-            </Tooltip>
-          )}
-          {onCollapse && (
-            <Tooltip label={t('sidebar.collapse_navigation')} side="right">
-              <IconButton label={t('sidebar.collapse_navigation')} size="sm" onClick={onCollapse}>
-                <PanelLeftClose size={14} aria-hidden="true" />
-              </IconButton>
-            </Tooltip>
-          )}
-        </div>
-      )}
-      <div className={cn('flex min-h-0 w-full flex-1 flex-col gap-3 overflow-y-auto px-2', onCollapse ? 'pb-3' : 'py-3')}>
-        <nav aria-label={t('email.a11y.folders')} className="flex flex-col gap-3">
-          <div role="tree" aria-label={t('email.a11y.folders')} className="flex flex-col gap-0.5">
-            {systemNodes.map((node, index) => (
-              <FolderBranch
-                key={node.folder.id}
-                node={node}
-                setSize={systemNodes.length}
-                posInSet={index + 1}
-                actions={actions}
-              />
-            ))}
-          </div>
-          <div className="flex flex-col gap-0.5">
-            <SectionLabel className="px-2 py-0">{t('email.folder.views')}</SectionLabel>
-            {([
-              { id: 'important', query: 'is:important', label: t('email.folder.important'), Icon: Flag },
-              { id: 'followup', query: 'is:followup', label: t('email.folder.follow_up'), Icon: AlarmClock },
-            ] as const).map(({ id, query, label, Icon }) => {
-              const active = activeSystemSearch === id
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  data-email-view={id}
-                  aria-current={active ? 'page' : undefined}
-                  onClick={() => {
-                    onSelectSystemSearch(query)
-                    onClose?.()
-                  }}
-                  className={cn(
-                    'flex min-h-8 items-center gap-2 rounded-[var(--r-md)] px-2 text-left text-[length:var(--text-12-5)]',
-                    active
-                      ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
-                      : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
-                  )}
+      <header className="flex h-12 shrink-0 items-center gap-1 border-b border-[var(--border-subtle)] px-2">
+        <div className="min-w-0 flex-1">{accountSwitcher}</div>
+        {onCollapse && (
+          <Tooltip label={t('sidebar.collapse_navigation')} side="right">
+            <IconButton label={t('sidebar.collapse_navigation')} size="sm" onClick={onCollapse}>
+              <PanelLeftClose size={14} aria-hidden="true" />
+            </IconButton>
+          </Tooltip>
+        )}
+      </header>
+      <EmailSidebarTabs active={tab} onSelect={setTab} />
+      <div
+        id={EMAIL_SIDEBAR_PANEL_ID}
+        role="tabpanel"
+        aria-labelledby={emailSidebarTabId(tab)}
+        className="flex min-h-0 flex-1 flex-col"
+      >
+        {tab === 'folders' && (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex h-8 shrink-0 items-center justify-between gap-1 px-2">
+              <Tooltip label={allParentsExpanded ? t('email.folder.collapse_all') : t('email.folder.expand_all')} side="bottom">
+                <IconButton
+                  label={allParentsExpanded ? t('email.folder.collapse_all') : t('email.folder.expand_all')}
+                  size="xs"
+                  disabled={treeParentIds.length === 0}
+                  onClick={() => setExpanded(allParentsExpanded ? new Set() : new Set(treeParentIds))}
                 >
-                  <span className="flex size-4 shrink-0 items-center justify-center">
-                    <Icon size={14} aria-hidden="true" />
-                  </span>
-                  <span className="min-w-0 flex-1 truncate">{label}</span>
-                </button>
-              )
-            })}
-          </div>
-          <div className="flex flex-col gap-0.5">
-            <div className="flex items-center justify-between gap-1 pr-0.5">
-              <SectionLabel className="p-0">{t('email.folder.custom')}</SectionLabel>
+                  <ChevronsUpDown size={13} className={cn('transition-transform', allParentsExpanded && 'rotate-180')} />
+                </IconButton>
+              </Tooltip>
               <IconButton label={t('email.folder.new')} size="xs" onClick={() => { void createIn(null, '') }}>
-                <Plus size={12} />
+                <Plus size={13} />
               </IconButton>
             </div>
-            {customTree.length > 0 && (
-              <div role="tree" aria-label={t('email.folder.custom')} className="flex flex-col gap-0.5">
-                {customTree.map((node, index) => (
-                  <FolderBranch
-                    key={node.folder.id}
-                    node={node}
-                    setSize={customTree.length}
-                    posInSet={index + 1}
-                    actions={actions}
-                  />
-                ))}
-              </div>
-            )}
+            <div className="shrink-0 px-2 pb-1">
+              <FilterInput
+                value={folderQuery}
+                onChange={setFolderQuery}
+                query={compiledFolderQuery}
+                label={t('email.a11y.folders')}
+                placeholder={t('email.sidebar.filter_folders')}
+                className="mt-0"
+              />
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+              <nav aria-label={t('email.a11y.folders')} className="flex flex-col gap-3">
+                <div role="tree" aria-label={t('email.a11y.folders')} className="flex flex-col gap-0.5">
+                  {shownSystemNodes.map((node, index) => (
+                    <FolderBranch
+                      key={node.folder.id}
+                      node={node}
+                      setSize={shownSystemNodes.length}
+                      posInSet={index + 1}
+                      actions={actions}
+                    />
+                  ))}
+                </div>
+                {!searchingFolders && (
+                  <div className="flex flex-col gap-0.5">
+                    <SectionLabel className="px-2 py-0">{t('email.folder.views')}</SectionLabel>
+                    {([
+                      { id: 'important', query: 'is:important', label: t('email.folder.important'), Icon: Flag },
+                      { id: 'followup', query: 'is:followup', label: t('email.folder.follow_up'), Icon: AlarmClock },
+                    ] as const).map(({ id, query, label, Icon }) => {
+                      const active = activeSystemSearch === id
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          data-email-view={id}
+                          aria-current={active ? 'page' : undefined}
+                          onClick={() => {
+                            onSelectSystemSearch(query)
+                            onClose?.()
+                          }}
+                          className={cn(
+                            'flex min-h-8 items-center gap-2 rounded-[var(--r-md)] px-2 text-left text-[length:var(--text-12-5)]',
+                            active
+                              ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
+                              : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+                          )}
+                        >
+                          <span className="flex size-4 shrink-0 items-center justify-center">
+                            <Icon size={14} aria-hidden="true" />
+                          </span>
+                          <span className="min-w-0 flex-1 truncate">{label}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+                <div className="flex flex-col gap-0.5">
+                  <SectionLabel className="px-2 py-0">{t('email.folder.custom')}</SectionLabel>
+                  {shownCustomTree.length > 0 && (
+                    <div role="tree" aria-label={t('email.folder.custom')} className="flex flex-col gap-0.5">
+                      {shownCustomTree.map((node, index) => (
+                        <FolderBranch
+                          key={node.folder.id}
+                          node={node}
+                          setSize={shownCustomTree.length}
+                          posInSet={index + 1}
+                          actions={actions}
+                        />
+                      ))}
+                    </div>
+                  )}
+                  {!searchingFolders && shownCustomTree.length === 0 && (
+                    <p className="m-0 px-2 py-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('email.folder.empty')}</p>
+                  )}
+                </div>
+                {noFolderMatches && (
+                  <p className="m-0 px-2 py-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('email.sidebar.no_matches')}</p>
+                )}
+              </nav>
+            </div>
           </div>
-        </nav>
-        {contactsSection}
-        <EmailTagSidebar
-          accountId={accountId}
-          tags={tags}
-          status={tagsStatus}
-          error={tagsError}
-          activeTagName={activeTagName}
-          onSelect={(name) => {
-            onSelectTag(name)
-            onClose?.()
-          }}
-          onReload={onReloadTags}
-          onDropMessages={onDropTagMessages}
-        />
-        <SavedSearchList
-          searches={searches}
-          status={searchesStatus}
-          error={searchesError}
-          activeSearchQuery={activeSearchQuery}
-          onSelect={(query) => {
-            onSelectSearch(query)
-            onClose?.()
-          }}
-          onSaveCurrent={onSaveCurrentSearch}
-          onRename={onRenameSearch}
-          onDelete={onDeleteSearch}
-          onReload={onReloadSearches}
-        />
+        )}
+        {tab === 'tags' && (
+          <EmailTagSidebar
+            accountId={accountId}
+            tags={tags}
+            status={tagsStatus}
+            error={tagsError}
+            activeTagName={activeTagName}
+            onSelect={(name) => {
+              onSelectTag(name)
+              onClose?.()
+            }}
+            onReload={onReloadTags}
+            onDropMessages={onDropTagMessages}
+          />
+        )}
+        {tab === 'favorites' && favoritesTab}
+        {tab === 'contacts' && contactsTab}
+        {tab === 'groups' && groupsTab}
+        {tab === 'searches' && (
+          <SavedSearchList
+            searches={searches}
+            status={searchesStatus}
+            error={searchesError}
+            activeSearchQuery={activeSearchQuery}
+            onSelect={(query) => {
+              onSelectSearch(query)
+              onClose?.()
+            }}
+            onSaveCurrent={onSaveCurrentSearch}
+            onRename={onRenameSearch}
+            onDelete={onDeleteSearch}
+            onReload={onReloadSearches}
+          />
+        )}
       </div>
       {footer && (
         <div className="shrink-0 border-t border-[var(--border-subtle)] p-2">
@@ -443,7 +523,7 @@ function FolderBranch({
   const Icon = systemId ? FOLDER_ICONS[systemId] : FolderClosed
   const label = systemId ? t(SYSTEM_FOLDER_LABEL_KEYS[systemId]) : folder.name
   const hasChildren = node.children.length > 0
-  const open = actions.expanded.has(folder.id)
+  const open = actions.forceOpen || actions.expanded.has(folder.id)
   const active = actions.activeFolderId === folder.id
   const childrenId = `email-folder-children-${folder.id}`
   const canCreateChild = emailFolderDepthAllowed(actions.folders, folder.id)
@@ -686,53 +766,77 @@ function SavedSearchList({
     }
   }
 
+  const [query, setQuery] = useState('')
+  const pinyinVersion = usePinyinVersion()
+  const compiled = useMemo(() => compileQuery(query), [query])
+  const visible = useMemo(
+    () => searches.filter((search) => queryKeeps(compiled, search.name) || queryKeeps(compiled, search.query)),
+    [compiled, pinyinVersion, searches],
+  )
+
   return (
-    <nav aria-label={t('email.saved_search.section')} className="flex flex-col gap-0.5">
-      <div className="flex items-center justify-between gap-1 pr-0.5">
-        <SectionLabel className="p-0">{t('email.saved_search.section')}</SectionLabel>
-        <IconButton
-          label={t('email.saved_search.new')}
-          size="xs"
-          disabled={!activeSearchQuery}
-          onClick={onSaveCurrent}
-        >
-          <Plus size={12} />
-        </IconButton>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex h-8 shrink-0 items-center justify-end gap-1 px-2">
+        <Tooltip label={t('email.saved_search.new')} side="bottom">
+          <IconButton
+            label={t('email.saved_search.new')}
+            size="xs"
+            disabled={!activeSearchQuery}
+            onClick={onSaveCurrent}
+          >
+            <Plus size={13} />
+          </IconButton>
+        </Tooltip>
       </div>
-      {status === 'loading' && searches.length === 0 && (
-        <p role="status" className="flex items-center gap-1.5 px-2 py-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
-          <Spinner size={11} />
-          {t('email.saved_search.loading')}
-        </p>
-      )}
-      {status === 'error' && (
-        <div role="alert" className="flex flex-col gap-1 rounded-[var(--r-md)] px-2 py-1">
-          <span className="min-w-0 break-words text-[length:var(--text-11)] text-[var(--danger)]">
-            {error ?? t('email.saved_search.error')}
-          </span>
-          <Button size="sm" variant="ghost" className="self-start" onClick={() => { void onReload() }}>
-            {t('common.retry')}
-          </Button>
-        </div>
-      )}
-      {status === 'ready' && searches.length === 0 && (
-        <p className="px-2 py-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('email.saved_search.empty')}</p>
-      )}
-      {searches.length > 0 && (
-        <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
-          {searches.map((search) => (
-            <SavedSearchRow
-              key={search.id}
-              search={search}
-              active={emailSearchQueriesEqual(search.query, activeSearchQuery)}
-              onSelect={onSelect}
-              onRename={(target) => { void rename(target) }}
-              onDelete={(target) => { void remove(target) }}
-            />
-          ))}
-        </ul>
-      )}
-    </nav>
+      <div className="shrink-0 px-2 pb-1">
+        <FilterInput
+          value={query}
+          onChange={setQuery}
+          query={compiled}
+          label={t('email.saved_search.section')}
+          placeholder={t('email.sidebar.filter_searches')}
+          className="mt-0"
+        />
+      </div>
+      <nav aria-label={t('email.saved_search.section')} className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-3">
+        {status === 'loading' && searches.length === 0 && (
+          <p role="status" className="flex items-center gap-1.5 px-2 py-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+            <Spinner size={11} />
+            {t('email.saved_search.loading')}
+          </p>
+        )}
+        {status === 'error' && (
+          <div role="alert" className="flex flex-col gap-1 rounded-[var(--r-md)] px-2 py-1">
+            <span className="min-w-0 break-words text-[length:var(--text-11)] text-[var(--danger)]">
+              {error ?? t('email.saved_search.error')}
+            </span>
+            <Button size="sm" variant="ghost" className="self-start" onClick={() => { void onReload() }}>
+              {t('common.retry')}
+            </Button>
+          </div>
+        )}
+        {status === 'ready' && searches.length === 0 && (
+          <p className="px-2 py-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('email.saved_search.empty')}</p>
+        )}
+        {searches.length > 0 && visible.length === 0 && (
+          <p className="px-2 py-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('email.sidebar.no_matches')}</p>
+        )}
+        {visible.length > 0 && (
+          <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
+            {visible.map((search) => (
+              <SavedSearchRow
+                key={search.id}
+                search={search}
+                active={emailSearchQueriesEqual(search.query, activeSearchQuery)}
+                onSelect={onSelect}
+                onRename={(target) => { void rename(target) }}
+                onDelete={(target) => { void remove(target) }}
+              />
+            ))}
+          </ul>
+        )}
+      </nav>
+    </div>
   )
 }
 
@@ -813,26 +917,20 @@ export function FolderSidebarRail({
   activeFolderId,
   onSelect,
   onExpand,
-  onManageAccounts,
+  accountSwitcher,
   footer,
 }: {
   folders: readonly EmailFolder[]
   activeFolderId: string | null
   onSelect: (folderId: string) => void
   onExpand: () => void
-  onManageAccounts?: () => void
+  accountSwitcher?: ReactNode
   footer?: ReactNode
 }) {
   const byId = new Map(folders.map((folder) => [folder.id, folder]))
   return (
     <nav aria-label={t('email.a11y.folders')} className="flex h-full min-h-0 w-full flex-col items-center gap-1 overflow-y-auto bg-[var(--bg-sunken)] py-2">
-      {onManageAccounts && (
-        <Tooltip label={t('email.accounts.manage_title')} side="right">
-          <IconButton label={t('email.accounts.manage_title')} onClick={onManageAccounts}>
-            <MailPlus size={16} aria-hidden="true" />
-          </IconButton>
-        </Tooltip>
-      )}
+      {accountSwitcher}
       <Tooltip label={t('sidebar.expand_navigation')} side="right">
         <IconButton label={t('sidebar.expand_navigation')} onClick={onExpand}>
           <PanelLeft size={16} aria-hidden="true" />

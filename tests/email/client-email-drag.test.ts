@@ -95,6 +95,12 @@ function tagRow(tagId: string): HTMLButtonElement {
   return row
 }
 
+function openSidebarTab(tab: string): void {
+  const button = document.querySelector<HTMLButtonElement>(`[data-email-sidebar-tab="${tab}"]`)
+  if (!button) throw new Error(`no sidebar tab named ${tab}`)
+  act(() => button.click())
+}
+
 function dataTransfer(): DataTransfer {
   const values = new Map<string, string>()
   return {
@@ -236,6 +242,7 @@ describe('dropping messages on tags', () => {
   it('attaches the tag to every dragged message', async () => {
     const view = await mount()
     act(() => useEmailStore.setState({ selectedIds: new Set(['m1', 'm2']) }))
+    openSidebarTab('tags')
     const transfer = dataTransfer()
     fireDrag(messageRow(), 'dragstart', transfer)
     const target = tagRow('t-work')

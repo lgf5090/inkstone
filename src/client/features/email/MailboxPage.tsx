@@ -41,7 +41,8 @@ import { StatsPage } from './StatsPage'
 import { TemplatesPage } from './TemplatesPage'
 import { ContactEditor } from './ContactEditor'
 import { GroupEditor } from './GroupEditor'
-import { EmailContactSidebar } from './EmailContactSidebar'
+import { EmailAccountSwitcher } from './EmailAccountSwitcher'
+import { EmailContactsTab, EmailFavoritesTab, EmailGroupsTab } from './EmailContactSidebar'
 import { EmailAccountCard } from './AccountCard'
 import { MessageBatchBar } from './MessageBatchBar'
 import { MessageList } from './MessageList'
@@ -178,6 +179,7 @@ export function MailboxPage({ address, account, panel = null }: { address: Mailb
   const toggleNav = useUi((state) => state.toggleEmailNav)
   const setLayout = useUi((state) => state.setLayout)
   const [accountsOpen, setAccountsOpen] = useState(panel === 'accounts')
+  const [accountsCreating, setAccountsCreating] = useState(false)
   const [contactsOpen, setContactsOpen] = useState(panel === 'contacts')
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
   const [contactEditor, setContactEditor] = useState<ContactEditorState>({ open: false, value: null })
@@ -233,6 +235,7 @@ export function MailboxPage({ address, account, panel = null }: { address: Mailb
   useEffect(() => {
     setAccountsOpen(panel === 'accounts')
     setContactsOpen(panel === 'contacts')
+    if (panel !== 'accounts') setAccountsCreating(false)
   }, [panel, pathname])
 
   useEffect(() => {
@@ -383,8 +386,15 @@ export function MailboxPage({ address, account, panel = null }: { address: Mailb
     if (panel === 'contacts') goList()
   }
 
+  const openAccounts = (creating = false): void => {
+    setFolderDrawer(false)
+    setAccountsCreating(creating)
+    setAccountsOpen(true)
+  }
+
   const closeAccountManager = (): void => {
     setAccountsOpen(false)
+    setAccountsCreating(false)
     if (panel === 'accounts') goList()
   }
 
@@ -665,21 +675,23 @@ export function MailboxPage({ address, account, panel = null }: { address: Mailb
       onReloadSearches={() => loadSearches(account.id)}
       onClose={() => setFolderDrawer(false)}
       onCollapse={desktop ? toggleNav : undefined}
-      onManageAccounts={() => setAccountsOpen(true)}
-      contactsSection={(
-        <EmailContactSidebar
+      accountSwitcher={(
+        <EmailAccountSwitcher
+          accounts={accounts}
+          activeAccountId={account.id}
+          onNavigate={() => setFolderDrawer(false)}
+          onManageAccounts={openAccounts}
+        />
+      )}
+      favoritesTab={(
+        <EmailFavoritesTab
           contacts={contacts}
-          contactsStatus={contactsStatus}
-          contactsError={contactsError}
           groups={groups}
-          groupsStatus={groupsStatus}
-          groupsError={groupsError}
           activeContactId={activeContactId}
           activeGroupId={activeGroupId}
           onSelectContact={openContact}
           onSelectGroup={(group) => { setActiveGroupId(group.id); setContactsOpen(true) }}
-          onNewContact={() => setContactEditor({ open: true, value: null })}
-          onNewGroup={() => setGroupEditor({ open: true, value: null })}
+          onSelectStarredMessages={() => openSearch('is:starred')}
           onEditContact={(contact) => setContactEditor({ open: true, value: contact })}
           onEditGroup={(group) => setGroupEditor({ open: true, value: group })}
           onManage={() => setContactsOpen(true)}
@@ -688,7 +700,39 @@ export function MailboxPage({ address, account, panel = null }: { address: Mailb
           onClose={() => setFolderDrawer(false)}
         />
       )}
-      footer={<EmailAccountCard accounts={accounts} activeAccountId={account.id} compact={compactCard} onNavigate={() => setFolderDrawer(false)} onManageAccounts={() => { setFolderDrawer(false); setAccountsOpen(true) }} />}
+      contactsTab={(
+        <EmailContactsTab
+          contacts={contacts}
+          contactsStatus={contactsStatus}
+          contactsError={contactsError}
+          activeContactId={activeContactId}
+          onSelectContact={openContact}
+          onNewContact={() => setContactEditor({ open: true, value: null })}
+          onEditContact={(contact) => setContactEditor({ open: true, value: contact })}
+          onManage={() => setContactsOpen(true)}
+          onChanged={() => { void loadContacts({ silent: true }) }}
+          onReload={() => { void loadContacts() }}
+          onClose={() => setFolderDrawer(false)}
+        />
+      )}
+      groupsTab={(
+        <EmailGroupsTab
+          groups={groups}
+          groupsStatus={groupsStatus}
+          groupsError={groupsError}
+          activeGroupId={activeGroupId}
+          onSelectGroup={(group) => { setActiveGroupId(group.id); setContactsOpen(true) }}
+          onSelectContact={openContact}
+          onNewGroup={() => setGroupEditor({ open: true, value: null })}
+          onEditGroup={(group) => setGroupEditor({ open: true, value: group })}
+          onEditContact={(contact) => setContactEditor({ open: true, value: contact })}
+          onManage={() => setContactsOpen(true)}
+          onChanged={() => { void loadContacts({ silent: true }) }}
+          onReload={() => { void loadContacts() }}
+          onClose={() => setFolderDrawer(false)}
+        />
+      )}
+      footer={<EmailAccountCard accounts={accounts} activeAccountId={account.id} compact={compactCard} onNavigate={() => setFolderDrawer(false)} onManageAccounts={() => { setFolderDrawer(false); openAccounts() }} />}
     />
   )
 
@@ -827,8 +871,15 @@ export function MailboxPage({ address, account, panel = null }: { address: Mailb
                       activeFolderId={folderId}
                       onSelect={selectFolder}
                       onExpand={toggleNav}
-                      onManageAccounts={() => setAccountsOpen(true)}
-                      footer={<EmailAccountCard accounts={accounts} activeAccountId={account.id} compact onManageAccounts={() => setAccountsOpen(true)} />}
+                      accountSwitcher={(
+                        <EmailAccountSwitcher
+                          accounts={accounts}
+                          activeAccountId={account.id}
+                          onManageAccounts={openAccounts}
+                          compact
+                        />
+                      )}
+                      footer={<EmailAccountCard accounts={accounts} activeAccountId={account.id} compact onManageAccounts={() => openAccounts()} />}
                     />
                   )
                 : folderSidebar()}
@@ -869,7 +920,7 @@ export function MailboxPage({ address, account, panel = null }: { address: Mailb
           onClose={() => setFolderDrawer(false)}
           side="left"
           width={280}
-          title={t('email.header.folders')}
+          title={t('email.sidebar.tabs_aria')}
           leftOffset={railWidth}
         >
           {folderSidebar()}
@@ -881,6 +932,7 @@ export function MailboxPage({ address, account, panel = null }: { address: Mailb
         onClose={closeAccountManager}
         activeAccountId={account.id}
         onOpenSettings={(id) => navigateToPath(emailSettingsPath(id))}
+        startCreating={accountsCreating}
       />
       <Modal
         open={panel === 'settings'}

@@ -120,6 +120,12 @@ function openRowMenu(row: HTMLButtonElement): void {
   })
 }
 
+function openTab(tab: string): void {
+  const button = document.querySelector<HTMLButtonElement>(`[data-email-sidebar-tab="${tab}"]`)
+  if (!button) throw new Error(`no sidebar tab named ${tab}`)
+  act(() => button.click())
+}
+
 describe('the collapsed folder rail', () => {
   it('offers the folders and the unread count, and expands from its own button', () => {
     const onSelect = vi.fn()
@@ -240,18 +246,48 @@ describe('the nested folder tree', () => {
   })
 })
 
+describe('the tabbed sidebar', () => {
+  it('opens on folders and reaches the other sections through the tab strip', () => {
+    const view = renderElement(createElement(FolderSidebar, sidebarProps({
+      searches: savedSearches,
+      tags: [{ id: 't-1', name: 'work', color: null, count: 1 }],
+    })))
+    expect(treeRow(t('email.folder.inbox'))).toBeTruthy()
+    openTab('tags')
+    expect(document.querySelector(`nav[aria-label="${t('email.a11y.tags')}"]`)).not.toBeNull()
+    openTab('searches')
+    expect(savedSearchRow('Invoices')).toBeTruthy()
+    openTab('folders')
+    expect(treeRow(t('email.folder.inbox'))).toBeTruthy()
+    view.unmount()
+  })
+
+  it('filters the folder tree from its own toolbar search', () => {
+    const view = renderElement(createElement(FolderSidebar, sidebarProps()))
+    const box = document.querySelector<HTMLInputElement>(`input[aria-label="${t('email.a11y.folders')}"]`)
+    expect(box).not.toBeNull()
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    act(() => {
+      setter.call(box!, 'projects')
+      box!.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(maybeTreeRow('Projects')).not.toBeNull()
+    expect(maybeTreeRow(t('email.folder.inbox'))).toBeNull()
+    view.unmount()
+  })
+})
+
 describe('the saved searches section', () => {
-  it('sits under the tags, marks the current query and opens a saved search', () => {
+  it('lives in its own tab, marks the current query and opens a saved search', () => {
     const onSelectSearch = vi.fn()
     const view = renderElement(createElement(FolderSidebar, sidebarProps({
       searches: savedSearches,
       activeSearchQuery: 'from:billing is:unread',
       onSelectSearch,
     })))
+    openTab('searches')
     const section = document.querySelector<HTMLElement>(`nav[aria-label="${t('email.saved_search.section')}"]`)
-    const tags = document.querySelector<HTMLElement>(`nav[aria-label="${t('email.a11y.tags')}"]`)
     expect(section).not.toBeNull()
-    expect(tags!.compareDocumentPosition(section!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(savedSearchRow('Invoices').getAttribute('aria-current')).toBe('page')
     expect(savedSearchRow('Team').getAttribute('aria-current')).toBeNull()
 
@@ -266,6 +302,7 @@ describe('the saved searches section', () => {
       searches: savedSearches,
       onSaveCurrentSearch,
     })))
+    openTab('searches')
     expect(button(t('email.saved_search.new')).disabled).toBe(true)
     idle.unmount()
 
@@ -274,6 +311,7 @@ describe('the saved searches section', () => {
       activeSearchQuery: 'tag:team',
       onSaveCurrentSearch,
     })))
+    openTab('searches')
     const save = button(t('email.saved_search.new'))
     expect(save.disabled).toBe(false)
     act(() => { save.click() })
@@ -288,6 +326,7 @@ describe('the saved searches section', () => {
       searches: savedSearches,
       onRenameSearch,
     })))
+    openTab('searches')
     openRowMenu(savedSearchRow('Invoices'))
     expect(menuItem(t('email.saved_search.rename'))).toBeTruthy()
     expect(menuItem(t('email.saved_search.delete'))).toBeTruthy()
@@ -306,6 +345,7 @@ describe('the saved searches section', () => {
       searches: savedSearches,
       onDeleteSearch,
     })))
+    openTab('searches')
     openRowMenu(savedSearchRow('Team'))
     await act(async () => {
       menuItem(t('email.saved_search.delete')).click()

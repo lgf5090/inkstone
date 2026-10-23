@@ -1,15 +1,18 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
-import { ChevronRight, CornerDownRight, MoreHorizontal, Palette, Pencil, Plus, Search, Trash2 } from 'lucide-react'
+import { ChevronRight, ChevronsUpDown, CornerDownRight, MoreHorizontal, Palette, Pencil, Plus, Search, Trash2 } from 'lucide-react'
 import type { EmailTag } from '@shared/email/model'
 import { emailTagAncestorPaths, emailTagLeafName, isValidEmailTagPath, normalizeEmailTagPath } from '@shared/email/tags'
 import type { Tag } from '@shared/types'
 import { cn } from '../../lib/cn'
 import { useDropState } from '../../lib/drop-state'
-import { buildTagTree, childTagPath, renameTagSegment, type TagTreeNode } from '../../lib/tag-tree'
+import { buildTagTree, childTagPath, collectParentPaths, renameTagSegment, searchTagTree, type TagTreeNode } from '../../lib/tag-tree'
+import { compileQuery } from '../../lib/query-match'
+import { usePinyinVersion } from '../../lib/pinyin'
 import { treeIndent, treeItemProps, useExpandedSet, useTreeKeyboard } from '../../lib/tree'
-import { Button, IconButton, SectionLabel, Spinner } from '../../components/primitives'
+import { Button, IconButton, Spinner } from '../../components/primitives'
+import { FilterInput } from '../../components/FilterInput'
 import { TagPill } from '../../components/TagChip'
-import { Menu, confirm, prompt, useContextMenu, type MenuItem } from '../../components/overlay'
+import { Menu, Tooltip, confirm, prompt, useContextMenu, type MenuItem } from '../../components/overlay'
 import { t } from '../../lib/i18n'
 import { useUi } from '../../store/ui'
 import { TagColorMenu } from '../tags/TagAppearanceMenus'
@@ -47,8 +50,16 @@ export function EmailTagSidebar({
   onReload: () => Promise<void>
   onDropMessages: (tag: EmailTag, emailIds: string[]) => void
 }) {
-  const { expanded, setMany, toggle } = useExpandedSet()
+  const { expanded, setMany, setExpanded, toggle } = useExpandedSet()
+  const [query, setQuery] = useState('')
+  const pinyinVersion = usePinyinVersion()
+  const compiled = useMemo(() => compileQuery(query), [query])
   const tree = useMemo(() => buildTagTree(tags.map(tagRecord)), [tags])
+  const searched = useMemo(() => searchTagTree(tree, compiled), [tree, compiled, pinyinVersion])
+  const searching = Boolean(query.trim()) && !compiled.error
+  const shownTree = searching ? searched.nodes : tree
+  const parentPaths = useMemo(() => collectParentPaths(shownTree), [shownTree])
+  const allExpanded = parentPaths.length > 0 && parentPaths.every((path) => expanded.has(path))
 
   useEffect(() => {
     if (!activeTagName) return
@@ -126,54 +137,72 @@ export function EmailTagSidebar({
   }
 
   return (
-    <nav aria-label={t('email.a11y.tags')} className="flex flex-col gap-0.5">
-      <div className="flex items-center justify-between gap-1 pr-0.5">
-        <SectionLabel className="p-0">{t('email.tag.section')}</SectionLabel>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex h-8 shrink-0 items-center justify-between gap-1 px-2">
+        <Tooltip label={allExpanded ? t('email.tag.collapse_all') : t('email.tag.expand_all')} side="bottom">
+          <IconButton
+            label={allExpanded ? t('email.tag.collapse_all') : t('email.tag.expand_all')}
+            size="xs"
+            disabled={parentPaths.length === 0}
+            onClick={() => setExpanded(allExpanded ? new Set() : new Set(parentPaths))}
+          >
+            <ChevronsUpDown size={13} className={cn('transition-transform', allExpanded && 'rotate-180')} />
+          </IconButton>
+        </Tooltip>
         <IconButton label={t('email.tag.new')} size="xs" onClick={() => { void createUnder(null) }}>
-          <Plus size={12} />
+          <Plus size={13} />
         </IconButton>
       </div>
-      {status === 'loading' && tags.length === 0 && (
-        <p role="status" className="flex items-center gap-1.5 px-2 py-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
-          <Spinner size={11} />
-          {t('email.tag.loading')}
-        </p>
-      )}
-      {status === 'error' && (
-        <div role="alert" className="flex flex-col gap-1 rounded-[var(--r-md)] px-2 py-1">
-          <span className="min-w-0 break-words text-[length:var(--text-11)] text-[var(--danger)]">
-            {error ?? t('email.tag.error')}
-          </span>
-          <Button size="sm" variant="ghost" className="self-start" onClick={() => { void onReload() }}>
-            {t('common.retry')}
-          </Button>
-        </div>
-      )}
-      {status === 'ready' && tags.length === 0 && (
-        <p className="px-2 py-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('email.tag.empty')}</p>
-      )}
-      {tree.length > 0 && (
-        <div role="tree" aria-label={t('email.a11y.tags')} className="flex flex-col gap-0.5">
-          {tree.map((node, index) => (
-            <TagBranch
-              key={node.fullPath}
-              node={node}
-              setSize={tree.length}
-              posInSet={index + 1}
-              activeTagName={activeTagName}
-              expanded={expanded}
-              onToggle={toggle}
-              onCreateChild={(path) => { void createUnder(path) }}
-              onRename={(tag) => { void rename(tag) }}
-              onColor={(tag, color) => { void setColor(tag, color) }}
-              onDelete={(tag) => { void remove(tag) }}
-              onFilter={onSelect}
-              onDropMessages={onDropMessages}
-            />
-          ))}
-        </div>
-      )}
-    </nav>
+      <div className="shrink-0 px-2 pb-1">
+        <FilterInput value={query} onChange={setQuery} query={compiled} label={t('email.tag.section')} placeholder={t('email.sidebar.filter_tags')} className="mt-0" />
+      </div>
+      <nav aria-label={t('email.a11y.tags')} className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-3">
+        {status === 'loading' && tags.length === 0 && (
+          <p role="status" className="flex items-center gap-1.5 px-2 py-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+            <Spinner size={11} />
+            {t('email.tag.loading')}
+          </p>
+        )}
+        {status === 'error' && (
+          <div role="alert" className="flex flex-col gap-1 rounded-[var(--r-md)] px-2 py-1">
+            <span className="min-w-0 break-words text-[length:var(--text-11)] text-[var(--danger)]">
+              {error ?? t('email.tag.error')}
+            </span>
+            <Button size="sm" variant="ghost" className="self-start" onClick={() => { void onReload() }}>
+              {t('common.retry')}
+            </Button>
+          </div>
+        )}
+        {status === 'ready' && tags.length === 0 && (
+          <p className="px-2 py-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('email.tag.empty')}</p>
+        )}
+        {searching && shownTree.length === 0 && (
+          <p className="px-2 py-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('email.sidebar.no_matches')}</p>
+        )}
+        {shownTree.length > 0 && (
+          <div role="tree" aria-label={t('email.a11y.tags')} className="flex flex-col gap-0.5">
+            {shownTree.map((node, index) => (
+              <TagBranch
+                key={node.fullPath}
+                node={node}
+                setSize={shownTree.length}
+                posInSet={index + 1}
+                activeTagName={activeTagName}
+                expanded={expanded}
+                forceOpen={searching}
+                onToggle={toggle}
+                onCreateChild={(path) => { void createUnder(path) }}
+                onRename={(tag) => { void rename(tag) }}
+                onColor={(tag, color) => { void setColor(tag, color) }}
+                onDelete={(tag) => { void remove(tag) }}
+                onFilter={onSelect}
+                onDropMessages={onDropMessages}
+              />
+            ))}
+          </div>
+        )}
+      </nav>
+    </div>
   )
 }
 
@@ -183,6 +212,7 @@ function TagBranch({
   posInSet,
   activeTagName,
   expanded,
+  forceOpen = false,
   onToggle,
   onCreateChild,
   onRename,
@@ -196,6 +226,7 @@ function TagBranch({
   posInSet: number
   activeTagName: string | null
   expanded: ReadonlySet<string>
+  forceOpen?: boolean
   onToggle: (path: string) => void
   onCreateChild: (path: string) => void
   onRename: (tag: EmailTag) => void
@@ -210,7 +241,7 @@ function TagBranch({
   const [dropping, setDropping] = useDropState(false)
   const treeKeyDown = useTreeKeyboard()
   const hasChildren = node.children.length > 0
-  const open = expanded.has(node.fullPath)
+  const open = forceOpen || expanded.has(node.fullPath)
   const active = sameTagPath(activeTagName, node.fullPath)
   const tag = node.tag
   const count = node.isVirtual ? node.totalCount : node.count
@@ -347,6 +378,7 @@ function TagBranch({
             posInSet={index + 1}
             activeTagName={activeTagName}
             expanded={expanded}
+            forceOpen={forceOpen}
             onToggle={onToggle}
             onCreateChild={onCreateChild}
             onRename={onRename}
