@@ -10812,6 +10812,7 @@ const allowed = new Map([
     "/* The age of what is on screen, stated rather than implied: without it a person cannot tell a\n            quiet week from a tab opened before lunch. */",
     "/* The numbers can leave the app with the window they describe; the handler itself says\n            \"nothing on screen yet\" rather than handing over an empty file. */",
     "/**\n * What the traffic filters took out of the numbers below, drawn only when they took something. A\n * reading that hides rows has to say which rows, or the reader is comparing against a window they did\n * not choose.\n */",
+    "/* One group, not two flex children: at tablet width the row wraps between the words and the\n            switch, which leaves a label with nothing beside it and a switch with no name. */",
   ]],
   ["src/client/features/share/dashboard/dashboard-loading.tsx", [
     "/** The placeholders the loading state draws, by the shape of what they stand in for. */",
@@ -11024,6 +11025,7 @@ const allowed = new Map([
     "/* Below `md` the rail is a drawer: twelve rows, a tree and a tag list do not fit beside a\n            table on a phone, and shrinking both until they overlap is not a layout. */",
     "/* The panel previews a directory through the unauthenticated endpoint itself; this is the\n                 separate ask of \"take me to the page a reader would see\", which is a real address on this\n                 origin rather than a preview inside the hub. */",
     "/**\n * Which heading a rail selection is showing.\n *\n * A record rather than a lookup on the category union, so a new view has to name its own title before\n * it compiles: a header that silently fell back to the note list would make the dashboard and the\n * directories look like an empty list of links.\n */",
+    "/** The layout the list opens in, from whoever knows the surface: below desktop the table cannot hold its columns. */",
   ]],
   ["src/client/features/share/hub/share-hub.test.ts", [
     "/**\n * The hub shell: what the rail selects, what a selection is allowed to act on, and what the panel\n * says when the list never arrived.\n *\n * The views themselves are mocked out. This file is only about the rules the shell owns — that a\n * category and a filing are one choice, that the rows a batch will touch are the rows currently on\n * screen, and that the shared `shareMatchesSelection` predicate is what decides both. Those are the\n * behaviours a screenshot cannot tell apart from a working panel that quietly acts on the wrong set.\n */",
@@ -11036,6 +11038,10 @@ const allowed = new Map([
     "// Staged after the fixture's own default, which would otherwise replace it outright.",
     "/**\n   * A row is ticked through its accessible name, because that name is the point: the control is a\n   * `role=\"checkbox\"` button whose only text is the note it selects, so a row that ever loses its\n   * name loses this test with it.\n   */",
     "/**\n * Press a control and let React settle.\n *\n * Two flushes, not one: a click that changes state re-renders, and the next control the test names\n * only exists in the tree that render produced. With a single microtask the assertion passes on an\n * idle machine and fails the moment something else competes for the CPU.\n */",
+    "/**\n   * The header checkbox, and nothing like it.\n   *\n   * It is the only batch a phone can reach without first ticking every row — the row menu is off the\n   * edge of a table that scrolls sideways there — and it is the one control whose answer depends on\n   * rows that had not arrived when the panel mounted, which is where a stale capture hides.\n   */",
+    "/**\n * The rows, a second apart.\n *\n * `newest` is the default order and it keys on `createdAt`, so two rows built inside the same\n * millisecond used to tie — and the tie decided the order a batch named its rows, which made one test\n * pass or fail on the clock rather than on the code.\n */",
+    "// Sorted: the batch names the rows in the order the view shows them, and which of the two comes",
+    "// first is not what this test is about — that they are exactly these two is.",
   ]],
   ["src/client/features/share/hub/share-list.tsx", [
     "/**\n * The hub's list of published links, as a table or as cards over the same rows.\n *\n * One component owns both because the two are the same data with a different emphasis, and a separate\n * grid would be a second place for \"expired\", \"paused\" and \"locked\" to be spelled — the three states\n * an owner reads most often and the three that must mean the same thing in either layout.\n */",
@@ -11062,6 +11068,10 @@ const allowed = new Map([
     "/** A category and a filing are one choice: picking either clears the other. */",
     "/**\n * The rows a category, a filing and the search box select.\n *\n * `shareMatchesSelection` carries the category and filing; the text filter is the hub's own, and it\n * matches the note's title rather than the slug because that is the word the owner typed when they\n * made the link.\n */",
     "/** The dashboard and the collections view filter nothing; every other category is a status. */",
+    "/** The header checkbox: fills the selection with this view, or empties it when the view is already full. */",
+    "// Read the rows from the same memo the list renders, not from a `rows` captured when this",
+    "// callback was first made: the hub mounts before the fetch resolves, so a captured `rows` is",
+    "// forever the empty one and the header checkbox would select nothing at all.",
   ]],
   ["src/client/features/share/readings/audit-history.test.ts", [
     "/**\n * The audit trail's one promise: it may say what changed, and it may never say what the secret was.\n *\n * The worker records a passcode as a boolean for that reason, so this surface normally has nothing to\n * hide. The guard is for the case where it does not — a payload that carried a hash, or a value shaped\n * like one arriving in any other field — because a change history is exactly the kind of list an owner\n * reads aloud on a screen share, pastes into an issue, or leaves open on a second monitor.\n */",

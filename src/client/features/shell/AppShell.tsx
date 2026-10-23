@@ -270,6 +270,7 @@ function WorkspaceFallback() {
 
 function OverlayHost() {
     const userId = useSession((s) => s.user?.id);
+    const breakpoint = useBreakpoint();
     const panel = useUi((s) => s.panel);
     const emojiOpen = useEmojiPicker((s) => s.open);
     const linkEditOpen = useLinkEditor((s) => s.request !== null);
@@ -288,7 +289,7 @@ function OverlayHost() {
         {panel === 'folders' && <ManageFoldersPanel onClose={closePanel}/>}
         {panel === 'templates' && <TemplateGallery onClose={closePanel}/>}
         {panel === 'share' && <SharePanel onClose={closePanel}/>}
-        {panel === 'share-hub' && <ShareHubModal open onClose={closePanel}/>}
+        {panel === 'share-hub' && <ShareHubModal open onClose={closePanel} initialView={breakpoint === 'desktop' ? 'table' : 'grid'}/>}
         {panel === 'versions' && <VersionsPanel onClose={closePanel}/>}
         {omnisearch.open && <OmnisearchPrompt mode={omnisearch.mode} seed={omnisearch.seed} noteId={omnisearch.noteId}/>}
         {emojiOpen && <EmojiPickerHost />}

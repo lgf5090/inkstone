@@ -57,8 +57,12 @@ export function DashboardHeader({ view }: { view: DashboardView }) {
           <Download size={14} />
         </IconButton>
 
-        <span className="whitespace-nowrap text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t("share.dashboard.auto_refresh")}</span>
-        <Switch checked={autoRefresh} onChange={setAutoRefresh} label={t("share.dashboard.auto_refresh")} />
+        {/* One group, not two flex children: at tablet width the row wraps between the words and the
+            switch, which leaves a label with nothing beside it and a switch with no name. */}
+        <span className="flex shrink-0 items-center gap-2">
+          <span className="whitespace-nowrap text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t("share.dashboard.auto_refresh")}</span>
+          <Switch checked={autoRefresh} onChange={setAutoRefresh} label={t("share.dashboard.auto_refresh")} />
+        </span>
       </div>
     </div>
   )

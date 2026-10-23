@@ -63,8 +63,17 @@ let host: HTMLElement
 
 const DAY = 86_400_000
 
+/**
+ * The rows, a second apart.
+ *
+ * `newest` is the default order and it keys on `createdAt`, so two rows built inside the same
+ * millisecond used to tie — and the tie decided the order a batch named its rows, which made one test
+ * pass or fail on the clock rather than on the code.
+ */
+const CLOCK = 1_700_000_000_000
+let seq = 0
+
 function row(noteId: string, over: Partial<ShareListItem> = {}): ShareListItem {
-  const now = Date.now()
   return {
     slug: `slug-${noteId}`,
     noteId,
@@ -72,7 +81,7 @@ function row(noteId: string, over: Partial<ShareListItem> = {}): ShareListItem {
     hasPassword: false,
     expiresAt: null,
     views: 0,
-    createdAt: now,
+    createdAt: CLOCK + seq++ * 1000,
     isEnabled: true,
     lastViewedAt: null,
     folderId: null,
@@ -311,7 +320,30 @@ describe('a selection', () => {
     await select('Note live')
     await select('Note locked')
     await click(byText(t('share.hub_batch_pause')))
-    expect(api.setEnabled).toHaveBeenCalledWith(['live', 'locked'], false)
+    const call = api.setEnabled.mock.calls[0] as [string[], boolean]
+    expect(call[1]).toBe(false)
+    // Sorted: the batch names the rows in the order the view shows them, and which of the two comes
+    // first is not what this test is about — that they are exactly these two is.
+    expect([...call[0]].sort()).toEqual(['live', 'locked'])
+  })
+
+  /**
+   * The header checkbox, and nothing like it.
+   *
+   * It is the only batch a phone can reach without first ticking every row — the row menu is off the
+   * edge of a table that scrolls sideways there — and it is the one control whose answer depends on
+   * rows that had not arrived when the panel mounted, which is where a stale capture hides.
+   */
+  it('selects the whole view, and clears it when pressed again', async () => {
+    await openList()
+    const rows = titlesShown().length
+    expect(rows).toBeGreaterThan(1)
+    await click(document.querySelector('thead [role=checkbox]'))
+    expect(document.body.textContent).toContain(t('share.hub_batch_count', { count: rows }))
+    expect([...document.body.querySelectorAll<HTMLElement>('tbody [role=checkbox]')].map((box) => box.getAttribute('aria-checked')))
+      .toEqual(Array.from({ length: rows }, () => 'true'))
+    await click(document.querySelector('thead [role=checkbox]'))
+    expect(document.body.textContent).not.toContain(t('share.hub_batch_count', { count: rows }))
   })
 
   it('asks before revoking, and only then sends the batch', async () => {

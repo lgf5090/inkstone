@@ -20,7 +20,7 @@ import { HubSidebar } from './hub-sidebar'
 import { HubToolbar } from './hub-toolbar'
 import { ShareList } from './share-list'
 import { BatchBar } from './batch-bar'
-import { useShareHub } from './use-share-hub'
+import { useShareHub, type ShareViewMode } from './use-share-hub'
 
 /**
  * The share center.
@@ -49,8 +49,10 @@ export function ShareHubModal(props: {
   onClose: () => void
   /** Opens the editor for one link straight away, for the call that comes from a note's toolbar. */
   initialNoteId?: string | null
+  /** The layout the list opens in, from whoever knows the surface: below desktop the table cannot hold its columns. */
+  initialView?: ShareViewMode
 }) {
-  const hub = useShareHub(props.open)
+  const hub = useShareHub(props.open, props.initialView)
   const [dialog, setDialog] = useState<HubDialog>({ kind: 'none' })
   const [railOpen, setRailOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -202,7 +204,7 @@ export function ShareHubModal(props: {
                 tags={hub.tags}
                 emptyFor={t(CATEGORY_TITLE_KEY[hub.category])}
                 onToggle={hub.toggle}
-                onToggleAll={hub.selectAllVisible}
+                onToggleAll={hub.toggleAllVisible}
                 onEdit={(noteId) => setDialog({ kind: 'edit', noteId })}
                 onAnalytics={(noteId) => {
                   const row = hub.visible.find((entry) => entry.noteId === noteId)

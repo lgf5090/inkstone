@@ -53,20 +53,21 @@ export interface ShareHub extends ShareHubState {
   setSort: (sort: ShareSortKey) => void
   setView: (view: ShareViewMode) => void
   toggle: (noteId: string) => void
-  selectAllVisible: () => void
+  /** The header checkbox: fills the selection with this view, or empties it when the view is already full. */
+  toggleAllVisible: () => void
   clearSelection: () => void
   /** Refetches rows and counters together; the batch actions call it once they have written. */
   refresh: () => void
 }
 
-export function useShareHub(open: boolean): ShareHub {
+export function useShareHub(open: boolean, initialView: ShareViewMode = 'table'): ShareHub {
   const [state, setState] = useState<ShareHubState>({
     category: 'dashboard',
     folderId: null,
     tagName: null,
     search: '',
     sort: 'newest',
-    view: 'table',
+    view: initialView,
     selected: new Set<string>(),
   })
   const [rows, setRows] = useState<ShareListItem[] | null>(null)
@@ -152,9 +153,16 @@ export function useShareHub(open: boolean): ShareHub {
     [rows, state],
   )
 
-  const selectAllVisible = useCallback(() => {
-    setState((current) => ({ ...current, selected: new Set(visibleOf(current)) }))
-  }, [])
+  const toggleAllVisible = useCallback(() => {
+    // Read the rows from the same memo the list renders, not from a `rows` captured when this
+    // callback was first made: the hub mounts before the fetch resolves, so a captured `rows` is
+    // forever the empty one and the header checkbox would select nothing at all.
+    const ids = visible.map((row) => row.noteId)
+    setState((current) => ({
+      ...current,
+      selected: ids.length > 0 && ids.every((id) => current.selected.has(id)) ? EMPTY : new Set(ids),
+    }))
+  }, [visible])
 
   const clearSelection = useCallback(() => {
     setState((current) => ({ ...current, selected: EMPTY }))
@@ -179,13 +187,9 @@ export function useShareHub(open: boolean): ShareHub {
     setSort: (sort) => patch({ sort }),
     setView: (view) => patch({ view }),
     toggle,
-    selectAllVisible,
+    toggleAllVisible,
     clearSelection,
     refresh,
-  }
-
-  function visibleOf(current: ShareHubState): string[] {
-    return orderShares(filterShares(rows ?? [], current), current.sort).map((row) => row.noteId)
   }
 }
 
