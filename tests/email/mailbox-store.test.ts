@@ -46,6 +46,17 @@ describe('mailbox store', () => {
     expect(store.searchEmails({ query: '%' })).toEqual([])
   })
 
+  it('stores drafts as read and keeps them out of the unread count', () => {
+    const draftId = store.saveDraft(null, message('d1', { read: false }))
+    expect(draftId).toBe('d1')
+    expect(store.getEmail('d1')?.read).toBe(1)
+    const stats = store.mailboxStats()
+    expect(stats.draft).toBe(1)
+    expect(stats.unread).toBe(0)
+    store.saveDraft('d1', message('d1', { read: false }))
+    expect(store.getEmail('d1')?.read).toBe(1)
+  })
+
   it('marks threads read and aggregates them', () => {
     store.createEmail('inbox', message('m1', { threadId: 't1', date: 1 }))
     store.createEmail('inbox', message('m2', { threadId: 't1', date: 2 }))

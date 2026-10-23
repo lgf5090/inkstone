@@ -366,8 +366,8 @@ describe('mailbox stats', () => {
     const stats = store.mailboxStats(now)
     expect(stats).toMatchObject({
       total: 6,
-      read: 3,
-      unread: 3,
+      read: 4,
+      unread: 2,
       starred: 2,
       withAttachments: 2,
       sent: 1,

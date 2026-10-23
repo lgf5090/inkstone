@@ -83,6 +83,7 @@ export function fakeEmailMailboxNamespace(store: MailboxStore): DurableObjectNam
     searchEmails: (options: Parameters<MailboxStore['searchEmails']>[0]) => store.searchEmails(options),
     countSearchResults: (options: Parameters<MailboxStore['countSearchResults']>[0]) => store.countSearchResults(options),
     findThreadBySubject: (subject: string, sender?: string) => store.findThreadBySubject(subject, sender),
+    findThreadIdByMessageId: (messageId: string) => store.findThreadIdByMessageId(messageId),
     checkSendRateLimit: (now?: number) => store.checkSendRateLimit(now),
     createEmail: (folder: string, email: EmailData) => store.createEmail(folder, email),
     saveDraft: (draftId: string | null, email: EmailData) => store.saveDraft(draftId, email),

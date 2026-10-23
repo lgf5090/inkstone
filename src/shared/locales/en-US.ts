@@ -969,6 +969,7 @@ export const EN_US_MESSAGES = {
     "email.list.mark_unread": "Mark as unread",
     "email.list.needs_reply": "Needs reply",
     "email.list.no_subject": "(No subject)",
+    "email.list.no_recipient": "(No recipient)",
     "email.list.page_next": "Next page",
     "email.list.page_prev": "Previous page",
     "email.list.page_status": "Page {page} of {pages}",

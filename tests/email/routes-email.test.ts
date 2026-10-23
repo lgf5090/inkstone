@@ -1500,8 +1500,8 @@ describe('email stats route', () => {
     const stats = await json<EmailMailboxStats>(response)
     expect(stats).toMatchObject({
       total: 4,
-      read: 2,
-      unread: 2,
+      read: 3,
+      unread: 1,
       starred: 1,
       withAttachments: 1,
       sent: 1,

@@ -122,6 +122,20 @@ afterEach(() => {
 })
 
 describe('the message row', () => {
+  it('names the recipient on sent and draft rows', () => {
+    const sent = renderRow(summary({ folderId: 'sent', sender: 'owner@example.com', recipient: 'Grace Hopper <grace@example.com>' }))
+    let main = document.querySelector<HTMLButtonElement>('button[data-email-open]')!
+    expect(main.textContent).toContain('Grace Hopper')
+    expect(main.textContent).not.toContain('owner@example.com')
+    sent.view.unmount()
+    document.body.innerHTML = ''
+
+    const draft = renderRow(summary({ folderId: 'draft', sender: 'owner@example.com', recipient: '' }))
+    main = document.querySelector<HTMLButtonElement>('button[data-email-open]')!
+    expect(main.textContent).toContain(t('email.list.no_recipient'))
+    draft.view.unmount()
+  })
+
   it('opens from one real button and keeps the star outside it', () => {
     const { view, handlers } = renderRow(summary())
     const main = document.querySelector<HTMLButtonElement>('button[data-email-open]')!

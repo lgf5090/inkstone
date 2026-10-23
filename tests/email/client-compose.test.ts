@@ -246,6 +246,25 @@ describe('the compose panel', () => {
     view.unmount()
   })
 
+  it('saves a forward as a new thread instead of answering the quoted message', async () => {
+    const saveDraft = vi.spyOn(api.email, 'saveDraft').mockResolvedValue({ draftId: 'd1' })
+    const view = panel('forward')
+    await act(async () => {
+      button(t('email.compose.save_draft')).click()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(saveDraft).toHaveBeenCalledWith('a1', expect.objectContaining({
+      subject: 'Fwd: Quarterly report',
+    }))
+    const payload = saveDraft.mock.calls[0]?.[1]
+    expect(payload?.inReplyTo).toBeUndefined()
+    expect(payload?.threadId).toBeUndefined()
+    expect(payload?.body).toContain('---------- Forwarded message ----------')
+    saveDraft.mockRestore()
+    view.unmount()
+  })
+
   it('shows a failed send and keeps the message editable for a retry', async () => {
     vi.useFakeTimers()
     const saveDraft = vi.spyOn(api.email, 'saveDraft').mockResolvedValue({ draftId: 'd1' })

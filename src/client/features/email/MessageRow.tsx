@@ -238,6 +238,10 @@ export function MessageRow({
   const failed = message.deliveryStatus === 'failed'
   const canBlockSender = message.folderId !== 'sent' && message.folderId !== 'draft' && message.folderId !== 'trash'
   const sender = senderLabel(message.sender)
+  const recipient = message.recipient.trim() ? senderLabel(message.recipient) : ''
+  const correspondent = message.folderId === 'sent' || message.folderId === 'draft'
+    ? recipient || t('email.list.no_recipient')
+    : sender
   const subject = messageSubject(message)
   const snippet = messageSnippet(message)
   const byId = new Map(folders.map((folder) => [folder.id, folder]))
@@ -416,7 +420,7 @@ export function MessageRow({
           {unread && <span data-unread="" aria-hidden="true" className="size-2 shrink-0 rounded-full bg-[var(--accent)]" />}
           {unread && <span className="sr-only">{t('email.list.unread')}</span>}
           <span className={cn('min-w-0 flex-1 truncate text-[length:var(--text-12-5)] font-normal text-[var(--text-secondary)]', unread && 'font-semibold text-[var(--text-primary)]')}>
-            {sender}
+            {correspondent}
           </span>
           {searchMode && (
             <Badge tone="neutral" className="shrink-0">{folderLabel(message.folderId, folders)}</Badge>

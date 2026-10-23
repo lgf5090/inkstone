@@ -102,6 +102,7 @@ export class EmailMailbox extends DurableObject<Env> {
   searchEmails(options: SearchOptions) { return this.store.searchEmails(options) }
   countSearchResults(options: SearchOptions) { return this.store.countSearchResults(options) }
   findThreadBySubject(subject: string, sender?: string) { return this.store.findThreadBySubject(subject, sender) }
+  findThreadIdByMessageId(messageId: string) { return this.store.findThreadIdByMessageId(messageId) }
   checkSendRateLimit(now?: number) { return this.store.checkSendRateLimit(now) }
   createEmail(folder: string, email: EmailData) { return this.store.createEmail(folder, email) }
   saveDraft(draftId: string | null, email: EmailData) { return this.store.saveDraft(draftId, email) }

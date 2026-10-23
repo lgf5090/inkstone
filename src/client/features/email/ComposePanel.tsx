@@ -190,7 +190,7 @@ export function ComposePanel({
   const [error, setError] = useState<string | null>(null)
   const [draft, setDraft] = useState(draftId)
   const [threading, setThreading] = useState<{ inReplyTo: string | null, threadId: string | null }>(() => (
-    draftId || !original
+    draftId || !original || mode === 'forward'
       ? { inReplyTo: null, threadId: null }
       : { inReplyTo: original.id, threadId: original.threadId }
   ))

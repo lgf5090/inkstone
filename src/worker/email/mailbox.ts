@@ -146,8 +146,9 @@ export async function handleMailboxInbound(
     const messageId = headerMessageId && headerMessageId.length <= MAX_MESSAGE_ID_CHARS ? headerMessageId : null
     const subject = parsed.subject ?? ''
     const headerThreadId = references[0] ?? inReplyTo ?? null
+    const knownThreadId = headerThreadId ? await mailbox.findThreadIdByMessageId(headerThreadId) : null
     const subjectThreadId = headerThreadId ? null : await mailbox.findThreadBySubject(subject, sender)
-    const threadId = headerThreadId ?? subjectThreadId ?? messageId ?? emailId
+    const threadId = knownThreadId ?? headerThreadId ?? subjectThreadId ?? messageId ?? emailId
 
     const storedSender = formatAddressList(parsed.from ? [parsed.from] : [])
       || formatAddressList(parsed.sender ? [parsed.sender] : [])

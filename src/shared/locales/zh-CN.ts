@@ -969,6 +969,7 @@ export const ZH_CN_MESSAGES = {
     "email.list.mark_unread": "标为未读",
     "email.list.needs_reply": "待回复",
     "email.list.no_subject": "（无主题）",
+    "email.list.no_recipient": "（无收件人）",
     "email.list.page_next": "下一页",
     "email.list.page_prev": "上一页",
     "email.list.page_status": "第 {page} 页，共 {pages} 页",

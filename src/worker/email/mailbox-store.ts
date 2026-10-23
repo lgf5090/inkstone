@@ -356,7 +356,7 @@ export class MailboxStore {
   getFolders(): FolderRow[] {
     return this.rows<FolderRow>(
       `SELECT f.id, f.name, f.is_deletable, f.parent_id, f.color, f.sort_order, f.created_at,
-              COALESCE(SUM(CASE WHEN m.read = 0 AND m.deleted_at IS NULL
+              COALESCE(SUM(CASE WHEN m.read = 0 AND m.folder_id NOT IN ('sent', 'draft') AND m.deleted_at IS NULL
                 AND (m.snoozed_until IS NULL OR m.snoozed_until <= ?1) THEN 1 ELSE 0 END), 0) AS unread_count
          FROM email_folders f
          LEFT JOIN email_messages m ON m.folder_id = f.id
@@ -653,7 +653,7 @@ export class MailboxStore {
          ),
          draft_stats AS (
            SELECT draft_group_key, COUNT(*) AS thread_count,
-                  SUM(CASE WHEN read = 0 THEN 1 ELSE 0 END) AS thread_unread_count,
+                  SUM(CASE WHEN read = 0 AND folder_id NOT IN ('sent', 'draft') THEN 1 ELSE 0 END) AS thread_unread_count,
                   GROUP_CONCAT(DISTINCT sender) AS participants
              FROM folder_emails GROUP BY draft_group_key
          ),
@@ -703,7 +703,7 @@ export class MailboxStore {
        ),
        conversation_stats AS (
          SELECT conversation_id, COUNT(*) AS thread_count,
-                SUM(CASE WHEN read = 0 THEN 1 ELSE 0 END) AS thread_unread_count,
+                SUM(CASE WHEN read = 0 AND folder_id NOT IN ('sent', 'draft') THEN 1 ELSE 0 END) AS thread_unread_count,
                 SUM(CASE WHEN read = 1 THEN 1 ELSE 0 END) AS thread_read_count,
                 GROUP_CONCAT(DISTINCT sender) AS participants,
                 SUM(CASE WHEN folder_id = 'draft' THEN 1 ELSE 0 END) AS has_draft
@@ -1703,6 +1703,21 @@ export class MailboxStore {
     return { where: clauses.join(' AND '), bindings }
   }
 
+  findThreadIdByMessageId(messageId: string): string | null {
+    const canonical = messageId.trim().replace(/^<+/, '').replace(/>+$/, '')
+    if (!canonical) return null
+    const row = this.one<{ thread_id: string | null }>(
+      `SELECT thread_id FROM email_messages
+        WHERE deleted_at IS NULL
+          AND (message_id = ?1 OR message_id = ?2 OR id = ?3)
+        ORDER BY date DESC LIMIT 1`,
+      canonical,
+      `<${canonical}>`,
+      canonical,
+    )
+    return row?.thread_id ?? null
+  }
+
   findThreadBySubject(subject: string, sender?: string): string | null {
     const normalized = normalizeSubject(subject)
     if (!normalized) return null
@@ -1756,7 +1771,7 @@ export class MailboxStore {
     )
     if (!folderRow) return false
     const now = Date.now()
-    const sent = folderRow.id === 'sent'
+    const read = folderRow.id === 'sent' || folderRow.id === 'draft'
     this.sql.exec(
       `INSERT INTO email_messages (
          id, folder_id, subject, sender, recipient, cc, bcc, date, received_at,
@@ -1774,7 +1789,7 @@ export class MailboxStore {
       email.bcc ?? null,
       email.date,
       email.date,
-      sent ? 1 : email.read ? 1 : 0,
+      read ? 1 : email.read ? 1 : 0,
       email.starred ? 1 : 0,
       email.important ? 1 : 0,
       email.muted ? 1 : 0,
@@ -1806,7 +1821,7 @@ export class MailboxStore {
       this.sql.exec(
         `UPDATE email_messages SET folder_id = 'draft', subject = ?1, sender = ?2, recipient = ?3,
            cc = ?4, bcc = ?5, body = ?6, body_source = ?7, in_reply_to = ?8,
-           thread_id = ?9, date = ?10, updated_at = ?10 WHERE id = ?11`,
+           thread_id = ?9, date = ?10, read = 1, updated_at = ?10 WHERE id = ?11`,
         email.subject,
         email.sender,
         email.recipient,
@@ -1957,8 +1972,8 @@ export class MailboxStore {
     }>(
       `SELECT folder_id,
               COUNT(*) AS total,
-              SUM(CASE WHEN read = 1 THEN 1 ELSE 0 END) AS read,
-              SUM(CASE WHEN read = 0 THEN 1 ELSE 0 END) AS unread,
+              SUM(CASE WHEN read = 1 OR folder_id IN ('sent', 'draft') THEN 1 ELSE 0 END) AS read,
+              SUM(CASE WHEN read = 0 AND folder_id NOT IN ('sent', 'draft') THEN 1 ELSE 0 END) AS unread,
               SUM(CASE WHEN starred = 1 THEN 1 ELSE 0 END) AS starred,
               SUM(CASE WHEN has_attachment = 1 THEN 1 ELSE 0 END) AS with_attachments
          FROM email_messages

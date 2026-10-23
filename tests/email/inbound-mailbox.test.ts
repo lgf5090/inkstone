@@ -317,6 +317,68 @@ describe('the inbound mailbox handler', () => {
     expect(rows.find((row) => row.message_id === '<fresh@example.com>')!.thread_id).toBe('<fresh@example.com>')
   })
 
+  it('joins a reply to the stored thread behind its referenced Message-ID', async () => {
+    const mailbox = harness.store(ACCOUNT)
+    expect(mailbox.createEmail('sent', {
+      id: 'sent-1',
+      subject: 'Product roadmap',
+      sender: ADDRESS,
+      recipient: 'alan@example.com',
+      date: Date.now() - 60_000,
+      body: 'Roadmap',
+      threadId: 'sent-1',
+      messageId: 'sent-1@example.com',
+    })).toBe(true)
+
+    expect(await deliver({
+      to: ADDRESS,
+      from: 'alan@example.com',
+      raw: buildMime({
+        to: ADDRESS,
+        from: 'alan@example.com',
+        subject: 'Re: Product roadmap',
+        messageId: '<reply-1@example.com>',
+        inReplyTo: '<sent-1@example.com>',
+        references: '<sent-1@example.com>',
+        text: 'Looks good',
+      }),
+    })).toBe('created')
+
+    const thread = mailbox.getThreadEmails('sent-1')
+    expect(thread.map((row) => row.subject)).toEqual(['Product roadmap', 'Re: Product roadmap'])
+    expect(inbox().find((row) => row.message_id === '<reply-1@example.com>')!.thread_id).toBe('sent-1')
+  })
+
+  it('joins a reply that references an inbound Message-ID stored with brackets', async () => {
+    const mailbox = harness.store(ACCOUNT)
+    expect(mailbox.createEmail('inbox', {
+      id: 'in-1',
+      subject: 'Quarterly plan',
+      sender: 'Grace <grace@example.com>',
+      recipient: ADDRESS,
+      date: Date.now() - 60_000,
+      body: 'Plan',
+      threadId: '<in-1@example.com>',
+      messageId: '<in-1@example.com>',
+    })).toBe(true)
+
+    expect(await deliver({
+      to: ADDRESS,
+      from: 'grace@example.com',
+      raw: buildMime({
+        to: ADDRESS,
+        from: 'grace@example.com',
+        subject: 'Re: Quarterly plan',
+        messageId: '<reply-2@example.com>',
+        inReplyTo: '<in-1@example.com>',
+        references: '<in-1@example.com>',
+        text: 'Approved',
+      }),
+    })).toBe('created')
+
+    expect(inbox().find((row) => row.message_id === '<reply-2@example.com>')!.thread_id).toBe('<in-1@example.com>')
+  })
+
   it('clamps an invalid, pre-1970 or future Date header to the receive time', async () => {
     const before = Date.now()
     const cases = [
