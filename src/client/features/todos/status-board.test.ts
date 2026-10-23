@@ -220,6 +220,26 @@ async function dropOn(node: Element, draggedId: string): Promise<void> {
 
 const dropOnColumn = (key: string, draggedId: string): Promise<void> => dropOn(column(key), draggedId)
 
+/**
+ * The half of a drag that paints a gap: the pointer arriving over a node with a row in hand.
+ *
+ * Only the dragover is sent, because what is under test is the promise the row makes — a line drawn for
+ * a place the column cannot give is the defect, and it is drawn here rather than at the drop.
+ */
+async function dragOverOn(node: Element, draggedId: string): Promise<void> {
+  const event = new Event('dragover', { bubbles: true, cancelable: true })
+  Object.defineProperties(event, {
+    dataTransfer: { value: transfer(draggedId) },
+    // A real pointer always names where over the row it arrived; jsdom reports no layout, so which half
+    // of the row the line lands on is not something this room can answer — only whether it is drawn.
+    clientY: { value: 20 },
+  })
+  await act(async () => {
+    node.dispatchEvent(event)
+    await Promise.resolve()
+  })
+}
+
 /** The card row of a task, which is the node that owns a drop between two rows. */
 function cardOf(id: string): HTMLElement {
   const open = view!.container.querySelector<HTMLElement>(`[data-todo-open="${id}"]`)
@@ -396,6 +416,32 @@ describe('the board cut by priority', () => {
 
     expect(service.updates).toEqual([{ id: 'a', patch: { priority: 'urgent' } }])
     expect(service.moves).toEqual([])
+  })
+
+  it('keeps a row of a priority column pickable, but never a gap beside it', async () => {
+    renderBoard([task('a', 'todo', { priority: 'medium' }), task('b', 'todo', { priority: 'medium' })], 'priority')
+
+    // The half this dimension does answer for: the row is still picked up and dragged to another column.
+    expect(cardOf('a').draggable, 'a priority column left the row undraggable').toBe(true)
+    expect(cardOf('a').getAttribute('data-todo-draggable')).not.toBeNull()
+
+    await dragOverOn(cardOf('a'), 'b')
+
+    // The half it refuses: a before/after line promises a place inside the column, and a priority
+    // column has none to give — so the line a reader would aim at is not drawn at all.
+    expect(cardOf('a').querySelector('[data-todo-drop-line]'),
+      'the row offered a place inside a column that has none').toBeNull()
+  })
+
+  it('still paints the gap line beside a row of a column whose order is the reader\'s', async () => {
+    renderBoard([task('a', 'todo'), task('b', 'in_progress')], 'status')
+
+    await dragOverOn(cardOf('b'), 'a')
+
+    // The other dimension keeps both halves: without this case the switch below could be turned off
+    // everywhere and the gap a listing does answer for would go missing with it.
+    expect(cardOf('b').querySelector('[data-todo-drop-line]'),
+      'a column whose order is the reader\'s stopped offering a gap').not.toBeNull()
   })
 
   it('offers no move up or down for a row of a priority column, while a status column offers them', () => {

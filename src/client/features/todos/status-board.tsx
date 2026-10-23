@@ -22,6 +22,7 @@ import { t } from '../../lib/i18n'
 import { priorityLabel } from './todo-ui'
 import { useTodos } from './store'
 import {
+  FINE_POINTER_QUERY,
   TaskCard,
   isTodoTaskDrag,
   moveTodoTask,
@@ -45,15 +46,6 @@ import type { TaskList, TaskPriority, TaskStatus, TodoTask } from '@shared/todos
 
 /** Three columns need a window this wide; below it the list is the honest reading. */
 export const LIST_COLUMNS_QUERY = '(min-width: 1024px)'
-
-/**
- * The pointer a drag is worth drawing for.
- *
- * The same one a card reads before it makes itself draggable; a phone gets the card's menu instead, so
- * the two must answer the same question. It is spelled here rather than imported because the card keeps
- * it to itself.
- */
-const FINE_POINTER_QUERY = '(hover: hover) and (pointer: fine)'
 
 const STATUS_LABEL_KEYS: Record<TaskStatus, MessageKey> = {
   todo: 'todo.status.todo',
@@ -182,14 +174,22 @@ export function StatusBoard({ tasks, group }: { tasks: readonly TodoTask[]; grou
    * Status and list columns are cut out of the same hand-written sequence the plain list draws, so a row
    * keeps the neighbours its list gives it. A priority column is not: a place belongs to a list and a
    * priority is not one, so here nothing moves up or down and a drop between two rows writes the priority
-   * of the column they stand in. The card asks for one control set, so the two refused moves answer with
-   * the column the row is already in — which `dropInto` guards to no write at all.
+   * of the column they stand in.
+   *
+   * That is also why the two halves of the pointer are handed over apart. The row is still picked up —
+   * dragging it to another column is exactly what this dimension is for — but it is not a gap another row
+   * can land beside, so `reorderEnabled` stays off while `dragEnabled` follows the pointer. Left to follow
+   * it, the card would paint the before/after line and then write the column's priority for it: a promise
+   * about a place that does not exist. The card's own `drop` then stands down, so the drop reaches the
+   * column behind the row, which answers with the priority and nothing else. The two refused moves answer
+   * with the column the row is already in, which `dropInto` guards to no write at all.
    */
   const moveFor = (task: TodoTask): TaskMoveControls | null => {
     if (group !== 'priority') return listMoves(task)
     const ownColumn = boardColumnKey('priority', task)
     return {
       dragEnabled: finePointer,
+      reorderEnabled: false,
       canMoveUp: false,
       canMoveDown: false,
       onMoveUp: () => { dropInto(ownColumn, task.id) },
