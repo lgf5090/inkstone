@@ -34,6 +34,7 @@ import {
   isSnoozeMinutes,
   parseRepeatRule,
   remindAtFor,
+  withPreviousSeries,
   type RemindOffset,
   type RepeatRule,
   type TaskCounts,
@@ -287,7 +288,12 @@ function plannedDay(value: unknown): string | null | undefined {
   return value
 }
 
-function repeatRule(args: Record<string, unknown>, allowNone: boolean): RepeatRule | null | undefined {  const freq = args.repeat
+function repeatRule(
+  args: Record<string, unknown>,
+  allowNone: boolean,
+  previous?: RepeatRule | null,
+): RepeatRule | null | undefined {
+  const freq = args.repeat
   if (freq === undefined) {
     if (args.repeatDays !== undefined || args.repeatMonthly !== undefined || args.repeatInterval !== undefined) {
       throw new ToolError('Name the repeat frequency with the days or interval that narrow it.')
@@ -324,7 +330,7 @@ function repeatRule(args: Record<string, unknown>, allowNone: boolean): RepeatRu
     ...(monthly ? { monthlyMode: monthly } : {}),
   })
   if (!rule) throw new ToolError('That repeat rule is not one the app can store.')
-  return rule
+  return withPreviousSeries(rule, previous)
 }
 
 function reminderInstants(value: unknown, ctx: ToolContext): number[] | undefined {
@@ -787,7 +793,7 @@ export const TASK_TOOLS: ToolDefinition[] = [
       const dueAt = dueMillis(args.due, ctx)
       const startAt = dueMillis(args.start, ctx)
       const planned = plannedDay(args.planned)
-      const repeat = repeatRule(args, true)
+      const repeat = repeatRule(args, true, task.repeat)
       const reminders = reminderInstants(args.reminders, ctx)
       const status = args.status !== undefined ? args.status as Task['status'] : undefined
       /**

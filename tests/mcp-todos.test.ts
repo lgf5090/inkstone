@@ -495,6 +495,28 @@ describe('the answers use the model, not a second copy of it', () => {
     expect(new Date(Number(body.next.due_at)).toISOString()).toBe('2026-04-05T01:00:00.000Z')
   })
 
+  // Same reason as the chat's tool: an MCP caller names a rhythm and has no vocabulary for the series
+  // around it, so the ceiling, the counter and the pause have to ride over the rule it wrote.
+  it('changes a rhythm without deleting the series the row already runs', async () => {
+    const task = await store.createTask({
+      title: 'Fortnightly statement',
+      dueAt: Date.UTC(2026, 2, 5, 1, 0),
+      repeat: { freq: 'monthly', interval: 1, count: 6, produced: 2, paused: true },
+    })
+    await switchPreferences(true, false)
+
+    const outcome = await callTool(WRITE, 'update_todo', {
+      operation_id: 'op-update-rhythm-1',
+      task_id: task.id,
+      repeat: 'weekly',
+      repeat_interval: 2,
+    })
+    expect(outcome.ok).toBe(true)
+    expect(await store.getTask(task.id)).toMatchObject({
+      repeat: { freq: 'weekly', interval: 2, count: 6, produced: 2, paused: true },
+    })
+  })
+
   it('replays one operation_id as the task it first made, without writing a second', async () => {
     await switchPreferences(true, false)
     const args = { operation_id: 'op-create-retry-1', title: 'Book the dentist' }

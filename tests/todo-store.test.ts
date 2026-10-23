@@ -287,6 +287,52 @@ describe('completing a task', () => {
     expect(result?.next).toBeNull()
   })
 
+  // The counter lives in the row's own JSON, so the only way a bounded series ends is for the rule
+  // read back off that row to still carry it. These three go through the store rather than
+  // `advanceRepeat` for exactly that reason: the unit case passes a rule in by hand, and a rule
+  // written by hand has never survived a reload.
+  it('counts the occurrences it files toward the ceiling the row carries', async () => {
+    const first = await store.createTask({
+      title: 'Stand-up',
+      dueAt: Date.parse('2026-10-19T09:00:00Z'),
+      repeat: { freq: 'daily', interval: 1, count: 2 },
+    })
+
+    const filed = await store.completeTask(first.id, 'UTC')
+    expect(filed?.next?.dueAt).toBe(Date.parse('2026-10-20T09:00:00Z'))
+    expect((await store.getTask(filed!.next!.id))?.repeat).toEqual({ freq: 'daily', interval: 1, count: 2, produced: 2 })
+
+    const second = await store.completeTask(filed!.next!.id, 'UTC')
+    expect(second?.next).toBeNull()
+  })
+
+  it('files nothing while the series is paused, and keeps the ceiling for when it is not', async () => {
+    const task = await store.createTask({
+      title: 'Stand-up',
+      dueAt: Date.parse('2026-10-19T09:00:00Z'),
+      repeat: { freq: 'daily', interval: 1, count: 5, paused: true },
+    })
+
+    const result = await store.completeTask(task.id, 'UTC')
+
+    expect(result?.next).toBeNull()
+    // The finished row keeps the rule it was owed, counter and all: reopening it and finishing again
+    // has to spend the turn it would have spent, not a fresh one.
+    expect((await store.getTask(task.id))?.repeat).toEqual({ freq: 'daily', interval: 1, count: 5, paused: true })
+  })
+
+  it('steps over the day the reader let go of', async () => {
+    const task = await store.createTask({
+      title: 'Stand-up',
+      dueAt: Date.parse('2026-10-19T09:00:00Z'),
+      repeat: { freq: 'daily', interval: 1, excludedDays: ['2026-10-20'] },
+    })
+
+    const result = await store.completeTask(task.id, 'UTC')
+
+    expect(result?.next?.dueAt).toBe(Date.parse('2026-10-21T09:00:00Z'))
+  })
+
   it('carries the face, the pick and the files the finished task had', async () => {
     const due = Date.parse('2026-10-19T09:00:00Z')
     const task = await store.createTask({

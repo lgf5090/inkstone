@@ -186,7 +186,9 @@ async function expectFiled(task: TodoTask, next?: TodoTask | Record<string, unkn
   expect(occurrence).toBeTruthy()
   expect(occurrence!.status).not.toBe('done')
   expect(occurrence!.dueAt).toBe(NEXT_DUE)
-  expect(occurrence!.repeat).toEqual({ freq: 'weekly', interval: 1 })
+  // The occurrence carries the series counter it belongs to: the row just filed is the second the
+  // rhythm has produced, and every door reads that number back off the same JSON column.
+  expect(occurrence!.repeat).toEqual({ freq: 'weekly', interval: 1, produced: 2 })
   filedDue.push(occurrence!.dueAt as number)
 
   // A door that reports the occurrence has to report the one it wrote, not another date.

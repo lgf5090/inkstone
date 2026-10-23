@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { getZonedParts } from '../src/shared/assistant-schedule'
 import {
+  MAX_REPEAT_COUNT,
+  MAX_REPEAT_EXCLUDED_DAYS,
+  MAX_REPEAT_UNTIL_MS,
   MAX_TAGS_PER_TASK,
   advanceRepeat,
   isTaskView,
@@ -12,6 +15,7 @@ import {
   taskIconOrNull,
   taskListProgress,
   toggledStatus,
+  withPreviousSeries,
   type RepeatRule,
   type TaskStatus,
 } from '../src/shared/todos/model'
@@ -51,6 +55,64 @@ describe('a stored repeat rule', () => {
     expect(parseRepeatRule({ freq: 'weekly', weekdays: [1, 7] })).toBeNull()
     expect(parseRepeatRule({ freq: 'weekly', weekdays: ['mon'] })).toBeNull()
     expect(parseRepeatRule({ freq: 'monthly', monthlyMode: 'nthBusinessDay' })).toBeNull()
+  })
+
+  // The series fields are read here or not at all: every door that turns a stored rule back into a
+  // value — the row decoder, the sync merge, the backup import — comes through this function, so a
+  // field the reader set in the editor would otherwise vanish on the first reload, and a bounded
+  // series would run forever rather than end.
+  it('reads the series the rule carries', () => {
+    const rule: RepeatRule = {
+      freq: 'weekly',
+      interval: 2,
+      weekdays: [1, 3, 5],
+      untilAt: utc('2026-12-31T00:00:00Z'),
+      count: 12,
+      produced: 4,
+      fromCompletionDate: true,
+      paused: true,
+      excludedDays: ['2026-11-11', '2026-11-18'],
+    }
+
+    expect(parseRepeatRule(rule)).toEqual(rule)
+  })
+
+  it('reads the same rule twice', () => {
+    const once = parseRepeatRule({ freq: 'daily', interval: 1, count: 3, produced: 2 })
+    expect(parseRepeatRule(once)).toEqual(once)
+  })
+
+  it('sorts and deduplicates the days a series steps over', () => {
+    expect(parseRepeatRule({ freq: 'daily', interval: 1, excludedDays: ['2026-11-02', '2026-11-01', '2026-11-02'] }))
+      .toEqual({ freq: 'daily', interval: 1, excludedDays: ['2026-11-01', '2026-11-02'] })
+  })
+
+  it('reads an absent ceiling and a cleared one as no ceiling', () => {
+    expect(parseRepeatRule({ freq: 'daily', interval: 1, untilAt: null, count: null })).toEqual({ freq: 'daily', interval: 1 })
+  })
+
+  it('refuses a series shape it could not have written', () => {
+    expect(parseRepeatRule({ freq: 'daily', interval: 1, untilAt: 'soon' })).toBeNull()
+    expect(parseRepeatRule({ freq: 'daily', interval: 1, untilAt: 1.5 })).toBeNull()
+    expect(parseRepeatRule({ freq: 'daily', interval: 1, untilAt: 0 })).toBeNull()
+    expect(parseRepeatRule({ freq: 'daily', interval: 1, untilAt: MAX_REPEAT_UNTIL_MS + 1 })).toBeNull()
+    expect(parseRepeatRule({ freq: 'daily', interval: 1, count: 0 })).toBeNull()
+    expect(parseRepeatRule({ freq: 'daily', interval: 1, count: MAX_REPEAT_COUNT + 1 })).toBeNull()
+    expect(parseRepeatRule({ freq: 'daily', interval: 1, produced: -1 })).toBeNull()
+    expect(parseRepeatRule({ freq: 'daily', interval: 1, paused: 'yes' })).toBeNull()
+    expect(parseRepeatRule({ freq: 'daily', interval: 1, fromCompletionDate: 1 })).toBeNull()
+    expect(parseRepeatRule({ freq: 'daily', interval: 1, excludedDays: ['2026-11-1'] })).toBeNull()
+    expect(parseRepeatRule({ freq: 'daily', interval: 1, excludedDays: '2026-11-01' })).toBeNull()
+    expect(parseRepeatRule({
+      freq: 'daily',
+      interval: 1,
+      excludedDays: Array.from({ length: MAX_REPEAT_EXCLUDED_DAYS + 1 }, (_, index) => `2026-11-${String(index + 1).padStart(2, '0')}`),
+    })).toBeNull()
+  })
+
+  it('drops a pause or an anchor the reader left off rather than storing the negation', () => {
+    expect(parseRepeatRule({ freq: 'daily', interval: 1, paused: false, fromCompletionDate: false }))
+      .toEqual({ freq: 'daily', interval: 1 })
   })
 })
 
@@ -270,10 +332,58 @@ describe('a series deciding whether it owes another occurrence', () => {
   it('gives up rather than spinning when every landing day is excluded', () => {
     const every = ['2026-03-19', '2026-03-26', '2026-04-02']
     const far = advanceRepeat(
-      { freq: 'daily', interval: 1, excludedDays: every } as never,
+      { freq: 'daily', interval: 1, excludedDays: every },
       { anchorDueAt: DUE, completedAt: done, timeZone: 'UTC' },
     )
     // Three named days cannot trap a daily rhythm; the walk only has to bound the pathological case.
     expect(far.dueAt).toBe(Date.parse('2026-03-13T09:00:00Z'))
+  })
+})
+
+describe('a rhythm named over the series already running', () => {
+  const series: RepeatRule = {
+    freq: 'weekly',
+    interval: 1,
+    weekdays: [1, 3],
+    untilAt: Date.parse('2026-12-31T00:00:00Z'),
+    count: 12,
+    produced: 4,
+    paused: true,
+    fromCompletionDate: true,
+    excludedDays: ['2026-11-11'],
+  }
+
+  it('keeps the days the rhythm already lands on when the caller names the same rhythm again', () => {
+    const fortnightly = withPreviousSeries({ freq: 'weekly', interval: 2 }, series)
+
+    expect(fortnightly).toEqual({ ...series, interval: 2 })
+    expect(fortnightly.count).toBe(12)
+    expect(fortnightly.produced).toBe(4)
+    expect(fortnightly.paused).toBe(true)
+  })
+
+  it('takes the days the caller named over the ones the row carried', () => {
+    const named = withPreviousSeries({ freq: 'weekly', interval: 1, weekdays: [5] }, series)
+
+    expect(named.weekdays).toEqual([5])
+  })
+
+  it('does not carry the modifiers of a rhythm it replaced', () => {
+    // Weekdays picked for a weekly task mean nothing on a monthly one, and the reader said monthly.
+    const monthly = withPreviousSeries({ freq: 'monthly', interval: 1 }, series)
+
+    expect(monthly.freq).toBe('monthly')
+    expect(monthly.weekdays).toBeUndefined()
+    expect(monthly.excludedDays).toEqual(['2026-11-11'])
+  })
+
+  it('leaves a rule alone when the row carried no series', () => {
+    expect(withPreviousSeries({ freq: 'daily', interval: 1 }, null)).toEqual({ freq: 'daily', interval: 1 })
+    expect(withPreviousSeries({ freq: 'daily', interval: 1 }, undefined)).toEqual({ freq: 'daily', interval: 1 })
+  })
+
+  it('survives the reader of stored rules', () => {
+    expect(parseRepeatRule(withPreviousSeries({ freq: 'weekly', interval: 2 }, series)))
+      .toEqual({ ...series, interval: 2 })
   })
 })

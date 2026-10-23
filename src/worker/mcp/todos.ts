@@ -26,6 +26,7 @@ import {
   normalizeTagNames,
   parseRepeatRule,
   remindAtFor,
+  withPreviousSeries,
   type RemindOffset,
   type RepeatFrequency,
   type RepeatRule,
@@ -185,7 +186,7 @@ export async function updateMcpTask(context: McpTodoContext, input: McpTaskPatch
   const dueAt = input.due === undefined ? undefined : input.due === null ? null : dueMillis(input.due, timezone)
   const listId = await resolveListRef(store, input.list)
   const noteId = await resolveNoteRef(context, input.note)
-  const repeat = repeatOf(input.repeat, input.repeatInterval)
+  const repeat = repeatOf(input.repeat, input.repeatInterval, existing.repeat)
 
   const patch: Partial<NewTask> = {
     ...(input.title !== undefined ? { title: input.title.trim() } : {}),
@@ -391,15 +392,22 @@ function refIsId(ref: string): boolean {
  *
  * `undefined` means "leave the column as it is" and `null` means "stop repeating", which is the difference
  * a patch has to keep. The interval is checked by the model's own reader so its ceiling is stated once.
+ *
+ * `previous` is the rule on the row being edited: a caller naming a new rhythm says nothing about the
+ * series that rhythm already runs, so the ceiling, the pause and the days let go of ride over with it.
  */
-function repeatOf(freq: RepeatFrequency | 'none' | undefined, interval?: number): RepeatRule | null | undefined {
+function repeatOf(
+  freq: RepeatFrequency | 'none' | undefined,
+  interval?: number,
+  previous?: RepeatRule | null,
+): RepeatRule | null | undefined {
   if (freq === undefined) return undefined
   if (freq === 'none') return null
   const rule = parseRepeatRule({ freq, interval: interval ?? MIN_REPEAT_INTERVAL })
   if (!rule) {
     throw ApiError.badRequest(`A repeat interval is between ${MIN_REPEAT_INTERVAL} and ${MAX_REPEAT_INTERVAL}.`)
   }
-  return rule
+  return withPreviousSeries(rule, previous)
 }
 
 function stepTexts(steps: string[] | undefined): string[] | undefined {

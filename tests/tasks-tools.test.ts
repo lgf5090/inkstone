@@ -816,6 +816,35 @@ describe('planning and repeat details', () => {
     expect(task?.repeat).toEqual({ freq: 'monthly', interval: 1, monthlyMode: 'nthWeekday' })
   })
 
+  // The chat has no words for a series ceiling, a pause or a day let go of, so a model asked to change
+  // the rhythm names only the rhythm — and the rule it writes replaces the row's whole JSON. Without
+  // the carry-over below, "make that fortnightly" would quietly un-cap a series the reader bounded.
+  it('changes the rhythm without deleting the series the row already runs', async () => {
+    const task = await store.createTask({
+      title: 'Stand-up',
+      repeat: { freq: 'weekly', interval: 1, weekdays: [1, 3], count: 12, produced: 4, untilAt: Date.parse('2026-12-31T00:00:00Z') },
+    })
+
+    await executor().execute('update_task', { task: task.id, repeat: 'weekly', repeatInterval: 2 }, 'call-1')
+
+    expect((await store.getTask(task.id))?.repeat).toEqual({
+      freq: 'weekly',
+      interval: 2,
+      weekdays: [1, 3],
+      count: 12,
+      produced: 4,
+      untilAt: Date.parse('2026-12-31T00:00:00Z'),
+    })
+  })
+
+  it('stops the series when the chat is asked to stop repeating', async () => {
+    const task = await store.createTask({ title: 'Stand-up', repeat: { freq: 'daily', interval: 1, count: 5 } })
+
+    await executor().execute('update_task', { task: task.id, repeat: 'none' }, 'call-1')
+
+    expect((await store.getTask(task.id))?.repeat).toBeNull()
+  })
+
   it('refuses weekdays on a rhythm that is not weekly', async () => {
     await expect(executor().execute('create_task', {
       title: 'Bad rhythm',

@@ -82,6 +82,32 @@ export type RepeatMonthlyMode = (typeof REPEAT_MONTHLY_MODES)[number]
 export const MIN_REPEAT_INTERVAL = 1
 export const MAX_REPEAT_INTERVAL = 99
 
+/**
+ * How many occurrences a bounded series may ask for.
+ *
+ * The same ceiling covers the counter that reads it: a series can never produce more than it was
+ * allowed to ask for, so one bound keeps a hand-edited rule from outgrowing the field that limits it.
+ */
+export const MIN_REPEAT_COUNT = 1
+export const MAX_REPEAT_COUNT = 999
+
+/**
+ * How many days a series may step over.
+ *
+ * Exceptions are the odd missed week, not a calendar: at this length the list is a second rhythm, and
+ * one that the rule's own frequency no longer describes.
+ */
+export const MAX_REPEAT_EXCLUDED_DAYS = 60
+
+/**
+ * The furthest day a series may promise to end on.
+ *
+ * A ceiling rather than a sanity check: `Date` accepts any number below 8.64e15, so a hand-edited
+ * rule could name a date the calendar itself cannot render, and the advance that compares against it
+ * would compute an occurrence out of nothing. Year 9999 is further out than any rhythm a reader sets.
+ */
+export const MAX_REPEAT_UNTIL_MS = Date.UTC(9999, 11, 31, 23, 59, 59)
+
 /** The views the server can answer in one query. */
 export const TASK_VIEWS = ['inbox', 'today', 'upcoming', 'overdue', 'open', 'completed', 'starred', 'all'] as const
 export type TaskView = (typeof TASK_VIEWS)[number]
@@ -744,12 +770,44 @@ function normalizeWeekdays(value: unknown): number[] | null {
 }
 
 /**
+ * The series fields, gated before they are read.
+ *
+ * Each guard accepts an absent field and refuses a shape this app could not have written — the same
+ * trade the weekday list makes. Dropping a malformed ceiling would be the quiet answer, and a series
+ * that runs past the day the reader said it ends is a rule they never asked for; refusing it instead
+ * costs a rhythm the reader did write, so the wrongness has to be loud, which on the write side it is
+ * (the route answers 400) and on the read side it is not (the row stops repeating) — which is why the
+ * only writer of these fields is this app's own editor and store.
+ */
+function isRepeatNumberField(value: unknown): boolean {
+  return value === undefined || value === null || (typeof value === 'number' && Number.isInteger(value))
+}
+
+function isRepeatBooleanField(value: unknown): boolean {
+  return value === undefined || value === null || typeof value === 'boolean'
+}
+
+const REPEAT_DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+
+function isRepeatExcludedDays(value: unknown): boolean {
+  if (value === undefined || value === null) return true
+  if (!Array.isArray(value) || value.length > MAX_REPEAT_EXCLUDED_DAYS) return false
+  return value.every((day) => typeof day === 'string' && REPEAT_DAY_PATTERN.test(day))
+}
+
+/**
  * Reads a stored repeat rule.
  *
  * Returns null rather than throwing: a row written by an older build, or by a hand-edited backup,
  * must not take the whole listing down with it. An unknown shape simply means "does not repeat".
  * A modifier that does not belong to the rule's frequency is left out instead of refusing the rule:
  * an extra field is not a reason to forget the rhythm the reader did write.
+ *
+ * Every field of the rule is read here, including the one only the server writes (`produced`).
+ * This function is the only way a stored rule becomes a value again — the row decoders, the sync
+ * merge and the backup import all go through it — so a field left out would not merely be hidden:
+ * the counter would reset on the next read, and a bounded series would restart instead of ending.
+ * Absent and cleared are read as the same answer, because a rule that names no limit has none.
  */
 export function parseRepeatRule(value: unknown): RepeatRule | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
@@ -759,15 +817,57 @@ export function parseRepeatRule(value: unknown): RepeatRule | null {
     ? Math.trunc(raw.interval)
     : 1
   if (interval < MIN_REPEAT_INTERVAL || interval > MAX_REPEAT_INTERVAL) return null
-  const weekdays = raw.weekdays === undefined ? null : normalizeWeekdays(raw.weekdays)
-  if (raw.weekdays !== undefined && weekdays === null) return null
+  if (raw.weekdays !== undefined && normalizeWeekdays(raw.weekdays) === null) return null
   if (raw.monthlyMode !== undefined && !isRepeatMonthlyMode(raw.monthlyMode)) return null
+  if (!isRepeatNumberField(raw.untilAt) || !isRepeatNumberField(raw.count) || !isRepeatNumberField(raw.produced)) return null
+  if (!isRepeatBooleanField(raw.paused) || !isRepeatBooleanField(raw.fromCompletionDate)) return null
+  if (!isRepeatExcludedDays(raw.excludedDays)) return null
+  const untilAt = typeof raw.untilAt === 'number' ? raw.untilAt : null
+  const count = typeof raw.count === 'number' ? raw.count : null
+  const produced = typeof raw.produced === 'number' ? raw.produced : null
+  if (untilAt !== null && (untilAt <= 0 || untilAt > MAX_REPEAT_UNTIL_MS)) return null
+  if (count !== null && (count < MIN_REPEAT_COUNT || count > MAX_REPEAT_COUNT)) return null
+  if (produced !== null && (produced < 0 || produced > MAX_REPEAT_COUNT)) return null
   const rule: RepeatRule = { freq: raw.freq, interval }
-  if (raw.freq === 'weekly' && weekdays?.length) rule.weekdays = weekdays
+  if (raw.freq === 'weekly') {
+    const weekdays = normalizeWeekdays(raw.weekdays)
+    if (weekdays?.length) rule.weekdays = weekdays
+  }
   if (raw.freq === 'monthly' && raw.monthlyMode !== undefined && raw.monthlyMode !== 'day') {
     rule.monthlyMode = raw.monthlyMode
   }
+  if (untilAt !== null) rule.untilAt = untilAt
+  if (count !== null) rule.count = count
+  if (produced !== null) rule.produced = produced
+  if (raw.paused === true) rule.paused = true
+  if (raw.fromCompletionDate === true) rule.fromCompletionDate = true
+  if (Array.isArray(raw.excludedDays)) {
+    const days = [...new Set(raw.excludedDays as string[])].sort()
+    if (days.length) rule.excludedDays = days
+  }
   return rule
+}
+
+/**
+ * The series a row already runs, kept under a rhythm a caller named over the top of it.
+ *
+ * Two of the app's doors build a rule out of what a model typed, and a model has no words for a
+ * ceiling, a pause or a day let go of: asked to make a task fortnightly, it names only the fortnight.
+ * Writing that rule alone would delete a limit the reader never mentioned, so the series rides over.
+ *
+ * The two modifiers are decided by the frequency they modify rather than carried blindly: `weekdays`
+ * and `monthlyMode` say which days a *given* rhythm lands on, so naming the same rhythm again without
+ * them keeps the days already picked, while a different rhythm starts without days it cannot mean.
+ */
+export function withPreviousSeries(rule: RepeatRule, previous: RepeatRule | null | undefined): RepeatRule {
+  if (!previous) return rule
+  const sameRhythm = previous.freq === rule.freq
+  return {
+    ...previous,
+    ...rule,
+    weekdays: sameRhythm ? rule.weekdays ?? previous.weekdays : rule.weekdays,
+    monthlyMode: sameRhythm ? rule.monthlyMode ?? previous.monthlyMode : rule.monthlyMode,
+  }
 }
 
 function shiftDays(year: number, month: number, day: number, days: number): { year: number; month: number; day: number } {
