@@ -522,7 +522,13 @@ const SERVER_VIEWS: Record<'board' | 'today' | 'plan' | 'upcoming' | 'starred', 
  */
 const PICKER_LIMIT = 8
 
-/** What one queued task write asks the server to do. The queue row's `entity` already says "task". */
+/**
+ * What one queued task write asks the server to do. The queue row's `entity` already says "task".
+ *
+ * A back-filled span is missing from this set on purpose: `logTimeSpan` is the one door that files
+ * hours, and it refuses with a reason when there is no network rather than queueing a write the
+ * replay could land twice.
+ */
 type TodoOutboxOp = 'create' | 'update' | 'delete' | 'plan' | 'snooze'
 
 type TodoOutboxPayload = {
@@ -963,9 +969,9 @@ function timedRowIds(state: Pick<TodosState, 'tasks' | 'completed'>): string[] {
  * The span a quick-add line's spent half stands for: as long as the words said, ending at the press.
  *
  * The line names no clock of its own, and "the last five minutes" is the only reading that does not
- * invent one. Past one ledger row's ceiling the span is refused here rather than sent — a queued write
- * the route is known to answer 400 is a failure the queue would have to carry for nothing, and the
- * reader is told instead.
+ * invent one. Past one ledger row's ceiling the span is refused here rather than sent — a request the
+ * route is already known to answer 400 would say the same failure twice, and the reader is told once
+ * instead.
  */
 function loggedSpan(ms: number): { startAt: number, endAt: number } | null {
   if (!Number.isInteger(ms) || ms <= 0 || ms > MAX_SINGLE_TIME_ENTRY_MS) return null
@@ -974,8 +980,8 @@ function loggedSpan(ms: number): { startAt: number, endAt: number } | null {
 }
 
 /** Refuse a span this app may not file, in the reader's own words rather than in a silent return. */
-function refuseLoggedSpan(): void {
-  useUi.getState().toast({ title: t('todo.time.logged_refused'), tone: 'danger' })
+function refuseLoggedSpan(reason: MessageKey): void {
+  useUi.getState().toast({ title: t(reason), tone: 'danger' })
 }
 
 /**
@@ -985,11 +991,25 @@ function refuseLoggedSpan(): void {
  * on the row and the hours are rows of their own, and the server decides which account day each of them
  * belongs to. A refusal is reported with the route's reason and leaves the task standing — the reader
  * created something real, and losing it over a number they can add again would be the worse failure.
+ *
+ * This is the one task write the offline queue does not carry, and it is refused here rather than
+ * queued: see the door below.
  */
 async function logTimeSpan(id: string, ms: number): Promise<void> {
   const span = loggedSpan(ms)
   if (!span) {
-    refuseLoggedSpan()
+    refuseLoggedSpan('todo.time.logged_refused')
+    return
+  }
+  // With no network the span is not filed, and the reader hears why. `POST /api/todos/:id/time` answers
+  // by inserting, and it is the only task write with no idempotency door of its own — `Idempotency-Key`
+  // is read by `POST /api/todos` alone — so a replay of a back-fill whose response was lost would file
+  // the same five minutes twice. A doubled number in the ledger is precisely the wrong fact the route's
+  // four clock guards were put there to make impossible, and the queue has no way to tell "never sent"
+  // from "sent, answer lost". Telling the reader to add the hours once they are back is the honest
+  // answer; the row they created is kept either way.
+  if (offlineNow()) {
+    refuseLoggedSpan('todo.time.logged_offline')
     return
   }
   try {
@@ -1586,8 +1606,9 @@ export const useTodos = create<TodosState>((set, get) => ({
       try {
         await localDb.enqueueOutbox(queuedTodoItem(id, { op: 'create', task: body as Record<string, unknown> }))
         set({ saving: false })
-        // The ledger has no queue door yet: the span is not something the replay can carry, so it is
-        // attempted here and answered by the failed request's own toast rather than by silence.
+        // The row is queued; the hours are not, and `logTimeSpan` is the door that says so out loud.
+        // Sending them now would address a `local-` id the server has never seen, and queueing them
+        // would risk filing them twice — the reason lives with the guard, not with this call.
         if (timeLoggedMs !== undefined) await logTimeSpan(id, timeLoggedMs)
         return task
       } catch (error) {

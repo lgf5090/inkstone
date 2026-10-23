@@ -6,12 +6,17 @@
  * a queued create is replayed by the shared lease loop, a 409 stops at the same two-answer conflict
  * choice a live write offers, and a delete is queued as a tombstone so an already-gone row is a
  * success rather than a failure that retries forever.
+ *
+ * The ledger's back-fill door is in scope here as well, because it is the one task write this queue
+ * deliberately does *not* carry: the hours a quick-add line says have already gone are refused out
+ * loud with no network rather than queued, and the reason is pinned beside the behaviour.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { TodoTask } from '@shared/todos/model'
 import { ApiError } from '../../lib/api'
 import { initI18n, t } from '../../lib/i18n'
 import { useNotes } from '../../store/notes'
+import { useUi } from '../../store/ui'
 import { useTodos, replayTodoOutboxItem } from './store'
 
 const mocks = vi.hoisted(() => ({
@@ -22,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   remove: vi.fn(),
   plan: vi.fn(),
   snooze: vi.fn(),
+  addTime: vi.fn(),
   updateOutboxRevision: vi.fn(async () => {}),
   markOutboxFailure: vi.fn(async () => {}),
 }))
@@ -94,6 +100,7 @@ vi.mock('../../lib/api', async () => {
         remove: mocks.remove,
         plan: mocks.plan,
         snooze: mocks.snooze,
+        addTime: mocks.addTime,
       },
     },
   }
@@ -150,7 +157,7 @@ beforeEach(async () => {
   await initI18n()
   mocks.queue = []
   for (const fn of [mocks.create, mocks.update, mocks.get, mocks.remove, mocks.plan, mocks.snooze,
-    mocks.updateOutboxRevision, mocks.markOutboxFailure, confirmMock]) fn.mockReset()
+    mocks.addTime, mocks.updateOutboxRevision, mocks.markOutboxFailure, confirmMock]) fn.mockReset()
   confirmMock.mockResolvedValue(false)
   setOnline(false)
   useTodos.setState(original, true)
@@ -303,5 +310,53 @@ describe('a task write made offline', () => {
 
     expect(mocks.remove).toHaveBeenCalledWith('t1')
     expect(outcome).toEqual({ status: 'done' })
+  })
+
+  it('refuses the hours a line back-fills while there is no network, and says so', async () => {
+    const task = await useTodos.getState().createTask({ title: 'Write the report', timeLoggedMs: 5 * 60_000 })
+    expect(task).not.toBeNull()
+
+    // The row is a queued fact; the hours are not a queued fact on purpose. `POST /api/todos/:id/time`
+    // answers by inserting, and it is the one task write with no idempotency door of its own — only
+    // `POST /api/todos` reads `Idempotency-Key`. A replay of a back-fill whose response was lost would
+    // therefore file the same five minutes twice, and a doubled number in the ledger is exactly the
+    // wrong fact the server-side clock guards exist to make impossible.
+    expect(mocks.queue).toHaveLength(1)
+    expect(mocks.queue[0]).toMatchObject({ entity: 'todo', entityId: task?.id, payload: { op: 'create' } })
+    expect((mocks.queue[0] as { payload: { task: Record<string, unknown> } }).payload.task)
+      .not.toHaveProperty('timeLoggedMs')
+    expect(mocks.addTime, 'a back-fill was asked for against an id the server has never seen')
+      .not.toHaveBeenCalled()
+    const said = useUi.getState().toasts.map((entry) => entry.title)
+    expect(said, 'the hours were dropped without saying where they went')
+      .toContain(t('todo.time.logged_offline'))
+
+    // Coming back online does not file them either: the reader was told at the press, and hours that
+    // appeared on their own after the replay would contradict the one answer they were given.
+    setOnline(true)
+    mocks.create.mockResolvedValue({ task: row('server-1', 'Write the report', { rev: 1 }) })
+    await useNotes.getState().replayPending()
+
+    expect(mocks.create).toHaveBeenCalledTimes(1)
+    expect(mocks.addTime).not.toHaveBeenCalled()
+    expect(mocks.queue).toHaveLength(0)
+    expect(useTodos.getState().tasks.map((entry) => entry.id)).toEqual(['server-1'])
+  })
+
+  it('files the hours the same line back-fills when there is a network', async () => {
+    setOnline(true)
+    mocks.create.mockResolvedValue({ task: row('server-1', 'Write the report', { rev: 1 }) })
+    mocks.addTime.mockResolvedValue({ entries: [] })
+    mocks.get.mockResolvedValue({ task: row('server-1', 'Write the report', { rev: 2, timeSpentMs: 5 * 60_000 }), steps: [] })
+
+    await useTodos.getState().createTask({ title: 'Write the report', timeLoggedMs: 5 * 60_000 })
+
+    // The refusal above is about the door, not about the number: online, the span goes to the ledger in
+    // the same press that created the row.
+    expect(mocks.addTime).toHaveBeenCalledTimes(1)
+    const [id, span] = mocks.addTime.mock.calls[0] as [string, { startAt: number, endAt: number }]
+    expect(id).toBe('server-1')
+    expect(span.endAt - span.startAt).toBe(5 * 60_000)
+    expect(useTodos.getState().tasks[0]).toMatchObject({ timeSpentMs: 5 * 60_000 })
   })
 })
