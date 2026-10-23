@@ -12,7 +12,7 @@
  */
 
 import { useRef, useState } from 'react'
-import { Check, Flag, FolderInput, Star, Tag, Trash2, X } from 'lucide-react'
+import { Archive, Check, Flag, FolderInput, Star, Tag, Trash2, X } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
 import { Menu } from '../../components/overlay'
@@ -100,6 +100,9 @@ export function BatchBar() {
           selection would answer ninety rows with one guess. */}
       <Button size="sm" variant="ghost" onClick={() => run('star', 'true')}>
         <Star size={13} />{t('todo.task.star')}
+      </Button>
+      <Button size="sm" variant="ghost" onClick={() => run('archive', 'true')}>
+        <Archive size={13} />{t('todo.batch.archive')}
       </Button>
       <Button size="sm" variant="ghost" className="text-[var(--danger)]" onClick={() => { void remove() }}>
         <Trash2 size={13} />{t('todo.batch.delete')}

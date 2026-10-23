@@ -414,6 +414,7 @@ const BATCH_TOAST_KEYS: Record<TaskBatchOp, MessageKey> = {
   priority: 'todo.toast.batch_priority',
   star: 'todo.toast.batch_starred',
   tag: 'todo.toast.batch_tagged',
+  archive: 'todo.toast.batch_archived',
 }
 
 /** What one snooze duration reads as, shared by the card menu and the notification row. */
@@ -1868,6 +1869,16 @@ export const useTodos = create<TodosState>((set, get) => ({
               throw new Error(`A deleted task could not be restored: ${error instanceof Error ? error.message : String(error)}`)
             }
           }
+          await get().load()
+        })
+      }
+      if (op === 'archive' && result.done.length) {
+        // The shelf is the one batch gesture that takes a row out of every list the reader browses, so
+        // the toast is the way back — the same window the delete undo lives in, and the same reason: a
+        // press that was a mistake should not need a search for the thing that disappeared.
+        const shelved = result.done.map((entry) => entry.id)
+        offerUndo(set, get, t('todo.toast.batch_archived', { count: shelved.length }), async () => {
+          await api.todos.batch({ ids: shelved, op: 'archive', value: 'false' })
           await get().load()
         })
       }

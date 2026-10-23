@@ -294,6 +294,27 @@ describe('a batch that deleted rows', () => {
   })
 })
 
+describe('a batch that archived rows', () => {
+  // The shelf is the one bar gesture that takes rows out of every list the reader browses, so the undo
+  // is not a convenience here: without it an accidental press has no way back on the screen.
+  it('files the selection away and takes it back with one step', async () => {
+    service.tasks = [row('a', 'First'), row('b', 'Second')]
+    useTodos.setState({ status: 'ready', tasks: service.tasks, total: 2, selectedIds: new Set(['a', 'b']) })
+
+    // The bar names the value rather than leaning on the route's default, the way its star button does.
+    await useTodos.getState().batchTasks('archive', 'true')
+
+    // Named value, not the route's default: the bar means "put away", and an omitted value would let a
+    // later default flip read as a different gesture.
+    expect(service.batches).toEqual([{ ids: ['a', 'b'], op: 'archive', value: 'true' }])
+    expect(useUi.getState().toasts.at(-1)?.action?.label).toBe(t('todo.action.undo'))
+
+    await useTodos.getState().undoLast()
+
+    expect(service.batches.at(-1)).toEqual({ ids: ['a', 'b'], op: 'archive', value: 'false' })
+  })
+})
+
 describe('a batch that completed repeating rows', () => {
   it('keeps the occurrence the answer carried when the reload cannot be read', async () => {
     const due = Date.parse('2026-10-21T02:00:00Z')

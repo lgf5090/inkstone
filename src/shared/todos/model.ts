@@ -310,13 +310,12 @@ export const MAX_BATCH_TASKS = 100
  * own today — and the write touches `due_at` alone, never `planned_for`.
  *
  * `archive` is the shelf the day's closing gesture puts rows on, and `value` on it is a boolean: true
- * files the row, false takes it back. It is not on the selection bar yet, which is why it is excluded
- * from `TaskBatchOp` below with `due` — the bar's own set, and the toast keys that go with it.
+ * files the row, false takes it back — which is what lets the selection bar's undo mean something.
  */
 export const TASK_BATCH_OPS = ['complete', 'delete', 'move', 'priority', 'star', 'tag', 'due', 'archive'] as const
 export type TaskBatchRequestOp = (typeof TASK_BATCH_OPS)[number]
-/** The operations the selection bar offers; `due` is the banner's and `archive` the day's close. */
-export type TaskBatchOp = Exclude<TaskBatchRequestOp, 'due' | 'archive'>
+/** The operations the selection bar offers; `due` is the banner's own gesture. */
+export type TaskBatchOp = Exclude<TaskBatchRequestOp, 'due'>
 
 export function isTaskBatchRequestOp(value: unknown): value is TaskBatchRequestOp {
   return typeof value === 'string' && (TASK_BATCH_OPS as readonly string[]).includes(value)
