@@ -40,12 +40,13 @@ import {
   type TaskList,
   type TaskSort,
   type TaskStatsBucket,
+  type TaskStatus,
   type TaskStep,
   type TaskTag,
   type TodoStats,
   type TodoTask,
 } from '@shared/todos/model'
-import { isTaskDone } from '@shared/todos/status'
+import { isTaskDone, isTaskOpen } from '@shared/todos/status'
 import {
   pushTodoAddress,
   pushTodoTaskAddress,
@@ -345,10 +346,10 @@ async function resolveRevisionConflict(
   // The server's row replaces whichever bucket held the old one; a row that finished elsewhere moves
   // to the finished page rather than staying on the open board.
   set((state) => ({
-    tasks: isTaskDone(server.status)
+    tasks: inFinishedPage(server.status)
       ? state.tasks.filter((entry) => entry.id !== id)
       : [...state.tasks.filter((entry) => entry.id !== id), server],
-    completed: isTaskDone(server.status)
+    completed: inFinishedPage(server.status)
       ? [server, ...state.completed.filter((entry) => entry.id !== id)]
       : state.completed.filter((entry) => entry.id !== id),
   }))
@@ -573,16 +574,16 @@ function storeServerTask(task: TodoTask, options: { addIfMissing?: boolean; repl
   if (!present && !options.addIfMissing) return
   useTodos.setState((state) => {
     const without = (entry: TodoTask) => entry.id !== task.id && entry.id !== options.replaceId
-    const tasks = isTaskDone(task.status)
+    const tasks = inFinishedPage(task.status)
       ? state.tasks.filter(without)
       : [...state.tasks.filter(without), task]
-    const completed = isTaskDone(task.status)
+    const completed = inFinishedPage(task.status)
       ? [task, ...state.completed.filter(without)]
       : state.completed.filter(without)
     return {
       tasks,
       completed,
-      total: isTaskDone(task.status) || present ? state.total : state.total + 1,
+      total: inFinishedPage(task.status) || present ? state.total : state.total + 1,
       selectedId: options.replaceId && state.selectedId === options.replaceId ? task.id : state.selectedId,
       draft: options.replaceId && state.draft?.id === options.replaceId
         ? { ...state.draft, id: task.id }
@@ -818,6 +819,19 @@ function tagsForNames(names: readonly string[]): TaskTag[] {
 }
 
 /**
+ * Whether a row belongs on the finished page rather than among the work still owed.
+ *
+ * The client keeps two buckets — the live list and the completed page — and mirrors each server row
+ * into one of them. That choice is "has this row stopped being owed", which the open set answers, not
+ * "was it finished": a cancelled task is abandoned work that lives on the finished page beside the done
+ * ones, so the membership test reads the open set inverted rather than `isTaskDone`, which would leave
+ * an abandoned row sitting among the tasks the reader still owes.
+ */
+function inFinishedPage(status: TaskStatus): boolean {
+  return !isTaskOpen(status)
+}
+
+/**
  * What a patch looks like on screen before the server has seen it.
  *
  * Only the fields the form writes are mapped; everything else keeps the row it had. A due date given
@@ -828,9 +842,11 @@ function applyTodoPatch(task: TodoTask, patch: Record<string, unknown>): TodoTas
   const next: TodoTask = { ...task, updatedAt: now }
   if (typeof patch.title === 'string') next.title = patch.title
   if (typeof patch.description === 'string') next.description = patch.description
-  if (patch.status === 'todo' || patch.status === 'in_progress' || patch.status === 'done') {
+  if (patch.status === 'todo' || patch.status === 'in_progress' || patch.status === 'done' || patch.status === 'cancelled') {
     next.status = patch.status
-    next.completedAt = isTaskDone(patch.status) ? (task.completedAt ?? now) : null
+    // End moment, not finish moment: stamped for both ways a row leaves the plate (finished, abandoned)
+    // and cleared on a reopen, matching the store's own `completed_at` write.
+    next.completedAt = !isTaskOpen(patch.status) ? (task.completedAt ?? now) : null
   }
   if (patch.priority === 'low' || patch.priority === 'medium' || patch.priority === 'high' || patch.priority === 'urgent')
     next.priority = patch.priority
@@ -1040,7 +1056,7 @@ export function applyTodoSync(payload: { todos: TodoTask[]; deleted: string[] })
       if (deleted.has(task.id)) continue
       const inTasks = tasks.some((entry) => entry.id === task.id)
       const inCompleted = completed.some((entry) => entry.id === task.id)
-      if (isTaskDone(task.status)) {
+      if (inFinishedPage(task.status)) {
         if (inTasks) {
           tasks = tasks.filter((entry) => entry.id !== task.id)
           total -= 1
@@ -1580,7 +1596,7 @@ export const useTodos = create<TodosState>((set, get) => ({
     if (!found) {
       try {
         const { task } = await api.todos.get(id)
-        set((state) => (isTaskDone(task.status)
+        set((state) => (inFinishedPage(task.status)
           ? { completed: [task, ...state.completed.filter((entry) => entry.id !== task.id)] }
           : { tasks: [...state.tasks.filter((entry) => entry.id !== task.id), task] }))
       } catch (error) {
@@ -1665,10 +1681,10 @@ export const useTodos = create<TodosState>((set, get) => ({
         // the box sees the following one on the list instead of finding out about it on the next reload.
         tasks: [
           ...state.tasks.filter((entry) => entry.id !== id && entry.id !== next?.id),
-          ...(isTaskDone(task.status) ? [] : [task]),
+          ...(inFinishedPage(task.status) ? [] : [task]),
           ...(next ? [next] : []),
         ],
-        completed: isTaskDone(task.status)
+        completed: inFinishedPage(task.status)
           ? [task, ...state.completed.filter((entry) => entry.id !== id)]
           : state.completed.filter((entry) => entry.id !== id),
         saving: false,

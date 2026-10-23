@@ -58,7 +58,10 @@ export function groupByPlan(tasks: readonly TodoTask[], bounds: { dayEnd: number
   const upcomingEnd = bounds.dayEnd + UPCOMING_DAYS * DAY
   const groups: Record<PlanGroupKey, TodoTask[]> = { overdue: [], today: [], upcoming: [], later: [], none: [] }
   for (const task of tasks) {
-    if (isTaskDone(task.status)) continue
+    // Only work still owed is placed on the plan. A row that already stopped being owed — finished or
+    // abandoned — is not planned work; skipping on the open set (rather than "not done") is what keeps an
+    // abandoned task out of "upcoming" and "today" instead of resurfacing it as something still to do.
+    if (!isTaskOpen(task.status)) continue
     const startAt = task.startAt ?? null
     if (task.dueAt === null) {
       if (startAt === null) {
@@ -98,7 +101,9 @@ export function groupToday(
 ): TaskGroup<TodayGroupKey>[] {
   const groups: Record<TodayGroupKey, TodoTask[]> = { planned: [], today: [], overdue: [] }
   for (const task of tasks) {
-    if (isTaskDone(task.status)) continue
+    // The today screen lists what is owed; a row that stopped being owed — finished or abandoned — has
+    // no place on it, so the skip reads the open set rather than "not done".
+    if (!isTaskOpen(task.status)) continue
     if (task.plannedFor === bounds.today) groups.planned.push(task)
     else if (task.dueAt !== null && task.dueAt < bounds.now) groups.overdue.push(task)
     else groups.today.push(task)
@@ -192,6 +197,23 @@ export function groupCompleted(tasks: readonly TodoTask[], timezone: string): Ta
       key,
       tasks: entries.sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0)),
     }))
+}
+
+/**
+ * The rows the completed page shows, split into the two sections it draws side by side.
+ *
+ * Finished and abandoned are both work that left the plate, but they are not the same statement about
+ * the reader, so they never share a bucket: the finished rows keep the by-the-day grouping a done list
+ * has always had, and the abandoned rows form their own single section beneath it. The split reads the
+ * status sets rather than "not open", so a stray value joins neither section.
+ */
+export function groupCompletedAndAbandoned(
+  tasks: readonly TodoTask[],
+  timezone: string,
+): { done: TaskGroup[]; abandoned: TodoTask[] } {
+  const abandoned = tasks.filter((task) => task.status === 'cancelled')
+    .sort((a, b) => (b.completedAt ?? b.updatedAt) - (a.completedAt ?? a.updatedAt))
+  return { done: groupCompleted(tasks, timezone), abandoned }
 }
 
 /**

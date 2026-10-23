@@ -17,7 +17,7 @@ import { OverdueShift } from './OverdueShift'
 import { useTodos } from './store'
 import { TaskCard, useTaskMoves, type TaskMoveControls } from './TaskCard'
 import { LIST_COLUMNS_QUERY, ListLayoutToggle, StatusBoard, useBoardGroup, useListLayout } from './status-board'
-import { groupByPlan, groupCompleted, groupByList, type TaskGroup, type PlanGroupKey } from './task-groups'
+import { groupByPlan, groupCompletedAndAbandoned, groupByList, type TaskGroup, type PlanGroupKey } from './task-groups'
 import type { MessageKey } from '@shared/locales/en-US'
 import { type TodoTask } from '@shared/todos/model'
 
@@ -196,13 +196,16 @@ export function CompletedView() {
   const years = [...seenYears.current].sort((a, b) => (a < b ? 1 : -1))
 
   const groups = useMemo(() => {
-    const grouped = groupCompleted(completed, timezone)
+    const { done, abandoned } = groupCompletedAndAbandoned(completed, timezone)
     // The day a task was filed under is the grouping; within it, an order the reader chose is the
-    // server's answer and is not sorted again here.
-    return sort ? inServerOrder(grouped, completed) : grouped
+    // server's answer and is not sorted again here. Abandoned rows ride below the finished ones as
+    // their own section, newest-left first, so "did this" and "will not do this" never share a heading.
+    const doneGroups = sort ? inServerOrder(done, completed) : done
+    return abandoned.length ? [...doneGroups, { key: 'abandoned', tasks: abandoned }] : doneGroups
   }, [completed, sort, timezone])
 
   const label = (key: string): string => {
+    if (key === 'abandoned') return t('todo.group.cancelled')
     const [y, m, d] = key.split('-')
     return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(Number(y), Number(m) - 1, Number(d)))
   }

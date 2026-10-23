@@ -259,6 +259,9 @@ const ACTION_STATUSES = ['pending', 'approved', 'cancelled', 'expired', 'failed'
 const AUTOMATION_STATUS_VALUES = ['scheduled', 'running', 'paused', 'completed', 'failed'] as const
 const RUN_STATUSES = ['running', 'success', 'error', 'skipped'] as const
 const TASK_PRIORITY_VALUES = ['low', 'medium', 'high', 'urgent'] as const
+// The two terminal states the completed page shows. Named here, not derived from the open set, so the
+// page lists what the app can put on it and nothing a stray column value might smuggle in.
+const COMPLETED_VIEW_STATUSES: readonly TaskStatus[] = ['done', 'cancelled']
 
 const MEMORY_COLUMNS
   = `id, content, category, source, status, superseded_by, valid_from, valid_until, project_id, note_id, created_at, updated_at`
@@ -4297,7 +4300,10 @@ export class AssistantStore {
         q.raw(SQL_TASK_OPEN)
         break
       case 'completed':
-        q.raw(SQL_TASK_DONE)
+        // Finished and abandoned ride the same page: both left the plate, and the screen shows them as
+        // two sections side by side. It is deliberately not `NOT open` — that would sweep in any value
+        // the column happens to hold; this names exactly the two terminal states the app writes.
+        q.inList('status', COMPLETED_VIEW_STATUSES)
         break
       case 'starred':
         q.raw(`${SQL_TASK_OPEN} AND starred = 1`)
@@ -4554,8 +4560,8 @@ export class AssistantStore {
       input.dueAt ?? null, input.startAt ?? null, input.projectId ?? null, input.listId ?? null,
       taskIconOrNull(input.icon), taskColorOrNull(input.color), input.starred ? 1 : 0,
       repeat ? JSON.stringify(repeat) : null, input.noteId ?? null,
-      input.conversationId ?? null, at, at, isTaskDone(status) ? at : null,
-      createdOn, isTaskDone(status) ? createdOn : null, input.plannedFor ?? null,
+      input.conversationId ?? null, at, at, !isTaskOpen(status) ? at : null,
+      createdOn, !isTaskOpen(status) ? createdOn : null, input.plannedFor ?? null,
       input.timeEstimateMs ?? null,
     )
     await this.db.batch([insert, this.taskEvent(id, at, createdOn, 'born', null, status)])
@@ -4717,12 +4723,18 @@ export class AssistantStore {
     if (patch.conversationId !== undefined) fields.push(['conversation_id', patch.conversationId])
     let event: D1PreparedStatement | null = null
     if (patch.status !== undefined) {
-      const completedAt = isTaskDone(patch.status) ? (existing.completedAt ?? at) : null
+      // `completed_at` is the row's end moment, not only its finish moment: it is stamped for both ways
+      // a row stops being owed — finished and abandoned — and cleared on a reopen. Reading it off the
+      // open set rather than the done set is what keeps an abandoned row's end time on the row while the
+      // done-only statistics (lead time, streak, `completionRate`) still refuse to count it: the column
+      // says "this is when it left the plate", the status says why.
+      const terminal = !isTaskOpen(patch.status)
+      const completedAt = terminal ? (existing.completedAt ?? at) : null
       fields.push(['status', patch.status])
       fields.push(['completed_at', completedAt])
-      // The day column follows the same transition: reopened clears it, finished files it under the
-      // reader's day. Left untouched when the status did not change, so a zone edit never rewrites a
-      // day that was already recorded.
+      // The day column follows the same transition: reopened clears it, a row that stopped being owed
+      // files it under the reader's day. Left untouched when the status did not change, so a zone edit
+      // never rewrites a day that was already recorded.
       if (patch.status !== existing.status) {
         const completedOn = completedAt === null ? null : await this.taskDay(completedAt, timeZone)
         fields.push(['completed_on', completedOn])

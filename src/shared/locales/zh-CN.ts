@@ -8204,6 +8204,7 @@ console.log(\`Hello, \${name}!\`)
     "todo.smart.starred": "星标",
     "todo.group.open": "待处理",
     "todo.group.done": "已完成",
+    "todo.group.cancelled": "已放弃",
     "todo.group.overdue": "逾期",
     "todo.group.today": "今天",
     "todo.group.upcoming": "即将到期",
