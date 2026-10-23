@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { getZonedParts } from '../src/shared/assistant-schedule'
 import {
   MAX_TAGS_PER_TASK,
+  advanceRepeat,
   isTaskView,
   nextOccurrence,
   normalizeTagNames,
@@ -214,5 +215,65 @@ describe("a task's own colour, as the store keeps it", () => {
   it('ignores anything that is not text', () => {
     expect(taskColorOrNull(null)).toBeNull()
     expect(taskColorOrNull(42)).toBeNull()
+  })
+})
+
+describe('a series deciding whether it owes another occurrence', () => {
+  const DUE = Date.parse('2026-03-12T09:00:00Z')
+  const done = Date.parse('2026-03-13T20:00:00Z')
+  const weekly = { freq: 'weekly' as const, interval: 1 }
+  const at = (patch: Record<string, unknown> = {}) => advanceRepeat(
+    { ...weekly, ...patch } as never,
+    { anchorDueAt: DUE, completedAt: done, timeZone: 'UTC' },
+  )
+
+  it('counts from the old due date, so a late tick does not move the rhythm', () => {
+    expect(at().dueAt).toBe(Date.parse('2026-03-19T09:00:00Z'))
+  })
+
+  it('counts from the finished day only when the reader asked it to', () => {
+    expect(at({ fromCompletionDate: true }).dueAt).toBe(Date.parse('2026-03-20T20:00:00Z'))
+  })
+
+  it('stops at a pause without spending a turn', () => {
+    const stopped = at({ paused: true })
+    expect(stopped).toMatchObject({ dueAt: null, stopped: 'paused' })
+    // The rule comes back untouched: a reopen and a second finish must not count an occurrence
+    // that was never created.
+    expect(stopped.rule.produced).toBeUndefined()
+  })
+
+  it('stops once the ceiling day is passed', () => {
+    expect(at({ untilAt: Date.parse('2026-03-15T00:00:00Z') })).toMatchObject({ dueAt: null, stopped: 'until' })
+    expect(at({ untilAt: Date.parse('2026-03-19T23:00:00Z') }).dueAt).toBe(Date.parse('2026-03-19T09:00:00Z'))
+  })
+
+  it('produces exactly `count` occurrences and no more', () => {
+    expect(at({ count: 1 })).toMatchObject({ dueAt: null, stopped: 'count' })
+    expect(at({ count: 2 }).rule.produced).toBe(2)
+    expect(at({ count: 2, produced: 2 })).toMatchObject({ dueAt: null, stopped: 'count' })
+  })
+
+  it('steps over an excluded day rather than cancelling the occurrence', () => {
+    const next = at({ excludedDays: ['2026-03-19'] })
+    expect(next.dueAt).toBe(Date.parse('2026-03-26T09:00:00Z'))
+    expect(next.rule.produced).toBe(2)
+  })
+
+  it('counts a rule written before the counter existed as its series first occurrence', () => {
+    // The only reading that does not restart a series the reader has already run: an absent counter
+    // is 1, so `count: 1` means "this row was the whole series".
+    expect(at({ count: 1 }).stopped).toBe('count')
+    expect(at({ count: 3, produced: 1 }).rule.produced).toBe(2)
+  })
+
+  it('gives up rather than spinning when every landing day is excluded', () => {
+    const every = ['2026-03-19', '2026-03-26', '2026-04-02']
+    const far = advanceRepeat(
+      { freq: 'daily', interval: 1, excludedDays: every } as never,
+      { anchorDueAt: DUE, completedAt: done, timeZone: 'UTC' },
+    )
+    // Three named days cannot trap a daily rhythm; the walk only has to bound the pathological case.
+    expect(far.dueAt).toBe(Date.parse('2026-03-13T09:00:00Z'))
   })
 })
