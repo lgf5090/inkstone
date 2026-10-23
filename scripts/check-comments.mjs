@@ -32462,6 +32462,11 @@ const allowed = new Map([
     "/**\n * The key a retried create carries.\n *\n * A queued offline create is replayed, and a replay of one whose response was lost while the row had\n * already landed would otherwise mint a second task. `runIdempotent` — the same door every MCP write\n * already goes through — is what makes the second answer be the first row, so no second table of\n * operation records is added here and the sweep that expires MCP operations expires these too.\n */",
     "// The budget is keyed by caller, so these cases get their own accounts.",
     "// One row, not two: the replay wrote nothing.",
+    "// The whole series round trip, over the one door a reader's browser actually uses. The validator and",
+    "// the row reader are different code from the advance, and the ceiling has to survive both: a PATCH",
+    "// that stored `count` while the GET stripped it would show the reader a series that never ends.",
+    "// A caller of its own, for the reason the face case above records: these five writes come out of",
+    "// the same module-wide budget, and the block is already running close to its ceiling.",
   ]],
   ["tests/todos-server-filter.test.ts", [
     "/**\n * The listing at the size a reader actually reaches: past the page the browser used to fetch.\n *\n * The to-do app used to ask for 500 open tasks and then filter, search and page them in JavaScript, which\n * works until the account has more than 500 tasks — at which point a search silently reports \"no matches\"\n * for anything filed past that page. This fixture is deliberately over that ceiling, and it files the\n * terms a search looks for beyond the first page, so an answer built by filtering a page would be wrong\n * rather than accidentally right.\n *\n * Everything here is the route's own contract: `total` measured over the filter that was asked for,\n * `counts` saying the same thing about a collection as that collection's listing does, and `sort`,\n * `status`, `dueFrom`/`dueTo` accepted or refused at the edge rather than guessed at further in.\n */",

@@ -162,6 +162,32 @@ describe('the task endpoints', () => {
     expect((await json<{ tasks: TodoTask[] }>(await send('GET', '?status=open'))).tasks).toHaveLength(1)
   })
 
+  // The whole series round trip, over the one door a reader's browser actually uses. The validator and
+  // the row reader are different code from the advance, and the ceiling has to survive both: a PATCH
+  // that stored `count` while the GET stripped it would show the reader a series that never ends.
+  it('ends a bounded series asked for over HTTP', async () => {
+    // A caller of its own, for the reason the face case above records: these five writes come out of
+    // the same module-wide budget, and the block is already running close to its ceiling.
+    mocks.userId = `bounded${'0'.repeat(20)}`
+    const due = Date.parse('2026-10-21T02:00:00Z')
+    const task = await create({ title: 'Stand-up', dueAt: due, repeat: { freq: 'daily', interval: 1, count: 2 } })
+
+    const read = await json<{ task: TodoTask }>(await send('GET', `/${task.id}`))
+    expect(read.task.repeat).toEqual({ freq: 'daily', interval: 1, count: 2 })
+
+    const first = await json<{ next?: TodoTask }>(await send('PATCH', `/${task.id}`, { status: 'done' }))
+    expect(first.next!.dueAt).toBe(due + 24 * 60 * 60 * 1000)
+    expect(first.next!.repeat).toEqual({ freq: 'daily', interval: 1, count: 2, produced: 2 })
+
+    const second = await json<{ next?: TodoTask }>(await send('PATCH', `/${first.next!.id}`, { status: 'done' }))
+    expect(second.next).toBeUndefined()
+    expect((await json<{ tasks: TodoTask[] }>(await send('GET', '?status=open'))).tasks).toHaveLength(0)
+  })
+
+  it('refuses a series limit the app could not have written', async () => {
+    expect((await send('POST', '', { title: 'Bad ceiling', repeat: { freq: 'daily', interval: 1, count: 0 } })).status).toBe(400)
+  })
+
   it('returns the task, its steps and the counts in one read', async () => {
     const task = await create({ title: 'Ship it', steps: ['Write', 'Review'] })
     const detail = await json<{ task: TodoTask, steps: TaskStep[] }>(await send('GET', `/${task.id}`))
