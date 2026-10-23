@@ -38,6 +38,7 @@ const tags: EmailTag[] = [
 
 function renderRow(message: EmailSummary, callbacks: {
   onOpen?: () => void
+  onToggleSelect?: (modifiers: { shiftKey: boolean }) => void
   onToggleStar?: () => void
   onToggleRead?: () => void
   onMove?: (folderId: string) => void
@@ -45,9 +46,10 @@ function renderRow(message: EmailSummary, callbacks: {
   onTag?: (tag: EmailTag) => void
   onDelete?: () => void
   onRetry?: () => void
-} = {}) {
+} = {}, batchSelected = false) {
   const handlers = {
     onOpen: callbacks.onOpen ?? vi.fn(),
+    onToggleSelect: callbacks.onToggleSelect ?? vi.fn(),
     onToggleStar: callbacks.onToggleStar ?? vi.fn(),
     onToggleRead: callbacks.onToggleRead ?? vi.fn(),
     onMove: callbacks.onMove ?? vi.fn(),
@@ -61,6 +63,7 @@ function renderRow(message: EmailSummary, callbacks: {
       createElement(MessageRow, {
         message,
         selected: false,
+        batchSelected,
         searchMode: false,
         query: '',
         folders,
@@ -114,6 +117,29 @@ describe('the message row', () => {
     expect(handlers.onToggleStar).toHaveBeenCalledTimes(1)
     expect(handlers.onOpen).toHaveBeenCalledTimes(1)
     view.unmount()
+  })
+
+  it('selects from its own checkbox without opening the row and reports Shift', () => {
+    const { view, handlers } = renderRow(summary())
+    const main = document.querySelector<HTMLButtonElement>('button[data-email-open]')!
+    const box = document.querySelector<HTMLButtonElement>('[role="checkbox"]')!
+    expect(box.getAttribute('aria-label')).toBe(t('email.list.select', { subject: 'Quarterly report' }))
+    expect(box.getAttribute('aria-checked')).toBe('false')
+    expect(main.contains(box)).toBe(false)
+
+    act(() => { box.click() })
+    expect(handlers.onToggleSelect).toHaveBeenCalledWith({ shiftKey: false })
+    expect(handlers.onOpen).not.toHaveBeenCalled()
+
+    act(() => {
+      box.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }))
+    })
+    expect(handlers.onToggleSelect).toHaveBeenLastCalledWith({ shiftKey: true })
+    view.unmount()
+
+    const checked = renderRow(summary(), {}, true)
+    expect(document.querySelector('[role="checkbox"]')?.getAttribute('aria-checked')).toBe('true')
+    checked.view.unmount()
   })
 
   it('shows thread, draft, reply and send state without nesting controls', () => {

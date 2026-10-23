@@ -3,6 +3,8 @@ import { LIMITS } from '@shared/constants'
 import { isValidEmailAddress } from '@shared/email/format'
 import {
   EMAIL_ACCOUNT_SETTINGS_MAX_BYTES,
+  EMAIL_BATCH_ACTIONS,
+  EMAIL_BATCH_MAX_MESSAGES,
   EMAIL_BODY_MAX_BYTES,
   EMAIL_FOLDER_SEED_NAMES,
   EMAIL_MAX_PAGE_SIZE,
@@ -13,6 +15,8 @@ import {
 import type {
   EmailAccountSettings,
   EmailAttachment,
+  EmailBatchAction,
+  EmailBatchResult,
   EmailConfig,
   EmailFolder,
   EmailListResponse,
@@ -184,6 +188,13 @@ function draftInvalid(message: string): ApiError {
 function messageIdParam(value: string): string {
   if (!isValidId(value)) throw messageNotFound()
   return value
+}
+
+function readBatchAction(value: unknown): EmailBatchAction {
+  if (typeof value !== 'string' || !(EMAIL_BATCH_ACTIONS as readonly string[]).includes(value)) {
+    throw ApiError.badRequest('The batch action is not supported')
+  }
+  return value as EmailBatchAction
 }
 
 function attachmentIdParam(value: string): string {
@@ -861,6 +872,35 @@ emailRoutes.post('/accounts/:id/emails/:messageId/move', async (c) => {
   const moved = folder.id === 'trash' ? (await mailbox.trashEmail(id)) !== null : await mailbox.moveEmail(id, folder.id)
   if (!moved) throw messageNotFound()
   return c.body(null, 204)
+})
+
+emailRoutes.post('/accounts/:id/emails/batch', async (c) => {
+  const row = await requireAccount(c, c.req.param('id') ?? '')
+  const body = await readJson<{ ids?: unknown; action?: unknown; folderId?: unknown }>(c, JSON_BODY_LIMITS.small)
+  if (!Array.isArray(body.ids) || body.ids.length === 0) {
+    throw ApiError.badRequest('A non-empty list of message ids is required')
+  }
+  if (body.ids.length > EMAIL_BATCH_MAX_MESSAGES) {
+    throw ApiError.badRequest(`At most ${EMAIL_BATCH_MAX_MESSAGES} messages can be changed at once`)
+  }
+  const ids: string[] = []
+  for (const value of body.ids) {
+    if (typeof value !== 'string' || !isValidId(value)) {
+      throw ApiError.badRequest('Every message id must be valid')
+    }
+    if (!ids.includes(value)) ids.push(value)
+  }
+  const action = readBatchAction(body.action)
+  const mailbox = emailMailbox(c.env, row.id)
+  let folderId: string | undefined
+  if (action === 'move') {
+    if (typeof body.folderId !== 'string' || !body.folderId.trim()) {
+      throw ApiError.badRequest('A target folder is required')
+    }
+    folderId = (await resolveFolder(mailbox, body.folderId)).id
+  }
+  const result = await mailbox.batchUpdate(ids, action, folderId)
+  return c.json({ updated: result.updated } satisfies EmailBatchResult)
 })
 
 emailRoutes.get('/accounts/:id/trash', async (c) => {

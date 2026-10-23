@@ -5,7 +5,7 @@ import { Button, IconButton, Spinner } from '../../components/primitives'
 import { Empty, LoadingBlock } from '../../components/feedback'
 import { t } from '../../lib/i18n'
 import { folderLabel, listEmptyText } from './format'
-import { MessageRow } from './MessageRow'
+import { MessageRow, SelectionBox } from './MessageRow'
 import { Pager } from './Pager'
 import type { EmailLoadStatus } from './store'
 
@@ -22,7 +22,10 @@ export function MessageList({
   folders,
   tags,
   selectedId,
+  selectedIds,
   onOpen,
+  onToggleSelect,
+  onSelectAll,
   onToggleStar,
   onToggleRead,
   onMove,
@@ -47,7 +50,10 @@ export function MessageList({
   folders: readonly EmailFolder[]
   tags: readonly EmailTag[]
   selectedId: string | null
+  selectedIds: ReadonlySet<string>
   onOpen: (message: EmailSummary) => void
+  onToggleSelect: (message: EmailSummary, modifiers: { shiftKey: boolean }) => void
+  onSelectAll: (selected: boolean) => void
   onToggleStar: (message: EmailSummary) => void
   onToggleRead: (message: EmailSummary) => void
   onMove: (message: EmailSummary, folderId: string) => void
@@ -62,9 +68,19 @@ export function MessageList({
 }) {
   const pageCount = Math.max(1, Math.ceil(total / EMAIL_PAGE_SIZE))
   const title = searchMode ? t('email.search.title') : folderLabel(folderId, folders)
+  const allSelected = messages.length > 0 && messages.every((message) => selectedIds.has(message.id))
+  const someSelected = messages.some((message) => selectedIds.has(message.id))
   return (
     <section aria-label={t('email.a11y.message_list')} className="flex min-h-0 flex-1 flex-col bg-[var(--bg-base)]">
       <div className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] px-3">
+        {messages.length > 0 && (
+          <SelectionBox
+            checked={allSelected}
+            mixed={!allSelected && someSelected}
+            label={t('email.list.select_all')}
+            onToggle={() => onSelectAll(!allSelected)}
+          />
+        )}
         <h2 className="min-w-0 flex-1 truncate text-[length:var(--text-12-5)] font-semibold text-[var(--text-primary)]">
           {title}
         </h2>
@@ -123,11 +139,13 @@ export function MessageList({
                 key={message.id}
                 message={message}
                 selected={selectedId === message.id}
+                batchSelected={selectedIds.has(message.id)}
                 searchMode={searchMode}
                 query={query}
                 folders={folders}
                 tags={tags}
                 onOpen={() => onOpen(message)}
+                onToggleSelect={(modifiers) => onToggleSelect(message, modifiers)}
                 onToggleStar={() => onToggleStar(message)}
                 onToggleRead={() => onToggleRead(message)}
                 onMove={(targetFolderId) => onMove(message, targetFolderId)}

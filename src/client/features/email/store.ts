@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type {
   EmailAccount,
   EmailAccountSettings,
+  EmailBatchAction,
   EmailConfig,
   EmailFolder,
   EmailMailboxStats,
@@ -37,6 +38,8 @@ interface MailboxSnapshot {
   selectedMessage: EmailMessage | null
   thread: EmailMessage[]
   folders: EmailFolder[]
+  selectedIds: Set<string>
+  selectionAnchorId: string | null
 }
 
 interface EmailState {
@@ -78,6 +81,9 @@ interface EmailState {
   threadStatus: EmailLoadStatus
   threadError: string | null
 
+  selectedIds: Set<string>
+  selectionAnchorId: string | null
+
   trash: EmailSummary[]
   trashTotal: number
   trashStatus: EmailLoadStatus
@@ -105,7 +111,12 @@ interface EmailState {
   refresh: () => Promise<void>
 
   openMessage: (accountId: string, messageId: string) => Promise<void>
+  clearOpenMessage: () => void
+  toggleSelected: (id: string) => void
+  selectRange: (id: string) => void
+  selectAll: (ids: readonly string[], selected: boolean) => void
   clearSelection: () => void
+  batchEmails: (accountId: string, action: EmailBatchAction, folderId?: string) => Promise<boolean>
   markThreadRead: (accountId: string, message: EmailMessage) => Promise<boolean>
   setRead: (accountId: string, messageId: string, read: boolean) => Promise<boolean>
   toggleStar: (accountId: string, messageId: string) => Promise<boolean>
@@ -157,6 +168,8 @@ const INITIAL = {
   thread: [] as EmailMessage[],
   threadStatus: 'idle' as EmailLoadStatus,
   threadError: null as string | null,
+  selectedIds: new Set<string>(),
+  selectionAnchorId: null as string | null,
   trash: [] as EmailSummary[],
   trashTotal: 0,
   trashStatus: 'idle' as EmailLoadStatus,
@@ -181,6 +194,8 @@ function snapshot(state: EmailState): MailboxSnapshot {
     selectedMessage: state.selectedMessage,
     thread: state.thread,
     folders: state.folders,
+    selectedIds: state.selectedIds,
+    selectionAnchorId: state.selectionAnchorId,
   }
 }
 
@@ -297,6 +312,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         thread: [],
         threadStatus: 'idle',
         threadError: null,
+        selectedIds: new Set<string>(),
+        selectionAnchorId: null,
         folderId: null,
         accountId: null,
         trash: [],
@@ -395,7 +412,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       listError: null,
       listRefreshing: silent,
       listStatus: silent ? state.listStatus : 'loading',
-      ...(silent ? {} : { messages: [], total: 0 }),
+      ...(silent ? {} : { messages: [], total: 0, selectedIds: new Set<string>(), selectionAnchorId: null }),
     }))
     try {
       const result = await api.email.listEmails(accountId, {
@@ -405,13 +422,19 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         threaded: 'true',
       })
       if (sequence !== listSequence) return
-      set({
+      set((state) => ({
         messages: result.emails,
         total: result.totalCount,
         listStatus: 'ready',
         listError: null,
         listRefreshing: false,
-      })
+        selectedIds: new Set(
+          [...state.selectedIds].filter((id) => result.emails.some((entry) => entry.id === id)),
+        ),
+        selectionAnchorId: state.selectionAnchorId && result.emails.some((entry) => entry.id === state.selectionAnchorId)
+          ? state.selectionAnchorId
+          : null,
+      }))
     } catch (reason) {
       if (sequence !== listSequence) return
       set({
@@ -435,7 +458,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       listError: null,
       listRefreshing: silent,
       listStatus: silent ? state.listStatus : 'loading',
-      ...(silent ? {} : { messages: [], total: 0 }),
+      ...(silent ? {} : { messages: [], total: 0, selectedIds: new Set<string>(), selectionAnchorId: null }),
     }))
     if (!trimmed) {
       set({ messages: [], total: 0, listStatus: 'ready', listRefreshing: false })
@@ -448,13 +471,19 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         limit: EMAIL_PAGE_SIZE,
       })
       if (sequence !== listSequence) return
-      set({
+      set((state) => ({
         messages: result.emails,
         total: result.totalCount,
         listStatus: 'ready',
         listError: null,
         listRefreshing: false,
-      })
+        selectedIds: new Set(
+          [...state.selectedIds].filter((id) => result.emails.some((entry) => entry.id === id)),
+        ),
+        selectionAnchorId: state.selectionAnchorId && result.emails.some((entry) => entry.id === state.selectionAnchorId)
+          ? state.selectionAnchorId
+          : null,
+      }))
     } catch (reason) {
       if (sequence !== listSequence) return
       set({
@@ -536,7 +565,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     }
   },
 
-  clearSelection: () => {
+  clearOpenMessage: () => {
     messageSequence += 1
     set({
       selectedId: null,
@@ -547,6 +576,55 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       threadStatus: 'idle',
       threadError: null,
     })
+  },
+
+  toggleSelected: (id) => set((state) => {
+    const selectedIds = new Set(state.selectedIds)
+    if (selectedIds.has(id)) selectedIds.delete(id)
+    else selectedIds.add(id)
+    return { selectedIds, selectionAnchorId: id }
+  }),
+
+  selectRange: (id) => set((state) => {
+    const ids = state.messages.map((entry) => entry.id)
+    const anchorIndex = state.selectionAnchorId ? ids.indexOf(state.selectionAnchorId) : -1
+    const targetIndex = ids.indexOf(id)
+    if (anchorIndex < 0 || targetIndex < 0) {
+      const selectedIds = new Set(state.selectedIds)
+      selectedIds.add(id)
+      return { selectedIds, selectionAnchorId: id }
+    }
+    const start = Math.min(anchorIndex, targetIndex)
+    const end = Math.max(anchorIndex, targetIndex)
+    const selectedIds = new Set(state.selectedIds)
+    for (const entry of ids.slice(start, end + 1)) selectedIds.add(entry)
+    return { selectedIds, selectionAnchorId: id }
+  }),
+
+  selectAll: (ids, selected) => set((state) => {
+    const selectedIds = new Set(state.selectedIds)
+    for (const id of ids) {
+      if (selected) selectedIds.add(id)
+      else selectedIds.delete(id)
+    }
+    return { selectedIds, selectionAnchorId: selected ? ids[0] ?? null : null }
+  }),
+
+  clearSelection: () => set({ selectedIds: new Set<string>(), selectionAnchorId: null }),
+
+  batchEmails: async (accountId, action, folderId) => {
+    const ids = [...get().selectedIds]
+    if (ids.length === 0) return false
+    set({ actionError: null })
+    try {
+      await api.email.batchEmails(accountId, folderId ? { ids, action, folderId } : { ids, action })
+      set({ selectedIds: new Set<string>(), selectionAnchorId: null })
+      await get().refresh()
+      return true
+    } catch (reason) {
+      set({ actionError: emailErrorText(reason) })
+      return false
+    }
   },
 
   markThreadRead: async (accountId, message) => {
@@ -654,6 +732,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       thread: clearsSelection ? [] : state.thread,
       threadStatus: clearsSelection ? 'idle' : state.threadStatus,
       threadError: clearsSelection ? null : state.threadError,
+      selectedIds: new Set([...state.selectedIds].filter((id) => id !== messageId)),
+      selectionAnchorId: state.selectionAnchorId === messageId ? null : state.selectionAnchorId,
       folders: adjustFolderUnread(
         adjustFolderUnread(state.folders, summary.folderId, summary.read ? 0 : -1),
         folderId,
@@ -690,6 +770,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       thread: clearsSelection ? [] : state.thread,
       threadStatus: clearsSelection ? 'idle' : state.threadStatus,
       threadError: clearsSelection ? null : state.threadError,
+      selectedIds: new Set([...state.selectedIds].filter((id) => id !== messageId)),
+      selectionAnchorId: state.selectionAnchorId === messageId ? null : state.selectionAnchorId,
       folders: permanent || summary.read
         ? state.folders
         : adjustFolderUnread(state.folders, summary.folderId, -1),

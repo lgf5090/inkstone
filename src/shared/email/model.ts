@@ -15,6 +15,30 @@ export const EMAIL_SEND_RATE_LIMIT_DAY = 100
 export const EMAIL_ATTACHMENT_R2_PREFIX = 'mail'
 export const EMAIL_PAGE_SIZE = 25
 export const EMAIL_MAX_PAGE_SIZE = 100
+export const EMAIL_BATCH_MAX_MESSAGES = 100
+
+export const EMAIL_BATCH_ACTIONS = [
+  'read',
+  'unread',
+  'star',
+  'unstar',
+  'move',
+  'archive',
+  'trash',
+  'restore',
+] as const
+
+export type EmailBatchAction = (typeof EMAIL_BATCH_ACTIONS)[number]
+
+export interface EmailBatchInput {
+  ids: string[]
+  action: EmailBatchAction
+  folderId?: string
+}
+
+export interface EmailBatchResult {
+  updated: number
+}
 
 export const EMAIL_ATTACHMENT_CATEGORIES = [
   'images',

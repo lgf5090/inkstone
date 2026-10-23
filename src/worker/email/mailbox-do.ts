@@ -11,6 +11,7 @@ import {
   type SearchOptions,
   type TagPatch,
 } from './mailbox-store'
+import type { EmailBatchAction } from '@shared/email/model'
 
 export class EmailMailbox extends DurableObject<Env> {
   private readonly store: MailboxStore
@@ -56,6 +57,9 @@ export class EmailMailbox extends DurableObject<Env> {
   purgeExpiredTrash(cutoff: number) { return this.store.purgeExpiredTrash(cutoff) }
   deleteEmail(id: string) { return this.store.deleteEmail(id) }
   moveEmail(id: string, folderId: string) { return this.store.moveEmail(id, folderId) }
+  batchUpdate(ids: string[], action: EmailBatchAction, folderId?: string) {
+    return this.store.batchUpdate(ids, action, folderId)
+  }
   searchEmails(options: SearchOptions) { return this.store.searchEmails(options) }
   countSearchResults(options: SearchOptions) { return this.store.countSearchResults(options) }
   findThreadBySubject(subject: string, sender?: string) { return this.store.findThreadBySubject(subject, sender) }

@@ -1,6 +1,13 @@
 import { newId } from '../lib/id'
-import { EMAIL_AUTO_DRAFT_LEASE_MS, EMAIL_PAGE_SIZE, EMAIL_MAX_PAGE_SIZE, EMAIL_SEND_RATE_LIMIT_DAY, EMAIL_SEND_RATE_LIMIT_HOUR } from '@shared/email/model'
-import type { EmailFolderPatch, EmailMailboxStats, EmailTagPatch } from '@shared/email/model'
+import {
+  EMAIL_AUTO_DRAFT_LEASE_MS,
+  EMAIL_BATCH_MAX_MESSAGES,
+  EMAIL_PAGE_SIZE,
+  EMAIL_MAX_PAGE_SIZE,
+  EMAIL_SEND_RATE_LIMIT_DAY,
+  EMAIL_SEND_RATE_LIMIT_HOUR,
+} from '@shared/email/model'
+import type { EmailBatchAction, EmailFolderPatch, EmailMailboxStats, EmailTagPatch } from '@shared/email/model'
 import {
   emailFolderDepthAllowed,
   emailFolderMoveAllowed,
@@ -746,6 +753,85 @@ export class MailboxStore {
       id,
     )
     return true
+  }
+
+  batchUpdate(ids: string[], action: EmailBatchAction, folderId?: string): { updated: number } {
+    if (ids.length === 0 || ids.length > EMAIL_BATCH_MAX_MESSAGES) return { updated: 0 }
+    const unique = [...new Set(ids)]
+    const placeholders = unique.map(() => '?').join(', ')
+    let targetFolder: string | null = null
+    if (action === 'move') {
+      if (!folderId) return { updated: 0 }
+      targetFolder = folderId
+    } else if (action === 'archive') {
+      targetFolder = 'archive'
+    }
+    if (targetFolder && !this.one<{ id: string }>(
+      `SELECT id FROM email_folders WHERE id = ?1`,
+      targetFolder,
+    )) return { updated: 0 }
+    const run = (): { updated: number } => {
+      const scope = action === 'restore' ? 'deleted_at IS NOT NULL' : 'deleted_at IS NULL'
+      const matched = this.rows<{ id: string }>(
+        `SELECT id FROM email_messages WHERE id IN (${placeholders}) AND ${scope}`,
+        ...unique,
+      ).length
+      if (matched === 0) return { updated: 0 }
+      const now = Date.now()
+      if (action === 'read' || action === 'unread') {
+        this.sql.exec(
+          `UPDATE email_messages SET read = ?, updated_at = ? WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
+          action === 'read' ? 1 : 0,
+          now,
+          ...unique,
+        )
+      } else if (action === 'star' || action === 'unstar') {
+        this.sql.exec(
+          `UPDATE email_messages SET starred = ?, updated_at = ? WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
+          action === 'star' ? 1 : 0,
+          now,
+          ...unique,
+        )
+      } else if (action === 'move' || action === 'archive') {
+        if (!targetFolder) return { updated: 0 }
+        if (targetFolder === 'trash') {
+          this.sql.exec(
+            `UPDATE email_messages SET folder_id = 'trash', deleted_at = ?, updated_at = ?
+              WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
+            now,
+            now,
+            ...unique,
+          )
+        } else {
+          this.sql.exec(
+            `UPDATE email_messages SET folder_id = ?, deleted_at = NULL, updated_at = ?
+              WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
+            targetFolder,
+            now,
+            ...unique,
+          )
+        }
+      } else if (action === 'trash') {
+        this.sql.exec(
+          `UPDATE email_messages SET folder_id = 'trash', deleted_at = ?, updated_at = ?
+            WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
+          now,
+          now,
+          ...unique,
+        )
+      } else if (action === 'restore') {
+        this.sql.exec(
+          `UPDATE email_messages SET folder_id = 'inbox', deleted_at = NULL, updated_at = ?
+            WHERE id IN (${placeholders}) AND deleted_at IS NOT NULL`,
+          now,
+          ...unique,
+        )
+      } else {
+        return { updated: 0 }
+      }
+      return { updated: matched }
+    }
+    return this.storage ? this.storage.transactionSync(run) : run()
   }
 
   listTags(): TagRow[] {

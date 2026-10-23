@@ -1,5 +1,5 @@
-import { type KeyboardEvent as ReactKeyboardEvent } from 'react'
-import { Archive, FolderInput, Mail, MailOpen, Paperclip, RefreshCw, Star, Tag, Trash2 } from 'lucide-react'
+import { type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
+import { Archive, Check, FolderInput, Mail, MailOpen, Minus, Paperclip, RefreshCw, Star, Tag, Trash2 } from 'lucide-react'
 import type { EmailFolder, EmailSummary, EmailTag } from '@shared/email/model'
 import { isEmailSystemFolder } from '@shared/email/model'
 import { cn } from '../../lib/cn'
@@ -18,7 +18,44 @@ import {
 
 const MENU_INSET = 12
 
-function folderPathLabel(folder: EmailFolder, byId: ReadonlyMap<string, EmailFolder>): string {
+export function SelectionBox({
+  checked,
+  mixed = false,
+  label,
+  onToggle,
+  className,
+}: {
+  checked: boolean
+  mixed?: boolean
+  label: string
+  onToggle: (event: ReactMouseEvent<HTMLButtonElement>) => void
+  className?: string
+}) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={mixed ? 'mixed' : checked}
+      aria-label={label}
+      onClick={onToggle}
+      className={cn(
+        'ink-tap-pad relative flex size-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors duration-[var(--dur-fast)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-ring)]',
+        checked || mixed
+          ? 'border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-contrast)]'
+          : 'border-[var(--border-strong)] bg-[var(--bg-inset)]',
+        className,
+      )}
+    >
+      {mixed
+        ? <Minus size={10} strokeWidth={3} aria-hidden="true" />
+        : checked
+          ? <Check size={10} strokeWidth={3} aria-hidden="true" />
+          : null}
+    </button>
+  )
+}
+
+export function folderPathLabel(folder: EmailFolder, byId: ReadonlyMap<string, EmailFolder>): string {
   const names: string[] = []
   const seen = new Set<string>()
   let current: EmailFolder | undefined = folder
@@ -33,11 +70,13 @@ function folderPathLabel(folder: EmailFolder, byId: ReadonlyMap<string, EmailFol
 export function MessageRow({
   message,
   selected,
+  batchSelected,
   searchMode,
   query,
   folders,
   tags,
   onOpen,
+  onToggleSelect,
   onToggleStar,
   onToggleRead,
   onMove,
@@ -48,11 +87,13 @@ export function MessageRow({
 }: {
   message: EmailSummary
   selected: boolean
+  batchSelected: boolean
   searchMode: boolean
   query: string
   folders: readonly EmailFolder[]
   tags: readonly EmailTag[]
   onOpen: () => void
+  onToggleSelect: (modifiers: { shiftKey: boolean }) => void
   onToggleStar: () => void
   onToggleRead: () => void
   onMove: (folderId: string) => void
@@ -154,11 +195,18 @@ export function MessageRow({
       onContextMenu={contextMenu.onContextMenu}
       onKeyDown={openMenuFromKeyboard}
       className={cn(
-        'relative flex items-stretch border-b border-[var(--border-subtle)] transition-colors',
+        'group relative flex items-stretch border-b border-[var(--border-subtle)] transition-colors',
         selected ? 'bg-[var(--accent-soft)]' : unread ? 'bg-[var(--bg-surface)]' : 'bg-[var(--bg-base)]',
         'hover:bg-[var(--bg-hover)]',
       )}
     >
+      <span className="pointer-events-none flex w-7 shrink-0 items-center justify-center opacity-0 transition-opacity duration-[var(--dur-fast)] group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100">
+        <SelectionBox
+          checked={batchSelected}
+          label={t('email.list.select', { subject })}
+          onToggle={(event) => onToggleSelect({ shiftKey: event.shiftKey })}
+        />
+      </span>
       <button
         type="button"
         data-email-open=""

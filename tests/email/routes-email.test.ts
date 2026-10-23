@@ -122,6 +122,24 @@ function count(sql: string, ...values: Array<string | number | null>): number {
   return Number((sqlite.prepare(sql).get(...values) as { n: number }).n)
 }
 
+function mailboxNamespace(store: MailboxStore): DurableObjectNamespace {
+  const base = fakeEmailMailboxNamespace(store)
+  return {
+    ...base,
+    get: ((id: DurableObjectId) => {
+      const stub = base.get(id) as unknown as {
+        batchUpdate: (
+          ids: string[],
+          action: Parameters<MailboxStore['batchUpdate']>[1],
+          folderId?: string,
+        ) => { updated: number }
+      }
+      stub.batchUpdate = (ids, action, folderId) => store.batchUpdate(ids, action, folderId)
+      return stub as unknown as DurableObjectStub
+    }) as DurableObjectNamespace['get'],
+  } as DurableObjectNamespace
+}
+
 beforeEach(async () => {
   sqlite = new DatabaseSync(':memory:')
   sqlite.exec('PRAGMA journal_mode = OFF')
@@ -135,7 +153,7 @@ beforeEach(async () => {
   userRole = 'owner'
   env = testBindings(db, {
     FILES: bucket,
-    EMAIL_MAILBOX: fakeEmailMailboxNamespace(store),
+    EMAIL_MAILBOX: mailboxNamespace(store),
   })
   accountId = (await createEmailAccount(db, {
     userId,
@@ -400,6 +418,154 @@ describe('email updates, trash and moves', () => {
     expect((await call('POST', `/accounts/${accountId}/emails/${messageId}/move`, { folderId: 'trash' })).status).toBe(204)
     expect(store.getEmail(messageId)).toBeNull()
     expect(store.countTrash()).toBe(1)
+  })
+})
+
+describe('email batch actions', () => {
+  it('updates flags, moves, archives, trashes and restores selected messages', async () => {
+    const first = newId()
+    const second = newId()
+    seedMessage(first)
+    seedMessage(second)
+
+    const read = await call('POST', `/accounts/${accountId}/emails/batch`, {
+      ids: [first, second, first],
+      action: 'read',
+    })
+    expect(read.status).toBe(200)
+    expect(await json<{ updated: number }>(read)).toEqual({ updated: 2 })
+    expect(store.getEmail(first)?.read).toBe(1)
+    expect(store.getEmail(second)?.read).toBe(1)
+
+    const unread = await call('POST', `/accounts/${accountId}/emails/batch`, {
+      ids: [first, second],
+      action: 'unread',
+    })
+    expect(await json<{ updated: number }>(unread)).toEqual({ updated: 2 })
+    expect(store.getEmail(first)?.read).toBe(0)
+
+    const star = await call('POST', `/accounts/${accountId}/emails/batch`, {
+      ids: [first, second],
+      action: 'star',
+    })
+    expect(await json<{ updated: number }>(star)).toEqual({ updated: 2 })
+    expect(store.getEmail(second)?.starred).toBe(1)
+    const unstar = await call('POST', `/accounts/${accountId}/emails/batch`, {
+      ids: [first, second],
+      action: 'unstar',
+    })
+    expect(await json<{ updated: number }>(unstar)).toEqual({ updated: 2 })
+    expect(store.getEmail(second)?.starred).toBe(0)
+
+    const moved = await call('POST', `/accounts/${accountId}/emails/batch`, {
+      ids: [first, second],
+      action: 'move',
+      folderId: 'archive',
+    })
+    expect(await json<{ updated: number }>(moved)).toEqual({ updated: 2 })
+    expect(store.getEmail(first)?.folder_id).toBe('archive')
+    expect(store.getEmail(second)?.folder_id).toBe('archive')
+
+    const archived = await call('POST', `/accounts/${accountId}/emails/batch`, {
+      ids: [first, second],
+      action: 'archive',
+    })
+    expect(await json<{ updated: number }>(archived)).toEqual({ updated: 2 })
+    expect(store.getEmail(first)?.folder_id).toBe('archive')
+
+    const trashed = await call('POST', `/accounts/${accountId}/emails/batch`, {
+      ids: [first, second],
+      action: 'trash',
+    })
+    expect(await json<{ updated: number }>(trashed)).toEqual({ updated: 2 })
+    expect(store.getEmail(first)).toBeNull()
+    expect(store.countTrash()).toBe(2)
+
+    const restored = await call('POST', `/accounts/${accountId}/emails/batch`, {
+      ids: [first, second],
+      action: 'restore',
+    })
+    expect(await json<{ updated: number }>(restored)).toEqual({ updated: 2 })
+    expect(store.getEmail(first)?.folder_id).toBe('inbox')
+    expect(store.getEmail(second)?.deleted_at).toBeNull()
+  })
+
+  it('soft-deletes messages moved to the trash and leaves attachments alone', async () => {
+    const messageId = newId()
+    seedMessage(messageId)
+    const attachmentId = await seedAttachment({ emailId: messageId })
+    const key = `mail/docs/${attachmentId}.pdf`
+
+    const moved = await call('POST', `/accounts/${accountId}/emails/batch`, {
+      ids: [messageId],
+      action: 'move',
+      folderId: 'trash',
+    })
+    expect(moved.status).toBe(200)
+    expect(store.getEmail(messageId)).toBeNull()
+    expect(store.countTrash()).toBe(1)
+    expect(count('SELECT COUNT(*) AS n FROM email_attachments WHERE id = ?', attachmentId)).toBe(1)
+    expect(bucket.objects.has(key)).toBe(true)
+
+    const trashed = await call('POST', `/accounts/${accountId}/emails/batch`, {
+      ids: [messageId],
+      action: 'trash',
+    })
+    expect(await json<{ updated: number }>(trashed)).toEqual({ updated: 0 })
+  })
+
+  it('validates ids, actions, limits and target folders', async () => {
+    const messageId = newId()
+    seedMessage(messageId)
+
+    const empty = await call('POST', `/accounts/${accountId}/emails/batch`, { ids: [], action: 'read' })
+    expect(empty.status).toBe(400)
+    const nonArray = await call('POST', `/accounts/${accountId}/emails/batch`, { ids: messageId, action: 'read' })
+    expect(nonArray.status).toBe(400)
+    const invalidId = await call('POST', `/accounts/${accountId}/emails/batch`, { ids: ['nope'], action: 'read' })
+    expect(invalidId.status).toBe(400)
+    const tooMany = await call('POST', `/accounts/${accountId}/emails/batch`, {
+      ids: Array.from({ length: 101 }, () => newId()),
+      action: 'read',
+    })
+    expect(tooMany.status).toBe(400)
+    const atLimit = await call('POST', `/accounts/${accountId}/emails/batch`, {
+      ids: Array.from({ length: 100 }, () => newId()),
+      action: 'read',
+    })
+    expect(atLimit.status).toBe(200)
+    expect(await json<{ updated: number }>(atLimit)).toEqual({ updated: 0 })
+    const invalidAction = await call('POST', `/accounts/${accountId}/emails/batch`, {
+      ids: [messageId],
+      action: 'delete',
+    })
+    expect(invalidAction.status).toBe(400)
+    const missingFolder = await call('POST', `/accounts/${accountId}/emails/batch`, {
+      ids: [messageId],
+      action: 'move',
+    })
+    expect(missingFolder.status).toBe(400)
+    const unknownFolder = await call('POST', `/accounts/${accountId}/emails/batch`, {
+      ids: [messageId],
+      action: 'move',
+      folderId: 'nope',
+    })
+    expect(unknownFolder.status).toBe(404)
+    expect((await errorOf(unknownFolder)).code).toBe('email_folder_not_found')
+    expect(store.getEmail(messageId)?.read).toBe(0)
+  })
+
+  it('treats another account as absent', async () => {
+    const messageId = newId()
+    seedMessage(messageId)
+    userId = newId()
+    const response = await call('POST', `/accounts/${accountId}/emails/batch`, {
+      ids: [messageId],
+      action: 'read',
+    })
+    expect(response.status).toBe(404)
+    expect((await errorOf(response)).code).toBe('email_account_not_found')
+    expect(store.getEmail(messageId)?.read).toBe(0)
   })
 })
 

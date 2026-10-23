@@ -128,6 +128,8 @@ import type {
 } from '@shared/todos/model'
 import type {
   EmailAccount,
+  EmailBatchInput,
+  EmailBatchResult,
   EmailConfig,
   EmailDraftInput,
   EmailFolder,
@@ -1231,6 +1233,8 @@ export const api = {
       request<EmailMessage>(`/api/email/accounts/${id}/emails/${messageId}`),
     updateEmail: (id: string, messageId: string, body: { read?: boolean, starred?: boolean }) =>
       request<EmailMessage>(`/api/email/accounts/${id}/emails/${messageId}`, { method: 'PATCH', body }),
+    batchEmails: (id: string, input: EmailBatchInput) =>
+      request<EmailBatchResult>(`/api/email/accounts/${id}/emails/batch`, { method: 'POST', body: input }),
     deleteEmail: (id: string, messageId: string, permanent = false) =>
       request<void>(`/api/email/accounts/${id}/emails/${messageId}${permanent ? '?permanent=true' : ''}`, { method: 'DELETE' }),
     moveEmail: (id: string, messageId: string, folderId: string) =>

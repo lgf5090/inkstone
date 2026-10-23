@@ -127,4 +127,51 @@ describe('mailbox store', () => {
     }
     expect(store.checkSendRateLimit()).toContain('20 emails per hour')
   })
+
+  it('applies batch flags, moves, archives, trashes and restores', () => {
+    store.createEmail('inbox', message('m1'))
+    store.createEmail('inbox', message('m2'))
+
+    expect(store.batchUpdate(['m1', 'm2', 'm1'], 'read')).toEqual({ updated: 2 })
+    expect(store.getEmail('m1')?.read).toBe(1)
+    expect(store.getEmail('m2')?.read).toBe(1)
+
+    expect(store.batchUpdate(['m1', 'm2'], 'unread')).toEqual({ updated: 2 })
+    expect(store.getEmail('m1')?.read).toBe(0)
+    expect(store.getEmail('m2')?.read).toBe(0)
+
+    expect(store.batchUpdate(['m1', 'm2'], 'star')).toEqual({ updated: 2 })
+    expect(store.getEmail('m1')?.starred).toBe(1)
+    expect(store.batchUpdate(['m1', 'm2'], 'unstar')).toEqual({ updated: 2 })
+    expect(store.getEmail('m2')?.starred).toBe(0)
+
+    expect(store.batchUpdate(['m1', 'm2'], 'move', 'archive')).toEqual({ updated: 2 })
+    expect(store.getEmail('m1')?.folder_id).toBe('archive')
+    expect(store.batchUpdate(['m1', 'm2'], 'archive')).toEqual({ updated: 2 })
+    expect(store.getEmail('m2')?.folder_id).toBe('archive')
+
+    expect(store.batchUpdate(['m1', 'm2'], 'trash')).toEqual({ updated: 2 })
+    expect(store.getEmail('m1')).toBeNull()
+    expect(store.listTrash().map((row) => row.id).sort()).toEqual(['m1', 'm2'])
+    expect(store.batchUpdate(['m1', 'm2'], 'trash')).toEqual({ updated: 0 })
+
+    expect(store.batchUpdate(['m1', 'm2'], 'restore')).toEqual({ updated: 2 })
+    expect(store.getEmail('m1')?.folder_id).toBe('inbox')
+    expect(store.getEmail('m2')?.deleted_at).toBeNull()
+    expect(store.batchUpdate(['m1', 'm2'], 'restore')).toEqual({ updated: 0 })
+
+    expect(store.batchUpdate(['m1'], 'move', 'trash')).toEqual({ updated: 1 })
+    expect(store.getEmail('m1')).toBeNull()
+    expect(store.getEmail('m2')?.folder_id).toBe('inbox')
+  })
+
+  it('skips missing rows and rejects empty, oversized or invalid batches', () => {
+    store.createEmail('inbox', message('m1'))
+    expect(store.batchUpdate(['m1', 'missing'], 'read')).toEqual({ updated: 1 })
+    expect(store.batchUpdate([], 'read')).toEqual({ updated: 0 })
+    expect(store.batchUpdate(['m1'], 'move', 'missing')).toEqual({ updated: 0 })
+    const tooMany = Array.from({ length: 101 }, (_, index) => `m${index}`)
+    expect(store.batchUpdate(tooMany, 'read')).toEqual({ updated: 0 })
+    expect(store.getEmail('m1')?.read).toBe(1)
+  })
 })

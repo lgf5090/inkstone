@@ -8,7 +8,7 @@ import {
   Settings,
   X,
 } from 'lucide-react'
-import type { EmailAccount, EmailSummary, EmailTag } from '@shared/email/model'
+import type { EmailAccount, EmailBatchAction, EmailSummary, EmailTag } from '@shared/email/model'
 import { MAX_EMAIL_CONTEXT_SNIPPET, type EmailAssistantContext } from '@shared/email/assistant-context'
 import { parseEmailSearchQuery } from '@shared/email/search'
 import { Button, IconButton } from '../../components/primitives'
@@ -29,6 +29,7 @@ import { messageSubject } from './format'
 import { useEmailStore } from './store'
 import { FolderSidebar, FolderSidebarRail } from './FolderSidebar'
 import { EmailAccountCard } from './AccountCard'
+import { MessageBatchBar } from './MessageBatchBar'
 import { MessageList } from './MessageList'
 import { MessagePane } from './MessagePane'
 import { TrashPanel } from './TrashPanel'
@@ -74,6 +75,7 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
   const thread = useEmailStore((state) => state.thread)
   const threadStatus = useEmailStore((state) => state.threadStatus)
   const threadError = useEmailStore((state) => state.threadError)
+  const selectedIds = useEmailStore((state) => state.selectedIds)
   const actionError = useEmailStore((state) => state.actionError)
   const clearActionError = useEmailStore((state) => state.clearActionError)
   const loadFolders = useEmailStore((state) => state.loadFolders)
@@ -87,7 +89,12 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
   const loadPage = useEmailStore((state) => state.loadPage)
   const refresh = useEmailStore((state) => state.refresh)
   const openMessage = useEmailStore((state) => state.openMessage)
+  const clearOpenMessage = useEmailStore((state) => state.clearOpenMessage)
+  const toggleSelected = useEmailStore((state) => state.toggleSelected)
+  const selectRange = useEmailStore((state) => state.selectRange)
+  const selectAll = useEmailStore((state) => state.selectAll)
   const clearSelection = useEmailStore((state) => state.clearSelection)
+  const batchEmails = useEmailStore((state) => state.batchEmails)
   const setRead = useEmailStore((state) => state.setRead)
   const toggleStar = useEmailStore((state) => state.toggleStar)
   const moveMessage = useEmailStore((state) => state.moveMessage)
@@ -149,11 +156,15 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
 
   useEffect(() => {
     if (!messageId) {
-      clearSelection()
+      clearOpenMessage()
       return
     }
     void openMessage(account.id, messageId)
-  }, [account.id, messageId, openMessage, clearSelection])
+  }, [account.id, messageId, openMessage, clearOpenMessage])
+
+  useEffect(() => {
+    clearSelection()
+  }, [account.id, folderId, query, clearSelection])
 
   useEffect(() => {
     startPolling()
@@ -278,6 +289,18 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
     moveTo(summary, 'archive')
   }
 
+  const selectMessage = (summary: EmailSummary, modifiers: { shiftKey: boolean }): void => {
+    if (modifiers.shiftKey) selectRange(summary.id)
+    else toggleSelected(summary.id)
+  }
+
+  const selectPageMessages = (selected: boolean): void => {
+    selectAll(messages.map((message) => message.id), selected)
+  }
+
+  const runBatch = (action: EmailBatchAction, folderIdTo?: string): Promise<boolean> =>
+    batchEmails(account.id, action, folderIdTo)
+
   const tagMessage = async (summary: EmailSummary, tag: EmailTag): Promise<void> => {
     try {
       await attachEmailTagToMessage(account.id, summary.id, tag.id)
@@ -370,7 +393,7 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
   )
 
   const listPane = (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="relative flex h-full min-h-0 flex-col">
       {listToolbar}
       <MessageList
       messages={messages}
@@ -385,7 +408,10 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
       folders={folders}
       tags={tags}
       selectedId={selectedId}
+      selectedIds={selectedIds}
       onOpen={openSummary}
+      onToggleSelect={selectMessage}
+      onSelectAll={selectPageMessages}
       onToggleStar={(summary) => { void toggleStar(account.id, summary.id) }}
       onToggleRead={(summary) => { void setRead(account.id, summary.id, !summary.read) }}
       onMove={moveTo}
@@ -400,6 +426,12 @@ export function MailboxPage({ address, account }: { address: MailboxAddress; acc
       }}
       onManageTrash={() => setTrashOpen(true)}
       onCompose={() => compose('new')}
+      />
+      <MessageBatchBar
+        selectedCount={selectedIds.size}
+        folders={folders}
+        onClear={clearSelection}
+        onAction={runBatch}
       />
     </div>
   )
