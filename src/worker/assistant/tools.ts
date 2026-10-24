@@ -49,6 +49,10 @@ import { addDays, isStatsDay, loadTodoStats } from '../todos/stats'
 import { hasHistoricalIntent } from '@shared/assistant-memory'
 import type { ScheduleSpec } from '@shared/assistant-schedule'
 import type { Env } from '../env'
+import type { MusicTrack } from '@shared/music/model'
+import { MusicStore } from '../music/store'
+import { decryptMusicCookie } from '../lib/crypto'
+import { createNeteaseProvider } from '../music/providers/netease/client'
 import type { McpWriteContext } from '../mcp/writes'
 import { createMcpNote, editMcpNote, trashMcpNote } from '../mcp/writes'
 import { readMcpNote, loadMcpNote, searchMcpNotes } from '../mcp/retrieval'
@@ -4048,6 +4052,77 @@ export const EMAIL_TOOLS: ToolDefinition[] = [
  */
 const MUSIC_PLAY_MAX_TRACK_REFS = 50
 
+/** The library tools' own ceiling. A model naming more tracks is building a list, not asking for one. */
+const MUSIC_TOOL_TRACK_REFS_MAX = 100
+const MUSIC_TOOL_QUERY_MAX = 200
+const MUSIC_TOOL_SEARCH_MAX = 50
+const MUSIC_TOOL_PLAYLIST_NAME_MAX = 200
+const MUSIC_TOOL_PLAYLIST_DESCRIPTION_MAX = 2_000
+
+type MusicToolScope = 'song' | 'album' | 'playlist' | 'artist'
+
+interface ResolvedMusicTrackRef {
+  ref: string
+  track: MusicTrack
+}
+
+function musicTrackRefOf(track: MusicTrack): string {
+  return track.provider === 'netease' ? `netease:${track.providerId}` : track.id
+}
+
+function stringRefs(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return [...new Set(value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter(Boolean))]
+}
+
+/**
+ * Turn the refs a model was shown back into rows this account owns.
+ *
+ * An internal id is looked up directly; a `netease:<id>` ref names a provider identity that only
+ * becomes a library row once the track has been played, saved or favourited. Requiring that row is
+ * deliberate: a write tool may name tracks the reader has already seen, not invent library entries
+ * from an id the model guessed.
+ */
+async function resolveMusicTrackRefs(
+  ctx: ToolContext,
+  refs: readonly string[],
+): Promise<ResolvedMusicTrackRef[]> {
+  const store = new MusicStore(ctx.env.DB, ctx.store.userId)
+  const resolved: ResolvedMusicTrackRef[] = []
+  for (const ref of refs) {
+    const providerId = ref.startsWith('netease:') ? ref.slice('netease:'.length).trim() : ''
+    const track = providerId
+      ? await store.findTrack('netease', providerId)
+      : await store.getTrack(ref)
+    if (!track) {
+      throw new ToolError(providerId
+        ? `The music app has not saved "${ref}" yet. Play or favourite this track in the music app once, then try again.`
+        : `No track in this library matches "${ref}". Use a trackRef a music tool returned.`)
+    }
+    if (!resolved.some((entry) => entry.track.id === track.id)) resolved.push({ ref, track })
+  }
+  return resolved
+}
+
+async function musicSearchProvider(ctx: ToolContext) {
+  const store = new MusicStore(ctx.env.DB, ctx.store.userId)
+  const stored = await store.getAccountCookie('netease')
+  let cookie: string | undefined
+  if (stored) {
+    try {
+      cookie = (await decryptMusicCookie(ctx.env, ctx.store.userId, stored)) ?? undefined
+    } catch (error) {
+      // Anonymous search still reaches the public catalogue; a vault problem must not turn into
+      // "search is broken" for a reader whose stored session simply cannot be opened here.
+      console.warn('[inkstone] Music account cookie could not be decrypted; searching anonymously:', error)
+    }
+  }
+  return createNeteaseProvider({ cookie, upstreamBaseUrl: ctx.env.MUSIC_UPSTREAM_API })
+}
+
 const MUSIC_TOOLS: ToolDefinition[] = [
   tool({
     name: 'music_play',
@@ -4069,6 +4144,233 @@ const MUSIC_TOOLS: ToolDefinition[] = [
       if (!trackRefs.length) throw new ToolError('Name at least one track to play.')
       // The effect is the only channel back to the player; the result beside it is what the model reads.
       return { effect: { kind: 'music.play', trackRefs, mode: 'replace' }, result: { ok: true } }
+    },
+  }),
+  tool({
+    name: 'music_search',
+    permission: 'read',
+    description: 'Search the Netease catalogue. Returns compact results with a trackRef for each match; nothing is saved to the library. Use music_favorite or music_play with a returned ref afterwards.',
+    fields: {
+      query: {
+        type: 'string',
+        minLength: 1,
+        maxLength: MUSIC_TOOL_QUERY_MAX,
+        description: 'What to search for: a title, artist, album or playlist name.',
+      },
+      scope: {
+        type: 'string',
+        enum: ['song', 'album', 'playlist', 'artist'] as const,
+        optional: true,
+        description: 'What kind of result to return. Defaults to song.',
+      },
+      limit: {
+        type: 'integer',
+        minimum: 1,
+        maximum: MUSIC_TOOL_SEARCH_MAX,
+        optional: true,
+        description: `How many results to return, at most ${MUSIC_TOOL_SEARCH_MAX}. Defaults to 10.`,
+      },
+    },
+    async run(args, ctx) {
+      const query = typeof args.query === 'string' ? args.query.trim() : ''
+      if (!query) throw new ToolError('Say what to search for.')
+      const scope = (typeof args.scope === 'string' ? args.scope : 'song') as MusicToolScope
+      const limit = typeof args.limit === 'number' ? Math.min(MUSIC_TOOL_SEARCH_MAX, Math.max(1, Math.trunc(args.limit))) : 10
+      const provider = await musicSearchProvider(ctx)
+      let result: Awaited<ReturnType<typeof provider.search>>
+      try {
+        // Artist search is not a catalogue endpoint: the song search is the one that names artists,
+        // so its results are folded into distinct names instead of pretending to be a song list.
+        result = await provider.search({
+          type: scope === 'artist' ? 'song' : scope,
+          keywords: query,
+          limit: scope === 'artist' ? Math.min(MUSIC_TOOL_SEARCH_MAX, limit * 3) : limit,
+          offset: 0,
+        })
+      } catch (error) {
+        console.warn('[inkstone] music_search failed:', error instanceof Error ? error.name : error)
+        throw new ToolError('The music catalogue could not be searched just now. Try again shortly.')
+      }
+      if (scope === 'song') {
+        return {
+          scope,
+          total: result.total,
+          items: result.tracks.slice(0, limit).map((track) => ({
+            trackRef: musicTrackRefOf(track),
+            title: track.title,
+            artists: track.artists.map((artist) => artist.name),
+            album: track.album,
+            durationMs: track.durationMs,
+          })),
+        }
+      }
+      if (scope === 'album') {
+        return {
+          scope,
+          total: result.total,
+          items: result.albums.slice(0, limit).map((album) => ({
+            albumRef: `netease:${album.id}`,
+            title: album.name,
+            artists: album.artists,
+            trackCount: album.trackCount,
+          })),
+        }
+      }
+      if (scope === 'playlist') {
+        return {
+          scope,
+          total: result.total,
+          items: result.playlists.slice(0, limit).map((playlist) => ({
+            playlistRef: `netease:${playlist.providerId}`,
+            title: playlist.name,
+            creator: playlist.creator ?? '',
+            trackCount: playlist.trackCount,
+          })),
+        }
+      }
+      const artists = new Map<string, { artistRef: string, name: string }>()
+      for (const track of result.tracks) {
+        for (const artist of track.artists) {
+          if (!artist.name || artists.has(artist.name)) continue
+          artists.set(artist.name, { artistRef: artist.id ? `netease:${artist.id}` : '', name: artist.name })
+          if (artists.size >= limit) break
+        }
+        if (artists.size >= limit) break
+      }
+      return { scope, total: artists.size, items: [...artists.values()] }
+    },
+  }),
+  tool({
+    name: 'music_favorite',
+    permission: 'write',
+    description: 'Add tracks to the reader\'s favourites or remove them. Pass trackRefs exactly as a music tool returned them; a ref for a track the music app has not saved yet is refused with the step that fixes it. Calling it twice is the same as calling it once.',
+    fields: {
+      trackRefs: {
+        type: 'array',
+        items: 'string',
+        maxItems: MUSIC_TOOL_TRACK_REFS_MAX,
+        maxLength: MAX_MUSIC_EFFECT_TRACK_REF_CHARS,
+        description: 'The tracks to favourite or unfavourite, in order.',
+      },
+      favorite: {
+        type: 'boolean',
+        optional: true,
+        description: 'True to favourite (the default), false to remove from favourites.',
+      },
+    },
+    async run(args, ctx) {
+      const refs = stringRefs(args.trackRefs)
+      if (!refs.length) throw new ToolError('Name at least one track.')
+      if (refs.length > MUSIC_TOOL_TRACK_REFS_MAX) throw new ToolError(`At most ${MUSIC_TOOL_TRACK_REFS_MAX} tracks may be changed at once.`)
+      const favorite = args.favorite !== false
+      const resolved = await resolveMusicTrackRefs(ctx, refs)
+      const store = new MusicStore(ctx.env.DB, ctx.store.userId)
+      const tracks: Array<{ trackRef: string, title: string, favorite: boolean }> = []
+      for (const { ref, track } of resolved) {
+        if (favorite) {
+          if (!(await store.addFavorite(track.id))) throw new ToolError(`The track "${track.title}" could not be favourited.`)
+        } else {
+          await store.removeFavorite(track.id)
+        }
+        tracks.push({ trackRef: ref, title: track.title, favorite })
+      }
+      return { ok: true, favorite, tracks }
+    },
+  }),
+  tool({
+    name: 'music_pin',
+    permission: 'write',
+    description: 'Pin a favourite track or a playlist to the top of the library, or unpin it. Pinning a track that is not a favourite favourites it first and says so. Calling it twice keeps the first pin position.',
+    fields: {
+      kind: {
+        type: 'string',
+        enum: ['track', 'playlist'] as const,
+        description: 'Whether the id names a track or a playlist.',
+      },
+      id: {
+        type: 'string',
+        minLength: 1,
+        maxLength: MAX_MUSIC_EFFECT_TRACK_REF_CHARS,
+        description: 'A trackRef as a music tool returned it, or a playlist id.',
+      },
+      pinned: {
+        type: 'boolean',
+        optional: true,
+        description: 'True to pin (the default), false to unpin.',
+      },
+    },
+    async run(args, ctx) {
+      const id = typeof args.id === 'string' ? args.id.trim() : ''
+      if (!id) throw new ToolError('Name the track or playlist to pin.')
+      const pinned = args.pinned !== false
+      const store = new MusicStore(ctx.env.DB, ctx.store.userId)
+      if (args.kind === 'playlist') {
+        const playlist = await store.setPlaylistPinned(id, pinned)
+        if (!playlist) throw new ToolError('That playlist is not in this library.')
+        return { ok: true, kind: 'playlist', id: playlist.id, name: playlist.name, pinned }
+      }
+      const [resolved] = await resolveMusicTrackRefs(ctx, [id])
+      if (!resolved) throw new ToolError('That track is not in this library.')
+      const track = resolved.track
+      const wasFavorite = await store.isFavorite(track.id)
+      if (pinned && !wasFavorite && !(await store.addFavorite(track.id))) {
+        throw new ToolError(`The track "${track.title}" could not be favourited.`)
+      }
+      if (pinned) await store.setFavoritePinned(track.id, true)
+      else if (wasFavorite) await store.setFavoritePinned(track.id, false)
+      return {
+        ok: true,
+        kind: 'track',
+        trackRef: resolved.ref,
+        title: track.title,
+        pinned,
+        favorite: pinned ? true : wasFavorite,
+        addedToFavorites: pinned && !wasFavorite,
+      }
+    },
+  }),
+  tool({
+    name: 'music_playlist_create',
+    permission: 'write',
+    description: 'Create a playlist in the reader\'s library from tracks the music app has already saved. At most 100 tracks; duplicates and unknown refs are dropped. This does not start playback.',
+    fields: {
+      name: {
+        type: 'string',
+        minLength: 1,
+        maxLength: MUSIC_TOOL_PLAYLIST_NAME_MAX,
+        description: 'The playlist name.',
+      },
+      description: {
+        type: 'string',
+        maxLength: MUSIC_TOOL_PLAYLIST_DESCRIPTION_MAX,
+        optional: true,
+        description: 'An optional description.',
+      },
+      trackRefs: {
+        type: 'array',
+        items: 'string',
+        maxItems: MUSIC_TOOL_TRACK_REFS_MAX,
+        maxLength: MAX_MUSIC_EFFECT_TRACK_REF_CHARS,
+        optional: true,
+        description: 'The tracks to add, in order. A trackRef from a music tool or an internal library id.',
+      },
+    },
+    async run(args, ctx) {
+      const name = typeof args.name === 'string' ? args.name.trim() : ''
+      const description = typeof args.description === 'string' ? args.description.trim() : ''
+      const refs = stringRefs(args.trackRefs)
+      if (refs.length > MUSIC_TOOL_TRACK_REFS_MAX) throw new ToolError(`At most ${MUSIC_TOOL_TRACK_REFS_MAX} tracks may be added at once.`)
+      const resolved = refs.length ? await resolveMusicTrackRefs(ctx, refs) : []
+      const store = new MusicStore(ctx.env.DB, ctx.store.userId)
+      const playlist = await store.createPlaylist({ name, description })
+      const added = resolved.length ? await store.addPlaylistItems(playlist.id, resolved.map((entry) => entry.track.id)) : 0
+      if (added === null) throw new ToolError('The playlist could not be created right now.')
+      return {
+        ok: true,
+        playlist: { id: playlist.id, name: playlist.name, description: playlist.description },
+        trackCount: added ?? 0,
+        durationMs: resolved.reduce((sum, entry) => sum + entry.track.durationMs, 0),
+      }
     },
   }),
 ]

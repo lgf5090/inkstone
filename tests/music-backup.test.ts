@@ -40,6 +40,7 @@ const BACKED_UP_TABLES = [
   'music_object',
   'music_source_override',
   'music_subscription',
+  'music_mount',
   'music_setting',
 ] as const
 
@@ -118,6 +119,7 @@ function document(overrides: Partial<MusicBackupDocument> = {}): MusicBackupDocu
     objects: [],
     sourceOverrides: [],
     subscriptions: [],
+    mounts: [],
     ...overrides,
   }
 }
@@ -170,6 +172,13 @@ async function seedFullLibrary(): Promise<{ trackId: string; playlistId: string 
     config: { url: 'https://example.test/resolve' },
   })
   await store.createSubscription({ kind: 'artist', providerId: 'ar1', name: 'Artist' })
+  await store.createMount({
+    kind: 'alist',
+    name: 'Office drive',
+    baseUrl: 'https://alist.example.test',
+    rootPath: '/music',
+    secret: 'SECRET-MOUNT-TOKEN',
+  })
   await store.registerObject({
     r2Key: 'music/mp3/u1/track-original.mp3',
     trackId: saved.id,
@@ -223,6 +232,7 @@ describe('export', () => {
       'exportedAt',
       'favorites',
       'history',
+      'mounts',
       'objects',
       'playlistItems',
       'playlists',
@@ -243,6 +253,12 @@ describe('export', () => {
     expect(payload.objects).toHaveLength(1)
     expect(payload.sourceOverrides).toHaveLength(1)
     expect(payload.subscriptions).toHaveLength(1)
+    expect(payload.mounts).toEqual([expect.objectContaining({
+      kind: 'alist',
+      name: 'Office drive',
+      baseUrl: 'https://alist.example.test',
+      rootPath: '/music',
+    })])
 
     for (const secret of [
       'SECRET-COOKIE-CIPHERTEXT',
@@ -250,6 +266,7 @@ describe('export', () => {
       'SECRET-UPLOAD',
       'SECRET-DOWNLOAD',
       'SECRET-CLEANUP',
+      'SECRET-MOUNT-TOKEN',
       'cookie_ciphertext',
     ]) {
       expect(text).not.toContain(secret)
@@ -319,6 +336,7 @@ describe('restore', () => {
       objects: 1,
       overrides: 1,
       subscriptions: 1,
+      mounts: 1,
     })
 
     const after = (await readBackupMusic(db, USER))!
@@ -338,6 +356,61 @@ describe('restore', () => {
     const second = await applyBackupMusic(db, USER, text)
     expect(second).toEqual(first)
     expect(counts()).toEqual(once)
+  })
+
+  it('restores a version 1 document and exports version 2 with its pin order intact', async () => {
+    const saved = track('legacy')
+    const legacy = {
+      ...document({
+        tracks: [saved],
+        favorites: [{ trackId: saved.id, createdAt: 1_000, pinnedAt: 2_000 }],
+      }),
+      version: 1,
+    }
+
+    const summary = await applyBackupMusic(db, USER, JSON.stringify(legacy))
+    expect(summary.mounts).toBe(0)
+    const payload = JSON.parse((await readBackupMusic(db, USER))!) as MusicBackupDocument
+    expect(payload.version).toBe(2)
+    expect(payload.mounts).toEqual([])
+    expect(payload.favorites[0]?.pinnedAt).toBe(2_000)
+
+    const favorites = await store.listFavorites({ page: 1, limit: 10 })
+    expect(favorites.items[0]?.pinnedAt).toBe(2_000)
+  })
+
+  it('restores mounts without their credential so the reader can re-enter it', async () => {
+    await seedFullLibrary()
+    const text = (await readBackupMusic(db, USER))!
+    wipeLibrary()
+
+    await applyBackupMusic(db, USER, text)
+    const mounts = await store.listMounts()
+    expect(mounts).toHaveLength(1)
+    expect(mounts[0]).toMatchObject({
+      kind: 'alist',
+      name: 'Office drive',
+      baseUrl: 'https://alist.example.test',
+      rootPath: '/music',
+      hasSecret: false,
+    })
+    expect(sqlite.prepare('SELECT secret FROM music_mount WHERE user_id = ?').get(USER)).toEqual({ secret: '' })
+  })
+
+  it('refuses a mount address that would send a token in the clear', async () => {
+    await badRequest(applyBackupMusic(db, USER, serialized({
+      mounts: [{
+        id: 'mount-1',
+        kind: 'alist',
+        name: 'Drive',
+        baseUrl: 'http://alist.example.test',
+        rootPath: '/',
+        status: 'active',
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      }],
+    })))
+    expect(count('music_mount')).toBe(0)
   })
 
   it('maps a document track to the account row that already owns the provider identity', async () => {

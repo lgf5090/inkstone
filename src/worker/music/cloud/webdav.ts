@@ -28,6 +28,8 @@ const MAX_PATH = 1024
 const USER_AGENT = 'Inkstone-Music/1.0'
 
 export interface MusicWebdavContext {
+  /** The backup target this context was resolved from; part of every reference's provider id. */
+  targetId: string
   config: WebdavConfig
   secret: WebdavSecret
   dir: string
@@ -52,12 +54,14 @@ export interface MusicWebdavListing {
 }
 
 export function createMusicWebdavContext(input: {
+  targetId: string
   config: WebdavConfig
   secret: WebdavSecret
   dir: string
 }): MusicWebdavContext {
   const dir = normalizeCloudPath(input.dir, { allowEmpty: true })
   return {
+    targetId: input.targetId,
     config: input.config,
     secret: input.secret,
     dir,
@@ -116,6 +120,24 @@ function storageFailure(response: Response, action: string): ApiError {
   return new ApiError(502, 'music_storage_unavailable', `The WebDAV server answered ${response.status} while ${action}.`)
 }
 
+/**
+ * Turn a transport failure into the same named error a failed status produces.
+ *
+ * A DNS failure, a TLS refusal or a timeout arrives as a bare `TypeError` from `fetch`; without this
+ * seam it would surface as a 500 that blames the worker. An abort is the reader leaving, so it is
+ * rethrown untouched and the route's response is dropped with the connection.
+ */
+async function webdavCall<T>(action: string, work: () => Promise<T>): Promise<T> {
+  try {
+    return await work()
+  } catch (error) {
+    if (error instanceof ApiError) throw error
+    if (error instanceof Error && error.name === 'AbortError') throw error
+    console.warn('[inkstone] Music WebDAV request failed:', error instanceof Error ? error.message : error)
+    throw new ApiError(502, 'music_storage_unavailable', `The WebDAV server could not be reached while ${action}.`)
+  }
+}
+
 async function readLimited(response: Response, maxBytes: number): Promise<string> {
   const declared = Number(response.headers.get('Content-Length'))
   if (Number.isFinite(declared) && declared > maxBytes) {
@@ -151,7 +173,8 @@ async function readLimited(response: Response, maxBytes: number): Promise<string
 
 async function propfind(ctx: MusicWebdavContext, path: string, depth: '0' | '1'): Promise<{ entries: WebdavPropfindEntry[], truncated: boolean }> {
   const target = depth === '0' ? childUrl(ctx.base, path) : directoryUrl(ctx, path)
-  const response = await webdavFetch(target, {
+  const action = depth === '0' ? 'reading that file' : 'listing that folder'
+  const response = await webdavCall(action, () => webdavFetch(target, {
     method: 'PROPFIND',
     headers: {
       Authorization: ctx.auth,
@@ -160,10 +183,10 @@ async function propfind(ctx: MusicWebdavContext, path: string, depth: '0' | '1')
       'User-Agent': USER_AGENT,
     },
     body: '<?xml version="1.0" encoding="utf-8"?><D:propfind xmlns:D="DAV:"><D:prop><D:displayname/><D:resourcetype/><D:getcontentlength/><D:getcontenttype/><D:getlastmodified/></D:prop></D:propfind>',
-  }, ctx.base.origin)
+  }, ctx.base.origin))
   if (!response.ok) {
     await discardBody(response.body)
-    throw storageFailure(response, depth === '0' ? 'reading that file' : 'listing that folder')
+    throw storageFailure(response, action)
   }
   const xml = await readLimited(response, PROPFIND_MAX_BYTES)
   return parseMultistatus(xml)
@@ -236,13 +259,13 @@ export async function statMusicObject(ctx: MusicWebdavContext, rawPath: string):
 export async function putMusicObject(
   ctx: MusicWebdavContext,
   rawPath: string,
-  bytes: Uint8Array,
+  bytes: Uint8Array | Blob,
   mime: string,
 ): Promise<void> {
   const path = normalizeCloudPath(rawPath, { allowEmpty: false })
   const parent = parentOf(path)
   await ensureDirs(ctx.base, ctx.auth, [joinCloudPath(ctx.dir, parent)].filter(Boolean), new Set())
-  const response = await webdavFetch(childUrl(ctx.base, joinCloudPath(ctx.dir, path)), {
+  const response = await webdavCall('uploading that file', () => webdavFetch(childUrl(ctx.base, joinCloudPath(ctx.dir, path)), {
     method: 'PUT',
     headers: {
       Authorization: ctx.auth,
@@ -250,17 +273,17 @@ export async function putMusicObject(
       'User-Agent': USER_AGENT,
     },
     body: bytes,
-  }, ctx.base.origin)
+  }, ctx.base.origin))
   await discardBody(response.body)
   if (!response.ok) throw storageFailure(response, 'uploading that file')
 }
 
 export async function deleteMusicObject(ctx: MusicWebdavContext, rawPath: string): Promise<boolean> {
   const path = normalizeCloudPath(rawPath, { allowEmpty: false })
-  const response = await webdavFetch(childUrl(ctx.base, joinCloudPath(ctx.dir, path)), {
+  const response = await webdavCall('deleting that file', () => webdavFetch(childUrl(ctx.base, joinCloudPath(ctx.dir, path)), {
     method: 'DELETE',
     headers: { Authorization: ctx.auth, 'User-Agent': USER_AGENT },
-  }, ctx.base.origin)
+  }, ctx.base.origin))
   await discardBody(response.body)
   if (response.status === 404) return false
   if (!response.ok) throw storageFailure(response, 'deleting that file')
@@ -277,11 +300,11 @@ export async function fetchMusicObject(
   const path = normalizeCloudPath(rawPath, { allowEmpty: false })
   const headers: Record<string, string> = { Authorization: ctx.auth, 'User-Agent': USER_AGENT }
   if (range) headers.Range = range
-  const response = await webdavFetch(childUrl(ctx.base, joinCloudPath(ctx.dir, path)), {
+  const response = await webdavCall('reading that file', () => webdavFetch(childUrl(ctx.base, joinCloudPath(ctx.dir, path)), {
     method: 'GET',
     headers,
     signal,
-  }, ctx.base.origin)
+  }, ctx.base.origin))
   if (response.status === 404) {
     await discardBody(response.body)
     throw new ApiError(404, 'not_found', 'That file no longer exists on the WebDAV server.')

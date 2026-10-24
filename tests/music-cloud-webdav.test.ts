@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { musicWebdavProviderId, parseMusicWebdavProviderId } from '../src/shared/music/model'
 import {
   createMusicWebdavContext,
   deleteMusicObject,
@@ -13,6 +14,7 @@ const BASE = 'https://dav.example.com/root/'
 
 function context(dir = 'music') {
   return createMusicWebdavContext({
+    targetId: 'target-1',
     config: { url: BASE, username: 'reader', prefix: '', mode: 'archive' },
     secret: { password: 'secret' },
     dir,
@@ -43,6 +45,18 @@ describe('music cloud paths', () => {
     expect(() => normalizeCloudPath('album/../secret')).toThrow(/leave the music folder/)
     expect(() => normalizeCloudPath('https://evil.example/song.mp3')).toThrow(/relative to the music folder/)
     expect(() => normalizeCloudPath('album\\song.mp3')).toThrow(/cannot carry/)
+  })
+
+  it('encodes a reference as target then path and splits the target at the first colon only', () => {
+    const providerId = musicWebdavProviderId('target-1', 'Album/01 - A:B.mp3')
+    expect(providerId).toBe('target-1:Album/01 - A:B.mp3')
+    expect(parseMusicWebdavProviderId(providerId)).toEqual({
+      targetId: 'target-1',
+      path: 'Album/01 - A:B.mp3',
+    })
+    expect(parseMusicWebdavProviderId('target-1:')).toBeNull()
+    expect(parseMusicWebdavProviderId(':path.mp3')).toBeNull()
+    expect(parseMusicWebdavProviderId('no-separator')).toBeNull()
   })
 })
 
@@ -136,5 +150,15 @@ describe('webdav objects', () => {
     const response = await fetchMusicObject(context(), 'song.mp3', 'bytes=0-1')
     expect(response.status).toBe(206)
     expect(headers[0]).toMatchObject({ Range: 'bytes=0-1' })
+  })
+
+  it('answers a transport failure with the named storage error, not an unhandled TypeError', async () => {
+    vi.stubGlobal('fetch', async () => {
+      throw new TypeError('fetch failed')
+    })
+    await expect(fetchMusicObject(context(), 'song.mp3', null)).rejects.toMatchObject({
+      status: 502,
+      code: 'music_storage_unavailable',
+    })
   })
 })

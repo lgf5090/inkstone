@@ -18,8 +18,9 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react'
-import { Languages, Maximize2, Minus, Music2, Plus, RefreshCw, Settings2 } from 'lucide-react'
-import { findActiveLineIndex, mergeLyricTranslation, parseLyrics, type LyricLine } from '@shared/music/lyrics'
+import { Languages, Maximize2, Minus, Music2, Plus, RefreshCw, Settings2, Sparkles } from 'lucide-react'
+import { findActiveLineIndex, lyricWordTimings, mergeLyricTranslation, parseLyrics, type LyricLine } from '@shared/music/lyrics'
+import type { MusicAiTranslatedLine } from '@shared/music/lyrics-ai'
 import { musicTrackKey, type MusicTrack } from '@shared/music/model'
 import type { MusicLyricResponse } from '@shared/music/api'
 import { ApiError } from '../../../lib/api'
@@ -27,6 +28,7 @@ import { cn } from '../../../lib/cn'
 import { IS_DEMO_MODE } from '../../../lib/runtime'
 import { Button, IconButton, Spinner } from '../../../components/primitives'
 import { musicApi } from '../api'
+import { defaultLyricTranslationLang, translateTrackLyrics } from '../lyrics-ai'
 import { selectCurrentTrack, useMusicPlayer } from '../store/player'
 import { useMusicSettings } from '../store/settings'
 import { useMusicUi } from '../store/ui'
@@ -46,7 +48,15 @@ export interface MusicLyricDocument {
   lines: LyricLine[]
   status: MusicLyricStatus
   error: string | null
+  /** Whether the provider supplied a translation line of its own; the AI action only fills a gap. */
+  providerTranslation: boolean
   retry: () => void
+  /**
+   * Merge translated lines into the current document. Lines the provider already translated are left
+   * alone unless their timestamp is in `replace`, which is how a regenerated AI translation replaces
+   * the previous AI one without touching the provider's.
+   */
+  mergeTranslation: (translated: readonly MusicAiTranslatedLine[], replace?: ReadonlySet<number>) => void
 }
 
 /**
@@ -118,6 +128,7 @@ export function useTrackLyrics(track: MusicTrack | null): MusicLyricDocument {
   const [lines, setLines] = useState<LyricLine[]>([])
   const [status, setStatus] = useState<MusicLyricStatus>('idle')
   const [error, setError] = useState<string | null>(null)
+  const [providerTranslation, setProviderTranslation] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
   const trackId = track?.id ?? null
 
@@ -126,12 +137,14 @@ export function useTrackLyrics(track: MusicTrack | null): MusicLyricDocument {
       setLines([])
       setStatus('idle')
       setError(null)
+      setProviderTranslation(false)
       return
     }
     let active = true
     setLines([])
     setStatus('loading')
     setError(null)
+    setProviderTranslation(false)
     musicApi.lyrics(trackId)
       .then((answer) => {
         if (!active) return
@@ -140,6 +153,7 @@ export function useTrackLyrics(track: MusicTrack | null): MusicLyricDocument {
         setLines(next)
         setStatus('ready')
         setError(parsed.ok ? null : parsed.error)
+        setProviderTranslation(next.some((line) => Boolean(line.translation) && line.startTime >= 0))
       })
       .catch((reason: unknown) => {
         if (!active) return
@@ -160,7 +174,33 @@ export function useTrackLyrics(track: MusicTrack | null): MusicLyricDocument {
   }, [reloadKey, trackId])
 
   const retry = useCallback(() => setReloadKey((value) => value + 1), [])
-  return { lines, status, error, retry }
+
+  /**
+   * Attach AI translations by timestamp, falling back to line order when the counts agree.
+   *
+   * The rounded timestamp is the same join `mergeLyricTranslation` uses: LRC carries centiseconds, so
+   * a provider line at 1002 ms and its cached translation at 1000 ms are the same line.
+   */
+  const mergeTranslation = useCallback((translated: readonly MusicAiTranslatedLine[], replace?: ReadonlySet<number>) => {
+    if (!translated.length) return
+    const byTime = new Map<number, string>()
+    for (const line of translated) byTime.set(Math.round(line.startTime / 100) * 100, line.text)
+    setLines((previous) => {
+      const timed = previous.filter((line) => line.startTime >= 0 && line.fullText.trim())
+      let timedIndex = 0
+      return previous.map((line) => {
+        if (line.startTime < 0 || !line.fullText.trim()) return line
+        const index = timedIndex++
+        const at = Math.round(line.startTime / 100) * 100
+        const text = byTime.get(at) ?? (translated.length === timed.length ? translated[index]?.text : undefined)
+        if (!text) return line
+        if (line.translation && !replace?.has(at)) return line
+        return { ...line, translation: text }
+      })
+    })
+  }, [])
+
+  return { lines, status, error, providerTranslation, retry, mergeTranslation }
 }
 
 /** The persisted offset for one track, reloaded when the track changes. */
@@ -213,10 +253,14 @@ export function LyricLineContent({
   timeMs: number
   wordByWord: boolean
 }): ReactElement {
-  if (!wordByWord || line.words.length === 0) return <>{line.fullText}</>
+  if (!wordByWord) return <>{line.fullText}</>
+  // Provider YRC when it exists; otherwise the line box is shared out into an estimated rhythm, and
+  // the panel says so rather than letting it pass for the provider's own timing.
+  const { words } = lyricWordTimings(line)
+  if (!words.length) return <>{line.fullText}</>
   return (
     <>
-      {line.words.map((word, index) => {
+      {words.map((word, index) => {
         const sung = timeMs >= word.startTime
         return (
           <span key={`${index}-${word.startTime}`} className={sung ? undefined : 'opacity-40'}>
@@ -327,6 +371,64 @@ export function LyricPanel({ track, variant = 'embedded', className }: LyricPane
   const [offset, setOffset] = useLyricOffset(resolved)
   const activeIndex = activeLyricLine(lyric.lines, positionMs, offset)
   useActiveLineScroll(scrollRef, activeIndex)
+  const [aiStatus, setAiStatus] = useState<'idle' | 'loading' | 'error' | 'ready'>('idle')
+  const [aiError, setAiError] = useState<string | null>(null)
+  const [aiModel, setAiModel] = useState('')
+  // The timestamps this session's AI translation wrote. Regenerating replaces those lines and leaves
+  // a provider translation — which may cover only some lines — untouched.
+  const aiAppliedRef = useRef<Set<number>>(new Set())
+  const mergeTranslation = lyric.mergeTranslation
+  const trackId = resolved?.id ?? null
+  // Read during the request's own await: a translation that lands after the reader changed track
+  // belongs to the track it was asked for, not to the lines now on screen.
+  const trackIdRef = useRef<string | null>(trackId)
+  trackIdRef.current = trackId
+
+  useEffect(() => {
+    setAiStatus('idle')
+    setAiError(null)
+    setAiModel('')
+    aiAppliedRef.current = new Set()
+  }, [trackId])
+
+  // A lyric reload starts from the provider's document again; the previous AI layer is gone with it.
+  useEffect(() => {
+    if (lyric.status === 'ready') return
+    setAiStatus('idle')
+    setAiError(null)
+    aiAppliedRef.current = new Set()
+  }, [lyric.status])
+
+  const requestAiTranslation = useCallback(async (force: boolean) => {
+    if (!resolved) return
+    const requestedTrack = resolved.id
+    setAiStatus('loading')
+    setAiError(null)
+    try {
+      const answer = await translateTrackLyrics(requestedTrack, defaultLyricTranslationLang(), force)
+      if (trackIdRef.current !== requestedTrack) return
+      mergeTranslation(answer.lines, aiAppliedRef.current)
+      aiAppliedRef.current = new Set(answer.lines.map((line) => Math.round(line.startTime / 100) * 100))
+      setAiModel(answer.model)
+      setAiStatus('ready')
+      // The action exists to show the translation; making the reader find the separate toggle first
+      // would hide the result of the call they just made.
+      if (!preferences.showTranslation) setLyrics({ showTranslation: true })
+    } catch (reason) {
+      if (trackIdRef.current !== requestedTrack) return
+      // The panel keeps the provider lyric visible and offers the same action again; the failure
+      // line is the panel's own words and the server's detail stays in its title.
+      setAiStatus('error')
+      setAiError(describe(reason))
+    }
+  }, [mergeTranslation, preferences.showTranslation, resolved, setLyrics])
+
+  const hasTimedLines = lyric.lines.some((line) => line.startTime >= 0 && line.fullText.trim())
+  const offerAiTranslation = lyric.status === 'ready'
+    && hasTimedLines
+    && !lyric.providerTranslation
+  const estimatedRhythm = preferences.wordByWord
+    && lyric.lines.some((line) => line.startTime >= 0 && line.fullText.trim() && line.words.length === 0)
 
   const lineStyle: CSSProperties = {
     fontSize: preferences.fontSize,
@@ -442,17 +544,76 @@ export function LyricPanel({ track, variant = 'embedded', className }: LyricPane
       </div>
 
       <footer className="shrink-0 border-t border-[var(--border-subtle)] px-2 py-1.5">
-        <div className="flex flex-wrap items-center gap-1">
-          <IconButton
-            size="xs"
-            label={musicText('music.lyrics.translation')}
-            active={preferences.showTranslation}
-            aria-pressed={preferences.showTranslation}
-            onClick={() => setLyrics({ showTranslation: !preferences.showTranslation })}
-          >
-            <Languages size={14} />
-          </IconButton>
-          <LyricOffsetControls offset={offset} onChange={setOffset} className="ml-auto" />
+        <div className="flex flex-col gap-1">
+          {offerAiTranslation && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {aiStatus === 'ready' ? (
+                <>
+                  <span
+                    className="inline-flex items-center gap-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]"
+                    title={aiModel ? `${musicText('music.lyrics.ai_badge')} · ${aiModel}` : musicText('music.lyrics.ai_badge')}
+                  >
+                    <Sparkles size={12} aria-hidden="true" />
+                    {musicText('music.lyrics.ai_badge')}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2"
+                    onClick={() => void requestAiTranslation(true)}
+                  >
+                    {musicText('music.lyrics.ai_regenerate')}
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 px-2"
+                  loading={aiStatus === 'loading'}
+                  disabled={aiStatus === 'loading'}
+                  icon={<Sparkles size={12} />}
+                  title={musicText('music.lyrics.ai_privacy')}
+                  onClick={() => void requestAiTranslation(aiStatus === 'error')}
+                >
+                  {aiStatus === 'loading'
+                    ? musicText('music.lyrics.ai_translating')
+                    : aiStatus === 'error'
+                      ? musicText('music.lyrics.ai_retry')
+                      : musicText('music.lyrics.ai_translate')}
+                </Button>
+              )}
+              {aiStatus === 'error' && (
+                <span
+                  role="alert"
+                  title={aiError ?? undefined}
+                  className="text-[length:var(--text-11)] text-[var(--text-secondary)]"
+                >
+                  {musicText('music.lyrics.ai_failed')}
+                </span>
+              )}
+            </div>
+          )}
+          {estimatedRhythm && (
+            <p
+              className="px-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]"
+              title={musicText('music.lyrics.estimated_hint')}
+            >
+              {musicText('music.lyrics.estimated_rhythm')}
+            </p>
+          )}
+          <div className="flex flex-wrap items-center gap-1">
+            <IconButton
+              size="xs"
+              label={musicText('music.lyrics.translation')}
+              active={preferences.showTranslation}
+              aria-pressed={preferences.showTranslation}
+              onClick={() => setLyrics({ showTranslation: !preferences.showTranslation })}
+            >
+              <Languages size={14} />
+            </IconButton>
+            <LyricOffsetControls offset={offset} onChange={setOffset} className="ml-auto" />
+          </div>
         </div>
       </footer>
     </section>

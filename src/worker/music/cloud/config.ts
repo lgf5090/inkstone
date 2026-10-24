@@ -61,5 +61,5 @@ export async function resolveMusicWebdav(
   if (!secret?.password) {
     throw new ApiError(503, 'music_storage_unavailable', 'The selected WebDAV target has no readable password. Update it in Backup settings.')
   }
-  return createMusicWebdavContext({ config, secret: { password: secret.password }, dir })
+  return createMusicWebdavContext({ targetId: target.id, config, secret: { password: secret.password }, dir })
 }

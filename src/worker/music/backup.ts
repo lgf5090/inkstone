@@ -11,6 +11,8 @@
  *
  *  - `music_account`, because its columns include the encrypted Netease cookie. A backup that carried
  *    the ciphertext would put every connected account one stolen archive away from a stranger.
+ *  - the `secret` column of `music_mount`: a mount travels as coordinates, and a restore leaves the
+ *    credential empty so the reader re-enters it.
  *  - `music_lyric`, because cached lyrics are third-party content and can be fetched again.
  *  - `music_upload`, `music_download` and `music_cleanup`, because they are transient job state rather
  *    than a library, and restoring a half-finished download would invent a queue entry that never ran.
@@ -23,12 +25,16 @@
  */
 import { MUSIC_LIMITS } from '@shared/music/constants'
 import {
+  MUSIC_MOUNT_KINDS,
+  MUSIC_MOUNT_STATUSES,
   MUSIC_PROVIDERS,
   MUSIC_SUBSCRIPTION_KINDS,
   MUSIC_TRACK_KINDS,
   type MusicArtist,
   type MusicFavorite,
   type MusicHistoryEntry,
+  type MusicMountKind,
+  type MusicMountStatus,
   type MusicPlaylist,
   type MusicPlaylistItem,
   type MusicProviderId,
@@ -44,7 +50,9 @@ import { MAX_BATCH_STATEMENTS } from '../db/writes'
 import { ApiError } from '../lib/errors'
 import { MusicStore } from './store'
 
-export const MUSIC_BACKUP_VERSION = 1 as const
+export const MUSIC_BACKUP_VERSION = 2 as const
+/** Version 1 documents carry no `mounts`; its pin fields are optional too and still restore. */
+export const MUSIC_BACKUP_LEGACY_VERSION = 1 as const
 
 /** Ceilings on a restore. Above these the file is not a personal music library. */
 const MAX_TRACKS = 20_000
@@ -56,6 +64,7 @@ const MAX_RECENT = 5_000
 const MAX_OBJECTS = 50_000
 const MAX_SOURCE_OVERRIDES = 50_000
 const MAX_SUBSCRIPTIONS = 50_000
+const MAX_MOUNTS = 100
 
 /** The field ceilings the library routes already use for their own writes. */
 const TITLE_MAX = 500
@@ -92,8 +101,26 @@ const RECENT_CHUNK = 100
 const OBJECT_CHUNK = 200
 const SOURCE_OVERRIDE_CHUNK = 100
 const SUBSCRIPTION_CHUNK = 100
+const MOUNT_CHUNK = 100
 
 export type MusicBackupPlaylist = Omit<MusicPlaylist, 'trackCount'>
+
+/**
+ * A cloud mount without its credential.
+ *
+ * A backup is copied around, so the encrypted token never travels with it. A restore recreates the
+ * mount with an empty secret; `hasSecret` then reads false and the reader re-enters the token.
+ */
+export interface MusicBackupMount {
+  id: string
+  kind: MusicMountKind
+  name: string
+  baseUrl: string
+  rootPath: string
+  status: MusicMountStatus
+  createdAt: number
+  updatedAt: number
+}
 
 export interface MusicBackupObject {
   r2Key: string
@@ -118,6 +145,7 @@ export interface MusicBackupDocument {
   objects: MusicBackupObject[]
   sourceOverrides: MusicSourceOverride[]
   subscriptions: MusicSubscription[]
+  mounts: MusicBackupMount[]
 }
 
 export interface MusicBackupSummary {
@@ -130,6 +158,7 @@ export interface MusicBackupSummary {
   objects: number
   overrides: number
   subscriptions: number
+  mounts: number
 }
 
 interface TrackBackupRow {
@@ -228,6 +257,17 @@ interface SubscriptionBackupRow {
   created_at: number
 }
 
+interface MountBackupRow {
+  id: string
+  kind: string
+  name: string
+  base_url: string
+  root_path: string
+  status: string
+  created_at: number
+  updated_at: number
+}
+
 interface ExistingTrackIdentity {
   id: string
   provider: string
@@ -243,7 +283,7 @@ interface ExistingTrackIdentity {
  * `exportedAt`.
  */
 export async function readBackupMusic(db: D1Database, userId: string): Promise<string | null> {
-  const [tracks, playlists, playlistItems, favorites, history, recent, objects, sourceOverrides, subscriptions, settingRow] =
+  const [tracks, playlists, playlistItems, favorites, history, recent, objects, sourceOverrides, subscriptions, mounts, settingRow] =
     await Promise.all([
       db.prepare(
         `SELECT id, provider, provider_id, kind, title, artists, album, album_id, cover_url,
@@ -285,6 +325,11 @@ export async function readBackupMusic(db: D1Database, userId: string): Promise<s
         `SELECT id, kind, provider_id, name, cover_url, created_at
            FROM music_subscription WHERE user_id = ?1 ORDER BY created_at, id`,
       ).bind(userId).all<SubscriptionBackupRow>(),
+      // The secret column is never selected: a mount travels as coordinates only.
+      db.prepare(
+        `SELECT id, kind, name, base_url, root_path, status, created_at, updated_at
+           FROM music_mount WHERE user_id = ?1 ORDER BY created_at, id`,
+      ).bind(userId).all<MountBackupRow>(),
       db.prepare('SELECT settings FROM music_setting WHERE user_id = ?1')
         .bind(userId).first<{ settings: string }>(),
     ])
@@ -295,6 +340,7 @@ export async function readBackupMusic(db: D1Database, userId: string): Promise<s
   const total = tracks.results.length + playlists.results.length + playlistItems.results.length
     + favorites.results.length + history.results.length + recent.results.length
     + objects.results.length + sourceOverrides.results.length + subscriptions.results.length
+    + mounts.results.length
   if (total === 0 && settings === null) return null
 
   const document: MusicBackupDocument = {
@@ -314,6 +360,7 @@ export async function readBackupMusic(db: D1Database, userId: string): Promise<s
     objects: objects.results.map(toBackupObject),
     sourceOverrides: sourceOverrides.results.map(toBackupSourceOverride),
     subscriptions: subscriptions.results.map(toBackupSubscription),
+    mounts: mounts.results.map(toBackupMount),
   }
   return JSON.stringify(document)
 }
@@ -358,6 +405,7 @@ export async function applyBackupMusic(
     ...objectStatements(db, userId, objects),
     ...sourceOverrideStatements(db, userId, document.sourceOverrides),
     ...subscriptionStatements(db, userId, document.subscriptions),
+    ...mountStatements(db, userId, document.mounts),
   ]
   if (document.history.length) statements.push(trimHistoryStatement(db, userId))
   if (document.recent.length) statements.push(trimRecentStatement(db, userId))
@@ -377,6 +425,7 @@ export async function applyBackupMusic(
     objects: document.objects.length,
     overrides: document.sourceOverrides.length,
     subscriptions: document.subscriptions.length,
+    mounts: document.mounts.length,
   }
 }
 
@@ -390,7 +439,7 @@ function parseDocument(text: string, userId: string): MusicBackupDocument {
     throw ApiError.badRequest('The music backup is not valid JSON')
   }
   const source = asRecord(value, 'The music backup')
-  if (source.version !== MUSIC_BACKUP_VERSION) {
+  if (source.version !== MUSIC_BACKUP_LEGACY_VERSION && source.version !== MUSIC_BACKUP_VERSION) {
     throw ApiError.badRequest(`Unsupported music backup version: ${String(source.version)}`)
   }
 
@@ -411,6 +460,8 @@ function parseDocument(text: string, userId: string): MusicBackupDocument {
     .map((row, index) => parseSourceOverride(row, index))
   const subscriptions = rowsOf(source.subscriptions, MAX_SUBSCRIPTIONS, 'subscriptions')
     .map((row, index) => parseSubscription(row, index))
+  const mounts = rowsOf(source.mounts, MAX_MOUNTS, 'mounts')
+    .map((row, index) => parseMount(row, index))
 
   assertUnique(tracks.map((row) => row.id), 'track id')
   assertUnique(tracks.map((row) => `${row.provider}\u0000${row.providerId}`), 'track provider identity')
@@ -424,6 +475,7 @@ function parseDocument(text: string, userId: string): MusicBackupDocument {
   assertUnique(sourceOverrides.map((row) => row.trackKey), 'source override key')
   assertUnique(subscriptions.map((row) => row.id), 'subscription id')
   assertUnique(subscriptions.map((row) => `${row.kind}\u0000${row.providerId}`), 'subscription identity')
+  assertUnique(mounts.map((row) => row.id), 'mount id')
 
   const trackIds = new Set(tracks.map((row) => row.id))
   const playlistIds = new Set(playlists.map((row) => row.id))
@@ -464,6 +516,7 @@ function parseDocument(text: string, userId: string): MusicBackupDocument {
     objects,
     sourceOverrides,
     subscriptions,
+    mounts,
   }
 }
 
@@ -612,6 +665,20 @@ function parseSubscription(value: unknown, index: number): MusicSubscription {
     name: requiredText(row.name, NAME_MAX, `Subscription ${index + 1} name`),
     coverUrl: optionalUrl(row.coverUrl, `Subscription ${index + 1} coverUrl`),
     createdAt: optionalTimestamp(row.createdAt, `Subscription ${index + 1} createdAt`),
+  }
+}
+
+function parseMount(value: unknown, index: number): MusicBackupMount {
+  const row = asRecord(value, `Mount ${index + 1}`)
+  return {
+    id: requiredText(row.id, ID_MAX, `Mount ${index + 1} id`),
+    kind: oneOf(row.kind ?? 'alist', MUSIC_MOUNT_KINDS, `Mount ${index + 1} kind`),
+    name: requiredText(row.name, NAME_MAX, `Mount ${index + 1} name`),
+    baseUrl: httpsUrl(row.baseUrl, `Mount ${index + 1} baseUrl`),
+    rootPath: mountRootPath(row.rootPath, `Mount ${index + 1} rootPath`),
+    status: oneOf(row.status ?? 'active', MUSIC_MOUNT_STATUSES, `Mount ${index + 1} status`),
+    createdAt: optionalTimestamp(row.createdAt, `Mount ${index + 1} createdAt`),
+    updatedAt: optionalTimestamp(row.updatedAt, `Mount ${index + 1} updatedAt`),
   }
 }
 
@@ -947,6 +1014,33 @@ function subscriptionStatements(
   ).bind(userId, JSON.stringify(window)))
 }
 
+/**
+ * Recreate mounts without their credential. `INSERT OR IGNORE` keeps an existing mount, including
+ * one whose token is already stored, so restoring onto a configured account does not wipe it.
+ */
+function mountStatements(
+  db: D1Database,
+  userId: string,
+  rows: readonly MusicBackupMount[],
+): D1PreparedStatement[] {
+  return chunk(rows, MOUNT_CHUNK).map((window) => db.prepare(
+    `INSERT OR IGNORE INTO music_mount (
+       user_id, id, kind, name, base_url, root_path, secret, status, created_at, updated_at
+     )
+     SELECT ?1,
+       json_extract(j.value, '$.id'),
+       json_extract(j.value, '$.kind'),
+       json_extract(j.value, '$.name'),
+       json_extract(j.value, '$.baseUrl'),
+       json_extract(j.value, '$.rootPath'),
+       '',
+       json_extract(j.value, '$.status'),
+       json_extract(j.value, '$.createdAt'),
+       json_extract(j.value, '$.updatedAt')
+       FROM json_each(?2) AS j`,
+  ).bind(userId, JSON.stringify(window)))
+}
+
 /** Trim to the same ceiling `MusicStore.recordHistory` enforces, keeping the newest plays. */
 function trimHistoryStatement(db: D1Database, userId: string): D1PreparedStatement {
   return db.prepare(
@@ -1033,6 +1127,36 @@ function optionalText(value: unknown, max: number, label: string): string {
 function optionalUrl(value: unknown, label: string): string {
   const text = optionalText(value, URL_MAX, label)
   if (text && !/^https?:\/\//i.test(text)) throw ApiError.badRequest(`${label} must use HTTP or HTTPS`)
+  return text
+}
+
+/**
+ * A mount address. Credentials never live in the URL, and a plain-HTTP drive would send whatever
+ * token it is given in the clear, so only HTTPS without user info is accepted.
+ */
+function httpsUrl(value: unknown, label: string): string {
+  const text = requiredText(value, URL_MAX, label)
+  let url: URL
+  try {
+    url = new URL(text)
+  } catch {
+    throw ApiError.badRequest(`${label} must be an HTTPS address`)
+  }
+  if (url.protocol !== 'https:' || url.username || url.password) {
+    throw ApiError.badRequest(`${label} must be an HTTPS address without credentials`)
+  }
+  return text
+}
+
+/** An absolute drive path with no traversal segment; `/` is the default. */
+function mountRootPath(value: unknown, label: string): string {
+  const text = optionalText(value, OBJECT_KEY_MAX, label) || '/'
+  if (!text.startsWith('/') || text.includes('\\') || /[\u0000-\u001f]/.test(text)) {
+    throw ApiError.badRequest(`${label} must start with a forward slash`)
+  }
+  if (text.split('/').some((segment) => segment === '.' || segment === '..')) {
+    throw ApiError.badRequest(`${label} must not walk outside the mount`)
+  }
   return text
 }
 
@@ -1249,6 +1373,19 @@ function toBackupSubscription(row: SubscriptionBackupRow): MusicSubscription {
     name: row.name,
     coverUrl: row.cover_url,
     createdAt: row.created_at,
+  }
+}
+
+function toBackupMount(row: MountBackupRow): MusicBackupMount {
+  return {
+    id: row.id,
+    kind: row.kind as MusicMountKind,
+    name: row.name,
+    baseUrl: row.base_url,
+    rootPath: row.root_path,
+    status: row.status as MusicMountStatus,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   }
 }
 

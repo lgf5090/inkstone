@@ -5,8 +5,21 @@
  * song ids with string program ids, and a numeric column would have to widen later.
  */
 
-export const MUSIC_PROVIDERS = ['netease', 'upload', 'custom'] as const
+/**
+ * `webdav` is a reference row rather than an upload: the audio stays on the reader's WebDAV server
+ * and `r2Key` is null, so it costs no R2 quota. Alist and external links are not modelled yet.
+ */
+export const MUSIC_PROVIDERS = ['netease', 'upload', 'custom', 'webdav'] as const
 export type MusicProviderId = (typeof MUSIC_PROVIDERS)[number]
+
+/**
+ * The longest provider id the library routes accept in a client-sent track snapshot.
+ *
+ * A WebDAV reference encodes its backup target and its path in this one field, and the favourite and
+ * playlist routes re-read that snapshot with this ceiling, so an import that exceeded it would save
+ * a row the reader could never favourite or add to a playlist.
+ */
+export const MUSIC_PROVIDER_ID_MAX = 128
 
 export const MUSIC_TRACK_KINDS = ['song', 'podcast', 'mv'] as const
 export type MusicTrackKind = (typeof MUSIC_TRACK_KINDS)[number]
@@ -293,4 +306,20 @@ export const DEFAULT_MUSIC_SETTINGS: MusicSettings = {
 
 export function musicTrackKey(provider: MusicProviderId, providerId: string): string {
   return `${provider}:${providerId}`
+}
+
+/**
+ * A WebDAV reference's provider id: the backup target the file lives on, then its path inside the
+ * music folder. Only the first colon splits the value, because a file name may contain one; the
+ * target id is a generated id and never does. The path is relative to the configured music folder,
+ * so moving that folder invalidates existing references — a re-import repairs them.
+ */
+export function musicWebdavProviderId(targetId: string, path: string): string {
+  return `${targetId}:${path}`
+}
+
+export function parseMusicWebdavProviderId(providerId: string): { targetId: string, path: string } | null {
+  const split = providerId.indexOf(':')
+  if (split <= 0 || split === providerId.length - 1) return null
+  return { targetId: providerId.slice(0, split), path: providerId.slice(split + 1) }
 }

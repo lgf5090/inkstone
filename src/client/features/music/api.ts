@@ -6,6 +6,9 @@ import type {
   MusicAlbumDetail,
   MusicArtistDetail,
   MusicDownloadListPayload,
+  MusicDriveDeleteResult,
+  MusicDriveImportResult,
+  MusicDriveUploadResult,
   MusicHealth,
   MusicHome,
   MusicLibraryPayload,
@@ -73,6 +76,21 @@ export const musicApi = {
 
   drive: () => request<MusicDriveSummary>('/api/music/drive'),
   driveWebdav: (path = '') => request<MusicWebdavListing>(`/api/music/drive/webdav${query({ path })}`),
+  driveWebdavImport: (paths: string[], targetPlaylistId?: string) =>
+    request<MusicDriveImportResult>('/api/music/drive/webdav/import', {
+      method: 'POST',
+      body: targetPlaylistId ? { paths, targetPlaylistId } : { paths },
+    }),
+  driveWebdavUpload: (dir: string, file: File) => {
+    const form = new FormData()
+    form.append('file', file, file.name)
+    return request<MusicDriveUploadResult>(`/api/music/drive/webdav/upload${query({ path: dir })}`, {
+      method: 'POST',
+      formData: form,
+    })
+  },
+  driveWebdavDelete: (path: string) =>
+    request<MusicDriveDeleteResult>(`/api/music/drive/webdav/object${query({ path })}`, { method: 'DELETE' }),
 
   home: () => request<MusicHome>('/api/music/home'),
   fm: () => request<{ tracks: MusicTrack[] }>('/api/music/home/fm'),

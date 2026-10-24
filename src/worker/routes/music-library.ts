@@ -14,6 +14,7 @@
  */
 import { Hono } from 'hono'
 import type { MusicLibraryPayload } from '@shared/music/api'
+import { parseMusicAiTranslateBody } from '@shared/music/lyrics-ai'
 import type {
   MusicArtist,
   MusicHistoryEntry,
@@ -35,6 +36,7 @@ import {
   type MusicTrackInput,
 } from '../music/store'
 import { listMusicUploads } from '../music/upload-store'
+import { translateMusicLyrics } from '../music/lyrics-ai'
 
 const TITLE_MAX = 500
 const NAME_MAX = 200
@@ -191,6 +193,29 @@ musicLibraryRoutes.post('/tracks', async (c) => {
   const store = new MusicStore(c.env.DB, c.get('userId'))
   const tracks = await saveTracks(store, body.tracks.map(trackInputOf))
   return c.json({ tracks })
+})
+
+/**
+ * Translate one track's provider lyric with the reader's own assistant model.
+ *
+ * Only an explicit request from the reader reaches this path: the lyric is sent to the model
+ * provider they configured, and the answer is cached under the lyric's own hash so a second open is
+ * free. Failures are separated by what the reader can do about them — activate a model, wait for the
+ * daily ceiling, try a track that has lyrics, or retry the provider.
+ */
+musicLibraryRoutes.post('/lyrics/:trackId/ai-translate', async (c) => {
+  const body = parseMusicAiTranslateBody(await readJson<unknown>(c, SMALL_BODY_LIMIT))
+  if (!body.ok) throw ApiError.badRequest(body.error)
+  const trackId = c.req.param('trackId') ?? ''
+  if (!trackId || trackId.length > PROVIDER_ID_MAX) throw ApiError.notFound('That track does not exist')
+  const answer = await translateMusicLyrics({
+    env: c.env,
+    userId: c.get('userId'),
+    trackId,
+    targetLang: body.targetLang,
+    force: body.force,
+  })
+  return c.json(answer)
 })
 
 musicLibraryRoutes.get('/favorites', async (c) => {

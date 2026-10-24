@@ -19,6 +19,104 @@ export interface LyricLine {
   fullText: string
   words: LyricWord[]
   translation?: string
+  /** True when `words` came from `synthesizeWordTimings` rather than from the provider's YRC. */
+  wordsEstimated?: boolean
+}
+
+/** A line's word timing, and whether it is the provider's own or an estimate from the line box. */
+export interface LyricWordTimings {
+  words: LyricWord[]
+  estimated: boolean
+}
+
+const CJK_CHARACTER = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]/
+const WORD_CHARACTER = /[\p{L}\p{N}]/u
+
+/**
+ * Give an LRC-only line a plausible word rhythm.
+ *
+ * YRC is the only source of real per-word timing, and most tracks do not have it. When the reader
+ * turns on word-by-word highlighting anyway, the line box is all the timing there is: CJK text is
+ * cut per character, Latin text per word, punctuation sticks to the token before it, and the line's
+ * own duration is shared out by how many non-space characters each token carries. The last token
+ * ends exactly at the line's end, so a highlight can never outlive the line that owns it. The
+ * caller is expected to say that this is an estimate rather than present it as the provider's.
+ */
+export function synthesizeWordTimings(line: Pick<LyricLine, 'fullText' | 'startTime' | 'duration'>): LyricWord[] {
+  const text = line.fullText
+  if (!text.trim()) return []
+  const tokens: Array<{ text: string, space: boolean }> = []
+  let word = ''
+  let latin = false
+  const markSpace = () => {
+    const last = tokens.at(-1)
+    if (last) last.space = true
+  }
+  const flushWord = () => {
+    if (!word) return
+    tokens.push({ text: word, space: false })
+    word = ''
+    latin = false
+  }
+
+  for (const char of text) {
+    if (/\s/.test(char)) {
+      flushWord()
+      markSpace()
+      continue
+    }
+    if (CJK_CHARACTER.test(char)) {
+      flushWord()
+      tokens.push({ text: char, space: false })
+      continue
+    }
+    if (WORD_CHARACTER.test(char) || (latin && (char === '\'' || char === '’' || char === '-'))) {
+      word += char
+      latin = true
+      continue
+    }
+    // Punctuation and symbols belong to the word or character they follow; a line that opens with
+    // one keeps it as its own token so nothing is silently dropped.
+    flushWord()
+    const last = tokens.at(-1)
+    if (last) last.text += char
+    else tokens.push({ text: char, space: false })
+  }
+  flushWord()
+  if (!tokens.length) return []
+
+  const weights = tokens.map((token) => {
+    const count = [...token.text].filter((char) => !/\s/.test(char)).length
+    return count > 0 ? count : 1
+  })
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0)
+  const startTime = Math.max(0, line.startTime)
+  const duration = Math.max(0, line.duration)
+  let cursor = startTime
+  let cumulative = 0
+  return tokens.map((token, index) => {
+    cumulative += weights[index]!
+    const end = index === tokens.length - 1
+      ? startTime + duration
+      : startTime + Math.round((duration * cumulative) / totalWeight)
+    const word: LyricWord = {
+      text: token.text,
+      startTime: cursor,
+      duration: Math.max(0, end - cursor),
+      ...(token.space ? { space: true } : {}),
+    }
+    cursor = end
+    return word
+  })
+}
+
+/**
+ * The words to highlight for one line: the provider's own timing when it has any, the estimate when
+ * it does not. `estimated` is what lets the surface label the second case honestly.
+ */
+export function lyricWordTimings(line: LyricLine): LyricWordTimings {
+  if (line.words.length) return { words: line.words, estimated: false }
+  return { words: synthesizeWordTimings(line), estimated: true }
 }
 
 export interface LyricMetadata {

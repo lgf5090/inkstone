@@ -9,13 +9,15 @@
  */
 import { Hono, type Context } from 'hono'
 import { MUSIC_MIME_BY_FORMAT, isMusicFormat } from '@shared/music/constants'
-import type { MusicTrack } from '@shared/music/model'
+import { parseMusicWebdavProviderId, type MusicTrack } from '@shared/music/model'
 import type { AppBindings, Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { contentDisposition } from '../lib/http-range'
 import { decryptMusicCookie } from '../lib/crypto'
 import { requireAuth } from '../middleware/auth'
 import { MusicStore } from '../music/store'
+import { resolveMusicWebdav } from '../music/cloud/config'
+import { fetchMusicObject } from '../music/cloud/webdav'
 import {
   MUSIC_COVER_CACHE_CONTROL,
   hasMusicStorage,
@@ -44,9 +46,60 @@ musicFileRoutes.use('*', requireAuth)
 
 musicFileRoutes.get('/stream/:trackId', async (c) => {
   const track = await ownedTrack(c, 'trackId')
+  if (track.provider === 'webdav') return serveWebdavTrack(c, track)
   const provider = track.r2Key ? undefined : await musicProviderFor(c.env, c.get('userId'))
   return serveMusicStream(c.env, track, c.req.raw, provider)
 })
+
+/**
+ * A WebDAV reference played through this worker.
+ *
+ * The client's Range is forwarded untouched; the upstream 206 is relayed and an upstream 200 stays a
+ * 200 (the browser plays a full body just as well). Bytes are never held: the body is the upstream
+ * stream. The reference embeds the target it was imported from, so a changed target is refused
+ * rather than silently reading a same-named file from a different server.
+ */
+async function serveWebdavTrack(c: Context<AppBindings>, track: MusicTrack): Promise<Response> {
+  const reference = parseMusicWebdavProviderId(track.providerId)
+  if (!reference) {
+    throw new ApiError(
+      502,
+      'music_source_unavailable',
+      'This track no longer points at a WebDAV file. Import it again from the cloud drive.',
+    )
+  }
+  const contentType = isMusicFormat(track.format) ? MUSIC_MIME_BY_FORMAT[track.format] : null
+  if (!contentType || !/^(?:audio|video)\//.test(contentType)) {
+    throw new ApiError(502, 'music_source_unavailable', 'This WebDAV track has no playable media type.')
+  }
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  const ctx = await resolveMusicWebdav(c.env, store, c.get('userId'))
+  if (reference.targetId !== ctx.targetId) {
+    throw new ApiError(
+      502,
+      'music_source_unavailable',
+      'This track was imported from a different WebDAV target. Import it again from the cloud drive.',
+    )
+  }
+  const request = c.req.raw
+  const upstream = await fetchMusicObject(ctx, reference.path, request.headers.get('Range'), request.signal)
+  const headers = new Headers({
+    'Content-Type': contentType,
+    'Content-Disposition': 'inline',
+    'Accept-Ranges': 'bytes',
+    // A reference can change under the reader; nothing here is immutable or shared.
+    'Cache-Control': 'private, max-age=0',
+    'X-Content-Type-Options': 'nosniff',
+  })
+  const length = upstream.headers.get('Content-Length')
+  if (length) headers.set('Content-Length', length)
+  if (upstream.status === 206) {
+    const range = upstream.headers.get('Content-Range')
+    if (range) headers.set('Content-Range', range)
+  }
+  const status = upstream.status === 206 ? 206 : 200
+  return new Response(request.method === 'HEAD' ? null : upstream.body, { status, headers })
+}
 
 musicFileRoutes.get('/cover/:trackId', async (c) => {
   const track = await ownedTrack(c, 'trackId')

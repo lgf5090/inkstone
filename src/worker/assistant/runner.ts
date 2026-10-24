@@ -43,6 +43,7 @@ import { parametersSchema, ToolError, ToolExecutor, type ToolContext } from './t
 import { AbortError, streamUpstream, UpstreamError, type ChatAudioPart, type ModelTurn, type ToolCallRecord, type ToolSchema, type UpstreamRequest, type UpstreamRetry, type UpstreamStopReason } from './upstream'
 import { webSearchSources } from './web-search'
 import { loadModelAndProvider, modelEndpoint, type ModelEndpoint } from './model-config'
+import { runOneShot, OneShotError } from './one-shot'
 import { pickModelForTurn } from '@shared/assistant-routing'
 import { fuseMemoryRecall, rankMemoriesByVector, semanticModel } from './semantic'
 
@@ -1020,16 +1021,11 @@ export class AssistantRunner {
           messageId: assistantId,
           question: message,
           answer,
-          model,
-          provider,
-          call,
-          modelLabel,
-          keyRef,
+          modelId: model.id,
           // Only the turn that made the conversation may name it: a later turn has no claim on a title the
           // reader may have chosen since, and the thread's own list would change under them.
           wantTitle: wasNewConversation,
           derivedTitle: conversation.title,
-          limits,
           signal: input.signal,
         })
         // Either half is worth a frame: a pass that offered follow-ups but named nothing — a blank title, or
@@ -1491,73 +1487,34 @@ export class AssistantRunner {
     messageId: string
     question: string
     answer: string
-    model: AssistantModel
-    provider: ProviderRow
-    call: ModelEndpoint
-    modelLabel: string
-    keyRef?: { providerId: string, providerLabel: string }
+    /** The model that answered the turn; the extra call travels on the same one and the same bill. */
+    modelId: string
     /** Whether this turn made the conversation, and therefore whether it may name it. */
     wantTitle: boolean
     derivedTitle: string
-    limits: AssistantSettings['limits']
     signal: AbortSignal
   }): Promise<{ title: string | null, suggestions: string[] } | null> {
-    // No request left on the day's ceiling: leave the derived title. A title is worth less than the reader's
-    // last request to the day, and reserving here is what keeps this call off the free list.
-    if (!(await this.reserve(1, args.limits.maxRequestsPerDay, args.keyRef, args.modelLabel))) return null
     const { system, user } = namingPrompt(this.settings.language, args.question, args.answer)
-    // Its own controller, so a stop of the reader's or the deadline ends this call without touching the turn
-    // (which is already filed). The turn's signal is watched, not replaced.
-    const controller = new AbortController()
-    const onAbort = () => controller.abort(args.signal.reason)
-    if (args.signal.aborted) onAbort()
-    else args.signal.addEventListener('abort', onAbort, { once: true })
-    const timer = setTimeout(() => controller.abort(), NAMING_DEADLINE_MS)
-    // `max` rather than `+`: the naming call is one step, so there is no second usage frame to add, and a
-    // provider that repeats a total on `done` must not count it twice.
-    const spent = { inputTokens: 0, outputTokens: 0 }
-    let text = ''
+    let text: string
     try {
-      for await (const event of streamUpstream(args.call.protocol, {
-        baseUrl: args.call.baseUrl,
-        // Signed from the same provider that answered, so the naming pass travels on the reader's own key and
-        // nothing else's. No `retry`: a single cheap attempt, one key, one shot — this is a nicety on an
-        // answer that already succeeded, and rotating the ring or trying another model for it would cost the
-        // reader more than the title is worth.
-        apiKey: await this.signKey(args.provider),
-        model: args.model.model,
+      // Budget, key, deadline and metering are the one-shot path's job. A call with no request left on
+      // the day's ceiling, or one the provider refuses, yields nothing and leaves the derived title
+      // standing — the answer is already filed, so this is the honest failure for a nicety.
+      const answer = await runOneShot(this.store, this.settings, {
+        modelId: args.modelId,
         system,
-        turns: [{ role: 'user', content: user }],
-        tools: [],
+        user,
         maxOutputTokens: NAMING_MAX_OUTPUT_TOKENS,
         temperature: 0,
-        reasoning: 'off',
-        reasoningDialect: args.call.reasoningDialect,
+        timeoutMs: NAMING_DEADLINE_MS,
         structured: true,
-        signal: controller.signal,
-      })) {
-        if (event.type === 'text') text += event.delta
-        if (event.type === 'usage') {
-          spent.inputTokens = Math.max(spent.inputTokens, event.inputTokens)
-          spent.outputTokens = Math.max(spent.outputTokens, event.outputTokens)
-        }
-      }
+        signal: args.signal,
+      })
+      text = answer.text
     } catch (error) {
-      // A refused, unreachable or timed-out call. Meter the attempt as an error against the day (the same
-      // shape the conflict judge leaves behind), then get out: the derived title is the honest answer.
-      console.warn('[inkstone] assistant naming skipped:', error instanceof Error ? error.name : error)
-      await this.store.incrementUsage({ errors: 1 }, undefined, args.modelLabel, args.keyRef)
+      console.warn('[inkstone] assistant naming skipped:', error instanceof OneShotError ? error.kind : error instanceof Error ? error.name : error)
       return null
-    } finally {
-      clearTimeout(timer)
-      args.signal.removeEventListener('abort', onAbort)
     }
-    // The call ran, so its tokens are paid for whether or not the answer is usable. Estimate when a relay
-    // streamed no usage frame, so a naming pass is never free, then record it against the model and key.
-    const charged = spent.inputTokens || spent.outputTokens
-      ? spent
-      : { inputTokens: estimateTokens(`${system}\n${user}`), outputTokens: estimateTokens(text) }
-    await this.store.incrementUsage({ inputTokens: charged.inputTokens, outputTokens: charged.outputTokens }, undefined, args.modelLabel, args.keyRef)
     const parsed = parseNaming(text)
     if (!parsed) return null
     // Suggestions attach to the answer that earned them, independent of the title: a thread the reader

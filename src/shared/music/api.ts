@@ -206,3 +206,34 @@ export interface MusicLyricResponse {
   source: string
   fetchedAt: number
 }
+
+/** The largest file one WebDAV upload request may carry, envelope included. */
+export const MUSIC_DRIVE_UPLOAD_MAX_BYTES = 64 * 1024 * 1024
+/** The most paths one import call may name; the response reports each one's fate. */
+export const MUSIC_DRIVE_IMPORT_MAX_PATHS = 50
+
+/**
+ * Why one path in an import was left alone. `missing` covers a file deleted between listing and
+ * import; `path_too_long` is a reference whose encoded id would not fit the library's provider field.
+ */
+export type MusicDriveSkipReason = 'missing' | 'directory' | 'unsupported' | 'path_too_long'
+
+export interface MusicDriveSkip {
+  path: string
+  reason: MusicDriveSkipReason
+}
+
+export interface MusicDriveImportResult {
+  tracks: MusicTrack[]
+  skipped: MusicDriveSkip[]
+}
+
+export interface MusicDriveUploadResult {
+  path: string
+  size: number
+}
+
+export interface MusicDriveDeleteResult {
+  ok: true
+  removed: boolean
+}

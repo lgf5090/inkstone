@@ -1459,3 +1459,7 @@ export type ApiErrorCode =
   | 'music_quota_exceeded'
   | 'music_upload_invalid'
   | 'music_lyrics_unavailable'
+  | 'music_ai_unavailable'
+  | 'music_ai_quota'
+  | 'music_ai_mismatch'
+  | 'music_ai_upstream'
