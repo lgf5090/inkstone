@@ -408,6 +408,12 @@ export function AccountSettingsPage({ accountId, onBack }: { accountId: string; 
   }
 
   const autoDraftAvailable = config?.autoDraftAvailable === true
+  const sendingReady = deployment
+    ? provider === 'resend'
+      ? Boolean(deployment.hasResendKey) && resendFrom.trim().length > 0
+      : deployment.cloudflareSending
+    : false
+  const attachmentsReady = deployment?.attachmentsAvailable === true
   const autoDraftStatusText = (() => {
     if (autoDraftStatusError) return t('email.settings.auto_draft_status_unavailable')
     if (!autoDraftStatus?.status) return t('email.settings.auto_draft_status_none')
@@ -757,6 +763,11 @@ export function AccountSettingsPage({ accountId, onBack }: { accountId: string; 
                     {t('email.settings.delivery_env_domains', { domains: deployment.envDomains.join(', ') })}
                   </p>
                 )}
+                {config && config.addresses.length > 0 && (
+                  <p className="m-0 rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-2.5 py-1.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                    {t('email.settings.delivery_env_addresses', { addresses: config.addresses.join(', ') })}
+                  </p>
+                )}
                 <Field label={t('email.settings.delivery_domains')} hint={t('email.settings.delivery_domains_hint')}>
                   <Input value={domainText} onChange={(event) => setDomainText(event.target.value)} autoComplete="off" placeholder={deployment.envDomains[0] ?? 'example.com'} />
                 </Field>
@@ -796,6 +807,20 @@ export function AccountSettingsPage({ accountId, onBack }: { accountId: string; 
                     )}
                   </>
                 )}
+                <dl className="m-0 space-y-1 rounded-[var(--r-sm)] border border-[var(--border-subtle)] px-2.5 py-2 text-[length:var(--text-11)]">
+                  <div className="flex items-baseline gap-2">
+                    <dt className="shrink-0 text-[var(--text-tertiary)]">{t('email.settings.delivery_status_sending')}</dt>
+                    <dd className={cn('m-0', sendingReady ? 'text-[var(--text-secondary)]' : 'text-[var(--danger)]')}>
+                      {sendingReady ? t('email.settings.delivery_status_ready') : t('email.settings.delivery_status_sending_missing')}
+                    </dd>
+                  </div>
+                  <div className="flex items-baseline gap-2">
+                    <dt className="shrink-0 text-[var(--text-tertiary)]">{t('email.settings.delivery_status_attachments')}</dt>
+                    <dd className={cn('m-0', attachmentsReady ? 'text-[var(--text-secondary)]' : 'text-[var(--danger)]')}>
+                      {attachmentsReady ? t('email.settings.delivery_status_ready') : t('email.settings.delivery_status_attachments_missing')}
+                    </dd>
+                  </div>
+                </dl>
               </>
             )}
           </section>

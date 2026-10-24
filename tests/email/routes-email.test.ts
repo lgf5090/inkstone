@@ -209,6 +209,8 @@ describe('email deployment settings', () => {
       resendFrom: 'Inkstone <mail@example.com>',
       hasResendKey: true,
       resendKeyHint: '5678',
+      cloudflareSending: false,
+      attachmentsAvailable: true,
     })
     expect(JSON.stringify(body)).not.toContain('re_live_12345678')
 

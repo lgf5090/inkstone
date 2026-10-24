@@ -13,6 +13,8 @@ export interface EmailDeploymentSettings {
   hasResendKey: boolean
   resendKeyHint: string
   envDomains: string[]
+  cloudflareSending: boolean
+  attachmentsAvailable: boolean
   updatedAt: string | null
 }
 

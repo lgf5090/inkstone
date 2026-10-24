@@ -123,6 +123,8 @@ beforeEach(() => {
     hasResendKey: false,
     resendKeyHint: '',
     envDomains: ['example.com'],
+    cloudflareSending: true,
+    attachmentsAvailable: true,
     updatedAt: null,
   })
   vi.spyOn(api.email, 'updateDeployment').mockImplementation(async (patch) => ({
@@ -132,6 +134,8 @@ beforeEach(() => {
     hasResendKey: Boolean(patch.resendApiKey),
     resendKeyHint: patch.resendApiKey ? patch.resendApiKey.slice(-4) : '',
     envDomains: ['example.com'],
+    cloudflareSending: true,
+    attachmentsAvailable: true,
     updatedAt: '2026-01-02T00:00:00.000Z',
   }))
   useEmailStore.setState(original, true)
@@ -202,6 +206,42 @@ describe('the mailbox settings page', () => {
       resendFrom: 'Inkstone <mail@example.com>',
       resendApiKey: 're_test_key_1234',
     }))
+  })
+
+  it('shows the fixed addresses and the missing deployment pieces', async () => {
+    vi.mocked(api.email.getDeployment).mockResolvedValue({
+      domains: [],
+      provider: 'cloudflare',
+      resendFrom: '',
+      hasResendKey: false,
+      resendKeyHint: '',
+      envDomains: ['example.com'],
+      cloudflareSending: false,
+      attachmentsAvailable: false,
+      updatedAt: null,
+    })
+    useEmailStore.setState({
+      config: {
+        domains: ['example.com'],
+        addresses: ['ops@example.com'],
+        attachmentsAvailable: false,
+        sendingAvailable: false,
+        autoDraftAvailable: true,
+        canCreate: true,
+      },
+    })
+    view = renderElement(createElement(AccountSettingsPage, { accountId: 'a1' }))
+    await settle()
+
+    const delivery = [...document.querySelectorAll<HTMLButtonElement>('aside nav button')]
+      .find((node) => node.textContent?.trim() === t('email.settings.delivery'))
+    act(() => delivery!.click())
+    await settle()
+
+    const text = document.body.textContent ?? ''
+    expect(text).toContain(t('email.settings.delivery_env_addresses', { addresses: 'ops@example.com' }))
+    expect(text).toContain(t('email.settings.delivery_status_sending_missing'))
+    expect(text).toContain(t('email.settings.delivery_status_attachments_missing'))
   })
 
   it('saves the display name and the full settings object', async () => {

@@ -73,6 +73,8 @@ export async function publicEmailDeployment(env: Env, db: D1Database): Promise<E
     hasResendKey: Boolean(stored?.resendKeyCiphertext),
     resendKeyHint: stored?.resendKeyHint ?? '',
     envDomains: envEmailDomains(env),
+    cloudflareSending: Boolean(env.EMAIL),
+    attachmentsAvailable: Boolean(env.FILES) && Boolean(env.EMAIL_MAILBOX),
     updatedAt: stored ? new Date(stored.updatedAt).toISOString() : null,
   }
 }
