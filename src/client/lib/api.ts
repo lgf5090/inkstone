@@ -2083,6 +2083,18 @@ export const api = {
      * its slug. The passcode is an optional plaintext on the way in only; the answer carries the
      * `hasPassword` marker, and a protected feed's subscriber appends `?key=` to the copied address.
      */
+    /**
+     * The address this account may post mail to, and the three verbs that own it.
+     *
+     * One address per account, so `create` both issues the first one and rotates an existing one: the
+     * old token stops resolving the moment the new row lands. The address is read back rather than
+     * hashed because the owner's settings screen has to show it again — the token is the capability.
+     */
+    mailToken: {
+      get: () => request<{ address: string | null, createdAt: number | null }>('/api/todos/mail-token'),
+      create: () => request<{ address: string, createdAt: number }>('/api/todos/mail-token', { method: 'POST' }),
+      remove: () => request<{ revoked: true }>('/api/todos/mail-token', { method: 'DELETE' }),
+    },
     feed: {
       list: () => request<{ feeds: TodoFeedInfo[] }>('/api/todos/feed'),
       create: (body: { password?: string | null, expiresIn?: number | null } = {}) =>

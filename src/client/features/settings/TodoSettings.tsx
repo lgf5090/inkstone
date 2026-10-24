@@ -44,6 +44,7 @@ import { commitOnEnter, Input, Select, SettingRow, Switch } from '../../componen
 import { LoadingBlock } from '../../components/feedback'
 import { useSession } from '../../store/session'
 import { FeedSettings } from './FeedSettings'
+import { MailToTaskSettings } from './MailToTaskSettings'
 
 /** The hour a daily plan starts at before the reader picks one: the same default the chat's editor offers. */
 const DEFAULT_DIGEST_TIME = '09:00'
@@ -456,6 +457,7 @@ export function TodoSettings() {
       </SettingRow>
       <SavedFiltersRow />
       <FeedSettings />
+      <MailToTaskSettings />
       <TodoImportRow />
     </div>
   )

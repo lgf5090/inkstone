@@ -14651,6 +14651,15 @@ const allowed = new Map([
     "/** A rule's own before/after pair, shown as the two documents rather than as prose. */",
     "/** A list of typed entries — words, YAML keys, folder names — with the rule's own validator. */",
   ]],
+  ["src/client/features/settings/MailToTaskSettings.test.ts", [
+    "/**\n * The email-to-task block.\n *\n * What these cases pin is the wire between the screen and the owner's endpoints: the block reads the\n * address on mount, the issue press really calls the API, a refused read keeps its reason on screen\n * (a deployment without MAIL_DOMAIN must not read as \"you never asked for one\"), and the revoke press\n * confirms before it spends the door.\n */",
+  ]],
+  ["src/client/features/settings/MailToTaskSettings.tsx", [
+    "/**\n * The email-to-task block of the to-do settings page.\n *\n * The inbound half of the to-do app: a message posted to this account's address becomes a task, which\n * is the one door that works from a phone's share sheet, a mail rule or a colleague's forward without\n * anybody installing anything. The address is the capability — 200 bits of randomness — so this screen\n * is where the owner reads it, copies it, rotates it and revokes it.\n *\n * The server refuses to answer when `MAIL_DOMAIN` is not configured, and says why in the refusal. That\n * reason is shown rather than swallowed: an empty address list would read as \"you never asked for one\",\n * which is a different and wrong answer.\n *\n * Load, failure and empty are three separate states, exactly as the feed block beside it keeps them.\n */",
+    "// Once per visit: the address is this account's and changes only through the buttons below.",
+    "/** Issues the first address, or rotates the one already issued; both are the same door. */",
+    "/**\n   * Revokes the address after the dialog's confirmation.\n   *\n   * Mail addressed to a revoked token is dropped exactly like mail to one that never existed, so the\n   * row leaves the screen only once the server said it is dead.\n   */",
+  ]],
   ["src/client/features/settings/McpSettings.tsx", [
     "/**\n   * One switch, sent as the whole list.\n   *\n   * The route validates every name against the tools the server actually registers, so a name that no\n   * longer exists is refused rather than stored as a rule that governs nothing — which means the list has\n   * to be sent in full rather than as a delta.\n   */",
     "/* The registration name is what a switch has to match and what an MCP client asks for, so\n                    it is shown even though the title is the readable one. */",
@@ -21690,6 +21699,7 @@ const allowed = new Map([
     "/** What a whole CSV import cost, added up over its slices. */",
     "/**\n     * Import tasks from a CSV the reader picked.\n     *\n     * The file is the document; `conflict` is the one rule it cannot answer for itself — keep what is here,\n     * let the file win, or file a second copy. A row costs several D1 statements, so one request writes\n     * only a slice of the file: this walks the slices until the route says the file is done, adding the\n     * counters up and reporting how far it has read. Rows the parser refused come back in `errors` while\n     * the rest still land, so the screen can honestly print both numbers.\n     *\n     * A failed slice stops the walk. Its message names the offset to resume from, because starting the\n     * file again would re-read what already landed.\n     */",
     "// The route answers these two for the file rather than for the slice, so they are assigned.",
+    "/**\n     * The address this account may post mail to, and the three verbs that own it.\n     *\n     * One address per account, so `create` both issues the first one and rotates an existing one: the\n     * old token stops resolving the moment the new row lands. The address is read back rather than\n     * hashed because the owner's settings screen has to show it again — the token is the capability.\n     */",
   ]],
   ["src/client/lib/app-history.ts", [
     "/** Replace the address without a reload. A no-op on the address that is already up. */",
