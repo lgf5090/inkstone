@@ -296,7 +296,9 @@
   color: var(--text-secondary);
 }
 
-@media (max-width: 767px) {
+@media (max-width: 1023px) {
+  /* The music rail still takes its desktop width at 768, so the hero cannot keep a 220px cover
+     beside a 30px title: the title column would be narrower than the artwork. */
   .music-hero {
     flex-direction: column;
     align-items: flex-start;

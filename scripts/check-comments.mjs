@@ -6060,6 +6060,7 @@ const allowed = new Map([
     "/* ── Loading skeleton ────────────────────────────────────────────────────────────────────────── */",
     "/* Settings is one readable column, matching the settings panels elsewhere in the app. */",
     "/* A grid card's artwork fills its column while staying square. */",
+    "/* The music rail still takes its desktop width at 768, so the hero cannot keep a 220px cover\r\n     beside a 30px title: the title column would be narrower than the artwork. */",
   ]],
   ["src/client/features/music/pages/AlbumPage.tsx", [
     "/**\n * One album: the release facts, the description the catalog sometimes has, and its tracks.\n *\n * Albums paginate like playlists because the provider answers in pages; the header keeps the facts\n * from the first answer while a later page is in flight, so the screen does not flash back to a\n * skeleton when the reader asks for the next page.\n */",
