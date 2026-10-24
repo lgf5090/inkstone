@@ -98,7 +98,8 @@ describe('the tab host', () => {
     expect(placeholderHeading()).toBeNull()
     expect(view.container.querySelector('nav a[href="/rss"][aria-current="page"]')).not.toBeNull()
     act(() => { navigateToPath('/music') })
-    expect(placeholderHeading()).toBe(t('app.tabs.music'))
+    expect(placeholderHeading()).toBeNull()
+    expect(view.container.querySelector('nav a[href="/music"][aria-current="page"]')).not.toBeNull()
   })
 
   it('hands a container its own sub-address instead of falling back to the notebook', () => {

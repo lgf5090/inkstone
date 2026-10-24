@@ -1,0 +1,377 @@
+/**
+ * The one audio element the music app plays through.
+ *
+ * It lives outside React on purpose. The element holds a decoded stream, a playback position and a
+ * media session; a component that owned it would lose all three whenever the tree remounts, which in
+ * StrictMode is every mount in development. Subscriptions belong to callers, the element does not.
+ *
+ * `play` resolves when the track is audible, rejects with {@link MusicAutoplayBlockedError} when the
+ * browser wants a gesture, and with {@link MusicPlaybackError} after the one retry has also failed.
+ */
+import { musicEqualizer } from './eq'
+
+export interface MusicEngineFailure {
+  code: number | null
+  message: string
+}
+
+export interface MusicEngineTime {
+  positionMs: number
+  durationMs: number
+}
+
+interface EngineEvents {
+  play: void
+  pause: void
+  ended: void
+  timeupdate: MusicEngineTime
+  durationchange: MusicEngineTime
+  seeked: MusicEngineTime
+  waiting: void
+  playing: void
+  error: MusicEngineFailure
+}
+
+export type MusicEngineEventName = keyof EngineEvents
+
+type Listener<T> = (payload: T) => void
+
+export interface MusicEngineLoadRequest {
+  url: string
+  autoplay: boolean
+  /** Where to start, in milliseconds. Omitted means "wherever the element already is". */
+  startAtMs?: number
+  volume: number
+  muted: boolean
+  rate: number
+}
+
+export class MusicPlaybackError extends Error {
+  readonly code: number | null
+
+  constructor(message: string, code: number | null = null) {
+    super(message)
+    this.name = 'MusicPlaybackError'
+    this.code = code
+  }
+}
+
+/** The browser refused to start without a user gesture. Not a broken track, so it must not skip. */
+export class MusicAutoplayBlockedError extends MusicPlaybackError {
+  constructor(message = 'Autoplay was refused until the reader interacts with the page') {
+    super(message)
+    this.name = 'MusicAutoplayBlockedError'
+  }
+}
+
+/** No `Audio` constructor at all: a server render, a test harness, or a locked-down webview. */
+export class MusicUnavailableError extends MusicPlaybackError {
+  constructor(message = 'This environment has no audio element') {
+    super(message)
+    this.name = 'MusicUnavailableError'
+  }
+}
+
+export function isAutoplayBlockedError(error: unknown): boolean {
+  return error instanceof MusicAutoplayBlockedError
+}
+
+export function isAudioUnavailableError(error: unknown): boolean {
+  return error instanceof MusicUnavailableError
+}
+
+const MAX_LOAD_ATTEMPTS = 2
+const RETRY_DELAY_MS = 250
+const LOAD_TIMEOUT_MS = 20_000
+
+function failureFrom(error: MediaError | null): MusicEngineFailure {
+  return {
+    code: error?.code ?? null,
+    message: error?.message || 'The audio element stopped with an unknown media error',
+  }
+}
+
+function clampVolume(value: number): number {
+  if (!Number.isFinite(value)) return 1
+  return Math.min(1, Math.max(0, value))
+}
+
+function clampRate(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) return 1
+  return Math.min(4, Math.max(0.25, value))
+}
+
+function absoluteUrl(url: string): string {
+  if (typeof window === 'undefined') return url
+  try {
+    return new URL(url, window.location.href).href
+  } catch {
+    return url
+  }
+}
+
+export class MusicAudioEngine {
+  private audio: HTMLAudioElement | null = null
+  private listeners = new Map<MusicEngineEventName, Set<Listener<unknown>>>()
+  private loadGeneration = 0
+  private loading = false
+  private pendingCancel: ((error: Error) => void) | null = null
+  private volume = 1
+  private muted = false
+  private rate = 1
+
+  subscribe<K extends MusicEngineEventName>(name: K, listener: Listener<EngineEvents[K]>): () => void {
+    let set = this.listeners.get(name)
+    if (!set) {
+      set = new Set()
+      this.listeners.set(name, set)
+    }
+    set.add(listener as Listener<unknown>)
+    return () => {
+      set?.delete(listener as Listener<unknown>)
+    }
+  }
+
+  currentTimeMs(): number {
+    return this.audio ? this.audio.currentTime * 1000 : 0
+  }
+
+  durationMs(): number {
+    const duration = this.audio?.duration
+    return Number.isFinite(duration) && duration && duration > 0 ? duration * 1000 : 0
+  }
+
+  hasSource(): boolean {
+    return Boolean(this.audio?.src)
+  }
+
+  async play(request: MusicEngineLoadRequest): Promise<void> {
+    const audio = this.element()
+    const generation = ++this.loadGeneration
+    this.volume = clampVolume(request.volume)
+    this.muted = request.muted
+    this.rate = clampRate(request.rate)
+    audio.volume = this.volume
+    audio.muted = this.muted
+    audio.playbackRate = this.rate
+
+    // The equalizer needs the stream's origin before the element starts loading. A refusal is
+    // remembered by the equalizer and does not block playback.
+    musicEqualizer.connect(audio, request.url)
+
+    const source = absoluteUrl(request.url)
+    const sameSource = audio.src === source && !audio.error && audio.readyState > 0
+    if (sameSource) {
+      if (request.startAtMs !== undefined) this.seek(request.startAtMs)
+      await this.start(audio, request.autoplay, generation)
+      return
+    }
+
+    await this.loadSource(audio, source, generation)
+    if (generation !== this.loadGeneration) throw this.replacedError()
+    if (request.startAtMs !== undefined) this.seek(request.startAtMs)
+    await this.start(audio, request.autoplay, generation)
+  }
+
+  pause(): void {
+    this.loadGeneration++
+    this.cancelPending(this.replacedError())
+    this.loading = false
+    this.audio?.pause()
+  }
+
+  /** Stop and release the stream. The element stays for the next track. */
+  stop(): void {
+    this.loadGeneration++
+    this.cancelPending(this.replacedError())
+    this.loading = false
+    const audio = this.audio
+    if (!audio) return
+    audio.pause()
+    audio.removeAttribute('src')
+    audio.load()
+  }
+
+  seek(positionMs: number): void {
+    const audio = this.audio
+    if (!audio || !audio.src || !Number.isFinite(positionMs)) return
+    const duration = audio.duration
+    const seconds = Math.max(0, positionMs) / 1000
+    const target = Number.isFinite(duration) && duration > 0 ? Math.min(duration, seconds) : seconds
+    try {
+      audio.currentTime = target
+    } catch {
+      // A seek before metadata exists is rejected by the element; the next load supplies a position.
+    }
+  }
+
+  setVolume(volume: number): void {
+    this.volume = clampVolume(volume)
+    if (this.audio) this.audio.volume = this.volume
+  }
+
+  setMuted(muted: boolean): void {
+    this.muted = muted
+    if (this.audio) this.audio.muted = muted
+  }
+
+  setRate(rate: number): void {
+    this.rate = clampRate(rate)
+    if (this.audio) this.audio.playbackRate = this.rate
+  }
+
+  private element(): HTMLAudioElement {
+    if (this.audio) return this.audio
+    if (typeof Audio === 'undefined') throw new MusicUnavailableError()
+    const audio = new Audio()
+    audio.preload = 'metadata'
+    audio.volume = this.volume
+    audio.muted = this.muted
+    audio.playbackRate = this.rate
+    audio.addEventListener('play', () => {
+      if (audio.paused) return
+      this.emit('play', undefined)
+    })
+    audio.addEventListener('pause', () => {
+      if (!audio.paused || audio.ended) return
+      this.emit('pause', undefined)
+    })
+    audio.addEventListener('ended', () => this.emit('ended', undefined))
+    audio.addEventListener('timeupdate', () => this.emit('timeupdate', this.time()))
+    audio.addEventListener('durationchange', () => this.emit('durationchange', this.time()))
+    audio.addEventListener('seeked', () => this.emit('seeked', this.time()))
+    audio.addEventListener('waiting', () => this.emit('waiting', undefined))
+    audio.addEventListener('playing', () => this.emit('playing', undefined))
+    audio.addEventListener('error', () => {
+      // A load failure is answered by the promise `loadSource` returns; emitting it here as well
+      // would make the player count one failure twice.
+      if (this.loading) return
+      this.emit('error', failureFrom(audio.error))
+    })
+    this.audio = audio
+    return audio
+  }
+
+  private time(): MusicEngineTime {
+    return { positionMs: this.currentTimeMs(), durationMs: this.durationMs() }
+  }
+
+  private async loadSource(audio: HTMLAudioElement, source: string, generation: number): Promise<void> {
+    this.loading = true
+    try {
+      let lastError: unknown
+      for (let attempt = 1; attempt <= MAX_LOAD_ATTEMPTS; attempt++) {
+        try {
+          await this.loadOnce(audio, source, generation)
+          return
+        } catch (error) {
+          lastError = error
+          if (generation !== this.loadGeneration) throw this.replacedError()
+          if (attempt < MAX_LOAD_ATTEMPTS) {
+            await new Promise<void>((resolve) => window.setTimeout(resolve, RETRY_DELAY_MS))
+            if (generation !== this.loadGeneration) throw this.replacedError()
+          }
+        }
+      }
+      throw lastError instanceof Error ? lastError : new MusicPlaybackError('The audio source could not be loaded')
+    } finally {
+      if (generation === this.loadGeneration) this.loading = false
+    }
+  }
+
+  private loadOnce(audio: HTMLAudioElement, source: string, generation: number): Promise<void> {
+    this.cancelPending(this.replacedError())
+    return new Promise<void>((resolve, reject) => {
+      let settled = false
+      let timer = 0
+      const cleanup = (): void => {
+        window.clearTimeout(timer)
+        audio.removeEventListener('loadedmetadata', onReady)
+        audio.removeEventListener('canplay', onReady)
+        audio.removeEventListener('error', onError)
+        if (this.pendingCancel === cancel) this.pendingCancel = null
+      }
+      const finish = (error?: Error): void => {
+        if (settled) return
+        settled = true
+        cleanup()
+        if (error) reject(error)
+        else resolve()
+      }
+      const cancel = (error: Error): void => finish(error)
+      const onReady = (): void => {
+        if (generation !== this.loadGeneration) finish(this.replacedError())
+        else finish()
+      }
+      const onError = (): void => {
+        if (generation !== this.loadGeneration) {
+          finish(this.replacedError())
+          return
+        }
+        const failure = failureFrom(audio.error)
+        finish(new MusicPlaybackError(failure.message, failure.code))
+      }
+      this.pendingCancel = cancel
+      timer = window.setTimeout(
+        () => finish(new MusicPlaybackError('The audio source did not become playable in time')),
+        LOAD_TIMEOUT_MS,
+      )
+      // `preload='metadata'` promises metadata, not `canplay`. Readiness is either signal; the play
+      // call below buffers the rest and reports its own failure if the stream cannot continue.
+      audio.addEventListener('loadedmetadata', onReady)
+      audio.addEventListener('canplay', onReady)
+      audio.addEventListener('error', onError)
+      try {
+        audio.src = source
+        audio.load()
+      } catch (error) {
+        finish(error instanceof Error ? error : new MusicPlaybackError('The audio source could not be assigned'))
+      }
+    })
+  }
+
+  private async start(audio: HTMLAudioElement, autoplay: boolean, generation: number): Promise<void> {
+    if (generation !== this.loadGeneration) throw this.replacedError()
+    await musicEqualizer.resume()
+    if (generation !== this.loadGeneration) throw this.replacedError()
+    if (!autoplay) {
+      audio.pause()
+      return
+    }
+    try {
+      await audio.play()
+    } catch (error) {
+      if (generation !== this.loadGeneration) throw this.replacedError()
+      if (error instanceof DOMException && (error.name === 'NotAllowedError' || error.name === 'AbortError')) {
+        throw new MusicAutoplayBlockedError(error.message)
+      }
+      throw error instanceof MusicPlaybackError
+        ? error
+        : new MusicPlaybackError(error instanceof Error ? error.message : 'The browser refused to play the track')
+    }
+  }
+
+  private cancelPending(error: Error): void {
+    const cancel = this.pendingCancel
+    this.pendingCancel = null
+    cancel?.(error)
+  }
+
+  private replacedError(): MusicPlaybackError {
+    return new MusicPlaybackError('The audio load was replaced by a newer request')
+  }
+
+  private emit<K extends MusicEngineEventName>(name: K, payload: EngineEvents[K]): void {
+    const set = this.listeners.get(name)
+    if (!set) return
+    for (const listener of set) {
+      try {
+        listener(payload)
+      } catch {
+        // One subscriber failing must not stop the others or the audio element's own event handler.
+      }
+    }
+  }
+}
+
+export const musicAudioEngine = new MusicAudioEngine()

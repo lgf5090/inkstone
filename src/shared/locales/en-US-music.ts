@@ -1,0 +1,47 @@
+export const EN_US_MUSIC = {
+  'music.nav.discover': 'Discover',
+  'music.nav.search': 'Search',
+  'music.nav.library': 'Library',
+  'music.nav.settings': 'Settings',
+  'music.nav.label': 'Music sections',
+
+  'music.page.home': 'Music',
+  'music.page.search': 'Search music',
+  'music.page.playlist': 'Playlist',
+  'music.page.album': 'Album',
+  'music.page.artist': 'Artist',
+  'music.page.toplist': 'Top lists',
+  'music.page.mv': 'Music videos',
+  'music.page.mv_detail': 'Music video',
+  'music.page.podcast': 'Podcasts',
+  'music.page.podcast_detail': 'Podcast',
+  'music.page.favorites': 'Favorites',
+  'music.page.history': 'Listening history',
+  'music.page.uploads': 'Uploads',
+  'music.page.downloads': 'Downloads',
+  'music.page.user': 'Profile',
+  'music.page.login': 'Connect Netease',
+  'music.page.settings': 'Music settings',
+  'music.page.not_found': 'Not found',
+
+  'music.placeholder.title': 'Music is being prepared',
+  'music.placeholder.description': 'The player, library and lyrics will appear here.',
+
+  'music.playbar.empty': 'Nothing playing',
+  'music.playbar.hint': 'Pick a song to start',
+  'music.playbar.resume': 'Press play to resume',
+
+  'music.player.error.playback': 'This track could not be played',
+  'music.player.error.autoplay': 'Press play to allow audio',
+  'music.player.error.unsupported': 'This browser cannot play audio',
+
+  'music.library.error.load': 'The music library could not be loaded',
+  'music.library.error.favorite': 'That favorite could not be saved',
+  'music.library.error.history': 'The listening history could not be updated',
+  'music.library.error.recent': 'The recent list could not be updated',
+  'music.library.error.playlist': 'That playlist change could not be saved',
+  'music.library.error.download': 'That download could not be updated',
+
+  'music.settings.error.load': 'Music settings could not be loaded',
+  'music.settings.error.save': 'Music settings could not be saved',
+}

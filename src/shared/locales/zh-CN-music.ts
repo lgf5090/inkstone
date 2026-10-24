@@ -1,0 +1,47 @@
+export const ZH_CN_MUSIC = {
+  'music.nav.discover': '发现',
+  'music.nav.search': '搜索',
+  'music.nav.library': '音乐库',
+  'music.nav.settings': '设置',
+  'music.nav.label': '音乐分区',
+
+  'music.page.home': '音乐',
+  'music.page.search': '搜索音乐',
+  'music.page.playlist': '歌单',
+  'music.page.album': '专辑',
+  'music.page.artist': '歌手',
+  'music.page.toplist': '排行榜',
+  'music.page.mv': 'MV',
+  'music.page.mv_detail': 'MV',
+  'music.page.podcast': '播客',
+  'music.page.podcast_detail': '电台',
+  'music.page.favorites': '收藏',
+  'music.page.history': '听歌历史',
+  'music.page.uploads': '上传',
+  'music.page.downloads': '下载',
+  'music.page.user': '个人主页',
+  'music.page.login': '连接网易云',
+  'music.page.settings': '音乐设置',
+  'music.page.not_found': '未找到',
+
+  'music.placeholder.title': '音乐模块正在准备中',
+  'music.placeholder.description': '播放器、音乐库和歌词会出现在这里。',
+
+  'music.playbar.empty': '暂无播放',
+  'music.playbar.hint': '选一首歌开始',
+  'music.playbar.resume': '点击播放继续',
+
+  'music.player.error.playback': '这首歌曲暂时无法播放',
+  'music.player.error.autoplay': '点击播放以允许声音',
+  'music.player.error.unsupported': '当前浏览器无法播放音频',
+
+  'music.library.error.load': '音乐库加载失败',
+  'music.library.error.favorite': '收藏保存失败',
+  'music.library.error.history': '听歌历史更新失败',
+  'music.library.error.recent': '最近播放更新失败',
+  'music.library.error.playlist': '歌单修改保存失败',
+  'music.library.error.download': '下载任务更新失败',
+
+  'music.settings.error.load': '音乐设置加载失败',
+  'music.settings.error.save': '音乐设置保存失败',
+}

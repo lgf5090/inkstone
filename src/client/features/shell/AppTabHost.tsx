@@ -38,6 +38,7 @@ const CONTAINERS: Partial<Record<AppTabId, ComponentType>> = {
   todo: lazy(() => import('../todos/TodosApp').then((module) => ({ default: module.TodosApp }))),
   email: lazy(() => import('../email/EmailApp').then((module) => ({ default: module.EmailApp }))),
   rss: lazy(() => import('../rss/RssApp').then(module => ({ default: module.RssApp }))),
+  music: lazy(() => import('../music/MusicApp').then((module) => ({ default: module.MusicApp }))),
   chat: ChatApp,
 }
 
