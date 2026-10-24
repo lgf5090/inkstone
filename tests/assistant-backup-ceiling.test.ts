@@ -2,10 +2,12 @@
 /**
  * A backup that cannot be restored, a restore that stops half way, and a turn whose files go missing.
  *
- * Export has no size ceiling and import has one (`MAX_BACKUP_BYTES`), so an account past four megabytes
- * can write a file its own restore route refuses — and the one time that matters is the day the reader
- * needs the file back. The answer here is to let the export hand the data over and say on the response
- * exactly how big it is and what that means, and to make the refusal name the number and the way down.
+ * Export has no size ceiling and import has one (`MAX_BACKUP_BYTES`), so an account past the ceiling can
+ * write a file its own restore route refuses — and the one time that matters is the day the reader needs
+ * the file back. The answer here is to let the export hand the data over and say on the response exactly
+ * how big it is and what that means, and to make the refusal name the number and the way down. The
+ * ceiling itself is set above the file the heaviest supported account writes, which is what the last
+ * describe checks by round-tripping ten thousand to-dos through both routes.
  *
  * The second half is how a restore gets its rows in. One read and one to three writes per row, with no
  * transaction around any of it, is what makes a large file run out of the Worker's CPU between two rows
@@ -20,6 +22,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MAX_BACKUP_BYTES } from '@shared/assistant'
+import { formatBytes } from '@shared/byte-format'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
 import { newId } from '../src/worker/lib/id'
@@ -32,8 +35,10 @@ import { testBindings } from './doubles/bindings'
 const SOURCE = '0123456789abcdefghjkmnpqrs'
 const TARGET = '0123456789abcdefghjkmnpqrt'
 /** Turns long enough, and wide enough, that the file they add up to is past the importable ceiling. */
-const FAT_TURNS = 26
 const FAT_CHARS = 200_000
+// Read off the ceiling rather than pinned beside it: four turns past the line the import draws, so this
+// fixture keeps proving the refusal whenever the line moves — and stops being a four-megabyte story.
+const FAT_TURNS = Math.ceil(MAX_BACKUP_BYTES / FAT_CHARS) + 4
 
 /** What the D1 in front of the routes did, and where it was told to stop. */
 const state = { trips: 0, failOnMessagesBatch: 0 }
@@ -174,7 +179,7 @@ describe('an assistant backup past the size a restore can read', () => {
     expect(Number(response.headers.get('x-backup-bytes'))).toBe(bytes)
     expect(response.headers.get('x-backup-importable')).toBe('false')
     const warning = response.headers.get('warning') ?? ''
-    expect(warning).toContain('4.0 MB')
+    expect(warning).toContain(formatBytes(MAX_BACKUP_BYTES))
     expect(warning).toMatch(/export again/)
     // And it is not a truncated success: the whole library is in the bytes they were handed.
     const parsed = JSON.parse(text) as { data: { messages: unknown[] } }
@@ -187,7 +192,7 @@ describe('an assistant backup past the size a restore can read', () => {
     const response = await respond('POST', '/api/assistant/import', text)
     const body = await response.text()
     expect(response.status).toBe(413)
-    expect(body).toContain('4.0 MB')
+    expect(body).toContain(formatBytes(MAX_BACKUP_BYTES))
     expect(body).toMatch(/export again/)
     expect(count('chat_messages', TARGET)).toBe(0)
   })
@@ -304,4 +309,37 @@ describe('a turn that carries more files than one message may hold', () => {
     expect(detail.attachments).toHaveLength(12)
     expect(detail.attachments.map((row) => row.id)).toEqual(ids)
   })
+})
+
+describe('the account the ceiling was set for', () => {
+  const TASKS = 10_000
+
+  it('writes a ten-thousand-to-do file and reads every row of it back', async () => {
+    // Ten thousand is the scale the to-do app's own stress passes use. Through this route the file it
+    // writes is 8.13 MB pretty-printed (5.42 MB compact), which is what made the old four megabytes a
+    // line a heavy reader crossed by using the app rather than by doing anything unusual.
+    for (let index = 0; index < TASKS; index++) {
+      await store.createTask({ title: `Task ${index}, written as long as a real one is` })
+    }
+    const exported = await respond('GET', '/api/assistant/export')
+    const text = await exported.text()
+    const bytes = new TextEncoder().encode(text).byteLength
+    // The file is bigger than the ceiling this account used to be refused at, and the response says so
+    // is importable rather than leaving the reader to find out on the restore.
+    expect(bytes).toBeGreaterThan(4 * 1024 * 1024)
+    expect(exported.headers.get('x-backup-bytes')).toBe(String(bytes))
+    expect(exported.headers.get('x-backup-importable')).toBe('true')
+
+    account(TARGET)
+    state.trips = 0
+    const imported = await respond('POST', '/api/assistant/import', text)
+    const importedBody = await imported.text()
+    expect(imported.status, importedBody).toBe(200)
+    const summary = JSON.parse(importedBody) as { imported: { tasks: number } }
+    expect(summary.imported.tasks).toBe(TASKS)
+    expect(count('todos_tasks', TARGET)).toBe(TASKS)
+    // Rows go in as batches, so the round trips are counted in chunks and not in tasks: this is the
+    // number that decides whether the restore finishes inside the Worker's budget at all.
+    expect(state.trips).toBeLessThan(TASKS / 10)
+  }, 300_000)
 })

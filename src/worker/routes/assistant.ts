@@ -3695,7 +3695,7 @@ assistantRoutes.get('/export', async (c) => {
     'x-backup-importable': String(importable),
   })
   if (!importable) {
-    headers.set('warning', `299 inkstone "This backup is ${formatBytes(bytes)}, over the ${formatBytes(MAX_BACKUP_BYTES)} a restore can read. Delete older conversations or answers and export again."`)
+    headers.set('warning', `299 inkstone "This backup is ${formatBytes(bytes)}, over the ${formatBytes(MAX_BACKUP_BYTES)} a restore can read. Delete older conversations, answers or to-dos and export again."`)
   }
   await s.recordActivity('data.exported', importable
     ? 'assistant backup downloaded'
@@ -3714,7 +3714,7 @@ assistantRoutes.post('/import', async (c) => {
     // The body reader answers "too large" with no number and no way down. This file came from an export
     // that is deliberately unbounded, so the one thing the reader can still do is named here.
     if (error instanceof ApiError && error.status === 413) {
-      throw ApiError.tooLarge(`That backup is over the ${formatBytes(MAX_BACKUP_BYTES)} a restore can read. Delete older conversations or answers, export again, and import the new file.`)
+      throw ApiError.tooLarge(`That backup is over the ${formatBytes(MAX_BACKUP_BYTES)} a restore can read. Delete older conversations, answers or to-dos, export again, and import the new file.`)
     }
     throw error
   }
