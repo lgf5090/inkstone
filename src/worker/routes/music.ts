@@ -11,8 +11,10 @@
  * import cycle and the provider seam stays in one place.
  */
 import { Hono, type Context } from 'hono'
+import { musicTrackKey } from '@shared/music/model'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
+import { isValidId } from '../lib/id'
 import { createMinuteBudget } from '../lib/rate-limit'
 import { decryptMusicCookie } from '../lib/crypto'
 import { requireAuth } from '../middleware/auth'
@@ -118,6 +120,40 @@ musicRoutes.get('/health', async (c) => {
     upstream: upstream === 'external',
     account: { netease: Boolean(account) },
   })
+})
+
+/**
+ * One track's lyrics, cached for a month.
+ *
+ * The cache is keyed by provider identity rather than by the local row id so a re-imported track
+ * finds the same lyric. A provider that has no lyric is answered as "no lyrics", not as a failed
+ * request: the player keeps playing.
+ */
+musicRoutes.get('/library/lyrics/:trackId', async (c) => {
+  const trackId = c.req.param('trackId') ?? ''
+  if (!isValidId(trackId)) throw ApiError.notFound('That track does not exist')
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  const track = await store.getTrack(trackId)
+  if (!track) throw ApiError.notFound('That track does not exist')
+  const cached = await store.getLyric(musicTrackKey(track.provider, track.providerId))
+  if (cached) return c.json(cached)
+
+  const provider = await providerFor(c)
+  try {
+    const payload = await provider.lyrics(track.providerId)
+    if (!payload.lyric) throw new ApiError(404, 'music_lyrics_unavailable', 'No lyrics are available for this track')
+    const saved = await store.saveLyric({
+      trackKey: payload.lyric.trackKey,
+      source: payload.lyric.source,
+      lrc: payload.lyric.lrc,
+      tlyric: payload.lyric.tlyric,
+      yrc: payload.lyric.yrc,
+    })
+    return c.json(saved)
+  } catch (error) {
+    if (error instanceof ApiError) throw error
+    throw musicProviderErrorToApiError(error)
+  }
 })
 
 const deps: MusicRouteDeps = {
