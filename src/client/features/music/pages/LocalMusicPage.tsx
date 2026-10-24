@@ -23,11 +23,12 @@ export function LocalMusicPage(): ReactElement {
   const headingId = useId()
   const [editing, setEditing] = useState<MusicTrack | null>(null)
   const query = useMusicQuery(async () => {
-    const [uploads, webdav] = await Promise.all([
+    const [uploads, webdav, alist] = await Promise.all([
       musicApi.tracks('upload'),
       musicApi.tracks('webdav'),
+      musicApi.tracks('alist'),
     ])
-    return [...uploads.items, ...webdav.items]
+    return [...uploads.items, ...webdav.items, ...alist.items]
   }, [])
   const tracks = query.data ?? []
   const totalDuration = tracks.reduce((sum, track) => sum + track.durationMs, 0)

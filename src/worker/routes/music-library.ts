@@ -221,8 +221,8 @@ musicLibraryRoutes.post('/lyrics/:trackId/ai-translate', async (c) => {
 /** Snapshot shelves for the local/cloud library: uploads today, WebDAV files beside them. */
 musicLibraryRoutes.get('/tracks', async (c) => {
   const provider = c.req.query('provider') ?? 'upload'
-  if (provider !== 'upload' && provider !== 'webdav') {
-    throw ApiError.badRequest('provider must be upload or webdav')
+  if (provider !== 'upload' && provider !== 'webdav' && provider !== 'alist') {
+    throw ApiError.badRequest('provider must be upload, webdav or alist')
   }
   const store = new MusicStore(c.env.DB, c.get('userId'))
   return c.json({ items: await store.listTracksByProvider(provider) })

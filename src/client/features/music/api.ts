@@ -98,6 +98,11 @@ export const musicApi = {
     request<{ mount: MusicMount, listing: MusicAlistListing }>(`/api/music/drive/alist/${encodeURIComponent(id)}/list${query({ path })}`),
   alistSearch: (id: string, keywords: string) =>
     request<{ mount: MusicMount, entries: MusicAlistEntry[] }>(`/api/music/drive/alist/${encodeURIComponent(id)}/search${query({ keywords })}`),
+  alistImport: (id: string, paths: string[]) =>
+    request<MusicDriveImportResult>(`/api/music/drive/alist/${encodeURIComponent(id)}/import`, {
+      method: 'POST',
+      body: { paths },
+    }),
   testAlistMount: (id: string) =>
     request<{ ok: true }>(`/api/music/drive/alist/${encodeURIComponent(id)}/test`, { method: 'POST' }),
   driveWebdav: (path = '') => request<MusicWebdavListing>(`/api/music/drive/webdav${query({ path })}`),
@@ -175,7 +180,7 @@ export const musicApi = {
 
   library: () => request<MusicLibraryPayload>('/api/music/library'),
   track: (id: string) => request<{ track: MusicTrack }>(`/api/music/library/tracks/${encodeURIComponent(id)}`),
-  tracks: (provider: 'upload' | 'webdav') => request<{ items: MusicTrack[] }>(`/api/music/library/tracks${query({ provider })}`),
+  tracks: (provider: 'upload' | 'webdav' | 'alist') => request<{ items: MusicTrack[] }>(`/api/music/library/tracks${query({ provider })}`),
   updateTrackMetadata: (trackId: string, patch: { title?: string; artists?: Array<{ id: string; name: string }>; album?: string; coverUrl?: string }) =>
     request<{ track: MusicTrack }>(`/api/music/library/tracks/${encodeURIComponent(trackId)}`, { method: 'PATCH', body: patch }),
   upsertTracks: (tracks: MusicTrack[]) =>

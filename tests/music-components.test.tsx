@@ -136,6 +136,29 @@ describe('PlayBar', () => {
     expect(rendered.container.textContent).toContain(musicText('music.playbar.hint'))
   })
 
+  it('cycles play modes from the transport button without opening a menu', () => {
+    const sample = track()
+    useMusicPlayer.setState({
+      queue: { tracks: [sample], index: 0, mode: 'order', original: null },
+      status: 'paused',
+      durationMs: sample.durationMs,
+    })
+    rendered = renderElement(createElement(PlayBar))
+
+    const modeNames = ['order', 'repeat', 'repeatOne', 'shuffle', 'intelligence'].map((mode) => musicText(`music.mode.${mode}`))
+    const modeButton = (): HTMLButtonElement | undefined => [...rendered!.container.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => modeNames.some((name) => (button.getAttribute('aria-label') ?? '').includes(name))
+        && !button.getAttribute('aria-haspopup'))
+    expect(modeButton()?.getAttribute('aria-label')).toContain(musicText('music.mode.order'))
+
+    for (const expected of ['repeat', 'repeatOne', 'shuffle', 'intelligence', 'order'] as const) {
+      act(() => modeButton()!.click())
+      expect(useMusicPlayer.getState().queue.mode).toBe(expected)
+      expect(modeButton()?.getAttribute('aria-label')).toContain(musicText(`music.mode.${expected}`))
+      expect(rendered.container.querySelector('[role="menu"]')).toBeNull()
+    }
+  })
+
   it('reflects the pause state and the queue toggle in aria-pressed', () => {
     const sample = track()
     useMusicPlayer.setState({

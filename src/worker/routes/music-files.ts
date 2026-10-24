@@ -9,7 +9,7 @@
  */
 import { Hono, type Context } from 'hono'
 import { MUSIC_MIME_BY_FORMAT, isMusicFormat } from '@shared/music/constants'
-import { parseMusicWebdavProviderId, type MusicTrack } from '@shared/music/model'
+import { parseMusicAlistProviderId, parseMusicWebdavProviderId, type MusicTrack } from '@shared/music/model'
 import type { AppBindings, Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { contentDisposition } from '../lib/http-range'
@@ -17,6 +17,7 @@ import { decryptMusicCookie } from '../lib/crypto'
 import { requireAuth } from '../middleware/auth'
 import { MusicStore } from '../music/store'
 import { resolveMusicWebdav } from '../music/cloud/config'
+import { fetchAlistStream, resolveAlistMount } from '../music/cloud/alist'
 import { fetchMusicObject } from '../music/cloud/webdav'
 import {
   MUSIC_COVER_CACHE_CONTROL,
@@ -47,6 +48,7 @@ musicFileRoutes.use('*', requireAuth)
 musicFileRoutes.get('/stream/:trackId', async (c) => {
   const track = await ownedTrack(c, 'trackId')
   if (track.provider === 'webdav') return serveWebdavTrack(c, track)
+  if (track.provider === 'alist') return serveAlistTrack(c, track)
   const provider = track.r2Key ? undefined : await musicProviderFor(c.env, c.get('userId'))
   return serveMusicStream(c.env, track, c.req.raw, provider)
 })
@@ -99,6 +101,47 @@ async function serveWebdavTrack(c: Context<AppBindings>, track: MusicTrack): Pro
   }
   const status = upstream.status === 206 ? 206 : 200
   return new Response(request.method === 'HEAD' ? null : upstream.body, { status, headers })
+}
+
+/** An Alist reference: the mount resolves a fresh download address on every play. */
+async function serveAlistTrack(c: Context<AppBindings>, track: MusicTrack): Promise<Response> {
+  const reference = parseMusicAlistProviderId(track.providerId)
+  if (!reference) {
+    throw new ApiError(
+      502,
+      'music_source_unavailable',
+      'This track no longer points at an Alist file. Import it again from the cloud drive.',
+    )
+  }
+  const contentType = isMusicFormat(track.format) ? MUSIC_MIME_BY_FORMAT[track.format] : null
+  if (!contentType || !/^(?:audio|video)\//.test(contentType)) {
+    throw new ApiError(502, 'music_source_unavailable', 'This Alist track has no playable media type.')
+  }
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  const ctx = await resolveAlistMount(c.env, store, reference.mountId)
+  const request = c.req.raw
+  const upstream = await fetchAlistStream(ctx, reference.path, request.headers.get('Range'), request.signal)
+  if (upstream.status >= 400) {
+    await upstream.body?.cancel().catch(() => undefined)
+    throw new ApiError(502, 'music_source_unavailable', 'The Alist file host refused this file.')
+  }
+  const headers = new Headers({
+    'Content-Type': contentType,
+    'Content-Disposition': 'inline',
+    'Accept-Ranges': 'bytes',
+    'Cache-Control': 'private, max-age=0',
+    'X-Content-Type-Options': 'nosniff',
+  })
+  const length = upstream.headers.get('Content-Length')
+  if (length) headers.set('Content-Length', length)
+  if (upstream.status === 206) {
+    const range = upstream.headers.get('Content-Range')
+    if (range) headers.set('Content-Range', range)
+  }
+  return new Response(request.method === 'HEAD' ? null : upstream.body, {
+    status: upstream.status === 206 ? 206 : 200,
+    headers,
+  })
 }
 
 musicFileRoutes.get('/cover/:trackId', async (c) => {

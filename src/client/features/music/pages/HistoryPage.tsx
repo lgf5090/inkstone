@@ -79,11 +79,11 @@ export function HistoryPage(): ReactElement {
   }, [historyQuery.data])
 
   const songs = useMemo(
-    () => played.filter((item) => item.track.kind === 'song' && matchesSource(item.track, source)),
+    () => dedupeConsecutive(played.filter((item) => item.track.kind === 'song' && matchesSource(item.track, source))),
     [played, source],
   )
   const podcasts = useMemo(
-    () => played.filter((item) => item.track.kind === 'podcast' && matchesSource(item.track, source)),
+    () => dedupeConsecutive(played.filter((item) => item.track.kind === 'podcast' && matchesSource(item.track, source))),
     [played, source],
   )
   const recent = useMemo<MusicRecentEntry[]>(() => {
@@ -210,7 +210,7 @@ export function HistoryPage(): ReactElement {
         ) : summaryQuery.status === 'loading' && !summary ? (
           <div className="h-[120px] w-full rounded-[var(--r-sm)] bg-[var(--bg-sunken)]" aria-hidden="true" />
         ) : (
-          <ListeningHeatmap days={summary?.days ?? []} weeks={12} />
+          <ListeningHeatmap days={summary?.days ?? []} weeks={53} fill />
         )}
       </section>
 
@@ -315,6 +315,17 @@ export function HistoryPage(): ReactElement {
       </div>
     </section>
   )
+}
+
+function dedupeConsecutive(items: readonly PlayedItem[]): PlayedItem[] {
+  const out: PlayedItem[] = []
+  let previousTrackId = ''
+  for (const item of items) {
+    if (item.track.id === previousTrackId) continue
+    previousTrackId = item.track.id
+    out.push(item)
+  }
+  return out
 }
 
 function RecentGrid({

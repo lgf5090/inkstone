@@ -8,6 +8,7 @@ import { useRef, useState, type ChangeEvent, type ReactElement } from 'react'
 import { ChevronLeft, Cloud, FileAudio, Folder, HardDrive, Trash2, Upload } from 'lucide-react'
 import { MUSIC_DRIVE_UPLOAD_MAX_BYTES, type MusicDriveSkipReason } from '@shared/music/api'
 import { MUSIC_ALL_FORMATS } from '@shared/music/constants'
+import type { MusicTrack } from '@shared/music/model'
 import { formatBytes } from '@shared/music/format'
 import { Button, IconButton } from '../../../components/primitives'
 import { Empty, LoadingBlock } from '../../../components/feedback'
@@ -54,6 +55,32 @@ function toastImported(count: number): void {
   })
 }
 
+function ImportedTracks({
+  tracks,
+  emptyTitle,
+  emptyHint,
+}: {
+  tracks: readonly MusicTrack[]
+  emptyTitle: string
+  emptyHint: string
+}): ReactElement {
+  return (
+    <section aria-label={musicText('music.cloud.imported_tracks')} className="flex flex-col gap-2">
+      <h2 className="text-[length:var(--text-13)] font-medium text-[var(--text-secondary)]">
+        {musicText('music.cloud.imported_tracks')}
+      </h2>
+      {tracks.length === 0
+        ? <Empty art="folder" compact title={emptyTitle} description={emptyHint} />
+        : (
+          <SongList
+            tracks={tracks}
+            onPlay={(track, queue) => { void useMusicPlayer.getState().playTrack(track, { queue }) }}
+          />
+        )}
+    </section>
+  )
+}
+
 export function CloudDrivePage(): ReactElement {
   const [source, setSource] = useState<CloudSource>('webdav')
   const [path, setPath] = useState('')
@@ -61,13 +88,22 @@ export function CloudDrivePage(): ReactElement {
   const [uploading, setUploading] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const query = useMusicQuery(async () => {
-    const [drive, localTracks, webdav, alist] = await Promise.all([
+    const [drive, localTracks, webdavTracks, alistTracks, webdav, alist] = await Promise.all([
       musicApi.drive(),
       musicApi.tracks('upload'),
+      musicApi.tracks('webdav'),
+      musicApi.tracks('alist'),
       musicApi.driveWebdav(path),
       musicApi.alistMounts(),
     ])
-    return { drive, localTracks: localTracks.items, webdav, alist: alist.mounts }
+    return {
+      drive,
+      localTracks: localTracks.items,
+      webdavTracks: webdavTracks.items,
+      alistTracks: alistTracks.items,
+      webdav,
+      alist: alist.mounts,
+    }
   }, [path])
   const data = query.data
   const reload = query.reload
@@ -190,19 +226,21 @@ export function CloudDrivePage(): ReactElement {
               <span className="text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{data.drive.r2.objects}</span>
             </div>
           </div>
-          {data.localTracks.length === 0
-            ? <Empty art="folder" title={musicText('music.cloud.r2_empty')} description={musicText('music.cloud.r2_empty_hint')} />
-            : (
-              <SongList
-                tracks={data.localTracks}
-                onPlay={(track, queue) => { void useMusicPlayer.getState().playTrack(track, { queue }) }}
-              />
-            )}
+          <ImportedTracks
+            tracks={data.localTracks}
+            emptyTitle={musicText('music.cloud.r2_empty')}
+            emptyHint={musicText('music.cloud.r2_empty_hint')}
+          />
         </section>
       )}
 
       {data && source === 'webdav' && (
         <section className="flex flex-col gap-3" aria-label={musicText('music.cloud.source.webdav')}>
+          <ImportedTracks
+            tracks={data.webdavTracks}
+            emptyTitle={musicText('music.cloud.no_imported', { source: musicText('music.cloud.source.webdav') })}
+            emptyHint={musicText('music.cloud.no_imported_hint', { source: musicText('music.cloud.source.webdav') })}
+          />
           {!data.webdav.configured
             ? (
               <Empty
@@ -313,7 +351,14 @@ export function CloudDrivePage(): ReactElement {
       )}
 
       {data && source === 'alist' && (
-        <AlistPanel mounts={data.alist} onChanged={query.reload} />
+        <section className="flex flex-col gap-3" aria-label={musicText('music.cloud.source.alist')}>
+          <ImportedTracks
+            tracks={data.alistTracks}
+            emptyTitle={musicText('music.cloud.no_imported', { source: musicText('music.cloud.source.alist') })}
+            emptyHint={musicText('music.cloud.no_imported_hint', { source: musicText('music.cloud.source.alist') })}
+          />
+          <AlistPanel mounts={data.alist} onChanged={query.reload} />
+        </section>
       )}
     </MusicPageBody>
   )

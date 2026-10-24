@@ -18,7 +18,13 @@ import {
   type MusicDriveUploadResult,
 } from '@shared/music/api'
 import { MUSIC_MIME_BY_FORMAT, formatFromFilename } from '@shared/music/constants'
-import { MUSIC_PROVIDER_ID_MAX, musicWebdavProviderId, type MusicMount, type MusicTrack } from '@shared/music/model'
+import {
+  MUSIC_PROVIDER_ID_MAX,
+  musicAlistProviderId,
+  musicWebdavProviderId,
+  type MusicMount,
+  type MusicTrack,
+} from '@shared/music/model'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
@@ -32,7 +38,9 @@ import {
   alistMountRoot,
   alistMountToken,
   listAlistDirectory,
+  normalizeAlistPath,
   resolveAlistMount,
+  statAlistFile,
   searchAlist,
   testAlistMount,
 } from '../music/cloud/alist'
@@ -318,6 +326,47 @@ musicDriveRoutes.get('/alist/:id/list', async (c) => {
     await store.updateMount(ctx.mount.id, { status: 'active' }).catch(() => undefined)
   }
   return c.json({ mount: ctx.mount, listing })
+})
+
+musicDriveRoutes.post('/alist/:id/import', async (c) => {
+  const body = await readJson<{ paths?: unknown }>(c, IMPORT_BODY_LIMIT)
+  const paths = importPaths(body.paths)
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  const ctx = await resolveAlistMount(c.env, store, c.req.param('id'))
+
+  const tracks: MusicTrack[] = []
+  const skipped: MusicDriveSkip[] = []
+  for (const raw of paths) {
+    const path = normalizeAlistPath(raw)
+    const info = await statAlistFile(ctx, path)
+    if (info.isDirectory) {
+      skipped.push({ path, reason: 'directory' })
+      continue
+    }
+    const format = formatFromFilename(info.name)
+    if (!format) {
+      skipped.push({ path, reason: 'unsupported' })
+      continue
+    }
+    const providerId = musicAlistProviderId(ctx.mount.id, path)
+    if (providerId.length > MUSIC_PROVIDER_ID_MAX) {
+      skipped.push({ path, reason: 'path_too_long' })
+      continue
+    }
+    tracks.push(await store.upsertTrack({
+      provider: 'alist',
+      providerId,
+      kind: 'song',
+      title: trackTitle(info.name.split('/').pop()?.slice(0, 500) || info.name, path),
+      format,
+      size: info.sizeBytes,
+      r2Key: null,
+      source: 'alist',
+      sourceQuality: 'original',
+    }))
+  }
+  const result: MusicDriveImportResult = { tracks, skipped }
+  return c.json(result)
 })
 
 musicDriveRoutes.get('/alist/:id/search', async (c) => {

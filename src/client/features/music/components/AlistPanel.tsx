@@ -8,12 +8,13 @@
 import { useState, type FormEvent, type ReactElement } from 'react'
 import { ChevronLeft, Folder, FileAudio, Plus, Search, Trash2 } from 'lucide-react'
 import type { MusicMount } from '@shared/music/model'
-import type { MusicAlistEntry } from '@shared/music/api'
+import type { MusicAlistEntry, MusicDriveSkipReason } from '@shared/music/api'
 import { Badge, Button } from '../../../components/primitives'
 import { Input, Select } from '../../../components/form'
 import { Empty, LoadingBlock } from '../../../components/feedback'
 import { Modal, confirm } from '../../../components/overlay'
 import { formatBytes } from '@shared/music/format'
+import { useUi } from '../../../store/ui'
 import { musicApi } from '../api'
 import { useMusicQuery } from '../query'
 import { musicText } from './labels'
@@ -21,6 +22,10 @@ import { PageError } from '../pages/parts/PageState'
 
 function parentOf(path: string): string {
   return path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
+}
+
+function skipReasonKey(reason: MusicDriveSkipReason): string {
+  return `music.cloud.skip.${reason}`
 }
 
 function MountDialog({
@@ -102,21 +107,41 @@ function MountDialog({
   )
 }
 
-function EntryList({ entries, onOpen }: { entries: MusicAlistEntry[]; onOpen: (entry: MusicAlistEntry) => void }): ReactElement {
+function EntryList({
+  entries,
+  onOpen,
+  onImport,
+  importingPath,
+}: {
+  entries: MusicAlistEntry[]
+  onOpen: (entry: MusicAlistEntry) => void
+  onImport: (entry: MusicAlistEntry) => void
+  importingPath: string | null
+}): ReactElement {
   return (
     <ul className="flex flex-col divide-y divide-[var(--border-subtle)] rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
       {entries.map((entry) => (
-        <li key={entry.path}>
+        <li key={entry.path} className="flex min-w-0 items-center gap-2 px-2">
           <button
             type="button"
             disabled={!entry.isDirectory && !entry.isMedia}
             onClick={() => onOpen(entry)}
-            className="flex w-full min-w-0 items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[var(--bg-hover)] disabled:cursor-default disabled:opacity-50"
+            className="flex min-w-0 flex-1 items-center gap-3 rounded-[var(--r-sm)] px-1 py-2.5 text-left transition-colors hover:text-[var(--text-primary)] disabled:cursor-default disabled:opacity-50"
           >
             {entry.isDirectory ? <Folder size={15} className="shrink-0 text-[var(--text-tertiary)]" /> : <FileAudio size={15} className="shrink-0 text-[var(--text-tertiary)]" />}
             <span className="min-w-0 flex-1 truncate text-[length:var(--text-12-5)] text-[var(--text-primary)]">{entry.name}</span>
             {!entry.isDirectory && <span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{formatBytes(entry.sizeBytes)}</span>}
           </button>
+          {!entry.isDirectory && entry.isMedia && (
+            <Button
+              size="sm"
+              variant="ghost"
+              loading={importingPath === entry.path}
+              onClick={() => onImport(entry)}
+            >
+              {musicText('music.cloud.import')}
+            </Button>
+          )}
         </li>
       ))}
     </ul>
@@ -132,6 +157,7 @@ export function AlistPanel({ mounts, onChanged }: { mounts: MusicMount[]; onChan
   const [searching, setSearching] = useState(false)
   const [searchError, setSearchError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [importingPath, setImportingPath] = useState<string | null>(null)
   const active = mounts.find((mount) => mount.id === selected) ?? mounts[0] ?? null
   const query = useMusicQuery(async () => {
     if (!active) return null
@@ -156,6 +182,48 @@ export function AlistPanel({ mounts, onChanged }: { mounts: MusicMount[]; onChan
       setSearchError(reason instanceof Error ? reason.message : String(reason))
     } finally {
       setSearching(false)
+    }
+  }
+
+  const importPaths = async (paths: string[]): Promise<void> => {
+    if (!active || paths.length === 0) return
+    setImportingPath(paths[0] ?? null)
+    let imported = 0
+    let skipped = 0
+    let firstSkip: MusicDriveSkipReason | undefined
+    try {
+      // The route accepts fifty paths at a time; a directory may hold more.
+      for (let start = 0; start < paths.length; start += 50) {
+        const result = await musicApi.alistImport(active.id, paths.slice(start, start + 50))
+        imported += result.tracks.length
+        skipped += result.skipped.length
+        firstSkip ??= result.skipped[0]?.reason as MusicDriveSkipReason | undefined
+      }
+      if (imported > 0) {
+        useUi.getState().toast({
+          title: musicText('music.cloud.imported', { count: imported }),
+          description: skipped > 0 && firstSkip
+            ? musicText(skipReasonKey(firstSkip))
+            : undefined,
+          tone: skipped > 0 ? 'warning' : 'success',
+        })
+        onChanged()
+      } else {
+        useUi.getState().toast({
+          title: musicText('music.cloud.import_none'),
+          description: firstSkip ? musicText(skipReasonKey(firstSkip)) : undefined,
+          tone: 'warning',
+        })
+      }
+    } catch (reason) {
+      useUi.getState().toast({
+        title: musicText('music.cloud.import_failed'),
+        description: reason instanceof Error ? reason.message : String(reason),
+        tone: 'danger',
+      })
+      if (imported > 0) onChanged()
+    } finally {
+      setImportingPath(null)
     }
   }
 
@@ -274,9 +342,25 @@ export function AlistPanel({ mounts, onChanged }: { mounts: MusicMount[]; onChan
             {search === null && query.status === 'ready' && entries.length === 0 && (
               <Empty art="folder" title={musicText('music.cloud.empty')} />
             )}
+            {entries.some((entry) => !entry.isDirectory && entry.isMedia) && (
+              <div className="flex justify-end">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  loading={importingPath !== null}
+                  onClick={() => {
+                    void importPaths(entries.filter((entry) => !entry.isDirectory && entry.isMedia).map((entry) => entry.path))
+                  }}
+                >
+                  {musicText('music.cloud.alist.import_all')}
+                </Button>
+              </div>
+            )}
             {entries.length > 0 && (
               <EntryList
                 entries={entries}
+                importingPath={importingPath}
+                onImport={(entry) => { void importPaths([entry.path]) }}
                 onOpen={(entry) => {
                   if (entry.isDirectory) {
                     setPath(entry.path)

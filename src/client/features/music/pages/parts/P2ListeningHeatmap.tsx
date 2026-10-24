@@ -80,12 +80,14 @@ export function ListeningHeatmap({
   weeks = 52,
   palette = 'green',
   showMonths = false,
+  fill = false,
   className,
 }: {
   days: readonly ListeningHeatmapDay[]
   weeks?: number
   palette?: MusicHeatmapPalette
   showMonths?: boolean
+  fill?: boolean
   className?: string
 }): ReactElement {
   const locale = useLocale()
@@ -121,7 +123,7 @@ export function ListeningHeatmap({
   return (
     <div className={cn('flex flex-col gap-[var(--sp-2)]', className)}>
       <div className="overflow-x-auto pb-[var(--sp-1)]">
-        <div className="w-max">
+        <div className={fill ? 'w-full' : 'w-max'}>
           {showMonths && (
             <div className="ms-[28px] flex h-[16px] items-end text-[length:var(--text-10)] text-[var(--text-quaternary)]">
               {months.map((month) => (
@@ -151,6 +153,7 @@ export function ListeningHeatmap({
               aria-label={musicText('music.history.heatmap_summary', { count: total })}
               className={cn(
                 'music-heatmap grid w-max grid-flow-col grid-rows-7 gap-[3px]',
+                fill && 'music-heatmap--fill',
                 `music-heatmap--${palette}`,
               )}
             >

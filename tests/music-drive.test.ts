@@ -481,6 +481,48 @@ describe('alist mounts', () => {
     ])
   })
 
+  it('imports an Alist file as a library reference and streams it through the worker', async () => {
+    const mount = await createMount()
+    let rangeSeen = ''
+    vi.stubGlobal('fetch', async (input: URL | string, init: RequestInit = {}) => {
+      const url = String(input)
+      if (url.endsWith('/api/fs/get')) {
+        return Response.json({
+          code: 200,
+          data: { name: 'song.mp3', is_dir: false, size: 42, raw_url: 'https://files.example.com/song.mp3' },
+        })
+      }
+      if (url === 'https://files.example.com/song.mp3') {
+        rangeSeen = String((init.headers as Record<string, string> | undefined)?.Range ?? '')
+        return new Response(new Uint8Array(42), {
+          status: 206,
+          headers: { 'Content-Type': 'audio/mpeg', 'Content-Length': '42', 'Content-Range': 'bytes 0-41/42' },
+        })
+      }
+      return Response.json({}, { status: 404 })
+    })
+
+    const imported = await send(`/api/music/drive/alist/${mount.id}/import`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ paths: ['song.mp3'] }),
+    })
+    expect(imported.status).toBe(200)
+    const body = await json<{ tracks: Array<{ id: string, provider: string, providerId: string, size: number }> }>(imported)
+    expect(body.tracks[0]).toMatchObject({ provider: 'alist', providerId: `${mount.id}:song.mp3`, size: 42 })
+
+    const listed = await json<{ items: Array<{ id: string }> }>(
+      await send('/api/music/library/tracks?provider=alist'),
+    )
+    expect(listed.items.map((track) => track.id)).toEqual([body.tracks[0]!.id])
+
+    const stream = await send(`/api/music/media/stream/${body.tracks[0]!.id}`, {
+      headers: { range: 'bytes=0-41' },
+    })
+    expect(stream.status).toBe(206)
+    expect(rangeSeen).toBe('bytes=0-41')
+  })
+
   it('refuses unsafe addresses and lets the owner delete a mount', async () => {
     const bad = await send('/api/music/drive/alist', {
       method: 'POST',

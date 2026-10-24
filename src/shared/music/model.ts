@@ -9,7 +9,7 @@
  * `webdav` is a reference row rather than an upload: the audio stays on the reader's WebDAV server
  * and `r2Key` is null, so it costs no R2 quota. Alist and external links are not modelled yet.
  */
-export const MUSIC_PROVIDERS = ['netease', 'upload', 'custom', 'webdav'] as const
+export const MUSIC_PROVIDERS = ['netease', 'upload', 'custom', 'webdav', 'alist'] as const
 export type MusicProviderId = (typeof MUSIC_PROVIDERS)[number]
 
 /**
@@ -322,4 +322,14 @@ export function parseMusicWebdavProviderId(providerId: string): { targetId: stri
   const split = providerId.indexOf(':')
   if (split <= 0 || split === providerId.length - 1) return null
   return { targetId: providerId.slice(0, split), path: providerId.slice(split + 1) }
+}
+
+export function musicAlistProviderId(mountId: string, path: string): string {
+  return `${mountId}:${path}`
+}
+
+export function parseMusicAlistProviderId(providerId: string): { mountId: string, path: string } | null {
+  const split = providerId.indexOf(':')
+  if (split <= 0 || split === providerId.length - 1) return null
+  return { mountId: providerId.slice(0, split), path: providerId.slice(split + 1) }
 }

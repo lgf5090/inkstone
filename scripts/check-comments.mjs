@@ -5947,7 +5947,8 @@ const allowed = new Map([
     "/**\n * What the music assistant is told about the screen it is docked beside.\n *\n * This is a pointer, not a payload: the current track's identity and the page kind are enough for\n * \"pause this\" or \"what album is this\"; lyrics and credentials stay out. The dock re-attaches the\n * context when the page or track changes, and the reader can remove the chip.\n */",
   ]],
   ["src/client/features/music/components/AlistPanel.tsx", [
-    "/**\r\n * Alist mounts and the folder browser behind the cloud page's third source.\r\n *\r\n * The panel owns only its own server selection and the two calls the browser makes; the parent owns\r\n * the mount list so creating or deleting one can refresh every source. A token is collected once and\r\n * never shown again: the server returns whether one is stored, not what it is.\r\n */",
+    "/**\n * Alist mounts and the folder browser behind the cloud page's third source.\n *\n * The panel owns only its own server selection and the two calls the browser makes; the parent owns\n * the mount list so creating or deleting one can refresh every source. A token is collected once and\n * never shown again: the server returns whether one is stored, not what it is.\n */",
+    "// The route accepts fifty paths at a time; a directory may hold more.",
   ]],
   ["src/client/features/music/components/Cover.tsx", [
     "/**\n * The square a track or playlist is drawn in.\n *\n * The artwork always comes from the music API's cover route, never from a provider URL: those expire,\n * leak the upstream host and are not reachable for uploads. A broken or missing image falls back to\n * the icon rather than the browser's broken-image glyph, and the fallback survives a `src` change so\n * a virtual list that reuses a row does not keep showing the previous track's failure.\n */",
@@ -6025,7 +6026,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/music/components/PlayBar.tsx", [
     "// The popover shows the level a drag would restore, not 0: the press that opens it also mutes.",
-    "/**\r\n * The persistent transport, in three zones: what is playing, the transport and progress, and the\r\n * switches that open the queue, the Now Playing lyrics tab and the overflow menu.\r\n *\r\n * The progress slider is `immediate`: a drag has to reach the audio element as it moves, and the\r\n * component's own coalescing would swallow the last value when the reader lets go. Times are printed\r\n * beside the slider instead of its numeric readout (hidden by the stylesheet), and the element keeps\r\n * the range semantics and the keyboard arrows for free.\r\n *\r\n * The favourite only returns on wide windows; the volume button opens the level popover and toggles\r\n * mute in the press itself. Below tablet width the mute switch moves into the overflow menu, and on a\r\n * phone the MiniPlayer and the full-screen layer are the surfaces instead of this bar.\r\n */",
+    "/**\n * The persistent transport, in three zones: what is playing, the transport and progress, and the\n * toolbar that cycles the play mode and opens the rate menu, volume, lyrics, queue, equalizer, sleep\n * timer and source picker.\n *\n * The progress slider is `immediate`: a drag has to reach the audio element as it moves, and the\n * component's own coalescing would swallow the last value when the reader lets go. Times are printed\n * beside the slider instead of its numeric readout (hidden by the stylesheet), and the element keeps\n * the range semantics and the keyboard arrows for free.\n *\n * The favourite only returns on wide windows; the volume button opens the level popover and toggles\n * mute in the press itself. The mode control is a cycle rather than a menu, so one press always\n * changes the mode and the icon follows the store. On a phone the MiniPlayer and the full-screen\n * layer are the surfaces instead of this bar.\n */",
   ]],
   ["src/client/features/music/components/PlaylistImportDialog.tsx", [
     "/** Paste a Netease playlist link or id and collect it as one local playlist. */",
@@ -6134,8 +6135,8 @@ const allowed = new Map([
     "/** Index screens for the catalog shelves the reference app puts in its top navigation. */",
   ]],
   ["src/client/features/music/pages/CloudDrivePage.tsx", [
-    "/**\r\n * My cloud drive: what this account stores in R2, and the WebDAV folder the backup settings already\r\n * hold. The WebDAV side can import a file as a library reference, upload into the folder on screen\r\n * and delete a remote file; an import never moves the audio, and a remote delete never touches the\r\n * library row that still names it.\r\n */",
     "// Clear the picker so choosing the same file again still fires a change.",
+    "/**\n * My cloud drive: what this account stores in R2, and the WebDAV folder the backup settings already\n * hold. The WebDAV side can import a file as a library reference, upload into the folder on screen\n * and delete a remote file; an import never moves the audio, and a remote delete never touches the\n * library row that still names it.\n */",
   ]],
   ["src/client/features/music/pages/DownloadsPage.tsx", [
     "/**\n * The R2 download queue: progress, pause/resume/retry/cancel and the account's storage gauge.\n *\n * Downloads are server-side copies into the music library, not files on this device; this page\n * manages that queue and says so. A task is added from a track's menu, so there is no enqueue\n * control here.\n */",
@@ -25188,20 +25189,20 @@ const allowed = new Map([
   ]],
   ["src/shared/music/model.ts", [
     "/** The quality ladder Netease accepts through `/song/url/v1`; `original` is ours for uploads. */",
-    "/**\r\n * The music app's vocabulary, shared by the worker that stores it and the browser that draws it.\r\n *\r\n * Times cross the wire as epoch milliseconds. Provider ids stay strings because Netease mixes numeric\r\n * song ids with string program ids, and a numeric column would have to widen later.\r\n */",
     "/** Only translated lyrics exist for now; the kind column keeps the cache room to grow without a migration. */",
     "/** The cloud drives a mount can stand for. Only Alist is modelled; WebDAV reuses a backup target. */",
-    "/**\r\n * `active` is a mount whose last use answered; `error` is one the last test could not reach. The\r\n * credential is deliberately not part of this axis: a saved token that fails to authenticate is an\r\n * `error`, not a third state the reader has to interpret.\r\n */",
     "/** When the reader pinned the playlist, or null. Pinned rows sort ahead of the shelf order. */",
     "/** When the reader pinned the favourite, or null. A pinned track still has to be a favourite. */",
     "/** A favourite as the library lists it: the saved track snapshot plus its pin state. */",
-    "/**\r\n * One cached AI lyric layer.\r\n *\r\n * `payload` is opaque JSON text owned by the producer (the translation route), so the cache can carry\r\n * whatever line shape it later needs; `sourceHash` ties the entry to the lyric text it was made from,\r\n * and a reader that finds a different hash treats the row as a miss.\r\n */",
-    "/**\r\n * A configured cloud drive. The credential lives in a separate column and never appears here: the\r\n * reader sees whether one is stored, not what it is.\r\n */",
     "/** A backup WebDAV target this account lets the music cloud browse; empty means not configured. */",
     "/** The folder inside that target; relative to its root and never empty in the UI. */",
-    "/**\r\n * `webdav` is a reference row rather than an upload: the audio stays on the reader's WebDAV server\r\n * and `r2Key` is null, so it costs no R2 quota. Alist and external links are not modelled yet.\r\n */",
-    "/**\r\n * The longest provider id the library routes accept in a client-sent track snapshot.\r\n *\r\n * A WebDAV reference encodes its backup target and its path in this one field, and the favourite and\r\n * playlist routes re-read that snapshot with this ceiling, so an import that exceeded it would save\r\n * a row the reader could never favourite or add to a playlist.\r\n */",
-    "/**\r\n * A WebDAV reference's provider id: the backup target the file lives on, then its path inside the\r\n * music folder. Only the first colon splits the value, because a file name may contain one; the\r\n * target id is a generated id and never does. The path is relative to the configured music folder,\r\n * so moving that folder invalidates existing references — a re-import repairs them.\r\n */",
+    "/**\n * The music app's vocabulary, shared by the worker that stores it and the browser that draws it.\n *\n * Times cross the wire as epoch milliseconds. Provider ids stay strings because Netease mixes numeric\n * song ids with string program ids, and a numeric column would have to widen later.\n */",
+    "/**\n * `webdav` is a reference row rather than an upload: the audio stays on the reader's WebDAV server\n * and `r2Key` is null, so it costs no R2 quota. Alist and external links are not modelled yet.\n */",
+    "/**\n * The longest provider id the library routes accept in a client-sent track snapshot.\n *\n * A WebDAV reference encodes its backup target and its path in this one field, and the favourite and\n * playlist routes re-read that snapshot with this ceiling, so an import that exceeded it would save\n * a row the reader could never favourite or add to a playlist.\n */",
+    "/**\n * `active` is a mount whose last use answered; `error` is one the last test could not reach. The\n * credential is deliberately not part of this axis: a saved token that fails to authenticate is an\n * `error`, not a third state the reader has to interpret.\n */",
+    "/**\n * One cached AI lyric layer.\n *\n * `payload` is opaque JSON text owned by the producer (the translation route), so the cache can carry\n * whatever line shape it later needs; `sourceHash` ties the entry to the lyric text it was made from,\n * and a reader that finds a different hash treats the row as a miss.\n */",
+    "/**\n * A configured cloud drive. The credential lives in a separate column and never appears here: the\n * reader sees whether one is stored, not what it is.\n */",
+    "/**\n * A WebDAV reference's provider id: the backup target the file lives on, then its path inside the\n * music folder. Only the first colon splits the value, because a file name may contain one; the\n * target id is a generated id and never does. The path is relative to the configured music folder,\n * so moving that folder invalidates existing references — a re-import repairs them.\n */",
   ]],
   ["src/shared/note-template-render.test.ts", [
     "// The offset is the place the answer goes, in the content that was actually saved.",
@@ -29893,11 +29894,13 @@ const allowed = new Map([
     "/** An absolute drive path with no traversal segment; `/` is the default. */",
   ]],
   ["src/worker/music/cloud/alist.ts", [
-    "/**\r\n * Alist as a music drive: a registered server, a folder under it, and the JSON API its own client\r\n * uses. The token never leaves the worker and never appears in a listing; only the four browser\r\n * calls this page needs are exposed (list, search, mount management).\r\n *\r\n * The address rules are the same trust boundary as every other outbound reader: HTTPS, no credentials\r\n * in the URL, no loopback or private literal, and no redirects. Alist may return media entries from\r\n * any folder, so the path is normalised and re-anchored to the configured root before it is shown.\r\n */",
     "/** Relative to the mount's root path. */",
     "/** Absent keeps the saved token; an empty string clears it. */",
     "/** A folder or file path relative to the mount root; parent segments are refused, not collapsed. */",
     "// The edge runtime implements only follow/manual; a redirect is refused below, not followed.",
+    "/**\n * Alist as a music drive: a registered server, a folder under it, and the JSON API its own client\n * uses. The token never leaves the worker and never appears in a listing; only the four browser\n * calls this page needs are exposed (list, search, mount management).\n *\n * The address rules are the same trust boundary as every other outbound reader: HTTPS, no credentials\n * in the URL, no loopback or private literal, and no redirects. Alist may return media entries from\n * any folder, so the path is normalised and re-anchored to the configured root before it is shown.\n */",
+    "/** Metadata for one file; the caller imports only files that report a size and a media name. */",
+    "/**\n * Fetch the bytes through the mount's download address. A redirect is followed only when the next\n * hop is another public HTTPS address; the token is never sent to the file host.\n */",
   ]],
   ["src/worker/music/cloud/config.ts", [
     "/**\r\n * Resolve the WebDAV target the music cloud browses.\r\n *\r\n * WebDAV credentials already belong to a backup target, so the music side stores only the target id\r\n * and a folder. Nothing here creates a second credential: a missing target, a non-WebDAV target or a\r\n * target without a stored secret is a named refusal the screen can explain.\r\n */",
@@ -30860,11 +30863,11 @@ const allowed = new Map([
     "/** Room for fifty maximum-length paths plus their JSON punctuation. */",
     "/** The multipart envelope around a file at the ceiling, with room for a boundary and the field. */",
     "/** The file name without its extension; the path is the fallback when the name is all extension. */",
-    "/**\r\n * The music cloud: R2 usage, the WebDAV folder the account backs up, and the writes that turn a\r\n * remote file into a library reference.\r\n *\r\n * An import registers metadata only — the audio stays on the reader's WebDAV server, `r2_key` is\r\n * null and nothing is copied — so it costs no R2 quota and a later deletion of the remote file is a\r\n * separate, explicit action. Uploads go the other way: one file, at most 64 MB, into the folder the\r\n * reader is looking at. Every path is normalised relative to the configured music folder; a caller\r\n * can name a child of it, never an address or a parent segment.\r\n */",
-    "/**\r\n * Register remote files in the library without moving their bytes.\r\n *\r\n * A path that is missing, is a folder, is not a media extension or would not fit the provider id\r\n * field is reported in `skipped` and the rest of the batch still lands. Re-importing the same path\r\n * refreshes the one row its reference already owns, so the call is safe to retry.\r\n */",
-    "/**\r\n * Put one file into the folder the reader is looking at.\r\n *\r\n * The name is reduced to its base name and the extension decides the MIME type, so a client-declared\r\n * type cannot make this route store an HTML page. A file that already exists is refused rather than\r\n * overwritten: the reader chose a name, and the honest answer is to let them choose another.\r\n */",
-    "/**\r\n * Delete the remote file. A library row that references it is deliberately left alone: the reader\r\n * can still see what they imported, and the stream route answers 404 for the missing bytes.\r\n */",
     "/** Tokens are write-only over HTTP: the route returns the row, never the ciphertext or its plaintext. */",
+    "/**\n * The music cloud: R2 usage, the WebDAV folder the account backs up, and the writes that turn a\n * remote file into a library reference.\n *\n * An import registers metadata only — the audio stays on the reader's WebDAV server, `r2_key` is\n * null and nothing is copied — so it costs no R2 quota and a later deletion of the remote file is a\n * separate, explicit action. Uploads go the other way: one file, at most 64 MB, into the folder the\n * reader is looking at. Every path is normalised relative to the configured music folder; a caller\n * can name a child of it, never an address or a parent segment.\n */",
+    "/**\n * Register remote files in the library without moving their bytes.\n *\n * A path that is missing, is a folder, is not a media extension or would not fit the provider id\n * field is reported in `skipped` and the rest of the batch still lands. Re-importing the same path\n * refreshes the one row its reference already owns, so the call is safe to retry.\n */",
+    "/**\n * Put one file into the folder the reader is looking at.\n *\n * The name is reduced to its base name and the extension decides the MIME type, so a client-declared\n * type cannot make this route store an HTML page. A file that already exists is refused rather than\n * overwritten: the reader chose a name, and the honest answer is to let them choose another.\n */",
+    "/**\n * Delete the remote file. A library row that references it is deliberately left alone: the reader\n * can still see what they imported, and the stream route answers 404 for the missing bytes.\n */",
   ]],
   ["src/worker/routes/music-files.ts", [
     "/**\n * Byte-serving routes for the music app.\n *\n * Every path here is owner-scoped: the track is looked up through `MusicStore`, whose queries all\n * carry the session's user id, so another account's id is a 404 and never a 403. Streaming is a GET\n * (and HEAD) and deliberately does not require the client header — an `<audio>` element cannot send\n * one. The stream itself lives in `music/stream.ts`; this file only resolves the track, its cover and\n * the export headers.\n */",
@@ -30876,6 +30879,7 @@ const allowed = new Map([
     "// stream before the reader has saved it to the library.",
     "/**\n * A WebDAV reference played through this worker.\n *\n * The client's Range is forwarded untouched; the upstream 206 is relayed and an upstream 200 stays a\n * 200 (the browser plays a full body just as well). Bytes are never held: the body is the upstream\n * stream. The reference embeds the target it was imported from, so a changed target is refused\n * rather than silently reading a same-named file from a different server.\n */",
     "// A reference can change under the reader; nothing here is immutable or shared.",
+    "/** An Alist reference: the mount resolves a fresh download address on every play. */",
   ]],
   ["src/worker/routes/music-library.ts", [
     "/** Read the display snapshot a client may save. Upstream identity and metadata only. */",
@@ -34827,7 +34831,7 @@ const allowed = new Map([
     "// A referenced track registers no R2 object, so it costs no quota.",
     "// The envelope adds one megabyte for the multipart frame; a declared body past it is refused",
     "// before the form is parsed, without needing to allocate the file itself.",
-    "/**\r\n * The WebDAV write surface: import references, upload one file, delete one remote object, and the\r\n * stream that plays a reference back through this worker.\r\n *\r\n * The credential vault is a map stand-in so the target resolves at all; the assertions never look at\r\n * a password. Every WebDAV request is answered by a `fetch` stub, so no test reaches a real server.\r\n */",
+    "/**\n * The WebDAV write surface: import references, upload one file, delete one remote object, and the\n * stream that plays a reference back through this worker.\n *\n * The credential vault is a map stand-in so the target resolves at all; the assertions never look at\n * a password. Every WebDAV request is answered by a `fetch` stub, so no test reaches a real server.\n */",
   ]],
   ["tests/music-lyrics-ai.test.ts", [
     "/**\n * AI lyric translation: the JSON contract, the cache keyed by the source text, and the endpoint's\n * separation of \"no model\", \"no lyrics\", \"the model lost a line\" and \"the provider is down\".\n */",

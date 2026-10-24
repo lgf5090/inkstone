@@ -297,6 +297,89 @@ export async function searchAlist(ctx: AlistContext, rawKeywords: string): Promi
   return sortEntries(entries)
 }
 
+export interface AlistFileInfo {
+  name: string
+  sizeBytes: number
+  isDirectory: boolean
+  rawUrl: string
+}
+
+interface AlistRawFile {
+  name?: unknown
+  size?: unknown
+  is_dir?: unknown
+  raw_url?: unknown
+}
+
+function mediaUrl(ctx: AlistContext, raw: string): URL {
+  let url: URL
+  try {
+    url = new URL(raw, ctx.base)
+  } catch {
+    throw new ApiError(502, 'music_storage_unavailable', 'The Alist file address is not valid.')
+  }
+  if (url.protocol !== 'https:' || url.username || url.password || isPrivateHostname(url.hostname)) {
+    throw new ApiError(502, 'music_storage_unavailable', 'The Alist file address is not allowed.')
+  }
+  return url
+}
+
+/** Metadata for one file; the caller imports only files that report a size and a media name. */
+export async function statAlistFile(ctx: AlistContext, rawPath: string): Promise<AlistFileInfo> {
+  const path = normalizeAlistPath(rawPath)
+  const data = await alistRequest<AlistRawFile>(ctx, '/api/fs/get', {
+    path: joinAlistPath(ctx.root, path),
+  })
+  const name = typeof data?.name === 'string' && data.name ? data.name : path.split('/').pop() ?? path
+  return {
+    name,
+    sizeBytes: typeof data?.size === 'number' && Number.isFinite(data.size) && data.size >= 0 ? Math.trunc(data.size) : 0,
+    isDirectory: data?.is_dir === true,
+    rawUrl: typeof data?.raw_url === 'string' ? data.raw_url : '',
+  }
+}
+
+/**
+ * Fetch the bytes through the mount's download address. A redirect is followed only when the next
+ * hop is another public HTTPS address; the token is never sent to the file host.
+ */
+export async function fetchAlistStream(
+  ctx: AlistContext,
+  path: string,
+  range: string | null,
+  signal: AbortSignal,
+): Promise<Response> {
+  const info = await statAlistFile(ctx, path)
+  if (info.isDirectory || !info.rawUrl) {
+    throw new ApiError(502, 'music_source_unavailable', 'The Alist file has no playable download address.')
+  }
+  let url = mediaUrl(ctx, info.rawUrl)
+  for (let redirects = 0; ; redirects += 1) {
+    let response: Response
+    try {
+      response = await fetch(url, {
+        method: 'GET',
+        redirect: 'manual',
+        headers: range ? { Range: range } : undefined,
+        signal,
+      })
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') throw error
+      throw new ApiError(502, 'music_source_unavailable', 'The Alist file host could not be reached.')
+    }
+    if (response.status < 300 || response.status >= 400) return response
+    const location = response.headers.get('location')
+    await response.body?.cancel().catch(() => undefined)
+    if (!location) throw new ApiError(502, 'music_source_unavailable', 'The Alist file host redirected without a location.')
+    if (redirects >= 3) throw new ApiError(502, 'music_source_unavailable', 'The Alist file host redirected too many times.')
+    try {
+      url = mediaUrl(ctx, new URL(location, url).toString())
+    } catch {
+      throw new ApiError(502, 'music_source_unavailable', 'The Alist file host redirected to an address this app will not follow.')
+    }
+  }
+}
+
 export async function testAlistMount(ctx: AlistContext): Promise<void> {
   await listAlistDirectory(ctx, '')
 }

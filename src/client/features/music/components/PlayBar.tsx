@@ -1,6 +1,7 @@
 /**
  * The persistent transport, in three zones: what is playing, the transport and progress, and the
- * switches that open the queue, the Now Playing lyrics tab and the overflow menu.
+ * toolbar that cycles the play mode and opens the rate menu, volume, lyrics, queue, equalizer, sleep
+ * timer and source picker.
  *
  * The progress slider is `immediate`: a drag has to reach the audio element as it moves, and the
  * component's own coalescing would swallow the last value when the reader lets go. Times are printed
@@ -8,16 +9,19 @@
  * the range semantics and the keyboard arrows for free.
  *
  * The favourite only returns on wide windows; the volume button opens the level popover and toggles
- * mute in the press itself. Below tablet width the mute switch moves into the overflow menu, and on a
- * phone the MiniPlayer and the full-screen layer are the surfaces instead of this bar.
+ * mute in the press itself. The mode control is a cycle rather than a menu, so one press always
+ * changes the mode and the icon follows the store. On a phone the MiniPlayer and the full-screen
+ * layer are the surfaces instead of this bar.
  */
 import { useEffect, useId, useRef, useState, type ReactElement } from 'react'
 import {
   Heart,
   ListMusic,
   Mic2,
-  MoreHorizontal,
+  Moon,
   Music,
+  Radio,
+  SlidersHorizontal,
   Pause,
   Play,
   FastForward,
@@ -33,10 +37,10 @@ import {
   VolumeX,
 } from 'lucide-react'
 import { formatDuration, musicArtistNames } from '@shared/music/format'
-import type { MusicPlayMode } from '@shared/music/model'
-import { IconButton, Spinner } from '../../../components/primitives'
+import { MUSIC_PLAY_MODES } from '@shared/music/model'
+import { Button, IconButton, Spinner } from '../../../components/primitives'
 import { Slider } from '../../../components/form'
-import { Drawer, Menu, Tooltip, useClickOutside, useEscape, type MenuItem } from '../../../components/overlay'
+import { Drawer, Menu, Tooltip, useClickOutside, useEscape } from '../../../components/overlay'
 import { useMusicLibrary } from '../store/library'
 import { selectCurrentTrack, useMusicPlayer } from '../store/player'
 import { MUSIC_RATE_RANGE } from '../store/settings'
@@ -47,8 +51,7 @@ import { SleepTimer } from './SleepTimer'
 import { SourcePicker } from './SourcePicker'
 import { musicText } from './labels'
 
-const PLAY_MODES: readonly MusicPlayMode[] = ['order', 'repeat', 'repeatOne', 'shuffle']
-const RATE_STEPS: readonly number[] = [1, 1.25, 1.5, 2].filter(
+const RATE_STEPS: readonly number[] = [0.5, 0.75, 1, 1.25, 1.5, 2].filter(
   (rate) => rate >= MUSIC_RATE_RANGE.min && rate <= MUSIC_RATE_RANGE.max,
 )
 
@@ -79,12 +82,10 @@ export function PlayBar(): ReactElement {
   const toggleQueue = useMusicUi((state) => state.toggleQueue)
   const setNowPlayingOpen = useMusicUi((state) => state.setNowPlayingOpen)
 
-  const [moreOpen, setMoreOpen] = useState(false)
-  const [modeOpen, setModeOpen] = useState(false)
+  const [rateOpen, setRateOpen] = useState(false)
   const [panel, setPanel] = useState<'eq' | 'sleep' | 'source' | null>(null)
   const [volumeOpen, setVolumeOpen] = useState(false)
-  const moreRef = useRef<HTMLButtonElement>(null)
-  const modeRef = useRef<HTMLButtonElement>(null)
+  const rateRef = useRef<HTMLButtonElement>(null)
   const volumeRef = useRef<HTMLButtonElement>(null)
   const volumePanelRef = useRef<HTMLDivElement>(null)
   const volumePanelId = useId()
@@ -153,46 +154,6 @@ export function PlayBar(): ReactElement {
     </IconButton>
   )
 
-  const menuItems: MenuItem[] = [
-    ...PLAY_MODES.map((value, index) => ({
-      id: `mode-${value}`,
-      label: musicText(`music.mode.${value}`),
-      checked: mode === value,
-      separatorBefore: index === 0,
-      onSelect: () => setMode(value),
-    })),
-    ...RATE_STEPS.map((value) => ({
-      id: `rate-${value}`,
-      label: `${value}×`,
-      checked: Math.abs(rate - value) < 0.001,
-      separatorBefore: value === RATE_STEPS[0],
-      onSelect: () => setRate(value),
-    })),
-    {
-      id: 'mute',
-      label: musicText(muted ? 'music.playbar.unmute' : 'music.playbar.mute'),
-      checked: muted,
-      separatorBefore: true,
-      onSelect: () => toggleMute(),
-    },
-    {
-      id: 'panel-eq',
-      label: musicText('music.panel.eq'),
-      separatorBefore: true,
-      onSelect: () => setPanel('eq'),
-    },
-    {
-      id: 'panel-sleep',
-      label: musicText('music.panel.sleep'),
-      onSelect: () => setPanel('sleep'),
-    },
-    {
-      id: 'panel-source',
-      label: musicText('music.panel.source'),
-      onSelect: () => setPanel('source'),
-    },
-  ]
-
   if (!current) {
     return (
       <div
@@ -240,18 +201,19 @@ export function PlayBar(): ReactElement {
 
       <div className="music-playbar__center">
         <div className="music-playbar__transport">
-          <Tooltip label={musicText(`music.mode.${mode}`)}>
+          <Tooltip label={musicText('music.playbar.mode_cycle', { mode: musicText(`music.mode.${mode}`) })}>
             <IconButton
-              ref={modeRef}
-              label={musicText(`music.mode.${mode}`)}
+              label={musicText('music.playbar.mode_cycle', { mode: musicText(`music.mode.${mode}`) })}
               size="sm"
-              aria-haspopup="menu"
-              aria-expanded={modeOpen}
-              onClick={() => setModeOpen(true)}
+              onClick={() => {
+                const index = MUSIC_PLAY_MODES.indexOf(mode)
+                setMode(MUSIC_PLAY_MODES[(index + 1) % MUSIC_PLAY_MODES.length] ?? 'order')
+              }}
             >
               <ModeIcon size={15} />
             </IconButton>
           </Tooltip>
+          <span className="sr-only" role="status" aria-live="polite">{musicText(`music.mode.${mode}`)}</span>
           <Tooltip label={musicText('music.playbar.previous')}>
             <IconButton
               label={musicText('music.playbar.previous')}
@@ -353,42 +315,65 @@ export function PlayBar(): ReactElement {
             <ListMusic size={15} />
           </IconButton>
         </Tooltip>
-        <IconButton
-          ref={moreRef}
-          label={musicText('music.playbar.more')}
+        <Button
+          ref={rateRef}
+          variant="ghost"
           size="sm"
+          aria-label={musicText('music.playbar.rate', { rate })}
           aria-haspopup="menu"
-          aria-expanded={moreOpen}
-          onClick={() => setMoreOpen(true)}
+          aria-expanded={rateOpen}
+          onClick={() => setRateOpen(true)}
+          className="tabular"
         >
-          <MoreHorizontal size={16} />
-        </IconButton>
+          {rate}×
+        </Button>
         <Menu
-          anchor={moreRef}
-          open={moreOpen}
-          onClose={() => setMoreOpen(false)}
-          items={menuItems}
-          align="end"
-          width={200}
-          label={musicText('music.playbar.more')}
-        />
-        <Menu
-          anchor={modeRef}
-          open={modeOpen}
-          onClose={() => setModeOpen(false)}
-          items={PLAY_MODES.map((value) => ({
-            id: `mode-${value}`,
-            label: musicText(`music.mode.${value}`),
-            checked: mode === value,
+          anchor={rateRef}
+          open={rateOpen}
+          onClose={() => setRateOpen(false)}
+          items={RATE_STEPS.map((value) => ({
+            id: `rate-${value}`,
+            label: `${value}×`,
+            checked: Math.abs(rate - value) < 0.001,
             onSelect: () => {
-              setMode(value)
-              setModeOpen(false)
+              setRate(value)
+              setRateOpen(false)
             },
           }))}
-          align="start"
-          width={200}
-          label={musicText('music.playbar.mode')}
+          align="end"
+          width={160}
+          label={musicText('music.playbar.rate', { rate })}
         />
+        <Tooltip label={musicText('music.panel.eq')}>
+          <IconButton
+            label={musicText('music.panel.eq')}
+            size="sm"
+            active={panel === 'eq'}
+            onClick={() => setPanel('eq')}
+          >
+            <SlidersHorizontal size={15} />
+          </IconButton>
+        </Tooltip>
+        <Tooltip label={musicText('music.panel.sleep')}>
+          <IconButton
+            label={musicText('music.panel.sleep')}
+            size="sm"
+            active={panel === 'sleep'}
+            onClick={() => setPanel('sleep')}
+          >
+            <Moon size={15} />
+          </IconButton>
+        </Tooltip>
+        <Tooltip label={musicText('music.panel.source')}>
+          <IconButton
+            label={musicText('music.panel.source')}
+            size="sm"
+            active={panel === 'source'}
+            onClick={() => setPanel('source')}
+          >
+            <Radio size={15} />
+          </IconButton>
+        </Tooltip>
         <Drawer
           open={panel !== null}
           onClose={() => setPanel(null)}
