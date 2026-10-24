@@ -33,11 +33,11 @@ export const musicUploadRoutes = new Hono<AppBindings>()
 
 musicUploadRoutes.use('*', requireAuth)
 
-musicUploadRoutes.get('/uploads', async (c) => {
+musicUploadRoutes.get('/', async (c) => {
   return c.json({ items: await listMusicUploads(c.env, c.get('userId')) })
 })
 
-musicUploadRoutes.get('/uploads/:id', async (c) => {
+musicUploadRoutes.get('/:id', async (c) => {
   const snapshot = await readMusicUpload(c.env, c.get('userId'), uploadId(c.req.param('id')))
   if (!snapshot) throw ApiError.notFound('Upload not found')
   return c.json({
@@ -46,7 +46,7 @@ musicUploadRoutes.get('/uploads/:id', async (c) => {
   })
 })
 
-musicUploadRoutes.post('/uploads', async (c) => {
+musicUploadRoutes.post('/', async (c) => {
   const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
   const init = await startMusicUpload(c.env, c.get('userId'), {
     filename: body.filename,
@@ -58,7 +58,7 @@ musicUploadRoutes.post('/uploads', async (c) => {
   return c.json(init, 201)
 })
 
-musicUploadRoutes.put('/uploads/:id/parts/:n', async (c) => {
+musicUploadRoutes.put('/:id/parts/:n', async (c) => {
   const snapshot = await readMusicUpload(c.env, c.get('userId'), uploadId(c.req.param('id')))
   if (!snapshot) throw ApiError.notFound('Upload not found')
   if (snapshot.upload.status !== 'uploading') throw uploadClosed()
@@ -70,7 +70,7 @@ musicUploadRoutes.put('/uploads/:id/parts/:n', async (c) => {
   return c.json(result)
 })
 
-musicUploadRoutes.put('/uploads/:id/cover', async (c) => {
+musicUploadRoutes.put('/:id/cover', async (c) => {
   const id = uploadId(c.req.param('id'))
   const snapshot = await readMusicUpload(c.env, c.get('userId'), id)
   if (!snapshot) throw ApiError.notFound('Upload not found')
@@ -88,12 +88,12 @@ musicUploadRoutes.put('/uploads/:id/cover', async (c) => {
   return c.json(result)
 })
 
-musicUploadRoutes.post('/uploads/:id/complete', async (c) => {
+musicUploadRoutes.post('/:id/complete', async (c) => {
   const result = await completeMusicUpload(c.env, c.get('userId'), uploadId(c.req.param('id')))
   return c.json(result)
 })
 
-musicUploadRoutes.delete('/uploads/:id', async (c) => {
+musicUploadRoutes.delete('/:id', async (c) => {
   await abortMusicUpload(c.env, c.get('userId'), uploadId(c.req.param('id')))
   return c.json({ ok: true })
 })

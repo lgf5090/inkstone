@@ -13,7 +13,6 @@ import type { MusicTrack } from '@shared/music/model'
 import type { AppBindings, Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { contentDisposition } from '../lib/http-range'
-import { isValidId } from '../lib/id'
 import { decryptMusicCookie } from '../lib/crypto'
 import { requireAuth } from '../middleware/auth'
 import { MusicStore } from '../music/store'
@@ -87,8 +86,12 @@ async function ownedTrack(
   param: 'trackId' | 'id',
 ): Promise<MusicTrack> {
   const id = c.req.param(param)
-  if (!id || !isValidId(id)) throw ApiError.notFound('Track not found')
-  const track = await new MusicStore(c.env.DB, c.get('userId')).getTrack(id)
+  // Provider ids are numeric or opaque strings, while a row this deployment created is a 26-char id.
+  // Resolving the provider identity as a fallback is what lets a track played straight from search
+  // stream before the reader has saved it to the library.
+  if (!id || id.length > 128) throw ApiError.notFound('Track not found')
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  const track = await store.getTrack(id) ?? await store.findTrack('netease', id)
   if (!track) throw ApiError.notFound('Track not found')
   return track
 }

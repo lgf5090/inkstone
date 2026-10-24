@@ -56,7 +56,11 @@ export async function fetchAllowedMusicUrl(rawUrl: string, init: RequestInit = {
   for (let redirects = 0; ; redirects += 1) {
     let response: Response
     try {
-      response = await fetch(url.toString(), { ...init, redirect: 'manual' })
+      response = await fetch(url.toString(), {
+        ...init,
+        redirect: 'manual',
+        signal: init.signal ?? AbortSignal.timeout(8_000),
+      })
     } catch (error) {
       throw sourceUnavailable('The music source could not be reached', error)
     }
@@ -142,17 +146,31 @@ async function serveOnlineTrack(
   let refreshed = source.expiresAt > 0 && source.expiresAt <= Date.now()
   if (refreshed) source = await resolveStreamSource(provider, track, quality)
 
-  let upstream = await fetchAllowedMusicUrl(source.url, {
-    method,
-    headers: upstreamHeaders,
-  })
+  let upstream: Response
+  try {
+    upstream = await fetchAllowedMusicUrl(source.url, { method, headers: upstreamHeaders })
+  } catch (error) {
+    // Workerd egress can be slower than the browser's own path to a CDN; a checked redirect keeps
+    // the track playable without turning the Worker into the only network hop that must work.
+    console.warn('[inkstone] Music stream proxy could not reach the CDN; redirecting:', error instanceof Error ? error.message : error)
+    return directSourceRedirect(source)
+  }
 
   if (upstream.status === 403 && !refreshed) {
     // The URL expired between the provider lookup and the fetch; the range is unchanged.
     refreshed = true
     await cancelBody(upstream)
     source = await resolveStreamSource(provider, track, quality)
-    upstream = await fetchAllowedMusicUrl(source.url, { method, headers: upstreamHeaders })
+    try {
+      upstream = await fetchAllowedMusicUrl(source.url, { method, headers: upstreamHeaders })
+    } catch {
+      return directSourceRedirect(source)
+    }
+  }
+
+  if (upstream.status === 403) {
+    await cancelBody(upstream)
+    return directSourceRedirect(source)
   }
 
   if (upstream.status === 416) {
@@ -289,6 +307,20 @@ async function cancelBody(response: Response): Promise<void> {
   } catch {
     // The response is being discarded; a body that refuses to cancel is dropped with it.
   }
+}
+
+/** The browser can fetch the CDN itself when this deployment's egress cannot. */
+function directSourceRedirect(source: MusicStreamSource): Response {
+  const url = allowedMusicUrl(source.url)
+  if (!url) throw sourceUnavailable('The music source address is not allowed')
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: url.toString(),
+      'Cache-Control': 'private, no-store',
+      'X-Music-Direct': '1',
+    },
+  })
 }
 
 function sourceUnavailable(message: string, cause?: unknown): ApiError {

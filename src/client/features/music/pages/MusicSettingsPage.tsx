@@ -59,7 +59,7 @@ const METHOD_MODES = [
 
 function Section({ title, children }: { title: string; children: ReactElement | ReactElement[] }): ReactElement {
   return (
-    <section className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--surface)] px-4">
+    <section className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4">
       <SectionHeader title={title} className="pt-4" />
       {children}
     </section>

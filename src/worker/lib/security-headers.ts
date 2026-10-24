@@ -70,7 +70,7 @@ export function securityHeaders(url: string, options: SecurityHeaderOptions = {}
     'Content-Security-Policy': [
       `default-src 'self'; base-uri 'self'; ${scriptSrc}style-src 'self' 'unsafe-inline'; `,
       `img-src 'self' data: blob: ${imageSchemes} ${MEMO_MAP_TILE_SOURCE}; font-src 'self' data: https://esm.sh; connect-src 'self' data: blob: ${CLOUDFLARE_INSIGHTS_REPORT_SOURCE} ${MEMO_MAP_GEOCODE_SOURCE} ${aiConnectSources}; worker-src 'self' blob:; `,
-      "manifest-src 'self'; media-src 'self' blob:; form-action 'self'; frame-src 'self' blob:; ",
+      "manifest-src 'self'; media-src 'self' blob: https://*.music.126.net https://*.126.net https://*.127.net https://*.163.com; form-action 'self'; frame-src 'self' blob:; ",
       "frame-ancestors 'none'; object-src 'none'",
     ].join(''),
   }

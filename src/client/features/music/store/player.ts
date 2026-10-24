@@ -13,6 +13,7 @@ import { create } from 'zustand'
 import { musicArtistNames } from '@shared/music/format'
 import type { MusicPlayMode, MusicTrack } from '@shared/music/model'
 import { IS_DEMO_MODE } from '../../../lib/runtime'
+import { musicApi } from '../api'
 import {
   MAX_CONSECUTIVE_FAILURES,
   RESTART_THRESHOLD_MS,
@@ -122,11 +123,11 @@ export function selectCurrentTrack(state: Pick<MusicPlayerState, 'queue'>): Musi
 }
 
 function streamUrlFor(track: MusicTrack): string {
-  return `/api/music/stream/${encodeURIComponent(track.id)}`
+  return `/api/music/media/stream/${encodeURIComponent(track.id)}`
 }
 
 function coverUrlFor(track: MusicTrack): string {
-  return `/api/music/cover/${encodeURIComponent(track.id)}`
+  return `/api/music/media/cover/${encodeURIComponent(track.id)}`
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -269,6 +270,14 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
       errorDetail: null,
       awaitingGesture: false,
     })
+    // A track picked from search or a chart has catalog metadata but no local row yet. The stream
+    // and cover routes resolve by provider identity, so persisting the snapshot first is what makes
+    // "press a search result" work without adding it to the library by hand.
+    try {
+      await musicApi.upsertTracks([track])
+    } catch (error) {
+      console.warn('[inkstone] Music track metadata could not be saved before playback:', error)
+    }
     try {
       await musicAudioEngine.play({
         url: sourceUrl,
@@ -668,11 +677,19 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
   }
 })
 
+/**
+ * Write the queue one last time when the document is going away.
+ *
+ * A named listener rather than an inline arrow: the leave-page guard documents every handler and
+ * why it exists, and the pagehide event has no other place to persist a position in flight.
+ */
+function persistOnPageHide(): void {
+  const state = useMusicPlayer.getState()
+  persistPlayer(state.queue, musicAudioEngine.currentTimeMs() || state.positionMs)
+}
+
 if (typeof window !== 'undefined') {
-  window.addEventListener('pagehide', () => {
-    const state = useMusicPlayer.getState()
-    persistPlayer(state.queue, musicAudioEngine.currentTimeMs() || state.positionMs)
-  })
+  window.addEventListener('pagehide', persistOnPageHide)
 }
 
 /** The number the player uses to stop a queue of dead tracks, re-exported for panels. */

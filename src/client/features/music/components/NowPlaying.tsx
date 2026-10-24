@@ -61,7 +61,7 @@ export function NowPlaying(): ReactElement {
           <>
             <div className="music-nowplaying__stage">
               <div className="music-nowplaying__art">
-                <Cover trackId={current.id} size="xl" radius="lg" alt={current.title} />
+                <Cover trackId={current.id} src={current.coverUrl || undefined} size="xl" radius="lg" alt={current.title} />
               </div>
               <div className="music-nowplaying__info">
                 <h2 className="music-nowplaying__title">{current.title}</h2>

@@ -168,6 +168,6 @@ export const musicApi = {
     request<{ settings: MusicSettings }>('/api/music/settings', { method: 'PUT', body: { settings } }),
 
   subscriptions: () => request<{ items: MusicSubscription[] }>('/api/music/library/subscriptions'),
-  streamUrl: (trackId: string) => `/api/music/stream/${encodeURIComponent(trackId)}`,
-  coverUrl: (trackId: string) => `/api/music/cover/${encodeURIComponent(trackId)}`,
+  streamUrl: (trackId: string) => `/api/music/media/stream/${encodeURIComponent(trackId)}`,
+  coverUrl: (trackId: string) => `/api/music/media/cover/${encodeURIComponent(trackId)}`,
 }

@@ -102,7 +102,7 @@ export function SongRow({
           index + 1
         )}
       </span>
-      <Cover trackId={track.id} size="sm" radius="sm" />
+      <Cover trackId={track.id} src={track.coverUrl || undefined} size="sm" radius="sm" />
       <span className="music-row__text">
         <span className="music-row__title">{track.title}</span>
         <span className="music-row__meta">{musicArtistNames(track)}</span>

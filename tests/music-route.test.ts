@@ -309,16 +309,16 @@ describe('settings and owner-only sources', () => {
   })
 
   it('limits sources to the owner and stores only coordinates', async () => {
-    const memberRead = await call('GET', '/api/music/sources', { user: MEMBER, role: 'member' })
+    const memberRead = await call('GET', '/api/music/settings/sources', { user: MEMBER, role: 'member' })
     expect(memberRead.status).toBe(403)
 
-    const ownerRead = await call('GET', '/api/music/sources', { role: 'owner' })
+    const ownerRead = await call('GET', '/api/music/settings/sources', { role: 'owner' })
     expect(ownerRead.status).toBe(200)
     await expect(json(ownerRead)).resolves.toMatchObject({
       sources: { enabled: false, url: '', method: 'GET', params: {}, qualityMap: {} },
     })
 
-    const write = await call('PUT', '/api/music/sources', {
+    const write = await call('PUT', '/api/music/settings/sources', {
       role: 'owner',
       body: {
         enabled: true,
@@ -339,7 +339,7 @@ describe('settings and owner-only sources', () => {
       },
     })
 
-    const memberWrite = await call('PUT', '/api/music/sources', {
+    const memberWrite = await call('PUT', '/api/music/settings/sources', {
       user: MEMBER,
       role: 'member',
       body: { url: 'https://other.example/api' },

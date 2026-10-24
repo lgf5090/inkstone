@@ -166,7 +166,7 @@ describe('music player store', () => {
     expect(useMusicPlayer.getState().status).toBe('playing')
     expect(engineMock.play).toHaveBeenCalledTimes(1)
     expect(engineMock.play.mock.calls[0]?.[0]).toMatchObject({
-      url: '/api/music/stream/b',
+      url: '/api/music/media/stream/b',
       autoplay: true,
       volume: 1,
       muted: false,
@@ -205,7 +205,7 @@ describe('music player store', () => {
     expect(await useMusicPlayer.getState().next('ended')).toBe(true)
     expect(useMusicPlayer.getState().queue.index).toBe(0)
     expect(engineMock.play.mock.calls.at(-1)?.[0]).toMatchObject({
-      url: '/api/music/stream/a',
+      url: '/api/music/media/stream/a',
       startAtMs: 0,
     })
 
@@ -244,7 +244,7 @@ describe('music player store', () => {
     expect(useMusicPlayer.getState().queue.tracks.map((entry) => entry.id)).toEqual(['a', 'c'])
     expect(useMusicPlayer.getState().queue.index).toBe(1)
     expect(useMusicPlayer.getState().status).toBe('playing')
-    expect(engineMock.play.mock.calls.at(-1)?.[0]).toMatchObject({ url: '/api/music/stream/c' })
+    expect(engineMock.play.mock.calls.at(-1)?.[0]).toMatchObject({ url: '/api/music/media/stream/c' })
 
     expect(await useMusicPlayer.getState().removeFromQueue('c')).toBe(true)
     expect(await useMusicPlayer.getState().removeFromQueue('a')).toBe(false)

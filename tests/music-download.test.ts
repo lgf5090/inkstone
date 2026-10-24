@@ -316,7 +316,7 @@ beforeEach(async () => {
   app.onError((error, c) => errorResponse(c, error))
   app.use('/api/*', requireClientHeader)
   app.use('/api/*', loadSession)
-  app.route('/api/music', musicDownloadRoutes)
+  app.route('/api/music/downloads', musicDownloadRoutes)
 })
 
 afterEach(() => {
@@ -707,7 +707,7 @@ describe('music download routes', () => {
     app.onError((error, c) => errorResponse(c, error))
     app.use('/api/*', requireClientHeader)
     app.use('/api/*', loadSession)
-    app.route('/api/music', musicDownloadRoutes)
+    app.route('/api/music/downloads', musicDownloadRoutes)
     env = testBindings(db, {
       MUSIC_QUEUE: testDurableObjectNamespace(async () => new Response(null, { status: 204 })),
     })

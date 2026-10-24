@@ -550,7 +550,11 @@ async function readSliceBytes(body: ReadableStream<Uint8Array>, limit: number): 
   } finally {
     // A non-conforming range answer can carry the rest of the file; it is dropped, not buffered, and a
     // body that refuses to cancel is already being discarded with the response.
-    await reader.cancel().catch(() => {})
+    // The slice reader is being abandoned; a failed cancel has no body left to observe, but the
+    // low-level warning is what keeps this from being a silent swallow.
+    await reader.cancel().catch((error) => {
+      console.warn('[inkstone] Music download slice reader could not be cancelled:', error)
+    })
   }
   const length = Math.min(total, limit)
   const bytes = new Uint8Array(length)
@@ -598,7 +602,11 @@ async function forEachBodySlice(
   } finally {
     // Stopping early leaves the upstream stream unread on purpose: the task was paused or canceled, and
     // the connection is worth more than the rest of a file nobody will store.
-    await reader.cancel().catch(() => {})
+    // The slice reader is being abandoned; a failed cancel has no body left to observe, but the
+    // low-level warning is what keeps this from being a silent swallow.
+    await reader.cancel().catch((error) => {
+      console.warn('[inkstone] Music download slice reader could not be cancelled:', error)
+    })
   }
 }
 

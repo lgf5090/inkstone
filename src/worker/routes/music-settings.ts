@@ -221,12 +221,12 @@ function mergeSources(current: MusicSettings, patchValue: unknown): MusicSetting
 
 export const musicSettingsRoutes = new Hono<AppBindings>()
 
-musicSettingsRoutes.get('/settings', async (c) => {
+musicSettingsRoutes.get('/', async (c) => {
   const store = new MusicStore(c.env.DB, c.get('userId'))
   return c.json({ settings: await loadSettings(store) })
 })
 
-musicSettingsRoutes.put('/settings', async (c) => {
+musicSettingsRoutes.put('/', async (c) => {
   const body = await readJson<Record<string, unknown>>(c, SETTINGS_BODY_LIMIT)
   const store = new MusicStore(c.env.DB, c.get('userId'))
   const settings = normalizeMusicSettings(body.settings ?? body)

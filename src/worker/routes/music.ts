@@ -14,7 +14,6 @@ import { Hono, type Context } from 'hono'
 import { musicTrackKey } from '@shared/music/model'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
-import { isValidId } from '../lib/id'
 import { createMinuteBudget } from '../lib/rate-limit'
 import { decryptMusicCookie } from '../lib/crypto'
 import { requireAuth } from '../middleware/auth'
@@ -26,7 +25,9 @@ import { createMusicDiscoveryRoutes } from './music-discovery'
 import { musicLibraryRoutes } from './music-library'
 import { createMusicAccountRoutes } from './music-account'
 import { musicDownloadRoutes } from './music-downloads'
+import { musicFileRoutes } from './music-files'
 import { musicSettingsRoutes } from './music-settings'
+import { musicUploadRoutes } from './music-uploads'
 
 type Ctx = Context<AppBindings>
 
@@ -134,9 +135,9 @@ musicRoutes.get('/health', async (c) => {
  */
 musicRoutes.get('/library/lyrics/:trackId', async (c) => {
   const trackId = c.req.param('trackId') ?? ''
-  if (!isValidId(trackId)) throw ApiError.notFound('That track does not exist')
+  if (!trackId || trackId.length > 128) throw ApiError.notFound('That track does not exist')
   const store = new MusicStore(c.env.DB, c.get('userId'))
-  const track = await store.getTrack(trackId)
+  const track = await store.getTrack(trackId) ?? await store.findTrack('netease', trackId)
   if (!track) throw ApiError.notFound('That track does not exist')
   const cached = await store.getLyric(musicTrackKey(track.provider, track.providerId))
   if (cached) return c.json(cached)
@@ -165,8 +166,13 @@ const deps: MusicRouteDeps = {
   translate: musicProviderErrorToApiError,
 }
 
-musicRoutes.route('/', createMusicDiscoveryRoutes(deps))
+// Each child router carries a `use('*')` guard. Mounted at `/`, any one of them would answer a path
+// it does not own with its own 404 before the next router saw the request, so every router gets a
+// prefix and discovery is the only app left at the root, registered last.
 musicRoutes.route('/library', musicLibraryRoutes)
-musicRoutes.route('/', musicDownloadRoutes)
 musicRoutes.route('/account', createMusicAccountRoutes(deps))
-musicRoutes.route('/', musicSettingsRoutes)
+musicRoutes.route('/media', musicFileRoutes)
+musicRoutes.route('/uploads', musicUploadRoutes)
+musicRoutes.route('/downloads', musicDownloadRoutes)
+musicRoutes.route('/settings', musicSettingsRoutes)
+musicRoutes.route('/', createMusicDiscoveryRoutes(deps))

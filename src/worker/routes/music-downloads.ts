@@ -30,12 +30,12 @@ export const musicDownloadRoutes = new Hono<AppBindings>()
 
 musicDownloadRoutes.use('*', requireAuth)
 
-musicDownloadRoutes.get('/downloads', async (c) => {
+musicDownloadRoutes.get('/', async (c) => {
   const downloads = new MusicDownloadStore(c.env.DB, c.get('userId'))
   return c.json({ items: await downloads.list() })
 })
 
-musicDownloadRoutes.post('/downloads', async (c) => {
+musicDownloadRoutes.post('/', async (c) => {
   requireMusicStorage(c.env)
   // Checked before the row exists: a deployment that forgot the binding must not queue a task it can
   // never run. The row would otherwise sit at `queued` with nothing to wake it.
@@ -66,7 +66,7 @@ musicDownloadRoutes.post('/downloads', async (c) => {
   return c.json({ download }, created ? 201 : 200)
 })
 
-musicDownloadRoutes.patch('/downloads/:id', async (c) => {
+musicDownloadRoutes.patch('/:id', async (c) => {
   const id = downloadId(c.req.param('id'))
   const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
   const action = downloadAction(body.action)
@@ -87,7 +87,7 @@ musicDownloadRoutes.patch('/downloads/:id', async (c) => {
   return c.json({ download: result.download })
 })
 
-musicDownloadRoutes.delete('/downloads/:id', async (c) => {
+musicDownloadRoutes.delete('/:id', async (c) => {
   const id = downloadId(c.req.param('id'))
   const userId = c.get('userId')
   const downloads = new MusicDownloadStore(c.env.DB, userId)
