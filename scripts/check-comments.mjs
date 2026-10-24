@@ -28822,6 +28822,9 @@ const allowed = new Map([
     "/**\n * Adds to — or takes away from — one habit's day, and answers with the day's new total.\n *\n * Both rules that make a tap safe to press twice on a bad line live in the statement rather than in what\n * the client believed: the day's total is clamped into `0..MAX_COUNTER_DAY_AMOUNT` by the database, and a\n * total that lands back on zero is removed instead of kept, so undoing the last tap leaves no row and an\n * untouched day keeps reading as a day nobody did rather than as a day with a record in it. The total\n * comes back from the row, so the screen is told what the day holds rather than repeating what it asked.\n */",
     "// No row is the same answer as a row of none: the zero-removal above is what makes them agree.",
     "/**\n * Stops a habit's stopwatch and files what it ran onto one day.\n *\n * The claim between the read and the write carries the answer: a call that no longer names the run in the\n * row filed nothing and says so, which is what keeps a late stop from stealing a run that began after it.\n * Reading the instant from the row rather than from the request is what keeps a slow device's clock out of\n * the ledger.\n *\n * The run lands on the day it began, in the account's zone, for the reason every other day column in this\n * schema is written at the write instead of derived at the read.\n *\n * `filed` is null when nothing was written — the run was already stopped, the clock went backwards, or the\n * run was shorter than a second — so no caller reports a day it did not touch.\n */",
+    "// The habit's own stamp moves with a day it holds. The day rows carry no stamp of their own, so a",
+    "// stream that asks \"what changed since\" can only read them through their habit — and a record that",
+    "// never stamps its own habit is a record no other device is ever told about.",
   ]],
   ["src/worker/todos/feeds.ts", [
     "/** The feed a published slug names, whether or not it is still alive — the caller decides what a dead one says. */",
@@ -32628,6 +32631,9 @@ const allowed = new Map([
     "// draws what it hoped the day held.",
     "// Undoing the last tap removes the row rather than writing a zero, so \"untouched\" and \"all taken back\"",
     "// are the same record — and answer the same zero.",
+    "// An old stamp, so the new one is a fact rather than a coin flip on the millisecond.",
+    "// The day rows carry no stamp of their own; a habit whose stamp never moves is a habit whose days",
+    "// no other device is ever told about.",
   ]],
   ["tests/todo-day-columns.test.ts", [
     "/**\n * The two day columns the statistics stand on.\n *\n * `created_on` / `completed_on` hold the reader's calendar day (`YYYY-MM-DD`), not a UTC date derived\n * when the statistics run: a fixed offset drifts across DST and files a task under the wrong day.\n * These tests pin the shape a fresh database gets, the backfill that gives older rows a day, the\n * cross-zone and DST readings that motivated the columns, and the refusal to leave a half-filled\n * table when a row cannot be dated.\n */",

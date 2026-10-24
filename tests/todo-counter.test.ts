@@ -129,6 +129,18 @@ describe('creating a habit', () => {
 })
 
 describe('tapping a day', () => {
+  it('stamps its own habit, so a stream that reads habits by `updated_at` can see the day at all', async () => {
+    const habit = await newHabit('Water', { goal: 8 })
+    // An old stamp, so the new one is a fact rather than a coin flip on the millisecond.
+    sqlite.prepare('UPDATE todos_counters SET updated_at = 1000 WHERE user_id = ?1 AND id = ?2').run(USER, habit.id)
+
+    await addCounterTick(db, USER, habit.id, '2026-10-20', 1)
+
+    // The day rows carry no stamp of their own; a habit whose stamp never moves is a habit whose days
+    // no other device is ever told about.
+    expect((await getCounter(db, USER, habit.id))!.updatedAt).toBeGreaterThan(1000)
+  })
+
   it('adds, and takes away, and leaves no row when the day is empty again', async () => {
     const habit = await newHabit('Water', { goal: 8 })
     // The press answers with the day's total rather than repeating what it was asked, so a screen never

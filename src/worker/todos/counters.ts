@@ -223,6 +223,11 @@ export async function addCounterTick(
     db
       .prepare(`DELETE FROM todos_counter_ticks WHERE user_id = ?1 AND counter_id = ?2 AND day = ?3 AND amount <= 0`)
       .bind(userId, counterId, day),
+    // The habit's own stamp moves with a day it holds. The day rows carry no stamp of their own, so a
+    // stream that asks "what changed since" can only read them through their habit — and a record that
+    // never stamps its own habit is a record no other device is ever told about.
+    db.prepare(`UPDATE todos_counters SET updated_at = ?2 WHERE user_id = ?1 AND id = ?3`)
+      .bind(userId, Date.now(), counterId),
   ])
   const row = await db
     .prepare(`SELECT amount FROM todos_counter_ticks WHERE user_id = ?1 AND counter_id = ?2 AND day = ?3`)
