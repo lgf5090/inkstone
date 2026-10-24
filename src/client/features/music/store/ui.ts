@@ -2,8 +2,9 @@
  * What the music shell is showing, as opposed to what the player is playing.
  *
  * The page is mirrored here from the address so a pane can read it with one selector; the address
- * remains the source of truth and `MusicApp` writes the parse result after every navigation. The two
- * overlays are transient by design — a queue drawer reopened after a reload would be a surprise.
+ * remains the source of truth and `MusicApp` writes the parse result after every navigation. The
+ * overlays are transient by design — a queue drawer or a Now Playing layer reopened after a reload
+ * would be a surprise. Now Playing remembers which tab it was left on within the session only.
  *
  * Search history is the only persisted value: it is per device, and it is what makes the search box
  * useful on the second visit. It is capped at the shared limit so the record cannot grow forever.
@@ -17,9 +18,14 @@ import type { MusicPage } from '../music-address'
 const STORAGE_KEY = IS_DEMO_MODE ? 'inkstone.demo.music.searchHistory' : 'inkstone.music.searchHistory'
 const MAX_TERM_LENGTH = 200
 
+/** The two panes the full-screen Now Playing layer offers. */
+export type MusicNowPlayingTab = 'lyrics' | 'queue'
+
 export const MUSIC_UI_DEFAULTS = {
   queueOpen: false,
   lyricsOpen: false,
+  nowPlayingOpen: false,
+  nowPlayingTab: 'lyrics' as MusicNowPlayingTab,
   quality: DEFAULT_MUSIC_SETTINGS.quality as MusicQuality,
 } as const
 
@@ -27,8 +33,11 @@ export interface MusicUiState {
   page: MusicPage
   /** The right-hand queue drawer. Closing it leaves the player untouched. */
   queueOpen: boolean
-  /** The full-screen lyrics layer. */
+  /** The full-screen lyrics layer, still reachable from the lyric panel's own expand control. */
   lyricsOpen: boolean
+  /** The full-screen Now Playing layer. */
+  nowPlayingOpen: boolean
+  nowPlayingTab: MusicNowPlayingTab
   searchHistory: string[]
   /** The quality the next play request asks for; the account setting remains the fallback. */
   quality: MusicQuality
@@ -37,6 +46,8 @@ export interface MusicUiState {
   toggleQueue: () => void
   setLyricsOpen: (open: boolean) => void
   toggleLyrics: () => void
+  setNowPlayingOpen: (open: boolean, tab?: MusicNowPlayingTab) => void
+  setNowPlayingTab: (tab: MusicNowPlayingTab) => void
   pushSearchHistory: (term: string) => void
   removeSearchHistory: (term: string) => void
   clearSearchHistory: () => void
@@ -80,6 +91,8 @@ export const useMusicUi = create<MusicUiState>((set, get) => ({
   page: { kind: 'home' },
   queueOpen: MUSIC_UI_DEFAULTS.queueOpen,
   lyricsOpen: MUSIC_UI_DEFAULTS.lyricsOpen,
+  nowPlayingOpen: MUSIC_UI_DEFAULTS.nowPlayingOpen,
+  nowPlayingTab: MUSIC_UI_DEFAULTS.nowPlayingTab,
   searchHistory: readHistory(),
   quality: MUSIC_UI_DEFAULTS.quality,
 
@@ -88,7 +101,7 @@ export const useMusicUi = create<MusicUiState>((set, get) => ({
   },
 
   setQueueOpen(open) {
-    set({ queueOpen: open, ...(open ? { lyricsOpen: false } : {}) })
+    set({ queueOpen: open, ...(open ? { lyricsOpen: false, nowPlayingOpen: false } : {}) })
   },
 
   toggleQueue() {
@@ -101,6 +114,20 @@ export const useMusicUi = create<MusicUiState>((set, get) => ({
 
   toggleLyrics() {
     get().setLyricsOpen(!get().lyricsOpen)
+  },
+
+  setNowPlayingOpen(open, tab) {
+    // One surface at a time: the layer owns the queue and the lyric panel inside it, so leaving the
+    // drawer or the standalone lyric layer behind it would stack two transports.
+    set({
+      nowPlayingOpen: open,
+      ...(open && tab ? { nowPlayingTab: tab } : {}),
+      ...(open ? { queueOpen: false, lyricsOpen: false } : {}),
+    })
+  },
+
+  setNowPlayingTab(tab) {
+    set({ nowPlayingTab: tab })
   },
 
   pushSearchHistory(term) {

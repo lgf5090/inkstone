@@ -33,6 +33,7 @@ import { AssistantDock } from '../chat/AssistantDock'
 import { MiniPlayer } from './components/MiniPlayer'
 import { MusicSidebar } from './components/MusicSidebar'
 import { FullLyrics } from './components/FullLyrics'
+import { NowPlaying } from './components/NowPlaying'
 import { PlayBar } from './components/PlayBar'
 import { QueueDrawer } from './components/QueueDrawer'
 import { useMusicLibrary } from './store/library'
@@ -244,8 +245,9 @@ export function MusicApp(): ReactElement {
       </div>
 
       <PlayBar />
-      <MiniPlayer onExpand={() => useMusicUi.getState().setLyricsOpen(true)} />
+      <MiniPlayer onOpenNowPlaying={() => useMusicUi.getState().setNowPlayingOpen(true, 'lyrics')} />
       <QueueDrawer />
+      <NowPlaying />
       <FullLyrics />
     </section>
   )

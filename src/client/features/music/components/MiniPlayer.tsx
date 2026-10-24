@@ -3,7 +3,7 @@
  *
  * It is mounted instead of the desktop bar on a narrow shell (the stylesheet keeps it hidden above
  * the phone breakpoint, so a shell that renders both never shows two bars). The body is one button
- * that asks the shell to expand the full-screen layer; the play and next controls sit beside it so
+ * that asks the shell to open the Now Playing layer; the play and next controls sit beside it so
  * neither gesture swallows the other.
  */
 import type { ReactElement } from 'react'
@@ -15,11 +15,11 @@ import { Cover } from './Cover'
 import { musicText } from './labels'
 
 export interface MiniPlayerProps {
-  /** Opens the full-screen surface. The shell owns how (a route, a modal, a sheet). */
-  onExpand: () => void
+  /** Opens the Now Playing layer; the shell decides which tab it starts on. */
+  onOpenNowPlaying: () => void
 }
 
-export function MiniPlayer({ onExpand }: MiniPlayerProps): ReactElement | null {
+export function MiniPlayer({ onOpenNowPlaying }: MiniPlayerProps): ReactElement | null {
   const current = useMusicPlayer(selectCurrentTrack)
   const status = useMusicPlayer((state) => state.status)
   const positionMs = useMusicPlayer((state) => state.positionMs)
@@ -47,7 +47,7 @@ export function MiniPlayer({ onExpand }: MiniPlayerProps): ReactElement | null {
         type="button"
         className="music-miniplayer__body"
         aria-label={musicText('music.miniplayer.expand')}
-        onClick={onExpand}
+        onClick={onOpenNowPlaying}
       >
         <Cover trackId={current.id} src={current.coverUrl || undefined} size="sm" radius="sm" />
         <span className="music-miniplayer__text">

@@ -1031,3 +1031,203 @@
   block-size: auto;
   aspect-ratio: 1;
 }
+
+/* ── Now playing ────────────────────────────────────────────────────────────────────────────── */
+
+/* The layer fills the phone and becomes a bounded desktop card. The dialog shell already centres it
+   and handles focus; this rule only decides how much room the card takes. */
+.music-nowplaying {
+  block-size: 100dvh;
+  max-block-size: 100dvh;
+  border: 0;
+  border-radius: 0;
+  background: var(--bg-overlay);
+}
+
+@media (min-width: 768px) {
+  .music-nowplaying {
+    block-size: 760px;
+    max-block-size: calc(var(--app-viewport-height, 100dvh) - 4rem);
+    border: 1px solid var(--border-default);
+    border-radius: var(--r-2xl);
+    overflow: hidden;
+  }
+}
+
+.music-nowplaying__layout {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-block-size: 0;
+  overflow: hidden;
+  padding-block-end: env(safe-area-inset-bottom);
+}
+
+@media (min-width: 768px) {
+  .music-nowplaying__layout {
+    flex-direction: row;
+    padding-block-end: 0;
+  }
+}
+
+.music-nowplaying__layout--empty {
+  gap: var(--sp-4);
+  padding: calc(var(--sp-3) + env(safe-area-inset-top)) var(--sp-4) var(--sp-4);
+}
+
+.music-nowplaying__stage {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-3);
+  min-block-size: 0;
+  overflow-y: auto;
+  padding: calc(var(--sp-3) + env(safe-area-inset-top)) var(--sp-4) var(--sp-2);
+  background: var(--bg-overlay);
+}
+
+@media (min-width: 768px) {
+  .music-nowplaying__stage {
+    flex: 0 0 400px;
+    padding: var(--sp-5) var(--sp-6);
+    border-inline-end: 1px solid var(--border-subtle);
+    overflow-y: auto;
+  }
+}
+
+.music-nowplaying__topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  inline-size: 100%;
+}
+
+.music-nowplaying__eyebrow {
+  margin: 0;
+  font-size: var(--text-10-5);
+  font-weight: 600;
+  letter-spacing: var(--tracking-section);
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+/* The hero cover is square but never taller than a share of the viewport, so the transport keeps its
+   place on a short phone. */
+.music-nowplaying__cover {
+  --music-cover-size: clamp(160px, 30dvh, 240px);
+  margin-block-start: var(--sp-1);
+  box-shadow: var(--shadow-pop);
+}
+
+@media (min-width: 768px) {
+  .music-nowplaying__cover {
+    --music-cover-size: clamp(220px, 34dvh, 300px);
+  }
+}
+
+.music-nowplaying__heading {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  text-align: center;
+}
+
+.music-nowplaying__title {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-family: var(--font-display);
+  font-size: var(--text-20);
+  font-weight: 600;
+  letter-spacing: var(--tracking-title);
+  line-height: 1.25;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.music-nowplaying__artist {
+  margin: var(--sp-1) 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-12-5);
+  color: var(--text-secondary);
+}
+
+.music-nowplaying__progress {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  inline-size: 100%;
+  max-inline-size: 340px;
+}
+
+.music-nowplaying__transport {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+.music-nowplaying__play {
+  inline-size: 48px;
+  block-size: 48px;
+}
+
+.music-nowplaying__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding-block-start: var(--sp-1);
+}
+
+.music-nowplaying__panel {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-block-size: 0;
+  min-inline-size: 0;
+  background: var(--bg-sunken);
+}
+
+.music-nowplaying__tabs {
+  flex: 0 0 auto;
+  padding-inline: var(--sp-3);
+  background: var(--bg-sunken);
+}
+
+.music-nowplaying__tabpanel {
+  display: flex;
+  flex: 1 1 auto;
+  min-block-size: 0;
+  overflow: hidden;
+}
+
+.music-nowplaying__lyrics {
+  min-block-size: 0;
+}
+
+.music-nowplaying__queue {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.music-nowplaying__empty {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  padding: var(--sp-8) var(--sp-4);
+  font-size: var(--text-13);
+  text-align: center;
+  color: var(--text-tertiary);
+}
+
+.music-nowplaying__empty p {
+  margin: 0;
+}

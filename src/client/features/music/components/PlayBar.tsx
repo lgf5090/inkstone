@@ -1,6 +1,6 @@
 /**
  * The persistent transport, in three zones: what is playing, the transport and progress, and the
- * switches that open the queue, the lyrics layer and the overflow menu.
+ * switches that open the queue, the Now Playing lyrics tab and the overflow menu.
  *
  * The progress slider is `immediate`: a drag has to reach the audio element as it moves, and the
  * component's own coalescing would swallow the last value when the reader lets go. Times are printed
@@ -68,9 +68,10 @@ export function PlayBar(): ReactElement {
   const favorites = useMusicLibrary((state) => state.favorites)
   const toggleFavorite = useMusicLibrary((state) => state.toggleFavorite)
   const queueOpen = useMusicUi((state) => state.queueOpen)
-  const lyricsOpen = useMusicUi((state) => state.lyricsOpen)
+  const nowPlayingOpen = useMusicUi((state) => state.nowPlayingOpen)
+  const nowPlayingTab = useMusicUi((state) => state.nowPlayingTab)
   const toggleQueue = useMusicUi((state) => state.toggleQueue)
-  const toggleLyrics = useMusicUi((state) => state.toggleLyrics)
+  const setNowPlayingOpen = useMusicUi((state) => state.setNowPlayingOpen)
 
   const [moreOpen, setMoreOpen] = useState(false)
   const [panel, setPanel] = useState<'eq' | 'sleep' | 'source' | null>(null)
@@ -296,8 +297,8 @@ export function PlayBar(): ReactElement {
           <IconButton
             label={musicText('music.playbar.lyrics')}
             size="sm"
-            active={lyricsOpen}
-            onClick={() => toggleLyrics()}
+            active={nowPlayingOpen && nowPlayingTab === 'lyrics'}
+            onClick={() => setNowPlayingOpen(true, 'lyrics')}
           >
             <Mic2 size={15} />
           </IconButton>
