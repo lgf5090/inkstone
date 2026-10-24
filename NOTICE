@@ -15,6 +15,7 @@ Inkstone is offered as a network service, so §13 of the license applies: every 
 | Component | Upstream | Version | License | Where |
 |---|---|---|---|---|
 | Templater template engine (`tp.*` modules, template reference texts, ported test cases) | [SilentVoid13/Templater](https://github.com/SilentVoid13/Templater) (`templater-obsidian`) | 2.26.0 | AGPL-3.0-only | listed per file in its header |
+| LRC/YRC lyric parser (`shared/music/lyrics.ts`) | [algerkong/AlgerMusicPlayer](https://github.com/algerkong/AlgerMusicPlayer) | 5.1.0 | MIT | `src/shared/music/lyrics.ts` header |
 
 Every file that carries copied or adapted text from the upstream project states its origin in a comment of this form, at the file header or at the ported section:
 
@@ -26,4 +27,4 @@ The statement is in English because this repository holds every source comment t
 
 Files that only follow the upstream *documented behaviour* without copying its text carry the opposite statement instead, so a reader can always tell derivation from independent implementation. This table lists the components, not the individual files; the per-file statements are authoritative.
 
-The `AGPL-3.0-only` license of the upstream project also covers anything redistributed with Inkstone that came from it, so removing a derived file does not remove the obligation for a build that already shipped it.
+The upstream licenses above also cover anything redistributed with Inkstone that came from those projects, so removing a derived file does not remove the obligation for a build that already shipped it.
