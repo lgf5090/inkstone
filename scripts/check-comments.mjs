@@ -3070,7 +3070,6 @@ const allowed = new Map([
     "/* A tool answers with whatever it likes, so this is text as it arrived — never markdown and\n                  never HTML, or a remote server's own output would render as this app's interface. */",
     "/**\n * What the reply did, as one fold rather than a row of pills per call.\n *\n * A turn that searched, read two notes and called a third party used to open as four chips in a row, and\n * a long thread read as a wall of them. The group is the answer to \"what did it do\" and the rows inside\n * are the answer to \"what exactly\" — which is what a reader wants when the answer looks wrong.\n *\n * It opens by itself while a call is in flight, because that is the half of a turn worth watching, and\n * folds once the turn settles; from then on it is whatever the reader last chose.\n */",
     "/**\n * The name a stored call wears on its row.\n *\n * A third party's function arrives namespaced (`mcp_rzmbk9_query-docs`), which says nothing to a reader.\n * The configured servers are already in the store, so the row says `Context7 · query-docs` where that\n * list has landed and keeps the raw name when it has not — a chip is never worth a failed read.\n */",
-    "/**\n * One call, folded.\n *\n * The row states what happened before anything is opened — a spinner, a check or a cross, and the word\n * for it — and the payloads underneath are the text the model was actually given and handed back. A\n * third-party call also offers to run again: a reader looking at an answer built on a stale lookup has no\n * other way to ask whether it is still stale.\n */",
     "/** The row this reply is stored on, which is what a third-party call is run again from. */",
     "/* The trace is named by what it is rather than by what pressing does: the header is the one\n                line of a turn that says the model thought before answering, and a reader skimming a long\n                thread reads it instead of the reasoning itself. */",
     "// Looking at an earlier answer means looking at the thinking that answer was written by; falling back to",
@@ -3197,8 +3196,6 @@ const allowed = new Map([
     "/**\n   * Whether this is the answer the reader can ask the next question from.\n   *\n   * The thread decides it, not the row: the newest settled answer is the only one a follow-up continues\n   * from, and a question aimed at an older turn would be answered against everything below it.\n   */",
     "/* The questions the answer earned, in the row it belongs to and nowhere else: an older answer in\n            the thread keeps its own chips, but only the newest one has a next turn to be asked into. */",
     "/* A citation's hint is its excerpt, up to three hundred characters of it, and the app's own\n                    tooltip is one unwrapped line — the browser's is the only one that wraps. Every other hint\n                    on this row was moved to `Tooltip`; this one stays because the text it carries cannot fit\n                    there, and a hint that paints past the viewport is worse than two systems of hint. */",
-    "// A clipped or malformed result falls back to the raw fold below; the proposal is an extra view, not",
-    "// the only place the answer is kept.",
     "/**\n * What an agent's note write would change, shown before the approval rather than after it.\n *\n * The write itself still happens through the ordinary approved-tool path; this preview is the reader's\n * chance to see the words leaving and arriving first. A failed read leaves the card as it was.\n */",
     "// A write is held as the call itself, so the card has no resolved `targetId` (that lookup is the",
     "// destructive path's). The note it would change is the one the call names.",
@@ -3207,6 +3204,8 @@ const allowed = new Map([
     "// resolved target, so the id lives beside `content`, not in `targetId`.",
     "/** The worker's code for that error, so the card can name a cause instead of echoing the provider. */",
     "/** Re-answer this stored message under a model the reader picks from the menu. */",
+    "/**\n * The press that writes what a to-do draft proposed.\n *\n * A draft is the one tool answer that is not a report: `plan_today` proposes rows for today and\n * `decompose_task` proposes the steps of a task, and until now the reader had to retype both. Every\n * button here goes through the same doors the screens use — the plan endpoint, the task panel — and\n * the row leaves the card only once the server said it landed, so a failed press stays visible.\n */",
+    "// The two drafts the to-do tools answer with, offered as the press that writes them.",
   ]],
   ["src/client/features/chat/ModelEditorDialog.tsx", [
     "/**\n * The model's own editor: what it is for, what it can do, and the numbers it is given.\n *\n * The composer's chips cover the two settings a reader changes often. This covers the rest, which are\n * per-model facts rather than per-conversation choices: whether the endpoint answers in pictures, how\n * much it claims to take in, and the vendor-specific fields our request builder does not know about.\n * Everything here is read by the request path — a switch that changed nothing would be worse than no\n * switch, because it would be believed.\n */",
@@ -6094,6 +6093,15 @@ const allowed = new Map([
     "/** The one input a toast was asked for, when exactly one went out. */",
     "// The reads a write chains behind it are not this file's subject; the real ones would ask for a server.",
     "// Not an empty description riding along on every toast: a surface prints it only where there is one.",
+  ]],
+  ["src/client/features/chat/todo-drafts.test.ts", [
+    "/**\n * The drafts the to-do tools answer with, read off a tool result.\n *\n * What these cases pin is the boundary between a proposal and a press: the reader's button is the only\n * thing that writes, so the reader has to be able to trust what it says it will do. A row whose id is\n * not an id, a day that is not a day, or a reason the rule never names is dropped rather than offered\n * as a button that would fail.\n */",
+  ]],
+  ["src/client/features/chat/todo-drafts.ts", [
+    "/**\n * The two drafts the to-do tools answer with, read off a tool result.\n *\n * `plan_today` and `decompose_task` write nothing: they answer with a proposal the reader accepts or\n * edits. Until now those proposals arrived as JSON in the transcript and stopped there, so the reader\n * had to retype what the model had already spelled. This reads them into the one shape the chat can\n * offer a button for.\n *\n * A draft is data, not an instruction: the reader's press is what writes, and the answer says which\n * rows it touched rather than claiming a save it did not make.\n */",
+    "/** Why a row is on a plan, in the order the rule takes them. */",
+    "/** The shape every task id in this app has, so a row that is not one is never offered as a press. */",
+    "/**\n * The draft one tool result carries, or null when it carries none.\n *\n * Read defensively: the payload is JSON a model produced, so every field is checked before it is\n * offered as a button. A row whose id is not an id is dropped rather than rendered as a press that\n * would fail.\n */",
   ]],
   ["src/client/features/chat/tool-call-detail.test.ts", [
     "// The other call's arguments are still nowhere: opening one row must not leak the rest.",
