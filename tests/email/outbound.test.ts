@@ -47,6 +47,36 @@ describe('outbound helpers', () => {
     })).rejects.toMatchObject({ status: 503, code: 'email_send_unavailable' })
   })
 
+  it('hands an inline image to the Cloudflare binding with its content id', async () => {
+    const send = vi.fn(async () => ({ messageId: 'cloudflare-1' }))
+    const env = { EMAIL: { send } } as unknown as Env
+
+    await sendViaBinding(env, {
+      to: 'a@example.com',
+      from: 'me@example.com',
+      subject: 'Picture',
+      html: '<p>see <img src="cid:inline-1"></p>',
+      attachments: [{
+        content: 'AA==',
+        filename: 'photo.png',
+        type: 'image/png',
+        disposition: 'inline',
+        contentId: 'inline-1',
+      }],
+    })
+
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      html: '<p>see <img src="cid:inline-1"></p>',
+      attachments: [{
+        content: 'AA==',
+        filename: 'photo.png',
+        type: 'image/png',
+        disposition: 'inline',
+        contentId: 'inline-1',
+      }],
+    }))
+  })
+
   it('sends inline attachments with their content id and regular ones without', async () => {
     const sqlite = new DatabaseSync(':memory:')
     sqlite.exec(`CREATE TABLE email_attachments (

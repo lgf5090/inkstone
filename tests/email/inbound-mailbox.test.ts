@@ -681,6 +681,95 @@ describe('the inbound mailbox handler', () => {
   })
 })
 
+describe('inline images from mainstream mail clients', () => {
+  const PNG_1PX = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lK3CnwAAAABJRU5ErkJggg=='
+
+  function relatedMime(input: {
+    contentId: string
+    html: string
+    subject: string
+    quotedPrintable?: boolean
+    disposition?: string
+  }): string {
+    const html = input.quotedPrintable ? input.html.replace(/=/g, '=3D') : input.html
+    return [
+      'From: Alice <alice@example.com>',
+      `To: ${ADDRESS}`,
+      `Subject: ${input.subject}`,
+      'MIME-Version: 1.0',
+      'Content-Type: multipart/related; boundary="rel-1"',
+      '',
+      '--rel-1',
+      'Content-Type: text/html; charset="utf-8"',
+      `Content-Transfer-Encoding: ${input.quotedPrintable ? 'quoted-printable' : '7bit'}`,
+      '',
+      html,
+      '--rel-1',
+      'Content-Type: image/png; name="image.png"',
+      `Content-Disposition: ${input.disposition ?? 'inline'}; filename="image.png"`,
+      'Content-Transfer-Encoding: base64',
+      `Content-ID: <${input.contentId}>`,
+      '',
+      PNG_1PX,
+      '--rel-1--',
+      '',
+    ].join('\r\n')
+  }
+
+  async function deliverAndRead(subject: string, contentId: string, html: string, options: { quotedPrintable?: boolean, disposition?: string } = {}) {
+    expect(await deliver({
+      to: ADDRESS,
+      raw: relatedMime({ subject, contentId, html, ...options }),
+    })).toBe('created')
+    const row = inbox().find((entry) => entry.subject === subject)
+    expect(row).toBeDefined()
+    const attachments = (await loadEmailAttachments(database.db, USER, [row!.id])).get(row!.id) ?? []
+    return { row: row!, attachments }
+  }
+
+  it('keeps a Gmail content id and its inline part', async () => {
+    const cid = 'ii_lz9x1abc@mail.gmail.com'
+    const { row, attachments } = await deliverAndRead('Gmail inline', cid, `<div><img src="cid:${cid}" width="120"></div>`)
+    expect(row.body).toContain(`src="cid:${cid}"`)
+    expect(attachments).toHaveLength(1)
+    expect(attachments[0]).toMatchObject({
+      filename: 'image.png',
+      mime: 'image/png',
+      contentId: `<${cid}>`,
+      disposition: 'inline',
+    })
+  })
+
+  it('decodes the quoted-printable body Outlook sends', async () => {
+    const cid = 'image001.png@01DA1234.56789ABC'
+    const { row, attachments } = await deliverAndRead(
+      'Outlook inline',
+      cid,
+      `<html><body><img src="cid:${cid}" alt="picture"></body></html>`,
+      { quotedPrintable: true },
+    )
+    expect(row.body).toContain(`src="cid:${cid}"`)
+    expect(attachments[0]).toMatchObject({ contentId: `<${cid}>`, disposition: 'inline' })
+  })
+
+  it('keeps an Apple Mail uuid and a QQ attachment-disposition image referenceable', async () => {
+    const apple = 'B4C1D2E3-0000-4000-8000-ABCDEF012345'
+    const first = await deliverAndRead('Apple inline', apple, `<img src="cid:${apple}">`)
+    expect(first.row.body).toContain(`cid:${apple}`)
+    expect(first.attachments[0]).toMatchObject({ contentId: `<${apple}>` })
+
+    const qq = 'img001@qq.com'
+    const second = await deliverAndRead('QQ inline', qq, '<img src="cid:img001%40qq.com">', { disposition: 'attachment' })
+    expect(second.row.body).toContain('cid:img001%40qq.com')
+    expect(second.attachments[0]).toMatchObject({
+      filename: 'image.png',
+      mime: 'image/png',
+      contentId: `<${qq}>`,
+      disposition: 'attachment',
+    })
+  })
+})
+
 describe('the inbound parsing helpers', () => {
   it('normalizes an angle-bracket recipient to a bare lower-case address', () => {
     expect(normalizeEnvelopeAddress('Name <ME@Example.COM>')).toBe('me@example.com')

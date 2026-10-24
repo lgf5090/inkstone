@@ -175,9 +175,11 @@ this occurrence and writes the next one, stamped with the dates the rule produce
 8. The email app stays hidden until the deployment has a mailbox domain. Enable Email Routing
    for that domain, point its catch-all or a dedicated address at this Worker, and set the plain
    variables `MAIL_DOMAIN` (required), `EMAIL_DOMAINS` (optional allow-list), and
-   `EMAIL_ADDRESSES` (optional fixed addresses) in the tracked Wrangler config. Outbound mail uses
-   the `[[send_email]]` binding unless it is removed, in which case the API answers that sending is
-   unavailable instead of pretending a message left. Only the owner can open the mailbox or call
+   `EMAIL_ADDRESSES` (optional fixed addresses) in the tracked Wrangler config. The routing target
+   must be the Worker deployed from this project — the `name` in `wrangler.toml`, `inkstone` by
+   default; routing to another email Worker means this app never receives the message. Outbound mail
+   uses the `[[send_email]]` binding unless it is removed, in which case the API answers that sending
+   is unavailable instead of pretending a message left. Only the owner can open the mailbox or call
    its API. In KV mode there is no R2 bucket, so email attachments are reported as unavailable
    while text mail still works.
 9. Email is private by default: automatic drafts are on per mailbox and send the incoming message

@@ -3,7 +3,7 @@ import { createElement } from 'react'
 import { describe, expect, it } from 'vitest'
 import type { EmailAttachment } from '@shared/email/model'
 import { EmailFrame } from '../../src/client/features/email/EmailFrame'
-import { emailMarkdownToHtml } from '../../src/client/features/email/email-markdown'
+import { emailMarkdownToHtml, sanitizeEmailHtml } from '../../src/client/features/email/email-markdown'
 import { rewriteEmailCidSources } from '../../src/client/features/email/format'
 import { renderElement } from '../../src/client/lib/test-render'
 
@@ -38,6 +38,36 @@ describe('cid image rewriting', () => {
     expect(rewritten).toContain('<p>cid:photo-1@inkstone</p>')
     expect(rewritten).toContain('<img src="cid:missing">')
     expect(rewritten.match(/\/api\/email\/files\/att1/g)).toHaveLength(2)
+  })
+
+  it('maps the cid shapes Gmail, Outlook, Apple Mail and QQ send', () => {
+    const html = [
+      '<img src="cid:ii_lz9x1abc@mail.gmail.com">',
+      '<img src="cid:image001.png@01DA1234.56789ABC">',
+      '<img src="cid:B4C1D2E3-0000-4000-8000-ABCDEF012345">',
+      '<img src="cid:img001%40qq.com">',
+    ].join('')
+    const rewritten = rewriteEmailCidSources(html, [
+      attachment({ id: 'gmail', contentId: '<ii_lz9x1abc@mail.gmail.com>', url: '/api/email/files/gmail' }),
+      attachment({ id: 'outlook', contentId: '<image001.png@01DA1234.56789ABC>', url: '/api/email/files/outlook' }),
+      attachment({ id: 'apple', contentId: '<B4C1D2E3-0000-4000-8000-ABCDEF012345>', url: '/api/email/files/apple' }),
+      attachment({ id: 'qq', contentId: '<img001@qq.com>', disposition: 'attachment', url: '/api/email/files/qq' }),
+    ])
+
+    expect(rewritten).not.toContain('cid:')
+    for (const source of ['gmail', 'outlook', 'apple', 'qq']) {
+      expect(rewritten).toContain(`src="/api/email/files/${source}"`)
+    }
+  })
+
+  it('keeps data and remote images that clients embed without a content id', () => {
+    const html = [
+      '<img src="data:image/png;base64,AAAA" alt="inline">',
+      '<img src="https://images.example.com/photo.png" alt="remote">',
+    ].join('')
+    const sanitized = sanitizeEmailHtml(html)
+    expect(sanitized).toContain('data:image/png;base64,AAAA')
+    expect(sanitized).toContain('https://images.example.com/photo.png')
   })
 
   it('leaves markup untouched when no attachment carries a content id', () => {
