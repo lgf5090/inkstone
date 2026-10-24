@@ -134,6 +134,11 @@ export const neteaseEndpoints = {
 
   toplist: () => call('/api/toplist', 'eapi', {}),
 
+  userDetail: (uid: string) => call(`/api/v1/user/detail/${encodeURIComponent(uid)}`, 'weapi', {}),
+
+  userPlaylists: (uid: string, limit: number, offset: number) =>
+    call('/api/user/playlist', 'weapi', { uid, limit, offset }),
+
   songDetail: (ids: string[]) =>
     call('/api/v3/song/detail', 'weapi', {
       c: `[${ids

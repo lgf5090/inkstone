@@ -28,6 +28,7 @@ import type {
   MusicRadioSummary,
   MusicSearchResult,
   MusicToplistSummary,
+  MusicUserProfile,
 } from '../../../shared/music/api'
 
 export interface MusicPageQuery {
@@ -206,6 +207,7 @@ export interface MusicProvider {
   downloadUrl(providerId: string, quality: string): Promise<MusicStreamSource>
 
   accountStatus(): Promise<MusicAccountStatus>
+  userProfile(uid: string): Promise<MusicUserProfile>
   loginQrKey(): Promise<MusicQrChallenge>
   loginQrPoll(key: string): Promise<MusicQrPollResult>
   loginCookie(cookie: string): Promise<MusicLoginSession>

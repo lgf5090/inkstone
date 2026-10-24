@@ -87,6 +87,11 @@ export function createMusicDiscoveryRoutes(deps: MusicRouteDeps): Hono<AppBindin
 
   routes.get('/home/fm', (c) => guarded(c, async (provider) => c.json({ tracks: await provider.personalFm() })))
 
+  routes.get('/user/:id', (c) => {
+    const id = boundedId(c.req.param('id'), 'user')
+    return guarded(c, async (provider) => c.json(await provider.userProfile(id)))
+  })
+
   routes.post('/home/fm/trash', async (c) => {
     const body = await readOptionalJson<{ trackId?: unknown; providerId?: unknown }>(c, 8 * 1024, {})
     const raw = typeof body.providerId === 'string'

@@ -16,7 +16,6 @@ import type {
   MusicPlaylistSummary,
   MusicRadioDetail,
   MusicSearchResult,
-  MusicSearchType,
   MusicToplistSummary,
   MusicUploadInit,
   MusicUploadPartResult,
@@ -27,6 +26,7 @@ import type {
   MusicDownload,
   MusicHistoryEntry,
   MusicPlaylist,
+  MusicSearchType,
   MusicSettings,
   MusicSubscription,
   MusicTrack,
@@ -54,7 +54,7 @@ export const musicApi = {
   suggest: (keywords: string) => request<{ items: string[] }>(`/api/music/search/suggest${query({ q: keywords })}`),
   hot: () => request<{ items: string[] }>('/api/music/search/hot'),
 
-  playlists: (page = 1, limit = 30, cat = '', order = 'hot') =>
+  playlistSquare: (page = 1, limit = 30, cat = '', order = 'hot') =>
     request<MusicPage<MusicPlaylistSummary>>(`/api/music/playlists${query({ page, limit, cat, order })}`),
   playlistCategories: () => request<{ items: Array<{ name: string; hot: boolean }> }>('/api/music/playlists/categories'),
   playlist: (id: string, provider: 'netease' | 'local' = 'netease', page = 1, limit = 100) =>

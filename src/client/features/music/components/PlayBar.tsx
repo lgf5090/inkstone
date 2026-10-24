@@ -29,12 +29,15 @@ import { formatDuration, musicArtistNames } from '@shared/music/format'
 import type { MusicPlayMode } from '@shared/music/model'
 import { IconButton, Spinner } from '../../../components/primitives'
 import { Slider } from '../../../components/form'
-import { Menu, Tooltip, type MenuItem } from '../../../components/overlay'
+import { Drawer, Menu, Tooltip, type MenuItem } from '../../../components/overlay'
 import { useMusicLibrary } from '../store/library'
 import { selectCurrentTrack, useMusicPlayer } from '../store/player'
 import { MUSIC_RATE_RANGE } from '../store/settings'
 import { useMusicUi } from '../store/ui'
 import { Cover } from './Cover'
+import { EqPanel } from './EqPanel'
+import { SleepTimer } from './SleepTimer'
+import { SourcePicker } from './SourcePicker'
 import { musicText } from './labels'
 
 const PLAY_MODES: readonly MusicPlayMode[] = ['order', 'repeat', 'repeatOne', 'shuffle']
@@ -69,6 +72,7 @@ export function PlayBar(): ReactElement {
   const toggleLyrics = useMusicUi((state) => state.toggleLyrics)
 
   const [moreOpen, setMoreOpen] = useState(false)
+  const [panel, setPanel] = useState<'eq' | 'sleep' | 'source' | null>(null)
   const moreRef = useRef<HTMLButtonElement>(null)
 
   const favorite = current ? favorites.some((entry) => entry.id === current.id) : false
@@ -123,6 +127,22 @@ export function PlayBar(): ReactElement {
       separatorBefore: value === RATE_STEPS[0],
       onSelect: () => setRate(value),
     })),
+    {
+      id: 'panel-eq',
+      label: musicText('music.panel.eq'),
+      separatorBefore: true,
+      onSelect: () => setPanel('eq'),
+    },
+    {
+      id: 'panel-sleep',
+      label: musicText('music.panel.sleep'),
+      onSelect: () => setPanel('sleep'),
+    },
+    {
+      id: 'panel-source',
+      label: musicText('music.panel.source'),
+      onSelect: () => setPanel('source'),
+    },
   ]
 
   if (!current) {
@@ -157,25 +177,22 @@ export function PlayBar(): ReactElement {
             {awaitingGesture ? musicText('music.playbar.resume') : musicArtistNames(current)}
           </span>
         </span>
-        <span className="music-playbar__favorite">
-          <IconButton
-            label={musicText(favorite ? 'music.song.unfavorite' : 'music.song.favorite')}
-            size="sm"
-            active={favorite}
-            onClick={() => {
-              void toggleFavorite(current)
-            }}
-          >
-            <Heart size={15} className={favorite ? 'fill-current' : undefined} />
-          </IconButton>
-        </span>
+        <IconButton
+          label={musicText(favorite ? 'music.song.unfavorite' : 'music.song.favorite')}
+          size="sm"
+          active={favorite}
+          onClick={() => {
+            void toggleFavorite(current)
+          }}
+        >
+          <Heart size={15} className={favorite ? 'fill-current' : undefined} />
+        </IconButton>
       </div>
 
       <div className="music-playbar__center">
         <div className="music-playbar__transport">
           <Tooltip label={musicText('music.playbar.previous')}>
             <IconButton
-              className="music-playbar__prev"
               label={musicText('music.playbar.previous')}
               onClick={() => {
                 void prev()
@@ -269,6 +286,17 @@ export function PlayBar(): ReactElement {
           width={200}
           label={musicText('music.playbar.more')}
         />
+        <Drawer
+          open={panel !== null}
+          onClose={() => setPanel(null)}
+          side="right"
+          width={340}
+          title={panel ? musicText(`music.panel.${panel}`) : ''}
+        >
+          {panel === 'eq' && <EqPanel />}
+          {panel === 'sleep' && <SleepTimer />}
+          {panel === 'source' && <SourcePicker />}
+        </Drawer>
       </div>
     </div>
   )

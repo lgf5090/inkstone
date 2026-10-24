@@ -45,7 +45,7 @@ function track(overrides: Partial<MusicTrack> = {}): MusicTrack {
   }
 }
 
-function buttonByLabel(scope: ParentNode, label: string): HTMLButtonElement | null {
+function buttonByLabel(scope: HTMLElement, label: string): HTMLButtonElement | null {
   return [...scope.querySelectorAll<HTMLButtonElement>('button')].find(
     (button) => button.getAttribute('aria-label') === label,
   ) ?? null
@@ -114,6 +114,11 @@ describe('SongRow', () => {
     })
     expect(onPlay).toHaveBeenCalledTimes(1)
     expect(onPlay).toHaveBeenCalledWith(sample)
+
+    act(() => {
+      main!.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }))
+    })
+    expect(onPlay).toHaveBeenCalledTimes(2)
 
     // The row is current: its state cell is the playing mark rather than a number.
     expect(rendered.container.querySelector('.music-row--active')).toBeTruthy()

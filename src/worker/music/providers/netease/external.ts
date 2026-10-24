@@ -25,6 +25,7 @@ import type {
   MusicRadioSummary,
   MusicSearchResult,
   MusicToplistSummary,
+  MusicUserProfile,
 } from '../../../../shared/music/api'
 import {
   MusicProviderError,
@@ -568,6 +569,25 @@ export class ExternalNeteaseProvider implements MusicProvider, NeteaseLoginTrans
 
   async accountStatus(): Promise<MusicAccountStatus> {
     return this.login.status()
+  }
+
+  async userProfile(uid: string): Promise<MusicUserProfile> {
+    const [detail, playlists] = await Promise.all([
+      this.bodyOf('/user/detail', { uid }),
+      this.bodyOf('/user/playlist', { uid, limit: 100, offset: 0 }),
+    ])
+    const profile = record(detail.profile)
+    return {
+      id: text(profile.userId) || uid,
+      nickname: text(profile.nickname) || 'Netease user',
+      avatarUrl: text(profile.avatarUrl),
+      signature: text(profile.signature),
+      follows: number(profile.follows, 0),
+      followers: number(profile.followeds, 0),
+      playlists: list(playlists.playlist)
+        .map((item) => normalizePlaylistSummary(item))
+        .filter((item) => item.id),
+    }
   }
 
   async loginQrKey(): Promise<MusicQrChallenge> {

@@ -466,7 +466,9 @@
   outline-offset: -2px;
 }
 
-.music-row__main:disabled {
+/* A row a page cannot offer stays focusable: its tooltip is the explanation, and a disabled button
+   would drop both the reason and the row out of the tab order. */
+.music-row__main[aria-disabled='true'] {
   cursor: default;
 }
 
@@ -829,31 +831,13 @@
   color: var(--text-quaternary);
 }
 
+/* The phone shell draws `MiniPlayer` instead of this bar, and mounts both; hiding the bar here is
+   what keeps the two transports from stacking. The compact geometry for a phone lives on that
+   component, not as a second set of rules for this one. */
 @media (max-width: 767px) {
-  .music-playbar {
-    --music-playbar-height: 64px;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: var(--sp-2);
-    padding-inline: var(--sp-2);
-  }
-
-  .music-playbar__cover {
-    --music-cover-size: 40px;
-  }
-
-  .music-playbar__center {
-    grid-column: 2;
-  }
-
-  .music-playbar__progress,
-  .music-playbar__right,
-  .music-playbar__favorite,
-  .music-playbar__prev {
+  .music-playbar,
+  .music-playbar--empty {
     display: none;
-  }
-
-  .music-playbar__transport {
-    gap: var(--sp-1);
   }
 }
 
@@ -1293,4 +1277,22 @@
   .music-nav__link {
     transition: none;
   }
+}
+
+/* Settings is one readable column, matching the settings panels elsewhere in the app. */
+.music-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  width: 100%;
+  max-width: 960px;
+  margin-inline: auto;
+  padding-bottom: var(--sp-6);
+}
+
+/* A grid card's artwork fills its column while staying square. */
+.music-card__cover {
+  inline-size: 100%;
+  block-size: auto;
+  aspect-ratio: 1;
 }

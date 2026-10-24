@@ -33,6 +33,7 @@ import { Empty, LoadingBlock } from '../../components/feedback'
 import { Field, Input, SettingRow, Switch, Textarea, useRovingRadio } from '../../components/form'
 import { confirm } from '../../components/overlay'
 import { t } from '../../lib/i18n'
+import type { MessageKey } from '@shared/locales/en-US'
 import { compileQuery, queryKeeps } from '../../lib/query-match'
 import { usePinyinVersion } from '../../lib/pinyin'
 import { cn } from '../../lib/cn'
@@ -56,7 +57,7 @@ type EmailSettingsSection =
   | 'export'
   | 'danger'
 
-const EMAIL_SETTINGS_SECTIONS: { id: EmailSettingsSection, labelKey: Parameters<typeof t>[0], icon: React.ReactNode }[] = [
+const EMAIL_SETTINGS_SECTIONS: { id: EmailSettingsSection, labelKey: MessageKey, icon: React.ReactNode }[] = [
   { id: 'account', labelKey: 'email.settings.account', icon: <UserRound size={14} /> },
   { id: 'signatures', labelKey: 'email.settings.signatures', icon: <PenLine size={14} /> },
   { id: 'assistant', labelKey: 'email.settings.agent', icon: <Bot size={14} /> },
@@ -69,7 +70,7 @@ const EMAIL_SETTINGS_SECTIONS: { id: EmailSettingsSection, labelKey: Parameters<
   { id: 'danger', labelKey: 'email.settings.danger', icon: <Trash2 size={14} /> },
 ]
 
-const EMAIL_SETTINGS_SEARCH: { section: EmailSettingsSection, titleKey: Parameters<typeof t>[0] }[] = [
+const EMAIL_SETTINGS_SEARCH: { section: EmailSettingsSection, titleKey: MessageKey }[] = [
   { section: 'account', titleKey: 'email.settings.display_name' },
   { section: 'account', titleKey: 'email.settings.reply_to' },
   { section: 'signatures', titleKey: 'email.settings.signatures' },
@@ -451,7 +452,7 @@ export function AccountSettingsPage({ accountId, onBack }: { accountId: string; 
                       className="flex w-full items-center gap-2 rounded-[var(--r-md)] px-2.5 py-2 text-left hover:bg-[var(--bg-hover)]"
                     >
                       <span className="min-w-0 flex-1">
-                        <span className="block text-[length:var(--text-12-5)] text-[var(--text-primary)]">{t(hit.titleKey)}</span>
+                        <span className="block text-[length:var(--text-12-5)] text-[var(--text-primary)]">{t(hit.titleKey as MessageKey)}</span>
                         <span className="block text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{owner ? t(owner.labelKey) : ''}</span>
                       </span>
                     </button>

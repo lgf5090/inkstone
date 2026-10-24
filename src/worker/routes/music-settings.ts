@@ -195,7 +195,10 @@ function sourcesOf(settings: MusicSettings): MusicSources {
 }
 
 async function loadSettings(store: MusicStore): Promise<MusicSettings> {
-  return normalizeMusicSettings(await store.getSettings())
+  const settings = normalizeMusicSettings(await store.getSettings())
+  // Display-only, and always the constant this deployment enforces rather than a client value.
+  settings.storageQuotaBytes = MUSIC_LIMITS.quotaBytes
+  return settings
 }
 
 /**

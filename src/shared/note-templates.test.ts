@@ -93,11 +93,11 @@ describe('built-in template catalog', () => {
   it('resolves every message key the catalog names in both locale files', () => {
     const en = { ...EN_US_MESSAGES, ...EN_US_NOTE_TEMPLATE_CONTENT }
     const zh = { ...ZH_CN_MESSAGES, ...ZH_CN_NOTE_TEMPLATE_CONTENT }
-    const keys: MessageKey[] = [
+    const keys = [
       ...Object.values(BUILTIN_TEMPLATE_TAG_LABELS),
       ...BUILTIN_TEMPLATE_CATEGORIES.map((def) => def.nameKey),
       ...BUILTIN_TEMPLATE_DEFS.flatMap((def) => [def.nameKey, def.descriptionKey, def.contentKey]),
-    ]
+    ] as MessageKey[]
     expect(new Set(keys).size).toBe(keys.length)
     for (const key of keys) {
       expect(en[key], key).toBeTruthy()

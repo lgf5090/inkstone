@@ -6,9 +6,9 @@
  * never nests one control inside another. A right-click on the row opens the same menu at the
  * pointer; the overflow button opens it under itself.
  *
- * Enter is handled explicitly because the tests drive keydown directly and because it lets the row
- * start playback even when a future variant is not a native button; the default action is cancelled
- * so the browser does not fire the click a second time. Space is left to the native button.
+ * Enter and Space are handled explicitly because the tests drive keydown directly and because the row
+ * must start playback even when a future variant is not a native button; the default action is
+ * cancelled so the browser does not fire the click a second time.
  */
 import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement } from 'react'
 import { AudioLines, Heart, ListPlus, MoreHorizontal } from 'lucide-react'
@@ -72,7 +72,10 @@ export function SongRow({
   const menuOpen = moreOpen || context.point !== null
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>): void => {
-    if (event.key !== 'Enter' || event.repeat) return
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    if (event.repeat) return
+    // Both keys are the button's own activation; cancelling the default keeps the browser from
+    // firing the click a second time after this handler (Enter on keydown, Space on keyup).
     event.preventDefault()
     if (!disabledReason) onPlay(track)
   }
@@ -81,8 +84,10 @@ export function SongRow({
     <button
       type="button"
       className="music-row__main"
-      disabled={Boolean(disabledReason)}
-      onClick={() => onPlay(track)}
+      aria-disabled={disabledReason ? true : undefined}
+      onClick={() => {
+        if (!disabledReason) onPlay(track)
+      }}
       onKeyDown={onKeyDown}
     >
       <span
