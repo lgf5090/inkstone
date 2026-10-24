@@ -7,11 +7,12 @@
  */
 import type { MusicAiTranslateLang, MusicAiTranslateResponse } from '@shared/music/lyrics-ai'
 import { request } from '../../lib/api'
-import { getLocale } from '../../lib/i18n'
 
-/** The translation target the UI asks for: the reader's interface language, one of the two catalogs. */
-export function defaultLyricTranslationLang(): Exclude<MusicAiTranslateLang, 'auto'> {
-  return getLocale().toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US'
+/** The translation target the UI asks for: resolved from the lyric's own script by the worker. */
+export function defaultLyricTranslationLang(): MusicAiTranslateLang {
+  // The endpoint resolves `auto` from the lyric's own script. Picking the interface language here
+  // would ask a Chinese lyric to be translated into Chinese on a Chinese screen.
+  return 'auto'
 }
 
 export function translateTrackLyrics(

@@ -180,7 +180,9 @@ export async function translateMusicLyrics(input: TranslateMusicLyricsInput): Pr
     const answer = await runOneShot(assistant, settings, {
       system,
       user,
-      maxOutputTokens: Math.min(8192, Math.max(1024, Math.ceil(characters * 1.5))),
+      // A Chinese source character can become a whole English phrase; budgeting by source length
+      // alone truncated the JSON mid-object on a full song. The floor keeps a hundred short lines.
+      maxOutputTokens: Math.min(8192, Math.max(4096, Math.ceil(characters * 2.5))),
       temperature: 0.2,
       timeoutMs: TRANSLATE_DEADLINE_MS,
       structured: true,
@@ -193,7 +195,7 @@ export async function translateMusicLyrics(input: TranslateMusicLyricsInput): Pr
 
   const parsed = parseMusicAiTranslation(text, source.length)
   if (!parsed.ok) {
-    throw new ApiError(422, 'music_ai_mismatch', 'The model returned a translation that did not match the lyric lines. Nothing was saved.')
+    throw new ApiError(422, 'music_ai_mismatch', 'The model returned a translation that did not match the lyric lines. Nothing was saved.', { reason: parsed.reason })
   }
   const payload = buildMusicAiTranslationLrc(source, parsed.lines)
   const saved = await store.putAiLyric({

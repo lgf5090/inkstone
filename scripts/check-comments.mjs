@@ -6069,8 +6069,10 @@ const allowed = new Map([
     "/**\n * Music copy is served from the `music` locale fragment. Until that fragment carries a key, `t`\n * answers with the key itself, which is readable in development and keeps a half-translated label\n * from drifting into copy that has to be translated twice. The cast is the seam the fragment removes.\n */",
   ]],
   ["src/client/features/music/lyrics-ai.ts", [
-    "/**\n * The AI translation call, made only when the reader asks for it.\n *\n * Kept out of `musicApi` because it is not a music-provider read: it spends assistant quota and sends\n * the lyric to the reader's model provider, and a surface that renders lyrics should be able to see\n * that difference in the import it uses.\n */",
-    "/** The translation target the UI asks for: the reader's interface language, one of the two catalogs. */",
+    "/**\r\n * The AI translation call, made only when the reader asks for it.\r\n *\r\n * Kept out of `musicApi` because it is not a music-provider read: it spends assistant quota and sends\r\n * the lyric to the reader's model provider, and a surface that renders lyrics should be able to see\r\n * that difference in the import it uses.\r\n */",
+    "/** The translation target the UI asks for: resolved from the lyric's own script by the worker. */",
+    "// The endpoint resolves `auto` from the lyric's own script. Picking the interface language here",
+    "// would ask a Chinese lyric to be translated into Chinese on a Chinese screen.",
   ]],
   ["src/client/features/music/music-address.ts", [
     "// A malformed escape is not an id this app produced; the raw segment is the most useful answer",
@@ -29896,12 +29898,14 @@ const allowed = new Map([
     "// Internals ----------------------------------------------------------------------------------",
   ]],
   ["src/worker/music/lyrics-ai.ts", [
-    "/**\n * AI translation of one track's provider lyric.\n *\n * The provider timeline is the source of truth: the model only ever supplies text, one line per\n * timed line, and the worker writes that text back at the original timestamps. A translation is\n * cached per track, language and source hash, so a re-read of the same lyric is free while a\n * provider that changed its lyric is translated again. There is no partial write: a model that drops\n * a line is refused whole, because a merged half-translation reads as finished.\n *\n * This is an explicit action from the reader, never a background step: the lyric text leaves the\n * worker for the reader's own model provider only when they ask for a translation.\n */",
     "/** The provider's own text, read from the lyric cache or fetched once and cached beside it. */",
     "// Anonymous reads still reach the public catalogue; a vault problem must not make the reader",
     "// believe the track has no lyric.",
-    "/**\n * The timed text lines that are worth translating.\n *\n * YRC is preferred when the provider timed words, because its lines are the same sentences with a\n * finer clock; LRC is the fallback. Untimed labels and metadata are dropped: they have no place on\n * the provider timeline to write a translation back to.\n */",
     "/** A cached LRC payload back to wire lines. A payload that no longer parses is treated as a miss. */",
+    "/**\r\n * AI translation of one track's provider lyric.\r\n *\r\n * The provider timeline is the source of truth: the model only ever supplies text, one line per\r\n * timed line, and the worker writes that text back at the original timestamps. A translation is\r\n * cached per track, language and source hash, so a re-read of the same lyric is free while a\r\n * provider that changed its lyric is translated again. There is no partial write: a model that drops\r\n * a line is refused whole, because a merged half-translation reads as finished.\r\n *\r\n * This is an explicit action from the reader, never a background step: the lyric text leaves the\r\n * worker for the reader's own model provider only when they ask for a translation.\r\n */",
+    "/**\r\n * The timed text lines that are worth translating.\r\n *\r\n * YRC is preferred when the provider timed words, because its lines are the same sentences with a\r\n * finer clock; LRC is the fallback. Untimed labels and metadata are dropped: they have no place on\r\n * the provider timeline to write a translation back to.\r\n */",
+    "// A Chinese source character can become a whole English phrase; budgeting by source length",
+    "// alone truncated the JSON mid-object on a full song. The floor keeps a hundred short lines.",
   ]],
   ["src/worker/music/metadata.ts", [
     "/**\n * What the server is willing to believe about an uploaded file.\n *\n * The browser parses tags before uploading, but none of that is trusted: titles, artists, album and\n * duration are trimmed to display-sized values, and the format is decided from the bytes. The first\n * four kilobytes are enough for every container this app accepts, which is what makes the check\n * affordable on a 300 MB upload.\n */",
