@@ -458,6 +458,9 @@ const ACCOUNT_GLOBAL_KEYS = new Map<string, string>([
   // The key names a stored object (`r2:<user_id>/<newId>.<ext>`, attachments/keys.ts:12), and one
   // object belongs to exactly one account — the queue is a work list of objects, not of rows.
   ['attachment_cleanup', 'object key embeds the owner id'],
+  // The music cleanup queue names an R2 object under `music/.../<user_id>/...`, so the key itself
+  // already carries the account and the queue is a work list rather than an account-owned record.
+  ['music_cleanup', 'object key embeds the owner id'],
   // Composite, but not leading with the account: a wiki link is one edge from a note, and the source
   // note id is already `newId()`-random and account-owned, so `target_key` cannot name another
   // account's edge. Reads scope by `user_id` (idx_links_user_source).

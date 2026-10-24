@@ -41,6 +41,12 @@ import {
   EMAIL_REQUIRED_TABLES,
   EMAIL_SCHEMA_STATEMENTS,
 } from '../email/schema'
+import {
+  MUSIC_REQUIRED_COLUMNS,
+  MUSIC_REQUIRED_INDEXES,
+  MUSIC_REQUIRED_TABLES,
+  MUSIC_SCHEMA_STATEMENTS,
+} from '../music/schema'
 
 const BACKUP_ARCHIVES_TABLE = `CREATE TABLE IF NOT EXISTS backup_archives (
   user_id TEXT NOT NULL,
@@ -599,6 +605,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   ...SUBSCRIPTIONS_SCHEMA_STATEMENTS,
   ...MEMOS_SCHEMA_STATEMENTS,
   ...EMAIL_SCHEMA_STATEMENTS,
+  ...MUSIC_SCHEMA_STATEMENTS,
 ]
 
 export interface SchemaMigration {
@@ -2480,6 +2487,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   ...MEMOS_REQUIRED_COLUMNS,
   ...SHARE_HUB_REQUIRED_COLUMNS,
   ...EMAIL_REQUIRED_COLUMNS,
+  ...MUSIC_REQUIRED_COLUMNS,
 } as const
 
 export const REQUIRED_TABLES = [
@@ -2536,6 +2544,7 @@ export const REQUIRED_TABLES = [
   ...MEMOS_REQUIRED_TABLES,
   ...SHARE_HUB_REQUIRED_TABLES,
   ...EMAIL_REQUIRED_TABLES,
+  ...MUSIC_REQUIRED_TABLES,
 ] as const
 
 export const REQUIRED_INDEXES = [
@@ -2607,6 +2616,7 @@ export const REQUIRED_INDEXES = [
   ...MEMOS_REQUIRED_INDEXES,
   ...SHARE_HUB_REQUIRED_INDEXES,
   ...EMAIL_REQUIRED_INDEXES,
+  ...MUSIC_REQUIRED_INDEXES,
 ] as const
 
 
