@@ -281,3 +281,16 @@ describe('a thread longer than one page', () => {
     // itself is still one page short of reachable; that file belongs to another change in this wave.
   })
 })
+
+describe('the settings another reader asks about', () => {
+  it('answers with what the account holds now, not with what this instance first read', async () => {
+    const writer = new AssistantStore(env.DB as D1Database, USER, env)
+    const reader = new AssistantStore(env.DB as D1Database, USER, env)
+    expect((await reader.getSettings()).timezone).not.toBe('Asia/Kolkata')
+    // An instance is not one request: the runner, a cron fire and a test fixture each hold one across
+    // work that somebody else changes underneath it. A copy kept on the instance answers "what are this
+    // account's settings?" with what they were when that instance first asked, and says it with a 200.
+    await writer.saveSettings({ ...(await reader.getSettings()), timezone: 'Asia/Kolkata' })
+    expect((await reader.getSettings()).timezone).toBe('Asia/Kolkata')
+  })
+})

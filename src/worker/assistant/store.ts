@@ -1161,6 +1161,14 @@ export interface TaskQuery {
    */
   today?: string
   /**
+   * The account's scheduling zone, for the filters that cut a day or a window out of it.
+   *
+   * Same reason as `today`, one step earlier: the page, its count and the badge are three reads made in
+   * one request, and a reader who saved a new zone between two of them would be shown a page cut by one
+   * zone and a badge by another. Callers that name it are read without touching the settings row.
+   */
+  zone?: string
+  /**
    * Only open tasks the time ledger holds a closed span for on this account-zone day.
    *
    * The end-of-day pass asks "what did I actually work on today and leave open". No column on
@@ -1400,9 +1408,6 @@ function upcomingBoundary(dayEnd: number, timeZone: string): number {
 }
 
 export class AssistantStore {
-  /** The account's settings as this instance read them; see `getSettings`. */
-  private settingsOnce: AssistantSettings | null = null
-
   constructor(
     private readonly db: D1Database,
     readonly userId: string,
@@ -1463,26 +1468,23 @@ export class AssistantStore {
   // ---------------------------------------------------------------- settings
 
   /**
-   * The account's settings, read once per store instance.
+   * The account's settings, read from the row every time.
    *
-   * One instance is one request, one cron fire or one tool run, and the reader's zone is asked for
-   * at the top of most of them: the listing now needs it twice (the day its rows are cut by, and the
-   * window the coming-week badge counts), so a second read of a row that cannot have changed
-   * mid-request would be a round trip bought for nothing. `saveSettings` refreshes the copy, so what
-   * a caller reads back after a write is what it wrote. The object handed out is a copy of the copy:
-   * a caller that spreads or trims one gets a value it may change without moving the cache.
+   * No memo here on purpose. An instance is *not* reliably one request — the assistant's runner, a cron
+   * fire and a test fixture all hold one across work that another writer changes underneath — and a copy
+   * that only its own writer refreshes answers "what are this account's settings?" with what they were
+   * when this instance first asked. The cost of the read is one round trip on the few paths that ask
+   * twice in one call (the listing's zone), which is cheaper than a stale zone filing work under the
+   * wrong date.
    */
   async getSettings(): Promise<AssistantSettings> {
-    if (!this.settingsOnce) {
-      const stored = await this.one<{ config: string }>(
-        `SELECT config FROM chat_settings WHERE user_id = ?1`,
-        this.userId,
-      )
-      this.settingsOnce = stored
-        ? normalizeAssistantSettings(parseJson(stored.config))
-        : { ...DEFAULT_ASSISTANT_SETTINGS }
-    }
-    return { ...this.settingsOnce }
+    const stored = await this.one<{ config: string }>(
+      `SELECT config FROM chat_settings WHERE user_id = ?1`,
+      this.userId,
+    )
+    return stored
+      ? normalizeAssistantSettings(parseJson(stored.config))
+      : { ...DEFAULT_ASSISTANT_SETTINGS }
   }
 
   async saveSettings(settings: AssistantSettings): Promise<AssistantSettings> {
@@ -1492,7 +1494,6 @@ export class AssistantStore {
        ON CONFLICT(user_id) DO UPDATE SET config = excluded.config, updated_at = excluded.updated_at`,
       JSON.stringify(normalized), Date.now(),
     )
-    this.settingsOnce = normalized
     return { ...normalized }
   }
 
@@ -4341,8 +4342,12 @@ export class AssistantStore {
     else if (status !== 'all') q.eq(`status`, status)
     const now = Date.now()
     const dayEnd = query.dayEnd ?? now
+    // The zone is resolved at most once for this filter, and only by the branches that cut a day or a
+    // window out of it; a caller that already read the settings hands them in through `query.zone`.
+    let zone = query.zone
+    const zoneOf = async (): Promise<string> => zone ??= (await this.getSettings()).timezone
     const today = query.view === 'today'
-      ? query.today ?? localDate(now, (await this.getSettings()).timezone)
+      ? query.today ?? localDate(now, await zoneOf())
       : null
     switch (query.view) {
       case 'inbox':
@@ -4359,7 +4364,7 @@ export class AssistantStore {
       case 'upcoming': {
         // Counted in calendar days in the account's own zone, so a window that crosses a
         // daylight-saving change holds the days it names and no part of the one after them.
-        const upcomingEnd = upcomingBoundary(dayEnd, (await this.getSettings()).timezone)
+        const upcomingEnd = upcomingBoundary(dayEnd, await zoneOf())
         q.raw(`${SQL_TASK_OPEN} AND due_at IS NOT NULL AND due_at >= ${q.add(dayEnd)} AND due_at < ${q.add(upcomingEnd)}`)
         break
       }
@@ -4423,7 +4428,7 @@ export class AssistantStore {
       // A malformed day would match nothing, and "nothing is owed that day" is a fact the screen would
       // draw as an empty section. The two bounds cannot be compared as strings either, so a day that
       // cannot be cut into instants is refused at the builder rather than answered quietly.
-      const bounds = dayBounds(query.owedOn, (await this.getSettings()).timezone)
+      const bounds = dayBounds(query.owedOn, await zoneOf())
       if (!bounds) throw new Error(`An owed-on day must be a date like 2026-01-31, not ${query.owedOn}.`)
       q.raw(`${SQL_TASK_OPEN} AND (planned_for = ${q.add(query.owedOn)}
         OR (due_at IS NOT NULL AND due_at >= ${q.add(bounds.start)} AND due_at < ${q.add(bounds.end)}))`)
@@ -5211,9 +5216,9 @@ export class AssistantStore {
    * it listed with, so the badge and the page cannot land on different sides of midnight. Callers
    * that do not name it (the MCP and assistant surfaces) get the account's own day, read here.
    */
-  async taskCounts(dayEnd: number, today?: string): Promise<TaskCounts> {
+  async taskCounts(dayEnd: number, today?: string, zone?: string): Promise<TaskCounts> {
     const now = Date.now()
-    const timezone = (await this.getSettings()).timezone
+    const timezone = zone ?? (await this.getSettings()).timezone
     const pickedFor = today ?? localDate(now, timezone)
     // The badge and the list are the same window, so they take the same boundary: counted in days in
     // the account's zone rather than as 7 × 24 hours after the day end.

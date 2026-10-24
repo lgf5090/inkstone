@@ -530,6 +530,8 @@ function listingQuery(c: Ctx, timezone: string, dayEnd: number, today: string): 
     // The one day the today view adds its picked rows by. Handed to the listing and the counts from
     // the same request, so the badge cannot be a day ahead of the page it opens.
     today,
+    // The zone behind that day, so the three reads below cut their windows by one answer too.
+    zone: timezone,
   }
 }
 
@@ -566,7 +568,7 @@ todoRoutes.get('/', async (c) => {
   const [tasks, total, counts] = await Promise.all([
     s.listTasks(query),
     s.countTasks(query),
-    s.taskCounts(dayEnd, today),
+    s.taskCounts(dayEnd, today, settings.timezone),
   ])
   return c.json({ tasks, total, counts, dayEnd, timezone: settings.timezone })
 })
