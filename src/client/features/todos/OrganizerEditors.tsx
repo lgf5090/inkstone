@@ -192,6 +192,9 @@ export function ListEditor() {
   const [name, setName] = useState('')
   const [icon, setIcon] = useState<string | null>(null)
   const [color, setColor] = useState<string | null>(null)
+  /** One write at a time: Enter and a press would otherwise both create the list. */
+  const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
 
   useEffect(() => {
     if (!open) return
@@ -201,11 +204,23 @@ export function ListEditor() {
   }, [open, list])
 
   const save = async (): Promise<void> => {
+    if (busyRef.current) return
     const trimmed = name.trim()
     if (!trimmed) return
-    if (list) await updateList(list.id, { name: trimmed, icon, color })
-    else await createList({ name: trimmed, icon, color })
-    onClose()
+    busyRef.current = true
+    setBusy(true)
+    try {
+      const saved = list
+        ? await updateList(list.id, { name: trimmed, icon, color })
+        : await createList({ name: trimmed, icon, color })
+      // A refused write has already said so through the store's toast; the dialog keeps the name the
+      // reader typed rather than closing on a list that was never saved.
+      if (!saved) return
+      onClose()
+    } finally {
+      busyRef.current = false
+      setBusy(false)
+    }
   }
 
   const remove = async (): Promise<void> => {
@@ -232,7 +247,7 @@ export function ListEditor() {
           {list && <Button variant="danger" size="sm" onClick={() => { void remove() }}>{t('todo.action.delete')}</Button>}
           <span className="ml-auto" />
           <Button variant="ghost" size="sm" onClick={onClose}>{t('todo.action.cancel')}</Button>
-          <Button size="sm" disabled={!name.trim()} onClick={() => { void save() }}>{t('todo.action.save')}</Button>
+          <Button size="sm" disabled={!name.trim() || busy} onClick={() => { void save() }}>{t('todo.action.save')}</Button>
         </div>
       )}
     >
@@ -278,6 +293,9 @@ export function TagEditor({ open, tag, onClose }: { open: boolean; tag: TaskTag 
   const removeTag = useTodos((state) => state.removeTag)
   const [name, setName] = useState('')
   const [color, setColor] = useState<string | null>(null)
+  /** The tag editor's own guard, for the same reason the list editor keeps one. */
+  const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
 
   useEffect(() => {
     if (!open) return
@@ -286,11 +304,21 @@ export function TagEditor({ open, tag, onClose }: { open: boolean; tag: TaskTag 
   }, [open, tag])
 
   const save = async (): Promise<void> => {
+    if (busyRef.current) return
     const trimmed = name.trim()
     if (!trimmed) return
-    if (tag) await updateTag(tag.id, { name: trimmed, color })
-    else await createTag({ name: trimmed, color })
-    onClose()
+    busyRef.current = true
+    setBusy(true)
+    try {
+      const saved = tag
+        ? await updateTag(tag.id, { name: trimmed, color })
+        : await createTag({ name: trimmed, color })
+      if (!saved) return
+      onClose()
+    } finally {
+      busyRef.current = false
+      setBusy(false)
+    }
   }
 
   const remove = async (): Promise<void> => {
@@ -317,7 +345,7 @@ export function TagEditor({ open, tag, onClose }: { open: boolean; tag: TaskTag 
           {tag && <Button variant="danger" size="sm" onClick={() => { void remove() }}>{t('todo.action.delete')}</Button>}
           <span className="ml-auto" />
           <Button variant="ghost" size="sm" onClick={onClose}>{t('todo.action.cancel')}</Button>
-          <Button size="sm" disabled={!name.trim()} onClick={() => { void save() }}>{t('todo.action.save')}</Button>
+          <Button size="sm" disabled={!name.trim() || busy} onClick={() => { void save() }}>{t('todo.action.save')}</Button>
         </div>
       )}
     >

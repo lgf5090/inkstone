@@ -239,7 +239,6 @@ export function TaskEditor() {
   const tasks = useTodos((state) => state.tasks)
   const completed = useTodos((state) => state.completed)
   const timezone = useTodos((state) => state.timezone)
-  const saving = useTodos((state) => state.saving)
   const close = useTodos((state) => state.closeEditor)
   const createTask = useTodos((state) => state.createTask)
   const updateTask = useTodos((state) => state.updateTask)
@@ -350,6 +349,15 @@ export function TaskEditor() {
   const [stepInput, setStepInput] = useState('')
   /** One move at a time: two presses in flight would each resolve against the order before the other. */
   const [ordering, setOrdering] = useState(false)
+  /**
+   * One write at a time.
+   *
+   * The store's own `saving` is account-wide, so another panel's write could hold this footer disabled
+   * for a save that has not been asked for. A local flag says only what this panel is doing — and it is
+   * what stops a second Enter from creating the task twice while the first request is still out.
+   */
+  const [submitting, setSubmitting] = useState(false)
+  const submittingRef = useRef(false)
   const [askQuestion, setAskQuestion] = useState('')
   const [askState, setAskState] = useState<TaskAskState>({ status: 'idle' })
   /** The turn outlives the panel's re-renders; a write after unmount is the one thing it must not do. */
@@ -360,10 +368,21 @@ export function TaskEditor() {
     return () => { mounted.current = false }
   }, [])
 
+  /**
+   * The form is seeded once per opening, not once per store change.
+   *
+   * A step write and the assistant's refresh both replace the `tasks` array, and an effect that watched
+   * it re-read the server row on every one of them — wiping the title, note and dates the reader was
+   * still typing. Only the row's identity means "show another task", so that is the dependency; the row
+   * itself is read from the store at that moment, which is what keeps an opening on the freshest copy.
+   */
   useEffect(() => {
     if (!open) return
+    // Read the row from the store rather than from this render's arrays: a write may have replaced them
+    // since, and the newest copy is the one the panel has to open on.
+    const { tasks: rows, completed: done, timezone: zone } = useTodos.getState()
     const source = draft ?? {}
-    const task = source.id ? tasks.find((entry) => entry.id === source.id) ?? completed.find((entry) => entry.id === source.id) : null
+    const task = source.id ? rows.find((entry) => entry.id === source.id) ?? done.find((entry) => entry.id === source.id) : null
     const sourceDueAt = task ? task.dueAt : typeof source.dueAt === 'number' ? source.dueAt : null
     setTitle(task?.title ?? source.title ?? '')
     setNotes(task?.description ?? source.description ?? '')
@@ -371,9 +390,9 @@ export function TaskEditor() {
     setPriority(task?.priority ?? source.priority ?? 'medium')
     setStarred(task?.starred ?? source.starred ?? false)
     setDueText(task
-      ? dueValue(task.dueAt, timezone)
-      : typeof source.dueAt === 'string' ? source.dueAt : source.dueAt ? dueValue(source.dueAt, timezone) : '')
-    setStartText(seedStartText(source, task, timezone))
+      ? dueValue(task.dueAt, zone)
+      : typeof source.dueAt === 'string' ? source.dueAt : source.dueAt ? dueValue(source.dueAt, zone) : '')
+    setStartText(seedStartText(source, task, zone))
     // Both doors hand the same number in milliseconds — the row's own column, or the estimate a
     // quick-add line wrote into the draft — so the panel opens on it without parsing anything.
     setEstimate(task?.timeEstimateMs ?? source.timeEstimate ?? null)
@@ -403,25 +422,35 @@ export function TaskEditor() {
     setStepInput('')
     setTagInput('')
     setTagMenuOpen(false)
-    setSteps([])
     setAskQuestion('')
     setAskState({ status: 'idle' })
-    if (task) {
-      let alive = true
-      void api.todos.get(task.id).then(({ steps: rows }) => { if (alive) setSteps(rows) }).catch((error: unknown) => {
-        if (!alive) return
-        // An empty list and a list that could not be read are different answers: the panel keeps the
-        // empty one but says which it is, rather than letting a failed read read as "no steps".
-        setSteps([])
-        useUi.getState().toast({
-          title: t('todo.task.steps_failed'),
-          description: error instanceof Error ? error.message : String(error),
-          tone: 'danger',
-        })
+  }, [open, draft?.id])
+
+  /**
+   * The steps, read on their own schedule.
+   *
+   * They live on the server rather than on the row, so they need a read of their own when the panel
+   * opens or is handed another task. Keeping that read out of the seed above is what lets a step write
+   * replace the row without replacing the fields the reader is in the middle of typing.
+   */
+  useEffect(() => {
+    if (!open) return
+    const taskId = draft?.id
+    setSteps([])
+    if (!taskId) return
+    let alive = true
+    void api.todos.get(taskId).then(({ steps: rows }) => { if (alive) setSteps(rows) }).catch((error: unknown) => {
+      if (!alive) return
+      // An empty list and a list that could not be read are different answers: the panel keeps the
+      // empty one but says which it is, rather than letting a failed read read as "no steps".
+      setSteps([])
+      useUi.getState().toast({
+        title: t('todo.task.steps_failed'),
+        description: error instanceof Error ? error.message : String(error),
+        tone: 'danger',
       })
-      return () => { alive = false }
-    }
-    return undefined
+    })
+    return () => { alive = false }
   }, [open, draft?.id, timezone])
 
   // Rendered only while the preview face is up: a note is prose, so the sanitized pipeline is the
@@ -506,6 +535,7 @@ export function TaskEditor() {
   }
 
   const save = async (): Promise<void> => {
+    if (submittingRef.current) return
     const body = {
       title: title.trim(),
       description: notes,
@@ -530,28 +560,30 @@ export function TaskEditor() {
     // and the footer's save is disabled for the same reason, so the panel is never left with a press that
     // quietly does nothing.
     if (!body.title || estimateInvalid) return
-    // The panel closes on a save, not on a press: both writes answer null when the row could not be
-    // written (the store has already toasted the reason), and closing then would throw away the fields
-    // the reader still has in front of them.
-    if (existing) {
-      const saved = await updateTask(existing.id, body)
+    submittingRef.current = true
+    setSubmitting(true)
+    try {
+      // The spent half of a quick-add pair is the one thing this panel hands on without owning it: no
+      // field of the form shows it, because it is a ledger span rather than a column of the row. Reading
+      // it off the opening draft — and only off a draft that names no row — is what keeps this door the
+      // same shape as the board's inline enter, which forwards the same field to the same ledger write.
+      const saved = existing
+        ? await updateTask(existing.id, body)
+        : await createTask({
+          ...body,
+          steps: steps.map((step) => step.text),
+          ...(draft?.id === undefined && draft?.timeLoggedMs !== undefined
+            ? { timeLoggedMs: draft.timeLoggedMs }
+            : {}),
+        })
+      // A refused write has already said so through the store's toast. Closing here would take the
+      // draft with it, so the panel stays open on exactly what the reader typed.
       if (!saved) return
+      close()
+    } finally {
+      submittingRef.current = false
+      setSubmitting(false)
     }
-    // The spent half of a quick-add pair is the one thing this panel hands on without owning it: no
-    // field of the form shows it, because it is a ledger span rather than a column of the row. Reading
-    // it off the opening draft — and only off a draft that names no row — is what keeps this door the
-    // same shape as the board's inline enter, which forwards the same field to the same ledger write.
-    else {
-      const created = await createTask({
-        ...body,
-        steps: steps.map((step) => step.text),
-        ...(draft?.id === undefined && draft?.timeLoggedMs !== undefined
-          ? { timeLoggedMs: draft.timeLoggedMs }
-          : {}),
-      })
-      if (!created) return
-    }
-    close()
   }
 
   /**
@@ -563,8 +595,9 @@ export function TaskEditor() {
    */
   const remove = async (): Promise<void> => {
     if (!existing) return
-    await removeTask(existing.id)
-    close()
+    // A delete that did not land leaves the row on screen; closing the panel would hide that it is
+    // still there, so only a confirmed removal takes the panel away.
+    if (await removeTask(existing.id)) close()
   }
 
   /**
@@ -727,7 +760,7 @@ export function TaskEditor() {
           )}
           <span className="ml-auto" />
           <Button variant="ghost" size="sm" onClick={close}>{t('todo.action.cancel')}</Button>
-          <Button size="sm" disabled={!title.trim() || saving || estimateInvalid} onClick={() => { void save() }}>{t('todo.action.save')}</Button>
+          <Button size="sm" disabled={!title.trim() || submitting || estimateInvalid} onClick={() => { void save() }}>{t('todo.action.save')}</Button>
         </div>
       )}
     >

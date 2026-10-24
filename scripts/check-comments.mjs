@@ -17003,6 +17003,10 @@ const allowed = new Map([
     "/**\n * The two editors a list and a tag need: a name, a colour, and — for a list — an icon.\n *\n * The colour ramp is the app's own (`ORGANIZER_COLORS`), drawn with the shared `Swatch` the folder,\n * tag and QuickAdd panels already use, and the custom-colour wheel is the shared `ColorWheelTrigger`,\n * so a list does not invent a second way to pick a colour. The icon grid is the to-do app's own\n * registry (`list-icons.tsx`), with the notebook's emoji catalogue behind its second tab.\n *\n * The header is a live preview rather than a label: a list is recognised by its circle long before its\n * name is read, so the reader sees exactly what the sidebar and the board will draw.\n *\n * The task editor borrows `ColorPicker` for a task's own colour: it is the same palette, and a second\n * way to pick one would drift the moment the ramp gained a colour.\n */",
     "/**\n * The colour picker the list, tag and task editors share.\n *\n * A custom hex is offered only when it can be told apart from the surface it will sit on: a tag paints\n * its name in its own colour, so a near-white pick would be a tag nobody can read. The guard is the\n * folder panel's, pointed at this panel's own background.\n */",
     "/**\n   * Tags and tasks may carry no colour at all — theirs then reads as their list's; a list always has\n   * one, so its editor never offers the empty swatch.\n   */",
+    "/** One write at a time: Enter and a press would otherwise both create the list. */",
+    "// A refused write has already said so through the store's toast; the dialog keeps the name the",
+    "// reader typed rather than closing on a list that was never saved.",
+    "/** The tag editor's own guard, for the same reason the list editor keeps one. */",
   ]],
   ["src/client/features/todos/OverdueShift.tsx", [
     "/**\n * The overdue rows, shifted to today in one press.\n *\n * The count on the button is the server's account-wide overdue number, and the rows are read by the\n * same `overdue` view that number counts, so the banner and the rows it moves cannot disagree. A batch\n * names at most `MAX_BATCH_TASKS`, so a longer shelf is sent in chunks and both halves of every answer\n * are summed — a toast that said \"moved\" over a partial batch would be a lie. Only `due_at` moves on\n * the server: the day a row was picked for is the reader's own plan and stays where it was, which is\n * what keeps this gesture from silently rearranging \"My Day\".\n *\n * The banner is drawn above the plan and above \"My Day\". Each screen wraps it in its own padding, so\n * the wrapper class is the caller's rather than this component's: the plan has no padded container of\n * its own and needs `px/pt`, while \"My Day\" already sits inside one and only needs the gap below.\n */",
@@ -17287,9 +17291,15 @@ const allowed = new Map([
     "/**\n   * The row this one sits under, as the id the task carries and the words the panel can show for it.\n   *\n   * Only the id travels on the row, so the title is read from the rows the app already holds and asked\n   * for once when the parent is not among them. An answer that could not be read is said as such rather\n   * than shown as a bare id, which no reader recognises.\n   */",
     "/**\n   * Name the parent the panel cannot read off its own rows.\n   *\n   * A parent picked in this panel brings its own title; a panel opened on a row that already sat under\n   * something carries only an id. The cached listing is asked first, because a parent in the same view is\n   * already in hand, and the row's own read second — and an answer that could not be read is said as\n   * unreadable rather than shown as a bare id no reader recognises.\n   */",
     "/* Where this row sits in a tree. A parent gathers rows on screen and says nothing about their\n            status: a child keeps its own list, dates, hours and counts, so the panel writes an id rather\n            than a kind. Clearing it puts the row back at the top, which is an answer and not an absence. */",
-    "// The panel closes on a save, not on a press: both writes answer null when the row could not be",
-    "// written (the store has already toasted the reason), and closing then would throw away the fields",
-    "// the reader still has in front of them.",
+    "/**\n   * One write at a time.\n   *\n   * The store's own `saving` is account-wide, so another panel's write could hold this footer disabled\n   * for a save that has not been asked for. A local flag says only what this panel is doing — and it is\n   * what stops a second Enter from creating the task twice while the first request is still out.\n   */",
+    "/**\n   * The form is seeded once per opening, not once per store change.\n   *\n   * A step write and the assistant's refresh both replace the `tasks` array, and an effect that watched\n   * it re-read the server row on every one of them — wiping the title, note and dates the reader was\n   * still typing. Only the row's identity means \"show another task\", so that is the dependency; the row\n   * itself is read from the store at that moment, which is what keeps an opening on the freshest copy.\n   */",
+    "// Read the row from the store rather than from this render's arrays: a write may have replaced them",
+    "// since, and the newest copy is the one the panel has to open on.",
+    "/**\n   * The steps, read on their own schedule.\n   *\n   * They live on the server rather than on the row, so they need a read of their own when the panel\n   * opens or is handed another task. Keeping that read out of the seed above is what lets a step write\n   * replace the row without replacing the fields the reader is in the middle of typing.\n   */",
+    "// A refused write has already said so through the store's toast. Closing here would take the",
+    "// draft with it, so the panel stays open on exactly what the reader typed.",
+    "// A delete that did not land leaves the row on screen; closing the panel would hide that it is",
+    "// still there, so only a confirmed removal takes the panel away.",
   ]],
   ["src/client/features/todos/TaskFinder.tsx", [
     "/**\n * Find one of the account's own tasks by title, for a field that names it.\n *\n * The editor asks this question twice — which task should this one wait on, and which task should this\n * one sit under — so the finder lives in one place rather than being drawn twice with two slightly\n * different failure lines. The store's own search is the door: it already knows the server's shape and\n * the debounce the rest of the app pays for, and the task worth naming is usually not one currently on\n * screen. Three answers are owed and all three are said: a search in flight, one that found nothing, and\n * one that was refused — an empty list would otherwise read as \"no such task exists\".\n */",
@@ -17930,6 +17940,9 @@ const allowed = new Map([
   ["src/client/features/todos/open-task.ts", [
     "/**\n * Opening one task by its address, from anywhere.\n *\n * A chip in a tool result, a saved message, a note selection, the row of a notification centre — each of\n * them names a task by id, and each has to land the reader in the same place: the to-do tab, that task's\n * own address, its panel open. That place is now a real address (`/todo/<id>`), which means the callers do\n * not have to know anything about the to-do app's state: they ask for a task, and the address bar does the\n * moving. The container's own first paint reads the same address, so a link pasted into another tab, or\n * held on a phone and opened from a reminder, arrives at the same screen a press inside the app does.\n *\n * The tab is put right before the task address is written, because the tab is instant and the read behind\n * it is not: the reader sees the app they asked for while the row is being fetched, rather than a chat that\n * appears to ignore the press. What the store then does — read the row if the open page does not hold it,\n * and open the panel on it — is the half that can fail, and it says so with a toast and an address that no\n * longer names a task, rather than a panel over nothing.\n */",
     "/** Show one task in the to-do tab, its panel open, at the address that names it. */",
+  ]],
+  ["src/client/features/todos/organizer-editor-failure.test.tsx", [
+    "/**\n * A list the server refused to create keeps its editor open.\n *\n * `createList` answers `null` when the write was refused, and the dialog used to close on that answer\n * anyway — the name the reader had just typed went with it, leaving only a toast about a list that is\n * not in the sidebar. The panel now waits for the row the store hands back before it closes.\n */",
   ]],
   ["src/client/features/todos/organizer-views.test.tsx", [
     "// The label alone: the badge digit rides in the same button, and comparing it here would test the",
@@ -18744,6 +18757,19 @@ const allowed = new Map([
     "/** The 2026-10-16 09:00 the account zone reads as UTC: the third Friday of that month. */",
     "/** Opens the panel on the stored task and lets its row land. */",
     "// October 2026: its first Monday is the 5th, and the 09:00 the task was owed at stays on it.",
+  ]],
+  ["src/client/features/todos/task-editor-save-failure.test.tsx", [
+    "/**\n * A save that did not land leaves the panel — and the draft — where they were.\n *\n * `updateTask` and `createTask` answer `null` when the write was refused, and the panel used to close\n * on that answer anyway: the toast named the failure while the fields that carried the reader's work\n * went off screen with it. The other half is the press that arrives twice: Enter is a save in this\n * panel, and two of them while the first request is still out created the task twice.\n */",
+    "// The export helpers inline KaTeX's stylesheet, which Vite refuses through this checkout's symlinked",
+    "// `node_modules`; nothing here exports a note or renders math.",
+  ]],
+  ["src/client/features/todos/task-editor-seed.test.tsx", [
+    "/**\n * The panel is seeded when it opens, and never again while the reader is typing.\n *\n * A step write and the assistant's own refresh both replace the `tasks` array. An effect that watched\n * that array re-read the server row on every one of them, so adding a step under a half-typed title\n * put the stored title back — the reader's words gone, with nothing on screen to say why. These cases\n * hold the two events that used to trigger it, and the one event that must still reseed: being handed\n * another task.\n */",
+    "// The export helpers inline KaTeX's stylesheet, which Vite refuses through this checkout's symlinked",
+    "// `node_modules`; nothing here exports a note or renders math.",
+    "/** Let the panel's own reads and the store's writes run to completion. */",
+    "// The step write reached the server and replaced the row it belongs to; the title in the box is",
+    "// still the reader's, not the stored one the reload brought back.",
   ]],
   ["src/client/features/todos/task-face.test.ts", [
     "/**\n * The colour a task wears, away from the DOM.\n *\n * The rule is small enough to say in one line — its own, else its list's, else the neutral — but the\n * edges are what a reader sees: a task that has cleared its own colour goes back to the list's rather\n * than to grey, an inbox task never asks a list it does not have, and a list deleted out from under\n * a task leaves the row wearing the caller's neutral instead of throwing.\n */",
