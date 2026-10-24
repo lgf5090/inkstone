@@ -55,6 +55,9 @@ export interface Env {
    */
   MUSIC_UPSTREAM_API?: string
 
+  /** The per-account download queue; optional so a deployment without R2 can omit it. */
+  MUSIC_QUEUE?: DurableObjectNamespace
+
   /**
    * The bare domain Email Routing delivers to this Worker, as in `mail.example.com`. Optional: with
    * it unset no address can be formed, so the mail-token routes answer 503 and inbound mail is

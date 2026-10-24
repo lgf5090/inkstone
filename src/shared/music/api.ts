@@ -155,6 +155,7 @@ export interface MusicHealth {
   storage: 'r2' | 'none'
   netease: boolean
   upstream: boolean
+  account?: { netease: boolean }
 }
 
 export interface MusicUploadInit {

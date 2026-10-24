@@ -25,6 +25,7 @@ import { MusicProviderError, type MusicProvider } from '../music/providers/types
 import { createMusicDiscoveryRoutes } from './music-discovery'
 import { musicLibraryRoutes } from './music-library'
 import { createMusicAccountRoutes } from './music-account'
+import { musicDownloadRoutes } from './music-downloads'
 import { musicSettingsRoutes } from './music-settings'
 
 type Ctx = Context<AppBindings>
@@ -58,7 +59,9 @@ export function musicProviderErrorToApiError(error: unknown): unknown {
     return new ApiError(502, 'music_source_unavailable', message)
   }
   if (error.code === 'auth_required') {
-    return new ApiError(401, 'music_provider_auth_required', message)
+    // A provider session is not the Inkstone session: 401 here would make the client sign the
+    // reader out of the app. 409 names the reconnect action without touching the account session.
+    return new ApiError(409, 'music_provider_auth_required', message)
   }
   if (error.code === 'not_found' || error.status === 404) {
     return ApiError.notFound(message)
@@ -68,7 +71,7 @@ export function musicProviderErrorToApiError(error: unknown): unknown {
   }
   if (error.status === 400) return ApiError.badRequest(message)
   if (error.status === 401) {
-    return new ApiError(401, 'music_provider_auth_required', message)
+    return new ApiError(409, 'music_provider_auth_required', message)
   }
   return new ApiError(502, 'music_provider_unavailable', message)
 }
@@ -164,5 +167,6 @@ const deps: MusicRouteDeps = {
 
 musicRoutes.route('/', createMusicDiscoveryRoutes(deps))
 musicRoutes.route('/library', musicLibraryRoutes)
+musicRoutes.route('/', musicDownloadRoutes)
 musicRoutes.route('/account', createMusicAccountRoutes(deps))
 musicRoutes.route('/', musicSettingsRoutes)
