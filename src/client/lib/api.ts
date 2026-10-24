@@ -126,7 +126,7 @@ import type {
   TodoTask,
   TodoTimeEntry,
 } from '@shared/todos/model'
-import { REMIND_OFFSET_MS, type FinishDay, type RemindTier, type Worklog } from '@shared/todos/model'
+import { REMIND_OFFSET_MS, type CounterReadings, type CounterStop, type CounterTick, type CounterKind, type FinishDay, type RemindTier, type TodoCounter, type Worklog } from '@shared/todos/model'
 import { publishBroadcast } from './db'
 import { randomLocalId } from './random-id'
 import { getLocale, t, translateApiError } from './i18n'
@@ -1293,6 +1293,31 @@ export const api = {
       request<FinishDay>(`/api/todos/finish-day${toQuery(params)}`),
     stats: (params: { from?: string, to?: string, bucket?: TaskStatsBucket } = {}) =>
       request<TodoStats>(`/api/todos/stats${toQuery(params)}`),
+
+    /**
+     * The habits screen: every habit with the days behind it, in one read.
+     *
+     * The days travel with the rows because the screen shades a year under every name; asking per habit
+     * would be one round trip per habit, and the server already reads them in one pass.
+     */
+    counters: () => request<CounterReadings>('/api/todos/counters'),
+    createCounter: (body: { title: string, kind?: CounterKind, goal?: number | null, icon?: string | null, color?: string | null }) =>
+      request<{ counter: TodoCounter }>('/api/todos/counters', { method: 'POST', body }),
+    updateCounter: (id: string, body: { title?: string, kind?: CounterKind, goal?: number | null, icon?: string | null, color?: string | null }) =>
+      request<{ counter: TodoCounter }>(`/api/todos/counters/${id}`, { method: 'PATCH', body }),
+    removeCounter: (id: string) =>
+      request<{ deleted: true }>(`/api/todos/counters/${id}`, { method: 'DELETE' }),
+    /**
+     * One press on one habit. `day` is the only way a habit reaches a past date, and the server decides
+     * which day a press lands on when the caller names none.
+     */
+    tickCounter: (id: string, body: { delta: number, day?: string }) =>
+      request<CounterTick>(`/api/todos/counters/${id}/tick`, { method: 'POST', body }),
+    startCounter: (id: string) =>
+      request<{ counter: TodoCounter }>(`/api/todos/counters/${id}/timer/start`, { method: 'POST' }),
+    /** The server's own clock starts and stops the run; a device never names the instant it began. */
+    stopCounter: (id: string) =>
+      request<CounterStop>(`/api/todos/counters/${id}/timer/stop`, { method: 'POST' }),
 
     addStep: (id: string, text: string) =>
       request<{ step: TaskStep }>(`/api/todos/${id}/steps`, { method: 'POST', body: { text } }),

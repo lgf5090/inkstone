@@ -1361,6 +1361,24 @@ export interface CounterReading extends CounterHistory {
   counter: TodoCounter
 }
 
+/** The whole habits screen in one answer: the reader's day, and every habit with its days. */
+export interface CounterReadings {
+  today: string
+  readings: CounterReading[]
+}
+
+/** What a day holds after a tap: the total the database arrived at, not the step that was asked for. */
+export interface CounterTick {
+  day: string
+  amount: number
+}
+
+/** A stopped run: the habit as it now stands, and the day its seconds landed on — or none. */
+export interface CounterStop {
+  counter: TodoCounter
+  filed: CounterDay | null
+}
+
 /**
  * Whether one day counts toward a run: the target, or any amount at all when none was set.
  *

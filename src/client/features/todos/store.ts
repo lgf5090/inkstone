@@ -58,7 +58,7 @@ import {
 } from './todo-address'
 import { daysToRange } from './due-range'
 
-export type TodoView = 'board' | 'today' | 'plan' | 'upcoming' | 'calendar' | 'starred' | 'completed' | 'list' | 'tag' | 'stats' | 'finish-day'
+export type TodoView = 'board' | 'today' | 'plan' | 'upcoming' | 'calendar' | 'starred' | 'completed' | 'list' | 'tag' | 'stats' | 'finish-day' | 'counters'
 
 /** The list shape this feature reads, re-exported so its screens do not reach the API module. */
 export type { TaskListEntry } from '../../lib/api'
@@ -523,13 +523,14 @@ const SERVER_VIEWS: Record<'board' | 'today' | 'plan' | 'upcoming' | 'starred', 
 /**
  * The screens that read their own rows.
  *
- * The statistics, the calendar and the end-of-day pass get their content from somewhere other than the
- * plate's listing, so three things follow at once: the frame does not fetch a page of tasks for them,
- * it does not resolve a `#tag`/`@list` name they cannot have typed, and it does not draw the filter bar
- * beside rows nobody is showing. One predicate, because the three followings are one fact.
+ * The statistics, the calendar, the end-of-day pass and the habits screen get their content from
+ * somewhere other than the plate's listing, so three things follow at once: the frame does not fetch a
+ * page of tasks for them, it does not resolve a `#tag`/`@list` name they cannot have typed, and it does
+ * not draw the filter bar beside rows nobody is showing. One predicate, because the three followings are
+ * one fact.
  */
-export function readsOwnRows(view: TodoView): view is 'stats' | 'calendar' | 'finish-day' {
-  return view === 'stats' || view === 'calendar' || view === 'finish-day'
+export function readsOwnRows(view: TodoView): view is 'stats' | 'calendar' | 'finish-day' | 'counters' {
+  return view === 'stats' || view === 'calendar' || view === 'finish-day' || view === 'counters'
 }
 
 /**

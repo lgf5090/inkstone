@@ -16,7 +16,7 @@
  * counts that horizon through the same filter the row opens.
  */
 import type { ComponentType, ReactNode } from 'react'
-import { CalendarClock, CalendarDays, CalendarRange, ChartNoAxesColumn, CheckCircle2, LayoutGrid, Star, Sun, Sunset } from 'lucide-react'
+import { CalendarClock, CalendarDays, CalendarRange, ChartNoAxesColumn, CheckCircle2, Flame, LayoutGrid, Star, Sun, Sunset } from 'lucide-react'
 import type { TaskCounts } from '@shared/todos/model'
 import type { MessageKey } from '../../../lib/i18n'
 import { useTodos, type TodoView } from '../store'
@@ -27,6 +27,7 @@ import { CalendarView } from '../CalendarView'
 import { ListsView } from '../ListsView'
 import { StatsView } from '../StatsView'
 import { FinishDayView } from '../FinishDayView'
+import { CountersView } from '../CountersView'
 
 /** What every glyph in this table accepts; lucide icons all match it. */
 type Glyph = ComponentType<{ size?: number }>
@@ -135,6 +136,14 @@ export const TODO_SURFACES: readonly TodoSurface[] = [
       requires: (flags) => flags.finishDayEnabled,
     },
     render: () => <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto"><FinishDayView /></div>,
+  },
+  {
+    view: 'counters',
+    icon: Flame,
+    // Habits are browsed rather than reached on the way home, so the sidebar carries the row and the
+    // phone's four tabs do not — the same placement the statistics and the close-out accepted.
+    sidebar: { order: 10, labelKey: 'todo.view.counters' },
+    render: () => <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto"><CountersView /></div>,
   },
 ]
 
