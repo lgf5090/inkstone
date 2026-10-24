@@ -33,6 +33,7 @@ interface BackupSelection {
   notes: SelectedBackupFile<MarkdownBackupNoteEntry>[]
   templates: { file: File; path: string } | null
   automation: { file: File; path: string } | null
+  music: { file: File; path: string } | null
   email: { file: File; path: string } | null
   emailAttachments: SelectedEmailAttachment[]
   warning: string | null
@@ -70,6 +71,11 @@ export async function restoreMarkdownBackupFolder(
     const { file, path } = selection.automation
     if (file.size !== selection.manifest.automation!.bytes) throw new Error(t('settings.backup_file_size_mismatch', { value0: path }))
     if (await sha256File(file) !== selection.manifest.automation!.sha256) throw new Error(t('settings.backup_file_checksum_failed', { value0: path }))
+  }
+  if (selection.music) {
+    const { file, path } = selection.music
+    if (file.size !== selection.manifest.music!.bytes) throw new Error(t('settings.backup_file_size_mismatch', { value0: path }))
+    if (await sha256File(file) !== selection.manifest.music!.sha256) throw new Error(t('settings.backup_file_checksum_failed', { value0: path }))
   }
   if (selection.email) {
     const { file, path } = selection.email
@@ -164,6 +170,16 @@ export async function restoreMarkdownBackupFolder(
         [selection.automation.file],
         manifestSlice(selection.manifest, [], []),
         [selection.automation.path],
+      ),
+    )
+  }
+  if (selection.music) {
+    mergeResult(
+      result,
+      await send(
+        [selection.music.file],
+        manifestSlice(selection.manifest, [], []),
+        [selection.music.path],
       ),
     )
   }
@@ -279,6 +295,7 @@ async function selectLatestCompleteBackup(files: readonly File[]): Promise<Backu
       notes: manifest.notes.map(resolve),
       templates: resolveLibrary(manifest.templates),
       automation: resolveLibrary(manifest.automation),
+      music: resolveLibrary(manifest.music),
       email,
       emailAttachments,
       warning: skipped.length

@@ -501,10 +501,12 @@ describe('R2 key namespace', () => {
 
     for (const key of [
       'music/mp3/u2/track-original.mp3',
+      'music/mp3/u2/u1/track-original.mp3',
       'music/mp3/xu1/track-original.mp3',
       'music/mp3/u1/../../u2/track-original.mp3',
       'attachments/u1/track-original.mp3',
       'music//u1/track-original.mp3',
+      'music/u1/track-original.mp3',
       'music/mp3/u1',
     ]) {
       await badRequest(applyBackupMusic(db, USER, serialized({ objects: [object(key)] })))

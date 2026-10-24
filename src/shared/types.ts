@@ -1287,6 +1287,11 @@ export interface ImportResult {
   emailSkippedMessages?: number
   emailAttachments?: number
   emailMissingAttachments?: number
+  musicTracks?: number
+  musicPlaylists?: number
+  musicFavorites?: number
+  musicHistory?: number
+  musicObjects?: number
 }
 
 

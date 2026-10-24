@@ -1080,10 +1080,12 @@ function oneOf<T extends string>(value: unknown, allowed: readonly T[], label: s
 /**
  * An R2 key this account is allowed to name.
  *
- * The key must live under `music/` and carry the account id as one of its path segments. A track or
- * ledger row is read and deleted by key alone, so a key from another account's namespace would let a
- * crafted backup play or queue that account's bytes; the segment check is what keeps the namespace
- * scoped even when one account id is a substring of another.
+ * The key must live under `music/`, and the owner segment must be the one the key layout puts there:
+ * `music/{format}/{user}/{file}` for audio and `music/covers/{user}/{file}` for a cover. Checking for
+ * the account id anywhere in the key would accept `music/mp3/other/user/file`, which is another
+ * account's object with this account's id tucked into a subfolder. A track or ledger row is read and
+ * deleted by key alone, so that distinction is the difference between a restore and a cross-account
+ * read or delete.
  */
 function ownedMusicKey(value: unknown, label: string, userId: string): string {
   if (typeof value !== 'string' || !value || value.length > OBJECT_KEY_MAX) {
@@ -1095,8 +1097,7 @@ function ownedMusicKey(value: unknown, label: string, userId: string): string {
   if (parts.some((part) => !part || part === '.' || part === '..' || /[\u0000-\u001f]/.test(part))) {
     throw ApiError.badRequest(`${label} is not a safe object key`)
   }
-  const owner = parts.indexOf(userId)
-  if (owner < 1 || owner >= parts.length - 1) {
+  if (parts.length < 4 || parts[2] !== userId) {
     throw ApiError.badRequest(`${label} is outside this account's music namespace`)
   }
   return value
@@ -1151,7 +1152,7 @@ function toBackupTrack(row: TrackBackupRow): MusicTrack {
     bitrate: row.bitrate,
     size: row.size,
     sha256: row.sha256,
-    r2Key: row.r2_key,
+    r2Key: row.r2_key || null,
     source: row.source,
     sourceQuality: row.source_quality,
     createdAt: row.created_at,
