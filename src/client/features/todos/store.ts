@@ -1095,6 +1095,14 @@ async function logTimeSpan(id: string, ms: number): Promise<void> {
 export function applyTodoSync(payload: { todos: TodoTask[]; deleted: string[] }): void {
   const deleted = new Set(payload.deleted)
   if (!payload.todos.length && !deleted.size) return
+  const before = useTodos.getState()
+  // A task can arrive on this stream from a list the device has never been told about: the directory
+  // rides on a listing read, not here. Left alone, that task reads as unfiled work beside a sidebar with
+  // no row for its list — so the one thing the merge can tell is that its picture is behind, and the
+  // directory is asked again. Only once a directory exists: a cold screen reads it as its first step.
+  const known = new Set(before.lists.map((entry) => entry.id))
+  const unknownList = payload.todos.some((task) => task.listId !== null && !known.has(task.listId))
+    && before.directoryKnown
   useTodos.setState((state) => {
     let tasks = state.tasks.filter((entry) => !deleted.has(entry.id))
     let completed = state.completed.filter((entry) => !deleted.has(entry.id))
@@ -1133,6 +1141,7 @@ export function applyTodoSync(payload: { todos: TodoTask[]; deleted: string[] })
       completedTotal: Math.max(0, completedTotal),
     }
   })
+  if (unknownList) void useTodos.getState().load()
 }
 
 /**
