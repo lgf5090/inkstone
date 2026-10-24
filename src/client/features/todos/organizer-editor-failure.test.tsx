@@ -105,3 +105,36 @@ describe('a list the server refused', () => {
     expect(nameField().value).toBe('Reading')
   })
 })
+
+describe('the custom colour field', () => {
+  it('names the line that explains a refused hex', async () => {
+    act(() => {
+      useTodos.setState({
+        status: 'ready',
+        lists: [],
+        archivedLists: [],
+        tags: [],
+        tasks: [],
+        completed: [],
+        counts: EMPTY_COUNTS,
+        timezone: 'UTC',
+        listEditor: { open: true, list: null },
+      })
+    })
+    view = renderElement(createElement(ListEditor))
+    await flush()
+
+    const field = panel().querySelector<HTMLInputElement>(`input[aria-label="${t('todo.list.color_custom')}"]`)
+    expect(field, 'the list editor offers no custom colour field').not.toBeNull()
+    // The border turning red is a message only sighted readers receive; `aria-describedby` is how the
+    // same sentence reaches everyone else. It has to point at a real element, which is the half a
+    // hand-written panel usually forgets.
+    const describedBy = field!.getAttribute('aria-describedby')
+    expect(describedBy, 'the field is described by nothing').toBeTruthy()
+    const hint = document.getElementById(describedBy!)
+    expect(hint, 'aria-describedby points at no element').not.toBeNull()
+    expect(hint!.textContent?.trim()).not.toBe('')
+    // Nothing has been refused yet, so the field is not announced as invalid.
+    expect(field!.getAttribute('aria-invalid')).toBeNull()
+  })
+})

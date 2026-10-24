@@ -715,7 +715,7 @@ describe('the row menu moves a list without a pointer', () => {
       parentRow.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
       await Promise.resolve()
     })
-    const target = [...document.querySelectorAll<HTMLButtonElement>('button[role="menuitemradio"]')]
+    const target = [...document.querySelectorAll<HTMLButtonElement>('button[data-submenu-row]')]
       .find((node) => (node.textContent ?? '').trim() === 'Bravo')
     expect(target, 'the grouping submenu lists no Bravo').toBeTruthy()
     await act(async () => {

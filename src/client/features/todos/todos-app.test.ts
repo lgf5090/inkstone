@@ -134,6 +134,35 @@ describe('the to-do container', () => {
     expect(badged.map((tab) => tab.getAttribute('aria-label'))).toEqual([t('todo.view.plan')])
   })
 
+  it('wears the shared bottom-bar pill rather than a fourth copy of it', async () => {
+    stubBreakpoint(false)
+    await render()
+
+    const bar = view.container.querySelector(`nav[aria-label="${t('todo.app.navigation')}"]`)
+    // The pressed state and the 56×48 floor are `.mobile-bottom-nav` / `.mobile-tab-content` in
+    // `app.css`; the notebook and the chat both inherit them, and this bar was the one that did not —
+    // which is why it had no press state and no minimum size of its own.
+    expect(bar!.classList.contains('mobile-bottom-nav')).toBe(true)
+    for (const tab of [...bar!.querySelectorAll('button')]) {
+      expect(tab.querySelector('.mobile-tab-content'), `${tab.getAttribute('aria-label')} has no pill`).not.toBeNull()
+    }
+    expect(bar!.querySelector('[aria-current="page"] .mobile-tab-content')).not.toBeNull()
+  })
+
+  it('paints the plan badge in ink that reads on the danger fill', async () => {
+    state.today = 3
+    stubBreakpoint(false)
+    await render()
+
+    const badge = view.container.querySelector<HTMLElement>(
+      `nav[aria-label="${t('todo.app.navigation')}"] button[aria-label="${t('todo.view.plan')}"] span.rounded-full`,
+    )
+    expect(badge, 'the plan tab carries no badge').not.toBeNull()
+    // `text-white` measured about 2.9:1 on the dark theme's 68% red; the token is the theme's own answer.
+    expect(badge!.className).toContain('text-[var(--danger-contrast)]')
+    expect(badge!.className).not.toContain('text-white')
+  })
+
   it('reaches the calendar from the sidebar and names it in the address', async () => {
     stubBreakpoint(true)
     await render()

@@ -566,7 +566,7 @@ export function TodosApp() {
           </button>}
           <nav
             aria-label={t('todo.app.navigation')}
-            className={cn('flex shrink-0 items-stretch justify-around border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] pb-[env(safe-area-inset-bottom)]', PHONE_TAB_BAR_CLASS)}
+            className={cn('mobile-bottom-nav flex shrink-0 items-stretch justify-around border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] pb-[env(safe-area-inset-bottom)]', PHONE_TAB_BAR_CLASS)}
           >
             {/* Order, glyphs, labels and the one badge all come from the surface table, so a view that
                 earns a tab on the phone is added there rather than here. */}
@@ -656,8 +656,12 @@ function MobileTab({ icon, label, active, badge, onClick }: {
       aria-current={active ? 'page' : undefined}
       className={cn('relative flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 text-[length:var(--text-10-5)]', active ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]')}
     >
-      {icon}
-      <span className="truncate">{label}</span>
+      {/* The shared pill, so this bar's pressed state and 56×48 floor are the notebook's rather than a
+          fourth copy of them: `aria-current` is what paints it, and that is set on the button. */}
+      <span className="mobile-tab-content">
+        {icon}
+        <span className="truncate">{label}</span>
+      </span>
       {badge > 0 && (
         <span className="absolute right-[22%] top-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[var(--danger)] px-1 text-[length:var(--text-9)] font-semibold text-[var(--danger-contrast)]">
           {badge > BADGE_CEILING ? `${BADGE_CEILING}+` : badge}

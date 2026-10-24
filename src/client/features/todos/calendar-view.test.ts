@@ -227,6 +227,49 @@ describe('the month grid', () => {
     expect(bar!.style.gridColumn).not.toBe('')
     expect(container.querySelectorAll('[data-calendar-span="span"]')).toHaveLength(1)
   })
+
+  it('scrolls the control row instead of painting it past a phone screen', async () => {
+    stubBreakpoint(false)
+    const container = await mount()
+    const controls = container.querySelector<HTMLElement>('[data-calendar-controls]')
+    expect(controls, 'the calendar has no control row').not.toBeNull()
+    // A row that cannot scroll is a row whose last buttons the frame's `overflow-hidden` eats.
+    expect(controls!.classList.contains('overflow-x-auto')).toBe(true)
+    expect(controls!.classList.contains('w-full')).toBe(true)
+    // Every control keeps its own width; shrinking is what pushed the plus off the edge.
+    for (const child of controls!.children) {
+      expect((child as HTMLElement).classList.contains('shrink-0'), `${child.textContent} shrinks`).toBe(true)
+    }
+  })
+
+  it('draws the month cell plus on a phone, at a thumb size', async () => {
+    stubBreakpoint(false)
+    const container = await mount()
+    const plus = container.querySelector<HTMLElement>(
+      `[data-calendar-cell="${dayKey(YEAR, MONTH, 5)}"] button[aria-label="${t('todo.calendar.add_on_day')}"]`,
+    )
+    expect(plus, 'a month cell has no plus').not.toBeNull()
+    // `opacity-0` as a bare class would hide it behind a hover a finger cannot perform.
+    expect(plus!.classList.contains('opacity-0')).toBe(false)
+    expect(plus!.classList.contains('size-9')).toBe(true)
+  })
+
+  it('gives the week grid a readable floor and one scroller for all three bands', async () => {
+    stubBreakpoint(false)
+    const container = await mount()
+    const week = [...container.querySelectorAll('button')]
+      .find((button) => (button.textContent ?? '').trim() === t('preview.kanban_calendar_week'))
+    act(() => { week!.click() })
+    await settle()
+
+    const scroller = container.querySelector<HTMLElement>('[data-calendar-week]')
+    expect(scroller, 'the week grid has no horizontal scroller').not.toBeNull()
+    expect(scroller!.classList.contains('overflow-x-auto')).toBe(true)
+    // The day row, the all-day strip and the hour axis share a column template, so all three carry
+    // the floor — one of them narrower would slide the columns out of line.
+    const bands = [...scroller!.children].filter((node) => node.classList.contains('min-w-[560px]'))
+    expect(bands.length, 'a week band can be squeezed below its readable width').toBe(3)
+  })
 })
 
 describe('the day panel', () => {

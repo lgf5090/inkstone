@@ -333,7 +333,10 @@ function LaterToday({ tasks, dayEnd, now }: { tasks: TodoTask[]; dayEnd: number;
         <span className="tabular-nums font-normal text-[var(--text-quaternary)]">{tasks.length}</span>
       </button>
       {expanded && (
-        <div id={panelId} role="list" className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-0.5 py-1">
+        /* No `role="list"`: the rows are `TaskCard` divs with no `listitem` between them, so the role
+           announced a list and then read nothing into it. The heading's count already says how many
+           rows the panel holds. */
+        <div id={panelId} className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-0.5 py-1">
           {tasks.map((task) => (
             <TaskCard
               key={task.id}

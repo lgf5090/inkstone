@@ -16747,8 +16747,9 @@ const allowed = new Map([
     "/** How wide a right-clicked row's batch panel is: as wide as the bar's own widest menu. */",
     "// The rows come from the same builder a right-clicked row uses, so the bar and that menu cannot offer",
     "// two different readings of \"move this group\".",
-    "/* The bar's star goes on and stays on: it names the value rather than leaning on the route's\n          default, and taking a star back off is the row's own button — a bar that toggled over a mixed\n          selection would answer ninety rows with one guess. */",
     "/**\n * The bar's actions, offered wherever a picked row is right-clicked.\n *\n * The group is what a picked row acts on, so the menu names the count the bar is naming and runs one\n * request over exactly those ids — the same vocabulary the three buttons open, never a second set of\n * batch semantics written for a context menu. It reads the selection from the store rather than from a\n * prop, because a row does not know what the reader picked.\n */",
+    "/* The count and the exit stay put; the actions between them are what scrolls.\n          Wrapping the whole bar put seven controls on three or four rows at 360px and left the listing\n          a slit above the tab bar; scrolling all of it would have carried the way *out* of selection\n          off the right edge, which is the one control that must not move. */",
+    "/* The bar's star goes on and stays on: it names the value rather than leaning on the route's\n            default, and taking a star back off is the row's own button — a bar that toggled over a mixed\n            selection would answer ninety rows with one guess. */",
   ]],
   ["src/client/features/todos/BoardView.tsx", [
     "// The page on hand can miss rows a card still has, so an unfiltered empty card is one",
@@ -16805,8 +16806,9 @@ const allowed = new Map([
     "// list holds nothing, while the one fact worth saying is that this page has no answer — and a card",
     "// would not be a card to add to either, since the row that writes it belongs to a collection this read",
     "// did not confirm. Said once, with the way to ask again, as the trash and the habits page say it.",
-    "/* The tracks follow the cards rather than the viewport: three lists on a 1920 screen used to draw\n            four columns and leave the fourth empty, and one list filled a quarter of the page. `auto-fit`\n            collapses the tracks no card stands in — `auto-fill` would keep reserving them, which is the\n            hole being closed — and the floor is `min(100%, 320px)` so the narrowest phone still gets one\n            column it does not overflow. */",
     "/* The fraction answers \"how much of this list is done\", and a list with no rows has not\n                    asked that question. `0/0` on an empty card is a number that means nothing sitting\n                    where a number would have meant something; the card's own empty body says the rest. */",
+    "/* The tracks follow the cards rather than the viewport, and the named sections form a group. */",
+    "/* `isolate` makes this row its own stacking context, so the field can be lifted\n                        over its own tint without naming a tier of the app's scale: `z-10` used to be\n                        `--z-sticky` by accident, and a card is not a sticky band. */",
   ]],
   ["src/client/features/todos/CalendarView.tsx", [
     "// The count is always spoken, including zero: a screen reader should not have to infer an empty day",
@@ -16849,6 +16851,17 @@ const allowed = new Map([
     "/**\n * How many open rows one calendar window reads. It is the listing's own ceiling, not a calendar number:\n * a route answers at most `MAX_TASKS_PER_QUERY` rows however wide the window is, so a busy month can\n * carry more than one page and the screen has to say so rather than draw the first page as the whole.\n */",
     "/** How many open rows match this window — read from the listing, bigger than `tasks` when the page is cut short. */",
     "/*\n            The calendar reads its own window through `api.todos.list`, not the store's paged listing, so\n            the shared `TodoPageFooter` (whose \"load more\" drives the store's page) cannot serve it here.\n            When the route hands back fewer rows than the window matches, this is the honest signal — the\n            rows past one page are simply not on the month, and a control that read them would ask a\n            different question than the one the grid answers.\n          */",
+    "/** The minute the \"now\" line is drawn at is re-read on this clock, not frozen at the first render. */",
+    "/* One step above the tint inside this bar's own stacking context — a local layer, not a tier\n          of the app's scale. */",
+    "/* A finger has no hover, so below `md` the plus is drawn rather than revealed — and\n                     at a thumb's size rather than a mouse's. The pseudo-element widens the target to\n                     44px without growing the glyph past the 26px date row it sits in. */",
+    "// The three bands of the week — the day row, the all-day strip and the hour axis — share one",
+    "// column template, so they have to scroll sideways together or a drop on Thursday would land on",
+    "// Friday. One scroller around all three, and a floor under each band's width: seven columns",
+    "// sharing 360px leaves about 45px per day once the hour gutter is taken, which is narrower than",
+    "// the time and the title a block has to hold. 560px is that floor (80px per day) rather than a",
+    "// width — a wider window still gets the whole row.",
+    "/**\n   * The instant the \"now\" line is drawn at. A reading of the clock rather than a snapshot: a week\n   * left open through the afternoon used to keep the line where it was when the view mounted, and a\n   * line that does not move is worse than no line at all — it is a claim about the present that is\n   * quietly an hour old. One tick a minute is finer than the line is drawn.\n   */",
+    "/* The control row takes a line of its own below `md` and scrolls sideways rather than being\n            clipped by the frame's `overflow-hidden`: a 360px window has no room for two segmented\n            controls, \"today\" and three 44px buttons beside a month name, and a control painted past\n            the edge is a control that cannot be pressed. From `md` up it sits back beside the title,\n            where it has always fitted. */",
   ]],
   ["src/client/features/todos/CountersView.tsx", [
     "/**\n * The habits screen: one row per habit, each with the month of days behind it.\n *\n * Nothing here is a task, and the frame knows it — the screen reads its own address rather than the\n * plate's listing, so the filter bar and the paged fetch stay away (`readsOwnRows`).\n *\n * Every write re-reads the screen instead of editing the row locally. A tap changes the very number the\n * streak beside it is derived from, and an optimistic answer plus the server's answer is two answers to\n * \"did today count\" — which `counterDayMet` already exists to prevent. The re-read is also what rolls the\n * day over: `today` is the account's, named by the server, not this machine's clock.\n */",
@@ -17010,6 +17023,7 @@ const allowed = new Map([
     "// Read here rather than inside the nav table, so switching the end-of-day page back on redraws this",
     "// section on the same tick the sidebar changes — the same reason the frame reads it.",
     "/* The same table the sidebar draws, asked the same way — not a second list of views somebody\n              has to remember to extend. This section used to name two of the ten surfaces by hand, which\n              read as the complete answer and was not one; a surface that earns a sidebar row now earns a\n              row here on the same tick. It stays because the sidebar can be collapsed, and then this is\n              the only view switch on the page. */",
+    "/* The shared submenu list rather than a hand-written `role=\"menu\"`: that one painted the\n             same panel without the arrow-key roving the email and folder menus get, so the one place a\n             reader has to choose from a list of lists was the one place the keyboard did not work. */",
   ]],
   ["src/client/features/todos/MatrixView.tsx", [
     "/**\n * The Eisenhower matrix: the open plate in four cells cut by importance and urgency.\n *\n * The matrix reads the same listing every other aggregate screen reads, so the filter bar, the search\n * line and the current list all narrow it the same way. A drop writes the two answers the cell stands\n * for; the row's own menu offers the same move for a keyboard or a phone, which cannot drag.\n */",
@@ -17026,6 +17040,8 @@ const allowed = new Map([
     "// A refused write has already said so through the store's toast; the dialog keeps the name the",
     "// reader typed rather than closing on a list that was never saved.",
     "/** The tag editor's own guard, for the same reason the list editor keeps one. */",
+    "/** The line under the field that says why a hex was turned down; the field names it while it is red. */",
+    "/* The shared field, so a refused hex is stated three ways rather than one: the border turns\n            red, `aria-invalid` carries the same fact to assistive tech, and `aria-describedby` points\n            at the line that says what to do about it. The border alone was a message only sighted\n            readers received, and only if they knew the palette's rule. */",
   ]],
   ["src/client/features/todos/OverdueShift.tsx", [
     "/**\n * The overdue rows, shifted to today in one press.\n *\n * The count on the button is the server's account-wide overdue number, and the rows are read by the\n * same `overdue` view that number counts, so the banner and the rows it moves cannot disagree. A batch\n * names at most `MAX_BATCH_TASKS`, so a longer shelf is sent in chunks and both halves of every answer\n * are summed — a toast that said \"moved\" over a partial batch would be a lie. Only `due_at` moves on\n * the server: the day a row was picked for is the reader's own plan and stays where it was, which is\n * what keeps this gesture from silently rearranging \"My Day\".\n *\n * The banner is drawn above the plan and above \"My Day\". Each screen wraps it in its own padding, so\n * the wrapper class is the caller's rather than this component's: the plan has no padded container of\n * its own and needs `px/pt`, while \"My Day\" already sits inside one and only needs the gap below.\n */",
@@ -17070,6 +17086,8 @@ const allowed = new Map([
     "/* The hours the ledger holds, beside the counts the plate moved: the two read different\n              tables and are allowed to disagree about the same week. */",
     "// The focus history reads the same window on its own endpoint: a phase is a session fact, not a",
     "// ledger span, and a break that named no task could not live in the worklog at all.",
+    "// `cn` rather than a template literal: a caller's `className` used to be appended after the card's",
+    "// own padding, so `p-0` handed in from outside lost to `p-3` and failed silently.",
   ]],
   ["src/client/features/todos/TaskCard.tsx", [
     "// A star that only appears on hover is a star a thumb never finds.",
@@ -17319,6 +17337,8 @@ const allowed = new Map([
     "// draft with it, so the panel stays open on exactly what the reader typed.",
     "// A delete that did not land leaves the row on screen; closing the panel would hide that it is",
     "// still there, so only a confirmed removal takes the panel away.",
+    "/**\n   * Files the text in the step field, whichever of the two doors asked.\n   *\n   * The Enter key and the + button had a copy of this each, and the copies had already drifted once\n   * (one checked the IME state, the other could not — it is a press, not a keystroke). A saved task\n   * writes through the store so the step gets an id and a position; a task that has never been saved\n   * keeps the step in the form, with a local id the save turns into a real one.\n   */",
+    "/* 28px rather than the 16px glyph it replaces: a 16px × is a target a thumb misses,\n                         and it was the smallest control in the panel. The negative block margin keeps\n                         the pill's own height, so the row does not grow around it. */",
   ]],
   ["src/client/features/todos/TaskFinder.tsx", [
     "/**\n * Find one of the account's own tasks by title, for a field that names it.\n *\n * The editor asks this question twice — which task should this one wait on, and which task should this\n * one sit under — so the finder lives in one place rather than being drawn twice with two slightly\n * different failure lines. The store's own search is the door: it already knows the server's shape and\n * the debounce the rest of the app pays for, and the task worth naming is usually not one currently on\n * screen. Three answers are owed and all three are said: a search in flight, one that found nothing, and\n * one that was refused — an empty list would otherwise read as \"no such task exists\".\n */",
@@ -17391,6 +17411,7 @@ const allowed = new Map([
     "/* The empty-state card speaks only when there is nothing on the screen at all: with rows\n            still owed later today, \"nothing in today yet\" would be a lie, so the list simply yields\n            the page to the section below it. */",
     "/**\n * How many open rows one plan reads.\n *\n * The ceiling lives with the rule itself (`shared/todos/plan-suggestions`), because the assistant's\n * `plan_today` tool answers with the same page of the same shelf — one decision, one ceiling.\n */",
     "/* What the rule is, said out loud: the button no longer claims a model, so the reader is told\n          which order the rows come back in rather than left to assume one. */",
+    "/* No `role=\"list\"`: the rows are `TaskCard` divs with no `listitem` between them, so the role\n           announced a list and then read nothing into it. The heading's count already says how many\n           rows the panel holds. */",
   ]],
   ["src/client/features/todos/TodoFilters.tsx", [
     "/**\n * The bar that states how the listing is read, for both layouts.\n *\n * It sits under the header rather than in the desktop toolbar: a phone is where \"most urgent first\"\n * is most likely to be wanted, and a control only one layout can reach is half a control. The order\n * shown when the address names none is the order the server itself reads for the view on screen, so\n * the default a reader sees is the default the route applies rather than a second answer.\n *\n * The due window is the same bargain: the presets are calendar arithmetic (`due-range.ts`) turned\n * into the half-open bounds the route reads, and the two date fields are the same bounds spelled as\n * the inclusive days a reader picks. Every move is written to the address and asked of the server;\n * nothing here filters the page the browser happens to hold.\n */",
@@ -17441,6 +17462,7 @@ const allowed = new Map([
     "/* The counts are the server's aggregate, and a refresh that failed left the last good answer on\n          screen. That is the right trade against blanking the nav, but the reader has to be able to tell\n          a number they can act on from one they are merely waiting on — so the doubt is said once, where\n          the numbers are, rather than only in a toast that has already gone. */",
     "// A focus block that was running when the page last closed is restored only after the rows that",
     "// name its task have arrived; restoring against an empty listing would discard it as unknown.",
+    "/* The shared pill, so this bar's pressed state and 56×48 floor are the notebook's rather than a\n          fourth copy of them: `aria-current` is what paints it, and that is set on the button. */",
   ]],
   ["src/client/features/todos/TrashPanel.tsx", [
     "/**\n * The trash: the tasks a delete only hid, and the two ways to settle them.\n *\n * The server keeps a deleted row — with its steps and tags — for the retention window, so this screen\n * is where a reader finds it again. Restoring is the same call the undo uses, and purging is the one\n * irreversible door, which is why it asks first. The panel is opened from the organizer page rather\n * than the task views: the trash is management, not a list to work in.\n */",
@@ -17505,6 +17527,9 @@ const allowed = new Map([
     "// later default flip read as a different gesture.",
     "// The row the server made is on screen even though the page could not be re-read: the batch answer",
     "// named it, so a connection that drops in the gap does not hide the next occurrence.",
+    "// Seven controls wrapping at 360px took three or four rows and left the listing a slit; scrolling",
+    "// the whole bar instead would have carried the way out of the mode off the right edge.",
+    "// The count is the bar's first child and the exit its last, both outside the strip.",
   ]],
   ["src/client/features/todos/board-card-count.test.tsx", [
     "// The fraction is the list's own counts, which the server answers with; the page's rows are what the",
@@ -17585,6 +17610,11 @@ const allowed = new Map([
     "// A bar is drawn once per grid row, so the two fixture days have to land in the same row: the",
     "// week start comes from the locale and the cursor month from the real clock, so hardcoded day",
     "// numbers straddle a row boundary in some months and the second piece made this red.",
+    "// A row that cannot scroll is a row whose last buttons the frame's `overflow-hidden` eats.",
+    "// Every control keeps its own width; shrinking is what pushed the plus off the edge.",
+    "// `opacity-0` as a bare class would hide it behind a hover a finger cannot perform.",
+    "// The day row, the all-day strip and the hour axis share a column template, so all three carry",
+    "// the floor — one of them narrower would slide the columns out of line.",
   ]],
   ["src/client/features/todos/counters-view.test.tsx", [
     "/**\n * The habits screen: what a row says it holds, and what a press actually writes.\n *\n * The rules worth pinning are the ones a screen can get wrong while looking right. A tap must land on the\n * day the answer named, not on the machine's today; the number under a row must come from the re-read\n * rather than from what the press asked for; a streak must count the target and not \"anything happened\";\n * and a control that cannot do what it says — taking a tap back from a day that holds none — is not drawn\n * as if it could.\n *\n * The fake below keeps habits and their days in one mutable array and rebuilds the whole answer on every\n * read, the way the endpoint does. A fake that replayed one fixed answer would let a screen that never\n * re-read pass every case here.\n */",
@@ -17961,6 +17991,10 @@ const allowed = new Map([
   ]],
   ["src/client/features/todos/organizer-editor-failure.test.tsx", [
     "/**\n * A list the server refused to create keeps its editor open.\n *\n * `createList` answers `null` when the write was refused, and the dialog used to close on that answer\n * anyway — the name the reader had just typed went with it, leaving only a toast about a list that is\n * not in the sidebar. The panel now waits for the row the store hands back before it closes.\n */",
+    "// The border turning red is a message only sighted readers receive; `aria-describedby` is how the",
+    "// same sentence reaches everyone else. It has to point at a real element, which is the half a",
+    "// hand-written panel usually forgets.",
+    "// Nothing has been refused yet, so the field is not announced as invalid.",
   ]],
   ["src/client/features/todos/organizer-views.test.tsx", [
     "// The label alone: the badge digit rides in the same button, and comparing it here would test the",
@@ -19188,6 +19222,10 @@ const allowed = new Map([
     "// leads with it. Those are two different readings of one list of surfaces, so both directions are",
     "// pinned: a registry that quietly reordered them would look right in one layout and wrong in the other.",
     "// Today's work is the only number the phone's bar carries: more badges across the views is noise.",
+    "// The pressed state and the 56×48 floor are `.mobile-bottom-nav` / `.mobile-tab-content` in",
+    "// `app.css`; the notebook and the chat both inherit them, and this bar was the one that did not —",
+    "// which is why it had no press state and no minimum size of its own.",
+    "// `text-white` measured about 2.9:1 on the dark theme's 68% red; the token is the theme's own answer.",
   ]],
   ["src/client/features/todos/trash-panel.test.ts", [
     "/**\n * The trash screen: the rows a delete hid, and the two doors out.\n *\n * The server is stubbed at the API boundary, so the assertions are about the requests the screen makes:\n * restoring asks the store for the same id the delete stamped, and purging asks first — a permanent\n * delete is the one gesture in this feature that cannot be taken back.\n */",
@@ -32038,6 +32076,8 @@ const allowed = new Map([
     "/* A plate that has to stay light whatever the theme: a QR code's quiet zone loses scannability when a\n     dark surface eats its contrast, so this is a design decision rather than a theme colour. */",
     "/* A pinned / hover link card is narrower than the reading column, so its prose has its\n     own step and leading rather than squeezing the reader's prose size into 340px. */",
     "/* The width reserved for a code block's line numbers; the content column starts after it. */",
+    "/* Foreground for danger fills, readable in both themes. */",
+    "/* Ink on the light red, the mirror of the light theme's paper on a dark one: `--danger` sits high in\n     this theme precisely so it can be read *as* text, which leaves no room for white on top of it. */",
   ]],
   ["src/client/styles/ui-primitives.css", [
     "/*\n * Shared floating-surface primitives.\n *\n * Kept out of app.css so the blog reading runtime can carry the same viewport, popover, utility and\n * animation rules without importing the whole application stylesheet. Both entries import this file;\n * the note app and a published article therefore draw a toast, a lightbox or a menu with one skin.\n */",
@@ -49703,6 +49743,11 @@ const allowed = new Map([
     "// conditional update makes the row's owner part of the write itself, so a concurrent insert",
     "// from another account cannot land on top of it in the gap.",
   ]],
+  ["tests/contrast-danger-contrast.test.ts", [
+    "/**\n * The label on a danger fill.\n *\n * `--danger` is a *text* colour in both themes — that is what the semantic gate above it requires — and\n * it is also the fill of a count badge and of the destructive button. The two uses pull in opposite\n * directions: the darker the red, the better white reads on it and the worse it reads as a figure on\n * paper. White was hard-coded at both call sites and only survived the light theme; on the dark theme's\n * 68% red it measures about 2.9:1, which is a label a reader has to guess at.\n *\n * `--danger-contrast` is the foreground, so this gate is one question asked twice: does the token named\n * for the fill clear AA against the fill, in every theme. The positive control is the literal it\n * replaces, so a run that passes means the token was actually consulted rather than the measurement\n * being blind to which colour it was handed.\n */",
+    "// The dark theme is where the old spelling broke; measuring it here keeps the gate honest about",
+    "// what it is protecting rather than merely asserting the token exists.",
+  ]],
   ["tests/contrast-dark-text-quaternary.test.ts", [
     "/**\n * `--text-quaternary` is the app-wide de-emphasis step: counts, placeholders and\n * secondary metadata in every module read it, so nothing that paints it can be\n * used as the gate — the gate has to be the declaration itself.\n *\n * Dark theme is the hard case. Its lightest surface (`--bg-overlay` under\n * `[data-background='white']`) sits near #292a2d, and AA 4.5:1 normal text on\n * that is only reachable above ~67% L, so the whole de-emphasis ladder has to\n * live in the upper lightness band and keep its steps by spacing rather than by\n * distance from white. This gate holds both halves of that contract.\n */",
     "// A step that is less than one contrast-ratio point away from its neighbour is",
@@ -52262,6 +52307,11 @@ const allowed = new Map([
     "// The same file walked in 100-row slices lands the same tasks: the slice is a transport detail.",
     "// The bad record sits between readable rows 59 and 60, so only the second slice may answer it.",
     "// `invalid` describes the file, so every slice reports the one bad line it was parsed with.",
+  ]],
+  ["tests/todo-list-semantics.test.ts", [
+    "/**\n * A `role=\"list\"` is a promise about its children.\n *\n * The to-do module had three of them — the grouped task list, the board's cards and the \"today\" panel —\n * and not one child was a `listitem`: the groups are `<section>` regions, and the rows are cards. A\n * screen reader that meets the container announces \"list\" and then reads nothing into it, so the\n * structure it promises is worse than the plain container it replaced.\n *\n * The rule is read from the source rather than from a render, because the surfaces that carry it are\n * mounted in three different tests and a fourth would still not cover the next one added. It is\n * deliberately one-directional: a file may write `role=\"list\"` as long as it also names a `listitem`,\n * which is the only shape the role can honestly describe.\n *\n * Read through the parser rather than by regex, so the comment above — and any comment that quotes the\n * attribute it is arguing about — is not mistaken for markup.\n */",
+    "// Tests are not shipped and speak about roles as strings; only the module's own markup is read.",
+    "/** Every `role=\"…\"` written as a JSX attribute, ignoring comments and ordinary strings. */",
   ]],
   ["tests/todo-mail.test.ts", [
     "/**\n * Email-to-task, from the two sides it has: the owner issuing an address and the inbound handler\n * turning a delivered message into a task.\n *\n * What is pinned here is the capability, not the plumbing. A token is 40 random characters; only the\n * account that issued it can list it; rotation retires the old address; revocation leaves the old\n * address dead; an unconfigured domain is an honest 503 instead of an address shaped around nothing;\n * a recipient nobody issued creates no row at all; and a redelivered message is filed once. The\n * inbound cases feed a constructed `ForwardableEmailMessage`, because the handler's whole job is to\n * read the fields the platform hands it — the raw MIME is the interesting part, and it is built here\n * the way a mail client writes one.\n */",

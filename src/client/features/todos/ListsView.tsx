@@ -26,7 +26,7 @@ import { useMediaQuery } from '../../lib/hooks'
 import { Button, IconButton } from '../../components/primitives'
 import { api } from '../../lib/api'
 import { saveFile } from './export-file'
-import { Menu, type MenuItem } from '../../components/overlay'
+import { Menu, MenuSubmenuList, type MenuItem } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { warmSettingsSection } from '../settings/sections'
 import { useTodos, type TaskListEntry } from './store'
@@ -743,24 +743,20 @@ function Row({ label, count, color, icon, tag = false, nested = false, parents, 
           id: 'parent',
           label: t('todo.list.parent_label'),
           icon: <ChevronRight size={13} />,
+          /* The shared submenu list rather than a hand-written `role="menu"`: that one painted the
+             same panel without the arrow-key roving the email and folder menus get, so the one place a
+             reader has to choose from a list of lists was the one place the keyboard did not work. */
           submenu: ({ closeMenu }: { closeMenu: () => void }): ReactNode => (
-            <div role="menu" aria-label={t('todo.list.parent_label')} className="rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-1 shadow-[var(--shadow-pop)]">
-              {[{ id: '', name: t('todo.list.top_level') }, ...parents.map((parent) => ({ id: parent.id, name: parent.name }))].map((option) => (
-                <button
-                  key={option.id || 'root'}
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={(parentId ?? '') === option.id}
-                  onClick={() => { closeMenu(); onReparent(option.id || null) }}
-                  className={cn(
-                    'flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-left text-[length:var(--text-12-5)]',
-                    (parentId ?? '') === option.id ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'text-[var(--text-primary)] hover:bg-[var(--bg-hover)]',
-                  )}
-                >
-                  <span className="min-w-0 flex-1 truncate">{option.name}</span>
-                </button>
-              ))}
-            </div>
+            <MenuSubmenuList
+              label={t('todo.list.parent_label')}
+              items={[{ id: '', name: t('todo.list.top_level') }, ...parents.map((parent) => ({ id: parent.id, name: parent.name }))]
+                .map((option) => ({
+                  id: option.id || 'root',
+                  label: option.name,
+                  checked: (parentId ?? '') === option.id,
+                  onSelect: () => { closeMenu(); onReparent(option.id || null) },
+                }))}
+            />
           ),
         }]
       : []),

@@ -470,12 +470,8 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
         {/* No standalone first-run note here: the inbox is always one of the cards below, so a centred
             "create your first list" line beside it reads as a contradiction. The card's own empty body
             and the sidebar's + carry that guidance instead. */}
-        {/* The tracks follow the cards rather than the viewport: three lists on a 1920 screen used to draw
-            four columns and leave the fourth empty, and one list filled a quarter of the page. `auto-fit`
-            collapses the tracks no card stands in — `auto-fill` would keep reserving them, which is the
-            hole being closed — and the floor is `min(100%, 320px)` so the narrowest phone still gets one
-            column it does not overflow. */}
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,320px),1fr))] gap-2.5" role="list" aria-label={t('todo.a11y.list_cards')}>
+        {/* The tracks follow the cards rather than the viewport, and the named sections form a group. */}
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,320px),1fr))] gap-2.5" role="group" aria-label={t('todo.a11y.list_cards')}>
           {cards.map((card) => (
             <section
               key={card.id}
@@ -559,7 +555,10 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
                       void submit(card)
                     }}
                   >
-                    <div className="relative min-w-0 flex-1">
+                    {/* `isolate` makes this row its own stacking context, so the field can be lifted
+                        over its own tint without naming a tier of the app's scale: `z-10` used to be
+                        `--z-sticky` by accident, and a card is not a sticky band. */}
+                    <div className="relative isolate min-w-0 flex-1">
                       <QuickAddMirror input={draft} tokens={quick?.tokens ?? []} mirrorRef={mirrorRef} />
                       {/* The field wears no background of its own: the line under it is the box, and the
                           caret and the selection the browser draws stay legible over the tint. */}
@@ -579,7 +578,7 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
                           if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(card) }
                           if (event.key === 'Escape') { stopVoice(); setAdding(null); setDraft('') }
                         }}
-                        className={cn(QUICK_ADD_FIELD, 'relative z-10 h-9 bg-transparent')}
+                        className={cn(QUICK_ADD_FIELD, 'relative z-[1] h-9 bg-transparent')}
                       />
                     </div>
                     <button

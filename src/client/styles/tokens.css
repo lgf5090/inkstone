@@ -158,6 +158,8 @@
   --status-warning: var(--warning);
   --text-danger: var(--danger);
   --bg-elevated: var(--bg-raised);
+  /* Foreground for danger fills, readable in both themes. */
+  --danger-contrast: oklch(99% 0 0);
   --brand-accent: #bb4430;
 
   --platform-android: oklch(48% 0.14 155);
@@ -350,6 +352,9 @@
   --success: oklch(72% 0.145 155);
   --warning: oklch(80% 0.15 82);
   --danger: oklch(68% 0.185 22);
+  /* Ink on the light red, the mirror of the light theme's paper on a dark one: `--danger` sits high in
+     this theme precisely so it can be read *as* text, which leaves no room for white on top of it. */
+  --danger-contrast: oklch(16% 0.008 265);
   --brand-accent: #e0664a;
   --platform-android: oklch(78% 0.14 155);
   --platform-windows: oklch(78% 0.12 250);

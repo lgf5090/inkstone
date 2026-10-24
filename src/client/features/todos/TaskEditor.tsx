@@ -369,6 +369,29 @@ export function TaskEditor() {
   }, [])
 
   /**
+   * Files the text in the step field, whichever of the two doors asked.
+   *
+   * The Enter key and the + button had a copy of this each, and the copies had already drifted once
+   * (one checked the IME state, the other could not — it is a press, not a keystroke). A saved task
+   * writes through the store so the step gets an id and a position; a task that has never been saved
+   * keeps the step in the form, with a local id the save turns into a real one.
+   */
+  const commitStep = (): void => {
+    const text = stepInput.trim()
+    if (!text) return
+    setStepInput('')
+    if (!existing) {
+      setSteps((current) => [...current, {
+        id: `draft-${current.length}`, taskId: '', text, done: false, position: current.length, createdAt: Date.now(),
+      }])
+      return
+    }
+    void addStep(existing.id, text).then((step) => {
+      if (step) setSteps((current) => [...current, step])
+    })
+  }
+
+  /**
    * The form is seeded once per opening, not once per store change.
    *
    * A step write and the assistant's refresh both replace the `tasks` array, and an effect that watched
@@ -1258,9 +1281,12 @@ export function TaskEditor() {
                       type="button"
                       aria-label={`${t('todo.action.delete')} ${name}`}
                       onClick={() => setTagNames((current) => current.filter((entry) => entry !== name))}
-                      className="ml-0.5 flex size-4 items-center justify-center rounded-full text-current opacity-60 hover:opacity-100"
+                      /* 28px rather than the 16px glyph it replaces: a 16px × is a target a thumb misses,
+                         and it was the smallest control in the panel. The negative block margin keeps
+                         the pill's own height, so the row does not grow around it. */
+                      className="-my-1 ml-0.5 flex size-7 items-center justify-center rounded-full text-current opacity-60 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
                     >
-                      <X size={10} />
+                      <X size={11} />
                     </button>
                   )}
                 />
@@ -1424,32 +1450,10 @@ export function TaskEditor() {
               onKeyDown={(event) => {
                 if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
                 event.preventDefault()
-                const text = stepInput.trim()
-                if (!text) return
-                setStepInput('')
-                if (existing) {
-                  void addStep(existing.id, text).then((step) => {
-                    if (step) setSteps((current) => [...current, step])
-                  })
-                } else {
-                  setSteps((current) => [...current, {
-                    id: `draft-${current.length}`, taskId: '', text, done: false, position: current.length, createdAt: Date.now(),
-                  }])
-                }
+                commitStep()
               }}
             />
-            <IconButton label={t('todo.task.step_add')} size="sm" onClick={() => {
-              const text = stepInput.trim()
-              if (!text) return
-              setStepInput('')
-              if (existing) {
-                void addStep(existing.id, text).then((step) => { if (step) setSteps((current) => [...current, step]) })
-              } else {
-                setSteps((current) => [...current, {
-                  id: `draft-${current.length}`, taskId: '', text, done: false, position: current.length, createdAt: Date.now(),
-                }])
-              }
-            }}>
+            <IconButton label={t('todo.task.step_add')} size="sm" onClick={commitStep}>
               <Plus size={13} />
             </IconButton>
           </div>

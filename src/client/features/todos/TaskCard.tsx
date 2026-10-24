@@ -1115,7 +1115,7 @@ export const TaskCard = memo(function TaskCard({ task, lists, bounds, timezone, 
               : t('todo.timer.start_aria', { title: task.title })}
             onClick={() => { void (timed ? stopTimer(task.id) : startTimer(task)) }}
             className={cn(
-              'flex size-9 items-center justify-center rounded-full transition-colors md:size-7',
+              'flex size-11 items-center justify-center rounded-full transition-colors md:size-7',
               'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
               timed
                 ? 'text-[var(--accent)] opacity-100'
@@ -1134,7 +1134,7 @@ export const TaskCard = memo(function TaskCard({ task, lists, bounds, timezone, 
             aria-pressed={task.starred}
             onClick={onStar}
             className={cn(
-              'flex size-9 items-center justify-center rounded-full transition-colors md:size-7',
+              'flex size-11 items-center justify-center rounded-full transition-colors md:size-7',
               'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
               task.starred ? 'text-[var(--warning)]' : 'text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]',
               // A star that only appears on hover is a star a thumb never finds.
@@ -1150,7 +1150,7 @@ export const TaskCard = memo(function TaskCard({ task, lists, bounds, timezone, 
             aria-label={t('todo.today.remove', { title: task.title })}
             title={t('todo.today.remove', { title: task.title })}
             onClick={onUnplan}
-            className="flex size-9 items-center justify-center rounded-full text-[var(--text-quaternary)] hover:text-[var(--danger)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] md:size-7"
+            className="flex size-11 items-center justify-center rounded-full text-[var(--text-quaternary)] hover:text-[var(--danger)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] md:size-7"
           >
             <CalendarMinus size={14} />
           </button>
