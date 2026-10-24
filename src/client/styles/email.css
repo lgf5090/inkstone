@@ -8,3 +8,7 @@
 .email-frame-auto {
   min-height: 4rem;
 }
+
+.email-markdown-prose {
+  padding-block: 0;
+}

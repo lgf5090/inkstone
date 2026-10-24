@@ -1045,6 +1045,8 @@ export const ZH_CN_MESSAGES = {
     "email.detail.reply": "回复",
     "email.detail.reply_all": "全部回复",
     "email.detail.source": "查看原文",
+    "email.detail.render_markdown": "按 Markdown 渲染",
+    "email.detail.show_plain": "显示纯文本",
     "email.detail.source_empty": "这封邮件没有可用的头信息。",
     "email.detail.source_hint": "接收时的原始头信息。",
     "email.detail.source_title": "原始邮件",

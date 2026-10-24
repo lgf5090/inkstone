@@ -7,6 +7,7 @@ import {
   Clock,
   Code2,
   Download,
+  FileCode2,
   Flag,
   FolderInput,
   Forward,
@@ -32,6 +33,7 @@ import { useEmailStore, type EmailLoadStatus } from './store'
 import { emailErrorText } from './errors'
 import { sanitizeEmailHtml } from './email-markdown'
 import { emailAddresses, folderLabel, messageFullDate, messageSubject, messageRecipients, senderLabel } from './format'
+import { emailMarkdownSource, looksLikeMarkdown } from './markdown-reading'
 import { SourceDialog } from './SourceDialog'
 import { ThreadMessage } from './ThreadMessage'
 import { ComposePanel } from './ComposePanel'
@@ -181,6 +183,7 @@ export function MessagePane({
   const moveMessage = useEmailStore((state) => state.moveMessage)
   const deleteMessage = useEmailStore((state) => state.deleteMessage)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [markdownOverride, setMarkdownOverride] = useState<boolean | null>(null)
   const [sourceOpen, setSourceOpen] = useState(false)
   const [moveOpen, setMoveOpen] = useState(false)
   const [snoozeOpen, setSnoozeOpen] = useState(false)
@@ -191,6 +194,10 @@ export function MessagePane({
   const followUpAnchor = useRef<HTMLButtonElement>(null)
 
   const draftKey = thread.filter((message) => message.folderId === 'draft').map((message) => message.id).join(',')
+
+  useEffect(() => {
+    setMarkdownOverride(null)
+  }, [summary?.id])
 
   useEffect(() => {
     const next = new Set<string>(summary ? [summary.id] : [])
@@ -244,6 +251,11 @@ export function MessagePane({
   }
 
   const messages = thread.length > 0 ? thread : [summary]
+  const markdownSources = messages
+    .map((message) => emailMarkdownSource(message.body))
+    .filter((source): source is string => source !== null)
+  const markdownAvailable = markdownSources.length > 0
+  const markdownOn = markdownOverride ?? markdownSources.some(looksLikeMarkdown)
   const permanent = folderId === 'trash' || summary.folderId === 'trash'
   const draft = summary.folderId === 'draft'
   const recipients = messageRecipients(summary)
@@ -587,6 +599,19 @@ export function MessagePane({
             <Code2 size={15} />
           </IconButton>
         </Tooltip>
+        {markdownAvailable && (
+          <Tooltip label={markdownOn ? t('email.detail.show_plain') : t('email.detail.render_markdown')}>
+            <IconButton
+              label={markdownOn ? t('email.detail.show_plain') : t('email.detail.render_markdown')}
+              size="sm"
+              className={TOOLBAR_BUTTON}
+              active={markdownOn}
+              onClick={() => setMarkdownOverride(!markdownOn)}
+            >
+              <FileCode2 size={15} />
+            </IconButton>
+          </Tooltip>
+        )}
         </div>
         {tools && (
           <span className="flex shrink-0 items-center gap-0.5 border-l border-[var(--border-subtle)] pl-1">
@@ -639,6 +664,7 @@ export function MessagePane({
             message={message}
             expanded={expanded.has(message.id)}
             busy={busy}
+            markdown={markdownOn}
             onToggle={() => toggle(message.id)}
             onSendDraft={(draft) => { void sendThreadDraft(draft) }}
             onEditDraft={(draft) => onEditDraft(draft.id)}

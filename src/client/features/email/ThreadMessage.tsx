@@ -1,22 +1,27 @@
-import { useId } from 'react'
+import { lazy, Suspense, useId, useMemo } from 'react'
 import { ChevronDown, ChevronUp, Send } from 'lucide-react'
 import type { EmailMessage } from '@shared/email/model'
 import { Badge, Button } from '../../components/primitives'
 import { t } from '../../lib/i18n'
 import { AttachmentList } from './AttachmentList'
 import { EmailFrame } from './EmailFrame'
+import { emailMarkdownSource } from './markdown-reading'
 import { senderLabel, messageFullDate, messageSnippet } from './format'
 
-export function ThreadMessage({ message, expanded, onToggle, busy = false, onSendDraft, onEditDraft, onDiscardDraft }: {
+const EmailMarkdownBody = lazy(() => import('./EmailMarkdownBody').then((module) => ({ default: module.EmailMarkdownBody })))
+
+export function ThreadMessage({ message, expanded, onToggle, busy = false, markdown = false, onSendDraft, onEditDraft, onDiscardDraft }: {
   message: EmailMessage
   expanded: boolean
   onToggle: () => void
   busy?: boolean
+  markdown?: boolean
   onSendDraft?: (message: EmailMessage) => void
   onEditDraft?: (message: EmailMessage) => void
   onDiscardDraft?: (message: EmailMessage) => void
 }) {
   const bodyId = useId()
+  const markdownSource = useMemo(() => markdown ? emailMarkdownSource(message.body) : null, [markdown, message.body])
   return (
     <article className="border-b border-[var(--border-subtle)] last:border-b-0">
       <h3 className="m-0">
@@ -75,7 +80,15 @@ export function ThreadMessage({ message, expanded, onToggle, busy = false, onSen
           <p role="status" className="mt-2 text-[length:var(--text-11)] text-[var(--warning)]">{t('email.detail.attachments_skipped')}</p>
         )}
         <div className="mt-2 overflow-hidden rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
-          <EmailFrame body={message.body} attachments={message.attachments} subject={message.subject} />
+          {markdownSource
+            ? (
+                <div className="px-5 py-4">
+                  <Suspense fallback={<p className="m-0 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('common.loading')}</p>}>
+                    <EmailMarkdownBody source={markdownSource} />
+                  </Suspense>
+                </div>
+              )
+            : <EmailFrame body={message.body} attachments={message.attachments} subject={message.subject} />}
         </div>
         <AttachmentList attachments={message.attachments} label={t('email.detail.attachments', { subject: message.subject })} />
         {message.folderId === 'draft' && (

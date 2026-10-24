@@ -1045,6 +1045,8 @@ export const EN_US_MESSAGES = {
     "email.detail.reply": "Reply",
     "email.detail.reply_all": "Reply all",
     "email.detail.source": "Show original",
+    "email.detail.render_markdown": "Render Markdown",
+    "email.detail.show_plain": "Show plain text",
     "email.detail.source_empty": "No headers are available for this message.",
     "email.detail.source_hint": "The headers exactly as they were received.",
     "email.detail.source_title": "Original message",

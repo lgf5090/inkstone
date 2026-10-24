@@ -169,9 +169,9 @@ export function EmailFrame({ body, attachments, subject }: {
       measure()
       for (const timer of timers) window.clearTimeout(timer)
       timers = [250, 1000, 2500].map((delay) => window.setTimeout(measure, delay))
-      contentWindow?.removeEventListener('load', measure, true)
+      contentWindow?.removeEventListener?.('load', measure, true)
       contentWindow = iframe.contentWindow
-      contentWindow?.addEventListener('load', measure, true)
+      contentWindow?.addEventListener?.('load', measure, true)
       const doc = iframe.contentDocument
       if (!doc || typeof ResizeObserver !== 'function') return
       observer?.disconnect()
@@ -186,7 +186,7 @@ export function EmailFrame({ body, attachments, subject }: {
     return () => {
       iframe.removeEventListener('load', attach)
       window.removeEventListener('resize', measure)
-      contentWindow?.removeEventListener('load', measure, true)
+      contentWindow?.removeEventListener?.('load', measure, true)
       for (const timer of timers) window.clearTimeout(timer)
       observer?.disconnect()
     }
