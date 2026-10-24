@@ -6008,9 +6008,9 @@ const allowed = new Map([
     "/**\r\n * The music app's own navigation rail: what to open, the shelves the reader already has, and the\r\n * assistant that can act on them. The page under it owns the h1; this rail is landmark navigation and\r\n * never repeats the title.\r\n */",
   ]],
   ["src/client/features/music/components/NowPlaying.tsx", [
-    "/**\n * The full-screen listening surface: what is playing on one side, lyrics or the queue on the other.\n *\n * The shared `Modal` owns the layer behaviour — focus moves in, Escape and the backdrop close it, and\n * focus returns to whatever opened it. The lyric pane is the existing embedded `LyricPanel`, so the\n * translation and offset controls are not duplicated here; the queue is a plain list of the player's\n * own tracks rather than a second copy of the queue drawer.\n *\n * A phone gets the same content stacked and full-height; the stylesheet switches the two columns at\n * the tablet breakpoint and keeps the home-indicator inset on the bottom edge.\n */",
     "// The assistant is a separate surface owned by the app shell. Opening it closes this layer, so the",
     "// dock is not mounted behind a modal; its music context already names the track that is playing.",
+    "/**\r\n * The full-screen listening surface: what is playing on one side, lyrics or the queue on the other.\r\n *\r\n * The shared `Modal` owns the layer behaviour — focus moves in, Escape and the backdrop close it, and\r\n * focus returns to whatever opened it. The lyric pane is the existing embedded `LyricPanel`, so the\r\n * translation and offset controls are not duplicated here; the queue is a plain list of the player's\r\n * own tracks rather than a second copy of the queue drawer.\r\n *\r\n * A phone gets the same content stacked and full-height; the stylesheet switches the two columns at\r\n * the tablet breakpoint and keeps the home-indicator inset on the bottom edge.\r\n */",
   ]],
   ["src/client/features/music/components/Pager.tsx", [
     "/**\n * Page navigation for a long collection.\n *\n * Above the phone breakpoint it is previous / numbers / next; below it the numbers step aside and a\n * single \"load more\" button takes their place, because a row of five 32px page numbers is not a\n * thumb target. Both controls call the same `onChange`, so a page never has two different notions of\n * what \"next\" means.\n */",
@@ -6038,10 +6038,10 @@ const allowed = new Map([
     "/** Pause when the current queue reaches its natural end. */",
   ]],
   ["src/client/features/music/components/SongList.tsx", [
-    "/**\n * A list of tracks, optionally split into sticky-titled groups.\n *\n * The player state is read once here rather than in every row: a hundred rows subscribing to the\n * queue would each re-render when the position moves. Rows stay presentational; this component\n * tells them which one is current and hands them the press and menu callbacks.\n */",
     "/** One flat list. Ignored when `groups` is passed. */",
     "/** Draw placeholder rows instead of the list; the page owns the error state above it. */",
     "/** `queue` is the list the pressed track started from, so the player can continue through it. */",
+    "/**\r\n * A list of tracks, optionally split into sticky-titled groups.\r\n *\r\n * The player state is read once here rather than in every row: a hundred rows subscribing to the\r\n * queue would each re-render when the position moves. Rows stay presentational; this component\r\n * tells them which one is current and hands them the press and menu callbacks.\r\n */",
   ]],
   ["src/client/features/music/components/SongRow.tsx", [
     "/** Zero-based position in the list the row was rendered from. */",
@@ -6106,6 +6106,7 @@ const allowed = new Map([
     "/* ── Now playing ────────────────────────────────────────────────────────────────────────────── */",
     "/* The layer fills the phone and becomes a bounded desktop card. The dialog shell already centres it\r\n   and handles focus; this rule only decides how much room the card takes. */",
     "/* The hero cover is square but never taller than a share of the viewport, so the transport keeps its\r\n   place on a short phone. */",
+    "/* The list's column names, aligned with the row grid rather than a second arrangement. */",
   ]],
   ["src/client/features/music/pages/AlbumPage.tsx", [
     "/**\n * One album: the release facts, the description the catalog sometimes has, and its tracks.\n *\n * Albums paginate like playlists because the provider answers in pages; the header keeps the facts\n * from the first answer while a later page is in flight, so the screen does not flash back to a\n * skeleton when the reader asks for the next page.\n */",
@@ -6167,10 +6168,10 @@ const allowed = new Map([
     "/**\n * A ranking: its own header and rows, followed by the other rankings the catalog publishes.\n *\n * The list endpoint is cheap and already names every chart, so it rides along as a \"more\" shelf\n * instead of requiring a second route for an index screen. Picking one replaces the address; the\n * detail query owns the new id and the page count starts over.\n */",
   ]],
   ["src/client/features/music/pages/UploadsPage.tsx", [
-    "/**\n * Local music uploads.\n *\n * A file is read in the browser for its tags, then sent as 8 MiB parts into the Worker's multipart\n * upload. Nothing is trusted from the browser: the server sniffs the container and trims the tags.\n * The queue is this tab's own state; completed tasks come back from `/api/music/uploads` so a\n * reload still shows what reached the library.\n */",
     "// Leaving the page stops this tab's transfers and tells the server to discard their tasks; a",
     "// half-written multipart upload is paid for by nobody after the page that owned it is gone.",
     "// The same file may be chosen again after it was removed from the queue.",
+    "/**\r\n * Local music uploads.\r\n *\r\n * A file is read in the browser for its tags, then sent whole when small (or as 8 MiB parts) into the Worker's multipart\r\n * upload. Nothing is trusted from the browser: the server sniffs the container and trims the tags.\r\n * The queue is this tab's own state; completed tasks come back from `/api/music/uploads` so a\r\n * reload still shows what reached the library.\r\n */",
   ]],
   ["src/client/features/music/pages/UserPage.tsx", [
     "/** A Netease profile: public playlists and the counts that describe the account. */",
@@ -6371,6 +6372,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/music/upload-metadata.ts", [
     "/** Reads what the browser can tell us about a file before it is uploaded. */",
+    "/** Embedded lyrics as LRC/text, already bounded; an empty string means none. */",
   ]],
   ["src/client/features/music/use-tool-effects.ts", [
     "/**\n * Plays the effects a local assistant turn brings back.\n *\n * A tool runs in the worker, but the music is in this tab's player. The worker therefore answers a\n * playback tool with an effect, and this is the only place that turns one into a press: play, pause,\n * queue, open. The rules are deliberately narrow.\n *\n *  - Only the tab that asked carries it out. A turn being watched in another tab is not this tab's\n *    press to make, and a thread opened later is a record, not a replay.\n *  - Each activity id is claimed once, in memory and in sessionStorage, so a re-render, a reload of the\n *    same tab or a reconnect cannot play the same instruction twice.\n *  - A failure is said out loud with a toast. A silent no-op would leave the model's \"playing\" and the\n *    reader's silence saying opposite things.\n */",
@@ -25116,6 +25118,7 @@ const allowed = new Map([
     "/** One uploaded file. Parts are 8 MiB, so no single request approaches the Worker body ceiling. */",
     "/** Per-account R2 usage across every format and quality. */",
     "/** `music/{format}/{user}/{track}-{quality}.{ext}`, the layout the deployment backs up by prefix. */",
+    "/** A file this small is uploaded as one part: local R2 multipart has lost sessions across parts. */",
   ]],
   ["src/shared/music/format.ts", [
     "/** Presentation helpers shared by the library, the player bar and the export flow. */",
@@ -29908,18 +29911,19 @@ const allowed = new Map([
     "// alone truncated the JSON mid-object on a full song. The floor keeps a hundred short lines.",
   ]],
   ["src/worker/music/metadata.ts", [
-    "/**\n * What the server is willing to believe about an uploaded file.\n *\n * The browser parses tags before uploading, but none of that is trusted: titles, artists, album and\n * duration are trimmed to display-sized values, and the format is decided from the bytes. The first\n * four kilobytes are enough for every container this app accepts, which is what makes the check\n * affordable on a 300 MB upload.\n */",
     "/** The prefix read back from R2 for magic detection; no full-file read enters the isolate. */",
     "/** The filename kept for display: no path separators, no control characters, bounded length. */",
     "/** The extensionless part of a filename, used as the fallback title. */",
-    "/**\n * The format the upload claims, from the explicit field or the filename. This only decides where\n * the multipart object is written; the recorded format comes from the bytes at completion.\n */",
     "/** Trim client-reported tags into the values a music row stores. Bad shapes fall back, never throw. */",
     "/** Parse the metadata JSON this worker wrote. A broken row is a warning, not a failed request. */",
-    "/**\n * Decide the container from its leading bytes.\n *\n * ISO BMFF cannot tell an audio-only m4a from an mp4 without walking the boxes, so the declared\n * extension breaks that one tie; everything else is identified by its own signature. `null` means\n * the upload is not one of the accepted containers and must be refused.\n */",
     "// `isom`/`mp42`/`avc1` cover both audio-only and video files.",
     "/** Formats that share one container may disagree about the label without lying about the bytes. */",
-    "/**\n * Validate a cover through the same image sniffing the attachment pipeline uses. SVG is absent on\n * purpose: it is executable markup, not a picture this app renders from user input.\n */",
     "/** The canonical extension for a format, used only when a filename must be synthesised. */",
+    "/**\r\n * What the server is willing to believe about an uploaded file.\r\n *\r\n * The browser parses tags before uploading, but none of that is trusted: titles, artists, album and\r\n * duration are trimmed to display-sized values, and the format is decided from the bytes. The first\r\n * four kilobytes are enough for every container this app accepts, which is what makes the check\r\n * affordable on a 300 MB upload.\r\n */",
+    "/** Embedded lyrics; empty means none. Kept below the lyric cache ceiling. */",
+    "/**\r\n * The format the upload claims, from the explicit field or the filename. This only decides where\r\n * the multipart object is written; the recorded format comes from the bytes at completion.\r\n */",
+    "/**\r\n * Decide the container from its leading bytes.\r\n *\r\n * ISO BMFF cannot tell an audio-only m4a from an mp4 without walking the boxes, so the declared\r\n * extension breaks that one tie; everything else is identified by its own signature. `null` means\r\n * the upload is not one of the accepted containers and must be refused.\r\n */",
+    "/**\r\n * Validate a cover through the same image sniffing the attachment pipeline uses. SVG is absent on\r\n * purpose: it is executable markup, not a picture this app renders from user input.\r\n */",
   ]],
   ["src/worker/music/providers/custom/resolver.ts", [
     "/**\n * The custom HTTP resolver: a user-configured endpoint that turns one track id into an audio URL.\n *\n * It is deliberately not a script host. The reference project let readers import JavaScript music\n * sources; executing that code inside the worker would turn a personal library into an arbitrary\n * code runner. This resolver only performs one guarded HTTP request and reads one JSON field.\n */",
@@ -30112,17 +30116,19 @@ const allowed = new Map([
     "/** The browser can fetch the CDN itself when this deployment's egress cannot. */",
   ]],
   ["src/worker/music/upload-store.ts", [
-    "/**\n * Chunked uploads into the music library.\n *\n * A 300 MB file cannot cross a Worker request in one body, so the browser sends 8 MiB parts into an\n * R2 multipart upload. This module owns the task row that survives between those requests: the R2\n * upload id, the parts already accepted, and the metadata the browser reported. It is also the only\n * place that finishes a task, which is where the object becomes a `music_track` plus its ledger row.\n *\n * Completion is the trust boundary. The declared extension chose the multipart key at init, but the\n * bytes decide the recorded format: the first four kilobytes are sniffed from R2, and a container\n * that does not match its declared family aborts the whole upload. If any write after the multipart\n * merge fails, the object is deleted (or queued for the cleanup sweep) so no unreachable bytes are\n * paid for.\n */",
-    "/** How many parts a declared size needs at the server's part size. */",
     "/** The exact byte length part `partNumber` must carry; `null` when the number is outside the file. */",
     "/** The upload task row, scoped to the account that owns it. */",
     "/** Replace the whole part list; false means the task stopped accepting parts meanwhile. */",
     "/** Create the R2 multipart upload and the task row that lets later requests resume it. */",
     "/** Store one part after checking it is the exact length the declared file size implies. */",
     "/** Store the extracted cover under its own immutable key and remember it on the task row. */",
-    "/**\n * Merge the parts, verify the bytes, then publish the track and its ledger row.\n *\n * The quota lease is taken before the merge and held until the ledger row exists. If anything after\n * the merge fails, the object is discarded and the task is marked failed; a failed task is not\n * resumable because its multipart session is gone.\n */",
     "/** Abort the multipart session and release the cover. Repeating the call is harmless. */",
     "// The multipart session may already have expired; the task row still records the failure.",
+    "/**\r\n * Chunked uploads into the music library.\r\n *\r\n * A 300 MB file cannot cross a Worker request in one body, so the browser sends 8 MiB parts into an\r\n * R2 multipart upload. This module owns the task row that survives between those requests: the R2\r\n * upload id, the parts already accepted, and the metadata the browser reported. It is also the only\r\n * place that finishes a task, which is where the object becomes a `music_track` plus its ledger row.\r\n *\r\n * Completion is the trust boundary. The declared extension chose the multipart key at init, but the\r\n * bytes decide the recorded format: the first four kilobytes are sniffed from R2, and a container\r\n * that does not match its declared family aborts the whole upload. If any write after the multipart\r\n * merge fails, the object is deleted (or queued for the cleanup sweep) so no unreachable bytes are\r\n * paid for.\r\n */",
+    "/** How many parts a declared size needs; small files are one part. */",
+    "/**\r\n * Merge the parts, verify the bytes, then publish the track and its ledger row.\r\n *\r\n * The quota lease is taken before the merge and held until the ledger row exists. If anything after\r\n * the merge fails, the object is discarded and the task is marked failed; a failed task is not\r\n * resumable because its multipart session is gone.\r\n */",
+    "// The uploaded bytes own this lyric; a provider lookup is neither needed nor possible for an",
+    "// upload. A cache write failure must not throw away a finished upload, so it is reported low.",
   ]],
   ["src/worker/notes/store.ts", [
     "/**\n * Every read and write the notes HTTP routes make against D1.\n *\n * The shape follows `assistant/store.ts`, the one place in this worker where a route holds no SQL at\n * all: a store built per request from the account it serves, methods that take already-validated\n * input and hand back rows or the record the route needs to answer with, and nothing in between that\n * knows about HTTP. Two rules hold throughout, both inherited from that file:\n *  - every statement carries `user_id`, so one reader's notes can never surface in another's listing,\n *    and the few statements that cannot (a cross-account id collision probe, a join through a note id\n *    that the scoped statement already resolved) are the deliberate exceptions, written next to the\n *    scoped statement that put the id in play;\n *  - a mutation's statements stay in one D1 batch. The guards inside them (`rev`, `content_hash`,\n *    `updated_at`) only mean \"nobody changed this row between my read and my write\" while the whole\n *    batch lands together, so splitting a batch into sequential runs would turn an atomic edit into a\n *    lost update that no test would notice.\n *\n * Change records (`changes.seq`) come back to the caller rather than being broadcast here: the cursor\n * belongs to the response and the background drain to the request context, both of which are the\n * route's business.\n */",
@@ -30826,11 +30832,12 @@ const allowed = new Map([
     "// A reference can change under the reader; nothing here is immutable or shared.",
   ]],
   ["src/worker/routes/music-library.ts", [
-    "/**\n * The account's own library: saved track snapshots, favourites, playlists, history, recent\n * containers and subscriptions.\n *\n * All persistence goes through `MusicStore`, whose queries carry the session's user id. A row that\n * belongs to another account therefore answers 404 from every handler here: confirming that an id\n * exists but is not yours is a leak, so \"not found\" is the only refusal this surface gives.\n *\n * Track snapshots are display metadata plus an upstream identity. Storage columns (`r2Key`,\n * `coverKey`, `sha256`, `size`) are deliberately not read from the request: an R2 key names an object\n * that this deployment serves by key, and accepting one from a client would let a caller point a\n * track row at another account's bytes. Those columns are written only by the upload and download\n * flows, and `upsertTrack` preserves them across a metadata refresh.\n */",
     "/** Read the display snapshot a client may save. Upstream identity and metadata only. */",
     "// Downloads are owned by the download queue and its own route; this aggregate reports none",
     "// rather than reading a table whose lifecycle it does not control.",
-    "/**\n * Translate one track's provider lyric with the reader's own assistant model.\n *\n * Only an explicit request from the reader reaches this path: the lyric is sent to the model\n * provider they configured, and the answer is cached under the lyric's own hash so a second open is\n * free. Failures are separated by what the reader can do about them — activate a model, wait for the\n * daily ceiling, try a track that has lyrics, or retry the provider.\n */",
+    "/**\r\n * The account's own library: saved track snapshots, favourites, playlists, history, recent\r\n * containers and subscriptions.\r\n *\r\n * All persistence goes through `MusicStore`, whose queries carry the session's user id. A row that\r\n * belongs to another account therefore answers 404 from every handler here: confirming that an id\r\n * exists but is not yours is a leak, so \"not found\" is the only refusal this surface gives.\r\n *\r\n * Track snapshots are display metadata plus an upstream identity. Storage columns (`r2Key`,\r\n * `coverKey`, `sha256`, `size`) are deliberately not read from the request: an R2 key names an object\r\n * that this deployment serves by key, and accepting one from a client would let a caller point a\r\n * track row at another account's bytes. Those columns are written only by the upload and download\r\n * flows, and `upsertTrack` preserves them across a metadata refresh.\r\n */",
+    "/**\r\n * Translate one track's provider lyric with the reader's own assistant model.\r\n *\r\n * Only an explicit request from the reader reaches this path: the lyric is sent to the model\r\n * provider they configured, and the answer is cached under the lyric's own hash so a second open is\r\n * free. Failures are separated by what the reader can do about them — activate a model, wait for the\r\n * daily ceiling, try a track that has lyrics, or retry the provider.\r\n */",
+    "/**\r\n * One library snapshot by id. The uploads page keeps only the task row, so this is how a finished\r\n * upload becomes a playable track without listing the whole library on that screen.\r\n */",
   ]],
   ["src/worker/routes/music-settings.ts", [
     "/** Text that later becomes a filename or a path expression: no control characters. */",
@@ -30844,6 +30851,7 @@ const allowed = new Map([
   ["src/worker/routes/music-uploads.ts", [
     "/** Validate the shape here so a malformed number is a 400 before any byte is read. */",
     "/**\r\n * The upload surface for local music.\r\n *\r\n * Bodies here are the client's own bytes, never a path: the server names the R2 key from a fresh id.\r\n * Parts are capped while they stream in, so a client cannot make the isolate hold an arbitrary\r\n * request body; the service layer then checks the part number against the declared file size before\r\n * handing it to R2. All routes require a session, and a missing or foreign id is answered with 404.\r\n */",
+    "// A small file is one part whose length is the file; a large one is capped at the fixed part size.",
   ]],
   ["src/worker/routes/music.ts", [
     "/** One provider read costs one spend; a runaway client is stopped before it hammers the upstream. */",
@@ -30862,6 +30870,8 @@ const allowed = new Map([
     "// Each child router carries a `use('*')` guard. Mounted at `/`, any one of them would answer a path",
     "// it does not own with its own 404 before the next router saw the request, so every router gets a",
     "// prefix and discovery is the only app left at the root, registered last.",
+    "// Only the Netease provider has a lyric endpoint. An upload or a WebDAV reference either carried",
+    "// its lyric at import time or has none; asking Netease with that id would be a different song.",
   ]],
   ["src/worker/routes/notes.ts", [
     "/** Ids per dependent-table delete when emptying the trash. */",

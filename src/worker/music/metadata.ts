@@ -45,6 +45,8 @@ export interface MusicUploadMetadata {
   album: string
   durationMs: number
   bitrate: number | null
+  /** Embedded lyrics; empty means none. Kept below the lyric cache ceiling. */
+  lyrics: string
 }
 
 export interface MusicCoverInfo {
@@ -106,6 +108,7 @@ export function sanitizeUploadMetadata(raw: unknown, fallbackTitle: string): Mus
   const bitrate = typeof record.bitrate === 'number' && Number.isFinite(record.bitrate)
     ? Math.trunc(record.bitrate)
     : null
+  const lyrics = typeof record.lyrics === 'string' ? record.lyrics.trim().slice(0, 20_000) : ''
 
   return {
     title: truncateText(rawTitle || fallbackTitle, MAX_TITLE_CHARS) || 'Untitled',
@@ -113,6 +116,7 @@ export function sanitizeUploadMetadata(raw: unknown, fallbackTitle: string): Mus
     album: truncateText(rawAlbum, MAX_ALBUM_CHARS),
     durationMs: Math.min(MAX_DURATION_MS, Math.max(0, duration)),
     bitrate: bitrate !== null && bitrate >= 0 && bitrate <= MAX_BITRATE ? bitrate : null,
+    lyrics,
   }
 }
 

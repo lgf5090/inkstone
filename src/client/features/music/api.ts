@@ -163,6 +163,7 @@ export const musicApi = {
   user: (id: string) => request<MusicUserProfile>(`/api/music/user/${encodeURIComponent(id)}`),
 
   library: () => request<MusicLibraryPayload>('/api/music/library'),
+  track: (id: string) => request<{ track: MusicTrack }>(`/api/music/library/tracks/${encodeURIComponent(id)}`),
   upsertTracks: (tracks: MusicTrack[]) =>
     request<{ tracks: MusicTrack[] }>('/api/music/library/tracks', { method: 'POST', body: { tracks } }),
   favorites: () => request<{ items: MusicTrack[] }>('/api/music/library/favorites'),

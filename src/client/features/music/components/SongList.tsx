@@ -100,6 +100,16 @@ export function SongList({
                 {bucket.title}
               </h3>
             )}
+            {variant === 'list' && (
+              <div className="music-songlist__head" aria-hidden="true">
+                <span className="music-songlist__head-state">{musicText('music.songlist.number')}</span>
+                <span className="music-songlist__head-cover" />
+                <span>{musicText('music.songlist.title')}</span>
+                <span className="music-songlist__head-album">{musicText('music.songlist.album')}</span>
+                <span className="music-songlist__head-duration">{musicText('music.songlist.duration')}</span>
+                <span />
+              </div>
+            )}
             <ul className={cn('music-songlist', variant === 'card' && 'music-songlist--card')}>
               {bucket.tracks.map((track, index) => (
                 <SongRow

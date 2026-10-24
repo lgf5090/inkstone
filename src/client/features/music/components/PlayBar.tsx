@@ -20,7 +20,10 @@ import {
   Music,
   Pause,
   Play,
+  Repeat,
+  Repeat1,
   RotateCcw,
+  Shuffle,
   SkipBack,
   SkipForward,
   Volume2,
@@ -218,6 +221,17 @@ export function PlayBar(): ReactElement {
 
       <div className="music-playbar__center">
         <div className="music-playbar__transport">
+          <Tooltip label={musicText('music.mode.shuffle')}>
+            <IconButton
+              label={musicText('music.mode.shuffle')}
+              size="sm"
+              active={mode === 'shuffle'}
+              aria-pressed={mode === 'shuffle'}
+              onClick={() => setMode(mode === 'shuffle' ? 'order' : 'shuffle')}
+            >
+              <Shuffle size={15} />
+            </IconButton>
+          </Tooltip>
           <Tooltip label={musicText('music.playbar.previous')}>
             <IconButton
               label={musicText('music.playbar.previous')}
@@ -237,6 +251,17 @@ export function PlayBar(): ReactElement {
               }}
             >
               <SkipForward size={16} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip label={musicText(mode === 'repeatOne' ? 'music.mode.repeatOne' : 'music.mode.repeat')}>
+            <IconButton
+              label={musicText(mode === 'repeatOne' ? 'music.mode.repeatOne' : 'music.mode.repeat')}
+              size="sm"
+              active={mode === 'repeat' || mode === 'repeatOne'}
+              aria-pressed={mode === 'repeat' || mode === 'repeatOne'}
+              onClick={() => setMode(mode === 'repeat' ? 'repeatOne' : mode === 'repeatOne' ? 'order' : 'repeat')}
+            >
+              {mode === 'repeatOne' ? <Repeat1 size={15} /> : <Repeat size={15} />}
             </IconButton>
           </Tooltip>
         </div>

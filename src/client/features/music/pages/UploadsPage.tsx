@@ -1,7 +1,7 @@
 /**
  * Local music uploads.
  *
- * A file is read in the browser for its tags, then sent as 8 MiB parts into the Worker's multipart
+ * A file is read in the browser for its tags, then sent whole when small (or as 8 MiB parts) into the Worker's multipart
  * upload. Nothing is trusted from the browser: the server sniffs the container and trims the tags.
  * The queue is this tab's own state; completed tasks come back from `/api/music/uploads` so a
  * reload still shows what reached the library.
@@ -37,6 +37,7 @@ import { useMusicLibrary } from '../store/library'
 import { useMusicPlayer } from '../store/player'
 import { musicText } from '../components/labels'
 import { BlobCover } from './parts/P2MediaCard'
+import { Cover } from '../components/Cover'
 import {
   PAGE_STACK,
   QueryError,
@@ -57,6 +58,7 @@ interface QueueItem {
   durationMs: number
   bitrate: number | null
   cover: Blob | null
+  lyrics: string
   status: QueueStatus
   progress: number
   error: string | null
@@ -210,6 +212,7 @@ export function UploadsPage(): ReactElement {
           durationMs: parsed.data.durationMs,
           bitrate: parsed.data.bitrate,
           cover: cover.blob,
+          lyrics: parsed.data.lyrics,
           note: cover.note,
         })
       } catch (error) {
@@ -221,6 +224,8 @@ export function UploadsPage(): ReactElement {
       }
     }
   }
+
+  const parsedLyrics = (item: QueueItem): string => item.lyrics
 
   const uploadItem = async (id: string): Promise<void> => {
     const item = itemsRef.current.find((entry) => entry.id === id)
@@ -248,6 +253,7 @@ export function UploadsPage(): ReactElement {
           album: item.album,
           durationMs: item.durationMs,
           bitrate: item.bitrate,
+          lyrics: parsedLyrics(item),
         },
       })
       uploadId = init.uploadId
@@ -670,6 +676,7 @@ function ServerUploadRow({
 }): ReactElement {
   return (
     <li className="flex flex-wrap items-center gap-[var(--sp-2)] rounded-[var(--r-sm)] border border-[var(--border-subtle)] px-[var(--sp-3)] py-[var(--sp-2)]">
+      <Cover trackId={upload.trackId ?? undefined} size="sm" radius="sm" />
       <div className="min-w-0 flex-1">
         <p className="truncate text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">
           {upload.filename}
@@ -682,6 +689,20 @@ function ServerUploadRow({
         )}
       </div>
       <Badge tone={serverUploadTone(upload.status)}>{serverUploadLabel(upload.status)}</Badge>
+      {upload.status === 'completed' && upload.trackId && (
+        <Button
+          size="sm"
+          variant="ghost"
+          icon={<Play size={13} />}
+          onClick={() => {
+            void musicApi.track(upload.trackId!).then(({ track }) => {
+              void useMusicPlayer.getState().playTrack(track, { queue: [track] })
+            }).catch((error: unknown) => toastFailure(musicText('music.upload.play_failed'), error))
+          }}
+        >
+          {musicText('music.upload.play')}
+        </Button>
+      )}
       {upload.status === 'uploading' && (
         <Button size="sm" variant="ghost" onClick={onAbort}>
           {musicText('music.upload.cancel')}
@@ -814,6 +835,7 @@ function parsingItem(id: string, file: File, format: MusicFormat, duplicate: boo
     durationMs: 0,
     bitrate: null,
     cover: null,
+    lyrics: '',
     status: 'parsing',
     progress: 0,
     error: null,

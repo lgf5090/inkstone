@@ -104,10 +104,10 @@ export function SongRow({
       </span>
       <Cover trackId={track.id} src={track.coverUrl || undefined} size="sm" radius="sm" />
       <span className="music-row__text">
-        <span className="music-row__title">{track.title}</span>
-        <span className="music-row__meta">{musicArtistNames(track)}</span>
+        <span className="music-row__title" title={track.title}>{track.title}</span>
+        <span className="music-row__meta" title={musicArtistNames(track)}>{musicArtistNames(track)}</span>
       </span>
-      <span className="music-row__album">{track.album}</span>
+      <span className="music-row__album" title={track.album}>{track.album}</span>
       <span className="music-row__duration">{formatDuration(track.durationMs)}</span>
     </button>
   )

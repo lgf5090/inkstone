@@ -142,6 +142,11 @@ musicRoutes.get('/library/lyrics/:trackId', async (c) => {
   if (!track) throw ApiError.notFound('That track does not exist')
   const cached = await store.getLyric(musicTrackKey(track.provider, track.providerId))
   if (cached) return c.json(cached)
+  // Only the Netease provider has a lyric endpoint. An upload or a WebDAV reference either carried
+  // its lyric at import time or has none; asking Netease with that id would be a different song.
+  if (track.provider !== 'netease') {
+    throw new ApiError(404, 'music_lyrics_unavailable', 'No lyrics are available for this track')
+  }
 
   const provider = await providerFor(c)
   try {

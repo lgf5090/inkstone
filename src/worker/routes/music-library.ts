@@ -218,6 +218,17 @@ musicLibraryRoutes.post('/lyrics/:trackId/ai-translate', async (c) => {
   return c.json(answer)
 })
 
+/**
+ * One library snapshot by id. The uploads page keeps only the task row, so this is how a finished
+ * upload becomes a playable track without listing the whole library on that screen.
+ */
+musicLibraryRoutes.get('/tracks/:trackId', async (c) => {
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  const track = await store.getTrack(c.req.param('trackId') ?? '')
+  if (!track) throw ApiError.notFound('That track does not exist')
+  return c.json({ track })
+})
+
 musicLibraryRoutes.get('/favorites', async (c) => {
   const page = normalizeMusicPage(c.req.query('page'))
   const limit = normalizeMusicLimit(c.req.query('limit'))

@@ -1,6 +1,6 @@
 /** The account's favourites: one list, a sort control and removal with an undo toast. */
 import { useId, useMemo, useState, type ReactElement } from 'react'
-import { HeartOff, ListPlus, Play } from 'lucide-react'
+import { HeartOff, ListPlus, Play, Shuffle } from 'lucide-react'
 import { musicArtistNames } from '@shared/music/format'
 import type { MusicTrack } from '@shared/music/model'
 import { Empty } from '../../../components/feedback'
@@ -72,6 +72,16 @@ export function FavoritesPage(): ReactElement {
     return list
   }, [favorites, sort])
 
+  const shuffleAll = (): void => {
+    if (sorted.length === 0) return
+    const shuffled = [...sorted]
+    for (let index = shuffled.length - 1; index > 0; index--) {
+      const swap = Math.floor(Math.random() * (index + 1))
+      ;[shuffled[index], shuffled[swap]] = [shuffled[swap]!, shuffled[index]!]
+    }
+    playTrack(shuffled[0]!, shuffled)
+  }
+
   const playAll = (): void => {
     const first = sorted[0]
     if (!first) return
@@ -142,6 +152,14 @@ export function FavoritesPage(): ReactElement {
             <option value="title">{musicText('music.favorites.sort.title')}</option>
             <option value="artist">{musicText('music.favorites.sort.artist')}</option>
           </Select>
+          <Button
+            variant="secondary"
+            icon={<Shuffle size={14} />}
+            disabled={sorted.length === 0}
+            onClick={shuffleAll}
+          >
+            {musicText('music.mode.shuffle')}
+          </Button>
           <Button
             variant="primary"
             icon={<Play size={14} />}

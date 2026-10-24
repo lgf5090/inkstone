@@ -10,11 +10,34 @@ export interface UploadMetadata {
   format: string
   bitrate: number | null
   cover: Blob | null
+  /** Embedded lyrics as LRC/text, already bounded; an empty string means none. */
+  lyrics: string
 }
 
 export type UploadMetadataResult =
   | { ok: true; data: UploadMetadata }
   | { ok: false; error: string }
+
+function lrcFromSync(lines: readonly { text: string, timestamp?: number }[]): string {
+  return lines
+    .filter((line) => line.text.trim() && typeof line.timestamp === 'number')
+    .map((line) => {
+      const total = Math.max(0, Math.round(line.timestamp!))
+      const minutes = Math.floor(total / 60_000)
+      const seconds = Math.floor((total % 60_000) / 1000)
+      const centiseconds = Math.floor((total % 1000) / 10)
+      return `[${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(centiseconds).padStart(2, '0')}]${line.text.trim()}`
+    })
+    .join('\n')
+}
+
+function embeddedLyrics(metadata: Awaited<ReturnType<typeof parseBlob>>): string {
+  const tag = metadata.common.lyrics?.[0]
+  if (!tag) return ''
+  const text = typeof tag.text === 'string' ? tag.text.trim() : ''
+  if (text) return text.slice(0, 20_000)
+  return lrcFromSync(tag.syncText ?? []).slice(0, 20_000)
+}
 
 function titleFromFilename(filename: string): string {
   const base = filename.replace(/\.[^.]+$/, '').trim()
@@ -39,6 +62,7 @@ export async function parseUploadMetadata(file: File): Promise<UploadMetadataRes
         format: extensionFormat || metadata.format.container?.toLowerCase() || '',
         bitrate: metadata.format.bitrate ? Math.round(metadata.format.bitrate) : null,
         cover,
+        lyrics: embeddedLyrics(metadata),
       },
     }
   } catch (error) {

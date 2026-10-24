@@ -43,12 +43,14 @@ describe('music upload validation', () => {
       album: ' album ',
       durationMs: -5,
       bitrate: 99_000_000,
+      lyrics: '  [00:01.00]line  ',
     }, 'fallback')
     expect(result.title).toBe('title')
     expect(result.artists).toEqual(['one', 'two'])
     expect(result.album).toBe('album')
     expect(result.durationMs).toBe(0)
     expect(result.bitrate).toBeNull()
+    expect(result.lyrics).toBe('[00:01.00]line')
   })
 
   it('falls back to the filename for a missing title', () => {
@@ -63,5 +65,7 @@ describe('music upload validation', () => {
     expect(musicPartLength(size, 1)).toBe(part)
     expect(musicPartLength(size, 3)).toBe(123)
     expect(musicPartLength(size, 4)).toBeNull()
+    expect(musicPartCount(size, size)).toBe(1)
+    expect(musicPartLength(size, 1, size)).toBe(size)
   })
 })

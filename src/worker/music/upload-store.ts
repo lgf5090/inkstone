@@ -104,18 +104,22 @@ export interface MusicUploadCompletion {
   upload: MusicUpload
 }
 
-/** How many parts a declared size needs at the server's part size. */
-export function musicPartCount(size: number): number {
+/** How many parts a declared size needs; small files are one part. */
+export function musicPartCount(size: number, partSize = MUSIC_LIMITS.uploadPartBytes): number {
   if (!Number.isSafeInteger(size) || size <= 0) return 0
-  return Math.ceil(size / MUSIC_LIMITS.uploadPartBytes)
+  return Math.ceil(size / partSize)
 }
 
 /** The exact byte length part `partNumber` must carry; `null` when the number is outside the file. */
-export function musicPartLength(size: number, partNumber: number): number | null {
-  const count = musicPartCount(size)
+export function musicPartLength(
+  size: number,
+  partNumber: number,
+  partSize = MUSIC_LIMITS.uploadPartBytes,
+): number | null {
+  const count = musicPartCount(size, partSize)
   if (!Number.isSafeInteger(partNumber) || partNumber < 1 || partNumber > count) return null
-  const start = (partNumber - 1) * MUSIC_LIMITS.uploadPartBytes
-  return Math.min(MUSIC_LIMITS.uploadPartBytes, size - start)
+  const start = (partNumber - 1) * partSize
+  return Math.min(partSize, size - start)
 }
 
 /** The upload task row, scoped to the account that owns it. */
@@ -291,7 +295,8 @@ export async function startMusicUpload(
     throw error
   }
 
-  return { uploadId: id, partSize: MUSIC_LIMITS.uploadPartBytes, uploadedParts: [] }
+  const partSize = size <= MUSIC_LIMITS.uploadSinglePartBytes ? size : MUSIC_LIMITS.uploadPartBytes
+  return { uploadId: id, partSize, uploadedParts: [] }
 }
 
 /** Store one part after checking it is the exact length the declared file size implies. */
@@ -311,7 +316,10 @@ export async function uploadMusicPart(
   const r2UploadId = snapshot.r2UploadId
   if (!r2Key || !r2UploadId) throw uploadClosed()
 
-  const expected = musicPartLength(snapshot.upload.size, partNumber)
+  const partSize = snapshot.upload.size <= MUSIC_LIMITS.uploadSinglePartBytes
+    ? snapshot.upload.size
+    : MUSIC_LIMITS.uploadPartBytes
+  const expected = musicPartLength(snapshot.upload.size, partNumber, partSize)
   if (expected === null) throw invalidUpload(`Part ${partNumber} is outside this upload`)
   if (bytes.byteLength !== expected) {
     throw invalidUpload(`Part ${partNumber} must be exactly ${expected} bytes`)
@@ -399,7 +407,10 @@ export async function completeMusicUpload(
   const r2UploadId = snapshot.r2UploadId
   if (!r2Key || !r2UploadId) throw uploadClosed()
 
-  const expectedParts = musicPartCount(snapshot.upload.size)
+  const expectedParts = musicPartCount(
+    snapshot.upload.size,
+    snapshot.upload.size <= MUSIC_LIMITS.uploadSinglePartBytes ? snapshot.upload.size : MUSIC_LIMITS.uploadPartBytes,
+  )
   const parts = [...snapshot.parts].sort((left, right) => left.partNumber - right.partNumber)
   if (parts.length !== expectedParts || parts.some((part, index) => part.partNumber !== index + 1)) {
     throw invalidUpload('The upload is missing one or more parts')
@@ -461,6 +472,19 @@ export async function completeMusicUpload(
         quality: 'original',
         size: head.size,
       })
+      if (snapshot.metadata.lyrics) {
+        // The uploaded bytes own this lyric; a provider lookup is neither needed nor possible for an
+        // upload. A cache write failure must not throw away a finished upload, so it is reported low.
+        await musicStore.saveLyric({
+          trackKey: `upload:${snapshot.upload.id}`,
+          source: 'embedded',
+          lrc: snapshot.metadata.lyrics,
+          tlyric: '',
+          yrc: '',
+        }).catch((error: unknown) => {
+          console.warn('[inkstone] Embedded music lyrics could not be cached:', error)
+        })
+      }
       await uploads.markCompleted(id, { trackId: track.id, format, size: head.size })
 
       const saved = await uploads.get(id)

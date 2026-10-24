@@ -64,8 +64,12 @@ musicUploadRoutes.put('/:id/parts/:n', async (c) => {
   if (snapshot.upload.status !== 'uploading') throw uploadClosed()
   const partNumber = partNumberParam(c.req.param('n'), snapshot.upload.size)
 
-  assertDeclaredBodySize(c.req, MUSIC_LIMITS.uploadPartBytes)
-  const bytes = await readBytesWithinLimit(c.req.raw.body, MUSIC_LIMITS.uploadPartBytes)
+  // A small file is one part whose length is the file; a large one is capped at the fixed part size.
+  const partLimit = snapshot.upload.size <= MUSIC_LIMITS.uploadSinglePartBytes
+    ? snapshot.upload.size
+    : MUSIC_LIMITS.uploadPartBytes
+  assertDeclaredBodySize(c.req, partLimit)
+  const bytes = await readBytesWithinLimit(c.req.raw.body, partLimit)
   const result = await uploadMusicPart(c.env, c.get('userId'), snapshot.upload.id, partNumber, bytes)
   return c.json(result)
 })

@@ -16,7 +16,10 @@ import {
   Music2,
   Pause,
   Play,
+  Repeat,
+  Repeat1,
   RotateCcw,
+  Shuffle,
   SkipBack,
   SkipForward,
   Sparkles,
@@ -46,6 +49,8 @@ export function NowPlaying(): ReactElement {
   const durationMs = useMusicPlayer((state) => state.durationMs)
   const queue = useMusicPlayer((state) => state.queue)
   const toggle = useMusicPlayer((state) => state.toggle)
+  const mode = useMusicPlayer((state) => state.queue.mode)
+  const setMode = useMusicPlayer((state) => state.setMode)
   const next = useMusicPlayer((state) => state.next)
   const prev = useMusicPlayer((state) => state.prev)
   const seek = useMusicPlayer((state) => state.seek)
@@ -141,6 +146,15 @@ export function NowPlaying(): ReactElement {
             </div>
 
             <div className="music-nowplaying__transport">
+              <IconButton
+                label={musicText('music.mode.shuffle')}
+                size="sm"
+                active={mode === 'shuffle'}
+                aria-pressed={mode === 'shuffle'}
+                onClick={() => setMode(mode === 'shuffle' ? 'order' : 'shuffle')}
+              >
+                <Shuffle size={17} />
+              </IconButton>
               <IconButton label={musicText('music.playbar.previous')} size="lg" onClick={() => { void prev() }}>
                 <SkipBack size={19} />
               </IconButton>
@@ -156,6 +170,15 @@ export function NowPlaying(): ReactElement {
               </IconButton>
               <IconButton label={musicText('music.playbar.next')} size="lg" onClick={() => { void next() }}>
                 <SkipForward size={19} />
+              </IconButton>
+              <IconButton
+                label={musicText(mode === 'repeatOne' ? 'music.mode.repeatOne' : 'music.mode.repeat')}
+                size="sm"
+                active={mode === 'repeat' || mode === 'repeatOne'}
+                aria-pressed={mode === 'repeat' || mode === 'repeatOne'}
+                onClick={() => setMode(mode === 'repeat' ? 'repeatOne' : mode === 'repeatOne' ? 'order' : 'repeat')}
+              >
+                {mode === 'repeatOne' ? <Repeat1 size={17} /> : <Repeat size={17} />}
               </IconButton>
             </div>
 

@@ -4,6 +4,8 @@ export const MUSIC_LIMITS = {
   /** One uploaded file. Parts are 8 MiB, so no single request approaches the Worker body ceiling. */
   uploadMaxBytes: 300 * 1024 * 1024,
   uploadPartBytes: 8 * 1024 * 1024,
+  /** A file this small is uploaded as one part: local R2 multipart has lost sessions across parts. */
+  uploadSinglePartBytes: 64 * 1024 * 1024,
   coverMaxBytes: 5 * 1024 * 1024,
   /** Per-account R2 usage across every format and quality. */
   quotaBytes: 20 * 1024 * 1024 * 1024,
