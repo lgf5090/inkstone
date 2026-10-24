@@ -11777,6 +11777,7 @@ const allowed = new Map([
     "// One read of the ledger, shared by the section and the export: two consumers asking separately can",
     "// disagree about the same window, and an export that disagrees with the screen is the worse of the",
     "// two ways to be wrong.",
+    "/**\r\n * A table only a screen reader reads.\r\n *\r\n * `sr-only` cannot go on the table itself: a table's used width never drops below the width of what it\r\n * holds, and these hold whole sentences, so the hidden definitions table pushed the statistics screen\r\n * wider than a phone window and made it scroll sideways to reveal nothing. The clip has to sit on a box\r\n * that obeys it.\r\n */",
   ]],
   ["src/client/features/todos/TaskCard.tsx", [
     "// A star that only appears on hover is a star a thumb never finds.",
@@ -12101,10 +12102,12 @@ const allowed = new Map([
   ["src/client/features/todos/WorklogSection.tsx", [
     "/* A missing denominator is a dash, not a zero: nothing was planned, so nothing overran\r\n                  is a different statement from never overrunning. */",
     "/**\r\n * The worklog section of the statistics screen: where the hours actually went.\r\n *\r\n * It reads its own endpoint on the range the screen already shows, because the statistics replay the\r\n * plate's rows and this sums the ledger — an account can hold forty hours in a week whose tasks were\r\n * mostly closed later, and the two readings have to be allowed to disagree.\r\n *\r\n * The read lives in `useWorklog` rather than inside the section for one specific reason: the CSV export\r\n * has to carry the answer the reader is looking at. A section that owned its own fetch would leave the\r\n * export either asking a second time — and so exporting a different number than the screen shows\r\n * whenever one call failed or the range moved in between — or guessing. One read, two consumers.\r\n *\r\n * The dimension stays local, and stays that way: it answers \"grouped by what\", a question the rest of\r\n * the screen never asks, and lifting it into the toolbar would make one control appear to govern charts\r\n * it does not touch.\r\n */",
-    "/** Hours, as a bar chart's number. Bars want a plain value; the caption beside them carries the unit. */",
     "/** The last answer that arrived. It stays on screen while the next one is in flight. */",
     "/**\r\n * The worklog for one window, held where the section and the export can both reach it.\r\n *\r\n * An empty `from` means the screen has no range yet — the statistics have not answered the first time —\r\n * and nothing is asked for: a worklog over a window nobody chose would be a number exported from a\r\n * guess.\r\n */",
     "/** Bumped by a retry, the only way back out of an error the range itself did not change. */",
+    "// The bar carries the milliseconds it is drawn from and says them in the same words the KPI above",
+    "// uses. Measured in a real browser, `0.1 · 50%` beside a list's name is a figure nobody can read back",
+    "// as an afternoon: the caption was supposed to carry the unit, and it did not.",
   ]],
   ["src/client/features/todos/api-if-match.test.ts", [
     "/**\n * The revision and the key a task write travels with.\n *\n * The route refuses a stale write by comparing `If-Match` with the row's revision, so the guard is only\n * real if the client actually puts the header on the request. This pins the wire shape: the revision\n * argument of `api.todos.update`, `api.todos.plan` and `api.todos.snooze` becomes `If-Match`, and a\n * write that names no revision stays unconditional, which is what the older surfaces (the assistant's\n * tools, an undo) still send.\n *\n * A create has the same problem in the other direction: it is not conditional but repeatable, so the\n * second argument of `api.todos.create` becomes `Idempotency-Key` and the route can answer a lost\n * response with the row it already wrote instead of a second one.\n */",
@@ -12655,6 +12658,7 @@ const allowed = new Map([
     "// The bucket the tracked day falls in; a day past the last start still reads on the last bucket.",
     "// A day nobody worked on is zero, and it has to read as zero. The rounding-up below is for a real",
     "// amount too small to print as 40 seconds — not for the absence of one, which a rounded-up \"1 m\" invents.",
+    "/**\n   * The words this slice's number means, for a caller whose unit is not a count.\n   *\n   * A bar's share is a number either way, but `0.1` beside a list's name only reads as time because the\n   * reader happens to know the block counts hours. A caller that knows the unit says it; a caller that\n   * counts tasks, which is most of them, leaves this out and gets the number.\n   */",
   ]],
   ["src/client/features/todos/stats-compare.ts", [
     "/**\n * The equal-length window before the one on screen, and how the two differ.\n *\n * The comparison is a second read rather than one wider request: the route buckets the days it is\n * given, and a doubled range sliced in the browser would put both periods in one bucket grid whose\n * first and last buckets are partial, so the two halves would not line up with the two windows. Two\n * reads also let the comparison fall over on its own — the range's own numbers stay on screen.\n *\n * The arithmetic is deliberately cautious. A count that grew from zero has no percentage, and a rate\n * whose earlier denominator was zero has no points to compare; both answer `null` so the screen can\n * print a dash instead of an invented infinity. Rates are compared in percentage points and counts in\n * percent, because \"the on-time rate rose 5 points\" is the honest sentence and \"rose 8%\" is not.\n */",
@@ -13745,6 +13749,7 @@ const allowed = new Map([
     "// The rate's own cell, not the section's whole text: the single bar in the breakdown is 100% of",
     "// itself, and `100%` contains the `0%` a loose substring check would flag.",
     "/**\r\n * The section as the screen mounts it: `useWorklog` owns the read so the CSV export can carry the very\r\n * same answer, which means the thing under test is the pair, not the presentation alone.\r\n */",
+    "// The hours rounded to a tenth the bar used to print is gone, and so is the number it collapsed to.",
   ]],
   ["src/client/features/workspace/BacklinksPanel.tsx", [
     "// Debounced refresh on note revision changes; unrelated sync traffic",
@@ -32274,6 +32279,11 @@ const allowed = new Map([
     "/**\n * References this scan cannot see an index for, each with the reason it is allowed to stay.\n *\n * `getConversation` is a real instance of the bug this guard was written after: it reads one conversation,\n * but its message count still runs a full scan of `chat_messages`, and the route calls it on nearly every\n * turn. It is recorded, not excused — adding the tenant predicate deletes the entry, and an entry whose\n * site no longer misses fails here just the same.\n */",
     "/**\n * The columns an index on each table can start from.\n *\n * Read from the DDL text: a `CREATE INDEX … ON table(col, …)` contributes its first column, and so does a\n * primary key, single-column or composite. A reference that names none of them cannot be answered from any\n * key the table has, which is the whole rule.\n */",
     "/**\n * Every reference the rule covers in one file.\n *\n * A reference is only read when it sits inside parentheses — a subquery, correlated or not — or when a\n * `JOIN` introduced it. The top-level `FROM` of a store query is not in that set: those statements bind the\n * account in their own `WHERE`, and the shape the bug was written in is the one where a fragment borrows an\n * outer row and forgets whose it is.\n */",
+  ]],
+  ["tests/sr-only-table-guard.test.ts", [
+    "/**\n * `sr-only` may not sit on a `<table>`.\n *\n * The utility clips by declaring `width: 1px; overflow: hidden`, and a table's used width never falls\n * below the width of what it holds — so the class quietly does nothing on the one element where the\n * content is widest. Measured in a real browser, the statistics screen's hidden definitions table came\n * out 638 pixels wide inside a 480-pixel window: the whole page scrolled sideways to reveal nothing at\n * all, while a screen reader still read the table correctly, which is precisely why no test caught it.\n *\n * The fix is a block element around the table, which does obey the clip. This scan is what keeps the\n * next hidden table from being written the way the last one was.\n */",
+    "/** Every `.tsx` under the client tree, including the tests that mount components directly. */",
+    "/**\n * The attribute region of each `<table` opening tag: the text up to the first tag that follows it.\n *\n * Cut at the next `<` rather than at the next `>` because an arrow function inside an attribute would\n * end the search early, and a table is never self-closed.\n */",
   ]],
   ["tests/subscriptions-backup.test.ts", [
     "/**\n * The subscription archive, and what it must and must not carry.\n *\n * A restore is the only code path in this app that deletes an account's rows in bulk, so \"it round-trips\"\n * is the minimum: the interesting claims are that a credential never enters the file, that a restore\n * replaces rather than accumulates, and that a file which cannot be honoured is refused before it\n * touches anything.\n */",

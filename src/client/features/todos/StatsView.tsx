@@ -12,7 +12,7 @@
  * "what is left". Comparison against the previous window is a chip on each headline number rather than
  * a section of its own — the same fact, one row closer to the number it describes.
  */
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, type HTMLAttributes } from 'react'
 import { Download } from 'lucide-react'
 import { localDate } from '@shared/assistant-time'
 import type { TaskStatsBucket, TaskStatsNamedCount, TodoStats } from '@shared/todos/model'
@@ -430,6 +430,22 @@ function GoalReference({ stats, goals }: { stats: TodoStats; goals: TodoGoals })
 }
 
 /**
+ * A table only a screen reader reads.
+ *
+ * `sr-only` cannot go on the table itself: a table's used width never drops below the width of what it
+ * holds, and these hold whole sentences, so the hidden definitions table pushed the statistics screen
+ * wider than a phone window and made it scroll sideways to reveal nothing. The clip has to sit on a box
+ * that obeys it.
+ */
+function HiddenTable(props: HTMLAttributes<HTMLTableElement>) {
+  return (
+    <div className="sr-only">
+      <table {...props} />
+    </div>
+  )
+}
+
+/**
  * The three counting rules, as data rather than as prose.
  *
  * A rate's whole meaning lives in its denominator, and the denominator of the first one is the thing a
@@ -446,7 +462,7 @@ function DefinitionsTable() {
     { id: 'finished_only', label: t('todo.stats.definitions.finished_only_label'), definition: t('todo.stats.definitions.finished_only') },
   ]
   return (
-    <table className="sr-only" data-stats-definitions="">
+    <HiddenTable data-stats-definitions="">
       <caption>{t('todo.stats.definitions.caption')}</caption>
       <thead>
         <tr>
@@ -462,14 +478,14 @@ function DefinitionsTable() {
           </tr>
         ))}
       </tbody>
-    </table>
+    </HiddenTable>
   )
 }
 
 /** The hidden table behind the trend, so the picture is also readable as numbers. */
 function SeriesTable({ stats }: { stats: TodoStats }) {
   return (
-    <table className="sr-only" data-stats-series="">
+    <HiddenTable data-stats-series="">
       <caption>{t('todo.stats.trend.table_caption')}</caption>
       <thead>
         <tr>
@@ -487,14 +503,14 @@ function SeriesTable({ stats }: { stats: TodoStats }) {
           </tr>
         ))}
       </tbody>
-    </table>
+    </HiddenTable>
   )
 }
 
 /** The hidden table behind the flow, so the bands are also readable as numbers. */
 function FlowTable({ stats }: { stats: TodoStats }) {
   return (
-    <table className="sr-only" data-stats-flow="">
+    <HiddenTable data-stats-flow="">
       <caption>{t('todo.stats.flow.table_caption')}</caption>
       <thead>
         <tr>
@@ -514,7 +530,7 @@ function FlowTable({ stats }: { stats: TodoStats }) {
           </tr>
         ))}
       </tbody>
-    </table>
+    </HiddenTable>
   )
 }
 

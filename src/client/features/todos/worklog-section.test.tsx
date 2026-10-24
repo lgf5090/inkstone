@@ -13,6 +13,7 @@ import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import { chooseOption } from '../../lib/test-menu'
 import { WorklogSection, useWorklog } from './WorklogSection'
+import { durationLabel } from './stats-charts'
 import type { Worklog } from '@shared/todos/model'
 
 /**
@@ -133,6 +134,17 @@ describe('the worklog section', () => {
 
     expect(section().textContent).toContain(t('todo.stats.worklog.empty'))
     expect(section().querySelector('ul')).toBeNull()
+  })
+
+  it('says which unit a bar is counting, because a bare 3 is not a fact a reader can check', async () => {
+    await mount()
+
+    const row = section().querySelector('li')
+    expect(row?.textContent).toContain('Client')
+    expect(row?.textContent).toContain(durationLabel(3 * 3_600_000))
+    expect(row?.textContent).toContain('100%')
+    // The hours rounded to a tenth the bar used to print is gone, and so is the number it collapsed to.
+    expect(row?.textContent).not.toMatch(/\b3(\.0)? ·/)
   })
 
   it('names the groups it left out rather than dropping them from the answer', async () => {

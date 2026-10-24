@@ -29,11 +29,6 @@ const DIMENSION_KEYS: Record<WorklogDimension, MessageKey> = {
   task: 'todo.stats.worklog.by_task',
 }
 
-/** Hours, as a bar chart's number. Bars want a plain value; the caption beside them carries the unit. */
-function hours(ms: number): number {
-  return Math.round((ms / 3_600_000) * 10) / 10
-}
-
 export interface WorklogState {
   dimension: WorklogDimension
   setDimension: (next: WorklogDimension) => void
@@ -111,10 +106,14 @@ export function WorklogSection({ state }: { state: WorklogState }) {
   }
 
   const tracked = answer?.totalMs ?? 0
+  // The bar carries the milliseconds it is drawn from and says them in the same words the KPI above
+  // uses. Measured in a real browser, `0.1 · 50%` beside a list's name is a figure nobody can read back
+  // as an afternoon: the caption was supposed to carry the unit, and it did not.
   const slices = (answer?.byGroup ?? []).map((group) => ({
     key: group.key,
     label: group.label,
-    value: hours(group.trackedMs),
+    value: group.trackedMs,
+    display: durationLabel(group.trackedMs),
     color: 'var(--accent)',
   }))
 
