@@ -95,6 +95,11 @@ export interface MusicRadioSummary {
   subscriberCount: number
 }
 
+export interface MusicRadioCategory {
+  id: string
+  name: string
+}
+
 export interface MusicHome {
   dailyTracks: MusicTrack[]
   fmEnabled: boolean

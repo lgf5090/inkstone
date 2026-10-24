@@ -265,7 +265,7 @@ export const neteaseEndpoints = {
 
   djRadioHot: (input: NeteaseRadioHotInput) =>
     call('/api/djradio/hot', 'weapi', {
-      cateId: input.categoryId,
+      cateId: input.categoryId || '0',
       limit: input.limit,
       offset: input.offset,
     }),

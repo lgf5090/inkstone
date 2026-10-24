@@ -6151,17 +6151,13 @@ const allowed = new Map([
   ]],
   ["src/client/features/music/pages/MvPage.tsx", [
     "/** Music videos: a card grid and a detail screen that plays the video through the same-origin stream. */",
-    "// The discovery route is typed as a playlist page while its provider answers with MV rows;",
-    "// read the MV fields when present and keep the playlist fields as the older fallback.",
     "/** The stream route resolves a library track, so the provider's MV identity is saved before playback. */",
   ]],
   ["src/client/features/music/pages/PlaylistPage.tsx", [
     "/**\r\n * One playlist: the header that says what it is, the toolbar that makes a long list usable, and the\r\n * rows themselves.\r\n *\r\n * The filter is local to the page — it narrows the tracks already fetched rather than asking the\r\n * provider for a new search — so a reader can find a track in a 500-row playlist without leaving it.\r\n * Compact rows and \"locate current\" are the other two tools a long list needs; neither changes what\r\n * the player queued, which remains the list the pressed row came from.\r\n */",
   ]],
   ["src/client/features/music/pages/PodcastPage.tsx", [
-    "/** Podcasts and radio: a card list, a show page with its episodes, and subscription state. */",
-    "// The discovery route is typed as a playlist page while its provider answers with radio rows;",
-    "// read the radio count when it is present and keep the playlist count as the older fallback.",
+    "/** Podcasts and radio: category shelves, recommended shows, a show page with episodes, and subscriptions. */",
   ]],
   ["src/client/features/music/pages/SearchPage.tsx", [
     "/**\n * Search: the box, the two lists that make an empty box useful, and one result panel per kind.\n *\n * The address owns the term. Typing replaces `?q=` after a 250 ms pause — a press of back after three\n * keystrokes must not land in the editor one character ago — while Enter, a hot word or a history row\n * commit immediately and record the term in the device's history. Results are always fetched for the\n * committed term, never for the half-typed one.\n *\n * The five result kinds share the page state but not a shape: songs are rows, everything else is a\n * card grid. Both keep the same Play and card semantics as the pages they open.\n */",
@@ -6332,6 +6328,8 @@ const allowed = new Map([
     "// stored, so the optimistic list is what stays.",
     "// The window is cleared so the next real play can try again rather than being dropped as a",
     "// duplicate of a write that never happened.",
+    "// Provider tracks carry the upstream id in `id`; the server upserts the snapshot and answers",
+    "// with the library row, which is the id its history foreign key can actually point at.",
   ]],
   ["src/client/features/music/store/player.ts", [
     "/** Where the first track starts, in milliseconds. */",
@@ -25109,7 +25107,7 @@ const allowed = new Map([
     "/** The largest file one WebDAV upload request may carry, envelope included. */",
     "/** The most paths one import call may name; the response reports each one's fate. */",
     "/** Absent keeps the saved token; an empty string clears it. */",
-    "/**\r\n * Why one path in an import was left alone. `missing` covers a file deleted between listing and\r\n * import; `path_too_long` is a reference whose encoded id would not fit the library's provider field.\r\n */",
+    "/**\n * Why one path in an import was left alone. `missing` covers a file deleted between listing and\n * import; `path_too_long` is a reference whose encoded id would not fit the library's provider field.\n */",
   ]],
   ["src/shared/music/assistant-context.ts", [
     "/**\r\n * What the assistant may know about the music screen the reader is looking at.\r\n *\r\n * The dock sits beside the music app the same way it sits beside mail: the page and the thing under\r\n * the reader's eyes make \"play this\" or \"what is this album\" answerable without them naming it. Every\r\n * string is bounded here because the value crosses the wire from a page to a prompt, and the cap is\r\n * part of the contract rather than something the worker has to remember to apply.\r\n *\r\n * The context is a pointer, not a payload: no lyrics, no credentials and no hidden default target for\r\n * a write. Tools that change something still take an explicit trackRef or id.\r\n */",
@@ -29948,10 +29946,10 @@ const allowed = new Map([
     "/** `api` mode sends a plain form; objects and arrays are JSON, everything else is stringified. */",
   ]],
   ["src/worker/music/providers/netease/endpoints.ts", [
-    "/**\n * Upstream endpoint table. Each builder only assembles the path and the body the reference module\n * sends; the response is normalized elsewhere.\n *\n * The reference package defaults to POST through either `eapi` or `weapi`; the crypto column here is\n * copied from the same modules. The few literals that are protocol vocabulary (an \"all\" category and\n * the MV tag keys) stay escaped so the source tree remains ASCII-only.\n */",
     "/** The upstream's own name for \"no filter\"; not interface copy. */",
     "/** 1 song, 10 album, 1000 playlist, 1004 MV, 1009 radio. */",
     "/** The URL endpoints take a JSON array of numbers, unlike the string ids the app carries. */",
+    "/**\n * Upstream endpoint table. Each builder only assembles the path and the body the reference module\n * sends; the response is normalized elsewhere.\n *\n * The reference package defaults to POST through either `eapi` or `weapi`; the crypto column here is\n * copied from the same modules. The few literals that are protocol vocabulary (an \"all\" category and\n * the MV tag keys) stay escaped so the source tree remains ASCII-only.\n */",
   ]],
   ["src/worker/music/providers/netease/external.ts", [
     "/**\r\n * The `MUSIC_UPSTREAM_API` fallback: the same provider interface over a self-hosted NCM REST API.\r\n *\r\n * The reference server exposes one route per module (`/cloudsearch`, `/song/url/v1`, ...) and accepts\r\n * the cookie as a query parameter, so this adapter only maps calls and reuses `normalize.ts`. It is a\r\n * direct HTTPS origin: redirects are refused rather than followed, and the base URL must be HTTPS\r\n * (localhost is allowed for a development deployment).\r\n */",
@@ -30801,11 +30799,14 @@ const allowed = new Map([
     "// must not leave the reader still connected to an account they asked to remove.",
   ]],
   ["src/worker/routes/music-discovery.ts", [
-    "/**\n * Discovery reads: home, search, playlists, albums, artists, toplists, MVs and podcasts.\n *\n * Every handler is a thin adapter over one provider call: query strings are parsed and bounded here,\n * pagination is converted to an offset once, and the provider's answer crosses the wire unchanged.\n * The provider is injected by `music.ts`, which also owns the rate budget and the error translation.\n *\n * Registration order matters: Hono matches in order, so `/playlists/categories` is claimed before\n * `/playlists/:id` and cannot be read as a playlist whose id is \"categories\".\n */",
     "// The client renders keyword strings; the score only ordered the list upstream.",
     "// The provider exposes a hot-song prefix, not an arbitrary offset. Ask for the prefix that",
     "// covers this page (capped at one hundred) and slice it locally rather than inventing rows.",
     "// A toplist is a Netease playlist; the detail endpoint is the same call.",
+    "// The Netease MV filter expects its own Chinese tag labels; the app's public axis uses stable",
+    "// ASCII names so a translated screen never changes what the request means.",
+    "/**\n * Discovery reads: home, search, playlists, albums, artists, toplists, MVs and podcasts.\n *\n * Every handler is a thin adapter over one provider call: query strings are parsed and bounded here,\n * pagination is converted to an offset once, and the provider's answer crosses the wire unchanged.\n * The provider is injected by `music.ts`, which also owns the rate budget and the error translation.\n *\n * Registration order matters: Hono matches in order, so `/playlists/categories` is claimed before\n * `/playlists/:id` and cannot be read as a playlist whose id is \"categories\".\n */",
+    "/**\n   * Upstream refuses the hot shelf without a category, so an unfiltered request answers with the\n   * editorial recommendation instead of an empty first page.\n   */",
   ]],
   ["src/worker/routes/music-downloads.ts", [
     "// Checked before the row exists: a deployment that forgot the binding must not queue a task it can",

@@ -2,7 +2,7 @@
 import { useEffect, useId, useState, type ReactElement } from 'react'
 import { ChevronLeft } from 'lucide-react'
 import { formatDuration, formatPlayCount } from '@shared/music/format'
-import type { MusicMvDetail, MusicMvSummary, MusicPlaylistSummary } from '@shared/music/api'
+import type { MusicMvDetail, MusicMvSummary } from '@shared/music/api'
 import type { MusicTrack } from '@shared/music/model'
 import { Empty } from '../../../components/feedback'
 import { Button } from '../../../components/primitives'
@@ -12,11 +12,23 @@ import { useMusicQuery } from '../query'
 import { useMusicUi } from '../store/ui'
 import { Pager } from '../components/Pager'
 import { SectionHeader } from '../components/SectionHeader'
+import { MusicTabs, type MusicTabItem } from '../components/Tabs'
 import { musicText } from '../components/labels'
 import { MediaCard, MediaGridSkeleton } from './parts/P2MediaCard'
 import { PAGE_STACK, QueryError, formatDate, onMusicLink } from './parts/P2QueryState'
 
 const PAGE_SIZE = 30
+
+const MV_AREAS = [
+  { value: 'ALL', labelKey: 'music.mv.area.all' },
+  { value: 'ZH', labelKey: 'music.mv.area.mainland' },
+  { value: 'EA', labelKey: 'music.mv.area.hktw' },
+  { value: 'US', labelKey: 'music.mv.area.western' },
+  { value: 'JP', labelKey: 'music.mv.area.japan' },
+  { value: 'KR', labelKey: 'music.mv.area.korea' },
+] as const
+
+type MvArea = (typeof MV_AREAS)[number]['value']
 
 export function MvPage(): ReactElement {
   const page = useMusicUi((state) => state.page)
@@ -25,11 +37,16 @@ export function MvPage(): ReactElement {
 }
 
 function MvListPage(): ReactElement {
+  const [area, setArea] = useState<MvArea>('ALL')
   const [pageIndex, setPageIndex] = useState(1)
   const headingId = useId()
+  const areaTabs: MusicTabItem<MvArea>[] = MV_AREAS.map((item) => ({
+    value: item.value,
+    label: musicText(item.labelKey),
+  }))
   const query = useMusicQuery(
-    () => musicApi.mvs('ALL', pageIndex, PAGE_SIZE),
-    [pageIndex],
+    () => musicApi.mvs(area, pageIndex, PAGE_SIZE),
+    [area, pageIndex],
   )
   const items = query.data?.items ?? []
   const total = query.data?.total ?? 0
@@ -42,6 +59,16 @@ function MvListPage(): ReactElement {
         id={headingId}
         title={musicText('music.page.mv')}
         description={musicText('music.mv.list_description')}
+      />
+
+      <MusicTabs
+        value={area}
+        items={areaTabs}
+        label={musicText('music.mv.area_label')}
+        onChange={(next) => {
+          setArea(next)
+          setPageIndex(1)
+        }}
       />
 
       {query.status === 'error' && !query.data ? (
@@ -75,19 +102,13 @@ function MvListPage(): ReactElement {
   )
 }
 
-function MvCard({ item }: { item: MusicPlaylistSummary }): ReactElement {
-  // The discovery route is typed as a playlist page while its provider answers with MV rows;
-  // read the MV fields when present and keep the playlist fields as the older fallback.
-  const mv = item as unknown as Partial<MusicMvSummary>
-  const meta = [mv.artist, item.creator].filter(Boolean).join(' · ')
-  const duration = typeof mv.durationMs === 'number' && mv.durationMs > 0
-    ? formatDuration(mv.durationMs)
-    : ''
+function MvCard({ item }: { item: MusicMvSummary }): ReactElement {
+  const duration = item.durationMs > 0 ? formatDuration(item.durationMs) : ''
   return (
     <MediaCard
       href={musicPathFor({ kind: 'mvDetail', id: item.id })}
       title={item.name}
-      meta={meta || item.description}
+      meta={item.artist || musicText('music.mv.unknown_artist')}
       coverUrl={item.coverUrl}
       aspect="video"
       badge={duration || undefined}

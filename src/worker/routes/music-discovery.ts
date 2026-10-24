@@ -23,12 +23,21 @@ import type {
   MusicPageQuery,
   MusicPlaylistQuery,
   MusicProvider,
+  MusicRadioListQuery,
 } from '../music/providers/types'
 import type { MusicRouteDeps } from './music'
 
 const KEYWORDS_MAX = 200
 const ID_MAX = 128
 const AREAS = ['ALL', 'ZH', 'EA', 'KR', 'JP'] as const
+const MV_AREA: Record<string, string> = {
+  ALL: '',
+  ZH: '\u5185\u5730',
+  EA: '\u6e2f\u53f0',
+  US: '\u6b27\u7f8e',
+  JP: '\u65e5\u672c',
+  KR: '\u97e9\u56fd',
+}
 type AlbumArea = (typeof AREAS)[number]
 
 function isSearchType(value: string): value is MusicSearchType {
@@ -68,6 +77,19 @@ export function createMusicDiscoveryRoutes(deps: MusicRouteDeps): Hono<AppBindin
     const page = normalizeMusicPage(c.req.query('page'))
     const limit = normalizeMusicLimit(c.req.query('limit'))
     return { page, limit, offset: musicPageOffset(page, limit) }
+  }
+
+  /**
+   * Upstream refuses the hot shelf without a category, so an unfiltered request answers with the
+   * editorial recommendation instead of an empty first page.
+   */
+  async function radioPage(
+    provider: MusicProvider,
+    query: MusicRadioListQuery,
+  ): Promise<Awaited<ReturnType<MusicProvider['radioHot']>>> {
+    if (query.categoryId) return provider.radioHot(query)
+    const items = await provider.radioRecommend()
+    return { items, total: items.length, hasMore: false }
   }
 
   async function guarded(
@@ -277,9 +299,11 @@ export function createMusicDiscoveryRoutes(deps: MusicRouteDeps): Hono<AppBindin
   })
 
   routes.get('/mvs', (c) => {
-    const area = c.req.query('area') ?? 'ALL'
-    const type = c.req.query('type') ?? 'ALL'
-    const order = c.req.query('order') ?? 'hot'
+    // The Netease MV filter expects its own Chinese tag labels; the app's public axis uses stable
+    // ASCII names so a translated screen never changes what the request means.
+    const area = MV_AREA[c.req.query('area') ?? 'ALL'] ?? ''
+    const type = c.req.query('type') === 'ALL' || !c.req.query('type') ? '' : c.req.query('type')!
+    const order = c.req.query('order') === 'new' ? '\u6700\u65b0' : ''
     return guarded(c, async (provider) => {
       const query: MusicMvQuery = { ...pageOf(c), area, type, order }
       return c.json(await provider.mvList(query))
@@ -320,7 +344,7 @@ export function createMusicDiscoveryRoutes(deps: MusicRouteDeps): Hono<AppBindin
       ...pageOf(c),
       categoryId: c.req.query('cat') || c.req.query('categoryId') || undefined,
     }
-    return c.json(await provider.radioHot(query))
+    return c.json(await radioPage(provider, query))
   }))
 
   routes.get('/radio/subscriptions', (c) => guarded(c, async (provider) => {
@@ -334,7 +358,7 @@ export function createMusicDiscoveryRoutes(deps: MusicRouteDeps): Hono<AppBindin
       categoryId: c.req.query('cat') || c.req.query('categoryId') || undefined,
       toplistType: c.req.query('type') === 'hot' ? 'hot' as const : undefined,
     }
-    return c.json(await provider.radioHot(query))
+    return c.json(await radioPage(provider, query))
   }))
 
   routes.post('/podcasts/:id/subscribe', async (c) => {

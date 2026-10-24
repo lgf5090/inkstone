@@ -19,10 +19,13 @@ import type {
   MusicLibraryPayload,
   MusicLyricResponse,
   MusicMvDetail,
+  MusicMvSummary,
   MusicPage,
   MusicPlaylistDetail,
   MusicPlaylistSummary,
+  MusicRadioCategory,
   MusicRadioDetail,
+  MusicRadioSummary,
   MusicSearchResult,
   MusicToplistSummary,
   MusicUploadInit,
@@ -142,11 +145,15 @@ export const musicApi = {
     request<MusicPlaylistDetail>(`/api/music/toplists/${encodeURIComponent(id)}${query({ page, limit })}`),
 
   mvs: (area = 'ALL', page = 1, limit = 30) =>
-    request<MusicPage<MusicPlaylistSummary>>(`/api/music/mvs${query({ area, page, limit })}`),
+    request<MusicPage<MusicMvSummary>>(`/api/music/mvs${query({ area, page, limit })}`),
   mv: (id: string) => request<MusicMvDetail>(`/api/music/mvs/${encodeURIComponent(id)}`),
 
-  radios: (page = 1, limit = 30) =>
-    request<MusicPage<MusicPlaylistSummary>>(`/api/music/podcasts${query({ page, limit })}`),
+  radioCategories: () =>
+    request<{ items: MusicRadioCategory[] }>('/api/music/podcasts/categories'),
+  radioRecommend: () =>
+    request<{ items: MusicRadioSummary[] }>('/api/music/podcasts/recommend'),
+  radioHot: (category = '', page = 1, limit = 30) =>
+    request<MusicPage<MusicRadioSummary>>(`/api/music/podcasts${query({ cat: category, page, limit })}`),
   radio: (id: string, page = 1, limit = 30) =>
     request<MusicRadioDetail>(`/api/music/podcasts/${encodeURIComponent(id)}${query({ page, limit })}`),
   subscribeRadio: (id: string, subscribe: boolean) =>

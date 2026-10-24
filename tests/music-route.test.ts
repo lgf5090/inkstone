@@ -211,6 +211,61 @@ describe('discovery routes', () => {
     const response = await local.fetch(new Request('http://localhost/api/music/search?q=x&type=video'))
     expect(response.status).toBe(400)
   })
+
+  it('maps MV area codes to the upstream labels', async () => {
+    const queries: Array<Record<string, unknown>> = []
+    const { local } = discoveryApp({
+      mvList: async (query: unknown) => {
+        queries.push(query as Record<string, unknown>)
+        return { items: [], total: 0, hasMore: false }
+      },
+    })
+    const expected: Record<string, string> = {
+      ALL: '',
+      ZH: '内地',
+      EA: '港台',
+      US: '欧美',
+      JP: '日本',
+      KR: '韩国',
+    }
+    for (const [code, label] of Object.entries(expected)) {
+      const response = await local.fetch(new Request(
+        `http://localhost/api/music/mvs?area=${code}&type=ALL&order=new&page=1&limit=12`,
+      ))
+      expect(response.status).toBe(200)
+      expect(queries.at(-1)).toMatchObject({ area: label, type: '', order: '最新' })
+    }
+  })
+
+  it('answers an unfiltered podcast shelf with recommended shows', async () => {
+    const calls: string[] = []
+    const radio = {
+      id: 'radio-1',
+      name: 'A show',
+      coverUrl: '',
+      description: '',
+      programCount: 1,
+      subscriberCount: 0,
+    }
+    const { local } = discoveryApp({
+      radioRecommend: async () => {
+        calls.push('recommend')
+        return [radio]
+      },
+      radioHot: async () => {
+        calls.push('hot')
+        return { items: [], total: 0, hasMore: false }
+      },
+    })
+
+    const response = await local.fetch(new Request('http://localhost/api/music/podcasts?page=1&limit=12'))
+    await expect(json(response)).resolves.toEqual({ items: [radio], total: 1, hasMore: false })
+    expect(calls).toEqual(['recommend'])
+
+    const filtered = await local.fetch(new Request('http://localhost/api/music/podcasts?cat=3&page=2&limit=12'))
+    expect(filtered.status).toBe(200)
+    expect(calls).toEqual(['recommend', 'hot'])
+  })
 })
 
 describe('library routes', () => {

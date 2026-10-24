@@ -311,24 +311,17 @@ export const useMusicLibrary = create<MusicLibraryState>((set, get) => ({
     if (now - previous < HISTORY_WRITE_WINDOW_MS) return
     lastHistoryWrite.set(input.track.id, now)
     try {
-      await musicRequest<{ ok: true }>(ENDPOINTS.history, requestBody({
-        trackId: input.track.id,
+      // Provider tracks carry the upstream id in `id`; the server upserts the snapshot and answers
+      // with the library row, which is the id its history foreign key can actually point at.
+      const answer = await musicRequest<{ ok: true; entry: MusicHistoryEntry }>(ENDPOINTS.history, requestBody({
+        track: input.track,
         playedAt: now,
         durationPlayed: input.durationPlayed ?? 0,
         completed: input.completed ?? false,
         contextType: input.contextType ?? '',
         contextId: input.contextId ?? '',
       }))
-      const entry: MusicHistoryItem = {
-        id: `local:${input.track.id}:${now}`,
-        trackId: input.track.id,
-        playedAt: now,
-        durationPlayed: input.durationPlayed ?? 0,
-        completed: input.completed ?? false,
-        contextType: input.contextType ?? '',
-        contextId: input.contextId ?? '',
-        track: input.track,
-      }
+      const entry: MusicHistoryItem = { ...answer.entry, track: input.track }
       set({ history: [entry, ...get().history].slice(0, MUSIC_LIMITS.historyEntries) })
     } catch (error) {
       // The window is cleared so the next real play can try again rather than being dropped as a

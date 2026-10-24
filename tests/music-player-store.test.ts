@@ -429,7 +429,18 @@ describe('music library store', () => {
   })
 
   it('writes a play once per track inside the debounce window', async () => {
-    const fetchMock = vi.fn(async () => ok({ ok: true }))
+    const fetchMock = vi.fn(async (_path: string, _init?: RequestInit) => ok({
+      ok: true,
+      entry: {
+        id: 'history-1',
+        trackId: 'library-track-1',
+        playedAt: Date.now(),
+        durationPlayed: 0,
+        completed: false,
+        contextType: '',
+        contextId: '',
+      },
+    }))
     vi.stubGlobal('fetch', fetchMock)
 
     await useMusicLibrary.getState().recordHistory({ track: tracks[0]! })
@@ -437,10 +448,13 @@ describe('music library store', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(useMusicLibrary.getState().history).toHaveLength(1)
+    expect(useMusicLibrary.getState().history[0]?.trackId).toBe('library-track-1')
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/music/library/history',
       expect.objectContaining({ method: 'POST' }),
     )
+    const body = JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)?.body))
+    expect(body.track.id).toBe(tracks[0]!.id)
   })
 
   it('loads every collection and leaves the library ready', async () => {
