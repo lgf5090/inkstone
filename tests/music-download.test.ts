@@ -286,14 +286,6 @@ async function call(
   )
 }
 
-/**
- * `Env` does not carry `MUSIC_QUEUE` yet — the queue lands before the deployment config does — so the
- * binding is handed to the real `Env` through the doubles' own overrides.
- */
-function testEnv(overrides: Record<string, unknown>): Env {
-  return testBindings(db, overrides as Partial<Env>)
-}
-
 beforeEach(async () => {
   sqlite = new DatabaseSync(':memory:')
   sqlite.exec('PRAGMA journal_mode = OFF')
@@ -301,7 +293,7 @@ beforeEach(async () => {
   for (const statement of MUSIC_SCHEMA_STATEMENTS) sqlite.exec(statement)
   db = makeD1(sqlite)
   const files = multipartBucket()
-  env = testEnv({
+  env = testBindings(db, {
     FILES: files.bucket,
     MUSIC_QUEUE: testDurableObjectNamespace(async () => new Response(null, { status: 204 })),
   })
@@ -716,14 +708,14 @@ describe('music download routes', () => {
     app.use('/api/*', requireClientHeader)
     app.use('/api/*', loadSession)
     app.route('/api/music', musicDownloadRoutes)
-    env = testEnv({
+    env = testBindings(db, {
       MUSIC_QUEUE: testDurableObjectNamespace(async () => new Response(null, { status: 204 })),
     })
     const noStorage = await call('POST', '/api/music/downloads', { token: tokenA, body })
     expect(noStorage.status).toBe(503)
     expect((await noStorage.json() as { error: { code: string } }).error.code).toBe('music_storage_unavailable')
 
-    env = testEnv({ FILES: testR2Bucket() })
+    env = testBindings(db, { FILES: testR2Bucket() })
     const noQueue = await call('POST', '/api/music/downloads', { token: tokenA, body })
     expect(noQueue.status).toBe(503)
     expect((await noQueue.json() as { error: { code: string } }).error.code).toBe('music_storage_unavailable')

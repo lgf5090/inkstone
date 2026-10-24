@@ -41,15 +41,6 @@ import { fetchAllowedMusicUrl } from './stream'
 import { createNeteaseProvider } from './providers/netease/client'
 import { MusicProviderError, type MusicProvider, type MusicStreamSource } from './providers/types'
 
-/**
- * The binding this module needs. It is declared here rather than on `Env` so the queue can land
- * before the deployment config does; the integrator adds `MUSIC_QUEUE` to `Env`, both wrangler files
- * and the Worker entry's exports. Until then `kickMusicQueue` answers 503 instead of pretending.
- */
-export interface MusicQueueBindings extends Env {
-  MUSIC_QUEUE?: DurableObjectNamespace
-}
-
 /** One slice is one upload part: the same 8 MiB the upload path uses, and above R2's 5 MiB minimum. */
 export const MUSIC_DOWNLOAD_SLICE_BYTES = MUSIC_LIMITS.uploadPartBytes
 /** A part list longer than this means the source is not the size it claimed. */
@@ -650,8 +641,8 @@ async function downloadProvider(env: Env, userId: string): Promise<MusicProvider
   return createNeteaseProvider({ cookie, upstreamBaseUrl: env.MUSIC_UPSTREAM_API })
 }
 
-export function musicQueueNamespace(env: Env): DurableObjectNamespace | null {
-  return (env as MusicQueueBindings).MUSIC_QUEUE ?? null
+function musicQueueNamespace(env: Env): DurableObjectNamespace | null {
+  return env.MUSIC_QUEUE ?? null
 }
 
 /** A deployment without the queue cannot download, and says so instead of queueing a task forever. */

@@ -1,0 +1,6 @@
+/*
+ * The music surface is owned by its feature (`features/music/music.css`); `app.css` imports this
+ * entry point. Keeping the forward here means the feature stylesheet travels with the components
+ * that use it, and the app stylesheet still has one line per surface.
+ */
+@import '../features/music/music.css';
