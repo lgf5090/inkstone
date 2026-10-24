@@ -92,6 +92,28 @@ export async function decryptEmailSecret(env: Env, ownerId: string, stored: stri
 }
 
 /**
+ * The optional Netease content account's cookie.
+ *
+ * It is scoped to the Inkstone account rather than to a music row, because one reader links one
+ * content account. The plaintext exists only inside the worker call that signs one upstream request;
+ * no route returns it, and a backup never carries it.
+ */
+export async function encryptMusicCookie(env: Env, userId: string, cookie: string): Promise<string> {
+  if (!isValidId(userId)) throw new Error('invalid_music_credential')
+  const trimmed = cookie.trim()
+  if (!trimmed || trimmed.length > 8 * 1024) throw new Error('invalid_music_credential')
+  return encryptCredential(env, `music:${userId}`, { cookie: trimmed })
+}
+
+export async function decryptMusicCookie(env: Env, userId: string, stored: string): Promise<string | null> {
+  if (!isValidId(userId) || stored.length > 24 * 1024) return null
+  const value = await decryptCredential(env, `music:${userId}`, stored)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const cookie = (value as Record<string, unknown>).cookie
+  return typeof cookie === 'string' && cookie.length > 0 && cookie.length <= 8 * 1024 ? cookie : null
+}
+
+/**
  * One MCP server's outbound OAuth material.
  *
  * Scoped to the server's own id rather than to the account, because the thing being kept is not this

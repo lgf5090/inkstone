@@ -229,7 +229,3 @@ export const DEFAULT_MUSIC_SETTINGS: MusicSettings = {
 export function musicTrackKey(provider: MusicProviderId, providerId: string): string {
   return `${provider}:${providerId}`
 }
-
-export function emptyToNull(value: string | null | undefined): string | null {
-  return value ? value : null
-}
