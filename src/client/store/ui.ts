@@ -62,6 +62,14 @@ interface UiState {
   navCollapsed: boolean
   emailNavWidth: number
   emailListWidth: number
+  assistantDockWidth: number
+  chatRailWidth: number
+  chatResourcesWidth: number
+  todoNavWidth: number
+  subscriptionsRailWidth: number
+  subscriptionsDetailWidth: number
+  memoSidebarWidth: number
+  memoDetailWidth: number
   emailNavCollapsed: boolean
   emailListCollapsed: boolean
   listCollapsed: boolean
@@ -136,7 +144,7 @@ interface UiState {
   fontScale: number
 
 
-  setLayout: (patch: Partial<Pick<UiState, 'navWidth' | 'listWidth' | 'emailNavWidth' | 'emailListWidth' | 'splitRatio' | 'workspaceSplitRatio' | 'outlineFloatingPosition'>>) => void
+  setLayout: (patch: Partial<Pick<UiState, 'navWidth' | 'listWidth' | 'emailNavWidth' | 'emailListWidth' | 'assistantDockWidth' | 'chatRailWidth' | 'chatResourcesWidth' | 'todoNavWidth' | 'subscriptionsRailWidth' | 'subscriptionsDetailWidth' | 'memoSidebarWidth' | 'memoDetailWidth' | 'splitRatio' | 'workspaceSplitRatio' | 'outlineFloatingPosition'>>) => void
   setWorkspacePaneLayout: (pane: WorkspacePane, layout: EditorLayout) => void
   setWorkspaceNote: (pane: WorkspacePane, id: string | null, activate?: boolean, revealOnMobile?: boolean) => void
   activateWorkspacePane: (pane: WorkspacePane) => void
@@ -207,6 +215,14 @@ export const PANEL_WIDTHS = {
   noteList: { min: 260, max: 520 },
   emailNav: { min: 208, max: 360 },
   emailList: { min: 300, max: 560 },
+  assistantDock: { min: 300, max: 680 },
+  chatRail: { min: 200, max: 380 },
+  chatResources: { min: 280, max: 560 },
+  todoNav: { min: 200, max: 360 },
+  subscriptionsRail: { min: 180, max: 320 },
+  subscriptionsDetail: { min: 300, max: 560 },
+  memoSidebar: { min: 200, max: 360 },
+  memoDetail: { min: 300, max: 560 },
 } as const
 
 export const DEFAULT_LAYOUT = {
@@ -214,6 +230,14 @@ export const DEFAULT_LAYOUT = {
   listWidth: PANEL_WIDTHS.noteList.min,
   emailNavWidth: 232,
   emailListWidth: 380,
+  assistantDockWidth: 380,
+  chatRailWidth: 256,
+  chatResourcesWidth: 360,
+  todoNavWidth: 232,
+  subscriptionsRailWidth: 220,
+  subscriptionsDetailWidth: 380,
+  memoSidebarWidth: 248,
+  memoDetailWidth: 400,
   splitRatio: null as number | null,
   outlineFloatingPosition: null as { x: number; y: number } | null,
 } as const
@@ -254,6 +278,14 @@ const PERSISTED_KEYS = [
   'navCollapsed',
   'emailNavWidth',
   'emailListWidth',
+  'assistantDockWidth',
+  'chatRailWidth',
+  'chatResourcesWidth',
+  'todoNavWidth',
+  'subscriptionsRailWidth',
+  'subscriptionsDetailWidth',
+  'memoSidebarWidth',
+  'memoDetailWidth',
   'emailNavCollapsed',
   'emailListCollapsed',
   'splitRatio',
@@ -302,6 +334,30 @@ function loadPersisted(): Partial<UiState> {
     }
     if (isFiniteNumber(value.emailListWidth)) {
       out.emailListWidth = clamp(value.emailListWidth, PANEL_WIDTHS.emailList.min, PANEL_WIDTHS.emailList.max)
+    }
+    if (isFiniteNumber(value.assistantDockWidth)) {
+      out.assistantDockWidth = clamp(value.assistantDockWidth, PANEL_WIDTHS.assistantDock.min, PANEL_WIDTHS.assistantDock.max)
+    }
+    if (isFiniteNumber(value.chatRailWidth)) {
+      out.chatRailWidth = clamp(value.chatRailWidth, PANEL_WIDTHS.chatRail.min, PANEL_WIDTHS.chatRail.max)
+    }
+    if (isFiniteNumber(value.chatResourcesWidth)) {
+      out.chatResourcesWidth = clamp(value.chatResourcesWidth, PANEL_WIDTHS.chatResources.min, PANEL_WIDTHS.chatResources.max)
+    }
+    if (isFiniteNumber(value.todoNavWidth)) {
+      out.todoNavWidth = clamp(value.todoNavWidth, PANEL_WIDTHS.todoNav.min, PANEL_WIDTHS.todoNav.max)
+    }
+    if (isFiniteNumber(value.subscriptionsRailWidth)) {
+      out.subscriptionsRailWidth = clamp(value.subscriptionsRailWidth, PANEL_WIDTHS.subscriptionsRail.min, PANEL_WIDTHS.subscriptionsRail.max)
+    }
+    if (isFiniteNumber(value.subscriptionsDetailWidth)) {
+      out.subscriptionsDetailWidth = clamp(value.subscriptionsDetailWidth, PANEL_WIDTHS.subscriptionsDetail.min, PANEL_WIDTHS.subscriptionsDetail.max)
+    }
+    if (isFiniteNumber(value.memoSidebarWidth)) {
+      out.memoSidebarWidth = clamp(value.memoSidebarWidth, PANEL_WIDTHS.memoSidebar.min, PANEL_WIDTHS.memoSidebar.max)
+    }
+    if (isFiniteNumber(value.memoDetailWidth)) {
+      out.memoDetailWidth = clamp(value.memoDetailWidth, PANEL_WIDTHS.memoDetail.min, PANEL_WIDTHS.memoDetail.max)
     }
     if (typeof value.emailNavCollapsed === 'boolean') out.emailNavCollapsed = value.emailNavCollapsed
     if (typeof value.emailListCollapsed === 'boolean') out.emailListCollapsed = value.emailListCollapsed

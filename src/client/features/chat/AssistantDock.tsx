@@ -14,7 +14,7 @@
  * on when the panel opens rather than inherited from whatever the chat tab was last set to — and it is
  * drawn as a chip the reader can take off, because a context they cannot see is one they cannot correct.
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { ArrowUpRight, ListChecks, Mail, Plus, Sparkles, Wallet, X } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import type { TodoAssistantContext } from '@shared/todos/assistant-context'
@@ -24,7 +24,8 @@ import { t } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
 import { IconButton, Button, Spinner } from '../../components/primitives'
 import { Modal, Tooltip } from '../../components/overlay'
-import { useUi } from '../../store/ui'
+import { DEFAULT_LAYOUT, PANEL_WIDTHS, useUi } from '../../store/ui'
+import { Resizer } from '../shell/Resizer'
 import { useNotes } from '../../store/notes'
 import { useAssistant } from './assistant-store'
 import { AssistantBubble } from './MessageParts'
@@ -101,6 +102,8 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
   const blocked = useAssistant((state) => !state.settings?.activeModelId && !state.settings?.offlineMode)
   const fileIndex = useAssistant((state) => state.fileIndex)
   const setOpen = useUi((state) => state.setAssistantDock)
+  const dockWidth = useUi((state) => state.assistantDockWidth)
+  const setLayout = useUi((state) => state.setLayout)
   const request = useEditorAi((state) => state.request)
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
@@ -187,17 +190,31 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
           : t('assistant.dock.hint_page')
 
   return (
-    <aside
-      aria-label={t('assistant.dock.title')}
-      data-assistant-dock="1"
-      // A column beside the note on a wide screen, and a bottom sheet on a phone: the same panel, but a
-      // 380px column on a 390px screen is the whole page rather than a companion to it.
-      className={cn(
-        'flex flex-col bg-[var(--bg-base)]',
-        'fixed inset-x-0 bottom-0 z-[var(--z-panel)] h-[min(70vh,560px)] rounded-t-[var(--r-xl)] border-t border-[var(--border-default)] shadow-[var(--shadow-modal)]',
-        'md:static md:h-full md:w-[min(380px,36vw)] md:shrink-0 md:rounded-none md:border-l md:border-t-0 md:shadow-none',
-      )}
-    >
+    <>
+      <div className="hidden h-full shrink-0 md:block">
+        <Resizer
+          label={t('assistant.dock.resize')}
+          value={dockWidth}
+          min={PANEL_WIDTHS.assistantDock.min}
+          max={PANEL_WIDTHS.assistantDock.max}
+          invert
+          className="h-full"
+          onChange={(assistantDockWidth) => setLayout({ assistantDockWidth })}
+          onReset={() => setLayout({ assistantDockWidth: DEFAULT_LAYOUT.assistantDockWidth })}
+        />
+      </div>
+      <aside
+        aria-label={t('assistant.dock.title')}
+        data-assistant-dock="1"
+        style={{ '--assistant-dock-width': `${dockWidth}px` } as CSSProperties}
+        // A column beside the note on a wide screen, and a bottom sheet on a phone: the same panel, but a
+        // 380px column on a 390px screen is the whole page rather than a companion to it.
+        className={cn(
+          'flex flex-col bg-[var(--bg-base)]',
+          'fixed inset-x-0 bottom-0 z-[var(--z-panel)] h-[min(70vh,560px)] rounded-t-[var(--r-xl)] border-t border-[var(--border-default)] shadow-[var(--shadow-modal)]',
+          'md:static md:h-full md:w-[var(--assistant-dock-width)] md:max-w-[60vw] md:shrink-0 md:rounded-none md:border-l md:border-t-0 md:shadow-none',
+        )}
+      >
       {/* The grab handle is the only thing that says "this can be dismissed by the reader", and it is
           not drawn where the panel is a column: a desktop has a close button and no thumb. */}
       <div aria-hidden className="mx-auto mt-1.5 h-1 w-9 shrink-0 rounded-full bg-[var(--border-strong)] md:hidden" />
@@ -360,7 +377,8 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
         }}
       />
       {request && !streaming && answer.trim() && <AiResultRow request={request} answer={answer} />}
-    </aside>
+      </aside>
+    </>
   )
 }
 

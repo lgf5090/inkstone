@@ -12,6 +12,7 @@ interface VerticalResizeHandleProps {
   min: number
   max: number
   keyboardStep: number
+  keyboardInvert?: boolean
   ariaScale?: number
   onChange: (next: number) => void
   onReset?: () => void
@@ -30,6 +31,7 @@ function VerticalResizeHandle({
   min,
   max,
   keyboardStep,
+  keyboardInvert = false,
   ariaScale = 1,
   onChange,
   onReset,
@@ -83,9 +85,10 @@ function VerticalResizeHandle({
       onPointerCancel={finish}
       onLostPointerCapture={finish}
       onKeyDown={(event) => {
+        const step = keyboardInvert ? -keyboardStep : keyboardStep
         let next: number | null = null
-        if (event.key === 'ArrowLeft') next = value - keyboardStep
-        else if (event.key === 'ArrowRight') next = value + keyboardStep
+        if (event.key === 'ArrowLeft') next = value - step
+        else if (event.key === 'ArrowRight') next = value + step
         else if (event.key === 'Home') next = min
         else if (event.key === 'End') next = max
         if (next == null) return
@@ -137,6 +140,7 @@ export function Resizer({
       min={min}
       max={max}
       keyboardStep={8}
+      keyboardInvert={invert}
       onChange={onChange}
       onReset={onReset}
       className={className}

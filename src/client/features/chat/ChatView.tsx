@@ -55,7 +55,8 @@ import {
   VoiceButton,
 } from './ComposerControls'
 import { ContextUsageRing } from './ContextUsageMeter'
-import { useUi } from '../../store/ui'
+import { DEFAULT_LAYOUT, PANEL_WIDTHS, useUi } from '../../store/ui'
+import { Resizer } from '../shell/Resizer'
 import { copyText } from '../../lib/clipboard'
 import { useNotes } from '../../store/notes'
 import { MarkdownBody } from '../preview/MarkdownBody'
@@ -192,6 +193,8 @@ export function ChatView() {
   // Which presentation the conversation list gets — the rail, or the phone drawer. Asked here rather than
   // left to CSS because the list may only be mounted once; see the render below.
   const railWide = useMediaQuery(CHAT_RAIL_QUERY)
+  const chatRailWidth = useUi((state) => state.chatRailWidth)
+  const setLayout = useUi((state) => state.setLayout)
   const [finding, setFinding] = useState(false)
   // What the command palette asked the view for, counted rather than flagged: asking twice for the same
   // panel has to be able to raise one the reader closed in between, and a flag would already read true.
@@ -480,9 +483,19 @@ export function ChatView() {
           twice. The container is chosen from the same width the `lg` token means, so the rail keeps its
           place in the flex row and the drawer keeps the modal's focus, Escape and backdrop behaviour. */}
       {railWide ? (
-        <aside className="flex w-64 shrink-0 border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)]">
-          <ConversationList activeId={activeId} onPick={() => setListOpen(false)} focusSearch={searchFocusRequest} />
-        </aside>
+        <>
+          <aside style={{ width: chatRailWidth }} className="flex shrink-0 border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)]">
+            <ConversationList activeId={activeId} onPick={() => setListOpen(false)} focusSearch={searchFocusRequest} />
+          </aside>
+          <Resizer
+            label={t('assistant.chat.resize_rail')}
+            value={chatRailWidth}
+            min={PANEL_WIDTHS.chatRail.min}
+            max={PANEL_WIDTHS.chatRail.max}
+            onChange={(chatRailWidth) => setLayout({ chatRailWidth })}
+            onReset={() => setLayout({ chatRailWidth: DEFAULT_LAYOUT.chatRailWidth })}
+          />
+        </>
       ) : (
         <Modal open={listOpen} onClose={() => setListOpen(false)} title={t('assistant.chat.history')} width={360} bodyClassName="p-0">
           <div className="h-[60vh]">

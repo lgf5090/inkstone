@@ -117,6 +117,17 @@ describe('the docked assistant', () => {
     expect(useUi.getState().assistantDockOpen).toBe(false)
   })
 
+  it('resizes the dock with the keyboard', async () => {
+    useUi.setState({ assistantDockOpen: true, assistantDockWidth: 380 })
+    await show({ loaded: true, activeId: null, messages: [], messagesReady: true })
+    const handle = document.body.querySelector<HTMLElement>(`[role="separator"][aria-label="${t('assistant.dock.resize')}"]`)
+    expect(handle, 'the resize handle is missing').toBeTruthy()
+    act(() => {
+      handle!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))
+    })
+    expect(useUi.getState().assistantDockWidth).toBeGreaterThan(380)
+  })
+
   it('says the open note is in context before the first question', async () => {
     useUi.setState({ activeNoteId: 'n1' })
     await show({ loaded: true, activeId: null, messages: [], messagesReady: true })
