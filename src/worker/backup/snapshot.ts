@@ -5,6 +5,7 @@ import {
   backupCompleteBody,
   backupCompletePath,
   backupManifestPath,
+  backupMusicPath,
   backupSubscriptionsPath,
   backupTemplatesPath,
   parseMarkdownBackupManifest,
@@ -30,6 +31,7 @@ import {
 import { readBackupTemplates } from './templates'
 import { readBackupQuickAdd } from './quickadd'
 import { readBackupSubscriptions } from '../subscriptions/backup'
+import { readBackupMusic } from '../music/backup'
 import { readBackupEmail } from '../email/backup'
 import { attachmentObjectKey } from '../attachments/keys'
 import { storedObject } from '../lib/json'
@@ -39,7 +41,7 @@ import { sha256Hex } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import { safeAttachmentMime } from '../lib/image'
 
-export type BackupFileKind = 'note' | 'attachment' | 'readme' | 'manifest' | 'complete' | 'templates' | 'automation' | 'subscriptions' | 'email' | 'email-attachment'
+export type BackupFileKind = 'note' | 'attachment' | 'readme' | 'manifest' | 'complete' | 'templates' | 'automation' | 'subscriptions' | 'music' | 'email' | 'email-attachment'
 
 export interface BackupFile {
   path: string
@@ -250,6 +252,15 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
       'application/json; charset=utf-8',
       'subscriptions',
     )
+  const musicText = await readBackupMusic(env.DB, userId)
+  const musicFile = musicText === null
+    ? null
+    : await staticFile(
+      backupMusicPath(stamp),
+      musicText,
+      'application/json; charset=utf-8',
+      'music',
+    )
   const settingsRow = await env.DB.prepare(
     `SELECT settings FROM users WHERE id = ?1`,
   ).bind(userId).first<{ settings: string }>()
@@ -277,6 +288,9 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
       : undefined,
     subscriptions: subscriptionsFile
       ? { path: subscriptionsFile.path, bytes: subscriptionsFile.byteLength, sha256: subscriptionsFile.sha256 }
+      : undefined,
+    music: musicFile
+      ? { path: musicFile.path, bytes: musicFile.byteLength, sha256: musicFile.sha256 }
       : undefined,
     email: emailFile
       ? {
@@ -312,6 +326,7 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
     ...(templatesFile ? [templatesFile] : []),
     ...(automationFile ? [automationFile] : []),
     ...(subscriptionsFile ? [subscriptionsFile] : []),
+    ...(musicFile ? [musicFile] : []),
     ...(emailFile ? [emailFile] : []),
     ...(emailResult?.attachments ?? []),
   ]

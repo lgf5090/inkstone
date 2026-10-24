@@ -47,6 +47,7 @@ import { createBackupArchive } from '../backup/archive'
 import { applyBackupTemplates } from '../backup/templates'
 import { applyBackupQuickAdd } from '../backup/quickadd'
 import { applyBackupSubscriptions } from '../subscriptions/backup'
+import { applyBackupMusic } from '../music/backup'
 import {
   backupEmailAttachmentPath,
   emailBackupAttachmentPrefix,
@@ -268,6 +269,9 @@ transferRoutes.post('/import', async (c) => {
           if (backup.manifest.subscriptions) {
             expected.add(`${backup.rootPrefix}${backup.manifest.subscriptions.path}`.toLowerCase())
           }
+          if (backup.manifest.music) {
+            expected.add(`${backup.rootPrefix}${backup.manifest.music.path}`.toLowerCase())
+          }
           if (backup.manifest.email) {
             expected.add(`${backup.rootPrefix}${backup.manifest.email.path}`.toLowerCase())
           }
@@ -464,6 +468,7 @@ async function importBackupFileBatch(
   const templatesByPath = manifest.templates?.path.toLowerCase() ?? null
   const automationByPath = manifest.automation?.path.toLowerCase() ?? null
   const subscriptionsByPath = manifest.subscriptions?.path.toLowerCase() ?? null
+  const musicByPath = manifest.music?.path.toLowerCase() ?? null
   const emailByPath = manifest.email?.path.toLowerCase() ?? null
   const emailItem = emailByPath === null
     ? undefined
@@ -512,12 +517,13 @@ async function importBackupFileBatch(
     const templates = templatesByPath !== null && key === templatesByPath
     const automation = automationByPath !== null && key === automationByPath
     const subscriptions = subscriptionsByPath !== null && key === subscriptionsByPath
+    const music = musicByPath !== null && key === musicByPath
     const email = emailByPath !== null && key === emailByPath
     const emailAttachment = emailAttachmentByPath.get(key) ?? null
-    if (!note && !attachment && !templates && !automation && !subscriptions && !email && !emailAttachment) {
+    if (!note && !attachment && !templates && !automation && !subscriptions && !music && !email && !emailAttachment) {
       throw new Error(`The file is not listed in the backup manifest: ${path}`)
     }
-    return { file, path, note, attachment, templates, automation, subscriptions, email, emailAttachment }
+    return { file, path, note, attachment, templates, automation, subscriptions, music, email, emailAttachment }
   })
 
   const cachedBytes = new Map<string, Uint8Array>()
@@ -552,6 +558,7 @@ async function importBackupFileBatch(
       ?? (item.templates ? manifest.templates ?? null : null)
       ?? (item.automation ? manifest.automation ?? null : null)
       ?? (item.subscriptions ? manifest.subscriptions ?? null : null)
+      ?? (item.music ? manifest.music ?? null : null)
     if (!entry) continue
     const bytes = new Uint8Array(await item.file.arrayBuffer())
     await verifyBackupEntry(
@@ -560,11 +567,12 @@ async function importBackupFileBatch(
         : item.attachment ? item.attachment.size
         : item.templates ? manifest.templates!.bytes
         : item.automation ? manifest.automation!.bytes
+        : item.music ? manifest.music!.bytes
         : manifest.subscriptions!.bytes,
       entry.sha256,
       entry.path,
     )
-    if (item.note || item.templates || item.automation || item.subscriptions) {
+    if (item.note || item.templates || item.automation || item.subscriptions || item.music) {
       decodeBackupText(bytes, entry.path)
     }
   }
@@ -609,6 +617,13 @@ async function importBackupFileBatch(
       new Uint8Array(await subscriptionsItem.file.arrayBuffer()),
     )
     await applyBackupSubscriptions(c.env.DB, userId, text)
+  }
+  const musicItem = planned.find((item) => item.music)
+  if (musicItem) {
+    const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
+      new Uint8Array(await musicItem.file.arrayBuffer()),
+    )
+    await applyBackupMusic(c.env.DB, userId, text)
   }
   if (emailBundle && emailBytes) {
     const attachments = new Map<string, Uint8Array>()

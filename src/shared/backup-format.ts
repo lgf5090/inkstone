@@ -21,6 +21,9 @@ export const BACKUP_AUTOMATION_NAME = 'automation.json'
  */
 export const BACKUP_SUBSCRIPTIONS_NAME = 'subscriptions.json'
 
+/** The music library's metadata, never its audio objects. */
+export const BACKUP_MUSIC_NAME = 'music.json'
+
 export type MarkdownBackupNoteState = 'notes' | 'archived' | 'trash'
 
 export interface MarkdownBackupNoteEntry {
@@ -65,6 +68,12 @@ export interface MarkdownBackupSubscriptionsEntry {
   sha256: string
 }
 
+export interface MarkdownBackupMusicEntry {
+  path: string
+  bytes: number
+  sha256: string
+}
+
 export interface MarkdownBackupEmailEntry {
   path: string
   bytes: number
@@ -86,6 +95,7 @@ export interface MarkdownBackupManifest {
   automation?: MarkdownBackupAutomationEntry
   /** The subscription app's plans, receipts and reminder rules. */
   subscriptions?: MarkdownBackupSubscriptionsEntry
+  music?: MarkdownBackupMusicEntry
   email?: MarkdownBackupEmailEntry
 }
 
@@ -141,6 +151,15 @@ export function backupSubscriptionsPath(
   if (version === 2) return `${backupSnapshotDir(stamp)}/${BACKUP_SUBSCRIPTIONS_NAME}`
   if (!STAMP_RE.test(stamp)) throw new Error('Invalid backup snapshot name')
   return BACKUP_SUBSCRIPTIONS_NAME
+}
+
+export function backupMusicPath(
+  stamp: string,
+  version: MarkdownBackupVersion = MARKDOWN_BACKUP_VERSION,
+): string {
+  if (version === 2) return `${backupSnapshotDir(stamp)}/${BACKUP_MUSIC_NAME}`
+  if (!STAMP_RE.test(stamp)) throw new Error('Invalid backup snapshot name')
+  return BACKUP_MUSIC_NAME
 }
 
 export function backupAttachmentPath(sha256: string, filename: string): string {
@@ -298,6 +317,20 @@ export function parseMarkdownBackupManifest(value: unknown): MarkdownBackupManif
     subscriptions = { path: expectedPath, bytes: value.subscriptions.bytes, sha256: value.subscriptions.sha256 }
   }
 
+  let music: MarkdownBackupMusicEntry | undefined
+  if (value.music !== undefined) {
+    if (!isRecord(value.music)) return null
+    const expectedPath = backupMusicPath(value.snapshot, value.version)
+    if (
+      value.music.path !== expectedPath ||
+      !isSafeSize(value.music.bytes) ||
+      value.music.bytes > LIMITS.importUploadMaxBytes ||
+      typeof value.music.sha256 !== 'string' ||
+      !HASH_RE.test(value.music.sha256)
+    ) return null
+    music = { path: expectedPath, bytes: value.music.bytes, sha256: value.music.sha256 }
+  }
+
   let email: MarkdownBackupEmailEntry | undefined
   if (value.email !== undefined) {
     if (!isRecord(value.email)) return null
@@ -329,6 +362,7 @@ export function parseMarkdownBackupManifest(value: unknown): MarkdownBackupManif
     templates,
     automation,
     subscriptions,
+    music,
     email,
   }
 }
