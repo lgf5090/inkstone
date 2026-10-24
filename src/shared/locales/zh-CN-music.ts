@@ -78,7 +78,6 @@ export const ZH_CN_MUSIC = {
   'music.queue.move_up': '上移',
   'music.queue.move_down': '下移',
   'music.lyrics.title': '歌词',
-  'music.lyrics.placeholder': '歌词会显示在这里。',
   'music.miniplayer.label': '迷你播放器',
   'music.miniplayer.expand': '打开正在播放',
   'music.nowplaying.title': '正在播放',

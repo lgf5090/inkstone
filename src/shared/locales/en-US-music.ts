@@ -78,7 +78,6 @@ export const EN_US_MUSIC = {
   'music.queue.move_up': 'Move up',
   'music.queue.move_down': 'Move down',
   'music.lyrics.title': 'Lyrics',
-  'music.lyrics.placeholder': 'Lyrics will appear here.',
   'music.miniplayer.label': 'Mini player',
   'music.miniplayer.expand': 'Open now playing',
   'music.nowplaying.title': 'Now playing',
