@@ -159,7 +159,8 @@ export const ALLOWED_MIME = new Set([
 
 
 export function safeAttachmentMime(bytes: Uint8Array, reportedMime: string): string {
-  const normalized = reportedMime.trim().toLowerCase().split(';', 1)[0] || 'application/octet-stream'
+  const raw = reportedMime.trim().toLowerCase().split(';', 1)[0] || 'application/octet-stream'
+  const normalized = raw === 'image/jpg' || raw === 'image/pjpeg' ? 'image/jpeg' : raw
   if (!ALLOWED_MIME.has(normalized)) return 'application/octet-stream'
   if (isInlineSafe(normalized) && !hasExpectedImageSignature(bytes, normalized)) {
     return 'application/octet-stream'

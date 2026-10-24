@@ -18,6 +18,7 @@ import {
 } from '../../src/worker/email/mailbox'
 import type { MailboxInboundResult } from '../../src/worker/email/mailbox'
 import { testBindings, testR2Bucket, type TestR2Bucket } from '../doubles/bindings'
+import { safeAttachmentMime } from '../../src/worker/lib/image'
 import {
   mailboxHarness,
   seedUser,
@@ -767,6 +768,13 @@ describe('inline images from mainstream mail clients', () => {
       contentId: `<${qq}>`,
       disposition: 'attachment',
     })
+  })
+
+  it('normalizes the image/jpg spelling some senders use', () => {
+    const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xd9])
+    expect(safeAttachmentMime(jpeg, 'image/jpg')).toBe('image/jpeg')
+    expect(safeAttachmentMime(jpeg, 'image/pjpeg')).toBe('image/jpeg')
+    expect(safeAttachmentMime(jpeg, 'image/jpg; charset=binary')).toBe('image/jpeg')
   })
 })
 
