@@ -18,6 +18,7 @@ import { Pager } from '../components/Pager'
 import { SongList } from '../components/SongList'
 import { musicText } from '../components/labels'
 import { useMusicQuery } from '../query'
+import { useMusicLibrary } from '../store/library'
 import { selectCurrentTrack, useMusicPlayer } from '../store/player'
 import { DetailHero, DetailHeroSkeleton } from './parts/Hero'
 import { MusicPageBody, PageError, TrackListSkeleton } from './parts/PageState'
@@ -35,9 +36,11 @@ export function PlaylistPage({ id }: PlaylistPageProps): ReactElement {
   const [compact, setCompact] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
   const current = useMusicPlayer(selectCurrentTrack)
+  const localPlaylists = useMusicLibrary((state) => state.playlists)
+  const provider = localPlaylists.some((playlist) => playlist.id === id) ? 'local' : 'netease'
   const query = useMusicQuery(
-    () => musicApi.playlist(id, 'netease', page, PAGE_SIZE),
-    [id, page],
+    () => musicApi.playlist(id, provider, page, PAGE_SIZE),
+    [id, page, provider],
   )
 
   useEffect(() => {
