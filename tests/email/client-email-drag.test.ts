@@ -27,15 +27,15 @@ const account: EmailAccount = {
 }
 
 const folders: EmailFolder[] = [
-  { id: 'inbox', name: 'Inbox', isDeletable: false, unreadCount: 1, parentId: null, color: null, sortOrder: 0 },
-  { id: 'sent', name: 'Sent', isDeletable: false, unreadCount: 0, parentId: null, color: null, sortOrder: 0 },
-  { id: 'draft', name: 'Drafts', isDeletable: false, unreadCount: 0, parentId: null, color: null, sortOrder: 0 },
-  { id: 'archive', name: 'Archive', isDeletable: false, unreadCount: 0, parentId: null, color: null, sortOrder: 0 },
-  { id: 'trash', name: 'Trash', isDeletable: false, unreadCount: 0, parentId: null, color: null, sortOrder: 0 },
-  { id: 'spam', name: 'Spam', isDeletable: false, unreadCount: 0, parentId: null, color: null, sortOrder: 0 },
-  { id: 'work', name: 'Work', isDeletable: true, unreadCount: 0, parentId: null, color: null, sortOrder: 0 },
-  { id: 'projects', name: 'Projects', isDeletable: true, unreadCount: 0, parentId: 'work', color: null, sortOrder: 0 },
-  { id: 'personal', name: 'Personal', isDeletable: true, unreadCount: 0, parentId: null, color: null, sortOrder: 0 },
+  { id: 'inbox', name: 'Inbox', isDeletable: false, unreadCount: 1, totalCount: 1, parentId: null, color: null, sortOrder: 0 },
+  { id: 'sent', name: 'Sent', isDeletable: false, unreadCount: 0, totalCount: 0, parentId: null, color: null, sortOrder: 0 },
+  { id: 'draft', name: 'Drafts', isDeletable: false, unreadCount: 0, totalCount: 0, parentId: null, color: null, sortOrder: 0 },
+  { id: 'archive', name: 'Archive', isDeletable: false, unreadCount: 0, totalCount: 0, parentId: null, color: null, sortOrder: 0 },
+  { id: 'trash', name: 'Trash', isDeletable: false, unreadCount: 0, totalCount: 0, parentId: null, color: null, sortOrder: 0 },
+  { id: 'spam', name: 'Spam', isDeletable: false, unreadCount: 0, totalCount: 0, parentId: null, color: null, sortOrder: 0 },
+  { id: 'work', name: 'Work', isDeletable: true, unreadCount: 0, totalCount: 0, parentId: null, color: null, sortOrder: 0 },
+  { id: 'projects', name: 'Projects', isDeletable: true, unreadCount: 0, totalCount: 0, parentId: 'work', color: null, sortOrder: 0 },
+  { id: 'personal', name: 'Personal', isDeletable: true, unreadCount: 0, totalCount: 0, parentId: null, color: null, sortOrder: 0 },
 ]
 
 const tags: EmailTag[] = [

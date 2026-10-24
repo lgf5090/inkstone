@@ -58,10 +58,10 @@ function folderRefs(): Array<{ id: string; name: string; parentId: string | null
 
 describe('shared folder helpers', () => {
   const folders: EmailFolder[] = [
-    { id: 'root', name: 'Root', isDeletable: true, unreadCount: 0, parentId: null, color: null, sortOrder: 0 },
-    { id: 'child', name: 'Child', isDeletable: true, unreadCount: 0, parentId: 'root', color: null, sortOrder: 0 },
-    { id: 'grand', name: 'Grand', isDeletable: true, unreadCount: 0, parentId: 'child', color: null, sortOrder: 0 },
-    { id: 'other', name: 'Other', isDeletable: true, unreadCount: 0, parentId: null, color: null, sortOrder: 1 },
+    { id: 'root', name: 'Root', isDeletable: true, unreadCount: 0, totalCount: 0, parentId: null, color: null, sortOrder: 0 },
+    { id: 'child', name: 'Child', isDeletable: true, unreadCount: 0, totalCount: 0, parentId: 'root', color: null, sortOrder: 0 },
+    { id: 'grand', name: 'Grand', isDeletable: true, unreadCount: 0, totalCount: 0, parentId: 'child', color: null, sortOrder: 0 },
+    { id: 'other', name: 'Other', isDeletable: true, unreadCount: 0, totalCount: 0, parentId: null, color: null, sortOrder: 1 },
   ]
 
   it('builds and flattens a folder tree with depths', () => {

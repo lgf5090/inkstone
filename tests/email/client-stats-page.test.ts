@@ -22,13 +22,13 @@ const account: EmailAccount = {
 }
 
 const folders: EmailFolder[] = [
-  { id: 'inbox', name: 'Inbox', isDeletable: false, unreadCount: 3, parentId: null, color: null, sortOrder: 0 },
-  { id: 'sent', name: 'Sent', isDeletable: false, unreadCount: 0, parentId: null, color: null, sortOrder: 1 },
-  { id: 'draft', name: 'Drafts', isDeletable: false, unreadCount: 0, parentId: null, color: null, sortOrder: 2 },
-  { id: 'archive', name: 'Archive', isDeletable: false, unreadCount: 0, parentId: null, color: null, sortOrder: 3 },
-  { id: 'trash', name: 'Trash', isDeletable: false, unreadCount: 0, parentId: null, color: null, sortOrder: 4 },
-  { id: 'spam', name: 'Spam', isDeletable: false, unreadCount: 0, parentId: null, color: null, sortOrder: 5 },
-  { id: 'folder-1', name: 'Receipts', isDeletable: true, unreadCount: 2, parentId: null, color: '#2563eb', sortOrder: 0 },
+  { id: 'inbox', name: 'Inbox', isDeletable: false, unreadCount: 3, totalCount: 3, parentId: null, color: null, sortOrder: 0 },
+  { id: 'sent', name: 'Sent', isDeletable: false, unreadCount: 0, totalCount: 0, parentId: null, color: null, sortOrder: 1 },
+  { id: 'draft', name: 'Drafts', isDeletable: false, unreadCount: 0, totalCount: 0, parentId: null, color: null, sortOrder: 2 },
+  { id: 'archive', name: 'Archive', isDeletable: false, unreadCount: 0, totalCount: 0, parentId: null, color: null, sortOrder: 3 },
+  { id: 'trash', name: 'Trash', isDeletable: false, unreadCount: 0, totalCount: 0, parentId: null, color: null, sortOrder: 4 },
+  { id: 'spam', name: 'Spam', isDeletable: false, unreadCount: 0, totalCount: 0, parentId: null, color: null, sortOrder: 5 },
+  { id: 'folder-1', name: 'Receipts', isDeletable: true, unreadCount: 2, totalCount: 2, parentId: null, color: '#2563eb', sortOrder: 0 },
 ]
 
 function folderStats(folderId: string, total: number, read: number, starred: number, withAttachments: number): EmailFolderStats {

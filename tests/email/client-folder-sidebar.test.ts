@@ -19,13 +19,13 @@ vi.mock('../../src/client/components/overlay', async (importOriginal) => {
 })
 
 const folders: EmailFolder[] = [
-  { id: 'inbox', name: 'Inbox', isDeletable: false, unreadCount: 3, parentId: null, color: null, sortOrder: 0 },
-  { id: 'sent', name: 'Sent', isDeletable: false, unreadCount: 0, parentId: null, color: null, sortOrder: 0 },
-  { id: 'draft', name: 'Drafts', isDeletable: false, unreadCount: 1, parentId: null, color: null, sortOrder: 0 },
-  { id: 'archive', name: 'Archive', isDeletable: false, unreadCount: 0, parentId: null, color: null, sortOrder: 0 },
-  { id: 'trash', name: 'Trash', isDeletable: false, unreadCount: 0, parentId: null, color: null, sortOrder: 0 },
-  { id: 'work', name: 'Work', isDeletable: true, unreadCount: 2, parentId: null, color: '#3b82f6', sortOrder: 0 },
-  { id: 'projects', name: 'Projects', isDeletable: true, unreadCount: 0, parentId: 'work', color: null, sortOrder: 0 },
+  { id: 'inbox', name: 'Inbox', isDeletable: false, unreadCount: 3, totalCount: 3, parentId: null, color: null, sortOrder: 0 },
+  { id: 'sent', name: 'Sent', isDeletable: false, unreadCount: 0, totalCount: 4, parentId: null, color: null, sortOrder: 0 },
+  { id: 'draft', name: 'Drafts', isDeletable: false, unreadCount: 1, totalCount: 1, parentId: null, color: null, sortOrder: 0 },
+  { id: 'archive', name: 'Archive', isDeletable: false, unreadCount: 0, totalCount: 0, parentId: null, color: null, sortOrder: 0 },
+  { id: 'trash', name: 'Trash', isDeletable: false, unreadCount: 0, totalCount: 0, parentId: null, color: null, sortOrder: 0 },
+  { id: 'work', name: 'Work', isDeletable: true, unreadCount: 2, totalCount: 2, parentId: null, color: '#3b82f6', sortOrder: 0 },
+  { id: 'projects', name: 'Projects', isDeletable: true, unreadCount: 0, totalCount: 0, parentId: 'work', color: null, sortOrder: 0 },
 ]
 
 const uiOriginal = useUi.getState()
@@ -169,6 +169,19 @@ describe('the collapsed folder rail', () => {
 })
 
 describe('the nested folder tree', () => {
+  it('shows the folder total, with the unread share when there is one', () => {
+    const view = renderElement(createElement(FolderSidebar, sidebarProps()))
+    const inbox = document.querySelector<HTMLElement>('[data-email-folder-row="inbox"]')
+    const sent = document.querySelector<HTMLElement>('[data-email-folder-row="sent"]')
+    expect(inbox?.textContent).toContain('3/3')
+    expect(sent?.textContent).toContain('4')
+    expect(inbox?.querySelector('span[aria-label]')?.getAttribute('aria-label'))
+      .toBe(t('email.folder.counts_unread', { total: 3, unread: 3 }))
+    expect(sent?.querySelector('span[aria-label]')?.getAttribute('aria-label'))
+      .toBe(t('email.folder.counts_total', { total: 4 }))
+    view.unmount()
+  })
+
   it('keeps children hidden until their branch expands and applies the level', () => {
     const props = sidebarProps()
     const view = renderElement(createElement(FolderSidebar, props))

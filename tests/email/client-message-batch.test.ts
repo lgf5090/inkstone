@@ -13,9 +13,9 @@ import { renderElement } from '../../src/client/lib/test-render'
 const original = useEmailStore.getState()
 
 const folders: EmailFolder[] = [
-  { id: 'inbox', name: 'Inbox', isDeletable: false, unreadCount: 2, parentId: null, color: null, sortOrder: 0 },
-  { id: 'archive', name: 'Archive', isDeletable: false, unreadCount: 0, parentId: null, color: null, sortOrder: 0 },
-  { id: 'trash', name: 'Trash', isDeletable: false, unreadCount: 0, parentId: null, color: null, sortOrder: 0 },
+  { id: 'inbox', name: 'Inbox', isDeletable: false, unreadCount: 2, totalCount: 2, parentId: null, color: null, sortOrder: 0 },
+  { id: 'archive', name: 'Archive', isDeletable: false, unreadCount: 0, totalCount: 0, parentId: null, color: null, sortOrder: 0 },
+  { id: 'trash', name: 'Trash', isDeletable: false, unreadCount: 0, totalCount: 0, parentId: null, color: null, sortOrder: 0 },
 ]
 
 function message(patch: Partial<EmailMessage> = {}): EmailMessage {

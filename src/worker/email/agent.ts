@@ -179,6 +179,7 @@ function folderDto(row: FolderRow): EmailFolder {
     name: row.name,
     isDeletable: Boolean(row.is_deletable),
     unreadCount: Number(row.unread_count ?? 0),
+    totalCount: Number(row.total_count ?? 0),
     parentId: row.parent_id ?? null,
     color: row.color ?? null,
     sortOrder: Number(row.sort_order ?? 0),

@@ -30,7 +30,7 @@ const message: EmailSummary = {
 }
 
 const folders: EmailFolder[] = [
-  { id: 'inbox', name: 'Inbox', isDeletable: false, unreadCount: 1, parentId: null, color: null, sortOrder: 0 },
+  { id: 'inbox', name: 'Inbox', isDeletable: false, unreadCount: 1, totalCount: 1, parentId: null, color: null, sortOrder: 0 },
 ]
 
 async function settle(): Promise<void> {

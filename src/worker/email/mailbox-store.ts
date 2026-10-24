@@ -116,6 +116,7 @@ export interface FolderRow {
   color: string | null
   sort_order: number
   unread_count?: number
+  total_count?: number
 }
 
 export interface TagRow {
@@ -357,7 +358,12 @@ export class MailboxStore {
     return this.rows<FolderRow>(
       `SELECT f.id, f.name, f.is_deletable, f.parent_id, f.color, f.sort_order, f.created_at,
               COALESCE(SUM(CASE WHEN m.read = 0 AND m.folder_id NOT IN ('sent', 'draft') AND m.deleted_at IS NULL
-                AND (m.snoozed_until IS NULL OR m.snoozed_until <= ?1) THEN 1 ELSE 0 END), 0) AS unread_count
+                AND (m.snoozed_until IS NULL OR m.snoozed_until <= ?1) THEN 1 ELSE 0 END), 0) AS unread_count,
+              COALESCE(SUM(CASE WHEN m.id IS NOT NULL AND (
+                (f.id = 'trash' AND m.deleted_at IS NOT NULL)
+                OR (f.id <> 'trash' AND m.deleted_at IS NULL
+                  AND (m.snoozed_until IS NULL OR m.snoozed_until <= ?1))
+              ) THEN 1 ELSE 0 END), 0) AS total_count
          FROM email_folders f
          LEFT JOIN email_messages m ON m.folder_id = f.id
         GROUP BY f.id, f.name, f.is_deletable, f.parent_id, f.color, f.sort_order, f.created_at

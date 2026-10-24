@@ -216,6 +216,7 @@ export interface EmailFolder {
   name: string
   isDeletable: boolean
   unreadCount: number
+  totalCount: number
   parentId: string | null
   color: string | null
   sortOrder: number

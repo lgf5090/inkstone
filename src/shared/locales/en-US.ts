@@ -943,6 +943,8 @@ export const EN_US_MESSAGES = {
     "email.folder.trash": "Trash",
     "email.folder.spam": "Spam",
     "email.folder.custom": "Folders",
+    "email.folder.counts_total": "{total} messages",
+    "email.folder.counts_unread": "{total} messages, {unread} unread",
     "email.folder.views": "Views",
     "email.folder.important": "Important",
     "email.folder.follow_up": "Follow up",

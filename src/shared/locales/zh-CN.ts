@@ -943,6 +943,8 @@ export const ZH_CN_MESSAGES = {
     "email.folder.trash": "垃圾箱",
     "email.folder.spam": "垃圾邮件",
     "email.folder.custom": "文件夹",
+    "email.folder.counts_total": "{total} 封邮件",
+    "email.folder.counts_unread": "{total} 封邮件，{unread} 封未读",
     "email.folder.views": "视图",
     "email.folder.important": "重要",
     "email.folder.follow_up": "跟进",

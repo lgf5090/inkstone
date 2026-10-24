@@ -57,6 +57,23 @@ describe('mailbox store', () => {
     expect(store.getEmail('d1')?.read).toBe(1)
   })
 
+  it('counts every listable message per folder, including read and trashed rows', () => {
+    store.createEmail('inbox', message('read', { read: true }))
+    store.createEmail('inbox', message('unread', { read: false }))
+    store.createEmail('inbox', message('snoozed', { read: true }))
+    store.saveDraft(null, message('draft', { read: false }))
+    expect(store.snoozeEmail('snoozed', Date.now() + 60_000)).not.toBeNull()
+
+    const folders = new Map(store.getFolders().map((folder) => [folder.id, folder]))
+    expect(folders.get('inbox')).toMatchObject({ unread_count: 1, total_count: 2 })
+    expect(folders.get('draft')).toMatchObject({ total_count: 1 })
+
+    expect(store.trashEmail('read')).toBe('inbox')
+    const trashed = new Map(store.getFolders().map((folder) => [folder.id, folder]))
+    expect(trashed.get('inbox')).toMatchObject({ unread_count: 1, total_count: 1 })
+    expect(trashed.get('trash')).toMatchObject({ total_count: 1 })
+  })
+
   it('marks threads read and aggregates them', () => {
     store.createEmail('inbox', message('m1', { threadId: 't1', date: 1 }))
     store.createEmail('inbox', message('m2', { threadId: 't1', date: 2 }))

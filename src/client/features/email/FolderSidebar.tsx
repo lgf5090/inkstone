@@ -69,7 +69,7 @@ interface FolderTreeActions {
 
 function placeholderSystemNode(id: EmailSystemFolder): EmailFolderNode {
   return {
-    folder: { id, name: id, isDeletable: false, unreadCount: 0, parentId: null, color: null, sortOrder: 0 },
+    folder: { id, name: id, isDeletable: false, unreadCount: 0, totalCount: 0, parentId: null, color: null, sortOrder: 0 },
     depth: 0,
     children: [],
   }
@@ -676,9 +676,17 @@ function FolderBranch({
             <Icon size={systemId ? 14 : 13} aria-hidden="true" />
           </span>
           <span className="min-w-0 flex-1 truncate">{label}</span>
-          {folder.unreadCount > 0 && (
-            <span className="shrink-0 text-[length:var(--text-10-5)] tabular-nums text-[var(--text-quaternary)]">
-              {folder.unreadCount}
+          {(folder.unreadCount > 0 || folder.totalCount > 0) && (
+            <span
+              className={cn(
+                'shrink-0 text-[length:var(--text-10-5)] tabular-nums',
+                folder.unreadCount > 0 ? 'font-medium text-[var(--accent)]' : 'text-[var(--text-quaternary)]',
+              )}
+              aria-label={folder.unreadCount > 0
+                ? t('email.folder.counts_unread', { total: folder.totalCount, unread: folder.unreadCount })
+                : t('email.folder.counts_total', { total: folder.totalCount })}
+            >
+              {folder.unreadCount > 0 ? `${folder.unreadCount}/${folder.totalCount}` : folder.totalCount}
             </span>
           )}
         </button>
