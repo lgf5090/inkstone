@@ -10,13 +10,16 @@ import {
   MAX_STEP_TEXT_CHARS,
   MAX_TAGS_PER_TASK,
   MAX_TAG_NAME_CHARS,
-  MAX_TASKS_PER_QUERY,
+  MAX_TASK_ICON_CHARS,
   MAX_TASK_QUERY_CHARS,
+  MAX_TASKS_PER_QUERY,
   MIN_REPEAT_INTERVAL,
   REMIND_OFFSETS,
   REPEAT_FREQUENCIES,
+  SNOOZE_MINUTES,
   TASK_VIEWS,
   TODO_TRASH_RETENTION_DAYS,
+  isSnoozeMinutes,
 } from '@shared/todos/model'
 import { MAX_DEPS_PER_TASK } from '../assistant/store'
 import type { Env } from '../env'
@@ -75,12 +78,26 @@ import {
 } from './writes'
 import {
   MAX_TASK_TOOL_DESCRIPTION_CHARS,
+  addMcpTaskStep,
+  archiveMcpTask,
+  checkMcpTaskStep,
   completeMcpTask,
   createMcpTask,
+  createMcpTaskList,
   deleteMcpTask,
+  deleteMcpTaskList,
+  deleteMcpTaskStep,
+  deleteMcpTaskTag,
   getMcpTask,
   listMcpTaskLists,
+  listMcpTaskTrash,
   listMcpTasks,
+  planMcpTask,
+  renameMcpTaskTag,
+  restoreMcpTask,
+  snoozeMcpTask,
+  todoStats,
+  updateMcpTaskList,
   type McpTodoContext,
   updateMcpTask,
 } from './todos'
@@ -1229,6 +1246,271 @@ export function createInkstoneMcpServer(options: InkstoneMcpServerOptions): McpS
     async ({ operation_id, task_id }, ctx) => writeTool(ctx, options, MCP_SCOPES.todoDanger, () => deleteMcpTask(
       todoContext(ctx, options),
       { operationId: operation_id, taskId: task_id },
+    )),
+  )
+
+  server.registerTool(
+    'add_todo_step',
+    {
+      title: 'Add to-do step',
+      description: 'Append one step (sub-task) to a task. Requires todos:write and an operation_id.',
+      inputSchema: z.object({
+        operation_id: operationId,
+        task_id: taskId,
+        text: z.string().trim().min(1).max(MAX_STEP_TEXT_CHARS),
+      }),
+      outputSchema: generalOutputSchema,
+      annotations: writeAnnotations(false),
+    },
+    async ({ operation_id, task_id, text }, ctx) => writeTool(ctx, options, MCP_SCOPES.todoWrite, () => addMcpTaskStep(
+      todoContext(ctx, options),
+      { operationId: operation_id, taskId: task_id, text },
+    )),
+  )
+
+  server.registerTool(
+    'check_todo_step',
+    {
+      title: 'Check or uncheck a to-do step',
+      description: 'Mark one step done or not done. Requires todos:write and an operation_id.',
+      inputSchema: z.object({
+        operation_id: operationId,
+        task_id: taskId,
+        step_id: z.string().trim().min(1).max(64),
+        done: z.boolean().default(true),
+      }),
+      outputSchema: generalOutputSchema,
+      annotations: writeAnnotations(false),
+    },
+    async ({ operation_id, task_id, step_id, done }, ctx) => writeTool(ctx, options, MCP_SCOPES.todoWrite, () => checkMcpTaskStep(
+      todoContext(ctx, options),
+      { operationId: operation_id, taskId: task_id, stepId: step_id, done },
+    )),
+  )
+
+  server.registerTool(
+    'delete_todo_step',
+    {
+      title: 'Delete a to-do step',
+      description: 'Remove one step from a task. Requires todos:write and an operation_id.',
+      inputSchema: z.object({
+        operation_id: operationId,
+        task_id: taskId,
+        step_id: z.string().trim().min(1).max(64),
+      }),
+      outputSchema: generalOutputSchema,
+      annotations: { ...writeAnnotations(true), destructiveHint: true },
+    },
+    async ({ operation_id, task_id, step_id }, ctx) => writeTool(ctx, options, MCP_SCOPES.todoWrite, () => deleteMcpTaskStep(
+      todoContext(ctx, options),
+      { operationId: operation_id, taskId: task_id, stepId: step_id },
+    )),
+  )
+
+  server.registerTool(
+    'list_todo_trash',
+    {
+      title: 'List the to-do trash',
+      description: 'List the reader\'s trashed tasks, newest deletion first, so one can be restored by id. Requires todos:read.',
+      inputSchema: z.object({
+        limit: z.number().int().min(1).max(MAX_TASKS_PER_QUERY).default(25),
+        offset: z.number().int().min(0).default(0),
+      }),
+      outputSchema: generalOutputSchema,
+      annotations: readOnlyAnnotations(),
+    },
+    async (input, ctx) => readTool(ctx, options, MCP_SCOPES.todoRead, () => listMcpTaskTrash(
+      todoContext(ctx, options),
+      input,
+    )),
+  )
+
+  server.registerTool(
+    'restore_todo',
+    {
+      title: 'Restore a to-do from the trash',
+      description: `Take one trashed task back out. Reminders whose moment passed while it was away are dropped rather than detonated on restore, and the answer says how many. Requires todos:write.`,
+      inputSchema: z.object({ operation_id: operationId, task_id: taskId }),
+      outputSchema: generalOutputSchema,
+      annotations: writeAnnotations(false),
+    },
+    async ({ operation_id, task_id }, ctx) => writeTool(ctx, options, MCP_SCOPES.todoWrite, () => restoreMcpTask(
+      todoContext(ctx, options),
+      { operationId: operation_id, taskId: task_id },
+    )),
+  )
+
+  server.registerTool(
+    'plan_todo',
+    {
+      title: 'Plan a to-do into a day',
+      description: 'Pick a task into one calendar day in the reader\'s zone, or clear the pick with null. This does not change the due date. Requires todos:write and an operation_id.',
+      inputSchema: z.object({
+        operation_id: operationId,
+        task_id: taskId,
+        day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().describe('YYYY-MM-DD, or null to clear the pick.'),
+      }),
+      outputSchema: generalOutputSchema,
+      annotations: writeAnnotations(false),
+    },
+    async ({ operation_id, task_id, day }, ctx) => writeTool(ctx, options, MCP_SCOPES.todoWrite, () => planMcpTask(
+      todoContext(ctx, options),
+      { operationId: operation_id, taskId: task_id, day },
+    )),
+  )
+
+  server.registerTool(
+    'snooze_todo',
+    {
+      title: 'Snooze a to-do',
+      description: `Remind about a task again in ${SNOOZE_MINUTES.join(', ')} minutes. The new reminder is added to the ones it already has. Requires todos:write and an operation_id.`,
+      inputSchema: z.object({
+        operation_id: operationId,
+        task_id: taskId,
+        minutes: z.coerce.number().refine(isSnoozeMinutes, `A snooze must be ${SNOOZE_MINUTES.join(', ')} minutes.`),
+      }),
+      outputSchema: generalOutputSchema,
+      annotations: writeAnnotations(false),
+    },
+    async ({ operation_id, task_id, minutes }, ctx) => writeTool(ctx, options, MCP_SCOPES.todoWrite, () => snoozeMcpTask(
+      todoContext(ctx, options),
+      { operationId: operation_id, taskId: task_id, minutes },
+    )),
+  )
+
+  server.registerTool(
+    'archive_todo',
+    {
+      title: 'Archive or unarchive a to-do',
+      description: 'Put a task on the shelf, or take it back down with archived=false. Archiving is not deleting: the row, its hours and its place in the statistics stay. Requires todos:write and an operation_id.',
+      inputSchema: z.object({
+        operation_id: operationId,
+        task_id: taskId,
+        archived: z.boolean().default(true),
+      }),
+      outputSchema: generalOutputSchema,
+      annotations: writeAnnotations(false),
+    },
+    async ({ operation_id, task_id, archived }, ctx) => writeTool(ctx, options, MCP_SCOPES.todoWrite, () => archiveMcpTask(
+      todoContext(ctx, options),
+      { operationId: operation_id, taskId: task_id, archived },
+    )),
+  )
+
+  server.registerTool(
+    'create_todo_list',
+    {
+      title: 'Create a to-do list',
+      description: 'Create a list. A list whose name already exists is answered with the one the account has, rather than a duplicate. Requires todos:write and an operation_id.',
+      inputSchema: z.object({
+        operation_id: operationId,
+        name: z.string().trim().min(1).max(MAX_LIST_NAME_CHARS),
+        icon: z.string().trim().max(MAX_TASK_ICON_CHARS).optional().nullable(),
+        color: z.string().trim().max(16).optional().nullable().describe('A palette colour or a six-digit hex.'),
+      }),
+      outputSchema: generalOutputSchema,
+      annotations: writeAnnotations(false),
+    },
+    async (input, ctx) => writeTool(ctx, options, MCP_SCOPES.todoWrite, () => createMcpTaskList(
+      todoContext(ctx, options),
+      { operationId: input.operation_id, name: input.name, icon: input.icon, color: input.color },
+    )),
+  )
+
+  server.registerTool(
+    'update_todo_list',
+    {
+      title: 'Update a to-do list',
+      description: 'Change only the fields named: name, icon, colour, or archive state. Requires todos:write and an operation_id.',
+      inputSchema: z.object({
+        operation_id: operationId,
+        list_id: z.string().trim().min(1).max(64),
+        name: z.string().trim().min(1).max(MAX_LIST_NAME_CHARS).optional(),
+        icon: z.string().trim().max(MAX_TASK_ICON_CHARS).optional().nullable(),
+        color: z.string().trim().max(16).optional().nullable(),
+        archived: z.boolean().optional(),
+      }),
+      outputSchema: generalOutputSchema,
+      annotations: writeAnnotations(false),
+    },
+    async (input, ctx) => writeTool(ctx, options, MCP_SCOPES.todoWrite, () => updateMcpTaskList(
+      todoContext(ctx, options),
+      {
+        operationId: input.operation_id,
+        listId: input.list_id,
+        name: input.name,
+        icon: input.icon,
+        color: input.color,
+        archived: input.archived,
+      },
+    )),
+  )
+
+  server.registerTool(
+    'delete_todo_list',
+    {
+      title: 'Delete a to-do list',
+      description: 'Delete one list. Its tasks are not deleted: they move to the inbox. Requires the separately consented todos:danger and an operation_id.',
+      inputSchema: z.object({ operation_id: operationId, list_id: z.string().trim().min(1).max(64) }),
+      outputSchema: generalOutputSchema,
+      annotations: { ...writeAnnotations(true), destructiveHint: true },
+    },
+    async ({ operation_id, list_id }, ctx) => writeTool(ctx, options, MCP_SCOPES.todoDanger, () => deleteMcpTaskList(
+      todoContext(ctx, options),
+      { operationId: operation_id, listId: list_id },
+    )),
+  )
+
+  server.registerTool(
+    'rename_todo_tag',
+    {
+      title: 'Rename a to-do tag',
+      description: 'Rename one tag by name or id. Requires todos:write and an operation_id.',
+      inputSchema: z.object({
+        operation_id: operationId,
+        tag: z.string().trim().min(1).max(MAX_TAG_NAME_CHARS),
+        name: z.string().trim().min(1).max(MAX_TAG_NAME_CHARS),
+      }),
+      outputSchema: generalOutputSchema,
+      annotations: writeAnnotations(false),
+    },
+    async ({ operation_id, tag, name }, ctx) => writeTool(ctx, options, MCP_SCOPES.todoWrite, () => renameMcpTaskTag(
+      todoContext(ctx, options),
+      { operationId: operation_id, tag, name },
+    )),
+  )
+
+  server.registerTool(
+    'delete_todo_tag',
+    {
+      title: 'Delete a to-do tag',
+      description: 'Delete one tag; the tasks that carried it keep their other tags. Requires the separately consented todos:danger and an operation_id.',
+      inputSchema: z.object({ operation_id: operationId, tag: z.string().trim().min(1).max(MAX_TAG_NAME_CHARS) }),
+      outputSchema: generalOutputSchema,
+      annotations: { ...writeAnnotations(true), destructiveHint: true },
+    },
+    async ({ operation_id, tag }, ctx) => writeTool(ctx, options, MCP_SCOPES.todoDanger, () => deleteMcpTaskTag(
+      todoContext(ctx, options),
+      { operationId: operation_id, tag },
+    )),
+  )
+
+  server.registerTool(
+    'todo_stats',
+    {
+      title: 'Read to-do statistics',
+      description: 'Read the reader\'s to-do statistics for a date range: completed, created, completion and on-time rates, streaks, overdue and the per-list split. Defaults to the last seven days in the reader\'s zone. Requires todos:read.',
+      inputSchema: z.object({
+        from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        bucket: z.enum(['day', 'week', 'month']).default('day'),
+      }),
+      outputSchema: generalOutputSchema,
+      annotations: readOnlyAnnotations(),
+    },
+    async (input, ctx) => readTool(ctx, options, MCP_SCOPES.todoRead, () => todoStats(
+      todoContext(ctx, options),
+      input,
     )),
   )
 

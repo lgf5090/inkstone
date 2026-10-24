@@ -42494,6 +42494,12 @@ const allowed = new Map([
     "/**\n * A store refusal, in the words an MCP answer carries.\n *\n * The task store judges a parent and a dependency set before it writes anything, and its reason is the\n * caller's lesson — \"A task cannot wait on itself\" — not a stack trace. Left alone it would surface as a\n * server error, which tells an agent nothing to change about the next call.\n */",
     "// Where the row sits and what it waits for, so a call that set either can read back what it got",
     "// rather than assume the write said what it was asked.",
+    "// ------------------------------------------------------------------- steps",
+    "// ------------------------------------------------------------------- trash",
+    "// ------------------------------------------------------------------- plan and snooze",
+    "// ------------------------------------------------------------------- lists",
+    "// ------------------------------------------------------------------- tags",
+    "// ------------------------------------------------------------------- statistics",
   ]],
   ["src/worker/mcp/writes.ts", [
     "// The quota read rides along with hashing instead of adding a serial round trip.",
@@ -50543,6 +50549,10 @@ const allowed = new Map([
     "// Same reason as the chat's tool: an MCP caller names a rhythm and has no vocabulary for the series",
     "// around it, so the ceiling, the counter and the pause have to ride over the rule it wrote.",
     "// The other end is answered where it lives: reading a blocker says what it is blocking.",
+    "// The two that take a row away ask for the consent of their own.",
+    "// The account switches answer with a refusal rather than by hiding the tool: a client that lists",
+    "// them still sees the shape of the family, and a key minted before a switch was flipped learns why.",
+    "// A day that is not a day is refused by the schema the client was given, before the handler runs.",
   ]],
   ["tests/mcp-tool-scopes.test.ts", [
     "/**\n * The tools the Inkstone MCP server publishes, and the ones the reader has switched off.\n *\n * A switched-off tool has to be absent from `tools/list`, not merely refused when it is called: a tool the\n * model can see but never use is one it keeps choosing, and the refusal then reads as a broken server rather\n * than as a decision somebody made. That is why the switch is applied at registration, and why this file\n * speaks the real protocol over a linked transport instead of reading the registration table.\n */",

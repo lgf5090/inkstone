@@ -16,13 +16,17 @@
  */
 
 import type { TaskPriority, TaskStatus } from '@shared/assistant'
-import { localDayBounds, parseLocalTime } from '@shared/assistant-time'
+import { localDate, localDayBounds, parseLocalTime } from '@shared/assistant-time'
 import {
   MAX_LIST_NAME_CHARS,
+  MAX_REMINDERS_PER_TASK,
   MAX_REPEAT_INTERVAL,
   MAX_STEP_TEXT_CHARS,
   MAX_TAG_NAME_CHARS,
+  MAX_TASKS_PER_QUERY,
   MIN_REPEAT_INTERVAL,
+  SNOOZE_MINUTES,
+  isSnoozeMinutes,
   normalizeTagNames,
   parseRepeatRule,
   remindAtFor,
@@ -35,10 +39,12 @@ import {
   type TodoTask,
 } from '@shared/todos/model'
 import { isTaskDone } from '@shared/todos/status'
+import { isStatsDay } from '../todos/stats'
 import { AssistantStore, TaskRefusal, type NewTask } from '../assistant/store'
 import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidId } from '../lib/id'
+import { addDays, loadTodoStats } from '../todos/stats'
 import { runIdempotent } from './operations'
 import { MCP_SCOPES } from './settings'
 
@@ -309,6 +315,339 @@ async function asMcpRefusal<T>(ask: () => Promise<T>): Promise<T> {
   } catch (error) {
     if (error instanceof TaskRefusal) throw ApiError.badRequest(error.message)
     throw error
+  }
+}
+
+// ------------------------------------------------------------------- steps
+
+export async function addMcpTaskStep(
+  context: McpTodoContext,
+  input: { operationId: string; taskId: string; text: string },
+): Promise<Record<string, unknown>> {
+  const store = storeFor(context)
+  return runIdempotent({
+    db: context.env.DB,
+    userId: context.userId,
+    operationId: input.operationId,
+    tool: 'add_todo_step',
+    request: input,
+    execute: async () => {
+      await readTask(store, input.taskId)
+      const step = await store.addStep(input.taskId, input.text)
+      if (!step) throw ApiError.badRequest('This task already holds the maximum number of steps.')
+      return { step: { id: step.id, text: step.text, done: step.done } }
+    },
+  })
+}
+
+export async function checkMcpTaskStep(
+  context: McpTodoContext,
+  input: { operationId: string; taskId: string; stepId: string; done: boolean },
+): Promise<Record<string, unknown>> {
+  const store = storeFor(context)
+  return runIdempotent({
+    db: context.env.DB,
+    userId: context.userId,
+    operationId: input.operationId,
+    tool: 'check_todo_step',
+    request: input,
+    execute: async () => {
+      await readTask(store, input.taskId)
+      const step = await store.updateStep(input.taskId, input.stepId, { done: input.done })
+      if (!step) throw ApiError.notFound('Step not found')
+      return { step: { id: step.id, text: step.text, done: step.done } }
+    },
+  })
+}
+
+export async function deleteMcpTaskStep(
+  context: McpTodoContext,
+  input: { operationId: string; taskId: string; stepId: string },
+): Promise<Record<string, unknown>> {
+  const store = storeFor(context)
+  return runIdempotent({
+    db: context.env.DB,
+    userId: context.userId,
+    operationId: input.operationId,
+    tool: 'delete_todo_step',
+    request: input,
+    execute: async () => {
+      await readTask(store, input.taskId)
+      if (!(await store.deleteStep(input.taskId, input.stepId))) throw ApiError.notFound('Step not found')
+      return { deleted: true, step_id: input.stepId }
+    },
+  })
+}
+
+// ------------------------------------------------------------------- trash
+
+export async function listMcpTaskTrash(
+  context: McpTodoContext,
+  input: { limit?: number; offset?: number },
+): Promise<Record<string, unknown>> {
+  const store = storeFor(context)
+  const limit = Math.min(Math.max(1, Math.trunc(input.limit ?? 25)), MAX_TASKS_PER_QUERY)
+  const offset = Math.max(0, Math.trunc(input.offset ?? 0))
+  const page = await store.listTrash({ limit, offset })
+  return {
+    count: page.tasks.length,
+    total: page.total,
+    tasks: page.tasks.map((task) => ({ ...presentTask(task, context.scopes), deleted_at: task.deletedAt ?? null })),
+  }
+}
+
+export async function restoreMcpTask(
+  context: McpTodoContext,
+  input: { operationId: string; taskId: string },
+): Promise<Record<string, unknown>> {
+  const store = storeFor(context)
+  return runIdempotent({
+    db: context.env.DB,
+    userId: context.userId,
+    operationId: input.operationId,
+    tool: 'restore_todo',
+    request: input,
+    execute: async () => {
+      const { task, droppedReminders } = await store.restoreTask(input.taskId)
+      if (!task) throw ApiError.notFound('No trashed task has that id.')
+      return {
+        restored: presentTask(task, context.scopes),
+        ...(droppedReminders > 0 ? { dropped_reminders: droppedReminders } : {}),
+      }
+    },
+  })
+}
+
+// ------------------------------------------------------------------- plan and snooze
+
+export async function planMcpTask(
+  context: McpTodoContext,
+  input: { operationId: string; taskId: string; day: string | null },
+): Promise<Record<string, unknown>> {
+  const store = storeFor(context)
+  const day = input.day === null || input.day === ''
+    ? null
+    : isStatsDay(input.day) ? input.day : (() => { throw ApiError.badRequest('A planned day must be a date like 2026-01-31, or null.') })()
+  return runIdempotent({
+    db: context.env.DB,
+    userId: context.userId,
+    operationId: input.operationId,
+    tool: 'plan_todo',
+    request: input,
+    execute: async () => {
+      await readTask(store, input.taskId)
+      const task = await store.planTask(input.taskId, day)
+      if (!task) throw ApiError.notFound('Task not found')
+      return { planned: presentTask(task, context.scopes) }
+    },
+  })
+}
+
+export async function snoozeMcpTask(
+  context: McpTodoContext,
+  input: { operationId: string; taskId: string; minutes: number },
+): Promise<Record<string, unknown>> {
+  if (!isSnoozeMinutes(input.minutes)) {
+    throw ApiError.badRequest(`A snooze must be ${SNOOZE_MINUTES.join(', ')} minutes.`)
+  }
+  const store = storeFor(context)
+  return runIdempotent({
+    db: context.env.DB,
+    userId: context.userId,
+    operationId: input.operationId,
+    tool: 'snooze_todo',
+    request: input,
+    execute: async () => {
+      const existing = await readTask(store, input.taskId)
+      if (isTaskDone(existing.status)) throw ApiError.badRequest('A finished task cannot be snoozed.')
+      if ((existing.reminders?.length ?? 0) >= MAX_REMINDERS_PER_TASK) {
+        throw ApiError.badRequest(`This task already has ${MAX_REMINDERS_PER_TASK} reminders.`)
+      }
+      const remindAt = Date.now() + input.minutes * 60_000
+      const task = await store.snoozeTask(existing.id, remindAt)
+      if (!task) throw ApiError.notFound('Task not found')
+      return { snoozed: presentTask(task, context.scopes), remind_at: remindAt }
+    },
+  })
+}
+
+export async function archiveMcpTask(
+  context: McpTodoContext,
+  input: { operationId: string; taskId: string; archived?: boolean },
+): Promise<Record<string, unknown>> {
+  const store = storeFor(context)
+  const shelf = input.archived === undefined ? true : input.archived
+  return runIdempotent({
+    db: context.env.DB,
+    userId: context.userId,
+    operationId: input.operationId,
+    tool: 'archive_todo',
+    request: input,
+    execute: async () => {
+      const existing = await readTask(store, input.taskId)
+      const task = await store.updateTask(existing.id, { archivedAt: shelf ? Date.now() : null })
+      if (!task) throw ApiError.notFound('Task not found')
+      return { task: presentTask(task, context.scopes), archived: task.archivedAt !== null }
+    },
+  })
+}
+
+// ------------------------------------------------------------------- lists
+
+export async function createMcpTaskList(
+  context: McpTodoContext,
+  input: { operationId: string; name: string; icon?: string | null; color?: string | null },
+): Promise<Record<string, unknown>> {
+  const store = storeFor(context)
+  return runIdempotent({
+    db: context.env.DB,
+    userId: context.userId,
+    operationId: input.operationId,
+    tool: 'create_todo_list',
+    request: input,
+    execute: async () => {
+      const list = await store.createTaskList({
+        name: input.name.trim().slice(0, MAX_LIST_NAME_CHARS),
+        icon: input.icon ?? null,
+        color: input.color ?? null,
+      })
+      return { list: { id: list.id, name: list.name, icon: list.icon, color: list.color } }
+    },
+  })
+}
+
+export async function updateMcpTaskList(
+  context: McpTodoContext,
+  input: {
+    operationId: string
+    listId: string
+    name?: string
+    icon?: string | null
+    color?: string | null
+    archived?: boolean
+  },
+): Promise<Record<string, unknown>> {
+  const store = storeFor(context)
+  return runIdempotent({
+    db: context.env.DB,
+    userId: context.userId,
+    operationId: input.operationId,
+    tool: 'update_todo_list',
+    request: input,
+    execute: async () => {
+      const list = await store.updateTaskList(input.listId, {
+        ...(input.name !== undefined ? { name: input.name.trim().slice(0, MAX_LIST_NAME_CHARS) } : {}),
+        ...(input.icon !== undefined ? { icon: input.icon } : {}),
+        ...(input.color !== undefined ? { color: input.color } : {}),
+        ...(input.archived !== undefined ? { archivedAt: input.archived ? Date.now() : null } : {}),
+      })
+      if (!list) throw ApiError.notFound('List not found')
+      return { list: { id: list.id, name: list.name, icon: list.icon, color: list.color, archived: list.archivedAt !== null } }
+    },
+  })
+}
+
+export async function deleteMcpTaskList(
+  context: McpTodoContext,
+  input: { operationId: string; listId: string },
+): Promise<Record<string, unknown>> {
+  const store = storeFor(context)
+  return runIdempotent({
+    db: context.env.DB,
+    userId: context.userId,
+    operationId: input.operationId,
+    tool: 'delete_todo_list',
+    request: input,
+    execute: async () => {
+      const list = await store.getTaskList(input.listId)
+      if (!list) throw ApiError.notFound('List not found')
+      await store.deleteTaskList(list.id)
+      return { deleted: true, list_id: list.id, tasks_moved_to_inbox: list.openCount + list.doneCount }
+    },
+  })
+}
+
+// ------------------------------------------------------------------- tags
+
+export async function renameMcpTaskTag(
+  context: McpTodoContext,
+  input: { operationId: string; tag: string; name: string },
+): Promise<Record<string, unknown>> {
+  const store = storeFor(context)
+  return runIdempotent({
+    db: context.env.DB,
+    userId: context.userId,
+    operationId: input.operationId,
+    tool: 'rename_todo_tag',
+    request: input,
+    execute: async () => {
+      const found = await resolveTagRef(store, input.tag)
+      if (found === undefined) throw ApiError.badRequest('No such tag. Call list_todos to see the tags in use.')
+      const tag = await store.updateTaskTag(found, { name: input.name.trim().slice(0, MAX_TAG_NAME_CHARS) })
+      if (!tag) throw ApiError.notFound('Tag not found')
+      return { tag: { id: tag.id, name: tag.name, color: tag.color } }
+    },
+  })
+}
+
+export async function deleteMcpTaskTag(
+  context: McpTodoContext,
+  input: { operationId: string; tag: string },
+): Promise<Record<string, unknown>> {
+  const store = storeFor(context)
+  return runIdempotent({
+    db: context.env.DB,
+    userId: context.userId,
+    operationId: input.operationId,
+    tool: 'delete_todo_tag',
+    request: input,
+    execute: async () => {
+      const found = await resolveTagRef(store, input.tag)
+      if (found === undefined) throw ApiError.badRequest('No such tag. Call list_todos to see the tags in use.')
+      await store.deleteTaskTag(found)
+      return { deleted: true, tag_id: found }
+    },
+  })
+}
+
+// ------------------------------------------------------------------- statistics
+
+export async function todoStats(
+  context: McpTodoContext,
+  input: { from?: string; to?: string; bucket?: 'day' | 'week' | 'month' },
+): Promise<Record<string, unknown>> {
+  const store = storeFor(context)
+  const timezone = await timezoneOf(store)
+  const today = localDate(Date.now(), timezone)
+  const to = input.to ?? today
+  if (!isStatsDay(to)) throw ApiError.badRequest('A statistics range must end on a date like 2026-01-31.')
+  const from = input.from ?? addDays(to, -6)
+  if (!isStatsDay(from)) throw ApiError.badRequest('A statistics range must start on a date like 2026-01-31.')
+  if (from > to) throw ApiError.badRequest('A statistics range cannot start after it ends.')
+  const span = Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1
+  if (span > 366) throw ApiError.badRequest('A statistics range cannot cover more than 366 days.')
+  const stats = await loadTodoStats(context.env.DB, context.userId, {
+    from,
+    to,
+    bucket: input.bucket ?? 'day',
+    timezone,
+    now: Date.now(),
+  })
+  return {
+    range: stats.range,
+    timezone,
+    summary: {
+      completed: stats.summary.completed,
+      created: stats.summary.created,
+      open: stats.summary.open,
+      completionRate: stats.summary.completionRate,
+      abandoned: stats.summary.abandoned,
+      onTimeRate: stats.summary.onTimeRate,
+      currentStreak: stats.summary.currentStreak,
+      longestStreak: stats.summary.longestStreak,
+      overdue: stats.summary.overdue,
+    },
+    by_list: stats.distributions.byList,
   }
 }
 

@@ -591,6 +591,102 @@ describe('a task may name a note, and nothing else about it', () => {
   })
 })
 
+describe('the rest of the to-do surface', () => {
+  it('publishes the new tools with the scopes and annotations they answer under', async () => {
+    const tools = await listedTools(DANGER)
+    for (const name of ['add_todo_step', 'check_todo_step', 'delete_todo_step', 'restore_todo', 'plan_todo', 'snooze_todo', 'archive_todo', 'create_todo_list', 'update_todo_list', 'rename_todo_tag', 'todo_stats', 'list_todo_trash']) {
+      expect(tools.get(name), `${name} is published`).toBeDefined()
+    }
+    // The two that take a row away ask for the consent of their own.
+    expect(tools.get('delete_todo_list')!.annotations).toMatchObject({ destructiveHint: true })
+    expect(tools.get('delete_todo_tag')!.annotations).toMatchObject({ destructiveHint: true })
+    expect(tools.get('todo_stats')!.annotations).toMatchObject({ readOnlyHint: true })
+    // The account switches answer with a refusal rather than by hiding the tool: a client that lists
+    // them still sees the shape of the family, and a key minted before a switch was flipped learns why.
+    await switchPreferences(false, false)
+    const refused = await failureOf(WRITE, 'create_todo_list', { operation_id: 'op-abcdef1', name: 'Trips' })
+    expect(refused).toMatchObject({ code: 'forbidden', status: 403 })
+  })
+
+  it('adds, checks and deletes a step, and refuses a task it cannot see', async () => {
+    const task = await store.createTask({ title: 'Plan the offsite' })
+    await switchPreferences(true, true)
+
+    const added = await callTool(WRITE, 'add_todo_step', { operation_id: 'op-abcdef2', task_id: task.id, text: 'Book the room' })
+    expect(added.ok).toBe(true)
+    const stepId = ((added.body.step as { id: string }).id)
+
+    const checked = await callTool(WRITE, 'check_todo_step', { operation_id: 'op-abcdef3', task_id: task.id, step_id: stepId, done: true })
+    expect(checked.body).toMatchObject({ step: { done: true } })
+
+    const removed = await callTool(WRITE, 'delete_todo_step', { operation_id: 'op-abcdef4', task_id: task.id, step_id: stepId })
+    expect(removed.ok).toBe(true)
+    expect((await failureOf(WRITE, 'delete_todo_step', { operation_id: 'op-abcdef5', task_id: task.id, step_id: stepId })).status).toBe(404)
+  })
+
+  it('takes a task back out of the trash and says what it dropped', async () => {
+    const task = await store.createTask({ title: 'Bring me back', dueAt: Date.now() + 60_000 })
+    await store.deleteTask(task.id)
+    await switchPreferences(true, true)
+
+    const trash = await callTool(READ, 'list_todo_trash')
+    expect(trash.body).toMatchObject({ count: 1, total: 1 })
+
+    const restored = await callTool(WRITE, 'restore_todo', { operation_id: 'op-abcdef2', task_id: task.id })
+    expect(restored.ok).toBe(true)
+    expect((await store.getTask(task.id))?.title).toBe('Bring me back')
+  })
+
+  it('plans a task into a day and snoozes it, and refuses a day it cannot read', async () => {
+    const task = await store.createTask({ title: 'Water the plants' })
+    await switchPreferences(true, true)
+
+    const planned = await callTool(WRITE, 'plan_todo', { operation_id: 'op-abcdef2', task_id: task.id, day: '2026-11-02' })
+    expect(planned.body).toMatchObject({ planned: { id: task.id } })
+
+    const snoozed = await callTool(WRITE, 'snooze_todo', { operation_id: 'op-abcdef3', task_id: task.id, minutes: 60 })
+    expect(snoozed.ok).toBe(true)
+    expect((snoozed.body.remind_at as number)).toBeGreaterThan(Date.now())
+
+    // A day that is not a day is refused by the schema the client was given, before the handler runs.
+    const badDay = await failureOf(WRITE, 'plan_todo', { operation_id: 'op-abcdef4', task_id: task.id, day: 'next tuesday' })
+    expect(badDay.code).toBe('invalid_request')
+    const badSnooze = await failureOf(WRITE, 'snooze_todo', { operation_id: 'op-abcdef5', task_id: task.id, minutes: 7 })
+    expect(badSnooze.message).toContain('10, 60, 540, 1440')
+  })
+
+  it('shelves a task and brings it back, and moves its list away without losing its tasks', async () => {
+    const task = await store.createTask({ title: 'Old plan' })
+    await switchPreferences(true, true)
+
+    const shelved = await callTool(WRITE, 'archive_todo', { operation_id: 'op-abcdef2', task_id: task.id })
+    expect(shelved.body).toMatchObject({ archived: true })
+    const back = await callTool(WRITE, 'archive_todo', { operation_id: 'op-abcdef3', task_id: task.id, archived: false })
+    expect(back.body).toMatchObject({ archived: false })
+
+    const list = await store.createTaskList({ name: 'Trips' })
+    await store.createTask({ title: 'Book the flight', listId: list.id })
+    const removed = await callTool(DANGER, 'delete_todo_list', { operation_id: 'op-abcdef4', list_id: list.id })
+    expect(removed.body).toMatchObject({ tasks_moved_to_inbox: 1 })
+    expect((await store.listTasks({ view: 'inbox' })).map((entry) => entry.title)).toContain('Book the flight')
+  })
+
+  it('renames and deletes a tag, and reads the statistics the statistics screen reads', async () => {
+    await store.createTask({ title: 'File the return', tags: ['tax'] })
+    await switchPreferences(true, true)
+
+    const renamed = await callTool(WRITE, 'rename_todo_tag', { operation_id: 'op-abcdef2', tag: 'tax', name: 'Taxes' })
+    expect(renamed.body).toMatchObject({ tag: { name: 'Taxes' } })
+
+    const stats = await callTool(READ, 'todo_stats', {})
+    expect(stats.ok).toBe(true)
+    expect(stats.body.summary).toMatchObject({ completed: 0 })
+
+    const dropped = await callTool(DANGER, 'delete_todo_tag', { operation_id: 'op-abcdef3', tag: 'Taxes' })
+    expect(dropped.ok).toBe(true)
+  })
+})
+
 describe('no key grows because the to-do family exists', () => {
   it('mints a default key with the note family only, even when the account allows write and trash', async () => {
     await switchPreferences(true, true)
