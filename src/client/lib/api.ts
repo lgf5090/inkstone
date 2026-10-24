@@ -861,6 +861,24 @@ export interface EmailScheduledSendPage {
   items: EmailScheduledSend[]
   nextCursor: string | null
 }
+/** How many rows one import request writes; the route's own default, named here so the loop is explicit. */
+const TODO_CSV_IMPORT_SLICE = 50
+
+/** One slice of a CSV import, as the route answers it. */
+export interface TodoCsvImportSlice {
+  created: number
+  updated: number
+  skipped: number
+  invalid: number
+  missingLists: number
+  total: number
+  errors: { line: number, reason: string }[]
+  /** Where the next slice starts, or null when this one finished the file. */
+  nextOffset: number | null
+}
+
+/** What a whole CSV import cost, added up over its slices. */
+export type TodoCsvImportResult = Omit<TodoCsvImportSlice, 'nextOffset'>
 
 export const api = {
   session: () => request<SessionInfo>('/api/auth/session'),
@@ -2005,20 +2023,57 @@ export const api = {
      * Import tasks from a CSV the reader picked.
      *
      * The file is the document; `conflict` is the one rule it cannot answer for itself — keep what is here,
-     * let the file win, or file a second copy. Rows the parser refused come back in `errors` while the rest
-     * still land, so the screen can honestly print both numbers.
+     * let the file win, or file a second copy. A row costs several D1 statements, so one request writes
+     * only a slice of the file: this walks the slices until the route says the file is done, adding the
+     * counters up and reporting how far it has read. Rows the parser refused come back in `errors` while
+     * the rest still land, so the screen can honestly print both numbers.
+     *
+     * A failed slice stops the walk. Its message names the offset to resume from, because starting the
+     * file again would re-read what already landed.
      */
-    importCsv: (file: File, conflict: 'skip' | 'newer' | 'duplicate' = 'skip') => {
-      const form = new FormData()
-      form.append('file', file)
-      form.append('conflict', conflict)
-      return request<{
-        created: number
-        updated: number
-        skipped: number
-        missingLists: number
-        errors: { line: number, reason: string }[]
-      }>('/api/todos/import', { method: 'POST', formData: form })
+    importCsv: async (
+      file: File,
+      conflict: 'skip' | 'newer' | 'duplicate' = 'skip',
+      onProgress?: (processed: number, total: number) => void,
+    ): Promise<TodoCsvImportResult> => {
+      const totals: TodoCsvImportResult = {
+        created: 0,
+        updated: 0,
+        skipped: 0,
+        invalid: 0,
+        missingLists: 0,
+        total: 0,
+        errors: [],
+      }
+      let offset = 0
+      for (;;) {
+        const form = new FormData()
+        form.append('file', file)
+        form.append('conflict', conflict)
+        form.append('offset', String(offset))
+        form.append('limit', String(TODO_CSV_IMPORT_SLICE))
+        let slice: TodoCsvImportSlice
+        try {
+          slice = await request<TodoCsvImportSlice>('/api/todos/import', { method: 'POST', formData: form })
+        } catch (cause) {
+          const reason = cause instanceof Error ? cause.message : String(cause)
+          throw new Error(`${reason} (stopped at offset ${offset}; resume from there)`)
+        }
+        totals.created += slice.created
+        totals.updated += slice.updated
+        totals.skipped += slice.skipped
+        // The route answers these two for the file rather than for the slice, so they are assigned.
+        totals.invalid = slice.invalid
+        totals.total = slice.total
+        totals.missingLists += slice.missingLists
+        totals.errors.push(...slice.errors)
+        if (slice.nextOffset === null) {
+          onProgress?.(slice.total, slice.total)
+          return totals
+        }
+        onProgress?.(slice.nextOffset, slice.total)
+        offset = slice.nextOffset
+      }
     },
 
     /**

@@ -3868,7 +3868,7 @@ const ZH_CORE_MESSAGES = {
     "settings.todo_saved_filter_add": "保存筛选",
     "settings.todo_saved_filter_empty": "还没有保存的筛选。",
     "settings.todo_import": "导入待办",
-    "settings.todo_import_hint": "CSV 需有 title 列；有问题的行会列出，其余照常导入。",
+    "settings.todo_import_hint": "CSV 需有 title 列，最多 1000 行；有问题的行会列出，其余照常导入。",
     "settings.todo_import_conflict": "遇到重复时",
     "settings.todo_import_conflict_skip": "保留原任务",
     "settings.todo_import_conflict_newer": "以文件为准",

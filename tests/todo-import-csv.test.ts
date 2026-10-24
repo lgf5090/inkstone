@@ -147,8 +147,8 @@ describe('the CSV reader', () => {
 })
 
 describe('the CSV import ceilings', () => {
-  it('names a 5000-row and a 2 MiB ceiling', () => {
-    expect(MAX_TODO_CSV_ROWS).toBe(5000)
+  it('names a 1000-row and a 2 MiB ceiling', () => {
+    expect(MAX_TODO_CSV_ROWS).toBe(1000)
     expect(MAX_TODO_CSV_BYTES).toBe(2 * 1024 * 1024)
   })
 })
@@ -180,6 +180,7 @@ interface ImportAnswer {
   missingLists: number
   total: number
   errors: Array<{ line: number; reason: string }>
+  nextOffset: number | null
 }
 
 let sqlite: DatabaseSync
@@ -192,10 +193,15 @@ function app(): Hono<AppBindings> {
   return instance
 }
 
-async function importCsv(text: string, options: { conflict?: string; name?: string } = {}): Promise<Response> {
+async function importCsv(
+  text: string,
+  options: { conflict?: string; name?: string; offset?: number; limit?: number } = {},
+): Promise<Response> {
   const form = new FormData()
   form.append('file', new File([text], options.name ?? 'todos.csv', { type: 'text/csv' }))
   if (options.conflict !== undefined) form.append('conflict', options.conflict)
+  if (options.offset !== undefined) form.append('offset', String(options.offset))
+  if (options.limit !== undefined) form.append('limit', String(options.limit))
   return await app().request('/api/todos/import', { method: 'POST', body: form }, env)
 }
 
@@ -279,6 +285,7 @@ describe('the CSV import endpoint', () => {
         { line: 3, reason: 'title is required' },
         { line: 4, reason: 'due date "next week" is not a date this app can read' },
       ],
+      nextOffset: null,
     })
     expect((await tasksOf(USER)).map((task) => task.title)).toEqual(['Good'])
   })
@@ -302,13 +309,13 @@ describe('the CSV import endpoint', () => {
     expect((await tasksOf(OTHER)).map((task) => task.id)).toEqual([otherTask.id])
   })
 
-  it('refuses more than 5000 rows before writing anything', async () => {
+  it('refuses more than 1000 rows before writing anything', async () => {
     const csv = ['title', ...Array.from({ length: MAX_TODO_CSV_ROWS + 1 }, (_, index) => `Task ${index}`)].join('\n')
 
     const response = await importCsv(csv)
 
     expect(response.status).toBe(400)
-    expect((await response.json() as { error: { message: string } }).error.message).toContain('5000')
+    expect((await response.json() as { error: { message: string } }).error.message).toContain('1000')
     expect(await tasksOf(USER)).toHaveLength(0)
   })
 
@@ -363,5 +370,79 @@ describe('the CSV import endpoint', () => {
     form.append('conflict', 'skip')
     const response = await app().request('/api/todos/import', { method: 'POST', body: form }, env)
     expect(response.status).toBe(400)
+  })
+})
+
+/** Walks a file the way the client does: one slice at a time until the route says it is done. */
+async function importAll(
+  text: string,
+  options: { conflict?: string; limit?: number } = {},
+): Promise<ImportAnswer[]> {
+  const answers: ImportAnswer[] = []
+  let offset = 0
+  for (;;) {
+    const body = await answer(await importCsv(text, { ...options, offset }))
+    answers.push(body)
+    if (body.nextOffset === null) return answers
+    offset = body.nextOffset
+  }
+}
+
+describe('the sliced CSV import', () => {
+  const ROWS = 120
+  const titles = Array.from({ length: ROWS }, (_, index) => `Task ${index}`)
+  const csv = ['title', ...titles].join('\n')
+
+  it('walks 120 rows in three 50-row slices whose union is the whole file', async () => {
+    const answers = await importAll(csv, { limit: 50 })
+
+    expect(answers).toHaveLength(3)
+    expect(answers.map((slice) => slice.created)).toEqual([50, 50, 20])
+    expect(answers.map((slice) => slice.nextOffset)).toEqual([50, 100, null])
+    expect(answers.every((slice) => slice.total === ROWS)).toBe(true)
+    expect((await tasksOf(USER)).map((task) => task.title).sort()).toEqual([...titles].sort())
+
+    // The same file walked in 100-row slices lands the same tasks: the slice is a transport detail.
+    mocks.userId = OTHER
+    const wider = await importAll(csv, { limit: 100 })
+    expect(wider.map((slice) => slice.created)).toEqual([100, 20])
+    expect((await tasksOf(OTHER)).map((task) => task.title).sort()).toEqual([...titles].sort())
+  })
+
+  it('answers a bad line once, in the slice that follows it, with its absolute line number', async () => {
+    const lines = ['title']
+    for (let index = 0; index < ROWS; index++) {
+      // The bad record sits between readable rows 59 and 60, so only the second slice may answer it.
+      if (index === 60) lines.push(',bad')
+      lines.push(titles[index]!)
+    }
+
+    const answers = await importAll(lines.join('\n'), { limit: 50 })
+
+    expect(answers.map((slice) => slice.errors)).toEqual([
+      [],
+      [{ line: 62, reason: 'title is required' }],
+      [],
+    ])
+    // `invalid` describes the file, so every slice reports the one bad line it was parsed with.
+    expect(answers.map((slice) => slice.invalid)).toEqual([1, 1, 1])
+    expect(answers.map((slice) => slice.nextOffset)).toEqual([50, 100, null])
+  })
+
+  it('sees the earlier slices on a second walk with conflict skip', async () => {
+    await importAll(csv, { conflict: 'skip', limit: 50 })
+    const second = await importAll(csv, { conflict: 'skip', limit: 50 })
+
+    expect(second.map((slice) => slice.created)).toEqual([0, 0, 0])
+    expect(second.map((slice) => slice.skipped)).toEqual([50, 50, 20])
+    expect(await tasksOf(USER)).toHaveLength(ROWS)
+  })
+
+  it('trims a larger limit to the ceiling and refuses a negative offset', async () => {
+    const body = await answer(await importCsv(csv, { limit: 500 }))
+
+    expect(body.created).toBe(100)
+    expect(body.nextOffset).toBe(100)
+    expect((await importCsv(csv, { offset: -1 })).status).toBe(400)
   })
 })

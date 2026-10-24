@@ -652,6 +652,7 @@ function TodoImportRow() {
   const [busy, setBusy] = useState(false)
   const [answer, setAnswer] = useState<string | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
+  const [progress, setProgress] = useState<{ processed: number, total: number } | null>(null)
 
   const run = async (): Promise<void> => {
     if (!file) {
@@ -660,16 +661,22 @@ function TodoImportRow() {
     }
     setBusy(true)
     setProblem(null)
+    setAnswer(null)
+    setProgress(null)
     try {
-      const result = await api.todos.importCsv(file, conflict)
+      const result = await api.todos.importCsv(file, conflict, (processed, total) => setProgress({ processed, total }))
       setAnswer(t('settings.todo_import_result', { created: result.created, updated: result.updated, skipped: result.skipped }))
       setFile(null)
     } catch (cause) {
       setProblem(describeError(cause))
     } finally {
       setBusy(false)
+      setProgress(null)
     }
   }
+
+  // While a slice is running the row counts rows rather than claiming an answer it does not have yet.
+  const status = problem ?? (busy && progress ? `${progress.processed} / ${progress.total}` : answer)
 
   return (
     <SettingRow
@@ -677,8 +684,8 @@ function TodoImportRow() {
       description={(
         <div className="flex flex-col gap-1">
           <span id={fileId}>{t('settings.todo_import_hint')}</span>
-          {(answer || problem) && (
-            <span role="status" className={problem ? 'text-[var(--danger)]' : 'text-[var(--text-secondary)]'}>{problem ?? answer}</span>
+          {status && (
+            <span role="status" className={problem ? 'text-[var(--danger)]' : 'text-[var(--text-secondary)]'}>{status}</span>
           )}
         </div>
       )}

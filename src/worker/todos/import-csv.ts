@@ -15,7 +15,19 @@ import { parseLocalTime } from '@shared/assistant-time'
 import { normalizeTagNames, type TaskPriority } from '@shared/todos/model'
 
 /** The most task rows one import may carry. */
-export const MAX_TODO_CSV_ROWS = 5000
+export const MAX_TODO_CSV_ROWS = 1000
+
+/**
+ * How many rows one request writes when the caller names no `limit`.
+ *
+ * A row costs several D1 statements, so a whole file of the ceiling cannot finish inside one Worker
+ * invocation. The route parses the file whole and writes only this many rows; the client walks the
+ * file in slices until it is done.
+ */
+export const DEFAULT_TODO_CSV_SLICE = 50
+
+/** The most rows one request may write, so a slice stays inside one invocation. */
+export const MAX_TODO_CSV_SLICE = 100
 
 /** The most bytes one import may carry, before any multipart framing is counted. */
 export const MAX_TODO_CSV_BYTES = 2 * 1024 * 1024

@@ -3875,7 +3875,7 @@ const CORE_MESSAGES = {
     "settings.todo_saved_filter_add": "Save filter",
     "settings.todo_saved_filter_empty": "No saved filters yet.",
     "settings.todo_import": "Import to-dos",
-    "settings.todo_import_hint": "A CSV with a title column. Rows with problems are listed; the rest still land.",
+    "settings.todo_import_hint": "A CSV with a title column and up to 1000 rows; rows with problems are listed and the rest still land.",
     "settings.todo_import_conflict": "On duplicates",
     "settings.todo_import_conflict_skip": "Keep existing",
     "settings.todo_import_conflict_newer": "Use the file",

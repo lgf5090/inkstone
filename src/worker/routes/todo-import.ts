@@ -7,12 +7,16 @@
  * rules are the same ones the app and the assistant use; this file only adapts multipart, checks the
  * ceilings and decides what `conflict` means.
  *
- * The file is small enough to read whole (2 MiB, 5000 rows), and a row that cannot be read is answered
- * in `errors` while the rest of the file still lands. The one question a CSV cannot answer on its own
- * is identity, so a row is "the same task" as an existing one when its title (case-insensitive) and
- * due instant match: `skip` leaves the existing task, `newer` makes the file the source of truth, and
- * `duplicate` always inserts a fresh row. Re-importing the same file therefore settles instead of
- * growing the list, except under `duplicate`, which is what that word is for.
+ * The file is small enough to read whole (2 MiB, 1000 rows), and a row that cannot be read is answered
+ * in `errors` while the rest of the file still lands. Reading is cheap; writing is not. A row costs
+ * several D1 statements, so a file of the ceiling cannot finish inside one Worker invocation. The
+ * caller therefore walks the file in slices: `offset` and `limit` name the rows this request writes,
+ * `nextOffset` says where the next one starts, and `null` means the file is done. The one question a
+ * CSV cannot answer on its own is identity, so a row is "the same task" as an existing one when its
+ * title (case-insensitive) and due instant match: `skip` leaves the existing task, `newer` makes the
+ * file the source of truth, and `duplicate` always inserts a fresh row. Re-importing the same file
+ * therefore settles instead of growing the list, except under `duplicate`, which is what that word is
+ * for. The match reads the account on every slice, so a later slice sees what the earlier ones wrote.
  */
 
 import { Hono } from 'hono'
@@ -25,11 +29,14 @@ import { createMinuteBudget } from '../lib/rate-limit'
 import { readFormDataWithinLimit } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
 import {
+  DEFAULT_TODO_CSV_SLICE,
   MAX_TODO_CSV_BYTES,
   MAX_TODO_CSV_ROWS,
+  MAX_TODO_CSV_SLICE,
   TodoCsvError,
   parseTodoCsv,
   type TodoCsvRow,
+  type TodoCsvRowError,
 } from '../todos/import-csv'
 
 /** How many imports one account may start in a minute; each call spends one. */
@@ -59,6 +66,26 @@ function importConflict(value: unknown): ImportConflict {
   throw ApiError.badRequest('conflict must be skip, newer, or duplicate')
 }
 
+/** Where this request starts in the file. The first slice names nothing and gets zero. */
+function importOffset(value: unknown): number {
+  if (value === null || value === '') return 0
+  const offset = Number(value)
+  if (!Number.isInteger(offset) || offset < 0) {
+    throw ApiError.badRequest('offset must be a non-negative integer')
+  }
+  return offset
+}
+
+/** How many rows this request writes. A larger ask is trimmed to the ceiling rather than refused. */
+function importLimit(value: unknown): number {
+  if (value === null || value === '') return DEFAULT_TODO_CSV_SLICE
+  const limit = Number(value)
+  if (!Number.isInteger(limit) || limit < 1) {
+    throw ApiError.badRequest('limit must be a positive integer')
+  }
+  return Math.min(limit, MAX_TODO_CSV_SLICE)
+}
+
 interface ListResolution {
   id: string | null
   /** The row named a list this account does not have. It is imported without one, never created. */
@@ -82,11 +109,44 @@ function taskKey(title: string, dueAt: number | null): string {
   return `${title.trim().toLocaleLowerCase()}\u0000${dueAt ?? ''}`
 }
 
+/** How many readable rows start before a line, which is the row index a bad line sits in front of. */
+function rowsBeforeLine(rows: readonly TodoCsvRow[], line: number): number {
+  let low = 0
+  let high = rows.length
+  while (low < high) {
+    const middle = (low + high) >> 1
+    if (rows[middle]!.line < line) low = middle + 1
+    else high = middle
+  }
+  return low
+}
+
+/**
+ * The unreadable rows that belong to this slice.
+ *
+ * A bad line has no place in `rows`, so it is attached to the readable row it precedes: the error is
+ * answered by the slice that will write that row, and one after the last row is answered by the final
+ * slice. Every error therefore lands in exactly one answer across a full walk, and its line is the
+ * line the reader sees in their editor rather than a position inside the slice.
+ */
+function errorsInSlice(
+  rows: readonly TodoCsvRow[],
+  errors: readonly TodoCsvRowError[],
+  offset: number,
+  end: number,
+): TodoCsvRowError[] {
+  const final = end >= rows.length
+  return errors.filter((error) => {
+    const before = rowsBeforeLine(rows, error.line)
+    return before >= offset && (before < end || (final && before === rows.length))
+  })
+}
+
 /**
  * Every task this account already holds, by the identity a CSV row can state.
  *
  * One page at a time because a listing is capped, and a bounded number of pages because the point is
- * to recognise rows from a file of at most 5000, not to mirror a vault of any size. A task beyond the
+ * to recognise rows from a file of at most 1000, not to mirror a vault of any size. A task beyond the
  * scan is simply not matched — the import creates a row rather than guessing.
  */
 async function loadExistingTasks(store: AssistantStore): Promise<Map<string, TodoTask>> {
@@ -131,6 +191,8 @@ todoImportRoutes.use('*', async (c, next) => {
 todoImportRoutes.post('/', async (c) => {
   const form = await readFormDataWithinLimit(c.req, FORM_BYTES)
   const conflict = importConflict(form.get('conflict'))
+  const offset = importOffset(form.get('offset'))
+  const limit = importLimit(form.get('limit'))
   const files = form.getAll('file').filter((entry): entry is File => entry instanceof File)
   if (files.length !== 1) throw ApiError.badRequest('Attach exactly one CSV file.')
   const file = files[0]!
@@ -158,6 +220,11 @@ todoImportRoutes.post('/', async (c) => {
     throw ApiError.badRequest(`A CSV import can hold at most ${MAX_TODO_CSV_ROWS} task rows.`)
   }
 
+  const rows = parsed.rows.slice(offset, offset + limit)
+  const end = offset + rows.length
+  const nextOffset = end < parsed.rows.length ? end : null
+  const errors = errorsInSlice(parsed.rows, parsed.errors, offset, end)
+
   const existing = conflict === 'duplicate' ? new Map<string, TodoTask>() : await loadExistingTasks(store)
   const listIds = new Map<string, string | null>()
   let created = 0
@@ -165,7 +232,7 @@ todoImportRoutes.post('/', async (c) => {
   let skipped = 0
   let missingLists = 0
 
-  for (const row of parsed.rows) {
+  for (const row of rows) {
     const key = taskKey(row.title, row.dueAt)
     const match = conflict === 'duplicate' ? undefined : existing.get(key)
     if (match && conflict === 'skip') {
@@ -226,9 +293,12 @@ todoImportRoutes.post('/', async (c) => {
     created,
     updated,
     skipped,
+    // `invalid` and `total` describe the file, not the slice: the client prints progress against the
+    // file's own size and does not have to add either up. `errors` lists only this slice's bad rows.
     invalid: parsed.errors.length,
     missingLists,
     total,
-    errors: parsed.errors,
+    errors,
+    nextOffset,
   })
 })
