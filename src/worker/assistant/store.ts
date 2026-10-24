@@ -5592,6 +5592,13 @@ export class AssistantStore {
     }
     if (query.query) {
       const pattern = q.add(containsPattern(query.query))
+      // Measured, not assumed (2026-10-24, node:sqlite against the real schema): one search of a
+      // 20,000-task account costs about 63 ms p50 / 78 ms p95 for the page, and it scales linearly
+      // with the account's live rows — 10,000 is roughly half of that. The plan walks every live row
+      // because a leading-wildcard `LIKE` cannot use an index, so this is the ceiling the app writes
+      // down: an account past it wants FTS5 (measured flat at ~30 ms for 100k), not a wider `q`.
+      // The route pays it twice — the page and `countTasks` — which is the next thing to trade away
+      // if an account outgrows this.
       // A tag's name is part of what a reader sees on the row, so it is part of what a search for
       // those words should find. The subquery is correlated and tenant-filtered: one statement for
       // the whole page, not one per tag, and no link from another account can answer it.
@@ -5880,6 +5887,35 @@ export class AssistantStore {
     if (!row) return null
     const [task] = await this.tasksWithDetails([row])
     return task ?? null
+  }
+
+  /**
+   * Many tasks at once, by id, as `getTask` would answer each of them.
+   *
+   * A batch names up to a hundred ids, and reading them one at a time is three statements each: the row,
+   * its step counts and its tags. One read per id turns a hundred-row gesture into a thousand round trips
+   * before a single write has happened, so the rows are read in chunked statements instead — the same
+   * chunking the rest of this store uses, because a statement may not bind more than a hundred values and
+   * the tenant's own bind already spends one of them.
+   *
+   * An id this account does not hold — another account's, or one already in the trash — is simply absent
+   * from the map, which is the same answer `getTask` gives by returning null.
+   */
+  async getTasks(ids: readonly string[]): Promise<Map<string, TodoTask>> {
+    const out = new Map<string, TodoTask>()
+    const wanted = [...new Set(ids)]
+    if (!wanted.length) return out
+    const rows: TaskRow[] = []
+    for (const chunk of idChunks(wanted)) {
+      const marks = chunkMarks(chunk)
+      rows.push(...await this.rows<TaskRow>(
+        `SELECT *, ${TASK_REMINDER_TIMES}, ${TASK_TIME_ROLLUP} FROM todos_tasks
+          WHERE user_id = ?1 AND id IN (${marks}) AND ${TASK_LIVE_PREDICATE}`,
+        this.userId, ...chunk,
+      ))
+    }
+    for (const task of await this.tasksWithDetails(rows)) out.set(task.id, task)
+    return out
   }
 
   /**
@@ -6190,6 +6226,10 @@ export class AssistantStore {
    * patch costs no second round trip. `expectedRev` is the revision that read carried, checked here as
    * well because `completeTask` comes to this method directly — the statement matches only that
    * revision, so a stale edit writes nothing at all and is refused with a conflict.
+   *
+   * The write and the read-back are two doors over one write: {@link writeTaskPatch} is the same
+   * statement work answered with whether it landed, for a caller that already holds the rows it is
+   * changing and has no use for a fresh copy of each.
    */
   private async applyTaskPatch(
     id: string,
@@ -6198,6 +6238,45 @@ export class AssistantStore {
     timeZone?: string,
     expectedRev?: number,
   ): Promise<TodoTask | null> {
+    if (!(await this.writeTaskPatch(id, patch, timeZone, expectedRev, existing))) return null
+    return await this.getTask(id)
+  }
+
+  /**
+   * Writes a partial patch, answering only whether it landed.
+   *
+   * The whole of the column work, the history event and the reminder bookkeeping — everything
+   * `applyTaskPatch` does except the read-back that dresses the answer. A caller that has just read
+   * the rows it is changing (a batch) is owed the write, not a second copy of each row, and the read
+   * it would spend is three statements a row.
+   *
+   * `existing` is the row the caller read; when it is left out the row is read here, which is what the
+   * single-task doors do. `false` means the row is gone or — with a guard — moved under the caller,
+   * which `missingOrConflict` tells apart by reading it once more, exactly as before.
+   */
+  async writeTaskPatch(
+    id: string,
+    patch: Partial<NewTask>,
+    timeZone?: string,
+    expectedRev?: number,
+    existing?: TodoTask,
+  ): Promise<boolean> {
+    const row = existing ?? await this.getTask(id)
+    if (!row) return false
+    // The refusal to finish a task through a general patch lives in `updateTask`, the door a caller
+    // reaches for a row's content: `completeTask` is the only way to `done`, and it arrives here
+    // through `applyTaskPatch` with a row it has already read.
+    return await this.patchTaskRow(id, row, patch, timeZone, expectedRev)
+  }
+
+  /** The column work of one patch: the guard, the write, the history event and the reminders. */
+  private async patchTaskRow(
+    id: string,
+    existing: TodoTask,
+    patch: Partial<NewTask>,
+    timeZone?: string,
+    expectedRev?: number,
+  ): Promise<boolean> {
     if (expectedRev !== undefined && existing.rev !== expectedRev) throw this.taskConflict(id, existing)
     const at = Date.now()
     const fields: (readonly [string, unknown])[] = []
@@ -6282,7 +6361,8 @@ export class AssistantStore {
     if (!changes) {
       // The row was gone, or (with a guard) moved between the read and the write: the guarded statement
       // wrote nothing either way, so the caller gets the answer `missingOrConflict` sorts the two out.
-      return await this.missingOrConflict(id)
+      await this.missingOrConflict(id)
+      return false
     }
     if (patch.tags !== undefined) await this.replaceTaskTags(id, patch.tags)
     // Absent leaves the graph alone; a list — empty included — is the reader's new answer about what
@@ -6304,7 +6384,7 @@ export class AssistantStore {
     } else if (patch.dueAt !== undefined && patch.dueAt !== null && existing.dueAt !== null) {
       await this.shiftTaskReminders(id, patch.dueAt - existing.dueAt)
     }
-    return await this.getTask(id)
+    return true
   }
 
   /**
@@ -6522,15 +6602,16 @@ export class AssistantStore {
     id: string,
     timeZone: string,
     expectedRev?: number,
+    existing?: TodoTask,
   ): Promise<{ task: TodoTask; next: TodoTask | null } | null> {
-    const existing = await this.getTask(id)
-    if (!existing) return null
-    if (isTaskDone(existing.status)) return { task: existing, next: null }
-    const task = await this.applyTaskPatch(id, existing, { status: 'done' }, timeZone, expectedRev)
+    const row = existing ?? await this.getTask(id)
+    if (!row) return null
+    if (isTaskDone(row.status)) return { task: row, next: null }
+    const task = await this.applyTaskPatch(id, row, { status: 'done' }, timeZone, expectedRev)
     if (!task) return null
-    if (!existing.repeat) return { task, next: null }
-    const advanced = advanceRepeat(existing.repeat, {
-      anchorDueAt: existing.dueAt,
+    if (!row.repeat) return { task, next: null }
+    const advanced = advanceRepeat(row.repeat, {
+      anchorDueAt: row.dueAt,
       completedAt: task.completedAt ?? Date.now(),
       timeZone,
     })
@@ -6539,7 +6620,7 @@ export class AssistantStore {
     // a second finish cannot spend a turn twice.
     if (advanced.dueAt === null) return { task, next: null }
     const nextInstant = advanced.dueAt
-    const anchorDue = existing.dueAt
+    const anchorDue = row.dueAt
     // The cycle is counted whether or not the finished row was owed on a day: it is also the day the
     // next copy's pick lands on. What a task that never had a due date does not get by being
     // finished is a due date — ticking a box is not the reader asking to be told when, and the old
@@ -6549,39 +6630,39 @@ export class AssistantStore {
     // Every pending reminder keeps its distance from the due date on the next occurrence, the way the
     // single reminder used to. A task with no due date has no distance to keep, so its next copy
     // carries none: a reminder anchored to nothing is not a reminder.
-    const offsets = anchorDue === null ? [] : (existing.reminders ?? []).map((remindAt) => remindAt - anchorDue)
+    const offsets = anchorDue === null ? [] : (row.reminders ?? []).map((remindAt) => remindAt - anchorDue)
     // A start date is a lead time before the due date, so it travels with the occurrence: shifting the
     // due date forward without the start would make the next copy immediately actionable. A row with
     // no due date has no distance to keep, so its next copy starts undated too.
-    const startAt = anchorDue === null || existing.startAt == null
+    const startAt = anchorDue === null || row.startAt == null
       ? null
-      : nextInstant + (existing.startAt - anchorDue)
+      : nextInstant + (row.startAt - anchorDue)
     // A task the reader picked into a My Day stays picked. The pick is not copied over as the old
     // date, which has already passed by definition, but re-issued for the day this cycle opens on —
     // dated or not, since the pick is what puts an undated repeat back in front of the reader.
-    const plannedFor = existing.plannedFor === null ? null : localDate(nextInstant, timeZone)
+    const plannedFor = row.plannedFor === null ? null : localDate(nextInstant, timeZone)
     const steps = await this.listSteps(id)
     const next = await this.createTask({
-      title: existing.title,
-      description: existing.description,
-      priority: existing.priority,
-      important: existing.important ?? null,
-      urgent: existing.urgent ?? null,
+      title: row.title,
+      description: row.description,
+      priority: row.priority,
+      important: row.important ?? null,
+      urgent: row.urgent ?? null,
       dueAt,
       startAt,
       // The task's own face and its own colour: a copy that lost them wore its list's instead, so a
       // task the reader had given an identity of its own lost it one period at a time.
-      icon: existing.icon,
-      color: existing.color,
+      icon: row.icon,
+      color: row.color,
       plannedFor,
-      projectId: existing.projectId,
-      listId: existing.listId,
-      starred: existing.starred,
+      projectId: row.projectId,
+      listId: row.listId,
+      starred: row.starred,
       repeat: advanced.rule,
       reminders: offsets.map((offset) => nextInstant + offset),
-      noteId: existing.noteId,
-      conversationId: existing.conversationId,
-      tags: existing.tags.map((tag) => tag.name),
+      noteId: row.noteId,
+      conversationId: row.conversationId,
+      tags: row.tags.map((tag) => tag.name),
       steps: steps.map((step) => step.text),
     }, timeZone)
     // The files come with the copy as links, not as copies of the bytes: a repeating task that shows

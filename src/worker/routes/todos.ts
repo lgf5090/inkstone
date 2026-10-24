@@ -1171,6 +1171,10 @@ todoRoutes.delete('/feed/:slug', async (c) => {
  * A row that changed is answered as `{id, next}` rather than as an id: finishing a repeating row
  * creates another row, and the caller that pressed the bar is owed the new one, exactly as the
  * single-task PATCH hands it over. The other six operations answer `next` as null.
+ *
+ * The rows are all read once before the first write, in the chunked read `getTasks` owns: reading each
+ * row as its turn came was three statements a row, so a hundred-row batch spent most of its budget
+ * before it changed anything.
  */
 todoRoutes.post('/batch', async (c) => {
   const s = store(c)
@@ -1230,12 +1234,17 @@ todoRoutes.post('/batch', async (c) => {
 
   const done: TaskBatchDone[] = []
   const failed: { id: string; reason: string }[] = []
+  // Every row the batch names is read once, before any of them changes: a hundred ids read one at a
+  // time is three statements each, which is more work than the writes that follow. A dedicated budget
+  // for this door is a follow-up — it still spends the one write budget the middleware charges, which
+  // is the brake a runaway client meets.
+  const rows = await s.getTasks(ids)
   for (const id of ids) {
     // The occurrence a completion files, answered beside the id so the caller does not have to reload
     // the listing to find the row it just created. Every other operation leaves it null.
     let filed: TodoTask | null = null
     try {
-      const existing = await s.getTask(id)
+      const existing = rows.get(id)
       if (!existing) {
         failed.push({ id, reason: 'not found' })
         continue
@@ -1248,10 +1257,11 @@ todoRoutes.post('/batch', async (c) => {
       switch (op) {
         case 'complete': {
           // The store method, not a status column: a repeating task has to file its next occurrence,
-          // and that happens in exactly one place. The row's own revision rides along, so a row that
-          // moved between the read above and this press is refused per row rather than finished over
-          // whoever changed it.
-          const finished = await s.completeTask(id, settings.timezone, expectedRev)
+          // and that happens in exactly one place. The row the batch already read is handed over so
+          // the completion does not read it a second time, and the revision the caller named still
+          // rides along — a row that moved between the read above and this press is refused per row
+          // rather than finished over whoever changed it.
+          const finished = await s.completeTask(id, settings.timezone, expectedRev, existing)
           if (!finished) {
             failed.push({ id, reason: 'not found' })
             continue
@@ -1272,13 +1282,13 @@ todoRoutes.post('/batch', async (c) => {
           }
           break
         case 'priority':
-          if (!(await s.updateTask(id, { priority }, settings.timezone, expectedRev))) {
+          if (!(await s.writeTaskPatch(id, { priority }, settings.timezone, expectedRev, existing))) {
             failed.push({ id, reason: 'not found' })
             continue
           }
           break
         case 'star':
-          if (!(await s.updateTask(id, { starred }, settings.timezone, expectedRev))) {
+          if (!(await s.writeTaskPatch(id, { starred }, settings.timezone, expectedRev, existing))) {
             failed.push({ id, reason: 'not found' })
             continue
           }
@@ -1286,7 +1296,7 @@ todoRoutes.post('/batch', async (c) => {
         case 'archive':
           // Only the stamp moves. The status, the hours and the row are untouched — the shelf is about
           // which screens show it, and `taskVisible` is the one place that knows.
-          if (!(await s.updateTask(id, { archivedAt: archive ? Date.now() : null }, settings.timezone, expectedRev))) {
+          if (!(await s.writeTaskPatch(id, { archivedAt: archive ? Date.now() : null }, settings.timezone, expectedRev, existing))) {
             failed.push({ id, reason: 'not found' })
             continue
           }
@@ -1299,7 +1309,7 @@ todoRoutes.post('/batch', async (c) => {
         case 'due':
           // Only `due_at` moves. `planned_for` is the reader's own pick and stays exactly where it was,
           // which is why this goes through a partial patch rather than a read-modify-write of the row.
-          if (!(await s.updateTask(id, { dueAt: dueAt as number }, settings.timezone, expectedRev))) {
+          if (!(await s.writeTaskPatch(id, { dueAt: dueAt as number }, settings.timezone, expectedRev, existing))) {
             failed.push({ id, reason: 'not found' })
             continue
           }
