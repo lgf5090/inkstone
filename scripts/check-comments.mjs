@@ -6156,7 +6156,7 @@ const allowed = new Map([
     "/** The stream route resolves a library track, so the provider's MV identity is saved before playback. */",
   ]],
   ["src/client/features/music/pages/PlaylistPage.tsx", [
-    "/**\n * One playlist: the header that says what it is, the toolbar that makes a long list usable, and the\n * rows themselves.\n *\n * The filter is local to the page — it narrows the tracks already fetched rather than asking the\n * provider for a new search — so a reader can find a track in a 500-row playlist without leaving it.\n * Compact rows and \"locate current\" are the other two tools a long list needs; neither changes what\n * the player queued, which remains the list the pressed row came from.\n */",
+    "/**\r\n * One playlist: the header that says what it is, the toolbar that makes a long list usable, and the\r\n * rows themselves.\r\n *\r\n * The filter is local to the page — it narrows the tracks already fetched rather than asking the\r\n * provider for a new search — so a reader can find a track in a 500-row playlist without leaving it.\r\n * Compact rows and \"locate current\" are the other two tools a long list needs; neither changes what\r\n * the player queued, which remains the list the pressed row came from.\r\n */",
   ]],
   ["src/client/features/music/pages/PodcastPage.tsx", [
     "/** Podcasts and radio: a card list, a show page with its episodes, and subscription state. */",
