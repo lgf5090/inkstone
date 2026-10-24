@@ -34,7 +34,7 @@ import {
   type WeekStartDay,
 } from '../../lib/time'
 import { useTodos } from './store'
-import { TODO_DRAG_TYPE, isTodoTaskDrag, readTodoTaskDrag } from './TaskCard'
+import { FINE_POINTER_QUERY, TODO_DRAG_TYPE, isTodoTaskDrag, readTodoTaskDrag } from './TaskCard'
 import { taskColorOf } from './task-face'
 import {
   allDayTasksForDay,
@@ -684,7 +684,7 @@ export function CalendarView() {
   const updateTask = useTodos((state) => state.updateTask)
   const locale = useLocale()
   const wide = useMediaQuery('(min-width: 1024px)')
-  const finePointer = useMediaQuery('(hover: hover) and (pointer: fine)')
+  const finePointer = useMediaQuery(FINE_POINTER_QUERY)
   const prefs = useCalendarDisplayPrefs()
   const weekStart = resolveWeekStart(prefs.weekStart, locale)
   const display = useMemo(() => resolveDisplay(prefs, locale), [prefs, locale])
