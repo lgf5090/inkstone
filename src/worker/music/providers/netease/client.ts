@@ -27,6 +27,7 @@ import {
   MusicProviderError,
   type MusicAlbumQuery,
   type MusicArtistQuery,
+  type MusicCursorPage,
   type MusicHotSearch,
   type MusicLoginSession,
   type MusicMvQuery,
@@ -54,7 +55,6 @@ import {
   normalizeMvDetail,
   normalizeMvSource,
   normalizeMvSummary,
-  normalizePage,
   normalizePlaylistCategories,
   normalizePlaylistDetail,
   normalizePlaylistSummary,
@@ -284,11 +284,11 @@ export class NeteaseProvider implements MusicProvider, NeteaseLoginTransport {
     return list(body.songs).map((item) => normalizeTrack(item))
   }
 
-  async playlists(query: MusicPlaylistQuery): Promise<MusicPage<MusicPlaylistSummary>> {
+  async playlists(query: MusicPlaylistQuery): Promise<MusicCursorPage<MusicPlaylistSummary>> {
     if (query.kind === 'recommended') {
       const body = await this.bodyOf(neteaseEndpoints.personalizedPlaylists(query.limit))
       const items = list(record(body).result).map(normalizePlaylistSummary)
-      return normalizePage(items, items.length, query.offset)
+      return { items, total: items.length, hasMore: false, cursor: 0 }
     }
     const body =
       query.kind === 'highquality'
@@ -310,7 +310,12 @@ export class NeteaseProvider implements MusicProvider, NeteaseLoginTransport {
           )
     const items = list(body.playlists).map(normalizePlaylistSummary)
     const total = number(body.total, items.length)
-    return { items, total, hasMore: body.more === true || query.offset + items.length < total }
+    return {
+      items,
+      total,
+      hasMore: body.more === true || query.offset + items.length < total,
+      cursor: number(body.lasttime, 0),
+    }
   }
 
   async playlistCategories(): Promise<MusicPlaylistCategory[]> {

@@ -21,7 +21,6 @@ import type {
   MusicLyricPayload,
   MusicMvDetail,
   MusicMvSummary,
-  MusicPage,
   MusicPlaylistDetail,
   MusicPlaylistSummary,
   MusicRadioDetail,
@@ -435,7 +434,9 @@ export function normalizeAccount(input: unknown): MusicAccount | null {
 }
 
 export function normalizeStreamSource(input: unknown, quality: string): MusicStreamSource | null {
-  const item = record(list(record(input).data)[0])
+  const data = record(input).data
+  // `/song/url/v1` answers with an array; `/song/download/url/v1` answers with one object.
+  const item = record(Array.isArray(data) ? data[0] : data)
   const url = pickText(item, 'url')
   if (!url) return null
   const expirySeconds = pickNumber(item, 'expi')
@@ -496,8 +497,4 @@ export function normalizeHotSearchItems(input: unknown): MusicHotSearchItem[] {
 export function normalizeDefaultKeyword(input: unknown): string {
   const data = record(record(input).data)
   return pickText(data, 'realkeyword', 'showKeyword')
-}
-
-export function normalizePage<T>(items: T[], total: number, offset: number): MusicPage<T> {
-  return { items, total, hasMore: offset + items.length < total }
 }

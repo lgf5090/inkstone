@@ -14,6 +14,7 @@ export type NeteaseCookieInput = string | Record<string, string>
 export const NETEASE_TIMEOUT_MS = 8_000
 const MAX_REDIRECTS = 3
 const MAX_ERROR_BODY = 500
+const RETRY_DELAY_MS = 250
 
 const MUSIC_DOMAIN = 'https://music.163.com'
 const API_DOMAIN = 'https://interface.music.163.com'
@@ -208,6 +209,13 @@ async function readResponse(response: Response): Promise<NeteaseResponse> {
   return { ok: true, status: response.status, body: parsed, cookie, error: '' }
 }
 
+function describeFetchError(error: unknown): Error {
+  if (!(error instanceof Error)) return new Error(String(error))
+  const cause = (error as { cause?: { code?: string; message?: string } }).cause
+  const detail = cause?.code || cause?.message
+  return new Error(detail ? `${error.message}: ${detail}` : error.message)
+}
+
 async function send(
   url: string,
   init: RequestInit,
@@ -220,11 +228,13 @@ async function send(
       const response = await fetchWithTimeout(url, init, timeoutMs)
       if (response.status >= 500 && attempt < retries) {
         await response.body?.cancel()
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
         continue
       }
       return response
     } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error))
+      lastError = describeFetchError(error)
+      if (attempt < retries) await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
     }
   }
   return lastError ?? new Error('Netease request failed')
@@ -253,7 +263,7 @@ export async function requestNetease(
   } else {
     headers.Cookie = cookieToString(cookie)
     headers['User-Agent'] = options.userAgent || WEAPI_UA
-    payload = encodeBody(mode, path, body)
+    payload = encodeBody(mode, path, { ...body, csrf_token: cookie.__csrf || '' })
   }
   headers['Content-Type'] = 'application/x-www-form-urlencoded'
 

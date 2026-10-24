@@ -154,15 +154,12 @@ export const neteaseEndpoints = {
     return call('/api/song/enhance/player/url/v1', 'eapi', body)
   },
 
-  songDownloadUrl: (input: NeteaseSongUrlInput) => {
-    const body: Record<string, unknown> = {
-      ids: numericIds(input.ids),
+  songDownloadUrl: (input: NeteaseSongUrlInput) =>
+    call('/api/song/enhance/download/url/v1', 'eapi', {
+      id: numericIds(input.ids).slice(1, -1),
       level: input.level,
-      encodeType: input.encodeType || 'flac',
-    }
-    if (input.level === 'sky') body.immerseType = 'c51'
-    return call('/api/song/enhance/download/url/v1', 'eapi', body)
-  },
+      immerseType: 'c51',
+    }),
 
   lyric: (providerId: string) =>
     call('/api/song/lyric/v1', 'eapi', {

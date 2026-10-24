@@ -68,8 +68,8 @@ export function normalizeMusicPage(value: unknown, fallback = 1): number {
 /** A page size from a query string. `fallback` is clamped too, so a bad default cannot exceed the cap. */
 export function normalizeMusicLimit(
   value: unknown,
-  fallback = MUSIC_LIMITS.libraryPageSize,
-  max = MUSIC_PAGE_LIMIT_MAX,
+  fallback: number = MUSIC_LIMITS.libraryPageSize,
+  max: number = MUSIC_PAGE_LIMIT_MAX,
 ): number {
   const ceiling = Math.max(1, Math.trunc(max))
   const parsed = toInteger(value)
@@ -860,7 +860,8 @@ export class MusicStore {
       this.db.prepare(`UPDATE music_playlist SET updated_at = ?3 WHERE user_id = ?1 AND id = ?2`)
         .bind(this.userId, playlistId, Date.now()),
     )
-    return this.runStatements(statements)
+    // The playlist timestamp bumps too; the caller asked how many items moved.
+    return Math.max(0, (await this.runStatements(statements)) - 1)
   }
 
   // Favourites ---------------------------------------------------------------------------------
@@ -1020,7 +1021,7 @@ export class MusicStore {
     return toRecent(row)
   }
 
-  async listRecent(limit = MUSIC_RECENT_LIMIT): Promise<MusicRecentEntry[]> {
+  async listRecent(limit: number = MUSIC_RECENT_LIMIT): Promise<MusicRecentEntry[]> {
     const capped = Math.max(1, Math.min(MUSIC_RECENT_LIMIT, Math.trunc(limit)))
     const { results } = await this.db.prepare(
       `SELECT user_id, id, kind, provider_id, name, cover_url, last_played_at, play_count

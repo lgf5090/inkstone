@@ -35,6 +35,11 @@ export interface MusicPageQuery {
   offset: number
 }
 
+/** A page whose next request is addressed by the upstream's own cursor rather than an offset. */
+export interface MusicCursorPage<T> extends MusicPage<T> {
+  cursor: number
+}
+
 export interface MusicSearchQuery extends MusicPageQuery {
   type: MusicSearchType
   keywords: string
@@ -173,7 +178,7 @@ export interface MusicProvider {
 
   songDetail(providerIds: string[]): Promise<MusicTrack[]>
 
-  playlists(query: MusicPlaylistQuery): Promise<MusicPage<MusicPlaylistSummary>>
+  playlists(query: MusicPlaylistQuery): Promise<MusicCursorPage<MusicPlaylistSummary>>
   playlistCategories(): Promise<MusicPlaylistCategory[]>
   playlist(providerId: string, page: MusicPageQuery): Promise<MusicPlaylistDetail>
 

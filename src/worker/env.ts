@@ -50,6 +50,12 @@ export interface Env {
   AI_CONNECT_HOSTS?: string
 
   /**
+   * A public HTTPS base for a self-hosted Netease API, used when the native client cannot reach the
+   * upstream from this deployment. Optional: unset keeps every request on the native path.
+   */
+  MUSIC_UPSTREAM_API?: string
+
+  /**
    * The bare domain Email Routing delivers to this Worker, as in `mail.example.com`. Optional: with
    * it unset no address can be formed, so the mail-token routes answer 503 and inbound mail is
    * dropped. Set it as a plain variable, not a secret — it is printed in every address.

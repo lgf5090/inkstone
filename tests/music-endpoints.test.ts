@@ -1,6 +1,7 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { ALL_CATEGORIES, neteaseEndpoints } from '../src/worker/music/providers/netease/endpoints'
+import { ExternalNeteaseProvider } from '../src/worker/music/providers/netease/external'
 import {
   normalizeAccount,
   normalizeAlbumDetail,
@@ -46,9 +47,10 @@ describe('netease endpoint builders', () => {
       encodeType: 'flac',
     })
     expect(neteaseEndpoints.songUrl({ ids: ['1'], level: 'sky' }).body.immerseType).toBe('c51')
-    expect(neteaseEndpoints.songDownloadUrl({ ids: ['1'], level: 'lossless', encodeType: 'aac' }).body).toMatchObject({
+    expect(neteaseEndpoints.songDownloadUrl({ ids: ['1'], level: 'lossless', encodeType: 'aac' }).body).toEqual({
+      id: '1',
       level: 'lossless',
-      encodeType: 'aac',
+      immerseType: 'c51',
     })
   })
 
@@ -313,6 +315,44 @@ describe('netease normalization', () => {
       freeTrial: true,
     })
     expect(source?.expiresAt).toBeGreaterThan(Date.now())
+    expect(
+      normalizeStreamSource({ data: { url: 'https://m701.music.126.net/b.flac', expi: 60, type: 'flac' } }, 'lossless'),
+    ).toMatchObject({ url: 'https://m701.music.126.net/b.flac', format: 'flac' })
     expect(normalizeStreamSource({ data: [{ url: null }] }, 'exhigh')).toBeNull()
+  })
+})
+
+
+describe('external upstream adapter', () => {
+  it('maps a search to /cloudsearch and normalizes the answer', async () => {
+    const calls: URL[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+      const url = input instanceof URL ? input : typeof input === 'string' ? new URL(input) : new URL(input.url)
+      calls.push(url)
+      return new Response(
+        JSON.stringify({
+          code: 200,
+          result: { songs: [{ id: 7, name: 'Remote', ar: [{ id: 1, name: 'A' }], dt: 1000 }], songCount: 1 },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )
+    })
+    try {
+      const provider = new ExternalNeteaseProvider({ baseUrl: 'https://ncm.example.com' })
+      const result = await provider.search({ keywords: 'remote', type: 'song', limit: 10, offset: 0 })
+      expect(calls[0].pathname).toBe('/cloudsearch')
+      expect(calls[0].searchParams.get('keywords')).toBe('remote')
+      expect(calls[0].searchParams.get('type')).toBe('1')
+      expect(calls[0].searchParams.get('device')).toBe('web')
+      expect(result.tracks[0]).toMatchObject({ providerId: '7', title: 'Remote', provider: 'netease' })
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('rejects a non-HTTPS upstream at construction', () => {
+    expect(() => new ExternalNeteaseProvider({ baseUrl: 'http://ncm.example.com' })).toThrow(
+      'MUSIC_UPSTREAM_API must use HTTPS',
+    )
   })
 })
