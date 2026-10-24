@@ -177,14 +177,9 @@ export function SleepTimer({ className }: SleepTimerProps): ReactElement {
     <section aria-label={musicText('music.sleep.title')} className={cn('flex flex-col gap-3', className)}>
       <header className="flex items-start gap-2">
         <Timer size={15} aria-hidden="true" className="mt-0.5 shrink-0 text-[var(--text-tertiary)]" />
-        <div className="min-w-0">
-          <h3 className="text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">
-            {musicText('music.sleep.title')}
-          </h3>
-          <p className="mt-0.5 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">
-            {musicText('music.sleep.description')}
-          </p>
-        </div>
+        <p className="min-w-0 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">
+          {musicText('music.sleep.description')}
+        </p>
       </header>
 
       {remaining !== null && (

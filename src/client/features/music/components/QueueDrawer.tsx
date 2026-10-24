@@ -17,6 +17,7 @@ import { formatDuration, musicArtistNames } from '@shared/music/format'
 import type { MusicTrack } from '@shared/music/model'
 import { Button, IconButton } from '../../../components/primitives'
 import { Drawer } from '../../../components/overlay'
+import { Z_INDEX } from '../../../lib/z-index'
 import { Empty } from '../../../components/feedback'
 import { navigateToAddress } from '../../../lib/app-history'
 import { useMusicPlayer } from '../store/player'
@@ -76,6 +77,7 @@ export function QueueDrawer(): ReactElement {
       side="right"
       width={320}
       title={musicText('music.queue.title')}
+      zIndex={Z_INDEX.workspace}
     >
       {queue.tracks.length === 0 ? (
         <Empty

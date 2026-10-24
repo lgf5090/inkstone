@@ -2485,6 +2485,26 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          ON music_mount(user_id, created_at, id)`,
     ],
   },
+  {
+    // A cover the reader uploaded lives beside the audio, not in the playlist row: the R2 key is
+    // what the media route reads, while `cover_url` is the address the page renders.
+    version: 167,
+    skipIfColumnExists: { table: 'music_playlist', column: 'cover_key' },
+    statements: [
+      `ALTER TABLE music_playlist ADD COLUMN cover_key TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
+  {
+    // Sharing is a slug rather than a boolean so a link can be rotated and revoked independently.
+    // The partial unique index keeps every generated address global while unshared rows stay NULL.
+    version: 168,
+    skipIfColumnExists: { table: 'music_playlist', column: 'share_slug' },
+    statements: [
+      `ALTER TABLE music_playlist ADD COLUMN share_slug TEXT`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_music_playlist_share
+         ON music_playlist(share_slug) WHERE share_slug IS NOT NULL`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

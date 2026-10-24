@@ -8,13 +8,14 @@
  * the player queued, which remains the list the pressed row came from.
  */
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
-import { LocateFixed, Play, Rows3, Search } from 'lucide-react'
+import { LocateFixed, MoreHorizontal, Play, Rows3, Search } from 'lucide-react'
 import { musicArtistNames } from '@shared/music/format'
 import { Button, IconButton } from '../../../components/primitives'
 import { Input } from '../../../components/form'
 import { navigateToAddress } from '../../../lib/app-history'
 import { musicApi } from '../api'
 import { Pager } from '../components/Pager'
+import { PlaylistMenu } from '../components/PlaylistMenu'
 import { SongList } from '../components/SongList'
 import { musicText } from '../components/labels'
 import { useMusicQuery } from '../query'
@@ -38,7 +39,10 @@ export function PlaylistPage({ id }: PlaylistPageProps): ReactElement {
   const recentRecorded = useRef<string | null>(null)
   const current = useMusicPlayer(selectCurrentTrack)
   const localPlaylists = useMusicLibrary((state) => state.playlists)
-  const provider = localPlaylists.some((playlist) => playlist.id === id) ? 'local' : 'netease'
+  const localPlaylist = localPlaylists.find((playlist) => playlist.id === id) ?? null
+  // A Netease playlist id is numeric; a local one is a generated 26-character id. This keeps a
+  // deep link correct on the first render, before the library store has answered.
+  const provider = localPlaylist ? 'local' : /^\d+$/.test(id) ? 'netease' : 'local'
   const query = useMusicQuery(
     () => musicApi.playlist(id, provider, page, PAGE_SIZE),
     [id, page, provider],
@@ -98,12 +102,13 @@ export function PlaylistPage({ id }: PlaylistPageProps): ReactElement {
   }
 
   const pageCount = Math.max(1, Math.ceil(detail.total / PAGE_SIZE))
+  const shown = localPlaylist ?? detail.playlist
   const meta = (
     <>
       {detail.playlist.creator && (
         <span>{musicText('music.playlist.creator', { name: detail.playlist.creator })}</span>
       )}
-      <span>{musicText('music.common.track_count', { count: detail.playlist.trackCount })}</span>
+      <span>{musicText('music.common.track_count', { count: shown.trackCount })}</span>
     </>
   )
 
@@ -115,20 +120,35 @@ export function PlaylistPage({ id }: PlaylistPageProps): ReactElement {
 
       <DetailHero
         key={id}
-        coverSrc={detail.playlist.coverUrl}
+        coverSrc={shown.coverUrl}
         eyebrow={musicText('music.playlist.eyebrow')}
-        title={detail.playlist.name}
+        title={shown.name}
         meta={meta}
-        description={detail.playlist.description}
+        description={shown.description}
         actions={(
-          <Button
-            variant="primary"
-            icon={<Play size={14} />}
-            disabled={tracks.length === 0}
-            onClick={() => playTracks(tracks)}
-          >
-            {musicText('music.common.play_all')}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="primary"
+              icon={<Play size={14} />}
+              disabled={tracks.length === 0}
+              onClick={() => playTracks(tracks)}
+            >
+              {musicText('music.common.play_all')}
+            </Button>
+            {localPlaylist && (
+              <PlaylistMenu
+                playlist={localPlaylist}
+                onDeleted={() => navigateToAddress('/music/playlists')}
+                onChanged={query.reload}
+              >
+                {(trigger) => (
+                  <Button variant="secondary" icon={<MoreHorizontal size={14} />} {...trigger}>
+                    {musicText('music.playlist.more')}
+                  </Button>
+                )}
+              </PlaylistMenu>
+            )}
+          </div>
         )}
       />
 

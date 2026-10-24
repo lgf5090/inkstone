@@ -100,16 +100,23 @@ function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-async function musicRequest<T>(path: string, init?: RequestInit): Promise<T> {
+interface MusicRequestInit extends RequestInit {
+  /** Sent as the body instead of JSON; the browser supplies the multipart boundary. */
+  formData?: FormData
+}
+
+async function musicRequest<T>(path: string, init?: MusicRequestInit): Promise<T> {
+  const { formData, ...rest } = init ?? {}
   const headers: Record<string, string> = {
     [CLIENT_HEADER]: '1',
     Accept: 'application/json',
   }
-  if (init?.body !== undefined && init.body !== null) headers['Content-Type'] = 'application/json'
+  if (rest.body !== undefined && rest.body !== null) headers['Content-Type'] = 'application/json'
   const response = await fetch(path, {
     credentials: 'same-origin',
-    ...init,
-    headers: { ...headers, ...(init?.headers as Record<string, string> | undefined) },
+    ...rest,
+    ...(formData ? { body: formData } : {}),
+    headers: { ...headers, ...(rest.headers as Record<string, string> | undefined) },
   })
   if (!response.ok) {
     // Reading the body is diagnostic only: a failure to read it must not hide the status.
@@ -155,6 +162,17 @@ function recentId(input: MusicRecentInput): string {
   return `${input.kind}:${input.providerId}`
 }
 
+/** Pinned playlists lead, then the shelf order the server keeps; pinning should move a row now. */
+function orderedPlaylists(list: readonly MusicPlaylist[]): MusicPlaylist[] {
+  return [...list].sort((left, right) => {
+    const leftPin = left.pinnedAt ?? 0
+    const rightPin = right.pinnedAt ?? 0
+    if (leftPin !== rightPin) return rightPin - leftPin
+    if (left.sortOrder !== right.sortOrder) return left.sortOrder - right.sortOrder
+    return left.createdAt - right.createdAt
+  })
+}
+
 function touchedRecent(list: readonly MusicRecentEntry[], input: MusicRecentInput, at: number): MusicRecentEntry[] {
   const id = recentId(input)
   const existing = list.find((entry) => entry.id === id)
@@ -196,8 +214,11 @@ export interface MusicLibraryState {
   recordHistory: (input: MusicHistoryInput) => Promise<void>
   touchRecent: (input: MusicRecentInput) => Promise<void>
   createPlaylist: (input: MusicLibraryPlaylistInput) => Promise<MusicPlaylist | null>
-  updatePlaylist: (id: string, patch: { name?: string; description?: string }) => Promise<void>
-  deletePlaylist: (id: string) => Promise<void>
+  updatePlaylist: (id: string, patch: { name?: string; description?: string; coverUrl?: string; pinned?: boolean }) => Promise<boolean>
+  deletePlaylist: (id: string) => Promise<boolean>
+  sharePlaylist: (id: string, shared: boolean) => Promise<string | null>
+  uploadPlaylistCover: (id: string, cover: Blob, filename?: string) => Promise<void>
+  removePlaylistCover: (id: string) => Promise<void>
   addPlaylistTracks: (id: string, tracks: readonly MusicTrack[]) => Promise<void>
   removePlaylistTrack: (id: string, trackId: string) => Promise<void>
   requestDownload: (
@@ -407,9 +428,18 @@ export const useMusicLibrary = create<MusicLibraryState>((set, get) => ({
   async updatePlaylist(id, patch) {
     const before = get().playlists
     const optimistic = before.map((playlist) => (
-      playlist.id === id ? { ...playlist, ...patch, updatedAt: Date.now() } : playlist
+      playlist.id === id
+        ? {
+            ...playlist,
+            ...(patch.name === undefined ? {} : { name: patch.name }),
+            ...(patch.description === undefined ? {} : { description: patch.description }),
+            ...(patch.coverUrl === undefined ? {} : { coverUrl: patch.coverUrl }),
+            ...(patch.pinned === undefined ? {} : { pinnedAt: patch.pinned ? Date.now() : null }),
+            updatedAt: Date.now(),
+          }
+        : playlist
     ))
-    set({ playlists: optimistic, error: null, errorDetail: null })
+    set({ playlists: orderedPlaylists(optimistic), error: null, errorDetail: null })
     try {
       const answer = await musicRequest<PlaylistAnswer | MusicPlaylist>(
         `${ENDPOINTS.playlists}/${encodeURIComponent(id)}`,
@@ -417,10 +447,80 @@ export const useMusicLibrary = create<MusicLibraryState>((set, get) => ({
       )
       const playlist = unwrapPlaylist(answer)
       if (playlist) {
-        set({ playlists: get().playlists.map((entry) => (entry.id === id ? playlist : entry)) })
+        set({
+          playlists: orderedPlaylists(get().playlists.map((entry) => (entry.id === id ? playlist : entry))),
+        })
       }
+      return true
     } catch (error) {
       set({ playlists: before, error: MUSIC_LIBRARY_ERROR_KEYS.playlist, errorDetail: describe(error) })
+      return false
+    }
+  },
+
+  async sharePlaylist(id, shared) {
+    try {
+      if (shared) {
+        const answer = await musicRequest<{ playlist: MusicPlaylist; url: string }>(
+          `${ENDPOINTS.playlists}/${encodeURIComponent(id)}/share`,
+          { method: 'POST' },
+        )
+        set({
+          playlists: get().playlists.map((entry) => (entry.id === id ? answer.playlist : entry)),
+          error: null,
+          errorDetail: null,
+        })
+        return answer.url
+      }
+      const answer = await musicRequest<{ playlist: MusicPlaylist }>(
+        `${ENDPOINTS.playlists}/${encodeURIComponent(id)}/share`,
+        { method: 'DELETE' },
+      )
+      set({
+        playlists: get().playlists.map((entry) => (entry.id === id ? answer.playlist : entry)),
+        error: null,
+        errorDetail: null,
+      })
+      return null
+    } catch (error) {
+      set({ error: MUSIC_LIBRARY_ERROR_KEYS.playlist, errorDetail: describe(error) })
+      throw error
+    }
+  },
+
+  async uploadPlaylistCover(id, cover, filename) {
+    try {
+      const form = new FormData()
+      form.append('cover', cover, filename ?? 'cover')
+      const answer = await musicRequest<{ playlist: MusicPlaylist }>(
+        `${ENDPOINTS.playlists}/${encodeURIComponent(id)}/cover`,
+        { method: 'POST', formData: form },
+      )
+      set({
+        playlists: get().playlists.map((entry) => (entry.id === id ? answer.playlist : entry)),
+        error: null,
+        errorDetail: null,
+      })
+    } catch (error) {
+      set({ error: MUSIC_LIBRARY_ERROR_KEYS.playlist, errorDetail: describe(error) })
+      throw error
+    }
+  },
+
+  async removePlaylistCover(id) {
+    try {
+      const answer = await musicRequest<{ playlist: MusicPlaylist }>(
+        `${ENDPOINTS.playlists}/${encodeURIComponent(id)}/cover`,
+        { method: 'DELETE' },
+      )
+      set({
+        playlists: get().playlists.map((entry) => (entry.id === id ? answer.playlist : entry)),
+        error: null,
+        errorDetail: null,
+      })
+    } catch (error) {
+      set({ error: MUSIC_LIBRARY_ERROR_KEYS.playlist, errorDetail: describe(error) })
+      throw error
     }
   },
 
@@ -432,8 +532,10 @@ export const useMusicLibrary = create<MusicLibraryState>((set, get) => ({
         `${ENDPOINTS.playlists}/${encodeURIComponent(id)}`,
         { method: 'DELETE' },
       )
+      return true
     } catch (error) {
       set({ playlists: before, error: MUSIC_LIBRARY_ERROR_KEYS.playlist, errorDetail: describe(error) })
+      return false
     }
   },
 

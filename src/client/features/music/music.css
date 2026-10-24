@@ -54,6 +54,17 @@
   color: var(--text-tertiary);
 }
 
+/* A column is also the honest shape when the assistant dock narrows the page at tablet widths:
+   the viewport may be 768px wide while the header only has 380px to work with. */
+@media (max-width: 1279px) {
+  /* The doubled class outranks the base rule even when a hot-reloaded copy of it lands later. */
+  .music-section-header.music-section-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--sp-2);
+  }
+}
+
 @media (max-width: 767px) {
   .music-section-header__title {
     font-size: var(--text-18);
@@ -1322,7 +1333,14 @@
   background: var(--heat-4);
 }
 
-@media (min-width: 1024px) {
+/* Fifty-three weeks need roughly 900px before a cell stops being a dot. The box is the one that
+   knows: a tablet with the assistant dock open is narrower than its viewport, so a media query
+   would stretch the grid into unreadable slivers. */
+.music-heatmap-shell {
+  container-type: inline-size;
+}
+
+@container (min-width: 900px) {
   .music-heatmap--fill {
     flex: 1 1 0;
     min-width: 0;

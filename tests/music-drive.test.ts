@@ -16,11 +16,12 @@ import type { AppBindings, Env } from '../src/worker/env'
 import { errorResponse } from '../src/worker/lib/errors'
 import { MusicStore } from '../src/worker/music/store'
 import { musicRoutes } from '../src/worker/routes/music'
-import { testBindings } from './doubles/bindings'
+import { testBindings, testR2Bucket, type TestR2Bucket } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
 
-const OWNER = 'user-owner'
-const MEMBER = 'user-member'
+// Generated-id shape: R2 keys and the media routes refuse arbitrary account labels.
+const OWNER = 'a'.repeat(26)
+const MEMBER = 'b'.repeat(26)
 /** A generated-id shape, because the vault scopes a credential by a valid id. */
 const TARGET = 't'.repeat(26)
 const DAV = 'https://dav.example.com'
@@ -95,14 +96,17 @@ let sqlite: DatabaseSync
 let db: D1Database
 let env: Env
 let store: MusicStore
+let bucket: TestR2Bucket
 
 beforeEach(async () => {
   sqlite = new DatabaseSync(':memory:')
   for (const statement of SCHEMA_STATEMENTS) sqlite.exec(statement)
   db = makeD1(sqlite)
   vaultValues.clear()
+  bucket = testR2Bucket()
   env = testBindings(db, {
     CREDENTIAL_VAULT: vault as unknown as Env['CREDENTIAL_VAULT'],
+    FILES: bucket,
   })
   sqlite.prepare(
     `INSERT INTO backup_targets (id, user_id, type, name, enabled, config, secret, created_at, updated_at)
@@ -333,6 +337,23 @@ describe('webdav delete', () => {
     const response = await send('/api/music/drive/webdav/object?path=song.mp3', { method: 'DELETE' })
     expect(await json(response)).toEqual({ ok: true, removed: true })
   })
+
+  it('deletes a selection in one call and reports the missing path', async () => {
+    vi.stubGlobal('fetch', async (input: URL | string) => {
+      const url = new URL(String(input))
+      return new Response(null, { status: url.pathname.endsWith('missing.mp3') ? 404 : 204 })
+    })
+    const response = await send('/api/music/drive/webdav/delete', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ paths: ['Album/gone.mp3', 'Album/missing.mp3'] }),
+    })
+    expect(response.status).toBe(200)
+    expect(await json(response)).toEqual({
+      removed: ['Album/gone.mp3'],
+      skipped: [{ path: 'Album/missing.mp3', reason: 'missing' }],
+    })
+  })
 })
 
 describe('webdav stream', () => {
@@ -523,6 +544,41 @@ describe('alist mounts', () => {
     expect(rangeSeen).toBe('bytes=0-41')
   })
 
+  it('uploads into the current folder and deletes a remote file', async () => {
+    const mount = await createMount()
+    const calls: Array<{ url: string; method: string; path: string | null; body: unknown }> = []
+    vi.stubGlobal('fetch', async (input: URL | string, init: RequestInit = {}) => {
+      const url = String(input)
+      calls.push({
+        url,
+        method: init.method ?? 'GET',
+        path: (init.headers as Record<string, string> | undefined)?.['File-Path'] ?? null,
+        body: typeof init.body === 'string' ? JSON.parse(init.body) : null,
+      })
+      if (url.endsWith('/api/fs/get')) return Response.json({ code: 500, message: 'not found' }, { status: 500 })
+      return Response.json({ code: 200 })
+    })
+
+    const form = new FormData()
+    form.append('file', new File([new Uint8Array(42)], 'upload.mp3', { type: 'audio/mpeg' }))
+    const uploaded = await send(`/api/music/drive/alist/${mount.id}/upload?path=Album`, { method: 'POST', body: form })
+    expect(uploaded.status).toBe(201)
+    expect(await json<{ path: string; size: number }>(uploaded)).toEqual({ path: 'Album/upload.mp3', size: 42 })
+    const put = calls.find((call) => call.url.endsWith('/api/fs/put'))
+    expect(put?.method).toBe('PUT')
+    expect(put?.path).toBe(encodeURIComponent('/music/Album/upload.mp3'))
+
+    const removed = await send(`/api/music/drive/alist/${mount.id}/delete`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ paths: ['Album/upload.mp3'] }),
+    })
+    expect(removed.status).toBe(200)
+    expect(await json(removed)).toEqual({ removed: ['Album/upload.mp3'], skipped: [] })
+    const remove = calls.find((call) => call.url.endsWith('/api/fs/remove'))
+    expect(remove?.body).toEqual({ dir: '/music/Album', names: ['upload.mp3'] })
+  })
+
   it('refuses unsafe addresses and lets the owner delete a mount', async () => {
     const bad = await send('/api/music/drive/alist', {
       method: 'POST',
@@ -537,5 +593,110 @@ describe('alist mounts', () => {
     const removed = await send(`/api/music/drive/alist/${mount.id}`, { method: 'DELETE' })
     expect(removed.status).toBe(200)
     expect(await store.listMounts()).toEqual([])
+  })
+})
+
+describe('r2 drive', () => {
+  const mp3 = new Uint8Array([0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+
+  async function uploadMp3(title = 'Direct'): Promise<{
+    track: { id: string; provider: string; r2Key: string | null; size: number | null }
+    entry: { key: string; title: string; size: number }
+  }> {
+    const form = new FormData()
+    form.append('file', new File([mp3], `${title.toLowerCase()}.mp3`, { type: 'audio/mpeg' }))
+    form.append('metadata', JSON.stringify({
+      title,
+      artists: ['Singer'],
+      album: 'Album',
+      durationMs: 1_200,
+      bitrate: 128_000,
+      lyrics: '',
+    }))
+    const response = await send('/api/music/drive/r2/upload', { method: 'POST', body: form })
+    expect(response.status).toBe(201)
+    return await json(response)
+  }
+
+  it('uploads one file, lists it and deletes its bytes with the track', async () => {
+    const uploaded = await uploadMp3()
+    expect(uploaded.track).toMatchObject({ provider: 'upload', size: 10 })
+    expect(uploaded.entry.key.startsWith('music/mp3/')).toBe(true)
+    expect(bucket.objects.has(uploaded.entry.key)).toBe(true)
+    expect(await store.quotaUsage()).toEqual({ bytes: 10, count: 1 })
+
+    const listed = await json<{ entries: Array<{ key: string; title: string; artists: string[] }> }>(
+      await send('/api/music/drive/r2'),
+    )
+    expect(listed.entries).toEqual([
+      expect.objectContaining({ key: uploaded.entry.key, title: 'Direct', artists: ['Singer'] }),
+    ])
+
+    const deleted = await json<{ removed: string[]; skipped: unknown[] }>(
+      await send('/api/music/drive/r2/delete', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ keys: [uploaded.entry.key] }),
+      }),
+    )
+    expect(deleted).toEqual({ removed: [uploaded.entry.key], skipped: [] })
+    expect(bucket.objects.has(uploaded.entry.key)).toBe(false)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM music_track WHERE user_id = ?').get(OWNER)).toEqual({ count: 0 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM music_object WHERE user_id = ?').get(OWNER)).toEqual({ count: 0 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM music_cleanup WHERE user_id = ?').get(OWNER)).toEqual({ count: 0 })
+  })
+
+  it('refuses a container that disagrees with the extension', async () => {
+    const form = new FormData()
+    form.append('file', new File([mp3], 'not-flac.flac', { type: 'audio/flac' }))
+    form.append('metadata', JSON.stringify({ title: 'Wrong' }))
+    const response = await send('/api/music/drive/r2/upload', { method: 'POST', body: form })
+    expect(response.status).toBe(415)
+    expect(bucket.objects.size).toBe(0)
+  })
+
+  it('deletes a download cache without deleting the track it came from', async () => {
+    const track = await store.upsertTrack({
+      provider: 'netease',
+      providerId: 'cache-1',
+      title: 'Cached song',
+      format: 'mp3',
+    })
+    const key = `music/mp3/${OWNER}/${track.id}-standard.mp3`
+    bucket.objects.set(key, new Uint8Array(5))
+    await store.registerObject({ r2Key: key, trackId: track.id, format: 'mp3', quality: 'standard', size: 5 })
+    const now = Date.now()
+    sqlite.prepare(
+      `INSERT INTO music_download
+         (user_id, id, track_id, quality, format, status, progress, r2_key, created_at, updated_at)
+       VALUES (?, ?, ?, 'standard', 'mp3', 'completed', 100, ?, ?, ?)`,
+    ).run(OWNER, 'download-1', track.id, key, now, now)
+
+    const deleted = await json<{ removed: string[]; skipped: unknown[] }>(
+      await send('/api/music/drive/r2/delete', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ keys: [key] }),
+      }),
+    )
+    expect(deleted).toEqual({ removed: [key], skipped: [] })
+    expect(bucket.objects.has(key)).toBe(false)
+    expect(await store.getTrack(track.id)).not.toBeNull()
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM music_download WHERE user_id = ?').get(OWNER)).toEqual({ count: 0 })
+  })
+
+  it('keeps one account from listing or deleting another account\'s object', async () => {
+    const uploaded = await uploadMp3()
+    const foreignList = await json<{ entries: unknown[] }>(await send('/api/music/drive/r2', {}, MEMBER))
+    expect(foreignList.entries).toEqual([])
+    const foreignDelete = await json<{ removed: string[]; skipped: Array<{ reason: string }> }>(
+      await send('/api/music/drive/r2/delete', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ keys: [uploaded.entry.key] }),
+      }, MEMBER),
+    )
+    expect(foreignDelete).toEqual({ removed: [], skipped: [{ path: uploaded.entry.key, reason: 'missing' }] })
+    expect(bucket.objects.has(uploaded.entry.key)).toBe(true)
   })
 })

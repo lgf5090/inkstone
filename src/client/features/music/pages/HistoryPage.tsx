@@ -3,7 +3,9 @@
  * entry that summarises them. Each tab owns its loader so a broken recent list cannot hide the songs.
  */
 import { useId, useMemo, useState, type ReactElement } from 'react'
-import { CalendarDays, Play, Trash2 } from 'lucide-react'
+import { Clock3, Flame, Play, Trash2, Trophy } from 'lucide-react'
+import type { MusicHistorySummary } from '@shared/music/api'
+import { cn } from '../../../lib/cn'
 import { formatDuration, musicArtistNames } from '@shared/music/format'
 import type { MusicRecentEntry, MusicTrack } from '@shared/music/model'
 import { Empty } from '../../../components/feedback'
@@ -20,13 +22,20 @@ import { Cover } from '../components/Cover'
 import { MusicTabs, type MusicTabItem } from '../components/Tabs'
 import { musicText } from '../components/labels'
 import { MediaCard } from './parts/P2MediaCard'
-import { ListeningHeatmap } from './parts/P2ListeningHeatmap'
+import {
+  ListeningHeatmap,
+  MUSIC_HEATMAP_PALETTES,
+  type MusicHeatmapPalette,
+} from './parts/P2ListeningHeatmap'
+import { MusicStatCard } from './parts/StatCard'
 import {
   PAGE_STACK,
   QueryError,
   formatDateTime,
   toastFailure,
 } from './parts/P2QueryState'
+import { getLocale } from '../../../lib/i18n'
+import { playTracks } from './parts/playback'
 import { useUi } from '../../../store/ui'
 
 type HistoryTab = 'songs' | 'playlists' | 'albums' | 'podcasts'
@@ -58,11 +67,79 @@ function matchesSource(track: MusicTrack, filter: SourceFilter): boolean {
   return filter === 'all' || sourceOf(track) === filter
 }
 
+const PALETTE_STORAGE_KEY = 'inkstone.music.heatmap.palette'
+
+function readPalette(): MusicHeatmapPalette {
+  try {
+    const stored = localStorage.getItem(PALETTE_STORAGE_KEY)
+    if (stored && (MUSIC_HEATMAP_PALETTES as readonly string[]).includes(stored)) {
+      return stored as MusicHeatmapPalette
+    }
+  } catch {
+    // Private mode or a blocked origin: the default palette still paints the card.
+  }
+  return 'green'
+}
+
+/** A card value has one line: the long local date is legible in a row, not in five columns. */
+function compactDay(value: string): string {
+  const [year, month, day] = value.split('-')
+  return year && month && day ? `${year}/${month}/${day}` : value
+}
+
+function compactDateTime(value: number): string {
+  return new Intl.DateTimeFormat(getLocale(), {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(value)
+}
+
+function Stats({ summary }: { summary: MusicHistorySummary }): ReactElement {
+  const top = summary.topTracks[0]
+  return (
+    <div className="grid gap-[var(--sp-3)] [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
+      <MusicStatCard
+        icon={<Play size={16} aria-hidden="true" />}
+        label={musicText('music.heatmap.total_plays')}
+        value={musicText('music.heatmap.plays', { count: summary.totalPlays })}
+      />
+      <MusicStatCard
+        icon={<Flame size={16} aria-hidden="true" />}
+        label={musicText('music.heatmap.active_days')}
+        value={musicText('music.heatmap.days', { count: summary.activeDays })}
+      />
+      <MusicStatCard
+        icon={<Trophy size={16} aria-hidden="true" />}
+        label={musicText('music.heatmap.top_track')}
+        value={top ? top.track.title : musicText('music.heatmap.no_value')}
+        hint={top ? musicText('music.heatmap.plays', { count: top.count }) : undefined}
+      />
+      <MusicStatCard
+        icon={<Flame size={16} aria-hidden="true" />}
+        label={musicText('music.heatmap.most_active_day')}
+        value={summary.mostActiveDay ? compactDay(summary.mostActiveDay.date) : musicText('music.heatmap.no_value')}
+        hint={summary.mostActiveDay
+          ? musicText('music.heatmap.plays', { count: summary.mostActiveDay.count })
+          : undefined}
+      />
+      <MusicStatCard
+        icon={<Clock3 size={16} aria-hidden="true" />}
+        label={musicText('music.heatmap.latest')}
+        value={summary.latest ? summary.latest.track.title : musicText('music.heatmap.no_value')}
+        hint={summary.latest ? compactDateTime(summary.latest.playedAt) : undefined}
+      />
+    </div>
+  )
+}
+
 export function HistoryPage(): ReactElement {
   const [tab, setTab] = useState<HistoryTab>('songs')
   const [source, setSource] = useState<SourceFilter>('all')
   const [clearing, setClearing] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [palette, setPalette] = useState<MusicHeatmapPalette>(readPalette)
   const headingId = useId()
 
   const historyQuery = useMusicQuery(() => musicApi.history(100), [])
@@ -107,9 +184,18 @@ export function HistoryPage(): ReactElement {
   ]
 
   const discoverHref = musicPathFor({ kind: 'home' })
-  const heatmapHref = musicPathFor({ kind: 'heatmap' })
   const summary = summaryQuery.data
   const canClear = (summary?.totalPlays ?? 0) > 0 && !clearing
+  const topTracks = summary?.topTracks.map((row) => row.track) ?? []
+
+  const choosePalette = (next: MusicHeatmapPalette): void => {
+    setPalette(next)
+    try {
+      localStorage.setItem(PALETTE_STORAGE_KEY, next)
+    } catch {
+      // The chosen palette still applies for this visit; persistence is the only thing lost.
+    }
+  }
 
   const clearHistory = async (): Promise<void> => {
     const approved = await confirm({
@@ -168,10 +254,11 @@ export function HistoryPage(): ReactElement {
           <Button
             variant="secondary"
             size="sm"
-            icon={<CalendarDays size={14} />}
-            onClick={() => navigateToAddress(heatmapHref)}
+            icon={<Trophy size={14} />}
+            disabled={topTracks.length === 0}
+            onClick={() => playTracks(topTracks)}
           >
-            {musicText('music.history.heatmap_open')}
+            {musicText('music.heatmap.play_top')}
           </Button>
           <Button
             variant="ghost"
@@ -187,19 +274,59 @@ export function HistoryPage(): ReactElement {
         </div>
       </header>
 
+      {summaryQuery.status === 'loading' && !summary ? (
+        <div className="grid gap-[var(--sp-3)] [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]" role="status" aria-busy="true" aria-label={musicText('common.loading')}>
+          {Array.from({ length: 5 }, (_, index) => (
+            <div key={index} className="h-[84px] rounded-[var(--r-lg)] bg-[var(--bg-sunken)]" />
+          ))}
+        </div>
+      ) : summary ? (
+        <Stats summary={summary} />
+      ) : null}
+
       <section
         aria-label={musicText('music.history.heatmap')}
         className="flex flex-col gap-[var(--sp-3)] rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-[var(--sp-4)]"
       >
-        <div>
-          <h2 className="font-[family-name:var(--font-display)] text-[length:var(--text-16)] font-semibold text-[var(--text-primary)]">
-            {musicText('music.history.heatmap')}
-          </h2>
-          <p className="mt-[var(--sp-1)] text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
-            {summary
-              ? musicText('music.history.heatmap_summary', { count: summary.totalPlays })
-              : musicText('common.loading')}
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-[var(--sp-3)]">
+          <div>
+            <h2 className="font-[family-name:var(--font-display)] text-[length:var(--text-16)] font-semibold text-[var(--text-primary)]">
+              {musicText('music.history.heatmap')}
+            </h2>
+            <p className="mt-[var(--sp-1)] text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
+              {summary
+                ? musicText('music.history.heatmap_summary', { count: summary.totalPlays })
+                : musicText('common.loading')}
+              {' · '}
+              {musicText('music.heatmap.description')}
+            </p>
+          </div>
+          <div
+            role="group"
+            aria-label={musicText('music.heatmap.palette')}
+            className="flex items-center gap-[var(--sp-2)]"
+          >
+            <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+              {musicText('music.heatmap.palette')}
+            </span>
+            {MUSIC_HEATMAP_PALETTES.map((value) => (
+              <button
+                key={value}
+                type="button"
+                aria-label={musicText(`music.heatmap.palette.${value}`)}
+                aria-pressed={palette === value}
+                onClick={() => choosePalette(value)}
+                className={cn(
+                  'music-heatmap-swatch music-heatmap size-6 rounded-full border-2 transition-transform duration-[var(--dur-fast)]',
+                  'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]',
+                  palette === value
+                    ? 'scale-110 border-[var(--text-primary)]'
+                    : 'border-transparent hover:scale-105',
+                  `music-heatmap--${value}`,
+                )}
+              />
+            ))}
+          </div>
         </div>
         {summaryQuery.status === 'error' && !summary ? (
           <QueryError
@@ -210,7 +337,14 @@ export function HistoryPage(): ReactElement {
         ) : summaryQuery.status === 'loading' && !summary ? (
           <div className="h-[120px] w-full rounded-[var(--r-sm)] bg-[var(--bg-sunken)]" aria-hidden="true" />
         ) : (
-          <ListeningHeatmap days={summary?.days ?? []} weeks={53} fill />
+          <>
+            <ListeningHeatmap days={summary?.days ?? []} weeks={53} palette={palette} fill />
+            {summary && summary.totalPlays === 0 && (
+              <p className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
+                {musicText('music.heatmap.empty_hint')}
+              </p>
+            )}
+          </>
         )}
       </section>
 

@@ -380,6 +380,89 @@ export async function fetchAlistStream(
   }
 }
 
+/**
+ * Write one file into a folder that already exists. The path goes in an encoded header because the
+ * Alist API reads it there; the body stays the raw bytes so a large file is never wrapped in JSON.
+ */
+export async function putAlistFile(
+  ctx: AlistContext,
+  rawPath: string,
+  bytes: Uint8Array,
+  mime: string,
+): Promise<void> {
+  const path = normalizeAlistPath(rawPath)
+  if (!path) throw ApiError.badRequest('Name a file path inside the mount.')
+  const url = new URL('api/fs/put', ctx.base)
+  if (url.origin !== ctx.base.origin || isPrivateHostname(url.hostname)) {
+    throw new ApiError(502, 'music_storage_unavailable', 'The Alist server asked for an address this app will not call.')
+  }
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 60_000)
+  let response: Response
+  try {
+    response = await fetch(url, {
+      method: 'PUT',
+      redirect: 'manual',
+      headers: {
+        Authorization: ctx.token,
+        'Content-Type': mime,
+        'File-Path': encodeURIComponent(joinAlistPath(ctx.root, path)),
+      },
+      body: bytes as BodyInit,
+      signal: controller.signal,
+    })
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new ApiError(502, 'music_storage_unavailable', 'The Alist server did not answer in time.')
+    }
+    console.warn('[inkstone] Alist upload failed:', error)
+    throw new ApiError(502, 'music_storage_unavailable', 'The Alist server could not be reached.')
+  } finally {
+    clearTimeout(timer)
+  }
+  if (response.status >= 300 && response.status < 400) {
+    await response.body?.cancel().catch(() => undefined)
+    throw new ApiError(502, 'music_storage_unavailable', 'The Alist server redirected this upload. Enter the final HTTPS address instead.')
+  }
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined)
+    if (response.status === 401 || response.status === 403) {
+      throw new ApiError(502, 'music_storage_unavailable', 'The Alist server refused the saved token. Edit the mount and try again.')
+    }
+    throw new ApiError(502, 'music_storage_unavailable', `The Alist server answered ${response.status}.`)
+  }
+  // Some builds answer 200 with an empty body; only a JSON envelope can carry a refusal.
+  const type = response.headers.get('content-type') ?? ''
+  if (!type.includes('json')) {
+    await response.body?.cancel().catch(() => undefined)
+    return
+  }
+  const parsed = await readJsonLimited(response).catch(() => null) as AlistResponse<unknown> | null
+  if (parsed && parsed.code !== undefined && parsed.code !== 200) {
+    throw new ApiError(502, 'music_storage_unavailable', parsed.message?.slice(0, 200) || 'The Alist server refused the upload.')
+  }
+}
+
+/** Remove one file; a missing file answers false rather than an error so a batch can finish. */
+export async function removeAlistFile(ctx: AlistContext, rawPath: string): Promise<boolean> {
+  const path = normalizeAlistPath(rawPath)
+  if (!path) throw ApiError.badRequest('Name a file inside the mount.')
+  const slash = path.lastIndexOf('/')
+  const dir = slash < 0 ? '' : path.slice(0, slash)
+  const name = path.slice(slash + 1)
+  if (!name) throw ApiError.badRequest('Name a file inside the mount.')
+  try {
+    await alistRequest(ctx, '/api/fs/remove', {
+      dir: joinAlistPath(ctx.root, dir),
+      names: [name],
+    })
+    return true
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return false
+    throw error
+  }
+}
+
 export async function testAlistMount(ctx: AlistContext): Promise<void> {
   await listAlistDirectory(ctx, '')
 }

@@ -32,6 +32,10 @@ import type {
   MusicUploadInit,
   MusicUploadPartResult,
   MusicUserProfile,
+  MusicPublicPlaylistPayload,
+  MusicDriveBatchResult,
+  MusicDriveR2Listing,
+  MusicDriveR2UploadResult,
 } from '@shared/music/api'
 import type {
   MusicAccount,
@@ -87,6 +91,15 @@ export const musicApi = {
   health: () => request<MusicHealth>('/api/music/health'),
 
   drive: () => request<MusicDriveSummary>('/api/music/drive'),
+  driveR2: () => request<MusicDriveR2Listing>('/api/music/drive/r2'),
+  driveR2Upload: (file: File, metadata: unknown) => {
+    const form = new FormData()
+    form.append('file', file, file.name)
+    form.append('metadata', JSON.stringify(metadata))
+    return request<MusicDriveR2UploadResult>('/api/music/drive/r2/upload', { method: 'POST', formData: form })
+  },
+  driveR2Delete: (keys: string[]) =>
+    request<MusicDriveBatchResult>('/api/music/drive/r2/delete', { method: 'POST', body: { keys } }),
   alistMounts: () => request<{ mounts: MusicMount[] }>('/api/music/drive/alist'),
   createAlistMount: (input: MusicAlistMountInput) =>
     request<{ mount: MusicMount }>('/api/music/drive/alist', { method: 'POST', body: input }),
@@ -100,6 +113,19 @@ export const musicApi = {
     request<{ mount: MusicMount, entries: MusicAlistEntry[] }>(`/api/music/drive/alist/${encodeURIComponent(id)}/search${query({ keywords })}`),
   alistImport: (id: string, paths: string[]) =>
     request<MusicDriveImportResult>(`/api/music/drive/alist/${encodeURIComponent(id)}/import`, {
+      method: 'POST',
+      body: { paths },
+    }),
+  alistUpload: (id: string, dir: string, file: File) => {
+    const form = new FormData()
+    form.append('file', file, file.name)
+    return request<MusicDriveUploadResult>(
+      `/api/music/drive/alist/${encodeURIComponent(id)}/upload${query({ path: dir })}`,
+      { method: 'POST', formData: form },
+    )
+  },
+  alistDelete: (id: string, paths: string[]) =>
+    request<MusicDriveBatchResult>(`/api/music/drive/alist/${encodeURIComponent(id)}/delete`, {
       method: 'POST',
       body: { paths },
     }),
@@ -121,6 +147,8 @@ export const musicApi = {
   },
   driveWebdavDelete: (path: string) =>
     request<MusicDriveDeleteResult>(`/api/music/drive/webdav/object${query({ path })}`, { method: 'DELETE' }),
+  driveWebdavDeleteMany: (paths: string[]) =>
+    request<MusicDriveBatchResult>('/api/music/drive/webdav/delete', { method: 'POST', body: { paths } }),
 
   home: () => request<MusicHome>('/api/music/home'),
   fm: () => request<{ tracks: MusicTrack[] }>('/api/music/home/fm'),
@@ -136,6 +164,8 @@ export const musicApi = {
   playlistCategories: () => request<{ items: Array<{ name: string; hot: boolean }> }>('/api/music/playlists/categories'),
   playlist: (id: string, provider: 'netease' | 'local' = 'netease', page = 1, limit = 100) =>
     request<MusicPlaylistDetail>(`/api/music/playlists/${encodeURIComponent(id)}${query({ provider, page, limit })}`),
+  publicPlaylist: (slug: string) =>
+    request<MusicPublicPlaylistPayload>(`/api/public/music/playlists/${encodeURIComponent(slug)}`),
 
   newAlbums: (area = 'ALL', page = 1, limit = 30) =>
     request<MusicPage<MusicAlbumSummary>>(`/api/music/albums/new${query({ area, page, limit })}`),
@@ -195,12 +225,14 @@ export const musicApi = {
   playlists: () => request<{ items: MusicPlaylist[] }>('/api/music/library/playlists'),
   createPlaylist: (name: string) =>
     request<MusicPlaylist>('/api/music/library/playlists', { method: 'POST', body: { name } }),
-  updatePlaylist: (id: string, patch: { name?: string; description?: string }) =>
+  updatePlaylist: (id: string, patch: { name?: string; description?: string; coverUrl?: string; pinned?: boolean }) =>
     request<MusicPlaylist>(`/api/music/library/playlists/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch }),
   deletePlaylist: (id: string) =>
     request<{ ok: true }>(`/api/music/library/playlists/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  playlistItems: (id: string) =>
-    request<{ items: MusicTrack[] }>(`/api/music/library/playlists/${encodeURIComponent(id)}/items`),
+  playlistItems: (id: string, page = 1, limit = 100) =>
+    request<{ items: MusicTrack[]; total: number; hasMore: boolean }>(
+      `/api/music/library/playlists/${encodeURIComponent(id)}/items${query({ page, limit })}`,
+    ),
   addPlaylistItems: (id: string, tracks: MusicTrack[]) =>
     request<{ items: MusicTrack[] }>(`/api/music/library/playlists/${encodeURIComponent(id)}/items`, {
       method: 'POST',

@@ -4,13 +4,14 @@
  * never repeats the title.
  */
 import { useState, type ComponentType, type ReactElement } from 'react'
-import { Cloud, Compass, Download, Flame, HardDrive, Heart, History, Library, ListMusic, ListOrdered, Plus, Radio, Search, Settings, Sparkles, UserRound, Video } from 'lucide-react'
+import { Cloud, Compass, Download, HardDrive, History, Library, ListMusic, ListOrdered, MoreHorizontal, Plus, Radio, Search, Settings, Sparkles, UserRound, Video } from 'lucide-react'
 import { cn } from '../../../lib/cn'
 import { Button, IconButton } from '../../../components/primitives'
 import { Input } from '../../../components/form'
 import { Modal } from '../../../components/overlay'
 import { navigateToAddress } from '../../../lib/app-history'
 import { musicText } from './labels'
+import { PlaylistMenu } from './PlaylistMenu'
 import { useMusicLibrary } from '../store/library'
 import type { MusicPlaylist } from '@shared/music/model'
 
@@ -28,13 +29,12 @@ const PRIMARY: readonly NavItem[] = [
   { path: '/music/toplists', labelKey: 'music.page.toplists', icon: ListOrdered },
   { path: '/music/mv', labelKey: 'music.page.mv', icon: Video },
   { path: '/music/podcast', labelKey: 'music.page.podcast', icon: Radio },
-  { path: '/music/favorites', labelKey: 'music.nav.library', icon: Library },
 ]
 
+/** One shelf per question: saved songs, what was played, what was fetched, what is stored. */
 const SHELF: readonly NavItem[] = [
+  { path: '/music/favorites', labelKey: 'music.page.favorites', icon: ListMusic },
   { path: '/music/history', labelKey: 'music.page.history', icon: History },
-  { path: '/music/heatmap', labelKey: 'music.page.heatmap', icon: Flame },
-  { path: '/music/favorites', labelKey: 'music.page.favorites', icon: Heart },
   { path: '/music/downloads', labelKey: 'music.page.downloads', icon: Download },
   { path: '/music/cloud', labelKey: 'music.nav.drive', icon: Cloud },
   { path: '/music/local', labelKey: 'music.page.local', icon: HardDrive },
@@ -81,26 +81,42 @@ function PlaylistLink({ playlist, current }: { playlist: MusicPlaylist; current:
   const path = `/music/playlist/${playlist.id}`
   const isActive = active(current, path)
   return (
-    <a
-      href={path}
-      aria-current={isActive ? 'page' : undefined}
-      onClick={(event) => {
-        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
-        event.preventDefault()
-        navigateToAddress(path)
+    <PlaylistMenu
+      playlist={playlist}
+      onDeleted={() => {
+        if (isActive) navigateToAddress('/music/playlists')
       }}
-      className={cn(
-        'flex min-h-8 items-center gap-2 rounded-[var(--r-sm)] px-2.5 text-[length:var(--text-12)]',
-        'transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)]',
-        'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]',
-        isActive
-          ? 'bg-[var(--bg-hover)] font-medium text-[var(--text-primary)]'
-          : 'text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
-      )}
     >
-      <ListMusic size={13} className="shrink-0" />
-      <span className="truncate">{playlist.name}</span>
-    </a>
+      {(trigger) => (
+        <div className="group/playlist relative flex min-w-0 items-center" onContextMenu={trigger.onContextMenu}>
+          <a
+            href={path}
+            aria-current={isActive ? 'page' : undefined}
+            onClick={(event) => {
+              if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+              event.preventDefault()
+              navigateToAddress(path)
+            }}
+            className={cn(
+              'flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-[var(--r-sm)] px-2.5 pe-8 text-[length:var(--text-12)]',
+              'transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+              'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]',
+              isActive
+                ? 'bg-[var(--bg-hover)] font-medium text-[var(--text-primary)]'
+                : 'text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+            )}
+          >
+            <ListMusic size={13} className="shrink-0" />
+            <span className="truncate">{playlist.name}</span>
+          </a>
+          <span className="absolute end-0.5 opacity-0 transition-opacity duration-[var(--dur-fast)] group-hover/playlist:opacity-100 group-focus-within/playlist:opacity-100">
+            <IconButton label={musicText('music.playlist.more')} size="xs" {...trigger}>
+              <MoreHorizontal size={13} />
+            </IconButton>
+          </span>
+        </div>
+      )}
+    </PlaylistMenu>
   )
 }
 

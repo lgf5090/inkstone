@@ -11,12 +11,26 @@ import { musicText } from './labels'
 
 const MAX_M3U_BYTES = 1024 * 1024
 
+type M3UAction = 'import' | 'paste' | 'export'
+
 export function M3UActions({
   tracks,
   className,
+  actions = ['import', 'paste', 'export'],
+  exportTracks,
+  downloadName = 'inkstone-music.m3u8',
+  importedKey = 'music.m3u.imported',
+  onImport,
 }: {
+  /** The pool a pasted or opened M3U is matched against. */
   tracks: readonly MusicTrack[]
   className?: string
+  actions?: readonly M3UAction[]
+  /** What the export writes; defaults to the same pool. */
+  exportTracks?: readonly MusicTrack[]
+  downloadName?: string
+  importedKey?: string
+  onImport?: (tracks: readonly MusicTrack[]) => Promise<void>
 }): ReactElement {
   const input = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
@@ -24,11 +38,11 @@ export function M3UActions({
   const [paste, setPaste] = useState('')
 
   const exportList = (): void => {
-    const blob = new Blob([buildM3U(tracks)], { type: 'audio/x-mpegurl;charset=utf-8' })
+    const blob = new Blob([buildM3U(exportTracks ?? tracks)], { type: 'audio/x-mpegurl;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
     anchor.href = url
-    anchor.download = 'inkstone-music.m3u8'
+    anchor.download = downloadName
     anchor.click()
     URL.revokeObjectURL(url)
   }
@@ -46,9 +60,22 @@ export function M3UActions({
       })
       return false
     }
-    for (const track of result.matched) useMusicPlayer.getState().appendToQueue(track)
+    if (onImport) {
+      try {
+        await onImport(result.matched)
+      } catch (error) {
+        useUi.getState().toast({
+          title: musicText('music.m3u.failed'),
+          description: error instanceof Error ? error.message : String(error),
+          tone: 'danger',
+        })
+        return false
+      }
+    } else {
+      for (const track of result.matched) useMusicPlayer.getState().appendToQueue(track)
+    }
     useUi.getState().toast({
-      title: musicText('music.m3u.imported', { count: result.matched.length }),
+      title: musicText(importedKey, { count: result.matched.length }),
       description: result.unmatched > 0
         ? musicText('music.m3u.unmatched', { count: result.unmatched })
         : undefined,
@@ -104,34 +131,40 @@ export function M3UActions({
         aria-hidden="true"
         onChange={(event) => { void importFile(event) }}
       />
-      <Button
-        variant="secondary"
-        size="sm"
-        icon={<FileUp size={13} />}
-        loading={busy}
-        disabled={tracks.length === 0}
-        onClick={() => input.current?.click()}
-      >
-        {musicText('music.m3u.import')}
-      </Button>
-      <Button
-        variant="secondary"
-        size="sm"
-        icon={<ClipboardPaste size={13} />}
-        disabled={tracks.length === 0}
-        onClick={() => setPasteOpen(true)}
-      >
-        {musicText('music.m3u.paste')}
-      </Button>
-      <Button
-        variant="secondary"
-        size="sm"
-        icon={<FileDown size={13} />}
-        disabled={tracks.length === 0}
-        onClick={exportList}
-      >
-        {musicText('music.m3u.export')}
-      </Button>
+      {actions.includes('import') && (
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={<FileUp size={13} />}
+          loading={busy}
+          disabled={tracks.length === 0}
+          onClick={() => input.current?.click()}
+        >
+          {musicText('music.m3u.import')}
+        </Button>
+      )}
+      {actions.includes('paste') && (
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={<ClipboardPaste size={13} />}
+          disabled={tracks.length === 0}
+          onClick={() => setPasteOpen(true)}
+        >
+          {musicText('music.m3u.paste')}
+        </Button>
+      )}
+      {actions.includes('export') && (
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={<FileDown size={13} />}
+          disabled={(exportTracks ?? tracks).length === 0}
+          onClick={exportList}
+        >
+          {musicText('music.m3u.export')}
+        </Button>
+      )}
 
       <Modal
         open={pasteOpen}
@@ -158,7 +191,7 @@ export function M3UActions({
               {musicText('common.cancel')}
             </Button>
             <Button variant="primary" size="sm" type="submit" loading={busy} disabled={!paste.trim()}>
-              {musicText('music.m3u.paste_action')}
+              {musicText(onImport ? 'music.m3u.paste_add_playlist' : 'music.m3u.paste_action')}
             </Button>
           </div>
         </form>

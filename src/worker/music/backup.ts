@@ -103,7 +103,7 @@ const SOURCE_OVERRIDE_CHUNK = 100
 const SUBSCRIPTION_CHUNK = 100
 const MOUNT_CHUNK = 100
 
-export type MusicBackupPlaylist = Omit<MusicPlaylist, 'trackCount'>
+export type MusicBackupPlaylist = Omit<MusicPlaylist, 'trackCount' | 'shareSlug'>
 
 /**
  * A cloud mount without its credential.

@@ -58,6 +58,7 @@ import { todoImportRoutes } from './routes/todo-import'
 import { todoFeedRoutes } from './routes/todo-feeds'
 import { emailRoutes } from './routes/email'
 import { musicRoutes } from './routes/music'
+import { musicSharePageRoutes, musicSharePublicRoutes } from './routes/music-share'
 import { emailSearchesRoutes } from './routes/email-searches'
 import { emailTemplatesRoutes } from './routes/email-templates'
 import { emailRulesRoutes } from './routes/email-rules'
@@ -106,6 +107,10 @@ export function createApp() {
     await next()
   })
   app.use('/authorize', async (c, next) => {
+    c.set('database', await initializeDatabase(c.env))
+    await next()
+  })
+  app.use('/m/*', async (c, next) => {
     c.set('database', await initializeDatabase(c.env))
     await next()
   })
@@ -200,6 +205,7 @@ export function createApp() {
   app.route('/api/share', shareCollectionRoutes)
   app.route('/api/share', shareManageRoutes)
   app.route('/api/public', publicCollectionRoutes)
+  app.route('/api/public/music', musicSharePublicRoutes)
   app.route('/api/public', shareRoutes)
   app.route('/api', transferRoutes)
 
@@ -212,6 +218,7 @@ export function createApp() {
 
 
   app.route('/s', sharePageRoutes)
+  app.route('/m', musicSharePageRoutes)
   app.route('/c', conversationSharePageRoutes)
   app.route('/collections', publicCollectionPageRoutes)
   app.route('/feeds', todoFeedRoutes)

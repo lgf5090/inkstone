@@ -128,6 +128,7 @@ export interface MusicPlaylistPatch {
   name?: string
   description?: string
   coverUrl?: string
+  coverKey?: string
   sortOrder?: number
 }
 
@@ -234,6 +235,17 @@ export interface MusicQuota {
   count: number
 }
 
+export interface MusicObjectSummary {
+  r2Key: string
+  trackId: string | null
+  size: number
+  format: string
+  createdAt: number
+  title: string | null
+  artists: MusicArtist[]
+  durationMs: number | null
+}
+
 export interface MusicTrackDeleteResult {
   deleted: boolean
   /** Object keys queued for R2 deletion; empty when another track or download still names them. */
@@ -272,17 +284,30 @@ interface TrackRow {
   updated_at: number
 }
 
+interface ObjectRow {
+  r2_key: string
+  track_id: string | null
+  size: number
+  format: string
+  created_at: number
+  title: string | null
+  artists: string | null
+  duration_ms: number | null
+}
+
 interface PlaylistRow {
   user_id: string
   id: string
   name: string
   description: string
   cover_url: string
+  cover_key: string
   provider: string
   provider_id: string
   kind: string
   sort_order: number
   pinned_at: number | null
+  share_slug: string | null
   created_at: number
   updated_at: number
   track_count?: number
@@ -469,9 +494,23 @@ function toPlaylist(row: PlaylistRow): MusicPlaylist {
     kind: row.kind as MusicPlaylist['kind'],
     sortOrder: row.sort_order,
     pinnedAt: row.pinned_at,
+    shareSlug: row.share_slug,
     trackCount: row.track_count ?? 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  }
+}
+
+function toObjectSummary(row: ObjectRow): MusicObjectSummary {
+  return {
+    r2Key: row.r2_key,
+    trackId: row.track_id,
+    size: row.size,
+    format: row.format,
+    createdAt: row.created_at,
+    title: row.title,
+    artists: row.artists ? parseArtists(row.artists) : [],
+    durationMs: row.duration_ms,
   }
 }
 
@@ -780,8 +819,9 @@ export class MusicStore {
 
   async listPlaylists(): Promise<MusicPlaylist[]> {
     const { results } = await this.db.prepare(
-      `SELECT p.user_id, p.id, p.name, p.description, p.cover_url, p.provider, p.provider_id,
-              p.kind, p.sort_order, p.pinned_at, p.created_at, p.updated_at,
+      `SELECT p.user_id, p.id, p.name, p.description, p.cover_url, p.cover_key, p.provider,
+              p.provider_id, p.kind, p.sort_order, p.pinned_at, p.share_slug, p.created_at,
+              p.updated_at,
               (SELECT COUNT(*) FROM music_playlist_item i
                 WHERE i.user_id = p.user_id AND i.playlist_id = p.id) AS track_count
          FROM music_playlist p
@@ -831,8 +871,9 @@ export class MusicStore {
          name = COALESCE(?3, name),
          description = COALESCE(?4, description),
          cover_url = COALESCE(?5, cover_url),
-         sort_order = COALESCE(?6, sort_order),
-         updated_at = ?7
+         cover_key = COALESCE(?6, cover_key),
+         sort_order = COALESCE(?7, sort_order),
+         updated_at = ?8
        WHERE user_id = ?1 AND id = ?2`,
     ).bind(
       this.userId,
@@ -840,6 +881,7 @@ export class MusicStore {
       patch.name ?? null,
       patch.description ?? null,
       patch.coverUrl ?? null,
+      patch.coverKey ?? null,
       patch.sortOrder ?? null,
       Date.now(),
     ).run()
@@ -861,6 +903,53 @@ export class MusicStore {
     ).bind(this.userId, id, pinned ? 1 : 0, now, now).run()
     if (!(result.meta.changes ?? 0)) return null
     return this.getPlaylist(id)
+  }
+
+  /** Set or clear the public slug. The caller generates it; this row is the only copy. */
+  async setPlaylistShare(id: string, slug: string | null): Promise<MusicPlaylist | null> {
+    const result = await this.db.prepare(
+      `UPDATE music_playlist SET share_slug = ?3, updated_at = ?4
+        WHERE user_id = ?1 AND id = ?2`,
+    ).bind(this.userId, id, slug, Date.now()).run()
+    if (!(result.meta.changes ?? 0)) return null
+    return this.getPlaylist(id)
+  }
+
+  /** Resolve a public address to its owner and playlist. No session is involved. */
+  async findPlaylistByShareSlug(slug: string): Promise<{ userId: string; playlist: MusicPlaylist } | null> {
+    const row = await this.db.prepare(
+      `SELECT p.user_id, p.id, p.name, p.description, p.cover_url, p.cover_key, p.provider,
+              p.provider_id, p.kind, p.sort_order, p.pinned_at, p.share_slug, p.created_at,
+              p.updated_at,
+              (SELECT COUNT(*) FROM music_playlist_item i
+                WHERE i.user_id = p.user_id AND i.playlist_id = p.id) AS track_count
+         FROM music_playlist p WHERE p.share_slug = ?1`,
+    ).bind(slug).first<PlaylistRow>()
+    if (!row) return null
+    return { userId: row.user_id, playlist: toPlaylist(row) }
+  }
+
+  /** The display fields a public shell needs; no owner id and no playlist contents leave this query. */
+  async getSharedPlaylistMeta(slug: string): Promise<{
+    name: string
+    description: string
+    coverUrl: string
+    coverKey: string
+  } | null> {
+    const row = await this.db.prepare(
+      `SELECT name, description, cover_url, cover_key FROM music_playlist WHERE share_slug = ?1`,
+    ).bind(slug).first<{ name: string; description: string; cover_url: string; cover_key: string }>()
+    return row
+      ? { name: row.name, description: row.description, coverUrl: row.cover_url, coverKey: row.cover_key }
+      : null
+  }
+
+  /** The uploaded cover key, kept off the public model because it is storage, not display. */
+  async getPlaylistCoverKey(id: string): Promise<string | null> {
+    const row = await this.db.prepare(
+      `SELECT cover_key FROM music_playlist WHERE user_id = ?1 AND id = ?2`,
+    ).bind(this.userId, id).first<{ cover_key: string }>()
+    return row?.cover_key || null
   }
 
   async deletePlaylist(id: string): Promise<boolean> {
@@ -1712,13 +1801,35 @@ export class MusicStore {
     return (await this.objectReferenceCount(r2Key)) > 0
   }
 
-  async listObjects(limit = 100): Promise<Array<{ r2Key: string; trackId: string | null; size: number }>> {
+  /** The download task that owns a cached object, when the object is a cache rather than an original. */
+  async findDownloadByObjectKey(r2Key: string): Promise<string | null> {
+    const row = await this.db.prepare(
+      `SELECT id FROM music_download WHERE user_id = ?1 AND r2_key = ?2 ORDER BY created_at LIMIT 1`,
+    ).bind(this.userId, r2Key).first<{ id: string }>()
+    return row?.id ?? null
+  }
+
+  async listObjects(limit = 100): Promise<MusicObjectSummary[]> {
     const capped = Math.max(1, Math.min(500, Math.trunc(limit)))
     const { results } = await this.db.prepare(
-      `SELECT r2_key, track_id, size FROM music_object
-        WHERE user_id = ?1 ORDER BY created_at, r2_key LIMIT ?2`,
-    ).bind(this.userId, capped).all<{ r2_key: string; track_id: string | null; size: number }>()
-    return results.map((row) => ({ r2Key: row.r2_key, trackId: row.track_id, size: row.size }))
+      `SELECT o.r2_key, o.track_id, o.size, o.format, o.created_at,
+              t.title, t.artists, t.duration_ms
+         FROM music_object o
+         LEFT JOIN music_track t ON t.user_id = o.user_id AND t.id = o.track_id
+        WHERE o.user_id = ?1 ORDER BY o.created_at DESC, o.r2_key DESC LIMIT ?2`,
+    ).bind(this.userId, capped).all<ObjectRow>()
+    return results.map(toObjectSummary)
+  }
+
+  async getObject(r2Key: string): Promise<MusicObjectSummary | null> {
+    const row = await this.db.prepare(
+      `SELECT o.r2_key, o.track_id, o.size, o.format, o.created_at,
+              t.title, t.artists, t.duration_ms
+         FROM music_object o
+         LEFT JOIN music_track t ON t.user_id = o.user_id AND t.id = o.track_id
+        WHERE o.user_id = ?1 AND o.r2_key = ?2`,
+    ).bind(this.userId, r2Key).first<ObjectRow>()
+    return row ? toObjectSummary(row) : null
   }
 
   /** Put object keys on the retry queue. Duplicate keys keep their original timestamp. */
@@ -1781,8 +1892,9 @@ export class MusicStore {
 
   private async playlistRow(id: string): Promise<PlaylistRow | null> {
     return this.db.prepare(
-      `SELECT p.user_id, p.id, p.name, p.description, p.cover_url, p.provider, p.provider_id,
-              p.kind, p.sort_order, p.pinned_at, p.created_at, p.updated_at,
+      `SELECT p.user_id, p.id, p.name, p.description, p.cover_url, p.cover_key, p.provider,
+              p.provider_id, p.kind, p.sort_order, p.pinned_at, p.share_slug, p.created_at,
+              p.updated_at,
               (SELECT COUNT(*) FROM music_playlist_item i
                 WHERE i.user_id = p.user_id AND i.playlist_id = p.id) AS track_count
          FROM music_playlist p WHERE p.user_id = ?1 AND p.id = ?2`,

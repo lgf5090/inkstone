@@ -74,10 +74,7 @@ export function EqPanel({ className }: EqPanelProps): ReactElement {
       aria-describedby={note ? noteId : undefined}
       className={cn('flex flex-col gap-3', className)}
     >
-      <header className="flex items-center justify-between gap-3">
-        <h3 className="text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">
-          {musicText('music.eq.title')}
-        </h3>
+      <header className="flex items-center justify-end gap-3">
         <span className="flex items-center gap-2 text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
           {musicText('music.eq.enabled')}
           <Switch

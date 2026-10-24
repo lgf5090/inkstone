@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, type ComponentType, type ReactElement } fro
 import { CalendarDays, Cloud, Compass, Disc3, HardDrive, Library, ListMusic, ListOrdered, Radio, Search, Settings, Sparkles, UserRound, Video } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import { cn } from '../../lib/cn'
-import { navigateToAddress, usePathname, useSearch } from '../../lib/app-history'
+import { navigateToAddress, replaceAddress, usePathname, useSearch } from '../../lib/app-history'
 import { t } from '../../lib/i18n'
 import { useUi } from '../../store/ui'
 import { parseMusicAddress, type MusicPage } from './music-address'
@@ -18,7 +18,6 @@ import { ArtistPage } from './pages/ArtistPage'
 import { DownloadsPage } from './pages/DownloadsPage'
 import { FavoritesPage } from './pages/FavoritesPage'
 import { HistoryPage } from './pages/HistoryPage'
-import { HeatmapPage } from './pages/HeatmapPage'
 import { HomePage } from './pages/HomePage'
 import { LoginPage } from './pages/LoginPage'
 import { MusicSettingsPage } from './pages/MusicSettingsPage'
@@ -64,7 +63,7 @@ interface NavItem {
 const NAV_ITEMS: readonly NavItem[] = [
   { path: '/music', labelKey: 'music.nav.discover', icon: Compass },
   { path: '/music/search', labelKey: 'music.nav.search', icon: Search },
-  { path: '/music/favorites', labelKey: 'music.nav.library', icon: Library },
+  { path: '/music/favorites', labelKey: 'music.page.favorites', icon: Library },
   { path: '/music/cloud', labelKey: 'music.nav.drive', icon: Cloud },
   { path: '/music/local', labelKey: 'music.page.local', icon: HardDrive },
   { path: '/music/history', labelKey: 'music.page.history', icon: CalendarDays },
@@ -158,8 +157,6 @@ function MusicPageContent({ page }: { page: MusicPage }): ReactElement {
       return <FavoritesPage />
     case 'history':
       return <HistoryPage />
-    case 'heatmap':
-      return <HeatmapPage />
     case 'uploads':
       return <UploadsPage />
     case 'downloads':
@@ -224,6 +221,11 @@ export function MusicApp(): ReactElement {
     useMusicUi.getState().setPage(page)
   }, [page])
 
+  // The old heatmap address still reads as history; move the bar so the active nav matches again.
+  useEffect(() => {
+    if (normalise(pathname) === '/music/heatmap') replaceAddress('/music/history')
+  }, [pathname])
+
   // Favourites and the library shelves are read by rows on many pages, so the first load belongs to
   // the frame rather than to whichever page happens to mount first. A failure is reported once here;
   // pages that need the library for their whole screen surface their own retry.
@@ -243,7 +245,36 @@ export function MusicApp(): ReactElement {
 
   return (
     <section className="flex h-full min-h-0 flex-col bg-[var(--bg-base)]">
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+      <nav
+        aria-label={musicText('music.nav.label')}
+        className="flex shrink-0 gap-1 overflow-x-auto border-b border-[var(--border-subtle)] bg-[var(--bg-base)] p-2 lg:hidden"
+      >
+        {NAV_ITEMS.map((item) => (
+          <MusicNavLink key={item.path} item={item} active={isNavActive(pathname, item.path)} />
+        ))}
+        <button
+          type="button"
+          aria-label={musicText('music.nav.assistant')}
+          aria-pressed={assistantDockOpen}
+          onClick={() => useUi.getState().toggleAssistantDock()}
+          className={cn(
+            'flex shrink-0 items-center gap-2 rounded-[var(--r-md)] px-2 py-2 text-[length:var(--text-12)]',
+            'transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+            'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]',
+            assistantDockOpen
+              ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]'
+              : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+          )}
+        >
+          <Sparkles size={15} className="shrink-0" />
+          <span className="hidden truncate sm:inline">{musicText('music.nav.assistant')}</span>
+        </button>
+      </nav>
+
+      {/* The rail and the dock are both columns only while the row is horizontal. Starting that row
+          at `md` keeps the dock beside the screen on a tablet; inside the old column it was a
+          full-width strip under the page and its resizer was an empty row. */}
+      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <div className="hidden min-h-0 shrink-0 lg:flex">
           <MusicSidebar
             pathname={pathname}
@@ -251,32 +282,6 @@ export function MusicApp(): ReactElement {
             onToggleAssistant={() => useUi.getState().toggleAssistantDock()}
           />
         </div>
-        <nav
-          aria-label={musicText('music.nav.label')}
-          className="flex gap-1 overflow-x-auto border-b border-[var(--border-subtle)] bg-[var(--bg-base)] p-2 lg:hidden"
-        >
-          {NAV_ITEMS.map((item) => (
-            <MusicNavLink key={item.path} item={item} active={isNavActive(pathname, item.path)} />
-          ))}
-          <button
-            type="button"
-            aria-label={musicText('music.nav.assistant')}
-            aria-pressed={assistantDockOpen}
-            onClick={() => useUi.getState().toggleAssistantDock()}
-            className={cn(
-              'flex shrink-0 items-center gap-2 rounded-[var(--r-md)] px-2 py-2 text-[length:var(--text-12)]',
-              'transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)]',
-              'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]',
-              assistantDockOpen
-                ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]'
-                : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
-            )}
-          >
-            <Sparkles size={15} className="shrink-0" />
-            <span className="hidden truncate sm:inline">{musicText('music.nav.assistant')}</span>
-          </button>
-        </nav>
-
         <main aria-label={musicText('music.nav.label')} className="min-h-0 min-w-0 flex-1 overflow-auto p-3 md:p-4">
           <MusicPageContent page={page} />
         </main>

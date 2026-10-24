@@ -36,6 +36,9 @@ const CollectionPage = lazy(() =>
 const MemosPublicApp = lazy(() =>
   import('./features/memos/MemosPublicApp').then((module) => ({ default: module.MemosPublicApp })),
 )
+const PublicPlaylistPage = lazy(() =>
+  import('./features/music/pages/PublicPlaylistPage').then((module) => ({ default: module.PublicPlaylistPage })),
+)
 const SettingsPanel = lazy(() =>
   import('./features/settings/SettingsPanel').then((module) => ({ default: module.SettingsPanel })),
 )
@@ -128,14 +131,20 @@ export function App() {
     const match = /^\/collections\/([A-Za-z0-9_-]+)/.exec(location.pathname)
     return match?.[1] ?? null
   })
+  // A shared playlist is a public document like a published note: no session, no app frame, and its
+  // slug is the only thing it reveals.
+  const [musicShareSlug] = useState(() => {
+    const match = /^\/m\/([A-Za-z0-9_-]{1,64})\/?$/.exec(location.pathname)
+    return match?.[1] ?? null
+  })
   const [isPresenter] = useState(() => new URLSearchParams(location.search).has('presenter'))
   const [memoSurface] = useState(() => classifyMemoSurface(location.pathname))
   const memoAlwaysPublic = memoSurface.kind === 'public'
 
   useEffect(() => {
-    if (shareSlug || conversationShareSlug || collectionSlug || isPresenter || memoAlwaysPublic) return
+    if (shareSlug || conversationShareSlug || collectionSlug || musicShareSlug || isPresenter || memoAlwaysPublic) return
     void load()
-  }, [load, shareSlug, conversationShareSlug, collectionSlug, isPresenter, memoAlwaysPublic])
+  }, [load, shareSlug, conversationShareSlug, collectionSlug, musicShareSlug, isPresenter, memoAlwaysPublic])
 
   useEffect(() => watchSystemTheme(), [])
 
@@ -182,6 +191,20 @@ export function App() {
           <PresenterWindow />
         </Suspense>
       </ErrorBoundary>
+    )
+  }
+
+  if (musicShareSlug) {
+    return (
+      <>
+        <ErrorBoundary>
+          <Suspense fallback={<PageFallback />}>
+            <PublicPlaylistPage slug={musicShareSlug} />
+          </Suspense>
+        </ErrorBoundary>
+        <Toaster />
+        <UpdateCard />
+      </>
     )
   }
 

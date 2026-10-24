@@ -63,7 +63,7 @@ export function UserPage(): ReactElement {
   const summary = summaryQuery.data
   const loginHref = musicPathFor({ kind: 'login' })
   const homeHref = musicPathFor({ kind: 'home' })
-  const heatmapHref = musicPathFor({ kind: 'heatmap' })
+  const historyHref = musicPathFor({ kind: 'history' })
   const displayName = profile?.nickname
     ?? data?.account?.nickname
     ?? musicText('music.user.local_title')
@@ -165,7 +165,7 @@ export function UserPage(): ReactElement {
               onRetrySummary={summaryQuery.reload}
               favorites={favorites.length}
               playlists={playlists}
-              heatmapHref={heatmapHref}
+              historyHref={historyHref}
               onImport={() => setImportOpen(true)}
               homeHref={homeHref}
             />
@@ -240,7 +240,7 @@ function UserCentre({
   onRetrySummary,
   favorites,
   playlists,
-  heatmapHref,
+  historyHref,
   onImport,
   homeHref,
 }: {
@@ -250,7 +250,7 @@ function UserCentre({
   onRetrySummary: () => void
   favorites: number
   playlists: readonly MusicPlaylist[]
-  heatmapHref: string
+  historyHref: string
   onImport: () => void
   homeHref: string
 }): ReactElement {
@@ -261,7 +261,7 @@ function UserCentre({
       <section aria-label={musicText('music.user.stats')} className="flex flex-col gap-[var(--sp-3)]">
         <div className="flex flex-wrap items-center justify-between gap-[var(--sp-2)]">
           <h2 className="music-section-header__title">{musicText('music.user.stats')}</h2>
-          <Button variant="ghost" size="sm" icon={<Clock3 size={14} />} onClick={() => navigateToAddress(heatmapHref)}>
+          <Button variant="ghost" size="sm" icon={<Clock3 size={14} />} onClick={() => navigateToAddress(historyHref)}>
             {musicText('music.user.heatmap')}
           </Button>
         </div>

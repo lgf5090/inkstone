@@ -21,7 +21,6 @@ export type MusicPage =
   | { kind: 'podcastDetail'; id: string }
   | { kind: 'favorites' }
   | { kind: 'history' }
-  | { kind: 'heatmap' }
   | { kind: 'uploads' }
   | { kind: 'downloads' }
   | { kind: 'cloud' }
@@ -90,8 +89,9 @@ export function parseMusicAddress(pathname: string, search = ''): MusicPage {
       return rest.length === 1 ? { kind: 'favorites' } : { kind: 'notFound', path: pathname }
     case 'history':
       return rest.length === 1 ? { kind: 'history' } : { kind: 'notFound', path: pathname }
+    // The standalone page folded into history; old bookmarks land on the cards that replaced it.
     case 'heatmap':
-      return rest.length === 1 ? { kind: 'heatmap' } : { kind: 'notFound', path: pathname }
+      return rest.length === 1 ? { kind: 'history' } : { kind: 'notFound', path: pathname }
     case 'uploads':
       return rest.length === 1 ? { kind: 'uploads' } : { kind: 'notFound', path: pathname }
     case 'downloads':
@@ -139,7 +139,6 @@ export function musicPathFor(page: MusicPage): string {
     case 'albums':
     case 'favorites':
     case 'history':
-    case 'heatmap':
     case 'uploads':
     case 'downloads':
     case 'cloud':

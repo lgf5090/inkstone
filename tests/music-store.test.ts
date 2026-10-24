@@ -423,7 +423,7 @@ describe('music object ledger', () => {
     await store.registerObject({ r2Key: 'k1', format: 'mp3', quality: 'original', size: 150 })
     expect(await store.quotaUsage()).toEqual({ bytes: 350, count: 2 })
     expect(await other.quotaUsage()).toEqual({ bytes: 0, count: 0 })
-    expect((await store.listObjects()).map((entry) => entry.r2Key)).toEqual(['k1', 'k2'])
+    expect((await store.listObjects()).map((entry) => entry.r2Key)).toEqual(['k2', 'k1'])
   })
 
   it('counts track and download references before releasing an object', async () => {

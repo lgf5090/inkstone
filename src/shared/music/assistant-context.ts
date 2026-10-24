@@ -28,7 +28,6 @@ export const MUSIC_ASSISTANT_PAGES = [
   'podcastDetail',
   'favorites',
   'history',
-  'heatmap',
   'uploads',
   'downloads',
   'cloud',

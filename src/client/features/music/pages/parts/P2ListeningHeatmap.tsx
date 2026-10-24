@@ -121,7 +121,7 @@ export function ListeningHeatmap({
   const total = useMemo(() => days.reduce((sum, day) => sum + day.count, 0), [days])
 
   return (
-    <div className={cn('flex flex-col gap-[var(--sp-2)]', className)}>
+    <div className={cn('music-heatmap-shell flex flex-col gap-[var(--sp-2)]', className)}>
       <div className="overflow-x-auto pb-[var(--sp-1)]">
         <div className={fill ? 'w-full' : 'w-max'}>
           {showMonths && (

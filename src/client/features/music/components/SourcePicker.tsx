@@ -72,14 +72,9 @@ export function SourcePicker({ className }: SourcePickerProps): ReactElement {
     <section aria-label={musicText('music.source.title')} className={cn('flex flex-col gap-3', className)}>
       <header className="flex items-start gap-2">
         <ServerCog size={15} aria-hidden="true" className="mt-0.5 shrink-0 text-[var(--text-tertiary)]" />
-        <div className="min-w-0 flex-1">
-          <h3 className="text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">
-            {musicText('music.source.title')}
-          </h3>
-          <p className="mt-0.5 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">
-            {musicText('music.source.description')}
-          </p>
-        </div>
+        <p className="min-w-0 flex-1 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">
+          {musicText('music.source.description')}
+        </p>
         <IconButton
           size="xs"
           label={musicText('music.source.retry')}

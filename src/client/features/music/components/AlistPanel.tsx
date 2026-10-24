@@ -5,12 +5,18 @@
  * the mount list so creating or deleting one can refresh every source. A token is collected once and
  * never shown again: the server returns whether one is stored, not what it is.
  */
-import { useState, type FormEvent, type ReactElement } from 'react'
-import { ChevronLeft, Folder, FileAudio, Plus, Search, Trash2 } from 'lucide-react'
+import { useEffect, useRef, useState, type DragEvent, type FormEvent, type ReactElement } from 'react'
+import { ChevronLeft, Folder, FileAudio, Plus, Search, Trash2, Upload } from 'lucide-react'
 import type { MusicMount } from '@shared/music/model'
-import type { MusicAlistEntry, MusicDriveSkipReason } from '@shared/music/api'
+import {
+  MUSIC_DRIVE_IMPORT_MAX_PATHS,
+  MUSIC_DRIVE_UPLOAD_MAX_BYTES,
+  type MusicAlistEntry,
+  type MusicDriveSkipReason,
+} from '@shared/music/api'
+import { MUSIC_ALL_FORMATS, formatFromFilename } from '@shared/music/constants'
 import { Badge, Button } from '../../../components/primitives'
-import { Input, Select } from '../../../components/form'
+import { Checkbox, Input, Select } from '../../../components/form'
 import { Empty, LoadingBlock } from '../../../components/feedback'
 import { Modal, confirm } from '../../../components/overlay'
 import { formatBytes } from '@shared/music/format'
@@ -20,8 +26,14 @@ import { useMusicQuery } from '../query'
 import { musicText } from './labels'
 import { PageError } from '../pages/parts/PageState'
 
+const UPLOAD_ACCEPT = MUSIC_ALL_FORMATS.map((format) => `.${format}`).join(',')
+
 function parentOf(path: string): string {
   return path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
+}
+
+function uploadable(file: File): boolean {
+  return file.size > 0 && file.size <= MUSIC_DRIVE_UPLOAD_MAX_BYTES && formatFromFilename(file.name) !== null
 }
 
 function skipReasonKey(reason: MusicDriveSkipReason): string {
@@ -112,16 +124,28 @@ function EntryList({
   onOpen,
   onImport,
   importingPath,
+  selected,
+  onToggle,
 }: {
   entries: MusicAlistEntry[]
   onOpen: (entry: MusicAlistEntry) => void
   onImport: (entry: MusicAlistEntry) => void
   importingPath: string | null
+  selected: ReadonlySet<string>
+  onToggle: (path: string) => void
 }): ReactElement {
   return (
     <ul className="flex flex-col divide-y divide-[var(--border-subtle)] rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
       {entries.map((entry) => (
         <li key={entry.path} className="flex min-w-0 items-center gap-2 px-2">
+          {!entry.isDirectory && (
+            <Checkbox
+              checked={selected.has(entry.path)}
+              label={<span className="sr-only">{musicText('music.cloud.select_file', { name: entry.name })}</span>}
+              className="size-8 min-h-0 justify-center"
+              onChange={() => onToggle(entry.path)}
+            />
+          )}
           <button
             type="button"
             disabled={!entry.isDirectory && !entry.isMedia}
@@ -158,11 +182,19 @@ export function AlistPanel({ mounts, onChanged }: { mounts: MusicMount[]; onChan
   const [searchError, setSearchError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [importingPath, setImportingPath] = useState<string | null>(null)
+  const [selectedPaths, setSelectedPaths] = useState<ReadonlySet<string>>(new Set())
+  const [uploading, setUploading] = useState<string | null>(null)
+  const [dragging, setDragging] = useState(false)
+  const uploadInput = useRef<HTMLInputElement>(null)
   const active = mounts.find((mount) => mount.id === selected) ?? mounts[0] ?? null
   const query = useMusicQuery(async () => {
     if (!active) return null
     return await musicApi.alistList(active.id, path)
   }, [active?.id, path])
+
+  useEffect(() => {
+    setSelectedPaths(new Set())
+  }, [active?.id, path, search])
 
   const choose = (mount: MusicMount): void => {
     setSelected(mount.id)
@@ -247,11 +279,152 @@ export function AlistPanel({ mounts, onChanged }: { mounts: MusicMount[]; onChan
     }
   }
 
+  const uploadFiles = async (files: readonly File[]): Promise<void> => {
+    if (!active || search !== null) return
+    const valid = files.filter(uploadable)
+    if (valid.length === 0) {
+      useUi.getState().toast({
+        title: files.some((file) => file.size > MUSIC_DRIVE_UPLOAD_MAX_BYTES)
+          ? musicText('music.cloud.upload_too_large', {
+              size: Math.round(MUSIC_DRIVE_UPLOAD_MAX_BYTES / (1024 * 1024)),
+            })
+          : musicText('music.cloud.upload_none'),
+        tone: 'warning',
+      })
+      return
+    }
+    let failed = 0
+    for (const [index, file] of valid.entries()) {
+      setUploading(valid.length > 1
+        ? musicText('music.cloud.upload_progress', { done: index + 1, total: valid.length })
+        : musicText('music.cloud.uploading', { name: file.name }))
+      try {
+        await musicApi.alistUpload(active.id, path, file)
+        if (valid.length === 1) {
+          useUi.getState().toast({
+            title: musicText('music.cloud.upload_done', { name: file.name }),
+            tone: 'success',
+          })
+        }
+      } catch (error) {
+        failed += 1
+        if (valid.length === 1) {
+          useUi.getState().toast({
+            title: musicText('music.cloud.upload_failed'),
+            description: error instanceof Error ? error.message : String(error),
+            tone: 'danger',
+          })
+        }
+      }
+    }
+    setUploading(null)
+    if (valid.length > 1) {
+      useUi.getState().toast({
+        title: musicText(failed === valid.length ? 'music.cloud.upload_failed' : 'music.cloud.upload_summary', {
+          count: valid.length - failed,
+        }),
+        description: failed > 0 ? musicText('music.cloud.upload_partial', { count: failed }) : undefined,
+        tone: failed > 0 ? 'warning' : 'success',
+      })
+    }
+    query.reload()
+    onChanged()
+  }
+
+  const deleteSelected = async (): Promise<void> => {
+    if (!active || selectedPaths.size === 0) return
+    const paths = [...selectedPaths]
+    const approved = await confirm({
+      title: musicText('music.cloud.delete_selected_title'),
+      description: musicText('music.cloud.delete_selected_body', { count: paths.length }),
+      confirmLabel: musicText('music.cloud.delete_selected'),
+      tone: 'danger',
+    })
+    if (!approved) return
+    setBusy(true)
+    let removed: string[] = []
+    let skipped = 0
+    try {
+      for (let start = 0; start < paths.length; start += MUSIC_DRIVE_IMPORT_MAX_PATHS) {
+        const result = await musicApi.alistDelete(active.id, paths.slice(start, start + MUSIC_DRIVE_IMPORT_MAX_PATHS))
+        removed = [...removed, ...result.removed]
+        skipped += result.skipped.length
+      }
+      useUi.getState().toast({
+        title: musicText('music.cloud.deleted_selected', { count: removed.length }),
+        description: skipped > 0 ? musicText('music.cloud.delete_skipped', { count: skipped }) : undefined,
+        tone: skipped > 0 ? 'warning' : 'success',
+      })
+      setSelectedPaths(new Set())
+      if (search !== null) {
+        setSearch((current) => current?.filter((entry) => !removed.includes(entry.path)) ?? null)
+      }
+      query.reload()
+    } catch (reason) {
+      useUi.getState().toast({
+        title: musicText('music.cloud.delete_selected_failed'),
+        description: reason instanceof Error ? reason.message : String(reason),
+        tone: 'danger',
+      })
+      if (removed.length > 0) query.reload()
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const entries = search ?? query.data?.listing.entries ?? []
   const truncated = search ? false : query.data?.listing.truncated ?? false
+  const selectable = entries.filter((entry) => !entry.isDirectory)
+  const selectedEntries = selectable.filter((entry) => selectedPaths.has(entry.path))
+  const importablePaths = selectedEntries.filter((entry) => entry.isMedia).map((entry) => entry.path)
+  const allSelected = selectable.length > 0 && selectable.every((entry) => selectedPaths.has(entry.path))
+
+  const toggle = (entryPath: string): void => {
+    setSelectedPaths((current) => {
+      const next = new Set(current)
+      if (next.has(entryPath)) next.delete(entryPath)
+      else next.add(entryPath)
+      return next
+    })
+  }
+
+  const toggleAll = (): void => {
+    setSelectedPaths(allSelected ? new Set() : new Set(selectable.map((entry) => entry.path)))
+  }
+
+  const dropProps = {
+    onDragOver: (event: DragEvent<HTMLElement>) => {
+      if (!active || search !== null || !event.dataTransfer.types.includes('Files')) return
+      event.preventDefault()
+      setDragging(true)
+    },
+    onDragLeave: (event: DragEvent<HTMLElement>) => {
+      if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+      setDragging(false)
+    },
+    onDrop: (event: DragEvent<HTMLElement>) => {
+      if (!active || search !== null) return
+      event.preventDefault()
+      setDragging(false)
+      const files = [...event.dataTransfer.files]
+      if (files.length > 0) void uploadFiles(files)
+    },
+  }
 
   return (
-    <section className="flex flex-col gap-3" aria-label={musicText('music.cloud.source.alist')}>
+    <section
+      {...dropProps}
+      className="relative flex flex-col gap-3"
+      aria-label={musicText('music.cloud.source.alist')}
+    >
+      {dragging && (
+        <div className="pointer-events-none absolute inset-0 z-[var(--z-popover)] flex items-center justify-center rounded-[var(--r-lg)] border-2 border-dashed border-[var(--accent)] bg-[var(--bg-base)]">
+          <span className="flex items-center gap-2 text-[length:var(--text-13)] font-medium text-[var(--accent)]">
+            <Upload size={16} aria-hidden="true" />
+            {musicText('music.cloud.drop_here')}
+          </span>
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         {mounts.length > 0 && (
           <Select
@@ -270,15 +443,39 @@ export function AlistPanel({ mounts, onChanged }: { mounts: MusicMount[]; onChan
           {musicText('music.cloud.alist.add')}
         </Button>
         {active && (
-          <Button
-            size="sm"
-            variant="ghost"
-            icon={<Trash2 size={13} />}
-            disabled={busy}
-            onClick={() => { void remove(active) }}
-          >
-            {musicText('music.cloud.alist.delete')}
-          </Button>
+          <>
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={<Upload size={13} />}
+              loading={uploading !== null}
+              disabled={search !== null}
+              onClick={() => uploadInput.current?.click()}
+            >
+              {musicText('music.cloud.upload')}
+            </Button>
+            <input
+              ref={uploadInput}
+              type="file"
+              hidden
+              multiple
+              accept={UPLOAD_ACCEPT}
+              onChange={(event) => {
+                const files = [...(event.target.files ?? [])]
+                event.target.value = ''
+                void uploadFiles(files)
+              }}
+            />
+            <Button
+              size="sm"
+              variant="ghost"
+              icon={<Trash2 size={13} />}
+              disabled={busy}
+              onClick={() => { void remove(active) }}
+            >
+              {musicText('music.cloud.alist.delete')}
+            </Button>
+          </>
         )}
       </div>
 
@@ -342,17 +539,55 @@ export function AlistPanel({ mounts, onChanged }: { mounts: MusicMount[]; onChan
             {search === null && query.status === 'ready' && entries.length === 0 && (
               <Empty art="folder" title={musicText('music.cloud.empty')} />
             )}
-            {entries.some((entry) => !entry.isDirectory && entry.isMedia) && (
-              <div className="flex justify-end">
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  loading={importingPath !== null}
-                  onClick={() => {
-                    void importPaths(entries.filter((entry) => !entry.isDirectory && entry.isMedia).map((entry) => entry.path))
-                  }}
-                >
-                  {musicText('music.cloud.alist.import_all')}
+            {uploading && (
+              <p role="status" className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{uploading}</p>
+            )}
+            {(entries.some((entry) => !entry.isDirectory) || selectedPaths.size > 0) && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button size="sm" variant="ghost" onClick={toggleAll}>
+                  {allSelected ? musicText('music.cloud.clear_selection') : musicText('music.cloud.select_all')}
+                </Button>
+                <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{musicText('music.cloud.select_hint')}</span>
+                <span className="flex-1" />
+                {search === null && entries.some((entry) => !entry.isDirectory && entry.isMedia) && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    loading={importingPath !== null}
+                    onClick={() => {
+                      void importPaths(entries.filter((entry) => !entry.isDirectory && entry.isMedia).map((entry) => entry.path))
+                    }}
+                  >
+                    {musicText('music.cloud.alist.import_all')}
+                  </Button>
+                )}
+              </div>
+            )}
+            {selectedPaths.size > 0 && (
+              <div
+                role="group"
+                aria-label={musicText('music.cloud.selected', { count: selectedPaths.size })}
+                className="flex flex-wrap items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-3 py-2"
+              >
+                <span className="text-[length:var(--text-12)] font-medium text-[var(--text-primary)]">
+                  {musicText('music.cloud.selected', { count: selectedPaths.size })}
+                </span>
+                <span className="flex-1" />
+                {importablePaths.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    loading={importingPath !== null}
+                    onClick={() => { void importPaths(importablePaths).then(() => setSelectedPaths(new Set())) }}
+                  >
+                    {musicText('music.cloud.import_selected')}
+                  </Button>
+                )}
+                <Button size="sm" variant="secondary" loading={busy} onClick={() => { void deleteSelected() }}>
+                  {musicText('music.cloud.delete_selected')}
+                </Button>
+                <Button size="sm" variant="ghost" disabled={busy} onClick={() => setSelectedPaths(new Set())}>
+                  {musicText('music.cloud.clear_selection')}
                 </Button>
               </div>
             )}
@@ -360,6 +595,8 @@ export function AlistPanel({ mounts, onChanged }: { mounts: MusicMount[]; onChan
               <EntryList
                 entries={entries}
                 importingPath={importingPath}
+                selected={selectedPaths}
+                onToggle={toggle}
                 onImport={(entry) => { void importPaths([entry.path]) }}
                 onOpen={(entry) => {
                   if (entry.isDirectory) {

@@ -12,8 +12,11 @@ import { Hono } from 'hono'
 import {
   MUSIC_DRIVE_IMPORT_MAX_PATHS,
   MUSIC_DRIVE_UPLOAD_MAX_BYTES,
+  type MusicDriveBatchResult,
   type MusicDriveDeleteResult,
   type MusicDriveImportResult,
+  type MusicDriveR2Listing,
+  type MusicDriveR2UploadResult,
   type MusicDriveSkip,
   type MusicDriveUploadResult,
 } from '@shared/music/api'
@@ -30,7 +33,23 @@ import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
 import { encryptMusicMountToken } from '../lib/crypto'
 import { readFormDataWithinLimit, readJson } from '../lib/request'
+import { MusicDownloadStore } from '../music/download-store'
 import { MusicStore } from '../music/store'
+import {
+  declaredUploadFormat,
+  formatCompatibleWithContainer,
+  sanitizeMusicFilename,
+  sanitizeUploadMetadata,
+  sniffMusicFormat,
+  titleFromFilename,
+} from '../music/metadata'
+import {
+  deleteMusicObjects,
+  discardMusicObjects,
+  musicObjectKeyFor,
+  putMusicObject as putR2Object,
+  withMusicQuotaLease,
+} from '../music/storage'
 import { resolveMusicWebdav } from '../music/cloud/config'
 import {
   alistMountBaseUrl,
@@ -39,6 +58,8 @@ import {
   alistMountToken,
   listAlistDirectory,
   normalizeAlistPath,
+  putAlistFile,
+  removeAlistFile,
   resolveAlistMount,
   statAlistFile,
   searchAlist,
@@ -71,6 +92,176 @@ musicDriveRoutes.get('/', async (c) => {
     webdav: { configured: Boolean(settings?.cloudWebdavTargetId) },
     mounts: mounts.length,
   })
+})
+
+/** The account's R2 objects, with the track snapshot that names each one when it still exists. */
+musicDriveRoutes.get('/r2', async (c) => {
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  const objects = await store.listObjects(500)
+  const result: MusicDriveR2Listing = {
+    entries: objects.map((object) => ({
+      key: object.r2Key,
+      trackId: object.trackId,
+      title: object.title ?? object.r2Key.split('/').pop() ?? object.r2Key,
+      artists: object.artists.map((artist) => artist.name).filter(Boolean),
+      format: object.format,
+      size: object.size,
+      createdAt: object.createdAt,
+    })),
+    truncated: objects.length >= 500,
+  }
+  return c.json(result)
+})
+
+/**
+ * Store one file directly into R2.
+ *
+ * This is the cloud-drive path, so it also creates the library snapshot: the bytes, the track row and
+ * the ledger entry are one operation under the quota lease. Metadata comes from the browser's parser
+ * but is trimmed here, and the container is decided from the bytes rather than the extension.
+ */
+musicDriveRoutes.post('/r2/upload', async (c) => {
+  const form = await readFormDataWithinLimit(c.req, UPLOAD_FORM_LIMIT)
+  const file = form.get('file')
+  if (!(file instanceof File)) throw ApiError.badRequest('Attach one file in the "file" field.')
+  if (file.size === 0) throw ApiError.badRequest('That file is empty.')
+  if (file.size > MUSIC_DRIVE_UPLOAD_MAX_BYTES) {
+    throw ApiError.tooLarge(`Files must be ${MUSIC_DRIVE_UPLOAD_MAX_BYTES / (1024 * 1024)} MB or smaller.`)
+  }
+  const filename = sanitizeMusicFilename(file.name)
+  const declared = declaredUploadFormat(filename, form.get('format') ?? undefined)
+  if (!declared) throw new ApiError(415, 'music_upload_invalid', 'Upload an audio file or an MP4 video.')
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  const format = sniffMusicFormat(bytes, declared)
+  if (!format) {
+    throw new ApiError(415, 'music_upload_invalid', 'The file is not a supported audio or video container')
+  }
+  if (!formatCompatibleWithContainer(declared, format)) {
+    throw new ApiError(415, 'music_upload_invalid', 'The file content does not match its extension')
+  }
+  const rawMetadata = form.get('metadata')
+  let parsedMetadata: unknown = {}
+  if (typeof rawMetadata === 'string' && rawMetadata) {
+    try {
+      parsedMetadata = JSON.parse(rawMetadata)
+    } catch {
+      throw ApiError.badRequest('The metadata field must be JSON')
+    }
+  }
+  const metadata = sanitizeUploadMetadata(parsedMetadata, titleFromFilename(filename))
+
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  const trackId = newId()
+  const userId = c.get('userId')
+  const key = musicObjectKeyFor({ format, userId, trackId, quality: 'original' })
+  const track = await withMusicQuotaLease(c.env, store, bytes.length, async () => {
+    await putR2Object(c.env, key, bytes, {
+      contentType: MUSIC_MIME_BY_FORMAT[format],
+      userId,
+      trackId,
+      kind: 'track',
+    })
+    try {
+      const created = await store.upsertTrack({
+        id: trackId,
+        provider: 'upload',
+        providerId: trackId,
+        kind: 'song',
+        title: metadata.title,
+        artists: metadata.artists.map((name) => ({ id: '', name })),
+        album: metadata.album,
+        durationMs: metadata.durationMs,
+        format,
+        bitrate: metadata.bitrate,
+        size: bytes.length,
+        r2Key: key,
+        source: 'upload',
+        sourceQuality: 'original',
+      })
+      await store.registerObject({
+        r2Key: key,
+        trackId: created.id,
+        format,
+        quality: 'original',
+        size: bytes.length,
+      })
+      if (metadata.lyrics) {
+        await store.saveLyric({
+          trackKey: `upload:${created.id}`,
+          source: 'embedded',
+          lrc: metadata.lyrics,
+          tlyric: '',
+          yrc: '',
+        }).catch((error: unknown) => {
+          console.warn('[inkstone] Embedded music lyrics could not be cached:', error)
+        })
+      }
+      return created
+    } catch (error) {
+      await discardMusicObjects(c.env, store, [key])
+      throw error
+    }
+  })
+  const result: MusicDriveR2UploadResult = {
+    track,
+    entry: {
+      key,
+      trackId: track.id,
+      title: track.title,
+      artists: track.artists.map((artist) => artist.name).filter(Boolean),
+      format,
+      size: bytes.length,
+      createdAt: track.createdAt,
+    },
+  }
+  return c.json(result, 201)
+})
+
+/** Delete objects, and the library tracks that name them, when nothing else still references them. */
+musicDriveRoutes.post('/r2/delete', async (c) => {
+  const body = await readJson<{ keys?: unknown }>(c, IMPORT_BODY_LIMIT)
+  const keys = objectKeys(body.keys)
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  const result: MusicDriveBatchResult = { removed: [], skipped: [] }
+  for (const key of keys) {
+    try {
+      const object = await store.getObject(key)
+      if (!object) {
+        result.skipped.push({ path: key, reason: 'missing' })
+        continue
+      }
+      const track = object.trackId ? await store.getTrack(object.trackId) : null
+      if (track && track.r2Key === key) {
+        const deleted = await store.deleteTrack(track.id)
+        if (!deleted.deleted) {
+          result.skipped.push({ path: key, reason: 'failed' })
+          continue
+        }
+        if (!deleted.queuedObjects.includes(key)) {
+          result.skipped.push({ path: key, reason: 'referenced' })
+          continue
+        }
+        await deleteMusicObjects(c.env, store, deleted.queuedObjects)
+        for (const queued of deleted.queuedObjects) await store.dropCleanup(queued)
+        result.removed.push(key)
+        continue
+      }
+      // A cache object (a download) leaves its track snapshot alone; only the file and its task go.
+      const downloadId = await store.findDownloadByObjectKey(key)
+      if (downloadId) await new MusicDownloadStore(c.env.DB, c.get('userId')).remove(downloadId)
+      if (!(await store.removeObject(key))) {
+        result.skipped.push({ path: key, reason: 'referenced' })
+        continue
+      }
+      await deleteMusicObjects(c.env, store, [key])
+      await store.dropCleanup(key)
+      result.removed.push(key)
+    } catch (error) {
+      console.warn('[inkstone] R2 object could not be deleted:', error)
+      result.skipped.push({ path: key, reason: 'failed' })
+    }
+  }
+  return c.json(result)
 })
 
 musicDriveRoutes.get('/webdav', async (c) => {
@@ -208,6 +399,49 @@ musicDriveRoutes.delete('/webdav/object', async (c) => {
   const result: MusicDriveDeleteResult = { ok: true, removed }
   return c.json(result)
 })
+
+/** The batch form of the same delete, so a multi-selection is one round trip. */
+musicDriveRoutes.post('/webdav/delete', async (c) => {
+  const body = await readJson<{ paths?: unknown }>(c, IMPORT_BODY_LIMIT)
+  const paths = importPaths(body.paths)
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  const ctx = await resolveMusicWebdav(c.env, store, c.get('userId'))
+  const result: MusicDriveBatchResult = { removed: [], skipped: [] }
+  for (const raw of paths) {
+    const path = normalizeCloudPath(raw, { allowEmpty: false })
+    try {
+      if (await deleteMusicObject(ctx, path)) result.removed.push(path)
+      else result.skipped.push({ path, reason: 'missing' })
+    } catch (error) {
+      console.warn('[inkstone] WebDAV file could not be deleted:', error)
+      result.skipped.push({ path, reason: 'failed' })
+    }
+  }
+  return c.json(result)
+})
+
+const OBJECT_BATCH_MAX = 100
+
+function objectKeys(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw ApiError.badRequest('Name at least one object to delete.')
+  }
+  if (value.length > OBJECT_BATCH_MAX) {
+    throw ApiError.badRequest(`Delete at most ${OBJECT_BATCH_MAX} objects at a time.`)
+  }
+  const keys = value.map((entry) => {
+    if (typeof entry !== 'string') throw ApiError.badRequest('Each object key must be text.')
+    return entry.trim()
+  }).filter(Boolean)
+  const unique = [...new Set(keys)]
+  if (!unique.length) throw ApiError.badRequest('Name at least one object to delete.')
+  for (const key of unique) {
+    if (key.length > 512 || !key.startsWith('music/') || key.includes('..')) {
+      throw ApiError.badRequest('That object key is not a music object.')
+    }
+  }
+  return unique
+}
 
 function importPaths(value: unknown): string[] {
   if (!Array.isArray(value) || value.length === 0) {
@@ -366,6 +600,56 @@ musicDriveRoutes.post('/alist/:id/import', async (c) => {
     }))
   }
   const result: MusicDriveImportResult = { tracks, skipped }
+  return c.json(result)
+})
+
+/** Upload into the folder on screen. As with WebDAV, the file name decides the type. */
+musicDriveRoutes.post('/alist/:id/upload', async (c) => {
+  const dir = normalizeAlistPath(c.req.query('path') ?? '')
+  const form = await readFormDataWithinLimit(c.req, UPLOAD_FORM_LIMIT)
+  const file = form.get('file')
+  if (!(file instanceof File)) throw ApiError.badRequest('Attach one file in the "file" field.')
+  if (file.size === 0) throw ApiError.badRequest('That file is empty.')
+  if (file.size > MUSIC_DRIVE_UPLOAD_MAX_BYTES) {
+    throw ApiError.tooLarge(`Files must be ${MUSIC_DRIVE_UPLOAD_MAX_BYTES / (1024 * 1024)} MB or smaller.`)
+  }
+  const filename = uploadFilename(file.name)
+  const format = formatFromFilename(filename)
+  if (!format) throw new ApiError(415, 'music_upload_invalid', 'Upload an audio file or an MP4 video.')
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  const ctx = await resolveAlistMount(c.env, store, c.req.param('id'))
+  const target = normalizeAlistPath(dir ? `${dir}/${filename}` : filename)
+  // The parent directory is already the one on screen: listing it is the one check that separates
+  // "missing" from "the token is wrong" before a PUT could overwrite a same-named remote file.
+  const listing = await listAlistDirectory(ctx, dir)
+  if (listing.entries.some((entry) => entry.name === filename)) {
+    throw new ApiError(409, 'conflict', 'A file with that name already exists in this folder.')
+  }
+  await putAlistFile(ctx, target, new Uint8Array(await file.arrayBuffer()), MUSIC_MIME_BY_FORMAT[format])
+  const result: MusicDriveUploadResult = { path: target, size: file.size }
+  return c.json(result, 201)
+})
+
+musicDriveRoutes.post('/alist/:id/delete', async (c) => {
+  const body = await readJson<{ paths?: unknown }>(c, IMPORT_BODY_LIMIT)
+  const paths = importPaths(body.paths)
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  const ctx = await resolveAlistMount(c.env, store, c.req.param('id'))
+  const result: MusicDriveBatchResult = { removed: [], skipped: [] }
+  for (const raw of paths) {
+    const path = normalizeAlistPath(raw)
+    if (!path) {
+      result.skipped.push({ path, reason: 'missing' })
+      continue
+    }
+    try {
+      if (await removeAlistFile(ctx, path)) result.removed.push(path)
+      else result.skipped.push({ path, reason: 'missing' })
+    } catch (error) {
+      console.warn('[inkstone] Alist file could not be deleted:', error)
+      result.skipped.push({ path, reason: 'failed' })
+    }
+  }
   return c.json(result)
 })
 

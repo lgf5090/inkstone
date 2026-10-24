@@ -24,9 +24,16 @@ import type {
   MusicTrackKind,
 } from '@shared/music/model'
 import { MUSIC_PROVIDERS, MUSIC_SUBSCRIPTION_KINDS, MUSIC_TRACK_KINDS } from '@shared/music/model'
+import { MUSIC_LIMITS } from '@shared/music/constants'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
-import { readJson } from '../lib/request'
+import { newSlug } from '../lib/id'
+import { readFormDataWithinLimit, readJson } from '../lib/request'
+import {
+  discardMusicObjects,
+  musicCoverKeyFor,
+  putMusicObject,
+} from '../music/storage'
 import {
   MUSIC_PAGE_LIMIT_MAX,
   MusicStore,
@@ -100,6 +107,24 @@ function coverUrl(value: unknown): string {
   const url = text(value, URL_MAX, 'Cover URL')
   if (url && !/^https?:\/\//i.test(url)) throw ApiError.badRequest('The cover URL must use HTTP or HTTPS')
   return url
+}
+
+/** The four image containers a cover may use, identified by their own bytes. */
+function imageType(bytes: Uint8Array): { extension: string; mime: string } | null {
+  if (bytes.length < 12) return null
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return { extension: 'jpg', mime: 'image/jpeg' }
+  }
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+    return { extension: 'png', mime: 'image/png' }
+  }
+  if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38) {
+    return { extension: 'gif', mime: 'image/gif' }
+  }
+  const riff = String.fromCharCode(...bytes.slice(0, 4))
+  const webp = String.fromCharCode(...bytes.slice(8, 12))
+  if (riff === 'RIFF' && webp === 'WEBP') return { extension: 'webp', mime: 'image/webp' }
+  return null
 }
 
 function artistsOf(value: unknown): MusicArtist[] {
@@ -309,25 +334,125 @@ musicLibraryRoutes.patch('/playlists/:id', async (c) => {
     name?: string
     description?: string
     coverUrl?: string
+    coverKey?: string
     sortOrder?: number
   } = {}
+  let pinned: boolean | undefined
   if (body.name !== undefined) patch.name = text(body.name, NAME_MAX, 'Playlist name', true)
   if (body.description !== undefined) patch.description = text(body.description, DESCRIPTION_MAX, 'Description')
   if (body.coverUrl !== undefined) patch.coverUrl = coverUrl(body.coverUrl)
   if (body.sortOrder !== undefined) {
     patch.sortOrder = integer(body.sortOrder, 0, 1_000_000, 0, 'Sort order')
   }
-  if (Object.keys(patch).length === 0) throw ApiError.badRequest('Name at least one field to change')
+  if (body.pinned !== undefined) {
+    if (typeof body.pinned !== 'boolean') throw ApiError.badRequest('Pinned must be true or false')
+    pinned = body.pinned
+  }
+  if (Object.keys(patch).length === 0 && pinned === undefined) {
+    throw ApiError.badRequest('Name at least one field to change')
+  }
 
+  const id = c.req.param('id')
   const store = new MusicStore(c.env.DB, c.get('userId'))
-  const playlist: MusicPlaylist | null = await store.updatePlaylist(c.req.param('id'), patch)
-  if (!playlist) throw ApiError.notFound('That playlist does not exist')
+  const current = await store.getPlaylist(id)
+  if (!current) throw ApiError.notFound('That playlist does not exist')
+  let playlist: MusicPlaylist = current
+  if (Object.keys(patch).length > 0) {
+    const previousCoverKey = patch.coverUrl === undefined ? null : await store.getPlaylistCoverKey(id)
+    if (patch.coverUrl !== undefined) patch.coverKey = ''
+    const updated = await store.updatePlaylist(id, patch)
+    if (!updated) throw ApiError.notFound('That playlist does not exist')
+    playlist = updated
+    if (previousCoverKey) {
+      await discardMusicObjects(c.env, store, [previousCoverKey])
+    }
+  }
+  if (pinned !== undefined) {
+    const updated = await store.setPlaylistPinned(id, pinned)
+    if (!updated) throw ApiError.notFound('That playlist does not exist')
+    playlist = updated
+  }
   return c.json(playlist)
 })
 
-musicLibraryRoutes.delete('/playlists/:id', async (c) => {
+musicLibraryRoutes.post('/playlists/:id/share', async (c) => {
+  const id = c.req.param('id')
   const store = new MusicStore(c.env.DB, c.get('userId'))
-  if (!(await store.deletePlaylist(c.req.param('id')))) throw ApiError.notFound('That playlist does not exist')
+  let playlist = await store.getPlaylist(id)
+  if (!playlist) throw ApiError.notFound('That playlist does not exist')
+  if (!playlist.shareSlug) {
+    const updated = await store.setPlaylistShare(id, newSlug())
+    if (!updated) throw ApiError.notFound('That playlist does not exist')
+    playlist = updated
+  }
+  return c.json({
+    playlist,
+    url: `${new URL(c.req.url).origin}/m/${playlist.shareSlug}`,
+  })
+})
+
+musicLibraryRoutes.delete('/playlists/:id/share', async (c) => {
+  const playlist = await new MusicStore(c.env.DB, c.get('userId'))
+    .setPlaylistShare(c.req.param('id'), null)
+  if (!playlist) throw ApiError.notFound('That playlist does not exist')
+  return c.json({ playlist })
+})
+
+/** Replace the cover with one image. The bytes are sniffed, never trusted from the filename. */
+musicLibraryRoutes.post('/playlists/:id/cover', async (c) => {
+  const id = c.req.param('id')
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  const current = await store.getPlaylist(id)
+  if (!current) throw ApiError.notFound('That playlist does not exist')
+
+  const form = await readFormDataWithinLimit(c.req, MUSIC_LIMITS.coverMaxBytes + 1024 * 1024)
+  const file = form.get('cover')
+  if (!(file instanceof File)) throw ApiError.badRequest('Attach one image in the "cover" field.')
+  if (file.size <= 0) throw ApiError.badRequest('That image is empty.')
+  if (file.size > MUSIC_LIMITS.coverMaxBytes) {
+    throw ApiError.tooLarge(`Covers must be ${Math.round(MUSIC_LIMITS.coverMaxBytes / (1024 * 1024))} MB or smaller.`)
+  }
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  const image = imageType(bytes)
+  if (!image) throw new ApiError(415, 'music_upload_invalid', 'Use a JPEG, PNG, GIF or WebP image.')
+
+  const key = musicCoverKeyFor({ userId: c.get('userId'), trackId: id, extension: image.extension })
+  await putMusicObject(c.env, key, bytes, {
+    contentType: image.mime,
+    userId: c.get('userId'),
+    trackId: id,
+    kind: 'cover',
+  })
+  const previous = await store.getPlaylistCoverKey(id)
+  const playlist = await store.updatePlaylist(id, {
+    coverKey: key,
+    coverUrl: `/api/music/media/cover/playlist/${id}?v=${Date.now()}`,
+  })
+  if (!playlist) throw ApiError.notFound('That playlist does not exist')
+  if (previous && previous !== key) await discardMusicObjects(c.env, store, [previous])
+  return c.json({ playlist })
+})
+
+musicLibraryRoutes.delete('/playlists/:id/cover', async (c) => {
+  const id = c.req.param('id')
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  const current = await store.getPlaylist(id)
+  if (!current) throw ApiError.notFound('That playlist does not exist')
+  const previous = await store.getPlaylistCoverKey(id)
+  const playlist = await store.updatePlaylist(id, { coverUrl: '', coverKey: '' })
+  if (!playlist) throw ApiError.notFound('That playlist does not exist')
+  if (previous) await discardMusicObjects(c.env, store, [previous])
+  return c.json({ playlist })
+})
+
+musicLibraryRoutes.delete('/playlists/:id', async (c) => {
+  const id = c.req.param('id')
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  const coverKey = await store.getPlaylistCoverKey(id)
+  if (!(await store.deletePlaylist(id))) throw ApiError.notFound('That playlist does not exist')
+  // The cover lives outside the object ledger, so its row is the last reference: drop the bytes here
+  // rather than leaving an orphan nothing can name again.
+  if (coverKey) await discardMusicObjects(c.env, store, [coverKey])
   return c.json({ ok: true })
 })
 

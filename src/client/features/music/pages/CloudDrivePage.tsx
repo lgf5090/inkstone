@@ -1,16 +1,24 @@
 /**
- * My cloud drive: what this account stores in R2, and the WebDAV folder the backup settings already
- * hold. The WebDAV side can import a file as a library reference, upload into the folder on screen
- * and delete a remote file; an import never moves the audio, and a remote delete never touches the
- * library row that still names it.
+ * My cloud drive: R2 objects, the WebDAV folder the backup settings hold, and Alist mounts.
+ *
+ * All three sources follow the same gestures — drag files in, tick rows, import or delete them in a
+ * batch — while keeping their different contracts: an R2 delete removes bytes and the track row that
+ * names them, a WebDAV delete leaves the imported reference behind, and an Alist delete never touches
+ * the library. Importing still never moves audio.
  */
-import { useRef, useState, type ChangeEvent, type ReactElement } from 'react'
-import { ChevronLeft, Cloud, FileAudio, Folder, HardDrive, Trash2, Upload } from 'lucide-react'
-import { MUSIC_DRIVE_UPLOAD_MAX_BYTES, type MusicDriveSkipReason } from '@shared/music/api'
-import { MUSIC_ALL_FORMATS } from '@shared/music/constants'
+import { useEffect, useRef, useState, type DragEvent, type ReactElement } from 'react'
+import { CheckSquare, ChevronLeft, Cloud, FileAudio, Folder, HardDrive, Music, Pencil, Trash2, Upload } from 'lucide-react'
+import {
+  MUSIC_DRIVE_IMPORT_MAX_PATHS,
+  MUSIC_DRIVE_UPLOAD_MAX_BYTES,
+  type MusicDriveR2Entry,
+  type MusicDriveSkipReason,
+} from '@shared/music/api'
+import { MUSIC_ALL_FORMATS, formatFromFilename } from '@shared/music/constants'
 import type { MusicTrack } from '@shared/music/model'
 import { formatBytes } from '@shared/music/format'
 import { Button, IconButton } from '../../../components/primitives'
+import { Checkbox } from '../../../components/form'
 import { Empty, LoadingBlock } from '../../../components/feedback'
 import { confirm } from '../../../components/overlay'
 import { navigateToAddress } from '../../../lib/app-history'
@@ -21,8 +29,10 @@ import { useMusicQuery } from '../query'
 import { SectionHeader } from '../components/SectionHeader'
 import { MusicTabs } from '../components/Tabs'
 import { SongList } from '../components/SongList'
+import { EditTrackDialog } from '../components/EditTrackDialog'
 import { AlistPanel } from '../components/AlistPanel'
 import { musicText } from '../components/labels'
+import { useMusicLibrary } from '../store/library'
 import { useMusicPlayer } from '../store/player'
 import { toastFailure } from './parts/P2QueryState'
 import { MusicPageBody, PageError } from './parts/PageState'
@@ -31,6 +41,14 @@ type CloudSource = 'r2' | 'webdav' | 'alist'
 
 const UPLOAD_ACCEPT = MUSIC_ALL_FORMATS.map((format) => `.${format}`).join(',')
 const LIBRARY_ADDRESS = musicPathFor({ kind: 'favorites' })
+const MAX_UPLOAD_LABEL = Math.round(MUSIC_DRIVE_UPLOAD_MAX_BYTES / (1024 * 1024))
+const R2_DELETE_BATCH = 100
+
+function chunks<T>(items: readonly T[], size: number): T[][] {
+  const out: T[][] = []
+  for (let start = 0; start < items.length; start += size) out.push(items.slice(start, start + size))
+  return out
+}
 
 function parentOf(path: string): string {
   return path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
@@ -42,6 +60,20 @@ function skipReasonKey(reason: MusicDriveSkipReason): string {
 
 function baseName(path: string): string {
   return path.split('/').filter(Boolean).pop() ?? path
+}
+
+function uploadable(file: File): boolean {
+  return file.size > 0 && file.size <= MUSIC_DRIVE_UPLOAD_MAX_BYTES && formatFromFilename(file.name) !== null
+}
+
+function toastNothingUploadable(files: readonly File[]): void {
+  const tooLarge = files.some((file) => file.size > MUSIC_DRIVE_UPLOAD_MAX_BYTES)
+  useUi.getState().toast({
+    title: tooLarge
+      ? musicText('music.cloud.upload_too_large', { size: MAX_UPLOAD_LABEL })
+      : musicText('music.cloud.upload_none'),
+    tone: 'warning',
+  })
 }
 
 function toastImported(count: number): void {
@@ -59,10 +91,12 @@ function ImportedTracks({
   tracks,
   emptyTitle,
   emptyHint,
+  onEditTrack,
 }: {
   tracks: readonly MusicTrack[]
   emptyTitle: string
   emptyHint: string
+  onEditTrack?: (track: MusicTrack) => void
 }): ReactElement {
   return (
     <section aria-label={musicText('music.cloud.imported_tracks')} className="flex flex-col gap-2">
@@ -75,89 +109,180 @@ function ImportedTracks({
           <SongList
             tracks={tracks}
             onPlay={(track, queue) => { void useMusicPlayer.getState().playTrack(track, { queue }) }}
+            onEditTrack={onEditTrack}
           />
         )}
     </section>
   )
 }
 
+function SelectionBar({ count, importable, busy, onImport, onDelete, onClear }: {
+  count: number
+  importable: number
+  busy: boolean
+  onImport: () => void
+  onDelete: () => void
+  onClear: () => void
+}): ReactElement {
+  return (
+    <div
+      role="group"
+      aria-label={musicText('music.cloud.selected', { count })}
+      className="flex flex-wrap items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-3 py-2"
+    >
+      <CheckSquare size={14} className="shrink-0 text-[var(--accent)]" aria-hidden="true" />
+      <span className="text-[length:var(--text-12)] font-medium text-[var(--text-primary)]">
+        {musicText('music.cloud.selected', { count })}
+      </span>
+      <span className="flex-1" />
+      {importable > 0 && (
+        <Button size="sm" variant="secondary" disabled={busy} onClick={onImport}>
+          {musicText('music.cloud.import_selected')}
+        </Button>
+      )}
+      <Button size="sm" variant="secondary" disabled={busy} onClick={onDelete}>
+        {musicText('music.cloud.delete_selected')}
+      </Button>
+      <Button size="sm" variant="ghost" disabled={busy} onClick={onClear}>
+        {musicText('music.cloud.clear_selection')}
+      </Button>
+    </div>
+  )
+}
+
 export function CloudDrivePage(): ReactElement {
-  const [source, setSource] = useState<CloudSource>('webdav')
+  const [source, setSource] = useState<CloudSource>('r2')
   const [path, setPath] = useState('')
   const [pendingPath, setPendingPath] = useState<string | null>(null)
-  const [uploading, setUploading] = useState(false)
-  const fileInput = useRef<HTMLInputElement>(null)
-  const query = useMusicQuery(async () => {
-    const [drive, localTracks, webdavTracks, alistTracks, webdav, alist] = await Promise.all([
-      musicApi.drive(),
-      musicApi.tracks('upload'),
-      musicApi.tracks('webdav'),
-      musicApi.tracks('alist'),
-      musicApi.driveWebdav(path),
-      musicApi.alistMounts(),
-    ])
-    return {
-      drive,
-      localTracks: localTracks.items,
-      webdavTracks: webdavTracks.items,
-      alistTracks: alistTracks.items,
-      webdav,
-      alist: alist.mounts,
-    }
-  }, [path])
-  const data = query.data
-  const reload = query.reload
+  const [uploadingName, setUploadingName] = useState<string | null>(null)
+  const [r2Progress, setR2Progress] = useState<{ done: number; total: number } | null>(null)
+  const [selectedPaths, setSelectedPaths] = useState<ReadonlySet<string>>(new Set())
+  const [selectedKeys, setSelectedKeys] = useState<ReadonlySet<string>>(new Set())
+  const [editingTrack, setEditingTrack] = useState<MusicTrack | null>(null)
+  const [dragging, setDragging] = useState(false)
+  const webdavInput = useRef<HTMLInputElement>(null)
+  const r2Input = useRef<HTMLInputElement>(null)
+
+  // One source, one loader. A WebDAV server that is slow or offline must not hold the R2 tab on a
+  // spinner, so each tab only asks for what it is about to show.
+  const r2Query = useMusicQuery(async () => {
+    const [drive, r2] = await Promise.all([musicApi.drive(), musicApi.driveR2()])
+    return { drive, entries: r2.entries, truncated: r2.truncated }
+  }, [], { enabled: source === 'r2' })
+  const webdavQuery = useMusicQuery(async () => {
+    const [tracks, listing] = await Promise.all([musicApi.tracks('webdav'), musicApi.driveWebdav(path)])
+    return { tracks: tracks.items, listing }
+  }, [path], { enabled: source === 'webdav' })
+  const alistQuery = useMusicQuery(async () => {
+    const [tracks, mounts] = await Promise.all([musicApi.tracks('alist'), musicApi.alistMounts()])
+    return { tracks: tracks.items, mounts: mounts.mounts }
+  }, [], { enabled: source === 'alist' })
+  const r2Data = r2Query.data
+  const webdavData = webdavQuery.data
+  const alistData = alistQuery.data
+
+  useEffect(() => {
+    setSelectedPaths(new Set())
+    setSelectedKeys(new Set())
+  }, [source, path])
 
   const importFiles = async (paths: string[]): Promise<void> => {
     if (!paths.length) return
     setPendingPath(paths[0] ?? null)
+    let imported = 0
+    let firstReason: MusicDriveSkipReason | undefined
     try {
-      const result = await musicApi.driveWebdavImport(paths)
-      if (result.tracks.length > 0) {
-        toastImported(result.tracks.length)
-        reload()
+      for (const batch of chunks(paths, MUSIC_DRIVE_IMPORT_MAX_PATHS)) {
+        const result = await musicApi.driveWebdavImport(batch)
+        imported += result.tracks.length
+        firstReason ??= result.skipped[0]?.reason as MusicDriveSkipReason | undefined
+      }
+      if (imported > 0) {
+        toastImported(imported)
+        webdavQuery.reload()
       } else {
-        const reason = result.skipped[0]?.reason
         useUi.getState().toast({
           title: musicText('music.cloud.import_none'),
-          description: reason ? musicText(skipReasonKey(reason)) : undefined,
+          description: firstReason ? musicText(skipReasonKey(firstReason)) : undefined,
           tone: 'warning',
         })
       }
     } catch (error) {
       toastFailure(musicText('music.cloud.import_failed'), error)
+      if (imported > 0) webdavQuery.reload()
     } finally {
       setPendingPath(null)
     }
   }
 
-  const uploadFile = async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
-    const file = event.target.files?.[0]
-    // Clear the picker so choosing the same file again still fires a change.
-    event.target.value = ''
-    if (!file) return
-    if (file.size > MUSIC_DRIVE_UPLOAD_MAX_BYTES) {
-      useUi.getState().toast({
-        title: musicText('music.cloud.upload_too_large', {
-          size: Math.round(MUSIC_DRIVE_UPLOAD_MAX_BYTES / (1024 * 1024)),
-        }),
-        tone: 'warning',
-      })
+  const uploadWebdav = async (files: readonly File[]): Promise<void> => {
+    const valid = files.filter(uploadable)
+    if (valid.length === 0) {
+      toastNothingUploadable(files)
       return
     }
-    setUploading(true)
-    try {
-      const result = await musicApi.driveWebdavUpload(path, file)
-      useUi.getState().toast({
-        title: musicText('music.cloud.upload_done', { name: baseName(result.path) }),
-        tone: 'success',
-      })
-      reload()
-    } catch (error) {
-      toastFailure(musicText('music.cloud.upload_failed'), error)
-    } finally {
-      setUploading(false)
+    let failed = 0
+    for (const [index, file] of valid.entries()) {
+      setUploadingName(valid.length > 1
+        ? musicText('music.cloud.upload_progress', { done: index + 1, total: valid.length })
+        : musicText('music.cloud.uploading', { name: file.name }))
+      try {
+        const result = await musicApi.driveWebdavUpload(path, file)
+        if (valid.length === 1) {
+          useUi.getState().toast({
+            title: musicText('music.cloud.upload_done', { name: baseName(result.path) }),
+            tone: 'success',
+          })
+        }
+      } catch (error) {
+        failed += 1
+        if (valid.length === 1) toastFailure(musicText('music.cloud.upload_failed'), error)
+      }
     }
+    setUploadingName(null)
+    if (valid.length > 1) {
+      useUi.getState().toast({
+        title: musicText(failed === valid.length ? 'music.cloud.upload_failed' : 'music.cloud.upload_summary', {
+          count: valid.length - failed,
+        }),
+        description: failed > 0 ? musicText('music.cloud.upload_partial', { count: failed }) : undefined,
+        tone: failed > 0 ? 'warning' : 'success',
+      })
+    }
+    webdavQuery.reload()
+  }
+
+  const uploadR2 = async (files: readonly File[]): Promise<void> => {
+    const valid = files.filter(uploadable)
+    if (valid.length === 0) {
+      toastNothingUploadable(files)
+      return
+    }
+    const { parseUploadMetadata } = await import('../upload-metadata')
+    let failed = 0
+    setR2Progress({ done: 0, total: valid.length })
+    for (const [index, file] of valid.entries()) {
+      try {
+        const parsed = await parseUploadMetadata(file)
+        const metadata = parsed.ok
+          ? parsed.data
+          : { title: baseName(file.name).replace(/\.[^.]+$/, ''), artists: [], album: '', durationMs: 0, bitrate: null, lyrics: '' }
+        await musicApi.driveR2Upload(file, metadata)
+      } catch (error) {
+        failed += 1
+        console.warn('[inkstone] A cloud-drive upload failed:', error)
+      }
+      setR2Progress({ done: index + 1, total: valid.length })
+    }
+    setR2Progress(null)
+    useUi.getState().toast({
+      title: musicText(failed === valid.length ? 'music.cloud.upload_failed' : 'music.cloud.upload_summary', {
+        count: valid.length - failed,
+      }),
+      description: failed > 0 ? musicText('music.cloud.upload_partial', { count: failed }) : undefined,
+      tone: failed > 0 ? 'warning' : 'success',
+    })
+    r2Query.reload()
   }
 
   const removeRemote = async (entry: MusicCloudEntry): Promise<void> => {
@@ -177,13 +302,125 @@ export function CloudDrivePage(): ReactElement {
         }),
         tone: 'success',
       })
-      reload()
+      webdavQuery.reload()
     } catch (error) {
       toastFailure(musicText('music.cloud.delete_failed'), error)
     } finally {
       setPendingPath(null)
     }
   }
+
+  const deleteWebdavSelection = async (entries: readonly MusicCloudEntry[]): Promise<void> => {
+    const paths = entries.filter((entry) => !entry.isDirectory).map((entry) => entry.path)
+    if (paths.length === 0) return
+    const approved = await confirm({
+      title: musicText('music.cloud.delete_selected_title'),
+      description: musicText('music.cloud.delete_selected_body', { count: paths.length }),
+      confirmLabel: musicText('music.cloud.delete_selected'),
+      tone: 'danger',
+    })
+    if (!approved) return
+    setPendingPath(paths[0] ?? null)
+    let removed = 0
+    let skipped = 0
+    try {
+      for (const batch of chunks(paths, MUSIC_DRIVE_IMPORT_MAX_PATHS)) {
+        const result = await musicApi.driveWebdavDeleteMany(batch)
+        removed += result.removed.length
+        skipped += result.skipped.length
+      }
+      useUi.getState().toast({
+        title: musicText('music.cloud.deleted_selected', { count: removed }),
+        description: skipped > 0 ? musicText('music.cloud.delete_skipped', { count: skipped }) : undefined,
+        tone: skipped > 0 ? 'warning' : 'success',
+      })
+      setSelectedPaths(new Set())
+      webdavQuery.reload()
+    } catch (error) {
+      toastFailure(musicText('music.cloud.delete_selected_failed'), error)
+      if (removed > 0) webdavQuery.reload()
+    } finally {
+      setPendingPath(null)
+    }
+  }
+
+  const deleteR2Selection = async (): Promise<void> => {
+    const keys = [...selectedKeys]
+    if (keys.length === 0) return
+    const approved = await confirm({
+      title: musicText('music.cloud.delete_selected_title'),
+      description: musicText('music.cloud.delete_r2_selected_body', { count: keys.length }),
+      confirmLabel: musicText('music.cloud.delete_selected'),
+      tone: 'danger',
+    })
+    if (!approved) return
+    let removed = 0
+    let skipped = 0
+    try {
+      for (const batch of chunks(keys, R2_DELETE_BATCH)) {
+        const result = await musicApi.driveR2Delete(batch)
+        removed += result.removed.length
+        skipped += result.skipped.length
+      }
+      useUi.getState().toast({
+        title: musicText('music.cloud.deleted_selected', { count: removed }),
+        description: skipped > 0 ? musicText('music.cloud.delete_skipped', { count: skipped }) : undefined,
+        tone: skipped > 0 ? 'warning' : 'success',
+      })
+      setSelectedKeys(new Set())
+      r2Query.reload()
+      if (removed > 0) void useMusicLibrary.getState().load()
+    } catch (error) {
+      toastFailure(musicText('music.cloud.delete_selected_failed'), error)
+      if (removed > 0) r2Query.reload()
+    }
+  }
+
+  const toggle = <T,>(current: ReadonlySet<T>, value: T): ReadonlySet<T> => {
+    const next = new Set(current)
+    if (next.has(value)) next.delete(value)
+    else next.add(value)
+    return next
+  }
+
+  const toggleAll = <T,>(values: readonly T[], current: ReadonlySet<T>): ReadonlySet<T> => {
+    if (values.length > 0 && values.every((value) => current.has(value))) return new Set()
+    return new Set(values)
+  }
+
+  const editR2Entry = async (entry: MusicDriveR2Entry): Promise<void> => {
+    if (!entry.trackId) return
+    try {
+      const answer = await musicApi.track(entry.trackId)
+      setEditingTrack(answer.track)
+    } catch (error) {
+      toastFailure(musicText('music.cloud.track_load_failed'), error)
+    }
+  }
+
+  const dropProps = (upload: (files: readonly File[]) => Promise<void>, enabled = true) => ({
+    onDragOver: (event: DragEvent<HTMLElement>) => {
+      if (!enabled || !event.dataTransfer.types.includes('Files')) return
+      event.preventDefault()
+      setDragging(true)
+    },
+    onDragLeave: (event: DragEvent<HTMLElement>) => {
+      if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+      setDragging(false)
+    },
+    onDrop: (event: DragEvent<HTMLElement>) => {
+      if (!enabled) return
+      event.preventDefault()
+      setDragging(false)
+      const files = [...event.dataTransfer.files]
+      if (files.length > 0) void upload(files)
+    },
+  })
+
+  const webdavSelectable = webdavData?.listing.entries.filter((entry) => !entry.isDirectory) ?? []
+  const webdavSelectedEntries = webdavSelectable.filter((entry) => selectedPaths.has(entry.path))
+  const webdavImportable = webdavSelectedEntries.filter((entry) => entry.isMedia).length
+  const r2Selected = (r2Data?.entries ?? []).filter((entry) => selectedKeys.has(entry.key))
 
   return (
     <MusicPageBody>
@@ -210,38 +447,123 @@ export function CloudDrivePage(): ReactElement {
         ]}
       />
 
-      {query.status === 'loading' && !data && <LoadingBlock label={musicText('music.cloud.loading')} />}
-      {query.status === 'error' && !data && <PageError error={query.error} onRetry={reload} />}
-      {data && source === 'r2' && (
-        <section className="flex flex-col gap-4" aria-label={musicText('music.cloud.source.r2')}>
-          <div className="flex flex-wrap gap-3">
+      {source === 'r2' && r2Query.status === 'loading' && !r2Data && (
+        <LoadingBlock label={musicText('music.cloud.loading')} />
+      )}
+      {source === 'r2' && r2Query.status === 'error' && !r2Data && (
+        <PageError error={r2Query.error} onRetry={r2Query.reload} />
+      )}
+
+      {source === 'r2' && r2Data && (
+        <section
+          {...dropProps(uploadR2)}
+          className="relative flex flex-col gap-4"
+          aria-label={musicText('music.cloud.source.r2')}
+        >
+          {dragging && <DropOverlay />}
+          <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2">
               <HardDrive size={15} className="text-[var(--text-tertiary)]" />
               <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{musicText('music.cloud.r2_usage')}</span>
-              <span className="text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{formatBytes(data.drive.r2.bytes)}</span>
+              <span className="text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{formatBytes(r2Data.drive.r2.bytes)}</span>
             </div>
             <div className="flex items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2">
               <Cloud size={15} className="text-[var(--text-tertiary)]" />
               <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{musicText('music.cloud.r2_objects')}</span>
-              <span className="text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{data.drive.r2.objects}</span>
+              <span className="text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{r2Data.drive.r2.objects}</span>
             </div>
+            <span className="flex-1" />
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={<Upload size={13} />}
+              loading={r2Progress !== null}
+              onClick={() => r2Input.current?.click()}
+            >
+              {musicText('music.cloud.upload_files')}
+            </Button>
+            <input
+              ref={r2Input}
+              type="file"
+              hidden
+              multiple
+              accept={UPLOAD_ACCEPT}
+              onChange={(event) => {
+                const files = [...(event.target.files ?? [])]
+                event.target.value = ''
+                void uploadR2(files)
+              }}
+            />
           </div>
-          <ImportedTracks
-            tracks={data.localTracks}
-            emptyTitle={musicText('music.cloud.r2_empty')}
-            emptyHint={musicText('music.cloud.r2_empty_hint')}
-          />
+          {r2Progress && (
+            <p role="status" className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">
+              {musicText('music.cloud.upload_progress', r2Progress)}
+            </p>
+          )}
+          <p className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{musicText('music.cloud.drag_hint')}</p>
+
+          {r2Data.entries.length > 0 && (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setSelectedKeys(toggleAll(r2Data.entries.map((entry) => entry.key), selectedKeys))}
+                >
+                  {selectedKeys.size > 0 && r2Selected.length === r2Data.entries.length
+                    ? musicText('music.cloud.clear_selection')
+                    : musicText('music.cloud.select_all')}
+                </Button>
+                <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{musicText('music.cloud.select_hint')}</span>
+              </div>
+              {selectedKeys.size > 0 && (
+                <SelectionBar
+                  count={selectedKeys.size}
+                  importable={0}
+                  busy={r2Progress !== null}
+                  onImport={() => undefined}
+                  onDelete={() => { void deleteR2Selection() }}
+                  onClear={() => setSelectedKeys(new Set())}
+                />
+              )}
+              <R2List
+                entries={r2Data.entries}
+                selected={selectedKeys}
+                onToggle={(key) => setSelectedKeys(toggle(selectedKeys, key))}
+                onEdit={(entry) => { void editR2Entry(entry) }}
+              />
+              {r2Data.truncated && (
+                <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{musicText('music.cloud.r2_truncated')}</p>
+              )}
+            </>
+          )}
+          {r2Data.entries.length === 0 && (
+            <Empty art="folder" title={musicText('music.cloud.r2_empty')} description={musicText('music.cloud.r2_empty_hint')} />
+          )}
         </section>
       )}
 
-      {data && source === 'webdav' && (
-        <section className="flex flex-col gap-3" aria-label={musicText('music.cloud.source.webdav')}>
+      {source === 'webdav' && webdavQuery.status === 'loading' && !webdavData && (
+        <LoadingBlock label={musicText('music.cloud.loading')} />
+      )}
+      {source === 'webdav' && webdavQuery.status === 'error' && !webdavData && (
+        <PageError error={webdavQuery.error} onRetry={webdavQuery.reload} />
+      )}
+
+      {webdavData && source === 'webdav' && (
+        <section
+          {...dropProps(uploadWebdav, webdavData.listing.configured)}
+          className="relative flex flex-col gap-3"
+          aria-label={musicText('music.cloud.source.webdav')}
+        >
+          {dragging && <DropOverlay />}
           <ImportedTracks
-            tracks={data.webdavTracks}
+            tracks={webdavData.tracks}
             emptyTitle={musicText('music.cloud.no_imported', { source: musicText('music.cloud.source.webdav') })}
             emptyHint={musicText('music.cloud.no_imported_hint', { source: musicText('music.cloud.source.webdav') })}
+            onEditTrack={setEditingTrack}
           />
-          {!data.webdav.configured
+          {!webdavData.listing.configured
             ? (
               <Empty
                 art="folder"
@@ -257,7 +579,7 @@ export function CloudDrivePage(): ReactElement {
                     className="rounded-[var(--r-sm)] px-1.5 py-0.5 hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
                     onClick={() => setPath('')}
                   >
-                    {data.webdav.dir || '/'}
+                    {webdavData.listing.dir || '/'}
                   </button>
                   {path.split('/').filter(Boolean).map((segment, index, all) => {
                     const target = all.slice(0, index + 1).join('/')
@@ -284,27 +606,70 @@ export function CloudDrivePage(): ReactElement {
                     size="sm"
                     variant="secondary"
                     icon={<Upload size={13} />}
-                    loading={uploading}
-                    onClick={() => fileInput.current?.click()}
+                    loading={uploadingName !== null}
+                    onClick={() => webdavInput.current?.click()}
                   >
                     {musicText('music.cloud.upload')}
                   </Button>
                   <input
-                    ref={fileInput}
+                    ref={webdavInput}
                     type="file"
                     hidden
+                    multiple
                     accept={UPLOAD_ACCEPT}
-                    onChange={(event) => void uploadFile(event)}
+                    onChange={(event) => {
+                      const files = [...(event.target.files ?? [])]
+                      event.target.value = ''
+                      void uploadWebdav(files)
+                    }}
                   />
                 </div>
-                {data.webdav.entries.length === 0
+                {uploadingName && (
+                  <p role="status" className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{uploadingName}</p>
+                )}
+                {webdavSelectable.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setSelectedPaths(toggleAll(webdavSelectable.map((entry) => entry.path), selectedPaths))}
+                    >
+                      {webdavSelectedEntries.length === webdavSelectable.length
+                        ? musicText('music.cloud.clear_selection')
+                        : musicText('music.cloud.select_all')}
+                    </Button>
+                    <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{musicText('music.cloud.select_hint')}</span>
+                  </div>
+                )}
+                {selectedPaths.size > 0 && (
+                  <SelectionBar
+                    count={selectedPaths.size}
+                    importable={webdavImportable}
+                    busy={pendingPath !== null}
+                    onImport={() => {
+                      const paths = webdavSelectedEntries.filter((entry) => entry.isMedia).map((entry) => entry.path)
+                      void importFiles(paths).then(() => setSelectedPaths(new Set()))
+                    }}
+                    onDelete={() => { void deleteWebdavSelection(webdavSelectedEntries) }}
+                    onClear={() => setSelectedPaths(new Set())}
+                  />
+                )}
+                {webdavData.listing.entries.length === 0
                   ? <Empty art="folder" title={musicText('music.cloud.empty')} />
                   : (
                     <ul className="flex flex-col divide-y divide-[var(--border-subtle)] rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
-                      {data.webdav.entries.map((entry) => {
+                      {webdavData.listing.entries.map((entry) => {
                         const busy = pendingPath === entry.path
                         return (
                           <li key={entry.path} className="flex min-w-0 items-center gap-2 px-3 py-1.5">
+                            {!entry.isDirectory && (
+                              <Checkbox
+                                checked={selectedPaths.has(entry.path)}
+                                label={<span className="sr-only">{musicText('music.cloud.select_file', { name: entry.name })}</span>}
+                                className="size-8 min-h-0 justify-center"
+                                onChange={() => setSelectedPaths(toggle(selectedPaths, entry.path))}
+                              />
+                            )}
                             <button
                               type="button"
                               disabled={!entry.isDirectory && !entry.isMedia}
@@ -342,7 +707,7 @@ export function CloudDrivePage(): ReactElement {
                       })}
                     </ul>
                   )}
-                {data.webdav.truncated && (
+                {webdavData.listing.truncated && (
                   <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{musicText('music.cloud.truncated')}</p>
                 )}
               </>
@@ -350,16 +715,85 @@ export function CloudDrivePage(): ReactElement {
         </section>
       )}
 
-      {data && source === 'alist' && (
+      {source === 'alist' && alistQuery.status === 'loading' && !alistData && (
+        <LoadingBlock label={musicText('music.cloud.loading')} />
+      )}
+      {source === 'alist' && alistQuery.status === 'error' && !alistData && (
+        <PageError error={alistQuery.error} onRetry={alistQuery.reload} />
+      )}
+
+      {alistData && source === 'alist' && (
         <section className="flex flex-col gap-3" aria-label={musicText('music.cloud.source.alist')}>
           <ImportedTracks
-            tracks={data.alistTracks}
+            tracks={alistData.tracks}
             emptyTitle={musicText('music.cloud.no_imported', { source: musicText('music.cloud.source.alist') })}
             emptyHint={musicText('music.cloud.no_imported_hint', { source: musicText('music.cloud.source.alist') })}
+            onEditTrack={setEditingTrack}
           />
-          <AlistPanel mounts={data.alist} onChanged={query.reload} />
+          <AlistPanel mounts={alistData.mounts} onChanged={alistQuery.reload} />
         </section>
       )}
+
+      <EditTrackDialog
+        track={editingTrack}
+        open={editingTrack !== null}
+        onClose={() => setEditingTrack(null)}
+        onSaved={() => {
+          setEditingTrack(null)
+          r2Query.reload()
+          webdavQuery.reload()
+          alistQuery.reload()
+          void useMusicLibrary.getState().load()
+        }}
+      />
     </MusicPageBody>
+  )
+}
+
+function R2List({ entries, selected, onToggle, onEdit }: {
+  entries: readonly MusicDriveR2Entry[]
+  selected: ReadonlySet<string>
+  onToggle: (key: string) => void
+  onEdit: (entry: MusicDriveR2Entry) => void
+}): ReactElement {
+  return (
+    <ul
+      aria-label={musicText('music.cloud.r2_files')}
+      className="flex flex-col divide-y divide-[var(--border-subtle)] rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]"
+    >
+      {entries.map((entry) => (
+        <li key={entry.key} className="flex min-w-0 items-center gap-2 px-3 py-1.5">
+          <Checkbox
+            checked={selected.has(entry.key)}
+            label={<span className="sr-only">{musicText('music.cloud.select_file', { name: entry.title })}</span>}
+            className="size-8 min-h-0 justify-center"
+            onChange={() => onToggle(entry.key)}
+          />
+          <Music size={15} className="shrink-0 text-[var(--text-tertiary)]" aria-hidden="true" />
+          <span className="flex min-w-0 flex-1 flex-col gap-px">
+            <span className="truncate text-[length:var(--text-12-5)] text-[var(--text-primary)]">{entry.title}</span>
+            <span className="truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+              {[entry.artists.join(' / '), entry.format.toUpperCase(), formatBytes(entry.size)].filter(Boolean).join(' · ')}
+            </span>
+          </span>
+          {entry.trackId && (
+            <IconButton label={musicText('music.cloud.edit_track')} size="sm" onClick={() => onEdit(entry)}>
+              <Pencil size={14} />
+            </IconButton>
+          )}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function DropOverlay(): ReactElement {
+  return (
+    <div className="pointer-events-none absolute inset-0 z-[var(--z-popover)] flex items-center justify-center rounded-[var(--r-lg)] border-2 border-dashed border-[var(--accent)] bg-[var(--bg-base)]">
+      <span className="flex items-center gap-2 text-[length:var(--text-13)] font-medium text-[var(--accent)]">
+        <Upload size={16} aria-hidden="true" />
+        {musicText('music.cloud.drop_here')}
+      </span>
+    </div>
   )
 }

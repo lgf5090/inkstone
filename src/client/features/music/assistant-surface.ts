@@ -25,7 +25,6 @@ const PAGE_KIND: Record<MusicPage['kind'], MusicAssistantPage> = {
   podcastDetail: 'podcastDetail',
   favorites: 'favorites',
   history: 'history',
-  heatmap: 'heatmap',
   uploads: 'uploads',
   downloads: 'downloads',
   cloud: 'cloud',

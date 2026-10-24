@@ -289,3 +289,50 @@ export interface MusicDriveDeleteResult {
   ok: true
   removed: boolean
 }
+
+export interface MusicDriveR2Entry {
+  key: string
+  trackId: string | null
+  title: string
+  artists: string[]
+  format: string
+  size: number
+  createdAt: number
+}
+
+export interface MusicDriveR2Listing {
+  entries: MusicDriveR2Entry[]
+  truncated: boolean
+}
+
+export interface MusicDriveR2UploadResult {
+  track: MusicTrack
+  entry: MusicDriveR2Entry
+}
+
+export interface MusicDriveBatchResult {
+  removed: string[]
+  skipped: Array<{ path: string; reason: 'missing' | 'referenced' | 'failed' }>
+}
+
+/** The public projection: display metadata only, never provider ids, storage keys or audio. */
+export interface MusicPublicPlaylistTrack {
+  position: number
+  title: string
+  artists: string
+  album: string
+  durationMs: number
+  format: string
+}
+
+export interface MusicPublicPlaylistPayload {
+  playlist: {
+    name: string
+    description: string
+    coverUrl: string
+    trackCount: number
+    updatedAt: number
+  }
+  tracks: MusicPublicPlaylistTrack[]
+  truncated: boolean
+}

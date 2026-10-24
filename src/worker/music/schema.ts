@@ -47,11 +47,13 @@ export const MUSIC_SCHEMA_STATEMENTS: readonly string[] = [
     name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     cover_url TEXT NOT NULL DEFAULT '',
+    cover_key TEXT NOT NULL DEFAULT '',
     provider TEXT NOT NULL DEFAULT 'local',
     provider_id TEXT NOT NULL DEFAULT '',
     kind TEXT NOT NULL DEFAULT 'manual',
     sort_order INTEGER NOT NULL DEFAULT 0,
     pinned_at INTEGER,
+    share_slug TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
@@ -60,6 +62,8 @@ export const MUSIC_SCHEMA_STATEMENTS: readonly string[] = [
     ON music_playlist(user_id, sort_order, created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_music_playlist_pinned
     ON music_playlist(user_id, pinned_at DESC)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_music_playlist_share
+    ON music_playlist(share_slug) WHERE share_slug IS NOT NULL`,
 
   `CREATE TABLE IF NOT EXISTS music_playlist_item (
     user_id TEXT NOT NULL,
@@ -287,6 +291,7 @@ export const MUSIC_REQUIRED_INDEXES: readonly string[] = [
   'idx_music_track_size',
   'idx_music_playlist_user',
   'idx_music_playlist_pinned',
+  'idx_music_playlist_share',
   'idx_music_playlist_item_order',
   'idx_music_favorite_recent',
   'idx_music_favorite_pinned',
@@ -308,8 +313,8 @@ export const MUSIC_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>>
     'source', 'source_quality', 'created_at', 'updated_at',
   ],
   music_playlist: [
-    'user_id', 'id', 'name', 'description', 'cover_url', 'provider', 'provider_id', 'kind',
-    'sort_order', 'pinned_at', 'created_at', 'updated_at',
+    'user_id', 'id', 'name', 'description', 'cover_url', 'cover_key', 'provider', 'provider_id',
+    'kind', 'sort_order', 'pinned_at', 'share_slug', 'created_at', 'updated_at',
   ],
   music_playlist_item: ['user_id', 'playlist_id', 'track_id', 'position', 'added_at'],
   music_favorite: ['user_id', 'track_id', 'created_at', 'pinned_at'],

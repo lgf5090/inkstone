@@ -1120,7 +1120,7 @@ function placeTooltip(anchor: DOMRect, tooltip: DOMRect, preferred: TooltipSide)
         left: side === 'right' ? anchor.right + gap : anchor.left - gap - tooltip.width,
     };
 }
-export function Drawer({ open, onClose, side = 'right', width = 380, children, title, zIndex = Z_INDEX.drawer, ariaLabel, leftOffset = 0, }: {
+export function Drawer({ open, onClose, side = 'right', width = 380, children, title, zIndex = Z_INDEX.drawer, ariaLabel, leftOffset = 0, bodyClassName, }: {
     open: boolean;
     onClose: () => void;
     side?: 'left' | 'right';
@@ -1131,6 +1131,8 @@ export function Drawer({ open, onClose, side = 'right', width = 380, children, t
     /** Names the panel when it has no visible title; without one it would be the generic side panel. */
     ariaLabel?: string;
     leftOffset?: number;
+    /** Padding belongs to the caller: a list wants it on the rows, a settings panel on the body. */
+    bodyClassName?: string;
 }) {
     const panelRef = useRef<HTMLElement>(null);
     const titleId = useId();
@@ -1153,7 +1155,7 @@ export function Drawer({ open, onClose, side = 'right', width = 380, children, t
               </IconButton>
             </Tooltip>
           </header>)}
-        <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+        <div className={cn('min-h-0 flex-1 overflow-y-auto', bodyClassName)}>{children}</div>
       </aside>
     </div>, document.body);
 }

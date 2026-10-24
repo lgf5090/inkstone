@@ -41,6 +41,7 @@ import { MUSIC_PLAY_MODES } from '@shared/music/model'
 import { Button, IconButton, Spinner } from '../../../components/primitives'
 import { Slider } from '../../../components/form'
 import { Drawer, Menu, Tooltip, useClickOutside, useEscape } from '../../../components/overlay'
+import { Z_INDEX } from '../../../lib/z-index'
 import { useMusicLibrary } from '../store/library'
 import { selectCurrentTrack, useMusicPlayer } from '../store/player'
 import { MUSIC_RATE_RANGE } from '../store/settings'
@@ -380,6 +381,10 @@ export function PlayBar(): ReactElement {
           side="right"
           width={340}
           title={panel ? musicText(`music.panel.${panel}`) : ''}
+          bodyClassName="p-4"
+          // The assistant dock lives at `--z-panel`; a panel the reader opened from the bar must sit
+          // above it rather than under the column it may be covering.
+          zIndex={Z_INDEX.workspace}
         >
           {panel === 'eq' && <EqPanel />}
           {panel === 'sleep' && <SleepTimer />}

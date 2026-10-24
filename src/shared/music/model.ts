@@ -113,6 +113,8 @@ export interface MusicPlaylist {
   sortOrder: number
   /** When the reader pinned the playlist, or null. Pinned rows sort ahead of the shelf order. */
   pinnedAt: number | null
+  /** The public address segment while the playlist is shared, or null. */
+  shareSlug: string | null
   trackCount: number
   createdAt: number
   updatedAt: number

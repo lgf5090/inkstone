@@ -15,10 +15,10 @@ import { formatDuration } from '@shared/music/format'
 import { MUSIC_SEARCH_TYPES, type MusicSearchType } from '@shared/music/model'
 import { Badge, Button, IconButton } from '../../../components/primitives'
 import { Empty, Skeleton } from '../../../components/feedback'
-import { Input, commitOnEnter } from '../../../components/form'
 import { confirm } from '../../../components/overlay'
 import { navigateToAddress, replaceAddress } from '../../../lib/app-history'
 import { musicApi } from '../api'
+import { MusicSearchBox } from '../components/MusicSearchBox'
 import { MusicTabs } from '../components/Tabs'
 import { Pager } from '../components/Pager'
 import { SectionHeader } from '../components/SectionHeader'
@@ -277,14 +277,10 @@ export function SearchPage({ query }: SearchPageProps): ReactElement {
         }}
       >
         <div className="w-full md:max-w-[560px]">
-          <Input
-            type="search"
+          <MusicSearchBox
             value={text}
-            leading={<Search size={14} aria-hidden="true" />}
-            placeholder={musicText('music.search.placeholder')}
-            aria-label={musicText('music.search.placeholder')}
-            onChange={(event) => setText(event.target.value)}
-            onKeyDown={(event) => commitOnEnter(event, () => applyTerm(text, true))}
+            onChange={setText}
+            onCommit={(value) => applyTerm(value, true)}
           />
         </div>
         <Button type="submit" variant="primary" icon={<Search size={14} />}>

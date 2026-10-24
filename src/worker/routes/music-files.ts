@@ -156,6 +156,19 @@ musicFileRoutes.get('/cover/:trackId', async (c) => {
   throw ApiError.notFound('This track has no cover')
 })
 
+/** A playlist cover uploaded by its owner: the same private cache as a track cover. */
+musicFileRoutes.get('/cover/playlist/:playlistId', async (c) => {
+  const id = c.req.param('playlistId')
+  if (!id || id.length > 128) throw ApiError.notFound('Playlist not found')
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  const key = await store.getPlaylistCoverKey(id)
+  if (!key) throw ApiError.notFound('This playlist has no cover')
+  requireMusicStorage(c.env)
+  const object = await readMusicObjectStream(c.env, key)
+  if (!object) throw ApiError.notFound('This playlist cover is no longer stored')
+  return storedImageResponse(object, key)
+})
+
 musicFileRoutes.get('/export/track/:id', async (c) => {
   const track = await ownedTrack(c, 'id')
   if (!track.r2Key) {
@@ -213,7 +226,14 @@ function storedCoverResponse(
   object: { body: ReadableStream<Uint8Array>; size: number | null; contentType: string | null },
   track: MusicTrack,
 ): Response {
-  const extension = track.coverKey?.split('.').pop()?.toLowerCase() ?? ''
+  return storedImageResponse(object, track.coverKey ?? '')
+}
+
+function storedImageResponse(
+  object: { body: ReadableStream<Uint8Array>; size: number | null; contentType: string | null },
+  key: string,
+): Response {
+  const extension = key.split('.').pop()?.toLowerCase() ?? ''
   const contentType = object.contentType ?? COVER_MIME_BY_EXTENSION[extension] ?? 'application/octet-stream'
   const headers = new Headers({
     'Content-Type': contentType,

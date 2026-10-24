@@ -389,7 +389,7 @@ describe('music address', () => {
     expect(parseMusicAddress('/music/podcast/5')).toEqual({ kind: 'podcastDetail', id: '5' })
     expect(parseMusicAddress('/music/favorites')).toEqual({ kind: 'favorites' })
     expect(parseMusicAddress('/music/history')).toEqual({ kind: 'history' })
-    expect(parseMusicAddress('/music/heatmap')).toEqual({ kind: 'heatmap' })
+    expect(parseMusicAddress('/music/heatmap')).toEqual({ kind: 'history' })
     expect(parseMusicAddress('/music/user')).toEqual({ kind: 'me' })
     expect(parseMusicAddress('/music/user/77')).toEqual({ kind: 'user', id: '77' })
     expect(parseMusicAddress('/music/settings')).toEqual({ kind: 'settings' })
