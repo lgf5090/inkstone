@@ -216,6 +216,7 @@ export function MusicApp(): ReactElement {
           ))}
           <button
             type="button"
+            aria-label={musicText('music.nav.assistant')}
             aria-pressed={assistantDockOpen}
             onClick={() => useUi.getState().toggleAssistantDock()}
             className={cn(
