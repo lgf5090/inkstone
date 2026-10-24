@@ -1,0 +1,10 @@
+.email-frame {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: var(--bg-surface);
+}
+
+.email-frame-auto {
+  min-height: 4rem;
+}

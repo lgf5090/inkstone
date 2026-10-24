@@ -46,6 +46,13 @@ export async function collectAttachmentReferences(
       )
     case 'chat':
       return scanChatReferences(db, userId, wantedIds)
+    case 'email':
+      return scanIdColumn(
+        db,
+        userId,
+        `SELECT id FROM email_attachments WHERE user_id = ?1 AND email_id IS NOT NULL`,
+        wantedIds,
+      )
   }
 }
 

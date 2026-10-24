@@ -61,6 +61,8 @@ describe('the tools the MCP server publishes', () => {
     const names = await offeredTools([])
     expect(names).toContain('search')
     expect(names).toContain('create_note')
+    expect(names).toContain('email_list')
+    expect(names).toContain('email_send')
     // The listing is what an MCP client builds its whole toolset from, so it has to be the full set.
     expect(names.length).toBeGreaterThan(20)
   })
@@ -84,6 +86,14 @@ describe('the catalog the settings screen draws', () => {
     expect(names).toContain('create_note')
     expect(catalog.every((tool) => tool.title.length > 0 && tool.description.length > 0)).toBe(true)
     expect(new Set(names).size).toBe(names.length)
+  })
+
+  it('lists the email tools once the mailbox family is registered', () => {
+    const catalog = mcpServerToolCatalog({ env, origin: 'https://inkstone.test', ftsEnabled: false })
+    const emailTools = catalog.filter((tool) => tool.name.startsWith('email_')).map((tool) => tool.name)
+    expect(emailTools).toHaveLength(13)
+    expect(emailTools).toContain('email_list_accounts')
+    expect(emailTools).toContain('email_send_reply')
   })
 })
 

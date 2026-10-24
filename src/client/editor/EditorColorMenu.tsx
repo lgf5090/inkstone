@@ -1,10 +1,10 @@
 import { useRef, useState } from 'react';
 import { Ban } from 'lucide-react';
 import { isOrganizerColor, organizerColorContrast, organizerColorLabel } from '@shared/organizer-colors';
-import { t } from '../../lib/i18n';
-import { isImeComposing } from '../../lib/ime';
-import { cn } from '../../lib/cn';
-import { normalizeHexColor } from '../../editor/text-format';
+import { t } from '../lib/i18n';
+import { isImeComposing } from '../lib/ime';
+import { cn } from '../lib/cn';
+import { normalizeHexColor } from './text-format';
 import {
     type ColorKind,
     isColorUsable,
@@ -13,9 +13,9 @@ import {
     pushRecentColor,
     swatchColor,
     useRecentColors,
-} from '../../lib/format-colors';
-import { Swatch } from '../../components/color-swatch';
-import { ColorWheelTrigger } from '../../components/color-field';
+} from '../lib/format-colors';
+import { Swatch } from '../components/color-swatch';
+import { ColorWheelTrigger } from '../components/color-field';
 
 const PANEL_WIDTH = 226;
 

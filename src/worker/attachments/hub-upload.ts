@@ -6,7 +6,7 @@ import { newId } from '../lib/id'
 import { saveMemoAttachment } from '../memos/attachments'
 import type { Env } from '../env'
 import { getHubAttachment, patchHubRow } from './hub-rows'
-import { persistAttachmentWithinQuota } from './storage'
+import { persistAttachmentWithinQuota, persistEmailAttachment } from './storage'
 import type { AttachmentScope } from './scopes'
 
 /**
@@ -78,6 +78,19 @@ export async function uploadHubFile(
       id = created.id
       break
     }
+    case 'email':
+      await persistEmailAttachment(env, {
+        id,
+        userId: input.userId,
+        accountId: null,
+        emailId: null,
+        filename: input.filename,
+        reportedMime: input.mime,
+        bytes: input.bytes,
+        locked: false,
+        createdAt: Date.now(),
+      })
+      break
   }
 
   if (input.folderId) {

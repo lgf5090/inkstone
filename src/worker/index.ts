@@ -18,10 +18,16 @@ import { sweepSubscriptions } from './subscriptions/scheduler'
 import { ApiError } from './lib/errors'
 import { withSecurityHeaders } from './lib/security-headers'
 import { normalizeRepeatedOAuthResource } from './lib/oauth-request'
-import { handleInboundMail } from './email/inbound'
+import { dispatchInboundEmail } from './email/dispatch'
+import { runEmailTrashCleanup } from './email/trash'
+import { runEmailAutoDraftJobs } from './email/auto-draft'
+import { runEmailSnoozeWake } from './email/snooze'
+import { runEmailFollowUpSweep } from './email/follow-up'
+import { runScheduledSends } from './email/scheduled-send'
 
 export { SyncHub } from './realtime/sync-hub'
 export { CredentialVault } from './durable/credential-vault'
+export { EmailMailbox } from './email/mailbox-do'
 
 // Codex CLI drops the `iss` callback parameter while its rmcp
 // dependency enforces it whenever the authorization server advertises
@@ -72,8 +78,15 @@ export default {
       // Task reminders ride the same every-fire cadence, for the same reason: the claim on the row is
       // what deduplicates them, so a second fire in the same minute finds nothing left to deliver.
       const reminderTick = sweepTaskReminders(env, event.scheduledTime, (task) => { ctx.waitUntil(task) })
+      const emailDraftTick = runEmailAutoDraftJobs(env, event.scheduledTime, 2)
+      const emailSnoozeTick = runEmailSnoozeWake(env, event.scheduledTime)
+      const emailFollowUpTick = runEmailFollowUpSweep(env, event.scheduledTime)
+      const emailScheduledTick = runScheduledSends(env, event.scheduledTime, 3).catch((error) => {
+        console.warn('[inkstone] scheduled email send sweep failed:', (error as Error).message)
+        return null
+      })
       if (!isDrainFire(event.scheduledTime)) {
-        await Promise.all([assistantTick, subscriptionTick, reminderTick])
+        await Promise.all([assistantTick, subscriptionTick, reminderTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick])
         return
       }
       const drains: Promise<unknown>[] = [
@@ -95,24 +108,26 @@ export default {
             purgeRevokedMcpApiKeys(env.DB),
             purgeExpiredEphemeralConversations(env.DB, env),
             purgeExpiredTodoTrash(env.DB),
+            runEmailTrashCleanup(env),
             purgeExpiredSubscriptionData(env.DB),
             providerForScheduled(env).purgeExpiredData(env, { batchSize: 100 }),
           ]
         : []
-      await Promise.all([...drains, ...heavy, subscriptionTick, reminderTick])
+      await Promise.all([...drains, ...heavy, subscriptionTick, reminderTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick])
     })())
   },
 
   /**
-   * Email Routing's inbound door: `u+<token>@<MAIL_DOMAIN>` becomes a task.
+   * Email Routing's inbound door: `u+<token>@<MAIL_DOMAIN>` becomes a task, a mailbox address is
+   * delivered to its owner's mailbox, and anything else is dropped.
    *
-   * The handler is deliberately one call deep — routing, parsing, idempotency and the drops all live
-   * in `email/inbound.ts`, so the Worker entry stays a list of the platform's events. Nothing here
-   * answers the sender: an unknown recipient is dropped, not rejected, which is what keeps the
-   * address space from being enumerable through bounces.
+   * The handler is one call deep — routing, parsing, idempotency and the drops all live in
+   * `email/dispatch.ts` and the modules it calls, so the Worker entry stays a list of the platform's
+   * events. Nothing here answers the sender: an unknown recipient is dropped, not rejected, which is
+   * what keeps the address space from being enumerable through bounces.
    */
-  async email(message: ForwardableEmailMessage, env: Env, _ctx: ExecutionContext): Promise<void> {
-    await handleInboundMail(message, env)
+  async email(message: ForwardableEmailMessage, env: Env, ctx: ExecutionContext): Promise<void> {
+    await dispatchInboundEmail(message, env, ctx)
   },
 } satisfies ExportedHandler<Env>
 

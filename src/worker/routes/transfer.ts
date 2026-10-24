@@ -47,6 +47,14 @@ import { createBackupArchive } from '../backup/archive'
 import { applyBackupTemplates } from '../backup/templates'
 import { applyBackupQuickAdd } from '../backup/quickadd'
 import { applyBackupSubscriptions } from '../subscriptions/backup'
+import {
+  backupEmailAttachmentPath,
+  emailBackupAttachmentPrefix,
+  parseEmailBackupBundle,
+  type EmailBackupAttachment,
+  type EmailBackupBundle,
+} from '@shared/email/backup'
+import { applyBackupEmail } from '../email/backup'
 import { sha256Hex } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
@@ -260,16 +268,28 @@ transferRoutes.post('/import', async (c) => {
           if (backup.manifest.subscriptions) {
             expected.add(`${backup.rootPrefix}${backup.manifest.subscriptions.path}`.toLowerCase())
           }
+          if (backup.manifest.email) {
+            expected.add(`${backup.rootPrefix}${backup.manifest.email.path}`.toLowerCase())
+          }
           const entries = await readZip(bytes, {
             ...zipOptions,
             maxEntryBytes: LIMITS.importUploadMaxBytes,
             include: (path) => expected.has(path.toLowerCase()),
           })
           if (entries.length !== expected.size) throw new Error('The backup ZIP is missing one or more files')
+          const emailAttachmentEntries = backup.manifest.email?.includesAttachments
+            ? await readZip(bytes, {
+              ...zipOptions,
+              maxEntryBytes: LIMITS.attachmentMaxBytes,
+              include: (path) => path.toLowerCase().startsWith(
+                `${backup.rootPrefix}${emailBackupAttachmentPrefix(backup.manifest!.snapshot)}`.toLowerCase(),
+              ),
+            })
+            : []
           await importBackupFileBatch(
             c,
             userId,
-            entries.map((entry) => ({
+            [...entries, ...emailAttachmentEntries].map((entry) => ({
               file: new File([entry.data], entry.path.split('/').at(-1) ?? 'file'),
               path: entry.path.slice(backup.rootPrefix.length),
             })),
@@ -444,6 +464,43 @@ async function importBackupFileBatch(
   const templatesByPath = manifest.templates?.path.toLowerCase() ?? null
   const automationByPath = manifest.automation?.path.toLowerCase() ?? null
   const subscriptionsByPath = manifest.subscriptions?.path.toLowerCase() ?? null
+  const emailByPath = manifest.email?.path.toLowerCase() ?? null
+  const emailItem = emailByPath === null
+    ? undefined
+    : selected.find((item) => item.path.toLowerCase() === emailByPath)
+  const emailBytes = emailItem
+    ? new Uint8Array(await emailItem.file.arrayBuffer())
+    : null
+  const emailBundle = emailBytes ? parseEmailBundleBytes(emailBytes) : null
+  if (emailBundle && manifest.email) {
+    if (emailBundle.snapshot !== manifest.snapshot) {
+      throw new Error('The email backup snapshot does not match the manifest')
+    }
+    if (emailBundle.includesAttachments !== manifest.email.includesAttachments) {
+      throw new Error('The email backup attachment setting does not match the manifest')
+    }
+  }
+  const emailAttachmentByPath = new Map<string, EmailBackupAttachment>()
+  if (emailBundle?.includesAttachments) {
+    for (const account of emailBundle.accounts) {
+      for (const message of account.messages) {
+        for (const attachment of message.attachments) {
+          if (attachment.missing) continue
+          const attachmentPath = backupEmailAttachmentPath(
+            emailBundle.snapshot,
+            account.id,
+            message.id,
+            attachment.id,
+            attachment.filename,
+          )
+          if (emailAttachmentByPath.has(attachmentPath.toLowerCase())) {
+            throw new Error(`The email backup contains a duplicate attachment path: ${attachmentPath}`)
+          }
+          emailAttachmentByPath.set(attachmentPath.toLowerCase(), attachment)
+        }
+      }
+    }
+  }
   const seen = new Set<string>()
   const planned = selected.map(({ file, path }) => {
     if (!isSafeBackupPath(path)) throw new Error(`Invalid backup path: ${path}`)
@@ -455,13 +512,41 @@ async function importBackupFileBatch(
     const templates = templatesByPath !== null && key === templatesByPath
     const automation = automationByPath !== null && key === automationByPath
     const subscriptions = subscriptionsByPath !== null && key === subscriptionsByPath
-    if (!note && !attachment && !templates && !automation && !subscriptions) {
+    const email = emailByPath !== null && key === emailByPath
+    const emailAttachment = emailAttachmentByPath.get(key) ?? null
+    if (!note && !attachment && !templates && !automation && !subscriptions && !email && !emailAttachment) {
       throw new Error(`The file is not listed in the backup manifest: ${path}`)
     }
-    return { file, path, note, attachment, templates, automation, subscriptions }
+    return { file, path, note, attachment, templates, automation, subscriptions, email, emailAttachment }
   })
 
+  const cachedBytes = new Map<string, Uint8Array>()
   for (const item of planned) {
+    if (item.email) {
+      await verifyBackupEntry(
+        emailBytes!,
+        manifest.email!.bytes,
+        manifest.email!.sha256,
+        manifest.email!.path,
+      )
+      decodeBackupText(emailBytes!, manifest.email!.path)
+      cachedBytes.set(item.path.toLowerCase(), emailBytes!)
+      continue
+    }
+    if (item.emailAttachment) {
+      const bytes = new Uint8Array(await item.file.arrayBuffer())
+      if (bytes.byteLength !== item.emailAttachment.size) {
+        throw new Error(`Backup file length verification failed: ${item.path}`)
+      }
+      if (bytes.byteLength > LIMITS.attachmentMaxBytes) {
+        throw new Error(`${item.emailAttachment.filename}: the attachment exceeds ${formatBytes(LIMITS.attachmentMaxBytes)}`)
+      }
+      if (item.emailAttachment.sha256 && (await sha256Hex(bytes)) !== item.emailAttachment.sha256) {
+        throw new Error(`Backup file SHA-256 verification failed: ${item.path}`)
+      }
+      cachedBytes.set(item.path.toLowerCase(), bytes)
+      continue
+    }
     const entry = item.note
       ?? item.attachment
       ?? (item.templates ? manifest.templates ?? null : null)
@@ -480,11 +565,7 @@ async function importBackupFileBatch(
       entry.path,
     )
     if (item.note || item.templates || item.automation || item.subscriptions) {
-      try {
-        new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes)
-      } catch {
-        throw new Error(`The backup file is not valid UTF-8: ${entry.path}`)
-      }
+      decodeBackupText(bytes, entry.path)
     }
   }
 
@@ -528,6 +609,46 @@ async function importBackupFileBatch(
       new Uint8Array(await subscriptionsItem.file.arrayBuffer()),
     )
     await applyBackupSubscriptions(c.env.DB, userId, text)
+  }
+  if (emailBundle && emailBytes) {
+    const attachments = new Map<string, Uint8Array>()
+    for (const item of planned) {
+      if (!item.emailAttachment) continue
+      const bytes = cachedBytes.get(item.path.toLowerCase())
+      if (bytes) attachments.set(item.path.toLowerCase(), bytes)
+    }
+    const summary = await applyBackupEmail(c.env, userId, { bundle: emailBundle, attachments })
+    ctx.result.emailAccounts = (ctx.result.emailAccounts ?? 0) + summary.accounts
+    ctx.result.emailMessages = (ctx.result.emailMessages ?? 0) + summary.messages
+    ctx.result.emailCreatedMessages = (ctx.result.emailCreatedMessages ?? 0) + summary.createdMessages
+    ctx.result.emailSkippedMessages = (ctx.result.emailSkippedMessages ?? 0) + summary.skippedMessages
+    ctx.result.emailAttachments = (ctx.result.emailAttachments ?? 0) + summary.attachments
+    ctx.result.emailMissingAttachments = (ctx.result.emailMissingAttachments ?? 0) + summary.missingAttachments
+    for (const warning of summary.warnings) addWarning(ctx.result, warning)
+    if (summary.missingAttachments > 0) {
+      addWarning(ctx.result, `${summary.missingAttachments} email attachment files were not present in the backup`)
+    }
+  }
+}
+
+function parseEmailBundleBytes(bytes: Uint8Array): EmailBackupBundle {
+  const text = decodeBackupText(bytes, 'email backup')
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    throw new Error('The email backup is not valid JSON')
+  }
+  const bundle = parseEmailBackupBundle(parsed)
+  if (!bundle) throw new Error('The email backup is not valid')
+  return bundle
+}
+
+function decodeBackupText(bytes: Uint8Array, path: string): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes)
+  } catch {
+    throw new Error(`The backup file is not valid UTF-8: ${path}`)
   }
 }
 

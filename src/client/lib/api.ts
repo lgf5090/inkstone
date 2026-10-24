@@ -126,6 +126,53 @@ import type {
   TodoStats,
   TodoTask,
 } from '@shared/todos/model'
+import type {
+  EmailAccount,
+  EmailBatchInput,
+  EmailBatchResult,
+  EmailConfig,
+  EmailDraftInput,
+  EmailFolder,
+  EmailListResponse,
+  EmailMailboxStats,
+  EmailMessage,
+  EmailMessageTagInput,
+  EmailScheduledSend,
+  EmailScheduledSendInput,
+  EmailSendInput,
+  EmailSendResult,
+  EmailSnoozeResult,
+  EmailTag,
+  EmailTagInput,
+  EmailTagPatch,
+} from '@shared/email/model'
+import type { EmailDeploymentPatch, EmailDeploymentSettings } from '@shared/email/deployment'
+import type {
+  EmailContact,
+  EmailContactInput,
+  EmailContactPatch,
+  EmailGroup,
+  EmailGroupInput,
+  EmailGroupPatch,
+  EmailGroupWithMembers,
+} from '@shared/email/contacts'
+import type {
+  EmailBlockedSender,
+  EmailBlockSenderResult,
+  EmailFilter,
+  EmailFilterInput,
+  EmailFilterPatch,
+} from '@shared/email/rules'
+import type {
+  EmailTemplate,
+  EmailTemplateInput,
+  EmailTemplatePatch,
+} from '@shared/email/templates'
+import type {
+  EmailSavedSearch,
+  EmailSavedSearchInput,
+  EmailSavedSearchPatch,
+} from '@shared/email/searches'
 import { publishBroadcast } from './db'
 import { randomLocalId } from './random-id'
 import { getLocale, t, translateApiError } from './i18n'
@@ -1005,6 +1052,7 @@ export const api = {
       trashEnabled?: boolean
       /** Whether a key may read tasks at all. */
       todoReadEnabled?: boolean
+      emailEnabled?: boolean
       /** The server's own tools to switch off, by the name it registers them under. */
       disabledTools?: string[]
     }) => request<{
@@ -1141,6 +1189,183 @@ export const api = {
    * The chat assistant. Its own group because it is its own app container: the rail's Chat tab owns
    * these routes, and nothing in the notebook calls them.
    */
+  email: {
+    getConfig: () => request<EmailConfig>('/api/email/config'),
+    getDeployment: () => request<EmailDeploymentSettings>('/api/email/deployment'),
+    updateDeployment: (body: EmailDeploymentPatch) =>
+      request<EmailDeploymentSettings>('/api/email/deployment', { method: 'PATCH', body }),
+    listAccounts: () => request<EmailAccount[]>('/api/email/accounts'),
+    createAccount: (body: { localPart: string, domain: string, displayName?: string }) =>
+      request<EmailAccount>('/api/email/accounts', { method: 'POST', body }),
+    ensureAccounts: () => request<EmailAccount[]>('/api/email/accounts/ensure', { method: 'POST' }),
+    getAccount: (id: string) => request<EmailAccount>(`/api/email/accounts/${id}`),
+    getAutoDraftStatus: (id: string) => request<{
+      status: string | null
+      reason: string | null
+      attempts: number
+      updatedAt: string | null
+    }>(`/api/email/accounts/${id}/auto-draft`),
+    updateAccount: (id: string, body: { displayName?: string, settings?: unknown }) =>
+      request<EmailAccount>(`/api/email/accounts/${id}`, { method: 'PATCH', body }),
+    deleteAccount: (id: string) => request<void>(`/api/email/accounts/${id}`, { method: 'DELETE' }),
+    listFolders: (id: string) => request<EmailFolder[]>(`/api/email/accounts/${id}/folders`),
+    createFolder: (id: string, name: string, parentId?: string | null, color?: string | null) =>
+      request<EmailFolder>(`/api/email/accounts/${id}/folders`, {
+        method: 'POST',
+        body: { name, ...(parentId ? { parentId } : {}), ...(color ? { color } : {}) },
+      }),
+    updateFolder: (id: string, folderId: string, patch: { name?: string, parentId?: string | null, color?: string | null, sortOrder?: number }) =>
+      request<EmailFolder>(`/api/email/accounts/${id}/folders/${folderId}`, { method: 'PATCH', body: patch }),
+    deleteFolder: (id: string, folderId: string, deleteEmails = false) =>
+      request<void>(`/api/email/accounts/${id}/folders/${folderId}${deleteEmails ? '?deleteEmails=true' : ''}`, { method: 'DELETE' }),
+    listTags: (id: string) => request<EmailTag[]>(`/api/email/accounts/${id}/tags`),
+    createTag: (id: string, input: EmailTagInput) =>
+      request<EmailTag>(`/api/email/accounts/${id}/tags`, { method: 'POST', body: input }),
+    updateTag: (id: string, tagId: string, patch: EmailTagPatch) =>
+      request<EmailTag>(`/api/email/accounts/${id}/tags/${tagId}`, { method: 'PATCH', body: patch }),
+    deleteTag: (id: string, tagId: string) =>
+      request<void>(`/api/email/accounts/${id}/tags/${tagId}`, { method: 'DELETE' }),
+    attachTag: (id: string, messageId: string, input: EmailMessageTagInput) =>
+      request<void>(`/api/email/accounts/${id}/emails/${messageId}/tags`, { method: 'POST', body: input }),
+    detachTag: (id: string, messageId: string, tagId: string) =>
+      request<void>(`/api/email/accounts/${id}/emails/${messageId}/tags/${tagId}`, { method: 'DELETE' }),
+    getStats: (id: string) => request<EmailMailboxStats>(`/api/email/accounts/${id}/stats`),
+    listFilters: (id: string) => request<EmailFilter[]>(`/api/email/accounts/${id}/filters`),
+    createFilter: (id: string, input: EmailFilterInput) =>
+      request<EmailFilter>(`/api/email/accounts/${id}/filters`, { method: 'POST', body: input }),
+    updateFilter: (id: string, filterId: string, patch: EmailFilterPatch) =>
+      request<EmailFilter>(`/api/email/accounts/${id}/filters/${filterId}`, { method: 'PATCH', body: patch }),
+    deleteFilter: (id: string, filterId: string) =>
+      request<void>(`/api/email/accounts/${id}/filters/${filterId}`, { method: 'DELETE' }),
+    listTemplates: (id: string) =>
+      request<EmailTemplate[]>(`/api/email/accounts/${id}/templates`),
+    createTemplate: (id: string, input: EmailTemplateInput) =>
+      request<EmailTemplate>(`/api/email/accounts/${id}/templates`, { method: 'POST', body: input }),
+    updateTemplate: (id: string, templateId: string, patch: EmailTemplatePatch) =>
+      request<EmailTemplate>(`/api/email/accounts/${id}/templates/${templateId}`, { method: 'PATCH', body: patch }),
+    deleteTemplate: (id: string, templateId: string) =>
+      request<void>(`/api/email/accounts/${id}/templates/${templateId}`, { method: 'DELETE' }),
+    listSearches: (id: string) =>
+      request<EmailSavedSearch[]>(`/api/email/accounts/${id}/searches`),
+    createSearch: (id: string, input: EmailSavedSearchInput) =>
+      request<EmailSavedSearch>(`/api/email/accounts/${id}/searches`, { method: 'POST', body: input }),
+    updateSearch: (id: string, searchId: string, patch: EmailSavedSearchPatch) =>
+      request<EmailSavedSearch>(`/api/email/accounts/${id}/searches/${searchId}`, { method: 'PATCH', body: patch }),
+    deleteSearch: (id: string, searchId: string) =>
+      request<void>(`/api/email/accounts/${id}/searches/${searchId}`, { method: 'DELETE' }),
+    listBlockedSenders: (id: string) =>
+      request<EmailBlockedSender[]>(`/api/email/accounts/${id}/blocklist`),
+    addBlockedSender: (id: string, address: string) =>
+      request<EmailBlockedSender>(`/api/email/accounts/${id}/blocklist`, { method: 'POST', body: { address } }),
+    removeBlockedSender: (id: string, address: string) =>
+      request<void>(`/api/email/accounts/${id}/blocklist/${encodeURIComponent(address)}`, { method: 'DELETE' }),
+    blockSender: (id: string, messageId: string) =>
+      request<EmailBlockSenderResult>(`/api/email/accounts/${id}/emails/${messageId}/block-sender`, { method: 'POST' }),
+    listContacts: (query = '') =>
+      request<EmailContact[]>(`/api/email/contacts${query ? `?q=${encodeURIComponent(query)}` : ''}`),
+    createContact: (input: EmailContactInput) =>
+      request<EmailContact>('/api/email/contacts', { method: 'POST', body: input }),
+    updateContact: (contactId: string, patch: EmailContactPatch) =>
+      request<EmailContact>(`/api/email/contacts/${contactId}`, { method: 'PATCH', body: patch }),
+    deleteContact: (contactId: string) =>
+      request<void>(`/api/email/contacts/${contactId}`, { method: 'DELETE' }),
+    listGroups: () => request<EmailGroupWithMembers[]>('/api/email/groups'),
+    createGroup: (input: EmailGroupInput) =>
+      request<EmailGroup>('/api/email/groups', { method: 'POST', body: input }),
+    updateGroup: (groupId: string, patch: EmailGroupPatch) =>
+      request<EmailGroup>(`/api/email/groups/${groupId}`, { method: 'PATCH', body: patch }),
+    deleteGroup: (groupId: string) =>
+      request<void>(`/api/email/groups/${groupId}`, { method: 'DELETE' }),
+    addGroupMember: (groupId: string, contactId: string) =>
+      request<void>(`/api/email/groups/${groupId}/members`, { method: 'POST', body: { contactId } }),
+    removeGroupMember: (groupId: string, contactId: string) =>
+      request<void>(`/api/email/groups/${groupId}/members/${contactId}`, { method: 'DELETE' }),
+    retrySend: (id: string, messageId: string) =>
+      request<EmailSendResult>(`/api/email/accounts/${id}/emails/${messageId}/retry`, { method: 'POST' }),
+    listEmails: (id: string, params: Record<string, string | number | undefined> = {}) =>
+      request<EmailListResponse>(`/api/email/accounts/${id}/emails${toQuery(params)}`),
+    getEmail: (id: string, messageId: string) =>
+      request<EmailMessage>(`/api/email/accounts/${id}/emails/${messageId}`),
+    updateEmail: (id: string, messageId: string, body: { read?: boolean, starred?: boolean, important?: boolean, muted?: boolean }) =>
+      request<EmailMessage>(`/api/email/accounts/${id}/emails/${messageId}`, { method: 'PATCH', body }),
+    snoozeEmail: (id: string, messageId: string, until: string | number) =>
+      request<EmailSnoozeResult>(`/api/email/accounts/${id}/emails/${messageId}/snooze`, {
+        method: 'POST',
+        body: { until },
+      }),
+    setFollowUp: (id: string, messageId: string, at: string | null) =>
+      request<EmailMessage>(`/api/email/accounts/${id}/emails/${messageId}/follow-up`, {
+        method: 'POST',
+        body: { at },
+      }),
+    batchEmails: (id: string, input: EmailBatchInput) =>
+      request<EmailBatchResult>(`/api/email/accounts/${id}/emails/batch`, { method: 'POST', body: input }),
+    deleteEmail: (id: string, messageId: string, permanent = false) =>
+      request<void>(`/api/email/accounts/${id}/emails/${messageId}${permanent ? '?permanent=true' : ''}`, { method: 'DELETE' }),
+    moveEmail: (id: string, messageId: string, folderId: string) =>
+      request<void>(`/api/email/accounts/${id}/emails/${messageId}/move`, { method: 'POST', body: { folderId } }),
+    restoreEmail: (id: string, messageId: string) =>
+      request<void>(`/api/email/accounts/${id}/emails/${messageId}/restore`, { method: 'POST' }),
+    listTrash: (id: string, params: Record<string, string | number | undefined> = {}) =>
+      request<EmailListResponse>(`/api/email/accounts/${id}/trash${toQuery(params)}`),
+    emptyTrash: (id: string) =>
+      request<void>(`/api/email/accounts/${id}/trash?confirm=true`, { method: 'DELETE' }),
+    getThread: (id: string, threadId: string) =>
+      request<EmailMessage[]>(`/api/email/accounts/${id}/threads/${threadId}`),
+    markThreadRead: (id: string, threadId: string) =>
+      request<void>(`/api/email/accounts/${id}/threads/${threadId}/read`, { method: 'POST' }),
+    muteThread: (id: string, threadId: string, muted: boolean) =>
+      request<void>(`/api/email/accounts/${id}/threads/${encodeURIComponent(threadId)}/mute`, {
+        method: 'POST',
+        body: { muted },
+      }),
+    send: (id: string, body: EmailSendInput) =>
+      request<EmailSendResult>(`/api/email/accounts/${id}/emails`, { method: 'POST', body }),
+    reply: (id: string, messageId: string, body: EmailSendInput) =>
+      request<EmailSendResult>(`/api/email/accounts/${id}/emails/${messageId}/reply`, { method: 'POST', body }),
+    forward: (id: string, messageId: string, body: EmailSendInput) =>
+      request<EmailSendResult>(`/api/email/accounts/${id}/emails/${messageId}/forward`, { method: 'POST', body }),
+    saveDraft: (id: string, draft: EmailDraftInput) =>
+      request<{ draftId: string }>(`/api/email/accounts/${id}/drafts`, { method: 'POST', body: draft }),
+    sendDraft: (id: string, draftId: string, body: EmailSendInput) =>
+      request<EmailSendResult>(`/api/email/accounts/${id}/drafts/${draftId}/send`, { method: 'POST', body }),
+    scheduleDraftSend: (id: string, draftId: string, body: EmailScheduledSendInput) =>
+      request<EmailScheduledSend>(`/api/email/accounts/${id}/drafts/${draftId}/schedule`, { method: 'POST', body }),
+    cancelScheduledSend: (id: string, jobId: string) =>
+      request<void>(`/api/email/accounts/${id}/scheduled/${jobId}`, { method: 'DELETE' }),
+    listScheduledSends: (id: string) =>
+      request<EmailScheduledSend[]>(`/api/email/accounts/${id}/scheduled`),
+    linkAttachment: (
+      id: string,
+      draftId: string,
+      attachmentId: string,
+      options: { inline?: boolean; contentId?: string } = {},
+    ) =>
+      request<{ attachmentId: string; contentId: string | null; disposition: string | null }>(
+        `/api/email/accounts/${id}/drafts/${draftId}/attachments`,
+        { method: 'POST', body: { attachmentId, ...options } },
+      ),
+    unlinkAttachment: (id: string, draftId: string, attachmentId: string) =>
+      request<void>(`/api/email/accounts/${id}/drafts/${draftId}/attachments/${attachmentId}`, { method: 'DELETE' }),
+    search: (id: string, params: Record<string, string | number | undefined>) =>
+      request<EmailListResponse>(`/api/email/accounts/${id}/search${toQuery(params)}`),
+    attachmentUrl: (attachmentId: string) => `/api/email/files/${attachmentId}`,
+    exportAccount: async (id: string) => {
+      const { response, filename } = await fetchDownload(
+        `/api/email/accounts/${encodeURIComponent(id)}/export`,
+        'inkstone-email.zip',
+      )
+      await saveResponseDownload(response, filename)
+    },
+    downloadEml: async (id: string, messageId: string, fallbackName = 'message.eml') => {
+      const { response, filename } = await fetchDownload(
+        `/api/email/accounts/${encodeURIComponent(id)}/emails/${encodeURIComponent(messageId)}/raw`,
+        fallbackName,
+      )
+      await saveResponseDownload(response, filename)
+    },
+  },
+
   todos: {
     /**
      * One page of the listing the to-do screen states.

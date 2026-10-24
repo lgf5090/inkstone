@@ -35,6 +35,12 @@ import {
   SHARE_HUB_REQUIRED_TABLES,
   SHARE_HUB_SCHEMA_STATEMENTS,
 } from '../share/hub-schema'
+import {
+  EMAIL_REQUIRED_COLUMNS,
+  EMAIL_REQUIRED_INDEXES,
+  EMAIL_REQUIRED_TABLES,
+  EMAIL_SCHEMA_STATEMENTS,
+} from '../email/schema'
 
 const BACKUP_ARCHIVES_TABLE = `CREATE TABLE IF NOT EXISTS backup_archives (
   user_id TEXT NOT NULL,
@@ -499,6 +505,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     write_enabled INTEGER NOT NULL DEFAULT 1 CHECK (write_enabled IN (0, 1)),
     trash_enabled INTEGER NOT NULL DEFAULT 0 CHECK (trash_enabled IN (0, 1)),
     todo_read_enabled INTEGER NOT NULL DEFAULT 1,
+    email_enabled INTEGER NOT NULL DEFAULT 0,
     disabled_tools TEXT NOT NULL DEFAULT '[]',
     updated_at INTEGER NOT NULL
   )`,
@@ -591,6 +598,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   ...TODOS_SCHEMA_STATEMENTS,
   ...SUBSCRIPTIONS_SCHEMA_STATEMENTS,
   ...MEMOS_SCHEMA_STATEMENTS,
+  ...EMAIL_SCHEMA_STATEMENTS,
 ]
 
 export interface SchemaMigration {
@@ -2352,6 +2360,62 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `CREATE INDEX IF NOT EXISTS idx_shares_user_expires ON shares(user_id, expires_at)`,
     ],
   },
+  {
+    version: 156,
+    skipIfColumnExists: { table: 'mcp_preferences', column: 'email_enabled' },
+    statements: [
+      `ALTER TABLE mcp_preferences ADD COLUMN email_enabled INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    version: 157,
+    skipIfColumnExists: { table: 'email_contacts', column: 'pinned' },
+    statements: [
+      `ALTER TABLE email_contacts ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    version: 158,
+    skipIfColumnExists: { table: 'email_contacts', column: 'avatar' },
+    statements: [
+      `ALTER TABLE email_contacts ADD COLUMN avatar TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
+  {
+    version: 159,
+    skipIfColumnExists: { table: 'email_groups', column: 'starred' },
+    statements: [
+      `ALTER TABLE email_groups ADD COLUMN starred INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    version: 160,
+    skipIfColumnExists: { table: 'email_groups', column: 'pinned' },
+    statements: [
+      `ALTER TABLE email_groups ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    version: 161,
+    skipIfColumnExists: { table: 'email_groups', column: 'avatar' },
+    statements: [
+      `ALTER TABLE email_groups ADD COLUMN avatar TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
+  {
+    version: 162,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS email_deployment_settings (
+        id TEXT PRIMARY KEY,
+        domains TEXT NOT NULL DEFAULT '[]',
+        provider TEXT NOT NULL DEFAULT 'cloudflare',
+        resend_from TEXT NOT NULL DEFAULT '',
+        resend_key_ciphertext TEXT NOT NULL DEFAULT '',
+        resend_key_hint TEXT NOT NULL DEFAULT '',
+        updated_at INTEGER NOT NULL
+      )`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -2397,7 +2461,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   totp_credentials: ['user_id', 'secret_ciphertext', 'enabled_at', 'pending_token_hash', 'pending_session_id', 'pending_expires_at', 'recovery_generation', 'last_used_step', 'last_used_by', 'created_at', 'updated_at'],
   totp_recovery_codes: ['user_id', 'code_hash', 'generation', 'created_at', 'used_at', 'used_by'],
   totp_login_challenges: ['id', 'user_id', 'expires_at', 'claimed_by', 'created_at'],
-  mcp_preferences: ['user_id', 'write_enabled', 'trash_enabled', 'todo_read_enabled', 'disabled_tools', 'updated_at'],
+  mcp_preferences: ['user_id', 'write_enabled', 'trash_enabled', 'todo_read_enabled', 'email_enabled', 'disabled_tools', 'updated_at'],
   mcp_operations: ['user_id', 'operation_id', 'tool', 'request_hash', 'response_json', 'created_at'],
   mcp_api_keys: ['id', 'user_id', 'name', 'key_hash', 'scopes', 'created_at', 'last_used_at', 'revoked_at'],
   ai_note_embeddings: ['user_id', 'note_id', 'model', 'vector', 'indexed_at', 'norm'],
@@ -2415,6 +2479,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   ...SUBSCRIPTIONS_REQUIRED_COLUMNS,
   ...MEMOS_REQUIRED_COLUMNS,
   ...SHARE_HUB_REQUIRED_COLUMNS,
+  ...EMAIL_REQUIRED_COLUMNS,
 } as const
 
 export const REQUIRED_TABLES = [
@@ -2470,6 +2535,7 @@ export const REQUIRED_TABLES = [
   ...SUBSCRIPTIONS_REQUIRED_TABLES,
   ...MEMOS_REQUIRED_TABLES,
   ...SHARE_HUB_REQUIRED_TABLES,
+  ...EMAIL_REQUIRED_TABLES,
 ] as const
 
 export const REQUIRED_INDEXES = [
@@ -2540,6 +2606,7 @@ export const REQUIRED_INDEXES = [
   ...SUBSCRIPTIONS_REQUIRED_INDEXES,
   ...MEMOS_REQUIRED_INDEXES,
   ...SHARE_HUB_REQUIRED_INDEXES,
+  ...EMAIL_REQUIRED_INDEXES,
 ] as const
 
 

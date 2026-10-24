@@ -12,6 +12,7 @@
 @import './reading.css';
 @import './rss.css';
 @import './chat.css';
+@import './email.css';
 
 
 @theme inline {

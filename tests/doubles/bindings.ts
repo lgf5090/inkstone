@@ -71,7 +71,7 @@ class R2ObjectStub implements R2ObjectBody {
   readonly ssecKeyMd5?: string
   private used = false
 
-  constructor(key: string, private readonly object: StoredObject, uploaded: Date) {
+  constructor(key: string, private readonly object: StoredObject, uploaded: Date, range?: R2Range) {
     this.key = key
     this.size = object.bytes.byteLength
     this.etag = fingerprint(object.bytes)
@@ -80,6 +80,7 @@ class R2ObjectStub implements R2ObjectBody {
     this.uploaded = uploaded
     this.httpMetadata = object.contentType ? { contentType: object.contentType } : undefined
     this.customMetadata = object.customMetadata
+    this.range = range
   }
 
   get body(): ReadableStream<Uint8Array> {
@@ -150,15 +151,38 @@ class InMemoryR2Bucket implements TestR2Bucket {
   async head(key: string): Promise<R2Object | null> {
     const bytes = this.objects.get(key)
     if (!bytes) return null
-    return new R2ObjectStub(key, { bytes }, this.uploaded.get(key) ?? new Date(0))
+    return new R2ObjectStub(key, this.stored(key, bytes), this.uploaded.get(key) ?? new Date(0))
   }
 
   async get(key: string, options?: R2GetOptions): Promise<R2ObjectBody | null> {
-    if (options?.onlyIf || options?.range) {
-      throw new TypeError('the test R2 double does not serve conditional or ranged reads')
+    if (options?.onlyIf) {
+      throw new TypeError('the test R2 double does not serve conditional reads')
     }
     const bytes = this.objects.get(key)
     if (!bytes) return null
+    if (options?.range) {
+      const stored = this.stored(key, bytes)
+      const range = options.range
+      if (range instanceof Headers) {
+        throw new TypeError('the test R2 double does not serve conditional range headers')
+      }
+      let offset: number
+      let length: number
+      if ('suffix' in range) {
+        length = Math.min(Math.max(0, range.suffix), bytes.byteLength)
+        offset = bytes.byteLength - length
+      } else {
+        offset = Math.max(0, range.offset ?? 0)
+        length = Math.min(range.length ?? bytes.byteLength - offset, bytes.byteLength - offset)
+      }
+      const slice = bytes.slice(offset, offset + Math.max(0, length))
+      return new R2ObjectStub(
+        key,
+        { ...stored, bytes: slice },
+        this.uploaded.get(key) ?? new Date(0),
+        'suffix' in range ? { suffix: range.suffix } : { offset, length },
+      )
+    }
     return new R2ObjectStub(key, this.stored(key, bytes), this.uploaded.get(key) ?? new Date(0))
   }
 

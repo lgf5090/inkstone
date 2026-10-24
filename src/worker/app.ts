@@ -56,6 +56,13 @@ import { todoMailRoutes } from './routes/todo-mail'
 import { todoAttachmentRoutes } from './routes/todo-attachments'
 import { todoImportRoutes } from './routes/todo-import'
 import { todoFeedRoutes } from './routes/todo-feeds'
+import { emailRoutes } from './routes/email'
+import { emailSearchesRoutes } from './routes/email-searches'
+import { emailTemplatesRoutes } from './routes/email-templates'
+import { emailRulesRoutes } from './routes/email-rules'
+import { emailContactsRoutes } from './routes/email-contacts'
+import { emailSendRoutes } from './routes/email-send'
+import { emailScheduleRoutes } from './routes/email-schedule'
 import { subscriptionInboundRoutes } from './routes/subscriptions-inbound'
 import { INBOUND_HOOK_PATH } from '@shared/subscriptions/channels'
 import type { AppBindings } from './env'
@@ -170,6 +177,13 @@ export function createApp() {
   // paths carry the extra `/attachments` segment, which the task router would never match.
   app.route('/api/todos', todoAttachmentRoutes)
   app.route('/api/todos', todoRoutes)
+  app.route('/api/email', emailSearchesRoutes)
+  app.route('/api/email', emailTemplatesRoutes)
+  app.route('/api/email', emailRulesRoutes)
+  app.route('/api/email', emailScheduleRoutes)
+  app.route('/api/email', emailContactsRoutes)
+  app.route('/api/email', emailSendRoutes)
+  app.route('/api/email', emailRoutes)
   app.route('/api/assistant', assistantRoutes)
   app.route('/api/excalidraw/ai', aiProxyRoutes)
   app.route('/api/excalidraw/library', excalidrawLibraryRoutes)

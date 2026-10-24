@@ -11,7 +11,7 @@
  * worker's Content-Security-Policy. tests/app-tab-routes.test.ts is what says so out loud.
  */
 import type { ComponentType } from 'react'
-import { BookOpen, CalendarDays, Compass, FileText, FolderKanban, ListChecks, MessageSquare, Music, Rss, StickyNote, Wallet, Wrench } from 'lucide-react'
+import { BookOpen, CalendarDays, Compass, FileText, FolderKanban, ListChecks, Mail, MessageSquare, Music, Rss, StickyNote, Wallet, Wrench } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 
 export type AppTabId =
@@ -19,6 +19,7 @@ export type AppTabId =
   | 'memos'
   | 'calendar'
   | 'todo'
+  | 'email'
   | 'projects'
   | 'nav'
   | 'chat'
@@ -41,6 +42,7 @@ export const APP_TABS: readonly AppTab[] = [
   { id: 'memos', path: '/memos', labelKey: 'app.tabs.memos', icon: StickyNote },
   { id: 'calendar', path: '/calendar', labelKey: 'app.tabs.calendar', icon: CalendarDays },
   { id: 'todo', path: '/todo', labelKey: 'app.tabs.todo', icon: ListChecks },
+  { id: 'email', path: '/email', labelKey: 'app.tabs.email', icon: Mail },
   { id: 'projects', path: '/projects', labelKey: 'app.tabs.projects', icon: FolderKanban },
   { id: 'nav', path: '/nav', labelKey: 'app.tabs.nav', icon: Compass },
   { id: 'chat', path: '/chat', labelKey: 'app.tabs.chat', icon: MessageSquare },
@@ -62,6 +64,7 @@ export const DEFAULT_APP_TAB: AppTabId = 'notes'
 const NESTED_TAB_PATHS: readonly [prefix: string, id: AppTabId][] = [
   ['/reading/', 'reading'],
   ['/memos/', 'memos'],
+  ['/email/', 'email'],
 ]
 
 const TAB_BY_PATH = new Map(APP_TABS.map((tab) => [tab.path, tab.id]))

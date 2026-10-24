@@ -41,6 +41,7 @@ import {
   type TodoTask,
 } from '@shared/todos/model'
 import { organizerColorOrNull } from '@shared/organizer-colors'
+import { EMAIL_BATCH_ACTIONS } from '@shared/email/model'
 import { parseNoteCheckboxes } from '@shared/todos/note-parse'
 import { MEMORY_CATEGORIES_FOR_TOOLS } from './memory-service'
 import { localDate, parseLocalTime, toLocalMinute } from '@shared/assistant-time'
@@ -109,6 +110,41 @@ import { modelEndpoint } from './model-config'
 import { searchWeb } from './web-search'
 import { assertRelayableEndpoint } from '@shared/ai-proxy-guard'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
+import {
+  discardDraftTool,
+  draftEmailReplyTool,
+  draftEmailTool,
+  getEmailToolMessage,
+  getEmailToolThread,
+  listEmailToolAccounts,
+  listEmailToolMessages,
+  markEmailReadTool,
+  moveEmailTool,
+  searchEmailToolMessages,
+} from '../email/tools'
+import {
+  batchEmailAgent,
+  createEmailFolderAgent,
+  createEmailTagAgent,
+  deleteEmailAgent,
+  inspectEmailAgent,
+  manageEmailContactAgent,
+  manageEmailRuleAgent,
+  manageEmailSearchAgent,
+  manageEmailSignatureAgent,
+  manageEmailTemplateAgent,
+  prepareDeleteEmailAgent,
+  prepareScheduleEmailAgent,
+  prepareSendEmailAgent,
+  scheduleEmailAgent,
+  sendEmailAgent,
+  tagEmailAgent,
+  updateEmailDraftAgent,
+  updateEmailFolderAgent,
+  updateEmailMessageAgent,
+  updateEmailSettingsAgent,
+  updateEmailTagAgent,
+} from '../email/agent'
 
 export type FieldKind = 'string' | 'number' | 'integer' | 'boolean' | 'object' | 'array'
 
@@ -237,6 +273,7 @@ export interface ImmediateTool extends BaseTool {
 
 export interface DestructiveTool extends BaseTool {
   permission: 'destructive'
+  keepArgs?: boolean
   prepare: (args: Record<string, unknown>, ctx: ToolContext) => Promise<PreparedTarget>
   /**
    * `args` is what the model proposed, replayed from the approved row. The notebook's own destructive tools
@@ -3325,11 +3362,692 @@ async function resolveSubscriptionOrThrow(ref: unknown, ctx: ToolContext): Promi
   throw new ToolError(`No subscription matches "${wanted.slice(0, 80)}". List them to find the exact name.`)
 }
 
+async function emailToolCall<T>(task: () => Promise<T>): Promise<T> {
+  try {
+    return await task()
+  } catch (error) {
+    if (error instanceof ApiError) throw new ToolError(error.message)
+    throw error
+  }
+}
+
+export const EMAIL_TOOLS: ToolDefinition[] = [
+  tool({
+    name: 'email_list_accounts',
+    permission: 'read',
+    maxCallsPerTurn: 2,
+    description: 'List the owner\'s mailboxes. Use this before naming an account in another email tool.',
+    fields: {},
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async run(_args, ctx) {
+      return { accounts: await listEmailToolAccounts(ctx.env, ctx.store.userId) }
+    },
+  }),
+  tool({
+    name: 'email_list',
+    permission: 'read',
+    maxCallsPerTurn: 4,
+    description: 'List messages in one mailbox folder. Use email_read for the body and email_thread for the whole conversation.',
+    fields: {
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      folder: { type: 'string', description: 'Folder id or name, such as inbox, sent, draft, archive, trash or spam.', maxLength: 200, optional: true },
+      tag: { type: 'string', description: 'Only messages carrying this tag path, such as work/meeting.', maxLength: 255, optional: true },
+      important: { type: 'boolean', description: 'Only messages marked important.', optional: true },
+      focused: { type: 'boolean', description: 'Only messages in the focused inbox (true) or the other inbox (false).', optional: true },
+      followUp: { type: 'boolean', description: 'Only messages waiting for a follow-up.', optional: true },
+      limit: { type: 'integer', description: 'How many messages to return, at most 100.', minimum: 1, maximum: 100, optional: true },
+      page: { type: 'integer', description: 'Page number, starting at 1.', minimum: 1, maximum: 1000, optional: true },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async run(args, ctx) {
+      return {
+        emails: await listEmailToolMessages(ctx.env, ctx.store.userId, {
+          accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+          folder: typeof args.folder === 'string' ? args.folder : undefined,
+          tag: typeof args.tag === 'string' ? args.tag : undefined,
+          important: typeof args.important === 'boolean' ? args.important : undefined,
+          focused: typeof args.focused === 'boolean' ? args.focused : undefined,
+          followUp: typeof args.followUp === 'boolean' ? args.followUp : undefined,
+          limit: typeof args.limit === 'number' ? args.limit : undefined,
+          page: typeof args.page === 'number' ? args.page : undefined,
+        }),
+      }
+    },
+  }),
+  tool({
+    name: 'email_read',
+    permission: 'read',
+    maxCallsPerTurn: 5,
+    description: 'Read one email with its full body, headers and attachment metadata.',
+    fields: {
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      emailId: { type: 'string', description: 'The email id.', minLength: 1, maxLength: 64 },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async run(args, ctx) {
+      const message = await getEmailToolMessage(ctx.env, ctx.store.userId, {
+        accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+        emailId: String(args.emailId),
+      })
+      if (!message) throw new ToolError('Email not found')
+      return { email: message }
+    },
+  }),
+  tool({
+    name: 'email_thread',
+    permission: 'read',
+    maxCallsPerTurn: 4,
+    description: 'Read every message in one conversation thread, oldest first.',
+    fields: {
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      threadId: { type: 'string', description: 'The thread id from an email.', minLength: 1, maxLength: 64 },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async run(args, ctx) {
+      return getEmailToolThread(ctx.env, ctx.store.userId, {
+        accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+        threadId: String(args.threadId),
+      })
+    },
+  }),
+  tool({
+    name: 'email_search',
+    permission: 'read',
+    maxCallsPerTurn: 4,
+    description: 'Search a mailbox by subject, body, sender or recipient. Returns message metadata, not full bodies.',
+    fields: {
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      query: { type: 'string', description: 'Text to search for.', minLength: 1, maxLength: 500 },
+      folder: { type: 'string', description: 'Optional folder id or name.', maxLength: 200, optional: true },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async run(args, ctx) {
+      return {
+        emails: await searchEmailToolMessages(ctx.env, ctx.store.userId, {
+          accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+          query: String(args.query),
+          folder: typeof args.folder === 'string' ? args.folder : undefined,
+        }),
+      }
+    },
+  }),
+  tool({
+    name: 'email_draft_reply',
+    permission: 'write',
+    maxCallsPerTurn: 3,
+    description: 'Draft a reply to an existing email and save it in Drafts. This never sends; the reader reviews and sends it.',
+    fields: {
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      originalEmailId: { type: 'string', description: 'The id of the email being replied to.', minLength: 1, maxLength: 64 },
+      to: { type: 'string', description: 'Recipient email address.', minLength: 3, maxLength: 320 },
+      subject: { type: 'string', description: 'Subject line, usually Re: ...', minLength: 1, maxLength: 1000 },
+      body: { type: 'string', description: 'Plain-text reply body. No HTML and no agent commentary.', minLength: 1, maxLength: 20000 },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async run(args, ctx) {
+      const draft = await draftEmailReplyTool(ctx.env, ctx.store.userId, {
+        accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+        originalEmailId: String(args.originalEmailId),
+        to: String(args.to),
+        subject: String(args.subject),
+        body: String(args.body),
+      })
+      if (!draft) throw new ToolError('Original email not found')
+      return { status: 'draft_saved', draft }
+    },
+  }),
+  tool({
+    name: 'email_draft',
+    permission: 'write',
+    maxCallsPerTurn: 3,
+    description: 'Draft a new email and save it in Drafts. This never sends.',
+    fields: {
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      to: { type: 'string', description: 'Recipient email address.', minLength: 3, maxLength: 320 },
+      subject: { type: 'string', description: 'Subject line.', minLength: 1, maxLength: 1000 },
+      body: { type: 'string', description: 'Plain-text body. No HTML and no agent commentary.', minLength: 1, maxLength: 20000 },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async run(args, ctx) {
+      return {
+        status: 'draft_saved',
+        draft: await draftEmailTool(ctx.env, ctx.store.userId, {
+          accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+          to: String(args.to),
+          subject: String(args.subject),
+          body: String(args.body),
+        }),
+      }
+    },
+  }),
+  tool({
+    name: 'email_mark_read',
+    permission: 'write',
+    maxCallsPerTurn: 5,
+    description: 'Mark one email read or unread.',
+    fields: {
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      emailId: { type: 'string', description: 'The email id.', minLength: 1, maxLength: 64 },
+      read: { type: 'boolean', description: 'true to mark read, false for unread.' },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async run(args, ctx) {
+      const updated = await markEmailReadTool(ctx.env, ctx.store.userId, {
+        accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+        emailId: String(args.emailId),
+        read: args.read === true,
+      })
+      if (!updated) throw new ToolError('Email not found')
+      return { status: 'updated', emailId: args.emailId, read: args.read === true }
+    },
+  }),
+  tool({
+    name: 'email_move',
+    permission: 'write',
+    maxCallsPerTurn: 3,
+    description: 'Move one email to another folder, such as archive or trash.',
+    fields: {
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      emailId: { type: 'string', description: 'The email id.', minLength: 1, maxLength: 64 },
+      folderId: { type: 'string', description: 'Target folder id or name.', minLength: 1, maxLength: 200 },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async run(args, ctx) {
+      const moved = await moveEmailTool(ctx.env, ctx.store.userId, {
+        accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+        emailId: String(args.emailId),
+        folderId: String(args.folderId),
+      })
+      if (!moved) throw new ToolError('Email or folder not found')
+      return { status: 'moved', emailId: args.emailId, folder: args.folderId }
+    },
+  }),
+  {
+    name: 'email_discard_draft',
+    permission: 'destructive',
+    maxCallsPerTurn: 2,
+    description: 'Permanently discard a draft from the Drafts folder.',
+    fields: {
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      draftId: { type: 'string', description: 'The draft email id.', minLength: 1, maxLength: 64 },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async prepare(args, ctx) {
+      const draft = await getEmailToolMessage(ctx.env, ctx.store.userId, {
+        accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+        emailId: String(args.draftId),
+      })
+      if (!draft || draft.folderId !== 'draft') throw new ToolError('Draft not found')
+      return { targetId: draft.id, targetLabel: draft.subject || draft.id }
+    },
+    async commit(targetId, ctx, args) {
+      const discarded = await discardDraftTool(ctx.env, ctx.store.userId, {
+        accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+        draftId: targetId,
+      })
+      if (!discarded) throw new ToolError('Draft not found')
+      return { status: 'discarded', draftId: targetId }
+    },
+  },
+  tool({
+    name: 'email_inspect',
+    permission: 'read',
+    maxCallsPerTurn: 4,
+    description: 'Read the mailbox structure and settings before changing them. Sections: overview (accounts, folders, tags, searches, filters, templates, stats), folders, tags, searches, rules, templates, contacts, settings, scheduled, stats. Use this to get the ids and names the other email tools take.',
+    fields: {
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      section: {
+        type: 'string',
+        description: 'Which part of the mailbox to read.',
+        enum: ['overview', 'folders', 'tags', 'searches', 'rules', 'templates', 'contacts', 'settings', 'scheduled', 'stats'],
+      },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async run(args, ctx) {
+      return emailToolCall(() => inspectEmailAgent(ctx.env, ctx.store.userId, {
+        accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+        section: String(args.section) as Parameters<typeof inspectEmailAgent>[2]['section'],
+      }))
+    },
+  }),
+  tool({
+    name: 'email_folder',
+    permission: 'write',
+    maxCallsPerTurn: 4,
+    description: 'Create a folder, or rename, recolor, reorder, or reparent one. Folders nest at most five levels. System folder names cannot be reused.',
+    fields: {
+      action: { type: 'string', enum: ['create', 'update'], description: 'Create a new folder or update an existing one.' },
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      folderId: { type: 'string', description: 'The folder id or exact name. Required for update.', maxLength: 200, optional: true },
+      name: { type: 'string', description: 'Folder name. Required for create.', maxLength: 120, optional: true },
+      parentId: { type: 'string', description: 'Parent folder id or exact name; an empty string moves the folder to the top level.', maxLength: 200, optional: true, nullable: true },
+      color: { type: 'string', description: 'One of the organizer colors, or an empty string to clear it.', maxLength: 40, optional: true, nullable: true },
+      sortOrder: { type: 'integer', description: 'Sort order among siblings.', minimum: 0, maximum: 1000000, optional: true },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async run(args, ctx) {
+      return emailToolCall(async () => {
+        if (args.action === 'create') {
+          return { status: 'created', folder: await createEmailFolderAgent(ctx.env, ctx.store.userId, {
+            accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+            name: args.name,
+            parentId: args.parentId,
+            color: args.color,
+          }) }
+        }
+        if (typeof args.folderId !== 'string' || !args.folderId) throw new ToolError('A folder id is required for update.')
+        return { status: 'updated', folder: await updateEmailFolderAgent(ctx.env, ctx.store.userId, {
+          accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+          folderId: args.folderId,
+          name: args.name,
+          parentId: args.parentId,
+          color: args.color,
+          sortOrder: args.sortOrder,
+        }) }
+      })
+    },
+  }),
+  tool({
+    name: 'email_tag',
+    permission: 'write',
+    maxCallsPerTurn: 4,
+    description: 'Create or rename a tag, or attach/detach a tag on one email. A tag path looks like work/meeting; missing ancestors are created when attaching by path.',
+    fields: {
+      action: { type: 'string', enum: ['create', 'update', 'attach', 'detach'], description: 'Create a tag, update it, or attach/detach it on one email.' },
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      emailId: { type: 'string', description: 'The email id for attach or detach.', maxLength: 64, optional: true },
+      tagId: { type: 'string', description: 'The tag id for update, attach, or detach.', maxLength: 64, optional: true },
+      name: { type: 'string', description: 'The tag path for create/update, or the path to resolve when attach/detach has no tagId.', maxLength: 255, optional: true },
+      color: { type: 'string', description: 'One of the organizer colors, or an empty string to clear it.', maxLength: 40, optional: true, nullable: true },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async run(args, ctx) {
+      return emailToolCall(async () => {
+        if (args.action === 'create') {
+          return { status: 'created', tag: await createEmailTagAgent(ctx.env, ctx.store.userId, {
+            accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+            name: args.name,
+            color: args.color,
+          }) }
+        }
+        if (args.action === 'update') {
+          if (typeof args.tagId !== 'string' || !args.tagId) throw new ToolError('A tag id is required for update.')
+          return { status: 'updated', tag: await updateEmailTagAgent(ctx.env, ctx.store.userId, {
+            accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+            tagId: args.tagId,
+            name: args.name,
+            color: args.color,
+          }) }
+        }
+        if (typeof args.emailId !== 'string' || !args.emailId) throw new ToolError('An email id is required.')
+        if (typeof args.tagId !== 'string' && typeof args.name !== 'string') throw new ToolError('Name a tag id or tag path.')
+        return emailToolCall(() => tagEmailAgent(ctx.env, ctx.store.userId, {
+          accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+          emailId: args.emailId as string,
+          ...(typeof args.tagId === 'string' ? { tagId: args.tagId } : {}),
+          ...(typeof args.name === 'string' ? { name: args.name } : {}),
+          remove: args.action === 'detach',
+        }))
+      })
+    },
+  }),
+  tool({
+    name: 'email_update_message',
+    permission: 'write',
+    maxCallsPerTurn: 5,
+    description: 'Change one email: read/unread, starred, important, mute the thread, move to a folder, restore from Trash, snooze until a time, or set/clear a follow-up. Omitted fields are left alone; snoozeUntil and followUpAt accept null to clear.',
+    fields: {
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      emailId: { type: 'string', description: 'The email id.', minLength: 1, maxLength: 64 },
+      read: { type: 'boolean', optional: true },
+      starred: { type: 'boolean', optional: true },
+      important: { type: 'boolean', optional: true },
+      muted: { type: 'boolean', description: 'Mute or unmute the whole thread.', optional: true },
+      folder: { type: 'string', description: 'Folder id or exact name; trash moves it to Trash.', maxLength: 200, optional: true },
+      restore: { type: 'boolean', description: 'Restore a trashed message to the inbox.', optional: true },
+      snoozeUntil: { type: 'string', description: 'ISO time to snooze until, or null to clear the snooze.', maxLength: 40, optional: true, nullable: true },
+      followUpAt: { type: 'string', description: 'ISO time to flag the message for follow-up, or null to clear it.', maxLength: 40, optional: true, nullable: true },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async run(args, ctx) {
+      return emailToolCall(async () => {
+        const message = await updateEmailMessageAgent(ctx.env, ctx.store.userId, {
+          accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+          emailId: String(args.emailId),
+          ...(typeof args.read === 'boolean' ? { read: args.read } : {}),
+          ...(typeof args.starred === 'boolean' ? { starred: args.starred } : {}),
+          ...(typeof args.important === 'boolean' ? { important: args.important } : {}),
+          ...(typeof args.muted === 'boolean' ? { muted: args.muted } : {}),
+          ...(typeof args.folder === 'string' ? { folder: args.folder } : {}),
+          ...(typeof args.restore === 'boolean' ? { restore: args.restore } : {}),
+          ...(Object.prototype.hasOwnProperty.call(args, 'snoozeUntil') ? { snoozeUntil: args.snoozeUntil as string | null } : {}),
+          ...(Object.prototype.hasOwnProperty.call(args, 'followUpAt') ? { followUpAt: args.followUpAt as string | null } : {}),
+        })
+        return { status: 'updated', email: message }
+      })
+    },
+  }),
+  tool({
+    name: 'email_batch',
+    permission: 'write',
+    maxCallsPerTurn: 2,
+    description: 'Change up to 100 emails at once: read, unread, star, unstar, archive, trash, restore, or move to a folder.',
+    fields: {
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      ids: { type: 'array', items: 'string', maxItems: 100, description: 'The email ids, exactly as email_list returned them.' },
+      action: { type: 'string', enum: [...EMAIL_BATCH_ACTIONS], description: 'The change to apply to every listed email.' },
+      folder: { type: 'string', description: 'Target folder id or exact name, required for move.', maxLength: 200, optional: true },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async run(args, ctx) {
+      return emailToolCall(() => batchEmailAgent(ctx.env, ctx.store.userId, {
+        accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+        ids: (args.ids as string[]) ?? [],
+        action: String(args.action),
+        folder: typeof args.folder === 'string' ? args.folder : undefined,
+      }))
+    },
+  }),
+  tool({
+    name: 'email_update_draft',
+    permission: 'write',
+    maxCallsPerTurn: 3,
+    description: 'Edit a saved draft in place. Omitted fields stay as they are; changing the body replaces the plain-text source and its HTML. This never sends.',
+    fields: {
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      draftId: { type: 'string', description: 'The draft email id.', minLength: 1, maxLength: 64 },
+      to: { type: 'string', description: 'Recipient address.', maxLength: 320, optional: true },
+      cc: { type: 'string', description: 'Cc addresses; an empty string clears them.', maxLength: 3200, optional: true, nullable: true },
+      bcc: { type: 'string', description: 'Bcc addresses; an empty string clears them.', maxLength: 3200, optional: true, nullable: true },
+      subject: { type: 'string', description: 'Subject line.', maxLength: 1000, optional: true },
+      body: { type: 'string', description: 'Plain-text body with Markdown.', maxLength: 20000, optional: true },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async run(args, ctx) {
+      if (args.to === undefined && args.cc === undefined && args.bcc === undefined && args.subject === undefined && args.body === undefined) {
+        throw new ToolError('Name at least one part of the draft to change.')
+      }
+      return emailToolCall(() => updateEmailDraftAgent(ctx.env, ctx.store.userId, {
+        accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+        draftId: String(args.draftId),
+        to: typeof args.to === 'string' ? args.to : undefined,
+        cc: Object.prototype.hasOwnProperty.call(args, 'cc') ? args.cc as string | null : undefined,
+        bcc: Object.prototype.hasOwnProperty.call(args, 'bcc') ? args.bcc as string | null : undefined,
+        subject: typeof args.subject === 'string' ? args.subject : undefined,
+        body: typeof args.body === 'string' ? args.body : undefined,
+      }))
+    },
+  }),
+  {
+    name: 'email_send',
+    permission: 'destructive',
+    keepArgs: true,
+    maxCallsPerTurn: 2,
+    description: 'Propose a real email send; the reader must approve it before anything leaves. mode draft sends an existing draft and its attachments; new, reply, and forward compose and send in one approved step. Reply and forward default to the original sender and quote the original below the new text.',
+    fields: {
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      mode: { type: 'string', enum: ['draft', 'new', 'reply', 'forward'], description: 'What to send.' },
+      draftId: { type: 'string', description: 'The saved draft id when mode is draft.', maxLength: 64, optional: true },
+      emailId: { type: 'string', description: 'The original email id for reply or forward.', maxLength: 64, optional: true },
+      to: { type: 'string', description: 'Recipient address for new, or an override for reply/forward.', maxLength: 320, optional: true },
+      subject: { type: 'string', description: 'Subject for new, or an override for reply/forward.', maxLength: 1000, optional: true },
+      body: { type: 'string', description: 'Plain-text body with Markdown for new, reply, or forward.', maxLength: 20000, optional: true },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async prepare(args, ctx) {
+      return emailToolCall(() => prepareSendEmailAgent(ctx.env, ctx.store.userId, args as unknown as Parameters<typeof prepareSendEmailAgent>[2]))
+    },
+    async commit(targetId, ctx, args) {
+      return emailToolCall(async () => {
+        const result = await sendEmailAgent(ctx.env, ctx.store.userId, {
+          ...(args as unknown as Parameters<typeof sendEmailAgent>[2]),
+          operationId: `agent-send:${targetId}`,
+        })
+        if (result.status === 'failed') throw new ToolError(result.error ?? 'The email could not be sent.')
+        return result
+      })
+    },
+  },
+  {
+    name: 'email_schedule_send',
+    permission: 'destructive',
+    keepArgs: true,
+    maxCallsPerTurn: 2,
+    description: 'Propose scheduling a message to send later, or cancelling a queued scheduled send. The reader must approve it. mode draft schedules a saved draft; new, reply, and forward save the draft first.',
+    fields: {
+      action: { type: 'string', enum: ['schedule', 'cancel'], description: 'Schedule a send or cancel one.' },
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      scheduledId: { type: 'string', description: 'The scheduled send id to cancel.', maxLength: 64, optional: true },
+      mode: { type: 'string', enum: ['draft', 'new', 'reply', 'forward'], description: 'What to schedule.', optional: true },
+      draftId: { type: 'string', description: 'The saved draft id when mode is draft.', maxLength: 64, optional: true },
+      emailId: { type: 'string', description: 'The original email id for reply or forward.', maxLength: 64, optional: true },
+      to: { type: 'string', description: 'Recipient address for new, or an override for reply/forward.', maxLength: 320, optional: true },
+      subject: { type: 'string', description: 'Subject for new, or an override for reply/forward.', maxLength: 1000, optional: true },
+      body: { type: 'string', description: 'Plain-text body with Markdown for new, reply, or forward.', maxLength: 20000, optional: true },
+      sendAt: { type: 'string', description: 'ISO time when the message should leave.', maxLength: 40, optional: true },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async prepare(args, ctx) {
+      return emailToolCall(() => prepareScheduleEmailAgent(
+        ctx.env,
+        ctx.store.userId,
+        args as unknown as Parameters<typeof prepareScheduleEmailAgent>[2],
+        { timezone: ctx.timezone, locale: ctx.settings.language },
+      ))
+    },
+    async commit(_targetId, ctx, args) {
+      return emailToolCall(() => scheduleEmailAgent(ctx.env, ctx.store.userId, args as unknown as Parameters<typeof scheduleEmailAgent>[2]))
+    },
+  },
+  tool({
+    name: 'email_rule',
+    permission: 'write',
+    maxCallsPerTurn: 4,
+    description: 'Create or update an inbound filter, or block/unblock a sender. Condition tokens: from:ADDRESS, to:ADDRESS, subject:TEXT, has-attachment, min-bytes:10000. Action tokens: move:Folder, tag:path, read, star, trash. Every condition must match, actions run in order.',
+    fields: {
+      action: { type: 'string', enum: ['create', 'update', 'block', 'unblock'], description: 'Create/update a filter, or block/unblock a sender.' },
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      filterId: { type: 'string', description: 'The filter id for update.', maxLength: 64, optional: true },
+      name: { type: 'string', description: 'Filter name.', maxLength: 80, optional: true },
+      enabled: { type: 'boolean', description: 'Whether the filter runs on new mail.', optional: true },
+      conditions: { type: 'array', items: 'string', maxItems: 5, description: 'Condition tokens such as from:boss@example.com.', optional: true },
+      actions: { type: 'array', items: 'string', maxItems: 5, description: 'Action tokens such as move:Projects, tag:work/urgent, star, read, trash.', optional: true },
+      address: { type: 'string', description: 'Sender address for block or unblock.', maxLength: 320, optional: true },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async run(args, ctx) {
+      return emailToolCall(() => manageEmailRuleAgent(ctx.env, ctx.store.userId, {
+        accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+        action: String(args.action) as Parameters<typeof manageEmailRuleAgent>[2]['action'],
+        filterId: typeof args.filterId === 'string' ? args.filterId : undefined,
+        name: typeof args.name === 'string' ? args.name : undefined,
+        enabled: typeof args.enabled === 'boolean' ? args.enabled : undefined,
+        conditions: Array.isArray(args.conditions) ? args.conditions as string[] : undefined,
+        actions: Array.isArray(args.actions) ? args.actions as string[] : undefined,
+        address: typeof args.address === 'string' ? args.address : undefined,
+      }))
+    },
+  }),
+  tool({
+    name: 'email_template',
+    permission: 'write',
+    maxCallsPerTurn: 3,
+    description: 'Create or update a reusable subject and Markdown body that the reader can insert in the composer.',
+    fields: {
+      action: { type: 'string', enum: ['create', 'update'], description: 'Create a template or update one.' },
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      templateId: { type: 'string', description: 'The template id for update.', maxLength: 64, optional: true },
+      name: { type: 'string', description: 'Template name.', maxLength: 80, optional: true },
+      subject: { type: 'string', description: 'Subject line.', maxLength: 200, optional: true },
+      body: { type: 'string', description: 'Markdown body.', maxLength: 20000, optional: true },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async run(args, ctx) {
+      return emailToolCall(() => manageEmailTemplateAgent(ctx.env, ctx.store.userId, {
+        accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+        action: String(args.action) as 'create' | 'update',
+        templateId: typeof args.templateId === 'string' ? args.templateId : undefined,
+        name: typeof args.name === 'string' ? args.name : undefined,
+        subject: typeof args.subject === 'string' ? args.subject : undefined,
+        body: typeof args.body === 'string' ? args.body : undefined,
+      }))
+    },
+  }),
+  tool({
+    name: 'email_signature',
+    permission: 'write',
+    maxCallsPerTurn: 4,
+    description: 'Create or update a signature, make it the default, or toggle it on/off. At most eight signatures are kept.',
+    fields: {
+      action: { type: 'string', enum: ['create', 'update', 'default', 'toggle'], description: 'What to do with the signature.' },
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      signatureId: { type: 'string', description: 'The signature id for update, default, or toggle.', maxLength: 64, optional: true },
+      name: { type: 'string', description: 'Signature name.', maxLength: 60, optional: true },
+      text: { type: 'string', description: 'Signature text, appended after "--".', maxLength: 4000, optional: true },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async run(args, ctx) {
+      return emailToolCall(() => manageEmailSignatureAgent(ctx.env, ctx.store.userId, {
+        accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+        action: String(args.action) as Parameters<typeof manageEmailSignatureAgent>[2]['action'],
+        signatureId: typeof args.signatureId === 'string' ? args.signatureId : undefined,
+        name: typeof args.name === 'string' ? args.name : undefined,
+        text: typeof args.text === 'string' ? args.text : undefined,
+      }))
+    },
+  }),
+  tool({
+    name: 'email_search_recipe',
+    permission: 'write',
+    maxCallsPerTurn: 3,
+    description: 'Create or update a saved search that the reader can reopen from the sidebar. The query supports the same filters as the search box.',
+    fields: {
+      action: { type: 'string', enum: ['create', 'update'], description: 'Create a saved search or update one.' },
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      searchId: { type: 'string', description: 'The saved search id for update.', maxLength: 64, optional: true },
+      name: { type: 'string', description: 'Saved search name.', maxLength: 80, optional: true },
+      query: { type: 'string', description: 'The search query.', maxLength: 500, optional: true },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async run(args, ctx) {
+      return emailToolCall(() => manageEmailSearchAgent(ctx.env, ctx.store.userId, {
+        accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+        action: String(args.action) as 'create' | 'update',
+        searchId: typeof args.searchId === 'string' ? args.searchId : undefined,
+        name: typeof args.name === 'string' ? args.name : undefined,
+        query: typeof args.query === 'string' ? args.query : undefined,
+      }))
+    },
+  }),
+  tool({
+    name: 'email_contact',
+    permission: 'write',
+    maxCallsPerTurn: 5,
+    description: 'Manage contacts and recipient groups: create/update a contact, create/update a group, or add/remove a contact from a group.',
+    fields: {
+      action: { type: 'string', enum: ['create', 'update', 'group_create', 'group_update', 'group_add', 'group_remove'], description: 'Which contact or group change to make.' },
+      contactId: { type: 'string', description: 'The contact id for update or group membership changes.', maxLength: 64, optional: true },
+      groupId: { type: 'string', description: 'The group id for group_update, group_add, or group_remove.', maxLength: 64, optional: true },
+      email: { type: 'string', description: 'Contact email address for create or update.', maxLength: 320, optional: true },
+      name: { type: 'string', description: 'Contact name or group name.', maxLength: 120, optional: true },
+      company: { type: 'string', description: 'Contact company.', maxLength: 120, optional: true },
+      notes: { type: 'string', description: 'Contact notes.', maxLength: 2000, optional: true },
+      starred: { type: 'boolean', description: 'Whether the contact or group is starred.', optional: true },
+      pinned: { type: 'boolean', description: 'Whether the contact or group is pinned to the top.', optional: true },
+      avatar: { type: 'string', description: 'Avatar preference: emoji:🦊, lucide:star, an uploaded data URL, or empty for the generated avatar.', maxLength: 262144, optional: true },
+      description: { type: 'string', description: 'Group description.', maxLength: 500, optional: true },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async run(args, ctx) {
+      return emailToolCall(() => manageEmailContactAgent(ctx.env, ctx.store.userId, {
+        action: String(args.action) as Parameters<typeof manageEmailContactAgent>[2]['action'],
+        contactId: typeof args.contactId === 'string' ? args.contactId : undefined,
+        groupId: typeof args.groupId === 'string' ? args.groupId : undefined,
+        email: typeof args.email === 'string' ? args.email : undefined,
+        name: typeof args.name === 'string' ? args.name : undefined,
+        company: typeof args.company === 'string' ? args.company : undefined,
+        notes: typeof args.notes === 'string' ? args.notes : undefined,
+        starred: typeof args.starred === 'boolean' ? args.starred : undefined,
+        pinned: typeof args.pinned === 'boolean' ? args.pinned : undefined,
+        avatar: typeof args.avatar === 'string' ? args.avatar : undefined,
+        description: typeof args.description === 'string' ? args.description : undefined,
+      }))
+    },
+  }),
+  tool({
+    name: 'email_update_settings',
+    permission: 'write',
+    maxCallsPerTurn: 3,
+    description: 'Change mailbox settings: display name, automatic drafts, focused inbox, the assistant instructions for this mailbox, or the vacation auto-reply window and message.',
+    fields: {
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      displayName: { type: 'string', description: 'Sender name recipients see.', maxLength: 120, optional: true },
+      autoDraft: { type: 'boolean', description: 'Whether new mail gets an automatic draft.', optional: true },
+      focusedInbox: { type: 'boolean', description: 'Whether new inbox mail is split into Focused and Other.', optional: true },
+      agentSystemPrompt: { type: 'string', description: 'Instructions for the mail assistant; an empty string restores the default.', maxLength: 8000, optional: true },
+      vacationEnabled: { type: 'boolean', description: 'Turn the vacation auto-reply on or off.', optional: true },
+      vacationStart: { type: 'string', description: 'ISO start of the vacation window, or empty for no bound.', maxLength: 40, optional: true, nullable: true },
+      vacationEnd: { type: 'string', description: 'ISO end of the vacation window, or empty for no bound.', maxLength: 40, optional: true, nullable: true },
+      vacationSubject: { type: 'string', description: 'Vacation reply subject; empty uses Auto: plus the original subject.', maxLength: 200, optional: true },
+      vacationBody: { type: 'string', description: 'Vacation reply text.', maxLength: 4000, optional: true },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async run(args, ctx) {
+      const vacationTouched = args.vacationEnabled !== undefined
+        || args.vacationStart !== undefined
+        || args.vacationEnd !== undefined
+        || args.vacationSubject !== undefined
+        || args.vacationBody !== undefined
+      if (vacationTouched && typeof args.vacationEnabled !== 'boolean') {
+        throw new ToolError('vacationEnabled is required when changing the vacation reply.')
+      }
+      return emailToolCall(() => updateEmailSettingsAgent(ctx.env, ctx.store.userId, {
+        accountId: typeof args.accountId === 'string' ? args.accountId : undefined,
+        displayName: typeof args.displayName === 'string' ? args.displayName : undefined,
+        autoDraft: typeof args.autoDraft === 'boolean' ? args.autoDraft : undefined,
+        focusedInbox: typeof args.focusedInbox === 'boolean' ? args.focusedInbox : undefined,
+        agentSystemPrompt: typeof args.agentSystemPrompt === 'string' ? args.agentSystemPrompt : undefined,
+        ...(vacationTouched ? {
+          vacation: {
+            enabled: args.vacationEnabled as boolean,
+            start: Object.prototype.hasOwnProperty.call(args, 'vacationStart') ? args.vacationStart as string | null : undefined,
+            end: Object.prototype.hasOwnProperty.call(args, 'vacationEnd') ? args.vacationEnd as string | null : undefined,
+            subject: typeof args.vacationSubject === 'string' ? args.vacationSubject : undefined,
+            body: typeof args.vacationBody === 'string' ? args.vacationBody : undefined,
+          },
+        } : {}),
+      }))
+    },
+  }),
+  {
+    name: 'email_delete',
+    permission: 'destructive',
+    keepArgs: true,
+    maxCallsPerTurn: 2,
+    description: 'Propose a deletion. message moves to Trash unless the reader explicitly asked to delete it forever, in which case set permanent; trash empties every trashed message; folder can also delete its messages. tags, rules, templates, signatures, saved searches, contacts, and groups are removed for good. The reader must approve it.',
+    fields: {
+      accountId: { type: 'string', description: 'Mailbox id from email_list_accounts. Optional when only one mailbox exists.', maxLength: 64, optional: true },
+      kind: { type: 'string', enum: ['message', 'folder', 'tag', 'rule', 'template', 'signature', 'search', 'contact', 'group', 'trash'], description: 'What is being deleted.' },
+      id: { type: 'string', description: 'The id of the item to delete; omit only for trash.', maxLength: 64, optional: true },
+      permanent: { type: 'boolean', description: 'Only set true when the reader explicitly asked to delete a message forever; omitting it moves the message to Trash.', optional: true },
+      deleteEmails: { type: 'boolean', description: 'When deleting a folder, also delete the messages inside it.', optional: true },
+    },
+    requires: (env) => Boolean(env.EMAIL_MAILBOX),
+    async prepare(args, ctx) {
+      return emailToolCall(() => prepareDeleteEmailAgent(ctx.env, ctx.store.userId, args as unknown as Parameters<typeof prepareDeleteEmailAgent>[2]))
+    },
+    async commit(_targetId, ctx, args) {
+      return emailToolCall(() => deleteEmailAgent(ctx.env, ctx.store.userId, args as unknown as Parameters<typeof deleteEmailAgent>[2]))
+    },
+  },
+]
+
 export const ALL_TOOLS: ToolDefinition[] = [
   ...TASK_TOOLS,
   ...MEMORY_TOOLS,
   ...NOTE_TOOLS,
   ...ARTIFACT_TOOLS,
+  ...EMAIL_TOOLS,
   ...AUTOMATION_TOOLS,
   ...PROJECT_TOOLS,
   ...SEARCH_TOOLS,
@@ -3574,7 +4292,7 @@ export class ToolExecutor {
       targetId: prepared.targetId,
       targetLabel: prepared.targetLabel,
       // What the model proposed, kept so approving runs exactly that and not a re-derivation.
-      args: definition.permission === 'destructive' && !definition.external ? undefined : args,
+      args: definition.permission === 'destructive' && !definition.external && !definition.keepArgs ? undefined : args,
     })
     this.approvals.set(callId, { id: action.id, toolId: callId })
     return {

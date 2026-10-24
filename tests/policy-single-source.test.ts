@@ -54,6 +54,7 @@ describe('grantedMcpScopes', () => {
       writeEnabled: false,
       trashEnabled: false,
       todoReadEnabled: true,
+      emailEnabled: false,
       disabledTools: [],
       updatedAt: 0,
     })
@@ -67,6 +68,7 @@ describe('grantedMcpScopes', () => {
       writeEnabled: true,
       trashEnabled: false,
       todoReadEnabled: true,
+      emailEnabled: false,
       disabledTools: [],
       updatedAt: 0,
     })).toEqual([MCP_SCOPES.read, MCP_SCOPES.write, MCP_SCOPES.todoRead, MCP_SCOPES.todoWrite])

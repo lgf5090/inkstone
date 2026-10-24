@@ -76,6 +76,21 @@ export async function decryptAssistantKey(env: Env, userId: string, stored: stri
   return typeof apiKey === 'string' && apiKey.length > 0 && apiKey.length <= 4096 ? apiKey : null
 }
 
+export async function encryptEmailSecret(env: Env, ownerId: string, secret: string): Promise<string> {
+  if (!isValidId(ownerId)) throw new Error('invalid_email_credential')
+  const trimmed = secret.trim()
+  if (!trimmed || trimmed.length > 4096) throw new Error('invalid_email_credential')
+  return encryptCredential(env, `email:${ownerId}`, { secret: trimmed })
+}
+
+export async function decryptEmailSecret(env: Env, ownerId: string, stored: string): Promise<string | null> {
+  if (!isValidId(ownerId) || stored.length > 24 * 1024) return null
+  const value = await decryptCredential(env, `email:${ownerId}`, stored)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const secret = (value as Record<string, unknown>).secret
+  return typeof secret === 'string' && secret.length > 0 && secret.length <= 4096 ? secret : null
+}
+
 /**
  * One MCP server's outbound OAuth material.
  *

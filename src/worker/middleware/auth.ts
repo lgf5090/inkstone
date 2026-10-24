@@ -120,6 +120,11 @@ export const requireAuth = createMiddleware<AppBindings>(async (c, next) => {
   await next()
 })
 
+export const requireOwner = createMiddleware<AppBindings>(async (c, next) => {
+  if (c.get('user')?.role !== 'owner') throw ApiError.forbidden('Owner access required')
+  await next()
+})
+
 function isMemoPatRequest(c: Context<AppBindings>): boolean {
   const path = c.req.path
   if (path !== MEMOS_API_PREFIX && !path.startsWith(`${MEMOS_API_PREFIX}/`)) return false

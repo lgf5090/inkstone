@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 const UI_STORE = new URL('../src/client/store/ui.ts', import.meta.url)
 const SHELL = new URL('../src/client/features/shell/AppShell.tsx', import.meta.url)
+const APP = new URL('../src/client/App.tsx', import.meta.url)
 
 function panelNames(): string[] {
   const source = readFileSync(UI_STORE, 'utf8')
@@ -21,7 +22,7 @@ function panelNames(): string[] {
 
 describe('every panel the ui store can open', () => {
   const names = panelNames()
-  const shell = readFileSync(SHELL, 'utf8')
+  const shell = `${readFileSync(SHELL, 'utf8')}\n${readFileSync(APP, 'utf8')}`
 
   it('is a non-empty list, so this test cannot pass by vacuity', () => {
     expect(names.length).toBeGreaterThanOrEqual(6)

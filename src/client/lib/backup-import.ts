@@ -1,5 +1,6 @@
 import {
   backupCompletePath,
+  backupEmailAttachmentPath,
   backupManifestPath,
   completeManifestHash,
   MARKDOWN_BACKUP_FORMAT,
@@ -8,6 +9,7 @@ import {
   type MarkdownBackupManifest,
   type MarkdownBackupNoteEntry,
 } from '@shared/backup-format'
+import { parseEmailBackupBundle } from '@shared/email/backup'
 import { LIMITS } from '@shared/constants'
 import type { ImportResult } from '@shared/types'
 import { t } from './i18n'
@@ -18,12 +20,21 @@ interface SelectedBackupFile<T extends MarkdownBackupAttachmentEntry | MarkdownB
   entry: T
 }
 
+interface SelectedEmailAttachment {
+  file: File
+  path: string
+  bytes: number
+  sha256?: string
+}
+
 interface BackupSelection {
   manifest: MarkdownBackupManifest
   attachments: SelectedBackupFile<MarkdownBackupAttachmentEntry>[]
   notes: SelectedBackupFile<MarkdownBackupNoteEntry>[]
   templates: { file: File; path: string } | null
   automation: { file: File; path: string } | null
+  email: { file: File; path: string } | null
+  emailAttachments: SelectedEmailAttachment[]
   warning: string | null
 }
 
@@ -59,6 +70,17 @@ export async function restoreMarkdownBackupFolder(
     const { file, path } = selection.automation
     if (file.size !== selection.manifest.automation!.bytes) throw new Error(t('settings.backup_file_size_mismatch', { value0: path }))
     if (await sha256File(file) !== selection.manifest.automation!.sha256) throw new Error(t('settings.backup_file_checksum_failed', { value0: path }))
+  }
+  if (selection.email) {
+    const { file, path } = selection.email
+    if (file.size !== selection.manifest.email!.bytes) throw new Error(t('settings.backup_file_size_mismatch', { value0: path }))
+    if (await sha256File(file) !== selection.manifest.email!.sha256) throw new Error(t('settings.backup_file_checksum_failed', { value0: path }))
+  }
+  for (const selected of selection.emailAttachments) {
+    if (selected.file.size !== selected.bytes) throw new Error(t('settings.backup_file_size_mismatch', { value0: selected.path }))
+    if (selected.sha256 && await sha256File(selected.file) !== selected.sha256) {
+      throw new Error(t('settings.backup_file_checksum_failed', { value0: selected.path }))
+    }
   }
 
   let attachmentBatch: SelectedBackupFile<MarkdownBackupAttachmentEntry>[] = []
@@ -142,6 +164,16 @@ export async function restoreMarkdownBackupFolder(
         [selection.automation.file],
         manifestSlice(selection.manifest, [], []),
         [selection.automation.path],
+      ),
+    )
+  }
+  if (selection.email) {
+    mergeResult(
+      result,
+      await send(
+        [selection.email.file, ...selection.emailAttachments.map((selected) => selected.file)],
+        manifestSlice(selection.manifest, [], []),
+        [selection.email.path, ...selection.emailAttachments.map((selected) => selected.path)],
       ),
     )
   }
@@ -237,12 +269,18 @@ async function selectLatestCompleteBackup(files: readonly File[]): Promise<Backu
       if (!file) throw new Error(t('settings.backup_missing_file', { value0: path }))
       return { file, path }
     }
+    const email = resolveLibrary(manifest.email)
+    const emailAttachments = email && manifest.email
+      ? await selectEmailAttachments(email, manifest, manifest.email.includesAttachments, rootPrefix, byPath)
+      : []
     return {
       manifest,
       attachments: manifest.attachments.map(resolve),
       notes: manifest.notes.map(resolve),
       templates: resolveLibrary(manifest.templates),
       automation: resolveLibrary(manifest.automation),
+      email,
+      emailAttachments,
       warning: skipped.length
         ? t('settings.backup_newer_snapshot_skipped', { value0: skipped[0] })
         : null,
@@ -254,6 +292,55 @@ async function selectLatestCompleteBackup(files: readonly File[]): Promise<Backu
       ? t('settings.backup_no_complete_snapshot')
       : t('settings.backup_manifest_not_found'),
   )
+}
+
+async function selectEmailAttachments(
+  email: { file: File; path: string },
+  manifest: MarkdownBackupManifest,
+  includesAttachments: boolean,
+  rootPrefix: string,
+  byPath: Map<string, File>,
+): Promise<SelectedEmailAttachment[]> {
+  if (!includesAttachments) return []
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(await email.file.text())
+  } catch {
+    throw new Error(t('settings.backup_manifest_invalid', { value0: email.path }))
+  }
+  const bundle = parseEmailBackupBundle(parsed)
+  if (
+    !bundle ||
+    !manifest.email ||
+    bundle.snapshot !== manifest.snapshot ||
+    bundle.includesAttachments !== manifest.email.includesAttachments
+  ) {
+    throw new Error(t('settings.backup_manifest_invalid', { value0: email.path }))
+  }
+  const selected: SelectedEmailAttachment[] = []
+  for (const account of bundle.accounts) {
+    for (const message of account.messages) {
+      for (const attachment of message.attachments) {
+        if (attachment.missing) continue
+        const path = backupEmailAttachmentPath(
+          bundle.snapshot,
+          account.id,
+          message.id,
+          attachment.id,
+          attachment.filename,
+        )
+        const file = byPath.get(`${rootPrefix}${path}`.toLowerCase())
+        if (!file) continue
+        selected.push({
+          file,
+          path,
+          bytes: attachment.size,
+          ...(attachment.sha256 ? { sha256: attachment.sha256 } : {}),
+        })
+      }
+    }
+  }
+  return selected
 }
 
 async function verifySelectedFile(
@@ -304,6 +391,12 @@ function mergeResult(target: ImportResult, next: ImportResult): void {
   target.createdFolders += next.createdFolders
   target.createdAttachments += next.createdAttachments
   target.skippedAttachments += next.skippedAttachments
+  target.emailAccounts = (target.emailAccounts ?? 0) + (next.emailAccounts ?? 0)
+  target.emailMessages = (target.emailMessages ?? 0) + (next.emailMessages ?? 0)
+  target.emailCreatedMessages = (target.emailCreatedMessages ?? 0) + (next.emailCreatedMessages ?? 0)
+  target.emailSkippedMessages = (target.emailSkippedMessages ?? 0) + (next.emailSkippedMessages ?? 0)
+  target.emailAttachments = (target.emailAttachments ?? 0) + (next.emailAttachments ?? 0)
+  target.emailMissingAttachments = (target.emailMissingAttachments ?? 0) + (next.emailMissingAttachments ?? 0)
   for (const warning of next.warnings) {
     if (target.warnings.length >= 100) break
     target.warnings.push(warning)

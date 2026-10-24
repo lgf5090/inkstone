@@ -308,6 +308,10 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'backup', titleKey: 'settings.frequency', detailKey: 'settings.runs_from_cloudflare_cron_the_page_does_not_need_to_stay_open', termKeys: ['settings.manual', 'settings.hourly', 'settings.every_6_hours', 'settings.daily', 'settings.weekly', 'settings.monthly', 'settings.yearly'] },
   { section: 'backup', titleKey: 'settings.backup_retention', detailKey: 'settings.backup_retention_description', termKeys: ['settings.keep_all_backups', 'settings.keep_latest_backups'] },
   { section: 'backup', titleKey: 'settings.backup_target', termKeys: ['settings.add_backup_target', 'settings.webdav_backup', 'settings.s3_backup', 'settings.test_connection', 'settings.enabled'] },
+  { section: 'backup', titleKey: 'settings.email_backup_enabled', detailKey: 'settings.email_backup_enabled_hint' },
+  { section: 'backup', titleKey: 'settings.email_backup_attachments', detailKey: 'settings.email_backup_attachments_hint' },
+  { section: 'backup', titleKey: 'settings.email_backup_path', detailKey: 'settings.email_backup_path_hint' },
+  { section: 'backup', titleKey: 'settings.email_backup_last_run' },
   { section: 'backup', titleKey: 'settings.back_up_now' },
   { section: 'backup', titleKey: 'settings.latest_backups' },
 
@@ -318,6 +322,7 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'mcp', titleKey: 'settings.mcp_write_access', detailKey: 'settings.mcp_write_access_desc' },
   { section: 'mcp', titleKey: 'settings.mcp_trash_access', detailKey: 'settings.mcp_trash_access_desc' },
   { section: 'mcp', titleKey: 'settings.mcp_todo_read_access', detailKey: 'settings.mcp_todo_read_access_desc' },
+  { section: 'mcp', titleKey: 'settings.mcp_email_access', detailKey: 'settings.mcp_email_access_desc' },
   { section: 'mcp', titleKey: 'settings.mcp_ai_search', detailKey: 'settings.mcp_ai_search_desc', termKeys: ['settings.mcp_ai_search_reindex', 'settings.mcp_ai_search_clear'] },
   { section: 'mcp', titleKey: 'settings.mcp_api_keys', detailKey: 'settings.mcp_api_keys_desc', termKeys: ['settings.mcp_api_key_create', 'settings.mcp_api_key_revoke'] },
   { section: 'mcp', titleKey: 'settings.mcp_endpoint', detailKey: 'settings.mcp_endpoint_desc' },

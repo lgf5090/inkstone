@@ -79,6 +79,7 @@ async function switchPreferences(write: boolean, trash: boolean, todoRead = true
     writeEnabled: write,
     trashEnabled: trash,
     todoReadEnabled: todoRead,
+    emailEnabled: false,
     disabledTools: [],
     updatedAt: Date.now(),
   })
@@ -565,7 +566,7 @@ describe('no key grows because the to-do family exists', () => {
 
     // The account switches still decide: a write the reader has not switched on cannot be asked for.
     await putMcpPreferences(env.DB, USER, {
-      writeEnabled: false, trashEnabled: false, todoReadEnabled: true, disabledTools: [], updatedAt: Date.now(),
+      writeEnabled: false, trashEnabled: false, todoReadEnabled: true, emailEnabled: false, disabledTools: [], updatedAt: Date.now(),
     })
     const refused = await createMcpApiKey(env.DB, USER, 'greedy', [MCP_SCOPES.todoWrite, MCP_SCOPES.todoDanger])
     expect(refused.record.scopes).toEqual([MCP_SCOPES.read])
@@ -589,7 +590,7 @@ describe('no key grows because the to-do family exists', () => {
   })
 
   it('keeps the note ceiling handing out no to-do scope, and the full ceiling naming each one it may', () => {
-    const open = { writeEnabled: true, trashEnabled: true, todoReadEnabled: true, disabledTools: [], updatedAt: 0 }
+    const open = { writeEnabled: true, trashEnabled: true, todoReadEnabled: true, emailEnabled: false, disabledTools: [], updatedAt: 0 }
     expect(grantedMcpScopes(MCP_NOTE_SCOPES, open))
       .toEqual([MCP_SCOPES.read, MCP_SCOPES.write, MCP_SCOPES.trash])
     expect(grantedMcpScopes(MCP_SUPPORTED_SCOPES, open)).toEqual([

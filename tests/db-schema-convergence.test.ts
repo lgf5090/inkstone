@@ -476,6 +476,7 @@ const ACCOUNT_GLOBAL_KEYS = new Map<string, string>([
   // window, and SQLite only autonumbers a row whose integer key is the whole primary key. Every read
   // filters on `user_id`, and the four covering indexes all lead with it or with the slug.
   ['share_visits', 'seq INTEGER PRIMARY KEY AUTOINCREMENT, every read filters on user_id'],
+  ['email_group_members', 'composite (group_id, contact_id) on newId() groups and contacts; every read binds user_id'],
 ])
 
 /** The tables that carry a `user_id` column yet key on something else. */

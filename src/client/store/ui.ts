@@ -60,6 +60,10 @@ interface UiState {
   navWidth: number
   listWidth: number
   navCollapsed: boolean
+  emailNavWidth: number
+  emailListWidth: number
+  emailNavCollapsed: boolean
+  emailListCollapsed: boolean
   listCollapsed: boolean
   searchList: boolean
   searchQuery: string
@@ -132,13 +136,15 @@ interface UiState {
   fontScale: number
 
 
-  setLayout: (patch: Partial<Pick<UiState, 'navWidth' | 'listWidth' | 'splitRatio' | 'workspaceSplitRatio' | 'outlineFloatingPosition'>>) => void
+  setLayout: (patch: Partial<Pick<UiState, 'navWidth' | 'listWidth' | 'emailNavWidth' | 'emailListWidth' | 'splitRatio' | 'workspaceSplitRatio' | 'outlineFloatingPosition'>>) => void
   setWorkspacePaneLayout: (pane: WorkspacePane, layout: EditorLayout) => void
   setWorkspaceNote: (pane: WorkspacePane, id: string | null, activate?: boolean, revealOnMobile?: boolean) => void
   activateWorkspacePane: (pane: WorkspacePane) => void
   closeSecondaryNote: () => void
   removeWorkspaceNote: (id: string) => void
   toggleNav: () => void
+  toggleEmailNav: () => void
+  toggleEmailList: () => void
   toggleNavDrawer: (open?: boolean) => void
   toggleList: () => void
   openSearchList: (seed?: string) => void
@@ -199,11 +205,15 @@ interface UiState {
 export const PANEL_WIDTHS = {
   navigation: { min: 196, max: 380 },
   noteList: { min: 260, max: 520 },
+  emailNav: { min: 208, max: 360 },
+  emailList: { min: 300, max: 560 },
 } as const
 
 export const DEFAULT_LAYOUT = {
   navWidth: PANEL_WIDTHS.navigation.min,
   listWidth: PANEL_WIDTHS.noteList.min,
+  emailNavWidth: 232,
+  emailListWidth: 380,
   splitRatio: null as number | null,
   outlineFloatingPosition: null as { x: number; y: number } | null,
 } as const
@@ -211,6 +221,8 @@ export const DEFAULT_LAYOUT = {
 const DEFAULTS = {
   ...DEFAULT_LAYOUT,
   navCollapsed: false,
+  emailNavCollapsed: false,
+  emailListCollapsed: false,
   listCollapsed: true,
   view: 'all' as ViewKind,
   sidebarTab: 'library' as SidebarTab,
@@ -240,6 +252,10 @@ const PERSISTED_KEYS = [
   'navWidth',
   'listWidth',
   'navCollapsed',
+  'emailNavWidth',
+  'emailListWidth',
+  'emailNavCollapsed',
+  'emailListCollapsed',
   'splitRatio',
   'outlineFloatingPosition',
   'workspaceSplitRatio',
@@ -281,6 +297,14 @@ function loadPersisted(): Partial<UiState> {
       out.listWidth = clamp(value.listWidth, PANEL_WIDTHS.noteList.min, PANEL_WIDTHS.noteList.max)
     }
     if (typeof value.navCollapsed === 'boolean') out.navCollapsed = value.navCollapsed
+    if (isFiniteNumber(value.emailNavWidth)) {
+      out.emailNavWidth = clamp(value.emailNavWidth, PANEL_WIDTHS.emailNav.min, PANEL_WIDTHS.emailNav.max)
+    }
+    if (isFiniteNumber(value.emailListWidth)) {
+      out.emailListWidth = clamp(value.emailListWidth, PANEL_WIDTHS.emailList.min, PANEL_WIDTHS.emailList.max)
+    }
+    if (typeof value.emailNavCollapsed === 'boolean') out.emailNavCollapsed = value.emailNavCollapsed
+    if (typeof value.emailListCollapsed === 'boolean') out.emailListCollapsed = value.emailListCollapsed
     if (isFiniteNumber(value.splitRatio)) out.splitRatio = clamp(value.splitRatio, 0.2, 0.8)
     if (isRatioPoint(value.outlineFloatingPosition)) out.outlineFloatingPosition = value.outlineFloatingPosition
     if (isFiniteNumber(value.workspaceSplitRatio)) {
@@ -560,6 +584,8 @@ export const useUi = create<UiState>((set, get) => ({
     return state
   }),
   toggleNav: () => set((s) => ({ navCollapsed: !s.navCollapsed })),
+  toggleEmailNav: () => set((s) => ({ emailNavCollapsed: !s.emailNavCollapsed })),
+  toggleEmailList: () => set((s) => ({ emailListCollapsed: !s.emailListCollapsed })),
   toggleNavDrawer: (open) => set((s) => ({ navDrawerOpen: open ?? !s.navDrawerOpen })),
   toggleList: () => set((s) => ({ listCollapsed: !s.listCollapsed })),
   openSearchList: (seed) => set((s) => ({

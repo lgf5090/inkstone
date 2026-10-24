@@ -24,6 +24,7 @@ import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 import { useAssistant } from '../chat/assistant-store'
 import { AssistantDock } from '../chat/AssistantDock'
+import { useAssistantToolRefresh } from '../chat/tool-refresh'
 import { useTodos } from './store'
 import { buildTodoAssistantContext } from './assistant-context'
 import { BatchBar } from './BatchBar'
@@ -99,7 +100,6 @@ export function TodosApp() {
   const dueFrom = useTodos((state) => state.dueFrom)
   const dueTo = useTodos((state) => state.dueTo)
   const assistantDockOpen = useUi((state) => state.assistantDockOpen)
-  const assistantTurn = useAssistant((state) => state.turn)
   const applySavedFilter = useTodos((state) => state.applySavedFilter)
   const savedFilters = useSession((state) => state.settings.todo.savedFilters) ?? NO_SAVED_FILTERS
   const updateSettings = useSession((state) => state.updateSettings)
@@ -115,7 +115,6 @@ export function TodosApp() {
   const [moreOpen, setMoreOpen] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
   const lastAssistantScreen = useRef<string | null>(null)
-  const refreshedTurn = useRef<number | null>(null)
   const assistantScreen = `${view}|${listId ?? ''}|${tagId ?? ''}|${query}|${dueFrom ?? ''}|${dueTo ?? ''}|${editorOpen ? draft?.id ?? 'new' : ''}`
 
   useEffect(() => {
@@ -150,14 +149,7 @@ export function TodosApp() {
     }
   }, [assistantScreen, completed, draft, editorOpen, dueFrom, dueTo, listId, lists, query, tagId, tags, tasks, timezone, view])
 
-  useEffect(() => {
-    if (!assistantTurn?.done || assistantTurn.token === undefined) return
-    if (refreshedTurn.current === assistantTurn.token) return
-    refreshedTurn.current = assistantTurn.token
-    if (assistantTurn.tools.some((tool) => TODO_WRITE_TOOLS.has(tool.name) && tool.status === 'success')) {
-      void useTodos.getState().load()
-    }
-  }, [assistantTurn])
+  useAssistantToolRefresh(TODO_WRITE_TOOLS, () => useTodos.getState().load())
 
   const openList = (target: { listId?: string; tagId?: string }): void => {
     setPage('main')

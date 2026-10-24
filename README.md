@@ -33,6 +33,7 @@ Every new account automatically receives two standard starter notes, one in Chin
 | Search | D1 FTS5 **full-text search** with Chinese indexing, filters, recent notes, command-palette navigation, and optional private **semantic/hybrid search** powered by Workers AI |
 | **MCP** | Private remote MCP, OAuth 2.1 with PKCE, revocable `ink_...` API keys, standard `search`/`fetch`, bounded reads, revision-safe writes, separate trash permission, and per-account grant management |
 | Reliability | Installable PWA, offline app launch, browser-side cache, **offline write queue and optimistic concurrency control**, immediate local mutations with rollback, stale-sync protection, conflict copies, realtime notifications, and elected-tab polling fallback |
+| Email | Owner-only mailbox after the to-do app: nested folders and tags, threads, read-state filters and search with saved searches, sidebar contacts and groups with custom icons, stars, pins and related mail, a 30-day trash, batch actions, snooze, scheduled send with undo, rules, blocked senders, templates, signatures, vacation replies, a focused inbox, a Markdown composer that reuses the notebook's formatting toolbar, inline images, attachments through the shared attachment hub, an email-aware assistant that can inspect and change every part of the mailbox (sending, scheduling, and permanent deletion wait for one approval), an in-place mailbox manager with settings, rules, templates and statistics as overlays, resizable sidebar and list panes, and opt-in MCP email tools |
 | Sharing | Public note links with optional access passwords and expiration dates |
 | Portability | JSON and ZIP exports, directly readable **Markdown**, attachment export, and **manual or scheduled WebDAV/S3 backups** |
 | Interface | **Desktop and mobile layouts**, **dark/light themes**, accent colors, Simplified Chinese, English, and owner-only update notifications |
@@ -117,6 +118,9 @@ this occurrence and writes the next one, stamped with the dates the rule produce
 | Workers AI `AI` binding | Optional embedding generation for semantic search; unavailable deployments continue to use lexical search |
 | QuickJS (WebAssembly) | The interpreter behind the assistant's `code_execute` tool, bundled with the Worker and compiled at deploy time; it has no bindings, no network, no timers and no imports, and is stopped at a deadline the app enforces |
 | Browser IndexedDB | Local cache and pending offline writes |
+| Email D1 tables | Mailbox accounts, automatic-draft jobs, and attachment metadata (`email_*`) |
+| `EmailMailbox` Durable Object | One SQLite mailbox per account: folders, messages, threads, inbound claims, and idempotent send operations |
+| Cloudflare Email Routing / Email Service | Inbound delivery to the Worker and the optional `EMAIL` send binding; the mailbox is owner-only |
 | `SyncHub` Durable Object | Realtime change notifications between active clients |
 | `CredentialVault` Durable Object | Isolated storage for the key used to encrypt backup credentials |
 | WebDAV or S3 storage | User-configured off-site backups |
@@ -168,6 +172,22 @@ this occurrence and writes the next one, stamped with the dates the rule produce
    nothing is sent and nothing is pretended. The devices readers subscribe are kept out of every export
    and backup, because a subscription is the ability to notify that machine.
 
+8. The email app stays hidden until the deployment has a mailbox domain. Enable Email Routing
+   for that domain, point its catch-all or a dedicated address at this Worker, and set the plain
+   variables `MAIL_DOMAIN` (required), `EMAIL_DOMAINS` (optional allow-list), and
+   `EMAIL_ADDRESSES` (optional fixed addresses) in the tracked Wrangler config. Outbound mail uses
+   the `[[send_email]]` binding unless it is removed, in which case the API answers that sending is
+   unavailable instead of pretending a message left. Only the owner can open the mailbox or call
+   its API. In KV mode there is no R2 bucket, so email attachments are reported as unavailable
+   while text mail still works.
+9. Email is private by default: automatic drafts are on per mailbox and send the incoming message
+   to the AI provider configured for the assistant (turn the switch off in the mailbox settings);
+   the assistant sees an email only while the context chip is attached; MCP access to email is off
+   until the owner enables it in MCP settings, and sending through MCP always needs explicit
+   confirmation. The mail assistant can organize and change mailbox data directly; sending,
+   scheduling, and permanent deletion are proposed for one approval first. Remote images in received
+   mail load by default, which tells the sender the message was opened.
+
 Existing databases are upgraded automatically on startup with idempotent schema changes. Keep a current backup before updating any self-hosted deployment. When a newer stable Inkstone release is available, the owner receives a focused reminder without interrupting regular members.
 
 ## Exports and backups
@@ -177,6 +197,7 @@ Existing databases are upgraded automatically on startup with idempotent schema 
 - Remote backup targets support WebDAV and S3-compatible storage, with duplicate attachment content stored only once inside each snapshot.
 - Large backups can be restored by selecting the backup folder, without loading one complete archive into memory.
 - Multiple targets can be configured and run manually or on a schedule.
+- Email accounts travel in their own archive inside a snapshot, with bodies, folders, flags, and attachment metadata; attachment bytes are excluded by default and can be included per backup target. A single mailbox can be exported from its settings page.
 - Login passwords, active sessions, share passwords, and backup-service credentials are not included in exports.
 
 ## Development and verification

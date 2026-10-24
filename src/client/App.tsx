@@ -36,6 +36,9 @@ const CollectionPage = lazy(() =>
 const MemosPublicApp = lazy(() =>
   import('./features/memos/MemosPublicApp').then((module) => ({ default: module.MemosPublicApp })),
 )
+const SettingsPanel = lazy(() =>
+  import('./features/settings/SettingsPanel').then((module) => ({ default: module.SettingsPanel })),
+)
 const PresentationOverlay = lazy(() =>
   import('./features/presentation').then((module) => ({ default: module.PresentationOverlay })),
 )
@@ -236,6 +239,7 @@ export function App() {
       {status === 'authed' && <ShowOverlay />}
       {status === 'authed' && <LightboxLayer />}
       {status === 'authed' && <AttachmentHubLayer />}
+      {status === 'authed' && <SettingsLayer />}
       {status === 'authed' && <SlotFillLayer />}
       {status === 'authed' && <DecorationLayer />}
       <Toaster />
@@ -375,6 +379,13 @@ function LightboxLayer() {
  * and the `key` is what keeps one application's filters and selection from being read as the next
  * one's when the hub is opened again somewhere else.
  */
+function SettingsLayer() {
+  const panel = useUi((s) => s.panel)
+  const closePanel = useUi((s) => s.closePanel)
+  const userId = useSession((s) => s.user?.id)
+  return panel === 'settings' && <Suspense fallback={null}><SettingsPanel key={userId} onClose={closePanel} /></Suspense>
+}
+
 function AttachmentHubLayer() {
   const scope = useUi((s) => s.attachmentHub)
   const setAttachmentHub = useUi((s) => s.setAttachmentHub)

@@ -396,6 +396,11 @@ export interface BackupSettings {
   schedule: BackupSchedule
   retentionCount: number
 }
+
+export interface EmailBackupSettings {
+  enabled: boolean
+  includeAttachments: boolean
+}
 export interface SyncSettings {
   realtime: boolean
   pollIntervalMs: number
@@ -604,6 +609,7 @@ export interface UserSettings {
   preview: PreviewSettings
   properties: PropertySettings
   backup: BackupSettings
+  emailBackup: EmailBackupSettings
   sync: SyncSettings
   notes: NotesSettings
   search: SearchSettings
@@ -1275,6 +1281,12 @@ export interface ImportResult {
   createdAttachments: number
   skippedAttachments: number
   warnings: string[]
+  emailAccounts?: number
+  emailMessages?: number
+  emailCreatedMessages?: number
+  emailSkippedMessages?: number
+  emailAttachments?: number
+  emailMissingAttachments?: number
 }
 
 
@@ -1288,6 +1300,7 @@ export interface McpPreferences {
    * default the column carries, so a reader who has never seen the switch keeps what keys already had.
    */
   todoReadEnabled?: boolean
+  emailEnabled?: boolean
   /**
    * The server's own tools the reader has switched off, by the name the server registers them under.
    *
@@ -1406,3 +1419,31 @@ export type ApiErrorCode =
   | 'two_factor_not_enabled'
   | 'two_factor_setup_expired'
   | 'two_factor_unavailable'
+  | 'email_account_not_found'
+  | 'email_account_exists'
+  | 'email_address_invalid'
+  | 'email_address_reserved'
+  | 'email_domain_not_allowed'
+  | 'email_forbidden'
+  | 'email_mailbox_unavailable'
+  | 'email_folder_not_found'
+  | 'email_folder_exists'
+  | 'email_folder_reserved'
+  | 'email_folder_not_deletable'
+  | 'email_message_not_found'
+  | 'email_attachment_not_found'
+  | 'email_attachment_locked'
+  | 'email_attachment_too_large'
+  | 'email_settings_invalid'
+  | 'email_draft_invalid'
+  | 'email_send_unavailable'
+  | 'email_send_failed'
+  | 'email_rate_limited'
+  | 'email_quota_exceeded'
+  | 'email_not_in_trash'
+  | 'email_not_retryable'
+  | 'email_auto_draft_unavailable'
+  | 'email_export_too_large'
+  | 'email_backup_no_target'
+  | 'email_contact_exists'
+  | 'email_group_exists'
