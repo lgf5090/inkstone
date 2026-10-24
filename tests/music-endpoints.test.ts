@@ -1,0 +1,318 @@
+// @vitest-environment node
+import { describe, expect, it } from 'vitest'
+import { ALL_CATEGORIES, neteaseEndpoints } from '../src/worker/music/providers/netease/endpoints'
+import {
+  normalizeAccount,
+  normalizeAlbumDetail,
+  normalizeAlbumSummary,
+  normalizeArtistDetail,
+  normalizeArtistSummary,
+  normalizeDefaultKeyword,
+  normalizeHotSearchItems,
+  normalizeLyric,
+  normalizeMvDetail,
+  normalizeMvSource,
+  normalizeMvSummary,
+  normalizePlaylistCategories,
+  normalizePlaylistDetail,
+  normalizePlaylistSummary,
+  normalizeProgram,
+  normalizeRadioCategories,
+  normalizeRadioDetail,
+  normalizeRadioSummary,
+  normalizeSearch,
+  normalizeStreamSource,
+  normalizeToplistSummary,
+  normalizeTrack,
+} from '../src/worker/music/providers/netease/normalize'
+
+describe('netease endpoint builders', () => {
+  it('marks the search call as eapi and keeps the raw keyword', () => {
+    const call = neteaseEndpoints.search({ keywords: 'hello', type: 1, limit: 30, offset: 60 })
+    expect(call).toMatchObject({ path: '/api/cloudsearch/pc', crypto: 'eapi' })
+    expect(call.body).toEqual({ s: 'hello', type: 1, limit: 30, offset: 60, total: true })
+  })
+
+  it('builds numeric song detail ids and a weapi marker', () => {
+    const call = neteaseEndpoints.songDetail(['123', '456'])
+    expect(call.crypto).toBe('weapi')
+    expect(call.body.c).toBe('[{"id":123},{"id":456}]')
+  })
+
+  it('serializes song URL ids and adds the sky immersion tag only for sky', () => {
+    expect(neteaseEndpoints.songUrl({ ids: ['1', '2'], level: 'exhigh' }).body).toEqual({
+      ids: '[1,2]',
+      level: 'exhigh',
+      encodeType: 'flac',
+    })
+    expect(neteaseEndpoints.songUrl({ ids: ['1'], level: 'sky' }).body.immerseType).toBe('c51')
+    expect(neteaseEndpoints.songDownloadUrl({ ids: ['1'], level: 'lossless', encodeType: 'aac' }).body).toMatchObject({
+      level: 'lossless',
+      encodeType: 'aac',
+    })
+  })
+
+  it('fills the upstream "all" category and the high-quality cursor', () => {
+    const hot = neteaseEndpoints.topPlaylists({ limit: 30, offset: 60 })
+    expect(hot.body.cat).toBe(ALL_CATEGORIES)
+    expect(hot.body.order).toBe('hot')
+    const quality = neteaseEndpoints.highqualityPlaylists({ limit: 20, offset: 0, before: 1234 })
+    expect(quality.body.lasttime).toBe(1234)
+  })
+
+  it('encodes MV tags as the protocol expects', () => {
+    const body = neteaseEndpoints.mvAll({ limit: 10, offset: 20, area: 'ZH' }).body
+    expect(JSON.parse(String(body.tags))).toEqual({
+      '\u5730\u533a': 'ZH',
+      '\u7c7b\u578b': ALL_CATEGORIES,
+      '\u6392\u5e8f': '\u4e0a\u5347\u6700\u5feb',
+    })
+    expect(body.total).toBe('true')
+  })
+
+  it('keeps radio paging and the QR login payload', () => {
+    expect(neteaseEndpoints.djPrograms({ radioId: '9', limit: 30, offset: 60 }).body).toEqual({
+      radioId: '9',
+      limit: 30,
+      offset: 60,
+      asc: false,
+    })
+    expect(neteaseEndpoints.loginQrKey().body).toEqual({ type: 3 })
+    expect(neteaseEndpoints.loginQrCheck('key-1').body).toEqual({ key: 'key-1', type: 3 })
+  })
+
+  it('encodes dynamic ids in album and artist paths', () => {
+    expect(neteaseEndpoints.album('a/b').path).toBe('/api/v1/album/a%2Fb')
+    expect(neteaseEndpoints.artistAlbums('42', { limit: 10, offset: 0 }).path).toBe('/api/artist/albums/42')
+    expect(neteaseEndpoints.logout().crypto).toBe('eapi')
+  })
+})
+
+describe('netease normalization', () => {
+  it('normalizes a search song with artists, album and bitrate metadata', () => {
+    const track = normalizeTrack({
+      id: 42,
+      name: 'Song',
+      ar: [{ id: 7, name: 'Artist' }],
+      al: { id: 9, name: 'Album', picUrl: 'https://p1.music.126.net/a.jpg' },
+      dt: 245000,
+      h: { br: 320000, size: 9000, extension: 'mp3' },
+    })
+    expect(track).toMatchObject({
+      id: '42',
+      provider: 'netease',
+      providerId: '42',
+      kind: 'song',
+      title: 'Song',
+      artists: [{ id: '7', name: 'Artist' }],
+      album: 'Album',
+      albumId: '9',
+      coverUrl: 'https://p1.music.126.net/a.jpg',
+      durationMs: 245000,
+      format: 'mp3',
+      bitrate: 320000,
+      size: 9000,
+    })
+  })
+
+  it('unwraps the personalized new-song envelope and survives missing fields', () => {
+    const track = normalizeTrack({
+      picUrl: 'https://p1.music.126.net/b.jpg',
+      song: { id: 5, name: 'Wrapped', artists: [{ id: 1, name: 'A' }], album: { id: 2, name: 'B' }, duration: 1000 },
+    })
+    expect(track.title).toBe('Wrapped')
+    expect(track.coverUrl).toBe('https://p1.music.126.net/b.jpg')
+    expect(track.album).toBe('B')
+    const empty = normalizeTrack({})
+    expect(empty).toMatchObject({ id: '', title: '', artists: [], durationMs: 0, bitrate: null, size: null })
+  })
+
+  it('normalizes a radio program as a podcast track keyed by its main song', () => {
+    const track = normalizeProgram({
+      id: 900,
+      coverUrl: 'https://p1.music.126.net/c.jpg',
+      mainSong: { id: 77, name: 'Episode', duration: 1800000 },
+      radio: { id: 8, name: 'Show' },
+    })
+    expect(track).toMatchObject({
+      id: '77',
+      providerId: '77',
+      kind: 'podcast',
+      title: 'Episode',
+      album: 'Show',
+      albumId: '8',
+      durationMs: 1800000,
+      artists: [{ id: '8', name: 'Show' }],
+    })
+  })
+
+  it('normalizes the summary shapes', () => {
+    expect(
+      normalizePlaylistSummary({
+        id: 1,
+        name: 'List',
+        description: 'Desc',
+        coverImgUrl: 'cover',
+        trackCount: 12,
+        creator: { nickname: 'Reader' },
+      }),
+    ).toEqual({
+      id: '1',
+      provider: 'netease',
+      providerId: '1',
+      name: 'List',
+      description: 'Desc',
+      coverUrl: 'cover',
+      trackCount: 12,
+      creator: 'Reader',
+    })
+    expect(
+      normalizeAlbumSummary({ id: 2, name: 'Album', picUrl: 'p', artists: [{ name: 'A' }], publishTime: 100, size: 3 }),
+    ).toEqual({ id: '2', name: 'Album', coverUrl: 'p', artists: ['A'], publishTime: 100, trackCount: 3 })
+    expect(normalizeArtistSummary({ id: 3, name: 'A', picUrl: 'a', albumSize: 4, fansCount: 5 })).toEqual({
+      id: '3',
+      name: 'A',
+      coverUrl: 'a',
+      albumCount: 4,
+      followCount: 5,
+    })
+    expect(
+      normalizeMvSummary({ id: 4, name: 'MV', cover: 'm', artistName: 'A', duration: 60000, playCount: 8 }),
+    ).toEqual({ id: '4', name: 'MV', coverUrl: 'm', artist: 'A', durationMs: 60000, playCount: 8 })
+    expect(
+      normalizeRadioSummary({ id: 5, name: 'Radio', picUrl: 'r', desc: 'D', programCount: 6, subCount: 7 }),
+    ).toEqual({ id: '5', name: 'Radio', coverUrl: 'r', description: 'D', programCount: 6, subscriberCount: 7 })
+    expect(normalizeToplistSummary({ id: 6, name: 'Top', coverImgUrl: 't', description: 'D', trackCount: 9 })).toEqual({
+      id: '6',
+      name: 'Top',
+      coverUrl: 't',
+      description: 'D',
+      trackCount: 9,
+    })
+  })
+
+  it('normalizes search results and reports the remaining pages', () => {
+    const songPage = normalizeSearch(
+      { result: { songs: [{ id: 1, name: 'S' }], songCount: 45, more: true } },
+      'song',
+      30,
+      0,
+    )
+    expect(songPage.type).toBe('song')
+    expect(songPage.tracks).toHaveLength(1)
+    expect(songPage.total).toBe(45)
+    expect(songPage.hasMore).toBe(true)
+    expect(songPage.albums).toEqual([])
+
+    const albumPage = normalizeSearch(
+      { result: { albums: [{ id: 2, name: 'A' }], albumCount: 1 } },
+      'album',
+      30,
+      0,
+    )
+    expect(albumPage.albums[0].name).toBe('A')
+    expect(albumPage.hasMore).toBe(false)
+  })
+
+  it('normalizes playlist and album details with their tracks', () => {
+    const playlist = normalizePlaylistDetail({
+      playlist: { id: 1, name: 'P', trackCount: 2, tracks: [{ id: 10, name: 'One' }, { id: 11, name: 'Two' }] },
+    })
+    expect(playlist.playlist.name).toBe('P')
+    expect(playlist.tracks.map((track) => track.title)).toEqual(['One', 'Two'])
+    expect(playlist.total).toBe(2)
+    expect(playlist.hasMore).toBe(false)
+
+    const album = normalizeAlbumDetail({
+      album: { id: 2, name: 'A', size: 2, description: 'D' },
+      songs: [{ id: 20, name: 'One' }],
+    })
+    expect(album.album.name).toBe('A')
+    expect(album.description).toBe('D')
+    expect(album.tracks).toHaveLength(1)
+    expect(album.hasMore).toBe(true)
+  })
+
+  it('normalizes artist detail from the head-info envelope', () => {
+    const detail = normalizeArtistDetail(
+      { data: { artist: { id: 1, name: 'Singer', briefDesc: 'Bio', albumSize: 2, fansCount: 3 } } },
+      { songs: [{ id: 10, name: 'Hot' }] },
+      { hotAlbums: [{ id: 2, name: 'First' }], total: 4 },
+      4,
+    )
+    expect(detail.artist).toMatchObject({ id: '1', name: 'Singer', albumCount: 2, followCount: 3 })
+    expect(detail.description).toBe('Bio')
+    expect(detail.hotTracks[0].title).toBe('Hot')
+    expect(detail.albums).toHaveLength(1)
+    expect(detail.albumTotal).toBe(4)
+    expect(detail.albumHasMore).toBe(true)
+  })
+
+  it('normalizes MV detail and sources', () => {
+    const detail = normalizeMvDetail({
+      data: { id: 1, name: 'MV', cover: 'c', artistName: 'A', duration: 1000, playCount: 2, desc: 'D', publishTime: '2020-01-02' },
+    })
+    expect(detail.mv.name).toBe('MV')
+    expect(detail.description).toBe('D')
+    expect(detail.publishTime).toBe(Date.parse('2020-01-02'))
+
+    const source = normalizeMvSource({ data: { url: 'https://v.music.126.net/a.mp4', expi: 60, r: 1080, size: 5 } })
+    expect(source).toMatchObject({ url: 'https://v.music.126.net/a.mp4', resolution: 1080, size: 5 })
+    expect(normalizeMvSource({ data: {} })).toBeNull()
+  })
+
+  it('normalizes radio details and their program page', () => {
+    const detail = normalizeRadioDetail(
+      { data: { id: 1, name: 'Radio', programCount: 40 } },
+      { programs: [{ id: 2, mainSong: { id: 3, name: 'Ep' }, radio: { id: 1, name: 'Radio' } }], count: 40 },
+      30,
+    )
+    expect(detail.radio.name).toBe('Radio')
+    expect(detail.programs[0].title).toBe('Ep')
+    expect(detail.total).toBe(40)
+    expect(detail.hasMore).toBe(true)
+  })
+
+  it('normalizes lyrics, categories, hot searches and account profile', () => {
+    const lyrics = normalizeLyric(
+      { lrc: { lyric: '[00:00]Hi' }, tlyric: { lyric: '[00:00]Hey' }, yrc: { lyric: '[0,1]Hi' } },
+      'netease:1',
+    )
+    expect(lyrics).toMatchObject({ hasTranslation: true, hasWordByWord: true })
+    expect(lyrics.lyric).toMatchObject({ trackKey: 'netease:1', lrc: '[00:00]Hi', tlyric: '[00:00]Hey' })
+
+    expect(normalizePlaylistCategories({ sub: [{ name: 'Pop', hot: true }, { name: '' }] })).toEqual([
+      { name: 'Pop', hot: true },
+    ])
+    expect(normalizeRadioCategories({ categories: [{ id: 1, name: 'Talk' }] })).toEqual([{ id: '1', name: 'Talk' }])
+    expect(normalizeHotSearchItems({ data: [{ searchWord: 'one', score: 20 }, { searchWord: '' }] })).toEqual([
+      { keyword: 'one', score: 20 },
+    ])
+    expect(normalizeDefaultKeyword({ data: { realkeyword: 'real', showKeyword: 'show' } })).toBe('real')
+
+    expect(
+      normalizeAccount({ code: 200, profile: { userId: 9, nickname: 'N', avatarUrl: 'avatar' } }),
+    ).toMatchObject({ provider: 'netease', accountId: '9', nickname: 'N', avatarUrl: 'avatar', status: 'connected' })
+    expect(normalizeAccount({ code: 200 })).toBeNull()
+  })
+
+  it('normalizes stream sources and flags trial clips', () => {
+    const source = normalizeStreamSource(
+      {
+        code: 200,
+        data: [{ url: 'https://m701.music.126.net/a.mp3', expi: 1200, type: 'mp3', br: 320000, size: 4, freeTrialInfo: { start: 0 } }],
+      },
+      'exhigh',
+    )
+    expect(source).toMatchObject({
+      url: 'https://m701.music.126.net/a.mp3',
+      format: 'mp3',
+      bitrate: 320000,
+      size: 4,
+      quality: 'exhigh',
+      freeTrial: true,
+    })
+    expect(source?.expiresAt).toBeGreaterThan(Date.now())
+    expect(normalizeStreamSource({ data: [{ url: null }] }, 'exhigh')).toBeNull()
+  })
+})
