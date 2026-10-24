@@ -92,13 +92,9 @@ function list(id: string, name: string): TaskListEntry {
 function controls(overrides: Partial<TaskMoveControls> = {}): TaskMoveControls {
   return {
     dragEnabled: true,
-    canMoveUp: true,
-    canMoveDown: true,
-    onMoveUp: vi.fn(),
-    onMoveDown: vi.fn(),
+    onDrop: vi.fn(),
+    order: { up: true, down: true, moveUp: vi.fn(), moveDown: vi.fn() },
     onMoveToList: vi.fn(),
-    onDropBefore: vi.fn(),
-    onDropAfter: vi.fn(),
     ...overrides,
   }
 }
@@ -171,7 +167,7 @@ function menuRow(label: string): HTMLButtonElement {
 
 describe('the pair of move rows', () => {
   it('draws both when one of them can still be pressed', () => {
-    mount(controls({ canMoveUp: false, canMoveDown: true }))
+    mount(controls({ order: { up: false, down: true, moveUp: vi.fn(), moveDown: vi.fn() } }))
     openKebab()
 
     expect(menuLabels()).toContain(t('todo.move.up'))
@@ -182,7 +178,7 @@ describe('the pair of move rows', () => {
   })
 
   it('draws both at the other end too', () => {
-    mount(controls({ canMoveUp: true, canMoveDown: false }))
+    mount(controls({ order: { up: true, down: false, moveUp: vi.fn(), moveDown: vi.fn() } }))
     openKebab()
 
     expect(menuRow(t('todo.move.up')).disabled).toBe(false)
@@ -190,7 +186,7 @@ describe('the pair of move rows', () => {
   })
 
   it('draws neither where no move is possible at all', () => {
-    mount(controls({ canMoveUp: false, canMoveDown: false }))
+    mount(controls({ order: { up: false, down: false, moveUp: vi.fn(), moveDown: vi.fn() } }))
     openKebab()
 
     expect(menuLabels()).not.toContain(t('todo.move.up'))
@@ -216,7 +212,7 @@ describe('the pair of move rows', () => {
   })
 
   it('keeps the divider the hidden pair wore, above the group that came after', () => {
-    mount(controls({ canMoveUp: false, canMoveDown: false }))
+    mount(controls({ order: { up: false, down: false, moveUp: vi.fn(), moveDown: vi.fn() } }))
     openKebab()
 
     // Nothing wears a divider above the first row of all, whatever groups were skipped under it.

@@ -408,13 +408,9 @@ describe('a right-clicked row', () => {
   it('carries the move rows into the same menu, submenu and all', async () => {
     const move: TaskMoveControls = {
       dragEnabled: true,
-      canMoveUp: true,
-      canMoveDown: false,
-      onMoveUp: vi.fn(),
-      onMoveDown: vi.fn(),
+      onDrop: vi.fn(),
+      order: { up: true, down: false, moveUp: vi.fn(), moveDown: vi.fn() },
       onMoveToList: vi.fn(),
-      onDropBefore: vi.fn(),
-      onDropAfter: vi.fn(),
     }
     mount(task('a', { listId: 'L1' }), { lists: [list('L1', 'Work'), list('L2', 'Home')], move })
     rightClick()

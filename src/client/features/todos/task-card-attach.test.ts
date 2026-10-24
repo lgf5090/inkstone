@@ -107,13 +107,9 @@ function file(name: string, size = 8): File {
 function controls(overrides: Partial<TaskMoveControls> = {}): TaskMoveControls {
   return {
     dragEnabled: true,
-    canMoveUp: true,
-    canMoveDown: true,
-    onMoveUp: vi.fn(),
-    onMoveDown: vi.fn(),
+    onDrop: vi.fn(),
+    order: { up: true, down: true, moveUp: vi.fn(), moveDown: vi.fn() },
     onMoveToList: vi.fn(),
-    onDropBefore: vi.fn(),
-    onDropAfter: vi.fn(),
     ...overrides,
   }
 }
@@ -233,8 +229,7 @@ describe('a file dropped on a row', () => {
     const event = await send('drop', new Map(), [file('notes.txt')])
 
     expect(event.defaultPrevented, 'a file dropped on the row was left to the browser').toBe(true)
-    expect(move.onDropBefore, 'a file was taken for a row being reordered').not.toHaveBeenCalled()
-    expect(move.onDropAfter).not.toHaveBeenCalled()
+    expect(move.onDrop, 'a file was taken for a row being reordered').not.toHaveBeenCalled()
     expect(service.moves, 'a file moved a task').toEqual([])
     expect(service.updates, 'a file wrote a task').toEqual([])
   })
@@ -285,7 +280,7 @@ describe('a file dropped on a row', () => {
   })
 
   it('offers the strip even where the row refuses a drop between rows', async () => {
-    const move = controls({ reorderEnabled: false })
+    const move = controls({ onDrop: undefined })
     mount(task(), move)
 
     await send('dragover', new Map(), [file('a.txt')])
@@ -307,7 +302,7 @@ describe('a file dropped on a row', () => {
     await send('drop', bag, [])
     expect(service.uploads, 'a task drop was read as files').toEqual([])
     // The row still answers a task the way the gap grammar says it should.
-    expect(move.onDropBefore).toHaveBeenCalledTimes(1)
+    expect(move.onDrop).toHaveBeenCalledTimes(1)
   })
 })
 

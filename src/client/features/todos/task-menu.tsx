@@ -235,26 +235,27 @@ export function buildTaskMenuItems(task: TodoTask, handlers: TaskMenuHandlers): 
    * repository has been caught four times. A row at *one* end still wears both, because "up" being grey
    * is how a reader learns they are standing at the top rather than finding the row missing.
    */
-  const orderItems: MenuItem[] = move && (move.canMoveUp || move.canMoveDown)
+  const order = move?.order
+  const orderItems: MenuItem[] = order && (order.up || order.down)
     ? [
         {
           id: 'move-up',
           label: t('todo.move.up'),
           icon: <ArrowUp size={13} />,
-          disabled: !move.canMoveUp,
+          disabled: !order.up,
           onSelect: () => {
             onClose()
-            move.onMoveUp()
+            order.moveUp()
           },
         },
         {
           id: 'move-down',
           label: t('todo.move.down'),
           icon: <ArrowDown size={13} />,
-          disabled: !move.canMoveDown,
+          disabled: !order.down,
           onSelect: () => {
             onClose()
-            move.onMoveDown()
+            order.moveDown()
           },
         },
       ]

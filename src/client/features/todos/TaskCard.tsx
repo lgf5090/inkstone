@@ -218,32 +218,31 @@ export function openTaskSiblings(tasks: readonly TodoTask[], task: TodoTask): To
  * order the server read. Up and down therefore name the visible neighbour, and "move down" anchors the
  * row before the sibling *after* that neighbour — the same "before this row" grammar a drop uses.
  *
- * Two questions about the pointer are answered apart, because a board does not always ask them together.
- * `dragEnabled` is whether this row may be picked up; `reorderEnabled` is whether another row may be
- * dropped into the gap beside it, with the line that promises so. Columns cut by status or list have
- * both; columns cut by priority want the first and refuse the second, since a hand-written place belongs
- * to a list and not to a priority — and a row that offered a gap it cannot fill is a line to nowhere.
- * Absent, `reorderEnabled` follows `dragEnabled`, which is every listing that has had the pair together
- * all along. Dragging needs a fine pointer either way: a phone gets the menu instead, which is why the
- * controls are built whether or not the pointer can drag.
+ * Picking a row up is one question and being a place another row can land beside is another, and a board
+ * does not always ask them together: columns cut by status or list ask both, while a column cut by
+ * priority wants its rows picked up and refuses to be an order — a hand-written place belongs to a list
+ * and not to a priority. So the second ability is not a flag beside the first: it is the *presence* of
+ * `onDrop` and `order`, and a surface that has neither is a row that files a field instead of a place.
+ * A card that offered a gap it could not fill would be drawing a line to nowhere, and a menu that offered
+ * a move that answers with the column the row is already in would be a row of grey type.
+ *
+ * Dragging needs a fine pointer either way: a phone gets the menu instead, which is why the controls are
+ * built whether or not the pointer can drag.
  *
  * A drop may carry more than one row, and the row it lands beside is the anchor for every one of them.
- * The two drop halves are therefore called once per carried row, and one is waited for before the next
- * is sent: sent together they would reach the server in whatever order the network chose and the group
- * would land shuffled, while sent one after the other they take the same anchor in the order they left.
- * A control that answers at once — a column that only re-files a field — returns nothing, and waiting on
- * nothing is the same as not waiting.
+ * `onDrop` is therefore called once per carried row, and one is waited for before the next is sent: sent
+ * together they would reach the server in whatever order the network chose and the group would land
+ * shuffled, while sent one after the other they take the same anchor in the order they left.
+ * A control that answers at once — a column that only re-files a field — has no `onDrop` at all, and the
+ * row's own drop then stands down so the surface behind it hears the drag instead.
  */
 export interface TaskMoveControls {
   dragEnabled: boolean
-  reorderEnabled?: boolean
-  canMoveUp: boolean
-  canMoveDown: boolean
-  onMoveUp: () => void
-  onMoveDown: () => void
+  /** Place one carried row before this one (`after` false) or after it. Absent where order is not the reader's. */
+  onDrop?: (draggedId: string, after: boolean) => void | Promise<void>
+  /** The two manual moves and the neighbours they swap with. Absent for the same reason `onDrop` is. */
+  order?: { up: boolean, down: boolean, moveUp: () => void, moveDown: () => void }
   onMoveToList: (listId: string | null) => void
-  onDropBefore: (draggedId: string) => void | Promise<void>
-  onDropAfter: (draggedId: string) => void | Promise<void>
 }
 
 export function useTaskMoves(enabled: boolean): (task: TodoTask) => TaskMoveControls | null {
@@ -268,20 +267,27 @@ export function useTaskMoves(enabled: boolean): (task: TodoTask) => TaskMoveCont
     }
     return {
       dragEnabled: finePointer,
-      reorderEnabled: finePointer,
-      canMoveUp: index > 0,
-      canMoveDown: index < siblings.length - 1,
-      onMoveUp: () => {
-        if (index > 0) void moveTodoTask(task.id, { beforeId: siblings[index - 1]!.id })
-      },
-      onMoveDown: () => {
-        if (index < siblings.length - 1) {
-          void moveTodoTask(task.id, { beforeId: siblings[index + 2]?.id ?? null })
+      // A coarse pointer gets the menu rather than the gap line, so the ability to be landed on is
+      // handed over with the pointer that can aim at it.
+      ...(finePointer
+        ? {
+          onDrop: (draggedId: string, after: boolean) =>
+            placeBefore(draggedId, after ? siblings[index + 1]?.id ?? null : task.id),
         }
+        : {}),
+      order: {
+        up: index > 0,
+        down: index < siblings.length - 1,
+        moveUp: () => {
+          if (index > 0) void moveTodoTask(task.id, { beforeId: siblings[index - 1]!.id })
+        },
+        moveDown: () => {
+          if (index < siblings.length - 1) {
+            void moveTodoTask(task.id, { beforeId: siblings[index + 2]?.id ?? null })
+          }
+        },
       },
       onMoveToList: (listId) => { void moveTodoTask(task.id, { beforeId: null, listId }) },
-      onDropBefore: (draggedId) => placeBefore(draggedId, task.id),
-      onDropAfter: (draggedId) => placeBefore(draggedId, siblings[index + 1]?.id ?? null),
     }
   }
 }
@@ -382,10 +388,11 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
    *
    * Picking this row up and aiming at the gap beside it have always travelled together, and a listing
    * whose order is the reader's still sends them together. A board cut by priority is the one surface
-   * that takes the first and declines the second, so the line below only ever belongs to `reorderable`.
+   * that takes the first and declines the second — and it declines it by handing over no `onDrop`,
+   * so the gap line below belongs to the ability rather than to a flag that could contradict it.
    */
   const draggable = move?.dragEnabled === true
-  const reorderable = move ? (move.reorderEnabled ?? move.dragEnabled) === true : false
+  const reorderable = move?.onDrop !== undefined
   /**
    * Whether a file from outside the page is hovering over this row.
    *
@@ -563,9 +570,10 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
    * shuffle nobody asked for.
    */
   const placeCarried = async (carried: readonly string[], after: boolean): Promise<void> => {
-    if (!move) return
+    const place = move?.onDrop
+    if (!place) return
     for (const draggedId of carried) {
-      await (after ? move.onDropAfter(draggedId) : move.onDropBefore(draggedId))
+      await place(draggedId, after)
     }
   }
   // One set of rows, two ways to reach it: the kebab writes them as they have always been, and a

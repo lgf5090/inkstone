@@ -440,11 +440,12 @@ export function useTodoShortcuts(host: TodoShortcutHost): TodoShortcuts {
       case 'swap-up':
       case 'swap-down': {
         const move = movesForTask(task)
-        if (!move) return
-        if (id === 'swap-up' ? !move.canMoveUp : !move.canMoveDown) return
+        const order = move?.order
+        if (!order) return
+        if (id === 'swap-up' ? !order.up : !order.down) return
         event.preventDefault()
-        if (id === 'swap-up') move.onMoveUp()
-        else move.onMoveDown()
+        if (id === 'swap-up') order.moveUp()
+        else order.moveDown()
         return
       }
       case 'to-top': {

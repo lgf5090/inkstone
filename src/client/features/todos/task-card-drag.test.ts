@@ -5,7 +5,7 @@
  * A row has always answered two different questions with one switch: may this card be picked up, and
  * may another card be dropped into the gap beside it. The board cut by priority needs the first and
  * refuses the second — a hand-written place belongs to a list, not to a priority — so one flag came
- * apart into `dragEnabled` (pick this row up) and `reorderEnabled` (aim at the gap beside it). With the
+ * apart into `dragEnabled` (pick this row up) and the presence of `onDrop` (be a gap to aim at). With the
  * second off, the row must neither paint the line nor swallow the drop, because the column behind it is
  * the surface that knows what to do with the row.
  *
@@ -85,13 +85,9 @@ function taskTransfer(draggedId: string): Map<string, string> {
 function controls(overrides: Partial<TaskMoveControls> = {}): TaskMoveControls {
   return {
     dragEnabled: true,
-    canMoveUp: true,
-    canMoveDown: true,
-    onMoveUp: vi.fn(),
-    onMoveDown: vi.fn(),
+    onDrop: vi.fn(),
+    order: { up: true, down: true, moveUp: vi.fn(), moveDown: vi.fn() },
     onMoveToList: vi.fn(),
-    onDropBefore: vi.fn(),
-    onDropAfter: vi.fn(),
     ...overrides,
   }
 }
@@ -213,7 +209,7 @@ function line(row: HTMLElement): string | null {
 
 describe('the two halves of a draggable row', () => {
   it('keeps the row pickable while refusing to be a gap it can drop into', async () => {
-    const move = controls({ reorderEnabled: false })
+    const move = controls({ onDrop: undefined })
     let columnDrops = 0
     mount(task('a'), move, () => { columnDrops += 1 })
 
@@ -227,7 +223,7 @@ describe('the two halves of a draggable row', () => {
 
     const drop = await dropOn(taskTransfer('b'))
     expect(drop.defaultPrevented, 'the row swallowed the drop its column owes').toBe(false)
-    expect(move.onDropBefore).not.toHaveBeenCalled()
+    expect(move.onDrop, 'a column with no order still handed out a place').toBeUndefined()
     expect(columnDrops, 'the column behind the row never saw the drop').toBe(1)
   })
 
@@ -244,7 +240,7 @@ describe('the two halves of a draggable row', () => {
     const drop = await dropOn(taskTransfer('b'))
     expect(line(card()), 'the row kept its gap open after the pointer let go').toBeNull()
     expect(drop.defaultPrevented).toBe(true)
-    expect(move.onDropBefore).toHaveBeenCalledWith('b')
+    expect(move.onDrop).toHaveBeenCalledWith('b', false)
     expect(columnDrops, 'the row let its drop reach the column behind it').toBe(0)
   })
 
@@ -257,8 +253,7 @@ describe('the two halves of a draggable row', () => {
 
     const drop = await dropOn(taskTransfer('b'), 80)
     expect(drop.defaultPrevented).toBe(true)
-    expect(move.onDropAfter).toHaveBeenCalledWith('b')
-    expect(move.onDropBefore).not.toHaveBeenCalled()
+    expect(move.onDrop).toHaveBeenCalledWith('b', true)
   })
 
   it('takes the line away when the pointer leaves the row', async () => {
@@ -273,7 +268,7 @@ describe('the two halves of a draggable row', () => {
   })
 
   it('paints nothing for a pointer that cannot drag at all', async () => {
-    const move = controls({ dragEnabled: false })
+    const move = controls({ dragEnabled: false, onDrop: undefined })
     mount(task('a'), move, () => {})
 
     expect(card().draggable).toBe(false)
@@ -284,7 +279,7 @@ describe('the two halves of a draggable row', () => {
 
     expect(line(card())).toBeNull()
     expect(drop.defaultPrevented, 'a row no pointer can drag still swallowed the drop').toBe(false)
-    expect(move.onDropBefore).not.toHaveBeenCalled()
+    expect(move.onDrop, 'a pointer that cannot drag was handed a gap to aim at').toBeUndefined()
   })
 
   it('writes nothing when a row is dropped onto itself', async () => {
@@ -296,8 +291,7 @@ describe('the two halves of a draggable row', () => {
     await dragOver(taskTransfer('a'))
     await dropOn(taskTransfer('a'))
 
-    expect(move.onDropBefore).not.toHaveBeenCalled()
-    expect(move.onDropAfter).not.toHaveBeenCalled()
+    expect(move.onDrop).not.toHaveBeenCalled()
   })
 
   it('hands on a drag it cannot read', async () => {
@@ -313,7 +307,7 @@ describe('the two halves of a draggable row', () => {
 
     expect(line(card())).toBeNull()
     expect(drop.defaultPrevented).toBe(false)
-    expect(move.onDropBefore).not.toHaveBeenCalled()
+    expect(move.onDrop).not.toHaveBeenCalled()
     expect(columnDrops, 'a foreign drag was eaten by a row that cannot read it').toBe(1)
   })
 })

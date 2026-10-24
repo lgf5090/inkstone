@@ -80,13 +80,9 @@ function row(id: string, title: string, extra: Partial<TodoTask> = {}): TodoTask
 function moveControls(): TaskMoveControls {
   return {
     dragEnabled: true,
-    canMoveUp: true,
-    canMoveDown: true,
-    onMoveUp: vi.fn(),
-    onMoveDown: vi.fn(),
+    onDrop: vi.fn(),
+    order: { up: true, down: true, moveUp: vi.fn(), moveDown: vi.fn() },
     onMoveToList: vi.fn(),
-    onDropBefore: vi.fn(),
-    onDropAfter: vi.fn(),
   }
 }
 

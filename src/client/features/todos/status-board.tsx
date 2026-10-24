@@ -40,7 +40,7 @@ import {
   type TodoGroup,
   type TodoLayout,
 } from './todo-address'
-import { BOARD_INBOX_COLUMN, boardColumns, boardColumnKey } from './task-groups'
+import { BOARD_INBOX_COLUMN, boardColumns } from './task-groups'
 import type { MessageKey } from '@shared/locales/en-US'
 import type { TaskList, TaskPriority, TaskStatus, TodoTask } from '@shared/todos/model'
 
@@ -182,25 +182,21 @@ export function StatusBoard({ tasks, group }: { tasks: readonly TodoTask[]; grou
    *
    * That is also why the two halves of the pointer are handed over apart. The row is still picked up —
    * dragging it to another column is exactly what this dimension is for — but it is not a gap another row
-   * can land beside, so `reorderEnabled` stays off while `dragEnabled` follows the pointer. Left to follow
-   * it, the card would paint the before/after line and then write the column's priority for it: a promise
-   * about a place that does not exist. The card's own `drop` then stands down, so the drop reaches the
-   * column behind the row, which answers with the priority and nothing else. The two refused moves answer
-   * with the column the row is already in, which `dropInto` guards to no write at all.
+   * can land beside, so the priority branch hands over no `onDrop` and no `order` at all rather than
+   * closures that would have to answer with the column the row is already in. Left to follow the pointer,
+   * the card would paint the before/after line and then write the column's priority for it: a promise
+   * about a place that does not exist. With the ability absent, the card's own drop stands down and the
+   * drag reaches the column behind the row, which answers with the priority and nothing else.
    */
   const moveFor = (task: TodoTask): TaskMoveControls | null => {
     if (group !== 'priority') return listMoves(task)
-    const ownColumn = boardColumnKey('priority', task)
+    // A priority column files a field, not a place, so the two abilities that need an order are simply
+    // not handed over — no gap line to decline, no move row that would answer with the column the row is
+    // already in. The row is still picked up, and its own drop stands down, so the drag reaches the
+    // column behind it, which answers with the priority and nothing else.
     return {
       dragEnabled: finePointer,
-      reorderEnabled: false,
-      canMoveUp: false,
-      canMoveDown: false,
-      onMoveUp: () => { dropInto(ownColumn, task.id) },
-      onMoveDown: () => { dropInto(ownColumn, task.id) },
       onMoveToList: (listId) => { void moveTodoTask(task.id, { beforeId: null, listId }) },
-      onDropBefore: (draggedId) => { dropInto(ownColumn, draggedId) },
-      onDropAfter: (draggedId) => { dropInto(ownColumn, draggedId) },
     }
   }
 
