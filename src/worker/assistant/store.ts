@@ -1437,6 +1437,24 @@ export function reminderTimesOf(packed: string | null): number[] {
 }
 
 /**
+ * The step texts a create writes, in the order given and under the task's ceiling.
+ *
+ * This is the same cleaning `addStep` applies to one text — trim, clip, drop an empty — done before
+ * the bulk insert so an empty line never spends a position. The ceiling stops the list rather than
+ * refusing it, which is what the per-step loop already did: a create naming more steps than a task
+ * may hold keeps the first ones and silently drops the rest.
+ */
+function cleanStepTexts(texts: readonly string[]): string[] {
+  const out: string[] = []
+  for (const text of texts) {
+    if (out.length >= MAX_STEPS_PER_TASK) break
+    const clean = text.trim().slice(0, MAX_STEP_TEXT_CHARS)
+    if (clean) out.push(clean)
+  }
+  return out
+}
+
+/**
  * The ledger's two readings of a task, packed into the columns of the page that lists it.
  *
  * `time_spent_ms` sums the task's closed intervals and `running_since` is the instant of its open one
@@ -5990,18 +6008,66 @@ export class AssistantStore {
       input.timeEstimateMs ?? null, input.archivedAt ?? null, parentId,
     )
     await this.db.batch([insert, this.taskEvent(id, at, createdOn, 'born', null, status)])
-    if (input.tags?.length) await this.replaceTaskTags(id, input.tags)
+    // The children are written in bulk: a create is one gesture, and before this each tag, step and
+    // reminder cost its own round trip. A brand-new task has no links to clear, so its tags are
+    // inserted and linked in one batch rather than going through the replace path's delete.
+    const tags = input.tags?.length
+      ? await this.linkTaskTags(id, normalizeTagNames(input.tags), false)
+      : []
+    const steps = cleanStepTexts(input.steps ?? [])
+    if (steps.length) await this.stepInsertStatement(id, steps, at).run()
+    const reminders = normalizeReminderTimes(
+      input.reminders ?? (input.remindAt != null ? [input.remindAt] : []),
+    )
+    if (reminders.length) await this.reminderInsertStatement(id, reminders, at).run()
     // The dependency set is written after the row exists, because the walk that refuses a cycle has to
     // be able to see this task as a node. A create names a set or names none; it never replaces one.
     if (input.dependsOn?.length) await this.replaceTaskDeps(id, input.dependsOn)
-    for (const text of input.steps ?? []) await this.addStep(id, text)
-    const reminders = input.reminders ?? (input.remindAt != null ? [input.remindAt] : [])
-    if (reminders.length) await this.replaceTaskReminders(id, reminders)
-    const created = await this.getTask(id)
+    // One row read, dressed with the children this call just wrote. A dependency graph needs its
+    // referenced statuses, so only that less common shape pays for the full read.
+    const created = input.dependsOn?.length
+      ? await this.getTask(id)
+      : await this.readNewTask(id, {
+        tags,
+        dependsOn: [],
+        blocks: [],
+        stepTotal: steps.length,
+        stepDone: 0,
+      })
     if (!created) throw new Error(`The task ${id} was written but could not be read back.`)
     // The face the row could not carry is reported to the caller rather than swallowed: an agent that
     // set an icon and got null back has to be able to say so instead of promising one.
     return withDroppedFace(created, taskFaceDrops(input.icon, input.color))
+  }
+
+  /**
+   * A just-created task, read once and dressed with the children the create already knows.
+   *
+   * The row read is the same select `getTask` uses, so every column and the ledger rollup still come
+   * from the database. The extras are values this request wrote a moment ago: the tags the bulk
+   * insert resolved and the steps it inserted, none of them done. Reading the step counts and tag
+   * links again would spend two more statements to learn what is already in hand, and the create
+   * path is held to a statement budget. Reminders are still parsed off the row, not off the list
+   * passed in, so the returned instants are the ones the database holds.
+   */
+  private async readNewTask(
+    id: string,
+    extras: { tags: TaskTag[]; dependsOn: TaskRef[]; blocks: TaskRef[]; stepTotal: number; stepDone: number },
+  ): Promise<TodoTask | null> {
+    const row = await this.one<TaskRow>(
+      `SELECT *, ${TASK_REMINDER_TIMES}, ${TASK_TIME_ROLLUP} FROM todos_tasks
+        WHERE user_id = ?1 AND id = ?2 AND ${TASK_LIVE_PREDICATE}`,
+      this.userId, id,
+    )
+    if (!row) return null
+    return toTask(row, {
+      tags: extras.tags,
+      dependsOn: extras.dependsOn,
+      blocks: extras.blocks,
+      stepTotal: extras.stepTotal,
+      stepDone: extras.stepDone,
+      reminders: reminderTimesOf(row.reminder_times),
+    })
   }
 
   /**
@@ -6013,16 +6079,33 @@ export class AssistantStore {
    */
   private async replaceTaskReminders(taskId: string, times: readonly number[]): Promise<void> {
     const at = Date.now()
-    const statements = [
+    const wanted = normalizeReminderTimes(times)
+    const statements: D1PreparedStatement[] = [
       this.db.prepare(
         `DELETE FROM todos_reminders WHERE user_id = ?1 AND task_id = ?2 AND fired_at IS NULL`,
       ).bind(this.userId, taskId),
-      ...normalizeReminderTimes(times).map((remindAt) => this.db.prepare(
-        `INSERT INTO todos_reminders (user_id, id, task_id, remind_at, fired_at, created_at)
-         VALUES (?1, ?2, ?3, ?4, NULL, ?5)`,
-      ).bind(this.userId, newId(), taskId, remindAt, at)),
     ]
+    if (wanted.length) statements.push(this.reminderInsertStatement(taskId, wanted, at))
     await this.db.batch(statements)
+  }
+
+  /**
+   * One task's pending reminders in one statement.
+   *
+   * `normalizeReminderTimes` has already deduped, sorted and capped the list, so the rows go in
+   * exactly as the callers above expect them — the same values the per-reminder inserts wrote.
+   */
+  private reminderInsertStatement(
+    taskId: string,
+    times: readonly number[],
+    at: number,
+  ): D1PreparedStatement {
+    const rows = JSON.stringify(times.map((remindAt) => ({ id: newId(), remindAt })))
+    return this.db.prepare(
+      `INSERT INTO todos_reminders (user_id, id, task_id, remind_at, fired_at, created_at)
+       SELECT ?1, json_extract(j.value, '$.id'), ?2, json_extract(j.value, '$.remindAt'), NULL, ?4
+         FROM json_each(?3) AS j`,
+    ).bind(this.userId, taskId, rows, at)
   }
 
   /**
@@ -6823,18 +6906,94 @@ export class AssistantStore {
    * It deliberately leaves the revision alone: `createTask` and `updateTask` call it as part of a
    * write that has already moved (or, at creation, is about to settle on) the row's version, and a
    * second bump there would make one edit count as two.
+   *
+   * The tags come back in the order the caller named them, which is the order the tag bar reads.
+   * `linkTaskTags` is the same write answering in the database's own order, which is what a task
+   * read (`getTask`) has always returned.
    */
   private async replaceTaskTags(taskId: string, names: readonly string[]): Promise<TaskTag[]> {
-    const wanted: TaskTag[] = []
-    for (const name of normalizeTagNames(names)) wanted.push(await this.createTaskTag({ name }))
-    await this.write(`DELETE FROM todos_tag_links WHERE user_id = ?1 AND task_id = ?2`, taskId)
-    for (const tag of wanted) {
-      await this.write(
-        `INSERT OR IGNORE INTO todos_tag_links (user_id, task_id, tag_id, created_at) VALUES (?1, ?2, ?3, ?4)`,
-        taskId, tag.id, Date.now(),
-      )
-    }
+    const wanted = normalizeTagNames(names)
+    const found = await this.linkTaskTags(taskId, wanted)
+    const byName = new Map(found.map((tag) => [tag.name.toLowerCase(), tag]))
     return wanted
+      .map((name) => byName.get(name.toLowerCase()))
+      .filter((tag): tag is TaskTag => tag !== undefined)
+  }
+
+  /**
+   * Write the named tags and the task's links to them, answering in the order the database sorts
+   * tags by name.
+   *
+   * The vocabulary is written in two statements instead of one per name: an insert that ignores the
+   * names the account already owns, then a select that hands back the rows the task links to.
+   * `clearLinks` is false for a task that has just been created, where there is nothing to clear.
+   */
+  private async linkTaskTags(
+    taskId: string,
+    names: readonly string[],
+    clearLinks = true,
+  ): Promise<TaskTag[]> {
+    const at = Date.now()
+    const statements: D1PreparedStatement[] = []
+    if (clearLinks) {
+      statements.push(this.db.prepare(
+        `DELETE FROM todos_tag_links WHERE user_id = ?1 AND task_id = ?2`,
+      ).bind(this.userId, taskId))
+    }
+    if (names.length) {
+      statements.push(this.tagInsertStatement(names, at), this.tagLinkStatement(taskId, names, at))
+    }
+    if (statements.length) await this.db.batch(statements)
+    return names.length ? await this.tagsNamed(names) : []
+  }
+
+  /**
+   * The account's vocabulary in one statement: every name the caller named, ignoring the ones the
+   * unique index already holds. `INSERT OR IGNORE` rather than a select-then-insert pair keeps a
+   * concurrent create from failing the whole write on a name the other one just added.
+   */
+  private tagInsertStatement(names: readonly string[], at: number): D1PreparedStatement {
+    const rows = JSON.stringify(names.map((name) => ({ id: newId(), name, color: defaultColorFor(name) })))
+    return this.db.prepare(
+      `INSERT OR IGNORE INTO todos_tags (id, user_id, name, color, created_at, updated_at)
+       SELECT json_extract(j.value, '$.id'), ?1, json_extract(j.value, '$.name'),
+              json_extract(j.value, '$.color'), ?3, ?3
+         FROM json_each(?2) AS j`,
+    ).bind(this.userId, rows, at)
+  }
+
+  /**
+   * One task's links to the named tags, matched case-insensitively inside the database.
+   *
+   * Joining on `lower(name)` rather than shipping ids means the row the insert just created is the
+   * row that is linked, even when the name already existed under different casing.
+   */
+  private tagLinkStatement(taskId: string, names: readonly string[], at: number): D1PreparedStatement {
+    const rows = JSON.stringify(names)
+    return this.db.prepare(
+      `INSERT OR IGNORE INTO todos_tag_links (user_id, task_id, tag_id, created_at)
+       SELECT ?1, ?2, t.id, ?4
+         FROM json_each(?3) AS j
+         JOIN todos_tags t ON t.user_id = ?1 AND lower(t.name) = lower(j.value)`,
+    ).bind(this.userId, taskId, rows, at)
+  }
+
+  /**
+   * The named tags as the account's rows hold them, in the order a task read sorts tags.
+   *
+   * `COLLATE NOCASE` is the same order `tagsForTasks` gives a task, so a create's returned tag list
+   * matches what a later `getTask` would answer.
+   */
+  private async tagsNamed(names: readonly string[]): Promise<TaskTag[]> {
+    if (!names.length) return []
+    const marks = names.map((_, index) => `lower(?${index + 2})`).join(', ')
+    const rows = await this.rows<TaskTagRow>(
+      `SELECT id, name, color, created_at, updated_at FROM todos_tags
+        WHERE user_id = ?1 AND lower(name) IN (${marks})
+        ORDER BY name COLLATE NOCASE`,
+      this.userId, ...names,
+    )
+    return rows.map((row) => toTaskTag(row, 0))
   }
 
   // ------------------------------------------------------------------- steps
@@ -6845,6 +7004,22 @@ export class AssistantStore {
       this.userId, taskId,
     )
     return rows.map(toTaskStep)
+  }
+
+  /**
+   * One task's steps in one statement, at positions 0..n-1.
+   *
+   * `cleanStepTexts` has already trimmed, dropped empties and applied the ceiling, so the rows are
+   * exactly the ones `addStep` would have written one at a time.
+   */
+  private stepInsertStatement(taskId: string, texts: readonly string[], at: number): D1PreparedStatement {
+    const rows = JSON.stringify(texts.map((text, position) => ({ id: newId(), text, position })))
+    return this.db.prepare(
+      `INSERT INTO todos_steps (id, user_id, task_id, text, done, position, created_at)
+       SELECT json_extract(j.value, '$.id'), ?1, ?2, json_extract(j.value, '$.text'), 0,
+              json_extract(j.value, '$.position'), ?4
+         FROM json_each(?3) AS j`,
+    ).bind(this.userId, taskId, rows, at)
   }
 
   /** Appends a step. Returns null when the task already holds the maximum, rather than growing forever. */

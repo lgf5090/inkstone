@@ -10,7 +10,7 @@
  * runner would, with the arguments a model would send, and reads the payload the model would see.
  */
 import { DatabaseSync } from 'node:sqlite'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { AssistantStore } from '../src/worker/assistant/store'
 import { DEFAULT_ASSISTANT_SETTINGS } from '../src/shared/assistant'
@@ -44,6 +44,10 @@ beforeEach(() => {
   sqlite.exec(SCHEMA_STATEMENTS.join(';'))
   env = testBindings(makeD1(sqlite), { PUBLIC_URL: 'http://localhost' })
   store = new AssistantStore(env.DB as D1Database, USER, env)
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 function context(over: Partial<ToolContext> = {}): ToolContext {
@@ -856,9 +860,17 @@ describe('planning and repeat details', () => {
 
 describe('moving, trash and alarms', () => {
   it('moves a task before another and into a list', async () => {
+    // The listing's tie-break for rows made in the same millisecond is the id, and a new id is only
+    // time-prefixed: three creates fast enough to share a tick would order by their random tails.
+    // The move is what this case is about, so each row gets its own tick and the creation order is
+    // the order the listing reads.
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-19T06:00:00.000Z'))
     const list = await store.createTaskList({ name: 'Work' })
     const first = await store.createTask({ title: 'First', listId: list.id })
+    vi.setSystemTime(new Date('2026-10-19T06:00:00.001Z'))
     await store.createTask({ title: 'Second', listId: list.id })
+    vi.setSystemTime(new Date('2026-10-19T06:00:00.002Z'))
     const third = await store.createTask({ title: 'Third', listId: list.id })
 
     await executor().execute('move_task', { task: third.id, before: first.id }, 'call-1')
