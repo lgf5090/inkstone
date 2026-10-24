@@ -20,6 +20,7 @@ export type MusicPage =
   | { kind: 'history' }
   | { kind: 'uploads' }
   | { kind: 'downloads' }
+  | { kind: 'cloud' }
   | { kind: 'user'; id: string }
   | { kind: 'login' }
   | { kind: 'settings' }
@@ -81,6 +82,8 @@ export function parseMusicAddress(pathname: string, search = ''): MusicPage {
       return rest.length === 1 ? { kind: 'uploads' } : { kind: 'notFound', path: pathname }
     case 'downloads':
       return rest.length === 1 ? { kind: 'downloads' } : { kind: 'notFound', path: pathname }
+    case 'cloud':
+      return rest.length === 1 ? { kind: 'cloud' } : { kind: 'notFound', path: pathname }
     case 'login':
       return rest.length === 1 ? { kind: 'login' } : { kind: 'notFound', path: pathname }
     case 'settings':
@@ -117,6 +120,7 @@ export function musicPathFor(page: MusicPage): string {
     case 'history':
     case 'uploads':
     case 'downloads':
+    case 'cloud':
     case 'login':
     case 'settings':
       return `${BASE}/${page.kind}`

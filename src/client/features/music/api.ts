@@ -42,8 +42,37 @@ function query(params: Record<string, string | number | undefined>): string {
   return text ? `?${text}` : ''
 }
 
+
+export interface MusicCloudEntry {
+  name: string
+  path: string
+  isDirectory: boolean
+  sizeBytes: number
+  mime: string | null
+  modifiedAt: number | null
+  isMedia: boolean
+}
+
+export interface MusicDriveSummary {
+  r2: { bytes: number; objects: number }
+  webdav: { configured: boolean }
+  mounts: number
+}
+
+export interface MusicWebdavListing {
+  configured: boolean
+  dir: string
+  path: string
+  entries: MusicCloudEntry[]
+  truncated: boolean
+  reason: string | null
+}
+
 export const musicApi = {
   health: () => request<MusicHealth>('/api/music/health'),
+
+  drive: () => request<MusicDriveSummary>('/api/music/drive'),
+  driveWebdav: (path = '') => request<MusicWebdavListing>(`/api/music/drive/webdav${query({ path })}`),
 
   home: () => request<MusicHome>('/api/music/home'),
   fm: () => request<{ tracks: MusicTrack[] }>('/api/music/home/fm'),

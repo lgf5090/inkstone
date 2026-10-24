@@ -24,6 +24,7 @@ const PAGE_KIND: Record<MusicPage['kind'], MusicAssistantPage> = {
   history: 'history',
   uploads: 'uploads',
   downloads: 'downloads',
+  cloud: 'cloud',
   user: 'user',
   login: 'login',
   settings: 'settings',

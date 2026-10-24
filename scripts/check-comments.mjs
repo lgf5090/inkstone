@@ -5941,7 +5941,7 @@ const allowed = new Map([
     "/** The music app's only door to `/api/music`; pages and stores never call fetch directly. */",
   ]],
   ["src/client/features/music/assistant-surface.ts", [
-    "/**\n * What the music assistant is told about the screen it is docked beside.\n *\n * This is a pointer, not a payload: the current track's identity and the page kind are enough for\n * \"pause this\" or \"what album is this\"; lyrics and credentials stay out. The dock re-attaches the\n * context when the page or track changes, and the reader can remove the chip.\n */",
+    "/**\r\n * What the music assistant is told about the screen it is docked beside.\r\n *\r\n * This is a pointer, not a payload: the current track's identity and the page kind are enough for\r\n * \"pause this\" or \"what album is this\"; lyrics and credentials stay out. The dock re-attaches the\r\n * context when the page or track changes, and the reader can remove the chip.\r\n */",
   ]],
   ["src/client/features/music/components/Cover.tsx", [
     "/**\n * The square a track or playlist is drawn in.\n *\n * The artwork always comes from the music API's cover route, never from a provider URL: those expire,\n * leak the upstream host and are not reachable for uploads. A broken or missing image falls back to\n * the icon rather than the browser's broken-image glyph, and the fallback survives a `src` change so\n * a virtual list that reuses a row does not keep showing the previous track's failure.\n */",
@@ -6047,12 +6047,12 @@ const allowed = new Map([
     "/**\n * Music copy is served from the `music` locale fragment. Until that fragment carries a key, `t`\n * answers with the key itself, which is readable in development and keeps a half-translated label\n * from drifting into copy that has to be translated twice. The cast is the seam the fragment removes.\n */",
   ]],
   ["src/client/features/music/music-address.ts", [
-    "/**\n * The music app's address space, parsed into the screen it names.\n *\n * The shell owns this shape rather than the tab table: `/music` is one tab, and every screen under it\n * — a playlist, an album, a podcast — is the container's own sub-address. Keeping the parse pure means\n * a deep link can be read in a test, and the back button works without a router.\n */",
     "// A malformed escape is not an id this app produced; the raw segment is the most useful answer",
     "// for a not-found screen, and the API will reject it as unknown anyway.",
-    "/**\n * Read a `/music` address.\n *\n * A missing id on a detail screen is not a detail screen with an empty id; it is an address this app\n * never links to, so it answers `notFound` rather than asking the server for `/albums/`.\n */",
     "/** The address a screen is linked with, so a rail button and a pasted URL say the same thing. */",
     "/** Whether an address belongs to the music container at all. */",
+    "/**\r\n * The music app's address space, parsed into the screen it names.\r\n *\r\n * The shell owns this shape rather than the tab table: `/music` is one tab, and every screen under it\r\n * — a playlist, an album, a podcast — is the container's own sub-address. Keeping the parse pure means\r\n * a deep link can be read in a test, and the back button works without a router.\r\n */",
+    "/**\r\n * Read a `/music` address.\r\n *\r\n * A missing id on a detail screen is not a detail screen with an empty id; it is an address this app\r\n * never links to, so it answers `notFound` rather than asking the server for `/albums/`.\r\n */",
   ]],
   ["src/client/features/music/music.css", [
     "/**\r\n * The music surface: frame geometry, the song row family and the two player bars.\r\n *\r\n * Everything here reads the paper-and-ink tokens from `styles/tokens.css`; no rule names a colour,\r\n * radius, type size or spacing step of its own. Dimensions the spec fixes (row heights, the rail, the\r\n * bars, cover sizes) are kept as local custom properties on the element that owns them, so a page can\r\n * retune one surface without a second scale appearing in the stylesheet.\r\n *\r\n * The file is imported once from `styles/app.css`; every selector is prefixed `music-` so a utility\r\n * class in a feature file can never collide with it.\r\n */",
@@ -6081,6 +6081,9 @@ const allowed = new Map([
   ]],
   ["src/client/features/music/pages/ArtistPage.tsx", [
     "/**\n * One artist: portrait, the numbers that identify them, the biography, and two views of the work.\n *\n * Songs are the provider's 50-row hot prefix; albums are paged separately because the detail answer\n * only carries the first shelf. Switching tabs does not refetch the artist — the header stays put —\n * and an album page keeps its own index so coming back to the tab returns to the shelf it left.\n */",
+  ]],
+  ["src/client/features/music/pages/CloudDrivePage.tsx", [
+    "/**\r\n * My cloud drive: what this account stores in R2, and one folder of the WebDAV target the backup\r\n * settings already hold. The page is a reader, not an importer yet: it shows the shape of the drive\r\n * and says honestly when a source has not been configured.\r\n */",
   ]],
   ["src/client/features/music/pages/DownloadsPage.tsx", [
     "/**\n * The R2 download queue: progress, pause/resume/retry/cancel and the account's storage gauge.\n *\n * Downloads are server-side copies into the music library, not files on this device; this page\n * manages that queue and says so. A task is added from a track's menu, so there is no enqueue\n * control here.\n */",

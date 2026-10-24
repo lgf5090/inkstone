@@ -4,7 +4,7 @@
  * never repeats the title.
  */
 import type { ComponentType, ReactElement } from 'react'
-import { Compass, Download, Heart, History, Library, ListMusic, Search, Settings, Sparkles } from 'lucide-react'
+import { Cloud, Compass, Download, Heart, History, Library, ListMusic, Search, Settings, Sparkles } from 'lucide-react'
 import { cn } from '../../../lib/cn'
 import { navigateToAddress } from '../../../lib/app-history'
 import { musicText } from './labels'
@@ -27,6 +27,7 @@ const SHELF: readonly NavItem[] = [
   { path: '/music/history', labelKey: 'music.page.history', icon: History },
   { path: '/music/favorites', labelKey: 'music.page.favorites', icon: Heart },
   { path: '/music/downloads', labelKey: 'music.page.downloads', icon: Download },
+  { path: '/music/cloud', labelKey: 'music.nav.drive', icon: Cloud },
 ]
 
 function normalize(pathname: string): string {
