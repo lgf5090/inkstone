@@ -205,18 +205,16 @@ describe('the caret a dialog hands back', () => {
     expect(document.activeElement, 'the caret was dropped on the page body').toBe(frame)
   })
 
-  it('keeps the reader in the app when the panel had taken the caret into itself', () => {
+  it('hands the caret back to the trigger even when the panel stole it during the commit', () => {
     trigger.focus()
     mountModal(true, true)
-    // A field that steals the caret during the commit — the task editor's `autoFocus` title, measured in
-    // a real browser to be what the hook finds when it asks where to go back to — leaves the hook holding
-    // a node that dies with the panel. The trigger is still on the page; the hook simply never saw it,
-    // and no fallback can invent what it never had.
+    // `autoFocus` moves the caret while the panel is being committed, before the hook asks where to go
+    // back to, so `document.activeElement` is a node that dies with the panel. The trigger is still on
+    // the page and is still the answer — which is what the outside-focus tracker is for.
     expect(document.activeElement, 'the panel never took the caret').not.toBe(trigger)
     expect(dialog().contains(document.activeElement)).toBe(true)
     mountModal(false, true)
-    expect(trigger.isConnected).toBe(true)
-    expect(document.activeElement, 'a doomed field left the caret on the page body').toBe(frame)
+    expect(document.activeElement).toBe(trigger)
   })
 })
 

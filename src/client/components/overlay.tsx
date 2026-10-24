@@ -70,6 +70,30 @@ export function useClickOutside(refs: RefObject<HTMLElement | null>[], active: b
     }, [active]);
 }
 /**
+ * The control the reader was on before a surface took the caret away.
+ *
+ * A dialog that focuses a field of its own cannot ask `document.activeElement` where to go back to: by the
+ * time the hook runs, `autoFocus` has already moved the caret inside the panel, and that node dies with the
+ * panel — so every such dialog left the reader nowhere. This remembers the last focus that landed *outside*
+ * a surface, which is the control the reader was using when the dialog opened. It listens from import time
+ * because the trigger's own focus event arrives before any dialog exists: a listener installed when the
+ * first dialog opened would miss exactly the one dialog it was installed for.
+ */
+const SURFACE_SELECTOR = '[role="dialog"], [role="menu"], [aria-modal="true"]';
+let lastOutsideCaret: HTMLElement | null = null;
+document.addEventListener('focusin', (event) => {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (!target || target.closest(SURFACE_SELECTOR))
+        return;
+    lastOutsideCaret = target;
+}, true);
+/** The caret a panel should hand back to: itself if it is outside the panel, else the trigger it stole from. */
+function caretBeforePanel(caret: HTMLElement | null, panel: HTMLElement | null): HTMLElement | null {
+    if (caret && !panel?.contains(caret))
+        return caret;
+    return lastOutsideCaret?.isConnected ? lastOutsideCaret : null;
+}
+/**
  * Hand the caret back to the place a surface took it from, or to the app frame when that place is gone.
  *
  * A surface usually closes over the control that opened it, and `isConnected` is what keeps a stale
@@ -142,7 +166,8 @@ export function useDialogFocus<T extends HTMLElement>(active: boolean, panelRef:
         if (!active)
             return;
         const token = Symbol('dialog');
-        const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        const caret = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        const previousFocus = caretBeforePanel(caret, panelRef.current);
         dialogStack.push(token);
         const panel = panelRef.current;
         const requestedInitial = initialFocusRef?.current ??
@@ -719,7 +744,8 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
     useEffect(() => {
         if (!open)
             return;
-        const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        const caret = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        const previousFocus = caretBeforePanel(caret, menuRef.current);
         return () => {
             returnCaret(previousFocus);
         };

@@ -506,10 +506,9 @@ const allowed = new Map([
     "// here too — and the first test below is only worth reading if it is there to be missed.",
     "// Deleting the row the dialog was opened from is what the reader just did; the trigger, its list item",
     "// and the control that would have received the caret are all out of the document now.",
-    "// A field that steals the caret during the commit — the task editor's `autoFocus` title, measured in",
-    "// a real browser to be what the hook finds when it asks where to go back to — leaves the hook holding",
-    "// a node that dies with the panel. The trigger is still on the page; the hook simply never saw it,",
-    "// and no fallback can invent what it never had.",
+    "// `autoFocus` moves the caret while the panel is being committed, before the hook asks where to go",
+    "// back to, so `document.activeElement` is a node that dies with the panel. The trigger is still on",
+    "// the page and is still the answer — which is what the outside-focus tracker is for.",
   ]],
   ["src/client/components/overlay.tsx", [
     "// With no host mounted there is no dialog to show, so the only answer we may give is the",
@@ -592,6 +591,8 @@ const allowed = new Map([
     "// engines leave a clicked button unfocused, so returning to \"previous\" would drop the reader",
     "// back on the page body with nothing to Tab from.",
     "/**\n * Hand the caret back to the place a surface took it from, or to the app frame when that place is gone.\n *\n * A surface usually closes over the control that opened it, and `isConnected` is what keeps a stale\n * reference from being focused into nothing. But a dialog can also close over the row it just deleted —\n * then its trigger left the document with the whole list row, and the caret would be dropped on\n * `document.body`, one Tab away from the browser's own chrome and with no announcement of where the\n * reader is. The frame every app hangs in is the last container that is always there, and it carries\n * `data-app-frame` so this is the one place that has to know about it.\n */",
+    "/**\n * The control the reader was on before a surface took the caret away.\n *\n * A dialog that focuses a field of its own cannot ask `document.activeElement` where to go back to: by the\n * time the hook runs, `autoFocus` has already moved the caret inside the panel, and that node dies with the\n * panel — so every such dialog left the reader nowhere. This remembers the last focus that landed *outside*\n * a surface, which is the control the reader was using when the dialog opened. It listens from import time\n * because the trigger's own focus event arrives before any dialog exists: a listener installed when the\n * first dialog opened would miss exactly the one dialog it was installed for.\n */",
+    "/** The caret a panel should hand back to: itself if it is outside the panel, else the trigger it stole from. */",
   ]],
   ["src/client/components/popover-placement.test.ts", [
     "/** The phone the review shrank to: a 320px panel had its left edge at -8 and lost its first field. */",
