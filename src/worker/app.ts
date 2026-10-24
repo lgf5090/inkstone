@@ -57,6 +57,7 @@ import { todoAttachmentRoutes } from './routes/todo-attachments'
 import { todoImportRoutes } from './routes/todo-import'
 import { todoFeedRoutes } from './routes/todo-feeds'
 import { emailRoutes } from './routes/email'
+import { musicRoutes } from './routes/music'
 import { emailSearchesRoutes } from './routes/email-searches'
 import { emailTemplatesRoutes } from './routes/email-templates'
 import { emailRulesRoutes } from './routes/email-rules'
@@ -184,6 +185,7 @@ export function createApp() {
   app.route('/api/email', emailContactsRoutes)
   app.route('/api/email', emailSendRoutes)
   app.route('/api/email', emailRoutes)
+  app.route('/api/music', musicRoutes)
   app.route('/api/assistant', assistantRoutes)
   app.route('/api/excalidraw/ai', aiProxyRoutes)
   app.route('/api/excalidraw/library', excalidrawLibraryRoutes)
