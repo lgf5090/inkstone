@@ -577,7 +577,7 @@ export function Checkbox({
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cn(
-        'inline-flex min-h-10 items-center gap-2 text-[length:var(--text-13)] md:min-h-0',
+        'relative ink-tap-pad inline-flex min-h-10 items-center gap-2 text-[length:var(--text-13)] md:min-h-0',
         disabled && 'cursor-not-allowed opacity-50',
         className,
       )}

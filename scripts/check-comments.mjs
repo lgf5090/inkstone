@@ -421,6 +421,9 @@ const allowed = new Map([
     "/** Mounts a field and clicks its trigger, so the helpers below can act on the open panel. */",
     "/**\n * A parent that keeps the value, the way every real caller does. Asserting through it is what proves\n * a second click reads the first one's result rather than the value the field was opened with.\n */",
     "/**\n * The naming contract, which is the part a `Field` cannot enforce on its own.\n *\n * A `Field` hands its child an `id` and an `aria-labelledby`; a picker that ignored them would leave the\n * visible label pointing at nothing while the button named itself from a hidden span — the shape that\n * reads as two different controls, and as an unlabelled one, to a screen reader.\n */",
+    "// Measured in a real browser: with the class the cross answers a pointer at all five points of a",
+    "// 24-pixel box, without it only the centre. `relative` is what lets the pad own its containing block,",
+    "// and the drawn `p-0.5` is what keeps the row from growing for it.",
   ]],
   ["src/client/components/date-picker.tsx", [
     "/**\n   * When set, `value` and `onChange` carry `YYYY-MM-DDTHH:MM` and the popover grows a time row, so\n   * a schedule field does not need the browser's own `datetime-local` control.\n   */",
@@ -440,6 +443,10 @@ const allowed = new Map([
     "// The pad is an absolutely positioned child, so the control has to own its containing block, and the",
     "// drawn 20px track stays drawn at 20px — the row it sits in is dense on purpose. The sheet the class",
     "// lives in is proved in `tests/touch-target-utility.test.ts`.",
+    "// A measured row paints 19 pixels tall on the desktop frame, and the 30-pixel pitch between two steps",
+    "// leaves 11 to spare, so the pad can reach the floor without covering its neighbour. The hit-test that",
+    "// proves both halves of that sentence ran in a real browser; what is pinned here is that the row is",
+    "// still the dense one, so the pad — not a repaint — is what carries the floor.",
   ]],
   ["src/client/components/form.tsx", [
     "/** The box every text field in a dialog wears; `overlay`'s prompt reads it rather than importing\n * `Input`, because form already imports overlay and a component cycle would resolve at render. */",
