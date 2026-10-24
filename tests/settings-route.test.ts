@@ -200,8 +200,68 @@ describe('writing settings', () => {
   })
 })
 
-describe('account statistics', () => {
-  it('counts this account across every table the card shows', async () => {
+describe('the templater section', () => {
+  // The settings panel for Templater writes one field at a time and the whole list at once, and every field of
+  // the blob feeds a gate: a lost `communityScriptPolicy` or `webRequestsEnabled` is a permission quietly
+  // changed, and a lost `startupTemplates` is a template that stopped running with nothing on screen to say so.
+  const WRITTEN = {
+    ...DEFAULT_SETTINGS.templater,
+    syntaxHighlighting: false,
+    syntaxHighlightingMobile: true,
+    autoJumpToCursor: true,
+    jumpToContentAfterCreate: true,
+    intellisenseRender: '3',
+    fileCreationMode: 'regex',
+    folderTemplates: [{ folderId: 'f-journal', templateId: 't-daily' }, { folderId: null, templateId: 't-any' }],
+    fileTemplates: [{ regex: '^Journal/', templateId: 't-daily' }],
+    ignoreFoldersOnCreation: ['f-trash'],
+    startupTemplates: ['t-welcome'],
+    templateHotkeys: [{ templateId: 't-daily', combo: 'ctrl+alt+d', insert: true, create: false }],
+    userScriptsFolderId: 'f-scripts',
+    communityScriptPolicy: 'trusted',
+    webRequestsEnabled: true,
+  }
+
+  it('keeps every field of the templater blob through a write', async () => {
+    const response = await send('PUT', '', { templater: WRITTEN })
+    expect(response.status).toBe(200)
+    const body = await response.json() as Record<string, unknown>
+    expect(body.templater).toEqual(WRITTEN)
+    expect(JSON.parse(column(ALICE)).templater).toEqual(WRITTEN)
+  })
+
+  it('leaves the rest of the section alone when one field is patched', async () => {
+    sqlite.prepare('UPDATE users SET settings = ? WHERE id = ?')
+      .run(JSON.stringify({ templater: WRITTEN }), ALICE)
+    const response = await send('PUT', '', { templater: { webRequestsEnabled: false } })
+    const body = await response.json() as { templater: typeof WRITTEN }
+    expect(body.templater.webRequestsEnabled).toBe(false)
+    expect(body.templater.folderTemplates).toEqual(WRITTEN.folderTemplates)
+    expect(body.templater.userScriptsFolderId).toBe('f-scripts')
+    expect(body.templater.communityScriptPolicy).toBe('trusted')
+  })
+
+  it('refuses a templater value the section cannot store instead of saving it', async () => {
+    // The panel cannot send these, but the endpoint is the trust boundary: an unreadable level falls back to
+    // the shipped default, and two rules for one template are one rule, because the second would never fire.
+    const response = await send('PUT', '', {
+      templater: {
+        intellisenseRender: '9',
+        startupTemplates: ['t-a', 't-a', '', 't-b'],
+        folderTemplates: [
+          { folderId: 'f-1', templateId: 't-dup' },
+          { folderId: 'f-2', templateId: 't-dup' },
+        ],
+      },
+    })
+    const body = await response.json() as { templater: Record<string, unknown> }
+    expect(body.templater.intellisenseRender).toBe(DEFAULT_SETTINGS.templater.intellisenseRender)
+    expect(body.templater.startupTemplates).toEqual(['t-a', 't-b'])
+    expect(body.templater.folderTemplates).toEqual([{ folderId: 'f-1', templateId: 't-dup' }])
+  })
+})
+
+describe('account statistics', () => {  it('counts this account across every table the card shows', async () => {
     note('n-live', ALICE, { words: 7, chars: 40 })
     note('n-archived', ALICE, { words: 3, chars: 12 })
     note('n-trash', ALICE, { deletedAt: 5, words: 100, chars: 900 })

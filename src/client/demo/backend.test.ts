@@ -369,3 +369,13 @@ describe('demo lists the mentions the worker lists', () => {
     expect(body.backlinks.map((row) => row.context)).toEqual(['reading about Café Résumé daily'])
   })
 })
+
+describe('demo refusals', () => {
+  it('refuses the template proxy with the shape the real route refuses with', async () => {
+    // A template reads `error.code` and translates it, so the demo must not answer in a different shape:
+    // the same 403 and the same Templater code the server route uses for an address it will not reach.
+    const response = await call('POST', '/api/templater/fetch', { url: 'https://example.test/data' })
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({ error: { code: 'web-blocked' } })
+  })
+})

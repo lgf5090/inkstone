@@ -30,7 +30,6 @@ import { NoteList } from '../list/NoteList';
 import { SearchButton } from './SearchButton';
 import { MobileAccount } from './MobileAccount';import { Resizer, SplitResizer } from './Resizer';
 import { t } from "../../lib/i18n";
-import { SettingsPanel } from '../settings/SettingsPanel';
 import { PinnedWindowsLayer } from '../preview/pinned-windows-layer';
 import { scheduleSettingsWarmup } from '../settings/sections';
 const Workspace = lazy(() => import('../workspace/Workspace').then((m) => ({ default: m.Workspace })));
@@ -42,6 +41,7 @@ const GraphPanel = lazy(() => import('../graph/GraphPanel').then((m) => ({ defau
 const ManageFoldersPanel = lazy(() => import('../folders/ManageFoldersPanel').then((m) => ({ default: m.ManageFoldersPanel })));
 const TemplateGallery = lazy(() => import('../templates').then((m) => ({ default: m.TemplateGallery })));
 const SharePanel = lazy(() => import('../share/SharePanel').then((m) => ({ default: m.SharePanel })));
+const ShareHubModal = lazy(() => import('../share/hub/share-hub-modal').then((m) => ({ default: m.ShareHubModal })));
 const VersionsPanel = lazy(() => import('../workspace/VersionsPanel').then((m) => ({ default: m.VersionsPanel })));
 const UpdateDialog = lazy(() => import('../update/UpdateDialog').then((m) => ({ default: m.UpdateDialog })));
 const EmojiPickerHost = lazy(() => import('../emoji/EmojiPickerHost').then((m) => ({ default: m.EmojiPickerHost })));
@@ -268,7 +268,7 @@ function WorkspaceFallback() {
 }
 
 function OverlayHost() {
-    const userId = useSession((s) => s.user?.id);
+    const breakpoint = useBreakpoint();
     const panel = useUi((s) => s.panel);
     const emojiOpen = useEmojiPicker((s) => s.open);
     const linkEditOpen = useLinkEditor((s) => s.request !== null);
@@ -279,7 +279,6 @@ function OverlayHost() {
     const role = useSession((s) => s.user?.role);
     const updateDialogOpen = useUpdate((s) => s.dialogOpen);
     return (<>
-      {panel === 'settings' && <SettingsPanel key={userId} onClose={closePanel}/>}
       <Suspense fallback={null}>
         {panel === 'command' && <CommandPalette initialQuery="> " onClose={closePanel}/>}
         {panel === 'shortcuts' && <ShortcutsPanel onClose={closePanel}/>}
@@ -287,6 +286,7 @@ function OverlayHost() {
         {panel === 'folders' && <ManageFoldersPanel onClose={closePanel}/>}
         {panel === 'templates' && <TemplateGallery onClose={closePanel}/>}
         {panel === 'share' && <SharePanel onClose={closePanel}/>}
+        {panel === 'share-hub' && <ShareHubModal open onClose={closePanel} initialView={breakpoint === 'desktop' ? 'table' : 'grid'}/>}
         {panel === 'versions' && <VersionsPanel onClose={closePanel}/>}
         {omnisearch.open && <OmnisearchPrompt mode={omnisearch.mode} seed={omnisearch.seed} noteId={omnisearch.noteId}/>}
         {emojiOpen && <EmojiPickerHost />}

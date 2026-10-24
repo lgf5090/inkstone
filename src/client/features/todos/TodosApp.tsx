@@ -25,9 +25,11 @@ import { Input } from '../../components/form'
 import { Menu, type MenuItem } from '../../components/overlay'
 import { LoadingBlock } from '../../components/feedback'
 import { useSession } from '../../store/session'
-import { useUi } from '../../store/ui'
+import { DEFAULT_LAYOUT, PANEL_WIDTHS, useUi } from '../../store/ui'
+import { Resizer } from '../shell/Resizer'
 import { useAssistant } from '../chat/assistant-store'
 import { AssistantDock } from '../chat/AssistantDock'
+import { useAssistantToolRefresh } from '../chat/tool-refresh'
 import { readsOwnRows, useTodos } from './store'
 import { buildTodoAssistantContext } from './assistant-context'
 import { BatchBar } from './BatchBar'
@@ -106,7 +108,8 @@ export function TodosApp() {
   const dueFrom = useTodos((state) => state.dueFrom)
   const dueTo = useTodos((state) => state.dueTo)
   const assistantDockOpen = useUi((state) => state.assistantDockOpen)
-  const assistantTurn = useAssistant((state) => state.turn)
+  const todoNavWidth = useUi((state) => state.todoNavWidth)
+  const setLayout = useUi((state) => state.setLayout)
   const applySavedFilter = useTodos((state) => state.applySavedFilter)
   const savedFilters = useSession((state) => state.settings.todo.savedFilters) ?? NO_SAVED_FILTERS
   // The two navs ask the account which rows it wants drawn. Read here rather than inside the registry,
@@ -126,7 +129,6 @@ export function TodosApp() {
   const [moreOpen, setMoreOpen] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
   const lastAssistantScreen = useRef<string | null>(null)
-  const refreshedTurn = useRef<number | null>(null)
   const assistantScreen = `${view}|${listId ?? ''}|${tagId ?? ''}|${query}|${dueFrom ?? ''}|${dueTo ?? ''}|${editorOpen ? draft?.id ?? 'new' : ''}`
 
   useEffect(() => {
@@ -161,14 +163,7 @@ export function TodosApp() {
     }
   }, [assistantScreen, completed, draft, editorOpen, dueFrom, dueTo, listId, lists, query, tagId, tags, tasks, timezone, view])
 
-  useEffect(() => {
-    if (!assistantTurn?.done || assistantTurn.token === undefined) return
-    if (refreshedTurn.current === assistantTurn.token) return
-    refreshedTurn.current = assistantTurn.token
-    if (assistantTurn.tools.some((tool) => TODO_WRITE_TOOLS.has(tool.name) && tool.status === 'success')) {
-      void useTodos.getState().load()
-    }
-  }, [assistantTurn])
+  useAssistantToolRefresh(TODO_WRITE_TOOLS, () => useTodos.getState().load())
 
   const openList = (target: { listId?: string; tagId?: string }): void => {
     setPage('main')
@@ -376,7 +371,7 @@ export function TodosApp() {
   }
 
   const sidebar = (
-    <nav aria-label={t('todo.a11y.lists')} className="flex h-full w-[232px] shrink-0 flex-col gap-4 overflow-y-auto border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-3">
+    <nav aria-label={t('todo.a11y.lists')} style={{ width: todoNavWidth }} className="flex h-full shrink-0 flex-col gap-4 overflow-y-auto border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-3">
       <div className="flex flex-col gap-0.5">
         {surfacesFor('sidebar', navFlags).map((surface) => {
           const Icon = surface.icon
@@ -494,7 +489,19 @@ export function TodosApp() {
           `Esc` has taken it away belongs to the same lifetime. */}
       <FocusLayer />
       <div className="flex min-h-0 flex-1">
-        {wide && sidebarOpen && sidebar}
+        {wide && sidebarOpen && (
+          <>
+            {sidebar}
+            <Resizer
+              label={t('todo.resize_sidebar')}
+              value={todoNavWidth}
+              min={PANEL_WIDTHS.todoNav.min}
+              max={PANEL_WIDTHS.todoNav.max}
+              onChange={(todoNavWidth) => setLayout({ todoNavWidth })}
+              onReset={() => setLayout({ todoNavWidth: DEFAULT_LAYOUT.todoNavWidth })}
+            />
+          </>
+        )}
         <div className="flex min-w-0 flex-1 flex-col">
           {/* The order is a question about the tasks, not about one view: the bar stays above every
               list, and the lists page is a different screen with no listing behind it. The statistics,

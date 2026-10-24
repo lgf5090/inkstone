@@ -561,7 +561,7 @@ export function WeekHourHeatmap({ cells }: { cells: readonly TaskStatsWeekdayHou
 }
 
 /** A donut of shares, with the total in the middle. */
-export function Donut({ slices, caption }: { slices: readonly StatSlice[]; caption: string }) {
+export function Donut({ slices, caption, totalLabel }: { slices: readonly StatSlice[]; caption: string; totalLabel?: string }) {
   const total = slices.reduce((sum, slice) => sum + slice.value, 0)
   const radius = 42
   const circumference = 2 * Math.PI * radius
@@ -594,7 +594,7 @@ export function Donut({ slices, caption }: { slices: readonly StatSlice[]; capti
         </svg>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
           <span className="text-[length:var(--text-16)] font-semibold tabular text-[var(--text-primary)]">{total}</span>
-          <span className="text-[length:var(--text-9)] text-[var(--text-quaternary)]">{t('todo.stats.donut_total')}</span>
+          <span className="text-[length:var(--text-9)] text-[var(--text-quaternary)]">{totalLabel ?? t('todo.stats.donut_total')}</span>
         </div>
       </div>
       <ul className="flex min-w-0 flex-1 flex-col gap-1">

@@ -2309,6 +2309,103 @@ tags: [健身]
 - 睡眠： 小时
 - 拉伸：[ ] 
 `,
+    "template.templater_daily_note.content": `---
+title: <% tp.file.title %>
+created: <% tp.date.now("YYYY-MM-DD") %>
+tags: [daily]
+---
+
+# <% tp.date.now("YYYY-MM-DD") %>
+
+今天最重要的一件事：<% tp.file.cursor(1) %>
+
+留给自己的话：<% tp.file.cursor(2) %>
+`,
+    "template.templater_meeting_questions.content": `---
+title: <% tp.file.title %>
+tags: [meeting]
+---
+
+# <% tp.system.prompt("这次会议的主题是什么？", tp.file.title) %>
+
+与会人：<% tp.system.prompt("谁在场？") %>
+
+类型：<% tp.system.suggester(["讨论", "决策", "复盘"], ["discuss", "decide", "review"]) %>
+
+## 我们定了什么
+
+## 下一步
+- [ ] <% tp.file.cursor(1) %>
+`,
+    "template.templater_selection_note.content": `---
+title: <% tp.file.title %>
+---
+
+选中的文字：<% tp.file.selection() %>
+
+<%*
+const picked = tp.file.selection()
+if (picked.trim() !== '') {
+  await tp.file.create_new(picked, '摘录 - ' + tp.date.now("HH-mm-ss"))
+  tR += '已经另存为一篇独立的笔记。'
+} else {
+  tR += '没有选中任何文字，所以这次没有新建笔记。'
+}
+%>
+`,
+    "template.templater_logic_loops.content": `---
+title: <% tp.file.title %>
+---
+
+<%*
+const steps = ['把目标写下来', '拆成三步', '定一个检查时间']
+const lines = []
+for (let i = 0; i < steps.length; i++) lines.push('- [ ] ' + (i + 1) + '. ' + steps[i])
+tR += lines.join('\\n')
+%>
+`,
+    "template.templater_include_snippet.content": `---
+title: <% tp.file.title %>
+---
+
+## 这篇笔记
+
+<% tp.file.cursor(1) %>
+
+## 借来的那一段
+
+把下面的链接换成任意一篇笔记，或某篇笔记的某一节：\`[[素材#小节]]\`
+
+<% tp.file.include("[[素材]]") %>
+`,
+    "template.templater_dated_title.content": `---
+title: <% tp.file.title %>
+day: <% tp.date.now("YYYY-MM-DD", 0, tp.file.title, "YYYY-MM-DD") %>
+---
+
+从标题里读日期；标题不是日期时就用今天。
+
+昨天是 <% tp.date.now("YYYY-MM-DD", -1) %>，明天是 <% tp.date.now("YYYY-MM-DD", 1) %>。
+`,
+    "template.templater_multi_choice.content": `---
+title: <% tp.file.title %>
+---
+
+<%*
+const chosen = await tp.system.multi_suggester(["健康", "工作", "学习", "家庭"], ["health", "work", "study", "family"])
+for (const one of chosen) tR += '- [ ] 跟进：' + one + '\\n'
+%>
+`,
+    "template.templater_user_script.content": `---
+title: <% tp.file.title %>
+---
+
+用户脚本按它所在文件的名字调用，脚本放在你设置的脚本文件夹里：
+
+<%* tR += '这一行来自一个脚本，等你装上它。' %>
+
+试一下：在模板设置里指定脚本文件夹，放一个名叫 \`greeting.js\` 的文件，末尾写 \`module.exports = (name) => "你好，" + name\`，然后调用 \`tp.user.greeting(tp.file.title)\`。
+`,
 } as const
 
 export type NoteTemplateContentKey = keyof typeof ZH_CN_NOTE_TEMPLATE_CONTENT

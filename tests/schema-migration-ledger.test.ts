@@ -145,6 +145,15 @@ describe('the to-do read switch', () => {
   })
 })
 
+describe('the email access switch', () => {
+  it('arrives off, under its own guarded number', () => {
+    expect(SCHEMA_MIGRATIONS.find((migration) => migration.version === 156)).toMatchObject({
+      skipIfColumnExists: { table: 'mcp_preferences', column: 'email_enabled' },
+      statements: ['ALTER TABLE mcp_preferences ADD COLUMN email_enabled INTEGER NOT NULL DEFAULT 0'],
+    })
+  })
+})
+
 /**
  * The two organizer columns a list gained: the archive stamp and the parent pointer.
  *

@@ -69,10 +69,11 @@ mcpSettingsRoutes.put('/', async (c) => {
     writeEnabled?: boolean
     trashEnabled?: boolean
     todoReadEnabled?: boolean
+    emailEnabled?: boolean
     disabledTools?: unknown
   }>(c, JSON_BODY_LIMITS.settings)
 
-  for (const key of ['enabled', 'writeEnabled', 'trashEnabled', 'todoReadEnabled'] as const) {
+  for (const key of ['enabled', 'writeEnabled', 'trashEnabled', 'todoReadEnabled', 'emailEnabled'] as const) {
     if (body[key] !== undefined && typeof body[key] !== 'boolean') {
       throw ApiError.badRequest(`${key} must be a boolean`)
     }
@@ -86,12 +87,15 @@ mcpSettingsRoutes.put('/', async (c) => {
     ...(body.writeEnabled !== undefined ? { writeEnabled: body.writeEnabled } : {}),
     ...(body.trashEnabled !== undefined ? { trashEnabled: body.trashEnabled } : {}),
     ...(body.todoReadEnabled !== undefined ? { todoReadEnabled: body.todoReadEnabled } : {}),
+    ...(body.emailEnabled !== undefined ? { emailEnabled: body.emailEnabled } : {}),
     ...(body.disabledTools !== undefined ? { disabledTools: disabledToolsFrom(c, body.disabledTools) } : {}),
   })
   return c.json({
     enabled: await isMcpEnabled(c.env.DB),
     preferences,
-    reconnectRequired: body.writeEnabled !== undefined || body.trashEnabled !== undefined,
+    reconnectRequired: body.writeEnabled !== undefined
+      || body.trashEnabled !== undefined
+      || body.emailEnabled !== undefined,
   })
 })
 

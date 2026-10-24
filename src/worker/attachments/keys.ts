@@ -1,5 +1,6 @@
 import { isValidId } from '../lib/id'
 import { extensionFor } from '../lib/image'
+import { EMAIL_ATTACHMENT_R2_PREFIX, emailAttachmentCategory } from '@shared/email/model'
 import { ATTACHMENT_SCOPES, attachmentScope, type AttachmentScope } from './scopes'
 
 export interface StoredAttachmentKey {
@@ -56,6 +57,12 @@ export function memoAttachmentObjectKey(row: NewAttachmentKeyRow): string {
 export function memoThumbnailObjectKey(row: NewAttachmentKeyRow): string {
   const extension = extensionFor(row.mime, row.filename)
   return `memos/${row.user_id}/${row.id}-thumb.${extension}`
+}
+
+export function emailAttachmentObjectKey(row: NewAttachmentKeyRow): string {
+  const extension = extensionFor(row.mime, row.filename)
+  const category = emailAttachmentCategory(row.mime, row.filename)
+  return `${EMAIL_ATTACHMENT_R2_PREFIX}/${category}/${row.id}.${extension}`
 }
 
 

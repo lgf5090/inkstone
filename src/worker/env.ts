@@ -60,6 +60,14 @@ export interface Env {
   AI?: {
     run: <T = unknown>(model: string, inputs: unknown) => Promise<T>
   }
+
+  EMAIL?: SendEmail
+
+  EMAIL_MAILBOX?: DurableObjectNamespace
+
+  EMAIL_DOMAINS?: string
+
+  EMAIL_ADDRESSES?: string
 }
 
 export interface DatabaseState {

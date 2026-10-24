@@ -18,6 +18,7 @@ import {
 import { drainAttachmentCleanup } from './cleanup'
 import {
   attachmentCleanupTarget,
+  emailAttachmentObjectKey,
   type AttachmentObjectStorage,
   newAttachmentObjectKey,
 } from './keys'
@@ -245,4 +246,122 @@ export async function rollbackPersistedAttachments(
   await drainAttachmentCleanup(env).catch((error) => {
     console.warn('[inkstone] Attachment cleanup after an import rollback will retry later:', error)
   })
+}
+
+export interface PersistEmailAttachmentInput {
+  id: string
+  userId: string
+  accountId: string | null
+  emailId: string | null
+  filename: string
+  reportedMime: string
+  bytes: Uint8Array
+  contentId?: string | null
+  disposition?: string | null
+  locked: boolean
+  createdAt: number
+}
+
+export interface PersistedEmailAttachment {
+  id: string
+  filename: string
+  mime: string
+  size: number
+  width: number | null
+  height: number | null
+  objectKey: string
+  createdAt: number
+}
+
+export async function persistEmailAttachment(
+  env: Env,
+  input: PersistEmailAttachmentInput,
+): Promise<PersistedEmailAttachment> {
+  if (input.bytes.byteLength > LIMITS.attachmentMaxBytes) {
+    throw ApiError.tooLarge('The file exceeds the 25 MB limit')
+  }
+  const storage = selectAttachmentStorage(env)
+  if (storage !== 'r2') {
+    throw new ApiError(503, 'storage_unavailable', 'Email attachments require R2 storage')
+  }
+  const release = await acquireLease(
+    env.DB,
+    `email-attachment-quota:${input.userId}`,
+    2 * 60 * 1000,
+    'Another email attachment upload is being finalized. Try again shortly',
+  )
+  try {
+    const usage = await env.DB.prepare(
+      `SELECT COALESCE(SUM(size), 0) AS bytes FROM email_attachments WHERE user_id = ?1`,
+    ).bind(input.userId).first<{ bytes: number }>()
+    if ((usage?.bytes ?? 0) + input.bytes.byteLength > LIMITS.attachmentQuotaBytes) {
+      throw ApiError.tooLarge('The account email attachment quota has been reached')
+    }
+
+    let mime = safeAttachmentMime(input.bytes, input.reportedMime)
+    let dimensions = readImageSize(input.bytes, mime)
+    if (!hasReasonableImageDimensions(dimensions)) {
+      mime = 'application/octet-stream'
+      dimensions = null
+    }
+    const filename = sanitizeAttachmentFilename(input.filename)
+    const sha256 = await sha256Hex(input.bytes)
+    const objectKey = emailAttachmentObjectKey({
+      user_id: input.userId,
+      id: input.id,
+      mime,
+      filename,
+    })
+    await putAttachmentObject(env, storage, objectKey, input.bytes, {
+      userId: input.userId,
+      objectId: input.id,
+      kind: 'attachment',
+      filename,
+      mime,
+      sha256,
+    })
+    try {
+      await env.DB.prepare(
+        `INSERT INTO email_attachments (
+           id, user_id, account_id, email_id, filename, mime, size, width, height,
+           content_id, disposition, object_key, storage, folder_id, is_starred,
+           is_pinned, tags, locked, created_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'r2', NULL, 0, 0, '[]', ?13, ?14)`,
+      )
+        .bind(
+          input.id,
+          input.userId,
+          input.accountId,
+          input.emailId,
+          filename,
+          mime,
+          input.bytes.byteLength,
+          dimensions?.width ?? null,
+          dimensions?.height ?? null,
+          input.contentId ?? null,
+          input.disposition ?? null,
+          objectKey,
+          input.locked ? 1 : 0,
+          input.createdAt,
+        )
+        .run()
+    } catch (error) {
+      await deleteAttachmentObjects(env, storage, [objectKey]).catch((cleanupError) => {
+        console.warn('[inkstone] Email attachment cleanup after a write rollback will retry later:', cleanupError)
+      })
+      throw error
+    }
+    return {
+      id: input.id,
+      filename,
+      mime,
+      size: input.bytes.byteLength,
+      width: dimensions?.width ?? null,
+      height: dimensions?.height ?? null,
+      objectKey,
+      createdAt: input.createdAt,
+    }
+  } finally {
+    await release()
+  }
 }

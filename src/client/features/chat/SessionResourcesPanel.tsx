@@ -23,7 +23,8 @@ import { t } from '../../lib/i18n'
 import { formatBytes, relativeTime } from '../../lib/time'
 import { Button, IconButton, Spinner } from '../../components/primitives'
 import { Drawer } from '../../components/overlay'
-import { useUi } from '../../store/ui'
+import { DEFAULT_LAYOUT, PANEL_WIDTHS, useUi } from '../../store/ui'
+import { Resizer } from '../shell/Resizer'
 import { useNotes } from '../../store/notes'
 import { ConversationSharePanel } from '../share/ConversationSharePanel'
 import { useAssistant } from './assistant-store'
@@ -32,7 +33,6 @@ import { openNote } from './note-links'
 import { fetchWholeConversation, type WholeConversation } from './thread-fetch'
 
 const DOCK_QUERY = '(min-width: 768px)'
-const DOCK_WIDTH = 360
 const DRAWER_WIDTH = 380
 const LIST_CAP = 10
 
@@ -50,6 +50,8 @@ export function SessionResourcesPanel({
   onOpenArtifact: (id: string) => void
 }) {
   const docked = useMediaQuery(DOCK_QUERY)
+  const resourcesWidth = useUi((state) => state.chatResourcesWidth)
+  const setLayout = useUi((state) => state.setLayout)
   const [data, setData] = useState<WholeConversation | null>(null)
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
@@ -425,14 +427,25 @@ export function SessionResourcesPanel({
     )
   }
   return (
-    <aside
-      aria-label={label}
-      data-resources-dock="1"
-      style={{ width: DOCK_WIDTH }}
-      className="flex h-full shrink-0 flex-col border-l border-[var(--border-subtle)] bg-[var(--bg-sunken)]"
-    >
-      {body}
-    </aside>
+    <>
+      <Resizer
+        label={t('assistant.resources.resize')}
+        value={resourcesWidth}
+        min={PANEL_WIDTHS.chatResources.min}
+        max={PANEL_WIDTHS.chatResources.max}
+        invert
+        onChange={(chatResourcesWidth) => setLayout({ chatResourcesWidth })}
+        onReset={() => setLayout({ chatResourcesWidth: DEFAULT_LAYOUT.chatResourcesWidth })}
+      />
+      <aside
+        aria-label={label}
+        data-resources-dock="1"
+        style={{ width: resourcesWidth }}
+        className="flex h-full shrink-0 flex-col border-l border-[var(--border-subtle)] bg-[var(--bg-sunken)]"
+      >
+        {body}
+      </aside>
+    </>
   )
 }
 

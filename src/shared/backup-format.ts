@@ -1,4 +1,7 @@
 import { LIMITS } from './constants'
+import { backupEmailPath } from './email/backup'
+
+export { backupEmailAttachmentPath, backupEmailPath, EMAIL_BACKUP_FORMAT, EMAIL_BACKUP_VERSION } from './email/backup'
 
 export const MARKDOWN_BACKUP_FORMAT = 'inkstone-markdown-backup'
 export const MARKDOWN_BACKUP_VERSION = 4 as const
@@ -62,6 +65,13 @@ export interface MarkdownBackupSubscriptionsEntry {
   sha256: string
 }
 
+export interface MarkdownBackupEmailEntry {
+  path: string
+  bytes: number
+  sha256: string
+  includesAttachments: boolean
+}
+
 export interface MarkdownBackupManifest {
   format: typeof MARKDOWN_BACKUP_FORMAT
   version: MarkdownBackupVersion
@@ -76,6 +86,7 @@ export interface MarkdownBackupManifest {
   automation?: MarkdownBackupAutomationEntry
   /** The subscription app's plans, receipts and reminder rules. */
   subscriptions?: MarkdownBackupSubscriptionsEntry
+  email?: MarkdownBackupEmailEntry
 }
 
 const HASH_RE = /^[0-9a-f]{64}$/
@@ -287,6 +298,26 @@ export function parseMarkdownBackupManifest(value: unknown): MarkdownBackupManif
     subscriptions = { path: expectedPath, bytes: value.subscriptions.bytes, sha256: value.subscriptions.sha256 }
   }
 
+  let email: MarkdownBackupEmailEntry | undefined
+  if (value.email !== undefined) {
+    if (!isRecord(value.email)) return null
+    const expectedPath = backupEmailPath(value.snapshot)
+    if (
+      value.email.path !== expectedPath ||
+      !isSafeSize(value.email.bytes) ||
+      value.email.bytes > LIMITS.importUploadMaxBytes ||
+      typeof value.email.sha256 !== 'string' ||
+      !HASH_RE.test(value.email.sha256) ||
+      typeof value.email.includesAttachments !== 'boolean'
+    ) return null
+    email = {
+      path: expectedPath,
+      bytes: value.email.bytes,
+      sha256: value.email.sha256,
+      includesAttachments: value.email.includesAttachments,
+    }
+  }
+
   return {
     format: MARKDOWN_BACKUP_FORMAT,
     version: value.version,
@@ -298,6 +329,7 @@ export function parseMarkdownBackupManifest(value: unknown): MarkdownBackupManif
     templates,
     automation,
     subscriptions,
+    email,
   }
 }
 

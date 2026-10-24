@@ -192,6 +192,8 @@ export const ZH_CN_MEMOS_CORE = {
     "memos.relations.empty": "没有引用。",
     "memos.relations.error": "引用加载失败。",
     "memos.detail.title": "memo",
+    "memos.resize_sidebar": "调整备忘录侧栏宽度",
+    "memos.resize_detail": "调整备忘录详情宽度",
     "memos.detail.outline": "大纲",
     "memos.detail.back": "返回 memo",
     "memos.detail.error": "这条 memo 加载失败。",

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { Menu as MenuIcon, Paperclip, Plus, RefreshCw, StickyNote } from 'lucide-react'
-import { useUi } from '../../store/ui'
+import { DEFAULT_LAYOUT, PANEL_WIDTHS, useUi } from '../../store/ui'
+import { Resizer } from '../shell/Resizer'
 import { MEMOS_APP_PATH } from '@shared/memos/constants'
 import { MEMOS_MESSAGE_KEYS } from '@shared/memos/keys'
 import type { Memo, MemoDisplayPreferences, MemoState } from '@shared/memos/types'
@@ -91,6 +92,9 @@ export function MemosApp(): ReactElement {
   const urlState = useMemo(() => readMemoUrlState(search), [search])
   const route = parseMemoPath(pathname)
   const desktop = useBreakpoint() === 'desktop'
+  const memoSidebarWidth = useUi((state) => state.memoSidebarWidth)
+  const memoDetailWidth = useUi((state) => state.memoDetailWidth)
+  const setLayout = useUi((state) => state.setLayout)
   const [display, setDisplay] = useState<MemoDisplayPreferences>(initialDisplay)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [newMemoId, setNewMemoId] = useState<string | null>(null)
@@ -336,16 +340,37 @@ export function MemosApp(): ReactElement {
       </header>
       <div className="relative flex min-h-0 flex-1">
         {desktop ? (
-          <aside className="w-[var(--memo-sidebar-width)] shrink-0 border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)]">
-            {sidebar}
-          </aside>
+          <>
+            <aside style={{ width: memoSidebarWidth }} className="shrink-0 border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)]">
+              {sidebar}
+            </aside>
+            <Resizer
+              label={t('memos.resize_sidebar')}
+              value={memoSidebarWidth}
+              min={PANEL_WIDTHS.memoSidebar.min}
+              max={PANEL_WIDTHS.memoSidebar.max}
+              onChange={(memoSidebarWidth) => setLayout({ memoSidebarWidth })}
+              onReset={() => setLayout({ memoSidebarWidth: DEFAULT_LAYOUT.memoSidebarWidth })}
+            />
+          </>
         ) : null}
         <main className="relative flex min-h-0 min-w-0 flex-1 flex-col" data-memos-page={route.kind}>
           {content}
         </main>
         {desktop && route.kind === 'memo' ? (
+          <>
+          <Resizer
+            label={t('memos.resize_detail')}
+            value={memoDetailWidth}
+            min={PANEL_WIDTHS.memoDetail.min}
+            max={PANEL_WIDTHS.memoDetail.max}
+            invert
+            onChange={(memoDetailWidth) => setLayout({ memoDetailWidth })}
+            onReset={() => setLayout({ memoDetailWidth: DEFAULT_LAYOUT.memoDetailWidth })}
+          />
           <aside
-            className="w-[var(--memo-detail-width)] shrink-0 border-l border-[var(--border-subtle)] bg-[var(--bg-surface)]"
+            style={{ width: memoDetailWidth }}
+            className="shrink-0 border-l border-[var(--border-subtle)] bg-[var(--bg-surface)]"
             aria-label={t('memos.detail.title')}
             data-memos-detail-panel=""
           >
@@ -359,6 +384,7 @@ export function MemosApp(): ReactElement {
               onTagPress={openTag}
             />
           </aside>
+          </>
         ) : null}
       </div>
       {!desktop ? (

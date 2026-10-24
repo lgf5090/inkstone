@@ -10,6 +10,9 @@ import { classifyMemoSurface } from './features/memos/public-route'
 import { dismissBootScreen } from './lib/boot'
 import { peekPropertyDecoration, subscribePropertyDecoration } from './lib/property-commands'
 import { peekTemplateSlotJob, subscribeTemplateSlotJob } from './features/chat/template-slot-job'
+import { useTemplaterStartup } from './features/templater/startup-bridge'
+import { useTemplaterHotkeys } from './features/templater/hotkeys'
+import { installTemplaterCreationTrigger } from './features/templater/creation-trigger'
 import { t, useLocale } from './lib/i18n'
 import { initializePwa, requestOfflineWarmup, usePwa } from './store/pwa'
 import { usePresentation } from './store/presentation'
@@ -27,8 +30,14 @@ const SharePage = lazy(() =>
 const ConversationSharePage = lazy(() =>
   import('./features/share/ConversationSharePage').then((module) => ({ default: module.ConversationSharePage })),
 )
+const CollectionPage = lazy(() =>
+  import('./features/share/CollectionPage').then((module) => ({ default: module.CollectionPage })),
+)
 const MemosPublicApp = lazy(() =>
   import('./features/memos/MemosPublicApp').then((module) => ({ default: module.MemosPublicApp })),
+)
+const SettingsPanel = lazy(() =>
+  import('./features/settings/SettingsPanel').then((module) => ({ default: module.SettingsPanel })),
 )
 const PresentationOverlay = lazy(() =>
   import('./features/presentation').then((module) => ({ default: module.PresentationOverlay })),
@@ -113,14 +122,20 @@ export function App() {
   // The presenter console is a second window over the same app, and it is a document that has been
   // handed a capability rather than an account session: it speaks on the BroadcastChannel and reads
   // nothing of its own. Booting the notebook here would ask it to log in to a room it is already in.
+  // A published collection is a third public document, at an address no note or conversation can
+  // answer on: it lists links rather than being one, and its reader has no account either.
+  const [collectionSlug] = useState(() => {
+    const match = /^\/collections\/([A-Za-z0-9_-]+)/.exec(location.pathname)
+    return match?.[1] ?? null
+  })
   const [isPresenter] = useState(() => new URLSearchParams(location.search).has('presenter'))
   const [memoSurface] = useState(() => classifyMemoSurface(location.pathname))
   const memoAlwaysPublic = memoSurface.kind === 'public'
 
   useEffect(() => {
-    if (shareSlug || conversationShareSlug || isPresenter || memoAlwaysPublic) return
+    if (shareSlug || conversationShareSlug || collectionSlug || isPresenter || memoAlwaysPublic) return
     void load()
-  }, [load, shareSlug, conversationShareSlug, isPresenter, memoAlwaysPublic])
+  }, [load, shareSlug, conversationShareSlug, collectionSlug, isPresenter, memoAlwaysPublic])
 
   useEffect(() => watchSystemTheme(), [])
 
@@ -129,10 +144,21 @@ export function App() {
     initializePwa()
   }, [isPresenter])
 
+  // The reader's startup templates, once, after the account and the library have both arrived. The hook
+  // decides nothing on its own — a device switch has to say yes first — so this line costs a subscription
+  // and no work for the overwhelming majority of readers.
+  useTemplaterStartup()
+  useTemplaterHotkeys()
+
+  // The file-creation trigger listens on the notes store from here, so every way a note can arrive — the
+  // sidebar, a duplicate, an excalidraw or mindmap canvas, a contextual note, a template's own create — is
+  // seen by the same rule. It decides nothing: with the device switch off it answers and does nothing.
+  useEffect(() => installTemplaterCreationTrigger(), [])
+
   useEffect(() => {
-    if ((shareSlug || conversationShareSlug || isPresenter || memoAlwaysPublic) || status !== 'loading') return
+    if ((shareSlug || conversationShareSlug || collectionSlug || isPresenter || memoAlwaysPublic) || status !== 'loading') return
     requestOfflineWarmup()
-  }, [shareSlug, conversationShareSlug, isPresenter, memoAlwaysPublic, status])
+  }, [shareSlug, conversationShareSlug, collectionSlug, isPresenter, memoAlwaysPublic, status])
 
   useEffect(() => {
     if (shareSlug || conversationShareSlug || isPresenter || memoAlwaysPublic || status !== 'loading') dismissBootScreen()
@@ -159,12 +185,12 @@ export function App() {
     )
   }
 
-  if (shareSlug || conversationShareSlug) {
+  if (shareSlug || conversationShareSlug || collectionSlug) {
     return (
       <>
         <ErrorBoundary>
           <Suspense fallback={<PageFallback />}>
-            {shareSlug ? <SharePage slug={shareSlug} /> : <ConversationSharePage slug={conversationShareSlug!} />}
+            {shareSlug ? <SharePage slug={shareSlug} /> : conversationShareSlug ? <ConversationSharePage slug={conversationShareSlug}/> : <CollectionPage slug={collectionSlug!}/>}
           </Suspense>
         </ErrorBoundary>
         <Toaster />
@@ -213,6 +239,7 @@ export function App() {
       {status === 'authed' && <ShowOverlay />}
       {status === 'authed' && <LightboxLayer />}
       {status === 'authed' && <AttachmentHubLayer />}
+      {status === 'authed' && <SettingsLayer />}
       {status === 'authed' && <SlotFillLayer />}
       {status === 'authed' && <DecorationLayer />}
       <Toaster />
@@ -352,6 +379,13 @@ function LightboxLayer() {
  * and the `key` is what keeps one application's filters and selection from being read as the next
  * one's when the hub is opened again somewhere else.
  */
+function SettingsLayer() {
+  const panel = useUi((s) => s.panel)
+  const closePanel = useUi((s) => s.closePanel)
+  const userId = useSession((s) => s.user?.id)
+  return panel === 'settings' && <Suspense fallback={null}><SettingsPanel key={userId} onClose={closePanel} /></Suspense>
+}
+
 function AttachmentHubLayer() {
   const scope = useUi((s) => s.attachmentHub)
   const setAttachmentHub = useUi((s) => s.setAttachmentHub)

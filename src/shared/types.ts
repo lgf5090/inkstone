@@ -396,6 +396,11 @@ export interface BackupSettings {
   schedule: BackupSchedule
   retentionCount: number
 }
+
+export interface EmailBackupSettings {
+  enabled: boolean
+  includeAttachments: boolean
+}
 export interface SyncSettings {
   realtime: boolean
   pollIntervalMs: number
@@ -526,6 +531,76 @@ export interface SearchSettings {
   indexStorageMb: number
 }
 
+/** Which parts of a template function's documentation the completion popup shows. Upstream numbers these `0`–`4`. */
+export type TemplaterIntellisenseRender = '0' | '1' | '2' | '3' | '4'
+
+/** How a template is picked for a note the reader just created. `none` never applies one. */
+export type TemplaterFileCreationMode = 'none' | 'folder' | 'regex'
+
+/** Whether a community template may carry a user script that runs, or only one that is read. */
+export type TemplaterScriptPolicy = 'readonly' | 'trusted'
+
+/** One folder rule: a new note filed here gets this template applied. */
+export interface TemplaterFolderTrigger {
+  /** `null` is the tree root, which is a folder the reader can pick. */
+  folderId: string | null
+  templateId: string
+}
+
+/** One pattern rule: a new note whose path matches this regex gets this template applied. */
+export interface TemplaterFileTrigger {
+  regex: string
+  templateId: string
+}
+
+/**
+ * The chords a reader bound to one template, and what each chord does.
+ *
+ * `combo` is `null` rather than absent or empty because the settings screen shows one row per template:
+ * a row that exists but has no chord yet is a state the reader is in the middle of, not a different shape.
+ */
+export interface TemplaterHotkey {
+  templateId: string
+  combo: string | null
+  insert: boolean
+  create: boolean
+}
+
+/**
+ * The templater section.
+ *
+ * What a reader *runs* is not here: templates are rows in the template library, like RSS feeds are rows in
+ * their own library. This section carries the switches, the trigger lists and the chords — the small,
+ * always-needed part — because the whole blob is read on every start and written as one request.
+ *
+ * Two upstream settings are deliberately missing: the dangerous ones that decide *whether a template runs at
+ * all* on this device (`triggerOnFileCreation`, `enableStartupTemplates`) live in
+ * `client/lib/templater/device-prefs.ts` instead, so a reader's phone cannot start executing templates on
+ * their desktop just because they enabled it there once.
+ */
+export interface TemplaterSettings {
+  syntaxHighlighting: boolean
+  /** Mobile gets its own switch because upstream found the decorations costly on a small screen. */
+  syntaxHighlightingMobile: boolean
+  /** After a run, jump straight to the first `tp.file.cursor()` spot without waiting for the command. */
+  autoJumpToCursor: boolean
+  /** After creating a note from a template, focus the body rather than the title field. */
+  jumpToContentAfterCreate: boolean
+  intellisenseRender: TemplaterIntellisenseRender
+  fileCreationMode: TemplaterFileCreationMode
+  folderTemplates: TemplaterFolderTrigger[]
+  fileTemplates: TemplaterFileTrigger[]
+  /** Folders whose new notes are never triggered on, whatever the mode says. */
+  ignoreFoldersOnCreation: string[]
+  startupTemplates: string[]
+  templateHotkeys: TemplaterHotkey[]
+  /** The folder user scripts are read from; `null` is "no scripts", and the empty string normalises to it. */
+  userScriptsFolderId: string | null
+  communityScriptPolicy: TemplaterScriptPolicy
+  /** The reader's switch for `tp.web.*`. Off means a template's web calls are refused, not proxied. */
+  webRequestsEnabled: boolean
+}
+
 export interface UserSettings {
   appearance: AppearanceSettings
   /** The markdown linter: which rules are on, what each one wants, and what to leave alone. */
@@ -534,12 +609,14 @@ export interface UserSettings {
   preview: PreviewSettings
   properties: PropertySettings
   backup: BackupSettings
+  emailBackup: EmailBackupSettings
   sync: SyncSettings
   notes: NotesSettings
   search: SearchSettings
   dataview: DataviewSettings
   tasks: TasksSettings
   rss: RssSettings
+  templater: TemplaterSettings
   todo: TodoSettings
 }
 
@@ -1199,11 +1276,21 @@ export interface ShareInfo {
   expiresAt: number | null
   views: number
   createdAt: number
+  /** Whether the link answers a reader. A paused link exists, keeps its address, and serves a 410. */
+  isEnabled: boolean
+  /** When a reader last opened the link, or null for a link nobody has ever reached. */
+  lastViewedAt: number | null
+  /** The share's own organizer folder, not the note's — see `@shared/share-selection`. */
+  folderId: string | null
+  /** The share's own tag names, as stored on the row. */
+  tags: string[]
 }
 
 export interface ShareListItem extends ShareInfo {
   noteTitle: string
   deletedAt: number | null
+  isPinned: boolean
+  isStarred: boolean
 }
 
 export interface PublicNote {
@@ -1252,6 +1339,12 @@ export interface ImportResult {
   createdAttachments: number
   skippedAttachments: number
   warnings: string[]
+  emailAccounts?: number
+  emailMessages?: number
+  emailCreatedMessages?: number
+  emailSkippedMessages?: number
+  emailAttachments?: number
+  emailMissingAttachments?: number
 }
 
 
@@ -1265,6 +1358,7 @@ export interface McpPreferences {
    * default the column carries, so a reader who has never seen the switch keeps what keys already had.
    */
   todoReadEnabled?: boolean
+  emailEnabled?: boolean
   /**
    * The server's own tools the reader has switched off, by the name the server registers them under.
    *
@@ -1383,3 +1477,31 @@ export type ApiErrorCode =
   | 'two_factor_not_enabled'
   | 'two_factor_setup_expired'
   | 'two_factor_unavailable'
+  | 'email_account_not_found'
+  | 'email_account_exists'
+  | 'email_address_invalid'
+  | 'email_address_reserved'
+  | 'email_domain_not_allowed'
+  | 'email_forbidden'
+  | 'email_mailbox_unavailable'
+  | 'email_folder_not_found'
+  | 'email_folder_exists'
+  | 'email_folder_reserved'
+  | 'email_folder_not_deletable'
+  | 'email_message_not_found'
+  | 'email_attachment_not_found'
+  | 'email_attachment_locked'
+  | 'email_attachment_too_large'
+  | 'email_settings_invalid'
+  | 'email_draft_invalid'
+  | 'email_send_unavailable'
+  | 'email_send_failed'
+  | 'email_rate_limited'
+  | 'email_quota_exceeded'
+  | 'email_not_in_trash'
+  | 'email_not_retryable'
+  | 'email_auto_draft_unavailable'
+  | 'email_export_too_large'
+  | 'email_backup_no_target'
+  | 'email_contact_exists'
+  | 'email_group_exists'

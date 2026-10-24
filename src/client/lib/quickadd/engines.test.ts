@@ -6,7 +6,7 @@ import { initI18n, t } from '../../lib/i18n'
 import { executeUserCode } from '../../features/preview/js-runner-core'
 import type { JsRunOutcome } from '../../features/preview/js-runner-core'
 import type { PromptAnswer, PromptRequest } from './format'
-import type { NewNoteInput, NotePort, NoteRef, QuickAddEditorOutcome, QuickAddLinkOptions, QuickAddOpenOptions, TemplatePickOption } from './context'
+import type { NewNoteInput, NotePort, NoteRef, QuickAddEditorOutcome, QuickAddLinkOptions, QuickAddOpenOptions, TemplatePickOption, TemplaterRenderRequest } from './context'
 import type { RunOptions } from './session'
 import { isTargetFilterSyntax, parseTargetFilter, targetScope, titleSuggestions } from './context'
 import { runCaptureChoice } from './capture'
@@ -115,6 +115,8 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
     { id: 'tpl-cleared', name: 'Cleared', category: null },
   ]
   let activeId: string | null = null
+  /** Every engine render this run asked for, in order. The default answer is `not-templater`; a test that wants a rendered body overrides `port.renderTemplater`. */
+  const templaterRenders: TemplaterRenderRequest[] = []
   const merged: Partial<QuickAddSettings> = { ...defaultQuickAddSettings(), ...settings }
 
   const port: NotePort = {
@@ -151,6 +153,10 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
         : name === 'tpl-marked' ? 'Hi{{CURSOR}}there\n'
           : name === 'tpl-space' ? '　'
           : name === 'tpl-cleared' ? '' : null),
+    renderTemplater: async (request) => {
+      templaterRenders.push(request)
+      return { kind: 'not-templater' }
+    },
     templateNames: () => ['Daily', 'Cleared'],
     templatesForPick: (categoryId) => picks.filter((entry) => !categoryId || entry.category === categoryId),
     fieldValues: async () => [],
@@ -218,6 +224,7 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
       if (note) note.tags = tags
     },
     created,
+    templaterRenders,
     copied,
     commands,
     picks,
@@ -1225,6 +1232,83 @@ describe('filtering the notes a capture can go into', () => {
   })
 })
 
+
+describe('a Template choice whose body is written in Templater', () => {
+  /** Ask the port for one answer and keep what it was asked for. */
+  function engineAnswers(answer: { kind: 'rendered'; text: string; cursor: number | null } | { kind: 'refused' }) {
+    const asked: TemplaterRenderRequest[] = []
+    return {
+      asked,
+      renderTemplater: async (request: TemplaterRenderRequest) => {
+        asked.push(request)
+        return answer
+      },
+    }
+  }
+
+  it('writes what the engine answered, and not the tag the body was spelled in', async () => {
+    const fake = harness({})
+    const engine = engineAnswers({ kind: 'rendered', text: 'Rendered for 2026-10-08', cursor: 3 })
+    fake.port.renderTemplater = engine.renderTemplater
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Engine note', 0),
+      templateId: 'tpl-daily',
+      nameFormat: { enabled: true, format: 'Engine note' },
+      folderMode: 'fixed' as const,
+      folderPath: 'Journal',
+    }
+    const status = await runTemplateChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    expect(fake.created[0].content, 'a literal `<% … %>` in the note is the failure this exists to stop')
+      .toBe('Rendered for 2026-10-08')
+    expect(fake.created[0].cursor, 'the caret the engine found travels to the create').toBe(3)
+    expect(engine.asked).toEqual([{ templateId: 'tpl-daily', title: 'Engine note', noteId: null }])
+  })
+
+  it('lands the engine’s text in the note the reader is looking at', async () => {
+    const fake = harness({ Here: '# Title\n' })
+    fake.setActive('Here')
+    fake.port.renderTemplater = engineAnswers({ kind: 'rendered', text: 'appended\n', cursor: null }).renderTemplater
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Insert engine', 0),
+      templateId: 'tpl-daily',
+      mode: 'insert-here' as const,
+    }
+    const status = await runTemplateChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    expect(fake.content('Here')).toContain('appended')
+    expect(fake.content('Here'), 'the body is QuickAdd’s to place, and the engine’s to produce').not.toContain('<%')
+  })
+
+  it('stops without a second sentence when the engine refused', async () => {
+    const fake = harness({})
+    fake.port.renderTemplater = engineAnswers({ kind: 'refused' }).renderTemplater
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Refused note', 0),
+      templateId: 'tpl-daily',
+      nameFormat: { enabled: true, format: 'Refused note' },
+    }
+    const status = await runTemplateChoice(choice, fake.port)
+    // The engine has already named what it refused, in its own words; a QuickAdd failure line on top of that
+    // would be two explanations of one event, and the less accurate one.
+    expect(status.kind).toBe('cancelled')
+    expect(fake.created).toEqual([])
+  })
+
+  it('leaves an older `{{ … }}` body with the formatter that owns it', async () => {
+    const fake = harness({})
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Daily', 0),
+      templateId: 'tpl-daily',
+      nameFormat: { enabled: true, format: '{{DATE:YYYY-MM-DD}}' },
+      folderMode: 'fixed' as const,
+      folderPath: 'Journal',
+    }
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.created[0].content).toBe('Daily body')
+    expect(fake.templaterRenders, 'one seam answers which syntax a body is written in').toHaveLength(1)
+  })
+})
 
 describe('creating a note from a template', () => {
   it('creates a note named by the format, in the configured folder', async () => {

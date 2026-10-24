@@ -1102,6 +1102,10 @@ export function createDemoBackend(): DemoBackend {
       expiresAt,
       views: existing?.info.views ?? 0,
       createdAt: existing?.info.createdAt ?? Date.now(),
+      isEnabled: existing?.info.isEnabled ?? true,
+      lastViewedAt: existing?.info.lastViewedAt ?? null,
+      folderId: existing?.info.folderId ?? null,
+      tags: existing?.info.tags ?? [],
     }
     state.shares.set(noteId, { info, password })
     return c.json({ share: absoluteShare(info, c.req.url) })
@@ -1347,6 +1351,9 @@ export function createDemoBackend(): DemoBackend {
   })
   app.post('/api/rss/fetch', () => apiError(400, 'bad_request', 'The demo cannot reach other websites'))
   app.get('/api/rss/relay', () => apiError(400, 'bad_request', 'The demo cannot reach other websites'))
+  // The template proxy answers the same refusal shape as the real route, so a template cannot tell the two
+  // deployments apart except by the reason: `{ error: { code, message } }` with a Templater code, 403.
+  app.post('/api/templater/fetch', () => apiError(403, 'web-blocked', 'The demo cannot reach other websites'))
 
   app.all('/api/*', () => apiError(404, 'not_found', 'Demo endpoint not found'))
 

@@ -25,6 +25,7 @@ import { foldersRoutes } from './routes/folders'
 import { tagsRoutes } from './routes/tags'
 import { communityTemplatesRoutes } from './routes/community-templates'
 import { templateLibraryRoutes } from './routes/template-library'
+import { templaterRoutes } from './routes/templater'
 import { quickAddRoutes } from './routes/quickadd'
 import { searchRoutes } from './routes/search'
 import { syncRoutes } from './routes/sync'
@@ -34,6 +35,9 @@ import { avatarRoutes } from './routes/avatars'
 import { backupRoutes } from './routes/backup'
 import { settingsRoutes } from './routes/settings'
 import { conversationSharePageRoutes, shareManageRoutes, sharePageRoutes, shareRoutes } from './routes/share'
+import { shareAnalyticsRoutes } from './routes/share-analytics'
+import { shareOrganizerRoutes } from './routes/share-organizer'
+import { publicCollectionPageRoutes, publicCollectionRoutes, shareCollectionRoutes } from './routes/share-collections'
 import { memosPublicPageRoutes } from './routes/memos-public'
 import { transferRoutes } from './routes/transfer'
 import { updateRoutes } from './routes/update'
@@ -52,6 +56,13 @@ import { todoMailRoutes } from './routes/todo-mail'
 import { todoAttachmentRoutes } from './routes/todo-attachments'
 import { todoImportRoutes } from './routes/todo-import'
 import { todoFeedRoutes } from './routes/todo-feeds'
+import { emailRoutes } from './routes/email'
+import { emailSearchesRoutes } from './routes/email-searches'
+import { emailTemplatesRoutes } from './routes/email-templates'
+import { emailRulesRoutes } from './routes/email-rules'
+import { emailContactsRoutes } from './routes/email-contacts'
+import { emailSendRoutes } from './routes/email-send'
+import { emailScheduleRoutes } from './routes/email-schedule'
 import { subscriptionInboundRoutes } from './routes/subscriptions-inbound'
 import { INBOUND_HOOK_PATH } from '@shared/subscriptions/channels'
 import type { AppBindings } from './env'
@@ -143,6 +154,7 @@ export function createApp() {
   app.route('/api/tags', tagsRoutes)
   app.route('/api/templates/community', communityTemplatesRoutes)
   app.route('/api/templates', templateLibraryRoutes)
+  app.route('/api/templater', templaterRoutes)
   app.route('/api/quickadd', quickAddRoutes)
   app.route('/api/rss', rssRoutes)
   app.route('/api/subscriptions', subscriptionRoutes)
@@ -165,13 +177,27 @@ export function createApp() {
   // paths carry the extra `/attachments` segment, which the task router would never match.
   app.route('/api/todos', todoAttachmentRoutes)
   app.route('/api/todos', todoRoutes)
+  app.route('/api/email', emailSearchesRoutes)
+  app.route('/api/email', emailTemplatesRoutes)
+  app.route('/api/email', emailRulesRoutes)
+  app.route('/api/email', emailScheduleRoutes)
+  app.route('/api/email', emailContactsRoutes)
+  app.route('/api/email', emailSendRoutes)
+  app.route('/api/email', emailRoutes)
   app.route('/api/assistant', assistantRoutes)
   app.route('/api/excalidraw/ai', aiProxyRoutes)
   app.route('/api/excalidraw/library', excalidrawLibraryRoutes)
   app.route('/api/reading', readingRoutes)
   app.route('/api/reader/discovery', readerDiscoveryRoutes)
   app.route('/api/reader', readerLibraryRoutes)
+  // The hub's own routers are claimed before `shareManageRoutes`, which reads any one-segment path
+  // under `/api/share` as a note id: mounted the other way round, `GET /api/share/folders` would be
+  // answered as "the share of a note called folders" rather than as the folder list.
+  app.route('/api/share', shareAnalyticsRoutes)
+  app.route('/api/share', shareOrganizerRoutes)
+  app.route('/api/share', shareCollectionRoutes)
   app.route('/api/share', shareManageRoutes)
+  app.route('/api/public', publicCollectionRoutes)
   app.route('/api/public', shareRoutes)
   app.route('/api', transferRoutes)
 
@@ -185,6 +211,7 @@ export function createApp() {
 
   app.route('/s', sharePageRoutes)
   app.route('/c', conversationSharePageRoutes)
+  app.route('/collections', publicCollectionPageRoutes)
   app.route('/feeds', todoFeedRoutes)
   app.route('/memos', memosPublicPageRoutes)
   app.route('/', mcpAuthorizeRoutes)

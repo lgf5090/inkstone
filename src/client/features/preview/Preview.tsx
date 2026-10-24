@@ -17,6 +17,7 @@ import { decodeDataValue } from '../../lib/markdown/data-attr'
 import { parseWikiTarget, renderMarkdown, type Heading } from '../../lib/markdown/renderer'
 import { useEmojiUnicodeVersion } from '../../lib/emoji-unicode'
 import { resolveNoteEmbeds } from '../../lib/markdown/embeds'
+import { hasDynamicCommand } from '../../lib/templater/detection'
 import { t, useLocale } from '../../lib/i18n'
 import { slugifyHeading } from '@shared/markdown-utils'
 import {
@@ -350,6 +351,23 @@ export const Preview = memo(function Preview({
       // is a store read that may still be arriving; the guard in `patchChildren` above is what lets the
       // next keystroke keep whatever was already drawn.
       if (hostRef.current) mountDataview(hostRef.current, { originNoteId: sourceNoteId ?? null, editable: false })
+      // `<%+ … %>` is the one syntax a note can ask its own preview to run, and this is the only surface that
+      // lets it: the share page, an export, a hover card and a chat answer never reach here, so the same text
+      // stays source there. Gated on the markup having moved, because the answers already in the DOM are the
+      // cache — and on the source mentioning the syntax, so an ordinary note never loads the module at all.
+      if (markupMoved && hostRef.current && hasDynamicCommand(debounced)) {
+        const row = sourceNoteId ? useNotes.getState().notes[sourceNoteId] : undefined
+        if (row) {
+          const host = hostRef.current
+          // The body the reader is looking at, not the one on the server: a run reads the note as rendered.
+          const file = { ...row, content: debounced }
+          void import('../templater/dynamic-commands')
+            .then((module) => module.processDynamicCommands(host, file))
+            .catch((error: unknown) => {
+              console.warn('[templater] the preview could not run its dynamic commands', error)
+            })
+        }
+      }
     }
     void prepare()
 

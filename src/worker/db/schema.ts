@@ -29,6 +29,18 @@ import {
   MEMOS_REQUIRED_TABLES,
   MEMOS_SCHEMA_STATEMENTS,
 } from '../memos/schema'
+import {
+  SHARE_HUB_REQUIRED_COLUMNS,
+  SHARE_HUB_REQUIRED_INDEXES,
+  SHARE_HUB_REQUIRED_TABLES,
+  SHARE_HUB_SCHEMA_STATEMENTS,
+} from '../share/hub-schema'
+import {
+  EMAIL_REQUIRED_COLUMNS,
+  EMAIL_REQUIRED_INDEXES,
+  EMAIL_REQUIRED_TABLES,
+  EMAIL_SCHEMA_STATEMENTS,
+} from '../email/schema'
 
 const BACKUP_ARCHIVES_TABLE = `CREATE TABLE IF NOT EXISTS backup_archives (
   user_id TEXT NOT NULL,
@@ -368,13 +380,24 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     slug TEXT PRIMARY KEY,
     note_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
+    folder_id TEXT,
+    tags TEXT NOT NULL DEFAULT '[]',
     password_hash TEXT,
     expires_at INTEGER,
     views INTEGER NOT NULL DEFAULT 0,
+    is_enabled INTEGER NOT NULL DEFAULT 1,
+    last_viewed_at INTEGER,
     created_at INTEGER NOT NULL
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_shares_note ON shares(note_id)`,
   `CREATE INDEX IF NOT EXISTS idx_shares_user_created ON shares(user_id, created_at DESC, slug DESC)`,
+  // The hub's list is always one account's shares narrowed by a status and, from the sidebar, by a
+  // folder — so the two columns every query filters on lead the index, with the listing's own order
+  // last so a plain "all my links, newest first" walk needs no sort.
+  `CREATE INDEX IF NOT EXISTS idx_shares_user_enabled_folder
+     ON shares(user_id, is_enabled, folder_id, created_at DESC, slug DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_shares_user_expires
+     ON shares(user_id, expires_at)`,
 
   `CREATE TABLE IF NOT EXISTS share_asset_sessions (
     id TEXT PRIMARY KEY,
@@ -408,6 +431,9 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_share_presence_user ON share_presence(user_id)`,
   `CREATE INDEX IF NOT EXISTS idx_share_presence_expiry ON share_presence(expires_at)`,
+
+  ...SHARE_HUB_SCHEMA_STATEMENTS,
+
 
   `CREATE TABLE IF NOT EXISTS changes (
     seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -479,6 +505,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     write_enabled INTEGER NOT NULL DEFAULT 1 CHECK (write_enabled IN (0, 1)),
     trash_enabled INTEGER NOT NULL DEFAULT 0 CHECK (trash_enabled IN (0, 1)),
     todo_read_enabled INTEGER NOT NULL DEFAULT 1,
+    email_enabled INTEGER NOT NULL DEFAULT 0,
     disabled_tools TEXT NOT NULL DEFAULT '[]',
     updated_at INTEGER NOT NULL
   )`,
@@ -571,6 +598,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   ...TODOS_SCHEMA_STATEMENTS,
   ...SUBSCRIPTIONS_SCHEMA_STATEMENTS,
   ...MEMOS_SCHEMA_STATEMENTS,
+  ...EMAIL_SCHEMA_STATEMENTS,
 ]
 
 export interface SchemaMigration {
@@ -2293,6 +2321,56 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     ],
   },
   {
+    // The four columns the hub filters and files shares by, one version each so a database that
+    // died halfway through the feature resumes at the column it did not get rather than at the
+    // start of a bundle whose earlier halves `skipIfColumnExists` would have to guess about.
+    //
+    // `is_enabled` is `NOT NULL DEFAULT 1` and the payload reads it as `!== 0`, which makes "the
+    // link answers a reader" one value rather than a value plus a missing case — the ALTER fills
+    // existing rows with 1, so a share that predates the hub is live, exactly as it was.
+    version: 148,
+    skipIfColumnExists: { table: 'shares', column: 'folder_id' },
+    statements: [
+      `ALTER TABLE shares ADD COLUMN folder_id TEXT`,
+    ],
+  },
+  {
+    version: 149,
+    skipIfColumnExists: { table: 'shares', column: 'tags' },
+    statements: [
+      `ALTER TABLE shares ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
+  {
+    version: 150,
+    skipIfColumnExists: { table: 'shares', column: 'is_enabled' },
+    statements: [
+      `ALTER TABLE shares ADD COLUMN is_enabled INTEGER NOT NULL DEFAULT 1`,
+    ],
+  },
+  {
+    // Deliberately not backfilled from `shares.views`: the counter says a link *was* read but not
+    // when, and a wrong timestamp would make a genuinely stale link look freshly opened. A null
+    // reads as "this link predates the log", which the stale report already has to answer for.
+    version: 151,
+    skipIfColumnExists: { table: 'shares', column: 'last_viewed_at' },
+    statements: [
+      `ALTER TABLE shares ADD COLUMN last_viewed_at INTEGER`,
+    ],
+  },
+  {
+    version: 152,
+    statements: [
+      ...SHARE_HUB_SCHEMA_STATEMENTS,
+      // The hub's two list-shaped indexes, after the columns above exist on a migrated database.
+      // Both are `IF NOT EXISTS`, so a fresh install that already carries them from the table
+      // declaration simply finds them there.
+      `CREATE INDEX IF NOT EXISTS idx_shares_user_enabled_folder
+         ON shares(user_id, is_enabled, folder_id, created_at DESC, slug DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_shares_user_expires ON shares(user_id, expires_at)`,
+    ],
+  },
+  {
     // How long a task's reader expects it to take, in milliseconds.
     //
     // Nullable on purpose: "nobody estimated" and "the estimate is zero" are different answers, and
@@ -2300,7 +2378,7 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     // database; this version is what an older one gains it under. `todos_time_entries` itself needs
     // no number — tables are built before the ledger is consulted, the same way `todos_task_events`
     // arrived without one.
-    version: 148,
+    version: 153,
     skipIfColumnExists: { table: 'todos_tasks', column: 'time_estimate_ms' },
     statements: [
       `ALTER TABLE todos_tasks ADD COLUMN time_estimate_ms INTEGER`,
@@ -2313,7 +2391,7 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     // that is neither owed (so it leaves today, the badges, the board and the calendar) nor gone (so its
     // hours stay in the statistics and its record stays in the completed list). Nullable, because every
     // row written before this line is, correctly, not put away.
-    version: 149,
+    version: 154,
     skipIfColumnExists: { table: 'todos_tasks', column: 'archived_at' },
     statements: [
       `ALTER TABLE todos_tasks ADD COLUMN archived_at INTEGER`,
@@ -2325,8 +2403,8 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     // `todos_reminders` (one row per instant, `fired_at` as the delivery mark) superseded both: no code
     // has read or written `remind_at` / `reminded_at` since, `migrateTaskReminders` empties whatever a
     // database still holds into the table, and five reminders per task cannot fit in one column at all.
-    // Versions 148–154 stay reserved for the time-and-planning round this pair has nothing to do with,
-    // so the number spent here is 155.
+    // This round of the to-do app lives at 153, 154 and here: 148 to 152 were reached first by the
+    // share hub on the branch this one merged, and a migration number is a promise to every database.
     //
     // Three statements, in this order, in one batch:
     //  - SQLite refuses `DROP COLUMN` for a column an index still names, so the partial index over
@@ -2343,6 +2421,62 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `DROP INDEX IF EXISTS idx_todos_tasks_remind`,
       `ALTER TABLE todos_tasks DROP COLUMN remind_at`,
       `ALTER TABLE todos_tasks DROP COLUMN reminded_at`,
+    ],
+  },
+  {
+    version: 156,
+    skipIfColumnExists: { table: 'mcp_preferences', column: 'email_enabled' },
+    statements: [
+      `ALTER TABLE mcp_preferences ADD COLUMN email_enabled INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    version: 157,
+    skipIfColumnExists: { table: 'email_contacts', column: 'pinned' },
+    statements: [
+      `ALTER TABLE email_contacts ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    version: 158,
+    skipIfColumnExists: { table: 'email_contacts', column: 'avatar' },
+    statements: [
+      `ALTER TABLE email_contacts ADD COLUMN avatar TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
+  {
+    version: 159,
+    skipIfColumnExists: { table: 'email_groups', column: 'starred' },
+    statements: [
+      `ALTER TABLE email_groups ADD COLUMN starred INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    version: 160,
+    skipIfColumnExists: { table: 'email_groups', column: 'pinned' },
+    statements: [
+      `ALTER TABLE email_groups ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    version: 161,
+    skipIfColumnExists: { table: 'email_groups', column: 'avatar' },
+    statements: [
+      `ALTER TABLE email_groups ADD COLUMN avatar TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
+  {
+    version: 162,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS email_deployment_settings (
+        id TEXT PRIMARY KEY,
+        domains TEXT NOT NULL DEFAULT '[]',
+        provider TEXT NOT NULL DEFAULT 'cloudflare',
+        resend_from TEXT NOT NULL DEFAULT '',
+        resend_key_ciphertext TEXT NOT NULL DEFAULT '',
+        resend_key_hint TEXT NOT NULL DEFAULT '',
+        updated_at INTEGER NOT NULL
+      )`,
     ],
   },
 ]
@@ -2382,7 +2516,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   backup_targets: ['id', 'user_id', 'type', 'name', 'enabled', 'config', 'secret', 'last_run_at', 'last_status', 'last_error', 'created_at', 'updated_at'],
   backup_archives: ['user_id', 'target_id', 'destination', 'archive_path', 'created_at'],
   backup_runs: ['id', 'user_id', 'trigger', 'status', 'started_at', 'finished_at', 'note_count', 'file_count', 'bytes', 'detail'],
-  shares: ['slug', 'note_id', 'user_id', 'password_hash', 'expires_at', 'views', 'created_at'],
+  shares: ['slug', 'note_id', 'user_id', 'folder_id', 'tags', 'password_hash', 'expires_at', 'views', 'is_enabled', 'last_viewed_at', 'created_at'],
   share_asset_sessions: ['id', 'slug', 'password_hash', 'expires_at', 'created_at'],
   changes: ['seq', 'user_id', 'entity', 'entity_id', 'op', 'at'],
   sessions: ['id', 'user_id', 'expires_at', 'created_at'],
@@ -2390,7 +2524,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   totp_credentials: ['user_id', 'secret_ciphertext', 'enabled_at', 'pending_token_hash', 'pending_session_id', 'pending_expires_at', 'recovery_generation', 'last_used_step', 'last_used_by', 'created_at', 'updated_at'],
   totp_recovery_codes: ['user_id', 'code_hash', 'generation', 'created_at', 'used_at', 'used_by'],
   totp_login_challenges: ['id', 'user_id', 'expires_at', 'claimed_by', 'created_at'],
-  mcp_preferences: ['user_id', 'write_enabled', 'trash_enabled', 'todo_read_enabled', 'disabled_tools', 'updated_at'],
+  mcp_preferences: ['user_id', 'write_enabled', 'trash_enabled', 'todo_read_enabled', 'email_enabled', 'disabled_tools', 'updated_at'],
   mcp_operations: ['user_id', 'operation_id', 'tool', 'request_hash', 'response_json', 'created_at'],
   mcp_api_keys: ['id', 'user_id', 'name', 'key_hash', 'scopes', 'created_at', 'last_used_at', 'revoked_at'],
   ai_note_embeddings: ['user_id', 'note_id', 'model', 'vector', 'indexed_at', 'norm'],
@@ -2407,6 +2541,8 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   ...TODOS_REQUIRED_COLUMNS,
   ...SUBSCRIPTIONS_REQUIRED_COLUMNS,
   ...MEMOS_REQUIRED_COLUMNS,
+  ...SHARE_HUB_REQUIRED_COLUMNS,
+  ...EMAIL_REQUIRED_COLUMNS,
 } as const
 
 export const REQUIRED_TABLES = [
@@ -2461,6 +2597,8 @@ export const REQUIRED_TABLES = [
   ...TODOS_REQUIRED_TABLES,
   ...SUBSCRIPTIONS_REQUIRED_TABLES,
   ...MEMOS_REQUIRED_TABLES,
+  ...SHARE_HUB_REQUIRED_TABLES,
+  ...EMAIL_REQUIRED_TABLES,
 ] as const
 
 export const REQUIRED_INDEXES = [
@@ -2501,6 +2639,8 @@ export const REQUIRED_INDEXES = [
   'idx_runs_user',
   'idx_shares_note',
   'idx_shares_user_created',
+  'idx_shares_user_enabled_folder',
+  'idx_shares_user_expires',
   'idx_share_asset_sessions_slug',
   'idx_share_asset_sessions_expires',
   'idx_changes_user',
@@ -2528,6 +2668,8 @@ export const REQUIRED_INDEXES = [
   ...TODOS_REQUIRED_INDEXES,
   ...SUBSCRIPTIONS_REQUIRED_INDEXES,
   ...MEMOS_REQUIRED_INDEXES,
+  ...SHARE_HUB_REQUIRED_INDEXES,
+  ...EMAIL_REQUIRED_INDEXES,
 ] as const
 
 

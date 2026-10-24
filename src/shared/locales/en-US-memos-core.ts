@@ -192,6 +192,8 @@ export const EN_US_MEMOS_CORE = {
     "memos.relations.empty": "No references.",
     "memos.relations.error": "References could not be loaded.",
     "memos.detail.title": "Memo",
+    "memos.resize_sidebar": "Resize memos sidebar",
+    "memos.resize_detail": "Resize memo details",
     "memos.detail.outline": "Outline",
     "memos.detail.back": "Back to memos",
     "memos.detail.error": "This memo could not be loaded.",

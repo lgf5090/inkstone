@@ -20,6 +20,8 @@ Please avoid accessing data that is not yours, degrading a production service, o
 
 Inkstone is self-hosted software, not a hosted service. Deployment owners are responsible for their Cloudflare account, custom domains, access policies, backup destinations, and timely updates. Inkstone does not provide a password-reset bypass; losing the owner password requires restoring from a trusted backup or reinitializing the instance.
 
+The email app is owner-only: member sessions are refused by every mailbox route, attachment route, assistant email tool and MCP email scope. Inbound mail is matched to the exact recipient address recorded for a mailbox, and unknown recipients are dropped. Message bodies render in a sandboxed iframe without `allow-same-origin`, so received HTML cannot read the page's DOM or session. Attachment bytes are served only through the mailbox's own owner-checked route, never the shared note-file route. Automatic drafts are enabled per mailbox by default and send the incoming message to the AI provider the assistant is configured with; turn them off in the mailbox settings when that is not acceptable. MCP access to email is off until the owner enables it, and sending through MCP requires an explicit `confirm: true` per call.
+
 
 ## Reviewed code-execution exception
 
@@ -144,12 +146,19 @@ entry here before it merges.
   Cloudflare edge injects and clients cannot spoof there. Behind any non-Cloudflare
   proxy all users collapse into one bucket; deploy on Cloudflare or accept
   shared-bucket throttling.
-- **CSP.** `script-src 'self' https://static.cloudflareinsights.com` (no inline
+- **CSP.** `script-src 'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com` (no inline
   scripts) and `form-action 'self'`. The Insights host is named because a zone with
   Web Analytics switched on gets the beacon `<script>` appended to every HTML
   response by Cloudflare's own edge, and `connect-src` names
   `https://cloudflareinsights.com` for the report it posts when the injected config
-  carries no version. If you add inline scripts to `index.html`, you must update the
+  carries no version. `'wasm-unsafe-eval'` is there for one reason: note templates
+  execute inside QuickJS, which is a WebAssembly module, and the browser refuses to
+  compile one without it. It authorises compiling wasm and nothing else — `eval` and
+  `new Function` remain refused, so template code still cannot reach the page's
+  interpreter. Do not widen this to `'unsafe-eval'`: that would hand every note the
+  ability to run arbitrary code in the page origin while the templates would keep
+  working, so nothing downstream would notice. If you add inline scripts to
+  `index.html`, you must update the
   policy. The only exception is a development build (`npm run dev`), which adds
   `'unsafe-inline'` to `script-src` for the HTML document so Vite's React refresh
   bootstrap can run; the flag folds to `false` in every deployed bundle, and API

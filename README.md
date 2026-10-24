@@ -11,7 +11,7 @@
 <p align="center">
   <a href="./README_ZH.md">中文</a> ·
   <a href="./CONTRIBUTING.md">Contributing</a> ·
-  <a href="./LICENSE">LGPL-3.0-only</a> ·
+  <a href="./LICENSE">AGPL-3.0-only</a> ·
   <a href="https://inkstone-demo.pages.dev/">Demo</a>
 </p>
 
@@ -33,10 +33,40 @@ Every new account automatically receives two standard starter notes, one in Chin
 | Search | D1 FTS5 **full-text search** with Chinese indexing, filters, recent notes, command-palette navigation, and optional private **semantic/hybrid search** powered by Workers AI |
 | **MCP** | Private remote MCP, OAuth 2.1 with PKCE, revocable `ink_...` API keys, standard `search`/`fetch`, bounded reads, revision-safe writes, separate trash permission, and per-account grant management |
 | Reliability | Installable PWA, offline app launch, browser-side cache, **offline write queue and optimistic concurrency control**, immediate local mutations with rollback, stale-sync protection, conflict copies, realtime notifications, and elected-tab polling fallback |
+| Email | Owner-only mailbox after the to-do app: nested folders and tags, threads, read-state filters and search with saved searches, sidebar contacts and groups with custom icons, stars, pins and related mail, a 30-day trash, batch actions, snooze, scheduled send with undo, rules, blocked senders, templates, signatures, vacation replies, a focused inbox, a Markdown composer that reuses the notebook's formatting toolbar, inline images, attachments through the shared attachment hub, an email-aware assistant that can inspect and change every part of the mailbox (sending, scheduling, and permanent deletion wait for one approval), an in-place mailbox manager with settings, rules, templates and statistics as overlays, resizable sidebar and list panes, and opt-in MCP email tools |
 | Sharing | Public note links with optional access passwords and expiration dates |
 | Portability | JSON and ZIP exports, directly readable **Markdown**, attachment export, and **manual or scheduled WebDAV/S3 backups** |
 | Interface | **Desktop and mobile layouts**, **dark/light themes**, accent colors, Simplified Chinese, English, and owner-only update notifications |
 | Queries | **Dataview** `dataview` / `dataviewjs` blocks with DQL and inline fields, and **Tasks** `tasks` blocks that query every checkbox in the vault, group and sort the results, and tick or edit them from the list |
+| Templates | A **Templater engine** that runs `<% … %>` inside a QuickJS sandbox, the `tp.*` modules, user scripts, dynamic `<%+ … %>` commands in preview, per-template hotkeys, folder and pattern triggers, startup templates, an in-app syntax reference, and a shared gallery with its own read-only posture |
+
+## Template engine
+
+A template is code. `<% … %>` runs in QuickJS WebAssembly inside a module worker under a time and memory
+budget, and every note it reads, writes or creates, every prompt it asks and every address it reaches goes
+back through the page's one capability check.
+
+````markdown
+---
+title: <% tp.file.title %>
+day: <% tp.date.now("YYYY-MM-DD") %>
+---
+
+<%*
+const steps = ['write the goal down', 'split it into three']
+tR += steps.map((one, i) => `- [ ] ${i + 1}. ${one}`).join('\n')
+%>
+````
+
+Three choices are deliberate rather than incidental:
+
+- A template from the shared gallery does not run where it stands. The default asks you to add it to your
+  own library first, which is the step where you read it; letting it run directly is a setting you confirm,
+  and even then a gallery body runs read-only — it may read the note it is applied to and nothing else.
+- Publishing a body that runs code asks you to acknowledge that it does, because you are the only person
+  who can say what it will do on somebody else's device.
+- Highlighting, hotkeys, startup templates and user scripts are switched on **per device** and never travel
+  with the account, so signing in on another machine cannot start running code there.
 
 ## Task queries
 
@@ -88,6 +118,9 @@ this occurrence and writes the next one, stamped with the dates the rule produce
 | Workers AI `AI` binding | Optional embedding generation for semantic search; unavailable deployments continue to use lexical search |
 | QuickJS (WebAssembly) | The interpreter behind the assistant's `code_execute` tool, bundled with the Worker and compiled at deploy time; it has no bindings, no network, no timers and no imports, and is stopped at a deadline the app enforces |
 | Browser IndexedDB | Local cache and pending offline writes |
+| Email D1 tables | Mailbox accounts, automatic-draft jobs, and attachment metadata (`email_*`) |
+| `EmailMailbox` Durable Object | One SQLite mailbox per account: folders, messages, threads, inbound claims, and idempotent send operations |
+| Cloudflare Email Routing / Email Service | Inbound delivery to the Worker and the optional `EMAIL` send binding; the mailbox is owner-only |
 | `SyncHub` Durable Object | Realtime change notifications between active clients |
 | `CredentialVault` Durable Object | Isolated storage for the key used to encrypt backup credentials |
 | WebDAV or S3 storage | User-configured off-site backups |
@@ -139,6 +172,26 @@ this occurrence and writes the next one, stamped with the dates the rule produce
    nothing is sent and nothing is pretended. The devices readers subscribe are kept out of every export
    and backup, because a subscription is the ability to notify that machine.
 
+8. The email app stays hidden until the deployment has a mailbox domain. Enable Email Routing
+   for that domain, point its catch-all or a dedicated address at this Worker, and set the plain
+   variables `MAIL_DOMAIN` (required), `EMAIL_DOMAINS` (optional allow-list), and
+   `EMAIL_ADDRESSES` (optional fixed addresses) in the tracked Wrangler config. The same domains can be
+   added without touching Wrangler from the email app's Deployment & sending page, which the empty
+   mailbox screen links to before the first mailbox exists. The routing target
+   must be the Worker deployed from this project — the `name` in `wrangler.toml`, `inkstone` by
+   default; routing to another email Worker means this app never receives the message. Outbound mail
+   uses the `[[send_email]]` binding unless it is removed, in which case the API answers that sending
+   is unavailable instead of pretending a message left. Only the owner can open the mailbox or call
+   its API. In KV mode there is no R2 bucket, so email attachments are reported as unavailable
+   while text mail still works.
+9. Email is private by default: automatic drafts are on per mailbox and send the incoming message
+   to the AI provider configured for the assistant (turn the switch off in the mailbox settings);
+   the assistant sees an email only while the context chip is attached; MCP access to email is off
+   until the owner enables it in MCP settings, and sending through MCP always needs explicit
+   confirmation. The mail assistant can organize and change mailbox data directly; sending,
+   scheduling, and permanent deletion are proposed for one approval first. Remote images in received
+   mail load by default, which tells the sender the message was opened.
+
 Existing databases are upgraded automatically on startup with idempotent schema changes. Keep a current backup before updating any self-hosted deployment. When a newer stable Inkstone release is available, the owner receives a focused reminder without interrupting regular members.
 
 ## Exports and backups
@@ -148,6 +201,7 @@ Existing databases are upgraded automatically on startup with idempotent schema 
 - Remote backup targets support WebDAV and S3-compatible storage, with duplicate attachment content stored only once inside each snapshot.
 - Large backups can be restored by selecting the backup folder, without loading one complete archive into memory.
 - Multiple targets can be configured and run manually or on a schedule.
+- Email accounts travel in their own archive inside a snapshot, with bodies, folders, flags, and attachment metadata; attachment bytes are excluded by default and can be included per backup target. A single mailbox can be exported from its settings page.
 - Login passwords, active sessions, share passwords, and backup-service credentials are not included in exports.
 
 ## Development and verification
@@ -186,4 +240,6 @@ Read [`SECURITY.md`](./SECURITY.md) before reporting a vulnerability. Developmen
 
 ## License
 
-Inkstone is distributed under the [GNU Lesser General Public License v3.0 only](./LICENSE), using the SPDX identifier `LGPL-3.0-only`.
+Inkstone is distributed under the [GNU Affero General Public License v3.0 only](./LICENSE), using the SPDX identifier `AGPL-3.0-only`.
+
+Because Inkstone is offered as a network service, clause 13 of that license applies to anyone who interacts with it over a network: they must be able to obtain the corresponding source, including any modifications made for that deployment. The reference source is this repository; a self-hosted instance that changes the code has to expose its own corresponding source to its users. See [`NOTICE`](./NOTICE) for the parts of the codebase that are derived from other AGPL-3.0-only projects.

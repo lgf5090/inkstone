@@ -254,9 +254,35 @@ const memoCatalogFiles = {
         [path.join(localeRoot, 'zh-CN-memos-data.ts'), 'ZH_CN_MEMOS_DATA'],
     ],
 };
+const emailCatalogFiles = {
+    en: [
+        [path.join(localeRoot, 'en-US-email-mcp.ts'), 'EN_US_EMAIL_MCP'],
+        [path.join(localeRoot, 'en-US-email-backup.ts'), 'EN_US_EMAIL_BACKUP'],
+        [path.join(localeRoot, 'en-US-email-org.ts'), 'EN_US_EMAIL_ORG'],
+        [path.join(localeRoot, 'en-US-email-contacts.ts'), 'EN_US_EMAIL_CONTACTS'],
+        [path.join(localeRoot, 'en-US-email-stats.ts'), 'EN_US_EMAIL_STATS'],
+        [path.join(localeRoot, 'en-US-email-shortcuts.ts'), 'EN_US_EMAIL_SHORTCUTS'],
+        [path.join(localeRoot, 'en-US-email-compose.ts'), 'EN_US_EMAIL_COMPOSE'],
+        [path.join(localeRoot, 'en-US-email-raw.ts'), 'EN_US_EMAIL_RAW'],
+        [path.join(localeRoot, 'en-US-email-rules.ts'), 'EN_US_EMAIL_RULES'],
+        [path.join(localeRoot, 'en-US-email-templates.ts'), 'EN_US_EMAIL_TEMPLATES'],
+    ],
+    zh: [
+        [path.join(localeRoot, 'zh-CN-email-mcp.ts'), 'ZH_CN_EMAIL_MCP'],
+        [path.join(localeRoot, 'zh-CN-email-backup.ts'), 'ZH_CN_EMAIL_BACKUP'],
+        [path.join(localeRoot, 'zh-CN-email-org.ts'), 'ZH_CN_EMAIL_ORG'],
+        [path.join(localeRoot, 'zh-CN-email-contacts.ts'), 'ZH_CN_EMAIL_CONTACTS'],
+        [path.join(localeRoot, 'zh-CN-email-stats.ts'), 'ZH_CN_EMAIL_STATS'],
+        [path.join(localeRoot, 'zh-CN-email-shortcuts.ts'), 'ZH_CN_EMAIL_SHORTCUTS'],
+        [path.join(localeRoot, 'zh-CN-email-compose.ts'), 'ZH_CN_EMAIL_COMPOSE'],
+        [path.join(localeRoot, 'zh-CN-email-raw.ts'), 'ZH_CN_EMAIL_RAW'],
+        [path.join(localeRoot, 'zh-CN-email-rules.ts'), 'ZH_CN_EMAIL_RULES'],
+        [path.join(localeRoot, 'zh-CN-email-templates.ts'), 'ZH_CN_EMAIL_TEMPLATES'],
+    ],
+};
 const catalogFragments = {
-    en: [noteTemplateBodyFiles.en, ...memoCatalogFiles.en],
-    zh: [noteTemplateBodyFiles.zh, ...memoCatalogFiles.zh],
+    en: [noteTemplateBodyFiles.en, ...memoCatalogFiles.en, ...emailCatalogFiles.en],
+    zh: [noteTemplateBodyFiles.zh, ...memoCatalogFiles.zh, ...emailCatalogFiles.zh],
 };
 // Chinese is legal in a zh locale catalog and nowhere else; every other file is held to English.
 // The subscription notifications are a catalog of their own because the worker writes them and must

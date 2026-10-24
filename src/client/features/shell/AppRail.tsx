@@ -11,10 +11,13 @@ import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { Tooltip } from '../../components/overlay'
 import { navigateToPath, usePathname } from '../../lib/app-history'
+import { useSession } from '../../store/session'
 import { APP_TABS, tabIdForPath, type AppTab } from './app-tabs'
 
 export function AppRail() {
   const activeId = tabIdForPath(usePathname())
+  const role = useSession((state) => state.user?.role)
+  const tabs = APP_TABS.filter((tab) => tab.id !== 'email' || role !== 'member')
   return (
     <nav
       aria-label={t('app.tabs.navigation')}
@@ -24,7 +27,7 @@ export function AppRail() {
       {/* The notebook's mobile shell pads itself below a notch, so the rail's icons stop at the same
           line rather than starting under the status bar. On a desktop the inset is zero. */}
       <div className="no-scrollbar flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto pt-[env(safe-area-inset-top)]">
-        {APP_TABS.map((tab) => (
+        {tabs.map((tab) => (
           <RailTab key={tab.id} tab={tab} active={tab.id === activeId} />
         ))}
       </div>

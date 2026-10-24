@@ -2309,6 +2309,103 @@ tags: [fitness]
 - Sleep:  h
 - Stretching: [ ] 
 `,
+    "template.templater_daily_note.content": `---
+title: <% tp.file.title %>
+created: <% tp.date.now("YYYY-MM-DD") %>
+tags: [daily]
+---
+
+# <% tp.date.now("YYYY-MM-DD") %>
+
+Today's one thing: <% tp.file.cursor(1) %>
+
+A note to myself: <% tp.file.cursor(2) %>
+`,
+    "template.templater_meeting_questions.content": `---
+title: <% tp.file.title %>
+tags: [meeting]
+---
+
+# <% tp.system.prompt("What is the meeting about?", tp.file.title) %>
+
+Attending: <% tp.system.prompt("Who is in the room?") %>
+
+Kind: <% tp.system.suggester(["Discussion", "Decision", "Review"], ["discuss", "decide", "review"]) %>
+
+## What we decided
+
+## Next step
+- [ ] <% tp.file.cursor(1) %>
+`,
+    "template.templater_selection_note.content": `---
+title: <% tp.file.title %>
+---
+
+Selected text: <% tp.file.selection() %>
+
+<%*
+const picked = tp.file.selection()
+if (picked.trim() !== '') {
+  await tp.file.create_new(picked, 'Excerpt - ' + tp.date.now("HH-mm-ss"))
+  tR += 'Saved as a note of its own.'
+} else {
+  tR += 'Nothing was selected, so no note was made.'
+}
+%>
+`,
+    "template.templater_logic_loops.content": `---
+title: <% tp.file.title %>
+---
+
+<%*
+const steps = ['Write the goal down', 'Break it into three', 'Set one review date']
+const lines = []
+for (let i = 0; i < steps.length; i++) lines.push('- [ ] ' + (i + 1) + '. ' + steps[i])
+tR += lines.join('\\n')
+%>
+`,
+    "template.templater_include_snippet.content": `---
+title: <% tp.file.title %>
+---
+
+## This note
+
+<% tp.file.cursor(1) %>
+
+## The part it borrows
+
+Change the link below to any note, or to one heading inside a note: \`[[Source#Section]]\`
+
+<% tp.file.include("[[Source]]") %>
+`,
+    "template.templater_dated_title.content": `---
+title: <% tp.file.title %>
+day: <% tp.date.now("YYYY-MM-DD", 0, tp.file.title, "YYYY-MM-DD") %>
+---
+
+Read from the title, or today if the title is not a date.
+
+Yesterday was <% tp.date.now("YYYY-MM-DD", -1) %>; tomorrow is <% tp.date.now("YYYY-MM-DD", 1) %>.
+`,
+    "template.templater_multi_choice.content": `---
+title: <% tp.file.title %>
+---
+
+<%*
+const chosen = await tp.system.multi_suggester(["Health", "Work", "Study", "Family"], ["health", "work", "study", "family"])
+for (const one of chosen) tR += '- [ ] Follow up on ' + one + '\\n'
+%>
+`,
+    "template.templater_user_script.content": `---
+title: <% tp.file.title %>
+---
+
+A user script is called by the name of the file it lives in, in the script folder you set:
+
+<%* tR += 'This line came from a script, once one is installed.' %>
+
+To try it: set a script folder in the templater settings, put a file named \`greeting.js\` in it that ends with \`module.exports = (name) => "Hello, " + name\`, then call \`tp.user.greeting(tp.file.title)\`.
+`,
 } as const
 
 export type NoteTemplateContentKey = keyof typeof EN_US_NOTE_TEMPLATE_CONTENT

@@ -7,6 +7,7 @@ import { Tooltip } from '../../components/overlay'
 import { t, useLocale } from '../../lib/i18n'
 import { usePinyinVersion } from '../../lib/pinyin'
 import { sortCommunityItems, templateMatchesQuery, type CommunitySort } from './gallery-derived'
+import { templateKinds } from './template-risk'
 import { TemplateTag } from './template-tag'
 
 export function CommunityPanel({ items, query, loading, isError, hasMore, myId, onRefresh, onLoadMore, onUse, onImport, onUnpublish }: {
@@ -96,6 +97,9 @@ function CommunityCard({ item, mine, onUse, onImport, onUnpublish }: {
   onUnpublish: () => void
 }) {
   const locale = useLocale()
+  // The same classifier the library card and the two filters ask, so a gallery badge cannot disagree with
+  // the runs-code list the reader used to find this body in the first place.
+  const kinds = useMemo(() => templateKinds(item.content), [item.content])
   const lineCount = useMemo(
     () => item.content.split('\n').filter((line) => line.trim()).length,
     [item.content],
@@ -107,6 +111,8 @@ function CommunityCard({ item, mine, onUse, onImport, onUnpublish }: {
   return (<div className='group relative flex min-h-33 flex-col rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3.5 transition-[border-color,box-shadow] duration-[var(--dur-fast)] hover:border-[var(--border-strong)] hover:shadow-[var(--shadow-sm)]'>
     <div className='flex min-w-0 items-center gap-1.5'>
       <h3 className='min-w-0 flex-1 truncate text-[length:var(--text-13)] font-semibold tracking-[-0.01em] text-[var(--text-primary)]'>{item.name}</h3>
+      {kinds.templater && <span className='shrink-0 rounded-full bg-[var(--bg-raised)] px-1.5 py-px text-[length:var(--text-10)] font-medium text-[var(--text-tertiary)]'>{t('templater.group')}</span>}
+      {kinds.script && <span className='shrink-0 rounded-full bg-[var(--warning-softer)] px-1.5 py-px text-[length:var(--text-10)] font-medium text-[var(--warning)]'>{t('templates.runs_code')}</span>}
       {mine && <span className='shrink-0 rounded-full bg-[var(--accent-soft)] px-1.5 py-px text-[length:var(--text-10)] font-medium text-[var(--accent-on-soft)]'>{t('templates.community_mine')}</span>}
     </div>
     {item.description && <p className='mt-1.5 line-clamp-2 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]'>{item.description}</p>}

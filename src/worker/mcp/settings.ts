@@ -7,6 +7,10 @@ export const MCP_SCOPES = {
   todoRead: 'todos:read',
   todoWrite: 'todos:write',
   todoDanger: 'todos:danger',
+  emailRead: 'email:read',
+  emailWrite: 'email:write',
+  emailSend: 'email:send',
+  emailTrash: 'email:trash',
 } as const
 
 /**
@@ -35,6 +39,7 @@ export interface McpPreferences {
    * the boot that added the column.
    */
   todoReadEnabled: boolean
+  emailEnabled: boolean
   /**
    * The server's own tools the reader has switched off, by the name the server registers them under.
    *
@@ -49,6 +54,7 @@ interface McpPreferencesRow {
   write_enabled: number
   trash_enabled: number
   todo_read_enabled: number
+  email_enabled: number
   disabled_tools: string
   updated_at: number
 }
@@ -118,7 +124,7 @@ export function isMcpEnabledOnce(db: D1Database): Promise<boolean> {
 
 export async function getMcpPreferences(db: D1Database, userId: string): Promise<McpPreferences> {
   const row = await db.prepare(
-    `SELECT write_enabled, trash_enabled, todo_read_enabled, disabled_tools, updated_at
+    `SELECT write_enabled, trash_enabled, todo_read_enabled, email_enabled, disabled_tools, updated_at
        FROM mcp_preferences WHERE user_id = ?1`,
   )
     .bind(userId)
@@ -153,7 +159,7 @@ export function getMcpPreferencesCached(db: D1Database, userId: string): Promise
 export async function updateMcpPreferences(
   db: D1Database,
   userId: string,
-  patch: Partial<Pick<McpPreferences, 'writeEnabled' | 'trashEnabled' | 'todoReadEnabled' | 'disabledTools'>>,
+  patch: Partial<Pick<McpPreferences, 'writeEnabled' | 'trashEnabled' | 'todoReadEnabled' | 'emailEnabled' | 'disabledTools'>>,
 ): Promise<McpPreferences> {
   const current = await getMcpPreferences(db, userId)
   const next = { ...current, ...patch, updatedAt: Date.now() }
@@ -168,12 +174,13 @@ export async function putMcpPreferences(
 ): Promise<void> {
   await db.prepare(
     `INSERT INTO mcp_preferences (
-       user_id, write_enabled, trash_enabled, todo_read_enabled, disabled_tools, updated_at
-     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+       user_id, write_enabled, trash_enabled, todo_read_enabled, email_enabled, disabled_tools, updated_at
+     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
      ON CONFLICT(user_id) DO UPDATE SET
        write_enabled = excluded.write_enabled,
        trash_enabled = excluded.trash_enabled,
        todo_read_enabled = excluded.todo_read_enabled,
+       email_enabled = excluded.email_enabled,
        disabled_tools = excluded.disabled_tools,
        updated_at = excluded.updated_at`,
   ).bind(
@@ -181,6 +188,7 @@ export async function putMcpPreferences(
     value.writeEnabled ? 1 : 0,
     value.trashEnabled ? 1 : 0,
     value.todoReadEnabled ? 1 : 0,
+    value.emailEnabled ? 1 : 0,
     JSON.stringify(value.disabledTools),
     value.updatedAt,
   ).run()
@@ -204,6 +212,12 @@ export function grantedMcpScopes(
   if (preferences.todoReadEnabled && requestedSet.has(MCP_SCOPES.todoRead)) granted.push(MCP_SCOPES.todoRead)
   if (preferences.writeEnabled && requestedSet.has(MCP_SCOPES.todoWrite)) granted.push(MCP_SCOPES.todoWrite)
   if (preferences.trashEnabled && requestedSet.has(MCP_SCOPES.todoDanger)) granted.push(MCP_SCOPES.todoDanger)
+  if (preferences.emailEnabled) {
+    if (requestedSet.has(MCP_SCOPES.emailRead)) granted.push(MCP_SCOPES.emailRead)
+    if (preferences.writeEnabled && requestedSet.has(MCP_SCOPES.emailWrite)) granted.push(MCP_SCOPES.emailWrite)
+    if (preferences.writeEnabled && requestedSet.has(MCP_SCOPES.emailSend)) granted.push(MCP_SCOPES.emailSend)
+    if (preferences.trashEnabled && requestedSet.has(MCP_SCOPES.emailTrash)) granted.push(MCP_SCOPES.emailTrash)
+  }
   return granted.filter((scope) => requestedSet.has(scope) || scope === MCP_SCOPES.read)
 }
 
@@ -229,6 +243,7 @@ function defaultMcpPreferences(): McpPreferences {  return {
     writeEnabled: false,
     trashEnabled: false,
     todoReadEnabled: true,
+    emailEnabled: false,
     disabledTools: [],
     updatedAt: 0,
   }
@@ -239,6 +254,7 @@ function toPreferences(row: McpPreferencesRow): McpPreferences {
     writeEnabled: row.write_enabled === 1,
     trashEnabled: row.trash_enabled === 1,
     todoReadEnabled: row.todo_read_enabled === 1,
+    emailEnabled: row.email_enabled === 1,
     disabledTools: parseDisabledMcpTools(row.disabled_tools),
     updatedAt: row.updated_at,
   }

@@ -14,16 +14,18 @@
  * on when the panel opens rather than inherited from whatever the chat tab was last set to — and it is
  * drawn as a chip the reader can take off, because a context they cannot see is one they cannot correct.
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowUpRight, ListChecks, Plus, Sparkles, Wallet, X } from 'lucide-react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { ArrowUpRight, ListChecks, Mail, Plus, Sparkles, Wallet, X } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import type { TodoAssistantContext } from '@shared/todos/assistant-context'
+import type { EmailAssistantContext } from '@shared/email/assistant-context'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
 import { IconButton, Button, Spinner } from '../../components/primitives'
 import { Modal, Tooltip } from '../../components/overlay'
-import { useUi } from '../../store/ui'
+import { DEFAULT_LAYOUT, PANEL_WIDTHS, useUi } from '../../store/ui'
+import { Resizer } from '../shell/Resizer'
 import { useNotes } from '../../store/notes'
 import { useAssistant } from './assistant-store'
 import { AssistantBubble } from './MessageParts'
@@ -42,7 +44,7 @@ import { buildWriteDiff, WriteDiffSummary, WriteDiffView } from './editor-ai-dif
 import { saveReplyAsNote } from './save-to-note'
 
 /** Which app the dock is sitting beside: it decides what "this page" can honestly mean. */
-export type AssistantDockSurface = 'notebook' | 'subscriptions' | 'todos'
+export type AssistantDockSurface = 'notebook' | 'subscriptions' | 'todos' | 'email'
 
 const TODO_VIEW_LABELS: Record<string, MessageKey> = {
   board: 'todo.view.board',
@@ -64,10 +66,11 @@ function todoLabel(context: TodoAssistantContext): string {
   return key ? t(key) : t('todo.view.board')
 }
 
-export function AssistantDock({ surface = 'notebook', subscription = null }: {
+export function AssistantDock({ surface = 'notebook', subscription = null, email = null }: {
   surface?: AssistantDockSurface
   /** The plan the money app has open, so "what will this cost me this year" has an answer. */
   subscription?: { id: string, name: string } | null
+  email?: EmailAssistantContext | null
 }) {
   const subscriptionId = subscription?.id ?? null
   const subscriptionName = subscription?.name ?? null
@@ -92,10 +95,15 @@ export function AssistantDock({ surface = 'notebook', subscription = null }: {
   const todo = useAssistant((state) => state.todoContext)
   const todoOn = useAssistant((state) => state.todoContextOn)
   const setTodoContextOn = useAssistant((state) => state.setTodoContextOn)
+  const emailContext = useAssistant((state) => state.emailContext)
+  const emailOn = useAssistant((state) => state.emailContextOn)
+  const setEmailContextOn = useAssistant((state) => state.setEmailContextOn)
   const sendOnEnter = useAssistant((state) => state.settings?.sendOnEnter ?? true)
   const blocked = useAssistant((state) => !state.settings?.activeModelId && !state.settings?.offlineMode)
   const fileIndex = useAssistant((state) => state.fileIndex)
   const setOpen = useUi((state) => state.setAssistantDock)
+  const dockWidth = useUi((state) => state.assistantDockWidth)
+  const setLayout = useUi((state) => state.setLayout)
   const request = useEditorAi((state) => state.request)
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
@@ -130,6 +138,17 @@ export function AssistantDock({ surface = 'notebook', subscription = null }: {
     useAssistant.getState().setSubscriptionContext(subscriptionId ? { id: subscriptionId, name: subscriptionName ?? '' } : null)
   }, [surface, subscriptionId, subscriptionName])
 
+  const emailAccountId = email?.accountId ?? null
+  const emailMessageId = email?.messageId ?? null
+  const emailSubject = email?.subject ?? null
+  const emailSender = email?.sender ?? null
+  const emailFolderId = email?.folderId ?? null
+  const emailLabel = emailContext?.subject?.trim() || emailContext?.sender?.trim() || emailContext?.address || ''
+  useEffect(() => {
+    if (surface !== 'email') return
+    useAssistant.getState().setEmailContext(emailAccountId ? email ?? null : null)
+  }, [surface, emailAccountId, emailMessageId, emailSubject, emailSender, emailFolderId])
+
   const streaming = (!!turn && !turn.done) || remoteStreaming
   const turnHere = turn && turn.conversationId === (activeId ?? null) ? turn : null
   const empty = !messages.length && !turnHere
@@ -147,7 +166,9 @@ export function AssistantDock({ surface = 'notebook', subscription = null }: {
       ? ['assistant.dock.suggest_due', 'assistant.dock.suggest_cost', 'assistant.dock.suggest_remind'] as const
       : surface === 'todos'
         ? ['assistant.dock.suggest_todo_focus', 'assistant.dock.suggest_todo_plan', 'assistant.dock.suggest_todo_review'] as const
-        : ['assistant.dock.suggest_summary', 'assistant.dock.suggest_questions', 'assistant.dock.suggest_next'] as const
+        : surface === 'email'
+          ? ['assistant.dock.suggest_email_summary', 'assistant.dock.suggest_email_reply', 'assistant.dock.suggest_email_search'] as const
+          : ['assistant.dock.suggest_summary', 'assistant.dock.suggest_questions', 'assistant.dock.suggest_next'] as const
   ), [surface])
 
   /**
@@ -160,24 +181,40 @@ export function AssistantDock({ surface = 'notebook', subscription = null }: {
    */
   const hint = surface === 'todos' && todo && todoOn
     ? t('assistant.dock.hint_todo')
-    : attached
-      ? t('assistant.dock.hint_plan', { name: attached.name })
-      : surface === 'notebook' && noteContextOn && activeNoteId
-        ? t('assistant.dock.hint')
-        : t('assistant.dock.hint_page')
+    : surface === 'email' && emailContext && emailOn
+      ? t('assistant.dock.hint_email')
+      : attached
+        ? t('assistant.dock.hint_plan', { name: attached.name })
+        : surface === 'notebook' && noteContextOn && activeNoteId
+          ? t('assistant.dock.hint')
+          : t('assistant.dock.hint_page')
 
   return (
-    <aside
-      aria-label={t('assistant.dock.title')}
-      data-assistant-dock="1"
-      // A column beside the note on a wide screen, and a bottom sheet on a phone: the same panel, but a
-      // 380px column on a 390px screen is the whole page rather than a companion to it.
-      className={cn(
-        'flex flex-col bg-[var(--bg-base)]',
-        'fixed inset-x-0 bottom-0 z-[var(--z-panel)] h-[min(70vh,560px)] rounded-t-[var(--r-xl)] border-t border-[var(--border-default)] shadow-[var(--shadow-modal)]',
-        'md:static md:h-full md:w-[min(380px,36vw)] md:shrink-0 md:rounded-none md:border-l md:border-t-0 md:shadow-none',
-      )}
-    >
+    <>
+      <div className="hidden h-full shrink-0 md:block">
+        <Resizer
+          label={t('assistant.dock.resize')}
+          value={dockWidth}
+          min={PANEL_WIDTHS.assistantDock.min}
+          max={PANEL_WIDTHS.assistantDock.max}
+          invert
+          className="h-full"
+          onChange={(assistantDockWidth) => setLayout({ assistantDockWidth })}
+          onReset={() => setLayout({ assistantDockWidth: DEFAULT_LAYOUT.assistantDockWidth })}
+        />
+      </div>
+      <aside
+        aria-label={t('assistant.dock.title')}
+        data-assistant-dock="1"
+        style={{ '--assistant-dock-width': `${dockWidth}px` } as CSSProperties}
+        // A column beside the note on a wide screen, and a bottom sheet on a phone: the same panel, but a
+        // 380px column on a 390px screen is the whole page rather than a companion to it.
+        className={cn(
+          'flex flex-col bg-[var(--bg-base)]',
+          'fixed inset-x-0 bottom-0 z-[var(--z-panel)] h-[min(70vh,560px)] rounded-t-[var(--r-xl)] border-t border-[var(--border-default)] shadow-[var(--shadow-modal)]',
+          'md:static md:h-full md:w-[var(--assistant-dock-width)] md:max-w-[60vw] md:shrink-0 md:rounded-none md:border-l md:border-t-0 md:shadow-none',
+        )}
+      >
       {/* The grab handle is the only thing that says "this can be dismissed by the reader", and it is
           not drawn where the panel is a column: a desktop has a close button and no thumb. */}
       <div aria-hidden className="mx-auto mt-1.5 h-1 w-9 shrink-0 rounded-full bg-[var(--border-strong)] md:hidden" />
@@ -312,6 +349,22 @@ export function AssistantDock({ surface = 'notebook', subscription = null }: {
           </span>
         </div>
       )}
+      {surface === 'email' && emailContext && emailOn && (
+        <div role="group" aria-label={t('assistant.context.title')} className="flex flex-wrap items-center gap-1 px-3 pt-1.5">
+          <span className="inline-flex min-w-0 items-center gap-1 rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+            <span aria-hidden className="shrink-0 text-[var(--text-quaternary)]"><Mail size={12} /></span>
+            <span className="min-w-0 max-w-[220px] truncate">{emailLabel}</span>
+            <button
+              type="button"
+              aria-label={t('assistant.context.remove', { name: emailLabel })}
+              onClick={() => setEmailContextOn(false)}
+              className="relative shrink-0 p-0.5 text-[var(--text-quaternary)] transition-colors hover:text-[var(--text-secondary)]"
+            >
+              <X size={11} />
+            </button>
+          </span>
+        </div>
+      )}
       <ChatComposer
         streaming={streaming}
         sendOnEnter={sendOnEnter}
@@ -324,7 +377,8 @@ export function AssistantDock({ surface = 'notebook', subscription = null }: {
         }}
       />
       {request && !streaming && answer.trim() && <AiResultRow request={request} answer={answer} />}
-    </aside>
+      </aside>
+    </>
   )
 }
 

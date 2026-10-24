@@ -30,6 +30,7 @@ type BusyAction =
   | 'write'
   | 'trash'
   | 'todoRead'
+  | 'email'
   | 'tools'
   | 'revoke'
   | 'keyCreate'
@@ -431,6 +432,32 @@ export function McpSettings() {
             onChange={(todoReadEnabled) => void savePreference('todoRead', { todoReadEnabled })}
           />
         </SettingRow>
+        <SettingRow title={t('settings.mcp_email_access')} description={t('settings.mcp_email_access_desc')}>
+          <Switch
+            checked={preferences.emailEnabled === true}
+            disabled={displayOnly || !info.enabled || Boolean(busy)}
+            label={t('settings.mcp_email_access')}
+            onChange={(emailEnabled) => void savePreference('email', { emailEnabled })}
+          />
+        </SettingRow>
+        {preferences.emailEnabled === true && (
+          <div className="px-1 pb-3">
+            <div className="mb-1 text-[length:var(--text-10-5)] font-medium text-[var(--text-quaternary)]">
+              {t('settings.mcp_email_scopes')}
+            </div>
+            <ul className="flex flex-wrap gap-x-4 gap-y-1">
+              {EMAIL_SCOPE_CHOICES.map((scope) => (
+                <li key={scope} className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                  {scopeSummary([scope])}
+                  <code className="ml-1.5 font-mono text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{scope}</code>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-1.5 text-[length:var(--text-10-5)] leading-relaxed text-[var(--text-quaternary)]">
+              {t('settings.mcp_email_tools_note')}
+            </p>
+          </div>
+        )}
       </section>
 
       <section>
@@ -697,6 +724,9 @@ export function McpSettings() {
           <div>
             <h3 data-setting-title={t('settings.mcp_privacy')} className="text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">{t('settings.mcp_privacy')}</h3>
             <p className="mt-1 text-[length:var(--text-11)] leading-relaxed text-[var(--text-tertiary)]">{t('settings.mcp_privacy_desc')}</p>
+            {preferences.emailEnabled === true && (
+              <p className="mt-1.5 text-[length:var(--text-11)] leading-relaxed text-[var(--text-tertiary)]">{t('settings.mcp_email_privacy')}</p>
+            )}
           </div>
         </div>
       </section>
@@ -759,12 +789,26 @@ function clientSnippets(info: McpSettingsInfo): Array<{ id: string; name: string
  * place a reader can ask for it — a key minted with "whatever this account allows" stays on notes, and the
  * server refuses a to-do scope that was never named by name.
  */
-const KEY_SCOPE_CHOICES = ['notes:write', 'notes:trash', 'todos:read', 'todos:write', 'todos:danger'] as const
+const EMAIL_SCOPE_CHOICES = ['email:read', 'email:write', 'email:send', 'email:trash'] as const
+
+const KEY_SCOPE_CHOICES = [
+  'notes:write',
+  'notes:trash',
+  'todos:read',
+  'todos:write',
+  'todos:danger',
+  ...EMAIL_SCOPE_CHOICES,
+] as const
 
 function scopeAllowed(scope: string, preferences: McpSettingsInfo['preferences']): boolean {
   if (scope === 'notes:write' || scope === 'todos:write') return preferences.writeEnabled
   if (scope === 'notes:trash' || scope === 'todos:danger') return preferences.trashEnabled
   if (scope === 'todos:read') return preferences.todoReadEnabled !== false
+  if (scope === 'email:read') return preferences.emailEnabled === true
+  if (scope === 'email:write' || scope === 'email:send') {
+    return preferences.emailEnabled === true && preferences.writeEnabled
+  }
+  if (scope === 'email:trash') return preferences.emailEnabled === true && preferences.trashEnabled
   return true
 }
 
@@ -776,6 +820,10 @@ function scopeSummary(scopes: string[]): string {
     if (scope === 'todos:read') return t('settings.mcp_scope_todo_read')
     if (scope === 'todos:write') return t('settings.mcp_scope_todo_write')
     if (scope === 'todos:danger') return t('settings.mcp_scope_todo_danger')
+    if (scope === 'email:read') return t('settings.mcp_email_scope_read')
+    if (scope === 'email:write') return t('settings.mcp_email_scope_write')
+    if (scope === 'email:send') return t('settings.mcp_email_scope_send')
+    if (scope === 'email:trash') return t('settings.mcp_email_scope_trash')
     return scope
   }).join(' · ')
 }

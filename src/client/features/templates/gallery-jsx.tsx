@@ -1,4 +1,4 @@
-import { FolderPlus, Globe, Hash, LayoutTemplate, Pin, Plus, Star, Trash2 } from 'lucide-react'
+import { Braces, FolderPlus, Globe, Hash, LayoutTemplate, Pin, Plus, ShieldAlert, Star, Trash2 } from 'lucide-react'
 import { useNoteTemplates } from '../../store/note-templates'
 import { Button } from '../../components/primitives'
 import { Tooltip } from '../../components/overlay'
@@ -27,6 +27,8 @@ export function GalleryMobileChips({ g }: { g: GalleryController }) {
     <div className='flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-[var(--border-subtle)] px-[var(--sp-3)] py-[var(--sp-2)] md:hidden'>
       <FilterChip label={t('templates.all_templates')} count={store.templates.length} active={filter.kind === 'all'} onClick={() => setFilter({ kind: 'all' })}/>
       <FilterChip label={t('templates.favorites')} count={derived.counts.starred} active={filter.kind === 'favorites'} onClick={() => setFilter({ kind: 'favorites' })}/>
+      {derived.counts.templater > 0 && <FilterChip label={t('templater.group')} count={derived.counts.templater} active={filter.kind === 'templater'} onClick={() => setFilter({ kind: 'templater' })}/>}
+      {derived.counts.script > 0 && <FilterChip label={t('templates.runs_code')} count={derived.counts.script} active={filter.kind === 'script'} onClick={() => setFilter({ kind: 'script' })}/>}
       <FilterChip label={t('templates.community')} count={g.community.community.length} active={filter.kind === 'community'} onClick={() => setFilter({ kind: 'community' })}/>
       {derived.counts.uncategorized > 0 && <FilterChip label={t('templates.uncategorized')} count={derived.counts.uncategorized} active={filter.kind === 'uncategorized'} onClick={() => setFilter({ kind: 'uncategorized' })}/>}
       {store.categories.map((category) => (<FilterChip key={category.id} label={category.name} count={derived.counts.byCategory.get(category.id) ?? 0} active={filter.kind === 'category' && filter.id === category.id} onClick={() => setFilter({ kind: 'category', id: category.id })} dropTarget={draggingId !== null && dropCategory === category.id} onDragOver={(event) => {
@@ -50,6 +52,8 @@ export function GallerySidebar({ g }: { g: GalleryController }) {
     <aside aria-label={t('templates.categories')} className='hidden w-54.5 shrink-0 flex-col overflow-y-auto border-r border-[var(--border-subtle)] p-[var(--sp-2)] md:flex'>
       <SidebarButton icon={<LayoutTemplate size={14}/>} label={t('templates.all_templates')} count={store.templates.length} active={filter.kind === 'all'} onClick={() => setFilter({ kind: 'all' })}/>
       <SidebarButton icon={<Star size={14}/>} label={t('templates.favorites')} count={derived.counts.starred} active={filter.kind === 'favorites'} onClick={() => setFilter({ kind: 'favorites' })}/>
+      {derived.counts.templater > 0 && <SidebarButton icon={<Braces size={14}/>} label={t('templater.group')} count={derived.counts.templater} active={filter.kind === 'templater'} onClick={() => setFilter({ kind: 'templater' })}/>}
+      {derived.counts.script > 0 && <SidebarButton icon={<ShieldAlert size={14}/>} label={t('templates.runs_code')} count={derived.counts.script} active={filter.kind === 'script'} onClick={() => setFilter({ kind: 'script' })}/>}
       <SidebarButton icon={<Globe size={14}/>} label={t('templates.community')} count={g.community.community.length} active={filter.kind === 'community'} onClick={() => setFilter({ kind: 'community' })}/>
       {derived.counts.uncategorized > 0 && <SidebarButton icon={<FolderPlus size={14}/>} label={t('templates.uncategorized')} count={derived.counts.uncategorized} active={filter.kind === 'uncategorized'} onClick={() => setFilter({ kind: 'uncategorized' })}/>}
       <div className='mt-[var(--sp-3)] mb-[var(--sp-1)] flex items-center justify-between px-[var(--sp-2)]'>
@@ -165,7 +169,10 @@ export function GalleryModals({ g }: { g: GalleryController }) {
     {state.isHelpOpen && <KeyboardHelpModal onClose={() => state.setIsHelpOpen(false)}/>}
     {state.publishing && <PublishTemplateDialog template={state.publishing} category={state.publishing.categoryId === null ? t('templates.uncategorized') : filterActions.categoryName(state.publishing.categoryId)} onClose={() => state.setPublishing(null)} onPublished={() => {
       state.setPublishing(null)
-      if (state.filter.kind === 'community') void community.refreshCommunity()
+      // Publishing is reached from a library card, so the filter is never `community` in this breath, and the
+      // panel's own fetch answers only the first time it is opened — without this the new row stays invisible
+      // until the reader closes the library and comes back.
+      void community.refreshCommunity()
     }}/>}
   </>)
 }

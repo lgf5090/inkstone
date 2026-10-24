@@ -1,7 +1,7 @@
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { EditorView } from '@codemirror/view';
-import { ArrowLeft, Columns2, Download, Eye, FileCode, FileDown, FileText, FolderClosed, Hash, History, Link as LinkIcon, ListTree, MoreHorizontal, PanelRightClose, Paperclip, Pencil, Plus, Presentation, Share2, Sparkles, Star, Waypoints, X, } from 'lucide-react';
+import { ArrowLeft, Columns2, Download, Eye, FileCode, FileDown, FileText, FolderClosed, Globe, Hash, History, Link as LinkIcon, ListTree, MoreHorizontal, PanelRightClose, Paperclip, Pencil, Plus, Presentation, Share2, Sparkles, Star, Waypoints, X, } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { insertRenderedTemplate, insertText } from '../../editor/commands';
 import { api } from '../../lib/api';
@@ -12,6 +12,7 @@ import { fullTime } from '../../lib/time';
 import { useBreakpoint, useRelativeTime } from '../../lib/hooks';
 import { prettyCombo } from '../../lib/hotkeys';
 import { isImeComposing } from '../../lib/ime';
+import { templaterUserScripts } from '../templater/script-completion';
 import { Button, IconButton } from '../../components/primitives';
 import { Drawer, Menu, Tooltip, type MenuItem } from '../../components/overlay';
 import { EditorContextMenu } from './context-menu/EditorContextMenu';
@@ -62,6 +63,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
     const loadError = useNotes((s) => note ? s.noteLoadErrors[note.id] : undefined);
     const editorSettings = useSession((s) => s.settings.editor);
     const previewSettings = useSession((s) => s.settings.preview);
+    const templaterSettings = useSession((s) => s.settings.templater);
     const userId = useSession((s) => s.user?.id);
     const updateSettings = useSession((s) => s.updateSettings);
     const editContent = useNotes((s) => s.editContent);
@@ -480,6 +482,12 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
             onSelect: () => openPanel('share'),
         },
         {
+            id: 'share-hub',
+            label: t("share.hub_title"),
+            icon: <Globe size={13}/>,
+            onSelect: () => openPanel('share-hub'),
+        },
+        {
             id: 'export-md',
             label: t("workspace.export_markdown"),
             icon: <FileText size={13}/>,
@@ -683,14 +691,19 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
               </Tooltip>
               <Menu anchor={exportMenuRef} open={exportMenuOpen} onClose={() => setExportMenuOpen(false)} items={exportMenuItems} align="end" width={200}/>
             </>)}
-          {(<Tooltip label={t("common.outline")} combo={isMobile ? undefined : APP_SHORTCUTS.outline}>
-              <IconButton label={t("common.outline")} size="sm" active={isMobile ? mobileOutlineOpen : outlineOpen} onClick={() => isMobile ? setMobileOutlineOpen((open) => !open) : toggleOutline()}>
-                {(isMobile ? mobileOutlineOpen : outlineOpen) ? <PanelRightClose size={14}/> : <ListTree size={14}/>}
-              </IconButton>
-            </Tooltip>)}
           {!isMobile && (<Tooltip label={t("workspace.share")}>
               <IconButton label={t("workspace.share")} size="sm" onClick={() => openPanel('share')}>
                 <Share2 size={14}/>
+              </IconButton>
+            </Tooltip>)}
+          {!isMobile && (<Tooltip label={t("share.hub_title")}>
+              <IconButton label={t("share.hub_title")} size="sm" onClick={() => openPanel('share-hub')}>
+                <Globe size={14}/>
+              </IconButton>
+            </Tooltip>)}
+          {(<Tooltip label={t("common.outline")} combo={isMobile ? undefined : APP_SHORTCUTS.outline}>
+              <IconButton label={t("common.outline")} size="sm" active={isMobile ? mobileOutlineOpen : outlineOpen} onClick={() => isMobile ? setMobileOutlineOpen((open) => !open) : toggleOutline()}>
+                {(isMobile ? mobileOutlineOpen : outlineOpen) ? <PanelRightClose size={14}/> : <ListTree size={14}/>}
               </IconButton>
             </Tooltip>)}
           {isMobile && (<Tooltip label={t("common.more_actions")} side="left">
@@ -706,7 +719,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
 
       <div ref={containerRef} className={cn("relative flex min-h-0 flex-1", isMobile && "flex-col")} data-editor-layout={layout} onMouseEnter={() => outlineMode === 'floating-hover' && setOutlineHovered(true)} onMouseLeave={() => outlineMode === 'floating-hover' && setOutlineHovered(false)}>
         <div hidden={!showEditor} inert={!showEditor} className="min-h-0 min-w-0" style={{ width: showSplit && !isMobile ? editorWidth : outlineVisible ? `calc(100% - ${OUTLINE_WIDTH}px)` : '100%', flex: isMobile ? 1 : undefined }}>
-            <DeferredCodeEditor key={note.id} visible={showEditor} value={content} noteId={note.id} noteTitle={note.title} live={showEditor && layout === 'live' && livePreviewEnabled} onHeadings={setHeadings} onChange={onChange} settings={editorSettings} sources={sources} handlers={handlers} onReady={onEditorReady} onCursorLine={setCursorLine} onRequestContextMenu={previewSettings.contextMenu ? setEditorMenu : undefined}/>
+            <DeferredCodeEditor key={note.id} visible={showEditor} value={content} noteId={note.id} noteTitle={note.title} live={showEditor && layout === 'live' && livePreviewEnabled} onHeadings={setHeadings} onChange={onChange} settings={editorSettings} sources={sources} handlers={handlers} onReady={onEditorReady} onCursorLine={setCursorLine} templaterHighlight={isMobile ? templaterSettings.syntaxHighlightingMobile : templaterSettings.syntaxHighlighting} templaterIntellisenseRender={templaterSettings.intellisenseRender} templaterUserScripts={templaterUserScripts} onRequestContextMenu={previewSettings.contextMenu ? setEditorMenu : undefined}/>
           </div>
 
         {showSplit && !isMobile && (<SplitResizer label={t("workspace.resize_editor_and_preview_panes")} containerRef={containerRef} ratio={effectiveSplitRatio} onChange={(splitRatio) => setLayout({ splitRatio })} onReset={() => setLayout({ splitRatio: null })}/>)}

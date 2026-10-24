@@ -12,7 +12,8 @@ import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { IS_DEMO_MODE } from '../../lib/runtime'
 import { useSession } from '../../store/session'
-import { useUi } from '../../store/ui'
+import { DEFAULT_LAYOUT, PANEL_WIDTHS, useUi } from '../../store/ui'
+import { Resizer } from '../shell/Resizer'
 import { useBreakpoint, useMediaQuery } from '../../lib/hooks'
 import { AssistantDock } from '../chat/AssistantDock'
 import { NotificationsBell } from '../chat/NotificationCenter'
@@ -49,6 +50,9 @@ const NEEDS_PANEL_QUERY = '(min-width: 1280px)'
 export function SubscriptionsApp(): ReactElement {
   const userId = useSession((state) => state.user?.id ?? null)
   const assistantDockOpen = useUi((state) => state.assistantDockOpen)
+  const subscriptionsRailWidth = useUi((state) => state.subscriptionsRailWidth)
+  const subscriptionsDetailWidth = useUi((state) => state.subscriptionsDetailWidth)
+  const setLayout = useUi((state) => state.setLayout)
   const isMobile = useBreakpoint() === 'mobile'
   const status = useSubscriptions((state) => state.status)
   const error = useSubscriptions((state) => state.error)
@@ -350,21 +354,31 @@ export function SubscriptionsApp(): ReactElement {
 
       <div className="relative flex min-h-0 flex-1">
         {railOpen && wide && (
-          <div className="w-[220px] shrink-0 border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)]">
-            <FilterRail
-              view={view}
-              status={filter.status}
-              category={filter.category}
-              items={items}
-              counts={counts}
-              channels={channels}
-              trashCount={trashCount}
-              onView={(next) => useSubscriptions.getState().setView(next)}
-              onStatus={(next) => useSubscriptions.getState().setFilter({ status: next })}
-              onCategory={(next) => useSubscriptions.getState().setFilter({ category: next })}
-              onSettings={() => setSettingsOpen(true)}
+          <>
+            <div style={{ width: subscriptionsRailWidth }} className="shrink-0 border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)]">
+              <FilterRail
+                view={view}
+                status={filter.status}
+                category={filter.category}
+                items={items}
+                counts={counts}
+                channels={channels}
+                trashCount={trashCount}
+                onView={(next) => useSubscriptions.getState().setView(next)}
+                onStatus={(next) => useSubscriptions.getState().setFilter({ status: next })}
+                onCategory={(next) => useSubscriptions.getState().setFilter({ category: next })}
+                onSettings={() => setSettingsOpen(true)}
+              />
+            </div>
+            <Resizer
+              label={t('subscriptions.resize_rail')}
+              value={subscriptionsRailWidth}
+              min={PANEL_WIDTHS.subscriptionsRail.min}
+              max={PANEL_WIDTHS.subscriptionsRail.max}
+              onChange={(subscriptionsRailWidth) => setLayout({ subscriptionsRailWidth })}
+              onReset={() => setLayout({ subscriptionsRailWidth: DEFAULT_LAYOUT.subscriptionsRailWidth })}
             />
-          </div>
+          </>
         )}
 
         <main className="min-w-0 flex-1">
@@ -417,9 +431,20 @@ export function SubscriptionsApp(): ReactElement {
         </main>
 
         {panelWide && selectedId && (
-          <aside className="w-[380px] shrink-0 border-l border-[var(--border-subtle)] bg-[var(--bg-surface)]">
-            {detailPanel}
-          </aside>
+          <>
+            <Resizer
+              label={t('subscriptions.resize_detail')}
+              value={subscriptionsDetailWidth}
+              min={PANEL_WIDTHS.subscriptionsDetail.min}
+              max={PANEL_WIDTHS.subscriptionsDetail.max}
+              invert
+              onChange={(subscriptionsDetailWidth) => setLayout({ subscriptionsDetailWidth })}
+              onReset={() => setLayout({ subscriptionsDetailWidth: DEFAULT_LAYOUT.subscriptionsDetailWidth })}
+            />
+            <aside style={{ width: subscriptionsDetailWidth }} className="shrink-0 border-l border-[var(--border-subtle)] bg-[var(--bg-surface)]">
+              {detailPanel}
+            </aside>
+          </>
         )}
 
         {/* The same column the notebook mounts, under the same conditions: the assistant's thread is

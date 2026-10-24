@@ -20,6 +20,7 @@ export type PanelName =
   | 'templates'
   | 'versions'
   | 'share'
+  | 'share-hub'
   | 'quickadd'
 
 export type WorkspacePane = 'primary' | 'secondary'
@@ -39,11 +40,19 @@ export interface ToastItem {
 /** What a caller may say about a toast; the store supplies the id, the tone default and the timing. */
 export type ToastInput = Omit<ToastItem, 'id' | 'duration' | 'tone'> & { tone?: ToastItem['tone']; duration?: number }
 
-/** Rendered template text the workspace editor should insert for one note. */
+/**
+ * Rendered template text the workspace editor should insert for one note, and where the caret goes.
+ *
+ * `cursor` carries two shapes because the two features that use this signal need two things. The `{{ }}`
+ * gallery path hands back one offset counted from the start of the text it inserted. A Templater run writes
+ * its whole document through the note store instead, so it arrives with no text and a *list* of absolute
+ * offsets in the note as written — `tp.file.cursor(1)` may ask for several carets in one jump, and this
+ * signal is the only channel that still works when the note's editor has not mounted yet.
+ */
 export interface TemplateInsert {
   noteId: string
   content: string
-  cursor: number | null
+  cursor: number | number[] | null
 }
 
 interface UiState {
@@ -51,6 +60,18 @@ interface UiState {
   navWidth: number
   listWidth: number
   navCollapsed: boolean
+  emailNavWidth: number
+  emailListWidth: number
+  assistantDockWidth: number
+  chatRailWidth: number
+  chatResourcesWidth: number
+  todoNavWidth: number
+  subscriptionsRailWidth: number
+  subscriptionsDetailWidth: number
+  memoSidebarWidth: number
+  memoDetailWidth: number
+  emailNavCollapsed: boolean
+  emailListCollapsed: boolean
   listCollapsed: boolean
   searchList: boolean
   searchQuery: string
@@ -123,13 +144,15 @@ interface UiState {
   fontScale: number
 
 
-  setLayout: (patch: Partial<Pick<UiState, 'navWidth' | 'listWidth' | 'splitRatio' | 'workspaceSplitRatio' | 'outlineFloatingPosition'>>) => void
+  setLayout: (patch: Partial<Pick<UiState, 'navWidth' | 'listWidth' | 'emailNavWidth' | 'emailListWidth' | 'assistantDockWidth' | 'chatRailWidth' | 'chatResourcesWidth' | 'todoNavWidth' | 'subscriptionsRailWidth' | 'subscriptionsDetailWidth' | 'memoSidebarWidth' | 'memoDetailWidth' | 'splitRatio' | 'workspaceSplitRatio' | 'outlineFloatingPosition'>>) => void
   setWorkspacePaneLayout: (pane: WorkspacePane, layout: EditorLayout) => void
   setWorkspaceNote: (pane: WorkspacePane, id: string | null, activate?: boolean, revealOnMobile?: boolean) => void
   activateWorkspacePane: (pane: WorkspacePane) => void
   closeSecondaryNote: () => void
   removeWorkspaceNote: (id: string) => void
   toggleNav: () => void
+  toggleEmailNav: () => void
+  toggleEmailList: () => void
   toggleNavDrawer: (open?: boolean) => void
   toggleList: () => void
   openSearchList: (seed?: string) => void
@@ -190,11 +213,31 @@ interface UiState {
 export const PANEL_WIDTHS = {
   navigation: { min: 196, max: 380 },
   noteList: { min: 260, max: 520 },
+  emailNav: { min: 208, max: 360 },
+  emailList: { min: 300, max: 560 },
+  assistantDock: { min: 300, max: 680 },
+  chatRail: { min: 200, max: 380 },
+  chatResources: { min: 280, max: 560 },
+  todoNav: { min: 200, max: 360 },
+  subscriptionsRail: { min: 180, max: 320 },
+  subscriptionsDetail: { min: 300, max: 560 },
+  memoSidebar: { min: 200, max: 360 },
+  memoDetail: { min: 300, max: 560 },
 } as const
 
 export const DEFAULT_LAYOUT = {
   navWidth: PANEL_WIDTHS.navigation.min,
   listWidth: PANEL_WIDTHS.noteList.min,
+  emailNavWidth: 232,
+  emailListWidth: 380,
+  assistantDockWidth: 380,
+  chatRailWidth: 256,
+  chatResourcesWidth: 360,
+  todoNavWidth: 232,
+  subscriptionsRailWidth: 220,
+  subscriptionsDetailWidth: 380,
+  memoSidebarWidth: 248,
+  memoDetailWidth: 400,
   splitRatio: null as number | null,
   outlineFloatingPosition: null as { x: number; y: number } | null,
 } as const
@@ -202,6 +245,8 @@ export const DEFAULT_LAYOUT = {
 const DEFAULTS = {
   ...DEFAULT_LAYOUT,
   navCollapsed: false,
+  emailNavCollapsed: false,
+  emailListCollapsed: false,
   listCollapsed: true,
   view: 'all' as ViewKind,
   sidebarTab: 'library' as SidebarTab,
@@ -231,6 +276,18 @@ const PERSISTED_KEYS = [
   'navWidth',
   'listWidth',
   'navCollapsed',
+  'emailNavWidth',
+  'emailListWidth',
+  'assistantDockWidth',
+  'chatRailWidth',
+  'chatResourcesWidth',
+  'todoNavWidth',
+  'subscriptionsRailWidth',
+  'subscriptionsDetailWidth',
+  'memoSidebarWidth',
+  'memoDetailWidth',
+  'emailNavCollapsed',
+  'emailListCollapsed',
   'splitRatio',
   'outlineFloatingPosition',
   'workspaceSplitRatio',
@@ -272,6 +329,38 @@ function loadPersisted(): Partial<UiState> {
       out.listWidth = clamp(value.listWidth, PANEL_WIDTHS.noteList.min, PANEL_WIDTHS.noteList.max)
     }
     if (typeof value.navCollapsed === 'boolean') out.navCollapsed = value.navCollapsed
+    if (isFiniteNumber(value.emailNavWidth)) {
+      out.emailNavWidth = clamp(value.emailNavWidth, PANEL_WIDTHS.emailNav.min, PANEL_WIDTHS.emailNav.max)
+    }
+    if (isFiniteNumber(value.emailListWidth)) {
+      out.emailListWidth = clamp(value.emailListWidth, PANEL_WIDTHS.emailList.min, PANEL_WIDTHS.emailList.max)
+    }
+    if (isFiniteNumber(value.assistantDockWidth)) {
+      out.assistantDockWidth = clamp(value.assistantDockWidth, PANEL_WIDTHS.assistantDock.min, PANEL_WIDTHS.assistantDock.max)
+    }
+    if (isFiniteNumber(value.chatRailWidth)) {
+      out.chatRailWidth = clamp(value.chatRailWidth, PANEL_WIDTHS.chatRail.min, PANEL_WIDTHS.chatRail.max)
+    }
+    if (isFiniteNumber(value.chatResourcesWidth)) {
+      out.chatResourcesWidth = clamp(value.chatResourcesWidth, PANEL_WIDTHS.chatResources.min, PANEL_WIDTHS.chatResources.max)
+    }
+    if (isFiniteNumber(value.todoNavWidth)) {
+      out.todoNavWidth = clamp(value.todoNavWidth, PANEL_WIDTHS.todoNav.min, PANEL_WIDTHS.todoNav.max)
+    }
+    if (isFiniteNumber(value.subscriptionsRailWidth)) {
+      out.subscriptionsRailWidth = clamp(value.subscriptionsRailWidth, PANEL_WIDTHS.subscriptionsRail.min, PANEL_WIDTHS.subscriptionsRail.max)
+    }
+    if (isFiniteNumber(value.subscriptionsDetailWidth)) {
+      out.subscriptionsDetailWidth = clamp(value.subscriptionsDetailWidth, PANEL_WIDTHS.subscriptionsDetail.min, PANEL_WIDTHS.subscriptionsDetail.max)
+    }
+    if (isFiniteNumber(value.memoSidebarWidth)) {
+      out.memoSidebarWidth = clamp(value.memoSidebarWidth, PANEL_WIDTHS.memoSidebar.min, PANEL_WIDTHS.memoSidebar.max)
+    }
+    if (isFiniteNumber(value.memoDetailWidth)) {
+      out.memoDetailWidth = clamp(value.memoDetailWidth, PANEL_WIDTHS.memoDetail.min, PANEL_WIDTHS.memoDetail.max)
+    }
+    if (typeof value.emailNavCollapsed === 'boolean') out.emailNavCollapsed = value.emailNavCollapsed
+    if (typeof value.emailListCollapsed === 'boolean') out.emailListCollapsed = value.emailListCollapsed
     if (isFiniteNumber(value.splitRatio)) out.splitRatio = clamp(value.splitRatio, 0.2, 0.8)
     if (isRatioPoint(value.outlineFloatingPosition)) out.outlineFloatingPosition = value.outlineFloatingPosition
     if (isFiniteNumber(value.workspaceSplitRatio)) {
@@ -551,6 +640,8 @@ export const useUi = create<UiState>((set, get) => ({
     return state
   }),
   toggleNav: () => set((s) => ({ navCollapsed: !s.navCollapsed })),
+  toggleEmailNav: () => set((s) => ({ emailNavCollapsed: !s.emailNavCollapsed })),
+  toggleEmailList: () => set((s) => ({ emailListCollapsed: !s.emailListCollapsed })),
   toggleNavDrawer: (open) => set((s) => ({ navDrawerOpen: open ?? !s.navDrawerOpen })),
   toggleList: () => set((s) => ({ listCollapsed: !s.listCollapsed })),
   openSearchList: (seed) => set((s) => ({

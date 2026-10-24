@@ -32,8 +32,22 @@ export interface OutboundOptions {
 export interface OutboundResponse {
   ok: boolean
   status: number
+  /**
+   * What the far side said the body is, or an empty string when it said nothing.
+   *
+   * The channels this door was built for only ever write an `ok`/`status`/`error` judgement, so the type
+   * of an answer was never read. A caller that *reads* somebody else's body has to decide that before it
+   * hands the text on — `routes/templater.ts` refuses anything that is not text — and a second fetch loop
+   * written to look at the header would be a second door out, with its own rules to drift.
+   */
+  contentType: string
   text: string
   error: string
+}
+
+/** The declared media type, or empty when the response said nothing. Never a guess. */
+function contentTypeOf(response: Response): string {
+  return response.headers.get('content-type') ?? ''
 }
 
 /** A URL a channel may send to, or the reason it may not. */
@@ -58,7 +72,7 @@ export function checkTarget(raw: string): { url: URL | null; error: string } {
 
 export async function outbound(raw: string, options: OutboundOptions = {}): Promise<OutboundResponse> {
   const target = checkTarget(raw)
-  if (!target.url) return { ok: false, status: 0, text: '', error: target.error }
+  if (!target.url) return { ok: false, status: 0, contentType: '', text: '', error: target.error }
 
   const maxBytes = options.maxBytes ?? OUTBOUND_MAX_BYTES
   try {
@@ -70,21 +84,28 @@ export async function outbound(raw: string, options: OutboundOptions = {}): Prom
       signal: AbortSignal.timeout(options.timeoutMs ?? OUTBOUND_TIMEOUT_MS),
     })
     if (isRedirectResponse(response)) {
-      return { ok: false, status: response.status, text: '', error: 'The address redirected, and redirects are not followed' }
+      return {
+        ok: false,
+        status: response.status,
+        contentType: contentTypeOf(response),
+        text: '',
+        error: 'The address redirected, and redirects are not followed',
+      }
     }
     const text = await readCapped(response, maxBytes)
     return {
       ok: response.ok,
       status: response.status,
+      contentType: contentTypeOf(response),
       text,
       error: response.ok ? '' : `HTTP ${response.status}`,
     }
   } catch (error) {
     const name = error instanceof Error ? error.name : ''
     if (name === 'TimeoutError' || name === 'AbortError') {
-      return { ok: false, status: 0, text: '', error: 'The request timed out' }
+      return { ok: false, status: 0, contentType: '', text: '', error: 'The request timed out' }
     }
-    return { ok: false, status: 0, text: '', error: error instanceof Error ? error.message : String(error) }
+    return { ok: false, status: 0, contentType: '', text: '', error: error instanceof Error ? error.message : String(error) }
   }
 }
 

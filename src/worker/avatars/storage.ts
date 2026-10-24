@@ -1,6 +1,8 @@
 import {
   AVATAR_STORED_MAX_BYTES,
   generatedAvatarSeed,
+  parseAvatarEmojiPreference,
+  parseAvatarIconPreference,
   parseStoredAvatarUrl,
 } from '@shared/avatar'
 import type { Env } from '../env'
@@ -31,6 +33,7 @@ export function normalizeAvatarPreference(value: unknown): string | null {
   if (typeof value !== 'string') return null
   if (value === '') return ''
   if (generatedAvatarSeed(value)) return value
+  if (parseAvatarEmojiPreference(value) || parseAvatarIconPreference(value)) return value
   return decodeAvatarDataUrl(value) ? value : null
 }
 

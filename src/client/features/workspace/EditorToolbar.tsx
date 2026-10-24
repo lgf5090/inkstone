@@ -1,14 +1,11 @@
 import { useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { EditorView } from '@codemirror/view';
-import { Blocks, Bold, Braces, CaseUpper, CheckSquare, ChevronDown, Code, FileText, Heading, Highlighter, Image as ImageIcon, Italic, Link2, List, ListOrdered, ListTodo, MoveVertical, Quote, Sigma, Smile, Sparkles, Strikethrough, Table, Type, Underline, Wand2, WandSparkles } from 'lucide-react';
-import { IconButton } from '../../components/primitives';
-import { Menu, Tooltip } from '../../components/overlay';
+import { Blocks, Braces, CaseUpper, ChevronDown, FileText, Heading, Image as ImageIcon, Link2, MoveVertical, Sigma, Smile, Sparkles, Table, Wand2, WandSparkles } from 'lucide-react';
+import { Menu } from '../../components/overlay';
 import { cn } from '../../lib/cn';
-import { formatCodeBlock, insertCodeBlock, insertLink, insertTable, toggleBold, toggleBulletList, toggleHighlight, toggleInlineCode, toggleItalic, toggleOrderedList, toggleQuote, toggleStrikethrough, toggleTaskList } from '../../editor/commands';
-import { setFontColor, setHighlightColor, toggleUnderline } from '../../editor/text-format';
-import { EditorColorPanel } from './EditorColorMenu';
-import { useRecentColors } from '../../lib/format-colors';
+import { formatCodeBlock, insertCodeBlock, insertLink, insertTable } from '../../editor/commands';
 import { blockCarryItems, blockMenuItems, codeMenuItems, formatMenuItems, headingMenuItems, imageMenuItems, mathMenuItems, noteMenuItems, referenceMenuItems, type RunEditorCommand } from '../../editor/editorMenus';
+import { Divider, FormatToolbar, MenuButton, ToolButton } from '../../editor/FormatToolbar';
 import { isTouchPointer } from '../../editor/dragger';
 import { useSession } from '../../store/session';
 import { useUi } from '../../store/ui';
@@ -19,16 +16,8 @@ import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { closeEmojiPicker, isEmojiPickerOpen, openEmojiPicker, useEmojiPicker } from '../../store/emoji-picker';
 import { EDITOR_AI_LABELS, runEditorAi, type EditorAiAction } from '../chat/editor-ai';
 import { suggestNoteMeta } from '../chat/note-suggestions';
-import { saveSelectionAsTask } from '../chat/note-task-link';
 
-type ToolbarMenu = 'heading' | 'reference' | 'image' | 'note' | 'code' | 'math' | 'block' | 'carry' | 'format' | 'text-color' | 'highlight-color' | 'ai';
-
-/**
- * The palette is a menu header, and a header is placed before it is measured. These are what the
- * panel actually is, so the maths that flips a menu away from the viewport edge can see it.
- */
-const PALETTE_WIDTH = 242;
-const PALETTE_HEIGHT = 342;
+type ToolbarMenu = 'heading' | 'reference' | 'image' | 'note' | 'code' | 'math' | 'block' | 'carry' | 'format' | 'ai';
 
 export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, showEmoji = true }: {
     runCommand?: (command: (target: EditorView) => boolean) => void;
@@ -48,8 +37,6 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
     const blockRef = useRef<HTMLButtonElement>(null);
     const carryRef = useRef<HTMLButtonElement>(null);
     const formatRef = useRef<HTMLButtonElement>(null);
-    const textColorRef = useRef<HTMLButtonElement>(null);
-    const highlightColorRef = useRef<HTMLButtonElement>(null);
     const aiRef = useRef<HTMLButtonElement>(null);
     const [openMenu, setToolbarMenu] = useState<ToolbarMenu | null>(null);
     const draggerOn = useSession((state) => state.settings.editor.dragger);
@@ -61,7 +48,6 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
       ? { enabled: dragMode, onToggle: () => useUi.getState().setDraggerDragMode(!dragMode) }
       : null;
     const linterEnabled = useSession((s) => s.settings.linter.enabled);
-    const recent = useRecentColors();
     const toggleMenu = (menu: ToolbarMenu) => setToolbarMenu((current) => current === menu ? null : menu);
     // The dropdown closes before the command runs, so a menu still holding the pointer cannot keep
     // the focus the command is about to hand back to the editor.
@@ -150,8 +136,6 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
         block: blockRef,
         carry: carryRef,
         format: formatRef,
-        'text-color': textColorRef,
-        'highlight-color': highlightColorRef,
         ai: aiRef,
     };
     const labels: Record<ToolbarMenu, string> = {
@@ -164,17 +148,13 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
         block: t('workspace.content_blocks'),
         carry: t('dragger.block_actions'),
         format: t('workspace.more_formats'),
-        'text-color': t('workspace.text_color'),
-        'highlight-color': t('workspace.highlight_color'),
         ai: t('assistant.edit.menu'),
     };
     const menuButton = (id: ToolbarMenu, icon: ReactNode, primary?: { label: string; combo?: string; onClick: () => void }) => {
-        const lastUsed = id === 'text-color' ? recent.text[0] : id === 'highlight-color' ? recent.highlight[0] : undefined;
         return (<div className="flex shrink-0 items-center rounded-[var(--r-md)]">
           {primary && <ToolButton label={primary.label} combo={primary.combo} onClick={primary.onClick}>{icon}</ToolButton>}
           <MenuButton buttonRef={anchors[id]} label={labels[id]} mobile={mobile} open={openMenu === id} onClick={() => toggleMenu(id)}>
             {!primary && icon}
-            {lastUsed && <span aria-hidden="true" className="size-2 shrink-0 rounded-full" style={{ backgroundColor: lastUsed }}/>}
             <ChevronDown size={10} className="opacity-60"/>
           </MenuButton>
         </div>);
@@ -183,21 +163,12 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
     return (<div aria-label={t('workspace.formatting_tools')} className={cn('editor-toolbar flex shrink-0 items-center overflow-x-auto border-b border-[var(--border-subtle)] px-2 no-scrollbar', mobile ? 'h-11 gap-1' : 'h-9 gap-0.5')}>
       {menuButton('heading', <Heading size={14}/>)}
       <Divider />
-      <ToolButton label={t('common.bold')} combo={editorCombo('bold')} onClick={() => run(toggleBold)}><Bold size={14}/></ToolButton>
-      <ToolButton label={t('common.italic')} combo={editorCombo('italic')} onClick={() => run(toggleItalic)}><Italic size={14}/></ToolButton>
-      <ToolButton label={t('common.underline')} combo={editorCombo('underline')} onClick={() => run(toggleUnderline)}><Underline size={14}/></ToolButton>
-      <ToolButton label={t('common.strikethrough')} combo={editorCombo('strikethrough')} onClick={() => run(toggleStrikethrough)}><Strikethrough size={14}/></ToolButton>
-      {menuButton('text-color', <Type size={14}/>)}
-      {menuButton('highlight-color', <Highlighter size={14}/>, { label: t('common.highlight'), onClick: () => run(toggleHighlight) })}
-      <ToolButton label={t('common.inline_code')} combo={editorCombo('inline-code')} onClick={() => run(toggleInlineCode)}><Code size={14}/></ToolButton>
-      <Divider />
-      <ToolButton label={t('common.unordered_list')} combo={editorCombo('bullet-list')} onClick={() => run(toggleBulletList)}><List size={14}/></ToolButton>
-      <ToolButton label={t('common.ordered_list')} combo={editorCombo('ordered-list')} onClick={() => run(toggleOrderedList)}><ListOrdered size={14}/></ToolButton>
-      <ToolButton label={t('common.task_list')} combo={editorCombo('task-list')} onClick={() => run(toggleTaskList)}><ListTodo size={14}/></ToolButton>
-      {/* Beside the list control rather than in a menu: it acts on the line or selection the reader is
-          already looking at, and a menu would hide that it is about this text and not the whole note. */}
-      <ToolButton label={t('todo.chat.save_as_task')} onClick={() => { void saveSelectionAsTask() }}><CheckSquare size={14}/></ToolButton>
-      <ToolButton label={t('common.quote')} combo={editorCombo('quote')} onClick={() => run(toggleQuote)}><Quote size={14}/></ToolButton>
+      <FormatToolbar
+        run={run}
+        variant="note"
+        mobile={mobile}
+        onSaveAsTask={() => { void import('../chat/note-task-link').then((module) => module.saveSelectionAsTask()) }}
+      />
       <Divider />
       {menuButton('reference', <Link2 size={14}/>, { label: t('workspace.link'), combo: editorCombo('link'), onClick: () => run(insertLink()) })}
       {menuButton('image', <ImageIcon size={14}/>, { label: t('workspace.upload_image'), onClick: pickImage })}
@@ -226,40 +197,5 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
         </ToolButton>
       </>)}
       {menus.map((menu) => <Menu key={menu.id} anchor={menu.anchor} open={openMenu === menu.id} onClose={() => setToolbarMenu(null)} items={menu.items} width={menu.width} label={menu.label}/>)}
-      <Menu anchor={textColorRef} open={openMenu === 'text-color'} onClose={() => setToolbarMenu(null)} items={[]} width={PALETTE_WIDTH} label={t('workspace.text_color')} headerHeight={PALETTE_HEIGHT} header={<EditorColorPanel kind="text" current={recent.text[0]} onPick={color => run(setFontColor(color))}/>}/>
-      <Menu anchor={highlightColorRef} open={openMenu === 'highlight-color'} onClose={() => setToolbarMenu(null)} items={[]} width={PALETTE_WIDTH} label={t('workspace.highlight_color')} headerHeight={PALETTE_HEIGHT} header={<EditorColorPanel kind="highlight" current={recent.highlight[0]} onPick={color => run(setHighlightColor(color))}/>}/>
     </div>);
-}
-
-function MenuButton({ buttonRef, label, open, onClick, children, mobile = false }: {
-    buttonRef: RefObject<HTMLButtonElement | null>;
-    label: string;
-    open: boolean;
-    mobile?: boolean;
-    onClick: () => void;
-    children: ReactNode;
-}) {
-    return (<Tooltip label={label}>
-      <button ref={buttonRef} type="button" onClick={onClick} aria-label={label} aria-haspopup="menu" aria-expanded={open} className={cn('inline-flex shrink-0 items-center gap-0.5 rounded-[var(--r-md)] px-1.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]', open && 'bg-[var(--bg-hover)] text-[var(--text-primary)]', mobile ? 'h-9' : 'h-7')}>
-        {children}
-      </button>
-    </Tooltip>);
-}
-
-function ToolButton({ label, combo, onClick, children, buttonRef, expanded, popup }: {
-    label: string;
-    combo?: string;
-    onClick: () => void;
-    children: ReactNode;
-    buttonRef?: RefObject<HTMLButtonElement | null>;
-    expanded?: boolean;
-    popup?: 'dialog' | 'menu';
-}) {
-    return (<Tooltip label={label} combo={combo}>
-      <IconButton ref={buttonRef} label={label} size="sm" onClick={onClick} aria-expanded={expanded} aria-haspopup={popup} className="size-9 shrink-0 md:size-7">{children}</IconButton>
-    </Tooltip>);
-}
-
-function Divider() {
-    return <span aria-hidden="true" className="mx-1 h-4 w-px shrink-0 bg-[var(--border-subtle)]"/>;
 }

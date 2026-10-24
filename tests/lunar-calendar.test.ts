@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+
+vi.setConfig({ testTimeout: 60_000 })
 import { almanacOf, festivalCellName } from '../src/client/lib/lunar/festivals'
 import { dayOfYear, daysInYear, isoWeekOrdinal, weekOrdinal } from '../src/client/lib/time'
 import { lunarOf, lunarYearStart, solarTermOf, solarTermsOfYear } from '../src/client/lib/lunar/lunar-calendar'

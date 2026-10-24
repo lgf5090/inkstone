@@ -384,6 +384,8 @@ function livenessGuard(scope: AttachmentHubScope, userIdParam: string, idParam: 
          WHERE cm.user_id = ${userIdParam} AND cm.attachments != '[]'
            AND instr(cm.attachments, ${quotedIdParam(idParam)}) > 0
       )`
+    case 'email':
+      return 'locked = 0'
   }
 }
 
@@ -486,6 +488,17 @@ export async function listHubOwners(
       .bind(userId, `"${id}"`, OWNER_SCAN_LIMIT)
       .all<{ id: string }>()
     return results.map((row) => ({ id: row.id, title: '' }))
+  }
+
+  if (scope === 'email') {
+    const row = await db
+      .prepare(
+        `SELECT email_id AS id FROM email_attachments
+          WHERE user_id = ?1 AND id = ?2 AND email_id IS NOT NULL LIMIT 1`,
+      )
+      .bind(userId, id)
+      .first<{ id: string }>()
+    return row ? [{ id: row.id, title: '' }] : []
   }
 
   const link =

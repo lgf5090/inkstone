@@ -17,6 +17,7 @@ export function FolderPicker({
     excludedIds,
     allowRoot = true,
     rootLabel,
+    zIndex,
     onSelect,
     onClose,
 }: {
@@ -27,6 +28,8 @@ export function FolderPicker({
     excludedIds?: ReadonlySet<string>;
     allowRoot?: boolean;
     rootLabel?: string;
+    /** Only when this chooser opens from inside a dialog, whose scrim would otherwise eat every press. */
+    zIndex?: number;
     onSelect: (folderId: string | null) => void;
     onClose: () => void;
 }) {
@@ -43,7 +46,7 @@ export function FolderPicker({
         setQuery('');
         onClose();
     };
-    return (<Drawer open={open} onClose={() => {
+    return (<Drawer open={open} zIndex={zIndex} onClose={() => {
         setQuery('');
         onClose();
     }} title={title} width={420}>

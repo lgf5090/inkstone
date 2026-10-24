@@ -35,7 +35,11 @@ describe('the template quick actions are mounted where notes are created', () =>
   })
 
   it('creates through the template path and reads the library for the signed-in account', () => {
-    expect(QUICK_ACTIONS).toContain('createNoteFromTemplate(template, folderId ? { folderId } : {})')
+    // One call, whichever syntax the body is written in: `template-engine` is the gallery's handle on the
+    // shell, and the shell is where a body is read as `{{…}}` or as `<% … %>`. What this pins is that a
+    // favorite creates *through the template* — carrying the folder the header was mounted in — rather than
+    // making an empty note and pasting into it.
+    expect(QUICK_ACTIONS).toContain('createNoteWithEngine(template, folderId ?? null)')
     expect(QUICK_ACTIONS).toContain('hydrate(owner)')
     expect(QUICK_ACTIONS).toContain("openPanel('templates')")
   })

@@ -12,12 +12,12 @@
  * injection dressed up as configuration.
  */
 
-export const ATTACHMENT_SCOPES = ['notes', 'todos', 'memos', 'chat'] as const
+export const ATTACHMENT_SCOPES = ['notes', 'todos', 'memos', 'chat', 'email'] as const
 
 export type AttachmentScope = (typeof ATTACHMENT_SCOPES)[number]
 
 /** The table a scope's rows live in, as a literal union so it can be interpolated into SQL safely. */
-export type AttachmentScopeTable = 'attachments' | 'memos_attachments' | 'chat_attachments'
+export type AttachmentScopeTable = 'attachments' | 'memos_attachments' | 'chat_attachments' | 'email_attachments'
 
 export interface AttachmentScopeDescriptor {
   readonly id: AttachmentScope
@@ -91,6 +91,16 @@ export const ATTACHMENT_SCOPE_DESCRIPTORS = {
     ownerColumn: null,
     keyColumn: 'key',
     hasDimensions: false,
+    sharesNotesTable: false,
+  },
+  email: {
+    id: 'email',
+    prefix: 'mail',
+    table: 'email_attachments',
+    urlBase: '/api/email/files',
+    ownerColumn: 'email_id',
+    keyColumn: 'object_key',
+    hasDimensions: true,
     sharesNotesTable: false,
   },
 } as const satisfies Record<AttachmentScope, AttachmentScopeDescriptor>

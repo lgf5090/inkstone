@@ -78,6 +78,10 @@ export function createDemoState(): DemoState {
     expiresAt: null,
     views: 12,
     createdAt: now - 86_400_000 * 4,
+    isEnabled: true,
+    lastViewedAt: now - 3_600_000,
+    folderId: null,
+    tags: [],
   }
 
   return {
