@@ -15,6 +15,7 @@ import type {
   MusicDriveImportResult,
   MusicDriveUploadResult,
   MusicHealth,
+  MusicHistorySummary,
   MusicHome,
   MusicLibraryPayload,
   MusicLyricResponse,
@@ -203,13 +204,20 @@ export const musicApi = {
     }),
 
   history: (limit = 100) => request<{ items: Array<MusicHistoryEntry & { track: MusicTrack | null }> }>(`/api/music/library/history${query({ limit })}`),
+  historySummary: () => request<MusicHistorySummary>(
+    `/api/music/library/history/summary${query({ tzOffset: -new Date().getTimezoneOffset() })}`,
+  ),
+  deleteHistory: (id: string) =>
+    request<{ ok: true }>(`/api/music/library/history/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  clearHistory: () =>
+    request<{ ok: true; removed: number }>('/api/music/library/history', { method: 'DELETE' }),
   recordHistory: (entry: Pick<MusicHistoryEntry, 'trackId' | 'durationPlayed' | 'completed' | 'contextType' | 'contextId'>) =>
     request<{ ok: true }>('/api/music/library/history', { method: 'POST', body: entry }),
   recent: () => request<{ items: Array<Record<string, unknown>> }>('/api/music/library/recent'),
 
   downloads: () => request<MusicDownloadListPayload>('/api/music/downloads'),
-  enqueueDownload: (track: MusicTrack, quality: MusicSettings['downloadQuality'], format: MusicSettings['downloadFormat']) =>
-    request<MusicDownload>('/api/music/downloads', { method: 'POST', body: { track, quality, format } }),
+  removeDownload: (id: string) =>
+    request<{ ok: true }>(`/api/music/downloads/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   updateDownload: (id: string, action: 'pause' | 'resume' | 'retry' | 'cancel') =>
     request<MusicDownload>(`/api/music/downloads/${encodeURIComponent(id)}`, { method: 'PATCH', body: { action } }),
 

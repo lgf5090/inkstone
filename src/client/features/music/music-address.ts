@@ -21,10 +21,12 @@ export type MusicPage =
   | { kind: 'podcastDetail'; id: string }
   | { kind: 'favorites' }
   | { kind: 'history' }
+  | { kind: 'heatmap' }
   | { kind: 'uploads' }
   | { kind: 'downloads' }
   | { kind: 'cloud' }
   | { kind: 'local' }
+  | { kind: 'me' }
   | { kind: 'user'; id: string }
   | { kind: 'login' }
   | { kind: 'settings' }
@@ -88,6 +90,8 @@ export function parseMusicAddress(pathname: string, search = ''): MusicPage {
       return rest.length === 1 ? { kind: 'favorites' } : { kind: 'notFound', path: pathname }
     case 'history':
       return rest.length === 1 ? { kind: 'history' } : { kind: 'notFound', path: pathname }
+    case 'heatmap':
+      return rest.length === 1 ? { kind: 'heatmap' } : { kind: 'notFound', path: pathname }
     case 'uploads':
       return rest.length === 1 ? { kind: 'uploads' } : { kind: 'notFound', path: pathname }
     case 'downloads':
@@ -101,7 +105,7 @@ export function parseMusicAddress(pathname: string, search = ''): MusicPage {
     case 'settings':
       return rest.length === 1 ? { kind: 'settings' } : { kind: 'notFound', path: pathname }
     case 'user':
-      return id ? { kind: 'user', id } : { kind: 'notFound', path: pathname }
+      return id ? { kind: 'user', id } : { kind: 'me' }
     default:
       return { kind: 'notFound', path: pathname }
   }
@@ -120,6 +124,8 @@ export function musicPathFor(page: MusicPage): string {
     case 'toplist':
     case 'user':
       return `${BASE}/${page.kind}/${encodeURIComponent(page.id)}`
+    case 'me':
+      return `${BASE}/user`
     case 'mv':
       return `${BASE}/mv`
     case 'mvDetail':
@@ -133,6 +139,7 @@ export function musicPathFor(page: MusicPage): string {
     case 'albums':
     case 'favorites':
     case 'history':
+    case 'heatmap':
     case 'uploads':
     case 'downloads':
     case 'cloud':

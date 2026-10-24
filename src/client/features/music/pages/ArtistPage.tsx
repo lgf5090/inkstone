@@ -5,7 +5,7 @@
  * only carries the first shelf. Switching tabs does not refetch the artist — the header stays put —
  * and an album page keeps its own index so coming back to the tab returns to the shelf it left.
  */
-import { useEffect, useState, type ReactElement } from 'react'
+import { useEffect, useRef, useState, type ReactElement } from 'react'
 import { Play } from 'lucide-react'
 import { formatPlayCount } from '@shared/music/format'
 import { Button } from '../../../components/primitives'
@@ -19,6 +19,7 @@ import { SongList } from '../components/SongList'
 import { musicText } from '../components/labels'
 import { musicPathFor } from '../music-address'
 import { useMusicQuery } from '../query'
+import { useMusicLibrary } from '../store/library'
 import { DetailHero, DetailHeroSkeleton } from './parts/Hero'
 import { CardGridSkeleton, MusicCard } from './parts/MediaCards'
 import { MusicPageBody, PageError, TrackListSkeleton } from './parts/PageState'
@@ -35,6 +36,7 @@ export interface ArtistPageProps {
 export function ArtistPage({ id }: ArtistPageProps): ReactElement {
   const [tab, setTab] = useState<ArtistTab>('songs')
   const [albumPage, setAlbumPage] = useState(1)
+  const recentRecorded = useRef<string | null>(null)
   const locale = useLocale()
   const detailQuery = useMusicQuery(() => musicApi.artist(id), [id])
   const albumsQuery = useMusicQuery(
@@ -49,6 +51,17 @@ export function ArtistPage({ id }: ArtistPageProps): ReactElement {
   }, [id])
 
   const detail = detailQuery.data?.artist.id === id ? detailQuery.data : null
+
+  useEffect(() => {
+    if (!detail || recentRecorded.current === detail.artist.id) return
+    recentRecorded.current = detail.artist.id
+    void useMusicLibrary.getState().touchRecent({
+      kind: 'artist',
+      providerId: detail.artist.id,
+      name: detail.artist.name,
+      coverUrl: detail.artist.coverUrl,
+    })
+  }, [detail?.artist.id])
 
   if (!detail) {
     if (detailQuery.status === 'error') {

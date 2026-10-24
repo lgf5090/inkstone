@@ -149,9 +149,11 @@ describe('music playlists', () => {
 
     const track = await createTrack()
     await store.addPlaylistItem(first.id, track.id)
+    await store.touchRecent({ kind: 'playlist', providerId: first.id, name: 'One' })
     expect(await store.deletePlaylist(first.id)).toBe(true)
     expect(count('music_playlist')).toBe(1)
     expect(count('music_playlist_item')).toBe(0)
+    expect(await store.listRecent()).toEqual([])
   })
 })
 
@@ -218,6 +220,34 @@ describe('music history', () => {
     await store.recordHistory({ trackId: track.id, playedAt: MUSIC_LIMITS.historyEntries + 1 })
     expect(count('music_history')).toBe(MUSIC_LIMITS.historyEntries)
     expect(sqlite.prepare(`SELECT MIN(played_at) AS oldest FROM music_history`).get()).toEqual({ oldest: 2 })
+  })
+
+  it('summarizes local days and ranking, then deletes one or all plays', async () => {
+    const first = await createTrack()
+    const second = await createTrack({ providerId: '43', title: 'Second' })
+    const plays = [
+      await store.recordHistory({ trackId: first.id, playedAt: Date.UTC(2026, 0, 1, 23, 30) }),
+      await store.recordHistory({ trackId: first.id, playedAt: Date.UTC(2026, 0, 1, 23, 45) }),
+      await store.recordHistory({ trackId: second.id, playedAt: Date.UTC(2026, 0, 2, 1, 0) }),
+      await store.recordHistory({ trackId: second.id, playedAt: Date.UTC(2026, 0, 2, 17, 0) }),
+      await store.recordHistory({ trackId: first.id, playedAt: Date.UTC(2026, 0, 3, 0, 0) }),
+    ]
+
+    const summary = await store.historySummary(480)
+    expect(summary.totalPlays).toBe(5)
+    expect(summary.activeDays).toBe(2)
+    expect(summary.days).toEqual([
+      { date: '2026-01-02', count: 3 },
+      { date: '2026-01-03', count: 2 },
+    ])
+    expect(summary.mostActiveDay).toEqual({ date: '2026-01-02', count: 3 })
+    expect(summary.topTracks.map((row) => [row.track.id, row.count])).toEqual([[first.id, 3], [second.id, 2]])
+    expect(summary.latest?.track.id).toBe(first.id)
+
+    expect(await store.deleteHistory(plays[0]!.id)).toBe(true)
+    expect(await store.deleteHistory(plays[0]!.id)).toBe(false)
+    expect(await store.clearHistory()).toBe(4)
+    expect((await store.historySummary(480)).totalPlays).toBe(0)
   })
 })
 

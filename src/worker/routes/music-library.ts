@@ -378,6 +378,25 @@ musicLibraryRoutes.get('/history', async (c) => {
   return c.json(await store.listHistory({ page, limit }))
 })
 
+musicLibraryRoutes.get('/history/summary', async (c) => {
+  const timezoneOffset = integer(c.req.query('tzOffset'), -840, 840, 0, 'Timezone offset')
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  return c.json(await store.historySummary(timezoneOffset))
+})
+
+musicLibraryRoutes.delete('/history/:id', async (c) => {
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  if (!(await store.deleteHistory(c.req.param('id')))) {
+    throw ApiError.notFound('That play does not exist')
+  }
+  return c.json({ ok: true })
+})
+
+musicLibraryRoutes.delete('/history', async (c) => {
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  return c.json({ ok: true, removed: await store.clearHistory() })
+})
+
 musicLibraryRoutes.post('/history', async (c) => {
   const body = await readJson<Record<string, unknown>>(c, SMALL_BODY_LIMIT)
   const store = new MusicStore(c.env.DB, c.get('userId'))

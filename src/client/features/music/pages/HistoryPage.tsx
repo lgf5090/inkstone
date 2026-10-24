@@ -3,12 +3,12 @@
  * entry that summarises them. Each tab owns its loader so a broken recent list cannot hide the songs.
  */
 import { useId, useMemo, useState, type ReactElement } from 'react'
-import { CalendarDays, Play } from 'lucide-react'
+import { CalendarDays, Play, Trash2 } from 'lucide-react'
 import { formatDuration, musicArtistNames } from '@shared/music/format'
 import type { MusicRecentEntry, MusicTrack } from '@shared/music/model'
 import { Empty } from '../../../components/feedback'
 import { Button, IconButton } from '../../../components/primitives'
-import { Modal } from '../../../components/overlay'
+import { confirm } from '../../../components/overlay'
 import { navigateToAddress } from '../../../lib/app-history'
 import type { MusicHistoryItem } from '../store/library'
 import { useMusicLibrary } from '../store/library'
@@ -17,7 +17,7 @@ import { musicApi } from '../api'
 import { musicPathFor } from '../music-address'
 import { useMusicQuery } from '../query'
 import { Cover } from '../components/Cover'
-import { MusicTabs } from '../components/Tabs'
+import { MusicTabs, type MusicTabItem } from '../components/Tabs'
 import { musicText } from '../components/labels'
 import { MediaCard } from './parts/P2MediaCard'
 import { ListeningHeatmap } from './parts/P2ListeningHeatmap'
@@ -25,9 +25,12 @@ import {
   PAGE_STACK,
   QueryError,
   formatDateTime,
+  toastFailure,
 } from './parts/P2QueryState'
+import { useUi } from '../../../store/ui'
 
-type HistoryTab = 'songs' | 'podcasts' | 'recent'
+type HistoryTab = 'songs' | 'playlists' | 'albums' | 'podcasts'
+type SourceFilter = 'all' | 'local' | 'online'
 
 interface PlayedItem {
   entry: MusicHistoryItem
@@ -41,13 +44,30 @@ const RECENT_KIND_KEYS: Record<MusicRecentEntry['kind'], string> = {
   artist: 'music.page.artist',
 }
 
+const SOURCE_FILTERS: ReadonlyArray<{ value: SourceFilter; labelKey: string }> = [
+  { value: 'all', labelKey: 'music.history.source.all' },
+  { value: 'local', labelKey: 'music.history.source.local' },
+  { value: 'online', labelKey: 'music.history.source.online' },
+]
+
+function sourceOf(track: MusicTrack): SourceFilter {
+  return track.provider === 'netease' ? 'online' : 'local'
+}
+
+function matchesSource(track: MusicTrack, filter: SourceFilter): boolean {
+  return filter === 'all' || sourceOf(track) === filter
+}
+
 export function HistoryPage(): ReactElement {
   const [tab, setTab] = useState<HistoryTab>('songs')
-  const [heatmapOpen, setHeatmapOpen] = useState(false)
+  const [source, setSource] = useState<SourceFilter>('all')
+  const [clearing, setClearing] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const headingId = useId()
 
   const historyQuery = useMusicQuery(() => musicApi.history(100), [])
   const recentQuery = useMusicQuery(() => musicApi.recent(), [])
+  const summaryQuery = useMusicQuery(() => musicApi.historySummary(), [])
 
   const played = useMemo<PlayedItem[]>(() => {
     const items = historyQuery.data?.items ?? []
@@ -58,8 +78,14 @@ export function HistoryPage(): ReactElement {
     return out
   }, [historyQuery.data])
 
-  const songs = useMemo(() => played.filter((item) => item.track.kind === 'song'), [played])
-  const podcasts = useMemo(() => played.filter((item) => item.track.kind === 'podcast'), [played])
+  const songs = useMemo(
+    () => played.filter((item) => item.track.kind === 'song' && matchesSource(item.track, source)),
+    [played, source],
+  )
+  const podcasts = useMemo(
+    () => played.filter((item) => item.track.kind === 'podcast' && matchesSource(item.track, source)),
+    [played, source],
+  )
   const recent = useMemo<MusicRecentEntry[]>(() => {
     const items = recentQuery.data?.items ?? []
     const out: MusicRecentEntry[] = []
@@ -69,9 +95,63 @@ export function HistoryPage(): ReactElement {
     }
     return out
   }, [recentQuery.data])
+  const playlists = useMemo(() => recent.filter((item) => item.kind === 'playlist'), [recent])
+  const albums = useMemo(() => recent.filter((item) => item.kind === 'album'), [recent])
+  const radios = useMemo(() => recent.filter((item) => item.kind === 'radio'), [recent])
 
-  const heatEntries = useMemo(() => played.map((item) => item.entry), [played])
+  const tabs: MusicTabItem<HistoryTab>[] = [
+    { value: 'songs', label: musicText('music.history.tab.songs'), count: songs.length },
+    { value: 'playlists', label: musicText('music.history.tab.playlists'), count: playlists.length },
+    { value: 'albums', label: musicText('music.history.tab.albums'), count: albums.length },
+    { value: 'podcasts', label: musicText('music.history.tab.podcasts'), count: podcasts.length + radios.length },
+  ]
+
   const discoverHref = musicPathFor({ kind: 'home' })
+  const heatmapHref = musicPathFor({ kind: 'heatmap' })
+  const summary = summaryQuery.data
+  const canClear = (summary?.totalPlays ?? 0) > 0 && !clearing
+
+  const clearHistory = async (): Promise<void> => {
+    const approved = await confirm({
+      title: musicText('music.history.clear_confirm_title'),
+      description: musicText('music.history.clear_confirm_body'),
+      confirmLabel: musicText('music.history.clear'),
+      tone: 'danger',
+    })
+    if (!approved) return
+    setClearing(true)
+    try {
+      await musicApi.clearHistory()
+      historyQuery.reload()
+      summaryQuery.reload()
+      useUi.getState().toast({ title: musicText('music.history.cleared'), tone: 'success' })
+    } catch (error) {
+      toastFailure(musicText('music.history.clear_failed'), error)
+    } finally {
+      setClearing(false)
+    }
+  }
+
+  const removePlay = async (entry: MusicHistoryItem): Promise<void> => {
+    const approved = await confirm({
+      title: musicText('music.history.delete_confirm_title'),
+      description: musicText('music.history.delete_confirm_body', { title: entry.track?.title ?? '' }),
+      confirmLabel: musicText('music.history.delete'),
+      tone: 'danger',
+    })
+    if (!approved) return
+    setDeletingId(entry.id)
+    try {
+      await musicApi.deleteHistory(entry.id)
+      historyQuery.reload()
+      summaryQuery.reload()
+      useUi.getState().toast({ title: musicText('music.history.deleted'), tone: 'success' })
+    } catch (error) {
+      toastFailure(musicText('music.history.delete_failed'), error)
+    } finally {
+      setDeletingId(null)
+    }
+  }
 
   return (
     <section aria-labelledby={headingId} className={PAGE_STACK}>
@@ -84,13 +164,26 @@ export function HistoryPage(): ReactElement {
             {musicText('music.history.description')}
           </p>
         </div>
-        <div className="flex flex-col items-end gap-[var(--sp-1)]">
-          <Button variant="ghost" size="sm" disabled>
+        <div className="flex flex-wrap items-center justify-end gap-[var(--sp-2)]">
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={<CalendarDays size={14} />}
+            onClick={() => navigateToAddress(heatmapHref)}
+          >
+            {musicText('music.history.heatmap_open')}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={!canClear}
+            loading={clearing}
+            onClick={() => {
+              void clearHistory()
+            }}
+          >
             {musicText('music.history.clear')}
           </Button>
-          <span className="max-w-[220px] text-end text-[length:var(--text-10-5)] leading-snug text-[var(--text-quaternary)]">
-            {musicText('music.history.clear_unavailable')}
-          </span>
         </div>
       </header>
 
@@ -98,35 +191,26 @@ export function HistoryPage(): ReactElement {
         aria-label={musicText('music.history.heatmap')}
         className="flex flex-col gap-[var(--sp-3)] rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-[var(--sp-4)]"
       >
-        <div className="flex flex-wrap items-start justify-between gap-[var(--sp-2)]">
-          <div>
-            <h3 className="font-[family-name:var(--font-display)] text-[length:var(--text-16)] font-semibold text-[var(--text-primary)]">
-              {musicText('music.history.heatmap')}
-            </h3>
-            <p className="mt-[var(--sp-1)] text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
-              {musicText('music.history.heatmap_summary', { count: heatEntries.length })}
-            </p>
-          </div>
-          <Button
-            variant="secondary"
-            size="sm"
-            icon={<CalendarDays size={14} />}
-            disabled={heatEntries.length === 0}
-            onClick={() => setHeatmapOpen(true)}
-          >
-            {musicText('music.history.heatmap_open')}
-          </Button>
+        <div>
+          <h2 className="font-[family-name:var(--font-display)] text-[length:var(--text-16)] font-semibold text-[var(--text-primary)]">
+            {musicText('music.history.heatmap')}
+          </h2>
+          <p className="mt-[var(--sp-1)] text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
+            {summary
+              ? musicText('music.history.heatmap_summary', { count: summary.totalPlays })
+              : musicText('common.loading')}
+          </p>
         </div>
-        {historyQuery.status === 'error' && !historyQuery.data ? (
+        {summaryQuery.status === 'error' && !summary ? (
           <QueryError
             title={musicText('music.history.error')}
-            detail={historyQuery.error}
-            onRetry={historyQuery.reload}
+            detail={summaryQuery.error}
+            onRetry={summaryQuery.reload}
           />
-        ) : historyQuery.status === 'loading' && !historyQuery.data ? (
-          <div className="h-[74px] w-full rounded-[var(--r-sm)] bg-[var(--bg-sunken)]" aria-hidden="true" />
+        ) : summaryQuery.status === 'loading' && !summary ? (
+          <div className="h-[120px] w-full rounded-[var(--r-sm)] bg-[var(--bg-sunken)]" aria-hidden="true" />
         ) : (
-          <ListeningHeatmap entries={heatEntries} weeks={12} />
+          <ListeningHeatmap days={summary?.days ?? []} weeks={12} />
         )}
       </section>
 
@@ -135,12 +219,28 @@ export function HistoryPage(): ReactElement {
           value={tab}
           label={musicText('music.history.tabs_label')}
           onChange={setTab}
-          items={[
-            { value: 'songs', label: musicText('music.history.tab.songs'), count: songs.length },
-            { value: 'podcasts', label: musicText('music.history.tab.podcasts'), count: podcasts.length },
-            { value: 'recent', label: musicText('music.history.tab.recent'), count: recent.length },
-          ]}
+          items={tabs}
         />
+
+        {(tab === 'songs' || tab === 'podcasts') && (
+          <div
+            role="group"
+            aria-label={musicText('music.history.source_label')}
+            className="flex flex-wrap items-center gap-[var(--sp-2)]"
+          >
+            {SOURCE_FILTERS.map((filter) => (
+              <Button
+                key={filter.value}
+                variant={source === filter.value ? 'primary' : 'secondary'}
+                size="sm"
+                aria-pressed={source === filter.value}
+                onClick={() => setSource(filter.value)}
+              >
+                {musicText(filter.labelKey)}
+              </Button>
+            ))}
+          </div>
+        )}
 
         <div role="tabpanel" aria-label={musicText(`music.history.tab.${tab}`)}>
           {tab === 'songs' && (
@@ -149,78 +249,132 @@ export function HistoryPage(): ReactElement {
               loading={historyQuery.status === 'loading' && !historyQuery.data}
               error={historyQuery.status === 'error' && !historyQuery.data ? historyQuery.error : null}
               onRetry={historyQuery.reload}
+              onDelete={(entry) => {
+                void removePlay(entry)
+              }}
+              deletingId={deletingId}
               emptyTitle={musicText('music.history.empty.songs')}
               emptyHint={musicText('music.history.empty.songs_hint')}
               discoverHref={discoverHref}
             />
           )}
-          {tab === 'podcasts' && (
-            <HistoryList
-              items={podcasts}
-              loading={historyQuery.status === 'loading' && !historyQuery.data}
-              error={historyQuery.status === 'error' && !historyQuery.data ? historyQuery.error : null}
-              onRetry={historyQuery.reload}
-              emptyTitle={musicText('music.history.empty.podcasts')}
-              emptyHint={musicText('music.history.empty.podcasts_hint')}
+          {tab === 'playlists' && (
+            <RecentGrid
+              entries={playlists}
+              loading={recentQuery.status === 'loading' && !recentQuery.data}
+              error={recentQuery.status === 'error' && !recentQuery.data ? recentQuery.error : null}
+              onRetry={recentQuery.reload}
+              emptyTitle={musicText('music.history.empty.playlists')}
+              emptyHint={musicText('music.history.empty.playlists_hint')}
               discoverHref={discoverHref}
             />
           )}
-          {tab === 'recent' && (
-            recentQuery.status === 'error' && !recentQuery.data ? (
-              <QueryError
-                title={musicText('music.history.recent_error')}
-                detail={recentQuery.error}
+          {tab === 'albums' && (
+            <RecentGrid
+              entries={albums}
+              loading={recentQuery.status === 'loading' && !recentQuery.data}
+              error={recentQuery.status === 'error' && !recentQuery.data ? recentQuery.error : null}
+              onRetry={recentQuery.reload}
+              emptyTitle={musicText('music.history.empty.albums')}
+              emptyHint={musicText('music.history.empty.albums_hint')}
+              discoverHref={discoverHref}
+            />
+          )}
+          {tab === 'podcasts' && (
+            <div className="flex flex-col gap-[var(--sp-5)]">
+              <RecentGrid
+                entries={radios}
+                loading={recentQuery.status === 'loading' && !recentQuery.data}
+                error={recentQuery.status === 'error' && !recentQuery.data ? recentQuery.error : null}
                 onRetry={recentQuery.reload}
+                emptyTitle={musicText('music.history.empty.radios')}
+                emptyHint={musicText('music.history.empty.radios_hint')}
+                discoverHref={musicPathFor({ kind: 'podcast' })}
               />
-            ) : recentQuery.status === 'loading' && !recentQuery.data ? (
-              <div className="grid gap-[var(--sp-3)] sm:grid-cols-2 lg:grid-cols-3" role="status" aria-busy="true" aria-label={musicText('common.loading')}>
-                {Array.from({ length: 3 }, (_, index) => (
-                  <div key={index} className="h-[74px] rounded-[var(--r-md)] bg-[var(--bg-sunken)]" />
-                ))}
-              </div>
-            ) : recent.length === 0 ? (
-              <Empty
-                art="folder"
-                compact
-                title={musicText('music.history.empty.recent')}
-                description={musicText('music.history.empty.recent_hint')}
-                action={(
-                  <Button variant="secondary" onClick={() => navigateToAddress(discoverHref)}>
-                    {musicText('music.common.discover')}
-                  </Button>
-                )}
-              />
-            ) : (
-              <div className="music-card-grid">
-                {recent.map((entry) => (
-                  <MediaCard
-                    key={entry.id}
-                    href={recentHref(entry)}
-                    title={entry.name}
-                    meta={musicText(RECENT_KIND_KEYS[entry.kind])}
-                    description={musicText('music.history.recent_meta', {
-                      date: formatDateTime(entry.lastPlayedAt),
-                      count: entry.playCount,
-                    })}
-                    coverUrl={entry.coverUrl}
-                  />
-                ))}
-              </div>
-            )
+              <section aria-label={musicText('music.history.tab.podcasts')} className="flex flex-col gap-[var(--sp-2)]">
+                <h2 className="text-[length:var(--text-13)] font-medium text-[var(--text-secondary)]">
+                  {musicText('music.history.episodes')}
+                </h2>
+                <HistoryList
+                  items={podcasts}
+                  loading={historyQuery.status === 'loading' && !historyQuery.data}
+                  error={historyQuery.status === 'error' && !historyQuery.data ? historyQuery.error : null}
+                  onRetry={historyQuery.reload}
+                  onDelete={(entry) => {
+                    void removePlay(entry)
+                  }}
+                  deletingId={deletingId}
+                  emptyTitle={musicText('music.history.empty.podcasts')}
+                  emptyHint={musicText('music.history.empty.podcasts_hint')}
+                  discoverHref={musicPathFor({ kind: 'podcast' })}
+                />
+              </section>
+            </div>
           )}
         </div>
       </div>
-
-      <Modal
-        open={heatmapOpen}
-        onClose={() => setHeatmapOpen(false)}
-        title={musicText('music.history.heatmap')}
-        description={musicText('music.history.heatmap_summary', { count: heatEntries.length })}
-        width={760}
-      >
-        <ListeningHeatmap entries={heatEntries} weeks={52} />
-      </Modal>
     </section>
+  )
+}
+
+function RecentGrid({
+  entries,
+  loading,
+  error,
+  onRetry,
+  emptyTitle,
+  emptyHint,
+  discoverHref,
+}: {
+  entries: readonly MusicRecentEntry[]
+  loading: boolean
+  error: string | null
+  onRetry: () => void
+  emptyTitle: string
+  emptyHint: string
+  discoverHref: string
+}): ReactElement {
+  if (loading) {
+    return (
+      <div className="grid gap-[var(--sp-3)] sm:grid-cols-2 lg:grid-cols-3" role="status" aria-busy="true" aria-label={musicText('common.loading')}>
+        {Array.from({ length: 3 }, (_, index) => (
+          <div key={index} className="h-[74px] rounded-[var(--r-md)] bg-[var(--bg-sunken)]" />
+        ))}
+      </div>
+    )
+  }
+  if (error) return <QueryError title={musicText('music.history.recent_error')} detail={error} onRetry={onRetry} />
+  if (entries.length === 0) {
+    return (
+      <Empty
+        art="folder"
+        compact
+        title={emptyTitle}
+        description={emptyHint}
+        action={(
+          <Button variant="secondary" onClick={() => navigateToAddress(discoverHref)}>
+            {musicText('music.common.discover')}
+          </Button>
+        )}
+      />
+    )
+  }
+  return (
+    <div className="music-card-grid">
+      {entries.map((entry) => (
+        <MediaCard
+          key={entry.id}
+          href={recentHref(entry)}
+          title={entry.name}
+          meta={musicText(RECENT_KIND_KEYS[entry.kind])}
+          description={musicText('music.history.recent_meta', {
+            date: formatDateTime(entry.lastPlayedAt),
+            count: entry.playCount,
+          })}
+          coverUrl={entry.coverUrl}
+        />
+      ))}
+    </div>
   )
 }
 
@@ -229,6 +383,8 @@ function HistoryList({
   loading,
   error,
   onRetry,
+  onDelete,
+  deletingId,
   emptyTitle,
   emptyHint,
   discoverHref,
@@ -237,6 +393,8 @@ function HistoryList({
   loading: boolean
   error: string | null
   onRetry: () => void
+  onDelete: (entry: MusicHistoryItem) => void
+  deletingId: string | null
   emptyTitle: string
   emptyHint: string
   discoverHref: string
@@ -306,10 +464,18 @@ function HistoryList({
           <IconButton
             label={musicText('music.history.play_track', { title: track.title })}
             size="sm"
-            className="me-[var(--sp-1)]"
             onClick={() => play(track)}
           >
             <Play size={14} />
+          </IconButton>
+          <IconButton
+            label={musicText('music.history.delete_track', { title: track.title })}
+            size="sm"
+            className="me-[var(--sp-1)]"
+            disabled={deletingId === entry.id}
+            onClick={() => onDelete(entry)}
+          >
+            <Trash2 size={14} />
           </IconButton>
         </li>
       ))}

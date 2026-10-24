@@ -34,7 +34,7 @@ import type {
 } from '@shared/music/model'
 import { musicTrackKey } from '@shared/music/model'
 import { MUSIC_LIMITS } from '@shared/music/constants'
-import type { MusicPage } from '@shared/music/api'
+import type { MusicHistorySummary, MusicPage } from '@shared/music/api'
 import { utf8ByteLength } from '@shared/text-utils'
 import { idChunks, MAX_BATCH_STATEMENTS } from '../db/writes'
 import { ApiError } from '../lib/errors'
@@ -846,8 +846,11 @@ export class MusicStore {
         .bind(this.userId, id),
       this.db.prepare(`DELETE FROM music_playlist WHERE user_id = ?1 AND id = ?2`)
         .bind(this.userId, id),
+      this.db.prepare(`DELETE FROM music_recent
+        WHERE user_id = ?1 AND kind = 'playlist' AND provider_id = ?2`)
+        .bind(this.userId, id),
     ])
-    return Boolean(results.at(-1)?.meta.changes)
+    return Boolean(results[1]?.meta.changes)
   }
 
   /** Write the shelf order the reader dragged: the ids become positions zero through n. */
@@ -1034,7 +1037,7 @@ export class MusicStore {
       `SELECT ${TRACK_COLUMNS_T}, f.pinned_at FROM music_favorite f
         JOIN music_track t ON t.user_id = f.user_id AND t.id = f.track_id
        WHERE f.user_id = ?1
-       ORDER BY (f.pinned_at IS NULL), f.pinned_at DESC, f.created_at DESC, f.track_id DESC
+       ORDER BY (f.pinned_at IS NULL), f.pinned_at DESC, f.created_at DESC, f.rowid DESC
        LIMIT ?2 OFFSET ?3`,
     ).bind(this.userId, limit, offset).all<FavoriteTrackRow & { pinned_at: number | null }>()
     return pageOf(results.map((row) => ({ ...toTrack(row), pinnedAt: row.pinned_at })), total, offset)
@@ -1127,6 +1130,86 @@ export class MusicStore {
       track: toTrack(row),
     }))
     return pageOf(items, total, offset)
+  }
+
+  /**
+   * The heatmap and ranking in one read.
+   *
+   * The history table is capped at five thousand rows, so grouping in the worker is cheaper than a
+   * second aggregate table and never disagrees with the list the reader can page through. The
+   * offset is the reader's timezone in minutes east of UTC: a play at 23:30 in Shanghai belongs to
+   * that local day, not to the UTC one.
+   */
+  async historySummary(timezoneOffsetMinutes = 0): Promise<MusicHistorySummary> {
+    const offsetMinutes = Math.max(-840, Math.min(840, Math.trunc(timezoneOffsetMinutes)))
+    const offsetMs = offsetMinutes * 60_000
+    const { results } = await this.db.prepare(
+      `SELECT track_id, played_at FROM music_history
+        WHERE user_id = ?1
+        ORDER BY played_at DESC, id DESC`,
+    ).bind(this.userId).all<{ track_id: string; played_at: number }>()
+
+    const perDay = new Map<string, number>()
+    for (const row of results) {
+      if (!Number.isFinite(row.played_at) || row.played_at <= 0) continue
+      const date = new Date(row.played_at + offsetMs).toISOString().slice(0, 10)
+      perDay.set(date, (perDay.get(date) ?? 0) + 1)
+    }
+    const days = [...perDay.entries()]
+      .map(([date, count]) => ({ date, count }))
+      .sort((left, right) => left.date.localeCompare(right.date))
+    let mostActiveDay: MusicHistorySummary['mostActiveDay'] = null
+    for (const day of days) {
+      if (
+        !mostActiveDay
+        || day.count > mostActiveDay.count
+        || (day.count === mostActiveDay.count && day.date > mostActiveDay.date)
+      ) {
+        mostActiveDay = day
+      }
+    }
+
+    const { results: topRows } = await this.db.prepare(
+      `SELECT track_id, COUNT(*) AS count, MAX(played_at) AS latest
+         FROM music_history
+        WHERE user_id = ?1
+        GROUP BY track_id
+        ORDER BY count DESC, latest DESC
+        LIMIT 5`,
+    ).bind(this.userId).all<{ track_id: string; count: number; latest: number }>()
+    const topTracksById = new Map(
+      (await this.getTracks(topRows.map((row) => row.track_id))).map((track) => [track.id, track]),
+    )
+    const topTracks = topRows.flatMap((row) => {
+      const track = topTracksById.get(row.track_id)
+      return track ? [{ track, count: row.count }] : []
+    })
+
+    const latestRow = results[0]
+    const latestTrack = latestRow ? await this.getTrack(latestRow.track_id) : null
+
+    return {
+      days,
+      totalPlays: results.length,
+      activeDays: perDay.size,
+      topTracks,
+      mostActiveDay,
+      latest: latestRow && latestTrack ? { playedAt: latestRow.played_at, track: latestTrack } : null,
+    }
+  }
+
+  async deleteHistory(id: string): Promise<boolean> {
+    const result = await this.db.prepare(
+      `DELETE FROM music_history WHERE user_id = ?1 AND id = ?2`,
+    ).bind(this.userId, id).run()
+    return (result.meta.changes ?? 0) > 0
+  }
+
+  async clearHistory(): Promise<number> {
+    const result = await this.db.prepare(
+      `DELETE FROM music_history WHERE user_id = ?1`,
+    ).bind(this.userId).run()
+    return result.meta.changes ?? 0
   }
 
   // Recent containers --------------------------------------------------------------------------

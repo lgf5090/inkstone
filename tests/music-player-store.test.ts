@@ -388,6 +388,10 @@ describe('music address', () => {
     expect(parseMusicAddress('/music/podcast')).toEqual({ kind: 'podcast' })
     expect(parseMusicAddress('/music/podcast/5')).toEqual({ kind: 'podcastDetail', id: '5' })
     expect(parseMusicAddress('/music/favorites')).toEqual({ kind: 'favorites' })
+    expect(parseMusicAddress('/music/history')).toEqual({ kind: 'history' })
+    expect(parseMusicAddress('/music/heatmap')).toEqual({ kind: 'heatmap' })
+    expect(parseMusicAddress('/music/user')).toEqual({ kind: 'me' })
+    expect(parseMusicAddress('/music/user/77')).toEqual({ kind: 'user', id: '77' })
     expect(parseMusicAddress('/music/settings')).toEqual({ kind: 'settings' })
 
     const page = { kind: 'playlist', id: 'a b' } as const
@@ -428,8 +432,46 @@ describe('music library store', () => {
     expect(useMusicLibrary.getState().error).toBe(MUSIC_LIBRARY_ERROR_KEYS.favorite)
   })
 
-  it('writes a play once per track inside the debounce window', async () => {
-    const fetchMock = vi.fn(async (_path: string, _init?: RequestInit) => ok({
+  it('saves a track before queueing its download by library id', async () => {
+    const fetchMock = vi.fn(async (path: string, _init?: RequestInit) => {
+      if (path === '/api/music/library/tracks') {
+        return ok({ tracks: [{ ...tracks[0]!, id: 'library-1' }] })
+      }
+      if (path === '/api/music/downloads') {
+        return ok({
+          download: {
+            id: 'download-1',
+            trackId: 'library-1',
+            quality: 'exhigh',
+            format: 'auto',
+            status: 'queued',
+            progress: 0,
+            size: null,
+            r2Key: null,
+            error: '',
+            attempts: 0,
+            createdAt: 1,
+            updatedAt: 1,
+            completedAt: null,
+          },
+        })
+      }
+      return failed(500, 'unexpected request')
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await useMusicLibrary.getState().requestDownload(tracks[0]!, 'exhigh', 'auto')
+
+    expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual([
+      '/api/music/library/tracks',
+      '/api/music/downloads',
+    ])
+    const downloadBody = JSON.parse(String((fetchMock.mock.calls[1]?.[1] as RequestInit | undefined)?.body))
+    expect(downloadBody).toMatchObject({ trackId: 'library-1', quality: 'exhigh', format: 'auto' })
+    expect(useMusicLibrary.getState().downloads[0]).toMatchObject({ id: 'download-1', track: { id: 'library-1' } })
+  })
+
+  it('writes a play once per track inside the debounce window', async () => {    const fetchMock = vi.fn(async (_path: string, _init?: RequestInit) => ok({
       ok: true,
       entry: {
         id: 'history-1',

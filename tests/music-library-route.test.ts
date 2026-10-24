@@ -95,9 +95,26 @@ describe('music routes', () => {
   it('records history and returns the aggregate library', async () => {
     const history = await send('POST', '/library/history', { track, durationPlayed: 900, completed: true })
     expect(history.status).toBe(200)
+    const entry = (await json<{ entry: { id: string } }>(history)).entry
     const library = await json<{ history: unknown[]; favorites: unknown[]; tracks: unknown[] }>(await send('GET', '/library'))
     expect(library.history).toHaveLength(1)
     expect(library.tracks).toHaveLength(1)
+
+    const summary = await json<{ totalPlays: number; activeDays: number; latest: { track: { title: string } } }>(
+      await send('GET', '/library/history/summary?tzOffset=480'),
+    )
+    expect(summary.totalPlays).toBe(1)
+    expect(summary.activeDays).toBe(1)
+    expect(summary.latest.track.title).toBe('Song')
+
+    const removed = await send('DELETE', `/library/history/${entry.id}`)
+    expect(removed.status).toBe(200)
+    expect((await json<{ totalPlays: number }>(await send('GET', '/library/history/summary'))).totalPlays).toBe(0)
+
+    await send('POST', '/library/history', { track })
+    const cleared = await send('DELETE', '/library/history')
+    expect(cleared.status).toBe(200)
+    expect(await json<{ removed: number }>(cleared)).toEqual({ ok: true, removed: 1 })
   })
 
   it('does not return a cookie for an unconnected account', async () => {

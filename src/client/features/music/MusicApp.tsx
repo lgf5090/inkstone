@@ -5,8 +5,8 @@
  * restore and the library's first load. The screen itself is chosen by `page.kind`; pages below own
  * their own loading, empty, error and ready answers.
  */
-import { useEffect, useMemo, type ComponentType, type ReactElement } from 'react'
-import { Cloud, Compass, Disc3, HardDrive, Library, ListMusic, ListOrdered, Radio, Search, Settings, Sparkles, Video } from 'lucide-react'
+import { useEffect, useMemo, useRef, type ComponentType, type ReactElement } from 'react'
+import { CalendarDays, Cloud, Compass, Disc3, HardDrive, Library, ListMusic, ListOrdered, Radio, Search, Settings, Sparkles, UserRound, Video } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import { cn } from '../../lib/cn'
 import { navigateToAddress, usePathname, useSearch } from '../../lib/app-history'
@@ -18,6 +18,7 @@ import { ArtistPage } from './pages/ArtistPage'
 import { DownloadsPage } from './pages/DownloadsPage'
 import { FavoritesPage } from './pages/FavoritesPage'
 import { HistoryPage } from './pages/HistoryPage'
+import { HeatmapPage } from './pages/HeatmapPage'
 import { HomePage } from './pages/HomePage'
 import { LoginPage } from './pages/LoginPage'
 import { MusicSettingsPage } from './pages/MusicSettingsPage'
@@ -39,7 +40,7 @@ import { NowPlaying } from './components/NowPlaying'
 import { PlayBar } from './components/PlayBar'
 import { QueueDrawer } from './components/QueueDrawer'
 import { useMusicLibrary } from './store/library'
-import { useMusicPlayer } from './store/player'
+import { selectCurrentTrack, useMusicPlayer } from './store/player'
 import { useMusicShortcuts } from './shortcuts'
 import { useMusicAssistantContext } from './assistant-surface'
 import { useMusicToolEffects } from './use-tool-effects'
@@ -66,11 +67,13 @@ const NAV_ITEMS: readonly NavItem[] = [
   { path: '/music/favorites', labelKey: 'music.nav.library', icon: Library },
   { path: '/music/cloud', labelKey: 'music.nav.drive', icon: Cloud },
   { path: '/music/local', labelKey: 'music.page.local', icon: HardDrive },
+  { path: '/music/history', labelKey: 'music.page.history', icon: CalendarDays },
   { path: '/music/playlists', labelKey: 'music.page.playlists', icon: ListMusic },
   { path: '/music/albums', labelKey: 'music.page.albums', icon: Disc3 },
   { path: '/music/toplists', labelKey: 'music.page.toplists', icon: ListOrdered },
   { path: '/music/mv', labelKey: 'music.page.mv', icon: Video },
   { path: '/music/podcast', labelKey: 'music.page.podcast', icon: Radio },
+  { path: '/music/user', labelKey: 'music.page.user', icon: UserRound },
   { path: '/music/settings', labelKey: 'music.nav.settings', icon: Settings },
 ]
 
@@ -155,6 +158,8 @@ function MusicPageContent({ page }: { page: MusicPage }): ReactElement {
       return <FavoritesPage />
     case 'history':
       return <HistoryPage />
+    case 'heatmap':
+      return <HeatmapPage />
     case 'uploads':
       return <UploadsPage />
     case 'downloads':
@@ -170,6 +175,8 @@ function MusicPageContent({ page }: { page: MusicPage }): ReactElement {
     case 'toplists':
       return <ToplistsPage />
     case 'user':
+      return <UserPage />
+    case 'me':
       return <UserPage />
     case 'login':
       return <LoginPage />
@@ -188,6 +195,22 @@ export function MusicApp(): ReactElement {
   const assistantDockOpen = useUi((state) => state.assistantDockOpen)
   useMusicShortcuts()
   useMusicToolEffects()
+  const currentTrack = useMusicPlayer(selectCurrentTrack)
+  const playbackStatus = useMusicPlayer((state) => state.status)
+  const recordedTrackId = useRef<string | null>(null)
+
+  // A play is a fact once the engine says it is sounding, not when a page asks for it. This covers
+  // automatic next tracks and every page that starts audio without naming a history context; the
+  // library's thirty-second window keeps a page's own context from becoming a second row.
+  useEffect(() => {
+    if (!currentTrack) {
+      recordedTrackId.current = null
+      return
+    }
+    if (playbackStatus !== 'playing' || recordedTrackId.current === currentTrack.id) return
+    recordedTrackId.current = currentTrack.id
+    void useMusicLibrary.getState().recordHistory({ track: currentTrack, contextType: 'player' })
+  }, [currentTrack, playbackStatus])
 
   // A restored queue is a promise the browser will not let us keep without a gesture: it comes back
   // paused, and the bar says so. Restore is idempotent, which is what makes the StrictMode second

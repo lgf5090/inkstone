@@ -4,7 +4,7 @@
  * never repeats the title.
  */
 import { useState, type ComponentType, type ReactElement } from 'react'
-import { Cloud, Compass, Download, HardDrive, Heart, History, Library, ListMusic, ListOrdered, Plus, Radio, Search, Settings, Sparkles, Video } from 'lucide-react'
+import { Cloud, Compass, Download, Flame, HardDrive, Heart, History, Library, ListMusic, ListOrdered, Plus, Radio, Search, Settings, Sparkles, UserRound, Video } from 'lucide-react'
 import { cn } from '../../../lib/cn'
 import { Button, IconButton } from '../../../components/primitives'
 import { Input } from '../../../components/form'
@@ -33,6 +33,7 @@ const PRIMARY: readonly NavItem[] = [
 
 const SHELF: readonly NavItem[] = [
   { path: '/music/history', labelKey: 'music.page.history', icon: History },
+  { path: '/music/heatmap', labelKey: 'music.page.heatmap', icon: Flame },
   { path: '/music/favorites', labelKey: 'music.page.favorites', icon: Heart },
   { path: '/music/downloads', labelKey: 'music.page.downloads', icon: Download },
   { path: '/music/cloud', labelKey: 'music.nav.drive', icon: Cloud },
@@ -185,6 +186,7 @@ export function MusicSidebar({
         </form>
       </Modal>
       <div className="mt-2 flex flex-col gap-0.5 border-t border-[var(--border-subtle)] pt-2">
+        <NavLink item={{ path: '/music/user', labelKey: 'music.user.me', icon: UserRound }} current={pathname} />
         <button
           type="button"
           aria-pressed={assistantOpen}

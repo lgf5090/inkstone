@@ -100,6 +100,22 @@ export interface MusicRadioCategory {
   name: string
 }
 
+export interface MusicHistoryDay {
+  /** Local calendar day in `YYYY-MM-DD`, already shifted by the caller's timezone offset. */
+  date: string
+  count: number
+}
+
+export interface MusicHistorySummary {
+  /** Every day that holds a play, oldest first; the grid decides which of them it shows. */
+  days: MusicHistoryDay[]
+  totalPlays: number
+  activeDays: number
+  topTracks: Array<{ track: MusicTrack; count: number }>
+  mostActiveDay: MusicHistoryDay | null
+  latest: { playedAt: number; track: MusicTrack } | null
+}
+
 export interface MusicHome {
   dailyTracks: MusicTrack[]
   fmEnabled: boolean

@@ -1,6 +1,6 @@
 /** The account's favourites: one list, a sort control and removal with an undo toast. */
 import { useId, useMemo, useState, type ReactElement } from 'react'
-import { HeartOff, ListPlus, Play, Shuffle } from 'lucide-react'
+import { Download, HeartOff, ListPlus, Play, Shuffle } from 'lucide-react'
 import { musicArtistNames } from '@shared/music/format'
 import type { MusicTrack } from '@shared/music/model'
 import { Empty } from '../../../components/feedback'
@@ -9,11 +9,12 @@ import { Button } from '../../../components/primitives'
 import type { MenuItem } from '../../../components/overlay'
 import { getLocale } from '../../../lib/i18n'
 import { navigateToAddress } from '../../../lib/app-history'
-import { toastWithUndo } from '../../../store/ui'
+import { toastWithUndo, useUi } from '../../../store/ui'
 import { useMusicQuery } from '../query'
 import { musicPathFor } from '../music-address'
 import { useMusicLibrary } from '../store/library'
 import { useMusicPlayer } from '../store/player'
+import { useMusicSettings } from '../store/settings'
 import { SongList } from '../components/SongList'
 import { musicText } from '../components/labels'
 import { PAGE_STACK, QueryError, toastFailure } from './parts/P2QueryState'
@@ -48,8 +49,11 @@ function loadLibrary(): Promise<void> {
 
 export function FavoritesPage(): ReactElement {
   const [sort, setSort] = useState<FavoriteSort>('recent')
+  const [downloading, setDownloading] = useState(false)
   const headingId = useId()
   const favorites = useMusicLibrary((state) => state.favorites)
+  const requestDownload = useMusicLibrary((state) => state.requestDownload)
+  const settings = useMusicSettings((state) => state.server)
 
   // The library store is the write authority; this query only drives the initial load and the
   // retry so a removed favourite disappears from every page at once.
@@ -86,6 +90,34 @@ export function FavoritesPage(): ReactElement {
     const first = sorted[0]
     if (!first) return
     void useMusicPlayer.getState().playTrack(first, { queue: sorted })
+  }
+
+  const downloadable = sorted.filter((track) => track.provider === 'netease')
+
+  const downloadAll = async (): Promise<void> => {
+    if (downloadable.length === 0) {
+      useUi.getState().toast({ title: musicText('music.favorites.download_none'), tone: 'warning' })
+      return
+    }
+    setDownloading(true)
+    try {
+      const results = await Promise.allSettled(
+        downloadable.map((track) => requestDownload(track, settings.downloadQuality, settings.downloadFormat)),
+      )
+      const started = results.filter((result) => result.status === 'fulfilled').length
+      const failed = results.length - started
+      useUi.getState().toast({
+        title: started > 0
+          ? musicText('music.favorites.download_started', { count: started })
+          : musicText('music.favorites.download_failed'),
+        description: failed > 0 && started > 0
+          ? musicText('music.favorites.download_partial', { count: failed })
+          : undefined,
+        tone: started === 0 ? 'danger' : failed > 0 ? 'warning' : 'success',
+      })
+    } finally {
+      setDownloading(false)
+    }
   }
 
   const removeFavorite = async (track: MusicTrack): Promise<void> => {
@@ -152,6 +184,17 @@ export function FavoritesPage(): ReactElement {
             <option value="title">{musicText('music.favorites.sort.title')}</option>
             <option value="artist">{musicText('music.favorites.sort.artist')}</option>
           </Select>
+          <Button
+            variant="secondary"
+            icon={<Download size={14} />}
+            loading={downloading}
+            disabled={downloadable.length === 0}
+            onClick={() => {
+              void downloadAll()
+            }}
+          >
+            {musicText('music.favorites.download_all')}
+          </Button>
           <Button
             variant="secondary"
             icon={<Shuffle size={14} />}

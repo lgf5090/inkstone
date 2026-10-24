@@ -35,6 +35,7 @@ export function PlaylistPage({ id }: PlaylistPageProps): ReactElement {
   const [filter, setFilter] = useState('')
   const [compact, setCompact] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
+  const recentRecorded = useRef<string | null>(null)
   const current = useMusicPlayer(selectCurrentTrack)
   const localPlaylists = useMusicLibrary((state) => state.playlists)
   const provider = localPlaylists.some((playlist) => playlist.id === id) ? 'local' : 'netease'
@@ -51,6 +52,17 @@ export function PlaylistPage({ id }: PlaylistPageProps): ReactElement {
 
   const detail = query.data?.playlist.id === id ? query.data : null
   const tracks = detail?.tracks ?? []
+
+  useEffect(() => {
+    if (!detail || recentRecorded.current === detail.playlist.id) return
+    recentRecorded.current = detail.playlist.id
+    void useMusicLibrary.getState().touchRecent({
+      kind: 'playlist',
+      providerId: detail.playlist.id,
+      name: detail.playlist.name,
+      coverUrl: detail.playlist.coverUrl,
+    })
+  }, [detail?.playlist.id])
   const needle = filter.trim().toLocaleLowerCase()
   const visibleTracks = useMemo(() => {
     if (!needle) return tracks

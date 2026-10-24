@@ -63,6 +63,7 @@ const ENDPOINTS = {
   history: '/api/music/library/history',
   recent: '/api/music/library/recent',
   playlists: '/api/music/library/playlists',
+  tracks: '/api/music/library/tracks',
   downloads: '/api/music/downloads',
   uploads: '/api/music/uploads',
 } as const
@@ -454,15 +455,22 @@ export const useMusicLibrary = create<MusicLibraryState>((set, get) => ({
 
   async requestDownload(track, quality, format) {
     try {
+      // The download route takes a library track id, not a provider id. Save the snapshot first so
+      // a track opened from discovery has a row the queue can name.
+      const saved = await musicRequest<{ tracks: MusicTrack[] }>(ENDPOINTS.tracks, requestBody({
+        tracks: [track],
+      }))
+      const libraryTrack = saved.tracks[0]
+      if (!libraryTrack) throw new MusicLibraryError(200, 'The track was not saved')
       const answer = await musicRequest<DownloadAnswer | MusicDownload>(ENDPOINTS.downloads, requestBody({
-        track,
+        trackId: libraryTrack.id,
         quality,
         format,
       }))
       const download = unwrapDownload(answer)
       if (!download) throw new MusicLibraryError(200, 'The download was not returned')
       set({
-        downloads: [{ ...download, track }, ...get().downloads.filter((entry) => entry.id !== download.id)],
+        downloads: [{ ...download, track: libraryTrack }, ...get().downloads.filter((entry) => entry.id !== download.id)],
         error: null,
         errorDetail: null,
       })

@@ -5,7 +5,7 @@
  * from the first answer while a later page is in flight, so the screen does not flash back to a
  * skeleton when the reader asks for the next page.
  */
-import { useEffect, useMemo, useState, type ReactElement } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { Play } from 'lucide-react'
 import { Button } from '../../../components/primitives'
 import { useLocale } from '../../../lib/i18n'
@@ -15,6 +15,7 @@ import { Pager } from '../components/Pager'
 import { SongList } from '../components/SongList'
 import { musicText } from '../components/labels'
 import { useMusicQuery } from '../query'
+import { useMusicLibrary } from '../store/library'
 import { DetailHero, DetailHeroSkeleton } from './parts/Hero'
 import { MusicPageBody, PageError, TrackListSkeleton } from './parts/PageState'
 import { playTracks } from './parts/playback'
@@ -27,6 +28,7 @@ export interface AlbumPageProps {
 
 export function AlbumPage({ id }: AlbumPageProps): ReactElement {
   const [page, setPage] = useState(1)
+  const recentRecorded = useRef<string | null>(null)
   const locale = useLocale()
   const dateFormatter = useMemo(
     () => new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'short', day: 'numeric' }),
@@ -42,6 +44,17 @@ export function AlbumPage({ id }: AlbumPageProps): ReactElement {
   }, [id])
 
   const detail = query.data?.album.id === id ? query.data : null
+
+  useEffect(() => {
+    if (!detail || recentRecorded.current === detail.album.id) return
+    recentRecorded.current = detail.album.id
+    void useMusicLibrary.getState().touchRecent({
+      kind: 'album',
+      providerId: detail.album.id,
+      name: detail.album.name,
+      coverUrl: detail.album.coverUrl,
+    })
+  }, [detail?.album.id])
 
   if (!detail) {
     if (query.status === 'error') {

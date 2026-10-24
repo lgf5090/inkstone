@@ -1266,3 +1266,58 @@
 .music-nowplaying__empty p {
   margin: 0;
 }
+
+/* ── Listening heatmap ────────────────────────────────────────────────────────────────────────── */
+
+/* Each palette is a component token set: the grid, legend and swatches read the same four steps. */
+.music-heatmap--green {
+  --heat-color: oklch(70% 0.15 150);
+}
+
+.music-heatmap--blue {
+  --heat-color: oklch(66% 0.14 250);
+}
+
+.music-heatmap--orange {
+  --heat-color: oklch(72% 0.16 65);
+}
+
+.music-heatmap--purple {
+  --heat-color: oklch(64% 0.17 300);
+}
+
+.music-heatmap--red {
+  --heat-color: oklch(62% 0.19 25);
+}
+
+.music-heatmap {
+  --heat-0: var(--bg-inset);
+  --heat-1: color-mix(in srgb, var(--heat-color) 24%, var(--bg-surface));
+  --heat-2: color-mix(in srgb, var(--heat-color) 44%, var(--bg-surface));
+  --heat-3: color-mix(in srgb, var(--heat-color) 68%, var(--bg-surface));
+  --heat-4: var(--heat-color);
+}
+
+.music-heatmap__cell--0 {
+  background: var(--heat-0);
+}
+
+.music-heatmap__cell--1 {
+  background: var(--heat-1);
+}
+
+.music-heatmap__cell--2 {
+  background: var(--heat-2);
+}
+
+.music-heatmap__cell--3 {
+  background: var(--heat-3);
+}
+
+.music-heatmap__cell--4 {
+  background: var(--heat-4);
+}
+
+.music-heatmap-swatch {
+  background: var(--heat-4);
+}

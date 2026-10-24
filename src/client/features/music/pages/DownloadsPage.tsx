@@ -6,7 +6,7 @@
  * control here.
  */
 import { useEffect, useId, useState, type ReactElement } from 'react'
-import { Download, Pause, Play, RotateCcw, X } from 'lucide-react'
+import { Download, Pause, Play, RotateCcw, Trash2, X } from 'lucide-react'
 import { MUSIC_LIMITS } from '@shared/music/constants'
 import {
   formatBytes,
@@ -47,6 +47,7 @@ export function DownloadsPage(): ReactElement {
   const headingId = useId()
   const [items, setItems] = useState<MusicDownloadItem[]>([])
   const [pendingId, setPendingId] = useState<string | null>(null)
+  const [removingId, setRemovingId] = useState<string | null>(null)
   const query = useMusicQuery(async () => {
     const [downloads, uploads] = await Promise.all([musicApi.downloads(), musicApi.uploads()])
     return { downloads: downloads.items, uploads: uploads.items }
@@ -100,6 +101,29 @@ export function DownloadsPage(): ReactElement {
       query.reload()
     } finally {
       setPendingId(null)
+    }
+  }
+
+  const remove = async (item: MusicDownloadItem): Promise<void> => {
+    const approved = await confirm({
+      title: musicText('music.downloads.remove_confirm_title'),
+      description: musicText('music.downloads.remove_confirm_body', {
+        title: item.track?.title ?? item.trackId,
+      }),
+      confirmLabel: musicText('music.downloads.remove'),
+      tone: 'danger',
+    })
+    if (!approved) return
+    setRemovingId(item.id)
+    try {
+      await musicApi.removeDownload(item.id)
+      setItems((current) => current.filter((entry) => entry.id !== item.id))
+      useUi.getState().toast({ title: musicText('music.downloads.removed'), tone: 'success' })
+    } catch (error) {
+      toastFailure(musicText('music.downloads.remove_failed'), error)
+      query.reload()
+    } finally {
+      setRemovingId(null)
     }
   }
 
@@ -189,9 +213,12 @@ export function DownloadsPage(): ReactElement {
               <DownloadRow
                 key={item.id}
                 item={item}
-                pending={pendingId === item.id}
+                pending={pendingId === item.id || removingId === item.id}
                 onAction={(action) => {
                   void act(item, action)
+                }}
+                onRemove={() => {
+                  void remove(item)
                 }}
               />
             ))}
@@ -206,10 +233,12 @@ function DownloadRow({
   item,
   pending,
   onAction,
+  onRemove,
 }: {
   item: MusicDownloadItem
   pending: boolean
   onAction: (action: DownloadAction) => void
+  onRemove: () => void
 }): ReactElement {
   const track = item.track
   const percent = Math.max(0, Math.min(100, Math.round(item.progress)))
@@ -261,7 +290,7 @@ function DownloadRow({
         </p>
       )}
 
-      <DownloadActions item={item} pending={pending} onAction={onAction} />
+      <DownloadActions item={item} pending={pending} onAction={onAction} onRemove={onRemove} />
     </li>
   )
 }
@@ -270,10 +299,12 @@ function DownloadActions({
   item,
   pending,
   onAction,
+  onRemove,
 }: {
   item: MusicDownloadItem
   pending: boolean
   onAction: (action: DownloadAction) => void
+  onRemove: () => void
 }): ReactElement | null {
   const buttons: Array<{ action: DownloadAction; label: string; icon: ReactElement }> = []
   if (item.status === 'queued' || item.status === 'running') {
@@ -287,17 +318,17 @@ function DownloadActions({
     buttons.push({ action: 'cancel', label: musicText('music.downloads.cancel'), icon: <X size={13} /> })
   } else if (item.status === 'canceled') {
     buttons.push({ action: 'retry', label: musicText('common.retry'), icon: <RotateCcw size={13} /> })
-  } else if (item.status === 'done') {
-    return (
-      <p className="flex items-center gap-[var(--sp-1-5)] text-[length:var(--text-11)] text-[var(--success)]">
-        <Download size={13} aria-hidden="true" />
-        {musicText('music.downloads.saved_hint')}
-      </p>
-    )
   }
-  if (buttons.length === 0) return null
+  const terminal = item.status === 'done' || item.status === 'failed' || item.status === 'canceled'
+  if (buttons.length === 0 && !terminal) return null
   return (
     <div className="flex flex-wrap items-center justify-end gap-[var(--sp-1)]">
+      {item.status === 'done' && (
+        <p className="flex items-center gap-[var(--sp-1-5)] text-[length:var(--text-11)] text-[var(--success)]">
+          <Download size={13} aria-hidden="true" />
+          {musicText('music.downloads.saved_hint')}
+        </p>
+      )}
       {buttons.map((button) => (
         <Button
           key={button.action}
@@ -310,6 +341,17 @@ function DownloadActions({
           {button.label}
         </Button>
       ))}
+      {terminal && (
+        <Button
+          size="sm"
+          variant="ghost"
+          icon={<Trash2 size={13} />}
+          disabled={pending}
+          onClick={onRemove}
+        >
+          {musicText('music.downloads.remove')}
+        </Button>
+      )}
     </div>
   )
 }
