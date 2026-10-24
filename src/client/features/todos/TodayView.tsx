@@ -258,10 +258,12 @@ function TaskPicker({ timezone, dayEnd }: { timezone: string; dayEnd: number }) 
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<TodoTask[]>([])
   const [searched, setSearched] = useState(false)
+  const [failed, setFailed] = useState(false)
 
   useEffect(() => {
     const text = query.trim()
     setSearched(false)
+    setFailed(false)
     if (!text) {
       setResults([])
       return
@@ -275,6 +277,10 @@ function TaskPicker({ timezone, dayEnd }: { timezone: string; dayEnd: number }) 
         const today = localDate(Date.now(), timezone)
         setResults(rows.filter((task) => !alreadyHere(task, today, dayEnd)))
         setSearched(true)
+      }).catch(() => {
+        if (!alive) return
+        setResults([])
+        setFailed(true)
       })
     }, PICKER_DEBOUNCE_MS)
     return () => { alive = false; clearTimeout(timer) }
@@ -304,7 +310,7 @@ function TaskPicker({ timezone, dayEnd }: { timezone: string; dayEnd: number }) 
         leading={<Search size={12} />}
         className="h-9"
       />
-      {query.trim() && (results.length > 0 || searched) && (
+      {query.trim() && (results.length > 0 || searched || failed) && (
         <div className="mt-1 overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
           {results.length > 0 ? (
             <ul aria-label={t('todo.today.pick')}>
@@ -321,6 +327,11 @@ function TaskPicker({ timezone, dayEnd }: { timezone: string; dayEnd: number }) 
                 </li>
               ))}
             </ul>
+          ) : failed ? (
+            <div role="alert" className="px-2.5 py-2">
+              <p className="text-[length:var(--text-12)] text-[var(--danger)]">{t('todo.today.search_failed')}</p>
+              <p className="mt-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('todo.today.search_failed_hint')}</p>
+            </div>
           ) : (
             <p className="px-2.5 py-2 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('todo.empty.search')}</p>
           )}

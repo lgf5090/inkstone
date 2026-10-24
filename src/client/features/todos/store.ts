@@ -1431,7 +1431,11 @@ export const useTodos = create<TodosState>((set, get) => ({
   listEditor: { open: false, list: null },
 
   load: async () => {
-    if (get().status === 'idle') set({ status: 'loading' })
+    // A retry after a failure has to look like the first attempt, or the error stays on screen while
+    // the new read is in flight. A page that already has its listing keeps it: a refresh is not a
+    // reason to blank what the reader is looking at.
+    const current = get().status
+    if (current === 'idle' || current === 'error') set({ status: 'loading' })
     const seq = ++listingSeq
     try {
       // A line that names a list or tag needs the directory before its id can be built. On a cold load
@@ -2227,23 +2231,17 @@ export const useTodos = create<TodosState>((set, get) => ({
    * The picker's search: open tasks whose title (or note, or tag) says what the reader typed.
    *
    * A read on its own, not the page's listing: the picker is looking across the whole shelf while the
-   * page behind it stays scoped to today. A failure is reported through the same toast every other
-   * failed read uses and answers with nothing, so the field stays usable rather than throwing inside
-   * an effect.
+   * page behind it stays scoped to today. A failure is thrown to the caller rather than toasted here,
+   * because the picker has to tell a failed search from one that found nothing.
    */
   searchTasks: async (query) => {
     const text = query.trim()
     if (!text) return []
-    try {
-      // The shelf is read from both sides here, and this is the surface that makes a put-away task
-      // findable again: every listing hides it, so a search that hid it too would tell the reader the
-      // work never existed. The hit still names which side it came from, so nothing downstream guesses.
-      const page = await api.todos.list({ view: 'open', q: text, limit: PICKER_LIMIT, archived: 'any' })
-      return page.tasks
-    } catch (error) {
-      toastError(error)
-      return []
-    }
+    // The shelf is read from both sides here, and this is the surface that makes a put-away task
+    // findable again: every listing hides it, so a search that hid it too would tell the reader the
+    // work never existed. The hit still names which side it came from, so nothing downstream guesses.
+    const page = await api.todos.list({ view: 'open', q: text, limit: PICKER_LIMIT, archived: 'any' })
+    return page.tasks
   },
 
   createList: async (input) => {

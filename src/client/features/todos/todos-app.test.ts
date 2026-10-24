@@ -13,18 +13,22 @@ import { TodosApp } from './TodosApp'
  * case is about structure rather than about a fetch that never lands.
  */
 
-const state = vi.hoisted(() => ({ today: 0 }))
+const state = vi.hoisted(() => ({ today: 0, failList: false, listCalls: 0 }))
 
 vi.mock('../../lib/api', () => ({
   api: {
     todos: {
-      list: async () => ({
-        tasks: [],
-        total: 0,
-        counts: { inbox: 0, today: state.today, upcoming: 0, overdue: 0, all: 0, completed: 0, starred: 0, byList: {}, byTag: {} },
-        dayEnd: Date.now() + 3_600_000,
-        timezone: 'UTC',
-      }),
+      list: async () => {
+        state.listCalls += 1
+        if (state.failList) throw new Error('listing unavailable')
+        return {
+          tasks: [],
+          total: 0,
+          counts: { inbox: 0, today: state.today, upcoming: 0, overdue: 0, all: 0, completed: 0, starred: 0, byList: {}, byTag: {} },
+          dayEnd: Date.now() + 3_600_000,
+          timezone: 'UTC',
+        }
+      },
       lists: async () => ({ lists: [] }),
       tags: async () => ({ tags: [] }),
       get: async () => ({ task: null, steps: [] }),
@@ -36,9 +40,11 @@ let view: RenderedElement
 
 beforeEach(async () => {
   localStorage.clear()
+  state.failList = false
+  state.listCalls = 0
   // The store outlives a render, so a case that expects a fresh load has to hand it back the idle state;
   // without this the first case's counts answer for every case after it.
-  useTodos.setState({ status: 'idle', counts: null, tasks: [], completed: [], lists: [], tags: [], view: 'board', listId: null, tagId: null })
+  useTodos.setState({ status: 'idle', error: null, counts: null, tasks: [], completed: [], lists: [], tags: [], view: 'board', listId: null, tagId: null })
   await initI18n()
 })
 
@@ -70,6 +76,28 @@ describe('the to-do container', () => {
 
     expect(view.container.querySelector(`nav[aria-label="${t('todo.a11y.lists')}"]`)).not.toBeNull()
     expect(view.container.querySelector(`nav[aria-label="${t('todo.app.navigation')}"]`)).toBeNull()
+  })
+
+  it('shows a failed listing with a retry that reads it again', async () => {
+    stubBreakpoint(true)
+    state.failList = true
+    await render()
+
+    expect(view.container.querySelector('[role="alert"]')?.textContent).toContain(t('todo.error.load'))
+    const retry = [...view.container.querySelectorAll('button')]
+      .find((button) => (button.textContent ?? '').includes(t('common.retry')))
+    expect(retry, 'the failed listing offers no retry').toBeDefined()
+
+    const before = state.listCalls
+    state.failList = false
+    await act(async () => {
+      retry!.click()
+      await Promise.resolve()
+    })
+    await act(async () => { await Promise.resolve() })
+
+    expect(state.listCalls, 'the retry never asked the server again').toBeGreaterThan(before)
+    expect(view.container.textContent).not.toContain(t('todo.error.load'))
   })
 
   it('keeps the sidebar’s own order and words for the four cross-cutting views', async () => {

@@ -18304,7 +18304,6 @@ const allowed = new Map([
     "/** Open tasks matching a title search, for the today screen's picker. Errors are reported, not thrown. */",
     "/**\n * How many candidate rows the today screen's picker asks for.\n *\n * Eight is about what fits under the field without turning a picker into a second listing; a reader\n * who does not see the task narrows the words rather than scrolling.\n */",
     "/**\n   * Pick a task into today, or take it back out.\n   *\n   * The pick is a write like any other, so the listing is asked for again rather than patched here:\n   * a row that leaves today because its plan was cleared and a row that enters it because of one are\n   * the same question, and the server already answers it. The task's own answer is returned so the\n   * caller can tell a landed pick from a refused one.\n   */",
-    "/**\n   * The picker's search: open tasks whose title (or note, or tag) says what the reader typed.\n   *\n   * A read on its own, not the page's listing: the picker is looking across the whole shelf while the\n   * page behind it stays scoped to today. A failure is reported through the same toast every other\n   * failed read uses and answers with nothing, so the field stays usable rather than throwing inside\n   * an effect.\n   */",
     "/** The task's pending reminders as absolute instants; what the task endpoints accept. */",
     "/** One reminder from a quick-add line, as the instant the parser computed. */",
     "/** The quick-add offset; the API client converts it to `reminders` at the network boundary. */",
@@ -18524,6 +18523,10 @@ const allowed = new Map([
     "// fact about the partner: the rows that waited on this one, and the ones this one waited on, each",
     "// carry a ref that this delete makes untrue.",
     "/**\n   * File one finished focus phase. Best effort in the sense that a failed record never blocks the\n   * overlay, but the failure is reported rather than swallowed.\n   */",
+    "// A retry after a failure has to look like the first attempt, or the error stays on screen while",
+    "// the new read is in flight. A page that already has its listing keeps it: a refresh is not a",
+    "// reason to blank what the reader is looking at.",
+    "/**\n   * The picker's search: open tasks whose title (or note, or tag) says what the reader typed.\n   *\n   * A read on its own, not the page's listing: the picker is looking across the whole shelf while the\n   * page behind it stays scoped to today. A failure is thrown to the caller rather than toasted here,\n   * because the picker has to tell a failed search from one that found nothing.\n   */",
   ]],
   ["src/client/features/todos/task-attachments.ts", [
     "/**\n * The client's half of a task's files.\n *\n * `POST /api/todos/:id/attachments` has carried the whole job since the attachment round: the same\n * storage every note file uses, with the account's hourly upload budget, the multipart ceiling, the\n * 25 MB limit, the MIME sniffing, the filename cleanup, the quota and the link row all read on the\n * server. What was missing was a caller (C12). This is that caller, and it adds nothing to the\n * contract — one multipart field named `file`, posted to the task it belongs to.\n *\n * The one judgement made here is a courtesy, not a boundary: a file already known to be over the limit\n * is refused before its bytes are sent, so the reader hears about it in the time it takes to let go of\n * the pointer rather than after an upload that was always going to be refused. Everything else — the\n * type, the content, the path, the quota, the budget — is the route's to decide, and its answer is what\n * reaches the reader. Nothing about a limit rides in the request, and no file is checked twice here.\n *\n * Files go one at a time. A hand of them fired together would race the hourly budget for the same\n * account and report a failure count nobody could tie to a file.\n */",
@@ -18962,6 +18965,8 @@ const allowed = new Map([
     "// Only the row owed yesterday belongs there.",
     "// The last minute of yesterday and the first of today sit on either side of the line.",
     "// Late in the day, a morning row is still not a missed day.",
+    "/** Whether a title search fails, so the picker's failure path can be told from an empty answer. */",
+    "// A read that failed is not an answer of zero: the picker says so rather than offering \"No matches\".",
   ]],
   ["src/client/features/todos/todo-address.test.ts", [
     "/** The address half, away from any store: what the grammar says a shape means. */",

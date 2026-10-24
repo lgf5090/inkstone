@@ -67,6 +67,8 @@ const service = vi.hoisted(() => ({
   requests: [] as ListParams[],
   plans: [] as { id: string, date: string | null }[],
   batches: [] as { ids: string[], op: string }[],
+  /** Whether a title search fails, so the picker's failure path can be told from an empty answer. */
+  failSearch: false,
   /** The today page's rows, the open shelf the picker searches, the wider shelf a plan reads, and
    *  the overdue page the shift banner names. */
   pageRows: [] as TodoTask[],
@@ -75,6 +77,7 @@ const service = vi.hoisted(() => ({
   overdueRows: [] as TodoTask[],
   answer(params: ListParams): Record<string, unknown> {
     service.requests.push(params)
+    if (params.q && service.failSearch) throw new Error('search unavailable')
     const rows = params.q
       ? service.candidates
       : params.view === 'open'
@@ -150,6 +153,7 @@ beforeEach(async () => {
   service.requests.length = 0
   service.plans.length = 0
   service.batches.length = 0
+  service.failSearch = false
   service.pageRows = []
   service.candidates = []
   service.overdueRows = []
@@ -399,6 +403,22 @@ describe('the today screen', () => {
     const field = container.querySelector<HTMLInputElement>(`input[aria-label="${t('todo.today.pick')}"]`)
     expect(field, 'the today picker has no search field').not.toBeNull()
     expect(field!.maxLength, 'the picker search does not bound to the shared query length').toBe(MAX_TASK_QUERY_CHARS)
+  })
+
+  it('tells a failed picker search from one that found nothing', async () => {
+    stubBreakpoint(true)
+    service.failSearch = true
+
+    const container = await mount('/todo?view=today')
+    const field = container.querySelector<HTMLInputElement>(`input[aria-label="${t('todo.today.pick')}"]`)
+    expect(field, 'the today picker has no search field').not.toBeNull()
+
+    typeInto(field!, 'renew')
+    await settle(260)
+
+    // A read that failed is not an answer of zero: the picker says so rather than offering "No matches".
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(t('todo.today.search_failed'))
+    expect(container.textContent).not.toContain(t('todo.empty.search'))
   })
 })
 

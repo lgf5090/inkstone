@@ -19,11 +19,11 @@ import { t } from '../../lib/i18n'
 import { IS_DEMO_MODE } from '../../lib/runtime'
 import { isImeComposing } from '../../lib/ime'
 import { useMediaQuery } from '../../lib/hooks'
-import { IconButton } from '../../components/primitives'
+import { Button, IconButton } from '../../components/primitives'
 import { DEFAULT_TODO_WORKDAY } from '@shared/constants'
 import { Input } from '../../components/form'
 import { Menu, type MenuItem } from '../../components/overlay'
-import { LoadingBlock } from '../../components/feedback'
+import { Empty, LoadingBlock } from '../../components/feedback'
 import { useSession } from '../../store/session'
 import { DEFAULT_LAYOUT, PANEL_WIDTHS, useUi } from '../../store/ui'
 import { Resizer } from '../shell/Resizer'
@@ -92,6 +92,7 @@ function useWide(): boolean {
 export function TodosApp() {
   const wide = useWide()
   const status = useTodos((state) => state.status)
+  const error = useTodos((state) => state.error)
   const load = useTodos((state) => state.load)
   const view = useTodos((state) => state.view)
   const setView = useTodos((state) => state.setView)
@@ -529,7 +530,20 @@ export function TodosApp() {
               the calendar and the close-out read their own rows, so their own controls replace this bar
               rather than join it — a filter that narrowed nothing would be a control that lies. */}
           {page === 'main' && !readsOwnRows(view) && <TodoFilters />}
-          {status === 'loading' && !counts ? <LoadingBlock /> : content}
+          {status === 'error' ? (
+            <div role="alert" className="px-4 py-10">
+              <Empty
+                title={t('todo.error.load')}
+                description={
+                  <>
+                    {t('todo.error.load_hint')}
+                    {error && <span className="mt-1 block break-words">{error}</span>}
+                  </>
+                }
+                action={<Button onClick={() => { void load() }}>{t('common.retry')}</Button>}
+              />
+            </div>
+          ) : status === 'loading' && !counts ? <LoadingBlock /> : content}
         </div>
         {assistantDockOpen && !IS_DEMO_MODE && <AssistantDock surface="todos" />}
       </div>
