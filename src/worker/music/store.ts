@@ -1490,8 +1490,7 @@ export class MusicStore {
     return row ? row.secret : null
   }
 
-  async createMount(input: MusicMountInput): Promise<MusicMount> {
-    const id = newId()
+  async createMount(input: MusicMountInput, id = newId()): Promise<MusicMount> {
     const now = Date.now()
     await this.db.prepare(
       `INSERT INTO music_mount

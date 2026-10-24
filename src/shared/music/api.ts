@@ -12,6 +12,37 @@ import type {
   MusicUpload,
 } from './model'
 
+
+export interface MusicAlistEntry {
+  name: string
+  path: string
+  isDirectory: boolean
+  sizeBytes: number
+  modifiedAt: number | null
+  isMedia: boolean
+}
+
+export interface MusicAlistListing {
+  path: string
+  entries: MusicAlistEntry[]
+  truncated: boolean
+}
+
+export interface MusicAlistMountInput {
+  name: string
+  baseUrl: string
+  rootPath?: string
+  token: string
+}
+
+export interface MusicAlistMountPatch {
+  name?: string
+  baseUrl?: string
+  rootPath?: string
+  /** Absent keeps the saved token; an empty string clears it. */
+  token?: string
+}
+
 export interface MusicPage<T> {
   items: T[]
   total: number

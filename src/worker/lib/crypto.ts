@@ -92,6 +92,28 @@ export async function decryptEmailSecret(env: Env, ownerId: string, stored: stri
 }
 
 /**
+ * The access token of one Alist mount.
+ *
+ * Scoped to the mount's own id, not to the account: two mounts on two servers are two credentials,
+ * and deleting one must not disturb the other. The value is never read back by a route; only the
+ * drive resolver asks for it, inside the request that talks to that server.
+ */
+export async function encryptMusicMountToken(env: Env, mountId: string, token: string): Promise<string> {
+  if (!isValidId(mountId)) throw new Error('invalid_music_credential')
+  const trimmed = token.trim()
+  if (!trimmed || trimmed.length > 4 * 1024) throw new Error('invalid_music_credential')
+  return encryptCredential(env, `music-mount:${mountId}`, { token: trimmed })
+}
+
+export async function decryptMusicMountToken(env: Env, mountId: string, stored: string): Promise<string | null> {
+  if (!isValidId(mountId) || stored.length > 24 * 1024) return null
+  const value = await decryptCredential(env, `music-mount:${mountId}`, stored)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const token = (value as Record<string, unknown>).token
+  return typeof token === 'string' && token.length > 0 && token.length <= 4 * 1024 ? token : null
+}
+
+/**
  * The optional Netease content account's cookie.
  *
  * It is scoped to the Inkstone account rather than to a music row, because one reader links one

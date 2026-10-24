@@ -18,12 +18,24 @@ import {
   type MusicDriveUploadResult,
 } from '@shared/music/api'
 import { MUSIC_MIME_BY_FORMAT, formatFromFilename } from '@shared/music/constants'
-import { MUSIC_PROVIDER_ID_MAX, musicWebdavProviderId, type MusicTrack } from '@shared/music/model'
+import { MUSIC_PROVIDER_ID_MAX, musicWebdavProviderId, type MusicMount, type MusicTrack } from '@shared/music/model'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
+import { newId } from '../lib/id'
+import { encryptMusicMountToken } from '../lib/crypto'
 import { readFormDataWithinLimit, readJson } from '../lib/request'
 import { MusicStore } from '../music/store'
 import { resolveMusicWebdav } from '../music/cloud/config'
+import {
+  alistMountBaseUrl,
+  alistMountName,
+  alistMountRoot,
+  alistMountToken,
+  listAlistDirectory,
+  resolveAlistMount,
+  searchAlist,
+  testAlistMount,
+} from '../music/cloud/alist'
 import {
   deleteMusicObject,
   joinCloudPath,
@@ -229,3 +241,102 @@ function trackTitle(filename: string, path: string): string {
   const stem = dot > 0 ? filename.slice(0, dot).trim() : ''
   return stem || filename || path
 }
+
+const MOUNT_BODY_LIMIT = 8 * 1024
+
+function mountNotFound(): ApiError {
+  return ApiError.notFound('That Alist mount does not exist.')
+}
+
+async function loadMount(store: MusicStore, id: string): Promise<MusicMount> {
+  const mount = await store.getMount(id)
+  if (!mount || mount.kind !== 'alist') throw mountNotFound()
+  return mount
+}
+
+/** Tokens are write-only over HTTP: the route returns the row, never the ciphertext or its plaintext. */
+musicDriveRoutes.get('/alist', async (c) => {
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  return c.json({ mounts: await store.listMounts() })
+})
+
+musicDriveRoutes.post('/alist', async (c) => {
+  const body = await readJson<Record<string, unknown>>(c, MOUNT_BODY_LIMIT)
+  const name = alistMountName(body.name)
+  const baseUrl = alistMountBaseUrl(body.baseUrl)
+  const rootPath = alistMountRoot(body.rootPath)
+  const token = alistMountToken(body.token, true)
+  if (!token) throw ApiError.badRequest('The Alist token is required.')
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  const id = newId()
+  const mount = await store.createMount({
+    kind: 'alist',
+    name,
+    baseUrl,
+    rootPath,
+    secret: await encryptMusicMountToken(c.env, id, token),
+    status: 'active',
+  }, id)
+  return c.json({ mount }, 201)
+})
+
+musicDriveRoutes.patch('/alist/:id', async (c) => {
+  const body = await readJson<Record<string, unknown>>(c, MOUNT_BODY_LIMIT)
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  const id = c.req.param('id')
+  await loadMount(store, id)
+  const patch: Parameters<MusicStore['updateMount']>[1] = {
+    ...(body.name === undefined ? {} : { name: alistMountName(body.name) }),
+    ...(body.baseUrl === undefined ? {} : { baseUrl: alistMountBaseUrl(body.baseUrl) }),
+    ...(body.rootPath === undefined ? {} : { rootPath: alistMountRoot(body.rootPath) }),
+    ...(body.token === undefined
+      ? {}
+      : {
+          secret: body.token === ''
+            ? ''
+            : await encryptMusicMountToken(c.env, id, alistMountToken(body.token, true) ?? ''),
+        }),
+  }
+  const mount = await store.updateMount(id, patch)
+  if (!mount) throw mountNotFound()
+  return c.json({ mount })
+})
+
+musicDriveRoutes.delete('/alist/:id', async (c) => {
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  const id = c.req.param('id')
+  await loadMount(store, id)
+  if (!(await store.deleteMount(id))) throw mountNotFound()
+  return c.json({ ok: true })
+})
+
+musicDriveRoutes.get('/alist/:id/list', async (c) => {
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  const ctx = await resolveAlistMount(c.env, store, c.req.param('id'))
+  const listing = await listAlistDirectory(ctx, c.req.query('path') ?? '')
+  if (ctx.mount.status !== 'active') {
+    await store.updateMount(ctx.mount.id, { status: 'active' }).catch(() => undefined)
+  }
+  return c.json({ mount: ctx.mount, listing })
+})
+
+musicDriveRoutes.get('/alist/:id/search', async (c) => {
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  const ctx = await resolveAlistMount(c.env, store, c.req.param('id'))
+  const entries = await searchAlist(ctx, c.req.query('keywords') ?? '')
+  return c.json({ mount: ctx.mount, entries })
+})
+
+musicDriveRoutes.post('/alist/:id/test', async (c) => {
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  const id = c.req.param('id')
+  try {
+    const ctx = await resolveAlistMount(c.env, store, id)
+    await testAlistMount(ctx)
+    await store.updateMount(id, { status: 'active' })
+    return c.json({ ok: true })
+  } catch (error) {
+    await store.updateMount(id, { status: 'error' }).catch(() => undefined)
+    throw error
+  }
+})

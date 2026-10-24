@@ -19,6 +19,7 @@ import { musicPathFor } from '../music-address'
 import { useMusicQuery } from '../query'
 import { SectionHeader } from '../components/SectionHeader'
 import { MusicTabs } from '../components/Tabs'
+import { AlistPanel } from '../components/AlistPanel'
 import { musicText } from '../components/labels'
 import { toastFailure } from './parts/P2QueryState'
 import { MusicPageBody, PageError } from './parts/PageState'
@@ -63,12 +64,13 @@ export function CloudDrivePage(): ReactElement {
   const [uploading, setUploading] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const query = useMusicQuery(async () => {
-    const [drive, uploads, webdav] = await Promise.all([
+    const [drive, uploads, webdav, alist] = await Promise.all([
       musicApi.drive(),
       musicApi.uploads(),
       musicApi.driveWebdav(path),
+      musicApi.alistMounts(),
     ])
-    return { drive, uploads: uploads.items, webdav }
+    return { drive, uploads: uploads.items, webdav, alist: alist.mounts }
   }, [path])
   const data = query.data
   const reload = query.reload
@@ -322,7 +324,7 @@ export function CloudDrivePage(): ReactElement {
       )}
 
       {data && source === 'alist' && (
-        <Empty art="folder" title={musicText('music.cloud.alist_title')} description={musicText('music.cloud.alist_hint')} />
+        <AlistPanel mounts={data.alist} onChanged={query.reload} />
       )}
     </MusicPageBody>
   )

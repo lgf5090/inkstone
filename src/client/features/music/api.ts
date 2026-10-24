@@ -4,6 +4,10 @@ import { uploadWithProgress } from '../../lib/transfer'
 import type {
   MusicAccountStatus,
   MusicAlbumDetail,
+  MusicAlistEntry,
+  MusicAlistListing,
+  MusicAlistMountInput,
+  MusicAlistMountPatch,
   MusicArtistDetail,
   MusicDownloadListPayload,
   MusicDriveDeleteResult,
@@ -26,6 +30,7 @@ import type {
 } from '@shared/music/api'
 import type {
   MusicAccount,
+  MusicMount,
   MusicDownload,
   MusicHistoryEntry,
   MusicPlaylist,
@@ -75,6 +80,19 @@ export const musicApi = {
   health: () => request<MusicHealth>('/api/music/health'),
 
   drive: () => request<MusicDriveSummary>('/api/music/drive'),
+  alistMounts: () => request<{ mounts: MusicMount[] }>('/api/music/drive/alist'),
+  createAlistMount: (input: MusicAlistMountInput) =>
+    request<{ mount: MusicMount }>('/api/music/drive/alist', { method: 'POST', body: input }),
+  updateAlistMount: (id: string, patch: MusicAlistMountPatch) =>
+    request<{ mount: MusicMount }>(`/api/music/drive/alist/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch }),
+  deleteAlistMount: (id: string) =>
+    request<{ ok: true }>(`/api/music/drive/alist/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  alistList: (id: string, path = '') =>
+    request<{ mount: MusicMount, listing: MusicAlistListing }>(`/api/music/drive/alist/${encodeURIComponent(id)}/list${query({ path })}`),
+  alistSearch: (id: string, keywords: string) =>
+    request<{ mount: MusicMount, entries: MusicAlistEntry[] }>(`/api/music/drive/alist/${encodeURIComponent(id)}/search${query({ keywords })}`),
+  testAlistMount: (id: string) =>
+    request<{ ok: true }>(`/api/music/drive/alist/${encodeURIComponent(id)}/test`, { method: 'POST' }),
   driveWebdav: (path = '') => request<MusicWebdavListing>(`/api/music/drive/webdav${query({ path })}`),
   driveWebdavImport: (paths: string[], targetPlaylistId?: string) =>
     request<MusicDriveImportResult>('/api/music/drive/webdav/import', {

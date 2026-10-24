@@ -20,4 +20,12 @@ describe('the music credential scope', () => {
     expect(isScope('music:short')).toBe(false)
     expect(isScope(`music:${userId.toUpperCase()}`)).toBe(false)
   })
+
+  it('accepts one token per alist mount and nothing else', () => {
+    expect(isScope(`music-mount:${userId}`)).toBe(true)
+    expect(isCredentialRecord(`music-mount:${userId}`, { token: 'alist-token' })).toBe(true)
+    expect(isCredentialRecord(`music-mount:${userId}`, { cookie: 'x' })).toBe(false)
+    expect(isCredentialRecord(`music-mount:${userId}`, { token: '' })).toBe(false)
+    expect(isCredentialRecord(`music-mount:${userId}`, { token: 'x'.repeat(8 * 1024 + 1) })).toBe(false)
+  })
 })

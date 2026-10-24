@@ -394,3 +394,106 @@ describe('webdav stream', () => {
     expect(response.status).toBe(502)
   })
 })
+
+describe('alist mounts', () => {
+  async function createMount(): Promise<{ id: string, name: string }> {
+    const response = await send('/api/music/drive/alist', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Drive',
+        baseUrl: 'https://alist.example.com',
+        rootPath: '/music',
+        token: 'alist-token',
+      }),
+    })
+    expect(response.status).toBe(201)
+    const body = await json<{ mount: { id: string, name: string, hasSecret: boolean } }>(response)
+    expect(body.mount.hasSecret).toBe(true)
+    expect('secret' in body.mount).toBe(false)
+    return body.mount
+  }
+
+  it('stores the token encrypted and never returns it', async () => {
+    const mount = await createMount()
+    const listed = await send('/api/music/drive/alist')
+    const body = await json<{ mounts: Array<Record<string, unknown>> }>(listed)
+    expect(body.mounts).toHaveLength(1)
+    expect(body.mounts[0]).toMatchObject({ id: mount.id, name: 'Drive', kind: 'alist', hasSecret: true })
+    expect('secret' in body.mounts[0]!).toBe(false)
+    expect([...vaultValues.values()]).toContainEqual({ token: 'alist-token' })
+
+    const foreign = await send('/api/music/drive/alist', {}, MEMBER)
+    expect(await json<{ mounts: unknown[] }>(foreign)).toEqual({ mounts: [] })
+  })
+
+  it('lists a folder relative to the mount root with the saved token', async () => {
+    const mount = await createMount()
+    const requests: Array<{ url: string, auth: string, body: unknown }> = []
+    vi.stubGlobal('fetch', async (input: URL | string, init: RequestInit = {}) => {
+      requests.push({
+        url: String(input),
+        auth: String((init.headers as Record<string, string>).Authorization),
+        body: JSON.parse(String(init.body)),
+      })
+      return Response.json({
+        code: 200,
+        data: {
+          content: [
+            { name: 'Album', is_dir: true, size: 0 },
+            { name: 'song.mp3', is_dir: false, size: 42, modified: '2026-10-24T00:00:00Z' },
+            { name: 'notes.txt', is_dir: false, size: 3 },
+          ],
+        },
+      })
+    })
+    const response = await send(`/api/music/drive/alist/${mount.id}/list?path=`)
+    expect(response.status).toBe(200)
+    const body = await json<{
+      listing: { path: string, entries: Array<Record<string, unknown>> }
+    }>(response)
+    expect(body.listing.path).toBe('')
+    expect(body.listing.entries[0]).toMatchObject({ name: 'Album', path: 'Album', isDirectory: true })
+    expect(body.listing.entries[1]).toMatchObject({ name: 'notes.txt', isMedia: false })
+    expect(body.listing.entries[2]).toMatchObject({ name: 'song.mp3', path: 'song.mp3', sizeBytes: 42, isMedia: true })
+    expect(requests[0]?.url).toBe('https://alist.example.com/api/fs/list')
+    expect(requests[0]?.auth).toBe('alist-token')
+    expect(requests[0]?.body).toMatchObject({ path: '/music', page: 1, per_page: 200 })
+  })
+
+  it('searches under the mount root and keeps media files only', async () => {
+    const mount = await createMount()
+    vi.stubGlobal('fetch', async () => Response.json({
+      code: 200,
+      data: {
+        content: [
+          { name: 'song.flac', parent: '/music/Album', is_dir: false, size: 9 },
+          { name: 'cover.jpg', parent: '/music/Album', is_dir: false, size: 1 },
+          { name: 'Sub', parent: '/music/Album', is_dir: true, size: 0 },
+        ],
+      },
+    }))
+    const response = await send(`/api/music/drive/alist/${mount.id}/search?keywords=song`)
+    expect(response.status).toBe(200)
+    const body = await json<{ entries: Array<Record<string, unknown>> }>(response)
+    expect(body.entries).toEqual([
+      expect.objectContaining({ name: 'song.flac', path: 'Album/song.flac', isMedia: true }),
+    ])
+  })
+
+  it('refuses unsafe addresses and lets the owner delete a mount', async () => {
+    const bad = await send('/api/music/drive/alist', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Bad', baseUrl: 'http://127.0.0.1:5244', token: 't' }),
+    })
+    expect(bad.status).toBe(400)
+
+    const mount = await createMount()
+    const foreign = await send(`/api/music/drive/alist/${mount.id}`, { method: 'DELETE' }, MEMBER)
+    expect(foreign.status).toBe(404)
+    const removed = await send(`/api/music/drive/alist/${mount.id}`, { method: 'DELETE' })
+    expect(removed.status).toBe(200)
+    expect(await store.listMounts()).toEqual([])
+  })
+})
