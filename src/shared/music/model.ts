@@ -40,6 +40,22 @@ export type MusicUploadStatus = (typeof MUSIC_UPLOAD_STATUSES)[number]
 export const MUSIC_SUBSCRIPTION_KINDS = ['radio', 'artist', 'album'] as const
 export type MusicSubscriptionKind = (typeof MUSIC_SUBSCRIPTION_KINDS)[number]
 
+/** Only translated lyrics exist for now; the kind column keeps the cache room to grow without a migration. */
+export const MUSIC_AI_LYRIC_KINDS = ['translation'] as const
+export type MusicAiLyricKind = (typeof MUSIC_AI_LYRIC_KINDS)[number]
+
+/** The cloud drives a mount can stand for. Only Alist is modelled; WebDAV reuses a backup target. */
+export const MUSIC_MOUNT_KINDS = ['alist'] as const
+export type MusicMountKind = (typeof MUSIC_MOUNT_KINDS)[number]
+
+/**
+ * `active` is a mount whose last use answered; `error` is one the last test could not reach. The
+ * credential is deliberately not part of this axis: a saved token that fails to authenticate is an
+ * `error`, not a third state the reader has to interpret.
+ */
+export const MUSIC_MOUNT_STATUSES = ['active', 'error'] as const
+export type MusicMountStatus = (typeof MUSIC_MOUNT_STATUSES)[number]
+
 export interface MusicArtist {
   id: string
   name: string
@@ -82,6 +98,8 @@ export interface MusicPlaylist {
   providerId: string
   kind: 'manual' | 'imported' | 'favorites'
   sortOrder: number
+  /** When the reader pinned the playlist, or null. Pinned rows sort ahead of the shelf order. */
+  pinnedAt: number | null
   trackCount: number
   createdAt: number
   updatedAt: number
@@ -97,6 +115,13 @@ export interface MusicPlaylistItem {
 export interface MusicFavorite {
   trackId: string
   createdAt: number
+  /** When the reader pinned the favourite, or null. A pinned track still has to be a favourite. */
+  pinnedAt: number | null
+}
+
+/** A favourite as the library lists it: the saved track snapshot plus its pin state. */
+export interface MusicFavoriteTrack extends MusicTrack {
+  pinnedAt: number | null
 }
 
 export interface MusicHistoryEntry {
@@ -159,6 +184,40 @@ export interface MusicLyric {
   fetchedAt: number
 }
 
+/**
+ * One cached AI lyric layer.
+ *
+ * `payload` is opaque JSON text owned by the producer (the translation route), so the cache can carry
+ * whatever line shape it later needs; `sourceHash` ties the entry to the lyric text it was made from,
+ * and a reader that finds a different hash treats the row as a miss.
+ */
+export interface MusicAiLyric {
+  trackKey: string
+  kind: MusicAiLyricKind
+  lang: string
+  sourceHash: string
+  payload: string
+  model: string
+  createdAt: number
+  updatedAt: number
+}
+
+/**
+ * A configured cloud drive. The credential lives in a separate column and never appears here: the
+ * reader sees whether one is stored, not what it is.
+ */
+export interface MusicMount {
+  id: string
+  kind: MusicMountKind
+  name: string
+  baseUrl: string
+  rootPath: string
+  status: MusicMountStatus
+  hasSecret: boolean
+  createdAt: number
+  updatedAt: number
+}
+
 export interface MusicAccount {
   provider: 'netease'
   accountId: string
@@ -202,6 +261,10 @@ export interface MusicSettings {
   customResolverParams: Record<string, string>
   customResolverResponsePath: string
   customResolverQualityMap: Record<string, string>
+  /** A backup WebDAV target this account lets the music cloud browse; empty means not configured. */
+  cloudWebdavTargetId: string
+  /** The folder inside that target; relative to its root and never empty in the UI. */
+  cloudWebdavDir: string
   storageQuotaBytes: number
 }
 
@@ -223,6 +286,8 @@ export const DEFAULT_MUSIC_SETTINGS: MusicSettings = {
   customResolverParams: {},
   customResolverResponsePath: '',
   customResolverQualityMap: {},
+  cloudWebdavTargetId: '',
+  cloudWebdavDir: 'music',
   storageQuotaBytes: 0,
 }
 

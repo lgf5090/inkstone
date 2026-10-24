@@ -257,6 +257,8 @@ export function normalizeMusicSettings(value: unknown): MusicSettings {
     customResolverResponsePath: textOr(input.customResolverResponsePath, defaults.customResolverResponsePath, 512),
     customResolverParams: stringMap(input.customResolverParams, 50),
     customResolverQualityMap: stringMap(input.customResolverQualityMap, 100),
+    cloudWebdavTargetId: textOr(input.cloudWebdavTargetId, defaults.cloudWebdavTargetId, 64),
+    cloudWebdavDir: textOr(input.cloudWebdavDir, defaults.cloudWebdavDir, 512),
     storageQuotaBytes: Math.max(0, Math.trunc(
       typeof input.storageQuotaBytes === 'number' && Number.isFinite(input.storageQuotaBytes)
         ? input.storageQuotaBytes

@@ -353,11 +353,12 @@ describe('restore', () => {
         providerId: '',
         kind: 'manual',
         sortOrder: 0,
+        pinnedAt: null,
         createdAt: 1_000,
         updatedAt: 1_000,
       }],
       playlistItems: [{ playlistId: 'playlist-1', trackId: 'backup-id', position: 1, addedAt: 1_000 }],
-      favorites: [{ trackId: 'backup-id', createdAt: 1_000 }],
+      favorites: [{ trackId: 'backup-id', createdAt: 1_000, pinnedAt: null }],
     })
 
     await applyBackupMusic(db, USER, JSON.stringify(doc))
@@ -453,7 +454,7 @@ describe('restore', () => {
       tracks: [track('duplicate'), track('duplicate', { providerId: 'other' })],
     })))
     await badRequest(applyBackupMusic(db, USER, serialized({
-      favorites: [{ trackId: 'missing', createdAt: 1 }],
+      favorites: [{ trackId: 'missing', createdAt: 1, pinnedAt: null }],
     })))
     await badRequest(applyBackupMusic(db, USER, serialized({
       tracks: [track('track-1')],

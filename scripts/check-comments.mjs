@@ -1364,6 +1364,9 @@ const allowed = new Map([
     "// store, because the strip and the outgoing turn read it there — a mount effect alone loses to the",
     "// conversation paths that put noteContextOn back to true.",
     "/**\n   * What the empty thread says about itself.\n   *\n   * The guidance used to promise that the note under the reader's eyes was already in context on every\n   * surface, which in the money app named a thing that was not there and a chip that was deliberately not\n   * drawn. It now names what this dock is actually carrying: the plan, the to-do page, the note, or\n   * nothing yet.\n   */",
+    "// Same handover as the plan and the message, with the page as the primitive that changes most: the",
+    "// music app rebuilds this object on every render, and a dependency on the object would re-attach the",
+    "// chip after the reader took it off.",
   ]],
   ["src/client/features/chat/AssistantHeader.tsx", [
     "/**\n * The title block every assistant page opens with.\n *\n * The surfaces behind the rail are one page with different contents, and each of them had written this\n * pair out for itself: a serif title at one size, and a line under it saying what the page is for. Three\n * copies drifted — one of them put its action beside the title and the others did not — so the shape\n * lives here. The action rides the title line, which is where a page's primary button belongs on a page\n * that also has a list under it.\n */",
@@ -3130,6 +3133,7 @@ const allowed = new Map([
     "/**\n * The one list read in flight, so a header that carries a bell and a bootstrap behind it asks once.\n *\n * A failed read leaves nothing held: the count stays where it was, and the next mount asks again rather\n * than treating a list it never read as an empty account.\n */",
     "// The to-do chip is the same promise one app over: what the reader sees beside the dock is",
     "// what the turn may read, and taking it off leaves the list on screen unsent.",
+    "/** The music screen the dock beside the player is carrying, and whether the chip is attached. */",
   ]],
   ["src/client/features/chat/assistant-stream-isolation.test.ts", [
     "/** Every send's stream, in the order the store asked for them. */",
@@ -4868,6 +4872,7 @@ const allowed = new Map([
     "// wrong place: it would slice the middle out of the following frame, and once the buffer runs out",
     "// it would never find another `\\n\\n` to stop on. Read the boundary again before going round.",
     "/** The draft open in the canvas, so the model can read and rewrite it. */",
+    "/** The music screen open beside the dock, so \"play this\" has a referent. */",
   ]],
   ["src/client/features/chat/tag-attach.test.ts", [
     "/**\n * A new tag has to reach the conversation it was made for, or say why it did not.\n *\n * `createTag` is optimistic — it validates the name, answers a duplicate with the tag that already\n * exists, seeds the local cache and posts the row without waiting — so its id is in hand before the\n * server has a row to point at, and the attach route refuses an unknown tag. The old path caught that\n * refusal and threw the answer away: the reader typed a name, nothing appeared, and no one said so.\n * What is pinned here is the two honest outcomes: the conversation is filed once the row is back, or a\n * danger toast says it was not.\n */",
@@ -5920,10 +5925,7 @@ const allowed = new Map([
     "/**\n     * The three fields the file states about how it is drawn, set through the map rather\n     * than through the text the surface was handed.\n     *\n     * Patching that text would be the shorter code and it would be wrong: the map is ahead\n     * of it by whatever the debounce has not written yet, so a toggle pressed just after an\n     * edit would be answered by the write already in flight, and the file would land back on\n     * the layout it had before the click. Here the fields go onto the body the map is about\n     * to write, so the picture and the text cannot disagree about what the document says.\n     */",
   ]],
   ["src/client/features/music/MusicApp.tsx", [
-    "/**\n * The music container's frame: a second navigation rail, the screen area and the play bar.\n *\n * The frame owns what never changes between screens — the rail, the address mirror, the player\n * restore and the library's first load. The screen itself is chosen by `page.kind`; pages below own\n * their own loading, empty, error and ready answers.\n */",
-    "/**\n * The music catalog arrives in its own locale fragment later. Until it does, `t` answers with the key\n * itself, which is readable in development and cannot drift into copy that would need translating\n * twice. The cast is the seam that fragment removes.\n */",
     "// A modified press or a middle click belongs to the browser: let it open a new tab.",
-    "/**\n * One screen per address. This lane owns discovery and detail; the second page lane supplies the\n * remaining screens, imported statically so a missing file is a build error rather than a tab that\n * silently does nothing. `notFound` is the only kind without a screen: the address named something\n * this app never links to, and the placeholder says so without pretending to be a failed query.\n */",
     "// A restored queue is a promise the browser will not let us keep without a gesture: it comes back",
     "// paused, and the bar says so. Restore is idempotent, which is what makes the StrictMode second",
     "// call harmless.",
@@ -5931,9 +5933,15 @@ const allowed = new Map([
     "// Favourites and the library shelves are read by rows on many pages, so the first load belongs to",
     "// the frame rather than to whichever page happens to mount first. A failure is reported once here;",
     "// pages that need the library for their whole screen surface their own retry.",
+    "/**\r\n * The music container's frame: a second navigation rail, the screen area and the play bar.\r\n *\r\n * The frame owns what never changes between screens — the rail, the address mirror, the player\r\n * restore and the library's first load. The screen itself is chosen by `page.kind`; pages below own\r\n * their own loading, empty, error and ready answers.\r\n */",
+    "/**\r\n * The music catalog arrives in its own locale fragment later. Until it does, `t` answers with the key\r\n * itself, which is readable in development and cannot drift into copy that would need translating\r\n * twice. The cast is the seam that fragment removes.\r\n */",
+    "/**\r\n * One screen per address. This lane owns discovery and detail; the second page lane supplies the\r\n * remaining screens, imported statically so a missing file is a build error rather than a tab that\r\n * silently does nothing. `notFound` is the only kind without a screen: the address named something\r\n * this app never links to, and the placeholder says so without pretending to be a failed query.\r\n */",
   ]],
   ["src/client/features/music/api.ts", [
     "/** The music app's only door to `/api/music`; pages and stores never call fetch directly. */",
+  ]],
+  ["src/client/features/music/assistant-surface.ts", [
+    "/**\n * What the music assistant is told about the screen it is docked beside.\n *\n * This is a pointer, not a payload: the current track's identity and the page kind are enough for\n * \"pause this\" or \"what album is this\"; lyrics and credentials stay out. The dock re-attaches the\n * context when the page or track changes, and the reader can remove the chip.\n */",
   ]],
   ["src/client/features/music/components/Cover.tsx", [
     "/**\n * The square a track or playlist is drawn in.\n *\n * The artwork always comes from the music API's cover route, never from a provider URL: those expire,\n * leak the upstream host and are not reachable for uploads. A broken or missing image falls back to\n * the icon rather than the browser's broken-image glyph, and the fallback survives a `src` change so\n * a virtual list that reuses a row does not keep showing the previous track's failure.\n */",
@@ -5979,13 +5987,17 @@ const allowed = new Map([
     "// to the desktop bar, not to a 64px strip that would only say \"nothing\".",
     "/**\r\n * The phone-sized transport: artwork, title and the two presses a thumb needs.\r\n *\r\n * It is mounted instead of the desktop bar on a narrow shell (the stylesheet keeps it hidden above\r\n * the phone breakpoint, so a shell that renders both never shows two bars). The body is one button\r\n * that asks the shell to expand the full-screen layer; the play and next controls sit beside it so\r\n * neither gesture swallows the other.\r\n */",
   ]],
+  ["src/client/features/music/components/MusicSidebar.tsx", [
+    "/**\r\n * The music app's own navigation rail: what to open, the shelves the reader already has, and the\r\n * assistant that can act on them. The page under it owns the h1; this rail is landmark navigation and\r\n * never repeats the title.\r\n */",
+  ]],
   ["src/client/features/music/components/Pager.tsx", [
     "/**\n * Page navigation for a long collection.\n *\n * Above the phone breakpoint it is previous / numbers / next; below it the numbers step aside and a\n * single \"load more\" button takes their place, because a row of five 32px page numbers is not a\n * thumb target. Both controls call the same `onChange`, so a page never has two different notions of\n * what \"next\" means.\n */",
     "/** One-based page number. */",
     "/** At most five numbers plus the ends, so the control keeps one line on a narrow desktop window. */",
   ]],
   ["src/client/features/music/components/PlayBar.tsx", [
-    "/**\r\n * The persistent transport, in three zones: what is playing, the transport and progress, and the\r\n * switches that open the queue, the lyrics layer and the overflow menu.\r\n *\r\n * The progress slider is `immediate`: a drag has to reach the audio element as it moves, and the\r\n * component's own coalescing would swallow the last value when the reader lets go. Times are printed\r\n * beside the slider instead of its numeric readout (hidden by the stylesheet), and the element keeps\r\n * the range semantics and the keyboard arrows for free.\r\n *\r\n * Narrow windows drop the volume, the favourite and the secondary switches — the MiniPlayer and the\r\n * full-screen layer are the phone surfaces — leaving artwork, title and the transport.\r\n */",
+    "/**\r\n * The persistent transport, in three zones: what is playing, the transport and progress, and the\r\n * switches that open the queue, the lyrics layer and the overflow menu.\r\n *\r\n * The progress slider is `immediate`: a drag has to reach the audio element as it moves, and the\r\n * component's own coalescing would swallow the last value when the reader lets go. Times are printed\r\n * beside the slider instead of its numeric readout (hidden by the stylesheet), and the element keeps\r\n * the range semantics and the keyboard arrows for free.\r\n *\r\n * The favourite only returns on wide windows; the volume button opens the level popover and toggles\r\n * mute in the press itself. Below tablet width the mute switch moves into the overflow menu, and on a\r\n * phone the MiniPlayer and the full-screen layer are the surfaces instead of this bar.\r\n */",
+    "// The popover shows the level a drag would restore, not 0: the press that opens it also mutes.",
   ]],
   ["src/client/features/music/components/QueueDrawer.tsx", [
     "/** Swap one entry with its neighbour, keeping every other position. */",
@@ -5995,6 +6007,7 @@ const allowed = new Map([
   ["src/client/features/music/components/SectionHeader.tsx", [
     "/** A section title with an optional trailing text action (\"view all\"). */",
     "/** The id a surrounding `<section aria-labelledby>` points at. */",
+    "/** Page titles are h1; every shelf inside a page stays h2. */",
   ]],
   ["src/client/features/music/components/SleepTimer.tsx", [
     "/**\n * The sleep timer: a deadline or the end of the queue, then a short fade and a pause.\n *\n * The timer lives outside React so closing the panel does not cancel it. It persists for the session\n * only; a deadline surviving a reload would be a surprise the reader cannot see, and the panel is the\n * only place that explains one.\n *\n * The fade is deliberately short and ends with the player's own pause. It runs through the store so\n * the volume the fade writes is the volume the next launch restores, and the original level is put\n * back before the pause so waking the app does not start silent.\n */",
@@ -6043,7 +6056,6 @@ const allowed = new Map([
   ]],
   ["src/client/features/music/music.css", [
     "/**\r\n * The music surface: frame geometry, the song row family and the two player bars.\r\n *\r\n * Everything here reads the paper-and-ink tokens from `styles/tokens.css`; no rule names a colour,\r\n * radius, type size or spacing step of its own. Dimensions the spec fixes (row heights, the rail, the\r\n * bars, cover sizes) are kept as local custom properties on the element that owns them, so a page can\r\n * retune one surface without a second scale appearing in the stylesheet.\r\n *\r\n * The file is imported once from `styles/app.css`; every selector is prefixed `music-` so a utility\r\n * class in a feature file can never collide with it.\r\n */",
-    "/* ── The frame ─────────────────────────────────────────────────────────────────────────────────────\r\n   A second navigation rail, the scrolling content column and the bar pinned underneath. The queue is\r\n   a Drawer, not a fourth column, so this stays a two-column body at every width. */",
     "/* A cover may publish its own tint through these three; until it does, the app accent is the answer. */",
     "/* ── Section header, cards and the page skeleton ─────────────────────────────────────────────── */",
     "/* ── Cover ────────────────────────────────────────────────────────────────────────────────────── */",
@@ -6056,11 +6068,13 @@ const allowed = new Map([
     "/* The phone shell draws `MiniPlayer` instead of this bar, and mounts both; hiding the bar here is\r\n   what keeps the two transports from stacking. The compact geometry for a phone lives on that\r\n   component, not as a second set of rules for this one. */",
     "/* ── Mini player ─────────────────────────────────────────────────────────────────────────────── */",
     "/* ── Queue drawer ────────────────────────────────────────────────────────────────────────────── */",
-    "/* ── Now playing and lyrics ──────────────────────────────────────────────────────────────────── */",
     "/* ── Loading skeleton ────────────────────────────────────────────────────────────────────────── */",
     "/* Settings is one readable column, matching the settings panels elsewhere in the app. */",
     "/* A grid card's artwork fills its column while staying square. */",
     "/* The music rail still takes its desktop width at 768, so the hero cannot keep a 220px cover\r\n     beside a 30px title: the title column would be narrower than the artwork. */",
+    "/* ── The feature root ────────────────────────────────────────────────────────────────────────── */",
+    "/* The right cluster keeps its full width only where there is room for it: the favourite returns at\r\n   1280px and the volume popover at 1024px; below that the mute toggle lives in the overflow menu. */",
+    "/* ── Lyrics ─────────────────────────────────────────────────────────────────────────────────── */",
   ]],
   ["src/client/features/music/pages/AlbumPage.tsx", [
     "/**\n * One album: the release facts, the description the catalog sometimes has, and its tracks.\n *\n * Albums paginate like playlists because the provider answers in pages; the header keeps the facts\n * from the first answer while a later page is in flight, so the screen does not flash back to a\n * skeleton when the reader asks for the next page.\n */",
@@ -6301,12 +6315,12 @@ const allowed = new Map([
     "/**\r\n * Write the queue one last time when the document is going away.\r\n *\r\n * A named listener rather than an inline arrow: the leave-page guard documents every handler and\r\n * why it exists, and the pagehide event has no other place to persist a position in flight.\r\n */",
   ]],
   ["src/client/features/music/store/settings.ts", [
-    "/**\n * The music app's preferences, split by who owns them.\n *\n * `local` is this device: volume, mute, playback mode and rate, the equalizer curve and how lyrics\n * look. It is written to localStorage on every change, because losing a volume setting after a\n * reload is a worse trade than an occasional write.\n *\n * `server` is the account's music settings row, read and written through `/api/music/settings` with\n * the same shapes the worker stores. Edits are optimistic and debounced; a failed PUT is rolled back\n * so the panel never shows a setting the account does not have.\n *\n * The endpoints are the planned ones from the port; this module does not implement routes.\n */",
     "/** The rate ladder the player and the settings panel share. */",
     "// A corrupt record or a browser that forbids storage: the defaults are a usable player.",
     "// Private mode and a full quota both land here. The setting still applies for this session;",
     "// only the next launch forgets it.",
-    "/**\n * Merge an account row over the defaults, keeping only values the shape allows.\n *\n * The Worker is the only writer of this row, but a backup restored from another version can hold\n * settings this build does not know. Valid values survive; everything else falls back.\n */",
+    "/**\r\n * The music app's preferences, split by who owns them.\r\n *\r\n * `local` is this device: volume, mute, playback mode and rate, the equalizer curve and how lyrics\r\n * look. It is written to localStorage on every change, because losing a volume setting after a\r\n * reload is a worse trade than an occasional write.\r\n *\r\n * `server` is the account's music settings row, read and written through `/api/music/settings` with\r\n * the same shapes the worker stores. Edits are optimistic and debounced; a failed PUT is rolled back\r\n * so the panel never shows a setting the account does not have.\r\n *\r\n * The endpoints are the planned ones from the port; this module does not implement routes.\r\n */",
+    "/**\r\n * Merge an account row over the defaults, keeping only values the shape allows.\r\n *\r\n * The Worker is the only writer of this row, but a backup restored from another version can hold\r\n * settings this build does not know. Valid values survive; everything else falls back.\r\n */",
   ]],
   ["src/client/features/music/store/ui.ts", [
     "/**\n * What the music shell is showing, as opposed to what the player is playing.\n *\n * The page is mirrored here from the address so a pane can read it with one selector; the address\n * remains the source of truth and `MusicApp` writes the parse result after every navigation. The two\n * overlays are transient by design — a queue drawer reopened after a reload would be a surprise.\n *\n * Search history is the only persisted value: it is per device, and it is what makes the search box\n * useful on the second visit. It is capped at the shared limit so the record cannot grow forever.\n */",
@@ -6318,6 +6332,23 @@ const allowed = new Map([
   ]],
   ["src/client/features/music/upload-metadata.ts", [
     "/** Reads what the browser can tell us about a file before it is uploaded. */",
+  ]],
+  ["src/client/features/music/use-tool-effects.ts", [
+    "/**\n * Plays the effects a local assistant turn brings back.\n *\n * A tool runs in the worker, but the music is in this tab's player. The worker therefore answers a\n * playback tool with an effect, and this is the only place that turns one into a press: play, pause,\n * queue, open. The rules are deliberately narrow.\n *\n *  - Only the tab that asked carries it out. A turn being watched in another tab is not this tab's\n *    press to make, and a thread opened later is a record, not a replay.\n *  - Each activity id is claimed once, in memory and in sessionStorage, so a re-render, a reload of the\n *    same tab or a reconnect cannot play the same instruction twice.\n *  - A failure is said out loud with a toast. A silent no-op would leave the model's \"playing\" and the\n *    reader's silence saying opposite things.\n */",
+    "// A storage-denied frame throws on the access itself; the in-memory set is still a guard.",
+    "// A half-written record is not worth trusting; the next effect simply starts a new list.",
+    "// Private mode or a full quota. The in-memory set still stops a double run this session.",
+    "/** Claims an activity once. Returns false when some earlier render already ran it. */",
+    "/**\n * Turns the refs the model named into tracks the player can hold.\n *\n * The queue comes first because it is already in memory and is what \"add this\" usually means. The\n * library is read only when something is still missing; a ref that is in neither library nor queue is\n * reported rather than dropped silently.\n */",
+    "// `addNext` inserts directly after the current track, so the list is added back to front to read",
+    "// in the order the model named it.",
+    "// Only the overlays this port already has. A now-playing or cloud destination without its own",
+    "// screen is left alone rather than opening the wrong thing.",
+    "// The failure is the reader's to see: the model's words already say something happened.",
+    "/**\n * Runs every unclaimed success effect on a turn.\n *\n * Exported rather than buried in the hook so the decision — which turn, which activity, once — can be\n * read and tested without a renderer.\n */",
+    "// One at a time: a step can ask for a play and a pause, and running both at once would decide which",
+    "// landed last by network timing rather than by the order the model asked for.",
+    "/** Watches the local turn for playback effects. Historical messages are never a turn. */",
   ]],
   ["src/client/features/omnisearch/OmnisearchEntry.tsx", [
     "/** Both switches have to agree: `enabled` stops the index, `ribbonButton` only hides the entry. */",
@@ -24808,6 +24839,14 @@ const allowed = new Map([
     "/** Overrides the mark inferred from the model id or provider; '' means infer. */",
     "/** The plan this delivery was about, when it was about one. See the in-app channel. */",
     "/**\n   * Where the notice is about, as `<app>:<id>` — `todo:<task id>` first.\n   *\n   * Not a URL, and not the caller's to shape: the client resolves the pair inside its own origin, so a\n   * writer cannot aim a reader's press somewhere this deployment never chose. Null is a notice that\n   * points nowhere — a digest, a finished run — which the notification centre expands instead of\n   * navigating on.\n   */",
+    "/**\n * An instruction the worker hands back to the browser that is playing the music.\n *\n * A tool runs where the store is, and the player runs where the reader is. The effect is the narrow\n * bridge between them: the worker decides *what* should happen, the tab that asked carries it out\n * with the player it already has, and the activity keeps a copy so a reopened thread can say what the\n * assistant did. Nothing here is a path to arbitrary code — every kind names one of the player's own\n * actions.\n */",
+    "/**\n * A tool result that also carries an effect for the reader's tab.\n *\n * `result` is what the model reads back. A tool that returns only an envelope would leave the model\n * with an object it did not ask for, so the runner substitutes `{ ok: true }` when this is absent.\n */",
+    "/** The caps an effect may carry into a stored message row. The plan allows 100 refs per call. */",
+    "/** A seek past a day is a unit mistake, not a position. */",
+    "/** Whether a value is one of the effects this client knows how to run. */",
+    "/** Whether a tool result is an envelope rather than the value the model reads. */",
+    "/** Bounds an effect before it is streamed and stored. */",
+    "/** A playback instruction for the tab that asked; never replayed from an old thread. */",
   ]],
   ["src/shared/attachment-hub.ts", [
     "/**\n * The attachment hub's wire contract.\n *\n * One shape for all four applications: the scope travels as a path segment, and everything else —\n * filtering, organising, counting usage — is the same request in every application. What differs\n * per application is server-side only (which table, which object prefix, which content holds the\n * references), so a client that works for one works for all four.\n */",
@@ -25021,6 +25060,14 @@ const allowed = new Map([
   ["src/shared/music/api.ts", [
     "/** Wire shapes for `/api/music`. The worker returns camelCase; D1 rows never leave the worker. */",
   ]],
+  ["src/shared/music/assistant-context.ts", [
+    "/**\r\n * What the assistant may know about the music screen the reader is looking at.\r\n *\r\n * The dock sits beside the music app the same way it sits beside mail: the page and the thing under\r\n * the reader's eyes make \"play this\" or \"what is this album\" answerable without them naming it. Every\r\n * string is bounded here because the value crosses the wire from a page to a prompt, and the cap is\r\n * part of the contract rather than something the worker has to remember to apply.\r\n *\r\n * The context is a pointer, not a payload: no lyrics, no credentials and no hidden default target for\r\n * a write. Tools that change something still take an explicit trackRef or id.\r\n */",
+    "/** The screens a music turn may say it was asked beside. */",
+    "/** The drives a cloud screen can name. A mount id is meaningful only beside its source. */",
+    "/** A queue longer than this is not a queue number worth carrying; it is a runaway counter. */",
+    "/** \"netease:123\" or an internal track id. */",
+    "/** Shown to the model as a location; a tool still takes the path it acts on explicitly. */",
+  ]],
   ["src/shared/music/constants.ts", [
     "/** Ceilings and route-level constants for the music app, shared by both sides. */",
     "/** One uploaded file. Parts are 8 MiB, so no single request approaches the Worker body ceiling. */",
@@ -25037,8 +25084,18 @@ const allowed = new Map([
     "/**\n * Attach a translation lyric to the original by timestamp, then by line index.\n *\n * Netease's `tlyric` usually has the same timestamps, but some older songs only align by line order;\n * a 2 s window covers the former without pairing a translation with the wrong chorus.\n */",
   ]],
   ["src/shared/music/model.ts", [
-    "/**\n * The music app's vocabulary, shared by the worker that stores it and the browser that draws it.\n *\n * Times cross the wire as epoch milliseconds. Provider ids stay strings because Netease mixes numeric\n * song ids with string program ids, and a numeric column would have to widen later.\n */",
     "/** The quality ladder Netease accepts through `/song/url/v1`; `original` is ours for uploads. */",
+    "/**\r\n * The music app's vocabulary, shared by the worker that stores it and the browser that draws it.\r\n *\r\n * Times cross the wire as epoch milliseconds. Provider ids stay strings because Netease mixes numeric\r\n * song ids with string program ids, and a numeric column would have to widen later.\r\n */",
+    "/** Only translated lyrics exist for now; the kind column keeps the cache room to grow without a migration. */",
+    "/** The cloud drives a mount can stand for. Only Alist is modelled; WebDAV reuses a backup target. */",
+    "/**\r\n * `active` is a mount whose last use answered; `error` is one the last test could not reach. The\r\n * credential is deliberately not part of this axis: a saved token that fails to authenticate is an\r\n * `error`, not a third state the reader has to interpret.\r\n */",
+    "/** When the reader pinned the playlist, or null. Pinned rows sort ahead of the shelf order. */",
+    "/** When the reader pinned the favourite, or null. A pinned track still has to be a favourite. */",
+    "/** A favourite as the library lists it: the saved track snapshot plus its pin state. */",
+    "/**\r\n * One cached AI lyric layer.\r\n *\r\n * `payload` is opaque JSON text owned by the producer (the translation route), so the cache can carry\r\n * whatever line shape it later needs; `sourceHash` ties the entry to the lyric text it was made from,\r\n * and a reader that finds a different hash treats the row as a miss.\r\n */",
+    "/**\r\n * A configured cloud drive. The credential lives in a separate column and never appears here: the\r\n * reader sees whether one is stored, not what it is.\r\n */",
+    "/** A backup WebDAV target this account lets the music cloud browse; empty means not configured. */",
+    "/** The folder inside that target; relative to its root and never empty in the UI. */",
   ]],
   ["src/shared/note-template-render.test.ts", [
     "// The offset is the place the answer goes, in the content that was actually saved.",
@@ -27095,6 +27152,12 @@ const allowed = new Map([
     "/** The subscription the reader has open in the money app, when the question is asked beside it. */",
     "// The plan on screen is carried even when the sentence names nothing: \"what will this cost me",
     "// this year\" is a question about the row the reader is looking at, not a mention of one.",
+    "/** The music screen the reader has open, when the question is asked beside it. */",
+    "// A playback tool answers with an envelope: the effect is for the reader's tab, and the value the",
+    "// model reads is the ordinary result beside it. Everything below sees the latter, so an envelope",
+    "// never reaches a citation reader or the wire as the tool's answer. Only the first-party music",
+    "// namespace may carry one — an external tool's result is somebody else's JSON, not a press on the",
+    "// reader's player.",
   ]],
   ["src/worker/assistant/scheduler.ts", [
     "/** How many automations one sweep will start, so a backlog cannot monopolise the cron invocation. */",
@@ -28064,6 +28127,8 @@ const allowed = new Map([
     "// The history asks the trash the same question the task delete does, and for the same reason:",
     "// a stale id must not be able to catch a live row. Without the predicate, a restore that won",
     "// the race would keep its task while the batch erased the past the task came back with.",
+    "// A stored playback effect is decoded like every other JSON column: a row may come from an older",
+    "// build or a backup file, so only a shape this client can run is kept.",
   ]],
   ["src/worker/assistant/subscription-mentions.ts", [
     "/**\n * `[[sub:…]]` mentions resolved into the subscription's own facts.\n *\n * A subscription id is the same 26-character shape as a note id, so letting both resolvers claim a bare\n * `[[<id>]]` would mean whichever ran first could report the other's target as missing. The `sub:` prefix\n * is what keeps the two apart, and `note-mentions` skips anything carrying it rather than reporting it\n * as a note that has been deleted.\n *\n * What is quoted is the row's own fields — price, cycle, dates, what has been paid — never the notes\n * field, which is free text a reader may have used for anything. A note is the thing a mention exists to\n * bring words from; a subscription is a row, and the row is what the question is about.\n */",
@@ -28291,6 +28356,8 @@ const allowed = new Map([
     "// Only the rows that were completed when the card was raised: a task the reader reopened in the",
     "// meantime is work again, and the approval was not a statement about it.",
     "// The separator cannot occur in an id: both are minted from the same alphabet, which has no colon.",
+    "/**\n * How many tracks one play call may name. The catalog keeps 100 as the wire limit; a turn that plays\n * more than this is a generated playlist pretending to be a single instruction.\n */",
+    "// The effect is the only channel back to the player; the result beside it is what the model reads.",
   ]],
   ["src/worker/assistant/upstream.ts", [
     "/** A JSON Schema object, built by `toolSchemaFor` from the tool's own declared parameters. */",
@@ -29230,6 +29297,11 @@ const allowed = new Map([
     "// The hub's two list-shaped indexes, after the columns above exist on a migrated database.",
     "// Both are `IF NOT EXISTS`, so a fresh install that already carries them from the table",
     "// declaration simply finds them there.",
+    "// Pinning a favourite is a sub-state of being a favourite, so the column is nullable and NULL is",
+    "// \"not pinned\" — which is also the only honest reading of every row that predates it. The index",
+    "// follows the list order (`(pinned_at IS NULL), pinned_at DESC`) rather than leading with it.",
+    "// A cache rather than a library: deleting a track removes its rows, and the primary key already",
+    "// answers the one lookup the translation route needs.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -29666,6 +29738,10 @@ const allowed = new Map([
   ["src/worker/middleware/auth.ts", [
     "/**\n * How stale `users.last_seen_at` may get before a request writes a fresh one.\n *\n * A reader's every request would otherwise take a write to the `users` row, so the bump is rate-limited\n * to one per interval; the same number is the guard in the `UPDATE` so two concurrent requests cannot\n * both decide they were the one that crossed the interval.\n */",
   ]],
+  ["src/worker/music/assistant-context.ts", [
+    "/**\n * The music screen, read from a turn's body and written into its prompt.\n *\n * This is the trust boundary for the music context: the client is not allowed to decide what the\n * model sees. Only a page the app actually has, bounded strings and one enumerated cloud source get\n * through, and anything else is dropped rather than passed along as an empty value the prompt would\n * have to interpret.\n */",
+    "/** Collapses a value to one line, so a stored title cannot forge a line of the prompt. */",
+  ]],
   ["src/worker/music/backup.ts", [
     "/**\n * The music library as a backup can carry it.\n *\n * A backup is a file that leaves the server, so the document holds only the library a listener would\n * miss: saved track snapshots, playlists and their order, favourites, play history, recent containers,\n * the R2 object ledger, per-track source choices and podcast/artist/album subscriptions. Audio bytes\n * are not copied — the deployment backs up the `music/` prefix separately — and the object keys stay in\n * the document so a restored track can be marked missing when its bytes are not in the bucket.\n *\n * The excluded tables are deliberate:\n *\n *  - `music_account`, because its columns include the encrypted Netease cookie. A backup that carried\n *    the ciphertext would put every connected account one stolen archive away from a stranger.\n *  - `music_lyric`, because cached lyrics are third-party content and can be fetched again.\n *  - `music_upload`, `music_download` and `music_cleanup`, because they are transient job state rather\n *    than a library, and restoring a half-finished download would invent a queue entry that never ran.\n *\n * The restore is additive and idempotent: an account that already owns a row keeps it, and importing\n * the same document twice leaves the same rows. That is what makes a restore safe to retry after a\n * partial network failure, and it is why every insert is `INSERT OR IGNORE` rather than a delete and\n * rewrite. Anything that cannot be understood is refused before the first write, with the same 400 a\n * malformed request gets — a backup is external input and gets the same trust boundary.\n */",
     "/** Ceilings on a restore. Above these the file is not a personal music library. */",
@@ -29687,6 +29763,20 @@ const allowed = new Map([
     "/**\n * The preferences a backup may carry.\n *\n * The custom resolver coordinates are deliberately blanked: the URL and its parameters are arbitrary\n * text a reader typed in, and the settings page itself warns that they must not hold credentials. A\n * backup is copied to buckets and mailed around, so a resolver that did hold a key must not travel\n * with it; the restoring account re-enters the URL, which is the same \"not configured\" state the app\n * already renders.\n */",
     "// Only blank coordinates the document actually carries, so a minimal settings object restores",
     "// exactly as written instead of growing two fields the caller never mentioned.",
+    "// A version 1 file written before pinning simply has no field, and unpinned is what it meant.",
+  ]],
+  ["src/worker/music/cloud/config.ts", [
+    "/**\r\n * Resolve the WebDAV target the music cloud browses.\r\n *\r\n * WebDAV credentials already belong to a backup target, so the music side stores only the target id\r\n * and a folder. Nothing here creates a second credential: a missing target, a non-WebDAV target or a\r\n * target without a stored secret is a named refusal the screen can explain.\r\n */",
+  ]],
+  ["src/worker/music/cloud/webdav-xml.ts", [
+    "/**\r\n * The multistatus XML a WebDAV server answers PROPFIND with.\r\n *\r\n * Kept as a small regex reader rather than a DOM or an XML dependency: the only fields the music\r\n * browser needs are href, collection, length, type and modification time, and a third-party server is\r\n * allowed to use any namespace prefix. One malformed response block is skipped; it must not fail the\r\n * whole listing.\r\n */",
+  ]],
+  ["src/worker/music/cloud/webdav.ts", [
+    "/**\r\n * The WebDAV side of the music cloud.\r\n *\r\n * The reader's WebDAV target already exists as a backup target, so this module never stores an\r\n * address or a password of its own: it receives a resolved base, credentials and music directory and\r\n * works relative to them. Every path is normalised here; a caller can name a directory or a file under\r\n * the music directory, never an absolute URL, a parent segment or a second origin.\r\n *\r\n * Listings are capped twice: the PROPFIND body at half a megabyte and the parsed entries at two\r\n * thousand. A folder past either bound is answered with a named error that asks for a subfolder,\r\n * rather than a generic failure or an unbounded parse.\r\n */",
+    "/** Relative to the music directory, never to the server root. */",
+    "/**\r\n * Normalise a path relative to the music directory.\r\n *\r\n * A leading slash is accepted and dropped because listings and hand-written values both use it; the\r\n * result never starts with one. `..` and `.` are refused rather than collapsed: a value that tried to\r\n * leave the directory is not the same request as one that named a child.\r\n */",
+    "// Depth 1 answers with direct children only; a server that ignored Depth is trimmed here.",
+    "/** The upstream GET for the streaming route. Range is forwarded as the reader asked for it. */",
   ]],
   ["src/worker/music/download-store.ts", [
     "/**\n * Download tasks for the music library.\n *\n * A task is a request, not an object: the row records the quality and the container hint the reader\n * asked for, plus how far the queue has come. Every query carries this account's `user_id`, so a\n * guessed id answers `null` instead of leaking another reader's queue, and the unique key\n * `(user_id, track_id, quality, format)` is what makes enqueueing the same request twice answer with\n * the task that already exists.\n *\n * Pause, resume, retry and cancel are status transitions rather than a second intent column. The queue\n * reads the status before every slice, so a paused task stops at the next boundary and a canceled one\n * releases its multipart upload. `done` is terminal except for deletion; deleting a task releases the\n * R2 key only when no track or other task still names it, which is the same rule `MusicStore` applies\n * to a deleted track.\n */",
@@ -29870,7 +29960,6 @@ const allowed = new Map([
     "// Tracks -------------------------------------------------------------------------------------",
     "/** Resolve a set of ids in the caller's order, dropping ids this account does not own. */",
     "/**\n   * Save the snapshot a provider returned, or refresh the one already saved.\n   *\n   * The row is found by `(provider, provider_id)` before anything is written, because the unique key\n   * is what makes a metadata refresh idempotent and keeps the library id stable for playlists and\n   * favourites. Storage columns are merged from the existing row when the caller omits them: a\n   * provider refresh must not forget which R2 object the account already downloaded.\n   */",
-    "/**\n   * Delete one track and every row that names it.\n   *\n   * Playlist membership, favourites, history and the two keyed caches go with it. R2 objects are only\n   * released when no other track or download still names the same key; the keys that qualify are put\n   * on the cleanup queue in the same transaction, so a failed object delete is retried rather than\n   * forgotten. Recent containers are listed by playlist/album/radio identity, not by track, so a track\n   * deletion leaves them alone.\n   */",
     "// A retained object no longer names this track as its owner; the key still leads every lookup.",
     "// Playlists ----------------------------------------------------------------------------------",
     "/** Write the shelf order the reader dragged: the ids become positions zero through n. */",
@@ -29896,6 +29985,18 @@ const allowed = new Map([
     "/**\n   * Release a ledger row only when no track or download names its key, then queue the object.\n   * False means the key is still referenced and the caller must not delete the R2 object.\n   */",
     "// Internals ----------------------------------------------------------------------------------",
     "/** Run statements under the D1 batch ceiling, summing the rows each batch actually changed. */",
+    "/** Ciphertext supplied by the caller; the store never encrypts or decrypts it. */",
+    "/** Absent keeps the stored ciphertext; an empty string clears it. */",
+    "/**\n   * Delete one track and every row that names it.\n   *\n   * Playlist membership, favourites, history and the keyed caches (provider lyrics, AI lyrics and\n   * source overrides) go with it. R2 objects are only released when no other track or download still\n   * names the same key; the keys that qualify are put on the cleanup queue in the same transaction, so\n   * a failed object delete is retried rather than forgotten. Recent containers are listed by\n   * playlist/album/radio identity, not by track, so a track deletion leaves them alone.\n   */",
+    "/**\n   * Pin or unpin one playlist. As with favourites, pinning keeps the first pin's timestamp so a repeat\n   * call is idempotent; null means the playlist does not belong to this account.\n   */",
+    "/**\n   * Pin or unpin one favourite. Pinning keeps the first pin's timestamp, so calling it twice does not\n   * reshuffle the list; null means the track is not a favourite of this account.\n   */",
+    "// AI lyric cache -----------------------------------------------------------------------------",
+    "/**\n   * One cached AI layer. The caller compares `sourceHash` with the lyric text it has: a different\n   * hash is a miss, and `putAiLyric` then overwrites the row instead of keeping a stale translation.\n   */",
+    "/** Drop every language of every kind for one track. Returns the rows removed. */",
+    "// Cloud mounts -------------------------------------------------------------------------------",
+    "/** The mount as a reader may see it: no secret, only whether one is stored. */",
+    "/**\n   * The stored ciphertext for one mount, for the layer that talks to the drive. The store never\n   * decrypts it; null means the mount does not exist, while an empty string means no credential.\n   */",
+    "/** `secret` absent keeps the stored ciphertext, so a rename cannot silently drop the credential. */",
   ]],
   ["src/worker/music/stream.ts", [
     "/** The provider call, with its errors translated into the music API's vocabulary. */",
@@ -30599,6 +30700,9 @@ const allowed = new Map([
     "// ledger decides that, and a failed delete is queued for the maintenance sweep rather than hidden.",
     "/**\r\n * The download queue surface.\r\n *\r\n * A download is a server-side copy into the R2 library, not a file on the reader's device, so these\r\n * routes only ever name a track this account already saved. Every handler is owner-scoped through the\r\n * session's `user_id`: a foreign or unknown task id is a 404, and a task in another account is never\r\n * reported as existing. The bytes are moved by `music/queue.ts`; this file validates the request,\r\n * checks the quota, records the intent and wakes the queue.\r\n */",
     "/**\r\n * Canceling is already done once the row says so. Waking the queue only releases a parked multipart\r\n * earlier; a queue that cannot be reached leaves that to the alarm already running the task.\r\n */",
+  ]],
+  ["src/worker/routes/music-drive.ts", [
+    "/**\n * The music cloud's read-only first slice: how much R2 storage the account uses, whether a WebDAV\n * target is available, and one folder of that target.\n *\n * Writes (import, upload, delete) arrive with the provider extension; this router deliberately owns\n * none of them yet, so a deployment that has not configured WebDAV still answers a useful summary\n * instead of a 404.\n */",
   ]],
   ["src/worker/routes/music-files.ts", [
     "/**\n * Byte-serving routes for the music app.\n *\n * Every path here is owner-scoped: the track is looked up through `MusicStore`, whose queries all\n * carry the session's user id, so another account's id is a 404 and never a 403. Streaming is a GET\n * (and HEAD) and deliberately does not require the client header — an `<audio>` element cannot send\n * one. The stream itself lives in `music/stream.ts`; this file only resolves the track, its cover and\n * the export headers.\n */",
@@ -34514,6 +34618,9 @@ const allowed = new Map([
     "// vault appears not to have. Its target is the id, and an id is not a title worth creating.",
     "// A title the notebook genuinely does not have still becomes the offer it was before.",
   ]],
+  ["tests/music-assistant-context.test.ts", [
+    "// These are not part of the type; a caller that smuggles them in must not see them rendered.",
+  ]],
   ["tests/music-backup.test.ts", [
     "/**\r\n * `music.json`, and what it must and must not carry.\r\n *\r\n * The interesting claims are not \"it round-trips\": a backup leaves the server, so the file must never\r\n * hold the encrypted Netease cookie or cached lyrics; a restore is external input, so a version it\r\n * does not know, a table-shaped array it cannot use, an oversized library, or an R2 key from another\r\n * account's namespace must be refused before a single row is written.\r\n */",
     "/** A library that uses every table the backup carries, including an R2 object and a cover key. */",
@@ -34544,6 +34651,10 @@ const allowed = new Map([
   ]],
   ["tests/music-queue.test.ts", [
     "/** A deterministic source of randomness: Fisher-Yates consumes one value per step. */",
+  ]],
+  ["tests/music-tool-effects.test.ts", [
+    "/**\n * The bridge between a worker tool and this tab's player.\n *\n * Two promises are under test. The worker turns an effect envelope into activity metadata without\n * handing the envelope to the model; the browser runs that effect once, on a local turn only, and\n * never from a thread opened later. The runner half is exercised with the same wire stub the other\n * assistant tests use, because \"the model read {ok:true} and the row kept the effect\" is a claim about\n * both bodies and cannot be read off either one alone.\n */",
+    "// The two overlays are mutually exclusive in the UI store, so they are opened one at a time.",
   ]],
   ["tests/no-native-dialogs.test.ts", [
     "// A method carries a body and a property carries an initializer; asking the union for both is what",

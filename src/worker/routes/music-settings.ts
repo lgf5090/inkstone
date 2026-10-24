@@ -112,6 +112,26 @@ function resolverUrlOf(value: unknown): string {
   return raw
 }
 
+function cloudTargetOf(value: unknown): string {
+  if (value === undefined) return DEFAULT_MUSIC_SETTINGS.cloudWebdavTargetId
+  if (typeof value !== 'string') throw ApiError.badRequest('The WebDAV target id must be text')
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(trimmed)) throw ApiError.badRequest('That WebDAV target id is not valid')
+  return trimmed
+}
+
+function cloudDirOf(value: unknown): string {
+  const raw = singleLineOf(value, DEFAULT_MUSIC_SETTINGS.cloudWebdavDir, 512, 'Cloud folder')
+    .trim().replace(/^\/+|\/+$/g, '')
+  if (!raw) return DEFAULT_MUSIC_SETTINGS.cloudWebdavDir
+  const segments = raw.split('/').filter(Boolean)
+  if (segments.some((segment) => segment === '.' || segment === '..')) {
+    throw ApiError.badRequest('The cloud folder may not leave the WebDAV target')
+  }
+  return segments.join('/')
+}
+
 function sourcePriorityOf(value: unknown): Array<'official' | 'custom'> {
   if (value === undefined) return [...DEFAULT_MUSIC_SETTINGS.sourcePriority]
   if (!Array.isArray(value)) throw ApiError.badRequest('Source priority must be a list')
@@ -169,6 +189,8 @@ export function normalizeMusicSettings(value: unknown): MusicSettings {
       DEFAULT_MUSIC_SETTINGS.customResolverQualityMap,
       'Resolver quality map',
     ),
+    cloudWebdavTargetId: cloudTargetOf(raw.cloudWebdavTargetId),
+    cloudWebdavDir: cloudDirOf(raw.cloudWebdavDir),
     // Server-owned: a client cannot grant itself more storage by writing a number here.
     storageQuotaBytes: MUSIC_LIMITS.quotaBytes,
   }

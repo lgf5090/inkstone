@@ -12,9 +12,16 @@
  */
 import type {
   MusicAccount,
+  MusicAiLyric,
+  MusicAiLyricKind,
   MusicArtist,
+  MusicFavorite,
+  MusicFavoriteTrack,
   MusicHistoryEntry,
   MusicLyric,
+  MusicMount,
+  MusicMountKind,
+  MusicMountStatus,
   MusicPlaylist,
   MusicPlaylistItem,
   MusicProviderId,
@@ -160,6 +167,34 @@ export interface MusicLyricInput {
   fetchedAt?: number
 }
 
+export interface MusicAiLyricInput {
+  trackKey: string
+  kind?: MusicAiLyricKind
+  lang: string
+  sourceHash: string
+  payload: string
+  model?: string
+}
+
+export interface MusicMountInput {
+  kind?: MusicMountKind
+  name: string
+  baseUrl: string
+  rootPath?: string
+  /** Ciphertext supplied by the caller; the store never encrypts or decrypts it. */
+  secret?: string
+  status?: MusicMountStatus
+}
+
+export interface MusicMountPatch {
+  name?: string
+  baseUrl?: string
+  rootPath?: string
+  /** Absent keeps the stored ciphertext; an empty string clears it. */
+  secret?: string
+  status?: MusicMountStatus
+}
+
 export interface MusicSourceOverrideInput {
   trackKey: string
   source: string
@@ -247,6 +282,7 @@ interface PlaylistRow {
   provider_id: string
   kind: string
   sort_order: number
+  pinned_at: number | null
   created_at: number
   updated_at: number
   track_count?: number
@@ -305,6 +341,37 @@ interface LyricRow {
   tlyric: string
   yrc: string
   fetched_at: number
+}
+
+interface FavoriteRow {
+  track_id: string
+  created_at: number
+  pinned_at: number | null
+}
+
+interface AiLyricRow {
+  user_id: string
+  track_key: string
+  kind: string
+  lang: string
+  source_hash: string
+  payload: string
+  model: string
+  created_at: number
+  updated_at: number
+}
+
+interface MountRow {
+  user_id: string
+  id: string
+  kind: string
+  name: string
+  base_url: string
+  root_path: string
+  secret: string
+  status: string
+  created_at: number
+  updated_at: number
 }
 
 interface SourceOverrideRow {
@@ -401,7 +468,39 @@ function toPlaylist(row: PlaylistRow): MusicPlaylist {
     providerId: row.provider_id,
     kind: row.kind as MusicPlaylist['kind'],
     sortOrder: row.sort_order,
+    pinnedAt: row.pinned_at,
     trackCount: row.track_count ?? 0,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+function toFavorite(row: FavoriteRow): MusicFavorite {
+  return { trackId: row.track_id, createdAt: row.created_at, pinnedAt: row.pinned_at }
+}
+
+function toAiLyric(row: AiLyricRow): MusicAiLyric {
+  return {
+    trackKey: row.track_key,
+    kind: row.kind as MusicAiLyricKind,
+    lang: row.lang,
+    sourceHash: row.source_hash,
+    payload: row.payload,
+    model: row.model,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+function toMount(row: MountRow): MusicMount {
+  return {
+    id: row.id,
+    kind: row.kind as MusicMountKind,
+    name: row.name,
+    baseUrl: row.base_url,
+    rootPath: row.root_path,
+    status: row.status as MusicMountStatus,
+    hasSecret: row.secret !== '',
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -568,11 +667,11 @@ export class MusicStore {
   /**
    * Delete one track and every row that names it.
    *
-   * Playlist membership, favourites, history and the two keyed caches go with it. R2 objects are only
-   * released when no other track or download still names the same key; the keys that qualify are put
-   * on the cleanup queue in the same transaction, so a failed object delete is retried rather than
-   * forgotten. Recent containers are listed by playlist/album/radio identity, not by track, so a track
-   * deletion leaves them alone.
+   * Playlist membership, favourites, history and the keyed caches (provider lyrics, AI lyrics and
+   * source overrides) go with it. R2 objects are only released when no other track or download still
+   * names the same key; the keys that qualify are put on the cleanup queue in the same transaction, so
+   * a failed object delete is retried rather than forgotten. Recent containers are listed by
+   * playlist/album/radio identity, not by track, so a track deletion leaves them alone.
    */
   async deleteTrack(id: string): Promise<MusicTrackDeleteResult> {
     const row = await this.trackRow(id)
@@ -630,6 +729,8 @@ export class MusicStore {
         .bind(this.userId, id),
       this.db.prepare(`DELETE FROM music_lyric WHERE user_id = ?1 AND track_key = ?2`)
         .bind(this.userId, trackKey),
+      this.db.prepare(`DELETE FROM music_lyric_ai WHERE user_id = ?1 AND track_key = ?2`)
+        .bind(this.userId, trackKey),
       this.db.prepare(`DELETE FROM music_source_override WHERE user_id = ?1 AND track_key = ?2`)
         .bind(this.userId, trackKey),
       // A retained object no longer names this track as its owner; the key still leads every lookup.
@@ -647,12 +748,12 @@ export class MusicStore {
   async listPlaylists(): Promise<MusicPlaylist[]> {
     const { results } = await this.db.prepare(
       `SELECT p.user_id, p.id, p.name, p.description, p.cover_url, p.provider, p.provider_id,
-              p.kind, p.sort_order, p.created_at, p.updated_at,
+              p.kind, p.sort_order, p.pinned_at, p.created_at, p.updated_at,
               (SELECT COUNT(*) FROM music_playlist_item i
                 WHERE i.user_id = p.user_id AND i.playlist_id = p.id) AS track_count
          FROM music_playlist p
         WHERE p.user_id = ?1
-        ORDER BY p.sort_order, p.created_at, p.id`,
+        ORDER BY (p.pinned_at IS NULL), p.pinned_at DESC, p.sort_order, p.created_at, p.id`,
     ).bind(this.userId).all<PlaylistRow>()
     return results.map(toPlaylist)
   }
@@ -709,6 +810,22 @@ export class MusicStore {
       patch.sortOrder ?? null,
       Date.now(),
     ).run()
+    if (!(result.meta.changes ?? 0)) return null
+    return this.getPlaylist(id)
+  }
+
+  /**
+   * Pin or unpin one playlist. As with favourites, pinning keeps the first pin's timestamp so a repeat
+   * call is idempotent; null means the playlist does not belong to this account.
+   */
+  async setPlaylistPinned(id: string, pinned: boolean): Promise<MusicPlaylist | null> {
+    const now = Date.now()
+    const result = await this.db.prepare(
+      `UPDATE music_playlist SET
+         pinned_at = CASE WHEN ?3 = 1 THEN COALESCE(pinned_at, ?4) ELSE NULL END,
+         updated_at = ?5
+       WHERE user_id = ?1 AND id = ?2`,
+    ).bind(this.userId, id, pinned ? 1 : 0, now, now).run()
     if (!(result.meta.changes ?? 0)) return null
     return this.getPlaylist(id)
   }
@@ -893,7 +1010,7 @@ export class MusicStore {
     return (result.meta.changes ?? 0) > 0
   }
 
-  async listFavorites(options: MusicListOptions = {}): Promise<MusicPage<MusicTrack>> {
+  async listFavorites(options: MusicListOptions = {}): Promise<MusicPage<MusicFavoriteTrack>> {
     const page = normalizeMusicPage(options.page)
     const limit = normalizeMusicLimit(options.limit)
     const offset = musicPageOffset(page, limit)
@@ -904,13 +1021,29 @@ export class MusicStore {
     ).bind(this.userId).first<{ count: number }>()
     const total = totalRow?.count ?? 0
     const { results } = await this.db.prepare(
-      `SELECT ${TRACK_COLUMNS_T} FROM music_favorite f
+      `SELECT ${TRACK_COLUMNS_T}, f.pinned_at FROM music_favorite f
         JOIN music_track t ON t.user_id = f.user_id AND t.id = f.track_id
        WHERE f.user_id = ?1
-       ORDER BY f.created_at DESC, f.track_id DESC
+       ORDER BY (f.pinned_at IS NULL), f.pinned_at DESC, f.created_at DESC, f.track_id DESC
        LIMIT ?2 OFFSET ?3`,
-    ).bind(this.userId, limit, offset).all<FavoriteTrackRow>()
-    return pageOf(results.map(toTrack), total, offset)
+    ).bind(this.userId, limit, offset).all<FavoriteTrackRow & { pinned_at: number | null }>()
+    return pageOf(results.map((row) => ({ ...toTrack(row), pinnedAt: row.pinned_at })), total, offset)
+  }
+
+  /**
+   * Pin or unpin one favourite. Pinning keeps the first pin's timestamp, so calling it twice does not
+   * reshuffle the list; null means the track is not a favourite of this account.
+   */
+  async setFavoritePinned(trackId: string, pinned: boolean): Promise<MusicFavorite | null> {
+    const result = await this.db.prepare(
+      `UPDATE music_favorite SET pinned_at = CASE WHEN ?3 = 1 THEN COALESCE(pinned_at, ?4) ELSE NULL END
+        WHERE user_id = ?1 AND track_id = ?2`,
+    ).bind(this.userId, trackId, pinned ? 1 : 0, Date.now()).run()
+    if (!(result.meta.changes ?? 0)) return null
+    const row = await this.db.prepare(
+      `SELECT track_id, created_at, pinned_at FROM music_favorite WHERE user_id = ?1 AND track_id = ?2`,
+    ).bind(this.userId, trackId).first<FavoriteRow>()
+    return row ? toFavorite(row) : null
   }
 
   // History ------------------------------------------------------------------------------------
@@ -1177,6 +1310,61 @@ export class MusicStore {
     return result.meta.changes ?? 0
   }
 
+  // AI lyric cache -----------------------------------------------------------------------------
+
+  /**
+   * One cached AI layer. The caller compares `sourceHash` with the lyric text it has: a different
+   * hash is a miss, and `putAiLyric` then overwrites the row instead of keeping a stale translation.
+   */
+  async getAiLyric(
+    trackKey: string,
+    kind: MusicAiLyricKind,
+    lang: string,
+  ): Promise<MusicAiLyric | null> {
+    const row = await this.db.prepare(
+      `SELECT user_id, track_key, kind, lang, source_hash, payload, model, created_at, updated_at
+         FROM music_lyric_ai WHERE user_id = ?1 AND track_key = ?2 AND kind = ?3 AND lang = ?4`,
+    ).bind(this.userId, trackKey, kind, lang).first<AiLyricRow>()
+    return row ? toAiLyric(row) : null
+  }
+
+  async putAiLyric(input: MusicAiLyricInput): Promise<MusicAiLyric> {
+    if (utf8ByteLength(input.payload) > MUSIC_LIMITS.lyricMaxBytes) {
+      throw ApiError.tooLarge(`AI lyrics exceed the ${MUSIC_LIMITS.lyricMaxBytes / 1024} KB limit`)
+    }
+    const now = Date.now()
+    await this.db.prepare(
+      `INSERT INTO music_lyric_ai
+         (user_id, track_key, kind, lang, source_hash, payload, model, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)
+       ON CONFLICT(user_id, track_key, kind, lang) DO UPDATE SET
+         source_hash = excluded.source_hash,
+         payload = excluded.payload,
+         model = excluded.model,
+         updated_at = excluded.updated_at`,
+    ).bind(
+      this.userId,
+      input.trackKey,
+      input.kind ?? 'translation',
+      input.lang,
+      input.sourceHash,
+      input.payload,
+      input.model ?? '',
+      now,
+    ).run()
+    const saved = await this.getAiLyric(input.trackKey, input.kind ?? 'translation', input.lang)
+    if (!saved) throw new Error('music_lyric_ai_upsert_failed')
+    return saved
+  }
+
+  /** Drop every language of every kind for one track. Returns the rows removed. */
+  async deleteAiLyricsForTrack(trackKey: string): Promise<number> {
+    const result = await this.db.prepare(
+      `DELETE FROM music_lyric_ai WHERE user_id = ?1 AND track_key = ?2`,
+    ).bind(this.userId, trackKey).run()
+    return result.meta.changes ?? 0
+  }
+
   // Source overrides ---------------------------------------------------------------------------
 
   async saveSourceOverride(input: MusicSourceOverrideInput): Promise<MusicSourceOverride> {
@@ -1271,6 +1459,88 @@ export class MusicStore {
   async deleteSubscription(id: string): Promise<boolean> {
     const result = await this.db.prepare(
       `DELETE FROM music_subscription WHERE user_id = ?1 AND id = ?2`,
+    ).bind(this.userId, id).run()
+    return (result.meta.changes ?? 0) > 0
+  }
+
+  // Cloud mounts -------------------------------------------------------------------------------
+
+  async listMounts(): Promise<MusicMount[]> {
+    const { results } = await this.db.prepare(
+      `SELECT user_id, id, kind, name, base_url, root_path, secret, status, created_at, updated_at
+         FROM music_mount WHERE user_id = ?1 ORDER BY created_at, id`,
+    ).bind(this.userId).all<MountRow>()
+    return results.map(toMount)
+  }
+
+  /** The mount as a reader may see it: no secret, only whether one is stored. */
+  async getMount(id: string): Promise<MusicMount | null> {
+    const row = await this.mountRow(id)
+    return row ? toMount(row) : null
+  }
+
+  /**
+   * The stored ciphertext for one mount, for the layer that talks to the drive. The store never
+   * decrypts it; null means the mount does not exist, while an empty string means no credential.
+   */
+  async getMountSecret(id: string): Promise<string | null> {
+    const row = await this.db.prepare(
+      `SELECT secret FROM music_mount WHERE user_id = ?1 AND id = ?2`,
+    ).bind(this.userId, id).first<{ secret: string }>()
+    return row ? row.secret : null
+  }
+
+  async createMount(input: MusicMountInput): Promise<MusicMount> {
+    const id = newId()
+    const now = Date.now()
+    await this.db.prepare(
+      `INSERT INTO music_mount
+         (user_id, id, kind, name, base_url, root_path, secret, status, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)`,
+    ).bind(
+      this.userId,
+      id,
+      input.kind ?? 'alist',
+      input.name,
+      input.baseUrl,
+      input.rootPath ?? '/',
+      input.secret ?? '',
+      input.status ?? 'active',
+      now,
+    ).run()
+    const created = await this.getMount(id)
+    if (!created) throw new Error('music_mount_insert_failed')
+    return created
+  }
+
+  /** `secret` absent keeps the stored ciphertext, so a rename cannot silently drop the credential. */
+  async updateMount(id: string, patch: MusicMountPatch): Promise<MusicMount | null> {
+    const result = await this.db.prepare(
+      `UPDATE music_mount SET
+         name = COALESCE(?3, name),
+         base_url = COALESCE(?4, base_url),
+         root_path = COALESCE(?5, root_path),
+         secret = COALESCE(?6, secret),
+         status = COALESCE(?7, status),
+         updated_at = ?8
+       WHERE user_id = ?1 AND id = ?2`,
+    ).bind(
+      this.userId,
+      id,
+      patch.name ?? null,
+      patch.baseUrl ?? null,
+      patch.rootPath ?? null,
+      patch.secret ?? null,
+      patch.status ?? null,
+      Date.now(),
+    ).run()
+    if (!(result.meta.changes ?? 0)) return null
+    return this.getMount(id)
+  }
+
+  async deleteMount(id: string): Promise<boolean> {
+    const result = await this.db.prepare(
+      `DELETE FROM music_mount WHERE user_id = ?1 AND id = ?2`,
     ).bind(this.userId, id).run()
     return (result.meta.changes ?? 0) > 0
   }
@@ -1390,7 +1660,7 @@ export class MusicStore {
   private async playlistRow(id: string): Promise<PlaylistRow | null> {
     return this.db.prepare(
       `SELECT p.user_id, p.id, p.name, p.description, p.cover_url, p.provider, p.provider_id,
-              p.kind, p.sort_order, p.created_at, p.updated_at,
+              p.kind, p.sort_order, p.pinned_at, p.created_at, p.updated_at,
               (SELECT COUNT(*) FROM music_playlist_item i
                 WHERE i.user_id = p.user_id AND i.playlist_id = p.id) AS track_count
          FROM music_playlist p WHERE p.user_id = ?1 AND p.id = ?2`,
@@ -1419,6 +1689,13 @@ export class MusicStore {
       `SELECT user_id, provider, account_id, nickname, avatar_url, cookie_ciphertext, status, updated_at
          FROM music_account WHERE user_id = ?1 AND provider = ?2`,
     ).bind(this.userId, provider).first<AccountRow>()
+  }
+
+  private async mountRow(id: string): Promise<MountRow | null> {
+    return this.db.prepare(
+      `SELECT user_id, id, kind, name, base_url, root_path, secret, status, created_at, updated_at
+         FROM music_mount WHERE user_id = ?1 AND id = ?2`,
+    ).bind(this.userId, id).first<MountRow>()
   }
 
   private toSourceOverride(row: SourceOverrideRow): MusicSourceOverride {

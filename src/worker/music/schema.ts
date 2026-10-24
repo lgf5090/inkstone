@@ -51,12 +51,15 @@ export const MUSIC_SCHEMA_STATEMENTS: readonly string[] = [
     provider_id TEXT NOT NULL DEFAULT '',
     kind TEXT NOT NULL DEFAULT 'manual',
     sort_order INTEGER NOT NULL DEFAULT 0,
+    pinned_at INTEGER,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_music_playlist_user
     ON music_playlist(user_id, sort_order, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_music_playlist_pinned
+    ON music_playlist(user_id, pinned_at DESC)`,
 
   `CREATE TABLE IF NOT EXISTS music_playlist_item (
     user_id TEXT NOT NULL,
@@ -73,10 +76,13 @@ export const MUSIC_SCHEMA_STATEMENTS: readonly string[] = [
     user_id TEXT NOT NULL,
     track_id TEXT NOT NULL,
     created_at INTEGER NOT NULL,
+    pinned_at INTEGER,
     PRIMARY KEY (user_id, track_id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_music_favorite_recent
     ON music_favorite(user_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_music_favorite_pinned
+    ON music_favorite(user_id, pinned_at DESC)`,
 
   `CREATE TABLE IF NOT EXISTS music_history (
     user_id TEXT NOT NULL,
@@ -175,6 +181,21 @@ export const MUSIC_SCHEMA_STATEMENTS: readonly string[] = [
     PRIMARY KEY (user_id, track_key)
   )`,
 
+  `CREATE TABLE IF NOT EXISTS music_lyric_ai (
+    user_id TEXT NOT NULL,
+    track_key TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'translation',
+    lang TEXT NOT NULL,
+    source_hash TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    model TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, track_key, kind, lang)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_music_lyric_ai_track
+    ON music_lyric_ai(user_id, track_key)`,
+
   `CREATE TABLE IF NOT EXISTS music_account (
     user_id TEXT NOT NULL,
     provider TEXT NOT NULL DEFAULT 'netease',
@@ -186,6 +207,22 @@ export const MUSIC_SCHEMA_STATEMENTS: readonly string[] = [
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, provider)
   )`,
+
+  `CREATE TABLE IF NOT EXISTS music_mount (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'alist',
+    name TEXT NOT NULL,
+    base_url TEXT NOT NULL,
+    root_path TEXT NOT NULL DEFAULT '/',
+    secret TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_music_mount_user
+    ON music_mount(user_id, created_at, id)`,
 
   `CREATE TABLE IF NOT EXISTS music_setting (
     user_id TEXT NOT NULL,
@@ -235,7 +272,9 @@ export const MUSIC_REQUIRED_TABLES: readonly string[] = [
   'music_object',
   'music_upload',
   'music_lyric',
+  'music_lyric_ai',
   'music_account',
+  'music_mount',
   'music_setting',
   'music_source_override',
   'music_subscription',
@@ -247,14 +286,18 @@ export const MUSIC_REQUIRED_INDEXES: readonly string[] = [
   'idx_music_track_sha',
   'idx_music_track_size',
   'idx_music_playlist_user',
+  'idx_music_playlist_pinned',
   'idx_music_playlist_item_order',
   'idx_music_favorite_recent',
+  'idx_music_favorite_pinned',
   'idx_music_history_recent',
   'idx_music_recent_time',
   'idx_music_download_queue',
   'idx_music_object_sha',
   'idx_music_object_track',
   'idx_music_upload_status',
+  'idx_music_lyric_ai_track',
+  'idx_music_mount_user',
   'idx_music_cleanup_created',
 ]
 
@@ -266,10 +309,10 @@ export const MUSIC_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>>
   ],
   music_playlist: [
     'user_id', 'id', 'name', 'description', 'cover_url', 'provider', 'provider_id', 'kind',
-    'sort_order', 'created_at', 'updated_at',
+    'sort_order', 'pinned_at', 'created_at', 'updated_at',
   ],
   music_playlist_item: ['user_id', 'playlist_id', 'track_id', 'position', 'added_at'],
-  music_favorite: ['user_id', 'track_id', 'created_at'],
+  music_favorite: ['user_id', 'track_id', 'created_at', 'pinned_at'],
   music_history: [
     'user_id', 'id', 'track_id', 'played_at', 'duration_played', 'completed', 'context_type',
     'context_id',
@@ -287,8 +330,16 @@ export const MUSIC_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>>
     'cover_key', 'metadata_json', 'upload_id', 'parts_json', 'error', 'created_at', 'updated_at',
   ],
   music_lyric: ['user_id', 'track_key', 'source', 'lrc', 'tlyric', 'yrc', 'fetched_at'],
+  music_lyric_ai: [
+    'user_id', 'track_key', 'kind', 'lang', 'source_hash', 'payload', 'model', 'created_at',
+    'updated_at',
+  ],
   music_account: [
     'user_id', 'provider', 'account_id', 'nickname', 'avatar_url', 'cookie_ciphertext', 'status',
+    'updated_at',
+  ],
+  music_mount: [
+    'user_id', 'id', 'kind', 'name', 'base_url', 'root_path', 'secret', 'status', 'created_at',
     'updated_at',
   ],
   music_setting: ['user_id', 'settings', 'updated_at'],

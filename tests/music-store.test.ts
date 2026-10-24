@@ -490,6 +490,126 @@ describe('deleting a track', () => {
   })
 })
 
+describe('music pins', () => {
+  it('sorts pinned favourites ahead of newer unpinned ones and is idempotent', async () => {
+    const older = await createTrack({ providerId: 'pin-1', title: 'Older' })
+    const newer = await createTrack({ providerId: 'pin-2', title: 'Newer' })
+    await store.addFavorite(older.id)
+    await store.addFavorite(newer.id)
+    const before = await store.listFavorites()
+    expect(before.items.map((entry) => entry.title)).toEqual(['Newer', 'Older'])
+
+    const pinned = await store.setFavoritePinned(older.id, true)
+    const firstPin = pinned?.pinnedAt
+    expect(typeof firstPin).toBe('number')
+    await store.setFavoritePinned(older.id, true)
+    expect((await store.listFavorites()).items.find((entry) => entry.id === older.id)?.pinnedAt).toBe(firstPin)
+
+    const after = await store.listFavorites()
+    expect(after.items.map((entry) => entry.title)).toEqual(['Older', 'Newer'])
+    expect(after.items[0]?.pinnedAt).toBe(Number(firstPin))
+    expect(after.items[1]?.pinnedAt).toBeNull()
+  })
+
+  it('refuses to pin a favourite another account owns or a missing track', async () => {
+    const track = await createTrack()
+    await store.addFavorite(track.id)
+    expect(await other.setFavoritePinned(track.id, true)).toBeNull()
+    expect(await store.setFavoritePinned('missing', true)).toBeNull()
+  })
+
+  it('sorts pinned playlists ahead of the shelf order and unpins them', async () => {
+    const first = await store.createPlaylist({ name: 'First' })
+    const second = await store.createPlaylist({ name: 'Second' })
+    expect((await store.listPlaylists()).map((entry) => entry.name)).toEqual(['First', 'Second'])
+
+    await store.setPlaylistPinned(second.id, true)
+    expect((await store.listPlaylists()).map((entry) => entry.name)).toEqual(['Second', 'First'])
+    expect((await store.getPlaylist(second.id))?.pinnedAt).not.toBeNull()
+
+    await store.setPlaylistPinned(second.id, false)
+    expect((await store.listPlaylists()).map((entry) => entry.name)).toEqual(['First', 'Second'])
+    expect(await other.setPlaylistPinned(second.id, true)).toBeNull()
+    expect(first.id).not.toBe(second.id)
+  })
+})
+
+describe('music AI lyric cache', () => {
+  it('round-trips one layer and lets a changed source hash replace it', async () => {
+    const saved = await store.putAiLyric({
+      trackKey: 'netease:42',
+      lang: 'zh-CN',
+      sourceHash: 'hash-1',
+      payload: JSON.stringify([{ index: 0, text: 'translated' }]),
+      model: 'deepseek-chat',
+    })
+    expect(saved).toMatchObject({ kind: 'translation', lang: 'zh-CN', sourceHash: 'hash-1' })
+    expect((await store.getAiLyric('netease:42', 'translation', 'zh-CN'))?.payload).toBe(saved.payload)
+
+    await store.putAiLyric({
+      trackKey: 'netease:42',
+      lang: 'zh-CN',
+      sourceHash: 'hash-2',
+      payload: JSON.stringify([{ index: 0, text: 'new translation' }]),
+    })
+    expect((await store.getAiLyric('netease:42', 'translation', 'zh-CN'))?.sourceHash).toBe('hash-2')
+  })
+
+  it('isolates accounts and removes every language when the track is deleted', async () => {
+    const track = await createTrack()
+    const key = `netease:${track.providerId}`
+    await store.putAiLyric({ trackKey: key, lang: 'zh-CN', sourceHash: 'h', payload: '[]' })
+    await store.putAiLyric({ trackKey: key, lang: 'en-US', sourceHash: 'h', payload: '[]' })
+    expect(await other.getAiLyric(key, 'translation', 'zh-CN')).toBeNull()
+
+    expect(await store.deleteAiLyricsForTrack(key)).toBe(2)
+    expect(await store.getAiLyric(key, 'translation', 'zh-CN')).toBeNull()
+
+    await store.putAiLyric({ trackKey: key, lang: 'zh-CN', sourceHash: 'h', payload: '[]' })
+    await store.deleteTrack(track.id)
+    expect(await store.getAiLyric(key, 'translation', 'zh-CN')).toBeNull()
+  })
+})
+
+describe('music cloud mounts', () => {
+  it('stores a mount without returning its secret and isolates accounts', async () => {
+    const mount = await store.createMount({
+      name: 'Drive',
+      baseUrl: 'https://alist.example.com',
+      rootPath: '/music',
+      secret: 'ciphertext',
+    })
+    expect(mount).toMatchObject({ kind: 'alist', name: 'Drive', hasSecret: true })
+    expect('secret' in mount).toBe(false)
+    expect(await store.getMountSecret(mount.id)).toBe('ciphertext')
+    expect(await other.getMount(mount.id)).toBeNull()
+    expect(await other.getMountSecret(mount.id)).toBeNull()
+  })
+
+  it('keeps the stored secret on a patch that omits it and clears it on an empty string', async () => {
+    const mount = await store.createMount({
+      name: 'Drive',
+      baseUrl: 'https://alist.example.com',
+      secret: 'ciphertext',
+    })
+    const renamed = await store.updateMount(mount.id, { name: 'Renamed' })
+    expect(renamed).toMatchObject({ name: 'Renamed', hasSecret: true })
+    expect(await store.getMountSecret(mount.id)).toBe('ciphertext')
+
+    const cleared = await store.updateMount(mount.id, { secret: '' })
+    expect(cleared?.hasSecret).toBe(false)
+    expect(await store.getMountSecret(mount.id)).toBe('')
+  })
+
+  it('lists, deletes and refuses another account', async () => {
+    const mount = await store.createMount({ name: 'Drive', baseUrl: 'https://alist.example.com' })
+    expect((await store.listMounts()).map((entry) => entry.id)).toEqual([mount.id])
+    expect(await other.deleteMount(mount.id)).toBe(false)
+    expect(await store.deleteMount(mount.id)).toBe(true)
+    expect(await store.listMounts()).toEqual([])
+  })
+})
+
 describe('music pagination', () => {
   it('clamps page numbers and sizes parsed from query strings', () => {
     expect(normalizeMusicPage(undefined)).toBe(1)

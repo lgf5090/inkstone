@@ -2423,6 +2423,68 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       )`,
     ],
   },
+  {
+    // Pinning a favourite is a sub-state of being a favourite, so the column is nullable and NULL is
+    // "not pinned" — which is also the only honest reading of every row that predates it. The index
+    // follows the list order (`(pinned_at IS NULL), pinned_at DESC`) rather than leading with it.
+    version: 163,
+    skipIfColumnExists: { table: 'music_favorite', column: 'pinned_at' },
+    statements: [
+      `ALTER TABLE music_favorite ADD COLUMN pinned_at INTEGER`,
+      `CREATE INDEX IF NOT EXISTS idx_music_favorite_pinned
+         ON music_favorite(user_id, pinned_at DESC)`,
+    ],
+  },
+  {
+    version: 164,
+    skipIfColumnExists: { table: 'music_playlist', column: 'pinned_at' },
+    statements: [
+      `ALTER TABLE music_playlist ADD COLUMN pinned_at INTEGER`,
+      `CREATE INDEX IF NOT EXISTS idx_music_playlist_pinned
+         ON music_playlist(user_id, pinned_at DESC)`,
+    ],
+  },
+  {
+    // A cache rather than a library: deleting a track removes its rows, and the primary key already
+    // answers the one lookup the translation route needs.
+    version: 165,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS music_lyric_ai (
+        user_id TEXT NOT NULL,
+        track_key TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'translation',
+        lang TEXT NOT NULL,
+        source_hash TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        model TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, track_key, kind, lang)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_music_lyric_ai_track
+         ON music_lyric_ai(user_id, track_key)`,
+    ],
+  },
+  {
+    version: 166,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS music_mount (
+        user_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'alist',
+        name TEXT NOT NULL,
+        base_url TEXT NOT NULL,
+        root_path TEXT NOT NULL DEFAULT '/',
+        secret TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'active',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_music_mount_user
+         ON music_mount(user_id, created_at, id)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

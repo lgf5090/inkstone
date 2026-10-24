@@ -164,6 +164,7 @@ interface PlaylistBackupRow {
   provider_id: string
   kind: string
   sort_order: number
+  pinned_at: number | null
   created_at: number
   updated_at: number
 }
@@ -178,6 +179,7 @@ interface PlaylistItemBackupRow {
 interface FavoriteBackupRow {
   track_id: string
   created_at: number
+  pinned_at: number | null
 }
 
 interface HistoryBackupRow {
@@ -251,7 +253,7 @@ export async function readBackupMusic(db: D1Database, userId: string): Promise<s
       ).bind(userId).all<TrackBackupRow>(),
       db.prepare(
         `SELECT id, name, description, cover_url, provider, provider_id, kind, sort_order,
-                created_at, updated_at
+                pinned_at, created_at, updated_at
            FROM music_playlist WHERE user_id = ?1 ORDER BY sort_order, created_at, id`,
       ).bind(userId).all<PlaylistBackupRow>(),
       db.prepare(
@@ -260,7 +262,7 @@ export async function readBackupMusic(db: D1Database, userId: string): Promise<s
           ORDER BY playlist_id, position, track_id`,
       ).bind(userId).all<PlaylistItemBackupRow>(),
       db.prepare(
-        `SELECT track_id, created_at FROM music_favorite
+        `SELECT track_id, created_at, pinned_at FROM music_favorite
           WHERE user_id = ?1 ORDER BY created_at, track_id`,
       ).bind(userId).all<FavoriteBackupRow>(),
       db.prepare(
@@ -302,7 +304,11 @@ export async function readBackupMusic(db: D1Database, userId: string): Promise<s
     tracks: tracks.results.map(toBackupTrack),
     playlists: playlists.results.map(toBackupPlaylist),
     playlistItems: playlistItems.results.map(toBackupPlaylistItem),
-    favorites: favorites.results.map((row) => ({ trackId: row.track_id, createdAt: row.created_at })),
+    favorites: favorites.results.map((row) => ({
+      trackId: row.track_id,
+      createdAt: row.created_at,
+      pinnedAt: row.pinned_at,
+    })),
     history: history.results.map(toBackupHistory),
     recent: recent.results.map(toBackupRecent),
     objects: objects.results.map(toBackupObject),
@@ -503,6 +509,7 @@ function parsePlaylist(value: unknown, index: number): MusicBackupPlaylist {
     providerId: optionalText(row.providerId, PROVIDER_ID_MAX, `Playlist ${index + 1} providerId`),
     kind: oneOf(row.kind ?? 'manual', ['manual', 'imported', 'favorites'] as const, `Playlist ${index + 1} kind`),
     sortOrder: optionalInteger(row.sortOrder, 0, Number.MAX_SAFE_INTEGER, `Playlist ${index + 1} sortOrder`, 0),
+    pinnedAt: optionalNullableInteger(row.pinnedAt, 0, TIMESTAMP_MAX, `Playlist ${index + 1} pinnedAt`),
     createdAt: optionalTimestamp(row.createdAt, `Playlist ${index + 1} createdAt`),
     updatedAt: optionalTimestamp(row.updatedAt, `Playlist ${index + 1} updatedAt`),
   }
@@ -523,6 +530,8 @@ function parseFavorite(value: unknown, index: number): MusicFavorite {
   return {
     trackId: requiredText(row.trackId, ID_MAX, `Favourite ${index + 1} trackId`),
     createdAt: optionalTimestamp(row.createdAt, `Favourite ${index + 1} createdAt`),
+    // A version 1 file written before pinning simply has no field, and unpinned is what it meant.
+    pinnedAt: optionalNullableInteger(row.pinnedAt, 0, TIMESTAMP_MAX, `Favourite ${index + 1} pinnedAt`),
   }
 }
 
@@ -713,7 +722,7 @@ function resolveFavorites(
     const trackId = mappedTrackId(trackIdMap, favorite.trackId)
     if (seen.has(trackId)) continue
     seen.add(trackId)
-    planned.push({ trackId, createdAt: favorite.createdAt })
+    planned.push({ trackId, createdAt: favorite.createdAt, pinnedAt: favorite.pinnedAt })
   }
   return planned
 }
@@ -790,7 +799,7 @@ function playlistStatements(
   return chunk(rows, PLAYLIST_CHUNK).map((window) => db.prepare(
     `INSERT OR IGNORE INTO music_playlist (
        user_id, id, name, description, cover_url, provider, provider_id, kind, sort_order,
-       created_at, updated_at
+       pinned_at, created_at, updated_at
      )
      SELECT ?1,
        json_extract(j.value, '$.id'),
@@ -801,6 +810,7 @@ function playlistStatements(
        json_extract(j.value, '$.providerId'),
        json_extract(j.value, '$.kind'),
        json_extract(j.value, '$.sortOrder'),
+       json_extract(j.value, '$.pinnedAt'),
        json_extract(j.value, '$.createdAt'),
        json_extract(j.value, '$.updatedAt')
        FROM json_each(?2) AS j`,
@@ -829,10 +839,11 @@ function favoriteStatements(
   rows: readonly MusicFavorite[],
 ): D1PreparedStatement[] {
   return chunk(rows, FAVORITE_CHUNK).map((window) => db.prepare(
-    `INSERT OR IGNORE INTO music_favorite (user_id, track_id, created_at)
+    `INSERT OR IGNORE INTO music_favorite (user_id, track_id, created_at, pinned_at)
      SELECT ?1,
        json_extract(j.value, '$.trackId'),
-       json_extract(j.value, '$.createdAt')
+       json_extract(j.value, '$.createdAt'),
+       json_extract(j.value, '$.pinnedAt')
        FROM json_each(?2) AS j`,
   ).bind(userId, JSON.stringify(window)))
 }
@@ -1170,6 +1181,7 @@ function toBackupPlaylist(row: PlaylistBackupRow): MusicBackupPlaylist {
     providerId: row.provider_id,
     kind: row.kind as MusicPlaylist['kind'],
     sortOrder: row.sort_order,
+    pinnedAt: row.pinned_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }

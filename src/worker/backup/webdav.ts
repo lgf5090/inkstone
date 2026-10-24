@@ -14,7 +14,7 @@ export interface WebdavSecret {
   password?: string
 }
 
-function authHeader(config: WebdavConfig, secret: WebdavSecret): string {
+export function authHeader(config: WebdavConfig, secret: WebdavSecret): string {
   if (!config.username?.trim() || !secret.password?.trim()) {
     throw new Error('WebDAV username or password is missing')
   }
@@ -25,7 +25,7 @@ function authHeader(config: WebdavConfig, secret: WebdavSecret): string {
   return `Basic ${btoa(bin)}`
 }
 
-function baseUrl(config: WebdavConfig): URL {
+export function baseUrl(config: WebdavConfig): URL {
   const raw = (config.url ?? '').trim()
   if (!raw) throw new Error('Enter a WebDAV URL')
   const url = parseBackupEndpoint(raw, "WebDAV address")
@@ -33,7 +33,7 @@ function baseUrl(config: WebdavConfig): URL {
   return url
 }
 
-function childUrl(base: URL, relative: string): string {
+export function childUrl(base: URL, relative: string): string {
   const segments = relative
     .split('/')
     .filter(Boolean)
@@ -44,7 +44,7 @@ function childUrl(base: URL, relative: string): string {
 const WEBDAV_REDIRECTS = new Set([301, 302, 307, 308])
 const MAX_WEBDAV_REDIRECTS = 4
 
-async function webdavFetch(
+export async function webdavFetch(
   input: string | URL,
   init: RequestInit,
   trustedOrigin: string,
@@ -84,7 +84,7 @@ async function webdavFetch(
   throw new Error('Too many WebDAV redirects')
 }
 
-async function ensureDirs(
+export async function ensureDirs(
   base: URL,
   auth: string,
   dirs: string[],
