@@ -81,7 +81,7 @@ export default defineConfig({
         test: {
           name: 'jsdom',
           environment: 'jsdom',
-          include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
+          include: ['src/**/*.test.ts', 'tests/**/*.test.ts', 'tests/**/*.test.tsx'],
           // The last entry is the scratch-probe marker: a `*.tmp.*` file is a measurement in flight,
           // and it is the tsconfig exclusion plus tests/no-scratch-test-files.test.ts that make it
           // invisible to the gates and impossible to leave behind.

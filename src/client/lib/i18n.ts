@@ -41,6 +41,13 @@ const apiCodeMessages: Record<string, MessageKey> = {
     reader_book_too_large: 'api.error.reader_book_too_large',
     reader_fetch_failed: 'api.error.reader_fetch_failed',
     realtime_refused: 'api.error.realtime_refused',
+    music_provider_unavailable: 'api.error.music_provider_unavailable',
+    music_provider_auth_required: 'api.error.music_provider_auth_required',
+    music_source_unavailable: 'api.error.music_source_unavailable',
+    music_storage_unavailable: 'api.error.music_storage_unavailable',
+    music_quota_exceeded: 'api.error.music_quota_exceeded',
+    music_upload_invalid: 'api.error.music_upload_invalid',
+    music_lyrics_unavailable: 'api.error.music_lyrics_unavailable',
 };
 let englishMessageKeys = new Map<string, MessageKey>();
 let locale: AppLocale = detectInitialLocale();
