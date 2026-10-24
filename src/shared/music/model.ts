@@ -1,0 +1,235 @@
+/**
+ * The music app's vocabulary, shared by the worker that stores it and the browser that draws it.
+ *
+ * Times cross the wire as epoch milliseconds. Provider ids stay strings because Netease mixes numeric
+ * song ids with string program ids, and a numeric column would have to widen later.
+ */
+
+export const MUSIC_PROVIDERS = ['netease', 'upload', 'custom'] as const
+export type MusicProviderId = (typeof MUSIC_PROVIDERS)[number]
+
+export const MUSIC_TRACK_KINDS = ['song', 'podcast', 'mv'] as const
+export type MusicTrackKind = (typeof MUSIC_TRACK_KINDS)[number]
+
+/** The quality ladder Netease accepts through `/song/url/v1`; `original` is ours for uploads. */
+export const MUSIC_QUALITIES = [
+  'original',
+  'standard',
+  'higher',
+  'exhigh',
+  'lossless',
+  'hires',
+  'jyeffect',
+  'sky',
+  'jymaster',
+] as const
+export type MusicQuality = (typeof MUSIC_QUALITIES)[number]
+
+export const MUSIC_SEARCH_TYPES = ['song', 'album', 'playlist', 'mv', 'radio'] as const
+export type MusicSearchType = (typeof MUSIC_SEARCH_TYPES)[number]
+
+export const MUSIC_PLAY_MODES = ['order', 'repeat', 'repeatOne', 'shuffle', 'intelligence'] as const
+export type MusicPlayMode = (typeof MUSIC_PLAY_MODES)[number]
+
+export const MUSIC_DOWNLOAD_STATUSES = ['queued', 'running', 'paused', 'done', 'failed', 'canceled'] as const
+export type MusicDownloadStatus = (typeof MUSIC_DOWNLOAD_STATUSES)[number]
+
+export const MUSIC_UPLOAD_STATUSES = ['uploading', 'completed', 'failed', 'aborted'] as const
+export type MusicUploadStatus = (typeof MUSIC_UPLOAD_STATUSES)[number]
+
+export const MUSIC_SUBSCRIPTION_KINDS = ['radio', 'artist', 'album'] as const
+export type MusicSubscriptionKind = (typeof MUSIC_SUBSCRIPTION_KINDS)[number]
+
+export interface MusicArtist {
+  id: string
+  name: string
+}
+
+export interface MusicAlbumRef {
+  id: string
+  name: string
+}
+
+export interface MusicTrack {
+  id: string
+  provider: MusicProviderId
+  providerId: string
+  kind: MusicTrackKind
+  title: string
+  artists: MusicArtist[]
+  album: string
+  albumId: string
+  coverUrl: string
+  coverKey: string
+  durationMs: number
+  format: string
+  bitrate: number | null
+  size: number | null
+  sha256: string
+  r2Key: string | null
+  source: string
+  sourceQuality: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface MusicPlaylist {
+  id: string
+  name: string
+  description: string
+  coverUrl: string
+  provider: 'local' | 'netease'
+  providerId: string
+  kind: 'manual' | 'imported' | 'favorites'
+  sortOrder: number
+  trackCount: number
+  createdAt: number
+  updatedAt: number
+}
+
+export interface MusicPlaylistItem {
+  playlistId: string
+  trackId: string
+  position: number
+  addedAt: number
+}
+
+export interface MusicFavorite {
+  trackId: string
+  createdAt: number
+}
+
+export interface MusicHistoryEntry {
+  id: string
+  trackId: string
+  playedAt: number
+  durationPlayed: number
+  completed: boolean
+  contextType: string
+  contextId: string
+}
+
+export interface MusicRecentEntry {
+  id: string
+  kind: 'playlist' | 'album' | 'radio' | 'artist'
+  providerId: string
+  name: string
+  coverUrl: string
+  lastPlayedAt: number
+  playCount: number
+}
+
+export interface MusicDownload {
+  id: string
+  trackId: string
+  quality: MusicQuality
+  format: string
+  status: MusicDownloadStatus
+  progress: number
+  size: number | null
+  r2Key: string | null
+  error: string
+  attempts: number
+  createdAt: number
+  updatedAt: number
+  completedAt: number | null
+}
+
+export interface MusicUpload {
+  id: string
+  filename: string
+  mime: string
+  size: number
+  format: string
+  status: MusicUploadStatus
+  r2Key: string | null
+  trackId: string | null
+  coverKey: string | null
+  error: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface MusicLyric {
+  trackKey: string
+  source: string
+  lrc: string
+  tlyric: string
+  yrc: string
+  fetchedAt: number
+}
+
+export interface MusicAccount {
+  provider: 'netease'
+  accountId: string
+  nickname: string
+  avatarUrl: string
+  status: 'connected' | 'expired'
+  updatedAt: number
+}
+
+export interface MusicSourceOverride {
+  trackKey: string
+  source: string
+  config: Record<string, unknown>
+  updatedAt: number
+}
+
+export interface MusicSubscription {
+  id: string
+  kind: MusicSubscriptionKind
+  providerId: string
+  name: string
+  coverUrl: string
+  createdAt: number
+}
+
+export interface MusicSettings {
+  quality: Exclude<MusicQuality, 'original'>
+  downloadQuality: Exclude<MusicQuality, 'original'>
+  downloadFormat: 'auto' | 'mp3' | 'flac' | 'm4a'
+  downloadConcurrency: number
+  downloadNameFormat: string
+  exportLyrics: boolean
+  autoPlay: boolean
+  singleTrackMode: 'replace' | 'append'
+  pureMode: boolean
+  sourcePriority: Array<'official' | 'custom'>
+  cacheLyrics: boolean
+  customResolverEnabled: boolean
+  customResolverUrl: string
+  customResolverMethod: 'GET' | 'POST'
+  customResolverParams: Record<string, string>
+  customResolverResponsePath: string
+  customResolverQualityMap: Record<string, string>
+  storageQuotaBytes: number
+}
+
+export const DEFAULT_MUSIC_SETTINGS: MusicSettings = {
+  quality: 'exhigh',
+  downloadQuality: 'exhigh',
+  downloadFormat: 'auto',
+  downloadConcurrency: 3,
+  downloadNameFormat: '{title} - {artist}',
+  exportLyrics: true,
+  autoPlay: true,
+  singleTrackMode: 'replace',
+  pureMode: false,
+  sourcePriority: ['official', 'custom'],
+  cacheLyrics: true,
+  customResolverEnabled: false,
+  customResolverUrl: '',
+  customResolverMethod: 'GET',
+  customResolverParams: {},
+  customResolverResponsePath: '',
+  customResolverQualityMap: {},
+  storageQuotaBytes: 0,
+}
+
+export function musicTrackKey(provider: MusicProviderId, providerId: string): string {
+  return `${provider}:${providerId}`
+}
+
+export function emptyToNull(value: string | null | undefined): string | null {
+  return value ? value : null
+}
