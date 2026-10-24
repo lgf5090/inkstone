@@ -252,7 +252,7 @@ describe('the today screen', () => {
     ]
 
     const container = await mount('/todo?view=today')
-    const trigger = container.querySelector<HTMLButtonElement>(`button[aria-label="${t('todo.today.ai_plan')}"]`)
+    const trigger = container.querySelector<HTMLButtonElement>(`button[aria-label="${t('todo.today.smart_plan')}"]`)
     expect(trigger, 'the today screen offers no way to plan the shelf').not.toBeNull()
     expect(trigger!.getAttribute('aria-expanded')).toBe('false')
 
@@ -270,7 +270,7 @@ describe('the today screen', () => {
     expect(offered).toEqual(['overdue', 'starred', 'free'])
 
     const accept = container.querySelector<HTMLButtonElement>(
-      `button[aria-label="${t('todo.today.ai_plan_accept', { title: 'Pay rent' })}"]`,
+      `button[aria-label="${t('todo.today.smart_plan_accept', { title: 'Pay rent' })}"]`,
     )
     expect(accept, 'an offered row has no button to accept it').not.toBeNull()
     await act(async () => {
@@ -281,7 +281,7 @@ describe('the today screen', () => {
     expect(service.plans).toEqual([{ id: 'overdue', date: today }])
 
     // The rest can be taken in one press, each through the same plan endpoint.
-    const acceptAll = container.querySelector<HTMLButtonElement>(`button[aria-label="${t('todo.today.ai_plan_all')}"]`)
+    const acceptAll = container.querySelector<HTMLButtonElement>(`button[aria-label="${t('todo.today.smart_plan_all')}"]`)
     expect(acceptAll, 'the panel offers no accept-all').not.toBeNull()
     await act(async () => {
       acceptAll!.click()
@@ -308,7 +308,7 @@ describe('the today screen', () => {
     ]
 
     const container = await mount('/todo?view=today')
-    const trigger = container.querySelector<HTMLButtonElement>(`button[aria-label="${t('todo.today.ai_plan')}"]`)
+    const trigger = container.querySelector<HTMLButtonElement>(`button[aria-label="${t('todo.today.smart_plan')}"]`)
     expect(trigger, 'the today screen offers no way to plan the shelf').not.toBeNull()
     await act(async () => {
       trigger!.click()

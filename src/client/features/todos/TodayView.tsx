@@ -16,8 +16,14 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronRight, Sparkles, Search } from 'lucide-react'
 import { localDate } from '@shared/assistant-time'
 import type { MessageKey } from '@shared/locales/en-US'
-import { MAX_TASK_QUERY_CHARS, UPCOMING_DAYS, type TodoTask } from '@shared/todos/model'
-import { isTaskOpen } from '@shared/todos/status'
+import { MAX_TASK_QUERY_CHARS, type TodoTask } from '@shared/todos/model'
+import {
+  MAX_PLAN_TODAY_CANDIDATES,
+  MAX_PLAN_TODAY_SUGGESTIONS,
+  planSuggestions,
+  type PlanReason,
+  type PlanSuggestion,
+} from '@shared/todos/plan-suggestions'
 import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { Input } from '../../components/form'
@@ -30,8 +36,6 @@ import { groupToday, splitTodayLater, type TodayGroupKey } from './task-groups'
 /** How long the picker waits after the last keystroke before asking; the header search uses the same idea. */
 const PICKER_DEBOUNCE_MS = 200
 
-const DAY_MS = 24 * 60 * 60 * 1000
-
 /**
  * How often the screen re-reads the clock for the later section.
  *
@@ -41,15 +45,12 @@ const DAY_MS = 24 * 60 * 60 * 1000
 const CLOCK_TICK_MS = 60 * 1000
 
 /**
- * How many open rows one plan reads, and how many of them it offers.
+ * How many open rows one plan reads.
  *
- * The same two ceilings the assistant's `plan_today` tool answers with: one page of the shelf rather
- * than the whole of it, and a day's worth of suggestions rather than every match. The caps live here
- * as well because the screen asks the shelf itself; the tool and the panel have to agree about what
- * "a plan" is.
+ * The ceiling lives with the rule itself (`shared/todos/plan-suggestions`), because the assistant's
+ * `plan_today` tool answers with the same page of the same shelf — one decision, one ceiling.
  */
-const PLAN_SHELF_LIMIT = 200
-const PLAN_SUGGESTION_LIMIT = 8
+const PLAN_SHELF_LIMIT = MAX_PLAN_TODAY_CANDIDATES
 
 const TODAY_LABELS: Record<TodayGroupKey, MessageKey> = {
   planned: 'todo.group.planned',
@@ -58,59 +59,10 @@ const TODAY_LABELS: Record<TodayGroupKey, MessageKey> = {
 }
 
 /** Why a row is on the plan, in the order the panel takes them: the more urgent reason wins. */
-type PlanReason = 'overdue' | 'starred_due' | 'unscheduled'
-
 const PLAN_REASON_LABELS: Record<PlanReason, MessageKey> = {
-  overdue: 'todo.today.ai_reason.overdue',
-  starred_due: 'todo.today.ai_reason.starred_due',
-  unscheduled: 'todo.today.ai_reason.unscheduled',
-}
-
-interface PlanSuggestion {
-  id: string
-  title: string
-  reason: PlanReason
-}
-
-/**
- * The rows a plan may offer, in the order they are offered.
- *
- * Read from the open shelf and decided here, because the Today screen owns the question "what is not
- * on the page yet": overdue first, then starred rows due in the coming week, then what has no plan at
- * all. The candidates are the rows still owed, asked of the open set rather than as the absence of a
- * finished one — trashed rows and, as soon as the enum gains one, abandoned rows are not work the plan
- * may hand back, and a row that stopped being owed never becomes a suggestion by not being `done`.
- * A row already on today — planned, due, or in progress with no date — is already the screen's answer
- * rather than a suggestion for it.
- */
-function planSuggestions(tasks: TodoTask[], options: { today: string, dayEnd: number, now: number }): PlanSuggestion[] {
-  const { today, dayEnd, now } = options
-  const upcomingEnd = dayEnd + UPCOMING_DAYS * DAY_MS
-  const live = tasks.filter((task) => isTaskOpen(task.status) && task.deletedAt == null)
-  const out: PlanSuggestion[] = []
-  const taken = new Set<string>()
-  const offer = (task: TodoTask, reason: PlanReason): void => {
-    if (taken.has(task.id)) return
-    taken.add(task.id)
-    out.push({ id: task.id, title: task.title, reason })
-  }
-  for (const task of live) {
-    if (task.dueAt !== null && task.dueAt < now) offer(task, 'overdue')
-  }
-  for (const task of live) {
-    if (task.starred && task.dueAt !== null && task.dueAt >= dayEnd && task.dueAt < upcomingEnd) {
-      if (task.plannedFor !== today) offer(task, 'starred_due')
-    }
-  }
-  for (const task of live) {
-    const plannedAhead = task.plannedFor !== null && task.plannedFor >= today
-    const dueToday = task.dueAt !== null && task.dueAt < dayEnd
-    // The server counts an in-progress task with no date as today, so it is not a candidate.
-    const inProgressToday = task.dueAt === null && task.status === 'in_progress'
-    if (plannedAhead || dueToday || inProgressToday) continue
-    offer(task, 'unscheduled')
-  }
-  return out.slice(0, PLAN_SUGGESTION_LIMIT)
+  overdue: 'todo.today.plan_reason.overdue',
+  starred_due: 'todo.today.plan_reason.starred_due',
+  unscheduled: 'todo.today.plan_reason.unscheduled',
 }
 
 /**
@@ -143,7 +95,7 @@ function AiPlan({ today, dayEnd }: { today: string, dayEnd: number }) {
     try {
       const page = await api.todos.list({ view: 'open', limit: PLAN_SHELF_LIMIT })
       if (id !== sequence.current) return
-      setSuggestions(planSuggestions(page.tasks, { today, dayEnd, now: Date.now() }))
+      setSuggestions(planSuggestions(page.tasks, { today, dayEnd, now: Date.now(), limit: MAX_PLAN_TODAY_SUGGESTIONS }))
       setStatus('ready')
     } catch {
       if (id !== sequence.current) return
@@ -172,7 +124,7 @@ function AiPlan({ today, dayEnd }: { today: string, dayEnd: number }) {
       <div className="flex items-center gap-2">
         <button
           type="button"
-          aria-label={t('todo.today.ai_plan')}
+          aria-label={t('todo.today.smart_plan')}
           aria-expanded={open}
           aria-controls={panelId}
           disabled={accepting}
@@ -180,33 +132,38 @@ function AiPlan({ today, dayEnd }: { today: string, dayEnd: number }) {
           className="flex min-h-9 items-center gap-1.5 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 text-[length:var(--text-12)] font-medium text-[var(--accent)] hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] disabled:opacity-60"
         >
           <Sparkles size={12} />
-          {t('todo.today.ai_plan')}
+          {t('todo.today.smart_plan')}
         </button>
         {status === 'ready' && suggestions.length > 0 && (
           <button
             type="button"
-            aria-label={t('todo.today.ai_plan_all')}
+            aria-label={t('todo.today.smart_plan_all')}
             disabled={accepting}
             onClick={() => { void acceptAll() }}
             className="min-h-9 rounded-[var(--r-md)] px-2 text-[length:var(--text-12)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] disabled:opacity-60"
           >
-            {t('todo.today.ai_plan_all')}
+            {t('todo.today.smart_plan_all')}
           </button>
         )}
       </div>
+      {/* What the rule is, said out loud: the button no longer claims a model, so the reader is told
+          which order the rows come back in rather than left to assume one. */}
+      {open && (
+        <p className="px-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('todo.today.smart_plan_hint')}</p>
+      )}
       {open && (
         <div id={panelId} className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
           {status === 'loading' && (
             <p role="status" className="px-2.5 py-2 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('common.loading')}</p>
           )}
           {status === 'error' && (
-            <p role="alert" className="px-2.5 py-2 text-[length:var(--text-12)] text-[var(--danger)]">{t('todo.today.ai_plan_failed')}</p>
+            <p role="alert" className="px-2.5 py-2 text-[length:var(--text-12)] text-[var(--danger)]">{t('todo.today.smart_plan_failed')}</p>
           )}
           {status === 'ready' && suggestions.length === 0 && (
-            <p className="px-2.5 py-2 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('todo.today.ai_plan_empty')}</p>
+            <p className="px-2.5 py-2 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('todo.today.smart_plan_empty')}</p>
           )}
           {suggestions.length > 0 && (
-            <ul aria-label={t('todo.today.ai_plan')} className="divide-y divide-[var(--border-subtle)]">
+            <ul aria-label={t('todo.today.smart_plan')} className="divide-y divide-[var(--border-subtle)]">
               {suggestions.map((entry) => (
                 <li
                   key={entry.id}
@@ -219,7 +176,7 @@ function AiPlan({ today, dayEnd }: { today: string, dayEnd: number }) {
                   </div>
                   <button
                     type="button"
-                    aria-label={t('todo.today.ai_plan_accept', { title: entry.title })}
+                    aria-label={t('todo.today.smart_plan_accept', { title: entry.title })}
                     disabled={accepting}
                     onClick={() => { void accept(entry.id) }}
                     className="min-h-9 shrink-0 rounded-[var(--r-md)] px-2 text-[length:var(--text-12)] text-[var(--accent)] hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] disabled:opacity-60"

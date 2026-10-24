@@ -17,12 +17,12 @@ import { DEFAULT_ASSISTANT_SETTINGS } from '../src/shared/assistant'
 import { localDate } from '../src/shared/assistant-time'
 import { addDays, loadTodoStats } from '../src/worker/todos/stats'
 import {
-  MAX_PLAN_TODAY_SUGGESTIONS,
   MAX_TASKS_FROM_NOTE,
   ToolExecutor,
   runApprovedAction,
   type ToolContext,
 } from '../src/worker/assistant/tools'
+import { MAX_PLAN_TODAY_SUGGESTIONS } from '../src/shared/todos/plan-suggestions'
 import type { Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'

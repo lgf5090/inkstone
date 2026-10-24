@@ -30,7 +30,6 @@ import {
   REPEAT_FREQUENCIES,
   REPEAT_MONTHLY_MODES,
   SNOOZE_MINUTES,
-  UPCOMING_DAYS,
   isSnoozeMinutes,
   parseRepeatRule,
   remindAtFor,
@@ -42,6 +41,12 @@ import {
   type TaskTag,
   type TodoTask,
 } from '@shared/todos/model'
+import {
+  DEFAULT_PLAN_TODAY_SUGGESTIONS,
+  MAX_PLAN_TODAY_CANDIDATES,
+  MAX_PLAN_TODAY_SUGGESTIONS,
+  planSuggestions,
+} from '@shared/todos/plan-suggestions'
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import { EMAIL_BATCH_ACTIONS } from '@shared/email/model'
 import { parseNoteCheckboxes } from '@shared/todos/note-parse'
@@ -721,36 +726,6 @@ export const MAX_TASKS_FROM_NOTE = 50
  */
 function taskTitleKey(title: string): string {
   return title.trim().replace(/\s+/g, ' ').toLowerCase()
-}
-
-/**
- * The most suggestions one `plan_today` call answers with.
- *
- * A day holds a handful of tasks, not a page of them, and a suggestion list longer than the screen
- * would make the reader pick through advice rather than accept it. The field's own ceiling is this
- * number, so a model asking for more is clamped by the declaration the provider schema advertises.
- */
-export const MAX_PLAN_TODAY_SUGGESTIONS = 8
-
-/**
- * The most open tasks one planning sweep reads before choosing.
- *
- * The candidates are a view of the shelf, not the whole shelf: an account with thousands of open rows
- * still answers from one page, and the page is ordered the way the to-do list is (due date first,
- * then priority), so a cut takes the least urgent tail rather than an arbitrary sample.
- */
-export const MAX_PLAN_TODAY_CANDIDATES = 200
-
-/** How many suggestions a call returns when the model does not say. */
-const DEFAULT_PLAN_TODAY_SUGGESTIONS = 5
-
-/** Why a task is on the plan. The screen prints the reader's words for the code. */
-type PlanTodayReason = 'overdue' | 'starred_due' | 'unscheduled'
-
-interface PlanTodaySuggestion {
-  id: string
-  title: string
-  reason: PlanTodayReason
 }
 
 export const TASK_TOOLS: ToolDefinition[] = [
@@ -1454,44 +1429,19 @@ export const TASK_TOOLS: ToolDefinition[] = [
     async run(args, ctx) {
       const now = Date.now()
       const today = localDate(now, ctx.timezone)
-      const upcomingEnd = ctx.dayEnd + UPCOMING_DAYS * 24 * 60 * 60 * 1000
-      // One page, read in the order the list itself is read. The three passes below run over the same
-      // page rather than three queries, so a candidate that qualifies twice — starred and overdue — is
-      // named once, under the more urgent reason.
+      // One page, read in the order the list itself is read, and one rule — the same one the Today
+      // screen runs, in `shared/todos/plan-suggestions`. The tool used to carry its own copy of the
+      // three passes, with a comment promising the two agreed and nothing making them.
       const pool = await ctx.store.listTasks({
         status: 'open',
         view: 'open',
         limit: MAX_PLAN_TODAY_CANDIDATES,
       })
-      const suggestions: PlanTodaySuggestion[] = []
-      const taken = new Set<string>()
-      const offer = (task: TodoTask, reason: PlanTodayReason): void => {
-        if (taken.has(task.id)) return
-        taken.add(task.id)
-        suggestions.push({ id: task.id, title: task.title, reason })
-      }
-      for (const task of pool) {
-        if (task.dueAt !== null && task.dueAt < now) offer(task, 'overdue')
-      }
-      for (const task of pool) {
-        // The coming week, starting after today: a starred task due today is already on the screen.
-        if (task.starred && task.dueAt !== null && task.dueAt >= ctx.dayEnd && task.dueAt < upcomingEnd) {
-          if (task.plannedFor !== today) offer(task, 'starred_due')
-        }
-      }
-      for (const task of pool) {
-        const plannedAhead = task.plannedFor !== null && task.plannedFor >= today
-        const dueToday = task.dueAt !== null && task.dueAt < ctx.dayEnd
-        // The server counts an in-progress task with no date as today, so the plan does not offer it.
-        const inProgressToday = task.dueAt === null && task.status === 'in_progress'
-        if (plannedAhead || dueToday || inProgressToday) continue
-        offer(task, 'unscheduled')
-      }
       const asked = typeof args.limit === 'number' ? args.limit : DEFAULT_PLAN_TODAY_SUGGESTIONS
       return {
         draft: true,
         today,
-        suggestions: suggestions.slice(0, asked),
+        suggestions: planSuggestions(pool, { today, dayEnd: ctx.dayEnd, now, limit: asked }),
         note: 'Nothing was saved. The reason is a code: overdue, starred_due or unscheduled. The reader accepts these in the Today screen; do not call update_task or complete_task for them.',
       }
     },
