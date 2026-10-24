@@ -5955,6 +5955,9 @@ const allowed = new Map([
     "/** An already-resolved URL. The default is `musicApi.coverUrl(trackId)`. */",
     "/** Empty by default: a title beside the artwork is the name, so the image must not repeat it. */",
   ]],
+  ["src/client/features/music/components/EditTrackDialog.tsx", [
+    "/** Edit the display snapshot of a saved library track; provider identity and bytes stay unchanged. */",
+  ]],
   ["src/client/features/music/components/EqPanel.tsx", [
     "/**\n * The ten-band equalizer panel.\n *\n * The sliders write the same `EqSettings` the engine reads, so a change is audible on the next frame\n * rather than on a save. Availability is reported, never assumed: a browser without an `AudioContext`\n * or a cross-origin stream keeps playing, and the panel says the curve is not being applied instead\n * of showing a switch that does nothing.\n */",
     "// Reading the singleton during render is enough: every transport state change re-renders the",
@@ -6047,7 +6050,7 @@ const allowed = new Map([
     "/** One flat list. Ignored when `groups` is passed. */",
     "/** Draw placeholder rows instead of the list; the page owns the error state above it. */",
     "/** `queue` is the list the pressed track started from, so the player can continue through it. */",
-    "/**\r\n * A list of tracks, optionally split into sticky-titled groups.\r\n *\r\n * The player state is read once here rather than in every row: a hundred rows subscribing to the\r\n * queue would each re-render when the position moves. Rows stay presentational; this component\r\n * tells them which one is current and hands them the press and menu callbacks.\r\n */",
+    "/**\n * A list of tracks, optionally split into sticky-titled groups.\n *\n * The player state is read once here rather than in every row: a hundred rows subscribing to the\n * queue would each re-render when the position moves. Rows stay presentational; this component\n * tells them which one is current and hands them the press and menu callbacks.\n */",
   ]],
   ["src/client/features/music/components/SongRow.tsx", [
     "/** Zero-based position in the list the row was rendered from. */",
@@ -6057,7 +6060,8 @@ const allowed = new Map([
     "/** Extra or replacement menu rows. Omitted means the built-in \"play next\" row. */",
     "// Both keys are the button's own activation; cancelling the default keeps the browser from",
     "// firing the click a second time after this handler (Enter on keydown, Space on keyup).",
-    "/**\r\n * One track in a list, a compact stack or a card grid.\r\n *\r\n * The row is a `<li>` holding a real `<button>`: the button is the press target that starts the\r\n * track, and the favourite and overflow controls are its siblings rather than children, so the row\r\n * never nests one control inside another. A right-click on the row opens the same menu at the\r\n * pointer; the overflow button opens it under itself.\r\n *\r\n * Enter and Space are handled explicitly because the tests drive keydown directly and because the row\r\n * must start playback even when a future variant is not a native button; the default action is\r\n * cancelled so the browser does not fire the click a second time.\r\n */",
+    "/**\n * One track in a list, a compact stack or a card grid.\n *\n * The row is a `<li>` holding a real `<button>`: the button is the press target that starts the\n * track, and the favourite and overflow controls are its siblings rather than children, so the row\n * never nests one control inside another. A right-click on the row opens the same menu at the\n * pointer; the overflow button opens it under itself.\n *\n * Enter and Space are handled explicitly because the tests drive keydown directly and because the row\n * must start playback even when a future variant is not a native button; the default action is\n * cancelled so the browser does not fire the click a second time.\n */",
+    "/** A page that owns an edit dialog can add the metadata action to the default menu. */",
   ]],
   ["src/client/features/music/components/SourcePicker.tsx", [
     "/**\n * Which resolver the player asks first, and (later) a per-track override.\n *\n * The account preference is a real server setting: the segmented control writes\n * `sourcePriority` through the settings store, which debounces the PUT and rolls the panel back when\n * the write fails. Per-track overrides have no route yet, so that half of the panel is shown as a\n * disabled explanation instead of a control that would appear to save and silently do nothing.\n */",
@@ -6079,6 +6083,10 @@ const allowed = new Map([
     "/** The translation target the UI asks for: resolved from the lyric's own script by the worker. */",
     "// The endpoint resolves `auto` from the lyric's own script. Picking the interface language here",
     "// would ask a Chinese lyric to be translated into Chinese on a Chinese screen.",
+  ]],
+  ["src/client/features/music/m3u.ts", [
+    "/** M3U parsing, matching and export for the tracks this app can already see. */",
+    "/** Match entries to the list the reader can see; no library-wide guess is made from another shelf. */",
   ]],
   ["src/client/features/music/music-address.ts", [
     "// A malformed escape is not an id this app produced; the raw segment is the most useful answer",
@@ -6160,7 +6168,7 @@ const allowed = new Map([
     "/* A scanner reads these two colours; they are fixed rather than themed. */",
   ]],
   ["src/client/features/music/pages/MusicSettingsPage.tsx", [
-    "/**\r\n * Music preferences: the account's server settings and this device's playback preferences.\r\n *\r\n * Controls write immediately (the store debounces server writes and rolls a failed one back), so\r\n * there is no save button that could disagree with what the player already applied.\r\n */",
+    "/**\n * Music preferences: the account's server settings and this device's playback preferences.\n *\n * Controls write immediately (the store debounces server writes and rolls a failed one back), so\n * there is no save button that could disagree with what the player already applied.\n */",
   ]],
   ["src/client/features/music/pages/MvPage.tsx", [
     "/** Music videos: a card grid and a detail screen that plays the video through the same-origin stream. */",
@@ -6306,6 +6314,7 @@ const allowed = new Map([
     "/** Put a track after the current one, moving it there if the queue already held it. */",
     "/**\n * Take a track out. Removing the current track leaves the queue pointing at what slid into its place\n * (the next track, or the previous one when the last was removed), and says so in `removedCurrent`.\n */",
     "/**\n * Read a persisted queue back, keeping only entries that still look like a track.\n *\n * A record written by a newer build, a hand-edited one, or one half-overwritten by a full quota is\n * not a reason to refuse to start: the readable tracks survive and everything else falls back to the\n * caller's mode. The stored order is already the play order, so shuffle is not applied a second time.\n */",
+    "/** Put a track at the end, keeping the queue as it was when the track is already present. */",
   ]],
   ["src/client/features/music/player/theme-color.ts", [
     "/**\n * A cover's own tint, published as three CSS variables on the music surface.\n *\n * The colour is read from pixels the browser already has: a 32 px canvas copy of the same-origin\n * cover route. CSS colour functions are never parsed back out of computed styles, because the design\n * tokens use oklch and the canvas path is both cheaper and exact.\n *\n * Everything here is best-effort. A tainted canvas, an unreadable image or a cross-origin URL leaves\n * the variables unset, and the stylesheet's fallback (the app accent) stays in charge.\n */",
@@ -6372,20 +6381,20 @@ const allowed = new Map([
     "// a search row). The track has to be in the queue it starts, or the bar and the sound",
     "// would name different songs.",
     "/** The number the player uses to stop a queue of dead tracks, re-exported for panels. */",
-    "/**\r\n * The player: queue, transport state and the bridge to the one audio element.\r\n *\r\n * The store never touches an `<audio>` node directly. It asks `musicAudioEngine` to load, pause, seek\r\n * and change volume, and listens to the engine's events for what actually happened. That split is\r\n * what lets the whole transport be tested without sound, and what keeps a StrictMode remount from\r\n * creating a second element.\r\n *\r\n * Queue arithmetic lives in `player/queue.ts`; this file only applies its answers and sequences the\r\n * effects (load, persist, media session).\r\n */",
-    "/**\r\n * A queue longer than this is not written to localStorage. A 5,000-track playlist would approach the\r\n * origin's quota, and a queue that fails to persist is better than a write that evicts other state.\r\n */",
     "// A track picked from search or a chart has catalog metadata but no local row yet. The stream",
     "// and cover routes resolve by provider identity, so persisting the snapshot first is what makes",
     "// \"press a search result\" work without adding it to the library by hand.",
-    "/**\r\n * Write the queue one last time when the document is going away.\r\n *\r\n * A named listener rather than an inline arrow: the leave-page guard documents every handler and\r\n * why it exists, and the pagehide event has no other place to persist a position in flight.\r\n */",
+    "/**\n * The player: queue, transport state and the bridge to the one audio element.\n *\n * The store never touches an `<audio>` node directly. It asks `musicAudioEngine` to load, pause, seek\n * and change volume, and listens to the engine's events for what actually happened. That split is\n * what lets the whole transport be tested without sound, and what keeps a StrictMode remount from\n * creating a second element.\n *\n * Queue arithmetic lives in `player/queue.ts`; this file only applies its answers and sequences the\n * effects (load, persist, media session).\n */",
+    "/**\n * A queue longer than this is not written to localStorage. A 5,000-track playlist would approach the\n * origin's quota, and a queue that fails to persist is better than a write that evicts other state.\n */",
+    "/**\n * Write the queue one last time when the document is going away.\n *\n * A named listener rather than an inline arrow: the leave-page guard documents every handler and\n * why it exists, and the pagehide event has no other place to persist a position in flight.\n */",
   ]],
   ["src/client/features/music/store/settings.ts", [
     "/** The rate ladder the player and the settings panel share. */",
     "// A corrupt record or a browser that forbids storage: the defaults are a usable player.",
     "// Private mode and a full quota both land here. The setting still applies for this session;",
     "// only the next launch forgets it.",
-    "/**\r\n * The music app's preferences, split by who owns them.\r\n *\r\n * `local` is this device: volume, mute, playback mode and rate, the equalizer curve and how lyrics\r\n * look. It is written to localStorage on every change, because losing a volume setting after a\r\n * reload is a worse trade than an occasional write.\r\n *\r\n * `server` is the account's music settings row, read and written through `/api/music/settings` with\r\n * the same shapes the worker stores. Edits are optimistic and debounced; a failed PUT is rolled back\r\n * so the panel never shows a setting the account does not have.\r\n *\r\n * The endpoints are the planned ones from the port; this module does not implement routes.\r\n */",
-    "/**\r\n * Merge an account row over the defaults, keeping only values the shape allows.\r\n *\r\n * The Worker is the only writer of this row, but a backup restored from another version can hold\r\n * settings this build does not know. Valid values survive; everything else falls back.\r\n */",
+    "/**\n * The music app's preferences, split by who owns them.\n *\n * `local` is this device: volume, mute, playback mode and rate, the equalizer curve and how lyrics\n * look. It is written to localStorage on every change, because losing a volume setting after a\n * reload is a worse trade than an occasional write.\n *\n * `server` is the account's music settings row, read and written through `/api/music/settings` with\n * the same shapes the worker stores. Edits are optimistic and debounced; a failed PUT is rolled back\n * so the panel never shows a setting the account does not have.\n *\n * The endpoints are the planned ones from the port; this module does not implement routes.\n */",
+    "/**\n * Merge an account row over the defaults, keeping only values the shape allows.\n *\n * The Worker is the only writer of this row, but a backup restored from another version can hold\n * settings this build does not know. Valid values survive; everything else falls back.\n */",
   ]],
   ["src/client/features/music/store/ui.ts", [
     "/** The right-hand queue drawer. Closing it leaves the player untouched. */",
@@ -30137,6 +30146,7 @@ const allowed = new Map([
     "/**\n   * One cached AI layer. The caller compares `sourceHash` with the lyric text it has: a different\n   * hash is a miss, and `putAiLyric` then overwrites the row instead of keeping a stale translation.\n   */",
     "/**\n   * The stored ciphertext for one mount, for the layer that talks to the drive. The store never\n   * decrypts it; null means the mount does not exist, while an empty string means no credential.\n   */",
     "/**\n   * Release a ledger row only when no track or download names its key, then queue the object.\n   * False means the key is still referenced and the caller must not delete the R2 object.\n   */",
+    "/** Edit the display snapshot only; provider identity and storage columns stay untouched. */",
   ]],
   ["src/worker/music/stream.ts", [
     "/** The provider call, with its errors translated into the music API's vocabulary. */",

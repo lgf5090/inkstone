@@ -183,6 +183,7 @@ function writeLocal(local: MusicLocalPreferences): void {
 
 function applyEq(eq: EqSettings): void {
   musicEqualizer.setEnabled(eq.enabled)
+  musicEqualizer.setLeveling(eq.leveling)
   musicEqualizer.setGains(eq.gains)
 }
 

@@ -117,6 +117,35 @@ describe('music routes', () => {
     expect(await json<{ removed: number }>(cleared)).toEqual({ ok: true, removed: 1 })
   })
 
+  it('removes every play of one track by its library id', async () => {
+    const first = await send('POST', '/library/history', { track })
+    const { entry } = await json<{ entry: { trackId: string } }>(first)
+    await send('POST', '/library/history', { track })
+
+    const removed = await send('DELETE', `/library/history/track/${entry.trackId}`)
+    expect(removed.status).toBe(200)
+    expect(await json<{ removed: number }>(removed)).toEqual({ ok: true, removed: 2 })
+    expect((await json<{ totalPlays: number }>(await send('GET', '/library/history/summary'))).totalPlays).toBe(0)
+  })
+
+  it('pins a favourite and edits a saved track snapshot', async () => {
+    const added = await send('POST', '/library/favorites', { track })
+    const { trackId } = await json<{ trackId: string }>(added)
+
+    const pinned = await send('PATCH', `/library/favorites/${trackId}`, { pinned: true })
+    expect(pinned.status).toBe(200)
+    expect(typeof (await json<{ pinnedAt: number }>(pinned)).pinnedAt).toBe('number')
+
+    const edited = await send('PATCH', `/library/tracks/${trackId}`, {
+      title: 'Renamed',
+      artists: [{ id: '1', name: 'New Artist' }],
+      album: 'New Album',
+    })
+    expect(edited.status).toBe(200)
+    const body = await json<{ track: { title: string; artists: Array<{ name: string }>; album: string } }>(edited)
+    expect(body.track).toMatchObject({ title: 'Renamed', album: 'New Album', artists: [{ name: 'New Artist' }] })
+  })
+
   it('does not return a cookie for an unconnected account', async () => {
     const status = await json<{ account: unknown }>(await send('GET', '/account/netease'))
     expect(status.account).toBeNull()

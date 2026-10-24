@@ -11,12 +11,12 @@
  * cancelled so the browser does not fire the click a second time.
  */
 import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement } from 'react'
-import { AudioLines, Download, FileDown, Heart, ListPlus, MoreHorizontal, Play, Plus, ThumbsDown } from 'lucide-react'
+import { AudioLines, Download, FileDown, Heart, History, ListEnd, ListPlus, MoreHorizontal, Pencil, Pin, PinOff, Play, Plus, ThumbsDown } from 'lucide-react'
 import { formatDuration, musicArtistNames } from '@shared/music/format'
 import type { MusicTrack } from '@shared/music/model'
 import { cn } from '../../../lib/cn'
 import { Button, IconButton } from '../../../components/primitives'
-import { Menu, Modal, Tooltip, useContextMenu, type MenuItem } from '../../../components/overlay'
+import { Menu, Modal, Tooltip, confirm, useContextMenu, type MenuItem } from '../../../components/overlay'
 import { useMusicLibrary } from '../store/library'
 import { musicApi } from '../api'
 import { useMusicSettings } from '../store/settings'
@@ -42,6 +42,8 @@ export interface SongRowProps {
   /** Extra or replacement menu rows. Omitted means the built-in "play next" row. */
   menuItems?: MenuItem[]
   onPlay: (track: MusicTrack) => void
+  /** A page that owns an edit dialog can add the metadata action to the default menu. */
+  onEditTrack?: (track: MusicTrack) => void
   className?: string
 }
 
@@ -54,10 +56,13 @@ export function SongRow({
   disabledReason,
   menuItems,
   onPlay,
+  onEditTrack,
   className,
 }: SongRowProps): ReactElement {
-  const favorite = useMusicLibrary((state) => state.favorites.some((entry) => entry.id === track.id))
+  const favoriteEntry = useMusicLibrary((state) => state.favorites.find((entry) => entry.id === track.id))
+  const favorite = Boolean(favoriteEntry)
   const toggleFavorite = useMusicLibrary((state) => state.toggleFavorite)
+  const setFavoritePinned = useMusicLibrary((state) => state.setFavoritePinned)
   const playlists = useMusicLibrary((state) => state.playlists)
   const addPlaylistTracks = useMusicLibrary((state) => state.addPlaylistTracks)
   const requestDownload = useMusicLibrary((state) => state.requestDownload)
@@ -69,6 +74,27 @@ export function SongRow({
   const fail = (title: string, error: unknown): void => {
     useUi.getState().toast({ title, description: error instanceof Error ? error.message : String(error), tone: 'danger' })
   }
+  const forgetHistory = async (): Promise<void> => {
+    const approved = await confirm({
+      title: musicText('music.song.forget_history_confirm_title'),
+      description: musicText('music.song.forget_history_confirm_body', { title: track.title }),
+      confirmLabel: musicText('music.song.forget_history'),
+      tone: 'danger',
+    })
+    if (!approved) return
+    try {
+      const answer = await musicApi.deleteHistoryForTrack(track.id)
+      useUi.getState().toast({
+        title: answer.removed > 0
+          ? musicText('music.song.forget_history_done', { count: answer.removed })
+          : musicText('music.song.forget_history_none'),
+        tone: answer.removed > 0 ? 'success' : 'warning',
+      })
+    } catch (error) {
+      fail(musicText('music.song.forget_history_failed'), error)
+    }
+  }
+
   const addToPlaylist = (playlistId: string): void => {
     void addPlaylistTracks(playlistId, [track]).then(() => {
       useUi.getState().toast({ title: musicText('music.song.added_to_playlist'), tone: 'success' })
@@ -107,6 +133,21 @@ export function SongRow({
       },
     },
     {
+      id: 'add-queue',
+      label: musicText('music.song.add_to_queue'),
+      icon: <ListEnd size={14} />,
+      onSelect: () => {
+        useMusicPlayer.getState().appendToQueue(track)
+        useUi.getState().toast({ title: musicText('music.song.added_to_queue'), tone: 'success' })
+      },
+    },
+    {
+      id: 'play-from-here',
+      label: musicText('music.song.play_from_here'),
+      icon: <Play size={14} />,
+      onSelect: () => onPlay(track),
+    },
+    {
       id: 'download',
       label: musicText('music.song.download'),
       icon: <Download size={14} />,
@@ -130,6 +171,43 @@ export function SongRow({
       icon: <Plus size={14} />,
       disabled: playlists.length === 0,
       onSelect: () => setPlaylistOpen(true),
+    },
+    ...(favoriteEntry
+      ? [{
+          id: 'pin',
+          label: musicText(favoriteEntry.pinnedAt ? 'music.song.unpin' : 'music.song.pin'),
+          icon: favoriteEntry.pinnedAt ? <PinOff size={14} /> : <Pin size={14} />,
+          checked: Boolean(favoriteEntry.pinnedAt),
+          onSelect: () => {
+            const next = !favoriteEntry.pinnedAt
+            void setFavoritePinned(track.id, next).then((saved) => {
+              if (!saved) {
+                fail(musicText('music.song.action_failed'), new Error(musicText('music.library.error.favorite')))
+                return
+              }
+              useUi.getState().toast({
+                title: musicText(next ? 'music.song.pinned' : 'music.song.unpinned'),
+                tone: 'success',
+              })
+            })
+          },
+        }]
+      : []),
+    ...(onEditTrack
+      ? [{
+          id: 'edit',
+          label: musicText('music.song.edit'),
+          icon: <Pencil size={14} />,
+          onSelect: () => onEditTrack(track),
+        }]
+      : []),
+    {
+      id: 'forget-history',
+      label: musicText('music.song.forget_history'),
+      icon: <History size={14} />,
+      onSelect: () => {
+        void forgetHistory()
+      },
     },
     {
       id: 'favorite',
@@ -188,7 +266,16 @@ export function SongRow({
       </span>
       <Cover trackId={track.id} src={track.coverUrl || undefined} size="sm" radius="sm" />
       <span className="music-row__text">
-        <span className="music-row__title" title={track.title}>{track.title}</span>
+        <span className="music-row__title" title={track.title}>
+          {track.title}
+          {favoriteEntry?.pinnedAt && (
+            <Pin
+              size={11}
+              aria-label={musicText('music.song.pinned')}
+              className="ms-1 inline-block text-[var(--accent)] align-[-1px]"
+            />
+          )}
+        </span>
         <span className="music-row__meta" title={musicArtistNames(track)}>{musicArtistNames(track)}</span>
       </span>
       <span className="music-row__album" title={track.album}>{track.album}</span>

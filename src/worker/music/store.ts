@@ -553,6 +553,29 @@ export class MusicStore {
     return row ? toTrack(row) : null
   }
 
+  /** Edit the display snapshot only; provider identity and storage columns stay untouched. */
+  async updateTrackMetadata(
+    id: string,
+    patch: { title?: string; artists?: MusicArtist[]; album?: string; coverUrl?: string },
+  ): Promise<MusicTrack | null> {
+    const current = await this.getTrack(id)
+    if (!current) return null
+    await this.db.prepare(
+      `UPDATE music_track SET
+         title = ?3, artists = ?4, album = ?5, cover_url = ?6, updated_at = ?7
+       WHERE user_id = ?1 AND id = ?2`,
+    ).bind(
+      this.userId,
+      id,
+      patch.title ?? current.title,
+      JSON.stringify(patch.artists ?? current.artists),
+      patch.album ?? current.album,
+      patch.coverUrl ?? current.coverUrl,
+      Date.now(),
+    ).run()
+    return this.getTrack(id)
+  }
+
   /** Resolve a set of ids in the caller's order, dropping ids this account does not own. */
   /** Every snapshot one provider owns, newest first; used by the local/cloud library shelves. */
   async listTracksByProvider(provider: MusicProviderId, limit = 1_000): Promise<MusicTrack[]> {
@@ -1196,6 +1219,13 @@ export class MusicStore {
       mostActiveDay,
       latest: latestRow && latestTrack ? { playedAt: latestRow.played_at, track: latestTrack } : null,
     }
+  }
+
+  async deleteHistoryForTrack(trackId: string): Promise<number> {
+    const result = await this.db.prepare(
+      `DELETE FROM music_history WHERE user_id = ?1 AND track_id = ?2`,
+    ).bind(this.userId, trackId).run()
+    return result.meta.changes ?? 0
   }
 
   async deleteHistory(id: string): Promise<boolean> {

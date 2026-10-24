@@ -15,6 +15,8 @@ import { MUSIC_LIMITS } from '@shared/music/constants'
 import type { MusicDownloadListPayload } from '@shared/music/api'
 import type {
   MusicDownload,
+  MusicFavorite,
+  MusicFavoriteTrack,
   MusicHistoryEntry,
   MusicPlaylist,
   MusicRecentEntry,
@@ -179,7 +181,7 @@ export interface MusicLibraryState {
   status: 'idle' | 'loading' | 'ready' | 'error'
   error: string | null
   errorDetail: string | null
-  favorites: MusicTrack[]
+  favorites: MusicFavoriteTrack[]
   history: MusicHistoryItem[]
   recent: MusicRecentEntry[]
   playlists: MusicPlaylist[]
@@ -190,6 +192,7 @@ export interface MusicLibraryState {
   reset: () => void
   isFavorite: (trackId: string) => boolean
   toggleFavorite: (track: MusicTrack) => Promise<boolean>
+  setFavoritePinned: (trackId: string, pinned: boolean) => Promise<boolean>
   recordHistory: (input: MusicHistoryInput) => Promise<void>
   touchRecent: (input: MusicRecentInput) => Promise<void>
   createPlaylist: (input: MusicLibraryPlaylistInput) => Promise<MusicPlaylist | null>
@@ -226,7 +229,7 @@ export const useMusicLibrary = create<MusicLibraryState>((set, get) => ({
     set({ status: 'loading', error: null, errorDetail: null })
     try {
       const [favorites, history, recent, playlists, downloads, uploads] = await Promise.all([
-        musicRequest<ItemsAnswer<MusicTrack>>(ENDPOINTS.favorites),
+        musicRequest<ItemsAnswer<MusicFavoriteTrack>>(ENDPOINTS.favorites),
         musicRequest<ItemsAnswer<MusicHistoryItem>>(ENDPOINTS.history),
         musicRequest<ItemsAnswer<MusicRecentEntry>>(ENDPOINTS.recent),
         musicRequest<ItemsAnswer<MusicPlaylist>>(ENDPOINTS.playlists),
@@ -277,7 +280,9 @@ export const useMusicLibrary = create<MusicLibraryState>((set, get) => ({
   async toggleFavorite(track) {
     const before = get().favorites
     const exists = before.some((entry) => entry.id === track.id)
-    const optimistic = exists ? before.filter((entry) => entry.id !== track.id) : [track, ...before]
+    const optimistic = exists
+      ? before.filter((entry) => entry.id !== track.id)
+      : [{ ...track, pinnedAt: null }, ...before]
     set({ favorites: optimistic, error: null, errorDetail: null })
     try {
       if (exists) {
@@ -291,7 +296,7 @@ export const useMusicLibrary = create<MusicLibraryState>((set, get) => ({
         // The write answers with `ok`, not the row; the local copy is the same track the server
         // stored, so the optimistic list is what stays.
         set({ favorites: [
-          track,
+          { ...track, pinnedAt: null },
           ...get().favorites.filter((entry) => entry.id !== track.id),
         ] })
       }
@@ -303,6 +308,37 @@ export const useMusicLibrary = create<MusicLibraryState>((set, get) => ({
         errorDetail: describe(error),
       })
       return exists
+    }
+  },
+
+  async setFavoritePinned(trackId, pinned) {
+    const before = get().favorites
+    const pinnedAt = pinned ? Date.now() : null
+    set({
+      favorites: before.map((entry) => (
+        entry.id === trackId ? { ...entry, pinnedAt } : entry
+      )),
+      error: null,
+      errorDetail: null,
+    })
+    try {
+      const answer = await musicRequest<MusicFavorite>(
+        `${ENDPOINTS.favorites}/${encodeURIComponent(trackId)}`,
+        patchBody({ pinned }),
+      )
+      set({
+        favorites: get().favorites.map((entry) => (
+          entry.id === trackId ? { ...entry, pinnedAt: answer.pinnedAt } : entry
+        )),
+      })
+      return true
+    } catch (error) {
+      set({
+        favorites: before,
+        error: MUSIC_LIBRARY_ERROR_KEYS.favorite,
+        errorDetail: describe(error),
+      })
+      return false
     }
   },
 

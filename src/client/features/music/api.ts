@@ -37,6 +37,8 @@ import type {
   MusicAccount,
   MusicMount,
   MusicDownload,
+  MusicFavorite,
+  MusicFavoriteTrack,
   MusicHistoryEntry,
   MusicPlaylist,
   MusicSearchType,
@@ -174,13 +176,17 @@ export const musicApi = {
   library: () => request<MusicLibraryPayload>('/api/music/library'),
   track: (id: string) => request<{ track: MusicTrack }>(`/api/music/library/tracks/${encodeURIComponent(id)}`),
   tracks: (provider: 'upload' | 'webdav') => request<{ items: MusicTrack[] }>(`/api/music/library/tracks${query({ provider })}`),
+  updateTrackMetadata: (trackId: string, patch: { title?: string; artists?: Array<{ id: string; name: string }>; album?: string; coverUrl?: string }) =>
+    request<{ track: MusicTrack }>(`/api/music/library/tracks/${encodeURIComponent(trackId)}`, { method: 'PATCH', body: patch }),
   upsertTracks: (tracks: MusicTrack[]) =>
     request<{ tracks: MusicTrack[] }>('/api/music/library/tracks', { method: 'POST', body: { tracks } }),
-  favorites: () => request<{ items: MusicTrack[] }>('/api/music/library/favorites'),
+  favorites: () => request<{ items: MusicFavoriteTrack[] }>('/api/music/library/favorites'),
   addFavorite: (track: MusicTrack) =>
     request<{ ok: true }>('/api/music/library/favorites', { method: 'POST', body: { track } }),
   removeFavorite: (trackId: string) =>
     request<{ ok: true }>(`/api/music/library/favorites/${encodeURIComponent(trackId)}`, { method: 'DELETE' }),
+  pinFavorite: (trackId: string, pinned: boolean) =>
+    request<MusicFavorite>(`/api/music/library/favorites/${encodeURIComponent(trackId)}`, { method: 'PATCH', body: { pinned } }),
   playlists: () => request<{ items: MusicPlaylist[] }>('/api/music/library/playlists'),
   createPlaylist: (name: string) =>
     request<MusicPlaylist>('/api/music/library/playlists', { method: 'POST', body: { name } }),
@@ -209,6 +215,8 @@ export const musicApi = {
   ),
   deleteHistory: (id: string) =>
     request<{ ok: true }>(`/api/music/library/history/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  deleteHistoryForTrack: (trackId: string) =>
+    request<{ ok: true; removed: number }>(`/api/music/library/history/track/${encodeURIComponent(trackId)}`, { method: 'DELETE' }),
   clearHistory: () =>
     request<{ ok: true; removed: number }>('/api/music/library/history', { method: 'DELETE' }),
   recordHistory: (entry: Pick<MusicHistoryEntry, 'trackId' | 'durationPlayed' | 'completed' | 'contextType' | 'contextId'>) =>

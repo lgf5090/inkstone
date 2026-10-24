@@ -239,6 +239,20 @@ musicLibraryRoutes.get('/tracks/:trackId', async (c) => {
   return c.json({ track })
 })
 
+musicLibraryRoutes.patch('/tracks/:trackId', async (c) => {
+  const body = await readJson<Record<string, unknown>>(c, SMALL_BODY_LIMIT)
+  const patch: { title?: string; artists?: ReturnType<typeof artistsOf>; album?: string; coverUrl?: string } = {}
+  if (body.title !== undefined) patch.title = text(body.title, TITLE_MAX, 'Track title', true)
+  if (body.artists !== undefined) patch.artists = artistsOf(body.artists)
+  if (body.album !== undefined) patch.album = text(body.album, TITLE_MAX, 'Album')
+  if (body.coverUrl !== undefined) patch.coverUrl = coverUrl(body.coverUrl)
+  if (Object.keys(patch).length === 0) throw ApiError.badRequest('Name at least one field to change')
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  const track = await store.updateTrackMetadata(c.req.param('trackId') ?? '', patch)
+  if (!track) throw ApiError.notFound('That track does not exist')
+  return c.json({ track })
+})
+
 musicLibraryRoutes.get('/favorites', async (c) => {
   const page = normalizeMusicPage(c.req.query('page'))
   const limit = normalizeMusicLimit(c.req.query('limit'))
@@ -262,6 +276,15 @@ musicLibraryRoutes.delete('/favorites/:trackId', async (c) => {
   if (!(await store.getTrack(trackId))) throw ApiError.notFound('That track does not exist')
   await store.removeFavorite(trackId)
   return c.json({ ok: true })
+})
+
+musicLibraryRoutes.patch('/favorites/:trackId', async (c) => {
+  const body = await readJson<{ pinned?: unknown }>(c, SMALL_BODY_LIMIT)
+  if (typeof body.pinned !== 'boolean') throw ApiError.badRequest('pinned must be a boolean')
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  const favorite = await store.setFavoritePinned(c.req.param('trackId') ?? '', body.pinned)
+  if (!favorite) throw ApiError.notFound('That favourite does not exist')
+  return c.json(favorite)
 })
 
 musicLibraryRoutes.get('/playlists', async (c) => {
@@ -382,6 +405,11 @@ musicLibraryRoutes.get('/history/summary', async (c) => {
   const timezoneOffset = integer(c.req.query('tzOffset'), -840, 840, 0, 'Timezone offset')
   const store = new MusicStore(c.env.DB, c.get('userId'))
   return c.json(await store.historySummary(timezoneOffset))
+})
+
+musicLibraryRoutes.delete('/history/track/:trackId', async (c) => {
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  return c.json({ ok: true, removed: await store.deleteHistoryForTrack(c.req.param('trackId') ?? '') })
 })
 
 musicLibraryRoutes.delete('/history/:id', async (c) => {

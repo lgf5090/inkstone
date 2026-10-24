@@ -256,3 +256,16 @@ export function restoreQueue(value: unknown, fallbackMode: MusicPlayMode = 'orde
     original: mode === 'shuffle' ? (original.length ? original : [...tracks]) : null,
   }
 }
+
+/** Put a track at the end, keeping the queue as it was when the track is already present. */
+export function appendTrack(queue: MusicQueue, track: MusicTrack): MusicQueue {
+  if (queue.tracks.some((entry) => entry.id === track.id)) return queue
+  const tracks = [...queue.tracks, track]
+  const original = queue.original ? [...queue.original, track] : null
+  return {
+    tracks,
+    index: queue.tracks.length === 0 ? 0 : clampIndex(queue.index, tracks.length),
+    mode: queue.mode,
+    original,
+  }
+}

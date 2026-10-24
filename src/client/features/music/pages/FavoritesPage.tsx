@@ -1,23 +1,23 @@
 /** The account's favourites: one list, a sort control and removal with an undo toast. */
 import { useId, useMemo, useState, type ReactElement } from 'react'
-import { Download, HeartOff, ListPlus, Play, Shuffle } from 'lucide-react'
+import { Download, Play, Shuffle } from 'lucide-react'
 import { musicArtistNames } from '@shared/music/format'
 import type { MusicTrack } from '@shared/music/model'
 import { Empty } from '../../../components/feedback'
 import { Select } from '../../../components/form'
 import { Button } from '../../../components/primitives'
-import type { MenuItem } from '../../../components/overlay'
 import { getLocale } from '../../../lib/i18n'
 import { navigateToAddress } from '../../../lib/app-history'
-import { toastWithUndo, useUi } from '../../../store/ui'
+import { useUi } from '../../../store/ui'
 import { useMusicQuery } from '../query'
 import { musicPathFor } from '../music-address'
 import { useMusicLibrary } from '../store/library'
 import { useMusicPlayer } from '../store/player'
 import { useMusicSettings } from '../store/settings'
 import { SongList } from '../components/SongList'
+import { M3UActions } from '../components/M3UActions'
 import { musicText } from '../components/labels'
-import { PAGE_STACK, QueryError, toastFailure } from './parts/P2QueryState'
+import { PAGE_STACK, QueryError } from './parts/P2QueryState'
 
 type FavoriteSort = 'recent' | 'title' | 'artist'
 
@@ -73,6 +73,7 @@ export function FavoritesPage(): ReactElement {
     } else if (sort === 'artist') {
       list.sort((left, right) => musicArtistNames(left).localeCompare(musicArtistNames(right), getLocale()))
     }
+    list.sort((left, right) => Number(Boolean(right.pinnedAt)) - Number(Boolean(left.pinnedAt)))
     return list
   }, [favorites, sort])
 
@@ -120,42 +121,6 @@ export function FavoritesPage(): ReactElement {
     }
   }
 
-  const removeFavorite = async (track: MusicTrack): Promise<void> => {
-    const stillFavorite = await useMusicLibrary.getState().toggleFavorite(track)
-    if (stillFavorite) {
-      const state = useMusicLibrary.getState()
-      toastFailure(
-        musicText('music.favorites.remove_failed'),
-        new Error(state.errorDetail ?? musicText(state.error ?? 'music.library.error.favorite')),
-      )
-      return
-    }
-    toastWithUndo(musicText('music.favorites.removed'), () => {
-      void useMusicLibrary.getState().toggleFavorite(track)
-    })
-  }
-
-  const menuItemsFor = (track: MusicTrack): MenuItem[] => [
-    {
-      id: 'play-next',
-      label: musicText('music.song.play_next'),
-      icon: <ListPlus size={14} />,
-      onSelect: () => {
-        useMusicPlayer.getState().addNext(track)
-      },
-    },
-    {
-      id: 'remove-favorite',
-      label: musicText('common.remove_from_favorites'),
-      icon: <HeartOff size={14} />,
-      tone: 'danger',
-      separatorBefore: true,
-      onSelect: () => {
-        void removeFavorite(track)
-      },
-    },
-  ]
-
   const playTrack = (track: MusicTrack, queue: readonly MusicTrack[]): void => {
     void useMusicPlayer.getState().playTrack(track, { queue })
     void useMusicLibrary.getState().recordHistory({ track, contextType: 'favorites' })
@@ -175,6 +140,7 @@ export function FavoritesPage(): ReactElement {
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-[var(--sp-2)]">
+          <M3UActions tracks={sorted} />
           <Select
             aria-label={musicText('music.favorites.sort')}
             value={sort}
@@ -242,7 +208,7 @@ export function FavoritesPage(): ReactElement {
           )}
         />
       ) : (
-        <SongList tracks={sorted} onPlay={playTrack} menuItemsFor={menuItemsFor} />
+        <SongList tracks={sorted} onPlay={playTrack} />
       )}
     </section>
   )

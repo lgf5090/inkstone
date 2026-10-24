@@ -74,6 +74,7 @@ export function MusicSettingsPage(): ReactElement {
   const loadServer = useMusicSettings((state) => state.loadServer)
   const saveServer = useMusicSettings((state) => state.saveServer)
   const setLocal = useMusicSettings((state) => state.setLocal)
+  const setEq = useMusicSettings((state) => state.setEq)
   const clearSearchHistory = useMusicUi((state) => state.clearSearchHistory)
   const [nameFormat, setNameFormat] = useState(server.downloadNameFormat)
   const [resolverUrl, setResolverUrl] = useState(server.customResolverUrl)
@@ -145,6 +146,13 @@ export function MusicSettingsPage(): ReactElement {
         </SettingRow>
         <SettingRow title={t('music.settings.pure_mode.title')} description={t('music.settings.pure_mode.description')}>
           <Switch checked={server.pureMode} onChange={(pureMode) => save({ pureMode })} label={t('music.settings.pure_mode.title')} />
+        </SettingRow>
+        <SettingRow title={t('music.eq.leveling')} description={t('music.eq.leveling_hint')}>
+          <Switch
+            checked={local.eq.leveling}
+            onChange={(leveling) => setEq({ leveling })}
+            label={t('music.eq.leveling')}
+          />
         </SettingRow>
         <SettingRow title={t('music.settings.single_mode.title')}>
           <Segmented

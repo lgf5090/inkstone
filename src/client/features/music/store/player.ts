@@ -18,6 +18,7 @@ import {
   MAX_CONSECUTIVE_FAILURES,
   RESTART_THRESHOLD_MS,
   addNextTrack,
+  appendTrack,
   createQueue,
   currentTrack,
   emptyQueue,
@@ -115,6 +116,7 @@ export interface MusicPlayerState {
   setRate: (rate: number) => void
   removeFromQueue: (trackId: string) => Promise<boolean>
   addNext: (track: MusicTrack) => void
+  appendToQueue: (track: MusicTrack) => void
   restore: () => boolean
 }
 
@@ -612,6 +614,27 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
       persistPlayer(removal.queue, state.positionMs)
       syncMediaSession(get())
       return true
+    },
+
+    appendToQueue(track) {
+      const state = get()
+      const wasEmpty = state.queue.tracks.length === 0
+      const queue = appendTrack(state.queue, track)
+      if (queue === state.queue) return
+      const current = currentTrack(queue)
+      if (wasEmpty) {
+        set({
+          queue,
+          status: 'paused',
+          sourceUrl: current ? streamUrlFor(current) : '',
+          positionMs: 0,
+          durationMs: current?.durationMs ?? 0,
+        })
+      } else {
+        set({ queue })
+      }
+      persistPlayer(queue, wasEmpty ? 0 : state.positionMs)
+      syncMediaSession(get())
     },
 
     addNext(track) {

@@ -30,6 +30,7 @@ export interface SongListProps {
   /** `queue` is the list the pressed track started from, so the player can continue through it. */
   onPlay: (track: MusicTrack, queue: readonly MusicTrack[]) => void
   menuItemsFor?: (track: MusicTrack) => MenuItem[]
+  onEditTrack?: (track: MusicTrack) => void
   emptyAction?: ReactNode
   className?: string
 }
@@ -60,6 +61,7 @@ export function SongList({
   loading = false,
   onPlay,
   menuItemsFor,
+  onEditTrack,
   emptyAction,
   className,
 }: SongListProps): ReactElement {
@@ -121,6 +123,7 @@ export function SongList({
                   playing={playing}
                   menuItems={menuItemsFor?.(track)}
                   onPlay={(next) => onPlay(next, bucket.tracks)}
+                  onEditTrack={onEditTrack}
                 />
               ))}
             </ul>

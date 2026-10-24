@@ -57,6 +57,7 @@ export const EQ_PRESET_NAMES: readonly EqPresetName[] = [
 
 export interface EqSettings {
   enabled: boolean
+  leveling: boolean
   preset: EqPresetName
   /** Ten gains, ordered like {@link EQ_FREQUENCIES}. Kept even for a named preset so a panel can edit it. */
   gains: number[]
@@ -64,6 +65,7 @@ export interface EqSettings {
 
 export const DEFAULT_EQ_SETTINGS: EqSettings = {
   enabled: false,
+  leveling: false,
   preset: DEFAULT_EQ_PRESET,
   gains: [...DEFAULT_EQ_GAINS],
 }
@@ -111,6 +113,7 @@ export function sanitizeEqSettings(value: unknown): EqSettings {
     : eqPresetGains(preset)
   return {
     enabled: typeof record.enabled === 'boolean' ? record.enabled : DEFAULT_EQ_SETTINGS.enabled,
+    leveling: typeof record.leveling === 'boolean' ? record.leveling : DEFAULT_EQ_SETTINGS.leveling,
     preset,
     gains,
   }
@@ -142,8 +145,10 @@ export class MusicEqualizer {
   private source: MediaElementAudioSourceNode | null = null
   private filters: BiquadFilterNode[] = []
   private gain: GainNode | null = null
+  private compressor: DynamicsCompressorNode | null = null
   private element: HTMLAudioElement | null = null
   private enabled = DEFAULT_EQ_SETTINGS.enabled
+  private leveling = DEFAULT_EQ_SETTINGS.leveling
   private gains = [...DEFAULT_EQ_GAINS]
   private reason: EqUnavailableReason | null = null
 
@@ -194,6 +199,12 @@ export class MusicEqualizer {
       context = new Context()
       source = context.createMediaElementSource(element)
       const gain = context.createGain()
+      const compressor = context.createDynamicsCompressor()
+      compressor.threshold.value = -24
+      compressor.knee.value = 24
+      compressor.ratio.value = 4
+      compressor.attack.value = 0.003
+      compressor.release.value = 0.25
       const filters = EQ_FREQUENCIES.map((frequency, index) => {
         const filter = context!.createBiquadFilter()
         filter.type = 'peaking'
@@ -205,6 +216,7 @@ export class MusicEqualizer {
       this.context = context
       this.source = source
       this.gain = gain
+      this.compressor = compressor
       this.filters = filters
       this.element = element
       this.reason = null
@@ -218,6 +230,7 @@ export class MusicEqualizer {
       this.source = null
       this.filters = []
       this.gain = null
+      this.compressor = null
       this.element = null
       if (context && source) {
         try {
@@ -236,6 +249,11 @@ export class MusicEqualizer {
 
   setEnabled(enabled: boolean): void {
     this.enabled = enabled
+    if (this.available) this.applyEnabled()
+  }
+
+  setLeveling(leveling: boolean): void {
+    this.leveling = leveling
     if (this.available) this.applyEnabled()
   }
 
@@ -262,6 +280,7 @@ export class MusicEqualizer {
   /** Back to a flat curve and switched off, the state a panel's reset button promises. */
   reset(): void {
     this.enabled = false
+    this.leveling = false
     this.gains = [...DEFAULT_EQ_GAINS]
     this.writeGains()
     if (this.available) this.applyEnabled()
@@ -283,27 +302,30 @@ export class MusicEqualizer {
   }
 
   private applyEnabled(): void {
-    const { source, gain, context, filters } = this
+    const { source, gain, context, filters, compressor } = this
     if (!source || !gain || !context) return
     try {
       source.disconnect()
       for (const filter of filters) filter.disconnect()
+      compressor?.disconnect()
       gain.disconnect()
     } catch {
       // Disconnecting a node that was never connected is legal in some engines and throws in
       // others; the rewire below is what matters.
     }
     try {
+      const tail = this.leveling && compressor ? compressor : gain
       if (this.enabled && filters.length > 0) {
         source.connect(filters[0]!)
         filters.forEach((filter, index) => {
           const next = filters[index + 1]
           if (next) filter.connect(next)
         })
-        filters[filters.length - 1]!.connect(gain)
+        filters[filters.length - 1]!.connect(tail)
       } else {
-        source.connect(gain)
+        source.connect(tail)
       }
+      if (this.leveling && compressor) compressor.connect(gain)
       gain.connect(context.destination)
     } catch {
       // A broken chain must not silence the track. Direct output is the fallback, and the panel can

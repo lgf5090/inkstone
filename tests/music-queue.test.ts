@@ -4,6 +4,7 @@ import type { MusicTrack } from '../src/shared/music/model'
 import {
   MAX_CONSECUTIVE_FAILURES,
   addNextTrack,
+  appendTrack,
   createQueue,
   currentTrack,
   emptyQueue,
@@ -140,6 +141,18 @@ describe('music queue', () => {
     expect(current).toBe(moved)
 
     const empty = addNextTrack(emptyQueue(), tracks[0]!)
+    expect(ids(empty.tracks)).toEqual(['a'])
+    expect(empty.index).toBe(0)
+  })
+
+  it('appends a queue track without moving the current pointer or duplicating it', () => {
+    const queue = createQueue({ tracks, index: 1 })
+    const appended = appendTrack(queue, track('x'))
+    expect(ids(appended.tracks)).toEqual(['a', 'b', 'c', 'd', 'x'])
+    expect(currentTrack(appended)?.id).toBe('b')
+    expect(appendTrack(appended, track('x'))).toBe(appended)
+
+    const empty = appendTrack(emptyQueue(), tracks[0]!)
     expect(ids(empty.tracks)).toEqual(['a'])
     expect(empty.index).toBe(0)
   })

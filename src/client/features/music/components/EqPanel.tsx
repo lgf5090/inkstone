@@ -94,6 +94,14 @@ export function EqPanel({ className }: EqPanelProps): ReactElement {
         </p>
       )}
 
+      <SettingRow title={musicText('music.eq.leveling')} description={musicText('music.eq.leveling_hint')}>
+        <Switch
+          checked={equalizer.leveling}
+          label={musicText('music.eq.leveling')}
+          onChange={(leveling) => setEq({ leveling })}
+        />
+      </SettingRow>
+
       <SettingRow title={musicText('music.eq.preset')} controlId={presetId}>
         <Select
           id={presetId}
@@ -149,7 +157,7 @@ export function EqPanel({ className }: EqPanelProps): ReactElement {
           size="sm"
           variant="ghost"
           icon={<RotateCcw size={13} />}
-          onClick={() => setEq({ enabled: false, preset: 'flat', gains: eqPresetGains('flat') })}
+          onClick={() => setEq({ enabled: false, leveling: false, preset: 'flat', gains: eqPresetGains('flat') })}
         >
           {musicText('music.eq.reset')}
         </Button>

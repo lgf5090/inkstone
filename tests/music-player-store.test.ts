@@ -408,7 +408,7 @@ describe('music library store', () => {
   it('updates a favourite optimistically and keeps it after the server accepts it', async () => {
     const fetchMock = vi.fn(async () => ok({ ok: true }))
     vi.stubGlobal('fetch', fetchMock)
-    useMusicLibrary.setState({ favorites: [tracks[0]!] })
+    useMusicLibrary.setState({ favorites: [{ ...tracks[0]!, pinnedAt: null }] })
 
     const result = await useMusicLibrary.getState().toggleFavorite(tracks[1]!)
 
@@ -423,7 +423,7 @@ describe('music library store', () => {
   it('rolls a refused favourite back and reports it', async () => {
     const fetchMock = vi.fn(async () => failed(500, 'cannot store'))
     vi.stubGlobal('fetch', fetchMock)
-    useMusicLibrary.setState({ favorites: [tracks[0]!] })
+    useMusicLibrary.setState({ favorites: [{ ...tracks[0]!, pinnedAt: null }] })
 
     const result = await useMusicLibrary.getState().toggleFavorite(tracks[1]!)
 
