@@ -3,9 +3,12 @@
  * assistant that can act on them. The page under it owns the h1; this rail is landmark navigation and
  * never repeats the title.
  */
-import type { ComponentType, ReactElement } from 'react'
-import { Cloud, Compass, Download, Heart, History, Library, ListMusic, Search, Settings, Sparkles } from 'lucide-react'
+import { useState, type ComponentType, type ReactElement } from 'react'
+import { Cloud, Compass, Download, HardDrive, Heart, History, Library, ListMusic, ListOrdered, Plus, Radio, Search, Settings, Sparkles, Video } from 'lucide-react'
 import { cn } from '../../../lib/cn'
+import { Button, IconButton } from '../../../components/primitives'
+import { Input } from '../../../components/form'
+import { Modal } from '../../../components/overlay'
 import { navigateToAddress } from '../../../lib/app-history'
 import { musicText } from './labels'
 import { useMusicLibrary } from '../store/library'
@@ -20,6 +23,11 @@ interface NavItem {
 const PRIMARY: readonly NavItem[] = [
   { path: '/music', labelKey: 'music.nav.discover', icon: Compass },
   { path: '/music/search', labelKey: 'music.nav.search', icon: Search },
+  { path: '/music/playlists', labelKey: 'music.page.playlists', icon: ListMusic },
+  { path: '/music/albums', labelKey: 'music.page.albums', icon: Library },
+  { path: '/music/toplists', labelKey: 'music.page.toplists', icon: ListOrdered },
+  { path: '/music/mv', labelKey: 'music.page.mv', icon: Video },
+  { path: '/music/podcast', labelKey: 'music.page.podcast', icon: Radio },
   { path: '/music/favorites', labelKey: 'music.nav.library', icon: Library },
 ]
 
@@ -28,6 +36,7 @@ const SHELF: readonly NavItem[] = [
   { path: '/music/favorites', labelKey: 'music.page.favorites', icon: Heart },
   { path: '/music/downloads', labelKey: 'music.page.downloads', icon: Download },
   { path: '/music/cloud', labelKey: 'music.nav.drive', icon: Cloud },
+  { path: '/music/local', labelKey: 'music.page.local', icon: HardDrive },
 ]
 
 function normalize(pathname: string): string {
@@ -105,6 +114,11 @@ export function MusicSidebar({
 }): ReactElement {
   const status = useMusicLibrary((state) => state.status)
   const playlists = useMusicLibrary((state) => state.playlists)
+  const createPlaylist = useMusicLibrary((state) => state.createPlaylist)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [name, setName] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   return (
     <aside className="flex h-full min-h-0 w-[232px] shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-base)] px-2 py-3">
       <div className="px-2.5 pb-3">
@@ -122,9 +136,14 @@ export function MusicSidebar({
         {SHELF.map((item) => <NavLink key={item.path} item={item} current={pathname} />)}
       </div>
       <div className="mt-4 flex min-h-0 flex-1 flex-col gap-0.5">
-        <p className="px-2.5 pb-1 text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-section)] text-[var(--text-quaternary)]">
-          {musicText('music.page.playlist')}
-        </p>
+        <div className="flex items-center justify-between pr-1">
+          <p className="px-2.5 pb-1 text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-section)] text-[var(--text-quaternary)]">
+            {musicText('music.page.playlist')}
+          </p>
+          <IconButton label={musicText('music.playlist.create')} size="xs" onClick={() => setCreateOpen(true)}>
+            <Plus size={13} />
+          </IconButton>
+        </div>
         <div className="min-h-0 overflow-y-auto overscroll-contain pr-1">
           {status === 'loading' && (
             <p className="px-2.5 py-2 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
@@ -141,6 +160,30 @@ export function MusicSidebar({
           ))}
         </div>
       </div>
+      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title={musicText('music.playlist.create')} width={420} dismissible={!creating}>
+        <form
+          className="flex flex-col gap-3"
+          onSubmit={(event) => {
+            event.preventDefault()
+            const value = name.trim()
+            if (!value) return
+            setCreating(true)
+            setError(null)
+            void createPlaylist({ name: value }).then((playlist) => {
+              if (playlist) navigateToAddress(`/music/playlist/${playlist.id}`)
+              setCreateOpen(false)
+              setName('')
+            }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason))).finally(() => setCreating(false))
+          }}
+        >
+          <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={200} placeholder={musicText('music.playlist.name_placeholder')} aria-label={musicText('music.playlist.name')} />
+          {error && <p role="alert" className="text-[length:var(--text-12)] text-[var(--danger)]">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" size="sm" type="button" onClick={() => setCreateOpen(false)} disabled={creating}>{musicText('common.cancel')}</Button>
+            <Button variant="primary" size="sm" type="submit" loading={creating}>{musicText('music.playlist.create')}</Button>
+          </div>
+        </form>
+      </Modal>
       <div className="mt-2 flex flex-col gap-0.5 border-t border-[var(--border-subtle)] pt-2">
         <button
           type="button"

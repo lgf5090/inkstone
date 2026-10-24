@@ -9,16 +9,18 @@
  * A phone gets the same content stacked and full-height; the stylesheet switches the two columns at
  * the tablet breakpoint and keeps the home-indicator inset on the bottom edge.
  */
-import type { ReactElement } from 'react'
+import { useRef, useState, type ReactElement } from 'react'
 import {
   Heart,
   ListMusic,
   Music2,
+  FastForward,
   Pause,
   Play,
   Repeat,
   Repeat1,
   RotateCcw,
+  Rewind,
   Shuffle,
   SkipBack,
   SkipForward,
@@ -28,7 +30,7 @@ import {
 import { formatDuration, musicArtistNames } from '@shared/music/format'
 import { Button, IconButton, Spinner } from '../../../components/primitives'
 import { Slider } from '../../../components/form'
-import { Modal } from '../../../components/overlay'
+import { Menu, Modal } from '../../../components/overlay'
 import { useUi as useAppUi } from '../../../store/ui'
 import { useMusicLibrary } from '../store/library'
 import { selectCurrentTrack, useMusicPlayer } from '../store/player'
@@ -51,6 +53,8 @@ export function NowPlaying(): ReactElement {
   const toggle = useMusicPlayer((state) => state.toggle)
   const mode = useMusicPlayer((state) => state.queue.mode)
   const setMode = useMusicPlayer((state) => state.setMode)
+  const [modeOpen, setModeOpen] = useState(false)
+  const modeRef = useRef<HTMLButtonElement>(null)
   const next = useMusicPlayer((state) => state.next)
   const prev = useMusicPlayer((state) => state.prev)
   const seek = useMusicPlayer((state) => state.seek)
@@ -75,6 +79,11 @@ export function NowPlaying(): ReactElement {
   const totalMs = durationMs || current?.durationMs || 0
   const totalSeconds = Math.max(1, Math.round(totalMs / 1000))
   const positionSeconds = Math.min(totalSeconds, Math.max(0, Math.round(positionMs / 1000)))
+  const seekBy = (deltaMs: number): void => {
+    if (!current) return
+    seek(Math.max(0, Math.min(totalMs, positionMs + deltaMs)))
+  }
+  const ModeIcon = mode === 'shuffle' ? Shuffle : mode === 'repeatOne' ? Repeat1 : mode === 'repeat' ? Repeat : mode === 'intelligence' ? Sparkles : ListMusic
   const tabs: readonly MusicTabItem<MusicNowPlayingTab>[] = [
     { value: 'lyrics', label: musicText('music.lyrics.title') },
     { value: 'queue', label: musicText('music.queue.title'), count: queue.tracks.length },
@@ -146,17 +155,14 @@ export function NowPlaying(): ReactElement {
             </div>
 
             <div className="music-nowplaying__transport">
-              <IconButton
-                label={musicText('music.mode.shuffle')}
-                size="sm"
-                active={mode === 'shuffle'}
-                aria-pressed={mode === 'shuffle'}
-                onClick={() => setMode(mode === 'shuffle' ? 'order' : 'shuffle')}
-              >
-                <Shuffle size={17} />
+              <IconButton ref={modeRef} label={musicText(`music.mode.${mode}`)} size="sm" aria-haspopup="menu" aria-expanded={modeOpen} onClick={() => setModeOpen(true)}>
+                <ModeIcon size={17} />
               </IconButton>
               <IconButton label={musicText('music.playbar.previous')} size="lg" onClick={() => { void prev() }}>
                 <SkipBack size={19} />
+              </IconButton>
+              <IconButton label={musicText('music.playbar.rewind')} size="sm" onClick={() => seekBy(-10_000)}>
+                <Rewind size={17} />
               </IconButton>
               <IconButton
                 className="music-playbar__play music-nowplaying__play"
@@ -168,20 +174,31 @@ export function NowPlaying(): ReactElement {
               >
                 {loading ? <Spinner size={18} /> : failed ? <RotateCcw size={18} /> : playing ? <Pause size={19} /> : <Play size={19} />}
               </IconButton>
+              <IconButton label={musicText('music.playbar.forward')} size="sm" onClick={() => seekBy(10_000)}>
+                <FastForward size={17} />
+              </IconButton>
               <IconButton label={musicText('music.playbar.next')} size="lg" onClick={() => { void next() }}>
                 <SkipForward size={19} />
               </IconButton>
-              <IconButton
-                label={musicText(mode === 'repeatOne' ? 'music.mode.repeatOne' : 'music.mode.repeat')}
-                size="sm"
-                active={mode === 'repeat' || mode === 'repeatOne'}
-                aria-pressed={mode === 'repeat' || mode === 'repeatOne'}
-                onClick={() => setMode(mode === 'repeat' ? 'repeatOne' : mode === 'repeatOne' ? 'order' : 'repeat')}
-              >
-                {mode === 'repeatOne' ? <Repeat1 size={17} /> : <Repeat size={17} />}
-              </IconButton>
             </div>
 
+            <Menu
+              anchor={modeRef}
+              open={modeOpen}
+              onClose={() => setModeOpen(false)}
+              items={(['order', 'repeat', 'repeatOne', 'shuffle', 'intelligence'] as const).map((value) => ({
+                id: `np-mode-${value}`,
+                label: musicText(`music.mode.${value}`),
+                checked: mode === value,
+                onSelect: () => {
+                  setMode(value)
+                  setModeOpen(false)
+                },
+              }))}
+              align="start"
+              width={200}
+              label={musicText('music.playbar.mode')}
+            />
             <div className="music-nowplaying__actions">
               <IconButton
                 label={musicText(favorite ? 'music.song.unfavorite' : 'music.song.favorite')}

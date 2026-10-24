@@ -6114,6 +6114,9 @@ const allowed = new Map([
   ["src/client/features/music/pages/ArtistPage.tsx", [
     "/**\n * One artist: portrait, the numbers that identify them, the biography, and two views of the work.\n *\n * Songs are the provider's 50-row hot prefix; albums are paged separately because the detail answer\n * only carries the first shelf. Switching tabs does not refetch the artist — the header stays put —\n * and an album page keeps its own index so coming back to the tab returns to the shelf it left.\n */",
   ]],
+  ["src/client/features/music/pages/BrowsePages.tsx", [
+    "/** Index screens for the catalog shelves the reference app puts in its top navigation. */",
+  ]],
   ["src/client/features/music/pages/CloudDrivePage.tsx", [
     "/**\r\n * My cloud drive: what this account stores in R2, and the WebDAV folder the backup settings already\r\n * hold. The WebDAV side can import a file as a library reference, upload into the folder on screen\r\n * and delete a remote file; an import never moves the audio, and a remote delete never touches the\r\n * library row that still names it.\r\n */",
     "// Clear the picker so choosing the same file again still fires a change.",
@@ -6133,6 +6136,9 @@ const allowed = new Map([
   ["src/client/features/music/pages/HomePage.tsx", [
     "/**\n * The discovery home: one hero for today's listening, a personal-radio card, then the shelves the\n * catalog is actually made of — playlists, new albums, new songs and artists.\n *\n * Logged-in state is read from the home answer itself (`fmEnabled` and a non-empty daily list) rather\n * than from a second account request: the provider already decided what this session may see, and a\n * second call could disagree with the feed on screen. A section with no rows is not drawn; when every\n * shelf is empty the page says so with one action instead of showing six empty headings.\n */",
     "/** Six to eight cards per shelf is what the spec asks for; more than that is a browse screen. */",
+  ]],
+  ["src/client/features/music/pages/LocalMusicPage.tsx", [
+    "/** The tracks this deployment owns: uploads first, then remote WebDAV references, as real library rows. */",
   ]],
   ["src/client/features/music/pages/LoginPage.tsx", [
     "/**\n * Connecting the optional Netease content account.\n *\n * The QR code is drawn in the browser from the URL the provider sends; polling only asks whether it\n * was scanned. A cookie is sent once and never echoed back. Inkstone's own login is separate and\n * unchanged — this page unlocks personalised music, not the application.\n */",
@@ -30104,6 +30110,7 @@ const allowed = new Map([
     "/**\r\n   * One cached AI layer. The caller compares `sourceHash` with the lyric text it has: a different\r\n   * hash is a miss, and `putAiLyric` then overwrites the row instead of keeping a stale translation.\r\n   */",
     "/**\r\n   * The stored ciphertext for one mount, for the layer that talks to the drive. The store never\r\n   * decrypts it; null means the mount does not exist, while an empty string means no credential.\r\n   */",
     "/**\r\n   * Release a ledger row only when no track or download names its key, then queue the object.\r\n   * False means the key is still referenced and the caller must not delete the R2 object.\r\n   */",
+    "/** Every snapshot one provider owns, newest first; used by the local/cloud library shelves. */",
   ]],
   ["src/worker/music/stream.ts", [
     "/** The provider call, with its errors translated into the music API's vocabulary. */",
@@ -30838,6 +30845,7 @@ const allowed = new Map([
     "/**\r\n * The account's own library: saved track snapshots, favourites, playlists, history, recent\r\n * containers and subscriptions.\r\n *\r\n * All persistence goes through `MusicStore`, whose queries carry the session's user id. A row that\r\n * belongs to another account therefore answers 404 from every handler here: confirming that an id\r\n * exists but is not yours is a leak, so \"not found\" is the only refusal this surface gives.\r\n *\r\n * Track snapshots are display metadata plus an upstream identity. Storage columns (`r2Key`,\r\n * `coverKey`, `sha256`, `size`) are deliberately not read from the request: an R2 key names an object\r\n * that this deployment serves by key, and accepting one from a client would let a caller point a\r\n * track row at another account's bytes. Those columns are written only by the upload and download\r\n * flows, and `upsertTrack` preserves them across a metadata refresh.\r\n */",
     "/**\r\n * Translate one track's provider lyric with the reader's own assistant model.\r\n *\r\n * Only an explicit request from the reader reaches this path: the lyric is sent to the model\r\n * provider they configured, and the answer is cached under the lyric's own hash so a second open is\r\n * free. Failures are separated by what the reader can do about them — activate a model, wait for the\r\n * daily ceiling, try a track that has lyrics, or retry the provider.\r\n */",
     "/**\r\n * One library snapshot by id. The uploads page keeps only the task row, so this is how a finished\r\n * upload becomes a playable track without listing the whole library on that screen.\r\n */",
+    "/** Snapshot shelves for the local/cloud library: uploads today, WebDAV files beside them. */",
   ]],
   ["src/worker/routes/music-settings.ts", [
     "/** Text that later becomes a filename or a path expression: no control characters. */",

@@ -11,6 +11,9 @@ export type MusicPage =
   | { kind: 'playlist'; id: string }
   | { kind: 'album'; id: string }
   | { kind: 'artist'; id: string }
+  | { kind: 'toplists' }
+  | { kind: 'playlists' }
+  | { kind: 'albums' }
   | { kind: 'toplist'; id: string }
   | { kind: 'mv' }
   | { kind: 'mvDetail'; id: string }
@@ -21,6 +24,7 @@ export type MusicPage =
   | { kind: 'uploads' }
   | { kind: 'downloads' }
   | { kind: 'cloud' }
+  | { kind: 'local' }
   | { kind: 'user'; id: string }
   | { kind: 'login' }
   | { kind: 'settings' }
@@ -66,6 +70,12 @@ export function parseMusicAddress(pathname: string, search = ''): MusicPage {
       return id ? { kind: 'album', id } : { kind: 'notFound', path: pathname }
     case 'artist':
       return id ? { kind: 'artist', id } : { kind: 'notFound', path: pathname }
+    case 'toplists':
+      return rest.length === 1 ? { kind: 'toplists' } : { kind: 'notFound', path: pathname }
+    case 'playlists':
+      return rest.length === 1 ? { kind: 'playlists' } : { kind: 'notFound', path: pathname }
+    case 'albums':
+      return rest.length === 1 ? { kind: 'albums' } : { kind: 'notFound', path: pathname }
     case 'toplist':
       return id ? { kind: 'toplist', id } : { kind: 'notFound', path: pathname }
     case 'mv':
@@ -84,6 +94,8 @@ export function parseMusicAddress(pathname: string, search = ''): MusicPage {
       return rest.length === 1 ? { kind: 'downloads' } : { kind: 'notFound', path: pathname }
     case 'cloud':
       return rest.length === 1 ? { kind: 'cloud' } : { kind: 'notFound', path: pathname }
+    case 'local':
+      return rest.length === 1 ? { kind: 'local' } : { kind: 'notFound', path: pathname }
     case 'login':
       return rest.length === 1 ? { kind: 'login' } : { kind: 'notFound', path: pathname }
     case 'settings':
@@ -116,11 +128,15 @@ export function musicPathFor(page: MusicPage): string {
       return `${BASE}/podcast`
     case 'podcastDetail':
       return `${BASE}/podcast/${encodeURIComponent(page.id)}`
+    case 'toplists':
+    case 'playlists':
+    case 'albums':
     case 'favorites':
     case 'history':
     case 'uploads':
     case 'downloads':
     case 'cloud':
+    case 'local':
     case 'login':
     case 'settings':
       return `${BASE}/${page.kind}`

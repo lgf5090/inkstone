@@ -554,6 +554,16 @@ export class MusicStore {
   }
 
   /** Resolve a set of ids in the caller's order, dropping ids this account does not own. */
+  /** Every snapshot one provider owns, newest first; used by the local/cloud library shelves. */
+  async listTracksByProvider(provider: MusicProviderId, limit = 1_000): Promise<MusicTrack[]> {
+    const { results } = await this.db.prepare(
+      `SELECT ${TRACK_COLUMNS} FROM music_track
+        WHERE user_id = ?1 AND provider = ?2
+        ORDER BY updated_at DESC, id DESC LIMIT ?3`,
+    ).bind(this.userId, provider, Math.min(2_000, Math.max(1, Math.trunc(limit)))).all<TrackRow>()
+    return results.map(toTrack)
+  }
+
   async getTracks(ids: readonly string[]): Promise<MusicTrack[]> {
     const unique = [...new Set(ids)].filter(Boolean)
     if (!unique.length) return []

@@ -11,13 +11,17 @@
  * cancelled so the browser does not fire the click a second time.
  */
 import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement } from 'react'
-import { AudioLines, Heart, ListPlus, MoreHorizontal } from 'lucide-react'
+import { AudioLines, Download, FileDown, Heart, ListPlus, MoreHorizontal, Play, Plus, ThumbsDown } from 'lucide-react'
 import { formatDuration, musicArtistNames } from '@shared/music/format'
 import type { MusicTrack } from '@shared/music/model'
 import { cn } from '../../../lib/cn'
-import { IconButton } from '../../../components/primitives'
-import { Menu, Tooltip, useContextMenu, type MenuItem } from '../../../components/overlay'
+import { Button, IconButton } from '../../../components/primitives'
+import { Menu, Modal, Tooltip, useContextMenu, type MenuItem } from '../../../components/overlay'
 import { useMusicLibrary } from '../store/library'
+import { musicApi } from '../api'
+import { useMusicSettings } from '../store/settings'
+import { useUi } from '../../../store/ui'
+import { buildExportFilename } from '@shared/music/format'
 import { useMusicPlayer } from '../store/player'
 import { Cover } from './Cover'
 import { musicText } from './labels'
@@ -54,17 +58,97 @@ export function SongRow({
 }: SongRowProps): ReactElement {
   const favorite = useMusicLibrary((state) => state.favorites.some((entry) => entry.id === track.id))
   const toggleFavorite = useMusicLibrary((state) => state.toggleFavorite)
+  const playlists = useMusicLibrary((state) => state.playlists)
+  const addPlaylistTracks = useMusicLibrary((state) => state.addPlaylistTracks)
+  const requestDownload = useMusicLibrary((state) => state.requestDownload)
+  const settings = useMusicSettings((state) => state.server)
   const context = useContextMenu()
   const [moreOpen, setMoreOpen] = useState(false)
+  const [playlistOpen, setPlaylistOpen] = useState(false)
   const moreRef = useRef<HTMLButtonElement>(null)
+  const fail = (title: string, error: unknown): void => {
+    useUi.getState().toast({ title, description: error instanceof Error ? error.message : String(error), tone: 'danger' })
+  }
+  const addToPlaylist = (playlistId: string): void => {
+    void addPlaylistTracks(playlistId, [track]).then(() => {
+      useUi.getState().toast({ title: musicText('music.song.added_to_playlist'), tone: 'success' })
+      setPlaylistOpen(false)
+    }).catch((error: unknown) => fail(musicText('music.song.action_failed'), error))
+  }
+  const downloadLyrics = (): void => {
+    void musicApi.lyrics(track.id).then((lyric) => {
+      const text = [lyric.lrc.trim(), lyric.tlyric.trim()].filter(Boolean).join('\n\n')
+      if (!text) {
+        useUi.getState().toast({ title: musicText('music.song.lyrics_unavailable'), tone: 'warning' })
+        return
+      }
+      const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }))
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = buildExportFilename(settings.downloadNameFormat, track, 'lrc')
+      anchor.click()
+      URL.revokeObjectURL(url)
+    }).catch((error: unknown) => fail(musicText('music.song.download_lyrics_failed'), error))
+  }
 
   const items = menuItems ?? [
+    {
+      id: 'play',
+      label: musicText('music.song.play'),
+      icon: <Play size={14} />,
+      onSelect: () => onPlay(track),
+    },
     {
       id: 'play-next',
       label: musicText('music.song.play_next'),
       icon: <ListPlus size={14} />,
       onSelect: () => {
         useMusicPlayer.getState().addNext(track)
+      },
+    },
+    {
+      id: 'download',
+      label: musicText('music.song.download'),
+      icon: <Download size={14} />,
+      disabled: track.provider !== 'netease',
+      separatorBefore: true,
+      onSelect: () => {
+        void requestDownload(track, settings.downloadQuality, settings.downloadFormat)
+          .then(() => useUi.getState().toast({ title: musicText('music.song.download_started'), tone: 'success' }))
+          .catch((error: unknown) => fail(musicText('music.song.action_failed'), error))
+      },
+    },
+    {
+      id: 'download-lyrics',
+      label: musicText('music.song.download_lyrics'),
+      icon: <FileDown size={14} />,
+      onSelect: downloadLyrics,
+    },
+    {
+      id: 'playlist',
+      label: musicText('music.song.add_to_playlist'),
+      icon: <Plus size={14} />,
+      disabled: playlists.length === 0,
+      onSelect: () => setPlaylistOpen(true),
+    },
+    {
+      id: 'favorite',
+      label: musicText(favorite ? 'music.song.unfavorite' : 'music.song.favorite'),
+      icon: <Heart size={14} />,
+      separatorBefore: true,
+      onSelect: () => {
+        void toggleFavorite(track)
+      },
+    },
+    {
+      id: 'dislike',
+      label: musicText('music.song.dislike'),
+      icon: <ThumbsDown size={14} />,
+      disabled: track.provider !== 'netease',
+      onSelect: () => {
+        void musicApi.fmTrash(track.providerId)
+          .then(() => useUi.getState().toast({ title: musicText('music.song.disliked'), tone: 'success' }))
+          .catch((error: unknown) => fail(musicText('music.song.action_failed'), error))
       },
     },
   ]
@@ -160,10 +244,28 @@ export function SongRow({
           }}
           items={items}
           align="end"
-          width={200}
+          width={220}
           label={musicText('music.song.menu')}
         />
       )}
+      <Modal
+        open={playlistOpen}
+        onClose={() => setPlaylistOpen(false)}
+        title={musicText('music.song.add_to_playlist')}
+        width={420}
+      >
+        {playlists.length === 0 ? (
+          <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{musicText('music.song.playlist_empty')}</p>
+        ) : (
+          <div className="flex flex-col gap-1">
+            {playlists.map((playlist) => (
+              <Button key={playlist.id} variant="ghost" className="justify-start" onClick={() => addToPlaylist(playlist.id)}>
+                {playlist.name}
+              </Button>
+            ))}
+          </div>
+        )}
+      </Modal>
     </li>
   )
 }

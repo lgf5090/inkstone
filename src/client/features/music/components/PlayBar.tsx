@@ -20,10 +20,13 @@ import {
   Music,
   Pause,
   Play,
+  FastForward,
   Repeat,
   Repeat1,
+  Rewind,
   RotateCcw,
   Shuffle,
+  Sparkles,
   SkipBack,
   SkipForward,
   Volume2,
@@ -77,9 +80,11 @@ export function PlayBar(): ReactElement {
   const setNowPlayingOpen = useMusicUi((state) => state.setNowPlayingOpen)
 
   const [moreOpen, setMoreOpen] = useState(false)
+  const [modeOpen, setModeOpen] = useState(false)
   const [panel, setPanel] = useState<'eq' | 'sleep' | 'source' | null>(null)
   const [volumeOpen, setVolumeOpen] = useState(false)
   const moreRef = useRef<HTMLButtonElement>(null)
+  const modeRef = useRef<HTMLButtonElement>(null)
   const volumeRef = useRef<HTMLButtonElement>(null)
   const volumePanelRef = useRef<HTMLDivElement>(null)
   const volumePanelId = useId()
@@ -111,6 +116,20 @@ export function PlayBar(): ReactElement {
     : playing
       ? 'music.playbar.pause'
       : 'music.playbar.play'
+  const seekBy = (deltaMs: number): void => {
+    if (!current) return
+    seek(Math.max(0, Math.min(totalMs, positionMs + deltaMs)))
+  }
+  const ModeIcon = mode === 'shuffle'
+    ? Shuffle
+    : mode === 'repeatOne'
+      ? Repeat1
+      : mode === 'repeat'
+        ? Repeat
+        : mode === 'intelligence'
+          ? Sparkles
+          : ListMusic
+
   const playButton = (
     <IconButton
       className="music-playbar__play"
@@ -221,15 +240,16 @@ export function PlayBar(): ReactElement {
 
       <div className="music-playbar__center">
         <div className="music-playbar__transport">
-          <Tooltip label={musicText('music.mode.shuffle')}>
+          <Tooltip label={musicText(`music.mode.${mode}`)}>
             <IconButton
-              label={musicText('music.mode.shuffle')}
+              ref={modeRef}
+              label={musicText(`music.mode.${mode}`)}
               size="sm"
-              active={mode === 'shuffle'}
-              aria-pressed={mode === 'shuffle'}
-              onClick={() => setMode(mode === 'shuffle' ? 'order' : 'shuffle')}
+              aria-haspopup="menu"
+              aria-expanded={modeOpen}
+              onClick={() => setModeOpen(true)}
             >
-              <Shuffle size={15} />
+              <ModeIcon size={15} />
             </IconButton>
           </Tooltip>
           <Tooltip label={musicText('music.playbar.previous')}>
@@ -242,7 +262,13 @@ export function PlayBar(): ReactElement {
               <SkipBack size={16} />
             </IconButton>
           </Tooltip>
+          <IconButton label={musicText('music.playbar.rewind')} size="sm" onClick={() => seekBy(-10_000)}>
+            <Rewind size={15} />
+          </IconButton>
           {failed ? <Tooltip label={musicText(error ?? 'music.player.error.playback')}>{playButton}</Tooltip> : playButton}
+          <IconButton label={musicText('music.playbar.forward')} size="sm" onClick={() => seekBy(10_000)}>
+            <FastForward size={15} />
+          </IconButton>
           <Tooltip label={musicText('music.playbar.next')}>
             <IconButton
               label={musicText('music.playbar.next')}
@@ -251,17 +277,6 @@ export function PlayBar(): ReactElement {
               }}
             >
               <SkipForward size={16} />
-            </IconButton>
-          </Tooltip>
-          <Tooltip label={musicText(mode === 'repeatOne' ? 'music.mode.repeatOne' : 'music.mode.repeat')}>
-            <IconButton
-              label={musicText(mode === 'repeatOne' ? 'music.mode.repeatOne' : 'music.mode.repeat')}
-              size="sm"
-              active={mode === 'repeat' || mode === 'repeatOne'}
-              aria-pressed={mode === 'repeat' || mode === 'repeatOne'}
-              onClick={() => setMode(mode === 'repeat' ? 'repeatOne' : mode === 'repeatOne' ? 'order' : 'repeat')}
-            >
-              {mode === 'repeatOne' ? <Repeat1 size={15} /> : <Repeat size={15} />}
             </IconButton>
           </Tooltip>
         </div>
@@ -356,6 +371,23 @@ export function PlayBar(): ReactElement {
           align="end"
           width={200}
           label={musicText('music.playbar.more')}
+        />
+        <Menu
+          anchor={modeRef}
+          open={modeOpen}
+          onClose={() => setModeOpen(false)}
+          items={PLAY_MODES.map((value) => ({
+            id: `mode-${value}`,
+            label: musicText(`music.mode.${value}`),
+            checked: mode === value,
+            onSelect: () => {
+              setMode(value)
+              setModeOpen(false)
+            },
+          }))}
+          align="start"
+          width={200}
+          label={musicText('music.playbar.mode')}
         />
         <Drawer
           open={panel !== null}

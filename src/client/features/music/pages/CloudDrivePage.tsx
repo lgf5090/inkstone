@@ -9,7 +9,7 @@ import { ChevronLeft, Cloud, FileAudio, Folder, HardDrive, Trash2, Upload } from
 import { MUSIC_DRIVE_UPLOAD_MAX_BYTES, type MusicDriveSkipReason } from '@shared/music/api'
 import { MUSIC_ALL_FORMATS } from '@shared/music/constants'
 import { formatBytes } from '@shared/music/format'
-import { Badge, Button, IconButton } from '../../../components/primitives'
+import { Button, IconButton } from '../../../components/primitives'
 import { Empty, LoadingBlock } from '../../../components/feedback'
 import { confirm } from '../../../components/overlay'
 import { navigateToAddress } from '../../../lib/app-history'
@@ -19,8 +19,10 @@ import { musicPathFor } from '../music-address'
 import { useMusicQuery } from '../query'
 import { SectionHeader } from '../components/SectionHeader'
 import { MusicTabs } from '../components/Tabs'
+import { SongList } from '../components/SongList'
 import { AlistPanel } from '../components/AlistPanel'
 import { musicText } from '../components/labels'
+import { useMusicPlayer } from '../store/player'
 import { toastFailure } from './parts/P2QueryState'
 import { MusicPageBody, PageError } from './parts/PageState'
 
@@ -31,11 +33,6 @@ const LIBRARY_ADDRESS = musicPathFor({ kind: 'favorites' })
 
 function parentOf(path: string): string {
   return path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
-}
-
-function uploadStatusKey(status: 'uploading' | 'completed' | 'failed' | 'aborted'): string {
-  if (status === 'completed') return 'music.upload.status.done'
-  return `music.upload.status.${status}`
 }
 
 function skipReasonKey(reason: MusicDriveSkipReason): string {
@@ -64,13 +61,13 @@ export function CloudDrivePage(): ReactElement {
   const [uploading, setUploading] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const query = useMusicQuery(async () => {
-    const [drive, uploads, webdav, alist] = await Promise.all([
+    const [drive, localTracks, webdav, alist] = await Promise.all([
       musicApi.drive(),
-      musicApi.uploads(),
+      musicApi.tracks('upload'),
       musicApi.driveWebdav(path),
       musicApi.alistMounts(),
     ])
-    return { drive, uploads: uploads.items, webdav, alist: alist.mounts }
+    return { drive, localTracks: localTracks.items, webdav, alist: alist.mounts }
   }, [path])
   const data = query.data
   const reload = query.reload
@@ -193,21 +190,13 @@ export function CloudDrivePage(): ReactElement {
               <span className="text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{data.drive.r2.objects}</span>
             </div>
           </div>
-          {data.uploads.length === 0
+          {data.localTracks.length === 0
             ? <Empty art="folder" title={musicText('music.cloud.r2_empty')} description={musicText('music.cloud.r2_empty_hint')} />
             : (
-              <ul className="flex flex-col divide-y divide-[var(--border-subtle)] rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
-                {data.uploads.slice(0, 50).map((upload) => (
-                  <li key={upload.id} className="flex min-w-0 items-center gap-3 px-3 py-2.5">
-                    <FileAudio size={15} className="shrink-0 text-[var(--text-tertiary)]" />
-                    <span className="min-w-0 flex-1 truncate text-[length:var(--text-12-5)] text-[var(--text-primary)]">{upload.filename}</span>
-                    <span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{formatBytes(upload.size)}</span>
-                    <Badge tone={upload.status === 'completed' ? 'success' : upload.status === 'failed' ? 'danger' : 'neutral'}>
-                      {musicText(uploadStatusKey(upload.status))}
-                    </Badge>
-                  </li>
-                ))}
-              </ul>
+              <SongList
+                tracks={data.localTracks}
+                onPlay={(track, queue) => { void useMusicPlayer.getState().playTrack(track, { queue }) }}
+              />
             )}
         </section>
       )}

@@ -6,7 +6,7 @@
  * their own loading, empty, error and ready answers.
  */
 import { useEffect, useMemo, type ComponentType, type ReactElement } from 'react'
-import { Cloud, Compass, Library, Search, Settings, Sparkles } from 'lucide-react'
+import { Cloud, Compass, Disc3, HardDrive, Library, ListMusic, ListOrdered, Radio, Search, Settings, Sparkles, Video } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import { cn } from '../../lib/cn'
 import { navigateToAddress, usePathname, useSearch } from '../../lib/app-history'
@@ -22,6 +22,8 @@ import { HomePage } from './pages/HomePage'
 import { LoginPage } from './pages/LoginPage'
 import { MusicSettingsPage } from './pages/MusicSettingsPage'
 import { CloudDrivePage } from './pages/CloudDrivePage'
+import { LocalMusicPage } from './pages/LocalMusicPage'
+import { AlbumsPage, PlaylistsPage, ToplistsPage } from './pages/BrowsePages'
 import { MvPage } from './pages/MvPage'
 import { PlaylistPage } from './pages/PlaylistPage'
 import { PodcastPage } from './pages/PodcastPage'
@@ -63,6 +65,12 @@ const NAV_ITEMS: readonly NavItem[] = [
   { path: '/music/search', labelKey: 'music.nav.search', icon: Search },
   { path: '/music/favorites', labelKey: 'music.nav.library', icon: Library },
   { path: '/music/cloud', labelKey: 'music.nav.drive', icon: Cloud },
+  { path: '/music/local', labelKey: 'music.page.local', icon: HardDrive },
+  { path: '/music/playlists', labelKey: 'music.page.playlists', icon: ListMusic },
+  { path: '/music/albums', labelKey: 'music.page.albums', icon: Disc3 },
+  { path: '/music/toplists', labelKey: 'music.page.toplists', icon: ListOrdered },
+  { path: '/music/mv', labelKey: 'music.page.mv', icon: Video },
+  { path: '/music/podcast', labelKey: 'music.page.podcast', icon: Radio },
   { path: '/music/settings', labelKey: 'music.nav.settings', icon: Settings },
 ]
 
@@ -153,6 +161,14 @@ function MusicPageContent({ page }: { page: MusicPage }): ReactElement {
       return <DownloadsPage />
     case 'cloud':
       return <CloudDrivePage />
+    case 'local':
+      return <LocalMusicPage />
+    case 'playlists':
+      return <PlaylistsPage />
+    case 'albums':
+      return <AlbumsPage />
+    case 'toplists':
+      return <ToplistsPage />
     case 'user':
       return <UserPage />
     case 'login':

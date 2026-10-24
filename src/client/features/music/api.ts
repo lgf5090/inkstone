@@ -4,6 +4,7 @@ import { uploadWithProgress } from '../../lib/transfer'
 import type {
   MusicAccountStatus,
   MusicAlbumDetail,
+  MusicAlbumSummary,
   MusicAlistEntry,
   MusicAlistListing,
   MusicAlistMountInput,
@@ -126,7 +127,7 @@ export const musicApi = {
     request<MusicPlaylistDetail>(`/api/music/playlists/${encodeURIComponent(id)}${query({ provider, page, limit })}`),
 
   newAlbums: (area = 'ALL', page = 1, limit = 30) =>
-    request<MusicPage<MusicPlaylistSummary>>(`/api/music/albums/new${query({ area, page, limit })}`),
+    request<MusicPage<MusicAlbumSummary>>(`/api/music/albums/new${query({ area, page, limit })}`),
   album: (id: string, page = 1, limit = 100) =>
     request<MusicAlbumDetail>(`/api/music/albums/${encodeURIComponent(id)}${query({ page, limit })}`),
 
@@ -164,6 +165,7 @@ export const musicApi = {
 
   library: () => request<MusicLibraryPayload>('/api/music/library'),
   track: (id: string) => request<{ track: MusicTrack }>(`/api/music/library/tracks/${encodeURIComponent(id)}`),
+  tracks: (provider: 'upload' | 'webdav') => request<{ items: MusicTrack[] }>(`/api/music/library/tracks${query({ provider })}`),
   upsertTracks: (tracks: MusicTrack[]) =>
     request<{ tracks: MusicTrack[] }>('/api/music/library/tracks', { method: 'POST', body: { tracks } }),
   favorites: () => request<{ items: MusicTrack[] }>('/api/music/library/favorites'),
