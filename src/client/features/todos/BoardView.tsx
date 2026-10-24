@@ -120,8 +120,14 @@ function QuickAddPreview({ parsed, timezone, lists }: {
  * padding and the same one-pixel border. The height deliberately is not in here: the mirror stretches to
  * the field's box instead of carrying its own copy, because the field's height changes at a breakpoint
  * and a second list of those values is how a mirror ends up a pixel away from the words it colours.
+ *
+ * The mobile size is in here rather than left to the browser, and it is not decoration: `app.css` forces
+ * every input to 16px below 768px so an iPhone does not zoom the page on focus, and a `div` mirror is not
+ * an input. Measured in a real browser at 430px the field was 16px and the mirror still 12px, which slid
+ * the tints off the words further the line went — invisible on its own, because the mirror's text is
+ * transparent and only the colour moves.
  */
-const QUICK_ADD_FIELD = 'w-full rounded-[var(--r-md)] border px-2.5 text-[length:var(--text-12)]'
+const QUICK_ADD_FIELD = 'w-full rounded-[var(--r-md)] border px-2.5 text-[length:var(--text-12)] max-md:text-[length:var(--text-16)]'
 
 /** One flex item, holding the spaces the reader typed exactly where they were typed. */
 const QUICK_ADD_SEGMENT = 'shrink-0 whitespace-pre'
