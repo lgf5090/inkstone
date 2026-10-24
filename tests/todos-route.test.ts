@@ -8,6 +8,7 @@ import type { AppBindings, Env } from '../src/worker/env'
 import { todoRoutes, WRITE_BUDGET_PER_MINUTE } from '../src/worker/routes/todos'
 import { todoFeedRoutes } from '../src/worker/routes/todo-feeds'
 import { localDate, parseLocalTime } from '../src/shared/assistant-time'
+import { addDays } from '../src/worker/todos/stats'
 import { LIMITS } from '../src/shared/constants'
 import { AssistantStore } from '../src/worker/assistant/store'
 import {
@@ -215,12 +216,12 @@ describe('the task endpoints', () => {
     expect(single.task.title).toBe('Renew the licence')
     expect(single.task.archivedAt).toBeTypeOf('number')
 
+    // A year around the account's own today: the statistics read is capped at 366 days, so a window
+    // of a century is refused rather than answered.
+    const day = localDate(Date.now(), 'UTC')
     const stats = await json<{ summary: { completed: number, open: number } }>(
-      // The route's own default window — the last 30 days, ending on the account's today — rather than
-      // the eighty-year span this case used to name. Both rows were written today, so the window the
-      // screen opens on answers the same question, and a day-bucket range that long is now a 400: the
-      // buckets a statistics answer carries are bounded (M-02).
-      await send('GET', '/stats'))
+      // A 361-day window stays inside the 366-day ceiling and still covers both rows written today.
+      await send('GET', `/stats?from=${addDays(day, -180)}&to=${addDays(day, 180)}`))
     // The statistics read the work, not the shelf, and that is a decision rather than an accident:
     // putting a task away is neither finishing it (so its finish still counts) nor abandoning it (so the
     // one still owed stays owed, and can be taken down and done). `cancelled` is the state that leaves

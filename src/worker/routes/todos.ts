@@ -605,6 +605,14 @@ function listingQuery(c: Ctx, timezone: string, dayEnd: number, today: string): 
  * grows with the window, and the worklog, which reads one row per account day at most, is bounded by the
  * `eachDay` ceiling inside its own module.
  */
+/** The widest span a statistics, worklog or time read may ask for. */
+export const MAX_STATS_RANGE_DAYS = 366
+
+/** Reads one of the statistics screens may spend in a minute. */
+export const READ_BUDGET_PER_MINUTE = 120
+
+const readBudget = createMinuteBudget(READ_BUDGET_PER_MINUTE, 'Too many reads at once. Try again in a minute.')
+
 function statsWindow(c: Ctx, timezone: string): { from: string; to: string; bucket: TaskStatsBucket } {
   const today = localDate(Date.now(), timezone)
   const to = c.req.query('to') || today
@@ -612,6 +620,7 @@ function statsWindow(c: Ctx, timezone: string): { from: string; to: string; buck
   const from = c.req.query('from') || addDays(to, -29)
   if (!isStatsDay(from)) throw ApiError.badRequest('A statistics range must start on a date like 2026-01-31.')
   if (from > to) throw ApiError.badRequest('A statistics range cannot start after it ends.')
+  assertStatsSpan(from, to)
   const bucket = c.req.query('bucket') ?? 'day'
   if (!isTaskStatsBucket(bucket)) throw ApiError.badRequest('A bucket must be day, week or month.')
   return { from, to, bucket }
@@ -634,6 +643,7 @@ function statsWindow(c: Ctx, timezone: string): { from: string; to: string; buck
  */
 function statsRange(c: Ctx, timezone: string): { from: string; to: string; bucket: TaskStatsBucket } {
   const range = statsWindow(c, timezone)
+  assertStatsSpan(range.from, range.to)
   const buckets = countStatBuckets(range.from, range.to, range.bucket)
   if (buckets > MAX_STATS_BUCKETS[range.bucket]) {
     throw ApiError.badRequest(
@@ -644,6 +654,15 @@ function statsRange(c: Ctx, timezone: string): { from: string; to: string; bucke
   return range
 }
 
+/** The span two days may hold, counted in the account's own calendar rather than in hours. */
+function assertStatsSpan(from: string, to: string): void {
+  const span = Math.round(
+    (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000,
+  ) + 1
+  if (span > MAX_STATS_RANGE_DAYS) {
+    throw ApiError.badRequest(`A statistics range cannot cover more than ${MAX_STATS_RANGE_DAYS} days.`)
+  }
+}
 todoRoutes.get('/', async (c) => {
   const s = store(c)
   const settings = await s.getSettings()
@@ -750,6 +769,9 @@ todoRoutes.get('/export', async (c) => {
  * keeps every query out of the route file.
  */
 todoRoutes.get('/stats', async (c) => {
+  // A read this wide spends the read budget: it is unmetered otherwise, and a loop over a
+  // deliberately wide range is a way to make one account's screen slow for everyone on the isolate.
+  readBudget(c.get('userId'))
   const settings = await store(c).getSettings()
   const range = statsRange(c, settings.timezone)
   const stats = await loadTodoStats(c.env.DB, c.get('userId'), {
@@ -773,6 +795,9 @@ todoRoutes.get('/stats', async (c) => {
  * answer had no such cut, which is the difference the span ceiling is for.
  */
 todoRoutes.get('/worklog', async (c) => {
+  // A read this wide spends the read budget: it is unmetered otherwise, and a loop over a
+  // deliberately wide range is a way to make one account's screen slow for everyone on the isolate.
+  readBudget(c.get('userId'))
   const settings = await store(c).getSettings()
   const range = statsWindow(c, settings.timezone)
   const asked = c.req.query('group')
@@ -844,6 +869,9 @@ todoRoutes.post('/focus', async (c) => {
  * Registered before `/:id`, like the worklog: "finish-day" is a route, not a task called finish-day.
  */
 todoRoutes.get('/finish-day', async (c) => {
+  // A read this wide spends the read budget: it is unmetered otherwise, and a loop over a
+  // deliberately wide range is a way to make one account's screen slow for everyone on the isolate.
+  readBudget(c.get('userId'))
   const s = store(c)
   const settings = await s.getSettings()
   const day = finishDayQuery(c, settings.timezone)
@@ -939,6 +967,7 @@ function timeRange(c: Ctx, timezone: string): { from: string, to: string, group:
   const from = c.req.query('from') || addDays(to, -29)
   if (!isStatsDay(from)) throw ApiError.badRequest('A time range must start on a date like 2026-01-31.')
   if (from > to) throw ApiError.badRequest('A time range cannot start after it ends.')
+  assertStatsSpan(from, to)
   const group = c.req.query('group') ?? 'day'
   if (group !== 'day' && group !== 'task') {
     throw ApiError.badRequest('A time group must be day or task.')
@@ -954,6 +983,9 @@ function timeRange(c: Ctx, timezone: string): { from: string, to: string, group:
  * growing while nobody watches.
  */
 todoRoutes.get('/time', async (c) => {
+  // A read this wide spends the read budget: it is unmetered otherwise, and a loop over a
+  // deliberately wide range is a way to make one account's screen slow for everyone on the isolate.
+  readBudget(c.get('userId'))
   const s = store(c)
   const settings = await s.getSettings()
   const { from, to, group } = timeRange(c, settings.timezone)

@@ -1225,6 +1225,22 @@ export function applyTodoSync(payload: { todos: TodoTask[]; deleted: string[] })
     }
   })
   if (unknownList) void useTodos.getState().load()
+  // The badges and "today" are the server's aggregate, and the delta above moves the rows without
+  // moving them: another device's tick leaves the sidebar a step behind until the next listing is
+  // asked for. The counts now have a door of their own, so the refresh is one cheap read — throttled,
+  // because a stream can deliver several deltas inside a second.
+  else if (payload.todos.length || deleted.size) scheduleCountsRefresh()
+}
+
+/** How often a stream delta may re-read the counts; several can land inside a second. */
+const COUNTS_REFRESH_INTERVAL_MS = 5_000
+let countsRefreshAt = 0
+
+function scheduleCountsRefresh(): void {
+  const now = Date.now()
+  if (now < countsRefreshAt) return
+  countsRefreshAt = now + COUNTS_REFRESH_INTERVAL_MS
+  void useTodos.getState().refreshCounts()
 }
 
 /**
