@@ -375,9 +375,9 @@ export function UploadsPage(): ReactElement {
     <section aria-labelledby={headingId} className={PAGE_STACK}>
       <header className="music-section-header">
         <div className="music-section-header__text">
-          <h2 id={headingId} className="music-section-header__title">
+          <h1 id={headingId} className="music-section-header__title">
             {musicText('music.page.uploads')}
-          </h2>
+          </h1>
           <p className="music-section-header__description">
             {musicText('music.upload.description')}
           </p>

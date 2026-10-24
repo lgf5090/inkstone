@@ -213,7 +213,7 @@ export function LoginPage(): ReactElement {
     <section aria-label={musicText('music.page.login')} className={PAGE_STACK}>
       <header className="music-section-header">
         <div className="music-section-header__text">
-          <h2 className="music-section-header__title">{musicText('music.page.login')}</h2>
+          <h1 className="music-section-header__title">{musicText('music.page.login')}</h1>
           <p className="music-section-header__description">{musicText('music.login.description')}</p>
         </div>
       </header>

@@ -16,7 +16,7 @@
  */
 
 import type { AssistantArtifact, AssistantSettings, Task, TaskPriority } from '@shared/assistant'
-import { ASSISTANT_TOOL_SPECS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_ARTIFACTS_PER_CONVERSATION, MAX_TASK_TITLE_CHARS, TASK_PRIORITIES, TASK_STATUSES, WEB_SEARCH_TOOL_NAME, toolPayloadText, toolModeFor, webSearchConfigured, type AssistantMemory, type AssistantMemoryCategory, type AutomationKind } from '@shared/assistant'
+import { ASSISTANT_TOOL_SPECS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_ARTIFACTS_PER_CONVERSATION, MAX_MUSIC_EFFECT_TRACK_REF_CHARS, MAX_TASK_TITLE_CHARS, TASK_PRIORITIES, TASK_STATUSES, WEB_SEARCH_TOOL_NAME, toolPayloadText, toolModeFor, webSearchConfigured, type AssistantMemory, type AssistantMemoryCategory, type AutomationKind } from '@shared/assistant'
 import { webSearchEngineFor } from '@shared/web-search-engines'
 import {
   MAX_BATCH_TASKS,
@@ -4042,6 +4042,37 @@ export const EMAIL_TOOLS: ToolDefinition[] = [
   },
 ]
 
+/**
+ * How many tracks one play call may name. The catalog keeps 100 as the wire limit; a turn that plays
+ * more than this is a generated playlist pretending to be a single instruction.
+ */
+const MUSIC_PLAY_MAX_TRACK_REFS = 50
+
+const MUSIC_TOOLS: ToolDefinition[] = [
+  tool({
+    name: 'music_play',
+    permission: 'write',
+    description: 'Start playing the named tracks in the reader\'s music app. Pass trackRefs exactly as a music tool returned them (for example "netease:123" or an internal track id); this tool does not search. The browser that asked performs the playback, so answer that playback has started and never claim a track finished.',
+    fields: {
+      trackRefs: {
+        type: 'array',
+        items: 'string',
+        maxItems: MUSIC_PLAY_MAX_TRACK_REFS,
+        maxLength: MAX_MUSIC_EFFECT_TRACK_REF_CHARS,
+        description: 'The tracks to play, in order. At least one.',
+      },
+    },
+    async run(args) {
+      const trackRefs = Array.isArray(args.trackRefs)
+        ? args.trackRefs.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+        : []
+      if (!trackRefs.length) throw new ToolError('Name at least one track to play.')
+      // The effect is the only channel back to the player; the result beside it is what the model reads.
+      return { effect: { kind: 'music.play', trackRefs, mode: 'replace' }, result: { ok: true } }
+    },
+  }),
+]
+
 export const ALL_TOOLS: ToolDefinition[] = [
   ...TASK_TOOLS,
   ...MEMORY_TOOLS,
@@ -4055,6 +4086,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
   ...CODE_TOOLS,
   ...WEB_TOOLS,
   ...SUBSCRIPTION_TOOLS,
+  ...MUSIC_TOOLS,
 ]
 
 const TOOL_BY_NAME = new Map(ALL_TOOLS.map((definition) => [definition.name, definition]))

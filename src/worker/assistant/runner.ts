@@ -12,7 +12,7 @@
  *    who closes the tab still finds the half-answer and the reason.
  */
 
-import { MAX_MESSAGE_CHARS, SEARCH_NATIVE_PROTOCOLS, WEB_SEARCH_TOOL_NAME, looksLikeSearchTool, toolModeFor, toolPayloadText, webSearchConfigured } from '@shared/assistant'
+import { MAX_MESSAGE_CHARS, SEARCH_NATIVE_PROTOCOLS, WEB_SEARCH_TOOL_NAME, clipMusicClientEffect, isToolEffectEnvelope, looksLikeSearchTool, toolModeFor, toolPayloadText, webSearchConfigured } from '@shared/assistant'
 import { webSearchEngineFor } from '@shared/web-search-engines'
 import type { AssistantArtifact, AssistantMessage, AssistantModel, AssistantModelModality, AssistantProtocol, AssistantSettings, AssistantSource, ChatStreamEvent, ToolActivity } from '@shared/assistant'
 import { ARTIFACT_CONTEXT_HEAD_CHARS, ARTIFACT_CONTEXT_TAIL_CHARS, contextBudgetFor, customParamBody, MAX_ARTIFACT_CONTEXT_CHARS, MAX_CHAT_ATTACHMENTS, MAX_CONVERSATION_TITLE_CHARS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, clipSuggestionList, estimateTokens, titleFromMessage, type AssistantTurnScope } from '@shared/assistant'
@@ -23,6 +23,8 @@ import { resolveSubscriptionMentions, subscriptionContextById } from './subscrip
 import { renderTodoContext } from './todo-context'
 import { renderEmailContext } from './email-context'
 import type { EmailAssistantContext } from '@shared/email/assistant-context'
+import { renderMusicContext } from '../music/assistant-context'
+import type { MusicAssistantContext } from '@shared/music/assistant-context'
 import type { TodoAssistantContext } from '@shared/todos/assistant-context'
 import { loadExternalTools, type ExternalToolsResult } from './mcp-tools'
 import { buildSystemPrompt, namingPrompt, offlineAnswer, promptCatalog, summarizerPrompt } from '@shared/assistant-prompt'
@@ -227,6 +229,8 @@ export interface TurnInput {
   activeArtifactId?: string
   contextTodo?: TodoAssistantContext
   contextEmail?: EmailAssistantContext
+  /** The music screen the reader has open, when the question is asked beside it. */
+  contextMusic?: MusicAssistantContext
   /**
    * The note this thread began beside.
    *
@@ -381,6 +385,7 @@ export class AssistantRunner {
   private contextSubscriptionId: string | null = null
   private contextTodo: TodoAssistantContext | null = null
   private contextEmail: EmailAssistantContext | null = null
+  private contextMusic: MusicAssistantContext | null = null
   private contextPromise: Promise<{ openNote: { id: string, title: string } | null, browsingFolder: string | null }> | null = null
   /** The draft the reader has open, read once after the conversation it must belong to is known. */
   private contextArtifactId: string | null = null
@@ -462,6 +467,7 @@ export class AssistantRunner {
     this.contextArtifact = null
     this.contextTodo = input.contextTodo ?? null
     this.contextEmail = input.contextEmail ?? null
+    this.contextMusic = input.contextMusic ?? null
     let conversation = input.conversationId ? await this.store.getConversation(input.conversationId) : null
     // The project comes from the row that was just read, so a conversation moved between projects is
     // answered under the one it is in now.
@@ -1237,9 +1243,16 @@ export class AssistantRunner {
         // The reader went away while this was in the air. The tool's effect may already be real — nothing
         // here can cancel a call mid-flight — but its answer does not go into a turn that is closing.
         if (abandoned) return
-        call.result = JSON.stringify(result ?? null)
+        // A playback tool answers with an envelope: the effect is for the reader's tab, and the value the
+        // model reads is the ordinary result beside it. Everything below sees the latter, so an envelope
+        // never reaches a citation reader or the wire as the tool's answer. Only the first-party music
+        // namespace may carry one — an external tool's result is somebody else's JSON, not a press on the
+        // reader's player.
+        const envelope = call.name.startsWith('music_') && isToolEffectEnvelope(result) ? result : null
+        const toolResult = envelope ? envelope.result ?? { ok: true } : result
+        call.result = JSON.stringify(toolResult ?? null)
         call.error = false
-        const artifactChange = artifactChangeFromTool(call.name, result)
+        const artifactChange = artifactChangeFromTool(call.name, toolResult)
         if (artifactChange) {
           activity.artifactId = artifactChange.id
           artifactChanges.set(index, artifactChange)
@@ -1247,14 +1260,15 @@ export class AssistantRunner {
         // The notes this call read are cited beside the answer. Collected here rather than inside the
         // tool so there is one owner of the list: a failover that discards this attempt's calls takes
         // its citations with it, because they live in the same map.
-        for (const source of noteCitationsFromTool(call.name, result)) this.collectSource(source)
+        for (const source of noteCitationsFromTool(call.name, toolResult)) this.collectSource(source)
         // A search the worker ran itself joins the same list as one a vendor ran on its own server, so the
         // chips under the answer do not care which wire the pages came from.
-        for (const source of webSearchSources(call.name, result)) this.collectSource(source)
+        for (const source of webSearchSources(call.name, toolResult)) this.collectSource(source)
+        if (envelope) activity.effect = clipMusicClientEffect(envelope.effect)
         // What came back, kept beside the arguments above. The `result` sent to the model stays the
         // compact JSON the wire wants; what the reader is shown is the tool's own text where the tool
         // returned text, because a quoted JSON string is not what the search returned.
-        activity.result = toolPayloadText(result)
+        activity.result = toolPayloadText(toolResult)
         const approval = executor.approvalFor(call.id)
         if (approval) activity.approval = (await this.store.getPendingAction(approval.id)) ?? undefined
       } catch (error) {
@@ -1648,7 +1662,8 @@ export class AssistantRunner {
         : ''
       const todo = this.contextTodo ? renderTodoContext(this.contextTodo) : ''
       const email = this.contextEmail ? renderEmailContext(this.contextEmail) : ''
-      const carried = [block, subscriptionBlock, screen, todo, email].filter(Boolean).join('\n\n')
+      const music = this.contextMusic ? renderMusicContext(this.contextMusic) : ''
+      const carried = [block, subscriptionBlock, screen, todo, email, music].filter(Boolean).join('\n\n')
       if (carried) lastUser.content = `${lastUser.content}\n\n${carried}`
     }
     return entries

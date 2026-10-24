@@ -38,6 +38,7 @@ function MvListPage(): ReactElement {
   return (
     <section aria-labelledby={headingId} className={PAGE_STACK}>
       <SectionHeader
+        level={1}
         id={headingId}
         title={musicText('music.page.mv')}
         description={musicText('music.mv.list_description')}
@@ -170,9 +171,9 @@ function MvDetailPage({ id }: { id: string }): ReactElement {
           )}
 
           <header className="flex flex-col gap-[var(--sp-2)]">
-            <h2 className="font-[family-name:var(--font-display)] text-[length:var(--text-26)] font-semibold leading-tight tracking-[var(--tracking-title)] text-[var(--text-primary)]">
+            <h1 className="font-[family-name:var(--font-display)] text-[length:var(--text-26)] font-semibold leading-tight tracking-[var(--tracking-title)] text-[var(--text-primary)]">
               {detail.mv.name}
-            </h2>
+            </h1>
             <p className="text-[length:var(--text-13)] text-[var(--text-secondary)]">
               {detail.mv.artist || musicText('music.mv.unknown_artist')}
             </p>
@@ -191,9 +192,9 @@ function MvDetailPage({ id }: { id: string }): ReactElement {
 
           {detail.description && (
             <div className="flex flex-col gap-[var(--sp-2)]">
-              <h3 className="font-[family-name:var(--font-display)] text-[length:var(--text-16)] font-semibold text-[var(--text-primary)]">
+              <h2 className="font-[family-name:var(--font-display)] text-[length:var(--text-16)] font-semibold text-[var(--text-primary)]">
                 {musicText('music.mv.about')}
-              </h3>
+              </h2>
               <p className="whitespace-pre-line text-[length:var(--text-13)] leading-relaxed text-[var(--text-secondary)]">
                 {detail.description}
               </p>

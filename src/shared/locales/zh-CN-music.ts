@@ -3,6 +3,7 @@ export const ZH_CN_MUSIC = {
   'music.nav.search': '搜索',
   'music.nav.library': '音乐库',
   'music.nav.settings': '设置',
+  'music.nav.assistant': '助手',
   'music.nav.label': '音乐分区',
 
   'music.page.home': '音乐',
@@ -10,7 +11,6 @@ export const ZH_CN_MUSIC = {
   'music.page.playlist': '歌单',
   'music.page.album': '专辑',
   'music.page.artist': '歌手',
-  'music.page.toplist': '排行榜',
   'music.page.mv': 'MV',
   'music.page.mv_detail': 'MV',
   'music.page.podcast': '播客',
@@ -21,7 +21,6 @@ export const ZH_CN_MUSIC = {
   'music.page.downloads': '下载',
   'music.page.user': '个人主页',
   'music.page.login': '连接网易云',
-  'music.page.settings': '音乐设置',
   'music.page.not_found': '未找到',
 
   'music.placeholder.title': '音乐模块正在准备中',
@@ -35,6 +34,7 @@ export const ZH_CN_MUSIC = {
   'music.player.error.autoplay': '点击播放以允许声音',
   'music.player.error.unsupported': '当前浏览器无法播放音频',
 
+  'music.library.playlists_empty': '还没有歌单',
   'music.library.error.load': '音乐库加载失败',
   'music.library.error.favorite': '收藏保存失败',
   'music.library.error.history': '听歌历史更新失败',
@@ -498,6 +498,11 @@ export const ZH_CN_MUSIC = {
   'music.shortcuts.group': '音乐播放器',
   'music.shortcuts.volume_down': '减小音量',
   'music.shortcuts.volume_up': '增大音量',
+
+  'music.assistant.play_missing': '{count} 首歌曲不在曲库中，已跳过',
+  'music.assistant.play_none': '助手指定的歌曲都不在曲库中',
+  'music.assistant.control_failed': '播放器无法执行这个操作',
+  'music.assistant.effect_failed': '助手无法控制播放器',
 
   'music.error.description': '请检查网络连接后重试。',
   'music.error.retry': '重试',

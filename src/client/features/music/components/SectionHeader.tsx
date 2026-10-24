@@ -14,15 +14,18 @@ export interface SectionHeaderProps {
   /** The id a surrounding `<section aria-labelledby>` points at. */
   id?: string
   className?: string
+  /** Page titles are h1; every shelf inside a page stays h2. */
+  level?: 1 | 2
 }
 
-export function SectionHeader({ title, description, action, id, className }: SectionHeaderProps): ReactElement {
+export function SectionHeader({ title, description, action, id, className, level = 2 }: SectionHeaderProps): ReactElement {
+  const Heading = level === 1 ? 'h1' : 'h2'
   return (
     <header className={className ? `music-section-header ${className}` : 'music-section-header'}>
       <div className="music-section-header__text">
-        <h2 id={id} className="music-section-header__title">
+        <Heading id={id} className="music-section-header__title">
           {title}
-        </h2>
+        </Heading>
         {description && <p className="music-section-header__description">{description}</p>}
       </div>
       {action && (

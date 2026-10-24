@@ -46,6 +46,7 @@ function PodcastListPage(): ReactElement {
   return (
     <section aria-labelledby={headingId} className={PAGE_STACK}>
       <SectionHeader
+        level={1}
         id={headingId}
         title={musicText('music.page.podcast')}
         description={musicText('music.podcast.list_description')}
@@ -203,7 +204,7 @@ function PodcastDetailPage({ id }: { id: string }): ReactElement {
           <header className="music-hero">
             <Cover src={radio.coverUrl || undefined} size="lg" radius="lg" />
             <div className="music-hero__text">
-              <h2 className="music-hero__title">{radio.name}</h2>
+              <h1 className="music-hero__title">{radio.name}</h1>
               {radio.description && (
                 <p className="music-hero__description line-clamp-4">{radio.description}</p>
               )}

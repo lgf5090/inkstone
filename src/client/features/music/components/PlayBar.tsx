@@ -7,10 +7,11 @@
  * beside the slider instead of its numeric readout (hidden by the stylesheet), and the element keeps
  * the range semantics and the keyboard arrows for free.
  *
- * Narrow windows drop the volume, the favourite and the secondary switches — the MiniPlayer and the
- * full-screen layer are the phone surfaces — leaving artwork, title and the transport.
+ * The favourite only returns on wide windows; the volume button opens the level popover and toggles
+ * mute in the press itself. Below tablet width the mute switch moves into the overflow menu, and on a
+ * phone the MiniPlayer and the full-screen layer are the surfaces instead of this bar.
  */
-import { useRef, useState, type ReactElement } from 'react'
+import { useEffect, useId, useRef, useState, type ReactElement } from 'react'
 import {
   Heart,
   ListMusic,
@@ -29,7 +30,7 @@ import { formatDuration, musicArtistNames } from '@shared/music/format'
 import type { MusicPlayMode } from '@shared/music/model'
 import { IconButton, Spinner } from '../../../components/primitives'
 import { Slider } from '../../../components/form'
-import { Drawer, Menu, Tooltip, type MenuItem } from '../../../components/overlay'
+import { Drawer, Menu, Tooltip, useClickOutside, useEscape, type MenuItem } from '../../../components/overlay'
 import { useMusicLibrary } from '../store/library'
 import { selectCurrentTrack, useMusicPlayer } from '../store/player'
 import { MUSIC_RATE_RANGE } from '../store/settings'
@@ -73,7 +74,23 @@ export function PlayBar(): ReactElement {
 
   const [moreOpen, setMoreOpen] = useState(false)
   const [panel, setPanel] = useState<'eq' | 'sleep' | 'source' | null>(null)
+  const [volumeOpen, setVolumeOpen] = useState(false)
   const moreRef = useRef<HTMLButtonElement>(null)
+  const volumeRef = useRef<HTMLButtonElement>(null)
+  const volumePanelRef = useRef<HTMLDivElement>(null)
+  const volumePanelId = useId()
+
+  useClickOutside([volumeRef, volumePanelRef], volumeOpen, () => setVolumeOpen(false))
+  useEscape(volumeOpen, () => {
+    setVolumeOpen(false)
+    volumeRef.current?.focus({ preventScroll: true })
+  })
+  useEffect(() => {
+    if (!volumeOpen) return
+    volumePanelRef.current
+      ?.querySelector<HTMLInputElement>('input[type="range"]')
+      ?.focus({ preventScroll: true })
+  }, [volumeOpen])
 
   const favorite = current ? favorites.some((entry) => entry.id === current.id) : false
   const playing = status === 'playing'
@@ -82,7 +99,8 @@ export function PlayBar(): ReactElement {
   const totalMs = durationMs || current?.durationMs || 0
   const totalSeconds = Math.max(1, Math.round(totalMs / 1000))
   const positionSeconds = Math.min(totalSeconds, Math.max(0, Math.round(positionMs / 1000)))
-  const volumePercent = Math.round((muted ? 0 : volume) * 100)
+  // The popover shows the level a drag would restore, not 0: the press that opens it also mutes.
+  const volumePercent = Math.round(volume * 100)
 
   const playLabel = failed
     ? 'music.playbar.retry'
@@ -127,6 +145,13 @@ export function PlayBar(): ReactElement {
       separatorBefore: value === RATE_STEPS[0],
       onSelect: () => setRate(value),
     })),
+    {
+      id: 'mute',
+      label: musicText(muted ? 'music.playbar.unmute' : 'music.playbar.mute'),
+      checked: muted,
+      separatorBefore: true,
+      onSelect: () => toggleMute(),
+    },
     {
       id: 'panel-eq',
       label: musicText('music.panel.eq'),
@@ -178,6 +203,7 @@ export function PlayBar(): ReactElement {
           </span>
         </span>
         <IconButton
+          className="music-playbar__favorite"
           label={musicText(favorite ? 'music.song.unfavorite' : 'music.song.favorite')}
           size="sm"
           active={favorite}
@@ -231,22 +257,41 @@ export function PlayBar(): ReactElement {
       </div>
 
       <div className="music-playbar__right">
-        <IconButton
-          label={musicText(muted ? 'music.playbar.unmute' : 'music.playbar.mute')}
-          size="sm"
-          onClick={() => toggleMute()}
-        >
-          {muted ? <VolumeX size={15} /> : <Volume2 size={15} />}
-        </IconButton>
-        <Slider
-          className="music-playbar__volume"
-          label={musicText('music.playbar.volume')}
-          value={volumePercent}
-          min={0}
-          max={100}
-          step={1}
-          onChange={(value) => setVolume(value / 100)}
-        />
+        <div className="music-playbar__volume-wrap">
+          <IconButton
+            ref={volumeRef}
+            label={musicText(muted ? 'music.playbar.unmute' : 'music.playbar.mute')}
+            size="sm"
+            aria-haspopup="dialog"
+            aria-expanded={volumeOpen}
+            aria-controls={volumeOpen ? volumePanelId : undefined}
+            onClick={() => {
+              toggleMute()
+              setVolumeOpen(true)
+            }}
+          >
+            {muted ? <VolumeX size={15} /> : <Volume2 size={15} />}
+          </IconButton>
+          {volumeOpen && (
+            <div
+              ref={volumePanelRef}
+              id={volumePanelId}
+              role="dialog"
+              aria-label={musicText('music.playbar.volume')}
+              className="music-playbar__volume-panel"
+            >
+              <Slider
+                className="music-playbar__volume"
+                label={musicText('music.playbar.volume')}
+                value={volumePercent}
+                min={0}
+                max={100}
+                step={1}
+                onChange={(value) => setVolume(value / 100)}
+              />
+            </div>
+          )}
+        </div>
         <Tooltip label={musicText('music.playbar.lyrics')}>
           <IconButton
             label={musicText('music.playbar.lyrics')}

@@ -3,6 +3,7 @@ export const EN_US_MUSIC = {
   'music.nav.search': 'Search',
   'music.nav.library': 'Library',
   'music.nav.settings': 'Settings',
+  'music.nav.assistant': 'Assistant',
   'music.nav.label': 'Music sections',
 
   'music.page.home': 'Music',
@@ -10,7 +11,6 @@ export const EN_US_MUSIC = {
   'music.page.playlist': 'Playlist',
   'music.page.album': 'Album',
   'music.page.artist': 'Artist',
-  'music.page.toplist': 'Top lists',
   'music.page.mv': 'Music videos',
   'music.page.mv_detail': 'Music video',
   'music.page.podcast': 'Podcasts',
@@ -21,7 +21,6 @@ export const EN_US_MUSIC = {
   'music.page.downloads': 'Downloads',
   'music.page.user': 'Profile',
   'music.page.login': 'Connect Netease',
-  'music.page.settings': 'Music settings',
   'music.page.not_found': 'Not found',
 
   'music.placeholder.title': 'Music is being prepared',
@@ -35,6 +34,7 @@ export const EN_US_MUSIC = {
   'music.player.error.autoplay': 'Press play to allow audio',
   'music.player.error.unsupported': 'This browser cannot play audio',
 
+  'music.library.playlists_empty': 'No playlists yet',
   'music.library.error.load': 'The music library could not be loaded',
   'music.library.error.favorite': 'That favorite could not be saved',
   'music.library.error.history': 'The listening history could not be updated',
@@ -498,6 +498,11 @@ export const EN_US_MUSIC = {
   'music.shortcuts.group': 'Music player',
   'music.shortcuts.volume_down': 'Volume down',
   'music.shortcuts.volume_up': 'Volume up',
+
+  'music.assistant.play_missing': '{count} tracks were not in your library and were skipped',
+  'music.assistant.play_none': 'None of the tracks the assistant named are in your library',
+  'music.assistant.control_failed': 'The player could not do that',
+  'music.assistant.effect_failed': 'The assistant could not control the player',
 
   'music.error.description': 'Check the connection and try again.',
   'music.error.retry': 'Try again',

@@ -9,7 +9,7 @@
  *    written by an older build, restored from a backup file, or edited by hand — stored text is input.
  */
 
-import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, MAX_ARTIFACT_VERSIONS, MAX_TURN_SCOPES, SAVED_MESSAGE_EXCERPT_CHARS, clipSuggestionList, clipToolPayload, parseCustomParams, isNoteSourceId, isSourceUrl } from '@shared/assistant'
+import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, MAX_ARTIFACT_VERSIONS, MAX_TURN_SCOPES, SAVED_MESSAGE_EXCERPT_CHARS, clipMusicClientEffect, clipSuggestionList, clipToolPayload, isMusicClientEffect, parseCustomParams, isNoteSourceId, isSourceUrl } from '@shared/assistant'
 import { activePricePeriod, parsePricePeriods } from '@shared/price-periods'
 import { parseAssistantIcon } from '@shared/assistant-icons'
 import type {
@@ -567,6 +567,9 @@ export function decodeTools(value: unknown): ToolActivity[] {
     const raw = entry as Record<string, unknown>
     if (typeof raw.id !== 'string' || typeof raw.name !== 'string') continue
     const approval = decodeAction(raw.approval)
+    // A stored playback effect is decoded like every other JSON column: a row may come from an older
+    // build or a backup file, so only a shape this client can run is kept.
+    const effect = isMusicClientEffect(raw.effect) ? clipMusicClientEffect(raw.effect) : null
     out.push({
       id: raw.id,
       name: raw.name,
@@ -576,6 +579,7 @@ export function decodeTools(value: unknown): ToolActivity[] {
       status: pickEnum(raw.status, ['running', 'success', 'error'] as const, 'success'),
       ...(typeof raw.error === 'string' ? { error: raw.error.slice(0, 300) } : {}),
       ...(approval ? { approval } : {}),
+      ...(effect ? { effect } : {}),
     })
   }
   return out

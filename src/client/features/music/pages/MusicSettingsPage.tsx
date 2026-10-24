@@ -101,7 +101,7 @@ export function MusicSettingsPage(): ReactElement {
 
   return (
     <div className="music-settings">
-      <SectionHeader title={t('music.settings.title')} description={t('music.settings.description')} />
+      <SectionHeader level={1} title={t('music.settings.title')} description={t('music.settings.description')} />
       {serverError && (
         <p role="alert" className="rounded-[var(--r-md)] border border-[var(--danger)]/30 bg-[var(--danger)]/8 px-3 py-2 text-[length:var(--text-12)] text-[var(--danger)]">
           {t(serverError as MessageKey)}

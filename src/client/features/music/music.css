@@ -10,173 +10,19 @@
  * class in a feature file can never collide with it.
  */
 
-/* ── The frame ─────────────────────────────────────────────────────────────────────────────────────
-   A second navigation rail, the scrolling content column and the bar pinned underneath. The queue is
-   a Drawer, not a fourth column, so this stays a two-column body at every width. */
+/* ── The feature root ────────────────────────────────────────────────────────────────────────── */
 
-.music-root,
-.music-nowplaying {
+.music-root {
   /* A cover may publish its own tint through these three; until it does, the app accent is the answer. */
   --music-accent: var(--accent);
   --music-accent-soft: var(--accent-soft);
   --music-on-accent: var(--accent-contrast);
-}
-
-.music-root {
   display: flex;
   flex-direction: column;
   min-block-size: 0;
   block-size: 100%;
   background: var(--bg-base);
   color: var(--text-primary);
-}
-
-.music-topbar {
-  position: sticky;
-  inset-block-start: 0;
-  z-index: var(--z-sticky);
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  min-block-size: 44px;
-  padding-inline: var(--sp-3);
-  border-block-end: 1px solid var(--border-subtle);
-  background: var(--bg-sunken);
-}
-
-.music-topbar__title {
-  min-inline-size: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-display);
-  font-size: var(--text-15);
-  font-weight: 600;
-  letter-spacing: var(--tracking-title);
-  color: var(--text-primary);
-}
-
-.music-topbar__actions {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-1);
-  margin-inline-start: auto;
-}
-
-.music-body {
-  display: flex;
-  flex: 1 1 auto;
-  min-block-size: 0;
-}
-
-.music-nav {
-  --music-nav-width: 224px;
-  flex: 0 0 var(--music-nav-width);
-  inline-size: var(--music-nav-width);
-  min-block-size: 0;
-  overflow-y: auto;
-  padding: var(--sp-2);
-  border-inline-end: 1px solid var(--border-subtle);
-  background: var(--bg-base);
-}
-
-.music-nav__section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-0-5);
-  padding-block-end: var(--sp-3);
-}
-
-.music-nav__label {
-  padding: var(--sp-1) var(--sp-2);
-  font-size: var(--text-10-5);
-  font-weight: 600;
-  letter-spacing: var(--tracking-section);
-  text-transform: uppercase;
-  color: var(--text-quaternary);
-}
-
-.music-nav__link {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  min-block-size: 44px;
-  padding: var(--sp-1-5) var(--sp-2);
-  border-radius: var(--r-md);
-  font-size: var(--text-13);
-  color: var(--text-secondary);
-  text-decoration: none;
-  transition: background-color var(--dur-fast) var(--ease-out);
-}
-
-.music-nav__link:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.music-nav__link[aria-current='page'] {
-  background: var(--accent-soft);
-  color: var(--accent-on-soft);
-  font-weight: 500;
-}
-
-.music-nav__link:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
-
-.music-content {
-  flex: 1 1 auto;
-  min-inline-size: 0;
-  min-block-size: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
-.music-content__inner {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-6);
-  max-inline-size: 1280px;
-  margin-inline: auto;
-  padding: var(--sp-5);
-}
-
-@media (max-width: 767px) {
-  .music-body {
-    flex-direction: column;
-  }
-
-  .music-nav {
-    flex: 0 0 auto;
-    inline-size: 100%;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding: var(--sp-1);
-    border-inline-end: 0;
-    border-block-end: 1px solid var(--border-subtle);
-  }
-
-  .music-nav__section {
-    flex-direction: row;
-    gap: var(--sp-1);
-    padding-block-end: 0;
-  }
-
-  .music-nav__label {
-    display: none;
-  }
-
-  .music-nav__link {
-    min-block-size: 36px;
-    white-space: nowrap;
-  }
-
-  .music-content__inner {
-    gap: var(--sp-4);
-    padding: var(--sp-3);
-    padding-block-end: calc(var(--sp-6) + env(safe-area-inset-bottom));
-  }
 }
 
 /* ── Section header, cards and the page skeleton ─────────────────────────────────────────────── */
@@ -685,7 +531,7 @@
 .music-playbar {
   --music-playbar-height: 72px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 1.6fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 1.9fr) max-content;
   align-items: center;
   gap: var(--sp-4);
   flex: 0 0 auto;
@@ -693,6 +539,7 @@
   padding: var(--sp-1) var(--sp-4) calc(var(--sp-1) + env(safe-area-inset-bottom));
   border-block-start: 1px solid var(--border-subtle);
   background: var(--bg-sunken);
+  overflow: visible;
 }
 
 .music-playbar__left {
@@ -795,13 +642,46 @@
   min-inline-size: 0;
 }
 
+.music-playbar__volume-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.music-playbar__volume-panel {
+  position: absolute;
+  inset-block-end: calc(100% + var(--sp-2));
+  inset-inline-end: 0;
+  z-index: var(--z-popover);
+  inline-size: 168px;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-lg);
+  background: var(--bg-overlay);
+  box-shadow: var(--shadow-pop);
+}
+
 .music-playbar__volume {
-  inline-size: 96px;
+  inline-size: 100%;
   gap: 0;
 }
 
 .music-playbar__volume > span {
   display: none;
+}
+
+/* The right cluster keeps its full width only where there is room for it: the favourite returns at
+   1280px and the volume popover at 1024px; below that the mute toggle lives in the overflow menu. */
+@media (max-width: 1279px) {
+  .music-playbar__favorite {
+    display: none;
+  }
+}
+
+@media (max-width: 1023px) {
+  .music-playbar__volume-wrap {
+    display: none;
+  }
 }
 
 .music-playbar--empty {
@@ -1041,7 +921,7 @@
   color: var(--text-quaternary);
 }
 
-/* ── Now playing and lyrics ──────────────────────────────────────────────────────────────────── */
+/* ── Lyrics ─────────────────────────────────────────────────────────────────────────────────── */
 
 .music-nowplaying__body {
   display: flex;
@@ -1049,97 +929,6 @@
   flex: 1 1 auto;
   min-block-size: 0;
   padding: 0;
-}
-
-.music-nowplaying {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  gap: var(--sp-5);
-  min-block-size: 0;
-  padding: var(--sp-4) var(--sp-6) calc(var(--sp-6) + env(safe-area-inset-bottom));
-  background: var(--bg-base);
-  color: var(--text-primary);
-}
-
-.music-nowplaying__header {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-}
-
-.music-nowplaying__close {
-  margin-inline-start: auto;
-}
-
-.music-nowplaying__eyebrow {
-  font-size: var(--text-10-5);
-  font-weight: 600;
-  letter-spacing: var(--tracking-section);
-  text-transform: uppercase;
-  color: var(--text-quaternary);
-}
-
-.music-nowplaying__empty {
-  display: flex;
-  flex: 1 1 auto;
-  align-items: center;
-  justify-content: center;
-  min-block-size: 0;
-}
-
-.music-nowplaying__stage {
-  display: flex;
-  flex: 1 1 auto;
-  gap: var(--sp-8);
-  min-block-size: 0;
-}
-
-.music-nowplaying__art {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: flex-start;
-}
-
-.music-nowplaying__info {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
-  flex: 0 0 auto;
-  max-inline-size: 420px;
-  min-inline-size: 0;
-}
-
-.music-nowplaying__title {
-  font-family: var(--font-display);
-  font-size: var(--text-26);
-  font-weight: 600;
-  line-height: 1.2;
-  letter-spacing: var(--tracking-title);
-  color: var(--text-primary);
-}
-
-.music-nowplaying__artist {
-  font-size: var(--text-14);
-  color: var(--text-secondary);
-}
-
-.music-nowplaying__album {
-  font-size: var(--text-12);
-  color: var(--text-tertiary);
-}
-
-.music-nowplaying__lyrics {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  justify-content: center;
-  gap: var(--sp-3);
-  min-inline-size: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding-block: var(--sp-4);
-  mask-image: linear-gradient(to bottom, transparent, black 12%, black 88%, transparent);
 }
 
 .music-lyrics__line {
@@ -1172,59 +961,7 @@
   color: var(--text-tertiary);
 }
 
-.music-nowplaying__controls {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
-  align-items: center;
-}
-
-.music-nowplaying__progress {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  inline-size: 100%;
-  max-inline-size: 560px;
-}
-
-.music-nowplaying__transport {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-3);
-}
-
 @media (max-width: 767px) {
-  .music-nowplaying {
-    gap: var(--sp-4);
-    padding: var(--sp-3) var(--sp-3) calc(var(--sp-4) + env(safe-area-inset-bottom));
-  }
-
-  .music-nowplaying__stage {
-    flex-direction: column;
-    align-items: center;
-    gap: var(--sp-4);
-    overflow-y: auto;
-  }
-
-  .music-nowplaying__art {
-    align-items: center;
-    justify-content: center;
-  }
-
-  .music-nowplaying__info {
-    align-items: center;
-    text-align: center;
-  }
-
-  .music-nowplaying__title {
-    font-size: var(--text-20);
-  }
-
-  .music-nowplaying__lyrics {
-    inline-size: 100%;
-    flex: 1 1 auto;
-  }
-
   .music-lyrics__line--current {
     font-size: var(--text-18);
   }
@@ -1273,10 +1010,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .music-row__actions {
-    transition: none;
-  }
-
-  .music-nav__link {
     transition: none;
   }
 }

@@ -50,7 +50,7 @@ export function DetailHero({
             {eyebrow}
           </p>
         )}
-        <h2 className="music-hero__title">{title}</h2>
+        <h1 className="music-hero__title">{title}</h1>
         {meta && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[length:var(--text-12)] text-[var(--text-tertiary)]">
             {meta}

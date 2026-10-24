@@ -38,6 +38,7 @@ export function UserPage(): ReactElement {
   if (!id) {
     return (
       <section aria-label={musicText('music.page.user')} className={PAGE_STACK}>
+        <h1 className="sr-only">{musicText('music.page.user')}</h1>
         <Empty
           art="select"
           title={musicText('music.user.empty')}
@@ -54,7 +55,7 @@ export function UserPage(): ReactElement {
 
   return (
     <section aria-labelledby={headingId} className={PAGE_STACK}>
-      <h2 id={headingId} className="sr-only">{musicText('music.page.user')}</h2>
+      <h1 id={headingId} className="sr-only">{musicText('music.page.user')}</h1>
 
       {query.status === 'error' && !query.data ? (
         <QueryError

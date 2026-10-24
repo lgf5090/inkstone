@@ -266,6 +266,8 @@ export function SearchPage({ query }: SearchPageProps): ReactElement {
 
   return (
     <MusicPageBody>
+      <h1 className="sr-only">{musicText('music.page.search')}</h1>
+
       <form
         role="search"
         className="flex flex-col gap-2 md:flex-row md:items-center"

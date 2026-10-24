@@ -77,9 +77,9 @@ export function HistoryPage(): ReactElement {
     <section aria-labelledby={headingId} className={PAGE_STACK}>
       <header className="music-section-header">
         <div className="music-section-header__text">
-          <h2 id={headingId} className="music-section-header__title">
+          <h1 id={headingId} className="music-section-header__title">
             {musicText('music.page.history')}
-          </h2>
+          </h1>
           <p className="music-section-header__description">
             {musicText('music.history.description')}
           </p>

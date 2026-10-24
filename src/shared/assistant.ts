@@ -1511,6 +1511,106 @@ export interface ChatProjectNode {
   count: number
 }
 
+/**
+ * An instruction the worker hands back to the browser that is playing the music.
+ *
+ * A tool runs where the store is, and the player runs where the reader is. The effect is the narrow
+ * bridge between them: the worker decides *what* should happen, the tab that asked carries it out
+ * with the player it already has, and the activity keeps a copy so a reopened thread can say what the
+ * assistant did. Nothing here is a path to arbitrary code — every kind names one of the player's own
+ * actions.
+ */
+export type MusicClientEffect =
+  | { kind: 'music.play'; trackRefs: string[]; mode: 'replace' | 'append' }
+  | { kind: 'music.control'; action: 'pause' | 'resume' | 'next' | 'prev' | 'seek'; value?: number }
+  | { kind: 'music.queue'; action: 'add' | 'remove' | 'clear'; trackRefs?: string[] }
+  | { kind: 'music.open'; view: 'nowPlaying' | 'lyrics' | 'queue' | 'cloud'; path?: string }
+
+/**
+ * A tool result that also carries an effect for the reader's tab.
+ *
+ * `result` is what the model reads back. A tool that returns only an envelope would leave the model
+ * with an object it did not ask for, so the runner substitutes `{ ok: true }` when this is absent.
+ */
+export interface ToolEffectEnvelope {
+  effect: MusicClientEffect
+  result?: unknown
+}
+
+/** The caps an effect may carry into a stored message row. The plan allows 100 refs per call. */
+export const MAX_MUSIC_EFFECT_TRACK_REFS = 100
+export const MAX_MUSIC_EFFECT_TRACK_REF_CHARS = 200
+export const MAX_MUSIC_EFFECT_PATH_CHARS = 1_024
+/** A seek past a day is a unit mistake, not a position. */
+export const MAX_MUSIC_EFFECT_SEEK_MS = 24 * 60 * 60 * 1_000
+
+const MUSIC_CONTROL_ACTIONS = ['pause', 'resume', 'next', 'prev', 'seek'] as const
+const MUSIC_QUEUE_ACTIONS = ['add', 'remove', 'clear'] as const
+const MUSIC_OPEN_VIEWS = ['nowPlaying', 'lyrics', 'queue', 'cloud'] as const
+
+function isMusicPlayMode(value: unknown): value is 'replace' | 'append' {
+  return value === 'replace' || value === 'append'
+}
+
+function isStringList(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === 'string')
+}
+
+/** Whether a value is one of the effects this client knows how to run. */
+export function isMusicClientEffect(value: unknown): value is MusicClientEffect {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  const effect = value as Record<string, unknown>
+  switch (effect.kind) {
+    case 'music.play':
+      return isStringList(effect.trackRefs) && isMusicPlayMode(effect.mode)
+    case 'music.control':
+      return MUSIC_CONTROL_ACTIONS.includes(effect.action as (typeof MUSIC_CONTROL_ACTIONS)[number])
+        && (effect.action !== 'seek'
+          || (typeof effect.value === 'number' && Number.isFinite(effect.value) && effect.value >= 0))
+    case 'music.queue':
+      return MUSIC_QUEUE_ACTIONS.includes(effect.action as (typeof MUSIC_QUEUE_ACTIONS)[number])
+        && (effect.trackRefs === undefined || isStringList(effect.trackRefs))
+    case 'music.open':
+      return MUSIC_OPEN_VIEWS.includes(effect.view as (typeof MUSIC_OPEN_VIEWS)[number])
+        && (effect.path === undefined || typeof effect.path === 'string')
+    default:
+      return false
+  }
+}
+
+/** Whether a tool result is an envelope rather than the value the model reads. */
+export function isToolEffectEnvelope(value: unknown): value is ToolEffectEnvelope {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  return isMusicClientEffect((value as Record<string, unknown>).effect)
+}
+
+function clipTrackRefs(value: readonly string[]): string[] {
+  return value
+    .map((entry) => entry.trim().slice(0, MAX_MUSIC_EFFECT_TRACK_REF_CHARS))
+    .filter(Boolean)
+    .slice(0, MAX_MUSIC_EFFECT_TRACK_REFS)
+}
+
+/** Bounds an effect before it is streamed and stored. */
+export function clipMusicClientEffect(effect: MusicClientEffect): MusicClientEffect {
+  switch (effect.kind) {
+    case 'music.play':
+      return { ...effect, trackRefs: clipTrackRefs(effect.trackRefs) }
+    case 'music.control':
+      return effect.action === 'seek'
+        ? { ...effect, value: Math.min(effect.value ?? 0, MAX_MUSIC_EFFECT_SEEK_MS) }
+        : { kind: 'music.control', action: effect.action }
+    case 'music.queue':
+      return effect.trackRefs === undefined
+        ? effect
+        : { ...effect, trackRefs: clipTrackRefs(effect.trackRefs) }
+    case 'music.open':
+      return effect.path === undefined
+        ? effect
+        : { ...effect, path: effect.path.slice(0, MAX_MUSIC_EFFECT_PATH_CHARS) }
+  }
+}
+
 export interface ToolActivity {
   id: string
   /** One of `ASSISTANT_TOOL_SPECS[].name`; the client renders the chip's words from the catalog. */
@@ -1522,6 +1622,8 @@ export interface ToolActivity {
   /** The draft this call created or rewrote, so the chip can offer to open it. */
   artifactId?: string
   approval?: PendingAction
+  /** A playback instruction for the tab that asked; never replayed from an old thread. */
+  effect?: MusicClientEffect
   /**
    * What the model asked the tool for, as JSON — and what came back.
    *
@@ -1991,6 +2093,7 @@ export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'code_execute', labelKey: 'assistant.tool.code_execute', permission: 'write' },
   { name: 'fetch_url', labelKey: 'assistant.tool.fetch_url', permission: 'read' },
   { name: 'web_search', labelKey: 'assistant.tool.web_search', permission: 'read' },
+  { name: 'music_play', labelKey: 'assistant.tool.music_play', permission: 'write' },
   { name: 'list_subscriptions', labelKey: 'assistant.tool.list_subscriptions', permission: 'read' },
   { name: 'get_subscription', labelKey: 'assistant.tool.get_subscription', permission: 'read' },
   { name: 'subscription_summary', labelKey: 'assistant.tool.subscription_summary', permission: 'read' },

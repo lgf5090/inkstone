@@ -91,6 +91,9 @@ export function HomePage(): ReactElement {
     || albums.length > 0
     || artists.length > 0
     || newTracks.length > 0
+  const pageTitle = (
+    <h1 className="music-section-header__title">{musicText('music.page.home')}</h1>
+  )
 
   const startFm = async (): Promise<void> => {
     setFmBusy(true)
@@ -115,6 +118,7 @@ export function HomePage(): ReactElement {
   if (home.status === 'loading' && !data) {
     return (
       <MusicPageBody>
+        {pageTitle}
         <HomeSkeleton />
       </MusicPageBody>
     )
@@ -123,6 +127,7 @@ export function HomePage(): ReactElement {
   if (home.status === 'error' && !data) {
     return (
       <MusicPageBody>
+        {pageTitle}
         <PageError error={home.error} onRetry={home.reload} />
       </MusicPageBody>
     )
@@ -131,6 +136,7 @@ export function HomePage(): ReactElement {
   if (!data) {
     return (
       <MusicPageBody>
+        {pageTitle}
         <PageError error={home.error} onRetry={home.reload} />
       </MusicPageBody>
     )
@@ -239,6 +245,7 @@ export function HomePage(): ReactElement {
   if (!hasContent) {
     return (
       <MusicPageBody>
+        {pageTitle}
         <Empty
           art="search"
           title={musicText('music.home.empty.title')}
@@ -264,6 +271,8 @@ export function HomePage(): ReactElement {
 
   return (
     <MusicPageBody>
+      {pageTitle}
+
       {home.status === 'error' && (
         <PageError compact error={home.error} onRetry={home.reload} />
       )}
