@@ -17,7 +17,7 @@ import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import { FinishDayView } from './FinishDayView'
 import { readsOwnRows, useTodos } from './store'
-import { surfacesFor, TODO_SURFACES } from './views/registry'
+import { surfacesFor, surfacesForPhoneMore, TODO_SURFACES } from './views/registry'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 import { DEFAULT_TODO_WORKDAY } from '@shared/constants'
@@ -425,6 +425,10 @@ describe('where the pass is reached from', () => {
 
     expect(on.map((surface) => surface.view)).toContain('finish-day')
     expect(off.map((surface) => surface.view)).not.toContain('finish-day')
+    // The same offer reaches a phone: the overflow menu carries the row while the sidebar does, and
+    // drops it with the sidebar row when the account switches the page off.
+    expect(surfacesForPhoneMore({ finishDayEnabled: true }).map((surface) => surface.view)).toContain('finish-day')
+    expect(surfacesForPhoneMore({ finishDayEnabled: false }).map((surface) => surface.view)).not.toContain('finish-day')
     // Switching the offer off does not lock the screen away: the address still names it.
     expect(TODO_SURFACES.map((surface) => surface.view)).toContain('finish-day')
   })

@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { CalendarRange, ChartNoAxesColumn, Filter, ListChecks, MoreHorizontal, PanelLeft, Paperclip, Plus, Search, Settings2, Sparkles, Sun, X } from 'lucide-react'
+import { CalendarRange, Filter, ListChecks, MoreHorizontal, PanelLeft, Paperclip, Plus, Search, Settings2, Sparkles, X } from 'lucide-react'
 import type { SavedTodoFilter } from '@shared/types'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
@@ -40,7 +40,7 @@ import { RunningTimerBar } from './running-timer'
 import { FocusLayer } from './FocusOverlay'
 import { TodoKeysHelp } from './TodoKeysHelp'
 import { TODO_ROW_MENU_WIDTH, useTodoShortcuts } from './use-todo-shortcuts'
-import { TodoContent, surfaceBadge, surfacesFor } from './views/registry'
+import { TodoContent, surfaceBadge, surfacesFor, surfacesForPhoneMore } from './views/registry'
 
 type Page = 'main' | 'lists'
 
@@ -228,22 +228,20 @@ export function TodosApp() {
    * What the phone's `⋯` opens.
    *
    * These four used to be header buttons; on a 360px screen they pushed the title down to a few
-   * characters. Each row is the same surface the sidebar names on a wide window, so the two layouts
-   * offer one vocabulary in two shapes.
+   * characters. The view rows are the ones the sidebar offers and the phone's tabs do not, which is the
+   * same vocabulary in a second shape — and the reason a screen cannot be added to the wide layout and
+   * left unreachable here. The lists page and the assistant are not views, so they keep their own rows.
    */
   const phoneMoreItems: MenuItem[] = [
-    {
-      id: 'today',
-      label: t('todo.view.today'),
-      icon: <Sun size={14} />,
-      onSelect: () => { setPage('main'); setView('today') },
-    },
-    {
-      id: 'stats',
-      label: t('todo.view.stats'),
-      icon: <ChartNoAxesColumn size={14} />,
-      onSelect: () => { setPage('main'); setView('stats') },
-    },
+    ...surfacesForPhoneMore(navFlags).map((surface) => {
+      const Icon = surface.icon
+      return {
+        id: surface.view,
+        label: t(surface.sidebar!.labelKey),
+        icon: <Icon size={14} />,
+        onSelect: () => { setPage('main'); setView(surface.view) },
+      }
+    }),
     {
       id: 'lists',
       label: t('todo.action.lists'),

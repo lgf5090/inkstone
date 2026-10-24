@@ -43,12 +43,24 @@ function dayName(day: string): string {
   return new Intl.DateTimeFormat(localeTag(), { dateStyle: 'medium' }).format(dayDate(day))
 }
 
-/** One amount in the unit the habit speaks: seconds read as a duration, taps as a count. */
 /** How many days a row's heat strip reaches back: about the month a reader is looking over. */
 const STRIP_DAYS = 30
 /** A habit's amount is whole seconds; the duration labels the app already uses speak milliseconds. */
 const SECOND_MS = 1000
+/**
+ * One day's cell, and the gap between them.
+ *
+ * Twelve pixels is what keeps a month of them on one line beside a title, which is how the strip is read
+ * where a pointer aims. A finger cannot land on that, and the cells are the only way to log a day other
+ * than today, so on a coarse pointer the same cell is drawn at 20 pixels with a 6 pixel gap: the target
+ * then clears WCAG 2.5.8's spacing exception, since a 24 pixel circle around one cell reaches no further
+ * than the edge of the next. Read-only cells take the same box, or a stopwatch's strip would sit out of
+ * line with the habits beside it.
+ */
+const CELL_CLASS = 'size-3 rounded-[var(--r-2)] pointer-coarse:size-5'
+const STRIP_GAP_CLASS = 'gap-1 pointer-coarse:gap-1.5'
 
+/** One amount in the unit the habit speaks: seconds read as a duration, taps as a count. */
 function amountLabel(amount: number, kind: CounterKind): string {
   return kind === 'stopwatch' ? durationLabel(amount * SECOND_MS) : String(amount)
 }
@@ -255,7 +267,7 @@ function HabitRow({ reading, now, busy, onTick, onToggleTimer, onEdit }: RowProp
           </IconButton>
         </div>
       </div>
-      <div className="mt-2.5 flex flex-wrap gap-1" role="group" aria-label={t('todo.counters.strip_aria', { count: STRIP_DAYS })}>
+      <div className={`mt-2.5 flex flex-wrap ${STRIP_GAP_CLASS}`} role="group" aria-label={t('todo.counters.strip_aria', { count: STRIP_DAYS })}>
         {strip.map((cell) => (
           counter.kind === 'clicks'
             ? (
@@ -263,7 +275,7 @@ function HabitRow({ reading, now, busy, onTick, onToggleTimer, onEdit }: RowProp
                 key={cell.key}
                 type="button"
                 disabled={busy}
-                className={`size-3 rounded-[var(--r-2)] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${cell.today ? 'ring-1 ring-[var(--accent)]' : ''}`}
+                className={`${CELL_CLASS} outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${cell.today ? 'ring-1 ring-[var(--accent)]' : ''}`}
                 style={heatCell(cell.level)}
                 aria-label={t('todo.counters.day_aria', { day: dayName(cell.key), value: amountLabel(cell.count, counter.kind) })}
                 onClick={() => { onTick(1, cell.key) }}
@@ -272,7 +284,7 @@ function HabitRow({ reading, now, busy, onTick, onToggleTimer, onEdit }: RowProp
             : (
               <span
                 key={cell.key}
-                className={`size-3 rounded-[var(--r-2)] ${cell.today ? 'ring-1 ring-[var(--accent)]' : ''}`}
+                className={`${CELL_CLASS} ${cell.today ? 'ring-1 ring-[var(--accent)]' : ''}`}
                 style={heatCell(cell.level)}
                 title={`${dayName(cell.key)} · ${amountLabel(cell.count, counter.kind)}`}
               />
@@ -320,11 +332,18 @@ export function CountersView(): JSX.Element {
 
   const askAgain = (): void => { setRevision((current) => current + 1) }
 
-  /** One press, then the screen's own re-read. A refused write already said so on the rail. */
+  /**
+   * One press, then the screen's own re-read. A refused write already said so on the rail.
+   *
+   * The clock the elapsed line is measured against only moves once a minute, so a run started between
+   * two of those beats would read as nothing for up to a minute after it began. A write is the one
+   * moment the screen knows the answer moved, so it takes the clock with it.
+   */
   const act = async (id: string, write: () => Promise<unknown>): Promise<void> => {
     setBusyId(id)
     try {
       await write()
+      setNow(Date.now())
       askAgain()
     } catch (reason) {
       reportFailure(reason)

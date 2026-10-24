@@ -18,7 +18,7 @@ import { initI18n, localeTag, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import { CountersView } from './CountersView'
 import { readsOwnRows } from './store'
-import { surfacesFor, TODO_SURFACES } from './views/registry'
+import { surfacesFor, surfacesForPhoneMore, TODO_SURFACES } from './views/registry'
 import { durationLabel } from './stats-charts'
 import { MAX_COUNTER_DAY_AMOUNT, type CounterKind, type CounterReading, type CounterReadings, type TodoCounter } from '@shared/todos/model'
 
@@ -280,9 +280,16 @@ describe('reading the habits', () => {
     expect(readsOwnRows('counters')).toBe(true)
   })
 
-  it('is offered by the sidebar and not by the phone tabs', () => {
+  it('is offered by the sidebar and reached from the phone overflow, which is where the tabs leave it', () => {
     expect(surfacesFor('sidebar', { finishDayEnabled: true }).map((surface) => surface.view)).toContain('counters')
     expect(TODO_SURFACES.find((surface) => surface.view === 'counters')?.phone).toBeUndefined()
+    // A screen the four tabs do not carry still has to come from somewhere on a phone, or it ships
+    // unreachable: the overflow menu is that somewhere, and it is derived from this same table.
+    expect(surfacesForPhoneMore({ finishDayEnabled: true }).map((surface) => surface.view)).toContain('counters')
+  })
+
+  it('leaves the calendar out of the overflow, because the header already carries its glyph', () => {
+    expect(surfacesForPhoneMore({ finishDayEnabled: true }).map((surface) => surface.view)).not.toContain('calendar')
   })
 })
 

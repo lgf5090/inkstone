@@ -11599,9 +11599,10 @@ const allowed = new Map([
     "/** The habits page: every habit the account keeps, newest tap first among them in the order they were made. */",
     "// A running stopwatch has to move on the screen, so the row's elapsed line is read against a clock",
     "// refreshed once a minute rather than at every render.",
-    "/** One press, then the screen's own re-read. A refused write already said so on the rail. */",
     "// The grid is cut by the range rather than by the map: the answer carries a year of days and the strip",
     "// draws the month at its end, so `STRIP_DAYS` is the only number a row's tiles are counted from.",
+    "/**\n * One day's cell, and the gap between them.\n *\n * Twelve pixels is what keeps a month of them on one line beside a title, which is how the strip is read\n * where a pointer aims. A finger cannot land on that, and the cells are the only way to log a day other\n * than today, so on a coarse pointer the same cell is drawn at 20 pixels with a 6 pixel gap: the target\n * then clears WCAG 2.5.8's spacing exception, since a 24 pixel circle around one cell reaches no further\n * than the edge of the next. Read-only cells take the same box, or a stopwatch's strip would sit out of\n * line with the habits beside it.\n */",
+    "/**\n   * One press, then the screen's own re-read. A refused write already said so on the rail.\n   *\n   * The clock the elapsed line is measured against only moves once a minute, so a run started between\n   * two of those beats would read as nothing for up to a minute after it began. A write is the one\n   * moment the screen knows the answer moved, so it takes the clock with it.\n   */",
   ]],
   ["src/client/features/todos/DayAgenda.tsx", [
     "/** The time a task reads at, or null for an all-day one. */",
@@ -12073,7 +12074,6 @@ const allowed = new Map([
     "/* A saved filter is a screen of its own, so opening one starts from the board and the line\n          decides everything else. The × is the same delete the settings row offers: one list, two\n          doors, so a shortcut removed in either place is gone from both. */",
     "/**\n * The phone's fixed chrome, in one place.\n *\n * The floating button sits above the tab bar rather than on top of it, and the bar adds the bottom safe\n * area to its own height — two numbers that used to be written as `76px` and `64px` in three different\n * expressions, where changing one left the button overlapping the bar.\n */",
     "/** The phone's overflow: the surfaces that do not fit beside the title. */",
-    "/**\n   * What the phone's `⋯` opens.\n   *\n   * These four used to be header buttons; on a 360px screen they pushed the title down to a few\n   * characters. Each row is the same surface the sidebar names on a wide window, so the two layouts\n   * offer one vocabulary in two shapes.\n   */",
     "/* The search takes the title's place while it is open on a phone, rather than sharing a 360px\n          row with it: a field squeezed to 180px is a field nobody can read what they typed in. */",
     "/* The calendar keeps a button of its own: it is the surface a phone reaches most often\n                    from wherever it is standing. Today, statistics and the lists page fold into the\n                    menu beside it — four glyphs plus a title do not fit across 360px. */",
     "/* Rendered here rather than inside the lists page: the sidebar's \"+\" opens it from any\n          screen, so the editor cannot be unmounted with the page that also renders a button for it. */",
@@ -12087,6 +12087,7 @@ const allowed = new Map([
     "// The two navs ask the account which rows it wants drawn. Read here rather than inside the registry,",
     "// so switching the end-of-day page back on redraws the sidebar on the same tick.",
     "/* The order is a question about the tasks, not about one view: the bar stays above every\n              list, and the lists page is a different screen with no listing behind it. The statistics,\n              the calendar and the close-out read their own rows, so their own controls replace this bar\n              rather than join it — a filter that narrowed nothing would be a control that lies. */",
+    "/**\n   * What the phone's `⋯` opens.\n   *\n   * These four used to be header buttons; on a 360px screen they pushed the title down to a few\n   * characters. The view rows are the ones the sidebar offers and the phone's tabs do not, which is the\n   * same vocabulary in a second shape — and the reason a screen cannot be added to the wide layout and\n   * left unreachable here. The lists page and the assistant are not views, so they keep their own rows.\n   */",
   ]],
   ["src/client/features/todos/TrashPanel.tsx", [
     "/**\n * The trash: the tasks a delete only hid, and the two ways to settle them.\n *\n * The server keeps a deleted row — with its steps and tags — for the retention window, so this screen\n * is where a reader finds it again. Restoring is the same call the undo uses, and purging is the one\n * irreversible door, which is why it asks first. The panel is opened from the organizer page rather\n * than the task views: the trash is management, not a list to work in.\n */",
@@ -12239,6 +12240,8 @@ const allowed = new Map([
     "// What the day holds comes from the answer, not from the screen's own arithmetic.",
     "// A month of tiles, not the year the answer carries: the strip is what a row can be read at. The",
     "// row's two taps and its edit button are buttons too, so the ceiling leaves room for those.",
+    "// A screen the four tabs do not carry still has to come from somewhere on a phone, or it ships",
+    "// unreachable: the overflow menu is that somewhere, and it is derived from this same table.",
   ]],
   ["src/client/features/todos/due-range.ts", [
     "/**\n * The calendar arithmetic behind the due-window presets.\n *\n * A due bound is a wall-clock reading the route parses in the reader's timezone\n * (`YYYY-MM-DDTHH:MM`), and the route's upper bound is exclusive (`due_at < dueTo`). Every window\n * here is therefore `[start of a day, start of the day after)`, and a custom end day is turned into\n * the midnight after it so the day the reader picked is included whole rather than cut at 00:00.\n *\n * Pure day-string arithmetic: \"today\" is handed in from the server's clock and timezone, never read\n * from `Date.now()` here, so the presets cannot drift from the day boundaries the count uses.\n */",
@@ -12306,6 +12309,8 @@ const allowed = new Map([
     "// missing denominator, and `0` here would tell the reader they had nothing planned on purpose.",
     "// The formatter rounds a small real amount up to one minute so a five-minute task does not vanish;",
     "// that rounding must not turn an empty day into a day that held a minute.",
+    "// The same offer reaches a phone: the overflow menu carries the row while the sidebar does, and",
+    "// drops it with the sidebar row when the account switches the page off.",
   ]],
   ["src/client/features/todos/focus-overlay.test.tsx", [
     "/**\n * The focus overlay: what it keeps running, and what it refuses to stop.\n *\n * The card's whole reason to exist is the C9 rule, so most of what is pinned here is about a keystroke.\n * `Esc` takes the panel off the screen and leaves the session — the interval, the block, the countdown —\n * running, because the classic one-star review of every focus timer is the reader who lost a twenty-five\n * minute block to a reflexive Escape. Stopping the clock is a different gesture with a different name, and\n * it asks first. Both halves are asserted at the API boundary rather than inside the component: what a\n * reader means by \"it is still running\" is that the ledger is still open and the number is still moving.\n *\n * The rest is the three things the plan names as easy to get wrong and hard to see: whether a break costs\n * the task time (`pauseTrackingDuringBreak`, both states), whether the clock speaks once a minute rather\n * than once a second, and whether a page without Web Audio still gets a session that runs to its end\n * rather than an exception.\n *\n * The keyboard cases borrow the shape the shortcut suite uses — an `article` with a checkbox beside the\n * body that carries the task's id — because that is the row contract `f` reads, and a harness that drew\n * rows some other way would be testing a shape the app does not have.\n */",
@@ -13733,6 +13738,7 @@ const allowed = new Map([
     "/**\n * The rows one nav draws, in its own order, with the ones the account has switched off left out.\n *\n * The flags come from the frame rather than from a store read inside here: a nav that went and looked at\n * settings on its own would not redraw when the reader switched the page back on.\n */",
     "// Habits are browsed rather than reached on the way home, so the sidebar carries the row and the",
     "// phone's four tabs do not — the same placement the statistics and the close-out accepted.",
+    "/**\n * The rows the phone's overflow menu offers.\n *\n * A surface the sidebar carries and the phone's four tabs do not still has to come from somewhere on a\n * phone, so the table answers that question rather than the header keeping its own list: a screen that\n * earns a sidebar row cannot then ship without a way in on the other layout. The calendar is the one\n * surface left out by hand, because its header glyph is the way in — the phone reaches a calendar from\n * wherever it is standing, more often than it reaches the screens below it.\n */",
   ]],
   ["src/client/features/todos/worklog-section.test.tsx", [
     "/**\r\n * The worklog section of the statistics screen.\r\n *\r\n * The case worth pinning is the missing denominator. A range in which nothing was estimated has no\r\n * overrun rate, and showing `0%` there would tell an account that never planned anything that it plans\r\n * perfectly — the mistake the reference app's metric makes. The dash is the honest answer, and beside\r\n * it the counts stay, so the reader can see why there is no rate.\r\n */",

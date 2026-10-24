@@ -167,6 +167,19 @@ export function surfacesFor(nav: 'sidebar' | 'phone', flags: TodoNavFlags): Todo
 }
 
 /**
+ * The rows the phone's overflow menu offers.
+ *
+ * A surface the sidebar carries and the phone's four tabs do not still has to come from somewhere on a
+ * phone, so the table answers that question rather than the header keeping its own list: a screen that
+ * earns a sidebar row cannot then ship without a way in on the other layout. The calendar is the one
+ * surface left out by hand, because its header glyph is the way in — the phone reaches a calendar from
+ * wherever it is standing, more often than it reaches the screens below it.
+ */
+export function surfacesForPhoneMore(flags: TodoNavFlags): TodoSurface[] {
+  return surfacesFor('sidebar', flags).filter((surface) => surface.phone === undefined && surface.view !== 'calendar')
+}
+
+/**
  * What the frame draws for one address.
  *
  * The lists page is not a surface: it is reached from the header and from the sidebar's own footer, it
