@@ -182,10 +182,15 @@ describe('the mailbox settings page', () => {
     expect(document.body.textContent).toContain(t('email.settings.reply_to'))
 
     change(inputFor(t('email.settings.reply_to')), 'replies@example.com')
+    act(() => { button(t('email.settings.save')).click() })
+    await settle()
+    expect(update.mock.calls[0]?.[1].settings).toMatchObject({ replyTo: 'replies@example.com' })
+
     const delivery = [...document.querySelectorAll<HTMLButtonElement>('aside nav button')]
       .find((node) => node.textContent?.trim() === t('email.settings.delivery'))
     expect(delivery).toBeTruthy()
     act(() => delivery!.click())
+    await settle()
     change(inputFor(t('email.settings.delivery_domains')), 'mail.example.com')
     const provider = [...document.querySelectorAll('select')]
       .find((node) => node.closest('[hidden]') === null) as HTMLSelectElement | undefined
@@ -197,9 +202,8 @@ describe('the mailbox settings page', () => {
     change(inputFor(t('email.settings.delivery_resend_from')), 'Inkstone <mail@example.com>')
     change(inputFor(t('email.settings.delivery_resend_key')), 're_test_key_1234')
 
-    act(() => { button(t('email.settings.save')).click() })
+    act(() => { button(t('email.settings.delivery_save')).click() })
     await settle()
-    expect(update.mock.calls[0]?.[1].settings).toMatchObject({ replyTo: 'replies@example.com' })
     expect(deploymentUpdate).toHaveBeenCalledWith(expect.objectContaining({
       domains: ['mail.example.com'],
       provider: 'resend',

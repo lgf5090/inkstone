@@ -175,7 +175,9 @@ this occurrence and writes the next one, stamped with the dates the rule produce
 8. The email app stays hidden until the deployment has a mailbox domain. Enable Email Routing
    for that domain, point its catch-all or a dedicated address at this Worker, and set the plain
    variables `MAIL_DOMAIN` (required), `EMAIL_DOMAINS` (optional allow-list), and
-   `EMAIL_ADDRESSES` (optional fixed addresses) in the tracked Wrangler config. The routing target
+   `EMAIL_ADDRESSES` (optional fixed addresses) in the tracked Wrangler config. The same domains can be
+   added without touching Wrangler from the email app's Deployment & sending page, which the empty
+   mailbox screen links to before the first mailbox exists. The routing target
    must be the Worker deployed from this project — the `name` in `wrangler.toml`, `inkstone` by
    default; routing to another email Worker means this app never receives the message. Outbound mail
    uses the `[[send_email]]` binding unless it is removed, in which case the API answers that sending

@@ -16,12 +16,8 @@ import {
   X,
 } from 'lucide-react'
 import type { EmailAccountSettings, EmailSignature } from '@shared/email/model'
-import type { EmailDeploymentSettings, EmailSendingProvider } from '@shared/email/deployment'
 import {
-  isValidDeploymentDomain,
-  isValidResendFrom,
   isValidReplyTo,
-  normalizeDeploymentDomains,
 } from '@shared/email/deployment'
 import {
   EMAIL_SIGNATURES_MAX,
@@ -34,7 +30,7 @@ import {
 } from '@shared/email/model'
 import { Button, IconButton } from '../../components/primitives'
 import { Empty, LoadingBlock } from '../../components/feedback'
-import { Field, Input, Select, SettingRow, Switch, Textarea, useRovingRadio } from '../../components/form'
+import { Field, Input, SettingRow, Switch, Textarea, useRovingRadio } from '../../components/form'
 import { confirm } from '../../components/overlay'
 import { t } from '../../lib/i18n'
 import { compileQuery, queryKeeps } from '../../lib/query-match'
@@ -45,6 +41,7 @@ import { api } from '../../lib/api'
 import { useUi } from '../../store/ui'
 import { emailErrorText } from './errors'
 import { emailFolderPath } from './email-address'
+import { DeploymentSettingsPanel } from './DeploymentSettings'
 import { useEmailStore } from './store'
 
 type EmailSettingsSection =
@@ -143,14 +140,6 @@ export function AccountSettingsPage({ accountId, onBack }: { accountId: string; 
   const [error, setError] = useState<string | null>(null)
   const [section, setSection] = useState<EmailSettingsSection>('account')
   const [query, setQuery] = useState('')
-  const [deployment, setDeployment] = useState<EmailDeploymentSettings | null>(null)
-  const [deploymentStatus, setDeploymentStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
-  const [deploymentError, setDeploymentError] = useState<string | null>(null)
-  const [domainText, setDomainText] = useState('')
-  const [provider, setProvider] = useState<EmailSendingProvider>('cloudflare')
-  const [resendFrom, setResendFrom] = useState('')
-  const [resendKey, setResendKey] = useState('')
-  const [clearResendKey, setClearResendKey] = useState(false)
   const pinyinVersion = usePinyinVersion()
   const compiledQuery = useMemo(() => compileQuery(query), [query])
   const searching = query.trim().length > 0
@@ -173,26 +162,6 @@ export function AccountSettingsPage({ accountId, onBack }: { accountId: string; 
   useEffect(() => {
     if (accountsStatus === 'idle') void loadAccounts()
   }, [accountsStatus, loadAccounts])
-
-  const loadDeployment = async (): Promise<void> => {
-    setDeploymentStatus('loading')
-    setDeploymentError(null)
-    try {
-      const value = await api.email.getDeployment()
-      setDeployment(value)
-      setDomainText(value.domains.join(', '))
-      setProvider(value.provider)
-      setResendFrom(value.resendFrom)
-      setDeploymentStatus('ready')
-    } catch (reason) {
-      setDeploymentStatus('error')
-      setDeploymentError(emailErrorText(reason))
-    }
-  }
-
-  useEffect(() => {
-    void loadDeployment()
-  }, [])
 
   useEffect(() => {
     if (!account) return
@@ -294,19 +263,6 @@ export function AccountSettingsPage({ accountId, onBack }: { accountId: string; 
       setError(t('email.settings.reply_to_invalid'))
       return
     }
-    const domains = normalizeDeploymentDomains(domainText.split(/[,\n]/))
-    if (domains.some((domain) => !isValidDeploymentDomain(domain))) {
-      setError(t('email.settings.delivery_domain_invalid'))
-      return
-    }
-    if (provider === 'resend' && !resendFrom.trim()) {
-      setError(t('email.settings.delivery_resend_from_required'))
-      return
-    }
-    if (provider === 'resend' && resendFrom.trim() && !isValidResendFrom(resendFrom)) {
-      setError(t('email.settings.delivery_resend_from_invalid'))
-      return
-    }
     const selectedDefault = cleaned.some((signature) => signature.id === defaultSignatureId) ? defaultSignatureId : null
     const settings: EmailAccountSettings = {
       signatures: cleaned,
@@ -330,21 +286,6 @@ export function AccountSettingsPage({ accountId, onBack }: { accountId: string; 
         ...(displayName.trim() ? { displayName: displayName.trim() } : {}),
         settings,
       })
-      if (deployment) {
-        const saved = await api.email.updateDeployment({
-          domains,
-          provider,
-          resendFrom: resendFrom.trim(),
-          ...(resendKey.trim() ? { resendApiKey: resendKey.trim() } : {}),
-          ...(clearResendKey ? { resendApiKey: null } : {}),
-        })
-        setDeployment(saved)
-        setDomainText(saved.domains.join(', '))
-        setProvider(saved.provider)
-        setResendFrom(saved.resendFrom)
-        setResendKey('')
-        setClearResendKey(false)
-      }
       useUi.getState().toast({ title: t('email.settings.saved'), tone: 'success' })
     } catch (reason) {
       setError(emailErrorText(reason))
@@ -408,12 +349,6 @@ export function AccountSettingsPage({ accountId, onBack }: { accountId: string; 
   }
 
   const autoDraftAvailable = config?.autoDraftAvailable === true
-  const sendingReady = deployment
-    ? provider === 'resend'
-      ? Boolean(deployment.hasResendKey) && resendFrom.trim().length > 0
-      : deployment.cloudflareSending
-    : false
-  const attachmentsReady = deployment?.attachmentsAvailable === true
   const autoDraftStatusText = (() => {
     if (autoDraftStatusError) return t('email.settings.auto_draft_status_unavailable')
     if (!autoDraftStatus?.status) return t('email.settings.auto_draft_status_none')
@@ -744,85 +679,8 @@ export function AccountSettingsPage({ accountId, onBack }: { accountId: string; 
             </div>
           </section>
 
-          <section hidden={section !== 'delivery'} aria-label={t('email.settings.delivery')} className="mt-3 space-y-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4">
-            <h2 className="m-0 text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">{t('email.settings.delivery')}</h2>
-            <p className="m-0 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">{t('email.settings.delivery_hint')}</p>
-            {deploymentStatus === 'loading' && (
-              <p role="status" className="m-0 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('common.loading')}</p>
-            )}
-            {deploymentStatus === 'error' && (
-              <div role="alert" className="flex items-center gap-2 rounded-[var(--r-sm)] bg-[var(--danger-soft)] px-2.5 py-1.5 text-[length:var(--text-11-5)] text-[var(--danger)]">
-                <span className="min-w-0 flex-1">{deploymentError ?? t('email.settings.delivery_load_error')}</span>
-                <Button size="sm" variant="ghost" onClick={() => { void loadDeployment() }}>{t('common.retry')}</Button>
-              </div>
-            )}
-            {deploymentStatus === 'ready' && deployment && (
-              <>
-                {deployment.envDomains.length > 0 && (
-                  <p className="m-0 rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-2.5 py-1.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
-                    {t('email.settings.delivery_env_domains', { domains: deployment.envDomains.join(', ') })}
-                  </p>
-                )}
-                {config && config.addresses.length > 0 && (
-                  <p className="m-0 rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-2.5 py-1.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
-                    {t('email.settings.delivery_env_addresses', { addresses: config.addresses.join(', ') })}
-                  </p>
-                )}
-                <Field label={t('email.settings.delivery_domains')} hint={t('email.settings.delivery_domains_hint')}>
-                  <Input value={domainText} onChange={(event) => setDomainText(event.target.value)} autoComplete="off" placeholder={deployment.envDomains[0] ?? 'example.com'} />
-                </Field>
-                <Field label={t('email.settings.delivery_provider')} hint={t('email.settings.delivery_provider_hint')}>
-                  <Select value={provider} onChange={(event) => setProvider(event.target.value as EmailSendingProvider)}>
-                    <option value="cloudflare">{t('email.settings.delivery_provider_cloudflare')}</option>
-                    <option value="resend">{t('email.settings.delivery_provider_resend')}</option>
-                  </Select>
-                </Field>
-                {provider === 'resend' && (
-                  <>
-                    <Field label={t('email.settings.delivery_resend_from')} hint={t('email.settings.delivery_resend_from_hint')}>
-                      <Input value={resendFrom} onChange={(event) => setResendFrom(event.target.value)} autoComplete="off" placeholder={t('email.settings.delivery_resend_from_placeholder')} />
-                    </Field>
-                    <Field
-                      label={t('email.settings.delivery_resend_key')}
-                      hint={deployment.hasResendKey
-                        ? t('email.settings.delivery_resend_key_saved', { hint: deployment.resendKeyHint })
-                        : t('email.settings.delivery_resend_key_hint')}
-                    >
-                      <Input
-                        type="password"
-                        value={resendKey}
-                        onChange={(event) => { setResendKey(event.target.value); setClearResendKey(false) }}
-                        autoComplete="new-password"
-                        placeholder={deployment.hasResendKey ? t('email.settings.delivery_resend_key_keep') : 're_...'}
-                      />
-                    </Field>
-                    {deployment.hasResendKey && (
-                      <Button
-                        size="sm"
-                        variant={clearResendKey ? 'danger' : 'ghost'}
-                        onClick={() => setClearResendKey(!clearResendKey)}
-                      >
-                        {clearResendKey ? t('email.settings.delivery_resend_key_clear_pending') : t('email.settings.delivery_resend_key_clear')}
-                      </Button>
-                    )}
-                  </>
-                )}
-                <dl className="m-0 space-y-1 rounded-[var(--r-sm)] border border-[var(--border-subtle)] px-2.5 py-2 text-[length:var(--text-11)]">
-                  <div className="flex items-baseline gap-2">
-                    <dt className="shrink-0 text-[var(--text-tertiary)]">{t('email.settings.delivery_status_sending')}</dt>
-                    <dd className={cn('m-0', sendingReady ? 'text-[var(--text-secondary)]' : 'text-[var(--danger)]')}>
-                      {sendingReady ? t('email.settings.delivery_status_ready') : t('email.settings.delivery_status_sending_missing')}
-                    </dd>
-                  </div>
-                  <div className="flex items-baseline gap-2">
-                    <dt className="shrink-0 text-[var(--text-tertiary)]">{t('email.settings.delivery_status_attachments')}</dt>
-                    <dd className={cn('m-0', attachmentsReady ? 'text-[var(--text-secondary)]' : 'text-[var(--danger)]')}>
-                      {attachmentsReady ? t('email.settings.delivery_status_ready') : t('email.settings.delivery_status_attachments_missing')}
-                    </dd>
-                  </div>
-                </dl>
-              </>
-            )}
+          <section hidden={section !== 'delivery'} aria-label={t('email.settings.delivery')} className="mt-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4">
+            <DeploymentSettingsPanel />
           </section>
 
           <section hidden={section !== 'mcp'} aria-label={t('email.settings.mcp')} className="mt-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4">

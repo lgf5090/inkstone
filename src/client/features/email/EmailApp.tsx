@@ -6,6 +6,7 @@ import { useLocale, t } from '../../lib/i18n'
 import { usePathname, useSearch } from '../../lib/app-history'
 import { useSession } from '../../store/session'
 import { AccountManagerDialog } from './AccountManagerDialog'
+import { DeploymentSettingsDialog } from './DeploymentSettings'
 import { MailboxPage, type EmailWorkspacePanel } from './MailboxPage'
 import { parseEmailAddress } from './email-address'
 import { useEmailStore } from './store'
@@ -21,6 +22,8 @@ function panelFor(kind: 'home' | 'contacts' | 'settings' | 'stats' | 'rules' | '
 
 function NoMailboxState() {
   const [open, setOpen] = useState(false)
+  const [deploymentOpen, setDeploymentOpen] = useState(false)
+  const loadAccounts = useEmailStore((state) => state.loadAccounts)
   return (
     <div className="flex h-full items-center justify-center bg-[var(--bg-base)]">
       <Empty
@@ -28,9 +31,14 @@ function NoMailboxState() {
         title={t('email.empty_title')}
         description={t('email.empty_hint')}
         action={(
-          <Button size="sm" icon={<MailPlus size={14} />} onClick={() => setOpen(true)}>
-            {t('email.accounts.create')}
-          </Button>
+          <div className="flex flex-wrap justify-center gap-2">
+            <Button size="sm" icon={<MailPlus size={14} />} onClick={() => setOpen(true)}>
+              {t('email.accounts.create')}
+            </Button>
+            <Button size="sm" onClick={() => setDeploymentOpen(true)}>
+              {t('email.settings.delivery')}
+            </Button>
+          </div>
         )}
       />
       <AccountManagerDialog
@@ -38,6 +46,12 @@ function NoMailboxState() {
         onClose={() => setOpen(false)}
         activeAccountId=""
         onOpenSettings={() => undefined}
+        onOpenDeployment={() => { setOpen(false); setDeploymentOpen(true) }}
+      />
+      <DeploymentSettingsDialog
+        open={deploymentOpen}
+        onClose={() => setDeploymentOpen(false)}
+        onSaved={() => { void loadAccounts() }}
       />
     </div>
   )

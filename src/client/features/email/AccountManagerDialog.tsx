@@ -23,12 +23,14 @@ export function AccountManagerDialog({
   onClose,
   activeAccountId,
   onOpenSettings,
+  onOpenDeployment,
   startCreating = false,
 }: {
   open: boolean
   onClose: () => void
   activeAccountId: string
   onOpenSettings: (accountId: string) => void
+  onOpenDeployment?: () => void
   startCreating?: boolean
 }) {
   const config = useEmailStore((state) => state.config)
@@ -173,7 +175,15 @@ export function AccountManagerDialog({
           art="archive"
           title={t('email.empty_title')}
           description={canCreate ? t('email.empty_hint') : t('email.no_domain')}
-          action={canCreate ? <Button size="sm" icon={<Plus size={14} />} onClick={openCreate}>{t('email.accounts.create')}</Button> : undefined}
+          action={canCreate
+            ? <Button size="sm" icon={<Plus size={14} />} onClick={openCreate}>{t('email.accounts.create')}</Button>
+            : onOpenDeployment
+              ? (
+                  <Button size="sm" icon={<Settings2 size={14} />} onClick={() => { onClose(); onOpenDeployment() }}>
+                    {t('email.settings.delivery')}
+                  </Button>
+                )
+              : undefined}
         />
       ) : (
         <ul className="m-0 flex list-none flex-col gap-1 p-0">

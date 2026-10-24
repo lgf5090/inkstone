@@ -157,7 +157,8 @@ hide edit button
 
 8. 没有邮箱域名时邮箱应用不会出现。先为该域名启用 Email Routing，把 catch-all 或专用地址指向这个
    Worker，并在纳入版本管理的 Wrangler 配置里设置普通变量 `MAIL_DOMAIN`（必填）、`EMAIL_DOMAINS`
-   （可选白名单）和 `EMAIL_ADDRESSES`（可选固定地址）。目标必须是本项目部署出的 Worker——名字是
+   （可选白名单）和 `EMAIL_ADDRESSES`（可选固定地址）。也可以不改编 Wrangler：还没有邮箱时，空状态
+   里的“部署与发信”入口就能添加域名，保存后再创建第一个邮箱。目标必须是本项目部署出的 Worker——名字是
    `wrangler.toml` 的 `name`，默认 `inkstone`；指向别的邮件 Worker 时本应用收不到消息。发信使用
    `[[send_email]]` 绑定；移除该绑定后，接口会如实回答"发信不可用"，不会假装邮件已发出。只有站长
    能打开邮箱或调用其接口。KV 模式没有 R2 存储桶，因此邮件附件会显示为不可用，纯文本邮件仍可正常收发。
