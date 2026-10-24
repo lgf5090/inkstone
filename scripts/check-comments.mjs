@@ -38803,6 +38803,14 @@ const allowed = new Map([
     "// One page, read in the order the list itself is read, and one rule — the same one the Today",
     "// screen runs, in `shared/todos/plan-suggestions`. The tool used to carry its own copy of the",
     "// three passes, with a comment promising the two agreed and nothing making them.",
+    "// The row's own face: a tool that sets one has to be able to see it landed, and a task that wears",
+    "// its list's answers null for both, which is what the columns hold.",
+    "/**\n * The habit a name or id points at.\n *\n * A habit is not a task, so it has its own table and its own resolver: by id first, then by the one\n * title that matches exactly. Two habits with the same name are refused rather than resolved by order,\n * because ticking the wrong one is a silent edit the reader never asked for.\n */",
+    "// The row could not carry what was asked of it: say which half was lost rather than promising a",
+    "// face the reader will not see.",
+    "// The fields the row could not carry, in the shape the guards named them, so the answer says",
+    "// what to send instead rather than a sentence a caller has to parse.",
+    "// The day's own amount, read off the window the screen reads rather than counted again here.",
   ]],
   ["src/worker/assistant/upstream.ts", [
     "/** A JSON Schema object, built by `toolSchemaFor` from the tool's own declared parameters. */",
@@ -51815,6 +51823,8 @@ const allowed = new Map([
     "// time-prefixed: three creates fast enough to share a tick would order by their random tails.",
     "// The move is what this case is about, so each row gets its own tick and the creation order is",
     "// the order the listing reads.",
+    "// The shelf hides the row from every listing, not from a read by name: the record and its finish",
+    "// stay where they were.",
   ]],
   ["tests/template-library-route.test.ts", [
     "// Every field hono's request handler declares, so the fake cannot hand the route less than the real",
