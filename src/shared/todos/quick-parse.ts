@@ -604,8 +604,9 @@ export function parseQuickAdd(input: string, now: number, timeZone: string): Qui
   // `every 15th`, `every month on the 15th`: the same day of every month. A bare `every 15` is not this —
   // the suffix is what says "a day of the month" rather than an unfinished count — and a month too short
   // for the number lands on its last day, which is what the stored rule does on its own. The lookahead is
-  // for `every 2nd day`, where the ordinal is the count of a rhythm rather than a day of the month: the
-  // unit pass below owns that line, and taking it here would file a monthly rule nobody meant.
+  // for `every 2nd day`: there the ordinal counts a rhythm rather than a day of the month, and the unit
+  // pass below reads counts as digits only, so that phrase is declined by every pass and stays in the
+  // title — the ruling in the plan, not an accident.
   consume('repeat', /\b(?:every|each)\s+(?:month(?:ly)?\s+)?(?:on\s+)?(?:the\s+)?(0?[1-9]|[12]\d|3[01])(?:st|nd|rd|th)(?!\s+(?:days?|weeks?|months?|years?))\b/i, (match) => {
     const dayOfMonth = Number(match[1])
     if (!Number.isFinite(dayOfMonth) || dayOfMonth < 1 || dayOfMonth > 31) return false

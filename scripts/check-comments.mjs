@@ -27057,8 +27057,6 @@ const allowed = new Map([
     "// `every 15th`, `every month on the 15th`: the same day of every month. A bare `every 15` is not this —",
     "// the suffix is what says \"a day of the month\" rather than an unfinished count — and a month too short",
     "// for the number lands on its last day, which is what the stored rule does on its own. The lookahead is",
-    "// for `every 2nd day`, where the ordinal is the count of a rhythm rather than a day of the month: the",
-    "// unit pass below owns that line, and taking it here would file a monthly rule nobody meant.",
     "// Read from the table rather than cast: the word a reader types is not the name the rule stores",
     "// (`day` is not a frequency), and the cast that used to do this handed back `freq: 'day'`, which",
     "// `parseRepeatRule` refuses on the way in — so `every day` from quick add saved a task that",
@@ -27072,6 +27070,9 @@ const allowed = new Map([
     "/** The span between two calendar days, in whole days. Neither end needs a zone: both are days. */",
     "/**\n * How many days from the reader's own today the month next reaches `dayOfMonth`.\n *\n * A month too short for the day takes its last one, which is exactly how {@link nextOccurrence} reads the\n * same rule: a rhythm typed as the 31st must not land on the 31st in the parser and on the 30st in the\n * advance. Today counts — on the 15th, `every 15th` is due today.\n */",
     "/**\n * How many days from the reader's own today the next `nth` `weekday` falls, where a fifth of a weekday\n * the month only holds four of is its last one.\n *\n * The month being closed still counts: on the 3rd, a `2nd monday` means this month's, while a\n * `4th monday` whose day has already passed means next month's fourth. A plan for a day that has gone by\n * is not a plan for today.\n */",
+    "// for `every 2nd day`: there the ordinal counts a rhythm rather than a day of the month, and the unit",
+    "// pass below reads counts as digits only, so that phrase is declined by every pass and stays in the",
+    "// title — the ruling in the plan, not an accident.",
   ]],
   ["src/shared/todos/reminders.ts", [
     "/**\n * The reminder tiers, in one place.\n *\n * This lives in a module with no imports at all, which is the only reason `shared/constants.ts` can read\n * it: the settings merge validates `todo.defaultRemind` here, and `todos/model.ts` reaches\n * `organizer-colors`, which reaches `constants` — so importing the tiers from the model would have made\n * the cycle, and a cycle at module scope is a value that is undefined during the first import rather\n * than an error anyone sees.\n *\n * The tiers were spelled in four places before this file existed: the enum, the arithmetic that turns\n * one into an instant, the client's copy of that arithmetic, and the settings validator's own list. Each\n * new tier had to be remembered in all four, and the two that matter fail quietly — a validator that\n * does not know a tier folds it to null, so the reader's saved default simply stops being applied, and a\n * distance the arithmetic does not know becomes no reminder at all.\n *\n * So there is one list (`REMIND_OFFSETS`), one total map from each tier to the distance it means\n * (`REMIND_OFFSET_MS`, which the compiler forces every new tier to price), and the two readings that\n * go with them. A form or a tool door builds its choices from the list, so nothing has to be edited\n * twice.\n */",
