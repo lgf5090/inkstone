@@ -20601,7 +20601,7 @@ const allowed = new Map([
     "// answer as an unreachable note pull: keep what is on screen and ask again on the next tick.",
     "// The queue is replayed as soon as the browser says the network is back; waiting for the first",
     "// poll would leave a task the reader already ticked off still queued.",
-    "/**\n * The smallest shape the task merge reads before trusting a page.\n *\n * The route is this app's own, but a proxy error page or a half-written response must not be folded\n * into the listing: an id, a title and a status are what the merge decides on.\n */",
+    "/**\n * The smallest shape the task merge reads before trusting a page.\n *\n * The route is this app's own, but a proxy error page or a half-written response must not be folded\n * into the listing: an id, a title and a status are what the merge decides on. The status is read\n * against `TASK_STATUSES` rather than a list written here, because a page holding one row the guard\n * does not know is not a bad page — it is a whole pull thrown away, and the only sign is a warning in\n * a console nobody opens. That is how `cancelled` sat unsyncable across devices for a full card.\n */",
   ]],
   ["src/client/lib/tag-tree.test.ts", [
     "// The level a row belongs to is its parent's children, so \"toggle this level\" has to",
@@ -28742,6 +28742,7 @@ const allowed = new Map([
     "// `updated_at` (assistant/store.ts `touchTaskStatement`), so the whole set of one task's",
     "// intervals is restated whenever any of them changes, and a receiving device replaces rather",
     "// than merges. That is what makes a deleted span propagate without a second tombstone stream.",
+    "/**\n * The row's own vocabulary, read from the shared lists rather than spelled out again here.\n *\n * A status written by hand was a status the sync could not carry: `cancelled` reached this decoder as\n * an unknown word and left the other device as an open task — not dropped, which would be visible, but\n * rewritten. The fallback stays: a word from a future version of the app still reads as the plain\n * default rather than throwing away the page.\n */",
   ]],
   ["src/worker/tags/store.ts", [
     "/**\n * Every read and write the tag HTTP routes make against D1.\n *\n * The shape follows `notes/store.ts` and `assistant/store.ts`: a store built per request from the\n * account it serves, methods that take already-validated input and hand back rows or the record the\n * route needs to answer with, and nothing in between that knows about HTTP. Two rules hold throughout:\n *  - every statement carries `user_id`, so one account's tags can never surface in another's listing.\n *    The few that cannot are deliberate: the id-collision probe below answers a client-supplied id,\n *    which is only meaningful across accounts, and the rewrite paths that address a note by an id this\n *    store already resolved inside a `user_id`-scoped statement;\n *  - a mutation's statements stay in one D1 batch. The guards inside them (`name`, `is_pinned`, `color`)\n *    only mean \"nobody changed this row between my read and my write\" while the whole batch lands\n *    together, so splitting a batch into sequential runs would turn an atomic rename into a partially\n *    moved family that no test would notice.\n *\n * `broadcastCursor` and the FTS drain stay with the route: the cursor belongs to the response and the\n * background work to the request context.\n */",
@@ -31744,6 +31745,9 @@ const allowed = new Map([
     "// A re-forked floor would reintroduce a hard-coded length comparison.",
     "// A caller that asked for every scope still gets only the two reads: what a client names is not the",
     "// same thing as what the account has switched on.",
+    "// The sync guard decides whether a whole page is trusted. A status written out by hand there is a",
+    "// page thrown away in silence — `cancelled` was added to the vocabulary and left this file behind,",
+    "// so a task given up on one device never reached another.",
   ]],
   ["tests/price-periods.test.ts", [
     "/**\n * Price windows: what a stored schedule means, and which one a timestamp falls into.\n *\n * The two facts that are easy to get wrong live here: an overnight window belongs to the weekday it\n * started on, and the clock is the assistant's timezone rather than UTC or the browser's.\n */",
@@ -32944,6 +32948,10 @@ const allowed = new Map([
     "// A pick that only wrote `planned_for` would then succeed and leave the row invisible — the silent",
     "// no-op, on the one screen whose whole job is putting work in front of the reader.",
     "// Un-picking answers \"not today\" and leaves the shelf where the reader put it.",
+  ]],
+  ["tests/todo-sync-delta.test.ts", [
+    "// A status the decoder does not know used to arrive on the other device as `todo`: not dropped,",
+    "// which would show up as a missing row, but rewritten — an abandoned task back on the list.",
   ]],
   ["tests/todo-time.test.ts", [
     "/** The account's own today, as every day-fixed assertion reads it. */",

@@ -120,6 +120,19 @@ describe('the task delta', () => {
     expect(body.cursor).toBeGreaterThan(0)
   })
 
+  it('carries every status the vocabulary has, including the one a reader gives up with', async () => {
+    // A status the decoder does not know used to arrive on the other device as `todo`: not dropped,
+    // which would show up as a missing row, but rewritten — an abandoned task back on the list.
+    for (const status of ['todo', 'in_progress', 'done', 'cancelled']) {
+      insertTask(`s-${status}`, `A row that is ${status}`, { status })
+    }
+
+    const body = await get('/api/sync/todos?since=0') as TodosSyncResponse
+
+    expect(body.todos.map((task) => [task.id, task.status]).sort())
+      .toEqual([['s-cancelled', 'cancelled'], ['s-done', 'done'], ['s-in_progress', 'in_progress'], ['s-todo', 'todo']])
+  })
+
   it('carries an updated row and a deletion stamped after the cursor', async () => {
     const past = Date.now() - 10_000
     insertTask('t1', 'Old title', { updatedAt: past })

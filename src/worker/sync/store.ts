@@ -14,7 +14,7 @@
  */
 
 import { LIMITS } from '@shared/constants'
-import type { TaskPriority, TaskStatus } from '@shared/assistant'
+import { TASK_PRIORITIES, TASK_STATUSES, type TaskPriority, type TaskStatus } from '@shared/assistant'
 import type { SyncResponse } from '@shared/types'
 import { parseRepeatRule, type TaskTag, type TodoTask, type TodoTimeEntry } from '@shared/todos/model'
 import { toTimeEntry, type TodoTimeEntryRow } from '../todos/schema'
@@ -449,12 +449,20 @@ function chunkIds(ids: readonly string[]): string[][] {
   return chunks
 }
 
+/**
+ * The row's own vocabulary, read from the shared lists rather than spelled out again here.
+ *
+ * A status written by hand was a status the sync could not carry: `cancelled` reached this decoder as
+ * an unknown word and left the other device as an open task — not dropped, which would be visible, but
+ * rewritten. The fallback stays: a word from a future version of the app still reads as the plain
+ * default rather than throwing away the page.
+ */
 function taskStatus(value: string): TaskStatus {
-  return value === 'in_progress' || value === 'done' ? value : 'todo'
+  return TASK_STATUSES.includes(value as TaskStatus) ? value as TaskStatus : 'todo'
 }
 
 function taskPriority(value: string): TaskPriority {
-  return value === 'low' || value === 'high' || value === 'urgent' ? value : 'medium'
+  return TASK_PRIORITIES.includes(value as TaskPriority) ? value as TaskPriority : 'medium'
 }
 
 function parseJson(value: string | null): unknown {

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { CLIENT_HEADER } from '@shared/constants'
+import { TASK_STATUSES, type TaskStatus } from '@shared/assistant'
 import type { RealtimeMessage, TodosSyncResponse } from '@shared/types'
 import { CLIENT_ID } from './api'
 import { createBroadcast, localDb, type BroadcastPayload } from './db'
@@ -450,7 +451,10 @@ export class SyncEngine {
  * The smallest shape the task merge reads before trusting a page.
  *
  * The route is this app's own, but a proxy error page or a half-written response must not be folded
- * into the listing: an id, a title and a status are what the merge decides on.
+ * into the listing: an id, a title and a status are what the merge decides on. The status is read
+ * against `TASK_STATUSES` rather than a list written here, because a page holding one row the guard
+ * does not know is not a bad page — it is a whole pull thrown away, and the only sign is a warning in
+ * a console nobody opens. That is how `cancelled` sat unsyncable across devices for a full card.
  */
 function isTodosSyncResponse(value: unknown): value is TodosSyncResponse {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
@@ -460,7 +464,7 @@ function isTodosSyncResponse(value: unknown): value is TodosSyncResponse {
       if (!task || typeof task !== 'object') return false
       const row = task as { id?: unknown; title?: unknown; status?: unknown }
       return typeof row.id === 'string' && typeof row.title === 'string' &&
-        (row.status === 'todo' || row.status === 'in_progress' || row.status === 'done')
+        TASK_STATUSES.includes(row.status as TaskStatus)
     }) &&
     Array.isArray(page.deleted) &&
     page.deleted.every((id) => typeof id === 'string') &&
