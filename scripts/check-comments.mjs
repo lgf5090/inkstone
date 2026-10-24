@@ -490,6 +490,15 @@ const allowed = new Map([
     "/**\n * The frame every settings dialog hangs in. A long body has to scroll inside the panel while the footer\n * stays put, and the panel's cap has to leave room for the backdrop's own padding — a dialog as tall as\n * the viewport pushed its footer under the fold, which is how the model editor was reported.\n */",
     "// min-h-0 is what lets the body shrink inside the flex column instead of pushing the footer out.",
     "// Mobile: the panel may reach the visual viewport. Desktop: the backdrop adds 2rem above and below.",
+    "/** A field that takes the caret while the panel is being committed, the way `autoFocus` does. */",
+    "// The app frame is in the document on every real surface, so the fallback has something to land on",
+    "// here too — and the first test below is only worth reading if it is there to be missed.",
+    "// Deleting the row the dialog was opened from is what the reader just did; the trigger, its list item",
+    "// and the control that would have received the caret are all out of the document now.",
+    "// A field that steals the caret during the commit — the task editor's `autoFocus` title, measured in",
+    "// a real browser to be what the hook finds when it asks where to go back to — leaves the hook holding",
+    "// a node that dies with the panel. The trigger is still on the page; the hook simply never saw it,",
+    "// and no fallback can invent what it never had.",
   ]],
   ["src/client/components/overlay.tsx", [
     "// With no host mounted there is no dialog to show, so the only answer we may give is the",
@@ -571,6 +580,7 @@ const allowed = new Map([
     "// The trigger wins over whatever had the caret: a panel opens on a click on it, and some",
     "// engines leave a clicked button unfocused, so returning to \"previous\" would drop the reader",
     "// back on the page body with nothing to Tab from.",
+    "/**\n * Hand the caret back to the place a surface took it from, or to the app frame when that place is gone.\n *\n * A surface usually closes over the control that opened it, and `isConnected` is what keeps a stale\n * reference from being focused into nothing. But a dialog can also close over the row it just deleted —\n * then its trigger left the document with the whole list row, and the caret would be dropped on\n * `document.body`, one Tab away from the browser's own chrome and with no announcement of where the\n * reader is. The frame every app hangs in is the last container that is always there, and it carries\n * `data-app-frame` so this is the one place that has to know about it.\n */",
   ]],
   ["src/client/components/popover-placement.test.ts", [
     "/** The phone the review shrank to: a 320px panel had its left edge at -8 and lost its first field. */",
@@ -10795,6 +10805,7 @@ const allowed = new Map([
     "/**\n * Which component answers for which tab. A tab the rail offers but this list does not name is a\n * container waiting for its app, and gets {@link AppTabPlaceholder}.\n *\n * An app that arrives by `lazy` is a deliberate second chunk: the reader who lives in the notebook\n * should not download the reader who reads feeds. The service worker's on-demand list has to know\n * the same thing, or the chunk joins every visitor's background warm-up.\n */",
     "// A task's own screen is still the to-do app: the container that owns an address says so itself, because",
     "// the shape of `/todo/<task id>` belongs to it and not to the table of tab paths.",
+    "/* The column an app is drawn in, and the only container that is always there: it is where the caret\n          lands when a dialog closes over a control that has left the document (`returnCaret` in\n          `components/overlay.tsx`). Focusable, and left with its own ring — a reader who loses the row a\n          dialog was opened from should see where they ended up. */",
   ]],
   ["src/client/features/shell/AppTabPlaceholder.tsx", [
     "/**\n * The container standing in for an app that has not been written yet.\n *\n * It is deliberately the real frame — header, body, the same tokens the notebook uses — so the\n * day an app lands it replaces this file's own body and nothing about the rail, the address or\n * the layout has to change. It says plainly that there is no app here rather than drawing a\n * picture of one, because a mock is read as a bug the moment a reader tries to use it.\n */",

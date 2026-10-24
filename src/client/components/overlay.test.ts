@@ -1,4 +1,4 @@
-import { act, createElement } from 'react'
+import { act, createElement, useLayoutEffect, useRef } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initI18n, t } from '../lib/i18n'
@@ -148,6 +148,75 @@ describe('the dialog frame', () => {
     // Mobile: the panel may reach the visual viewport. Desktop: the backdrop adds 2rem above and below.
     expect(panel.className).toContain('max-h-[calc(var(--app-viewport-height,100dvh)-env(safe-area-inset-top))]')
     expect(panel.className).toContain('md:max-h-[calc(var(--app-viewport-height,100dvh)-4rem)]')
+  })
+})
+
+/** A field that takes the caret while the panel is being committed, the way `autoFocus` does. */
+function CaretThief() {
+  const ref = useRef<HTMLInputElement>(null)
+  useLayoutEffect(() => {
+    ref.current?.focus()
+  }, [])
+  return createElement('input', { ref, 'aria-label': 'Title' })
+}
+
+describe('the caret a dialog hands back', () => {
+  let frame: HTMLDivElement
+
+  beforeEach(() => {
+    // The app frame is in the document on every real surface, so the fallback has something to land on
+    // here too — and the first test below is only worth reading if it is there to be missed.
+    frame = document.createElement('div')
+    frame.setAttribute('data-app-frame', '')
+    frame.tabIndex = -1
+    document.body.append(frame)
+  })
+
+  afterEach(() => {
+    frame.remove()
+  })
+
+  function mountModal(open: boolean, stealCaret = false) {
+    act(() => root.render(createElement(Modal, {
+      open,
+      onClose: () => undefined,
+      title: 'Edit task',
+      children: stealCaret
+        ? createElement(CaretThief)
+        : createElement('button', { type: 'button' }, 'Save'),
+    })))
+  }
+
+  it('hands the caret back to the trigger that is still on the page', () => {
+    trigger.focus()
+    mountModal(true)
+    expect(document.activeElement, 'the dialog never took the caret').not.toBe(trigger)
+    mountModal(false)
+    expect(document.activeElement).toBe(trigger)
+  })
+
+  it('lands on the app frame when the dialog closes over a deleted trigger', () => {
+    trigger.focus()
+    mountModal(true)
+    // Deleting the row the dialog was opened from is what the reader just did; the trigger, its list item
+    // and the control that would have received the caret are all out of the document now.
+    trigger.remove()
+    mountModal(false)
+    expect(document.activeElement, 'the caret was dropped on the page body').toBe(frame)
+  })
+
+  it('keeps the reader in the app when the panel had taken the caret into itself', () => {
+    trigger.focus()
+    mountModal(true, true)
+    // A field that steals the caret during the commit — the task editor's `autoFocus` title, measured in
+    // a real browser to be what the hook finds when it asks where to go back to — leaves the hook holding
+    // a node that dies with the panel. The trigger is still on the page; the hook simply never saw it,
+    // and no fallback can invent what it never had.
+    expect(document.activeElement, 'the panel never took the caret').not.toBe(trigger)
+    expect(dialog().contains(document.activeElement)).toBe(true)
+    mountModal(false, true)
+    expect(trigger.isConnected).toBe(true)
+    expect(document.activeElement, 'a doomed field left the caret on the page body').toBe(frame)
   })
 })
 
