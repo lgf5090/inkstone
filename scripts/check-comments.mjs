@@ -5979,9 +5979,6 @@ const allowed = new Map([
     "// to the desktop bar, not to a 64px strip that would only say \"nothing\".",
     "/**\r\n * The phone-sized transport: artwork, title and the two presses a thumb needs.\r\n *\r\n * It is mounted instead of the desktop bar on a narrow shell (the stylesheet keeps it hidden above\r\n * the phone breakpoint, so a shell that renders both never shows two bars). The body is one button\r\n * that asks the shell to expand the full-screen layer; the play and next controls sit beside it so\r\n * neither gesture swallows the other.\r\n */",
   ]],
-  ["src/client/features/music/components/NowPlaying.tsx", [
-    "/**\r\n * The full-screen listening surface: artwork, track information, a lyric area and the transport.\r\n *\r\n * Lyrics are a container here, not a renderer: the timed lines, translation rows and the current-line\r\n * highlight belong to the lyric task, and drawing a fake line list in the meantime would make the\r\n * empty state indistinguishable from a track without lyrics. The layer itself is the shared full\r\n * screen `Modal`, so focus moves in, Escape and the backdrop close it, and the queue drawer and this\r\n * surface cannot be open together (the UI store enforces that).\r\n */",
-  ]],
   ["src/client/features/music/components/Pager.tsx", [
     "/**\n * Page navigation for a long collection.\n *\n * Above the phone breakpoint it is previous / numbers / next; below it the numbers step aside and a\n * single \"load more\" button takes their place, because a row of five 32px page numbers is not a\n * thumb target. Both controls call the same `onChange`, so a page never has two different notions of\n * what \"next\" means.\n */",
     "/** One-based page number. */",
