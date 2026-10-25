@@ -1,30 +1,102 @@
-import { KeyRound, ShieldCheck } from 'lucide-react'
-import { t } from '../../../lib/i18n'
+import { useEffect } from 'react'
 import { useToolsStore } from '../store'
+import { usePasswordVaultStore } from './store'
+import { Door } from './Door'
+import { Setting } from './Setting'
+import { Reset } from './Reset'
+import { Recover } from './Recover'
+import { useAutoLock } from './useAutoLock'
+import { AccountArea } from './AccountArea'
+import { FavoriteAccounts } from './FavoriteAccounts'
+import { Search } from './Search'
+import { RandomPasswordView } from './RandomPasswordView'
+import { PasswordGeneratorModal } from './PasswordGeneratorModal'
+import { QuickAddModal } from './QuickAddModal'
+import { BatchOperationsModal } from './BatchOperationsModal'
+import { ExportModal } from './ExportModal'
+import { ImportModal } from './ImportModal'
+import { BackupSettingsModal } from './BackupSettingsModal'
 
 export function PasswordApp() {
   const activePasswordView = useToolsStore((s) => s.activePasswordView)
+  const isUnlocked = usePasswordVaultStore((s) => s.isUnlocked)
+  const vaultState = usePasswordVaultStore((s) => s.vaultState)
+  const checkVaultAndAutoUnlock = usePasswordVaultStore((s) => s.checkVaultAndAutoUnlock)
+
+  // Store modal states
+  const isGeneratorModalOpen = usePasswordVaultStore((s) => s.isGeneratorModalOpen)
+  const closeGeneratorModal = usePasswordVaultStore((s) => s.closeGeneratorModal)
+  const isQuickAddModalOpen = usePasswordVaultStore((s) => s.isQuickAddModalOpen)
+  const closeQuickAddModal = usePasswordVaultStore((s) => s.closeQuickAddModal)
+  const isBatchOperationsOpen = usePasswordVaultStore((s) => s.isBatchOperationsOpen)
+  const closeBatchOperations = usePasswordVaultStore((s) => s.closeBatchOperations)
+  const isExportModalOpen = usePasswordVaultStore((s) => s.isExportModalOpen)
+  const closeExportModal = usePasswordVaultStore((s) => s.closeExportModal)
+  const isImportModalOpen = usePasswordVaultStore((s) => s.isImportModalOpen)
+  const closeImportModal = usePasswordVaultStore((s) => s.closeImportModal)
+  const isBackupSettingsOpen = usePasswordVaultStore((s) => s.isBackupSettingsOpen)
+  const closeBackupSettings = usePasswordVaultStore((s) => s.closeBackupSettings)
+  const targetGroup = usePasswordVaultStore((s) => s.targetGroupForExportImport)
+
+  useAutoLock()
+
+  useEffect(() => {
+    if (!isUnlocked && vaultState === null) {
+      void checkVaultAndAutoUnlock()
+    }
+  }, [isUnlocked, vaultState, checkVaultAndAutoUnlock])
+
+  if (!isUnlocked) {
+    if (vaultState && !vaultState.hasVault) {
+      return (
+        <div
+          data-testid="password-app-root"
+          className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[var(--bg-base)]"
+        >
+          <Setting />
+        </div>
+      )
+    }
+
+    return (
+      <div
+        data-testid="password-app-root"
+        className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[var(--bg-base)]"
+      >
+        <Door />
+        <Setting />
+        <Reset />
+        <Recover />
+      </div>
+    )
+  }
 
   return (
     <div
       data-testid="password-app-root"
       className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[var(--bg-base)]"
     >
-      <div className="flex flex-1 flex-col items-center justify-center p-6 text-center">
-        <div className="mb-4 flex size-14 items-center justify-center rounded-2xl bg-[var(--accent-soft)] text-[var(--accent)]">
-          <KeyRound size={28} />
+      {activePasswordView === 'favorites' && <FavoriteAccounts />}
+      {activePasswordView === 'generator' && (
+        <div data-testid="password-generator-view" className="flex-1 min-h-0 flex flex-col">
+          <RandomPasswordView />
         </div>
-        <h2 className="text-[length:var(--text-18)] font-semibold text-[var(--text-primary)]">
-          {t('tools.password.module_name')}
-        </h2>
-        <p className="mt-2 max-w-md text-[length:var(--text-13)] text-[var(--text-secondary)]">
-          {t(`tools.password.nav.${activePasswordView}` as any)}
-        </p>
-        <div className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-1 text-[length:var(--text-12)] text-[var(--text-tertiary)]">
-          <ShieldCheck size={14} className="text-[var(--accent)]" />
-          <span>E2E Encrypted Vault</span>
-        </div>
-      </div>
+      )}
+      {(activePasswordView as string) === 'search' && <Search />}
+      {activePasswordView !== 'favorites' &&
+        activePasswordView !== 'generator' &&
+        (activePasswordView as string) !== 'search' && <AccountArea />}
+
+      {/* Auxiliary Modals */}
+      <Setting />
+      <Reset />
+      <Recover />
+      <PasswordGeneratorModal open={isGeneratorModalOpen} onClose={closeGeneratorModal} />
+      <QuickAddModal open={isQuickAddModalOpen} onClose={closeQuickAddModal} />
+      <BatchOperationsModal open={isBatchOperationsOpen} onClose={closeBatchOperations} />
+      <ExportModal open={isExportModalOpen} onClose={closeExportModal} group={targetGroup ?? undefined} />
+      <ImportModal open={isImportModalOpen} onClose={closeImportModal} group={targetGroup ?? undefined} />
+      <BackupSettingsModal open={isBackupSettingsOpen} onClose={closeBackupSettings} />
     </div>
   )
 }

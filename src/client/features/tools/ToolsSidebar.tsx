@@ -7,6 +7,7 @@ import {
   Layers,
   PanelLeft,
   PanelLeftClose,
+  Lock,
   Settings,
   Sparkles,
   Star,
@@ -18,6 +19,8 @@ import { t } from '../../lib/i18n'
 import { IconButton } from '../../components/primitives'
 import { Tooltip } from '../../components/overlay'
 import { useToolsStore, type PasswordNavView } from './store'
+import { GroupTree } from './password/GroupTree'
+import { usePasswordVaultStore } from './password/store'
 
 interface NavSlot {
   id: PasswordNavView
@@ -51,6 +54,7 @@ export function ToolsSidebar({
   const togglePasswordModuleExpanded = useToolsStore((s) => s.togglePasswordModuleExpanded)
   const activePasswordView = useToolsStore((s) => s.activePasswordView)
   const setActivePasswordView = useToolsStore((s) => s.setActivePasswordView)
+  const isUnlocked = usePasswordVaultStore((s) => s.isUnlocked)
 
   if (collapsed) {
     return (
@@ -137,7 +141,7 @@ export function ToolsSidebar({
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2 space-y-1">
-        {/* First submodule: 🔑 密码管家 (tools/password) */}
+        {/* First submodule: Password Vault (tools/password) */}
         <div>
           <button
             type="button"
@@ -162,6 +166,27 @@ export function ToolsSidebar({
               <KeyRound size={16} className="shrink-0 text-[var(--accent)]" />
               <span className="truncate">{t('tools.password.module_name')}</span>
             </div>
+            {isUnlocked && (
+              <span
+                role="button"
+                tabIndex={0}
+                aria-label={t('tools.password.door.lock_now')}
+                title={t('tools.password.door.lock_now')}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  usePasswordVaultStore.getState().lock()
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.stopPropagation()
+                    usePasswordVaultStore.getState().lock()
+                  }
+                }}
+                className="rounded p-1 text-[var(--text-tertiary)] hover:bg-[var(--bg-muted)] hover:text-[var(--text-primary)]"
+              >
+                <Lock size={13} />
+              </span>
+            )}
           </button>
 
           {passwordModuleExpanded && (
@@ -195,9 +220,10 @@ export function ToolsSidebar({
               {/* Group tree mounting slot */}
               <div
                 data-testid="tools-password-group-tree-slot"
-                className="py-0.5"
-                aria-hidden="true"
-              />
+                className="mt-2 pt-2 border-t border-[var(--border-subtle)]"
+              >
+                <GroupTree />
+              </div>
             </div>
           )}
         </div>

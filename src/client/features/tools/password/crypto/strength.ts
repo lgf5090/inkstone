@@ -21,6 +21,14 @@ export interface PasswordStrengthResult {
 export const SUGGESTION_TRANSLATIONS = ZH_CN_PASSWORD_SUGGESTIONS
 export const WARNING_TRANSLATIONS = ZH_CN_PASSWORD_WARNINGS
 
+export const STRENGTH_I18N_KEYS = [
+  'tools.password.strength.very_weak',
+  'tools.password.strength.weak',
+  'tools.password.strength.medium',
+  'tools.password.strength.strong',
+  'tools.password.strength.very_strong',
+] as const
+
 const STRENGTH_COLORS: readonly PasswordStrengthColor[] = ['error', 'warning', 'info', 'success', 'success']
 const STRENGTH_LABELS: readonly string[] = ZH_CN_PASSWORD_STRENGTH_LABELS
 

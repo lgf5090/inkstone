@@ -11,7 +11,7 @@ import { TOOLS_NAV_WIDTH, useToolsStore } from '../src/client/features/tools/sto
 describe('Tools container architecture and collapsible sidebar', () => {
   beforeEach(() => {
     installTestGlobals()
-    initI18n('zh-CN')
+    initI18n()
     window.innerWidth = 1280
     window.innerHeight = 800
     useToolsStore.setState({
