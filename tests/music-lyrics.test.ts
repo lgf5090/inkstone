@@ -13,14 +13,14 @@ describe('music lyric parsing', () => {
   })
 
   it('parses YRC word timing and keeps inter-word spaces', () => {
-    const result = parseLyrics('[1000,2000](0,500,0)Hello (500,750,0)world')
+    const result = parseLyrics('[1000,2000](1000,500,0)Hello (1500,750,0)world')
     expect(result.ok).toBe(true)
     if (!result.ok) return
     const line = result.data.lines[0]
     expect(line?.fullText).toBe('Hello world')
     expect(line?.words).toEqual([
-      { text: 'Hello', startTime: 0, duration: 500, space: true },
-      { text: 'world', startTime: 500, duration: 750 },
+      { text: 'Hello', startTime: 1_000, duration: 500, space: true },
+      { text: 'world', startTime: 1_500, duration: 750 },
     ])
   })
 

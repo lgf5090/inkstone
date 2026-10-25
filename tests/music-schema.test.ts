@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { SCHEMA_MIGRATIONS } from '../src/worker/db/schema'
 import {
   MUSIC_REQUIRED_COLUMNS,
   MUSIC_REQUIRED_INDEXES,
@@ -81,6 +82,24 @@ describe('the music tables', () => {
     expect(() => applyMusicSchema()).not.toThrow()
     expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM music_track`).get()).toEqual({ count: 1 })
     expect(tables().size).toBeGreaterThanOrEqual(MUSIC_REQUIRED_TABLES.length)
+  })
+
+  it('invalidates only the legacy Netease lyrics that never asked for YRC', () => {
+    const insert = (key: string, source: string, yrc: string): void => {
+      sqlite.prepare(
+        `INSERT INTO music_lyric (user_id, track_key, source, lrc, tlyric, yrc, fetched_at)
+         VALUES ('u1', ?, ?, '[00:01]line', '', ?, 1)`,
+      ).run(key, source, yrc)
+    }
+    insert('netease:1', 'netease', '')
+    insert('netease:2', 'netease', '[0,1000](0,1000,0)word')
+    insert('embedded:1', 'embedded', '')
+    const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === 169)
+    expect(migration).toBeTruthy()
+    for (const statement of migration!.statements) sqlite.exec(statement)
+    const keys = (sqlite.prepare('SELECT track_key FROM music_lyric ORDER BY track_key').all() as Array<{ track_key: string }>)
+      .map((row) => row.track_key)
+    expect(keys).toEqual(['embedded:1', 'netease:2'])
   })
 
   it('keep one snapshot per provider id per account', () => {

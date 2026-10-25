@@ -80,7 +80,8 @@ const IMPORT_BODY_LIMIT = 64 * 1024
 /** One parsed tag document plus a cover at the image ceiling. */
 const METADATA_FORM_LIMIT = MUSIC_LIMITS.coverMaxBytes + 128 * 1024
 const TRANSFER_BODY_LIMIT = 16 * 1024
-const TRANSFER_TIMEOUT_MS = 60_000
+/** A 64 MB transfer may legitimately take several minutes on a slow cloud drive. */
+const TRANSFER_TIMEOUT_MS = 5 * 60_000
 const TRANSFER_MAX_BYTES = MUSIC_DRIVE_UPLOAD_MAX_BYTES
 const TRANSFER_USER_AGENT = 'Mozilla/5.0 (compatible; Inkstone/1.0; +https://github.com/shuaiplus/inkstone)'
 const TRANSFER_REFERER = 'https://music.163.com'

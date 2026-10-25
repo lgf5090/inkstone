@@ -119,6 +119,38 @@ export function lyricWordTimings(line: LyricLine): LyricWordTimings {
   return { words: synthesizeWordTimings(line), estimated: true }
 }
 
+/**
+ * Which word is being sung at a media position, and how far through it the voice is.
+ *
+ * A gap between words belongs to the word before it: that word stays fully filled until the next one
+ * starts, which is what keeps punctuation from blinking at the end of a phrase. `index: -1` means the
+ * line has not reached its first word yet.
+ */
+export interface LyricWordState {
+  index: number
+  progress: number
+}
+
+export function lyricWordStateAt(
+  words: readonly LyricWord[],
+  timeMs: number,
+): LyricWordState {
+  if (!words.length) return { index: -1, progress: 0 }
+  let index = -1
+  for (let position = 0; position < words.length; position += 1) {
+    const word = words[position]!
+    if (timeMs < word.startTime) break
+    index = position
+  }
+  if (index < 0) return { index: -1, progress: 0 }
+  const word = words[index]!
+  if (word.duration <= 0) return { index, progress: 1 }
+  return {
+    index,
+    progress: Math.max(0, Math.min(1, (timeMs - word.startTime) / word.duration)),
+  }
+}
+
 export interface LyricMetadata {
   time?: number
   content: string

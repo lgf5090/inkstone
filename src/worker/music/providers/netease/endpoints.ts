@@ -170,13 +170,15 @@ export const neteaseEndpoints = {
     call('/api/song/lyric/v1', 'eapi', {
       id: providerId,
       cp: false,
-      tv: 0,
-      lv: 0,
-      rv: 0,
-      kv: 0,
-      yv: 0,
-      ytv: 0,
-      yrv: 0,
+      // `-1` asks for every lyric form. `0` is what suppressed the provider's per-word YRC, which
+      // made the client fall back to a line-box estimate that can never follow the singer.
+      tv: -1,
+      lv: -1,
+      rv: -1,
+      kv: -1,
+      yv: -1,
+      ytv: -1,
+      yrv: -1,
     }),
 
   playlistDetail: (providerId: string, trackLimit = 0) =>

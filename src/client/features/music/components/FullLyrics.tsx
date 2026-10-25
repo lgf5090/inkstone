@@ -30,8 +30,8 @@ import { useMusicSettings } from '../store/settings'
 import { useMusicUi } from '../store/ui'
 import { LyricSettings } from './LyricSettings'
 import {
-  activeLyricLine,
   LyricLineContent,
+  useActiveLyricLine,
   LyricOffsetControls,
   useActiveLineScroll,
   useLyricOffset,
@@ -66,7 +66,8 @@ function FullLyricsLayer(): ReactElement {
   const lyric = useTrackLyrics(current)
   const rootRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const activeIndex = activeLyricLine(lyric.lines, positionMs, offset)
+  const playing = status === 'playing'
+  const activeIndex = useActiveLyricLine(lyric.lines, positionMs, offset, playing)
   useActiveLineScroll(scrollRef, activeIndex)
 
   // The cover tint belongs to the open layer. Closing it restores the design tokens for whatever
@@ -85,7 +86,6 @@ function FullLyricsLayer(): ReactElement {
     }
   }, [coverUrl, open])
 
-  const playing = status === 'playing'
   const totalMs = durationMs || current?.durationMs || 0
   const totalSeconds = Math.max(1, Math.round(totalMs / 1000))
   const positionSeconds = Math.min(totalSeconds, Math.max(0, Math.round(positionMs / 1000)))
@@ -191,6 +191,8 @@ function FullLyricsLayer(): ReactElement {
                 <LyricLineContent
                   line={line}
                   timeMs={positionMs + offset}
+                  offsetMs={offset}
+                  playing={playing}
                   wordByWord={active && preferences.wordByWord}
                 />
                 {preferences.showTranslation && line.translation && (

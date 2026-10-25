@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
 import {
+  lyricWordStateAt,
   lyricWordTimings,
   parseLyrics,
   synthesizeWordTimings,
@@ -55,6 +56,22 @@ describe('estimated word rhythm for LRC-only lines', () => {
     expect(words[0]!.duration).toBe(1_000)
   })
 
+  it('reports the word under the playhead and how far through it the voice is', () => {
+    const parsed = parseLyrics('[1000,2000](1000,500,0)Hello (1500,750,0)world')
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    const words = parsed.data.lines[0]!.words
+    expect(lyricWordStateAt(words, 999)).toEqual({ index: -1, progress: 0 })
+    expect(lyricWordStateAt(words, 1_000)).toEqual({ index: 0, progress: 0 })
+    expect(lyricWordStateAt(words, 1_250)).toEqual({ index: 0, progress: 0.5 })
+    expect(lyricWordStateAt(words, 1_500)).toEqual({ index: 1, progress: 0 })
+    expect(lyricWordStateAt(words, 2_250)).toEqual({ index: 1, progress: 1 })
+    expect(lyricWordStateAt(words, 3_000)).toEqual({ index: 1, progress: 1 })
+    expect(lyricWordStateAt([], 3_000)).toEqual({ index: -1, progress: 0 })
+    expect(lyricWordStateAt([{ text: 'x', startTime: 1_000, duration: 0 }], 1_000))
+      .toEqual({ index: 0, progress: 1 })
+  })
+
   it('flags an estimate when the provider had no word timing and keeps real timing when it did', () => {
     const parsed = parseLyrics('[00:01.00]one\n[00:03.00]two')
     expect(parsed.ok).toBe(true)
@@ -63,7 +80,7 @@ describe('estimated word rhythm for LRC-only lines', () => {
     expect(estimated.estimated).toBe(true)
     expect(estimated.words.map((word) => word.text)).toEqual(['one'])
 
-    const timed = parseLyrics('[1000,2000](0,500,0)Hello (500,750,0)world')
+    const timed = parseLyrics('[1000,2000](1000,500,0)Hello (1500,750,0)world')
     expect(timed.ok).toBe(true)
     if (!timed.ok) return
     const provider = lyricWordTimings(timed.data.lines[0]!)

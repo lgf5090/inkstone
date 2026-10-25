@@ -11,6 +11,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -19,7 +20,14 @@ import {
   type RefObject,
 } from 'react'
 import { Languages, Maximize2, Minus, Music2, Plus, RefreshCw, Settings2, Sparkles } from 'lucide-react'
-import { findActiveLineIndex, lyricWordTimings, mergeLyricTranslation, parseLyrics, type LyricLine } from '@shared/music/lyrics'
+import {
+  findActiveLineIndex,
+  lyricWordStateAt,
+  lyricWordTimings,
+  mergeLyricTranslation,
+  parseLyrics,
+  type LyricLine,
+} from '@shared/music/lyrics'
 import type { MusicAiTranslatedLine } from '@shared/music/lyrics-ai'
 import { musicTrackKey, type MusicTrack } from '@shared/music/model'
 import type { MusicLyricResponse } from '@shared/music/api'
@@ -30,6 +38,7 @@ import { Button, IconButton, Spinner } from '../../../components/primitives'
 import { musicApi } from '../api'
 import { defaultLyricTranslationLang, translateTrackLyrics } from '../lyrics-ai'
 import { selectCurrentTrack, useMusicPlayer } from '../store/player'
+import { musicAudioEngine } from '../player/engine'
 import { useMusicSettings } from '../store/settings'
 import { useMusicUi } from '../store/ui'
 import { LyricSettings } from './LyricSettings'
@@ -105,6 +114,88 @@ export function writeLyricOffset(trackKey: string, offsetMs: number): void {
 /** The active line at a position the offset has shifted; -1 before the first timed line. */
 export function activeLyricLine(lines: readonly LyricLine[], positionMs: number, offsetMs: number): number {
   return findActiveLineIndex(lines, positionMs + offsetMs)
+}
+
+/**
+ * Follow the audio element itself while a line is on screen.
+ *
+ * `timeupdate` arrives about four times a second, which is enough for a progress bar and far too
+ * slow for a word that may last 120 ms. The store still owns the position for the rest of the app;
+ * this hook samples the engine on animation frames and re-renders only when the active line changes.
+ */
+export function useActiveLyricLine(
+  lines: readonly LyricLine[],
+  positionMs: number,
+  offsetMs: number,
+  playing: boolean,
+): number {
+  const fallback = positionMs + offsetMs
+  const fallbackRef = useRef(fallback)
+  fallbackRef.current = fallback
+  const [liveIndex, setLiveIndex] = useState<number | null>(null)
+
+  useEffect(() => {
+    setLiveIndex(null)
+    if (!playing || typeof requestAnimationFrame !== 'function') return
+    let frame = 0
+    let last = findActiveLineIndex(lines, fallbackRef.current)
+    const tick = (): void => {
+      const engineMs = musicAudioEngine.currentTimeMs()
+      if (Number.isFinite(engineMs) && engineMs > 0) {
+        const next = findActiveLineIndex(lines, engineMs + offsetMs)
+        if (next !== last) {
+          last = next
+          setLiveIndex(next)
+        }
+      }
+      frame = requestAnimationFrame(tick)
+    }
+    frame = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(frame)
+  }, [lines, offsetMs, playing])
+
+  return playing && liveIndex !== null ? liveIndex : findActiveLineIndex(lines, fallback)
+}
+
+/**
+ * The same clock for the line's own words, which need roughly sixty updates a second.
+ *
+ * The hook reads `currentTime` from the audio element rather than the store so a word starts within
+ * one frame of the singer. When no element is sounding (paused, tests, a restored queue) it falls
+ * back to the position the parent already has.
+ */
+function useWordPlayhead(timeMs: number, offsetMs: number, enabled: boolean): number {
+  const fallbackRef = useRef(timeMs)
+  fallbackRef.current = timeMs
+  const [liveMs, setLiveMs] = useState(timeMs)
+
+  useEffect(() => {
+    if (!enabled || typeof requestAnimationFrame !== 'function') {
+      setLiveMs(fallbackRef.current)
+      return
+    }
+    let frame = 0
+    let last = Number.NaN
+    const tick = (): void => {
+      const engineMs = musicAudioEngine.currentTimeMs()
+      const next = Number.isFinite(engineMs) && engineMs > 0
+        ? engineMs + offsetMs
+        : fallbackRef.current
+      if (!Number.isFinite(last) || Math.abs(next - last) >= 8) {
+        last = next
+        setLiveMs(next)
+      }
+      frame = requestAnimationFrame(tick)
+    }
+    frame = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(frame)
+  }, [enabled, offsetMs])
+
+  if (enabled) return liveMs
+  // A pause can arrive between two four-hertz `timeupdate`s; read the element once so the frozen
+  // fill is where the reader actually stopped rather than up to a quarter second behind it.
+  const pausedMs = musicAudioEngine.currentTimeMs()
+  return Number.isFinite(pausedMs) && pausedMs > 0 ? pausedMs + offsetMs : timeMs
 }
 
 /** A signed, one-decimal description of an offset, used beside the controls and in the aria text. */
@@ -243,27 +334,42 @@ export function useActiveLineScroll(
   }, [activeIndex, containerRef])
 }
 
-/** One line's text, with words fading in as they are sung when the provider timed them. */
+/** One line's text, filled word by word at the audio element's own clock. */
 export function LyricLineContent({
   line,
   timeMs,
   wordByWord,
+  offsetMs = 0,
+  playing = false,
 }: {
   line: LyricLine
   timeMs: number
   wordByWord: boolean
+  offsetMs?: number
+  playing?: boolean
 }): ReactElement {
-  if (!wordByWord) return <>{line.fullText}</>
+  const liveMs = useWordPlayhead(timeMs, offsetMs, wordByWord && playing)
+  // Estimated timings are recomputed only when the line changes, not on every animation frame.
+  const timings = useMemo(() => (wordByWord ? lyricWordTimings(line) : null), [line, wordByWord])
+  if (!wordByWord || !timings) return <>{line.fullText}</>
   // Provider YRC when it exists; otherwise the line box is shared out into an estimated rhythm, and
   // the panel says so rather than letting it pass for the provider's own timing.
-  const { words } = lyricWordTimings(line)
+  const { words } = timings
   if (!words.length) return <>{line.fullText}</>
+  const state = lyricWordStateAt(words, liveMs)
   return (
     <>
       {words.map((word, index) => {
-        const sung = timeMs >= word.startTime
+        const phase = index < state.index
+          ? 'music-lyric-word--sung'
+          : index === state.index
+            ? 'music-lyric-word--singing'
+            : 'music-lyric-word--pending'
+        const style = index === state.index
+          ? ({ '--music-word-progress': `${(state.progress * 100).toFixed(1)}%` } as CSSProperties)
+          : undefined
         return (
-          <span key={`${index}-${word.startTime}`} className={sung ? undefined : 'opacity-40'}>
+          <span key={`${index}-${word.startTime}`} className={`music-lyric-word ${phase}`} style={style}>
             {word.text}
             {word.space ? ' ' : ''}
           </span>
@@ -361,6 +467,7 @@ export function LyricPanel({ track, variant = 'embedded', className }: LyricPane
   const current = useMusicPlayer(selectCurrentTrack)
   const resolved = track === undefined ? current : track
   const positionMs = useMusicPlayer((state) => state.positionMs)
+  const playing = useMusicPlayer((state) => state.status === 'playing')
   const seek = useMusicPlayer((state) => state.seek)
   const setLyricsOpen = useMusicUi((state) => state.setLyricsOpen)
   const preferences = useMusicSettings((state) => state.local.lyrics)
@@ -369,7 +476,7 @@ export function LyricPanel({ track, variant = 'embedded', className }: LyricPane
   const scrollRef = useRef<HTMLDivElement>(null)
   const lyric = useTrackLyrics(resolved)
   const [offset, setOffset] = useLyricOffset(resolved)
-  const activeIndex = activeLyricLine(lyric.lines, positionMs, offset)
+  const activeIndex = useActiveLyricLine(lyric.lines, positionMs, offset, playing)
   useActiveLineScroll(scrollRef, activeIndex)
   const [aiStatus, setAiStatus] = useState<'idle' | 'loading' | 'error' | 'ready'>('idle')
   const [aiError, setAiError] = useState<string | null>(null)
@@ -509,6 +616,8 @@ export function LyricPanel({ track, variant = 'embedded', className }: LyricPane
               <LyricLineContent
                 line={line}
                 timeMs={shiftedTime}
+                offsetMs={offset}
+                playing={playing}
                 wordByWord={active && preferences.wordByWord}
               />
               {preferences.showTranslation && <LyricTranslation line={line} />}

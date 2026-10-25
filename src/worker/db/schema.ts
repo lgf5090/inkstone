@@ -2505,6 +2505,14 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          ON music_playlist(share_slug) WHERE share_slug IS NOT NULL`,
     ],
   },
+  {
+    // Earlier builds asked Netease for no lyric forms, so stored LRC-only rows have to be fetched
+    // again now that the provider request includes YRC. Only the provider cache is cleared.
+    version: 169,
+    statements: [
+      `DELETE FROM music_lyric WHERE source = 'netease' AND yrc = ''`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

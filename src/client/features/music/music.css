@@ -1227,6 +1227,29 @@
   color: var(--music-accent);
 }
 
+/* Word-by-word timing: the active word fills at the audio element's clock. */
+.music-lyric-word--pending {
+  opacity: 0.4;
+}
+
+.music-lyric-word--singing {
+  color: var(--music-accent);
+}
+
+@supports ((-webkit-background-clip: text) or (background-clip: text)) {
+  .music-lyric-word--singing {
+    background-image: linear-gradient(
+      90deg,
+      var(--music-accent) 0 var(--music-word-progress, 0%),
+      color-mix(in oklab, var(--music-accent) 38%, transparent) var(--music-word-progress, 0%) 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+}
+
 .music-lyrics__translation {
   display: block;
   margin-block-start: var(--sp-1);

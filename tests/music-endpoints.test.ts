@@ -40,6 +40,12 @@ describe('netease endpoint builders', () => {
     expect(call.body.c).toBe('[{"id":123},{"id":456}]')
   })
 
+  it('asks the lyric endpoint for all forms, including per-word YRC', () => {
+    const call = neteaseEndpoints.lyric('185809')
+    expect(call).toMatchObject({ path: '/api/song/lyric/v1', crypto: 'eapi' })
+    expect(call.body).toMatchObject({ id: '185809', tv: -1, lv: -1, rv: -1, kv: -1, yv: -1, ytv: -1, yrv: -1 })
+  })
+
   it('asks a playlist detail for no embedded songs by default and for a bounded fallback on request', () => {
     expect(neteaseEndpoints.playlistDetail('9').body.n).toBe(0)
     expect(neteaseEndpoints.playlistDetail('9', 5_000).body.n).toBe(5_000)
