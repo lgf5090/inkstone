@@ -7,7 +7,14 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Temporal } from 'temporal-polyfill'
-import type { Event, ICalendarApp } from '@dayflow/react'
+import {
+  addCalendarMonths,
+  dateToCalendarDate,
+  formatDateLabel,
+  startOfCalendarMonth,
+  type Event,
+  type ICalendarApp,
+} from '@dayflow/react'
 import { cn } from '../../lib/cn'
 import { useLocale, t } from '../../lib/i18n'
 import { narrowWeekdayLabels, type WeekStartDay } from '../../lib/time'
@@ -23,16 +30,8 @@ function startOfDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate())
 }
 
-function startOfMonth(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), 1)
-}
-
 function addDays(date: Date, days: number): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days)
-}
-
-function addMonths(date: Date, months: number): Date {
-  return new Date(date.getFullYear(), date.getMonth() + months, 1)
 }
 
 function startOfWeek(date: Date, weekStart: number): Date {
@@ -96,20 +95,21 @@ export function MiniMonth({ app, currentDate, weekStart, timeZone, showEventDots
   const locale = useLocale()
   const dark = useThemeDark()
   const today = startOfDay(new Date())
-  const [displayMonth, setDisplayMonth] = useState(() => startOfMonth(currentDate))
+  const calendarSystem = app.state.calendarSystem
+  const [displayMonth, setDisplayMonth] = useState(() => startOfCalendarMonth(currentDate, calendarSystem))
   const cellsRef = useRef(new Map<string, HTMLButtonElement>())
   const currentMonthKey = `${currentDate.getFullYear()}-${currentDate.getMonth()}`
   const selectedKey = dateKey(currentDate)
 
   useEffect(() => {
-    setDisplayMonth(startOfMonth(currentDate))
+    setDisplayMonth(startOfCalendarMonth(currentDate, calendarSystem))
     // A date picked in the main grid should bring the mini month back to that month.
-  }, [currentMonthKey])
+  }, [currentMonthKey, calendarSystem])
 
   const days = useMemo(() => {
-    const first = startOfWeek(startOfMonth(displayMonth), weekStart)
+    const first = startOfWeek(startOfCalendarMonth(displayMonth, calendarSystem), weekStart)
     return Array.from({ length: CELL_COUNT }, (_, index) => addDays(first, index))
-  }, [displayMonth, weekStart])
+  }, [displayMonth, weekStart, calendarSystem])
 
   const dots = useMemo(
     () => (showEventDots ? eventColors(app.getEvents(), app, timeZone, dark) : new Map<string, string[]>()),
@@ -122,8 +122,12 @@ export function MiniMonth({ app, currentDate, weekStart, timeZone, showEventDots
   )
 
   const monthLabel = useMemo(
-    () => new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }).format(displayMonth),
-    [locale, displayMonth],
+    () => formatDateLabel(displayMonth, locale, {
+      calendar: calendarSystem === 'jalali' ? 'persian' : 'gregory',
+      month: 'long',
+      year: 'numeric',
+    }),
+    [locale, displayMonth, calendarSystem],
   )
 
   const tabKey = days.some(day => dateKey(day) === selectedKey && day.getMonth() === displayMonth.getMonth())
@@ -143,7 +147,7 @@ export function MiniMonth({ app, currentDate, weekStart, timeZone, showEventDots
         <IconButton
           size="sm"
           label={t('calendar.sidebar.previous_month')}
-          onClick={() => setDisplayMonth(month => addMonths(month, -1))}
+          onClick={() => setDisplayMonth(month => addCalendarMonths(month, -1, calendarSystem))}
         >
           <ChevronLeft size={14} aria-hidden="true" />
         </IconButton>
@@ -153,7 +157,7 @@ export function MiniMonth({ app, currentDate, weekStart, timeZone, showEventDots
         <IconButton
           size="sm"
           label={t('calendar.sidebar.next_month')}
-          onClick={() => setDisplayMonth(month => addMonths(month, 1))}
+          onClick={() => setDisplayMonth(month => addCalendarMonths(month, 1, calendarSystem))}
         >
           <ChevronRight size={14} aria-hidden="true" />
         </IconButton>
@@ -202,7 +206,7 @@ export function MiniMonth({ app, currentDate, weekStart, timeZone, showEventDots
                     selected ? 'bg-[var(--accent)] font-semibold text-[var(--accent-contrast)]' : 'hover:bg-[var(--bg-hover)]',
                   )}
                 >
-                  <span>{day.getDate()}</span>
+                  <span>{dateToCalendarDate(day, calendarSystem).day}</span>
                   {showEventDots && dayDots.length > 0 && (
                     <span className="mt-[1px] flex h-[3px] items-center justify-center gap-[2px]" aria-hidden="true">
                       {dayDots.map(color => (
