@@ -8,6 +8,7 @@ import { CalendarStore } from '../calendar/store'
 import { parseEventInput } from '../calendar/validation'
 import {
   IcsParseError,
+  icsExternalId,
   parseIcsCalendar,
   serializeIcsCalendar,
 } from '../calendar/ics'
@@ -57,24 +58,24 @@ calendarIcsRoutes.post('/import', async (c) => {
     })
   } catch (error) {
     if (error instanceof IcsParseError) {
-      if (error.code === 'too_large') throw ApiError.tooLarge(error.message)
+      if (error.code === 'too_large' || error.code === 'too_many_events') throw ApiError.tooLarge(error.message)
       throw ApiError.badRequest(error.message)
     }
     throw new ApiError(502, 'internal', 'The calendar file could not be parsed')
   }
 
-  const inputs = parsed.events.map((event) => {
+  const inputs = await Promise.all(parsed.events.map(async (event) => {
     const uid = event.meta?.originalUid
     const externalId = typeof uid === 'string'
-      ? `ics:${encodeURIComponent(calendar.id)}:${encodeURIComponent(uid)}`
+      ? await icsExternalId(calendar.id, uid, recurrenceIdOf(event.meta?.recurrenceId))
       : null
     return parseEventInput({
       ...event,
       calendarIds: [calendar.id],
       source: 'ics',
-      externalId: externalId && isCalendarEntityId(externalId) ? externalId : null,
+      externalId,
     }, { defaultTimeZone })
-  })
+  }))
 
   let imported = 0
   try {
@@ -125,4 +126,10 @@ calendarIcsRoutes.get('/export', async (c) => {
 function safeFilename(value: string): string {
   const cleaned = value.replaceAll(/[\\/:*?"<>|\u0000-\u001f]/g, '-').trim().slice(0, 120)
   return cleaned || 'calendar'
+}
+
+function recurrenceIdOf(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  return typeof record.value === 'string' ? record.value : null
 }

@@ -2,7 +2,6 @@ import { isBlockedTarget } from '@shared/ai-proxy-guard'
 import {
   MAX_ICS_BYTES,
   MAX_ICS_EVENTS,
-  isCalendarEntityId,
   type CalendarEventInput,
   type CalendarSubscriptionDto,
 } from '@shared/calendar/model'
@@ -10,12 +9,11 @@ import type { D1Database } from '@cloudflare/workers-types'
 import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
-import { sha256Hex } from '../lib/encoding'
 import { isRedirectResponse, NO_REDIRECT } from '../lib/no-redirect'
 import { readStreamTextWithinLimit } from '../lib/request'
 import { CalendarStore, type CalendarEventWriteInput } from './store'
 import { parseEventInput } from './validation'
-import { IcsParseError, parseIcsCalendar } from './ics'
+import { IcsParseError, icsExternalId, parseIcsCalendar } from './ics'
 
 const FETCH_TIMEOUT_MS = 15_000
 const MAX_REDIRECTS = 3
@@ -196,7 +194,7 @@ function parseFeed(text: string, defaultTimeZone: string) {
     return parseIcsCalendar({ content: text, defaultTimeZone, maxEvents: MAX_ICS_EVENTS })
   } catch (error) {
     if (error instanceof IcsParseError) {
-      if (error.code === 'too_large') throw ApiError.tooLarge(error.message)
+      if (error.code === 'too_large' || error.code === 'too_many_events') throw ApiError.tooLarge(error.message)
       throw ApiError.badRequest(error.message)
     }
     throw new ApiError(502, 'internal', 'The calendar feed could not be parsed')
@@ -208,12 +206,10 @@ async function subscriptionEvents(
   calendarId: string,
   defaultTimeZone: string,
 ): Promise<CalendarEventWriteInput[]> {
-  const encodedCalendar = encodeURIComponent(calendarId).replaceAll(/[!'()*]/g, (char) =>
-    `%${char.charCodeAt(0).toString(16).toUpperCase()}`)
   return Promise.all(events.map(async (event) => {
     const uid = event.meta?.originalUid
     const externalId = typeof uid === 'string'
-      ? await subscriptionExternalId(encodedCalendar, uid)
+      ? await icsExternalId(calendarId, uid, recurrenceIdOf(event.meta?.recurrenceId))
       : null
     return parseEventInput({
       ...event,
@@ -225,14 +221,10 @@ async function subscriptionEvents(
   }))
 }
 
-async function subscriptionExternalId(encodedCalendar: string, uid: string): Promise<string | null> {
-  const encodedUid = encodeURIComponent(uid).replaceAll(/[!'()*]/g, (char) =>
-    `%${char.charCodeAt(0).toString(16).toUpperCase()}`)
-  const direct = `ics:${encodedCalendar}:${encodedUid}`
-  if (isCalendarEntityId(direct)) return direct
-  const digest = await sha256Hex(`${encodedCalendar}\u0000${uid}`)
-  const fallback = `ics:${encodedCalendar}:${digest}`
-  return isCalendarEntityId(fallback) ? fallback : null
+function recurrenceIdOf(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  return typeof record.value === 'string' ? record.value : null
 }
 
 async function insertInChunks(store: CalendarStore, inputs: readonly CalendarEventWriteInput[]): Promise<number> {

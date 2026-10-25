@@ -7,11 +7,13 @@ import {
   MAX_ICS_BYTES,
   MAX_ICS_EVENTS,
   MAX_RECURRENCE_RULE,
+  isCalendarEntityId,
   isTemporalKind,
   temporalValueToEpochMs,
   toTemporalValue,
 } from '@shared/calendar/model'
 import type { CalendarEventInput, TemporalValue } from '@shared/calendar/model'
+import { sha256Hex } from '../lib/encoding'
 
 type IcalComponent = InstanceType<typeof ICAL.Component>
 type IcalProperty = InstanceType<typeof ICAL.Property>
@@ -25,6 +27,27 @@ const MAX_META_DATES = 500
 const MAX_FLATTEN_ITERATIONS = 100_000
 const MAX_ZONE_CACHE_ENTRIES = 500
 const FLATTEN_WINDOW_YEARS = 2
+
+/** A stable per-calendar external id; flattened occurrences need their recurrence id in the key. */
+export async function icsExternalId(
+  calendarId: string,
+  uid: string,
+  recurrenceId?: string | null,
+): Promise<string | null> {
+  const encodedCalendar = encodeFeedPart(calendarId)
+  const encodedUid = encodeFeedPart(uid)
+  const encodedOccurrence = recurrenceId ? `:${encodeFeedPart(recurrenceId)}` : ''
+  const direct = `ics:${encodedCalendar}:${encodedUid}${encodedOccurrence}`
+  if (isCalendarEntityId(direct)) return direct
+  const digest = await sha256Hex(`${calendarId}\u0000${uid}\u0000${recurrenceId ?? ''}`)
+  const fallback = `ics:${encodedCalendar}:${digest}`
+  return isCalendarEntityId(fallback) ? fallback : null
+}
+
+function encodeFeedPart(value: string): string {
+  return encodeURIComponent(value).replaceAll(/[!'()*]/g, (char) =>
+    `%${char.charCodeAt(0).toString(16).toUpperCase()}`)
+}
 
 export type IcsWarningCode =
   | 'cancelled_event'

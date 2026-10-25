@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { Temporal } from 'temporal-polyfill'
 import {
   IcsParseError,
+  icsExternalId,
   parseIcsCalendar,
   serializeIcsCalendar,
 } from '../src/worker/calendar/ics'
@@ -290,5 +291,14 @@ describe('serializeIcsCalendar', () => {
       value: '2025-02-03',
       type: 'date',
     })
+  })
+
+  it('gives flattened occurrences distinct external ids without losing the series uid', async () => {
+    const first = await icsExternalId('cal-1', 'series@example.com', '2026-10-26')
+    const second = await icsExternalId('cal-1', 'series@example.com', '2026-10-27')
+    const otherCalendar = await icsExternalId('cal-2', 'series@example.com', '2026-10-26')
+    expect(first).not.toBe(second)
+    expect(first).not.toBe(otherCalendar)
+    expect(first).toContain('ics:')
   })
 })
