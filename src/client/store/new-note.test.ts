@@ -221,6 +221,30 @@ describe('title and front matter stay in step', () => {
     useNotes.getState().editContent('n-7', `---\ntitle: ${long}\n---\nbody`)
     expect(useNotes.getState().notes['n-7'].title).toHaveLength(LIMITS.titleMaxLength)
   })
+
+  it('clears the title value rather than deleting the property when title is cleared', () => {
+    seed('n-8', 'Old', '---\ntitle: Old\ncreatedAt: 2026-10-26\n---\nbody')
+    useNotes.getState().editTitle('n-8', '')
+    const content = useNotes.getState().contents['n-8']
+    expect(content).toContain('createdAt: 2026-10-26')
+    const parsed = parseFrontMatter(content)
+    expect(Object.prototype.hasOwnProperty.call(parsed.data, 'title')).toBe(true)
+    expect(parsed.data.title).toBe('')
+  })
+
+  it('continues to sync title into front matter after being cleared', () => {
+    seed('n-9', 'Old', '---\ntitle: Old\n---\nbody')
+    useNotes.getState().editTitle('n-9', '')
+    expect(parseFrontMatter(useNotes.getState().contents['n-9']).data.title).toBe('')
+    useNotes.getState().editTitle('n-9', 'Brand New')
+    expect(parseFrontMatter(useNotes.getState().contents['n-9']).data.title).toBe('Brand New')
+  })
+
+  it('adopts an empty title when front matter title is cleared in body', () => {
+    seed('n-10', 'Old', '---\ntitle: Old\n---\nbody')
+    useNotes.getState().editContent('n-10', '---\ntitle: ""\n---\nbody')
+    expect(useNotes.getState().notes['n-10'].title).toBe('')
+  })
 })
 
 describe('the deferred summary derivation', () => {

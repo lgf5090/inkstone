@@ -1,6 +1,6 @@
 /** Fresh-note construction: template expansion, caret hand-off, and title sync. */
 import { DEFAULT_NEW_NOTE_TEMPLATE, LIMITS } from '@shared/constants'
-import { deleteFrontMatterValue, parseFrontMatter, setFrontMatterValue } from '@shared/markdown-utils'
+import { parseFrontMatter, setFrontMatterValue } from '@shared/markdown-utils'
 import { renderNewNoteTemplate } from '@shared/note-template-render'
 import type { Folder } from '@shared/types'
 import { isVirtualFolderId } from '../lib/calendar-tree'
@@ -82,8 +82,12 @@ export function takePendingEditorCursor(noteId: string): number | null {
 }
 
 export function frontMatterTitleOf(content: string): string | undefined {
-  const title = parseFrontMatter(content).data.title
-  return typeof title === 'string' ? title : undefined
+  const parsed = parseFrontMatter(content)
+  const title = parsed.data.title
+  if (typeof title === 'string') return title
+  if (typeof title === 'number') return String(title)
+  if (title === null && Object.prototype.hasOwnProperty.call(parsed.data, 'title')) return ''
+  return undefined
 }
 
 /**
@@ -96,9 +100,7 @@ export function syncTitleIntoFrontMatter(content: string, title: string): string
   const parsed = parseFrontMatter(content)
   if (!parsed.lineOffset || parsed.errors.length) return null
   if (!Object.prototype.hasOwnProperty.call(parsed.data, 'title')) return null
-  const next = title
-    ? setFrontMatterValue(content, 'title', title)
-    : deleteFrontMatterValue(content, 'title')
+  const next = setFrontMatterValue(content, 'title', title)
   return next === content ? null : next
 }
 
