@@ -29654,12 +29654,13 @@ const allowed = new Map([
   ]],
   ["src/worker/env.ts", [
     "/** Workers AI binding for semantic search; optional so AI search degrades gracefully. */",
-    "/**\n   * Comma-separated bare provider hosts added to CSP `connect-src`, for a deployment whose readers\n   * call an AI endpoint of their own. Optional; blank keeps the built-in preset hosts.\n   */",
-    "/**\n   * The VAPID key pair Web Push is signed with, both set as secrets (`wrangler secret put`), never in a\n   * config file. The public half is the base64url of an uncompressed P-256 point and is handed to browsers;\n   * the private half is its JWK and leaves this process only inside a signed claim. With either unset, the\n   * push routes say so instead of pretending a send happened — see `assistant/push.ts`.\n   */",
-    "/**\n   * The contact a push service may reach for abuse reports, as a `mailto:` or `https:` value. Optional: a\n   * deployment that leaves it unset signs a claim without a subject.\n   */",
-    "/**\n   * The bare domain Email Routing delivers to this Worker, as in `mail.example.com`. Optional: with\n   * it unset no address can be formed, so the mail-token routes answer 503 and inbound mail is\n   * dropped. Set it as a plain variable, not a secret — it is printed in every address.\n   */",
-    "/**\n   * A public HTTPS base for a self-hosted Netease API, used when the native client cannot reach the\n   * upstream from this deployment. Optional: unset keeps every request on the native path.\n   */",
     "/** The per-account download queue; optional so a deployment without R2 can omit it. */",
+    "/**\r\n   * The VAPID key pair Web Push is signed with, both set as secrets (`wrangler secret put`), never in a\r\n   * config file. The public half is the base64url of an uncompressed P-256 point and is handed to browsers;\r\n   * the private half is its JWK and leaves this process only inside a signed claim. With either unset, the\r\n   * push routes say so instead of pretending a send happened — see `assistant/push.ts`.\r\n   */",
+    "/**\r\n   * The contact a push service may reach for abuse reports, as a `mailto:` or `https:` value. Optional: a\r\n   * deployment that leaves it unset signs a claim without a subject.\r\n   */",
+    "/**\r\n   * Comma-separated bare provider hosts added to CSP `connect-src`, for a deployment whose readers\r\n   * call an AI endpoint of their own. Optional; blank keeps the built-in preset hosts.\r\n   */",
+    "/**\r\n   * A public HTTPS base for a self-hosted Netease API, used when the native client cannot reach the\r\n   * upstream from this deployment. Optional: unset keeps every request on the native path.\r\n   */",
+    "/** The cross-isolate public-share counter; optional so a small deployment can omit it. */",
+    "/**\r\n   * The bare domain Email Routing delivers to this Worker, as in `mail.example.com`. Optional: with\r\n   * it unset no address can be formed, so the mail-token routes answer 503 and inbound mail is\r\n   * dropped. Set it as a plain variable, not a secret — it is printed in every address.\r\n   */",
   ]],
   ["src/worker/folders/store.ts", [
     "/**\n * Every read and write the folder HTTP routes make against D1.\n *\n * The shape follows `notes/store.ts` and `assistant/store.ts`: a store built per request from the\n * account it serves, methods that take already-validated input and hand back rows or the record the\n * route needs to answer with, and nothing in between that knows about HTTP. Two rules hold throughout:\n *  - every statement carries `user_id`, so one account's tree can never be read, moved or deleted\n *    through another's ids. The single exception is the id-collision probe, which answers a\n *    client-supplied id and is only meaningful across accounts;\n *  - a mutation's statements stay in one D1 batch. Folder writes are guarded on `updated_at`, and the\n *    recursive `ancestors`/`descendants` clauses inside them read the same rows they are about to\n *    change, so splitting a batch into sequential runs would let a concurrent move slip between the\n *    depth check and the update and produce a cycle the guard was written to refuse.\n *\n * The hierarchy rules themselves — parent validation, depth, subtree height, the name a new folder\n * gets, where a reordered folder lands — stay with the route, because they are decisions about the\n * request, and the errors they raise belong to the response.\n */",
@@ -29698,7 +29699,6 @@ const allowed = new Map([
     "// login fails even though the parameter is on the wire. Serve the metadata",
     "// without that flag to keep codex compatible; the standard RFC 9207 `iss`",
     "// parameter is still appended to callbacks for conforming clients.",
-    "/**\n * Which cron fires keep the whole-library drains.\n *\n * The minute pattern exists for the assistant's reminders. Running the queue drains on it too would\n * multiply work the deployment never asked for, so the drains are gated to the times they had before\n * the new pattern was added.\n */",
     "// The Web Push nudges a sweep queues are handed to `waitUntil` rather than awaited: the notification",
     "// rows are the delivery, and a push service that answers slowly must not hold up the tick that wrote",
     "// them. What the sends cost comes back in the sweep result's `push` tally.",
@@ -29715,7 +29715,8 @@ const allowed = new Map([
     "// the sweeps themselves — `initializeDatabase` answers from its per-isolate cache.",
     "// reminder is cheap, and the sweep deduplicates by the reader's own local hour, so the fires that",
     "// follow find their deliveries already claimed.",
-    "/**\n   * Email Routing's inbound door: `u+<token>@<MAIL_DOMAIN>` becomes a task, a mailbox address is\n   * delivered to its owner's mailbox, and anything else is dropped.\n   *\n   * The handler is one call deep — routing, parsing, idempotency and the drops all live in\n   * `email/dispatch.ts` and the modules it calls, so the Worker entry stays a list of the platform's\n   * events. Nothing here answers the sender: an unknown recipient is dropped, not rejected, which is\n   * what keeps the address space from being enumerable through bounces.\n   */",
+    "/**\r\n   * Email Routing's inbound door: `u+<token>@<MAIL_DOMAIN>` becomes a task, a mailbox address is\r\n   * delivered to its owner's mailbox, and anything else is dropped.\r\n   *\r\n   * The handler is one call deep — routing, parsing, idempotency and the drops all live in\r\n   * `email/dispatch.ts` and the modules it calls, so the Worker entry stays a list of the platform's\r\n   * events. Nothing here answers the sender: an unknown recipient is dropped, not rejected, which is\r\n   * what keeps the address space from being enumerable through bounces.\r\n   */",
+    "/**\r\n * Which cron fires keep the whole-library drains.\r\n *\r\n * The minute pattern exists for the assistant's reminders. Running the queue drains on it too would\r\n * multiply work the deployment never asked for, so the drains are gated to the times they had before\r\n * the new pattern was added.\r\n */",
   ]],
   ["src/worker/lib/crypto.ts", [
     "/**\r\n   * The default sentence is about the one thing only the operator can fix: no binding at all. A caller\r\n   * that got an answer and did not like it passes its own sentence instead — a refusal and an absent\r\n   * binding are different failures, and reporting a refusal as \"the binding is missing\" sends whoever\r\n   * reads it looking in the wrong place. Neither message carries the value that was being stored.\r\n   */",
@@ -30066,9 +30067,6 @@ const allowed = new Map([
     "/** Absent keeps the saved token; an empty string clears it. */",
     "/** A folder or file path relative to the mount root; parent segments are refused, not collapsed. */",
     "// The edge runtime implements only follow/manual; a redirect is refused below, not followed.",
-    "/**\n * Alist as a music drive: a registered server, a folder under it, and the JSON API its own client\n * uses. The token never leaves the worker and never appears in a listing; only the four browser\n * calls this page needs are exposed (list, search, mount management).\n *\n * The address rules are the same trust boundary as every other outbound reader: HTTPS, no credentials\n * in the URL, no loopback or private literal, and no redirects. Alist may return media entries from\n * any folder, so the path is normalised and re-anchored to the configured root before it is shown.\n */",
-    "/**\n * Fetch the bytes through the mount's download address. A redirect is followed only when the next\n * hop is another public HTTPS address; the token is never sent to the file host.\n */",
-    "/**\n * Write one file into a folder that already exists. The path goes in an encoded header because the\n * Alist API reads it there; the body stays the raw bytes so a large file is never wrapped in JSON.\n */",
     "// Some builds answer 200 with an empty body; only a JSON envelope can carry a refusal.",
     "/** Remove one file; a missing file answers false rather than an error so a batch can finish. */",
     "// The shared guard understands IPv6, mapped IPv4, decimal/hex spellings and reserved suffixes.",
@@ -30076,6 +30074,10 @@ const allowed = new Map([
     "// Some Alist builds answer a missing path with a 5xx envelope whose `message` is the only",
     "// place that says \"not found\"; reading that small body keeps the caller from misclassifying it.",
     "/** Metadata for one file, or null when the mount says the path does not exist. */",
+    "/**\r\n * Alist as a music drive: a registered server, a folder under it, and the JSON API its own client\r\n * uses. The token never leaves the worker and never appears in a listing; only the four browser\r\n * calls this page needs are exposed (list, search, mount management).\r\n *\r\n * The address rules are the same trust boundary as every other outbound reader: HTTPS, no credentials\r\n * in the URL, no loopback or private literal, and no redirects. Alist may return media entries from\r\n * any folder, so the path is normalised and re-anchored to the configured root before it is shown.\r\n */",
+    "/** A 64 MB upload through a slow edge can take minutes; the body deadline is not a header deadline. */",
+    "/**\r\n * Fetch the bytes through the mount's download address. A redirect is followed only when the next\r\n * hop is another public HTTPS address; the token is never sent to the file host.\r\n */",
+    "/**\r\n * Write one file into a folder that already exists. The path goes in an encoded header because the\r\n * Alist API reads it there; the body stays the raw bytes so a large file is never wrapped in JSON.\r\n */",
   ]],
   ["src/worker/music/cloud/config.ts", [
     "/**\r\n * Resolve the WebDAV target the music cloud browses.\r\n *\r\n * WebDAV credentials already belong to a backup target, so the music side stores only the target id\r\n * and a folder. Nothing here creates a second credential: a missing target, a non-WebDAV target or a\r\n * target without a stored secret is a named refusal the screen can explain.\r\n */",
@@ -30307,6 +30309,12 @@ const allowed = new Map([
     "/** A flat string map: query parameters and the quality map share this shape. */",
     "/** Rebuild a complete settings document from anything that was stored or sent. */",
     "// Display-only; the settings route overwrites it with this deployment's constant.",
+  ]],
+  ["src/worker/music/share-limiter.ts", [
+    "/**\r\n * The cross-isolate brake for public playlist links.\r\n *\r\n * A public link has no session to meter, and an isolate-local bucket disappears the moment Cloudflare\r\n * runs the next request somewhere else. This object is the one shared counter: every public page,\r\n * API read and cover request for one caller and slug lands here, so a hot link cannot multiply its\r\n * budget by arriving on a new isolate. The isolate budget in `music-share.ts` remains the fallback\r\n * for a deployment that has not bound this object yet.\r\n */",
+    "/**\r\n * Ask the shared counter. `null` means this deployment has no binding or the object could not answer;\r\n * the caller then keeps the isolate budget instead of failing the link outright.\r\n */",
+    "// Input gates do not make a get/put pair atomic, so a burst from two callers could otherwise",
+    "// read the same count and write 2 twice. The counter update is tiny; blocking here is the cost.",
   ]],
   ["src/worker/music/storage.ts", [
     "/** Holding the quota lease across a multipart completion needs room for a slow R2 round trip. */",
@@ -31187,6 +31195,8 @@ const allowed = new Map([
     "// A public slug has no session to meter; the caller address plus the slug keeps one hot link from",
     "// spending the deployment's D1 budget without making the same visitor's other links share a bucket.",
     "// Revoking the slug is the only way this address stops answering; a stored copy would outlive it.",
+    "// A deployment without the binding, or a limiter that could not answer, keeps the old",
+    "// per-isolate brake rather than failing the link outright.",
   ]],
   ["src/worker/routes/music-uploads.ts", [
     "/** Validate the shape here so a malformed number is a 400 before any byte is read. */",
@@ -35150,6 +35160,9 @@ const allowed = new Map([
   ]],
   ["tests/music-queue.test.ts", [
     "/** A deterministic source of randomness: Fisher-Yates consumes one value per step. */",
+  ]],
+  ["tests/music-share-limiter.test.ts", [
+    "// Another slug is a different bucket.",
   ]],
   ["tests/music-stream.test.ts", [
     "/**\n * Online playback through the worker: one provider lookup serves repeated Range requests, and the\n * playback path does not spend the discovery/provider budget.\n */",

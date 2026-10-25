@@ -24,6 +24,8 @@ const LIST_PAGE_SIZE = 200
 const SEARCH_PAGE_SIZE = 100
 const RESPONSE_MAX_BYTES = 2 * 1024 * 1024
 const REQUEST_DEADLINE_MS = 10_000
+/** A 64 MB upload through a slow edge can take minutes; the body deadline is not a header deadline. */
+const UPLOAD_TIMEOUT_MS = 5 * 60_000
 const MEDIA_RE = /\.(?:mp3|m4a|mp4|flac|wav|wave|ogg|oga|opus|aac|webm|mov|m4v)$/i
 
 export interface MusicAlistEntry {
@@ -451,7 +453,7 @@ export async function putAlistFile(
     throw new ApiError(502, 'music_storage_unavailable', 'The Alist server asked for an address this app will not call.')
   }
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 60_000)
+  const timer = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS)
   let response: Response
   try {
     response = await fetch(url, {

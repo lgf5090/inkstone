@@ -532,6 +532,59 @@ describe('online track transfer', () => {
     expect(typeof ((putCall?.[1] as RequestInit | undefined)?.body as ReadableStream<Uint8Array>).getReader).toBe('function')
   })
 
+  it('transfers a custom-resolver source when the account puts it first', async () => {
+    await store.saveSettings({
+      ...DEFAULT_MUSIC_SETTINGS,
+      quality: 'hires',
+      downloadQuality: 'hires',
+      customResolverEnabled: true,
+      customResolverUrl: 'https://resolver.example.test/resolve',
+      customResolverMethod: 'GET',
+      customResolverParams: { id: '{id}', quality: '{quality}' },
+      customResolverResponsePath: 'data.url',
+      customResolverQualityMap: {},
+      sourcePriority: ['custom', 'official'],
+    })
+    const calls: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: URL | string, init: RequestInit = {}) => {
+      const url = new URL(String(input))
+      calls.push(`${init.method ?? 'GET'} ${url.hostname}${url.pathname}`)
+      if (url.hostname === 'resolver.example.test') {
+        return Response.json({ data: { url: 'https://cdn.example.test/custom.wav' } })
+      }
+      if (url.hostname === 'cdn.example.test') {
+        return new Response(new Uint8Array([0x52, 0x49, 0x46, 0x46]), {
+          status: 200,
+          headers: { 'content-type': 'audio/wav', 'content-length': '4' },
+        })
+      }
+      if (url.hostname === 'dav.example.com') {
+        const method = (init.method ?? 'GET').toUpperCase()
+        if (method === 'PROPFIND') return new Response('missing', { status: 404 })
+        if (method === 'MKCOL' || method === 'PUT') {
+          await new Response(init.body as BodyInit | null).arrayBuffer()
+          return new Response(null, { status: 201 })
+        }
+      }
+      return new Response('unexpected', { status: 500 })
+    }))
+    const track = await onlineTrack()
+    const response = await send('/api/music/drive/transfer', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ trackId: track.id, target: 'webdav' }),
+    })
+    expect(response.status).toBe(201)
+    const body = await json<{ track: { providerId: string; size: number; format: string } }>(response)
+    expect(body.track).toMatchObject({
+      providerId: `${TARGET}:Moon - Singer.wav`,
+      size: 4,
+      format: 'wav',
+    })
+    expect(calls.some((entry) => entry.includes('resolver.example.test'))).toBe(true)
+    expect(calls.some((entry) => entry.includes('music.163.com'))).toBe(false)
+  })
+
   it('refuses a declared size over the transfer ceiling before writing anything', async () => {
     const calls: string[] = []
     vi.stubGlobal('fetch', vi.fn(async (input: URL | string, init: RequestInit = {}) => {

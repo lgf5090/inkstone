@@ -12,6 +12,7 @@ import { ApiError } from '../lib/errors'
 import { isValidSlug } from '../lib/id'
 import { createMinuteBudget } from '../lib/rate-limit'
 import { MusicStore, type MusicPlaylistItemEntry } from '../music/store'
+import { meterPublicShareAcrossIsolates } from '../music/share-limiter'
 import { readMusicObjectStream, requireMusicStorage } from '../music/storage'
 
 const PUBLIC_TRACKS_MAX = 500
@@ -26,7 +27,10 @@ const COVER_MIME_BY_EXTENSION: Record<string, string> = {
 
 export const musicSharePublicRoutes = new Hono<AppBindings>()
 
-const publicShareBudget = createMinuteBudget(120, 'Too many requests for this shared playlist. Try again in a minute.')
+const PUBLIC_SHARE_LIMIT = 120
+const PUBLIC_SHARE_WINDOW_MS = 60_000
+const PUBLIC_SHARE_MESSAGE = 'Too many requests for this shared playlist. Try again in a minute.'
+const publicShareBudget = createMinuteBudget(PUBLIC_SHARE_LIMIT, PUBLIC_SHARE_MESSAGE)
 
 async function meterPublicShare(
   c: Context<AppBindings>,
@@ -38,7 +42,19 @@ async function meterPublicShare(
   const slug = /\/playlists\/([^/]+)/.exec(c.req.path)?.[1]
     ?? c.req.path.split('/').filter(Boolean).at(-1)
     ?? 'index'
-  publicShareBudget(`${ip}:${slug}`)
+  const key = `${ip}:${slug}`
+  const shared = await meterPublicShareAcrossIsolates(c.env, key, PUBLIC_SHARE_LIMIT, PUBLIC_SHARE_WINDOW_MS)
+  if (shared) {
+    if (!shared.allowed) {
+      throw new ApiError(429, 'too_many_attempts', PUBLIC_SHARE_MESSAGE, {
+        retryAfter: shared.retryAfter,
+      })
+    }
+  } else {
+    // A deployment without the binding, or a limiter that could not answer, keeps the old
+    // per-isolate brake rather than failing the link outright.
+    publicShareBudget(key)
+  }
   await next()
 }
 

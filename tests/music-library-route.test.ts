@@ -296,6 +296,31 @@ describe('music routes', () => {
     expect((await publicSend(`/playlists/${slug}`, { 'cf-connecting-ip': '203.0.113.10' })).status).toBe(200)
   })
 
+  it('uses the shared Durable Object counter when the deployment binds it', async () => {
+    const playlist = await json<{ id: string }>(await send('POST', '/library/playlists', { name: 'Shared meter' }))
+    const shared = await json<{ playlist: { shareSlug: string } }>(
+      await send('POST', `/library/playlists/${playlist.id}/share`),
+    )
+    const slug = shared.playlist.shareSlug
+    const seen: Array<{ key: string; limit: number; windowMs: number }> = []
+    const namespace = {
+      idFromName: () => 'public-share',
+      get: () => ({
+        async fetch(_url: string, init: RequestInit) {
+          seen.push(JSON.parse(String(init.body)))
+          return Response.json({ allowed: false, retryAfter: 12 }, { status: 429 })
+        },
+      }),
+    } as unknown as DurableObjectNamespace
+    const response = await publicApp.request(`/api/public/music/playlists/${slug}`, {
+      headers: { 'cf-connecting-ip': '203.0.113.20' },
+    }, { ...env(), MUSIC_SHARE_LIMITER: namespace } as AppBindings['Bindings'])
+    expect(response.status).toBe(429)
+    expect((await json<{ error: { code: string; details?: { retryAfter: number } } }>(response)).error)
+      .toMatchObject({ code: 'too_many_attempts', details: { retryAfter: 12 } })
+    expect(seen).toEqual([{ key: `203.0.113.20:${slug}`, limit: 120, windowMs: 60_000 }])
+  })
+
   it('proxies a public provider cover, revalidates it and refuses a private address', async () => {
     let calls = 0
     vi.stubGlobal('fetch', async (input: URL | string) => {

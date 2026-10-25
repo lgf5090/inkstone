@@ -36,8 +36,9 @@ import { readFormDataWithinLimit, readJson } from '../lib/request'
 import { MusicDownloadStore } from '../music/download-store'
 import { MusicStore } from '../music/store'
 import { musicProviderFor } from '../music/providers/account'
+import { createMusicSourceResolver } from '../music/providers/source'
 import { MusicProviderError, type MusicStreamSource } from '../music/providers/types'
-import { fetchAllowedMusicUrl } from '../music/stream'
+import { fetchAllowedMusicUrl, fetchRelayableMusicSource } from '../music/stream'
 import {
   inspectMusicCover,
   sanitizeMusicFilename,
@@ -394,25 +395,51 @@ musicDriveRoutes.post('/transfer', async (c) => {
   const settings = await store.getSettings()
   const quality = settings?.downloadQuality ?? 'exhigh'
   const provider = await musicProviderFor(c.env, userId)
+  const resolver = createMusicSourceResolver(track, settings)
+  const officialSource = async (): Promise<MusicStreamSource> => {
+    try {
+      return await provider.stream(track.providerId, quality)
+    } catch (error) {
+      if (error instanceof MusicProviderError) {
+        const auth = error.code === 'auth_required' || error.status === 401
+        throw new ApiError(
+          auth ? 409 : 502,
+          auth ? 'music_provider_auth_required' : 'music_source_unavailable',
+          error.message,
+        )
+      }
+      throw error
+    }
+  }
   let source: MusicStreamSource
+  let custom = false
   try {
-    source = await provider.stream(track.providerId, quality)
+    const candidate = await resolver.resolveCustom(quality)
+    if (candidate) {
+      source = candidate
+      custom = true
+    } else {
+      source = await officialSource()
+    }
   } catch (error) {
-    if (error instanceof MusicProviderError) {
-      const auth = error.code === 'auth_required' || error.status === 401
+    if (!resolver.officialAllowed) {
       throw new ApiError(
-        auth ? 409 : 502,
-        auth ? 'music_provider_auth_required' : 'music_source_unavailable',
-        error.message,
+        502,
+        'music_source_unavailable',
+        error instanceof Error ? error.message : 'The custom resolver could not provide this track',
       )
     }
-    throw error
+    console.warn('[inkstone] Custom music resolver failed for a transfer; using the official source:',
+      error instanceof Error ? error.message : error)
+    source = await officialSource()
+    custom = false
   }
   if (source.freeTrial) {
     throw new ApiError(409, 'music_preview_only', 'Only a preview of this track is available')
   }
 
-  const upstream = await fetchAllowedMusicUrl(source.url, {
+  const fetcher = custom ? fetchRelayableMusicSource : fetchAllowedMusicUrl
+  const upstream = await fetcher(source.url, {
     headers: { Accept: '*/*', 'User-Agent': TRANSFER_USER_AGENT, Referer: TRANSFER_REFERER },
     signal: AbortSignal.timeout(TRANSFER_TIMEOUT_MS),
   })

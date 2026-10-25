@@ -80,6 +80,10 @@ class_name = "EmailMailbox"
 name = "MUSIC_QUEUE"
 class_name = "MusicQueue"
 
+[[durable_objects.bindings]]
+name = "MUSIC_SHARE_LIMITER"
+class_name = "MusicShareLimiter"
+
 [exports.SyncHub]
 type = "durable-object"
 storage = "sqlite"
@@ -93,6 +97,10 @@ type = "durable-object"
 storage = "sqlite"
 
 [exports.MusicQueue]
+type = "durable-object"
+storage = "sqlite"
+
+[exports.MusicShareLimiter]
 type = "durable-object"
 storage = "sqlite"
 
