@@ -75,6 +75,35 @@ export interface CalendarGroupDto {
   position: number
 }
 
+export interface CalendarWriteInput {
+  id?: string
+  name: string
+  color?: string
+  darkColor?: string
+  icon?: string | null
+  groupId?: string | null
+  isDefault?: boolean
+  isVisible?: boolean
+  readOnly?: boolean
+}
+
+export interface CalendarPatchInput {
+  rev: number
+  name?: string
+  color?: string
+  darkColor?: string
+  icon?: string | null
+  groupId?: string | null
+  isDefault?: boolean
+  isVisible?: boolean
+  readOnly?: boolean
+}
+
+export interface CalendarGroupWriteInput {
+  id?: string
+  name: string
+}
+
 export interface CalendarTaskDto {
   completed?: boolean
   completedAt?: TemporalValue
@@ -126,6 +155,8 @@ export interface CalendarEventInput {
   icon?: boolean | null
   recurrenceRule?: string | null
   rev?: number
+  source?: CalendarSource
+  externalId?: string | null
 }
 
 export interface CalendarEventPatch {
@@ -182,6 +213,7 @@ export interface CalendarConnectionDto {
   kind: CalendarConnectionKind
   label: string
   baseUrl: string
+  calendarHomeUrl: string | null
   username: string | null
   scope: 'read' | 'write'
   writable: boolean
