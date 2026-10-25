@@ -7,6 +7,7 @@
  */
 export type MusicPage =
   | { kind: 'home' }
+  | { kind: 'daily' }
   | { kind: 'search'; query: string }
   | { kind: 'playlist'; id: string }
   | { kind: 'album'; id: string }
@@ -62,6 +63,8 @@ export function parseMusicAddress(pathname: string, search = ''): MusicPage {
 
   const [head, id] = rest
   switch (head) {
+    case 'daily':
+      return rest.length === 1 ? { kind: 'daily' } : { kind: 'notFound', path: pathname }
     case 'search':
       if (rest.length > 1) return { kind: 'notFound', path: pathname }
       return { kind: 'search', query: new URLSearchParams(search).get('q') ?? '' }
@@ -116,6 +119,8 @@ export function musicPathFor(page: MusicPage): string {
   switch (page.kind) {
     case 'home':
       return BASE
+    case 'daily':
+      return `${BASE}/daily`
     case 'search':
       return page.query ? `${BASE}/search?q=${encodeURIComponent(page.query)}` : `${BASE}/search`
     case 'playlist':

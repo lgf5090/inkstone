@@ -130,6 +130,29 @@
   background: var(--bg-surface);
 }
 
+.music-hero__cover-link {
+  display: inline-flex;
+  flex: 0 0 auto;
+  border-radius: var(--r-lg);
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.music-hero__cover-link:hover {
+  transform: translateY(-2px);
+}
+
+.music-hero__cover-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .music-hero__cover-link {
+    transition: none;
+  }
+}
+
 .music-hero__text {
   min-inline-size: 0;
   display: flex;

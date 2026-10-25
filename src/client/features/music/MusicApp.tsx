@@ -22,6 +22,7 @@ import { HomePage } from './pages/HomePage'
 import { LoginPage } from './pages/LoginPage'
 import { MusicSettingsPage } from './pages/MusicSettingsPage'
 import { CloudDrivePage } from './pages/CloudDrivePage'
+import { DailyPage } from './pages/DailyPage'
 import { LocalMusicPage } from './pages/LocalMusicPage'
 import { AlbumsPage, PlaylistsPage, ToplistsPage } from './pages/BrowsePages'
 import { MvPage } from './pages/MvPage'
@@ -137,6 +138,8 @@ function MusicPageContent({ page }: { page: MusicPage }): ReactElement {
   switch (page.kind) {
     case 'home':
       return <HomePage />
+    case 'daily':
+      return <DailyPage />
     case 'search':
       return <SearchPage query={page.query} />
     case 'playlist':

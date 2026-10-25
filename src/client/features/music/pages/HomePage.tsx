@@ -146,7 +146,14 @@ export function HomePage(): ReactElement {
   const featured = dailyHero ? null : recommended[0]
   const hero = dailyHero ? (
     <section className="music-hero" aria-label={musicText('music.home.daily.eyebrow')}>
-      <Cover trackId={daily[0].id} size="xl" radius="lg" />
+      <button
+        type="button"
+        className="music-hero__cover-link"
+        aria-label={musicText('music.daily.open_list')}
+        onClick={() => navigateToAddress(musicPathFor({ kind: 'daily' }))}
+      >
+        <Cover trackId={daily[0].id} src={daily[0].coverUrl || undefined} size="xl" radius="lg" />
+      </button>
       <div className="music-hero__text">
         <p className="text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-section)] text-[var(--text-quaternary)]">
           {musicText('music.home.daily.eyebrow')}
@@ -158,6 +165,13 @@ export function HomePage(): ReactElement {
         <div className="flex flex-wrap items-center gap-2 pt-1">
           <Button variant="primary" icon={<Play size={14} />} onClick={() => playTracks(daily)}>
             {musicText('music.common.play_all')}
+          </Button>
+          <Button
+            variant="secondary"
+            icon={<ArrowUpRight size={14} />}
+            onClick={() => navigateToAddress(musicPathFor({ kind: 'daily' }))}
+          >
+            {musicText('music.daily.open_list')}
           </Button>
         </div>
       </div>

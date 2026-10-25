@@ -380,6 +380,9 @@ export function FloatingMusicPlayer(): ReactElement | null {
               {[0, 1, 2, 3, 4].map((bar) => <span key={bar} />)}
             </span>
             <div className="music-floating__header-actions">
+              <IconButton label={musicText('music.playbar.lyrics')} size="xs" onClick={openLyrics}>
+                <Mic2 size={14} />
+              </IconButton>
               <IconButton label={musicText('music.floating.open')} size="xs" onClick={openMusic}>
                 <ExternalLink size={14} />
               </IconButton>
@@ -509,6 +512,14 @@ export function FloatingMusicPlayer(): ReactElement | null {
             >
               {muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
             </IconButton>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={cycleRate}
+              aria-label={musicText('music.playbar.rate', { rate })}
+            >
+              {rate}×
+            </Button>
             <Slider
               label={musicText('music.playbar.volume')}
               value={muted ? 0 : volume}
@@ -518,14 +529,6 @@ export function FloatingMusicPlayer(): ReactElement | null {
               className="music-floating__volume"
               onChange={(value) => setVolume(value)}
             />
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={cycleRate}
-              aria-label={musicText('music.playbar.rate', { rate })}
-            >
-              {rate}×
-            </Button>
             <IconButton
               label={musicText('music.panel.eq')}
               size="xs"
@@ -541,9 +544,6 @@ export function FloatingMusicPlayer(): ReactElement | null {
               onClick={() => togglePanel('sleep')}
             >
               <Moon size={14} />
-            </IconButton>
-            <IconButton label={musicText('music.playbar.lyrics')} size="xs" onClick={openLyrics}>
-              <Mic2 size={14} />
             </IconButton>
           </div>
 

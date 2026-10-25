@@ -174,7 +174,12 @@ function EntryList({
   )
 }
 
-export function AlistPanel({ mounts, onChanged }: { mounts: MusicMount[]; onChanged: () => void }): ReactElement {
+export function AlistPanel({ mounts, onChanged, filter = '', onMatchesChange }: {
+  mounts: MusicMount[]
+  onChanged: () => void
+  filter?: string
+  onMatchesChange?: (count: number) => void
+}): ReactElement {
   const [addOpen, setAddOpen] = useState(false)
   const [selected, setSelected] = useState('')
   const [path, setPath] = useState('')
@@ -387,10 +392,18 @@ export function AlistPanel({ mounts, onChanged }: { mounts: MusicMount[]; onChan
 
   const entries = search ?? query.data?.listing.entries ?? []
   const truncated = search ? false : query.data?.listing.truncated ?? false
-  const selectable = entries.filter((entry) => !entry.isDirectory)
+  const normalizedFilter = filter.trim().toLowerCase()
+  const visibleEntries = normalizedFilter
+    ? entries.filter((entry) => [entry.name, entry.path].some((value) => value.toLowerCase().includes(normalizedFilter)))
+    : entries
+  const selectable = visibleEntries.filter((entry) => !entry.isDirectory)
   const selectedEntries = selectable.filter((entry) => selectedPaths.has(entry.path))
   const importablePaths = selectedEntries.filter((entry) => entry.isMedia).map((entry) => entry.path)
   const allSelected = selectable.length > 0 && selectable.every((entry) => selectedPaths.has(entry.path))
+
+  useEffect(() => {
+    onMatchesChange?.(visibleEntries.length)
+  }, [onMatchesChange, visibleEntries.length])
 
   const toggle = (entryPath: string): void => {
     setSelectedPaths((current) => {
@@ -549,26 +562,34 @@ export function AlistPanel({ mounts, onChanged }: { mounts: MusicMount[]; onChan
 
             {search === null && query.status === 'loading' && <LoadingBlock label={musicText('music.cloud.loading')} />}
             {search === null && query.status === 'error' && <PageError error={query.error} onRetry={query.reload} compact />}
-            {search === null && query.status === 'ready' && entries.length === 0 && (
-              <Empty art="folder" title={musicText('music.cloud.empty')} />
+            {search === null && query.status === 'ready' && visibleEntries.length === 0 && (
+              <Empty
+                art={normalizedFilter && entries.length > 0 ? 'search' : 'folder'}
+                title={normalizedFilter && entries.length > 0
+                  ? musicText('music.cloud.no_match')
+                  : musicText('music.cloud.empty')}
+                description={normalizedFilter && entries.length > 0
+                  ? musicText('music.cloud.no_match_hint')
+                  : undefined}
+              />
             )}
             {uploading && (
               <p role="status" className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{uploading}</p>
             )}
-            {(entries.some((entry) => !entry.isDirectory) || selectedPaths.size > 0) && (
+            {(visibleEntries.some((entry) => !entry.isDirectory) || selectedPaths.size > 0) && (
               <div className="flex flex-wrap items-center gap-2">
                 <Button size="sm" variant="ghost" onClick={toggleAll}>
                   {allSelected ? musicText('music.cloud.clear_selection') : musicText('music.cloud.select_all')}
                 </Button>
                 <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{musicText('music.cloud.select_hint')}</span>
                 <span className="flex-1" />
-                {search === null && entries.some((entry) => !entry.isDirectory && entry.isMedia) && (
+                {search === null && visibleEntries.some((entry) => !entry.isDirectory && entry.isMedia) && (
                   <Button
                     size="sm"
                     variant="secondary"
                     loading={importingPath !== null}
                     onClick={() => {
-                      void importPaths(entries.filter((entry) => !entry.isDirectory && entry.isMedia).map((entry) => entry.path))
+                      void importPaths(visibleEntries.filter((entry) => !entry.isDirectory && entry.isMedia).map((entry) => entry.path))
                     }}
                   >
                     {musicText('music.cloud.alist.import_all')}
@@ -604,9 +625,9 @@ export function AlistPanel({ mounts, onChanged }: { mounts: MusicMount[]; onChan
                 </Button>
               </div>
             )}
-            {entries.length > 0 && (
+            {visibleEntries.length > 0 && (
               <EntryList
-                entries={entries}
+                entries={visibleEntries}
                 importingPath={importingPath}
                 selected={selectedPaths}
                 onToggle={toggle}

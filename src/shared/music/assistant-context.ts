@@ -13,6 +13,7 @@
 /** The screens a music turn may say it was asked beside. */
 export const MUSIC_ASSISTANT_PAGES = [
   'home',
+  'daily',
   'search',
   'library',
   'playlist',

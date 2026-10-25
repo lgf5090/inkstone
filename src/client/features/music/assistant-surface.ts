@@ -11,6 +11,7 @@ import type { MusicPage } from './music-address'
 
 const PAGE_KIND: Record<MusicPage['kind'], MusicAssistantPage> = {
   home: 'home',
+  daily: 'daily',
   search: 'search',
   playlist: 'playlist',
   album: 'album',

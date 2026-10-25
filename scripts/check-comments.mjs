@@ -6205,6 +6205,9 @@ const allowed = new Map([
     "// themselves when their tab is opened. The helper marks attempts, so a reload cannot loop.",
     "// The reload callbacks belong to the app-level query hook, so finishing after navigation is safe.",
   ]],
+  ["src/client/features/music/pages/DailyPage.tsx", [
+    "/**\n * Today's recommendation list, opened from the discovery hero.\n *\n * The hero only has room for one cover and a Play button; the reader who wants to choose a song\n * lands here. It reads the same daily endpoint the hero summarises, so both screens agree on the\n * list and the page can be deep-linked like any other collection.\n */",
+  ]],
   ["src/client/features/music/pages/DownloadsPage.tsx", [
     "/**\n * The R2 download queue: progress, pause/resume/retry/cancel and the account's storage gauge.\n *\n * Downloads are server-side copies into the music library, not files on this device; this page\n * manages that queue and says so. A task is added from a track's menu, so there is no enqueue\n * control here.\n */",
     "/** The queue stores a diagnostic in English; the page names the cause and the next step in Chinese. */",

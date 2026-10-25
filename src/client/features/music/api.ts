@@ -184,6 +184,7 @@ export const musicApi = {
     ),
 
   home: () => request<MusicHome>('/api/music/home'),
+  daily: () => request<{ tracks: MusicTrack[] }>('/api/music/daily'),
   fm: () => request<{ tracks: MusicTrack[] }>('/api/music/home/fm'),
 
   search: (type: MusicSearchType, keywords: string, page = 1, limit = 30) =>
