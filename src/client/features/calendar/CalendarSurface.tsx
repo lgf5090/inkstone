@@ -7,6 +7,7 @@
  * `source: 'remote'` and a skip set, so a refresh never echoes back as a write.
  */
 import '@dayflow/core/dist/styles.components.css'
+import '@dayflow/plugin-sidebar/dist/styles.components.css'
 import './calendar.css'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -21,6 +22,7 @@ import {
   type CalendarAppConfig,
   type CalendarCallbacks,
   type CalendarSearchProps,
+  type CalendarPlugin,
   type CalendarType,
   type CalendarView,
   type Event,
@@ -29,6 +31,7 @@ import {
 import { createDragPlugin } from '@dayflow/plugin-drag'
 import { createKeyboardShortcutsPlugin } from '@dayflow/plugin-keyboard-shortcuts'
 import { createLocalizationPlugin, zh } from '@dayflow/plugin-localization'
+import { createSidebarPlugin } from '@dayflow/plugin-sidebar'
 import { AlertTriangle, Menu as MenuIcon, Settings } from 'lucide-react'
 import type {
   CalendarDto,
@@ -218,6 +221,28 @@ function useWide(): boolean {
   return wide
 }
 
+const KEYBOARD_CLEANUP = Symbol.for('inkstone.calendar.keyboard.cleanup')
+
+function singleInstanceKeyboardPlugin(
+  config: Parameters<typeof createKeyboardShortcutsPlugin>[0],
+): CalendarPlugin {
+  const plugin = createKeyboardShortcutsPlugin(config)
+  return {
+    ...plugin,
+    install(app) {
+      const holder = globalThis as unknown as Record<PropertyKey, unknown>
+      const previous = holder[KEYBOARD_CLEANUP]
+      if (typeof previous === 'function') previous()
+      const cleanup = plugin.install(app)
+      holder[KEYBOARD_CLEANUP] = typeof cleanup === 'function' ? cleanup : null
+      return () => {
+        if (holder[KEYBOARD_CLEANUP] === cleanup) holder[KEYBOARD_CLEANUP] = null
+        if (typeof cleanup === 'function') cleanup()
+      }
+    },
+  }
+}
+
 function buildConfig(input: {
   meta: CalendarMetaDto
   initialEvents: CalendarEventDto[]
@@ -245,7 +270,7 @@ function buildConfig(input: {
         enableAllDayCreate: true,
         supportedViews: [ViewType.DAY, ViewType.WEEK, ViewType.MONTH, ViewType.YEAR],
       }),
-      createKeyboardShortcutsPlugin({
+      singleInstanceKeyboardPlugin({
         enabled: true,
         callbacks: {
           undo: app => {
@@ -270,6 +295,9 @@ function buildConfig(input: {
         },
       }),
       createLocalizationPlugin({ locales: [zh] }),
+      // The bridge is installed for the header's reference quick-create behavior; the default
+      // Preact sidebar is overridden below, so its client-side subscription UI never mounts.
+      createSidebarPlugin({ width: '0px', miniWidth: '0px', initialCollapsed: true, componentsOrder: [] }),
     ],
     events: initialEvents.map(event => toDayFlowEvent(event, timeZone)),
     defaultView: viewType(preferences.defaultView),
@@ -718,7 +746,7 @@ export function CalendarSurface({ meta, initialEvents, initialRange, onRefreshMe
         )}
 
         <div className="inkstone-calendar min-h-0 flex-1">
-          <DayFlowCalendar calendar={app} search={search} />
+          <DayFlowCalendar calendar={app} search={search} sidebar={() => null} />
         </div>
       </div>
 

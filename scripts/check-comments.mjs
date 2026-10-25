@@ -1270,6 +1270,8 @@ const allowed = new Map([
     "/**\n * The live calendar surface: DayFlow, the plugins, the native sidebar and the write queue.\n *\n * Configuration is created once, because `useCalendarApp` builds its app from the first config. Later\n * preference changes go through `app.updateConfig`, which re-installs views without rebuilding the\n * app or losing the current selection. Range loading and persistence both apply server state with\n * `source: 'remote'` and a skip set, so a refresh never echoes back as a write.\n */",
     "// A browser that refuses storage gets the expanded sidebar; the choice is a convenience.",
     "// Same as above: the sidebar still collapses for this visit.",
+    "// The bridge is installed for the header's reference quick-create behavior; the default",
+    "// Preact sidebar is overridden below, so its client-side subscription UI never mounts.",
   ]],
   ["src/client/features/calendar/MiniMonth.tsx", [
     "/**\n * The mini month: 42 cells, event dots in calendar colours, and a date that drives the main view.\n *\n * It reads DayFlow's registry and events directly rather than keeping a second copy of the data, so\n * a visibility toggle or a drag in the main grid is reflected here on the next app notification.\n */",
