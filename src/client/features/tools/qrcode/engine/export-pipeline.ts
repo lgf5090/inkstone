@@ -1,32 +1,23 @@
-/**
- * High-resolution export pipeline for QR codes.
- * Renders PNG, JPEG, SVG, and WEBP at configurable dimensions (500, 1000, 1500, custom).
- * Generates Blobs, Data URLs, direct file download, and system clipboard copying.
- */
-
 import type { QrExportFormat } from '../../../../../shared/tools/qrcode/types'
 import type { QrEngine } from './qr-engine'
 
 export interface ExportOptions {
-  /** Target export width (and height) in pixels (e.g. 500, 1000, 1500, 3000) */
   width?: number
-  /** Target image format */
   format?: QrExportFormat
-  /** Compression quality (0.0 - 1.0) for JPEG and WEBP */
   quality?: number
-  /** Filename for downloading (defaults to qrcode-[timestamp].[ext]) */
   filename?: string
 }
 
-/**
- * Converts a base64 Data URL to a Blob instance.
- */
 export function dataUrlToBlob(dataUrl: string): Blob {
-  const parts = dataUrl.split(',')
-  const header = parts[0]
-  const data = parts[1] || ''
+  const commaIdx = dataUrl.indexOf(',')
+  if (commaIdx === -1) {
+    throw new Error('Invalid Data URL: missing comma delimiter')
+  }
 
-  const mimeMatch = header.match(/:(.*?);/)
+  const header = dataUrl.slice(0, commaIdx)
+  const data = dataUrl.slice(commaIdx + 1)
+
+  const mimeMatch = header.match(/^data:([^;,]+)/)
   const mime = mimeMatch ? mimeMatch[1] : 'image/png'
 
   if (header.includes(';base64')) {
@@ -38,19 +29,16 @@ export function dataUrlToBlob(dataUrl: string): Blob {
     return new Blob([array], { type: mime })
   }
 
-  // Decoded URL-encoded text (e.g. SVG)
   const decoded = decodeURIComponent(data)
   return new Blob([decoded], { type: mime })
 }
 
-/**
- * Converts canvas to Blob safely across browser and test environments.
- */
 export async function canvasToBlob(
   canvas: HTMLCanvasElement,
   format: 'image/png' | 'image/jpeg' | 'image/webp',
   quality = 0.92
 ): Promise<Blob> {
+  const q = Math.max(0, Math.min(1, quality))
   if (typeof canvas.toBlob === 'function') {
     return new Promise<Blob>((resolve, reject) => {
       canvas.toBlob(
@@ -58,9 +46,8 @@ export async function canvasToBlob(
           if (blob) {
             resolve(blob)
           } else {
-            // Fallback to dataURL conversion
             try {
-              const url = canvas.toDataURL(format, quality)
+              const url = canvas.toDataURL(format, q)
               resolve(dataUrlToBlob(url))
             } catch (err) {
               reject(err)
@@ -68,18 +55,15 @@ export async function canvasToBlob(
           }
         },
         format,
-        quality
+        q
       )
     })
   }
 
-  const url = canvas.toDataURL(format, quality)
+  const url = canvas.toDataURL(format, q)
   return dataUrlToBlob(url)
 }
 
-/**
- * Ensures canvas has a solid white background (required for JPEG export to prevent black backgrounds).
- */
 export function ensureSolidBackground(
   sourceCanvas: HTMLCanvasElement,
   bgColor = '#ffffff'
@@ -90,22 +74,25 @@ export function ensureSolidBackground(
   const ctx = canvas.getContext('2d')
   if (!ctx) return sourceCanvas
 
-  ctx.fillStyle = bgColor
+  const effectiveBg =
+    !bgColor || bgColor === 'transparent' || bgColor.toLowerCase() === 'rgba(0, 0, 0, 0)'
+      ? '#ffffff'
+      : bgColor
+
+  ctx.fillStyle = effectiveBg
   ctx.fillRect(0, 0, canvas.width, canvas.height)
   ctx.drawImage(sourceCanvas, 0, 0)
   return canvas
 }
 
-/**
- * Exports QR code to Blob according to specified format and resolution.
- */
 export async function exportQrToBlob(
   engine: QrEngine,
   options?: ExportOptions
 ): Promise<Blob> {
-  const width = options?.width || 1000
+  const width = Math.max(50, Math.min(4000, options?.width || 1000))
   const format = options?.format || 'png'
-  const quality = options?.quality ?? 0.92
+  const quality = Math.max(0, Math.min(1, options?.quality ?? 0.92))
+  const isJpeg = format === 'jpeg' || format === 'jpg'
 
   if (format === 'svg') {
     const svgString = await engine.renderSvg(width, width)
@@ -114,7 +101,7 @@ export async function exportQrToBlob(
 
   let canvas = await engine.renderCanvas(width, width)
 
-  if (format === 'jpeg') {
+  if (isJpeg) {
     canvas = ensureSolidBackground(canvas, engine.getOptions().backgroundOptions?.color || '#ffffff')
     return canvasToBlob(canvas, 'image/jpeg', quality)
   }
@@ -126,16 +113,14 @@ export async function exportQrToBlob(
   return canvasToBlob(canvas, 'image/png')
 }
 
-/**
- * Exports QR code to a Data URL string.
- */
 export async function exportQrToDataUrl(
   engine: QrEngine,
   options?: ExportOptions
 ): Promise<string> {
-  const width = options?.width || 1000
+  const width = Math.max(50, Math.min(4000, options?.width || 1000))
   const format = options?.format || 'png'
-  const quality = options?.quality ?? 0.92
+  const quality = Math.max(0, Math.min(1, options?.quality ?? 0.92))
+  const isJpeg = format === 'jpeg' || format === 'jpg'
 
   if (format === 'svg') {
     const svgString = await engine.renderSvg(width, width)
@@ -144,7 +129,7 @@ export async function exportQrToDataUrl(
 
   let canvas = await engine.renderCanvas(width, width)
 
-  if (format === 'jpeg') {
+  if (isJpeg) {
     canvas = ensureSolidBackground(canvas, engine.getOptions().backgroundOptions?.color || '#ffffff')
     return canvas.toDataURL('image/jpeg', quality)
   }
@@ -156,15 +141,12 @@ export async function exportQrToDataUrl(
   return canvas.toDataURL('image/png')
 }
 
-/**
- * Triggers a browser file download for the rendered QR code.
- */
 export async function downloadQrCode(
   engine: QrEngine,
   options?: ExportOptions
 ): Promise<void> {
   const format = options?.format || 'png'
-  const ext = format === 'jpeg' ? 'jpg' : format
+  const ext = (format === 'jpeg' || format === 'jpg') ? 'jpg' : format
   const filename = options?.filename || `qrcode-${Date.now()}.${ext}`
 
   const blob = await exportQrToBlob(engine, options)
@@ -182,9 +164,6 @@ export async function downloadQrCode(
   }
 }
 
-/**
- * Copies the rendered PNG QR code to the system clipboard.
- */
 export async function copyQrCodeToClipboard(
   engine: QrEngine,
   options?: { width?: number }
@@ -193,7 +172,7 @@ export async function copyQrCodeToClipboard(
     throw new Error('Clipboard API is not supported in this environment')
   }
 
-  const width = options?.width || 1000
+  const width = Math.max(50, Math.min(4000, options?.width || 1000))
   const blob = await exportQrToBlob(engine, { width, format: 'png' })
 
   if (typeof ClipboardItem !== 'undefined' && typeof navigator.clipboard.write === 'function') {
@@ -205,14 +184,12 @@ export async function copyQrCodeToClipboard(
       ])
       return true
     } catch {
-      // If image/png item write fails, attempt fallback to dataUrl text
       const dataUrl = await exportQrToDataUrl(engine, { width, format: 'png' })
       await navigator.clipboard.writeText(dataUrl)
       return true
     }
   }
 
-  // Fallback for environments lacking ClipboardItem
   const dataUrl = await exportQrToDataUrl(engine, { width, format: 'png' })
   await navigator.clipboard.writeText(dataUrl)
   return true

@@ -1,14 +1,3 @@
-/**
- * Unified QR code rendering engine.
- * Wraps `qr-code-styling` and coordinates:
- * - Module dot shapes (square, dots, rounded, classy, classy-rounded, diamonds)
- * - Corner eye shapes (square, rounded, circle, leaf, pointed)
- * - Gradients (linear, radial, angle, colorStops)
- * - Logo styling (circle, rounded rect, original, shadow)
- * - Composite framing (dark-green, red-blue, three-color, heart, liquid-stamp, pacman, meme-bubble, mushroom)
- * - Text captions (font size, font family, bold, italic, underline, color, top/bottom)
- */
-
 import QRCodeStyling from 'qr-code-styling'
 import { getOnlineLogoDataUrl } from '../../../../../shared/tools/qrcode/online-logos'
 import type {
@@ -55,9 +44,6 @@ export const DEFAULT_QR_OPTIONS: QrStylingOptions = {
   },
 }
 
-/**
- * Maps high-level eye shape to corner square & dot styling.
- */
 export function mapEyeShapeToCornerOptions(
   eyeShape: QrEyeShape,
   outerColor?: string,
@@ -83,7 +69,9 @@ export function mapEyeShapeToCornerOptions(
         cornersDotOptions: { type: 'dot', color: innerColor || outerColor },
       }
     case 'leaf':
+    case 'leaf-diagonal':
     case 'pointed':
+    case 'leaf-pointed':
       return {
         cornersSquareOptions: { type: 'extra-rounded', color: outerColor },
         cornersDotOptions: { type: 'dot', color: innerColor || outerColor },
@@ -96,20 +84,28 @@ export function mapEyeShapeToCornerOptions(
   }
 }
 
-/**
- * Pre-processes logo image into rounded/circular masked Data URL with shadow if requested.
- */
 export async function prepareStyledLogo(
   src?: string,
   options?: QrLogoOptions
 ): Promise<string | undefined> {
-  if (!src) return undefined
-  if (!options || (options.shape === 'original' && !options.shadow)) {
-    return src
+  const finalSrc =
+    src ||
+    options?.src ||
+    options?.url ||
+    options?.dataUrl ||
+    (options?.logoId ? getOnlineLogoDataUrl(options.logoId) : undefined)
+
+  if (!finalSrc) return undefined
+
+  const shape = options?.shape || 'original'
+  const hasShadow = Boolean(options?.shadow || options?.hasShadow)
+
+  if (shape === 'original' && !hasShadow) {
+    return finalSrc
   }
 
   if (typeof document === 'undefined') {
-    return src
+    return finalSrc
   }
 
   return new Promise((resolve) => {
@@ -117,20 +113,20 @@ export async function prepareStyledLogo(
     img.crossOrigin = 'anonymous'
 
     const timeout = setTimeout(() => {
-      resolve(src)
-    }, 1500)
+      resolve(finalSrc)
+    }, 800)
 
     img.onload = () => {
       clearTimeout(timeout)
       try {
         const size = 300
-        const pad = options.shadow ? 20 : 0
+        const pad = hasShadow ? 24 : 0
         const canvas = document.createElement('canvas')
         canvas.width = size + pad * 2
         canvas.height = size + pad * 2
         const ctx = canvas.getContext('2d')
         if (!ctx) {
-          resolve(src)
+          resolve(finalSrc)
           return
         }
 
@@ -139,25 +135,45 @@ export async function prepareStyledLogo(
         const drawW = size
         const drawH = size
 
-        if (options.shadow) {
-          ctx.shadowColor = 'rgba(0, 0, 0, 0.35)'
-          ctx.shadowBlur = 14
+        if (hasShadow) {
+          ctx.save()
+          ctx.shadowColor = 'rgba(0, 0, 0, 0.28)'
+          ctx.shadowBlur = 16
           ctx.shadowOffsetX = 0
           ctx.shadowOffsetY = 4
+          ctx.fillStyle = '#ffffff'
+
+          if (shape === 'circle') {
+            ctx.beginPath()
+            ctx.arc(drawX + drawW / 2, drawY + drawH / 2, drawW / 2, 0, Math.PI * 2)
+            ctx.closePath()
+            ctx.fill()
+          } else if (shape === 'rounded') {
+            drawRoundRect(ctx, drawX, drawY, drawW, drawH, Math.round(drawW * 0.22))
+            ctx.fill()
+          } else {
+            drawRoundRect(ctx, drawX, drawY, drawW, drawH, 8)
+            ctx.fill()
+          }
+          ctx.restore()
         }
 
         ctx.save()
-        if (options.shape === 'circle') {
+        if (shape === 'circle') {
           ctx.beginPath()
           ctx.arc(drawX + drawW / 2, drawY + drawH / 2, drawW / 2, 0, Math.PI * 2)
           ctx.closePath()
-          ctx.fillStyle = '#ffffff'
-          ctx.fill()
+          if (!hasShadow) {
+            ctx.fillStyle = '#ffffff'
+            ctx.fill()
+          }
           ctx.clip()
-        } else if (options.shape === 'rounded') {
+        } else if (shape === 'rounded') {
           drawRoundRect(ctx, drawX, drawY, drawW, drawH, Math.round(drawW * 0.22))
-          ctx.fillStyle = '#ffffff'
-          ctx.fill()
+          if (!hasShadow) {
+            ctx.fillStyle = '#ffffff'
+            ctx.fill()
+          }
           ctx.clip()
         }
 
@@ -166,22 +182,19 @@ export async function prepareStyledLogo(
 
         resolve(canvas.toDataURL('image/png'))
       } catch {
-        resolve(src)
+        resolve(finalSrc)
       }
     }
 
     img.onerror = () => {
       clearTimeout(timeout)
-      resolve(src)
+      resolve(finalSrc)
     }
 
-    img.src = src
+    img.src = finalSrc
   })
 }
 
-/**
- * Transforms QrStylingOptions into `qr-code-styling` native configuration.
- */
 export function buildQrCodeStylingOptions(
   options: QrStylingOptions,
   data: string,
@@ -193,6 +206,8 @@ export function buildQrCodeStylingOptions(
   let dotType: QrDotType = options.dotsOptions?.type || 'square'
   if ((dotType as string) === 'diamonds') {
     dotType = 'classy'
+  } else if ((dotType as string) === 'circle') {
+    dotType = 'dots'
   }
 
   const dotsOptions: any = {
@@ -208,8 +223,18 @@ export function buildQrCodeStylingOptions(
     }
   }
 
+  let cornerSquareType = options.cornersSquareOptions?.type
+  let cornerDotType = options.cornersDotOptions?.type
+  if (options.eyeShape && (!cornerSquareType || cornerSquareType === 'square')) {
+    const mapped = mapEyeShapeToCornerOptions(options.eyeShape)
+    if (options.eyeShape !== 'square') {
+      cornerSquareType = mapped.cornersSquareOptions.type
+      cornerDotType = mapped.cornersDotOptions.type
+    }
+  }
+
   const cornersSquareOptions: any = {
-    type: options.cornersSquareOptions?.type || 'square',
+    type: cornerSquareType || 'square',
     color: options.cornersSquareOptions?.color || dotsOptions.color,
   }
   if (options.cornersSquareOptions?.gradient) {
@@ -222,7 +247,7 @@ export function buildQrCodeStylingOptions(
   }
 
   const cornersDotOptions: any = {
-    type: options.cornersDotOptions?.type || 'square',
+    type: cornerDotType || 'square',
     color: options.cornersDotOptions?.color || dotsOptions.color,
   }
   if (options.cornersDotOptions?.gradient) {
@@ -246,15 +271,21 @@ export function buildQrCodeStylingOptions(
     }
   }
 
-  let finalLogo = processedLogoSrc || options.logoOptions?.src
-  if (!finalLogo && options.logoOptions?.logoId) {
-    finalLogo = getOnlineLogoDataUrl(options.logoOptions.logoId)
+  const logoOpts = options.logoOptions || options.imageOptions
+  let finalLogo =
+    processedLogoSrc ||
+    logoOpts?.src ||
+    logoOpts?.url ||
+    logoOpts?.dataUrl
+
+  if (!finalLogo && logoOpts?.logoId) {
+    finalLogo = getOnlineLogoDataUrl(logoOpts.logoId)
   }
 
   const imageOptions: any = {
-    hideBackgroundDots: options.logoOptions?.hideBackgroundDots ?? true,
-    imageSize: options.logoOptions?.size ?? 0.2,
-    margin: options.logoOptions?.margin ?? 6,
+    hideBackgroundDots: logoOpts?.hideBackgroundDots ?? logoOpts?.clearBackground ?? true,
+    imageSize: logoOpts?.size ?? logoOpts?.sizeRatio ?? 0.2,
+    margin: logoOpts?.margin ?? 6,
     crossOrigin: 'anonymous',
   }
 
@@ -276,30 +307,49 @@ export function buildQrCodeStylingOptions(
   }
 }
 
-/**
- * Unified QR code engine managing lifecycle, compositing, and rendering.
- */
 export class QrEngine {
   private _options: QrStylingOptions
   private _data: string
 
   constructor(options?: Partial<QrStylingOptions>, data = 'https://example.com') {
+    let initialCornersSquare = options?.cornersSquareOptions
+    let initialCornersDot = options?.cornersDotOptions
+    if (options?.eyeShape && !options.cornersSquareOptions?.type) {
+      const mapped = mapEyeShapeToCornerOptions(
+        options.eyeShape,
+        options.cornersSquareOptions?.color,
+        options.cornersDotOptions?.color
+      )
+      initialCornersSquare = { ...mapped.cornersSquareOptions, ...options.cornersSquareOptions }
+      initialCornersDot = { ...mapped.cornersDotOptions, ...options.cornersDotOptions }
+    }
+
     this._options = {
       ...DEFAULT_QR_OPTIONS,
       ...options,
       dotsOptions: { ...DEFAULT_QR_OPTIONS.dotsOptions, ...options?.dotsOptions },
       cornersSquareOptions: {
         ...DEFAULT_QR_OPTIONS.cornersSquareOptions,
-        ...options?.cornersSquareOptions,
+        ...initialCornersSquare,
       },
-      cornersDotOptions: { ...DEFAULT_QR_OPTIONS.cornersDotOptions, ...options?.cornersDotOptions },
+      cornersDotOptions: {
+        ...DEFAULT_QR_OPTIONS.cornersDotOptions,
+        ...initialCornersDot,
+      },
       backgroundOptions: {
         ...DEFAULT_QR_OPTIONS.backgroundOptions,
         ...options?.backgroundOptions,
       },
       frameOptions: { ...DEFAULT_QR_OPTIONS.frameOptions, ...options?.frameOptions },
-      textOptions: { ...DEFAULT_QR_OPTIONS.textOptions, ...options?.textOptions },
-      logoOptions: { ...options?.logoOptions },
+      textOptions: {
+        ...DEFAULT_QR_OPTIONS.textOptions,
+        ...options?.textOptions,
+        ...(options?.caption || {}),
+      },
+      logoOptions: {
+        ...options?.logoOptions,
+        ...(options?.imageOptions || {}),
+      },
     }
     this._data = data
   }
@@ -309,19 +359,39 @@ export class QrEngine {
   }
 
   public setOptions(options: Partial<QrStylingOptions>): void {
+    let cornersSquare = options.cornersSquareOptions
+    let cornersDot = options.cornersDotOptions
+    if (options.eyeShape && !options.cornersSquareOptions?.type) {
+      const mapped = mapEyeShapeToCornerOptions(
+        options.eyeShape,
+        options.cornersSquareOptions?.color ?? this._options.cornersSquareOptions?.color,
+        options.cornersDotOptions?.color ?? this._options.cornersDotOptions?.color
+      )
+      cornersSquare = { ...mapped.cornersSquareOptions, ...options.cornersSquareOptions }
+      cornersDot = { ...mapped.cornersDotOptions, ...options.cornersDotOptions }
+    }
+
     this._options = {
       ...this._options,
       ...options,
       dotsOptions: { ...this._options.dotsOptions, ...options.dotsOptions },
       cornersSquareOptions: {
         ...this._options.cornersSquareOptions,
-        ...options.cornersSquareOptions,
+        ...cornersSquare,
       },
-      cornersDotOptions: { ...this._options.cornersDotOptions, ...options.cornersDotOptions },
+      cornersDotOptions: { ...this._options.cornersDotOptions, ...cornersDot },
       backgroundOptions: { ...this._options.backgroundOptions, ...options.backgroundOptions },
       frameOptions: { ...this._options.frameOptions, ...options.frameOptions },
-      textOptions: { ...this._options.textOptions, ...options.textOptions },
-      logoOptions: { ...this._options.logoOptions, ...options.logoOptions },
+      textOptions: {
+        ...this._options.textOptions,
+        ...options.textOptions,
+        ...(options.caption || {}),
+      },
+      logoOptions: {
+        ...this._options.logoOptions,
+        ...options.logoOptions,
+        ...(options.imageOptions || {}),
+      },
     }
   }
 
@@ -340,12 +410,14 @@ export class QrEngine {
     }
   }
 
-  /**
-   * Renders the fully composited QR code (with frames and captions) to an HTMLCanvasElement.
-   */
   public async renderCanvas(width = 1000, height = 1000): Promise<HTMLCanvasElement> {
-    const rawLogoSrc = this._options.logoOptions?.src || (this._options.logoOptions?.logoId ? getOnlineLogoDataUrl(this._options.logoOptions.logoId) : undefined)
-    const processedLogo = await prepareStyledLogo(rawLogoSrc, this._options.logoOptions)
+    const logoOpts = this._options.logoOptions || this._options.imageOptions
+    const rawLogoSrc =
+      logoOpts?.src ||
+      logoOpts?.url ||
+      logoOpts?.dataUrl ||
+      (logoOpts?.logoId ? getOnlineLogoDataUrl(logoOpts.logoId) : undefined)
+    const processedLogo = await prepareStyledLogo(rawLogoSrc, logoOpts)
 
     const stylingOpts = buildQrCodeStylingOptions(
       this._options,
@@ -357,12 +429,26 @@ export class QrEngine {
     )
 
     const qr = new QRCodeStyling(stylingOpts)
-    const tempContainer = document.createElement('div')
-    qr.append(tempContainer)
+    let baseCanvas: HTMLCanvasElement | null = null
 
-    let baseCanvas = tempContainer.querySelector('canvas') as HTMLCanvasElement | null
+    try {
+      if (typeof (qr as any)._getElement === 'function') {
+        const elem = await (qr as any)._getElement('canvas')
+        if (elem && elem.getContext) {
+          baseCanvas = elem as HTMLCanvasElement
+        }
+      }
+    } catch {
+      baseCanvas = null
+    }
+
     if (!baseCanvas) {
-      // In environments where qr.append didn't synchronously populate canvas (e.g. testing)
+      const tempContainer = document.createElement('div')
+      qr.append(tempContainer)
+      baseCanvas = tempContainer.querySelector('canvas') as HTMLCanvasElement | null
+    }
+
+    if (!baseCanvas) {
       const rawElem = (qr as any)._domCanvas || (qr as any)._canvas
       if (rawElem) {
         baseCanvas = rawElem as HTMLCanvasElement
@@ -375,26 +461,27 @@ export class QrEngine {
 
     const bgColor = this._options.backgroundOptions?.color || '#ffffff'
 
-    // 1. Apply decorative frame if specified
     let composited = baseCanvas
     if (this._options.frameOptions && this._options.frameOptions.type !== 'none') {
       composited = applyFrame(composited, this._options.frameOptions, bgColor)
     }
 
-    // 2. Apply text caption if enabled
-    if (this._options.textOptions?.enabled && this._options.textOptions.content?.trim()) {
-      composited = applyTextCaption(composited, this._options.textOptions, bgColor)
+    const textOpts = this._options.textOptions || this._options.caption
+    if (textOpts?.enabled && textOpts.content?.trim()) {
+      composited = applyTextCaption(composited, textOpts, bgColor)
     }
 
     return composited
   }
 
-  /**
-   * Renders the QR code to an SVG string.
-   */
   public async renderSvg(width = 1000, height = 1000): Promise<string> {
-    const rawLogoSrc = this._options.logoOptions?.src || (this._options.logoOptions?.logoId ? getOnlineLogoDataUrl(this._options.logoOptions.logoId) : undefined)
-    const processedLogo = await prepareStyledLogo(rawLogoSrc, this._options.logoOptions)
+    const logoOpts = this._options.logoOptions || this._options.imageOptions
+    const rawLogoSrc =
+      logoOpts?.src ||
+      logoOpts?.url ||
+      logoOpts?.dataUrl ||
+      (logoOpts?.logoId ? getOnlineLogoDataUrl(logoOpts.logoId) : undefined)
+    const processedLogo = await prepareStyledLogo(rawLogoSrc, logoOpts)
 
     const stylingOpts = buildQrCodeStylingOptions(
       this._options,
@@ -406,10 +493,25 @@ export class QrEngine {
     )
 
     const qr = new QRCodeStyling(stylingOpts)
-    const tempContainer = document.createElement('div')
-    qr.append(tempContainer)
+    let svgElement: SVGElement | null = null
 
-    let svgElement = tempContainer.querySelector('svg')
+    try {
+      if (typeof (qr as any)._getElement === 'function') {
+        const elem = await (qr as any)._getElement('svg')
+        if (elem && elem.outerHTML) {
+          svgElement = elem as SVGElement
+        }
+      }
+    } catch {
+      svgElement = null
+    }
+
+    if (!svgElement) {
+      const tempContainer = document.createElement('div')
+      qr.append(tempContainer)
+      svgElement = tempContainer.querySelector('svg')
+    }
+
     let svgString = ''
     if (svgElement) {
       svgString = svgElement.outerHTML
@@ -424,25 +526,22 @@ export class QrEngine {
 
     const bgColor = this._options.backgroundOptions?.color || '#ffffff'
 
-    // If frame is enabled, render framed canvas and embed in SVG for 100% visual fidelity
     if (this._options.frameOptions && this._options.frameOptions.type !== 'none') {
       const canvas = await this.renderCanvas(width, height)
       const dataUrl = canvas.toDataURL('image/png')
       return `<svg xmlns="http://www.w3.org/2000/svg" width="${canvas.width}" height="${canvas.height}" viewBox="0 0 ${canvas.width} ${canvas.height}"><image href="${dataUrl}" width="${canvas.width}" height="${canvas.height}"/></svg>`
     }
 
-    // Apply text caption in pure SVG format
-    if (this._options.textOptions?.enabled && this._options.textOptions.content?.trim()) {
-      svgString = applyTextCaptionToSvg(svgString, this._options.textOptions, bgColor)
+    const textOpts = this._options.textOptions || this._options.caption
+    if (textOpts?.enabled && textOpts.content?.trim()) {
+      svgString = applyTextCaptionToSvg(svgString, textOpts, bgColor)
     }
 
     return svgString
   }
 
-  /**
-   * Mounts the preview to a container element.
-   */
   public async append(container: HTMLElement, width = 300, height = 300): Promise<void> {
+    if (!container) return
     container.innerHTML = ''
     const canvas = await this.renderCanvas(width, height)
     canvas.style.maxWidth = '100%'

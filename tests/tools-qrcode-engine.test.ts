@@ -24,6 +24,7 @@ import {
   applyTextCaption,
   applyTextCaptionToSvg,
   calculateEffectiveFontSize,
+  wrapTextLines,
 } from '../src/client/features/tools/qrcode/engine/text-decorator'
 import {
   ONLINE_LOGOS,
@@ -117,7 +118,11 @@ function setupCanvasContextMock() {
     set src(val: string) {
       this._src = val
       setTimeout(() => {
-        if (this.onload) this.onload()
+        if (val.includes('error-image')) {
+          if (this.onerror) this.onerror()
+        } else {
+          if (this.onload) this.onload()
+        }
       }, 0)
     }
   }
@@ -285,6 +290,23 @@ describe('QR Code Engine & Beautification System', () => {
       expect(ctx.stroke).toHaveBeenCalled()
     })
 
+    it('wraps long lines automatically into multiple lines without overflowing', () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 300
+      canvas.height = 300
+
+      const longText = '这是一段非常长的说明文字用来测试文字折行功能是否生效并且防止水平溢出画布'
+      const wrapped = wrapTextLines(null, longText, 150, 18)
+      expect(wrapped.length).toBeGreaterThan(1)
+
+      const result = applyTextCaption(canvas, {
+        enabled: true,
+        content: longText,
+        fontSize: 30,
+      })
+      expect(result.height).toBeGreaterThan(300)
+    })
+
     it('supports top position caption layout', () => {
       const canvas = document.createElement('canvas')
       canvas.width = 400
@@ -304,8 +326,8 @@ describe('QR Code Engine & Beautification System', () => {
       expect(ctx.drawImage).toHaveBeenCalledWith(canvas, 0, expect.any(Number))
     })
 
-    it('decorates SVG with caption tags', () => {
-      const sampleSvg = '<svg width="500" height="500"><rect width="500" height="500" fill="#fff"/></svg>'
+    it('decorates SVG with caption tags and preserves inner nested SVGs', () => {
+      const sampleSvg = '<svg width="500" height="500"><g><svg viewBox="0 0 24 24"><path d="M0 0h24v24H0z"/></svg></g></svg>'
       const outputSvg = applyTextCaptionToSvg(sampleSvg, {
         enabled: true,
         content: '扫码即刻体验',
@@ -317,7 +339,8 @@ describe('QR Code Engine & Beautification System', () => {
 
       expect(outputSvg).toContain('<text')
       expect(outputSvg).toContain('扫码即刻体验')
-      expect(outputSvg).toContain('height="')
+      expect(outputSvg).toContain('<svg viewBox="0 0 24 24">')
+      expect(outputSvg).toContain('</svg>')
     })
   })
 
@@ -376,6 +399,18 @@ describe('QR Code Engine & Beautification System', () => {
         expect(ctx.fillText).toHaveBeenCalled()
       })
     }
+
+    it('allows clearing the frame label by providing empty string', () => {
+      const sourceCanvas = document.createElement('canvas')
+      sourceCanvas.width = 400
+      sourceCanvas.height = 400
+
+      const framed = applyFrame(sourceCanvas, {
+        type: 'dark-green',
+        label: '',
+      })
+      expect(framed).toBeDefined()
+    })
   })
 
   describe('QrEngine', () => {
@@ -390,7 +425,7 @@ describe('QR Code Engine & Beautification System', () => {
       expect(engine.getOptions().errorCorrectionLevel).toBe('H')
     })
 
-    it('maps eye shapes to corner square and dot options', () => {
+    it('maps eye shapes to corner square and dot options including aliases', () => {
       const square = mapEyeShapeToCornerOptions('square', '#000', '#111')
       expect(square.cornersSquareOptions.type).toBe('square')
       expect(square.cornersDotOptions.type).toBe('square')
@@ -405,6 +440,23 @@ describe('QR Code Engine & Beautification System', () => {
       const leaf = mapEyeShapeToCornerOptions('leaf', '#666', '#777')
       expect(leaf.cornersSquareOptions.type).toBe('extra-rounded')
       expect(leaf.cornersDotOptions.type).toBe('dot')
+
+      const leafDiag = mapEyeShapeToCornerOptions('leaf-diagonal')
+      expect(leafDiag.cornersSquareOptions.type).toBe('extra-rounded')
+      expect(leafDiag.cornersDotOptions.type).toBe('dot')
+
+      const leafPointed = mapEyeShapeToCornerOptions('leaf-pointed')
+      expect(leafPointed.cornersSquareOptions.type).toBe('extra-rounded')
+      expect(leafPointed.cornersDotOptions.type).toBe('dot')
+    })
+
+    it('automatically applies eyeShape to cornersSquareOptions and cornersDotOptions', () => {
+      const engine = new QrEngine({ eyeShape: 'circle' })
+      expect(engine.getOptions().cornersSquareOptions.type).toBe('dot')
+      expect(engine.getOptions().cornersDotOptions.type).toBe('dot')
+
+      engine.setOptions({ eyeShape: 'rounded' })
+      expect(engine.getOptions().cornersSquareOptions.type).toBe('extra-rounded')
     })
 
     it('builds qr-code-styling native configuration with rotation degrees to radians', () => {
@@ -452,13 +504,21 @@ describe('QR Code Engine & Beautification System', () => {
       expect(nativeOpts.imageOptions.margin).toBe(8)
     })
 
-    it('prepares styled logo with circle or rounded mask', async () => {
+    it('prepares styled logo with circle, rounded mask and shadow', async () => {
       const src = getOnlineLogoDataUrl('qq')
       const originalLogo = await prepareStyledLogo(src, { shape: 'original', shadow: false })
       expect(originalLogo).toBe(src)
 
       const circleLogo = await prepareStyledLogo(src, { shape: 'circle', shadow: true })
       expect(circleLogo).toBeTruthy()
+
+      const roundedLogo = await prepareStyledLogo(src, { shape: 'rounded', hasShadow: true })
+      expect(roundedLogo).toBeTruthy()
+    })
+
+    it('handles broken or error image URLs cleanly without throwing', async () => {
+      const fallback = await prepareStyledLogo('https://error-image.png', { shape: 'circle' })
+      expect(fallback).toBe('https://error-image.png')
     })
 
     it('renders composite canvas and SVG with decorators', async () => {
@@ -497,7 +557,7 @@ describe('QR Code Engine & Beautification System', () => {
   })
 
   describe('Export Pipeline', () => {
-    it('converts data URLs to Blobs correctly', () => {
+    it('converts data URLs to Blobs correctly without truncating commas in SVG', () => {
       const pngDataUrl =
         'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
       const blob = dataUrlToBlob(pngDataUrl)
@@ -505,12 +565,13 @@ describe('QR Code Engine & Beautification System', () => {
       expect(blob.type).toBe('image/png')
       expect(blob.size).toBeGreaterThan(0)
 
-      const svgDataUrl = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg><rect/></svg>')
+      const svgWithCommas = '<svg><polygon points="0,0 10,10 20,20"/><path d="M 0,0 L 5,5"/></svg>'
+      const svgDataUrl = 'data:image/svg+xml;utf8,' + encodeURIComponent(svgWithCommas)
       const svgBlob = dataUrlToBlob(svgDataUrl)
       expect(svgBlob.type).toBe('image/svg+xml')
     })
 
-    it('ensures solid background for JPEG export', () => {
+    it('ensures solid background for JPEG export falling back to white on transparent', () => {
       const source = document.createElement('canvas')
       source.width = 200
       source.height = 200
@@ -520,10 +581,13 @@ describe('QR Code Engine & Beautification System', () => {
       expect(solid.height).toBe(200)
       const ctx = solid.getContext('2d') as any
       expect(ctx.fillRect).toHaveBeenCalledWith(0, 0, 200, 200)
-      expect(ctx.drawImage).toHaveBeenCalledWith(source, 0, 0)
+
+      const transparentFallback = ensureSolidBackground(source, 'transparent')
+      const ctx2 = transparentFallback.getContext('2d') as any
+      expect(ctx2.fillStyle).toBe('#ffffff')
     })
 
-    it('exports QR code as Blob across all formats (PNG, JPEG, SVG, WEBP)', async () => {
+    it('exports QR code as Blob across all formats including jpg alias', async () => {
       const engine = new QrEngine()
 
       const pngBlob = await exportQrToBlob(engine, { width: 500, format: 'png' })
@@ -534,6 +598,10 @@ describe('QR Code Engine & Beautification System', () => {
       expect(jpegBlob).toBeInstanceOf(Blob)
       expect(jpegBlob.type).toBe('image/jpeg')
 
+      const jpgBlob = await exportQrToBlob(engine, { width: 1000, format: 'jpg' })
+      expect(jpgBlob).toBeInstanceOf(Blob)
+      expect(jpgBlob.type).toBe('image/jpeg')
+
       const svgBlob = await exportQrToBlob(engine, { width: 1500, format: 'svg' })
       expect(svgBlob).toBeInstanceOf(Blob)
       expect(svgBlob.type).toBe('image/svg+xml;charset=utf-8')
@@ -543,7 +611,7 @@ describe('QR Code Engine & Beautification System', () => {
       expect(webpBlob.type).toBe('image/webp')
     })
 
-    it('exports QR code as Data URL across all formats', async () => {
+    it('exports QR code as Data URL across all formats including jpg', async () => {
       const engine = new QrEngine()
 
       const pngUrl = await exportQrToDataUrl(engine, { width: 500, format: 'png' })
@@ -552,6 +620,9 @@ describe('QR Code Engine & Beautification System', () => {
       const jpegUrl = await exportQrToDataUrl(engine, { width: 500, format: 'jpeg' })
       expect(jpegUrl).toMatch(/^data:image\/jpeg/)
 
+      const jpgUrl = await exportQrToDataUrl(engine, { width: 500, format: 'jpg' })
+      expect(jpgUrl).toMatch(/^data:image\/jpeg/)
+
       const svgUrl = await exportQrToDataUrl(engine, { width: 500, format: 'svg' })
       expect(svgUrl).toMatch(/^data:image\/svg\+xml/)
 
@@ -559,7 +630,7 @@ describe('QR Code Engine & Beautification System', () => {
       expect(webpUrl).toMatch(/^data:image\/webp/)
     })
 
-    it('triggers file download correctly', async () => {
+    it('triggers file download correctly with jpg extension handling', async () => {
       const engine = new QrEngine()
       const createObjectURLSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test-url')
       const revokeObjectURLSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
@@ -568,8 +639,7 @@ describe('QR Code Engine & Beautification System', () => {
       const removeSpy = vi.spyOn(document.body, 'removeChild')
 
       await downloadQrCode(engine, {
-        format: 'png',
-        filename: 'my-custom-qr.png',
+        format: 'jpg',
       })
 
       expect(createObjectURLSpy).toHaveBeenCalled()

@@ -1,20 +1,5 @@
-/**
- * Canvas composite decorator for decorative frames:
- * - 墨绿边框 (dark-green)
- * - 红蓝渐变 (red-blue)
- * - 三色名片 (three-color)
- * - 爱心边框 (heart)
- * - 液态印章 (liquid-stamp)
- * - 吃豆人 (pacman)
- * - 表情包气泡 (meme-bubble)
- * - 蘑菇头表情 (mushroom)
- */
-
 import type { QrFrameOptions } from '../../../../../shared/tools/qrcode/types'
 
-/**
- * Safely draws a rounded rectangle path on any Canvas 2D context.
- */
 export function drawRoundRect(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -37,9 +22,6 @@ export function drawRoundRect(
   ctx.closePath()
 }
 
-/**
- * Draws a filled heart path on canvas context.
- */
 function drawHeart(
   ctx: CanvasRenderingContext2D,
   cx: number,
@@ -89,9 +71,6 @@ function drawHeart(
   ctx.restore()
 }
 
-/**
- * Applies decorative frame layout around an existing QR code canvas.
- */
 export function applyFrame(
   qrCanvas: HTMLCanvasElement,
   frameOptions?: QrFrameOptions,
@@ -127,7 +106,12 @@ export function applyFrame(
   }
 }
 
-// 1. 墨绿边框 (Dark Green Classic)
+function resolveLabel(options: QrFrameOptions, defaultText: string): string {
+  if (options.label !== undefined) return options.label
+  if (options.text !== undefined) return options.text
+  return defaultText
+}
+
 function renderDarkGreenFrame(
   canvas: HTMLCanvasElement,
   ctx: CanvasRenderingContext2D,
@@ -135,11 +119,12 @@ function renderDarkGreenFrame(
   options: QrFrameOptions,
   bg: string
 ): HTMLCanvasElement {
-  const qrSize = qrCanvas.width
-  const pad = Math.round(qrSize * 0.08)
-  const footerH = Math.round(qrSize * 0.16)
-  const totalW = qrSize + pad * 2
-  const totalH = qrSize + pad * 2 + footerH
+  const qrW = qrCanvas.width
+  const qrH = qrCanvas.height
+  const pad = Math.round(qrW * 0.08)
+  const footerH = Math.round(qrH * 0.16)
+  const totalW = qrW + pad * 2
+  const totalH = qrH + pad * 2 + footerH
 
   canvas.width = totalW
   canvas.height = totalH
@@ -147,49 +132,45 @@ function renderDarkGreenFrame(
   const green = options.color || '#1b4332'
   const gold = options.secondaryColor || '#d4af37'
 
-  // Outer container
   ctx.fillStyle = bg || '#fcfdfa'
   ctx.fillRect(0, 0, totalW, totalH)
 
-  // Double border
   const borderPad = Math.round(pad * 0.3)
   ctx.strokeStyle = green
-  ctx.lineWidth = Math.max(3, Math.round(qrSize * 0.008))
+  ctx.lineWidth = Math.max(3, Math.round(qrW * 0.008))
   drawRoundRect(ctx, borderPad, borderPad, totalW - borderPad * 2, totalH - borderPad * 2, 12)
   ctx.stroke()
 
   ctx.strokeStyle = gold
-  ctx.lineWidth = Math.max(1, Math.round(qrSize * 0.003))
+  ctx.lineWidth = Math.max(1, Math.round(qrW * 0.003))
   const innerBorderPad = borderPad + Math.round(pad * 0.2)
   drawRoundRect(ctx, innerBorderPad, innerBorderPad, totalW - innerBorderPad * 2, totalH - innerBorderPad * 2, 8)
   ctx.stroke()
 
-  // Draw QR
   ctx.drawImage(qrCanvas, pad, pad)
 
-  // Bottom Badge
-  const badgeW = Math.round(totalW * 0.65)
-  const badgeH = Math.round(footerH * 0.6)
-  const badgeX = (totalW - badgeW) / 2
-  const badgeY = pad + qrSize + Math.round((footerH - badgeH) / 2)
+  const label = resolveLabel(options, '扫一扫 了解更多')
+  if (label) {
+    const badgeW = Math.round(totalW * 0.65)
+    const badgeH = Math.round(footerH * 0.6)
+    const badgeX = (totalW - badgeW) / 2
+    const badgeY = pad + qrH + Math.round((footerH - badgeH) / 2)
 
-  ctx.fillStyle = green
-  drawRoundRect(ctx, badgeX, badgeY, badgeW, badgeH, badgeH / 2)
-  ctx.fill()
+    ctx.fillStyle = green
+    drawRoundRect(ctx, badgeX, badgeY, badgeW, badgeH, badgeH / 2)
+    ctx.fill()
 
-  // Label text
-  const label = options.label || '扫一扫 了解更多'
-  const fontSize = Math.max(12, Math.round(badgeH * 0.48))
-  ctx.font = `600 ${fontSize}px 'PingFang SC', sans-serif`
-  ctx.fillStyle = '#ffffff'
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.fillText(label, totalW / 2, badgeY + badgeH / 2)
+    const fontSize = Math.max(12, Math.round(badgeH * 0.48))
+    ctx.font = `600 ${fontSize}px 'PingFang SC', sans-serif`
+    ctx.fillStyle = '#ffffff'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(label, totalW / 2, badgeY + badgeH / 2)
+  }
 
   return canvas
 }
 
-// 2. 红蓝渐变 (Red-Blue Gradient Modern)
 function renderRedBlueFrame(
   canvas: HTMLCanvasElement,
   ctx: CanvasRenderingContext2D,
@@ -197,11 +178,12 @@ function renderRedBlueFrame(
   options: QrFrameOptions,
   bg: string
 ): HTMLCanvasElement {
-  const qrSize = qrCanvas.width
-  const pad = Math.round(qrSize * 0.09)
-  const footerH = Math.round(qrSize * 0.16)
-  const totalW = qrSize + pad * 2
-  const totalH = qrSize + pad * 2 + footerH
+  const qrW = qrCanvas.width
+  const qrH = qrCanvas.height
+  const pad = Math.round(qrW * 0.09)
+  const footerH = Math.round(qrH * 0.16)
+  const totalW = qrW + pad * 2
+  const totalH = qrH + pad * 2 + footerH
 
   canvas.width = totalW
   canvas.height = totalH
@@ -209,7 +191,6 @@ function renderRedBlueFrame(
   const color1 = options.color || '#ef4444'
   const color2 = options.secondaryColor || '#3b82f6'
 
-  // Outer gradient card
   const grad = ctx.createLinearGradient(0, 0, totalW, totalH)
   grad.addColorStop(0, color1)
   grad.addColorStop(1, color2)
@@ -218,30 +199,28 @@ function renderRedBlueFrame(
   drawRoundRect(ctx, 4, 4, totalW - 8, totalH - 8, 20)
   ctx.fill()
 
-  // Inner QR card container
   const innerMargin = Math.round(pad * 0.4)
   const innerCardW = totalW - innerMargin * 2
-  const innerCardH = qrSize + Math.round(pad * 1.2)
+  const innerCardH = qrH + Math.round(pad * 1.2)
   ctx.fillStyle = bg || '#ffffff'
   drawRoundRect(ctx, innerMargin, innerMargin, innerCardW, innerCardH, 14)
   ctx.fill()
 
-  // Draw QR
   ctx.drawImage(qrCanvas, pad, pad)
 
-  // Bottom Label
-  const label = options.label || '扫一扫 查看内容'
-  const fontSize = Math.max(13, Math.round(footerH * 0.32))
-  ctx.font = `bold ${fontSize}px 'PingFang SC', sans-serif`
-  ctx.fillStyle = '#ffffff'
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.fillText(label, totalW / 2, pad + qrSize + footerH * 0.6)
+  const label = resolveLabel(options, '扫一扫 查看内容')
+  if (label) {
+    const fontSize = Math.max(13, Math.round(footerH * 0.32))
+    ctx.font = `bold ${fontSize}px 'PingFang SC', sans-serif`
+    ctx.fillStyle = '#ffffff'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(label, totalW / 2, pad + qrH + footerH * 0.6)
+  }
 
   return canvas
 }
 
-// 3. 三色名片 (Three-Color Memphis Card)
 function renderThreeColorFrame(
   canvas: HTMLCanvasElement,
   ctx: CanvasRenderingContext2D,
@@ -249,12 +228,13 @@ function renderThreeColorFrame(
   options: QrFrameOptions,
   bg: string
 ): HTMLCanvasElement {
-  const qrSize = qrCanvas.width
-  const pad = Math.round(qrSize * 0.1)
-  const footerH = Math.round(qrSize * 0.18)
-  const headerH = Math.round(qrSize * 0.08)
-  const totalW = qrSize + pad * 2
-  const totalH = qrSize + pad * 2 + footerH + headerH
+  const qrW = qrCanvas.width
+  const qrH = qrCanvas.height
+  const pad = Math.round(qrW * 0.1)
+  const footerH = Math.round(qrH * 0.18)
+  const headerH = Math.round(qrH * 0.08)
+  const totalW = qrW + pad * 2
+  const totalH = qrH + pad * 2 + footerH + headerH
 
   canvas.width = totalW
   canvas.height = totalH
@@ -264,18 +244,15 @@ function renderThreeColorFrame(
   const cyan = '#48dbfb'
   const dark = '#1e293b'
 
-  // Card background
   ctx.fillStyle = bg || '#ffffff'
   drawRoundRect(ctx, 6, 6, totalW - 12, totalH - 12, 16)
   ctx.fill()
 
-  // Dark outline
   ctx.strokeStyle = dark
-  ctx.lineWidth = Math.max(3, Math.round(qrSize * 0.007))
+  ctx.lineWidth = Math.max(3, Math.round(qrW * 0.007))
   drawRoundRect(ctx, 6, 6, totalW - 12, totalH - 12, 16)
   ctx.stroke()
 
-  // Top decorative color tabs
   ctx.fillStyle = coral
   drawRoundRect(ctx, 20, 16, 24, 10, 4)
   ctx.fill()
@@ -286,40 +263,37 @@ function renderThreeColorFrame(
   drawRoundRect(ctx, 84, 16, 24, 10, 4)
   ctx.fill()
 
-  // Draw QR
   ctx.drawImage(qrCanvas, pad, pad + headerH)
 
-  // Bottom Label Button
-  const btnW = Math.round(totalW * 0.6)
-  const btnH = Math.round(footerH * 0.58)
-  const btnX = (totalW - btnW) / 2
-  const btnY = pad + headerH + qrSize + Math.round((footerH - btnH) / 2)
+  const label = resolveLabel(options, 'SCAN ME')
+  if (label) {
+    const btnW = Math.round(totalW * 0.6)
+    const btnH = Math.round(footerH * 0.58)
+    const btnX = (totalW - btnW) / 2
+    const btnY = pad + headerH + qrH + Math.round((footerH - btnH) / 2)
 
-  // Button shadow
-  ctx.fillStyle = dark
-  drawRoundRect(ctx, btnX + 3, btnY + 3, btnW, btnH, 8)
-  ctx.fill()
+    ctx.fillStyle = dark
+    drawRoundRect(ctx, btnX + 3, btnY + 3, btnW, btnH, 8)
+    ctx.fill()
 
-  // Button fill
-  ctx.fillStyle = yellow
-  drawRoundRect(ctx, btnX, btnY, btnW, btnH, 8)
-  ctx.fill()
-  ctx.strokeStyle = dark
-  ctx.lineWidth = 2
-  ctx.stroke()
+    ctx.fillStyle = yellow
+    drawRoundRect(ctx, btnX, btnY, btnW, btnH, 8)
+    ctx.fill()
+    ctx.strokeStyle = dark
+    ctx.lineWidth = 2
+    ctx.stroke()
 
-  const label = options.label || 'SCAN ME'
-  const fontSize = Math.max(12, Math.round(btnH * 0.48))
-  ctx.font = `bold ${fontSize}px sans-serif`
-  ctx.fillStyle = dark
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.fillText(label, totalW / 2, btnY + btnH / 2)
+    const fontSize = Math.max(12, Math.round(btnH * 0.48))
+    ctx.font = `bold ${fontSize}px sans-serif`
+    ctx.fillStyle = dark
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(label, totalW / 2, btnY + btnH / 2)
+  }
 
   return canvas
 }
 
-// 4. 爱心边框 (Heart Border)
 function renderHeartFrame(
   canvas: HTMLCanvasElement,
   ctx: CanvasRenderingContext2D,
@@ -327,12 +301,13 @@ function renderHeartFrame(
   options: QrFrameOptions,
   bg: string
 ): HTMLCanvasElement {
-  const qrSize = qrCanvas.width
-  const pad = Math.round(qrSize * 0.1)
-  const footerH = Math.round(qrSize * 0.16)
-  const headerH = Math.round(qrSize * 0.06)
-  const totalW = qrSize + pad * 2
-  const totalH = qrSize + pad * 2 + footerH + headerH
+  const qrW = qrCanvas.width
+  const qrH = qrCanvas.height
+  const pad = Math.round(qrW * 0.1)
+  const footerH = Math.round(qrH * 0.16)
+  const headerH = Math.round(qrH * 0.06)
+  const totalW = qrW + pad * 2
+  const totalH = qrH + pad * 2 + footerH + headerH
 
   canvas.width = totalW
   canvas.height = totalH
@@ -340,52 +315,47 @@ function renderHeartFrame(
   const pink = options.color || '#f43f5e'
   const lightPink = options.secondaryColor || '#ffe4e6'
 
-  // Outer blush card
   ctx.fillStyle = lightPink
   drawRoundRect(ctx, 4, 4, totalW - 8, totalH - 8, 20)
   ctx.fill()
 
-  // Pink border
   ctx.strokeStyle = pink
-  ctx.lineWidth = Math.max(2, Math.round(qrSize * 0.005))
+  ctx.lineWidth = Math.max(2, Math.round(qrW * 0.005))
   drawRoundRect(ctx, 4, 4, totalW - 8, totalH - 8, 20)
   ctx.stroke()
 
-  // Draw decorative hearts
   const heartSize = Math.round(pad * 0.5)
   drawHeart(ctx, pad * 0.6, pad * 0.4, heartSize, pink)
   drawHeart(ctx, totalW - pad * 0.6, pad * 0.4, heartSize, pink)
 
-  // Inner card for QR
   ctx.fillStyle = bg || '#ffffff'
-  drawRoundRect(ctx, pad - 8, pad + headerH - 8, qrSize + 16, qrSize + 16, 12)
+  drawRoundRect(ctx, pad - 8, pad + headerH - 8, qrW + 16, qrH + 16, 12)
   ctx.fill()
 
-  // Draw QR
   ctx.drawImage(qrCanvas, pad, pad + headerH)
 
-  // Bottom Heart Badge
-  const badgeW = Math.round(totalW * 0.6)
-  const badgeH = Math.round(footerH * 0.6)
-  const badgeX = (totalW - badgeW) / 2
-  const badgeY = pad + headerH + qrSize + Math.round((footerH - badgeH) / 2)
+  const label = resolveLabel(options, 'LOVE & SCAN')
+  if (label) {
+    const badgeW = Math.round(totalW * 0.6)
+    const badgeH = Math.round(footerH * 0.6)
+    const badgeX = (totalW - badgeW) / 2
+    const badgeY = pad + headerH + qrH + Math.round((footerH - badgeH) / 2)
 
-  ctx.fillStyle = pink
-  drawRoundRect(ctx, badgeX, badgeY, badgeW, badgeH, badgeH / 2)
-  ctx.fill()
+    ctx.fillStyle = pink
+    drawRoundRect(ctx, badgeX, badgeY, badgeW, badgeH, badgeH / 2)
+    ctx.fill()
 
-  const label = options.label || 'LOVE & SCAN'
-  const fontSize = Math.max(12, Math.round(badgeH * 0.46))
-  ctx.font = `bold ${fontSize}px sans-serif`
-  ctx.fillStyle = '#ffffff'
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.fillText(`♥ ${label} ♥`, totalW / 2, badgeY + badgeH / 2)
+    const fontSize = Math.max(12, Math.round(badgeH * 0.46))
+    ctx.font = `bold ${fontSize}px sans-serif`
+    ctx.fillStyle = '#ffffff'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(`♥ ${label} ♥`, totalW / 2, badgeY + badgeH / 2)
+  }
 
   return canvas
 }
 
-// 5. 液态印章 (Liquid Stamp Seal)
 function renderLiquidStampFrame(
   canvas: HTMLCanvasElement,
   ctx: CanvasRenderingContext2D,
@@ -393,7 +363,9 @@ function renderLiquidStampFrame(
   options: QrFrameOptions,
   bg: string
 ): HTMLCanvasElement {
-  const qrSize = qrCanvas.width
+  const qrW = qrCanvas.width
+  const qrH = qrCanvas.height
+  const qrSize = Math.max(qrW, qrH)
   const pad = Math.round(qrSize * 0.12)
   const totalW = qrSize + pad * 2
   const totalH = totalW
@@ -403,11 +375,9 @@ function renderLiquidStampFrame(
 
   const carmine = options.color || '#be123c'
 
-  // Outer stamp card
   ctx.fillStyle = bg || '#ffffff'
   ctx.fillRect(0, 0, totalW, totalH)
 
-  // Stamp circle border
   const cx = totalW / 2
   const cy = totalH / 2
   const radius = totalW / 2 - 10
@@ -418,7 +388,6 @@ function renderLiquidStampFrame(
   ctx.arc(cx, cy, radius, 0, Math.PI * 2)
   ctx.stroke()
 
-  // Inner dotted ring
   ctx.save()
   ctx.setLineDash([8, 6])
   ctx.lineWidth = Math.max(2, Math.round(qrSize * 0.004))
@@ -427,39 +396,38 @@ function renderLiquidStampFrame(
   ctx.stroke()
   ctx.restore()
 
-  // Inner QR background
   ctx.fillStyle = '#ffffff'
-  drawRoundRect(ctx, pad - 6, pad - 6, qrSize + 12, qrSize + 12, 10)
+  drawRoundRect(ctx, pad - 6, pad - 6, qrW + 12, qrH + 12, 10)
   ctx.fill()
 
-  // Draw QR
   ctx.drawImage(qrCanvas, pad, pad)
 
-  // Label bottom ribbon
-  const label = options.label || '★ 专属认证 ★'
-  const fontSize = Math.max(11, Math.round(pad * 0.32))
-  ctx.font = `bold ${fontSize}px 'PingFang SC', sans-serif`
-  ctx.fillStyle = carmine
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.fillText(label, cx, totalH - pad * 0.4)
+  const label = resolveLabel(options, '★ 专属认证 ★')
+  if (label) {
+    const fontSize = Math.max(11, Math.round(pad * 0.32))
+    ctx.font = `bold ${fontSize}px 'PingFang SC', sans-serif`
+    ctx.fillStyle = carmine
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(label, cx, totalH - pad * 0.4)
+  }
 
   return canvas
 }
 
-// 6. 吃豆人 (Pac-man Retro Arcade)
 function renderPacmanFrame(
   canvas: HTMLCanvasElement,
   ctx: CanvasRenderingContext2D,
   qrCanvas: HTMLCanvasElement,
   options: QrFrameOptions
 ): HTMLCanvasElement {
-  const qrSize = qrCanvas.width
-  const pad = Math.round(qrSize * 0.1)
-  const headerH = Math.round(qrSize * 0.1)
-  const footerH = Math.round(qrSize * 0.14)
-  const totalW = qrSize + pad * 2
-  const totalH = qrSize + pad * 2 + headerH + footerH
+  const qrW = qrCanvas.width
+  const qrH = qrCanvas.height
+  const pad = Math.round(qrW * 0.1)
+  const headerH = Math.round(qrH * 0.1)
+  const footerH = Math.round(qrH * 0.14)
+  const totalW = qrW + pad * 2
+  const totalH = qrH + pad * 2 + headerH + footerH
 
   canvas.width = totalW
   canvas.height = totalH
@@ -467,22 +435,18 @@ function renderPacmanFrame(
   const mazeBlue = options.color || '#3b82f6'
   const yellow = options.secondaryColor || '#facc15'
 
-  // Dark arcade background
   ctx.fillStyle = '#0f172a'
   ctx.fillRect(0, 0, totalW, totalH)
 
-  // Maze borders
   ctx.strokeStyle = mazeBlue
-  ctx.lineWidth = Math.max(3, Math.round(qrSize * 0.008))
+  ctx.lineWidth = Math.max(3, Math.round(qrW * 0.008))
   drawRoundRect(ctx, 8, 8, totalW - 16, totalH - 16, 12)
   ctx.stroke()
 
-  // Top Track: Pacman eating dots
   const trackY = Math.round(headerH * 0.6)
   const pacX = pad + 15
   const pacRadius = Math.round(headerH * 0.28)
 
-  // Draw Pacman
   ctx.fillStyle = yellow
   ctx.beginPath()
   ctx.arc(pacX, trackY, pacRadius, 0.25 * Math.PI, 1.75 * Math.PI)
@@ -490,7 +454,6 @@ function renderPacmanFrame(
   ctx.closePath()
   ctx.fill()
 
-  // Draw food dots
   const dotCount = 6
   const dotSpacing = (totalW - pacX - pad - 20) / dotCount
   ctx.fillStyle = yellow
@@ -500,22 +463,21 @@ function renderPacmanFrame(
     ctx.fill()
   }
 
-  // Draw QR
   ctx.drawImage(qrCanvas, pad, pad + headerH)
 
-  // Bottom Label
-  const label = options.label || 'READY! 1UP'
-  const fontSize = Math.max(12, Math.round(footerH * 0.35))
-  ctx.font = `bold ${fontSize}px monospace, 'Courier New', sans-serif`
-  ctx.fillStyle = yellow
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.fillText(label, totalW / 2, pad + headerH + qrSize + footerH * 0.55)
+  const label = resolveLabel(options, 'READY! 1UP')
+  if (label) {
+    const fontSize = Math.max(12, Math.round(footerH * 0.35))
+    ctx.font = `bold ${fontSize}px monospace, 'Courier New', sans-serif`
+    ctx.fillStyle = yellow
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(label, totalW / 2, pad + headerH + qrH + footerH * 0.55)
+  }
 
   return canvas
 }
 
-// 7. 表情包气泡 (Meme Speech Bubble)
 function renderMemeBubbleFrame(
   canvas: HTMLCanvasElement,
   ctx: CanvasRenderingContext2D,
@@ -523,11 +485,12 @@ function renderMemeBubbleFrame(
   options: QrFrameOptions,
   bg: string
 ): HTMLCanvasElement {
-  const qrSize = qrCanvas.width
-  const pad = Math.round(qrSize * 0.08)
-  const bubbleH = Math.round(qrSize * 0.16)
-  const totalW = qrSize + pad * 2
-  const totalH = qrSize + pad * 2 + bubbleH
+  const qrW = qrCanvas.width
+  const qrH = qrCanvas.height
+  const pad = Math.round(qrW * 0.08)
+  const bubbleH = Math.round(qrH * 0.16)
+  const totalW = qrW + pad * 2
+  const totalH = qrH + pad * 2 + bubbleH
 
   canvas.width = totalW
   canvas.height = totalH
@@ -538,56 +501,51 @@ function renderMemeBubbleFrame(
   ctx.fillStyle = bg || '#ffffff'
   ctx.fillRect(0, 0, totalW, totalH)
 
-  // Top speech bubble
-  const bW = Math.round(totalW * 0.68)
-  const bH = Math.round(bubbleH * 0.65)
-  const bX = (totalW - bW) / 2
-  const bY = Math.round(pad * 0.5)
+  const label = resolveLabel(options, '快去扫码！')
+  if (label) {
+    const bW = Math.round(totalW * 0.68)
+    const bH = Math.round(bubbleH * 0.65)
+    const bX = (totalW - bW) / 2
+    const bY = Math.round(pad * 0.5)
 
-  // Bubble background
-  ctx.fillStyle = yellow
-  drawRoundRect(ctx, bX, bY, bW, bH, 12)
-  ctx.fill()
+    ctx.fillStyle = yellow
+    drawRoundRect(ctx, bX, bY, bW, bH, 12)
+    ctx.fill()
+    ctx.strokeStyle = dark
+    ctx.lineWidth = 3
+    ctx.stroke()
+
+    ctx.fillStyle = yellow
+    ctx.beginPath()
+    ctx.moveTo(totalW / 2 - 8, bY + bH)
+    ctx.lineTo(totalW / 2, bY + bH + 10)
+    ctx.lineTo(totalW / 2 + 8, bY + bH)
+    ctx.closePath()
+    ctx.fill()
+    ctx.beginPath()
+    ctx.moveTo(totalW / 2 - 8, bY + bH)
+    ctx.lineTo(totalW / 2, bY + bH + 10)
+    ctx.lineTo(totalW / 2 + 8, bY + bH)
+    ctx.stroke()
+
+    const fontSize = Math.max(13, Math.round(bH * 0.5))
+    ctx.font = `bold ${fontSize}px 'PingFang SC', sans-serif`
+    ctx.fillStyle = dark
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(label, totalW / 2, bY + bH / 2)
+  }
+
   ctx.strokeStyle = dark
   ctx.lineWidth = 3
+  drawRoundRect(ctx, pad - 6, pad + bubbleH - 6, qrW + 12, qrH + 12, 10)
   ctx.stroke()
 
-  // Pointer triangle
-  ctx.fillStyle = yellow
-  ctx.beginPath()
-  ctx.moveTo(totalW / 2 - 8, bY + bH)
-  ctx.lineTo(totalW / 2, bY + bH + 10)
-  ctx.lineTo(totalW / 2 + 8, bY + bH)
-  ctx.closePath()
-  ctx.fill()
-  ctx.beginPath()
-  ctx.moveTo(totalW / 2 - 8, bY + bH)
-  ctx.lineTo(totalW / 2, bY + bH + 10)
-  ctx.lineTo(totalW / 2 + 8, bY + bH)
-  ctx.stroke()
-
-  // Label
-  const label = options.label || '快去扫码！'
-  const fontSize = Math.max(13, Math.round(bH * 0.5))
-  ctx.font = `bold ${fontSize}px 'PingFang SC', sans-serif`
-  ctx.fillStyle = dark
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.fillText(label, totalW / 2, bY + bH / 2)
-
-  // Outer container border
-  ctx.strokeStyle = dark
-  ctx.lineWidth = 3
-  drawRoundRect(ctx, pad - 6, pad + bubbleH - 6, qrSize + 12, qrSize + 12, 10)
-  ctx.stroke()
-
-  // Draw QR
   ctx.drawImage(qrCanvas, pad, pad + bubbleH)
 
   return canvas
 }
 
-// 8. 蘑菇头表情 (Mushroom Head Cartoon Frame)
 function renderMushroomFrame(
   canvas: HTMLCanvasElement,
   ctx: CanvasRenderingContext2D,
@@ -595,11 +553,12 @@ function renderMushroomFrame(
   options: QrFrameOptions,
   bg: string
 ): HTMLCanvasElement {
-  const qrSize = qrCanvas.width
-  const pad = Math.round(qrSize * 0.09)
-  const footerH = Math.round(qrSize * 0.16)
-  const totalW = qrSize + pad * 2
-  const totalH = qrSize + pad * 2 + footerH
+  const qrW = qrCanvas.width
+  const qrH = qrCanvas.height
+  const pad = Math.round(qrW * 0.09)
+  const footerH = Math.round(qrH * 0.16)
+  const totalW = qrW + pad * 2
+  const totalH = qrH + pad * 2 + footerH
 
   canvas.width = totalW
   canvas.height = totalH
@@ -609,23 +568,22 @@ function renderMushroomFrame(
   ctx.fillStyle = bg || '#ffffff'
   ctx.fillRect(0, 0, totalW, totalH)
 
-  // Bold cartoon card outline
   ctx.strokeStyle = dark
-  ctx.lineWidth = Math.max(4, Math.round(qrSize * 0.008))
+  ctx.lineWidth = Math.max(4, Math.round(qrW * 0.008))
   drawRoundRect(ctx, 6, 6, totalW - 12, totalH - 12, 16)
   ctx.stroke()
 
-  // Inner QR
   ctx.drawImage(qrCanvas, pad, pad)
 
-  // Bottom playful caption
-  const label = options.label || '扫一扫嘛'
-  const fontSize = Math.max(14, Math.round(footerH * 0.42))
-  ctx.font = `bold ${fontSize}px 'PingFang SC', sans-serif`
-  ctx.fillStyle = dark
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.fillText(label, totalW / 2, pad + qrSize + footerH * 0.5)
+  const label = resolveLabel(options, '扫一扫嘛')
+  if (label) {
+    const fontSize = Math.max(14, Math.round(footerH * 0.42))
+    ctx.font = `bold ${fontSize}px 'PingFang SC', sans-serif`
+    ctx.fillStyle = dark
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(label, totalW / 2, pad + qrH + footerH * 0.5)
+  }
 
   return canvas
 }

@@ -26,7 +26,6 @@ function testApp(): Hono<AppBindings> {
   const app = new Hono<AppBindings>()
   app.onError((err, c) => errorResponse(c, err))
 
-  // Simulate authentication middleware
   app.use('/api/tools/qrcode/*', async (c, next) => {
     const userId = c.req.header('x-test-user')
     if (userId) {
@@ -133,7 +132,6 @@ describe('Authentication & Tenant Isolation', () => {
   })
 
   it('isolates records strictly between users', async () => {
-    // User A creates a record
     const createRes = await call('POST', '/api/tools/qrcode/records', {
       user: USER_A,
       body: {
@@ -147,27 +145,22 @@ describe('Authentication & Tenant Isolation', () => {
     const created = await json<{ data: { id: string } }>(createRes)
     const recordId = created.data.id
 
-    // User A can list it
     const listARes = await call('GET', '/api/tools/qrcode/records', { user: USER_A })
     const listA = await json<{ data: { items: Array<{ id: string }> } }>(listARes)
     expect(listA.data.items.some((item) => item.id === recordId)).toBe(true)
 
-    // User B cannot see it
     const listBRes = await call('GET', '/api/tools/qrcode/records', { user: USER_B })
     const listB = await json<{ data: { items: Array<{ id: string }> } }>(listBRes)
     expect(listB.data.items.some((item) => item.id === recordId)).toBe(false)
 
-    // User B cannot access it directly
     const getBRes = await call('GET', `/api/tools/qrcode/records/${recordId}`, { user: USER_B })
     expect(getBRes.status).toBe(404)
 
-    // User B cannot delete it
     const deleteBRes = await call('DELETE', `/api/tools/qrcode/records/${recordId}`, { user: USER_B })
     expect(deleteBRes.status).toBe(404)
   })
 
   it('isolates settings between users', async () => {
-    // User A updates settings
     const putRes = await call('PUT', '/api/tools/qrcode/settings', {
       user: USER_A,
       body: {
@@ -179,14 +172,12 @@ describe('Authentication & Tenant Isolation', () => {
     })
     expect(putRes.status).toBe(200)
 
-    // User A gets updated settings
     const getARes = await call('GET', '/api/tools/qrcode/settings', { user: USER_A })
     const getA = await json<{ data: { defaultErrorCorrection: string; defaultSize: number; autoSaveHistory: boolean } }>(getARes)
     expect(getA.data.defaultErrorCorrection).toBe('H')
     expect(getA.data.defaultSize).toBe(1500)
     expect(getA.data.autoSaveHistory).toBe(false)
 
-    // User B gets standard default settings
     const getBRes = await call('GET', '/api/tools/qrcode/settings', { user: USER_B })
     const getB = await json<{ data: { defaultErrorCorrection: string; defaultSize: number; autoSaveHistory: boolean } }>(getBRes)
     expect(getB.data.defaultErrorCorrection).toBe('Q')
@@ -197,7 +188,6 @@ describe('Authentication & Tenant Isolation', () => {
 
 describe('Records API with R2 Storage', () => {
   it('creates, reads, downloads and deletes a record with file data in R2', async () => {
-    // Base64 encoded 1x1 PNG or dummy bytes
     const dummyBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
     const createRes = await call('POST', '/api/tools/qrcode/records', {
       user: USER_A,
@@ -229,28 +219,23 @@ describe('Records API with R2 Storage', () => {
     expect(created.data.fileSize).toBeGreaterThan(0)
     const recordId = created.data.id
 
-    // Fetch the record file from R2
     const fileRes = await call('GET', `/api/tools/qrcode/records/${recordId}/file`, { user: USER_A })
     expect(fileRes.status).toBe(200)
     expect(fileRes.headers.get('Content-Type')).toBe('image/png')
     const fileBytes = new Uint8Array(await fileRes.arrayBuffer())
     expect(fileBytes.length).toBe(created.data.fileSize)
 
-    // List records with filter
     const listRes = await call('GET', '/api/tools/qrcode/records?contentType=wifi', { user: USER_A })
     const list = await json<{ data: { items: Array<{ id: string }>; total: number } }>(listRes)
     expect(list.data.total).toBe(1)
     expect(list.data.items[0].id).toBe(recordId)
 
-    // Delete record
     const delRes = await call('DELETE', `/api/tools/qrcode/records/${recordId}`, { user: USER_A })
     expect(delRes.status).toBe(200)
 
-    // Verification: record is gone from D1
     const getRes = await call('GET', `/api/tools/qrcode/records/${recordId}`, { user: USER_A })
     expect(getRes.status).toBe(404)
 
-    // Verification: file is gone from R2
     const fileAfterDel = await call('GET', `/api/tools/qrcode/records/${recordId}/file`, { user: USER_A })
     expect(fileAfterDel.status).toBe(404)
   })
@@ -290,13 +275,11 @@ describe('Records API with R2 Storage', () => {
       })
     }
 
-    // Limit & offset
     const page1Res = await call('GET', '/api/tools/qrcode/records?limit=2&offset=0', { user: USER_A })
     const page1 = await json<{ data: { items: Array<{ title: string }>; total: number } }>(page1Res)
     expect(page1.data.total).toBe(5)
     expect(page1.data.items.length).toBe(2)
 
-    // Search
     const searchRes = await call('GET', '/api/tools/qrcode/records?search=Item%203', { user: USER_A })
     const search = await json<{ data: { items: Array<{ title: string }>; total: number } }>(searchRes)
     expect(search.data.total).toBe(1)
@@ -306,7 +289,6 @@ describe('Records API with R2 Storage', () => {
 
 describe('Templates API', () => {
   it('manages built-in and user custom templates', async () => {
-    // 1. Insert a built-in template into D1 directly
     sqlite
       .prepare(
         `INSERT INTO tools_qrcode_t_templates (
@@ -315,7 +297,6 @@ describe('Templates API', () => {
       )
       .run()
 
-    // Both User A and User B should see the built-in template
     const listA = await json<{ data: Array<{ id: string; isBuiltin: boolean }> }>(
       await call('GET', '/api/tools/qrcode/templates', { user: USER_A }),
     )
@@ -326,11 +307,9 @@ describe('Templates API', () => {
     )
     expect(listB.data.some((t) => t.id === 'builtin-minimal' && t.isBuiltin)).toBe(true)
 
-    // User A cannot delete the built-in template
     const delBuiltinRes = await call('DELETE', '/api/tools/qrcode/templates/builtin-minimal', { user: USER_A })
     expect(delBuiltinRes.status).toBe(403)
 
-    // User A creates a custom template
     const createRes = await call('POST', '/api/tools/qrcode/templates', {
       user: USER_A,
       body: {
@@ -344,7 +323,6 @@ describe('Templates API', () => {
     expect(custom.data.isBuiltin).toBe(false)
     const customId = custom.data.id
 
-    // User A updates own custom template
     const updateRes = await call('PUT', `/api/tools/qrcode/templates/${customId}`, {
       user: USER_A,
       body: {
@@ -356,11 +334,9 @@ describe('Templates API', () => {
     const updated = await json<{ data: { name: string } }>(updateRes)
     expect(updated.data.name).toBe('Alice Neon Template v2')
 
-    // User B cannot delete User A's custom template
     const delBRes = await call('DELETE', `/api/tools/qrcode/templates/${customId}`, { user: USER_B })
     expect(delBRes.status).toBe(404)
 
-    // User A deletes own custom template
     const delARes = await call('DELETE', `/api/tools/qrcode/templates/${customId}`, { user: USER_A })
     expect(delARes.status).toBe(200)
   })
@@ -381,7 +357,6 @@ describe('Logo Upload API', () => {
     expect(uploaded.data.key).toMatch(/^tools\/qrcode\/logo\/user-alice\/[a-z0-9-]+\.png$/)
     expect(uploaded.data.size).toBeGreaterThan(0)
 
-    // Retrieve uploaded logo
     const getLogoRes = await call('GET', `/api/tools/qrcode/logo/${uploaded.data.logoId}?ext=png`, { user: USER_A })
     expect(getLogoRes.status).toBe(200)
     expect(getLogoRes.headers.get('Content-Type')).toBe('image/png')
@@ -398,11 +373,10 @@ describe('Logo Upload API', () => {
     })
     expect(uploadRes.status).toBe(201)
     const uploaded = await json<{ data: { key: string; size: number; logoId: string } }>(uploadRes)
-    expect(uploaded.data.size).toBe(15) // 'test-logo-bytes'.length
+    expect(uploaded.data.size).toBe(15)
   })
 
   it('fails gracefully with 503 if R2 storage is unavailable', async () => {
-    // Configure env without FILES R2 bucket
     env = testBindings(makeD1(sqlite), { FILES: undefined })
 
     const dummyBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
