@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { APP_TABS } from '../src/client/features/shell/app-tabs'
+import { APP_TABS, tabIdForPath } from '../src/client/features/shell/app-tabs'
 
 const CONFIGS = ['wrangler.toml', 'wrangler.kv.toml']
 
@@ -21,6 +21,7 @@ describe('the addresses the client routes on its own', () => {
       for (const tab of APP_TABS) expect(paths).toContain(tab.path)
       expect(paths).toContain('/')
       expect(paths).toContain('/n/*')
+      expect(paths).toContain('/tools/*')
     })
 
     it(`keeps ${config}'s list free of duplicates`, () => {
@@ -28,4 +29,11 @@ describe('the addresses the client routes on its own', () => {
       expect(new Set(paths).size).toBe(paths.length)
     })
   }
+
+  it('routes nested tools paths to the tools tab', () => {
+    expect(tabIdForPath('/tools')).toBe('tools')
+    expect(tabIdForPath('/tools/')).toBe('tools')
+    expect(tabIdForPath('/tools/password')).toBe('tools')
+    expect(tabIdForPath('/tools/password/accounts')).toBe('tools')
+  })
 })

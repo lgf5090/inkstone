@@ -40,6 +40,7 @@ const CONTAINERS: Partial<Record<AppTabId, ComponentType>> = {
   rss: lazy(() => import('../rss/RssApp').then(module => ({ default: module.RssApp }))),
   music: lazy(() => import('../music/MusicApp').then((module) => ({ default: module.MusicApp }))),
   chat: ChatApp,
+  tools: lazy(() => import('../tools/ToolsApp').then((m) => ({ default: m.ToolsApp }))),
 }
 
 export function AppTabHost() {
