@@ -276,3 +276,99 @@ function isBackupCredentialRecord(value: unknown): value is Record<string, strin
         allowed.has(key) && typeof field === 'string' && field.length > 0 && field.length <= 4096,
     )
 }
+
+/** A CalDAV password or an OAuth token bundle, sealed under the connection's own id. */
+export type CalendarCredentialPayload =
+  | { kind: 'basic'; username: string; password: string }
+  | {
+    kind: 'oauth'
+    accessToken: string
+    refreshToken: string
+    expiresAt: number
+    scope: string
+    tokenType?: string
+  }
+
+/**
+ * The credential of one calendar connection.
+ *
+ * The scope is the connection id so a ciphertext cannot be moved to another connection and read
+ * back out there. The plaintext exists only inside the worker call that talks to the provider; no
+ * route returns it, and a log line never receives it.
+ */
+export async function encryptCalendarCredential(
+  env: Env,
+  connectionId: string,
+  payload: CalendarCredentialPayload,
+): Promise<string> {
+  if (!isValidId(connectionId) || !isCalendarCredentialPayload(payload)) {
+    throw new Error('invalid_calendar_credential')
+  }
+  return encryptCredential(env, `calendar:${connectionId}`, payload)
+}
+
+export async function decryptCalendarCredential(
+  env: Env,
+  connectionId: string,
+  stored: string,
+): Promise<CalendarCredentialPayload | null> {
+  if (!isValidId(connectionId) || stored.length > 24 * 1024) return null
+  const value = await decryptCredential(env, `calendar:${connectionId}`, stored)
+  return isCalendarCredentialPayload(value) ? value : null
+}
+
+/**
+ * The PKCE verifier of one pending OAuth state.
+ *
+ * The state hash is already the row's public identifier and never leaves the server, so sealing under
+ * it needs no extra column: the callback hashes the state it received and can reopen exactly that one
+ * verifier. A raw verifier in the table would let anyone who can read D1 mint the code exchange.
+ */
+export async function encryptCalendarOAuthVerifier(
+  env: Env,
+  stateHash: string,
+  verifier: string,
+): Promise<string> {
+  if (!/^[a-f0-9]{64}$/.test(stateHash) || !/^[A-Za-z0-9_-]{43,128}$/.test(verifier)) {
+    throw new Error('invalid_calendar_oauth_verifier')
+  }
+  return encryptCredential(env, `calendar-oauth:${stateHash}`, { verifier })
+}
+
+export async function decryptCalendarOAuthVerifier(
+  env: Env,
+  stateHash: string,
+  stored: string,
+): Promise<string | null> {
+  if (!/^[a-f0-9]{64}$/.test(stateHash) || stored.length > 24 * 1024) return null
+  const value = await decryptCredential(env, `calendar-oauth:${stateHash}`, stored)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const verifier = (value as Record<string, unknown>).verifier
+  return typeof verifier === 'string' && /^[A-Za-z0-9_-]{43,128}$/.test(verifier) ? verifier : null
+}
+
+function isCalendarCredentialPayload(value: unknown): value is CalendarCredentialPayload {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const record = value as Record<string, unknown>
+  if (record.kind === 'basic') {
+    return typeof record.username === 'string'
+      && record.username.length > 0
+      && record.username.length <= 256
+      && typeof record.password === 'string'
+      && record.password.length > 0
+      && record.password.length <= 4096
+  }
+  if (record.kind !== 'oauth') return false
+  return typeof record.accessToken === 'string'
+    && record.accessToken.length > 0
+    && record.accessToken.length <= 8192
+    && typeof record.refreshToken === 'string'
+    && record.refreshToken.length <= 8192
+    && typeof record.expiresAt === 'number'
+    && Number.isSafeInteger(record.expiresAt)
+    && record.expiresAt >= 0
+    && typeof record.scope === 'string'
+    && record.scope.length <= 2048
+    && (record.tokenType === undefined
+      || (typeof record.tokenType === 'string' && record.tokenType.length > 0 && record.tokenType.length <= 64))
+}

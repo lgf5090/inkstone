@@ -80,6 +80,27 @@ export interface Env {
   EMAIL_DOMAINS?: string
 
   EMAIL_ADDRESSES?: string
+
+  /**
+   * Google Calendar OAuth client. Both halves are server secrets; with either unset the calendar
+   * sign-in route answers 503 instead of sending the reader to an authorization page that cannot
+   * come back. Plain CalDAV connections do not need them.
+   */
+  GOOGLE_CLIENT_ID?: string
+
+  GOOGLE_CLIENT_SECRET?: string
+
+  /** Microsoft Graph OAuth client, with the same all-or-nothing rule as the Google pair. */
+  OUTLOOK_CLIENT_ID?: string
+
+  OUTLOOK_CLIENT_SECRET?: string
+
+  /**
+   * The public origin the OAuth callback is registered under, as in `https://notes.example.com`.
+   * Optional: unset uses the origin of the request that started the flow. The callback path itself
+   * is fixed at `/api/calendar/oauth/callback`.
+   */
+  CALENDAR_OAUTH_REDIRECT_BASE?: string
 }
 
 export interface DatabaseState {
