@@ -19,7 +19,8 @@ import {
   type MusicDownloadCursor,
   type MusicSliceResult,
 } from '../src/worker/music/queue'
-import type { MusicProvider } from '../src/worker/music/providers/types'
+import type { MusicProvider, MusicStreamSource } from '../src/worker/music/providers/types'
+import { MusicProviderError } from '../src/worker/music/providers/types'
 import { createSession } from '../src/worker/lib/session-store'
 import { errorResponse } from '../src/worker/lib/errors'
 import { loadSession, requireClientHeader } from '../src/worker/middleware/auth'
@@ -75,6 +76,26 @@ function fakeProvider(size: number | null = PAYLOAD.length): MusicProvider {
       size,
       quality: 'exhigh',
       freeTrial: false,
+    }),
+  } as unknown as MusicProvider
+}
+
+/** The download-only endpoint refuses, but the player endpoint still resolves. */
+function fallbackProvider(overrides: Partial<MusicStreamSource> = {}): MusicProvider {
+  return {
+    id: 'netease',
+    downloadUrl: async () => {
+      throw new MusicProviderError(502, 'source_unavailable', 'No download URL')
+    },
+    stream: async () => ({
+      url: SOURCE_URL,
+      expiresAt: Date.now() + 10 * 60 * 1000,
+      format: 'mp3',
+      bitrate: 128_000,
+      size: PAYLOAD.length,
+      quality: 'standard',
+      freeTrial: false,
+      ...overrides,
     }),
   } as unknown as MusicProvider
 }
@@ -443,6 +464,38 @@ describe('music download slices', () => {
       `SELECT size, quality, format FROM music_object WHERE user_id = ? AND r2_key = ?`,
     ).get(USER_A, key) as { size: number; quality: string; format: string } | undefined
     expect(ledger).toEqual({ size: PAYLOAD.length, quality: 'exhigh', format: 'mp3' })
+  })
+
+  it('falls back to the player URL when the download-only endpoint refuses', async () => {
+    const trackId = await createTrack()
+    const id = await enqueue(trackId)
+    const provider = fallbackProvider()
+
+    const result = await drain(provider)
+    expect(result.outcome).toBe('completed')
+    await expect(downloads.get(id)).resolves.toMatchObject({
+      status: 'done',
+      progress: 100,
+      size: PAYLOAD.length,
+    })
+    await expect(store.getTrack(trackId)).resolves.toMatchObject({
+      r2Key: `music/mp3/${USER_A}/${trackId}-exhigh.mp3`,
+      sourceQuality: 'exhigh',
+    })
+  })
+
+  it('refuses to store a preview even when the player URL resolves', async () => {
+    const trackId = await createTrack()
+    const id = await enqueue(trackId)
+    const provider = fallbackProvider({ freeTrial: true })
+
+    const result = await drain(provider)
+    expect(result.outcome).toBe('failed')
+    const row = await downloads.get(id)
+    expect(row?.status).toBe('failed')
+    expect(row?.error).toContain('preview')
+    const bucket = env.FILES as unknown as { objects: Map<string, Uint8Array> }
+    expect(bucket.objects.size).toBe(0)
   })
 
   it('parks a paused task and continues it after resume', async () => {

@@ -20,7 +20,7 @@ import {
   type MusicDriveSkip,
   type MusicDriveUploadResult,
 } from '@shared/music/api'
-import { MUSIC_LIMITS, MUSIC_MIME_BY_FORMAT, formatFromFilename } from '@shared/music/constants'
+import { MUSIC_LIMITS, MUSIC_MIME_BY_FORMAT, formatFromFilename, isMusicFormat } from '@shared/music/constants'
 import {
   MUSIC_PROVIDER_ID_MAX,
   musicAlistProviderId,
@@ -33,9 +33,12 @@ import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
 import { encryptMusicMountToken } from '../lib/crypto'
-import { readFormDataWithinLimit, readJson } from '../lib/request'
+import { readBytesWithinLimit, readFormDataWithinLimit, readJson } from '../lib/request'
 import { MusicDownloadStore } from '../music/download-store'
 import { MusicStore } from '../music/store'
+import { musicProviderFor } from '../music/providers/account'
+import { MusicProviderError, type MusicStreamSource } from '../music/providers/types'
+import { fetchAllowedMusicUrl } from '../music/stream'
 import {
   declaredUploadFormat,
   formatCompatibleWithContainer,
@@ -85,6 +88,11 @@ const IMPORT_BODY_LIMIT = 64 * 1024
 const UPLOAD_FORM_LIMIT = MUSIC_DRIVE_UPLOAD_MAX_BYTES + 1024 * 1024
 /** One parsed tag document plus a cover at the image ceiling. */
 const METADATA_FORM_LIMIT = MUSIC_LIMITS.coverMaxBytes + 128 * 1024
+const TRANSFER_BODY_LIMIT = 16 * 1024
+const TRANSFER_TIMEOUT_MS = 60_000
+const TRANSFER_MAX_BYTES = MUSIC_DRIVE_UPLOAD_MAX_BYTES
+const TRANSFER_USER_AGENT = 'Mozilla/5.0 (compatible; Inkstone/1.0; +https://github.com/shuaiplus/inkstone)'
+const TRANSFER_REFERER = 'https://music.163.com'
 const UPLOAD_FILENAME_MAX = 180
 const PLAYLIST_ID_MAX = 128
 
@@ -459,6 +467,189 @@ musicDriveRoutes.post('/imported/:trackId/metadata', async (c) => {
   }
   return c.json({ track: updated })
 })
+
+/**
+ * Copy one online track's bytes into a cloud folder and register the resulting reference.
+ *
+ * A Netease track is not reachable from the WebDAV or Alist server, and the browser cannot hand a
+ * stream to either service, so the worker fetches the provider's file once, writes it through the
+ * same upload helper the cloud page uses and then records the reference in the library. A preview
+ * stream is refused: saving 45 seconds under the full song's name would be a lie. The file and the
+ * track row are one operation; a failed row insert removes the upload that was just written.
+ */
+musicDriveRoutes.post('/transfer', async (c) => {
+  const body = await readJson<Record<string, unknown>>(c, TRANSFER_BODY_LIMIT)
+  const trackId = typeof body.trackId === 'string' && body.trackId.length <= 128 ? body.trackId : ''
+  if (!trackId) throw ApiError.badRequest('A track id is required')
+  const target = body.target === 'webdav' || body.target === 'alist' ? body.target : null
+  if (!target) throw ApiError.badRequest('Choose webdav or alist as the transfer target')
+
+  const userId = c.get('userId')
+  const store = new MusicStore(c.env.DB, userId)
+  const track = await store.getTrack(trackId)
+  if (!track) throw ApiError.notFound('That track does not exist')
+  if (track.provider !== 'netease') {
+    throw new ApiError(409, 'music_source_unavailable', 'Only online tracks can be transferred to a cloud folder')
+  }
+
+  const settings = await store.getSettings()
+  const quality = settings?.downloadQuality ?? 'exhigh'
+  const provider = await musicProviderFor(c.env, userId)
+  let source: MusicStreamSource
+  try {
+    source = await provider.stream(track.providerId, quality)
+  } catch (error) {
+    if (error instanceof MusicProviderError) {
+      const auth = error.code === 'auth_required' || error.status === 401
+      throw new ApiError(
+        auth ? 409 : 502,
+        auth ? 'music_provider_auth_required' : 'music_source_unavailable',
+        error.message,
+      )
+    }
+    throw error
+  }
+  if (source.freeTrial) {
+    throw new ApiError(409, 'music_preview_only', 'Only a preview of this track is available')
+  }
+
+  const upstream = await fetchAllowedMusicUrl(source.url, {
+    headers: { Accept: '*/*', 'User-Agent': TRANSFER_USER_AGENT, Referer: TRANSFER_REFERER },
+    signal: AbortSignal.timeout(TRANSFER_TIMEOUT_MS),
+  })
+  if (!upstream.ok) {
+    await upstream.body?.cancel().catch(() => undefined)
+    throw new ApiError(502, 'music_source_unavailable', `The music source answered ${upstream.status}`)
+  }
+  const declared = Number(upstream.headers.get('content-length') ?? '')
+  if (Number.isFinite(declared) && declared > TRANSFER_MAX_BYTES) {
+    await upstream.body?.cancel().catch(() => undefined)
+    throw ApiError.tooLarge(`The track is larger than the ${TRANSFER_MAX_BYTES / (1024 * 1024)} MB transfer limit`)
+  }
+  let bytes: Uint8Array
+  try {
+    bytes = await readBytesWithinLimit(upstream.body, TRANSFER_MAX_BYTES)
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 413) {
+      throw ApiError.tooLarge(`The track is larger than the ${TRANSFER_MAX_BYTES / (1024 * 1024)} MB transfer limit`)
+    }
+    throw error
+  }
+  if (bytes.byteLength === 0) {
+    throw new ApiError(502, 'music_source_unavailable', 'The music source returned an empty file')
+  }
+
+  const reported = source.format.trim().toLowerCase()
+  const format = isMusicFormat(reported) ? reported : isMusicFormat(track.format) ? track.format : 'mp3'
+  const mime = MUSIC_MIME_BY_FORMAT[format]
+  const filename = transferFilename(track, format, settings?.downloadNameFormat ?? '{title} - {artist}')
+
+  let providerId: string
+  let path: string
+  let mountName = ''
+  let cleanup: () => Promise<void>
+  if (target === 'webdav') {
+    const ctx = await resolveMusicWebdav(c.env, store, userId)
+    path = await uniqueWebdavPath(ctx, filename, track.id)
+    await putMusicObject(ctx, path, bytes, mime)
+    providerId = musicWebdavProviderId(ctx.targetId, path)
+    cleanup = async () => { await deleteMusicObject(ctx, path) }
+  } else {
+    const mounts = await store.listMounts()
+    const mount = mounts.find((entry) => entry.kind === 'alist' && entry.status === 'active')
+      ?? mounts.find((entry) => entry.kind === 'alist')
+    if (!mount) throw new ApiError(503, 'music_storage_unavailable', 'Add an Alist mount in the cloud page first')
+    const ctx = await resolveAlistMount(c.env, store, mount.id)
+    path = await uniqueAlistPath(ctx, filename, track.id)
+    await putAlistFile(ctx, path, bytes, mime)
+    providerId = musicAlistProviderId(mount.id, path)
+    mountName = mount.name
+    cleanup = async () => { await removeAlistFile(ctx, path) }
+  }
+
+  let saved: MusicTrack
+  try {
+    saved = await store.upsertTrack({
+      provider: target,
+      providerId,
+      kind: track.kind,
+      title: track.title,
+      artists: track.artists,
+      album: track.album,
+      albumId: track.albumId,
+      coverUrl: track.coverUrl,
+      durationMs: track.durationMs,
+      format,
+      bitrate: source.bitrate ?? track.bitrate,
+      size: bytes.byteLength,
+      r2Key: null,
+      source: target,
+      sourceQuality: source.quality || quality,
+    })
+  } catch (error) {
+    await cleanup().catch((cleanupError: unknown) => {
+      console.warn('[inkstone] A transferred music file could not be rolled back:', cleanupError)
+    })
+    throw error
+  }
+
+  const lyric = await store.getLyric(musicTrackKey(track.provider, track.providerId))
+  if (lyric) {
+    await store.saveLyric({
+      trackKey: musicTrackKey(target, providerId),
+      source: lyric.source,
+      lrc: lyric.lrc,
+      tlyric: lyric.tlyric,
+      yrc: lyric.yrc,
+    }).catch((error: unknown) => {
+      console.warn('[inkstone] Transferred music lyrics could not be cached:', error)
+    })
+  }
+  return c.json({ track: saved, target, path, mountName }, 201)
+})
+
+function transferFilename(track: MusicTrack, format: string, pattern: string): string {
+  const rendered = (pattern || '{title} - {artist}')
+    .replaceAll('{title}', track.title)
+    .replaceAll('{artist}', track.artists.map((artist) => artist.name).join(', '))
+    .replaceAll('{album}', track.album)
+    .replaceAll('{quality}', 'original')
+    .replaceAll('{ext}', format)
+    .trim()
+  const stem = (rendered || track.title).replace(/\.[A-Za-z0-9]{2,5}$/, '')
+  return sanitizeMusicFilename(`${stem}.${format}`)
+}
+
+async function uniqueWebdavPath(
+  ctx: Awaited<ReturnType<typeof resolveMusicWebdav>>,
+  filename: string,
+  trackId: string,
+): Promise<string> {
+  if (!(await statMusicObject(ctx, filename))) return filename
+  const stem = filename.replace(/\.[^.]+$/, '')
+  const extension = filename.slice(stem.length)
+  return sanitizeMusicFilename(`${stem} (${trackId.slice(-6)})${extension}`)
+}
+
+async function uniqueAlistPath(
+  ctx: Awaited<ReturnType<typeof resolveAlistMount>>,
+  filename: string,
+  trackId: string,
+): Promise<string> {
+  const exists = async (candidate: string): Promise<boolean> => {
+    try {
+      await statAlistFile(ctx, candidate)
+      return true
+    } catch (error) {
+      if (error instanceof ApiError && /\b404\b/.test(error.message)) return false
+      throw error
+    }
+  }
+  if (!(await exists(filename))) return filename
+  const stem = filename.replace(/\.[^.]+$/, '')
+  const extension = filename.slice(stem.length)
+  return sanitizeMusicFilename(`${stem} (${trackId.slice(-6)})${extension}`)
+}
 
 /**
  * Put one file into the folder the reader is looking at.

@@ -345,6 +345,171 @@ describe('imported metadata', () => {
   })
 })
 
+describe('library track removal', () => {
+  it('lists downloaded online tracks under the download shelf', async () => {
+    const downloaded = await store.upsertTrack({
+      provider: 'netease',
+      providerId: 'downloaded-1',
+      kind: 'song',
+      title: 'Downloaded',
+      format: 'mp3',
+      source: 'netease',
+      r2Key: `music/mp3/${OWNER}/downloaded-1-standard.mp3`,
+    })
+    await store.upsertTrack({
+      provider: 'netease',
+      providerId: 'online-only',
+      kind: 'song',
+      title: 'Online only',
+      format: 'mp3',
+      source: 'netease',
+    })
+    await store.upsertTrack({
+      provider: 'upload',
+      providerId: 'upload-1',
+      kind: 'song',
+      title: 'Upload',
+      format: 'mp3',
+      source: 'upload',
+      r2Key: `music/mp3/${OWNER}/upload-1-original.mp3`,
+    })
+    const response = await send('/api/music/library/tracks?provider=download')
+    expect(response.status).toBe(200)
+    const body = await json<{ items: Array<{ id: string }> }>(response)
+    expect(body.items.map((track) => track.id)).toEqual([downloaded.id])
+  })
+
+  it('removes owned rows, releases an R2 object and skips foreign or missing ids', async () => {
+    const owned = await store.upsertTrack({
+      provider: 'upload',
+      providerId: 'owned-upload',
+      kind: 'song',
+      title: 'Owned',
+      format: 'mp3',
+      source: 'upload',
+    })
+    const key = `music/mp3/${OWNER}/${owned.id}-original.mp3`
+    await bucket.put(key, new Uint8Array([1, 2, 3]))
+    await store.upsertTrack({
+      provider: 'upload',
+      providerId: 'owned-upload',
+      kind: 'song',
+      title: 'Owned',
+      format: 'mp3',
+      source: 'upload',
+      r2Key: key,
+    })
+    await store.registerObject({ r2Key: key, trackId: owned.id, format: 'mp3', quality: 'original', size: 3 })
+
+    const foreign = await new MusicStore(db, MEMBER).upsertTrack({
+      provider: 'webdav',
+      providerId: `${TARGET}:theirs.mp3`,
+      kind: 'song',
+      title: 'Theirs',
+      format: 'mp3',
+      source: 'webdav',
+    })
+
+    const response = await send('/api/music/library/tracks/delete', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ids: [owned.id, foreign.id, 'missing'] }),
+    })
+    expect(response.status).toBe(200)
+    const body = await json<{ removed: string[]; skipped: Array<{ id: string; reason: string }> }>(response)
+    expect(body.removed).toEqual([owned.id])
+    expect(body.skipped).toEqual([
+      { id: foreign.id, reason: 'missing' },
+      { id: 'missing', reason: 'missing' },
+    ])
+    expect(await store.getTrack(owned.id)).toBeNull()
+    expect(bucket.objects.has(key)).toBe(false)
+    expect(await new MusicStore(db, MEMBER).getTrack(foreign.id)).not.toBeNull()
+  })
+})
+
+describe('online track transfer', () => {
+  function sourceFetch(freeTrial: boolean): ReturnType<typeof vi.fn> {
+    return vi.fn(async (input: URL | string, init: RequestInit = {}) => {
+      const url = new URL(String(input))
+      if (url.hostname === 'interface.music.163.com' || url.hostname === 'music.163.com') {
+        return Response.json({
+          code: 200,
+          data: [{
+            url: 'https://m801.music.126.net/full.mp3',
+            type: 'mp3',
+            size: 4,
+            ...(freeTrial ? { freeTrialInfo: { start: 0, end: 30 } } : {}),
+          }],
+        })
+      }
+      if (url.hostname === 'm801.music.126.net') {
+        return new Response(new Uint8Array([0x49, 0x44, 0x33, 0x04]), {
+          status: 200,
+          headers: { 'content-type': 'audio/mpeg', 'content-length': '4' },
+        })
+      }
+      if (url.hostname === 'dav.example.com') {
+        const method = (init.method ?? 'GET').toUpperCase()
+        if (method === 'PROPFIND') return new Response('missing', { status: 404 })
+        if (method === 'MKCOL' || method === 'PUT') return new Response(null, { status: 201 })
+      }
+      return new Response('unexpected', { status: 500 })
+    })
+  }
+
+  async function onlineTrack() {
+    return await store.upsertTrack({
+      provider: 'netease',
+      providerId: '9876',
+      kind: 'song',
+      title: 'Moon',
+      artists: [{ id: 'singer', name: 'Singer' }],
+      album: 'Night',
+      durationMs: 180_000,
+      format: 'mp3',
+      source: 'netease',
+    })
+  }
+
+  it('refuses a preview before it writes anything', async () => {
+    vi.stubGlobal('fetch', sourceFetch(true))
+    const track = await onlineTrack()
+    const response = await send('/api/music/drive/transfer', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ trackId: track.id, target: 'webdav' }),
+    })
+    expect(response.status).toBe(409)
+    const body = await json<{ error: { code: string } }>(response)
+    expect(body.error.code).toBe('music_preview_only')
+    expect(bucket.objects.size).toBe(0)
+  })
+
+  it('writes the provider bytes to WebDAV and records the reference', async () => {
+    const stub = sourceFetch(false)
+    vi.stubGlobal('fetch', stub)
+    const track = await onlineTrack()
+    const response = await send('/api/music/drive/transfer', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ trackId: track.id, target: 'webdav' }),
+    })
+    expect(response.status).toBe(201)
+    const body = await json<{ track: { id: string; provider: string; providerId: string; size: number }; path: string }>(response)
+    expect(body.track).toMatchObject({
+      provider: 'webdav',
+      providerId: `${TARGET}:Moon - Singer.mp3`,
+      size: 4,
+    })
+    expect(body.path).toBe('Moon - Singer.mp3')
+    expect(await store.getTrack(body.track.id)).not.toBeNull()
+    expect(stub.mock.calls.some(([input, init]) =>
+      String(input).includes('dav.example.com') && (init as RequestInit | undefined)?.method === 'PUT',
+    )).toBe(true)
+  })
+})
+
 function uploadRequest(path: string, file: File, declaredLength?: number): Request {
   const form = new FormData()
   form.append('file', file, file.name)

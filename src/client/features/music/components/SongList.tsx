@@ -4,8 +4,13 @@
  * The player state is read once here rather than in every row: a hundred rows subscribing to the
  * queue would each re-render when the position moves. Rows stay presentational; this component
  * tells them which one is current and hands them the press and menu callbacks.
+ *
+ * The library table turns on optional source/size cells, sortable headers, row selection and drag
+ * reordering. Those switches are opt-in so the discovery shelves keep their smaller five-column
+ * layout and their decorative header.
  */
-import { useId, type ReactElement, type ReactNode } from 'react'
+import { useId, useState, type DragEvent, type ReactElement, type ReactNode } from 'react'
+import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react'
 import type { MusicTrack } from '@shared/music/model'
 import { cn } from '../../../lib/cn'
 import { Empty, Skeleton } from '../../../components/feedback'
@@ -20,6 +25,13 @@ export interface MusicSongGroup {
   tracks: readonly MusicTrack[]
 }
 
+export type MusicTrackSortKey = 'title' | 'album' | 'duration' | 'source' | 'size'
+
+export interface MusicTrackSort {
+  key: MusicTrackSortKey
+  direction: 'asc' | 'desc'
+}
+
 export interface SongListProps {
   /** One flat list. Ignored when `groups` is passed. */
   tracks?: readonly MusicTrack[]
@@ -31,6 +43,17 @@ export interface SongListProps {
   onPlay: (track: MusicTrack, queue: readonly MusicTrack[]) => void
   menuItemsFor?: (track: MusicTrack) => MenuItem[]
   onEditTrack?: (track: MusicTrack) => void
+  onRemoveTrack?: (track: MusicTrack) => void
+  /** The merged library table adds source and size cells. */
+  columns?: { source?: boolean; size?: boolean }
+  sort?: MusicTrackSort | null
+  onSort?: (key: MusicTrackSortKey) => void
+  selectionMode?: boolean
+  selectedIds?: ReadonlySet<string>
+  onToggleSelect?: (track: MusicTrack) => void
+  reorderable?: boolean
+  onReorder?: (fromId: string, toId: string) => void
+  onMoveTrack?: (trackId: string, direction: -1 | 1) => void
   emptyAction?: ReactNode
   className?: string
 }
@@ -54,6 +77,45 @@ function SongListSkeleton(): ReactElement {
   )
 }
 
+function HeaderCell({
+  label,
+  sortKey,
+  sort,
+  onSort,
+  className,
+}: {
+  label: string
+  sortKey?: MusicTrackSortKey
+  sort?: MusicTrackSort | null
+  onSort?: (key: MusicTrackSortKey) => void
+  className?: string
+}): ReactElement {
+  if (!sortKey || !onSort) return <span className={className}>{label}</span>
+  const active = sort?.key === sortKey
+  const direction = active ? sort?.direction : null
+  return (
+    <span
+      className={className}
+      role="columnheader"
+      aria-sort={direction === 'asc' ? 'ascending' : direction === 'desc' ? 'descending' : 'none'}
+    >
+      <button
+        type="button"
+        className="music-songlist__sort"
+        title={musicText('music.songlist.sort_hint')}
+        onClick={() => onSort(sortKey)}
+      >
+        {label}
+        {direction === 'asc'
+          ? <ArrowUp size={12} aria-hidden="true" />
+          : direction === 'desc'
+            ? <ArrowDown size={12} aria-hidden="true" />
+            : <ArrowUpDown size={12} aria-hidden="true" className="music-songlist__sort-idle" />}
+      </button>
+    </span>
+  )
+}
+
 export function SongList({
   tracks,
   groups,
@@ -62,6 +124,16 @@ export function SongList({
   onPlay,
   menuItemsFor,
   onEditTrack,
+  onRemoveTrack,
+  columns,
+  sort,
+  onSort,
+  selectionMode = false,
+  selectedIds,
+  onToggleSelect,
+  reorderable = false,
+  onReorder,
+  onMoveTrack,
   emptyAction,
   className,
 }: SongListProps): ReactElement {
@@ -69,6 +141,9 @@ export function SongList({
   const status = useMusicPlayer((state) => state.status)
   const playing = status === 'playing' || status === 'loading'
   const idPrefix = useId()
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [overId, setOverId] = useState<string | null>(null)
+  const library = Boolean(columns?.source || columns?.size)
 
   if (loading) return <SongListSkeleton />
 
@@ -87,6 +162,28 @@ export function SongList({
     )
   }
 
+  const beginDrag = (track: MusicTrack, event: DragEvent<HTMLElement>): void => {
+    setDragId(track.id)
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', track.id)
+  }
+
+  const dragOver = (track: MusicTrack, event: DragEvent<HTMLLIElement>): void => {
+    if (!onReorder || !dragId) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    if (overId !== track.id) setOverId(track.id)
+  }
+
+  const drop = (track: MusicTrack, event: DragEvent<HTMLLIElement>): void => {
+    if (!onReorder) return
+    event.preventDefault()
+    const from = dragId ?? event.dataTransfer.getData('text/plain')
+    setDragId(null)
+    setOverId(null)
+    if (from && from !== track.id) onReorder(from, track.id)
+  }
+
   return (
     <div className={cn('music-songlist__frame', className)}>
       {buckets.map((bucket, bucketIndex) => {
@@ -103,13 +200,47 @@ export function SongList({
               </h3>
             )}
             {variant === 'list' && (
-              <div className="music-songlist__head" aria-hidden="true">
+              <div
+                className={cn('music-songlist__head', library && 'music-songlist__head--library')}
+                aria-hidden={library ? undefined : true}
+              >
+                {library && <span className="music-songlist__head-grip" aria-hidden="true" />}
                 <span className="music-songlist__head-state">{musicText('music.songlist.number')}</span>
-                <span className="music-songlist__head-cover" />
-                <span>{musicText('music.songlist.title')}</span>
-                <span className="music-songlist__head-album">{musicText('music.songlist.album')}</span>
-                <span className="music-songlist__head-duration">{musicText('music.songlist.duration')}</span>
-                <span />
+                <span className="music-songlist__head-cover" aria-hidden="true" />
+                <HeaderCell label={musicText('music.songlist.title')} sortKey="title" sort={sort} onSort={onSort} />
+                <HeaderCell
+                  label={musicText('music.songlist.album')}
+                  sortKey="album"
+                  sort={sort}
+                  onSort={onSort}
+                  className="music-songlist__head-album"
+                />
+                {columns?.source && (
+                  <HeaderCell
+                    label={musicText('music.songlist.source')}
+                    sortKey="source"
+                    sort={sort}
+                    onSort={onSort}
+                    className="music-songlist__head-source"
+                  />
+                )}
+                {columns?.size && (
+                  <HeaderCell
+                    label={musicText('music.songlist.size')}
+                    sortKey="size"
+                    sort={sort}
+                    onSort={onSort}
+                    className="music-songlist__head-size"
+                  />
+                )}
+                <HeaderCell
+                  label={musicText('music.songlist.duration')}
+                  sortKey="duration"
+                  sort={sort}
+                  onSort={onSort}
+                  className="music-songlist__head-duration"
+                />
+                <span aria-hidden="true" />
               </div>
             )}
             <ul className={cn('music-songlist', variant === 'card' && 'music-songlist--card')}>
@@ -124,6 +255,22 @@ export function SongList({
                   menuItems={menuItemsFor?.(track)}
                   onPlay={(next) => onPlay(next, bucket.tracks)}
                   onEditTrack={onEditTrack}
+                  onRemoveTrack={onRemoveTrack}
+                  columns={columns}
+                  selectionMode={selectionMode}
+                  selected={selectedIds?.has(track.id) ?? false}
+                  onToggleSelect={() => onToggleSelect?.(track)}
+                  reorderable={reorderable && Boolean(onReorder)}
+                  onDragStart={(event) => beginDrag(track, event)}
+                  onDragEnd={() => {
+                    setDragId(null)
+                    setOverId(null)
+                  }}
+                  onDragOver={(event) => dragOver(track, event)}
+                  onDrop={(event) => drop(track, event)}
+                  dragging={dragId === track.id}
+                  dropTarget={overId === track.id && dragId !== track.id}
+                  onMoveTrack={onMoveTrack ? (direction) => onMoveTrack(track.id, direction) : undefined}
                 />
               ))}
             </ul>

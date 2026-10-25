@@ -280,6 +280,12 @@ export interface MusicDriveImportResult {
   skipped: MusicDriveSkip[]
 }
 
+/** The batch removal answer; a foreign or already-gone id is a skip, never an error. */
+export interface MusicTrackDeleteResult {
+  removed: string[]
+  skipped: Array<{ id: string; reason: 'missing' | 'failed' }>
+}
+
 export interface MusicDriveUploadResult {
   path: string
   size: number

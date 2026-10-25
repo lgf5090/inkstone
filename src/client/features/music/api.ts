@@ -36,6 +36,7 @@ import type {
   MusicDriveBatchResult,
   MusicDriveR2Listing,
   MusicDriveR2UploadResult,
+  MusicTrackDeleteResult,
 } from '@shared/music/api'
 import type {
   MusicAccount,
@@ -176,10 +177,14 @@ export const musicApi = {
       { method: 'POST', formData: form },
     )
   },
+  transferTrack: (trackId: string, target: 'webdav' | 'alist') =>
+    request<{ track: MusicTrack; target: 'webdav' | 'alist'; path: string; mountName?: string }>(
+      '/api/music/drive/transfer',
+      { method: 'POST', body: { trackId, target } },
+    ),
 
   home: () => request<MusicHome>('/api/music/home'),
   fm: () => request<{ tracks: MusicTrack[] }>('/api/music/home/fm'),
-  fmTrash: (trackId: string) => request<{ ok: true }>('/api/music/home/fm/trash', { method: 'POST', body: { trackId } }),
 
   search: (type: MusicSearchType, keywords: string, page = 1, limit = 30) =>
     request<MusicSearchResult>(`/api/music/search${query({ type, q: keywords, page, limit })}`),
@@ -237,11 +242,16 @@ export const musicApi = {
 
   library: () => request<MusicLibraryPayload>('/api/music/library'),
   track: (id: string) => request<{ track: MusicTrack }>(`/api/music/library/tracks/${encodeURIComponent(id)}`),
-  tracks: (provider: 'upload' | 'webdav' | 'alist') => request<{ items: MusicTrack[] }>(`/api/music/library/tracks${query({ provider })}`),
+  tracks: (provider: 'upload' | 'webdav' | 'alist' | 'download') => request<{ items: MusicTrack[] }>(`/api/music/library/tracks${query({ provider })}`),
   updateTrackMetadata: (trackId: string, patch: { title?: string; artists?: Array<{ id: string; name: string }>; album?: string; coverUrl?: string }) =>
     request<{ track: MusicTrack }>(`/api/music/library/tracks/${encodeURIComponent(trackId)}`, { method: 'PATCH', body: patch }),
   upsertTracks: (tracks: MusicTrack[]) =>
     request<{ tracks: MusicTrack[] }>('/api/music/library/tracks', { method: 'POST', body: { tracks } }),
+  deleteTracks: (ids: string[]) =>
+    request<MusicTrackDeleteResult>('/api/music/library/tracks/delete', {
+      method: 'POST',
+      body: { ids },
+    }),
   favorites: () => request<{ items: MusicFavoriteTrack[] }>('/api/music/library/favorites'),
   addFavorite: (track: MusicTrack) =>
     request<{ ok: true }>('/api/music/library/favorites', { method: 'POST', body: { track } }),
@@ -279,8 +289,6 @@ export const musicApi = {
   ),
   deleteHistory: (id: string) =>
     request<{ ok: true }>(`/api/music/library/history/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  deleteHistoryForTrack: (trackId: string) =>
-    request<{ ok: true; removed: number }>(`/api/music/library/history/track/${encodeURIComponent(trackId)}`, { method: 'DELETE' }),
   clearHistory: () =>
     request<{ ok: true; removed: number }>('/api/music/library/history', { method: 'DELETE' }),
   recordHistory: (entry: Pick<MusicHistoryEntry, 'trackId' | 'durationPlayed' | 'completed' | 'contextType' | 'contextId'>) =>

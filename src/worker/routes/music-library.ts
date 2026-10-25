@@ -30,6 +30,7 @@ import { ApiError } from '../lib/errors'
 import { newSlug } from '../lib/id'
 import { readFormDataWithinLimit, readJson } from '../lib/request'
 import {
+  deleteMusicObjects,
   discardMusicObjects,
   musicCoverKeyFor,
   putMusicObject,
@@ -246,10 +247,11 @@ musicLibraryRoutes.post('/lyrics/:trackId/ai-translate', async (c) => {
 /** Snapshot shelves for the local/cloud library: uploads today, WebDAV files beside them. */
 musicLibraryRoutes.get('/tracks', async (c) => {
   const provider = c.req.query('provider') ?? 'upload'
-  if (provider !== 'upload' && provider !== 'webdav' && provider !== 'alist') {
-    throw ApiError.badRequest('provider must be upload, webdav or alist')
+  if (provider !== 'upload' && provider !== 'webdav' && provider !== 'alist' && provider !== 'download') {
+    throw ApiError.badRequest('provider must be upload, webdav, alist or download')
   }
   const store = new MusicStore(c.env.DB, c.get('userId'))
+  if (provider === 'download') return c.json({ items: await store.listDownloadedTracks() })
   return c.json({ items: await store.listTracksByProvider(provider) })
 })
 
@@ -276,6 +278,59 @@ musicLibraryRoutes.patch('/tracks/:trackId', async (c) => {
   const track = await store.updateTrackMetadata(c.req.param('trackId') ?? '', patch)
   if (!track) throw ApiError.notFound('That track does not exist')
   return c.json({ track })
+})
+
+/**
+ * Remove library snapshots in one batch.
+ *
+ * Removing a snapshot is not deleting a remote file: a WebDAV or Alist reference only loses the row
+ * that named it, while an R2 upload releases its object through the same ledger rule a single delete
+ * uses. A foreign or already-gone id is reported as a skip so a page can select a mixed batch without
+ * treating another account's id as an error it caused.
+ */
+musicLibraryRoutes.post('/tracks/delete', async (c) => {
+  const body = await readJson<{ ids?: unknown }>(c, TRACK_BODY_LIMIT)
+  if (!Array.isArray(body.ids) || body.ids.length === 0) {
+    throw ApiError.badRequest('Name at least one track to remove')
+  }
+  if (body.ids.length > TRACK_BATCH_MAX) {
+    throw ApiError.badRequest(`Remove at most ${TRACK_BATCH_MAX} tracks at a time`)
+  }
+  const ids = [...new Set(body.ids
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0 && entry.length <= 128))]
+  if (ids.length === 0) throw ApiError.badRequest('Name at least one track to remove')
+
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  const removed: string[] = []
+  const skipped: Array<{ id: string; reason: 'missing' | 'failed' }> = []
+  for (const id of ids) {
+    try {
+      const result = await store.deleteTrack(id)
+      if (!result.deleted) {
+        skipped.push({ id, reason: 'missing' })
+        continue
+      }
+      if (result.queuedObjects.length > 0) {
+        try {
+          await deleteMusicObjects(c.env, store, result.queuedObjects)
+        } catch (error) {
+          console.warn('[inkstone] Removed tracks left objects for the cleanup queue:', error)
+        }
+        for (const key of result.queuedObjects) {
+          await store.dropCleanup(key).catch((error: unknown) => {
+            console.warn('[inkstone] Removed track cleanup could not be marked done:', error)
+          })
+        }
+      }
+      removed.push(id)
+    } catch (error) {
+      console.warn('[inkstone] Music track could not be removed:', error)
+      skipped.push({ id, reason: 'failed' })
+    }
+  }
+  return c.json({ removed, skipped })
 })
 
 musicLibraryRoutes.get('/favorites', async (c) => {

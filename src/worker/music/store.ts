@@ -663,6 +663,17 @@ export class MusicStore {
     return results.map(toTrack)
   }
 
+  /** Online snapshots whose bytes were copied into R2; they behave like local files now. */
+  async listDownloadedTracks(limit = 1_000): Promise<MusicTrack[]> {
+    const { results } = await this.db.prepare(
+      `SELECT ${TRACK_COLUMNS} FROM music_track
+        WHERE user_id = ?1 AND r2_key IS NOT NULL AND r2_key <> ''
+          AND provider <> 'upload'
+        ORDER BY updated_at DESC, id DESC LIMIT ?2`,
+    ).bind(this.userId, Math.min(2_000, Math.max(1, Math.trunc(limit)))).all<TrackRow>()
+    return results.map(toTrack)
+  }
+
   async getTracks(ids: readonly string[]): Promise<MusicTrack[]> {
     const unique = [...new Set(ids)].filter(Boolean)
     if (!unique.length) return []

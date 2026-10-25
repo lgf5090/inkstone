@@ -251,7 +251,18 @@ musicSettingsRoutes.get('/', async (c) => {
 musicSettingsRoutes.put('/', async (c) => {
   const body = await readJson<Record<string, unknown>>(c, SETTINGS_BODY_LIMIT)
   const store = new MusicStore(c.env.DB, c.get('userId'))
+  const current = await loadSettings(store)
   const settings = normalizeMusicSettings(body.settings ?? body)
+  // The resolver makes the worker fetch an arbitrary endpoint. The dedicated /sources route is
+  // owner-only; this general document must not become the side door around that guard.
+  if (c.get('user')?.role !== 'owner') {
+    settings.customResolverEnabled = current.customResolverEnabled
+    settings.customResolverUrl = current.customResolverUrl
+    settings.customResolverMethod = current.customResolverMethod
+    settings.customResolverParams = current.customResolverParams
+    settings.customResolverResponsePath = current.customResolverResponsePath
+    settings.customResolverQualityMap = current.customResolverQualityMap
+  }
   return c.json({ settings: await store.saveSettings(settings) })
 })
 

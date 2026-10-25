@@ -363,6 +363,29 @@ describe('settings and owner-only sources', () => {
     expect(response.status).toBe(400)
   })
 
+  it('does not let a member set the resolver through the general settings route', async () => {
+    const response = await call('PUT', '/api/music/settings', {
+      user: MEMBER,
+      role: 'member',
+      body: {
+        settings: {
+          quality: 'hires',
+          customResolverEnabled: true,
+          customResolverUrl: 'https://member.example/api',
+          customResolverResponsePath: 'data.url',
+        },
+      },
+    })
+    expect(response.status).toBe(200)
+    const { settings } = await json<{ settings: Record<string, unknown> }>(response)
+    expect(settings).toMatchObject({
+      quality: 'hires',
+      customResolverEnabled: false,
+      customResolverUrl: '',
+      customResolverResponsePath: '',
+    })
+  })
+
   it('limits sources to the owner and stores only coordinates', async () => {
     const memberRead = await call('GET', '/api/music/settings/sources', { user: MEMBER, role: 'member' })
     expect(memberRead.status).toBe(403)

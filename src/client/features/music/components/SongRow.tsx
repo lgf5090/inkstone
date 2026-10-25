@@ -10,9 +10,29 @@
  * must start playback even when a future variant is not a native button; the default action is
  * cancelled so the browser does not fire the click a second time.
  */
-import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement } from 'react'
-import { AudioLines, Download, FileDown, Heart, History, ListEnd, ListPlus, MoreHorizontal, Pencil, Pin, PinOff, Play, Plus, ThumbsDown } from 'lucide-react'
-import { formatDuration, musicArtistNames } from '@shared/music/format'
+import { useRef, useState, type DragEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactElement } from 'react'
+import {
+  AudioLines,
+  Check,
+  CloudUpload,
+  Download,
+  FileDown,
+  GripVertical,
+  HardDriveDownload,
+  Heart,
+  ListEnd,
+  ListPlus,
+  MoreHorizontal,
+  Pencil,
+  Pin,
+  PinOff,
+  Play,
+  Plus,
+  Server,
+  Square,
+  Trash2,
+} from 'lucide-react'
+import { formatBytes, formatDuration, musicArtistNames, buildExportFilename } from '@shared/music/format'
 import type { MusicTrack } from '@shared/music/model'
 import { cn } from '../../../lib/cn'
 import { Button, IconButton } from '../../../components/primitives'
@@ -21,7 +41,6 @@ import { useMusicLibrary } from '../store/library'
 import { musicApi } from '../api'
 import { useMusicSettings } from '../store/settings'
 import { useUi } from '../../../store/ui'
-import { buildExportFilename } from '@shared/music/format'
 import { useMusicPlayer } from '../store/player'
 import { Cover } from './Cover'
 import { musicText } from './labels'
@@ -44,6 +63,23 @@ export interface SongRowProps {
   onPlay: (track: MusicTrack) => void
   /** A page that owns an edit dialog can add the metadata action to the default menu. */
   onEditTrack?: (track: MusicTrack) => void
+  /** A page that can remove a library row adds the destructive action to the default menu. */
+  onRemoveTrack?: (track: MusicTrack) => void
+  /** The library table's selection mode: pressing a row toggles it instead of starting playback. */
+  selectionMode?: boolean
+  selected?: boolean
+  onToggleSelect?: () => void
+  /** Show the source and size cells used by the merged "all music" table. */
+  columns?: { source?: boolean; size?: boolean }
+  /** The library table's drag handle; keyboard users get the move actions in the menu. */
+  reorderable?: boolean
+  onDragStart?: (event: DragEvent<HTMLElement>) => void
+  onDragEnd?: () => void
+  onDragOver?: (event: DragEvent<HTMLLIElement>) => void
+  onDrop?: (event: DragEvent<HTMLLIElement>) => void
+  dragging?: boolean
+  dropTarget?: boolean
+  onMoveTrack?: (direction: -1 | 1) => void
   className?: string
 }
 
@@ -57,6 +93,19 @@ export function SongRow({
   menuItems,
   onPlay,
   onEditTrack,
+  onRemoveTrack,
+  selectionMode = false,
+  selected = false,
+  onToggleSelect,
+  columns,
+  reorderable = false,
+  onDragStart,
+  onDragEnd,
+  onDragOver,
+  onDrop,
+  dragging = false,
+  dropTarget = false,
+  onMoveTrack,
   className,
 }: SongRowProps): ReactElement {
   const favoriteEntry = useMusicLibrary((state) => state.favorites.find((entry) => entry.id === track.id))
@@ -74,26 +123,110 @@ export function SongRow({
   const fail = (title: string, error: unknown): void => {
     useUi.getState().toast({ title, description: error instanceof Error ? error.message : String(error), tone: 'danger' })
   }
-  const forgetHistory = async (): Promise<void> => {
+
+  const downloadToDevice = async (): Promise<void> => {
+    const url = musicApi.streamUrl(track.id)
+    let preview = false
+    let refused = false
+    try {
+      // A preview is playable but must not be saved as the song; the stream route marks it before
+      // the browser follows the provider's redirect.
+      const probe = await fetch(url, { headers: { Range: 'bytes=0-0' } })
+      preview = probe.headers.get('x-music-free-trial') === '1'
+      refused = !probe.ok && probe.status !== 206
+      await probe.body?.cancel().catch((error: unknown) => {
+        console.warn('[inkstone] Music preview probe body could not be cancelled:', error)
+      })
+    } catch (error) {
+      // The probe can fail when the worker hands playback to a provider CDN; the anchor below is
+      // still the browser's own request and may work, so a probe failure must not block it.
+      console.warn('[inkstone] Music preview probe failed; the device download will be attempted:', error)
+    }
+    if (preview) {
+      useUi.getState().toast({ title: musicText('music.song.preview_only'), tone: 'warning' })
+      return
+    }
+    if (refused) {
+      useUi.getState().toast({ title: musicText('music.song.action_failed'), tone: 'danger' })
+      return
+    }
+    const extension = track.format || 'mp3'
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = buildExportFilename(settings.downloadNameFormat, track, extension)
+    anchor.rel = 'noopener'
+    anchor.click()
+  }
+
+  const transferTo = (target: 'r2' | 'webdav' | 'alist'): void => {
+    const label = target === 'r2' ? 'R2' : target === 'webdav' ? 'WebDAV' : 'Alist'
+    useUi.getState().toast({ title: musicText('music.song.transferring', { target: label }) })
+    if (target === 'r2') {
+      void requestDownload(track, settings.downloadQuality, settings.downloadFormat)
+        .then(() => useUi.getState().toast({
+          title: musicText('music.song.transfer_queued', { target: label }),
+          tone: 'success',
+        }))
+        .catch((error: unknown) => fail(musicText('music.song.transfer_failed'), error))
+      return
+    }
+    // A search row has not been saved yet, and the transfer route names a library row rather than a
+    // provider identity. Save the snapshot first, exactly as the download queue does.
+    void musicApi.upsertTracks([track])
+      .then((answer) => {
+        const libraryTrack = answer.tracks[0]
+        if (!libraryTrack) throw new Error(musicText('music.song.transfer_failed'))
+        return musicApi.transferTrack(libraryTrack.id, target)
+      })
+      .then((answer) => {
+        useMusicLibrary.getState().bumpTrackRevision()
+        const where = answer.mountName ? `${label} · ${answer.mountName}` : label
+        useUi.getState().toast({
+          title: musicText('music.song.transferred', { target: where }),
+          tone: 'success',
+        })
+      })
+      .catch((error: unknown) => fail(musicText('music.song.transfer_failed'), error))
+  }
+
+  const removeFromLibrary = async (): Promise<void> => {
+    if (!onRemoveTrack) return
     const approved = await confirm({
-      title: musicText('music.song.forget_history_confirm_title'),
-      description: musicText('music.song.forget_history_confirm_body', { title: track.title }),
-      confirmLabel: musicText('music.song.forget_history'),
+      title: musicText('music.song.remove_confirm_title'),
+      description: musicText(
+        track.provider === 'upload'
+          ? 'music.song.remove_confirm_upload'
+          : track.provider === 'netease'
+            ? 'music.song.remove_confirm_online'
+            : 'music.song.remove_confirm_reference',
+        { title: track.title },
+      ),
+      confirmLabel: musicText('music.song.remove'),
       tone: 'danger',
     })
     if (!approved) return
     try {
-      const answer = await musicApi.deleteHistoryForTrack(track.id)
-      useUi.getState().toast({
-        title: answer.removed > 0
-          ? musicText('music.song.forget_history_done', { count: answer.removed })
-          : musicText('music.song.forget_history_none'),
-        tone: answer.removed > 0 ? 'success' : 'warning',
-      })
+      const answer = await musicApi.deleteTracks([track.id])
+      if (!answer.removed.includes(track.id)) {
+        throw new Error(musicText('music.song.remove_failed'))
+      }
+      await useMusicPlayer.getState().removeFromQueue(track.id)
+      useMusicLibrary.getState().bumpTrackRevision()
+      onRemoveTrack(track)
+      useUi.getState().toast({ title: musicText('music.song.removed'), tone: 'success' })
     } catch (error) {
-      fail(musicText('music.song.forget_history_failed'), error)
+      fail(musicText('music.song.remove_failed'), error)
     }
   }
+
+  const sourceLabel = track.r2Key
+    ? musicText('music.song.source_r2')
+    : track.provider === 'webdav'
+      ? musicText('music.song.source_webdav')
+      : track.provider === 'alist'
+        ? musicText('music.song.source_alist')
+        : ''
+  const sourceKind = track.r2Key ? 'upload' : track.provider
 
   const addToPlaylist = (playlistId: string): void => {
     void addPlaylistTracks(playlistId, [track]).then(() => {
@@ -147,17 +280,37 @@ export function SongRow({
       icon: <Play size={14} />,
       onSelect: () => onPlay(track),
     },
+    ...(track.provider === 'netease'
+      ? [
+          ...(track.r2Key
+            ? []
+            : [{
+                id: 'transfer-r2',
+                label: musicText('music.song.transfer_r2'),
+                icon: <HardDriveDownload size={14} />,
+                separatorBefore: true,
+                onSelect: () => transferTo('r2'),
+              }]),
+          {
+            id: 'transfer-webdav',
+            label: musicText('music.song.transfer_webdav'),
+            icon: <CloudUpload size={14} />,
+            separatorBefore: !track.r2Key,
+            onSelect: () => transferTo('webdav'),
+          },
+          {
+            id: 'transfer-alist',
+            label: musicText('music.song.transfer_alist'),
+            icon: <Server size={14} />,
+            onSelect: () => transferTo('alist'),
+          },
+        ]
+      : []),
     {
-      id: 'download',
-      label: musicText('music.song.download'),
+      id: 'download-device',
+      label: musicText('music.song.download_device'),
       icon: <Download size={14} />,
-      disabled: track.provider !== 'netease',
-      separatorBefore: true,
-      onSelect: () => {
-        void requestDownload(track, settings.downloadQuality, settings.downloadFormat)
-          .then(() => useUi.getState().toast({ title: musicText('music.song.download_started'), tone: 'success' }))
-          .catch((error: unknown) => fail(musicText('music.song.action_failed'), error))
-      },
+      onSelect: () => { void downloadToDevice() },
     },
     {
       id: 'download-lyrics',
@@ -201,32 +354,38 @@ export function SongRow({
           onSelect: () => onEditTrack(track),
         }]
       : []),
-    {
-      id: 'forget-history',
-      label: musicText('music.song.forget_history'),
-      icon: <History size={14} />,
-      onSelect: () => {
-        void forgetHistory()
-      },
-    },
+    ...(onMoveTrack
+      ? [
+          {
+            id: 'move-up',
+            label: musicText('music.song.move_up'),
+            icon: <GripVertical size={14} />,
+            onSelect: () => onMoveTrack(-1),
+          },
+          {
+            id: 'move-down',
+            label: musicText('music.song.move_down'),
+            icon: <GripVertical size={14} />,
+            onSelect: () => onMoveTrack(1),
+          },
+        ]
+      : []),
+    ...(onRemoveTrack
+      ? [{
+          id: 'remove',
+          label: musicText('music.song.remove'),
+          icon: <Trash2 size={14} />,
+          separatorBefore: true,
+          onSelect: () => { void removeFromLibrary() },
+        }]
+      : []),
     {
       id: 'favorite',
       label: musicText(favorite ? 'music.song.unfavorite' : 'music.song.favorite'),
       icon: <Heart size={14} />,
-      separatorBefore: true,
+      separatorBefore: !onRemoveTrack,
       onSelect: () => {
         void toggleFavorite(track)
-      },
-    },
-    {
-      id: 'dislike',
-      label: musicText('music.song.dislike'),
-      icon: <ThumbsDown size={14} />,
-      disabled: track.provider !== 'netease',
-      onSelect: () => {
-        void musicApi.fmTrash(track.providerId)
-          .then(() => useUi.getState().toast({ title: musicText('music.song.disliked'), tone: 'success' }))
-          .catch((error: unknown) => fail(musicText('music.song.action_failed'), error))
       },
     },
   ]
@@ -239,6 +398,10 @@ export function SongRow({
     // Both keys are the button's own activation; cancelling the default keeps the browser from
     // firing the click a second time after this handler (Enter on keydown, Space on keyup).
     event.preventDefault()
+    if (selectionMode) {
+      onToggleSelect?.()
+      return
+    }
     if (!disabledReason) onPlay(track)
   }
 
@@ -247,16 +410,27 @@ export function SongRow({
       type="button"
       className="music-row__main"
       aria-disabled={disabledReason ? true : undefined}
+      aria-pressed={selectionMode ? selected : undefined}
       onClick={() => {
+        if (selectionMode) {
+          onToggleSelect?.()
+          return
+        }
         if (!disabledReason) onPlay(track)
       }}
       onKeyDown={onKeyDown}
     >
       <span
-        className={cn('music-row__state', active && 'music-row__state--active')}
+        className={cn(
+          'music-row__state',
+          active && !selectionMode && 'music-row__state--active',
+          selectionMode && selected && 'music-row__state--selected',
+        )}
         aria-hidden="true"
       >
-        {active ? (
+        {selectionMode ? (
+          selected ? <Check size={15} /> : <Square size={15} />
+        ) : active ? (
           <AudioLines size={14} className={playing ? undefined : 'opacity-50'} />
         ) : index === undefined ? (
           '-'
@@ -279,6 +453,15 @@ export function SongRow({
         <span className="music-row__meta" title={musicArtistNames(track)}>{musicArtistNames(track)}</span>
       </span>
       <span className="music-row__album" title={track.album}>{track.album}</span>
+      {columns?.source && (
+        <span className="music-row__source" data-source={sourceKind}>
+          <span className="music-row__source-dot" aria-hidden="true" />
+          {sourceLabel}
+        </span>
+      )}
+      {columns?.size && (
+        <span className="music-row__size">{track.size === null ? '—' : formatBytes(track.size)}</span>
+      )}
       <span className="music-row__duration">{formatDuration(track.durationMs)}</span>
     </button>
   )
@@ -288,12 +471,29 @@ export function SongRow({
       className={cn(
         'music-row',
         `music-row--${variant}`,
+        (columns?.source || columns?.size) && 'music-row--library',
+        selected && 'music-row--selected',
+        dragging && 'music-row--dragging',
+        dropTarget && 'music-row--drop-target',
         active && 'music-row--active',
         disabledReason && 'music-row--disabled',
         className,
       )}
       onContextMenu={hasMenu ? context.onContextMenu : undefined}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
     >
+      {reorderable && !selectionMode && (
+        <span
+          className="music-row__grip"
+          draggable
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          aria-hidden="true"
+        >
+          <GripVertical size={14} />
+        </span>
+      )}
       {disabledReason ? <Tooltip label={disabledReason}>{rowButton}</Tooltip> : rowButton}
 
       <div className="music-row__actions">

@@ -93,11 +93,13 @@ function ImportedTracks({
   emptyTitle,
   emptyHint,
   onEditTrack,
+  onRemoveTrack,
 }: {
   tracks: readonly MusicTrack[]
   emptyTitle: string
   emptyHint: string
   onEditTrack?: (track: MusicTrack) => void
+  onRemoveTrack?: () => void
 }): ReactElement {
   return (
     <section aria-label={musicText('music.cloud.imported_tracks')} className="flex flex-col gap-2">
@@ -111,6 +113,7 @@ function ImportedTracks({
             tracks={tracks}
             onPlay={(track, queue) => { void useMusicPlayer.getState().playTrack(track, { queue }) }}
             onEditTrack={onEditTrack}
+            onRemoveTrack={onRemoveTrack}
           />
         )}
     </section>
@@ -603,6 +606,7 @@ export function CloudDrivePage(): ReactElement {
             emptyTitle={musicText('music.cloud.no_imported', { source: musicText('music.cloud.source.webdav') })}
             emptyHint={musicText('music.cloud.no_imported_hint', { source: musicText('music.cloud.source.webdav') })}
             onEditTrack={setEditingTrack}
+            onRemoveTrack={() => { webdavQuery.reload(); void useMusicLibrary.getState().load() }}
           />
           {!webdavData.listing.configured
             ? (
@@ -770,6 +774,7 @@ export function CloudDrivePage(): ReactElement {
             emptyTitle={musicText('music.cloud.no_imported', { source: musicText('music.cloud.source.alist') })}
             emptyHint={musicText('music.cloud.no_imported_hint', { source: musicText('music.cloud.source.alist') })}
             onEditTrack={setEditingTrack}
+            onRemoveTrack={() => { alistQuery.reload(); void useMusicLibrary.getState().load() }}
           />
           <AlistPanel mounts={alistData.mounts} onChanged={alistQuery.reload} />
         </section>

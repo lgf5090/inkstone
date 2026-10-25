@@ -1455,6 +1455,7 @@ export type ApiErrorCode =
   | 'music_provider_unavailable'
   | 'music_provider_auth_required'
   | 'music_source_unavailable'
+  | 'music_preview_only'
   | 'music_storage_unavailable'
   | 'music_quota_exceeded'
   | 'music_upload_invalid'

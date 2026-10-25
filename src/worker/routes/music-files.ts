@@ -10,12 +10,12 @@
 import { Hono, type Context } from 'hono'
 import { MUSIC_MIME_BY_FORMAT, isMusicFormat } from '@shared/music/constants'
 import { parseMusicAlistProviderId, parseMusicWebdavProviderId, type MusicTrack } from '@shared/music/model'
-import type { AppBindings, Env } from '../env'
+import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { contentDisposition } from '../lib/http-range'
-import { decryptMusicCookie } from '../lib/crypto'
 import { requireAuth } from '../middleware/auth'
 import { MusicStore } from '../music/store'
+import { musicProviderFor } from '../music/providers/account'
 import { resolveMusicWebdav } from '../music/cloud/config'
 import { fetchAlistStream, resolveAlistMount } from '../music/cloud/alist'
 import { fetchMusicObject } from '../music/cloud/webdav'
@@ -29,8 +29,6 @@ import {
   fetchAllowedMusicUrl,
   serveMusicStream,
 } from '../music/stream'
-import { createNeteaseProvider } from '../music/providers/netease/client'
-import type { MusicProvider } from '../music/providers/types'
 
 const COVER_MIME_BY_EXTENSION: Record<string, string> = {
   jpg: 'image/jpeg',
@@ -203,23 +201,6 @@ async function ownedTrack(
   const track = await store.getTrack(id) ?? await store.findTrack('netease', id)
   if (!track) throw ApiError.notFound('Track not found')
   return track
-}
-
-/**
- * Build the provider for an online track. The stored cookie is a ciphertext, so it is decrypted only
- * for this call; a vault that cannot open it degrades to anonymous playback (non-VIP tracks still
- * work) and says so in the log rather than pretending the account is connected.
- */
-async function musicProviderFor(env: Env, userId: string): Promise<MusicProvider> {
-  const stored = await new MusicStore(env.DB, userId).getAccountCookie('netease')
-  if (!stored) return createNeteaseProvider()
-  let cookie: string | null = null
-  try {
-    cookie = await decryptMusicCookie(env, userId, stored)
-  } catch (error) {
-    console.warn('[inkstone] Music account cookie could not be decrypted; streaming anonymously:', error)
-  }
-  return createNeteaseProvider(cookie ? { cookie } : {})
 }
 
 function storedCoverResponse(

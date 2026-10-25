@@ -26,10 +26,10 @@ import type { MusicDownload, MusicTrack } from '@shared/music/model'
 import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidId } from '../lib/id'
-import { decryptMusicCookie } from '../lib/crypto'
 import { evaluateInternalGuard } from '../lib/internal-auth'
 import { MusicDownloadStore } from './download-store'
 import { MusicStore } from './store'
+import { musicProviderFor } from './providers/account'
 import {
   MUSIC_AUDIO_CACHE_CONTROL,
   discardMusicObjects,
@@ -38,7 +38,6 @@ import {
   withMusicQuotaLease,
 } from './storage'
 import { fetchAllowedMusicUrl } from './stream'
-import { createNeteaseProvider } from './providers/netease/client'
 import { MusicProviderError, type MusicProvider, type MusicStreamSource } from './providers/types'
 
 /** One slice is one upload part: the same 8 MiB the upload path uses, and above R2's 5 MiB minimum. */
@@ -406,8 +405,9 @@ async function downloadSource(
   track: MusicTrack,
   quality: string,
 ): Promise<MusicStreamSource> {
+  let source: MusicStreamSource
   try {
-    return await provider.downloadUrl(track.providerId, quality)
+    source = await provider.downloadUrl(track.providerId, quality)
   } catch (error) {
     if (!(error instanceof MusicProviderError)) throw error
     if (error.code === 'auth_required' || error.status === 401) {
@@ -416,9 +416,32 @@ async function downloadSource(
     if (error.code === 'not_found' || error.status === 404) {
       throw new DownloadFailure('The provider has no download source for this track', false)
     }
-    console.warn('[inkstone] Music provider could not resolve a download:', error.code, error.status)
-    throw new DownloadFailure('The music provider could not provide this track')
+    if (error.code === 'source_unavailable') {
+      // The download-only endpoint refuses some tracks that the player can still resolve. Ask the
+      // same provider for a player URL before telling the reader the track is unavailable; a preview
+      // is refused below so a 45-second clip can never be stored as the whole song.
+      try {
+        source = await provider.stream(track.providerId, quality)
+      } catch (fallback) {
+        if (fallback instanceof MusicProviderError && fallback.code === 'auth_required') {
+          throw new DownloadFailure('The connected music account needs to sign in again', false)
+        }
+        console.warn(
+          '[inkstone] Music provider could not resolve a download:',
+          fallback instanceof MusicProviderError ? fallback.code : 'unknown',
+          fallback instanceof MusicProviderError ? fallback.status : '',
+        )
+        throw new DownloadFailure('The music provider could not provide this track')
+      }
+    } else {
+      console.warn('[inkstone] Music provider could not resolve a download:', error.code, error.status)
+      throw new DownloadFailure('The music provider could not provide this track')
+    }
   }
+  if (source.freeTrial) {
+    throw new DownloadFailure('The music provider only offers a preview of this track', false)
+  }
+  return source
 }
 
 async function uploadPart(bucket: R2Bucket, cursor: MusicDownloadCursor, bytes: Uint8Array): Promise<void> {
@@ -633,22 +656,6 @@ async function cancelBody(response: Response): Promise<void> {
   }
 }
 
-/** The provider a download reads through, built from this account's stored (encrypted) cookie. */
-async function downloadProvider(env: Env, userId: string): Promise<MusicProvider> {
-  const stored = await new MusicStore(env.DB, userId).getAccountCookie('netease')
-  let cookie: string | undefined
-  if (stored) {
-    try {
-      cookie = (await decryptMusicCookie(env, userId, stored)) ?? undefined
-    } catch (error) {
-      // Anonymous downloads are honest: public tracks still resolve, and a vault problem must not stop
-      // a queue that the reader can see. The provider falls back to the same anonymous read path.
-      console.warn('[inkstone] Music account cookie could not be decrypted; downloading anonymously:', error)
-    }
-  }
-  return createNeteaseProvider({ cookie, upstreamBaseUrl: env.MUSIC_UPSTREAM_API })
-}
-
 function musicQueueNamespace(env: Env): DurableObjectNamespace | null {
   return env.MUSIC_QUEUE ?? null
 }
@@ -744,7 +751,7 @@ export class MusicQueue implements DurableObject {
     let result: MusicSliceResult
     try {
       await downloads.requeueStale(STALE_RUNNING_MS)
-      const provider = await downloadProvider(this.env, userId)
+      const provider = await musicProviderFor(this.env, userId)
       result = await runMusicDownloadSlice({
         env: this.env,
         userId,

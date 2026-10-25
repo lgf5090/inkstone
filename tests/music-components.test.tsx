@@ -14,6 +14,9 @@ import { initI18n } from '../src/client/lib/i18n'
 import { installTestGlobals, renderElement, type RenderedElement } from '../src/client/lib/test-render'
 import { PlayBar } from '../src/client/features/music/components/PlayBar'
 import { SongRow } from '../src/client/features/music/components/SongRow'
+import { FloatingMusicPlayer } from '../src/client/features/music/components/FloatingMusicPlayer'
+import { musicApi } from '../src/client/features/music/api'
+import { useMusicLibrary } from '../src/client/features/music/store/library'
 import { musicText } from '../src/client/features/music/components/labels'
 import { emptyQueue } from '../src/client/features/music/player/queue'
 import { useMusicPlayer } from '../src/client/features/music/store/player'
@@ -82,6 +85,7 @@ afterEach(() => {
   rendered?.unmount()
   rendered = null
   useMusicUi.setState({ queueOpen: false, lyricsOpen: false })
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 
@@ -100,6 +104,48 @@ describe('SongRow', () => {
     const more = buttonByLabel(rendered.container, musicText('music.song.more'))
     expect(more, 'the overflow control has no accessible name').toBeTruthy()
     expect(more!.getAttribute('aria-haspopup')).toBe('menu')
+  })
+
+  it('offers transfers and removal for an online track, but no generic dislike row', () => {
+    const onRemoveTrack = vi.fn()
+    rendered = renderElement(createElement(SongRow, {
+      track: track(),
+      onPlay: () => undefined,
+      onRemoveTrack,
+    }))
+    const more = buttonByLabel(rendered.container, musicText('music.song.more'))
+    act(() => more!.click())
+    const menu = document.querySelector('[role="menu"]')
+    expect(menu, 'the row menu did not open').toBeTruthy()
+    const labels = [...menu!.querySelectorAll('button')].map((button) => button.textContent?.trim())
+    expect(labels).toContain(musicText('music.song.transfer_r2'))
+    expect(labels).toContain(musicText('music.song.transfer_webdav'))
+    expect(labels).toContain(musicText('music.song.transfer_alist'))
+    expect(labels).toContain(musicText('music.song.download_device'))
+    expect(labels).toContain(musicText('music.song.remove'))
+  })
+
+  it('does not offer cloud transfers for a WebDAV reference', () => {
+    rendered = renderElement(createElement(SongRow, {
+      track: track({
+        provider: 'webdav',
+        providerId: 'target:song.mp3',
+        source: 'webdav',
+        r2Key: null,
+      }),
+      onPlay: () => undefined,
+      onRemoveTrack: () => undefined,
+    }))
+    const more = buttonByLabel(rendered.container, musicText('music.song.more'))
+    act(() => more!.click())
+    const menu = document.querySelector('[role="menu"]')
+    expect(menu, 'the row menu did not open').toBeTruthy()
+    const labels = [...menu!.querySelectorAll('button')].map((button) => button.textContent?.trim())
+    expect(labels).toContain(musicText('music.song.download_device'))
+    expect(labels).toContain(musicText('music.song.remove'))
+    expect(labels).not.toContain(musicText('music.song.transfer_r2'))
+    expect(labels).not.toContain(musicText('music.song.transfer_webdav'))
+    expect(labels).not.toContain(musicText('music.song.transfer_alist'))
   })
 
   it('starts the track with Enter and marks a favourite row as pressed', () => {
@@ -182,5 +228,44 @@ describe('PlayBar', () => {
     expect(useMusicUi.getState().queueOpen).toBe(true)
     const opened = buttonByLabel(rendered.container, musicText('music.playbar.queue'))
     expect(opened!.getAttribute('aria-pressed')).toBe('true')
+  })
+})
+
+describe('FloatingMusicPlayer', () => {
+  it('shows the current track, folds into a ring and expands again', async () => {
+    vi.spyOn(musicApi, 'lyrics').mockResolvedValue({
+      lrc: '',
+      tlyric: '',
+      yrc: '',
+      source: 'upload',
+      fetchedAt: 0,
+    })
+    useMusicLibrary.setState({ status: 'ready' })
+    const sample = track()
+    useMusicPlayer.setState({
+      queue: { tracks: [sample], index: 0, mode: 'order', original: null },
+      status: 'paused',
+      durationMs: sample.durationMs,
+      positionMs: 30_000,
+    })
+    await act(async () => {
+      rendered = renderElement(createElement(FloatingMusicPlayer))
+      await Promise.resolve()
+    })
+
+    const region = document.querySelector<HTMLElement>(`[role="region"][aria-label="${musicText('music.floating.title')}"]`)
+    expect(region, 'the floating player did not mount').toBeTruthy()
+    expect(region!.textContent).toContain(sample.title)
+
+    const collapse = buttonByLabel(document.body, musicText('music.floating.collapse'))
+    expect(collapse, 'the collapse control has no accessible name').toBeTruthy()
+    act(() => collapse!.click())
+    expect(document.querySelector('.music-floating--collapsed')).toBeTruthy()
+
+    const orb = buttonByLabel(document.body, musicText('music.floating.expand_track', { title: sample.title }))
+    expect(orb, 'the folded player has no expand control').toBeTruthy()
+    act(() => orb!.click())
+    expect(document.querySelector('.music-floating--expanded')).toBeTruthy()
+    expect(document.querySelector('.music-floating--expanded')!.textContent).toContain(sample.title)
   })
 })

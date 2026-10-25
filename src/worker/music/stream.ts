@@ -192,6 +192,7 @@ async function serveOnlineTrack(
   const contentType = upstreamMediaType(upstream, track)
   const headers = baseStreamHeaders(contentType, track)
   headers.set('Cache-Control', 'private, no-store')
+  headers.set('X-Music-Free-Trial', source.freeTrial ? '1' : '0')
   copyHeader(upstream, headers, 'content-length')
   copyHeader(upstream, headers, 'content-range')
   copyHeader(upstream, headers, 'etag')

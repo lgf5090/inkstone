@@ -63,6 +63,9 @@ const AttachmentHub = lazy(() =>
 const TemplateSlotProgress = lazy(() =>
   import('./features/chat/template-progress').then((module) => ({ default: module.TemplateSlotProgress })),
 )
+const FloatingMusicPlayer = lazy(() =>
+  import('./features/music/components/FloatingMusicPlayer').then((module) => ({ default: module.FloatingMusicPlayer })),
+)
 
 /**
  * How long the boot screen is allowed to stay up before the app gives up waiting and shows itself.
@@ -265,6 +268,12 @@ export function App() {
       {status === 'authed' && <SettingsLayer />}
       {status === 'authed' && <SlotFillLayer />}
       {status === 'authed' && <DecorationLayer />}
+      {/* The floating transport follows every authed app; the music frame keeps its own bar instead. */}
+      {status === 'authed' && !isPresenter && (
+        <Suspense fallback={null}>
+          <FloatingMusicPlayer />
+        </Suspense>
+      )}
       <Toaster />
       <UpdateCard />
       <ConfirmHost />

@@ -34,6 +34,20 @@ const POLL_MS = 3000
 
 type DownloadAction = 'pause' | 'resume' | 'retry' | 'cancel'
 
+/** The queue stores a diagnostic in English; the page names the cause and the next step in Chinese. */
+function downloadErrorText(error: string): string {
+  if (/sign in again/i.test(error)) return musicText('music.downloads.error.signin')
+  if (/preview/i.test(error)) return musicText('music.downloads.error.preview')
+  if (/no download source/i.test(error)) return musicText('music.downloads.error.unavailable')
+  if (/could not provide/i.test(error)) return musicText('music.downloads.error.provider')
+  if (/quota/i.test(error)) return musicText('music.downloads.error.quota')
+  return musicText('music.downloads.error.generic')
+}
+
+function errorNeedsAccount(error: string): boolean {
+  return /sign in again|preview|could not provide/i.test(error)
+}
+
 const STATUS_TONE: Record<MusicDownloadItem['status'], 'neutral' | 'accent' | 'success' | 'warning' | 'danger'> = {
   queued: 'neutral',
   running: 'accent',
@@ -285,9 +299,16 @@ function DownloadRow({
       </div>
 
       {item.error && (
-        <p role="alert" className="break-words text-[length:var(--text-11)] leading-relaxed text-[var(--danger)]">
-          {item.error}
-        </p>
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-[var(--sp-2)] rounded-[var(--r-sm)] bg-[var(--danger)]/6 px-2 py-1.5">
+          <p className="min-w-0 flex-1 break-words text-[length:var(--text-11)] leading-relaxed text-[var(--danger)]">
+            {downloadErrorText(item.error)}
+          </p>
+          {errorNeedsAccount(item.error) && (
+            <Button size="sm" variant="secondary" onClick={() => navigateToAddress('/music/login')}>
+              {musicText('music.downloads.connect_account')}
+            </Button>
+          )}
+        </div>
       )}
 
       <DownloadActions item={item} pending={pending} onAction={onAction} onRemove={onRemove} />
