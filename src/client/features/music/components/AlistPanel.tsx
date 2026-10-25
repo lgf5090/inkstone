@@ -7,7 +7,7 @@
  */
 import { useEffect, useRef, useState, type DragEvent, type FormEvent, type ReactElement } from 'react'
 import { ChevronLeft, Folder, FileAudio, Plus, Search, Trash2, Upload } from 'lucide-react'
-import type { MusicMount } from '@shared/music/model'
+import type { MusicMount, MusicTrack } from '@shared/music/model'
 import {
   MUSIC_DRIVE_IMPORT_MAX_PATHS,
   MUSIC_DRIVE_UPLOAD_MAX_BYTES,
@@ -22,7 +22,9 @@ import { Modal, confirm } from '../../../components/overlay'
 import { formatBytes } from '@shared/music/format'
 import { useUi } from '../../../store/ui'
 import { musicApi } from '../api'
+import { enrichImportedTracks } from '../cloud-metadata'
 import { useMusicQuery } from '../query'
+import { useMusicLibrary } from '../store/library'
 import { musicText } from './labels'
 import { PageError } from '../pages/parts/PageState'
 
@@ -222,6 +224,7 @@ export function AlistPanel({ mounts, onChanged }: { mounts: MusicMount[]; onChan
     setImportingPath(paths[0] ?? null)
     let imported = 0
     let skipped = 0
+    const importedTracks: MusicTrack[] = []
     let firstSkip: MusicDriveSkipReason | undefined
     try {
       // The route accepts fifty paths at a time; a directory may hold more.
@@ -229,6 +232,7 @@ export function AlistPanel({ mounts, onChanged }: { mounts: MusicMount[]; onChan
         const result = await musicApi.alistImport(active.id, paths.slice(start, start + 50))
         imported += result.tracks.length
         skipped += result.skipped.length
+        importedTracks.push(...result.tracks)
         firstSkip ??= result.skipped[0]?.reason as MusicDriveSkipReason | undefined
       }
       if (imported > 0) {
@@ -240,6 +244,15 @@ export function AlistPanel({ mounts, onChanged }: { mounts: MusicMount[]; onChan
           tone: skipped > 0 ? 'warning' : 'success',
         })
         onChanged()
+        void enrichImportedTracks(importedTracks, { limit: 100 }).then((enriched) => {
+          if (enriched === 0) return
+          onChanged()
+          void useMusicLibrary.getState().load()
+          useUi.getState().toast({
+            title: musicText('music.cloud.metadata_enriched', { count: enriched }),
+            tone: 'success',
+          })
+        })
       } else {
         useUi.getState().toast({
           title: musicText('music.cloud.import_none'),

@@ -20,10 +20,11 @@ import {
   type MusicDriveSkip,
   type MusicDriveUploadResult,
 } from '@shared/music/api'
-import { MUSIC_MIME_BY_FORMAT, formatFromFilename } from '@shared/music/constants'
+import { MUSIC_LIMITS, MUSIC_MIME_BY_FORMAT, formatFromFilename } from '@shared/music/constants'
 import {
   MUSIC_PROVIDER_ID_MAX,
   musicAlistProviderId,
+  musicTrackKey,
   musicWebdavProviderId,
   type MusicMount,
   type MusicTrack,
@@ -38,14 +39,18 @@ import { MusicStore } from '../music/store'
 import {
   declaredUploadFormat,
   formatCompatibleWithContainer,
+  inspectMusicCover,
   sanitizeMusicFilename,
   sanitizeUploadMetadata,
   sniffMusicFormat,
   titleFromFilename,
 } from '../music/metadata'
 import {
+  MUSIC_COVER_CACHE_CONTROL,
   deleteMusicObjects,
   discardMusicObjects,
+  hasMusicStorage,
+  musicCoverKeyFor,
   musicObjectKeyFor,
   putMusicObject as putR2Object,
   withMusicQuotaLease,
@@ -78,6 +83,8 @@ import {
 const IMPORT_BODY_LIMIT = 64 * 1024
 /** The multipart envelope around a file at the ceiling, with room for a boundary and the field. */
 const UPLOAD_FORM_LIMIT = MUSIC_DRIVE_UPLOAD_MAX_BYTES + 1024 * 1024
+/** One parsed tag document plus a cover at the image ceiling. */
+const METADATA_FORM_LIMIT = MUSIC_LIMITS.coverMaxBytes + 128 * 1024
 const UPLOAD_FILENAME_MAX = 180
 const PLAYLIST_ID_MAX = 128
 
@@ -354,6 +361,103 @@ musicDriveRoutes.post('/webdav/import', async (c) => {
   }
   const result: MusicDriveImportResult = { tracks, skipped }
   return c.json(result)
+})
+
+/**
+ * Attach the tags the browser read from an imported reference.
+ *
+ * The import route registers a path without touching the audio, so duration, artwork and embedded
+ * lyrics are unknown until something reads the file. The browser reads only the prefix it needs and
+ * posts the result here; this route validates it, stores the cover beside the account's other music
+ * objects and caches the lyric under the same provider key the lyric route reads. Re-running the
+ * import and then this route refreshes the row instead of creating a second one.
+ */
+musicDriveRoutes.post('/imported/:trackId/metadata', async (c) => {
+  const store = new MusicStore(c.env.DB, c.get('userId'))
+  const trackId = c.req.param('trackId')
+  if (!trackId || trackId.length > 128) throw ApiError.notFound('That track does not exist')
+  const track = await store.getTrack(trackId)
+  if (!track) throw ApiError.notFound('That track does not exist')
+  if (track.provider !== 'webdav' && track.provider !== 'alist') {
+    throw ApiError.badRequest('Only WebDAV and Alist imports can take embedded metadata')
+  }
+
+  const form = await readFormDataWithinLimit(c.req, METADATA_FORM_LIMIT)
+  const raw = form.get('metadata')
+  if (typeof raw !== 'string' || !raw) {
+    throw ApiError.badRequest('Attach the parsed tags in the "metadata" field')
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    throw ApiError.badRequest('The metadata field must be JSON')
+  }
+  const metadata = sanitizeUploadMetadata(parsed, track.title)
+
+  let coverKey = track.coverKey
+  let previousCoverKey = ''
+  const cover = form.get('cover')
+  if (cover instanceof File) {
+    if (cover.size === 0) throw ApiError.badRequest('The cover is empty')
+    if (cover.size > MUSIC_LIMITS.coverMaxBytes) {
+      throw ApiError.tooLarge(`The cover exceeds the ${MUSIC_LIMITS.coverMaxBytes / (1024 * 1024)} MB limit`)
+    }
+    if (hasMusicStorage(c.env)) {
+      const bytes = new Uint8Array(await cover.arrayBuffer())
+      const info = inspectMusicCover(bytes, cover.type)
+      const key = musicCoverKeyFor({ userId: c.get('userId'), trackId: track.id, extension: info.extension })
+      await putR2Object(c.env, key, bytes, {
+        contentType: info.mime,
+        cacheControl: MUSIC_COVER_CACHE_CONTROL,
+        userId: c.get('userId'),
+        trackId: track.id,
+        kind: 'cover',
+      })
+      previousCoverKey = track.coverKey
+      coverKey = key
+    } else {
+      // The deployment has a music library without object storage; tags and lyrics still apply.
+      console.warn('[inkstone] Imported music cover was skipped because this deployment has no music storage')
+    }
+  }
+
+  const artists = metadata.artists.length > 0
+    ? metadata.artists.map((name) => ({ id: '', name }))
+    : track.artists
+  const durationMs = metadata.durationMs > 0 ? metadata.durationMs : track.durationMs
+  const bitrate = metadata.bitrate ?? track.bitrate
+  let updated: MusicTrack | null
+  try {
+    updated = await store.attachEmbeddedMetadata(track.id, {
+      title: metadata.title,
+      artists,
+      album: metadata.album || track.album,
+      durationMs,
+      bitrate,
+      coverKey,
+    })
+  } catch (error) {
+    if (coverKey !== previousCoverKey) await discardMusicObjects(c.env, store, [coverKey])
+    throw error
+  }
+  if (!updated) throw ApiError.notFound('That track does not exist')
+
+  if (metadata.lyrics) {
+    await store.saveLyric({
+      trackKey: musicTrackKey(track.provider, track.providerId),
+      source: 'embedded',
+      lrc: metadata.lyrics,
+      tlyric: '',
+      yrc: '',
+    }).catch((error: unknown) => {
+      console.warn('[inkstone] Embedded cloud music lyrics could not be cached:', error)
+    })
+  }
+  if (previousCoverKey && previousCoverKey !== coverKey) {
+    await discardMusicObjects(c.env, store, [previousCoverKey])
+  }
+  return c.json({ track: updated })
 })
 
 /**

@@ -14,6 +14,7 @@ import { SelectMenu } from '../../../components/select-menu'
 import { Empty, LoadingBlock } from '../../../components/feedback'
 import { navigateToPath } from '../../../lib/app-history'
 import { t } from '../../../lib/i18n'
+import { CloudSourceSettings } from '../components/CloudSourceSettings'
 import { SectionHeader } from '../components/SectionHeader'
 import {
   LYRIC_FONT_SIZE_RANGE,
@@ -131,6 +132,8 @@ export function MusicSettingsPage(): ReactElement {
           </div>
         </SettingRow>
       </Section>
+
+      <CloudSourceSettings />
 
       <Section title={t('music.settings.playback.title')}>
         <SettingRow title={t('music.settings.quality.title')} description={t('music.settings.quality.description')}>

@@ -180,7 +180,7 @@ export function PlayBar(): ReactElement {
       className="music-playbar"
     >
       <div className="music-playbar__left">
-        <Cover trackId={current.id} src={current.coverUrl || undefined} size="sm" radius="sm" className="music-playbar__cover" />
+        <Cover trackId={current.id} src={current.coverUrl || undefined} version={current.updatedAt} size="sm" radius="sm" className="music-playbar__cover" />
         <span className="music-playbar__meta">
           <span className="music-playbar__title">{current.title}</span>
           <span className="music-playbar__artist">

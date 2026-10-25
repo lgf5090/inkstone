@@ -206,6 +206,9 @@ export interface MusicLibraryState {
   downloads: MusicDownloadItem[]
   uploads: MusicUpload[]
   loadedAt: number
+  /** Bumped when a track snapshot changes outside this store, so track-listing pages reload. */
+  trackRevision: number
+  bumpTrackRevision: () => void
   load: () => Promise<void>
   reset: () => void
   isFavorite: (trackId: string) => boolean
@@ -245,6 +248,11 @@ export const useMusicLibrary = create<MusicLibraryState>((set, get) => ({
   downloads: [],
   uploads: [],
   loadedAt: 0,
+  trackRevision: 0,
+
+  bumpTrackRevision() {
+    set((state) => ({ trackRevision: state.trackRevision + 1 }))
+  },
 
   async load() {
     set({ status: 'loading', error: null, errorDetail: null })

@@ -49,7 +49,7 @@ export function MiniPlayer({ onOpenNowPlaying }: MiniPlayerProps): ReactElement 
         aria-label={musicText('music.miniplayer.expand')}
         onClick={onOpenNowPlaying}
       >
-        <Cover trackId={current.id} src={current.coverUrl || undefined} size="sm" radius="sm" />
+        <Cover trackId={current.id} src={current.coverUrl || undefined} version={current.updatedAt} size="sm" radius="sm" />
         <span className="music-miniplayer__text">
           <span className="music-miniplayer__title">{current.title}</span>
           <span className="music-miniplayer__artist">

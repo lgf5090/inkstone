@@ -5951,15 +5951,28 @@ const allowed = new Map([
   ["src/client/features/music/assistant-surface.ts", [
     "/**\n * What the music assistant is told about the screen it is docked beside.\n *\n * This is a pointer, not a payload: the current track's identity and the page kind are enough for\n * \"pause this\" or \"what album is this\"; lyrics and credentials stay out. The dock re-attaches the\n * context when the page or track changes, and the reader can remove the chip.\n */",
   ]],
+  ["src/client/features/music/cloud-metadata.ts", [
+    "/**\n * Fill duration, artwork and embedded lyrics on tracks imported from WebDAV or Alist.\n *\n * An import is a reference, not a copy, so the library row starts with only a filename. The browser\n * reads a bounded prefix of the reference's own stream, parses tags and posts the result back. The\n * audio itself never enters R2, and a file whose tags cannot be read still keeps a playable row.\n */",
+    "/** Explicit imports finish their batch; a tab that merely opened repairs a bounded slice. */",
+    "/** Returns how many rows gained metadata, so the caller can reload exactly when something changed. */",
+    "// Marked before the first request so two observers of the same list cannot parse the same file twice.",
+    "// A malformed embedded image should not cost the row its duration and lyrics.",
+    "// A restored or already-playing queue holds the old snapshot; refresh it so the bar and queue",
+    "// show the duration and cover the row now has.",
+  ]],
   ["src/client/features/music/components/AlistPanel.tsx", [
     "/**\n * Alist mounts and the folder browser behind the cloud page's third source.\n *\n * The panel owns only its own server selection and the two calls the browser makes; the parent owns\n * the mount list so creating or deleting one can refresh every source. A token is collected once and\n * never shown again: the server returns whether one is stored, not what it is.\n */",
     "// The route accepts fifty paths at a time; a directory may hold more.",
+  ]],
+  ["src/client/features/music/components/CloudSourceSettings.tsx", [
+    "/**\n * The three places the music app can read files from: the deployment's R2 bucket, one of the\n * account's backup WebDAV targets, and the Alist mounts.\n *\n * R2 has no account to choose and Alist keeps its own mount list; only WebDAV needs two coordinates,\n * a target and the folder inside it. The test button saves those coordinates first, so the list it\n * reads is the one the cloud page will read on its next visit.\n */",
   ]],
   ["src/client/features/music/components/Cover.tsx", [
     "/**\n * The square a track or playlist is drawn in.\n *\n * The artwork always comes from the music API's cover route, never from a provider URL: those expire,\n * leak the upstream host and are not reachable for uploads. A broken or missing image falls back to\n * the icon rather than the browser's broken-image glyph, and the fallback survives a `src` change so\n * a virtual list that reuses a row does not keep showing the previous track's failure.\n */",
     "/** The library track whose cover route is used when `src` is omitted. */",
     "/** An already-resolved URL. The default is `musicApi.coverUrl(trackId)`. */",
     "/** Empty by default: a title beside the artwork is the name, so the image must not repeat it. */",
+    "/**\n   * The track's `updatedAt`, appended to the default route. A row that tried the cover before the\n   * metadata import stored it would otherwise keep its cached failure for this component's lifetime.\n   */",
   ]],
   ["src/client/features/music/components/EditTrackDialog.tsx", [
     "/** Edit the display snapshot of a saved library track; provider identity and bytes stay unchanged. */",
@@ -6017,8 +6030,8 @@ const allowed = new Map([
   ["src/client/features/music/components/MiniPlayer.tsx", [
     "// With nothing in the queue the bar has no body to offer; the empty state belongs to the page and",
     "// to the desktop bar, not to a 64px strip that would only say \"nothing\".",
-    "/**\r\n * The phone-sized transport: artwork, title and the two presses a thumb needs.\r\n *\r\n * It is mounted instead of the desktop bar on a narrow shell (the stylesheet keeps it hidden above\r\n * the phone breakpoint, so a shell that renders both never shows two bars). The body is one button\r\n * that asks the shell to open the Now Playing layer; the play and next controls sit beside it so\r\n * neither gesture swallows the other.\r\n */",
     "/** Opens the Now Playing layer; the shell decides which tab it starts on. */",
+    "/**\n * The phone-sized transport: artwork, title and the two presses a thumb needs.\n *\n * It is mounted instead of the desktop bar on a narrow shell (the stylesheet keeps it hidden above\n * the phone breakpoint, so a shell that renders both never shows two bars). The body is one button\n * that asks the shell to open the Now Playing layer; the play and next controls sit beside it so\n * neither gesture swallows the other.\n */",
   ]],
   ["src/client/features/music/components/MusicSearchBox.tsx", [
     "/**\n * The search field with its two suggestion sources: this device's history when the box is empty,\n * and the provider's keyword suggestions while typing. The listbox is optional for the mouse, but\n * arrow keys and Enter are the same path a reader can use without one.\n */",
@@ -6032,7 +6045,7 @@ const allowed = new Map([
   ["src/client/features/music/components/NowPlaying.tsx", [
     "// The assistant is a separate surface owned by the app shell. Opening it closes this layer, so the",
     "// dock is not mounted behind a modal; its music context already names the track that is playing.",
-    "/**\r\n * The full-screen listening surface: what is playing on one side, lyrics or the queue on the other.\r\n *\r\n * The shared `Modal` owns the layer behaviour — focus moves in, Escape and the backdrop close it, and\r\n * focus returns to whatever opened it. The lyric pane is the existing embedded `LyricPanel`, so the\r\n * translation and offset controls are not duplicated here; the queue is a plain list of the player's\r\n * own tracks rather than a second copy of the queue drawer.\r\n *\r\n * A phone gets the same content stacked and full-height; the stylesheet switches the two columns at\r\n * the tablet breakpoint and keeps the home-indicator inset on the bottom edge.\r\n */",
+    "/**\n * The full-screen listening surface: what is playing on one side, lyrics or the queue on the other.\n *\n * The shared `Modal` owns the layer behaviour — focus moves in, Escape and the backdrop close it, and\n * focus returns to whatever opened it. The lyric pane is the existing embedded `LyricPanel`, so the\n * translation and offset controls are not duplicated here; the queue is a plain list of the player's\n * own tracks rather than a second copy of the queue drawer.\n *\n * A phone gets the same content stacked and full-height; the stylesheet switches the two columns at\n * the tablet breakpoint and keeps the home-indicator inset on the bottom edge.\n */",
   ]],
   ["src/client/features/music/components/Pager.tsx", [
     "/**\n * Page navigation for a long collection.\n *\n * Above the phone breakpoint it is previous / numbers / next; below it the numbers step aside and a\n * single \"load more\" button takes their place, because a row of five 32px page numbers is not a\n * thumb target. Both controls call the same `onChange`, so a page never has two different notions of\n * what \"next\" means.\n */",
@@ -6164,6 +6177,11 @@ const allowed = new Map([
     "/**\n * My cloud drive: R2 objects, the WebDAV folder the backup settings hold, and Alist mounts.\n *\n * All three sources follow the same gestures — drag files in, tick rows, import or delete them in a\n * batch — while keeping their different contracts: an R2 delete removes bytes and the track row that\n * names them, a WebDAV delete leaves the imported reference behind, and an Alist delete never touches\n * the library. Importing still never moves audio.\n */",
     "// One source, one loader. A WebDAV server that is slow or offline must not hold the R2 tab on a",
     "// spinner, so each tab only asks for what it is about to show.",
+    "// A settings shortcut can land on the tab it configures; later manual tab changes are not undone",
+    "// because this effect only follows a change of the address's `source` value.",
+    "// Rows imported before metadata reading existed (or while the remote file was unreachable) repair",
+    "// themselves when their tab is opened. The helper marks attempts, so a reload cannot loop.",
+    "// The reload callbacks belong to the app-level query hook, so finishing after navigation is safe.",
   ]],
   ["src/client/features/music/pages/DownloadsPage.tsx", [
     "/**\n * The R2 download queue: progress, pause/resume/retry/cancel and the account's storage gauge.\n *\n * Downloads are server-side copies into the music library, not files on this device; this page\n * manages that queue and says so. A task is added from a track's menu, so there is no enqueue\n * control here.\n */",
@@ -6397,6 +6415,7 @@ const allowed = new Map([
     "// a track opened from discovery has a row the queue can name.",
     "/** Sent as the body instead of JSON; the browser supplies the multipart boundary. */",
     "/** Pinned playlists lead, then the shelf order the server keeps; pinning should move a row now. */",
+    "/** Bumped when a track snapshot changes outside this store, so track-listing pages reload. */",
   ]],
   ["src/client/features/music/store/player.ts", [
     "/** Where the first track starts, in milliseconds. */",
@@ -6420,6 +6439,7 @@ const allowed = new Map([
     "/**\n * The player: queue, transport state and the bridge to the one audio element.\n *\n * The store never touches an `<audio>` node directly. It asks `musicAudioEngine` to load, pause, seek\n * and change volume, and listens to the engine's events for what actually happened. That split is\n * what lets the whole transport be tested without sound, and what keeps a StrictMode remount from\n * creating a second element.\n *\n * Queue arithmetic lives in `player/queue.ts`; this file only applies its answers and sequences the\n * effects (load, persist, media session).\n */",
     "/**\n * A queue longer than this is not written to localStorage. A 5,000-track playlist would approach the\n * origin's quota, and a queue that fails to persist is better than a write that evicts other state.\n */",
     "/**\n * Write the queue one last time when the document is going away.\n *\n * A named listener rather than an inline arrow: the leave-page guard documents every handler and\n * why it exists, and the pagehide event has no other place to persist a position in flight.\n */",
+    "/** Replace a queue row after its snapshot changed, such as when an imported file's tags were read. */",
   ]],
   ["src/client/features/music/store/settings.ts", [
     "/** The rate ladder the player and the settings panel share. */",
@@ -6442,8 +6462,17 @@ const allowed = new Map([
     "// drawer or the standalone lyric layer behind it would stack two transports.",
   ]],
   ["src/client/features/music/upload-metadata.ts", [
-    "/** Reads what the browser can tell us about a file before it is uploaded. */",
     "/** Embedded lyrics as LRC/text, already bounded; an empty string means none. */",
+    "/** Reads what the browser can tell us about a file before it is uploaded or imported. */",
+    "/** A remote file is read in growing heads: tags live at the start, artwork may push the boundary. */",
+    "/** Read the first `limit` bytes of a same-origin stream and stop paying for the rest. */",
+    "/** Tag writers sometimes label a PNG as JPEG; the bytes decide which type the server may accept. */",
+    "// AVIF and unknown formats: do not force a larger download on a guess.",
+    "/** Whether the container's own tag block extends past this prefix. */",
+    "// Only a prefix that already reached the end of the file cannot grow into a readable tag.",
+    "// The head was already read; a cancel after the stream closed is not a metadata failure.",
+    "/**\n * Ask the audio element for a duration when the tags did not carry one (an MP3 without a Xing frame,\n * for instance). `preload='metadata'` fetches only what the demuxer needs and does not start playback.\n */",
+    "/**\n * Read tags from a cloud reference that was imported without moving its bytes.\n *\n * The reference's own stream route is used, so WebDAV and Alist credentials never reach this code.\n * A tag header normally fits the first head; artwork can push it further, so the same prefix is\n * fetched again at a larger bound only when parsing asked for more bytes. Files such as an M4A with\n * its `moov` atom at the end can still answer with the duration the element reports.\n */",
   ]],
   ["src/client/features/music/use-tool-effects.ts", [
     "/**\n * Plays the effects a local assistant turn brings back.\n *\n * A tool runs in the worker, but the music is in this tab's player. The worker therefore answers a\n * playback tool with an effect, and this is the only place that turns one into a press: play, pause,\n * queue, open. The rules are deliberately narrow.\n *\n *  - Only the tab that asked carries it out. A turn being watched in another tab is not this tab's\n *    press to make, and a thread opened later is a record, not a replay.\n *  - Each activity id is claimed once, in memory and in sessionStorage, so a re-render, a reload of the\n *    same tab or a reconnect cannot play the same instruction twice.\n *  - A failure is said out loud with a toast. A silent no-op would leave the model's \"playing\" and the\n *    reader's silence saying opposite things.\n */",
@@ -30196,6 +30225,7 @@ const allowed = new Map([
     "/** The uploaded cover key, kept off the public model because it is storage, not display. */",
     "/** The display fields a public shell needs; no owner id and no playlist contents leave this query. */",
     "/** The download task that owns a cached object, when the object is a cache rather than an original. */",
+    "/**\n   * Write tags read from the imported file itself: title, artists, album, duration, bitrate and the\n   * cover object. Provider identity stays what the import recorded; only the display/storage columns\n   * the importer could not know move here.\n   */",
   ]],
   ["src/worker/music/stream.ts", [
     "/** The provider call, with its errors translated into the music API's vocabulary. */",
@@ -30922,6 +30952,9 @@ const allowed = new Map([
     "// A cache object (a download) leaves its track snapshot alone; only the file and its task go.",
     "// The parent directory is already the one on screen: listing it is the one check that separates",
     "// \"missing\" from \"the token is wrong\" before a PUT could overwrite a same-named remote file.",
+    "/** One parsed tag document plus a cover at the image ceiling. */",
+    "/**\n * Attach the tags the browser read from an imported reference.\n *\n * The import route registers a path without touching the audio, so duration, artwork and embedded\n * lyrics are unknown until something reads the file. The browser reads only the prefix it needs and\n * posts the result here; this route validates it, stores the cover beside the account's other music\n * objects and caches the lyric under the same provider key the lyric route reads. Re-running the\n * import and then this route refreshes the row instead of creating a second one.\n */",
+    "// The deployment has a music library without object storage; tags and lyrics still apply.",
   ]],
   ["src/worker/routes/music-files.ts", [
     "/**\n * Byte-serving routes for the music app.\n *\n * Every path here is owner-scoped: the track is looked up through `MusicStore`, whose queries all\n * carry the session's user id, so another account's id is a 404 and never a 403. Streaming is a GET\n * (and HEAD) and deliberately does not require the client header — an `<audio>` element cannot send\n * one. The stream itself lives in `music/stream.ts`; this file only resolves the track, its cover and\n * the export headers.\n */",
@@ -34897,6 +34930,8 @@ const allowed = new Map([
     "// before the form is parsed, without needing to allocate the file itself.",
     "/**\n * The WebDAV write surface: import references, upload one file, delete one remote object, and the\n * stream that plays a reference back through this worker.\n *\n * The credential vault is a map stand-in so the target resolves at all; the assertions never look at\n * a password. Every WebDAV request is answered by a `fetch` stub, so no test reaches a real server.\n */",
     "// Generated-id shape: R2 keys and the media routes refuse arbitrary account labels.",
+    "// A reference still costs no R2 quota; only the small cover object was written.",
+    "// A new artwork extension replaces the old object instead of leaking both.",
   ]],
   ["tests/music-library-route.test.ts", [
     "// Valid generated ids: cover keys and the credential vault reject arbitrary account labels.",
@@ -34915,6 +34950,7 @@ const allowed = new Map([
   ["tests/music-player-store.test.ts", [
     "// A press at the end of an order queue keeps the current track playing.",
     "// A natural end stops instead, which is what the ended handler passes.",
+    "// A snapshot for a row this queue no longer holds is a no-op.",
   ]],
   ["tests/music-queue.test.ts", [
     "/** A deterministic source of randomness: Fisher-Yates consumes one value per step. */",

@@ -233,6 +233,118 @@ describe('webdav import', () => {
   })
 })
 
+const PNG_1PX = new Uint8Array(Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lK3CnwAAAABJRU5ErkJggg==',
+  'base64',
+))
+const GIF_1PX = new Uint8Array([...'GIF89a'].map((character) => character.charCodeAt(0)).concat([1, 0, 1, 0]))
+
+describe('imported metadata', () => {
+  async function importedTrack(provider: 'webdav' | 'alist' | 'netease' = 'webdav') {
+    return await store.upsertTrack({
+      provider,
+      providerId: provider === 'netease' ? '1234' : `${TARGET}:Album/song.mp3`,
+      kind: 'song',
+      title: 'song',
+      format: 'mp3',
+      source: provider,
+    })
+  }
+
+  it('writes duration, tags, cover and embedded lyrics onto an imported reference', async () => {
+    const track = await importedTrack()
+    const form = new FormData()
+    form.append('metadata', JSON.stringify({
+      title: 'Tagged title',
+      artists: ['Singer'],
+      album: 'Tagged album',
+      durationMs: 214_000,
+      bitrate: 320_000,
+      lyrics: '[00:01.00]hello',
+    }))
+    form.append('cover', new File([PNG_1PX], 'cover.png', { type: 'image/png' }))
+
+    const response = await send(`/api/music/drive/imported/${track.id}/metadata`, {
+      method: 'POST',
+      body: form,
+    })
+    expect(response.status).toBe(200)
+    const body = await json<{
+      track: {
+        id: string
+        title: string
+        artists: Array<{ id: string; name: string }>
+        album: string
+        durationMs: number
+        bitrate: number | null
+        coverKey: string
+      }
+    }>(response)
+    expect(body.track).toMatchObject({
+      id: track.id,
+      title: 'Tagged title',
+      artists: [{ id: '', name: 'Singer' }],
+      album: 'Tagged album',
+      durationMs: 214_000,
+      bitrate: 320_000,
+      coverKey: `music/covers/${OWNER}/${track.id}.png`,
+    })
+    expect(bucket.objects.has(body.track.coverKey)).toBe(true)
+    const lyric = await store.getLyric(`webdav:${TARGET}:Album/song.mp3`)
+    expect(lyric).toMatchObject({ source: 'embedded', lrc: '[00:01.00]hello' })
+    // A reference still costs no R2 quota; only the small cover object was written.
+    expect(await store.quotaUsage()).toEqual({ bytes: 0, count: 0 })
+
+    // A new artwork extension replaces the old object instead of leaking both.
+    const replacement = new FormData()
+    replacement.append('metadata', JSON.stringify({ title: 'Tagged title', durationMs: 214_000 }))
+    replacement.append('cover', new File([GIF_1PX], 'cover.gif', { type: 'image/gif' }))
+    const replaced = await send(`/api/music/drive/imported/${track.id}/metadata`, {
+      method: 'POST',
+      body: replacement,
+    })
+    expect(replaced.status).toBe(200)
+    const next = await json<{ track: { coverKey: string } }>(replaced)
+    expect(next.track.coverKey).toBe(`music/covers/${OWNER}/${track.id}.gif`)
+    expect(bucket.objects.has(`music/covers/${OWNER}/${track.id}.png`)).toBe(false)
+    expect(bucket.objects.has(next.track.coverKey)).toBe(true)
+  })
+
+  it('refuses foreign ids, provider tracks and malformed covers', async () => {
+    const track = await importedTrack()
+    const foreign = await new MusicStore(db, MEMBER).upsertTrack({
+      provider: 'webdav',
+      providerId: `${TARGET}:theirs.mp3`,
+      kind: 'song',
+      title: 'theirs',
+      format: 'mp3',
+      source: 'webdav',
+    })
+    const form = new FormData()
+    form.append('metadata', JSON.stringify({ durationMs: 1_000 }))
+    expect((await send(`/api/music/drive/imported/${foreign.id}/metadata`, { method: 'POST', body: form })).status)
+      .toBe(404)
+
+    const online = await importedTrack('netease')
+    const onlineForm = new FormData()
+    onlineForm.append('metadata', JSON.stringify({ durationMs: 1_000 }))
+    expect((await send(`/api/music/drive/imported/${online.id}/metadata`, { method: 'POST', body: onlineForm })).status)
+      .toBe(400)
+
+    const empty = new FormData()
+    expect((await send(`/api/music/drive/imported/${track.id}/metadata`, { method: 'POST', body: empty })).status)
+      .toBe(400)
+
+    const brokenCover = new FormData()
+    brokenCover.append('metadata', JSON.stringify({ durationMs: 1_000 }))
+    brokenCover.append('cover', new File([new Uint8Array(64)], 'cover.png', { type: 'image/png' }))
+    expect((await send(`/api/music/drive/imported/${track.id}/metadata`, {
+      method: 'POST',
+      body: brokenCover,
+    })).status).toBe(415)
+  })
+})
+
 function uploadRequest(path: string, file: File, declaredLength?: number): Request {
   const form = new FormData()
   form.append('file', file, file.name)

@@ -615,6 +615,43 @@ export class MusicStore {
     return this.getTrack(id)
   }
 
+  /**
+   * Write tags read from the imported file itself: title, artists, album, duration, bitrate and the
+   * cover object. Provider identity stays what the import recorded; only the display/storage columns
+   * the importer could not know move here.
+   */
+  async attachEmbeddedMetadata(
+    id: string,
+    patch: {
+      title: string
+      artists: MusicArtist[]
+      album: string
+      durationMs: number
+      bitrate: number | null
+      coverKey: string
+    },
+  ): Promise<MusicTrack | null> {
+    const current = await this.getTrack(id)
+    if (!current) return null
+    await this.db.prepare(
+      `UPDATE music_track SET
+         title = ?3, artists = ?4, album = ?5, duration_ms = ?6, bitrate = ?7, cover_key = ?8,
+         updated_at = ?9
+       WHERE user_id = ?1 AND id = ?2`,
+    ).bind(
+      this.userId,
+      id,
+      patch.title,
+      JSON.stringify(patch.artists),
+      patch.album,
+      patch.durationMs,
+      patch.bitrate,
+      patch.coverKey,
+      Date.now(),
+    ).run()
+    return this.getTrack(id)
+  }
+
   /** Resolve a set of ids in the caller's order, dropping ids this account does not own. */
   /** Every snapshot one provider owns, newest first; used by the local/cloud library shelves. */
   async listTracksByProvider(provider: MusicProviderId, limit = 1_000): Promise<MusicTrack[]> {

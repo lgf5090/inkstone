@@ -21,9 +21,10 @@ import { Button, IconButton } from '../../../components/primitives'
 import { Checkbox } from '../../../components/form'
 import { Empty, LoadingBlock } from '../../../components/feedback'
 import { confirm } from '../../../components/overlay'
-import { navigateToAddress } from '../../../lib/app-history'
+import { navigateToAddress, useSearch } from '../../../lib/app-history'
 import { useUi } from '../../../store/ui'
 import { musicApi, type MusicCloudEntry } from '../api'
+import { enrichImportedTracks } from '../cloud-metadata'
 import { musicPathFor } from '../music-address'
 import { useMusicQuery } from '../query'
 import { SectionHeader } from '../components/SectionHeader'
@@ -151,7 +152,12 @@ function SelectionBar({ count, importable, busy, onImport, onDelete, onClear }: 
 }
 
 export function CloudDrivePage(): ReactElement {
-  const [source, setSource] = useState<CloudSource>('r2')
+  const search = useSearch()
+  const requested = new URLSearchParams(search).get('source')
+  const requestedSource: CloudSource | null = requested === 'r2' || requested === 'webdav' || requested === 'alist'
+    ? requested
+    : null
+  const [source, setSource] = useState<CloudSource>(requestedSource ?? 'r2')
   const [path, setPath] = useState('')
   const [pendingPath, setPendingPath] = useState<string | null>(null)
   const [uploadingName, setUploadingName] = useState<string | null>(null)
@@ -186,20 +192,55 @@ export function CloudDrivePage(): ReactElement {
     setSelectedKeys(new Set())
   }, [source, path])
 
+  // A settings shortcut can land on the tab it configures; later manual tab changes are not undone
+  // because this effect only follows a change of the address's `source` value.
+  useEffect(() => {
+    if (requestedSource) setSource(requestedSource)
+  }, [requestedSource])
+
+  // Rows imported before metadata reading existed (or while the remote file was unreachable) repair
+  // themselves when their tab is opened. The helper marks attempts, so a reload cannot loop.
+  useEffect(() => {
+    const tracks = source === 'webdav'
+      ? webdavData?.tracks
+      : source === 'alist'
+        ? alistData?.tracks
+        : undefined
+    if (!tracks || tracks.length === 0) return
+    // The reload callbacks belong to the app-level query hook, so finishing after navigation is safe.
+    void enrichImportedTracks(tracks).then((enriched) => {
+      if (enriched === 0) return
+      if (source === 'webdav') webdavQuery.reload()
+      else alistQuery.reload()
+      void useMusicLibrary.getState().load()
+    })
+  }, [source, webdavData, alistData, webdavQuery.reload, alistQuery.reload])
+
   const importFiles = async (paths: string[]): Promise<void> => {
     if (!paths.length) return
     setPendingPath(paths[0] ?? null)
     let imported = 0
+    const importedTracks: MusicTrack[] = []
     let firstReason: MusicDriveSkipReason | undefined
     try {
       for (const batch of chunks(paths, MUSIC_DRIVE_IMPORT_MAX_PATHS)) {
         const result = await musicApi.driveWebdavImport(batch)
         imported += result.tracks.length
+        importedTracks.push(...result.tracks)
         firstReason ??= result.skipped[0]?.reason as MusicDriveSkipReason | undefined
       }
       if (imported > 0) {
         toastImported(imported)
         webdavQuery.reload()
+        void enrichImportedTracks(importedTracks, { limit: 100 }).then((enriched) => {
+          if (enriched === 0) return
+          webdavQuery.reload()
+          void useMusicLibrary.getState().load()
+          useUi.getState().toast({
+            title: musicText('music.cloud.metadata_enriched', { count: enriched }),
+            tone: 'success',
+          })
+        })
       } else {
         useUi.getState().toast({
           title: musicText('music.cloud.import_none'),

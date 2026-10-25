@@ -19,6 +19,11 @@ export interface MusicCoverProps {
   trackId?: string
   /** An already-resolved URL. The default is `musicApi.coverUrl(trackId)`. */
   src?: string
+  /**
+   * The track's `updatedAt`, appended to the default route. A row that tried the cover before the
+   * metadata import stored it would otherwise keep its cached failure for this component's lifetime.
+   */
+  version?: number | string
   size?: MusicCoverSize
   radius?: MusicCoverRadius
   /** Empty by default: a title beside the artwork is the name, so the image must not repeat it. */
@@ -29,12 +34,15 @@ export interface MusicCoverProps {
 export function Cover({
   trackId,
   src,
+  version,
   size = 'sm',
   radius = 'sm',
   alt = '',
   className,
 }: MusicCoverProps): ReactElement {
-  const resolved = src ?? (trackId ? musicApi.coverUrl(trackId) : '')
+  const resolved = src ?? (trackId
+    ? `${musicApi.coverUrl(trackId)}${version === undefined ? '' : `?v=${encodeURIComponent(String(version))}`}`
+    : '')
   const [failed, setFailed] = useState(false)
 
   useEffect(() => {

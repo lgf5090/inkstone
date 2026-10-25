@@ -149,6 +149,33 @@ export const musicApi = {
     request<MusicDriveDeleteResult>(`/api/music/drive/webdav/object${query({ path })}`, { method: 'DELETE' }),
   driveWebdavDeleteMany: (paths: string[]) =>
     request<MusicDriveBatchResult>('/api/music/drive/webdav/delete', { method: 'POST', body: { paths } }),
+  attachImportedMetadata: (
+    trackId: string,
+    metadata: {
+      title: string
+      artists: string[]
+      album: string
+      durationMs: number
+      bitrate: number | null
+      lyrics: string
+      cover: Blob | null
+    },
+  ) => {
+    const form = new FormData()
+    form.append('metadata', JSON.stringify({
+      title: metadata.title,
+      artists: metadata.artists,
+      album: metadata.album,
+      durationMs: metadata.durationMs,
+      bitrate: metadata.bitrate,
+      lyrics: metadata.lyrics,
+    }))
+    if (metadata.cover) form.append('cover', metadata.cover, 'cover')
+    return request<{ track: MusicTrack }>(
+      `/api/music/drive/imported/${encodeURIComponent(trackId)}/metadata`,
+      { method: 'POST', formData: form },
+    )
+  },
 
   home: () => request<MusicHome>('/api/music/home'),
   fm: () => request<{ tracks: MusicTrack[] }>('/api/music/home/fm'),

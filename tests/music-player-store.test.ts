@@ -253,6 +253,32 @@ describe('music player store', () => {
     expect(engineMock.stop).toHaveBeenCalled()
   })
 
+  it('replaces a queue row after an imported track gains its metadata', async () => {
+    const imported = track('s', {
+      provider: 'webdav',
+      providerId: 'target:song.mp3',
+      durationMs: 0,
+      updatedAt: 10,
+    })
+    useMusicPlayer.getState().setQueue([imported])
+    await useMusicPlayer.getState().playTrack(imported)
+    expect(useMusicPlayer.getState().durationMs).toBe(0)
+
+    const read = {
+      ...imported,
+      durationMs: 214_000,
+      coverKey: 'music/covers/owner/s.png',
+      updatedAt: 11,
+    }
+    useMusicPlayer.getState().updateTrackSnapshot(read)
+
+    expect(useMusicPlayer.getState().queue.tracks[0]).toEqual(read)
+    expect(useMusicPlayer.getState().durationMs).toBe(214_000)
+    // A snapshot for a row this queue no longer holds is a no-op.
+    useMusicPlayer.getState().updateTrackSnapshot({ ...read, id: 'missing', updatedAt: 12 })
+    expect(useMusicPlayer.getState().queue.tracks).toHaveLength(1)
+  })
+
   it('stops after the fifth consecutive load failure instead of skipping forever', async () => {
     const many = Array.from({ length: 10 }, (_, index) => track(`t${index}`))
     useMusicPlayer.getState().setQueue(many)

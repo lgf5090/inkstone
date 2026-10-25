@@ -22,6 +22,7 @@ import { PAGE_STACK } from './parts/P2QueryState'
 export function LocalMusicPage(): ReactElement {
   const headingId = useId()
   const [editing, setEditing] = useState<MusicTrack | null>(null)
+  const trackRevision = useMusicLibrary((state) => state.trackRevision)
   const query = useMusicQuery(async () => {
     const [uploads, webdav, alist] = await Promise.all([
       musicApi.tracks('upload'),
@@ -29,7 +30,7 @@ export function LocalMusicPage(): ReactElement {
       musicApi.tracks('alist'),
     ])
     return [...uploads.items, ...webdav.items, ...alist.items]
-  }, [])
+  }, [trackRevision])
   const tracks = query.data ?? []
   const totalDuration = tracks.reduce((sum, track) => sum + track.durationMs, 0)
   const totalSize = tracks.reduce((sum, track) => sum + (track.size ?? 0), 0)

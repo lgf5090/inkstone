@@ -126,6 +126,7 @@ export function NowPlaying(): ReactElement {
             <Cover
               trackId={current.id}
               src={current.coverUrl || undefined}
+              version={current.updatedAt}
               size="hero"
               radius="lg"
               className="music-nowplaying__cover"
@@ -245,7 +246,7 @@ export function NowPlaying(): ReactElement {
                           aria-current={active ? 'true' : undefined}
                           onClick={() => { void playTrack(track) }}
                         >
-                          <Cover trackId={track.id} src={track.coverUrl || undefined} size="sm" radius="sm" />
+                          <Cover trackId={track.id} src={track.coverUrl || undefined} version={track.updatedAt} size="sm" radius="sm" />
                           <span className="music-queue__text">
                             <span className="music-queue__title">{track.title}</span>
                             <span className="music-queue__meta">{musicArtistNames(track)}</span>

@@ -115,6 +115,8 @@ export interface MusicPlayerState {
   toggleMute: () => void
   setRate: (rate: number) => void
   removeFromQueue: (trackId: string) => Promise<boolean>
+  /** Replace a queue row after its snapshot changed, such as when an imported file's tags were read. */
+  updateTrackSnapshot: (track: MusicTrack) => void
   addNext: (track: MusicTrack) => void
   appendToQueue: (track: MusicTrack) => void
   restore: () => boolean
@@ -614,6 +616,25 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
       persistPlayer(removal.queue, state.positionMs)
       syncMediaSession(get())
       return true
+    },
+
+    updateTrackSnapshot(track) {
+      const state = get()
+      const index = state.queue.tracks.findIndex((entry) => entry.id === track.id)
+      const existing = state.queue.tracks[index]
+      if (!existing || existing.updatedAt === track.updatedAt) return
+      const tracks = state.queue.tracks.slice()
+      tracks[index] = track
+      const queue = { ...state.queue, tracks }
+      const isCurrent = currentTrack(state.queue)?.id === track.id
+      set({
+        queue,
+        ...(isCurrent && state.durationMs === 0 && track.durationMs > 0
+          ? { durationMs: track.durationMs }
+          : {}),
+      })
+      persistPlayer(queue, state.positionMs)
+      if (isCurrent) syncMediaSession(get())
     },
 
     appendToQueue(track) {
