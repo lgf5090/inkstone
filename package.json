@@ -119,6 +119,7 @@
     "pinyin-pro": "^3.29.4",
     "postal-mime": "^4.1.4",
     "prismjs": "1.30.0",
+    "qr-code-styling": "^1.9.2",
     "qrcode.react": "^4.2.0",
     "quickjs-emscripten-core": "^0.32.0",
     "react": "^19.2.8",
