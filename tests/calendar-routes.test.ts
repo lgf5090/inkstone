@@ -89,6 +89,27 @@ describe('the calendar routes', () => {
 })
 
 describe('calendar routes', () => {
+  it('refuses local batch writes to a read-only calendar but accepts provider sync writes', async () => {
+    const readOnly = await json<{ calendar: CalendarDto }>(await call('POST', '/calendars', {
+      name: 'Read only',
+      color: '#123456',
+      readOnly: true,
+    }))
+
+    expect((await call('POST', '/events', eventBody(readOnly.calendar.id))).status).toBe(403)
+    expect((await call('POST', '/events/batch', {
+      mode: 'create',
+      events: [eventBody(readOnly.calendar.id)],
+    })).status).toBe(403)
+
+    const synced = await call('POST', '/events/batch', {
+      mode: 'create',
+      events: [eventBody(readOnly.calendar.id, { source: 'caldav', externalId: 'remote-sync-1' })],
+    })
+    expect(synced.status).toBe(200)
+    expect((await json<{ events: CalendarEventDto[] }>(synced)).events[0]?.calendarIds).toEqual([readOnly.calendar.id])
+  })
+
   it('creates, patches, reorders and deletes calendars', async () => {
     const home = (await meta()).calendars[0]!
     const created = await json<{ calendar: CalendarDto }>(await call('POST', '/calendars', {

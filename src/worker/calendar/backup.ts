@@ -162,7 +162,7 @@ export async function applyBackupCalendar(
     return parseEventInput({ ...value, calendarIds: ids }, { defaultTimeZone: preferences.timeZone })
   })
   for (let index = 0; index < inputs.length; index += MAX_EVENTS_PER_BATCH) {
-    await store.createEvents(inputs.slice(index, index + MAX_EVENTS_PER_BATCH), 'upsert')
+    await store.createEvents(inputs.slice(index, index + MAX_EVENTS_PER_BATCH), 'upsert', { allowReadOnly: true })
   }
   return { calendars: calendars.length, groups: groups.length, events: inputs.length }
 }

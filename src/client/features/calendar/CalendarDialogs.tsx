@@ -362,12 +362,13 @@ export function ImportIcsDialog({ open, calendars, defaultTimeZone, onClose, onS
   const [color, setColor] = useState<string>(CALENDAR_COLOR_PRESETS[5])
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const writableCalendars = calendars.filter(calendar => !calendar.readOnly)
 
   useEffect(() => {
     if (!open) return
     setFile(null)
-    setMode(calendars.length > 0 ? 'existing' : 'new')
-    setTargetId(calendars[0]?.id ?? '')
+    setMode(writableCalendars.length > 0 ? 'existing' : 'new')
+    setTargetId(writableCalendars[0]?.id ?? '')
     setNewName('')
     setColor(CALENDAR_COLOR_PRESETS[5])
     setError(null)
@@ -453,7 +454,7 @@ export function ImportIcsDialog({ open, calendars, defaultTimeZone, onClose, onS
           <Segmented
             value={mode}
             onChange={setMode}
-            options={calendars.length > 0
+            options={writableCalendars.length > 0
               ? [
                   { value: 'existing', label: t('calendar.import.existing') },
                   { value: 'new', label: t('calendar.import.new_calendar') },
@@ -466,7 +467,7 @@ export function ImportIcsDialog({ open, calendars, defaultTimeZone, onClose, onS
           ? (
               <Field label={t('calendar.import.existing')}>
                 <Select value={targetId} onChange={(event) => setTargetId(event.target.value)}>
-                  {calendars.map(calendar => (
+                  {writableCalendars.map(calendar => (
                     <option key={calendar.id} value={calendar.id}>{calendar.name}</option>
                   ))}
                 </Select>

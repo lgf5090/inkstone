@@ -981,6 +981,7 @@ export class CalendarStore {
   async createEvents(
     inputs: readonly CalendarEventWriteInput[],
     mode: 'create' | 'upsert',
+    options: { allowReadOnly?: boolean } = {},
   ): Promise<CalendarEventDto[]> {
     if (inputs.length === 0) throw ApiError.badRequest('A batch needs at least one event')
     if (inputs.length > MAX_EVENTS_PER_BATCH) {
@@ -991,7 +992,12 @@ export class CalendarStore {
     }
     const timelineInputs = await this.fillTimeline(inputs)
     const calendarIds = [...new Set(timelineInputs.flatMap((input) => input.calendarIds))]
-    await this.assertCalendarsForWrite(calendarIds, true)
+    // A provider sync writes its own remote events into a read-only calendar; a local edit must not.
+    // Choosing the branch from each input's source/external identity keeps batch import from becoming
+    // a general read-only bypass.
+    const readOnlySources = timelineInputs.length > 0
+      && timelineInputs.every((input) => input.source !== 'local' && input.externalId !== null)
+    await this.assertCalendarsForWrite(calendarIds, options.allowReadOnly === true || readOnlySources)
 
     const existingIds = new Set<string>()
     for (const chunk of chunks(timelineInputs.map((input) => input.id).filter((id): id is string => Boolean(id)), SQL_CHUNK)) {

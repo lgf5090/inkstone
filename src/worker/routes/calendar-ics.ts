@@ -70,6 +70,7 @@ calendarIcsRoutes.post('/import', async (c) => {
   if (isCalendarEntityId(body.calendarId)) {
     calendar = (await store.listCalendars()).find((entry) => entry.id === body.calendarId)
     if (!calendar) throw ApiError.notFound('Calendar not found')
+    if (calendar.readOnly) throw ApiError.forbidden('The target calendar is read-only')
   } else {
     const requested = body.newCalendar
     if (!requested || typeof requested !== 'object' || Array.isArray(requested)) {
