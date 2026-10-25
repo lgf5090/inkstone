@@ -18,18 +18,12 @@ import type { MenuItem } from '../../../components/overlay'
 import { selectCurrentTrack, useMusicPlayer } from '../store/player'
 import { SongRow, type SongRowVariant } from './SongRow'
 import { musicText } from './labels'
+import type { MusicTrackSort, MusicTrackSortKey } from '../track-order'
 
 export interface MusicSongGroup {
   key: string
   title: string
   tracks: readonly MusicTrack[]
-}
-
-export type MusicTrackSortKey = 'title' | 'album' | 'duration' | 'source' | 'size'
-
-export interface MusicTrackSort {
-  key: MusicTrackSortKey
-  direction: 'asc' | 'desc'
 }
 
 export interface SongListProps {

@@ -44,6 +44,7 @@ import { useUi } from '../../../store/ui'
 import { useMusicPlayer } from '../store/player'
 import { Cover } from './Cover'
 import { musicText } from './labels'
+import { trackSource } from '../track-order'
 
 export type SongRowVariant = 'list' | 'compact' | 'card'
 
@@ -219,14 +220,12 @@ export function SongRow({
     }
   }
 
-  const sourceLabel = track.r2Key
+  const sourceKind = trackSource(track)
+  const sourceLabel = sourceKind === 'upload'
     ? musicText('music.song.source_r2')
-    : track.provider === 'webdav'
+    : sourceKind === 'webdav'
       ? musicText('music.song.source_webdav')
-      : track.provider === 'alist'
-        ? musicText('music.song.source_alist')
-        : ''
-  const sourceKind = track.r2Key ? 'upload' : track.provider
+      : musicText('music.song.source_alist')
 
   const addToPlaylist = (playlistId: string): void => {
     void addPlaylistTracks(playlistId, [track]).then(() => {

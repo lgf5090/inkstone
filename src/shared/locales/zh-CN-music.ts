@@ -491,10 +491,6 @@ export const ZH_CN_MUSIC = {
   'music.favorites.empty': '还没有收藏',
   'music.favorites.empty_hint': '点击歌曲上的爱心即可收藏到这里。',
   'music.favorites.error': '收藏加载失败',
-  'music.favorites.sort': '收藏排序',
-  'music.favorites.sort.artist': '按歌手',
-  'music.favorites.sort.recent': '最近收藏',
-  'music.favorites.sort.title': '按标题',
 
   'music.history.clear': '清除历史',
   'music.history.clear_confirm_body': '这会删除本账户的全部播放记录，最近浏览和收藏不受影响。',

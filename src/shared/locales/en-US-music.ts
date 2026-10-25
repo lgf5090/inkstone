@@ -491,10 +491,6 @@ export const EN_US_MUSIC = {
   'music.favorites.empty': 'No favorites yet',
   'music.favorites.empty_hint': 'Use the heart on a track to save it here.',
   'music.favorites.error': 'Favorites could not be loaded',
-  'music.favorites.sort': 'Sort favorites',
-  'music.favorites.sort.artist': 'By artist',
-  'music.favorites.sort.recent': 'Recently added',
-  'music.favorites.sort.title': 'By title',
 
   'music.history.clear': 'Clear history',
   'music.history.clear_confirm_body': 'This deletes every play in this account; recent collections and favorites stay.',

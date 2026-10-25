@@ -19,6 +19,7 @@ import { musicPathFor } from '../music-address'
 import { useMusicQuery } from '../query'
 import { Cover } from '../components/Cover'
 import { MusicTabs, type MusicTabItem } from '../components/Tabs'
+import { MusicSearchField } from '../components/MusicSearchField'
 import { musicText } from '../components/labels'
 import { MediaCard } from './parts/P2MediaCard'
 import {
@@ -34,6 +35,7 @@ import {
   toastFailure,
 } from './parts/P2QueryState'
 import { getLocale } from '../../../lib/i18n'
+import { useDebounced } from '../../../lib/hooks'
 import { playTracks } from './parts/playback'
 import { useUi } from '../../../store/ui'
 
@@ -136,12 +138,15 @@ function Stats({ summary }: { summary: MusicHistorySummary }): ReactElement {
 export function HistoryPage(): ReactElement {
   const [tab, setTab] = useState<HistoryTab>('songs')
   const [source, setSource] = useState<SourceFilter>('all')
+  const [search, setSearch] = useState('')
+  const settledSearch = useDebounced(search, 250)
+  const searching = settledSearch.trim().length > 0
   const [clearing, setClearing] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [palette, setPalette] = useState<MusicHeatmapPalette>(readPalette)
   const headingId = useId()
 
-  const historyQuery = useMusicQuery(() => musicApi.history(100), [])
+  const historyQuery = useMusicQuery(() => musicApi.history(100, settledSearch), [settledSearch])
   const recentQuery = useMusicQuery(() => musicApi.recent(), [])
   const summaryQuery = useMusicQuery(() => musicApi.historySummary(), [])
 
@@ -164,13 +169,16 @@ export function HistoryPage(): ReactElement {
   )
   const recent = useMemo<MusicRecentEntry[]>(() => {
     const items = recentQuery.data?.items ?? []
+    const keyword = settledSearch.trim().toLowerCase()
     const out: MusicRecentEntry[] = []
     for (const item of items) {
       const parsed = recentOf(item)
-      if (parsed) out.push(parsed)
+      if (!parsed) continue
+      if (keyword && !parsed.name.toLowerCase().includes(keyword)) continue
+      out.push(parsed)
     }
     return out
-  }, [recentQuery.data])
+  }, [recentQuery.data, settledSearch])
   const playlists = useMemo(() => recent.filter((item) => item.kind === 'playlist'), [recent])
   const albums = useMemo(() => recent.filter((item) => item.kind === 'album'), [recent])
   const radios = useMemo(() => recent.filter((item) => item.kind === 'radio'), [recent])
@@ -355,25 +363,33 @@ export function HistoryPage(): ReactElement {
           items={tabs}
         />
 
-        {(tab === 'songs' || tab === 'podcasts') && (
-          <div
-            role="group"
-            aria-label={musicText('music.history.source_label')}
-            className="flex flex-wrap items-center gap-[var(--sp-2)]"
-          >
-            {SOURCE_FILTERS.map((filter) => (
-              <Button
-                key={filter.value}
-                variant={source === filter.value ? 'primary' : 'secondary'}
-                size="sm"
-                aria-pressed={source === filter.value}
-                onClick={() => setSource(filter.value)}
-              >
-                {musicText(filter.labelKey)}
-              </Button>
-            ))}
-          </div>
-        )}
+        <div className="flex flex-wrap items-center gap-[var(--sp-2)]">
+          <MusicSearchField
+            value={search}
+            onChange={setSearch}
+            label={musicText('music.local.filter_placeholder')}
+            placeholder={musicText('music.local.filter_placeholder')}
+          />
+          {(tab === 'songs' || tab === 'podcasts') && (
+            <div
+              role="group"
+              aria-label={musicText('music.history.source_label')}
+              className="flex flex-wrap items-center gap-[var(--sp-2)]"
+            >
+              {SOURCE_FILTERS.map((filter) => (
+                <Button
+                  key={filter.value}
+                  variant={source === filter.value ? 'primary' : 'secondary'}
+                  size="sm"
+                  aria-pressed={source === filter.value}
+                  onClick={() => setSource(filter.value)}
+                >
+                  {musicText(filter.labelKey)}
+                </Button>
+              ))}
+            </div>
+          )}
+        </div>
 
         <div role="tabpanel" aria-label={musicText(`music.history.tab.${tab}`)}>
           {tab === 'songs' && (
@@ -389,6 +405,8 @@ export function HistoryPage(): ReactElement {
               emptyTitle={musicText('music.history.empty.songs')}
               emptyHint={musicText('music.history.empty.songs_hint')}
               discoverHref={discoverHref}
+              searching={searching}
+              onClearSearch={() => setSearch('')}
             />
           )}
           {tab === 'playlists' && (
@@ -400,6 +418,8 @@ export function HistoryPage(): ReactElement {
               emptyTitle={musicText('music.history.empty.playlists')}
               emptyHint={musicText('music.history.empty.playlists_hint')}
               discoverHref={discoverHref}
+              searching={searching}
+              onClearSearch={() => setSearch('')}
             />
           )}
           {tab === 'albums' && (
@@ -411,6 +431,8 @@ export function HistoryPage(): ReactElement {
               emptyTitle={musicText('music.history.empty.albums')}
               emptyHint={musicText('music.history.empty.albums_hint')}
               discoverHref={discoverHref}
+              searching={searching}
+              onClearSearch={() => setSearch('')}
             />
           )}
           {tab === 'podcasts' && (
@@ -423,6 +445,8 @@ export function HistoryPage(): ReactElement {
                 emptyTitle={musicText('music.history.empty.radios')}
                 emptyHint={musicText('music.history.empty.radios_hint')}
                 discoverHref={musicPathFor({ kind: 'podcast' })}
+                searching={searching}
+                onClearSearch={() => setSearch('')}
               />
               <section aria-label={musicText('music.history.tab.podcasts')} className="flex flex-col gap-[var(--sp-2)]">
                 <h2 className="text-[length:var(--text-13)] font-medium text-[var(--text-secondary)]">
@@ -440,6 +464,8 @@ export function HistoryPage(): ReactElement {
                   emptyTitle={musicText('music.history.empty.podcasts')}
                   emptyHint={musicText('music.history.empty.podcasts_hint')}
                   discoverHref={musicPathFor({ kind: 'podcast' })}
+                  searching={searching}
+                  onClearSearch={() => setSearch('')}
                 />
               </section>
             </div>
@@ -469,6 +495,8 @@ function RecentGrid({
   emptyTitle,
   emptyHint,
   discoverHref,
+  searching,
+  onClearSearch,
 }: {
   entries: readonly MusicRecentEntry[]
   loading: boolean
@@ -477,6 +505,8 @@ function RecentGrid({
   emptyTitle: string
   emptyHint: string
   discoverHref: string
+  searching: boolean
+  onClearSearch: () => void
 }): ReactElement {
   if (loading) {
     return (
@@ -493,11 +523,14 @@ function RecentGrid({
       <Empty
         art="folder"
         compact
-        title={emptyTitle}
-        description={emptyHint}
+        title={searching ? musicText('music.local.no_filter_match') : emptyTitle}
+        description={searching ? musicText('music.local.no_filter_hint') : emptyHint}
         action={(
-          <Button variant="secondary" onClick={() => navigateToAddress(discoverHref)}>
-            {musicText('music.common.discover')}
+          <Button
+            variant="secondary"
+            onClick={searching ? onClearSearch : () => navigateToAddress(discoverHref)}
+          >
+            {searching ? musicText('music.local.clear_filters') : musicText('music.common.discover')}
           </Button>
         )}
       />
@@ -532,6 +565,8 @@ function HistoryList({
   emptyTitle,
   emptyHint,
   discoverHref,
+  searching,
+  onClearSearch,
 }: {
   items: readonly PlayedItem[]
   loading: boolean
@@ -542,6 +577,8 @@ function HistoryList({
   emptyTitle: string
   emptyHint: string
   discoverHref: string
+  searching: boolean
+  onClearSearch: () => void
 }): ReactElement {
   const queue = useMemo(() => items.map((item) => item.track), [items])
   const play = (track: MusicTrack): void => {
@@ -565,11 +602,14 @@ function HistoryList({
       <Empty
         art="archive"
         compact
-        title={emptyTitle}
-        description={emptyHint}
+        title={searching ? musicText('music.local.no_filter_match') : emptyTitle}
+        description={searching ? musicText('music.local.no_filter_hint') : emptyHint}
         action={(
-          <Button variant="secondary" onClick={() => navigateToAddress(discoverHref)}>
-            {musicText('music.common.discover')}
+          <Button
+            variant="secondary"
+            onClick={searching ? onClearSearch : () => navigateToAddress(discoverHref)}
+          >
+            {searching ? musicText('music.local.clear_filters') : musicText('music.common.discover')}
           </Button>
         )}
       />

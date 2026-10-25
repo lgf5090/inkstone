@@ -596,7 +596,7 @@ musicLibraryRoutes.get('/history', async (c) => {
   const page = normalizeMusicPage(c.req.query('page'))
   const limit = normalizeMusicLimit(c.req.query('limit'))
   const store = new MusicStore(c.env.DB, c.get('userId'))
-  return c.json(await store.listHistory({ page, limit }))
+  return c.json(await store.listHistory({ page, limit, q: c.req.query('q') }))
 })
 
 musicLibraryRoutes.get('/history/summary', async (c) => {

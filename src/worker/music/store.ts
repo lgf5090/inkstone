@@ -92,6 +92,8 @@ export function musicPageOffset(page: number, limit: number): number {
 export interface MusicListOptions {
   page?: number
   limit?: number
+  /** History only: match title, artists or album. Treated as text, never as a SQL fragment. */
+  q?: string
 }
 
 export interface MusicTrackInput {
@@ -1407,21 +1409,27 @@ export class MusicStore {
     const page = normalizeMusicPage(options.page)
     const limit = normalizeMusicLimit(options.limit)
     const offset = musicPageOffset(page, limit)
+    const rawQuery = typeof options.q === 'string' ? options.q.trim().slice(0, 128) : ''
+    // `~` escapes LIKE's own wildcards, so a typed % or _ searches for that character instead of
+    // widening the match. The value is still bound as a parameter; it is never concatenated into SQL.
+    const pattern = rawQuery ? `%${rawQuery.replace(/[~%_]/g, '~$&')}%` : ''
+    const matches = `(?2 = '' OR t.title LIKE ?2 ESCAPE '~' OR t.artists LIKE ?2 ESCAPE '~'
+      OR t.album LIKE ?2 ESCAPE '~')`
     const totalRow = await this.db.prepare(
       `SELECT COUNT(*) AS count FROM music_history h
         JOIN music_track t ON t.user_id = h.user_id AND t.id = h.track_id
-       WHERE h.user_id = ?1`,
-    ).bind(this.userId).first<{ count: number }>()
+       WHERE h.user_id = ?1 AND ${matches}`,
+    ).bind(this.userId, pattern).first<{ count: number }>()
     const total = totalRow?.count ?? 0
     const { results } = await this.db.prepare(
       `SELECT h.id AS history_id, h.track_id AS history_track_id, h.played_at, h.duration_played,
               h.completed, h.context_type, h.context_id, ${TRACK_COLUMNS_T}
          FROM music_history h
          JOIN music_track t ON t.user_id = h.user_id AND t.id = h.track_id
-        WHERE h.user_id = ?1
+        WHERE h.user_id = ?1 AND ${matches}
         ORDER BY h.played_at DESC, h.id DESC
-        LIMIT ?2 OFFSET ?3`,
-    ).bind(this.userId, limit, offset).all<HistoryTrackRow>()
+        LIMIT ?3 OFFSET ?4`,
+    ).bind(this.userId, pattern, limit, offset).all<HistoryTrackRow>()
     const items = results.map((row) => ({
       id: row.history_id,
       trackId: row.history_track_id,

@@ -145,6 +145,50 @@ describe('music routes', () => {
     expect((await json<{ totalPlays: number }>(await send('GET', '/library/history/summary'))).totalPlays).toBe(0)
   })
 
+  it('searches history by title, artist and album and treats wildcards as text', async () => {
+    await send('POST', '/library/history', {
+      track: {
+        ...track,
+        providerId: 'night',
+        title: '夜曲',
+        artists: [{ id: '7', name: '周杰伦' }],
+        album: '十一月的萧邦',
+      },
+    })
+    await send('POST', '/library/history', {
+      track: {
+        ...track,
+        providerId: 'alpha',
+        title: 'Alpha',
+        artists: [{ id: '8', name: 'Beta' }],
+        album: 'Gamma',
+      },
+    })
+
+    const titles = await json<{ items: Array<{ track: { title: string } }>; total: number }>(
+      await send('GET', `/library/history?q=${encodeURIComponent('夜曲')}`),
+    )
+    expect(titles.items.map((item) => item.track.title)).toEqual(['夜曲'])
+    expect(titles.total).toBe(1)
+    const artists = await json<{ items: Array<{ track: { title: string } }> }>(
+      await send('GET', `/library/history?q=${encodeURIComponent('周杰伦')}`),
+    )
+    expect(artists.items.map((item) => item.track.title)).toEqual(['夜曲'])
+    const albums = await json<{ items: Array<{ track: { title: string } }> }>(
+      await send('GET', `/library/history?q=${encodeURIComponent('萧邦')}`),
+    )
+    expect(albums.items.map((item) => item.track.title)).toEqual(['夜曲'])
+    const caseInsensitive = await json<{ items: Array<{ track: { title: string } }> }>(
+      await send('GET', '/library/history?q=ALPHA'),
+    )
+    expect(caseInsensitive.items.map((item) => item.track.title)).toEqual(['Alpha'])
+
+    expect((await json<{ items: unknown[] }>(await send('GET', '/library/history?q=%25'))).items).toEqual([])
+    expect((await json<{ items: unknown[] }>(
+      await send('GET', `/library/history?q=${encodeURIComponent("' OR 1=1 --")}`),
+    )).items).toEqual([])
+  })
+
   it('pins a favourite and edits a saved track snapshot', async () => {
     const added = await send('POST', '/library/favorites', { track })
     const { trackId } = await json<{ trackId: string }>(added)

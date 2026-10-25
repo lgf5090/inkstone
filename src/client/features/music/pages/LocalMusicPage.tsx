@@ -14,7 +14,19 @@ import { musicApi } from '../api'
 import { useMusicQuery } from '../query'
 import { useMusicLibrary } from '../store/library'
 import { useMusicPlayer } from '../store/player'
-import { SongList, type MusicTrackSort, type MusicTrackSortKey } from '../components/SongList'
+import { SongList } from '../components/SongList'
+import {
+  mergeVisibleOrder,
+  nextTrackSort,
+  orderByManualIds,
+  readTrackOrder,
+  saveTrackOrder,
+  sortTracks,
+  trackSource,
+  type MusicTrackSort,
+  type MusicTrackSortKey,
+  type MusicTrackSource,
+} from '../track-order'
 import { EditTrackDialog } from '../components/EditTrackDialog'
 import { M3UActions } from '../components/M3UActions'
 import { MusicStatCard } from './parts/StatCard'
@@ -23,7 +35,7 @@ import { musicText } from '../components/labels'
 import { PageError } from './parts/PageState'
 import { PAGE_STACK, toastFailure } from './parts/P2QueryState'
 
-type SourceFilter = 'all' | 'upload' | 'webdav' | 'alist'
+type SourceFilter = 'all' | MusicTrackSource
 
 const ORDER_KEY = 'inkstone.music.localOrder'
 const SOURCE_OPTIONS: ReadonlyArray<{ value: SourceFilter; key: 'music.local.source_all' | 'music.song.source_r2' | 'music.song.source_webdav' | 'music.song.source_alist' }> = [
@@ -33,51 +45,13 @@ const SOURCE_OPTIONS: ReadonlyArray<{ value: SourceFilter; key: 'music.local.sou
   { value: 'alist', key: 'music.song.source_alist' },
 ]
 
-function readOrder(): string[] {
-  try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(ORDER_KEY) ?? '[]')
-    return Array.isArray(parsed) ? parsed.filter((entry): entry is string => typeof entry === 'string') : []
-  } catch {
-    // A corrupted or unavailable local preference falls back to the server order.
-    return []
-  }
-}
-
-function saveOrder(ids: readonly string[]): void {
-  try {
-    localStorage.setItem(ORDER_KEY, JSON.stringify(ids))
-  } catch {
-    // The order is a per-device convenience; a full or unavailable storage keeps the in-memory list.
-  }
-}
-
-function compareTracks(left: MusicTrack, right: MusicTrack, key: MusicTrackSortKey): number {
-  switch (key) {
-    case 'title': return left.title.localeCompare(right.title)
-    case 'album': return left.album.localeCompare(right.album)
-    case 'duration': return left.durationMs - right.durationMs
-    case 'size': return (left.size ?? 0) - (right.size ?? 0)
-    case 'source': {
-      const rank: Record<string, number> = { upload: 0, webdav: 1, alist: 2 }
-      return (rank[trackSource(left)] ?? 3) - (rank[trackSource(right)] ?? 3)
-    }
-  }
-}
-
-/** A downloaded online track is an R2 file even though its snapshot keeps the provider identity. */
-function trackSource(track: MusicTrack): SourceFilter {
-  if (track.r2Key) return 'upload'
-  if (track.provider === 'webdav' || track.provider === 'alist') return track.provider
-  return 'upload'
-}
-
 export function LocalMusicPage(): ReactElement {
   const headingId = useId()
   const [editing, setEditing] = useState<MusicTrack | null>(null)
   const [filter, setFilter] = useState('')
   const [source, setSource] = useState<SourceFilter>('all')
   const [sort, setSort] = useState<MusicTrackSort | null>(null)
-  const [manualOrder, setManualOrder] = useState<string[]>(readOrder)
+  const [manualOrder, setManualOrder] = useState<string[]>(() => readTrackOrder(ORDER_KEY))
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set())
   const [playlistOpen, setPlaylistOpen] = useState(false)
@@ -132,14 +106,8 @@ export function LocalMusicPage(): ReactElement {
         return haystack.includes(keyword)
       })
     }
-    if (sort) {
-      const direction = sort.direction === 'asc' ? 1 : -1
-      return [...list].sort((left, right) => direction * compareTracks(left, right, sort.key))
-    }
-    if (manualOrder.length > 0) {
-      const rank = new Map(manualOrder.map((id, index) => [id, index]))
-      return [...list].sort((left, right) => (rank.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(right.id) ?? Number.MAX_SAFE_INTEGER))
-    }
+    if (sort) return sortTracks(list, sort)
+    if (manualOrder.length > 0) return orderByManualIds(list, manualOrder)
     return list
   }, [tracks, filter, source, sort, manualOrder])
 
@@ -181,30 +149,25 @@ export function LocalMusicPage(): ReactElement {
   }
 
   const cycleSort = (key: MusicTrackSortKey): void => {
-    setSort((current) => {
-      if (!current || current.key !== key) return { key, direction: 'asc' }
-      if (current.direction === 'asc') return { key, direction: 'desc' }
-      return null
-    })
+    setSort((current) => nextTrackSort(current, key))
   }
 
   const applyOrder = (reorderedVisible: string[]): void => {
-    // `reorderedVisible` is only the filtered slice. Persist a full order by replacing those ids in
-    // the list the reader is currently looking at, so hidden tracks keep their relative positions.
-    const base = [...tracks]
-    if (sort) {
-      const direction = sort.direction === 'asc' ? 1 : -1
-      base.sort((left, right) => direction * compareTracks(left, right, sort.key))
-    } else if (manualOrder.length > 0) {
-      const rank = new Map(manualOrder.map((id, index) => [id, index]))
-      base.sort((left, right) => (rank.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(right.id) ?? Number.MAX_SAFE_INTEGER))
-    }
-    const visibleIds = new Set(reorderedVisible)
-    let cursor = 0
-    const merged = base.map((track) => (visibleIds.has(track.id) ? reorderedVisible[cursor++]! : track.id))
+    // `reorderedVisible` is only the filtered, rendered slice. Replace those ids inside the full
+    // order so hidden tracks keep the positions the reader left them in.
+    const base = sort
+      ? sortTracks(tracks, sort)
+      : manualOrder.length > 0
+        ? orderByManualIds(tracks, manualOrder)
+        : tracks
+    const merged = mergeVisibleOrder(
+      base.map((track) => track.id),
+      shown.map((track) => track.id),
+      reorderedVisible,
+    )
     setSort(null)
     setManualOrder(merged)
-    saveOrder(merged)
+    saveTrackOrder(ORDER_KEY, merged)
   }
 
   const reorder = (fromId: string, toId: string): void => {
@@ -234,7 +197,7 @@ export function LocalMusicPage(): ReactElement {
   const resetOrder = (): void => {
     setSort(null)
     setManualOrder([])
-    saveOrder([])
+    saveTrackOrder(ORDER_KEY, [])
   }
 
   const toggleSelection = (track: MusicTrack): void => {

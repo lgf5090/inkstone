@@ -276,7 +276,7 @@ export const musicApi = {
       body: { trackIds },
     }),
 
-  history: (limit = 100) => request<{ items: Array<MusicHistoryEntry & { track: MusicTrack | null }> }>(`/api/music/library/history${query({ limit })}`),
+  history: (limit = 100, q = '') => request<{ items: Array<MusicHistoryEntry & { track: MusicTrack | null }> }>(`/api/music/library/history${query({ limit, q })}`),
   historySummary: () => request<MusicHistorySummary>(
     `/api/music/library/history/summary${query({ tzOffset: -new Date().getTimezoneOffset() })}`,
   ),
