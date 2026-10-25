@@ -323,8 +323,10 @@ describe('music routes', () => {
 
   it('proxies a public provider cover, revalidates it and refuses a private address', async () => {
     let calls = 0
+    const fetched: string[] = []
     vi.stubGlobal('fetch', async (input: URL | string) => {
       calls += 1
+      fetched.push(String(input))
       if (String(input).includes('markup.svg')) {
         return new Response('<svg xmlns="http://www.w3.org/2000/svg"/>', {
           status: 200,
@@ -335,6 +337,12 @@ describe('music routes', () => {
         return new Response(new Uint8Array([4, 5, 6]), {
           status: 200,
           headers: { 'content-type': 'image/jpg; charset=UTF-8' },
+        })
+      }
+      if (String(input).includes('p4.music.126.net')) {
+        return new Response(new Uint8Array([9, 10]), {
+          status: 200,
+          headers: { 'content-type': 'image/jpg' },
         })
       }
       return new Response(new Uint8Array([1, 2, 3]), {
@@ -358,6 +366,14 @@ describe('music routes', () => {
     )
     expect(neteaseJpg.status).toBe(200)
     expect(neteaseJpg.headers.get('content-type')).toBe('image/jpeg')
+
+    const httpCover = await app.request(
+      `/api/music/media/provider-cover?url=${encodeURIComponent('http://p4.music.126.net/Eafh.jpg')}`,
+      {},
+      env(),
+    )
+    expect(httpCover.status).toBe(200)
+    expect(fetched).toContain('https://p4.music.126.net/Eafh.jpg?param=500y500')
 
     const markup = await app.request(
       `/api/music/media/provider-cover?url=${encodeURIComponent('https://cdn.example.test/markup.svg')}`,

@@ -45,6 +45,9 @@ const COVER_FETCH_TIMEOUT_MS = 15_000
 const COVER_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif'])
 /** Netease's image CDN labels JPEG as `image/jpg`, which is not the registered `image/jpeg` type. */
 const COVER_MIME_ALIASES: Record<string, string> = { 'image/jpg': 'image/jpeg' }
+/** Netease's image CDN serves the same picture at a requested size; a card never needs the full file. */
+const COVER_THUMBNAIL_HOST_SUFFIX = '.music.126.net'
+const COVER_THUMBNAIL_QUERY = '500y500'
 
 export const musicFileRoutes = new Hono<AppBindings>()
 
@@ -274,8 +277,28 @@ function storedImageResponse(
  * The allowlist is deliberately wider than Netease here: a playlist restored from a backup may name
  * another public image host. The response stays capped at the cover ceiling and is never shared.
  */
+/**
+ * Provider cover URLs arrive over both schemes. The browser page is HTTPS, so an HTTP cover is
+ * mixed content; the relay policy also refuses it before the request. Netease's CDN answers HTTPS
+ * for the same path, and its `param` query returns a card-sized file instead of a multi-megabyte
+ * original. Other hosts are only upgraded, never resized.
+ */
+function coverFetchUrl(raw: string): string {
+  let url: URL
+  try {
+    url = new URL(raw)
+  } catch {
+    return raw
+  }
+  if (url.protocol === 'http:') url.protocol = 'https:'
+  if (url.hostname.toLowerCase().endsWith(COVER_THUMBNAIL_HOST_SUFFIX) && !url.searchParams.has('param')) {
+    url.searchParams.set('param', COVER_THUMBNAIL_QUERY)
+  }
+  return url.toString()
+}
+
 async function proxiedProviderCoverResponse(url: string, request: Request): Promise<Response> {
-  const upstream = await fetchRelayableMusicSource(url, {
+  const upstream = await fetchRelayableMusicSource(coverFetchUrl(url), {
     headers: { Accept: 'image/*' },
     signal: AbortSignal.timeout(COVER_FETCH_TIMEOUT_MS),
   })

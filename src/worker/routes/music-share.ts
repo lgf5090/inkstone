@@ -128,7 +128,12 @@ function publicCoverUrl(coverUrl: string, slug: string | null): string {
   if (coverUrl.startsWith('/api/music/media/cover/playlist/')) {
     return `/api/public/music/playlists/${slug}/cover${cacheBust(coverUrl)}`
   }
-  return /^https?:\/\//i.test(coverUrl) ? coverUrl : ''
+  return /^https?:\/\//i.test(coverUrl) ? secureHttpUrl(coverUrl) : ''
+}
+
+/** Netease still hands out http:// covers; a public page and its OG tag must not be mixed content. */
+function secureHttpUrl(value: string): string {
+  return /^http:\/\//i.test(value) ? `https://${value.slice('http://'.length)}` : value
 }
 
 function cacheBust(coverUrl: string): string {
@@ -163,7 +168,7 @@ async function renderShell(
   const image = row?.coverKey
     ? `<meta property="og:image" content="${escapeHtml(`${url.origin}/api/public/music/playlists/${slug}/cover`)}" />`
     : /^https?:\/\//i.test(row?.coverUrl ?? '')
-      ? `<meta property="og:image" content="${escapeHtml(row?.coverUrl ?? '')}" />`
+      ? `<meta property="og:image" content="${escapeHtml(secureHttpUrl(row?.coverUrl ?? ''))}" />`
       : ''
   const meta = [
     `<title>${escapeHtml(title)} · ${escapeHtml(siteName)}</title>`,

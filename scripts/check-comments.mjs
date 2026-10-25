@@ -6337,6 +6337,9 @@ const allowed = new Map([
     "/** The page's own paragraph rhythm. The frame already pads the content column. */",
     "/**\n * An error for one data region. The detail is the route's or the browser's own sentence and is\n * printed as text; the retry button is the action every loader can honour.\n */",
     "/**\n * A card is a link, not a button: the address is the screen it names, so a middle click or a\n * context menu keeps working. A modifier press is left to the browser for the same reason.\n */",
+    "// The localized sentence names the kind of failure; the route's own reason is the part that",
+    "// distinguishes a gateway hiccup from a provider refusal, so a detail line keeps both.",
+    "/** A gateway answer right after the phone confirms can clear on its own; a 4xx will not. */",
   ]],
   ["src/client/features/music/pages/parts/PageState.tsx", [
     "/**\n * The states every music page shows before, instead of, or after its content.\n *\n * A page owns what a successful answer looks like; these pieces own the three answers that are not\n * content: a skeleton while the first request is in flight, an error with the one action that helps,\n * and the page-width column that keeps every screen on the same measure. The skeleton is the real\n * song list in its loading mode, so a page does not grow a second row rhythm beside the one it lists.\n */",
@@ -33053,6 +33056,8 @@ const allowed = new Map([
     "/**\n * A WebDAV reference played through this worker.\n *\n * The client's Range is forwarded untouched; the upstream 206 is relayed and an upstream 200 stays a\n * 200 (the browser plays a full body just as well). Bytes are never held: the body is the upstream\n * stream. The reference embeds the target it was imported from, so a changed target is refused\n * rather than silently reading a same-named file from a different server.\n */",
     "/**\n * A provider image, proxied so the browser never talks to the CDN directly.\n *\n * Discovery shelves carry cover URLs that expire and name an upstream host. Routing them through the\n * same allowlist and cache policy as track covers keeps a reader's address off the CDN and keeps the\n * image loader same-origin.\n */",
     "/**\n * A provider or custom cover URL, proxied through the public-HTTPS guard.\n *\n * The allowlist is deliberately wider than Netease here: a playlist restored from a backup may name\n * another public image host. The response stays capped at the cover ceiling and is never shared.\n */",
+    "/** Netease's image CDN serves the same picture at a requested size; a card never needs the full file. */",
+    "/**\n * Provider cover URLs arrive over both schemes. The browser page is HTTPS, so an HTTP cover is\n * mixed content; the relay policy also refuses it before the request. Netease's CDN answers HTTPS\n * for the same path, and its `param` query returns a card-sized file instead of a multi-megabyte\n * original. Other hosts are only upgraded, never resized.\n */",
   ]],
   ["src/worker/routes/music-library.ts", [
     "// A playlist cover this deployment stores is addressed as a same-origin media route; a provider",
@@ -33085,6 +33090,7 @@ const allowed = new Map([
     "// Revoking the slug is the only way this address stops answering; a stored copy would outlive it.",
     "/** Uploaded covers point at the owner's private media route; the public page gets its own address. */",
     "/**\n * A playlist's public face: one read-only projection behind an unguessable slug.\n *\n * The owner's account id, storage keys, provider ids and audio never cross this boundary. A slug is\n * generated on request and can be revoked; revoking it is the only thing that makes the address stop\n * answering, so nothing here may outlive a request in a cache except the cover image.\n */",
+    "/** Netease still hands out http:// covers; a public page and its OG tag must not be mixed content. */",
   ]],
   ["src/worker/routes/music-uploads.ts", [
     "/**\n * The upload surface for local music.\n *\n * Bodies here are the client's own bytes, never a path: the server names the R2 key from a fresh id.\n * Parts are capped while they stream in, so a client cannot make the isolate hold an arbitrary\n * request body; the service layer then checks the part number against the declared file size before\n * handing it to R2. All routes require a session, and a missing or foreign id is answered with 404.\n */",

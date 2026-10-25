@@ -9,6 +9,7 @@
 import type { MouseEvent as ReactMouseEvent, ReactElement } from 'react'
 import { Button } from '../../../../components/primitives'
 import { LoadingBlock } from '../../../../components/feedback'
+import { ApiError } from '../../../../lib/api'
 import { navigateToAddress } from '../../../../lib/app-history'
 import { getLocale } from '../../../../lib/i18n'
 import { useUi } from '../../../../store/ui'
@@ -19,7 +20,19 @@ import { musicText } from '../../components/labels'
 export const PAGE_STACK = 'flex flex-col gap-[var(--sp-5)]'
 
 export function describeError(error: unknown): string {
+  // The localized sentence names the kind of failure; the route's own reason is the part that
+  // distinguishes a gateway hiccup from a provider refusal, so a detail line keeps both.
+  if (error instanceof ApiError && error.serverMessage && error.serverMessage !== error.message) {
+    return `${error.message} (${error.serverMessage})`
+  }
   return error instanceof Error ? error.message : String(error)
+}
+
+/** A gateway answer right after the phone confirms can clear on its own; a 4xx will not. */
+export function shouldRetryQrPoll(error: unknown, transientFailures: number): boolean {
+  return transientFailures < 3
+    && error instanceof ApiError
+    && (error.status === 502 || error.status === 503 || error.status === 504)
 }
 
 export function toastFailure(title: string, error: unknown): void {

@@ -32,6 +32,7 @@ import {
   QueryError,
   describeError,
   formatDateTime,
+  shouldRetryQrPoll,
   toastFailure,
 } from './parts/P2QueryState'
 
@@ -120,6 +121,7 @@ export function LoginPage(): ReactElement {
   useEffect(() => {
     if (tab !== 'qr' || !qr || (qrPhase !== 'waiting' && qrPhase !== 'scanned')) return
     let cancelled = false
+    let transientFailures = 0
     let timer = 0
     const tick = async (): Promise<void> => {
       if (cancelled) return
@@ -130,6 +132,7 @@ export function LoginPage(): ReactElement {
       try {
         const answer = await musicApi.checkQr(qr.key) as QrCheckAnswer
         if (cancelled) return
+        transientFailures = 0
         if (answer.account) {
           completeLogin(answer.account)
           return
@@ -145,6 +148,13 @@ export function LoginPage(): ReactElement {
         }, QR_POLL_MS)
       } catch (error) {
         if (cancelled) return
+        if (shouldRetryQrPoll(error, transientFailures)) {
+          transientFailures += 1
+          timer = window.setTimeout(() => {
+            void tick()
+          }, QR_POLL_MS)
+          return
+        }
         setQrPhase('error')
         setQrError(describeError(error))
       }

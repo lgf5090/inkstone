@@ -9,6 +9,7 @@ import { useEffect, useState, type ReactElement } from 'react'
 import { Music } from 'lucide-react'
 import { Skeleton } from '../../../../components/feedback'
 import { cn } from '../../../../lib/cn'
+import { musicApi } from '../../api'
 import { Cover } from '../../components/Cover'
 import { musicText } from '../../components/labels'
 import { onMusicLink } from './P2QueryState'
@@ -62,10 +63,11 @@ export function MediaCard({
 
 function CardArtwork({ coverUrl, aspect }: { coverUrl?: string; aspect: 'square' | 'video' }): ReactElement {
   const [failed, setFailed] = useState(false)
+  const resolved = coverUrl && /^https?:\/\//i.test(coverUrl) ? musicApi.providerCoverUrl(coverUrl) : coverUrl
 
   useEffect(() => {
     setFailed(false)
-  }, [coverUrl])
+  }, [resolved])
 
   return (
     <span
@@ -75,9 +77,9 @@ function CardArtwork({ coverUrl, aspect }: { coverUrl?: string; aspect: 'square'
         aspect === 'video' ? 'aspect-video' : 'aspect-square',
       )}
     >
-      {coverUrl && !failed ? (
+      {resolved && !failed ? (
         <img
-          src={coverUrl}
+          src={resolved}
           alt=""
           loading="lazy"
           decoding="async"
