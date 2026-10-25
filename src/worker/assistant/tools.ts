@@ -28,11 +28,13 @@ import {
   MAX_TAG_NAME_CHARS,
   REMIND_OFFSETS,
   REPEAT_FREQUENCIES,
+  REPEAT_MONTHLY_MODES,
   SNOOZE_MINUTES,
   UPCOMING_DAYS,
   isSnoozeMinutes,
   parseRepeatRule,
   remindAtFor,
+  withPreviousSeries,
   type RemindOffset,
   type RepeatRule,
   type TaskCounts,
@@ -43,6 +45,7 @@ import {
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import { EMAIL_BATCH_ACTIONS } from '@shared/email/model'
 import { parseNoteCheckboxes } from '@shared/todos/note-parse'
+import { isTaskDone } from '@shared/todos/status'
 import { MEMORY_CATEGORIES_FOR_TOOLS } from './memory-service'
 import { localDate, parseLocalTime, toLocalMinute } from '@shared/assistant-time'
 import { addDays, isStatsDay, loadTodoStats } from '../todos/stats'
@@ -326,7 +329,12 @@ function plannedDay(value: unknown): string | null | undefined {
   return value
 }
 
-function repeatRule(args: Record<string, unknown>, allowNone: boolean): RepeatRule | null | undefined {  const freq = args.repeat
+function repeatRule(
+  args: Record<string, unknown>,
+  allowNone: boolean,
+  previous?: RepeatRule | null,
+): RepeatRule | null | undefined {
+  const freq = args.repeat
   if (freq === undefined) {
     if (args.repeatDays !== undefined || args.repeatMonthly !== undefined || args.repeatInterval !== undefined) {
       throw new ToolError('Name the repeat frequency with the days or interval that narrow it.')
@@ -351,8 +359,9 @@ function repeatRule(args: Record<string, unknown>, allowNone: boolean): RepeatRu
   }
   if (weekdays && freq !== 'weekly') throw new ToolError('Repeat days only narrow a weekly rhythm.')
   const monthly = args.repeatMonthly
-  if (monthly !== undefined && monthly !== 'day' && monthly !== 'lastDay') {
-    throw new ToolError('A monthly rhythm lands on the same day or the last day.')
+  if (monthly !== undefined
+    && (typeof monthly !== 'string' || !REPEAT_MONTHLY_MODES.includes(monthly as (typeof REPEAT_MONTHLY_MODES)[number]))) {
+    throw new ToolError('A monthly rhythm lands on the same day, the last day, or the same nth weekday.')
   }
   if (monthly !== undefined && freq !== 'monthly') throw new ToolError('That monthly choice only narrows a monthly rhythm.')
   const rule = parseRepeatRule({
@@ -362,7 +371,7 @@ function repeatRule(args: Record<string, unknown>, allowNone: boolean): RepeatRu
     ...(monthly ? { monthlyMode: monthly } : {}),
   })
   if (!rule) throw new ToolError('That repeat rule is not one the app can store.')
-  return rule
+  return withPreviousSeries(rule, previous)
 }
 
 function reminderInstants(value: unknown, ctx: ToolContext): number[] | undefined {
@@ -651,7 +660,7 @@ export const TASK_TOOLS: ToolDefinition[] = [
       repeat: { type: 'string', enum: REPEAT_FREQUENCIES, description: 'How often it comes back. Leave it out for a one-off.', optional: true },
       repeatInterval: { type: 'integer', minimum: 1, maximum: 99, description: 'Occurrences every N weeks, months or years. Defaults to 1.', optional: true },
       repeatDays: { type: 'string', description: 'For a weekly rhythm: comma-separated weekdays, 0=Sunday to 6=Saturday.', maxLength: 20, optional: true },
-      repeatMonthly: { type: 'string', enum: ['day', 'lastDay'], description: 'For a monthly rhythm: the same day or the last day.', optional: true },
+      repeatMonthly: { type: 'string', enum: REPEAT_MONTHLY_MODES, description: 'For a monthly rhythm: the same day, the last day, or the same nth weekday of the due date.', optional: true },
       remind: { type: 'string', enum: REMIND_OFFSETS, description: 'When to remind the reader, relative to the due time. Defaults to none.', optional: true },
       reminders: { type: 'array', items: 'string', maxItems: MAX_REMINDERS_PER_TASK, description: 'Absolute reminders as local YYYY-MM-DDTHH:MM values. Replaces remind when given.', optional: true },
       starred: { type: 'boolean', description: 'Mark it as one to keep in sight.', optional: true },
@@ -798,7 +807,7 @@ export const TASK_TOOLS: ToolDefinition[] = [
     name: 'update_task',
     permission: 'write',
     maxCallsPerTurn: 5,
-    description: 'Change a task: title, note, status, priority, due or start date, My Day plan, list, tags, star, repeat or reminder.',
+    description: 'Change a task: title, note, status, priority, due or start date, My Day plan, list, tags, star, repeat or reminder. Naming done completes it: a repeating task files its next occurrence, and the answer says its date.',
     fields: {
       task: { type: 'string', description: 'Task id, or a title that matches exactly one task.', minLength: 1, maxLength: 300 },
       title: { type: 'string', minLength: 1, maxLength: MAX_TASK_TITLE_CHARS, optional: true },
@@ -814,7 +823,7 @@ export const TASK_TOOLS: ToolDefinition[] = [
       repeat: { type: 'string', enum: [...REPEAT_FREQUENCIES, 'none'], description: 'Set or clear how often it repeats.', optional: true },
       repeatInterval: { type: 'integer', minimum: 1, maximum: 99, description: 'Occurrences every N weeks, months or years. Defaults to 1.', optional: true },
       repeatDays: { type: 'string', description: 'For a weekly rhythm: comma-separated weekdays, 0=Sunday to 6=Saturday.', maxLength: 20, optional: true },
-      repeatMonthly: { type: 'string', enum: ['day', 'lastDay'], description: 'For a monthly rhythm: the same day or the last day.', optional: true },
+      repeatMonthly: { type: 'string', enum: REPEAT_MONTHLY_MODES, description: 'For a monthly rhythm: the same day, the last day, or the same nth weekday of the due date.', optional: true },
       remind: { type: 'string', enum: REMIND_OFFSETS, description: 'Set or clear the reminder.', optional: true },
       reminders: { type: 'array', items: 'string', maxItems: MAX_REMINDERS_PER_TASK, description: 'Replace the pending reminders with these local YYYY-MM-DDTHH:MM values.', optional: true },
       starred: { type: 'boolean', optional: true },
@@ -825,12 +834,24 @@ export const TASK_TOOLS: ToolDefinition[] = [
       const dueAt = dueMillis(args.due, ctx)
       const startAt = dueMillis(args.start, ctx)
       const planned = plannedDay(args.planned)
-      const repeat = repeatRule(args, true)
+      const repeat = repeatRule(args, true, task.repeat)
       const reminders = reminderInstants(args.reminders, ctx)
+      const status = args.status !== undefined ? args.status as Task['status'] : undefined
+      /**
+       * Whether this call is the reader finishing the task.
+       *
+       * Finishing is not a column: a repeating task files its next occurrence, and `completeTask` is
+       * the only place that happens — `updateTask` now refuses the transition, so a chat that ticked a
+       * weekly task by name left it finished with no rhythm to come back. The status therefore leaves
+       * the patch below and lands as its own call, after every other field and in the same order the
+       * single-task route keeps: the row being finished already carries the new title, due date, list
+       * and tags, and the occurrence copied from it carries them too.
+       */
+      const completing = isTaskDone(status) && !isTaskDone(task.status)
       const updated = await ctx.store.updateTask(task.id, {
         ...(args.title !== undefined ? { title: String(args.title) } : {}),
         ...(args.description !== undefined ? { description: String(args.description) } : {}),
-        ...(args.status !== undefined ? { status: args.status as Task['status'] } : {}),
+        ...(status === undefined || completing ? {} : { status }),
         ...(args.priority !== undefined ? { priority: args.priority as Task['priority'] } : {}),
         ...(dueAt !== undefined ? { dueAt } : {}),
         ...(startAt !== undefined ? { startAt } : {}),
@@ -848,11 +869,28 @@ export const TASK_TOOLS: ToolDefinition[] = [
           ? { noteId: typeof args.note === 'string' && args.note.trim() ? await resolveNoteId(args.note, ctx) : null }
           : {}),
       })
-      if (planned !== undefined && updated) {
-        const plannedTask = await ctx.store.planTask(updated.id, planned)
-        return { updated: plannedTask ? presentTask(plannedTask) : null }
+      let finished: TodoTask | null = updated
+      // The next occurrence belongs in the payload: a model that cannot see the date it just filed
+      // would tell the reader a date of its own, and be wrong about it.
+      let next: TodoTask | null = null
+      if (completing) {
+        const done = await ctx.store.completeTask(updated?.id ?? task.id, ctx.timezone)
+        if (!done) throw new ToolError('This task no longer exists.')
+        finished = done.task
+        next = done.next
+        await ctx.store.recordActivity('task.completed', done.task.title)
       }
-      return { updated: updated ? presentTask(updated) : null }
+      if (planned !== undefined && finished) {
+        const plannedTask = await ctx.store.planTask(finished.id, planned)
+        return {
+          updated: plannedTask ? presentTask(plannedTask) : null,
+          ...(next ? { next: presentTask(next) } : {}),
+        }
+      }
+      return {
+        updated: finished ? presentTask(finished) : null,
+        ...(next ? { next: presentTask(next) } : {}),
+      }
     },
   }),
   tool({
@@ -910,7 +948,7 @@ export const TASK_TOOLS: ToolDefinition[] = [
         throw new ToolError(`A snooze must be ${SNOOZE_MINUTES.join(', ')} minutes.`)
       }
       const task = await resolveTaskOrThrow(args.task, ctx)
-      if (task.status === 'done') throw new ToolError('A finished task cannot be snoozed.')
+      if (isTaskDone(task.status)) throw new ToolError('A finished task cannot be snoozed.')
       if ((task.reminders?.length ?? 0) >= MAX_REMINDERS_PER_TASK) {
         throw new ToolError(`This task already has ${MAX_REMINDERS_PER_TASK} reminders.`)
       }
@@ -971,9 +1009,14 @@ export const TASK_TOOLS: ToolDefinition[] = [
       id: { type: 'string', description: 'The trashed task id.', minLength: 1, maxLength: 64 },
     },
     async run(args, ctx) {
-      const restored = await ctx.store.restoreTask(String(args.id))
+      const { task: restored, droppedReminders } = await ctx.store.restoreTask(String(args.id))
       if (!restored) throw new ToolError('No trashed task has that id.')
-      return { restored: presentTask(restored) }
+      // Say so rather than let the model report a clean restore: the reminders that had already passed
+      // were dropped on the way back in, and a model that does not know will promise an alert that never comes.
+      return {
+        restored: presentTask(restored),
+        ...(droppedReminders > 0 ? { dropped_reminders: droppedReminders } : {}),
+      }
     },
   }),
   tool({
@@ -1166,7 +1209,7 @@ export const TASK_TOOLS: ToolDefinition[] = [
       let deleted = 0
       for (const id of ids) {
         const task = await ctx.store.getTask(id)
-        if (!task || task.status !== 'done') continue
+        if (!task || !isTaskDone(task.status)) continue
         await ctx.store.deleteTask(id)
         deleted++
       }
@@ -1324,7 +1367,7 @@ export const TASK_TOOLS: ToolDefinition[] = [
     name: 'task_stats',
     permission: 'read',
     maxCallsPerTurn: 2,
-    description: 'Read the reader\'s to-do statistics for a date range: completed, created, completion rate, on-time rate, current and longest streak, overdue, and the per-list split. Call this first when writing a weekly review, then base the review on these numbers rather than recounting the list. Defaults to the last seven days ending today in the reader\'s zone.',
+    description: 'Read the reader\'s to-do statistics for a date range: completed, created, completion rate, abandoned rate (tasks given up, counted separately from the completion rate rather than inside it), on-time rate, current and longest streak, overdue, and the per-list split. Call this first when writing a weekly review, then base the review on these numbers rather than recounting the list. Defaults to the last seven days ending today in the reader\'s zone.',
     fields: {
       from: {
         type: 'string',
@@ -1365,6 +1408,8 @@ export const TASK_TOOLS: ToolDefinition[] = [
           created: summary.created,
           open: summary.open,
           completionRate: summary.completionRate,
+          abandoned: summary.abandoned,
+          abandonedRate: summary.abandonedRate,
           onTime: summary.onTime,
           onTimeDue: summary.onTimeDue,
           onTimeRate: summary.onTimeRate,

@@ -2,7 +2,14 @@ import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AssistantSettings, Automation } from '@shared/assistant'
 import { computeNextRun } from '@shared/assistant-schedule'
-import { DEFAULT_SETTINGS, mergeSettings, mergeSettingsPatch } from '@shared/constants'
+import {
+  DEFAULT_SETTINGS,
+  DEFAULT_TODO_FOCUS,
+  DEFAULT_TODO_WORKDAY,
+  mergeSettings,
+  mergeSettingsPatch,
+} from '@shared/constants'
+import { REMIND_OFFSETS } from '@shared/todos/model'
 import { initI18n, t } from '../../lib/i18n'
 import { ApiError } from '../../lib/api'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
@@ -315,3 +322,269 @@ describe('the goal rows', () => {
     expect(updateSettingsMock).toHaveBeenLastCalledWith({ todo: { dailyGoal: null } })
   })
 })
+
+/**
+ * The focus and workday subgroups.
+ *
+ * The reason these cases exist at all is a failure mode that produces no error anywhere: the settings
+ * merge lists the keys it rebuilds, and a subgroup missing from that list reads back as its default no
+ * matter what the panel wrote. So the first case below is the one that matters — it asks the merge to
+ * keep a value that differs from the default, which is exactly what a silent drop turns back into the
+ * default. The rest pin the edges every stored key is documented to have.
+ */
+describe('the stored focus subgroup', () => {
+  it('keeps a focus patch through the merge instead of reading back the defaults', () => {
+    const patched = mergeSettingsPatch(DEFAULT_SETTINGS, {
+      todo: { focus: { ...DEFAULT_TODO_FOCUS, strategy: 'flowtime', defaultMinutes: 50 } },
+    })
+    expect(patched.todo.focus?.strategy).toBe('flowtime')
+    expect(patched.todo.focus?.defaultMinutes).toBe(50)
+    expect(patched.todo.focus?.enabled).toBe(DEFAULT_TODO_FOCUS.enabled)
+  })
+
+  it('keeps every key of the subgroup, including the nested ones', () => {
+    const wanted = {
+      enabled: false,
+      strategy: 'pomodoro',
+      defaultMinutes: 12,
+      pomodoro: { work: 40, short: 8, long: 20, every: 6 },
+      flowtime: { breakEnabled: true, breakPercentage: 65 },
+      pauseTrackingDuringBreak: false,
+      sound: 'chime',
+    }
+    expect(mergeSettings({ todo: { focus: wanted } }).todo.focus).toEqual(wanted)
+  })
+
+  it('fills the keys a half-written subgroup left out', () => {
+    const merged = mergeSettings({ todo: { focus: { pomodoro: { work: 40 } } } }).todo.focus
+    expect(merged?.pomodoro).toEqual({ ...DEFAULT_TODO_FOCUS.pomodoro, work: 40 })
+    expect(merged?.flowtime).toEqual(DEFAULT_TODO_FOCUS.flowtime)
+    expect(merged?.strategy).toBe(DEFAULT_TODO_FOCUS.strategy)
+  })
+
+  it('holds each minute count to the field edges and rounds a fraction', () => {
+    const merged = mergeSettings({
+      todo: {
+        focus: {
+          defaultMinutes: 9999,
+          pomodoro: { work: 0, short: -5, long: 12.6, every: 99 },
+        },
+      },
+    }).todo.focus
+    expect(merged?.defaultMinutes).toBe(240)
+    expect(merged?.pomodoro).toEqual({ work: 1, short: 1, long: 13, every: 12 })
+  })
+
+  it('reads an impossible number as the default rather than storing it', () => {
+    for (const bad of ['25', null, undefined, {}, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const merged = mergeSettings({ todo: { focus: { defaultMinutes: bad } } }).todo.focus
+      expect(merged?.defaultMinutes, String(bad)).toBe(DEFAULT_TODO_FOCUS.defaultMinutes)
+    }
+    for (const bad of ['5', null, [], Number.NaN]) {
+      const merged = mergeSettings({ todo: { focus: { flowtime: { breakPercentage: bad } } } }).todo.focus
+      expect(merged?.flowtime.breakPercentage, String(bad)).toBe(DEFAULT_TODO_FOCUS.flowtime.breakPercentage)
+    }
+    const everyBad = mergeSettings({ todo: { focus: { pomodoro: { every: '4' } } } }).todo.focus
+    expect(everyBad?.pomodoro.every).toBe(DEFAULT_TODO_FOCUS.pomodoro.every)
+  })
+
+  it('keeps a stored sound setting the panel does not offer yet', () => {
+    for (const sound of ['off', 'tick', 'chime', 'both'] as const) {
+      expect(mergeSettings({ todo: { focus: { sound } } }).todo.focus?.sound).toBe(sound)
+    }
+    // A value the synthesiser has no cue for is dropped to silence rather than stored and ignored.
+    expect(mergeSettings({ todo: { focus: { sound: 'bagpipes' } } }).todo.focus?.sound).toBe('off')
+  })
+
+  it('reads an unknown strategy and a non-boolean switch as their defaults', () => {
+    const merged = mergeSettings({
+      todo: { focus: { strategy: 'marathon', enabled: 'yes', pauseTrackingDuringBreak: 1, flowtime: { breakEnabled: 'no' } } },
+    }).todo.focus
+    expect(merged?.strategy).toBe(DEFAULT_TODO_FOCUS.strategy)
+    expect(merged?.enabled).toBe(DEFAULT_TODO_FOCUS.enabled)
+    expect(merged?.pauseTrackingDuringBreak).toBe(DEFAULT_TODO_FOCUS.pauseTrackingDuringBreak)
+    expect(merged?.flowtime.breakEnabled).toBe(DEFAULT_TODO_FOCUS.flowtime.breakEnabled)
+  })
+
+  it('turns a whole subgroup that arrived as junk back into the defaults', () => {
+    for (const junk of ['focus', 7, [], null]) {
+      expect(mergeSettings({ todo: { focus: junk } }).todo.focus).toEqual(DEFAULT_TODO_FOCUS)
+    }
+  })
+
+  // The merge decides whether a saved default is a tier at all, and a tier it has never heard of folds to
+  // null — the reader picks "30 minutes before", the panel keeps showing it, and nothing is applied. The
+  // validator reads `REMIND_OFFSETS` now, so walking the list here is what keeps it honest as the list
+  // grows.
+  it('keeps every reminder tier the app offers as a stored default', () => {
+    for (const tier of REMIND_OFFSETS) {
+      if (tier === 'none') continue
+      expect(mergeSettings({ todo: { defaultRemind: tier } }).todo.defaultRemind).toBe(tier)
+    }
+    expect(mergeSettings({ todo: { defaultRemind: 'none' } }).todo.defaultRemind).toBeNull()
+    expect(mergeSettings({ todo: { defaultRemind: '2h' } }).todo.defaultRemind).toBeNull()
+  })
+
+  it('leaves the rest of the to-do settings alone when only a focus key changes', () => {
+    const stored = mergeSettings({ todo: { dailyGoal: 4, defaultRemind: '15m' } })
+    const patched = mergeSettingsPatch(stored, { todo: { focus: { ...DEFAULT_TODO_FOCUS, defaultMinutes: 8 } } })
+    expect(patched.todo.dailyGoal).toBe(4)
+    expect(patched.todo.defaultRemind).toBe('15m')
+    expect(patched.todo.focus?.defaultMinutes).toBe(8)
+    expect(patched.appearance).toEqual(stored.appearance)
+  })
+})
+
+describe('the stored workday subgroup', () => {
+  it('keeps a workday patch through the merge instead of reading back the defaults', () => {
+    const patched = mergeSettingsPatch(DEFAULT_SETTINGS, {
+      todo: { workday: { ...DEFAULT_TODO_WORKDAY, dailyEstimateMinutes: 300, finishDayEnabled: false } },
+    })
+    expect(patched.todo.workday?.dailyEstimateMinutes).toBe(300)
+    expect(patched.todo.workday?.finishDayEnabled).toBe(false)
+  })
+
+  it('reads zero, a negative number, an empty field and a string as no estimate', () => {
+    for (const off of [0, -30, null, undefined, '', '240', Number.NaN]) {
+      expect(mergeSettings({ todo: { workday: { dailyEstimateMinutes: off } } }).todo.workday
+        ?.dailyEstimateMinutes, String(off)).toBeNull()
+    }
+  })
+
+  it('caps the estimate at the longest working day it will plan and rounds a fraction', () => {
+    expect(mergeSettings({ todo: { workday: { dailyEstimateMinutes: 5000 } } }).todo.workday
+      ?.dailyEstimateMinutes).toBe(960)
+    expect(mergeSettings({ todo: { workday: { dailyEstimateMinutes: 480.4 } } }).todo.workday
+      ?.dailyEstimateMinutes).toBe(480)
+    expect(mergeSettings({ todo: { workday: { dailyEstimateMinutes: 90.5 } } }).todo.workday
+      ?.dailyEstimateMinutes).toBe(91)
+  })
+
+  it('keeps a junk subgroup as the defaults', () => {
+    for (const junk of ['workday', {}, [], null]) {
+      expect(mergeSettings({ todo: { workday: junk } }).todo.workday).toEqual(DEFAULT_TODO_WORKDAY)
+    }
+  })
+})
+
+describe('the focus and finish-day rows', () => {
+  it('writes the whole focus subgroup when one switch moves', async () => {
+    await render()
+    await toggleRowSwitch(t('settings.todo_focus'))
+    expect(updateSettingsMock).toHaveBeenLastCalledWith({
+      todo: { focus: { ...DEFAULT_TODO_FOCUS, enabled: false } },
+    })
+  })
+
+  it('sends the strategy the reader picked and keeps the other focus keys', async () => {
+    await render()
+    await chooseStrategy('pomodoro')
+    expect(updateSettingsMock).toHaveBeenLastCalledWith({
+      todo: { focus: { ...DEFAULT_TODO_FOCUS, strategy: 'pomodoro' } },
+    })
+  })
+
+  it('holds a typed focus length to the edges the merge applies', async () => {
+    await render()
+    await enterNumber(t('settings.todo_focus_minutes'), '500')
+    expect(updateSettingsMock).toHaveBeenLastCalledWith({
+      todo: { focus: { ...DEFAULT_TODO_FOCUS, defaultMinutes: 240 } },
+    })
+    await enterNumber(t('settings.todo_focus_minutes'), '0')
+    expect(updateSettingsMock).toHaveBeenLastCalledWith({
+      todo: { focus: { ...DEFAULT_TODO_FOCUS, defaultMinutes: 1 } },
+    })
+  })
+
+  it('writes one pomodoro length without disturbing the other three', async () => {
+    await render()
+    await enterNumber(t('settings.todo_focus_pomodoro_work'), '45')
+    expect(updateSettingsMock).toHaveBeenLastCalledWith({
+      todo: { focus: { ...DEFAULT_TODO_FOCUS, pomodoro: { ...DEFAULT_TODO_FOCUS.pomodoro, work: 45 } } },
+    })
+    await enterNumber(t('settings.todo_focus_pomodoro_every'), '99')
+    expect(updateSettingsMock).toHaveBeenLastCalledWith({
+      todo: { focus: { ...DEFAULT_TODO_FOCUS, pomodoro: { ...DEFAULT_TODO_FOCUS.pomodoro, every: 12 } } },
+    })
+  })
+
+  it('stacks the four pomodoro fields under their own title instead of squeezing the row', async () => {
+    await render()
+    const row = rowByTitle(t('settings.todo_focus_pomodoro'))
+    expect(row, 'the pomodoro row is not rendered').toBeTruthy()
+    // jsdom has no layout, so what can be proved here is the class the stacked layout is made of; the
+    // widths themselves are on the screenshot list.
+    expect(row!.className).toContain('md:flex-col')
+    expect(row!.className).toContain('md:items-stretch')
+    for (const label of [
+      t('settings.todo_focus_pomodoro_work'),
+      t('settings.todo_focus_pomodoro_short'),
+      t('settings.todo_focus_pomodoro_long'),
+      t('settings.todo_focus_pomodoro_every'),
+    ]) {
+      expect(numberField(label), label).toBeTruthy()
+    }
+  })
+
+  it('keeps the focus sound off the panel until the overlay can actually play it', async () => {
+    await render()
+    expect(rowByTitle(t('settings.todo_digest'))).toBeTruthy()
+    const selects = [...(view?.container.querySelectorAll('select') ?? [])]
+    for (const select of selects) {
+      const values = [...select.options].map((option) => option.value)
+      expect(values, 'a control offers focus sounds the app cannot play yet').not.toContain('chime')
+    }
+  })
+
+  it('turns the daily estimate off when its field is emptied', async () => {
+    await render()
+    const field = numberField(t('settings.todo_workday_estimate'))
+    expect([field.min, field.max]).toEqual(['1', '960'])
+    await enterNumber(t('settings.todo_workday_estimate'), '300')
+    expect(updateSettingsMock).toHaveBeenLastCalledWith({
+      todo: { workday: { ...DEFAULT_TODO_WORKDAY, dailyEstimateMinutes: 300 } },
+    })
+    await enterNumber(t('settings.todo_workday_estimate'), '')
+    expect(updateSettingsMock).toHaveBeenLastCalledWith({
+      todo: { workday: { ...DEFAULT_TODO_WORKDAY, dailyEstimateMinutes: null } },
+    })
+  })
+})
+
+function rowByTitle(title: string): HTMLElement | null {
+  return view?.container.querySelector<HTMLElement>(`[data-setting-title="${title}"]`) ?? null
+}
+
+function numberField(label: string): HTMLInputElement {
+  const node = view?.container.querySelector<HTMLInputElement>(`input[type="number"][aria-label="${label}"]`)
+  if (!node) throw new Error(`the ${label} field is not rendered`)
+  return node
+}
+
+/** Hand a value to a number field the way typing would, and let the row's state land. */
+async function enterNumber(label: string, value: string): Promise<void> {
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(numberField(label), value)
+    numberField(label).dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await settle()
+}
+
+async function toggleRowSwitch(title: string): Promise<void> {
+  const node = rowByTitle(title)?.querySelector<HTMLButtonElement>('[role="switch"]')
+  if (!node) throw new Error(`the ${title} switch is not rendered`)
+  await act(async () => {
+    node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+  })
+  await settle()
+}
+
+async function chooseStrategy(value: string): Promise<void> {
+  const select = rowByTitle(t('settings.todo_focus_strategy'))?.querySelector<HTMLSelectElement>('select')
+  if (!select) throw new Error('the focus strategy select is not rendered')
+  await act(async () => {
+    select.value = value
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await settle()
+}

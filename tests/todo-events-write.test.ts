@@ -96,7 +96,8 @@ describe('a status change', () => {
     await store.updateTask(task.id, { status: 'in_progress' }, 'UTC')
     const started = taskRow(task.id)
 
-    await store.updateTask(task.id, { status: 'done' }, 'UTC')
+    // Finished through `completeTask`, the one door that writes a completion; the patch refuses it.
+    await store.completeTask(task.id, 'UTC')
     const done = taskRow(task.id)
 
     await store.updateTask(task.id, { status: 'todo' }, 'UTC')
@@ -154,7 +155,7 @@ describe('a repeating task', () => {
 describe('the trash and the purge', () => {
   it('keeps the history through the trash and takes it only on a purge', async () => {
     const task = await store.createTask({ title: 'Filed away' }, 'UTC')
-    await store.updateTask(task.id, { status: 'done' }, 'UTC')
+    await store.completeTask(task.id, 'UTC')
 
     await store.deleteTask(task.id)
     // A trashed task still happened: the history stays for the day it comes back.
@@ -166,7 +167,7 @@ describe('the trash and the purge', () => {
 
   it('keeps a restored task’s history when a stale id reaches the purge', async () => {
     const task = await store.createTask({ title: 'Restored mid-purge' }, 'UTC')
-    await store.updateTask(task.id, { status: 'done' }, 'UTC')
+    await store.completeTask(task.id, 'UTC')
     await store.deleteTask(task.id)
 
     // The race the trash predicate exists for: the purge reads a trashed row, and a restore lands

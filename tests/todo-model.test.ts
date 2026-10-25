@@ -1,17 +1,27 @@
 import { describe, expect, it } from 'vitest'
 import { getZonedParts } from '../src/shared/assistant-schedule'
 import {
+  MAX_REPEAT_COUNT,
+  MAX_REPEAT_EXCLUDED_DAYS,
+  MAX_REPEAT_UNTIL_MS,
   MAX_TAGS_PER_TASK,
+  REMIND_OFFSETS,
+  REMIND_OFFSET_MS,
+  advanceRepeat,
+  isRemindOffset,
   isTaskView,
   nextOccurrence,
   normalizeTagNames,
   parseRepeatRule,
   remindAtFor,
+  remindOffsetForDelta,
   taskColorOrNull,
   taskIconOrNull,
   taskListProgress,
   toggledStatus,
+  withPreviousSeries,
   type RepeatRule,
+  type TaskStatus,
 } from '../src/shared/todos/model'
 
 const HOUR = 60 * 60 * 1000
@@ -49,6 +59,64 @@ describe('a stored repeat rule', () => {
     expect(parseRepeatRule({ freq: 'weekly', weekdays: [1, 7] })).toBeNull()
     expect(parseRepeatRule({ freq: 'weekly', weekdays: ['mon'] })).toBeNull()
     expect(parseRepeatRule({ freq: 'monthly', monthlyMode: 'nthBusinessDay' })).toBeNull()
+  })
+
+  // The series fields are read here or not at all: every door that turns a stored rule back into a
+  // value — the row decoder, the sync merge, the backup import — comes through this function, so a
+  // field the reader set in the editor would otherwise vanish on the first reload, and a bounded
+  // series would run forever rather than end.
+  it('reads the series the rule carries', () => {
+    const rule: RepeatRule = {
+      freq: 'weekly',
+      interval: 2,
+      weekdays: [1, 3, 5],
+      untilAt: utc('2026-12-31T00:00:00Z'),
+      count: 12,
+      produced: 4,
+      fromCompletionDate: true,
+      paused: true,
+      excludedDays: ['2026-11-11', '2026-11-18'],
+    }
+
+    expect(parseRepeatRule(rule)).toEqual(rule)
+  })
+
+  it('reads the same rule twice', () => {
+    const once = parseRepeatRule({ freq: 'daily', interval: 1, count: 3, produced: 2 })
+    expect(parseRepeatRule(once)).toEqual(once)
+  })
+
+  it('sorts and deduplicates the days a series steps over', () => {
+    expect(parseRepeatRule({ freq: 'daily', interval: 1, excludedDays: ['2026-11-02', '2026-11-01', '2026-11-02'] }))
+      .toEqual({ freq: 'daily', interval: 1, excludedDays: ['2026-11-01', '2026-11-02'] })
+  })
+
+  it('reads an absent ceiling and a cleared one as no ceiling', () => {
+    expect(parseRepeatRule({ freq: 'daily', interval: 1, untilAt: null, count: null })).toEqual({ freq: 'daily', interval: 1 })
+  })
+
+  it('refuses a series shape it could not have written', () => {
+    expect(parseRepeatRule({ freq: 'daily', interval: 1, untilAt: 'soon' })).toBeNull()
+    expect(parseRepeatRule({ freq: 'daily', interval: 1, untilAt: 1.5 })).toBeNull()
+    expect(parseRepeatRule({ freq: 'daily', interval: 1, untilAt: 0 })).toBeNull()
+    expect(parseRepeatRule({ freq: 'daily', interval: 1, untilAt: MAX_REPEAT_UNTIL_MS + 1 })).toBeNull()
+    expect(parseRepeatRule({ freq: 'daily', interval: 1, count: 0 })).toBeNull()
+    expect(parseRepeatRule({ freq: 'daily', interval: 1, count: MAX_REPEAT_COUNT + 1 })).toBeNull()
+    expect(parseRepeatRule({ freq: 'daily', interval: 1, produced: -1 })).toBeNull()
+    expect(parseRepeatRule({ freq: 'daily', interval: 1, paused: 'yes' })).toBeNull()
+    expect(parseRepeatRule({ freq: 'daily', interval: 1, fromCompletionDate: 1 })).toBeNull()
+    expect(parseRepeatRule({ freq: 'daily', interval: 1, excludedDays: ['2026-11-1'] })).toBeNull()
+    expect(parseRepeatRule({ freq: 'daily', interval: 1, excludedDays: '2026-11-01' })).toBeNull()
+    expect(parseRepeatRule({
+      freq: 'daily',
+      interval: 1,
+      excludedDays: Array.from({ length: MAX_REPEAT_EXCLUDED_DAYS + 1 }, (_, index) => `2026-11-${String(index + 1).padStart(2, '0')}`),
+    })).toBeNull()
+  })
+
+  it('drops a pause or an anchor the reader left off rather than storing the negation', () => {
+    expect(parseRepeatRule({ freq: 'daily', interval: 1, paused: false, fromCompletionDate: false }))
+      .toEqual({ freq: 'daily', interval: 1 })
   })
 })
 
@@ -129,6 +197,46 @@ describe('when a reminder fires', () => {
   })
 })
 
+describe('the reminder tiers', () => {
+  const due = utc('2026-10-20T09:00:00Z')
+  // The tiers are read in three doors — the arithmetic that files a reminder, the reading that lets a
+  // form open on the stored instant, and the settings merge that decides whether a saved default is a
+  // tier at all. Each of those had its own copy of the list, and a tier missing from one of them fails
+  // quietly: no reminder, or a form that opens on "Off", or a preference that never lands. So the whole
+  // list is walked here rather than sampled.
+  const TIERS = REMIND_OFFSETS.filter((offset) => offset !== 'none')
+
+  it('places every tier at its own distance before the due instant', () => {
+    const instants = TIERS.map((tier) => remindAtFor(due, tier))
+
+    expect(new Set(instants).size).toBe(TIERS.length)
+    expect(instants).toEqual(TIERS.map((tier) => due - REMIND_OFFSET_MS[tier]))
+    expect(remindAtFor(due, 'due')).toBe(due)
+    expect(remindAtFor(due, '1w')).toBe(due - 7 * DAY)
+  })
+
+  it('files nothing for no reminder and for a task owed at no time', () => {
+    expect(remindAtFor(due, 'none')).toBeNull()
+    expect(remindAtFor(null, '15m')).toBeNull()
+  })
+
+  it('reads each tier back from the distance it was filed at', () => {
+    for (const tier of TIERS) {
+      expect(remindOffsetForDelta(due - remindAtFor(due, tier)!)).toBe(tier)
+    }
+    // A distance no preset names is not rounded to the nearest one: a reminder set by hand at 45
+    // minutes is the reader's own answer, and claiming it said "1 hour" would be the form inventing it.
+    expect(remindOffsetForDelta(45 * 60_000)).toBe('none')
+    expect(remindOffsetForDelta(-1)).toBe('due')
+  })
+
+  it('recognises exactly the tiers it lists', () => {
+    for (const tier of REMIND_OFFSETS) expect(isRemindOffset(tier)).toBe(true)
+    expect(isRemindOffset('2h')).toBe(false)
+    expect(isRemindOffset(null)).toBe(false)
+  })
+})
+
 describe('tag names as this app stores them', () => {
   it('drops the hash, the duplicates and the blanks', () => {
     expect(normalizeTagNames(['#Work', ' work ', '', 'Life'])).toEqual(['Work', 'Life'])
@@ -155,9 +263,13 @@ describe('the small readings a list card and a checkbox need', () => {
   })
 
   it('toggles a status both ways', () => {
+    // The checkbox flips between owed and not-owed. Work still owed goes finished; a row that already
+    // stopped being owed — finished or abandoned — goes back to `todo`. Pressing an abandoned row
+    // reopens it rather than quietly re-labeling it finished (the ruling recorded in `toggledStatus`).
     expect(toggledStatus('todo')).toBe('done')
     expect(toggledStatus('in_progress')).toBe('done')
     expect(toggledStatus('done')).toBe('todo')
+    expect(toggledStatus('cancelled' as TaskStatus)).toBe('todo')
   })
 
   it('recognises only the views the server answers', () => {
@@ -209,5 +321,113 @@ describe("a task's own colour, as the store keeps it", () => {
   it('ignores anything that is not text', () => {
     expect(taskColorOrNull(null)).toBeNull()
     expect(taskColorOrNull(42)).toBeNull()
+  })
+})
+
+describe('a series deciding whether it owes another occurrence', () => {
+  const DUE = Date.parse('2026-03-12T09:00:00Z')
+  const done = Date.parse('2026-03-13T20:00:00Z')
+  const weekly = { freq: 'weekly' as const, interval: 1 }
+  const at = (patch: Partial<RepeatRule> = {}) => advanceRepeat(
+    { ...weekly, ...patch },
+    { anchorDueAt: DUE, completedAt: done, timeZone: 'UTC' },
+  )
+
+  it('counts from the old due date, so a late tick does not move the rhythm', () => {
+    expect(at().dueAt).toBe(Date.parse('2026-03-19T09:00:00Z'))
+  })
+
+  it('counts from the finished day only when the reader asked it to', () => {
+    expect(at({ fromCompletionDate: true }).dueAt).toBe(Date.parse('2026-03-20T20:00:00Z'))
+  })
+
+  it('stops at a pause without spending a turn', () => {
+    const stopped = at({ paused: true })
+    expect(stopped).toMatchObject({ dueAt: null, stopped: 'paused' })
+    // The rule comes back untouched: a reopen and a second finish must not count an occurrence
+    // that was never created.
+    expect(stopped.rule.produced).toBeUndefined()
+  })
+
+  it('stops once the ceiling day is passed', () => {
+    expect(at({ untilAt: Date.parse('2026-03-15T00:00:00Z') })).toMatchObject({ dueAt: null, stopped: 'until' })
+    expect(at({ untilAt: Date.parse('2026-03-19T23:00:00Z') }).dueAt).toBe(Date.parse('2026-03-19T09:00:00Z'))
+  })
+
+  it('produces exactly `count` occurrences and no more', () => {
+    expect(at({ count: 1 })).toMatchObject({ dueAt: null, stopped: 'count' })
+    expect(at({ count: 2 }).rule.produced).toBe(2)
+    expect(at({ count: 2, produced: 2 })).toMatchObject({ dueAt: null, stopped: 'count' })
+  })
+
+  it('steps over an excluded day rather than cancelling the occurrence', () => {
+    const next = at({ excludedDays: ['2026-03-19'] })
+    expect(next.dueAt).toBe(Date.parse('2026-03-26T09:00:00Z'))
+    expect(next.rule.produced).toBe(2)
+  })
+
+  it('counts a rule written before the counter existed as its series first occurrence', () => {
+    // The only reading that does not restart a series the reader has already run: an absent counter
+    // is 1, so `count: 1` means "this row was the whole series".
+    expect(at({ count: 1 }).stopped).toBe('count')
+    expect(at({ count: 3, produced: 1 }).rule.produced).toBe(2)
+  })
+
+  it('gives up rather than spinning when every landing day is excluded', () => {
+    const every = ['2026-03-19', '2026-03-26', '2026-04-02']
+    const far = advanceRepeat(
+      { freq: 'daily', interval: 1, excludedDays: every },
+      { anchorDueAt: DUE, completedAt: done, timeZone: 'UTC' },
+    )
+    // Three named days cannot trap a daily rhythm; the walk only has to bound the pathological case.
+    expect(far.dueAt).toBe(Date.parse('2026-03-13T09:00:00Z'))
+  })
+})
+
+describe('a rhythm named over the series already running', () => {
+  const series: RepeatRule = {
+    freq: 'weekly',
+    interval: 1,
+    weekdays: [1, 3],
+    untilAt: Date.parse('2026-12-31T00:00:00Z'),
+    count: 12,
+    produced: 4,
+    paused: true,
+    fromCompletionDate: true,
+    excludedDays: ['2026-11-11'],
+  }
+
+  it('keeps the days the rhythm already lands on when the caller names the same rhythm again', () => {
+    const fortnightly = withPreviousSeries({ freq: 'weekly', interval: 2 }, series)
+
+    expect(fortnightly).toEqual({ ...series, interval: 2 })
+    expect(fortnightly.count).toBe(12)
+    expect(fortnightly.produced).toBe(4)
+    expect(fortnightly.paused).toBe(true)
+  })
+
+  it('takes the days the caller named over the ones the row carried', () => {
+    const named = withPreviousSeries({ freq: 'weekly', interval: 1, weekdays: [5] }, series)
+
+    expect(named.weekdays).toEqual([5])
+  })
+
+  it('does not carry the modifiers of a rhythm it replaced', () => {
+    // Weekdays picked for a weekly task mean nothing on a monthly one, and the reader said monthly.
+    const monthly = withPreviousSeries({ freq: 'monthly', interval: 1 }, series)
+
+    expect(monthly.freq).toBe('monthly')
+    expect(monthly.weekdays).toBeUndefined()
+    expect(monthly.excludedDays).toEqual(['2026-11-11'])
+  })
+
+  it('leaves a rule alone when the row carried no series', () => {
+    expect(withPreviousSeries({ freq: 'daily', interval: 1 }, null)).toEqual({ freq: 'daily', interval: 1 })
+    expect(withPreviousSeries({ freq: 'daily', interval: 1 }, undefined)).toEqual({ freq: 'daily', interval: 1 })
+  })
+
+  it('survives the reader of stored rules', () => {
+    expect(parseRepeatRule(withPreviousSeries({ freq: 'weekly', interval: 2 }, series)))
+      .toEqual({ ...series, interval: 2 })
   })
 })

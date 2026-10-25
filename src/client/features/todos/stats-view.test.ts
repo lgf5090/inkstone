@@ -12,7 +12,7 @@ import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { localDate } from '@shared/assistant-time'
 import { mergeSettings } from '@shared/constants'
-import type { TaskStatsBucket, TodoStats } from '@shared/todos/model'
+import type { TaskStatsBucket, TodoStats, Worklog } from '@shared/todos/model'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, stubBreakpoint, type RenderedElement } from '../../lib/test-render'
 import { useSession } from '../../store/session'
@@ -52,6 +52,17 @@ vi.mock('../../lib/api', () => ({
       lists: async () => ({ lists: [] }),
       tags: async () => ({ tags: [] }),
       get: async () => ({ task: null, steps: [] }),
+      worklog: async () => ({
+        range: { from: '2026-03-01', to: '2026-03-07', dimension: 'list' },
+        totalMs: 3_600_000,
+        entryCount: 1,
+        byDay: [{ day: '2026-03-01', trackedMs: 3_600_000 }],
+        byGroup: [{ key: 'l1', label: 'Work', trackedMs: 3_600_000 }],
+        truncatedGroups: 0,
+        estimatedCount: 1,
+        overEstimateCount: 0,
+        overEstimateRate: 0,
+      }),
       stats: async (params: StatsCall = {}) => {
         service.calls.push(params)
         if (service.hold) await new Promise<void>((resolve) => service.waiting.push(resolve))
@@ -115,6 +126,8 @@ function fullStats(): TodoStats {
       net: 3,
       open: 4,
       completionRate: 0.75,
+      abandoned: 4,
+      abandonedRate: 0.2,
       onTime: 3,
       onTimeDue: 5,
       onTimeRate: 0.6,
@@ -182,6 +195,8 @@ function emptyStats(): TodoStats {
       created: 0,
       net: 0,
       completionRate: 0,
+      abandoned: 0,
+      abandonedRate: 0,
       onTime: 0,
       onTimeDue: 0,
       onTimeRate: 0,
@@ -340,6 +355,12 @@ describe('the numbers on the screen', () => {
     expect(kpi(container, 'created')).toContain('9')
     expect(kpi(container, 'net')).toContain('+3')
     expect(kpi(container, 'completion_rate')).toContain('75%')
+    // The second rate, spelled with the denominator the first one deliberately left out.
+    expect(kpi(container, 'abandoned_rate')).toContain('20%')
+    expect(kpi(container, 'abandoned_rate')).toContain(t('todo.stats.abandoned_rate_hint', {
+      abandoned: 4,
+      total: 20,
+    }))
     expect(kpi(container, 'on_time')).toContain('60%')
     // The denominator is the one number a reader would otherwise guess at: it is finished rows that
     // carried a due date, not every finished row and not the open ones.
@@ -368,6 +389,20 @@ describe('the numbers on the screen', () => {
     expect(table!.textContent).toContain('2026-10-12')
     expect(table!.querySelectorAll('tbody tr')).toHaveLength(2)
   })
+
+  it('spells the three counting rules somewhere a screen reader can reach', async () => {
+    // D10: a rate whose denominator moved under the reader is the failure this guards against, so the
+    // screen carries the definitions as data rather than only as prose a sighted reader may skip.
+    const container = await mount(`/todo?view=stats&from=${RANGE.from}&to=${RANGE.to}&bucket=${RANGE.bucket}`)
+
+    const table = container.querySelector('table[data-stats-definitions]')
+    expect(table, 'the statistics screen states no counting rules').not.toBeNull()
+    expect(table!.querySelector('caption')?.textContent).toContain(t('todo.stats.definitions.caption'))
+    expect(table!.querySelectorAll('tbody tr')).toHaveLength(3)
+    expect(table!.textContent).toContain(t('todo.stats.definitions.completion_rate'))
+    expect(table!.textContent).toContain(t('todo.stats.definitions.abandoned_rate'))
+    expect(table!.textContent).toContain(t('todo.stats.definitions.finished_only'))
+  })
 })
 
 describe('the previous period', () => {
@@ -376,7 +411,7 @@ describe('the previous period', () => {
     const container = await mount(`/todo?view=stats&from=${RANGE.from}&to=${RANGE.to}&bucket=${RANGE.bucket}`)
 
     const values = [...container.querySelectorAll('[data-stats-delta]')].map((node) => node.textContent?.trim())
-    expect(values, 'a zero denominator must not become a percentage').toEqual(['—', '—', '—', '—'])
+    expect(values, 'a zero denominator must not become a percentage').toEqual(['—', '—', '—', '—', '—'])
     expect(container.textContent, 'an infinite or undefined change reached the screen').not.toMatch(/∞|Infinity|NaN/)
   })
 
@@ -387,6 +422,8 @@ describe('the previous period', () => {
       completed: 9,
       created: 6,
       completionRate: 0.6,
+      abandoned: 2,
+      abandonedRate: 0.1,
       onTime: 3,
       onTimeDue: 6,
       onTimeRate: 0.5,
@@ -399,6 +436,8 @@ describe('the previous period', () => {
     expect(delta(container, 'created')).toBe('+50%')
     // A rate is compared in points: 75% against 60% is +15 points, not +25%.
     expect(delta(container, 'completion_rate')).toBe(t('todo.stats.compare.points', { value: '+15' }))
+    // 20% against 10% is +10 points on the same reading.
+    expect(delta(container, 'abandoned_rate')).toBe(t('todo.stats.compare.points', { value: '+10' }))
     expect(delta(container, 'on_time')).toBe(t('todo.stats.compare.points', { value: '+10' }))
   })
 
@@ -442,6 +481,37 @@ describe('the CSV export', () => {
     expect(statsCsvFilename(stats.range)).toBe('inkstone-todo-stats-2026-10-01_2026-10-30.csv')
 
     expect(buttonFor(container, t('todo.stats.export.label')).disabled, 'a populated range cannot export').toBe(false)
+  })
+
+  // The hours travel with the file, in milliseconds rather than the rounded hours the bars draw: a
+  // spreadsheet can divide, and it cannot undo a rounding. And when the read did not arrive the two
+  // tables are absent rather than zero-filled — a file that said nobody worked would be a wrong fact,
+  // while a missing table is a question the reader can ask again.
+  it('carries the tracked time beside the counts, and says what the page left out', async () => {
+    const tracked: Worklog = {
+      range: { from: '2026-10-01', to: '2026-10-30', dimension: 'tag' },
+      totalMs: 5_400_000,
+      entryCount: 3,
+      byDay: [{ day: '2026-10-05', trackedMs: 5_400_000 }],
+      byGroup: [{ key: 'T1', label: 'urgent', trackedMs: 5_400_000 }],
+      truncatedGroups: 2,
+      estimatedCount: 2,
+      overEstimateCount: 1,
+      overEstimateRate: 0.5,
+    }
+
+    const csv = buildStatsCsv(fullStats(), tracked)
+
+    expect(csv).toContain('period,tracked_ms')
+    expect(csv).toContain('2026-10-05,5400000')
+    expect(csv).toContain('# dimension,tag')
+    expect(csv).toContain('group,key,label,tracked_ms')
+    // The label column is the reader's language; the key is what a script joins on.
+    expect(csv).toContain('tag,T1,urgent,5400000')
+    expect(csv).toContain('# truncated_groups,2')
+    expect(csv).toContain('# total_tracked_ms,5400000')
+
+    expect(buildStatsCsv(fullStats())).not.toContain('tracked_ms')
   })
 
   it('keeps the export disabled and explains why when the range is empty', async () => {

@@ -15,12 +15,14 @@ import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
+import { useUi } from '../../store/ui'
 import type { TaskCounts, TodoTask } from '@shared/todos/model'
 import type { TaskListEntry } from '../../lib/api'
 
 const service = vi.hoisted(() => ({
   creates: [] as Record<string, unknown>[],
   listCreates: [] as Record<string, unknown>[],
+  logged: [] as { id: string, span: { startAt: number, endAt: number } }[],
 }))
 
 vi.mock('../../lib/api', () => ({
@@ -34,21 +36,29 @@ vi.mock('../../lib/api', () => ({
         service.listCreates.push(body)
         return { list: list('new-list', String(body.name)) }
       },
+      /** The ledger's back-fill door: what a line's spent half is filed through. */
+      addTime: async (id: string, span: { startAt: number, endAt: number }) => {
+        service.logged.push({ id, span })
+        return { entries: [] }
+      },
       list: async () => ({
         tasks: [], total: 0, counts: counts(), dayEnd: Date.now() + 3_600_000, timezone: 'Asia/Shanghai',
       }),
       lists: async () => ({ lists: [] }),
       tags: async () => ({ tags: [] }),
-      get: async () => ({ task: null, steps: [] }),
+      get: async () => ({ task: row('交周报', 'L1'), steps: [] }),
     },
   },
 }))
 
 import { BoardView } from './BoardView'
+import { normalizeQuickAddInput } from '@shared/todos/quick-parse'
 import { useTodos } from './store'
 
 /** 01:30 on Tuesday 2026-10-20 in Shanghai, which is still Monday in London. */
 const NOW = Date.parse('2026-10-19T17:30:00Z')
+const MINUTE = 60_000
+const HOUR = 60 * MINUTE
 
 function list(id: string, name: string): TaskListEntry {
   return { id, name, icon: null, color: null, position: 0, createdAt: 0, updatedAt: 0, openCount: 0, doneCount: 0, archivedAt: null, parentId: null }
@@ -109,8 +119,32 @@ async function pressEnter(input: HTMLInputElement): Promise<void> {
   })
 }
 
+/**
+ * Drain the writes a single Enter sets off.
+ *
+ * The create is only the first of them: the spent half of a line goes on to the ledger and the row it
+ * moved is read back afterwards, so the chain is three requests deep. Two microtask turns prove the
+ * create landed; these prove what hung off it landed too.
+ */
+async function settle(): Promise<void> {
+  await act(async () => {
+    for (let turn = 0; turn < 20; turn += 1) await Promise.resolve()
+  })
+}
+
 function preview(section: HTMLElement): HTMLElement | null {
   return section.querySelector<HTMLElement>('[data-todo-quickadd-chips]')
+}
+
+/** The painted line under the field, if the open card is wearing one. */
+function mirror(section: HTMLElement): HTMLElement | null {
+  return section.querySelector<HTMLElement>('[data-todo-quickadd-mirror]')
+}
+
+/** The words the mirror says were read, in the order it paints them. */
+function tinted(section: HTMLElement): string[] {
+  return [...(mirror(section)?.querySelectorAll('[data-quickadd-kind]') ?? [])]
+    .map((node) => node.textContent ?? '')
 }
 
 beforeEach(async () => {
@@ -118,6 +152,7 @@ beforeEach(async () => {
   await initI18n()
   service.creates.length = 0
   service.listCreates.length = 0
+  service.logged.length = 0
   useTodos.setState(original, true)
   useTodos.setState({
     status: 'ready',
@@ -210,6 +245,64 @@ describe('the board\u2019s inline quick add', () => {
     expect(service.creates[0]!.listId).toBe('L1')
   })
 
+  it('paints the words it read where those words sit in the line', () => {
+    const section = card(view!.container, '工作')
+    const input = openAdd(section)
+    typeInto(input, '#工作 明天下午3点 交周报')
+
+    const layer = mirror(section)
+    expect(layer, 'the line painted under the field is gone').not.toBeNull()
+    // A picture of the field, not a second control: no name, no focus, nothing to press.
+    expect(layer!.getAttribute('aria-hidden')).toBe('true')
+    // The same words in the same order, or every band of colour sits away from the word it names.
+    expect(normalizeQuickAddInput(layer!.textContent ?? '')).toBe(normalizeQuickAddInput(input.value))
+    expect(tinted(section)).toEqual(['#工作', '明天', '下午3点'])
+
+    // Two halves of one line have to wear one box: same padding, same border, same glyphs. The height is
+    // the field's alone and the mirror stretches to it, because the field's height changes at a
+    // breakpoint and a copy of it is a pixel of drift. The field gives up its own background to the line
+    // under it, which is what keeps the caret and the selection the browser draws legible over a tint.
+    for (const shared of ['px-2.5', 'border', 'rounded-[var(--r-md)]', 'text-[length:var(--text-12)]']) {
+      expect(input.className, `${shared} belongs to both halves of the line`).toContain(shared)
+      expect(layer!.className, `${shared} belongs to both halves of the line`).toContain(shared)
+    }
+    expect(input.className).toContain('h-9')
+    expect(layer!.className).not.toContain('h-9')
+    expect(layer!.className).toContain('inset-0')
+    expect(input.className).toContain('bg-transparent')
+    expect(input.className).not.toContain('var(--bg-inset)')
+    expect(layer!.className).toContain('bg-[var(--bg-inset)]')
+    expect(layer!.className).toContain('pointer-events-none')
+  })
+
+  it('says what it recognised in the order the words were typed', () => {
+    const section = card(view!.container, '工作')
+    const input = openAdd(section)
+    typeInto(input, '#工作 明天下午3点 !2')
+
+    const summary = section.querySelector<HTMLElement>('#todo-quickadd-summary')
+    expect(summary, 'the field promises a description it never writes').not.toBeNull()
+    expect(input.getAttribute('aria-describedby')).toBe('todo-quickadd-summary')
+    expect(summary!.getAttribute('role')).toBe('status')
+    const said = summary!.textContent ?? ''
+    expect(said).toContain(t('todo.quickadd.kind.tag', { text: '#工作' }))
+    expect(said).toContain(t('todo.quickadd.kind.date', { text: '明天' }))
+    // The chips group by field and the parser's array follows them; a sentence has to follow the typing,
+    // which puts the tag first here and the priority last.
+    expect(said.indexOf(t('todo.quickadd.kind.tag', { text: '#工作' })))
+      .toBeLessThan(said.indexOf(t('todo.quickadd.kind.priority', { text: '!2' })))
+  })
+
+  it('leaves a line it read nothing in unpainted and unsaid', () => {
+    const section = card(view!.container, '工作')
+    const input = openAdd(section)
+    typeInto(input, '给花浇水')
+
+    expect(tinted(section)).toEqual([])
+    expect(input.getAttribute('aria-describedby')).toBeNull()
+    expect(section.querySelector<HTMLElement>('#todo-quickadd-summary')?.textContent).toBe('')
+  })
+
   it('says a filtered card has no matches instead of reading blank', () => {
     act(() => {
       useTodos.setState({
@@ -221,5 +314,59 @@ describe('the board\u2019s inline quick add', () => {
     const inbox = card(view!.container, t('todo.smart.inbox'))
     expect(inbox.textContent).toContain(t('todo.empty.search'))
     expect(inbox.textContent).not.toContain(t('todo.empty.list'))
+  })
+
+  it('sends the plan the line named as the row’s own column', async () => {
+    const section = card(view!.container, '工作')
+    const input = openAdd(section)
+    typeInto(input, '写周报 1h20m')
+    await pressEnter(input)
+
+    expect(service.creates).toHaveLength(1)
+    expect(service.creates[0]!.title).toBe('写周报')
+    expect(service.creates[0]!.timeEstimate).toBe(80 * MINUTE)
+    expect(service.logged, 'a line that spent nothing logged nothing').toEqual([])
+  })
+
+  it('paints the plan it read among the words of the line', () => {
+    const section = card(view!.container, '工作')
+    typeInto(openAdd(section), '写周报 5m/1h')
+
+    // One band for the pair: the two halves are one answer, and cutting them apart would paint a
+    // spent minute over the word that names the plan.
+    expect(tinted(section)).toEqual(['5m/1h'])
+  })
+
+  it('files the spent half of a pair at the ledger door, not on the row', async () => {
+    const section = card(view!.container, '工作')
+    const input = openAdd(section)
+    typeInto(input, '写周报 5m/1h')
+    await pressEnter(input)
+    await settle()
+
+    expect(service.creates).toHaveLength(1)
+    const body = service.creates[0]!
+    expect(body.title).toBe('写周报')
+    expect(body.timeEstimate).toBe(HOUR)
+    expect(body, 'the spent half is a ledger row, not a column of the create body').not.toHaveProperty('timeLoggedMs')
+
+    expect(service.logged).toHaveLength(1)
+    expect(service.logged[0]!.id).toBe('created')
+    // The line named no clock of its own, so the span is the length it said, ending at the press.
+    expect(service.logged[0]!.span).toEqual({ startAt: NOW - 5 * MINUTE, endAt: NOW })
+  })
+
+  it('refuses the spent half one ledger row cannot hold, and still files the row', async () => {
+    const section = card(view!.container, '工作')
+    const input = openAdd(section)
+    typeInto(input, '写周报 5h/1h')
+    await pressEnter(input)
+    await settle()
+
+    expect(service.creates).toHaveLength(1)
+    expect(service.creates[0]!.timeEstimate).toBe(HOUR)
+    expect(service.logged, 'a span past the ceiling was sent to the ledger anyway').toEqual([])
+    const said = useUi.getState().toasts.map((entry) => entry.title)
+    expect(said, 'the refusal was swallowed instead of said').toContain(t('todo.time.logged_refused'))
   })
 })

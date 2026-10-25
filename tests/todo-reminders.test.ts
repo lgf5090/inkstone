@@ -3,7 +3,8 @@
  * The reminder sweep.
  *
  * What is pinned: a reminder that has come due is delivered once, a completed task is never announced,
- * one account's reminder never reaches another account's notification list, and a failure inside one
+ * a task the reader has started is announced just as plainly, one account's reminder never reaches
+ * another account's notification list, and a failure inside one
  * row does not stop the rest of the tick. The last one is the reason the sweep is written per-row rather
  * than as one statement: a cron that gives up at the first bad row would leave every reminder behind it
  * undelivered, and the reader would only find out by noticing silence.
@@ -20,6 +21,7 @@ import worker from '../src/worker/index'
 import { EN_US_TODO_NOTIFY } from '../src/shared/locales/en-US-todo-notify'
 import { ZH_CN_TODO_NOTIFY } from '../src/shared/locales/zh-CN-todo-notify'
 import type { Env } from '../src/worker/env'
+import type { TaskStatus } from '../src/shared/todos/model'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
 
@@ -38,7 +40,7 @@ beforeEach(() => {
 })
 
 /** A task whose reminder is `offsetMs` from the sweep time. */
-async function reminderTask(userId: string, over: { title?: string, offsetMs?: number, status?: 'todo' | 'done' } = {}) {
+async function reminderTask(userId: string, over: { title?: string, offsetMs?: number, status?: TaskStatus } = {}) {
   const store = new AssistantStore(env.DB as D1Database, userId, env)
   const due = NOW + 60 * 60 * 1000
   return await store.createTask({
@@ -107,6 +109,30 @@ describe('sweepTaskReminders', () => {
     expect(notificationCount(ALICE)).toBe(0)
   })
 
+  it('delivers nothing for a task whose due date was taken away', async () => {
+    const store = new AssistantStore(env.DB as D1Database, ALICE, env)
+    const task = await store.createTask({
+      title: 'Loose end',
+      dueAt: NOW + 60 * 60 * 1000,
+      reminders: [NOW - 60_000],
+    })
+
+    const cleared = await store.updateTask(task.id, { dueAt: null }, 'UTC')
+    // A reminder is a distance from the due date. With no date left, the distance has no anchor, so the
+    // pending row goes with it rather than firing on a schedule the reader just erased.
+    expect(cleared?.dueAt).toBeNull()
+    expect(cleared?.reminders ?? []).toEqual([])
+
+    expect(await sweepTaskReminders(env, NOW)).toMatchObject({ due: 0, sent: 0 })
+    expect(notificationCount(ALICE)).toBe(0)
+
+    // A patch that names its own reminder list still owns it: taking the date away does not overrule
+    // the instants the same request spelled out — the editor sends both fields in one save.
+    const both = await store.createTask({ title: 'Named anyway', dueAt: NOW + 60 * 60 * 1000, reminders: [NOW - 60_000] })
+    const named = await store.updateTask(both.id, { dueAt: null, reminders: [NOW + 5 * 60_000] }, 'UTC')
+    expect(named?.reminders).toEqual([NOW + 5 * 60_000])
+  })
+
   it('leaves a reminder that is not due yet alone', async () => {
     await reminderTask(ALICE, { offsetMs: 60 * 60 * 1000 })
     expect(await sweepTaskReminders(env, NOW)).toMatchObject({ due: 0, sent: 0 })
@@ -116,6 +142,18 @@ describe('sweepTaskReminders', () => {
     await reminderTask(ALICE, { status: 'done' })
     expect(await sweepTaskReminders(env, NOW)).toMatchObject({ due: 0, sent: 0 })
     expect(await notificationsOf(ALICE)).toHaveLength(0)
+  })
+
+  it('announces a reminder on a task the reader has started', async () => {
+    // Starting a task does not put it beyond reaching its reader: `in_progress` is on the owed side of
+    // the line, so the sweep has to hand over the notification the same way it does for a `todo` row.
+    // The row reaches the sweep twice — once through the read, once through the claim's `EXISTS` — and
+    // both halves are the same predicate, so a started task dropped here would go unsent in silence.
+    await reminderTask(ALICE, { title: 'Started work', status: 'in_progress' })
+
+    const result = await sweepTaskReminders(env, NOW)
+    expect(result).toMatchObject({ due: 1, sent: 1, claimed: 0, failed: 0 })
+    expect((await notificationsOf(ALICE)).map((row) => row.title)).toEqual([expect.stringContaining('Started work')])
   })
 
   it('keeps one account\'s reminder out of another account\'s list', async () => {

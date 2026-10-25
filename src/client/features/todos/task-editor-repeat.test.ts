@@ -10,7 +10,7 @@ import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
-import { chooseOption } from '../../lib/test-menu'
+import { chooseOption, selectedLabel } from '../../lib/test-menu'
 
 // The export helpers inline KaTeX's stylesheet, which Vite refuses through this checkout's symlinked
 // `node_modules`; nothing here exports a note or renders math.
@@ -25,18 +25,20 @@ vi.mock('../../lib/export-note', () => ({
 vi.mock('katex/dist/katex.min.css?inline', () => ({ default: '' }))
 
 import type { MessageKey } from '@shared/locales/en-US'
-import type { TodoTask } from '@shared/todos/model'
+import type { RepeatRule, TodoTask } from '@shared/todos/model'
 import { useTodos, type TaskDraft } from './store'
 import { TaskEditor } from './TaskEditor'
 
 const original = useTodos.getState()
 const created = vi.fn<(input: TaskDraft) => Promise<TodoTask | null>>().mockResolvedValue(null)
+const updated = vi.fn<(id: string, patch: Record<string, unknown>) => Promise<TodoTask | null>>().mockResolvedValue(null)
 let view: RenderedElement | null = null
 
 beforeEach(async () => {
   localStorage.clear()
   await initI18n()
   created.mockClear()
+  updated.mockClear()
   useTodos.setState(original, true)
   useTodos.setState({
     editorOpen: true,
@@ -48,6 +50,7 @@ beforeEach(async () => {
     timezone: 'UTC',
     saving: false,
     createTask: created,
+    updateTask: updated,
   })
 })
 
@@ -113,5 +116,95 @@ describe('the repeat controls', () => {
 
     await save()
     expect(savedRepeat()).toEqual({ freq: 'monthly', interval: 1, monthlyMode: 'lastDay' })
+  })
+})
+
+/** One stored task, so the panel opens on a rule it can only read. */
+function stored(id: string, dueAt: number | null, repeat: RepeatRule | null): TodoTask {
+  return {
+    id,
+    title: 'Rent',
+    description: '',
+    status: 'todo',
+    priority: 'medium',
+    dueAt,
+    remindAt: null,
+    remindedAt: null,
+    plannedFor: null,
+    completedAt: null,
+    createdAt: 0,
+    updatedAt: 0,
+    listId: null,
+    tags: [],
+    starred: false,
+    repeat,
+    noteId: null,
+    conversationId: null,
+    projectId: null,
+    stepTotal: 0,
+    stepDone: 0,
+  }
+}
+
+/** The 2026-10-16 09:00 the account zone reads as UTC: the third Friday of that month. */
+const THIRD_FRIDAY = Date.UTC(2026, 9, 16, 9, 0)
+
+describe('a monthly rule on an nth weekday', () => {
+  /** Opens the panel on the stored task and lets its row land. */
+  async function editRepeating(task: TodoTask): Promise<void> {
+    useTodos.setState({ draft: { id: task.id }, tasks: [task] })
+    view = renderElement(createElement(TaskEditor))
+    await act(async () => { await Promise.resolve() })
+  }
+
+  it('reads the mode back rather than folding it into the due date', async () => {
+    await editRepeating(stored('r1', THIRD_FRIDAY, { freq: 'monthly', interval: 1, monthlyMode: 'nthWeekday' }))
+
+    expect(
+      selectedLabel(panel(), t('todo.repeat.monthly_mode')),
+      'an nth-weekday rule reads as "on the due date" the moment the panel opens',
+    ).toBe(t('todo.repeat.nth_weekday'))
+  })
+
+  it('saves the nth-weekday rule it was opened with, untouched', async () => {
+    await editRepeating(stored('r1', THIRD_FRIDAY, { freq: 'monthly', interval: 1, monthlyMode: 'nthWeekday' }))
+
+    await save()
+    expect(updated).toHaveBeenCalledTimes(1)
+    expect(updated.mock.calls[0]![1].repeat)
+      .toEqual({ freq: 'monthly', interval: 1, monthlyMode: 'nthWeekday' })
+  })
+
+  it('shows which nth weekday the due date the rule reads already sits on', async () => {
+    await editRepeating(stored('r1', THIRD_FRIDAY, { freq: 'monthly', interval: 1, monthlyMode: 'nthWeekday' }))
+
+    expect(selectedLabel(panel(), t('todo.repeat.nth'))).toBe(t('todo.repeat.nth_3'))
+    expect(weekdayButton(t('assistant.weekday.5')).getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('moves the due date to the weekday the reader picks, and keeps its time', async () => {
+    await editRepeating(stored('r1', THIRD_FRIDAY, { freq: 'monthly', interval: 1, monthlyMode: 'nthWeekday' }))
+
+    await chooseOption(panel(), t('todo.repeat.nth'), t('todo.repeat.nth_1'))
+    act(() => { weekdayButton(t('assistant.weekday.1')).click() })
+    await save()
+
+    // October 2026: its first Monday is the 5th, and the 09:00 the task was owed at stays on it.
+    expect(updated.mock.calls[0]![1].dueAt).toBe('2026-10-05T09:00')
+    expect(updated.mock.calls[0]![1].repeat)
+      .toEqual({ freq: 'monthly', interval: 1, monthlyMode: 'nthWeekday' })
+  })
+
+  it('creates the mode from a task that never had one', async () => {
+    useTodos.setState({ draft: { title: 'Rent', dueAt: '2026-10-16T09:00' } })
+    view = renderElement(createElement(TaskEditor))
+    await act(async () => { await Promise.resolve() })
+
+    await chooseOption(panel(), t('todo.task.repeat_label'), t('todo.repeat.monthly'))
+    await chooseOption(panel(), t('todo.repeat.monthly_mode'), t('todo.repeat.nth_weekday'))
+    await save()
+
+    expect(created.mock.calls[0]![0].repeat)
+      .toEqual({ freq: 'monthly', interval: 1, monthlyMode: 'nthWeekday' })
   })
 })

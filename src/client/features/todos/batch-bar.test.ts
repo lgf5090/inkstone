@@ -25,21 +25,28 @@ const service = vi.hoisted(() => ({
   /** Every batch request, in the order the client made it. */
   batches: [] as { ids: string[]; op: string; value?: unknown }[],
   restores: [] as string[],
+  /** The occurrence a `complete` batch answers with, or null while the fake files none. */
+  filed: null as TodoTask | null,
+  /** Set to make the listing read fail, the way a connection that drops after a write does. */
+  listFails: false,
 }))
 
 vi.mock('../../lib/api', () => ({
   api: {
     todos: {
-      list: async () => ({
-        tasks: service.tasks,
-        total: service.tasks.length,
-        counts: {
-          inbox: 0, today: 0, upcoming: 0, overdue: 0, all: service.tasks.length,
-          completed: 0, starred: 0, byList: {}, byTag: {},
-        } satisfies TaskCounts,
-        dayEnd: Date.now() + 3_600_000,
-        timezone: 'UTC',
-      }),
+      list: async () => {
+        if (service.listFails) throw new Error('The connection went away')
+        return {
+          tasks: service.tasks,
+          total: service.tasks.length,
+          counts: {
+            inbox: 0, today: 0, upcoming: 0, overdue: 0, all: service.tasks.length,
+            completed: 0, starred: 0, byList: {}, byTag: {},
+          } satisfies TaskCounts,
+          dayEnd: Date.now() + 3_600_000,
+          timezone: 'UTC',
+        }
+      },
       lists: async () => ({ lists: service.lists }),
       tags: async () => ({ tags: service.tags }),
       get: async () => ({ task: null, steps: [] }),
@@ -54,7 +61,12 @@ vi.mock('../../lib/api', () => ({
           }
           service.tasks = service.tasks.filter((task) => !body.ids.includes(task.id))
         }
-        return { done: body.ids, failed: [] }
+        // A completion answers with the occurrence the route filed, the same row the single-task PATCH
+        // hands over; every other operation answers null beside its id.
+        return {
+          done: body.ids.map((id) => ({ id, next: body.op === 'complete' ? service.filed : null })),
+          failed: [],
+        }
       },
       restore: async (id: string) => {
         service.restores.push(id)
@@ -121,6 +133,8 @@ beforeEach(async () => {
   service.tags = [tag('tag-1', 'Focus')]
   service.batches.length = 0
   service.restores.length = 0
+  service.filed = null
+  service.listFails = false
   useTodos.setState(original, true)
   useUi.setState({ toasts: [] })
 })
@@ -228,6 +242,30 @@ describe('entering selection', () => {
   })
 })
 
+describe('the star the bar owes the picked rows', () => {
+  it('sends a star batch for exactly the ids on screen', async () => {
+    stubBreakpoint(true)
+    await render()
+
+    act(() => {
+      titleButton(view!.container, 'First').dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }),
+      )
+      titleButton(view!.container, 'Second').dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }),
+      )
+    })
+
+    const bar = batchBar(view!.container)
+    expect(bar, 'the selection never reached the bar').not.toBeNull()
+    act(() => { barButton(bar!, t('todo.task.star')).click() })
+    await settle()
+
+    // The route reads an explicit true rather than its own default, so the bar says which way it starred.
+    expect(service.batches).toEqual([{ ids: ['a', 'b'], op: 'star', value: 'true' }])
+  })
+})
+
 describe('a batch that deleted rows', () => {
   it('restores every deleted task when the reader takes the step back', async () => {
     service.tasks = [row('a', 'First', { listId: 'L1', tags: [tag('tag-1', 'Focus')] }), row('b', 'Second')]
@@ -240,7 +278,7 @@ describe('a batch that deleted rows', () => {
 
     const result = await useTodos.getState().batchTasks('delete')
 
-    expect(result).toEqual({ done: ['a', 'b'], failed: [] })
+    expect(result).toEqual({ done: [{ id: 'a', next: null }, { id: 'b', next: null }], failed: [] })
     expect(service.batches).toEqual([{ ids: ['a', 'b'], op: 'delete' }])
     // The request picks up both rows and the server's answer empties the page.
     expect(useTodos.getState().selectedIds.size).toBe(0)
@@ -253,5 +291,46 @@ describe('a batch that deleted rows', () => {
     expect(service.restores).toEqual(['a', 'b'])
     expect(useTodos.getState().tasks.map((task) => task.title).sort()).toEqual(['First', 'Second'])
     expect(useTodos.getState().tasks.find((task) => task.id === 'a')?.tags.map((entry) => entry.name)).toEqual(['Focus'])
+  })
+})
+
+describe('a batch that archived rows', () => {
+  // The shelf is the one bar gesture that takes rows out of every list the reader browses, so the undo
+  // is not a convenience here: without it an accidental press has no way back on the screen.
+  it('files the selection away and takes it back with one step', async () => {
+    service.tasks = [row('a', 'First'), row('b', 'Second')]
+    useTodos.setState({ status: 'ready', tasks: service.tasks, total: 2, selectedIds: new Set(['a', 'b']) })
+
+    // The bar names the value rather than leaning on the route's default, the way its star button does.
+    await useTodos.getState().batchTasks('archive', 'true')
+
+    // Named value, not the route's default: the bar means "put away", and an omitted value would let a
+    // later default flip read as a different gesture.
+    expect(service.batches).toEqual([{ ids: ['a', 'b'], op: 'archive', value: 'true' }])
+    expect(useUi.getState().toasts.at(-1)?.action?.label).toBe(t('todo.action.undo'))
+
+    await useTodos.getState().undoLast()
+
+    expect(service.batches.at(-1)).toEqual({ ids: ['a', 'b'], op: 'archive', value: 'false' })
+  })
+})
+
+describe('a batch that completed repeating rows', () => {
+  it('keeps the occurrence the answer carried when the reload cannot be read', async () => {
+    const due = Date.parse('2026-10-21T02:00:00Z')
+    const weekly = { freq: 'weekly' as const, interval: 1 }
+    service.tasks = [row('a', 'Weekly report', { repeat: weekly, dueAt: due })]
+    service.filed = row('b', 'Weekly report', { repeat: weekly, dueAt: due + 7 * 24 * 60 * 60 * 1000 })
+    service.listFails = true
+    useTodos.setState({
+      status: 'ready', tasks: service.tasks, total: 1, selectedIds: new Set(['a']),
+    })
+
+    const result = await useTodos.getState().batchTasks('complete')
+
+    expect(result?.done).toEqual([{ id: 'a', next: service.filed }])
+    // The row the server made is on screen even though the page could not be re-read: the batch answer
+    // named it, so a connection that drops in the gap does not hide the next occurrence.
+    expect(useTodos.getState().tasks.map((task) => task.id)).toEqual(['a', 'b'])
   })
 })

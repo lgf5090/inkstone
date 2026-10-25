@@ -1,20 +1,42 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { AssistantStore } from '../src/worker/assistant/store'
+import { listTodoAttachments } from '../src/worker/todos/schema'
 import type { Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
+import { isTaskDone, isTaskOpen } from '../src/shared/todos/status'
 
 const USER = 'user-alice'
 const OTHER = 'user-bob'
 const HOUR = 60 * 60 * 1000
 const DAY = 24 * HOUR
 
+/** Two files a task can show: the link table cares only that the rows are the account's own. */
+const FILE_A = 'a'.repeat(26)
+const FILE_B = 'b'.repeat(26)
+
 let sqlite: DatabaseSync
 let env: Env
 let store: AssistantStore
+
+/** Seeds one file and the link that puts it on a task, the way the upload route leaves both. */
+function linkFile(taskId: string, attachmentId: string): void {
+  sqlite.prepare(
+    `INSERT INTO attachments (id, user_id, scope, note_id, filename, mime, size, sha256, object_key, width, height, storage, created_at)
+     VALUES (?, ?, 'todos', NULL, ?, 'text/plain', 4, ?, ?, NULL, NULL, 'r2', 1)`,
+  ).run(attachmentId, USER, `${attachmentId}.txt`, `${attachmentId}hash`, `todos/${USER}/${attachmentId}.txt`)
+  sqlite.prepare(
+    'INSERT INTO todos_attachments (user_id, task_id, attachment_id, created_at) VALUES (?, ?, ?, 1)',
+  ).run(USER, taskId, attachmentId)
+}
+
+async function fileIdsOf(taskId: string): Promise<string[]> {
+  const rows = await listTodoAttachments(env.DB as D1Database, USER, taskId)
+  return rows.map((row) => row.id).sort()
+}
 
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
@@ -22,6 +44,11 @@ beforeEach(() => {
   sqlite.exec(SCHEMA_STATEMENTS.join(';'))
   env = testBindings(makeD1(sqlite), { PUBLIC_URL: 'http://localhost' })
   store = new AssistantStore(env.DB as D1Database, USER, env)
+})
+
+// Only the cases that count a cycle from "now" hold the clock still, and none of them leaves it held.
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('writing a task', () => {
@@ -157,7 +184,8 @@ describe('the counts a sidebar and a card show', () => {
     await store.createTask({ title: 'Someday' })
     await store.createTask({ title: 'Starred', starred: true, tags: ['Focus'] })
     const done = await store.createTask({ title: 'Done', listId: list.id, tags: ['Focus'] })
-    await store.updateTask(done.id, { status: 'done' })
+    // Finished through `completeTask`: the general patch now refuses a transition into `done`.
+    await store.completeTask(done.id, 'UTC')
 
     const counts = await store.taskCounts(dayEnd)
 
@@ -167,6 +195,59 @@ describe('the counts a sidebar and a card show', () => {
     // could not be checked against either group in it.
     const tag = (await store.listTaskTags()).find((entry) => entry.name === 'Focus')!
     expect(counts.byTag[tag.id]).toEqual({ open: 1, done: 1 })
+  })
+
+  it('counts a started task as work the reader still owes in every badge at once', async () => {
+    // Four started rows, placed so each one lands in a different badge: an undated row is today's by
+    // being started, a late row is overdue and today's, a future row is upcoming and sits on a list
+    // card, and a tagged row is the starred one. A badge that read `in_progress` as finished would
+    // drop all four, and the `done` row is here so a badge that read it as finished cannot simply
+    // answer zero everywhere and pass.
+    const now = Date.now()
+    const dayEnd = now + 6 * HOUR
+    const list = await store.createTaskList({ name: 'Work' })
+    await store.createTask({ title: 'Started undated', status: 'in_progress' })
+    await store.createTask({ title: 'Started late', status: 'in_progress', dueAt: now - 2 * DAY, starred: true })
+    await store.createTask({ title: 'Started ahead', status: 'in_progress', dueAt: now + 3 * DAY, listId: list.id, tags: ['Focus'] })
+    await store.createTask({ title: 'Started today', status: 'in_progress', dueAt: now + HOUR, tags: ['Focus'] })
+    const done = await store.createTask({ title: 'Done', listId: list.id, tags: ['Focus'] })
+    await store.completeTask(done.id, 'UTC')
+
+    const counts = await store.taskCounts(dayEnd)
+
+    expect(counts).toMatchObject({ inbox: 3, today: 3, upcoming: 1, overdue: 1, all: 4, completed: 1, starred: 1 })
+    expect(counts.byList[list.id]).toEqual({ open: 1, done: 1 })
+    const tag = (await store.listTaskTags()).find((entry) => entry.name === 'Focus')!
+    expect(counts.byTag[tag.id]).toEqual({ open: 2, done: 1 })
+
+    // The same four rows are what the list, tag and collection screens count for themselves — the
+    // `openCount` a sidebar row prints is read off the open set, not off "not finished".
+    expect(tag.openCount).toBe(2)
+    const started = await store.getTaskList(list.id)
+    expect(started?.openCount).toBe(1)
+    expect(started?.doneCount).toBe(1)
+    expect((await store.listTaskLists()).find((entry) => entry.id === list.id)?.openCount).toBe(1)
+  })
+
+  it('reads a cancelled row as neither owed nor finished — the row and the count agree', async () => {
+    // A `cancelled` row is written straight to the column here, the way a newer build or a hand-edited
+    // database would leave it. The SQL counting side already excludes it from `open`, so a badge built
+    // on those counts says the reader owes nothing. The row read has to answer the same way: a decoder
+    // that clamped an unrecognized status back to `todo` would call this same row a debt, and one piece
+    // of data would give two answers depending on which door you entered through.
+    const list = await store.createTaskList({ name: 'Work' })
+    const task = await store.createTask({ title: 'Abandoned', listId: list.id })
+    sqlite.prepare(`UPDATE todos_tasks SET status = 'cancelled' WHERE id = ?`).run(task.id)
+
+    const read = await store.getTask(task.id)
+    expect(read).not.toBeNull()
+    // Not owed: the row read agrees with the SQL open set.
+    expect(isTaskOpen(read!.status)).toBe(false)
+    // Not finished either: abandoning is not completing, so the done set must not claim it.
+    expect(isTaskDone(read!.status)).toBe(false)
+
+    const counts = await store.taskCounts(Date.now() + 6 * HOUR)
+    expect(counts.byList[list.id]).toEqual({ open: 0, done: 0 })
   })
 })
 
@@ -204,6 +285,132 @@ describe('completing a task', () => {
     const task = await store.createTask({ title: 'One off' })
     const result = await store.completeTask(task.id, 'UTC')
     expect(result?.next).toBeNull()
+  })
+
+  // The counter lives in the row's own JSON, so the only way a bounded series ends is for the rule
+  // read back off that row to still carry it. These three go through the store rather than
+  // `advanceRepeat` for exactly that reason: the unit case passes a rule in by hand, and a rule
+  // written by hand has never survived a reload.
+  it('counts the occurrences it files toward the ceiling the row carries', async () => {
+    const first = await store.createTask({
+      title: 'Stand-up',
+      dueAt: Date.parse('2026-10-19T09:00:00Z'),
+      repeat: { freq: 'daily', interval: 1, count: 2 },
+    })
+
+    const filed = await store.completeTask(first.id, 'UTC')
+    expect(filed?.next?.dueAt).toBe(Date.parse('2026-10-20T09:00:00Z'))
+    expect((await store.getTask(filed!.next!.id))?.repeat).toEqual({ freq: 'daily', interval: 1, count: 2, produced: 2 })
+
+    const second = await store.completeTask(filed!.next!.id, 'UTC')
+    expect(second?.next).toBeNull()
+  })
+
+  it('files nothing while the series is paused, and keeps the ceiling for when it is not', async () => {
+    const task = await store.createTask({
+      title: 'Stand-up',
+      dueAt: Date.parse('2026-10-19T09:00:00Z'),
+      repeat: { freq: 'daily', interval: 1, count: 5, paused: true },
+    })
+
+    const result = await store.completeTask(task.id, 'UTC')
+
+    expect(result?.next).toBeNull()
+    // The finished row keeps the rule it was owed, counter and all: reopening it and finishing again
+    // has to spend the turn it would have spent, not a fresh one.
+    expect((await store.getTask(task.id))?.repeat).toEqual({ freq: 'daily', interval: 1, count: 5, paused: true })
+  })
+
+  it('steps over the day the reader let go of', async () => {
+    const task = await store.createTask({
+      title: 'Stand-up',
+      dueAt: Date.parse('2026-10-19T09:00:00Z'),
+      repeat: { freq: 'daily', interval: 1, excludedDays: ['2026-10-20'] },
+    })
+
+    const result = await store.completeTask(task.id, 'UTC')
+
+    expect(result?.next?.dueAt).toBe(Date.parse('2026-10-21T09:00:00Z'))
+  })
+
+  it('carries the face, the pick and the files the finished task had', async () => {
+    const due = Date.parse('2026-10-19T09:00:00Z')
+    const task = await store.createTask({
+      title: 'Weekly review',
+      dueAt: due,
+      icon: 'lucide:Timer',
+      color: '#2563eb',
+      repeat: { freq: 'weekly', interval: 1 },
+    })
+    await store.planTask(task.id, '2026-10-19')
+    linkFile(task.id, FILE_A)
+    linkFile(task.id, FILE_B)
+
+    const next = (await store.completeTask(task.id, 'UTC'))?.next
+
+    // A copy that lost the icon the reader set wears its list's face instead, which is a different
+    // task; the same goes for the colour. Both are the task's own, so both are the copy's own.
+    expect(next).toMatchObject({ icon: 'lucide:Timer', color: '#2563eb' })
+    // The pick travels as a pick for the new occurrence's own day, not for the day the finished row
+    // was picked for: a copy wearing a date that has already passed sits in a My Day nobody reads.
+    expect(next?.plannedFor).toBe('2026-10-26')
+    // The files come along as links, not as copies of the bytes.
+    expect(next ? await fileIdsOf(next.id) : []).toEqual([FILE_A, FILE_B])
+    // A copy is not a move: the finished row still shows its own files.
+    expect(await fileIdsOf(task.id)).toEqual([FILE_A, FILE_B])
+  })
+
+  it('files the next copy of an undated repeat undated, and the chain still advances', async () => {
+    const task = await store.createTask({
+      title: 'Someday, weekly',
+      repeat: { freq: 'weekly', interval: 1 },
+    })
+
+    const result = await store.completeTask(task.id, 'UTC')
+
+    // A task that was never owed on a day does not acquire one by being finished: the next copy is
+    // filed undated, and so carries no reminder and no start, because both are distances from a due.
+    expect(result?.next).toMatchObject({ dueAt: null, startAt: null })
+    expect(result?.next?.reminders ?? []).toEqual([])
+    // The copy still repeats, so ticking it off files the one after it: no due date is a blank
+    // schedule, not a dead end.
+    const again = await store.completeTask(result!.next!.id, 'UTC')
+    expect(again?.next).not.toBeNull()
+    expect(again?.next?.dueAt).toBeNull()
+  })
+
+  it('keeps a picked undated repeat picked, for the day its next cycle opens', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-19T06:00:00Z'))
+    const task = await store.createTask({
+      title: 'Someday, weekly',
+      repeat: { freq: 'weekly', interval: 1 },
+    })
+    await store.planTask(task.id, '2026-10-19')
+
+    const next = (await store.completeTask(task.id, 'UTC'))?.next
+
+    expect(next?.dueAt).toBeNull()
+    expect(next?.plannedFor).toBe('2026-10-26')
+  })
+
+  // The today view's search box reads both sides of the shelf, so a shelved row is offered as pickable.
+  // A pick that only wrote `planned_for` would then succeed and leave the row invisible — the silent
+  // no-op, on the one screen whose whole job is putting work in front of the reader.
+  it('takes a shelved task off the shelf when it is picked into a day, and only then', async () => {
+    vi.setSystemTime(new Date('2026-10-19T06:00:00Z'))
+    const task = await store.createTask({ title: 'Put away', archivedAt: Date.now() })
+    expect((await store.listTasks({ view: 'all' })).map((row) => row.id)).not.toContain(task.id)
+
+    const picked = await store.planTask(task.id, '2026-10-19')
+
+    expect(picked).toMatchObject({ plannedFor: '2026-10-19', archivedAt: null })
+    expect((await store.listTasks({ view: 'all' })).map((row) => row.id)).toContain(task.id)
+
+    // Un-picking answers "not today" and leaves the shelf where the reader put it.
+    const second = await store.createTask({ title: 'Also away', archivedAt: Date.now() })
+    const unpicked = await store.planTask(second.id, null)
+    expect(unpicked).toMatchObject({ plannedFor: null, archivedAt: expect.any(Number) })
   })
 
   it('is idempotent: completing a finished task does not clone it again', async () => {

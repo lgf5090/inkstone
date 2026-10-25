@@ -12,6 +12,7 @@ import { LIMITS } from '../src/shared/constants'
 import { AssistantStore } from '../src/worker/assistant/store'
 import {
   MAX_BATCH_TASKS,
+  MAX_TASK_ICON_CHARS,
   type TaskBatchResult,
   type TaskCounts,
   type TaskList,
@@ -161,6 +162,105 @@ describe('the task endpoints', () => {
     expect((await json<{ tasks: TodoTask[] }>(await send('GET', '?status=open'))).tasks).toHaveLength(1)
   })
 
+  // The whole series round trip, over the one door a reader's browser actually uses. The validator and
+  // the row reader are different code from the advance, and the ceiling has to survive both: a PATCH
+  // that stored `count` while the GET stripped it would show the reader a series that never ends.
+  it('ends a bounded series asked for over HTTP', async () => {
+    // A caller of its own, for the reason the face case above records: these five writes come out of
+    // the same module-wide budget, and the block is already running close to its ceiling.
+    mocks.userId = `bounded${'0'.repeat(20)}`
+    const due = Date.parse('2026-10-21T02:00:00Z')
+    const task = await create({ title: 'Stand-up', dueAt: due, repeat: { freq: 'daily', interval: 1, count: 2 } })
+
+    const read = await json<{ task: TodoTask }>(await send('GET', `/${task.id}`))
+    expect(read.task.repeat).toEqual({ freq: 'daily', interval: 1, count: 2 })
+
+    const first = await json<{ next?: TodoTask }>(await send('PATCH', `/${task.id}`, { status: 'done' }))
+    expect(first.next!.dueAt).toBe(due + 24 * 60 * 60 * 1000)
+    expect(first.next!.repeat).toEqual({ freq: 'daily', interval: 1, count: 2, produced: 2 })
+
+    const second = await json<{ next?: TodoTask }>(await send('PATCH', `/${first.next!.id}`, { status: 'done' }))
+    expect(second.next).toBeUndefined()
+    expect((await json<{ tasks: TodoTask[] }>(await send('GET', '?status=open'))).tasks).toHaveLength(0)
+  })
+
+  it('refuses a series limit the app could not have written', async () => {
+    expect((await send('POST', '', { title: 'Bad ceiling', repeat: { freq: 'daily', interval: 1, count: 0 } })).status).toBe(400)
+  })
+
+  // The shelf, as one rule rather than four screens: it is the batch door that stamps `archived_at`,
+  // and everything below is that one predicate answering consistently across four endpoints. The row is
+  // not deleted, so the statistics keep its finish and a read by id keeps its record; the reader simply
+  // stops being shown it — in the completed list too, which is what makes closing a day do something.
+  it('takes an archived task off every list but keeps its record and its place in the numbers', async () => {
+    mocks.userId = `shelf${'0'.repeat(20)}`
+    const owed = await create({ title: 'Renew the licence' })
+    const finished = await create({ title: 'File the return', dueAt: Date.now() - 60_000 })
+    await send('POST', '/batch', { op: 'complete', ids: [finished.id] })
+
+    const archived = await send('POST', '/batch', { op: 'archive', ids: [owed.id, finished.id] })
+    expect(archived.status).toBe(200)
+    expect((await json<{ failed: unknown[] }>(archived)).failed).toEqual([])
+
+    const page = await json<{ tasks: TodoTask[], counts: TaskCounts }>(await send('GET', ''))
+    expect(page.tasks.map((entry) => entry.id)).toEqual([])
+    // The badges go with the rows, not with the database: a shelf that still counted would put the
+    // number back on the very screen it just emptied.
+    expect(page.counts).toMatchObject({ all: 0, inbox: 0, completed: 0 })
+    expect((await json<{ tasks: TodoTask[] }>(await send('GET', '?view=completed'))).tasks).toEqual([])
+
+    // A read by name still answers: a search hit, a shared link or the assistant's own reference to the
+    // row has to reach the record the shelf only hid.
+    const single = await json<{ task: TodoTask }>(await send('GET', `/${owed.id}`))
+    expect(single.task.title).toBe('Renew the licence')
+    expect(single.task.archivedAt).toBeTypeOf('number')
+
+    const stats = await json<{ summary: { completed: number, open: number } }>(
+      await send('GET', '/stats?from=2020-01-01&to=2099-12-31'))
+    // The statistics read the work, not the shelf, and that is a decision rather than an accident:
+    // putting a task away is neither finishing it (so its finish still counts) nor abandoning it (so the
+    // one still owed stays owed, and can be taken down and done). `cancelled` is the state that leaves
+    // the plate, and it is counted in `abandoned`, apart from this.
+    expect(stats.summary).toMatchObject({ completed: 1, open: 1 })
+
+    // And the same door with `false` is the way back, which is what an undo on the toast would press.
+    await send('POST', '/batch', { op: 'archive', value: false, ids: [owed.id] })
+    const back = await json<{ tasks: TodoTask[] }>(await send('GET', '?view=all'))
+    expect(back.tasks.map((entry) => entry.id)).toEqual([owed.id])
+  })
+
+  // A shelf nobody can look at again is not a shelf but a deletion the reader cannot undo. The three
+  // readings of one parameter are the whole answer, and the widened one only ever exists because a
+  // caller asked for it — a listing that forgets to name `archived` keeps hiding what it always hid.
+  it('reads either side of the shelf when the caller names which one', async () => {
+    mocks.userId = `shelfread${'0'.repeat(20)}`
+    const inFront = await create({ title: 'Still owed' })
+    const shelved = await create({ title: 'Put away' })
+    await send('POST', '/batch', { op: 'archive', value: 'true', ids: [shelved.id] })
+
+    const ordinary = await json<{ tasks: TodoTask[] }>(await send('GET', '?view=all'))
+    expect(ordinary.tasks.map((entry) => entry.id)).toEqual([inFront.id])
+
+    const only = await json<{ tasks: TodoTask[] }>(await send('GET', '?view=all&archived=1'))
+    expect(only.tasks.map((entry) => entry.id)).toEqual([shelved.id])
+
+    const both = await json<{ tasks: TodoTask[] }>(await send('GET', '?view=all&archived=any'))
+    expect(both.tasks.map((entry) => entry.id).sort()).toEqual([inFront.id, shelved.id].sort())
+
+    // A word nobody spelled falls back to the ordinary listing rather than guessing wider.
+    expect((await json<{ tasks: TodoTask[] }>(await send('GET', '?view=all&archived=maybe'))).tasks).toHaveLength(1)
+    // The badges still count the ordinary listing, so the number beside the shelf is not the shelf's.
+    expect((await json<{ counts: TaskCounts }>(await send('GET', '?view=all'))).counts.all).toBe(1)
+  })
+
+  it('refuses a batch archive target that is neither true nor false', async () => {
+    mocks.userId = `shelfflag${'0'.repeat(20)}`
+    const task = await create({ title: 'Ambiguous shelf' })
+    const response = await send('POST', '/batch', { op: 'archive', value: 'maybe', ids: [task.id] })
+    expect(response.status).toBe(400)
+    expect((await json<{ error?: { message?: string } }>(response)).error?.message).toContain('archive')
+  })
+
   it('returns the task, its steps and the counts in one read', async () => {
     const task = await create({ title: 'Ship it', steps: ['Write', 'Review'] })
     const detail = await json<{ task: TodoTask, steps: TaskStep[] }>(await send('GET', `/${task.id}`))
@@ -201,6 +301,35 @@ describe('the task endpoints', () => {
     expect((await send('PATCH', `/${task.id}`, { status: 'someday' })).status).toBe(400)
   })
 
+  /**
+   * The HTTP face door, measured against the store's.
+   *
+   * Both doors judge an icon and a colour with the same accept set, and only the way they answer a
+   * value outside it differs: this one refuses, the store's writes null and names the loss. A 400 here
+   * still has to be a 400 — a route that started dropping instead of refusing would be the second
+   * silent door this whole shape exists to close.
+   */
+  it('refuses a task face the pickers could never produce again, and reports nothing when it lands', async () => {
+    // This case spends a caller of its own: the write budget is module-wide and keyed by whoever is
+    // signed in, and `the task endpoints` block already runs close to the ceiling, so five more
+    // writes here would answer the cases after it with a 429 rather than the verdict being tested.
+    mocks.userId = `taskface${'0'.repeat(20)}`
+    const tooLong = 'lucide:'.padEnd(MAX_TASK_ICON_CHARS + 1, 'x')
+
+    expect((await send('POST', '', { title: 'One', icon: tooLong })).status).toBe(400)
+    expect((await send('POST', '', { title: 'One', color: 'crimson' })).status).toBe(400)
+
+    const task = await create({ title: 'One', icon: 'Briefcase', color: '#2563eb' })
+    const body = await json<{ task: TodoTask }>(await send('GET', `/${task.id}`))
+    expect(body.task.icon).toBe('Briefcase')
+    expect(body.task.color).toBe('#2563eb')
+
+    const patched = await json<{ task: TodoTask }>(await send('PATCH', `/${task.id}`, { icon: null }))
+    expect(patched.task.icon).toBeNull()
+    // A face that landed as asked has nothing to report, so the answer stays the shape it always was.
+    expect(patched.task.droppedFace).toBeUndefined()
+  })
+
   it('deletes a task', async () => {
     const task = await create({ title: 'One' })
     expect((await send('DELETE', `/${task.id}`)).status).toBe(200)
@@ -228,6 +357,36 @@ describe('lists', () => {
   })
 })
 
+describe('list position validation', () => {
+  // The case spends a caller of its own: the write budget is module-wide and keyed by whoever is
+  // signed in, and six refusals plus two lands are not what the shared account's later cases signed
+  // up for.
+  let caller = 0
+
+  beforeEach(() => {
+    caller += 1
+    mocks.userId = `listpos${String(caller).padStart(19, '0')}`
+  })
+
+  it('refuses a list position that is not a whole non-negative number', async () => {
+    const list = await json<{ list: TaskList }>(await send('POST', '/lists', { name: 'Sort' })).then((body) => body.list)
+    // The store only truncates what it is handed before binding it to the INTEGER column, and
+    // `Math.trunc(NaN)` is NaN — so the route is the trust boundary that says no. JSON has no NaN:
+    // stringified it arrives as null, and that reads as the same refusal, as do a fraction, a
+    // negative and an unbounded number.
+    expect((await send('PATCH', `/lists/${list.id}`, { position: NaN })).status).toBe(400)
+    expect((await send('PATCH', `/lists/${list.id}`, { position: -1 })).status).toBe(400)
+    expect((await send('PATCH', `/lists/${list.id}`, { position: 1.5 })).status).toBe(400)
+    expect((await send('PATCH', `/lists/${list.id}`, { position: Infinity })).status).toBe(400)
+    // A whole non-negative number still lands, and an absent field is not a move: the row keeps the
+    // position the last move left it.
+    const moved = await json<{ list: TaskList }>(await send('PATCH', `/lists/${list.id}`, { position: 2000 }))
+    expect(moved.list.position).toBe(2000)
+    const untouched = await json<{ list: TaskList }>(await send('PATCH', `/lists/${list.id}`, { name: 'Sorted' }))
+    expect(untouched.list.position).toBe(2000)
+  })
+})
+
 describe('list archiving and grouping', () => {
   // Each case spends a caller of its own: the write budget is module-wide and keyed by whoever is
   // signed in, and these cases must not eat into what the list cases above already spent.
@@ -248,9 +407,13 @@ describe('list archiving and grouping', () => {
       .not.toContain(list.id)
     expect((await json<{ lists: ListAnswer[] }>(await send('GET', '/lists?archived=1'))).lists.map((entry) => entry.id))
       .toEqual([list.id])
-    // The task itself is not deleted: archiving is a statement about the list, not about its work.
-    const filed = await json<{ tasks: TodoTask[] }>(await send('GET', `?list=${list.id}`))
-    expect(filed.tasks.map((task) => task.title)).toEqual(['Still there'])
+    // Archiving is a statement about the list, not about the rows it holds: nothing is deleted, which is
+    // why un-archiving below brings the very same task back. What does change is visibility — the
+    // put-away list's rows leave every listing, badge, board card and feed. Pinning only the badge is
+    // what let a badge of 0 and a row set of 1 live in the same answer.
+    const filed = await json<{ tasks: TodoTask[], total: number }>(await send('GET', `?list=${list.id}`))
+    expect(filed.tasks).toEqual([])
+    expect(filed.total).toBe(0)
     // Every count that reads the account's open work leaves the put-away list out.
     expect((await json<{ counts: TaskCounts }>(await send('GET', ''))).counts.all).toBe(0)
 
@@ -260,6 +423,53 @@ describe('list archiving and grouping', () => {
       .toEqual([list.id])
     expect((await json<{ lists: ListAnswer[] }>(await send('GET', '/lists?archived=1'))).lists).toEqual([])
     expect((await json<{ counts: TaskCounts }>(await send('GET', ''))).counts.all).toBe(1)
+  })
+
+  it('keeps one visibility rule across the badge, the row set, the board card and the feed', async () => {
+    const shelf = (await json<{ list: ListAnswer }>(await send('POST', '/lists', { name: 'Shelf' }))).list
+    const desk = (await json<{ list: ListAnswer }>(await send('POST', '/lists', { name: 'Desk' }))).list
+    const tag = (await json<{ tag: TaskTag }>(await send('POST', '/tags', { name: 'Home' }))).tag
+    const soon = Date.now() + 60 * 60 * 1000
+    await create({ title: 'On the shelf', listId: shelf.id, dueAt: soon, tags: ['Home'] })
+    await create({ title: 'Also shelved', listId: shelf.id })
+    const visible = await create({ title: 'On the desk', listId: desk.id, dueAt: soon, tags: ['Home'] })
+
+    // The subscription is one of the four surfaces, so it is read before the shelf is put away: a feed
+    // a third-party calendar already holds has to lose the row on the next poll, not keep it forever.
+    const feed = (await json<{ feed: FeedAnswer }>(await send('POST', '/feed', {}))).feed
+    const before = await (await fetchFeed(`/${feed.slug}.ics`)).text()
+    expect(before).toContain('On the shelf')
+    expect(before).toContain('On the desk')
+
+    await send('PATCH', `/lists/${shelf.id}`, { archived: true })
+
+    // The equality that was missing: the badge a screen prints and the rows that same screen draws are
+    // the same number, because both read the same predicate.
+    const open = await json<{ tasks: TodoTask[], total: number, counts: TaskCounts }>(await send('GET', '?view=open'))
+    expect(open.tasks.map((task) => task.id)).toEqual([visible.id])
+    expect(open.total).toBe(1)
+    expect(open.counts.all).toBe(open.tasks.length)
+    // The board card for a put-away list shows no work at all, and the shelf keeps its own number out.
+    expect(open.counts.byList[shelf.id]).toBeUndefined()
+    expect(open.counts.byList[desk.id]).toEqual({ open: 1, done: 0 })
+    expect((await json<{ tasks: TodoTask[] }>(await send('GET', `?list=${shelf.id}`))).tasks).toEqual([])
+    expect((await json<{ tasks: TodoTask[] }>(await send('GET', `?list=${desk.id}`))).tasks).toHaveLength(1)
+
+    // A tag badge is the same promise on a different screen, and so is the tag's own row.
+    const tagged = await json<{ tasks: TodoTask[], counts: TaskCounts }>(await send('GET', `?view=open&tag=${tag.id}`))
+    expect(tagged.tasks.map((task) => task.id)).toEqual([visible.id])
+    expect(tagged.counts.byTag[tag.id]).toEqual({ open: tagged.tasks.length, done: 0 })
+    const tags = await json<{ tags: TaskTag[] }>(await send('GET', '/tags'))
+    expect(tags.tags.find((entry) => entry.id === tag.id)?.openCount).toBe(tagged.tasks.length)
+
+    const after = await (await fetchFeed(`/${feed.slug}.ics`)).text()
+    expect(after).not.toContain('On the shelf')
+    expect(after).toContain('On the desk')
+
+    // Statistics are the one surface the ruling keeps open: "how much did I do" is about the work, not
+    // about which shelf it sits on, so all three rows are still counted there.
+    const stats = await json<{ summary: { open: number } }>(await send('GET', '/stats'))
+    expect(stats.summary.open).toBe(3)
   })
 
   it('groups lists one level deep and refuses a loop or a grandchild', async () => {
@@ -418,7 +628,16 @@ describe('a batch of tasks', () => {
 
     const response = await send('POST', '/batch', { ids: [weekly.id, plain.id], op: 'complete' })
     expect(response.status).toBe(200)
-    expect(await json<TaskBatchResult>(response)).toEqual({ done: [weekly.id, plain.id], failed: [] })
+    // Every row a batch changed is answered with as an object, not a bare id: a caller that asks for
+    // the changed ids still reads `done[i].id`, and the occurrence a repeat filed has somewhere to go.
+    const batched = await json<TaskBatchResult>(response)
+    expect(batched.failed).toEqual([])
+    expect(batched.done.map((entry) => entry.id)).toEqual([weekly.id, plain.id])
+    expect(batched.done[0]!.next).not.toBeNull()
+    expect(batched.done[0]!.next?.id).not.toBe(weekly.id)
+    expect(batched.done[0]!.next?.title).toBe('Weekly report')
+    expect(batched.done[0]!.next?.dueAt).toBe(due + 7 * 24 * 60 * 60 * 1000)
+    expect(batched.done[1]!.next).toBeNull()
 
     // The same press means the same thing here as it does on one card: the occurrence the repeat
     // files is a real row, not a status the batch wrote by hand.
@@ -445,7 +664,7 @@ describe('a batch of tasks', () => {
     })
     expect(response.status).toBe(200)
     expect(await json<TaskBatchResult>(response)).toEqual({
-      done: [mine.id],
+      done: [{ id: mine.id, next: null }],
       failed: [
         { id: theirs.id, reason: 'not found' },
         { id: 'not-a-task', reason: 'not found' },
@@ -462,24 +681,74 @@ describe('a batch of tasks', () => {
     const tooMany = Array.from({ length: MAX_BATCH_TASKS + 1 }, (_, index) => `batch-task-${index}`)
     expect((await send('POST', '/batch', { ids: tooMany, op: 'complete' })).status).toBe(400)
     expect((await send('POST', '/batch', { ids: [], op: 'complete' })).status).toBe(400)
-    expect((await send('POST', '/batch', { ids: ['x'], op: 'archive' })).status).toBe(400)
+    expect((await send('POST', '/batch', { ids: ['x'], op: 'shelve' })).status).toBe(400)
     expect((await send('POST', '/batch', { ids: ['x'], op: 'move' })).status).toBe(400)
     expect((await send('POST', '/batch', { ids: ['x'], op: 'priority', value: 'someday' })).status).toBe(400)
   })
 
-  it('moves, prioritises, stars and tags the rows it names', async () => {
+  it('appends the rows a batch moves to the end of the destination list', async () => {
+    const source = (await json<{ list: TaskList }>(await send('POST', '/lists', { name: 'Source' }))).list
+    const target = (await json<{ list: TaskList }>(await send('POST', '/lists', { name: 'Target' }))).list
+    const t1 = await create({ title: 'T1', listId: target.id })
+    const t2 = await create({ title: 'T2', listId: target.id })
+    const s1 = await create({ title: 'S1', listId: source.id })
+    const s2 = await create({ title: 'S2', listId: source.id })
+
+    // Both lists get a hand-made order, so every row in the way carries a place of its own.
+    expect((await send('POST', `/${t2.id}/move`, { beforeId: t1.id })).status).toBe(200)
+    expect((await send('POST', `/${s2.id}/move`, { beforeId: s1.id })).status).toBe(200)
+    const lastPlace = (sqlite.prepare('SELECT MAX(position) AS p FROM todos_tasks WHERE list_id = ?')
+      .get(target.id) as { p: number }).p!
+
+    const response = await send('POST', '/batch', { ids: [s2.id], op: 'move', value: target.id })
+    expect(response.status).toBe(200)
+    expect(await json<TaskBatchResult>(response)).toEqual({ done: [{ id: s2.id, next: null }], failed: [] })
+
+    // A batch move means the same thing a card drop means: the end of the destination. Keeping the old
+    // place from the source list is how a row slid into the middle of an order nobody put it in.
+    const order = (await json<{ tasks: TodoTask[] }>(await send('GET', `?list=${target.id}`))).tasks
+      .map((task) => task.title)
+    expect(order).toEqual(['T2', 'T1', 'S2'])
+    const movedPlace = (sqlite.prepare('SELECT position AS p FROM todos_tasks WHERE id = ?')
+      .get(s2.id) as { p: number }).p!
+    expect(movedPlace).toBeGreaterThan(lastPlace)
+    // The source list keeps the order the rest of its rows had.
+    expect((await json<{ tasks: TodoTask[] }>(await send('GET', `?list=${source.id}`))).tasks
+      .map((task) => task.title)).toEqual(['S1'])
+  })
+
+  it('moves, prioritises, stars, tags and deletes the rows it names', async () => {
     const list = await json<{ list: TaskList }>(await send('POST', '/lists', { name: 'Work' })).then((body) => body.list)
     const task = await create({ title: 'One', tags: ['Home'] })
+    const doomed = await create({ title: 'Two' })
 
-    expect((await send('POST', '/batch', { ids: [task.id], op: 'move', value: list.id })).status).toBe(200)
-    expect((await send('POST', '/batch', { ids: [task.id], op: 'priority', value: 'urgent' })).status).toBe(200)
-    expect((await send('POST', '/batch', { ids: [task.id], op: 'star', value: 'true' })).status).toBe(200)
-    expect((await send('POST', '/batch', { ids: [task.id], op: 'tag', value: 'Work' })).status).toBe(200)
+    /**
+     * The one answer body every operation shares.
+     *
+     * `next` is only ever a row for a `complete` batch that repeats, so the other five still name the
+     * field and answer it with null — a shape that changes with the operation would make the caller
+     * guess which operation it had sent.
+     */
+    const changed = (id: string): { id: string, next: null } => ({ id, next: null })
+
+    expect(await json<TaskBatchResult>(await send('POST', '/batch', { ids: [task.id], op: 'move', value: list.id })))
+      .toEqual({ done: [changed(task.id)], failed: [] })
+    expect(await json<TaskBatchResult>(await send('POST', '/batch', { ids: [task.id], op: 'priority', value: 'urgent' })))
+      .toEqual({ done: [changed(task.id)], failed: [] })
+    expect(await json<TaskBatchResult>(await send('POST', '/batch', { ids: [task.id], op: 'star', value: 'true' })))
+      .toEqual({ done: [changed(task.id)], failed: [] })
+    expect(await json<TaskBatchResult>(await send('POST', '/batch', { ids: [task.id], op: 'tag', value: 'Work' })))
+      .toEqual({ done: [changed(task.id)], failed: [] })
+    expect(await json<TaskBatchResult>(await send('POST', '/batch', { ids: [doomed.id], op: 'delete' })))
+      .toEqual({ done: [changed(doomed.id)], failed: [] })
 
     const detail = await json<{ task: TodoTask }>(await send('GET', `/${task.id}`))
     expect(detail.task).toMatchObject({ listId: list.id, priority: 'urgent', starred: true })
     // Tagging adds the word instead of replacing the vocabulary the row already carried.
     expect(detail.task.tags.map((tag) => tag.name).sort()).toEqual(['Home', 'Work'])
+    // A delete is a move to the trash, so the id the answer names is one a restore can pick up again.
+    expect((await send('GET', `/${doomed.id}`)).status).toBe(404)
+    expect((await send('POST', `/${doomed.id}/restore`)).status).toBe(200)
   })
 
   it('moves overdue rows to the end of today without touching their plan', async () => {
@@ -488,7 +757,7 @@ describe('a batch of tasks', () => {
 
     const response = await send('POST', '/batch', { ids: [overdue.id], op: 'due' })
     expect(response.status).toBe(200)
-    expect(await json<TaskBatchResult>(response)).toEqual({ done: [overdue.id], failed: [] })
+    expect(await json<TaskBatchResult>(response)).toEqual({ done: [{ id: overdue.id, next: null }], failed: [] })
 
     const detail = await json<{ task: TodoTask }>(await send('GET', `/${overdue.id}`))
     // The plan is a separate fact: shifting the due date must not move the row into or out of today.
@@ -912,7 +1181,8 @@ describe('a conditional write', () => {
     expect((await send('PATCH', `/${task.id}`, { title: 'Unguarded' }, { 'If-Match': 'soon' })).status).toBe(400)
   })
 
-  it('refuses a stale pick and a stale snooze and leaves the row as it was', async () => {
+  it('refuses a stale pick, move and snooze and leaves the row as it was', async () => {
+    const anchor = await create({ title: 'Anchor' })
     const task = await create({ title: 'Plan me' })
     const planned = await send('POST', `/${task.id}/plan`, { date: '2026-10-21', rev: 1 })
     expect(planned.status).toBe(200)
@@ -922,10 +1192,21 @@ describe('a conditional write', () => {
     expect(stalePlan.status).toBe(409)
     expect((await json<{ task: TodoTask }>(await send('GET', `/${task.id}`))).task.plannedFor).toBe('2026-10-21')
 
+    // A move is the other write the app makes without naming a column: its place came from a listing,
+    // and a row that moved since that listing is not the reader's to re-place.
+    const staleMove = await send('POST', `/${task.id}/move`, { beforeId: anchor.id, rev: 1 })
+    expect(staleMove.status).toBe(409)
+    expect((await json<{ error: { details: { rev: number } } }>(staleMove)).error.details.rev).toBe(2)
+
     const fresh = (await json<{ task: TodoTask }>(await send('GET', `/${task.id}`))).task
-    const snoozed = await send('POST', `/${task.id}/snooze`, { minutes: 10, rev: fresh.rev })
+    const moved = await send('POST', `/${task.id}/move`, { beforeId: anchor.id, rev: fresh.rev })
+    expect(moved.status).toBe(200)
+    const afterMove = (await json<{ task: TodoTask }>(await send('GET', `/${task.id}`))).task
+    expect(afterMove.rev).toBe(fresh.rev! + 1)
+
+    const snoozed = await send('POST', `/${task.id}/snooze`, { minutes: 10, rev: afterMove.rev })
     expect(snoozed.status).toBe(200)
-    const staleSnooze = await send('POST', `/${task.id}/snooze`, { minutes: 10, rev: fresh.rev })
+    const staleSnooze = await send('POST', `/${task.id}/snooze`, { minutes: 10, rev: afterMove.rev })
     expect(staleSnooze.status).toBe(409)
     // The refused snooze appended nothing: one reminder, not two.
     expect((await json<{ task: TodoTask }>(await send('GET', `/${task.id}`))).task.reminders).toHaveLength(1)
@@ -945,12 +1226,76 @@ describe('a conditional write', () => {
     expect(response.status).toBe(200)
     // A batch is still not all-or-nothing: the row that matched changed, the stale one is named.
     expect(await json<TaskBatchResult>(response)).toEqual({
-      done: [fresh.id],
+      done: [{ id: fresh.id, next: null }],
       failed: [{ id: moved.id, reason: 'conflict' }],
     })
 
     expect((await json<{ task: TodoTask }>(await send('GET', `/${fresh.id}`))).task.starred).toBe(true)
     expect((await json<{ task: TodoTask }>(await send('GET', `/${moved.id}`))).task.starred).toBe(false)
+  })
+})
+
+/**
+ * The key a retried create carries.
+ *
+ * A queued offline create is replayed, and a replay of one whose response was lost while the row had
+ * already landed would otherwise mint a second task. `runIdempotent` — the same door every MCP write
+ * already goes through — is what makes the second answer be the first row, so no second table of
+ * operation records is added here and the sweep that expires MCP operations expires these too.
+ */
+describe('an idempotent task create', () => {
+  const KEY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+
+  // The budget is keyed by caller, so these cases get their own accounts.
+  let caller = 0
+  beforeEach(() => {
+    caller += 1
+    mocks.userId = `idemroute${String(caller).padStart(19, '0')}`
+  })
+
+  it('answers the same task again when the key is sent twice', async () => {
+    const first = await send('POST', '', { title: 'Book the room' }, { 'Idempotency-Key': KEY })
+    expect(first.status).toBe(201)
+    const made = (await json<{ task: TodoTask }>(first)).task
+    const second = await send('POST', '', { title: 'Book the room' }, { 'Idempotency-Key': KEY })
+
+    expect(second.status).toBe(201)
+    expect((await json<{ task: TodoTask }>(second)).task.id).toBe(made.id)
+    // One row, not two: the replay wrote nothing.
+    const page = await json<{ tasks: TodoTask[] }>(await send('GET', '?status=open'))
+    expect(page.tasks.map((task) => task.id)).toEqual([made.id])
+  })
+
+  it('refuses the same key worn by a different body', async () => {
+    expect((await send('POST', '', { title: 'Book the room' }, { 'Idempotency-Key': KEY })).status).toBe(201)
+
+    const clash = await send('POST', '', { title: 'Book another room' }, { 'Idempotency-Key': KEY })
+
+    expect(clash.status).toBe(409)
+    expect((await json<{ tasks: TodoTask[] }>(await send('GET', '?status=open'))).tasks).toHaveLength(1)
+  })
+
+  it('creates once per key, so two keys are two tasks', async () => {
+    const body = { title: 'Book the room' }
+
+    expect((await send('POST', '', body, { 'Idempotency-Key': KEY })).status).toBe(201)
+    expect((await send('POST', '', body, { 'Idempotency-Key': 'ffffffff-1111-2222-3333-444444444444' })).status).toBe(201)
+
+    expect((await json<{ tasks: TodoTask[] }>(await send('GET', '?status=open'))).tasks).toHaveLength(2)
+  })
+
+  it('keeps working with no key at all', async () => {
+    const task = await create({ title: 'No key pressed' })
+
+    expect(task.id).toBeTruthy()
+    expect((await json<{ tasks: TodoTask[] }>(await send('GET', '?status=open'))).tasks).toHaveLength(1)
+  })
+
+  it('refuses a key too short to identify one operation', async () => {
+    const refused = await send('POST', '', { title: 'Book the room' }, { 'Idempotency-Key': 'short' })
+
+    expect(refused.status).toBe(400)
+    expect((await json<{ tasks: TodoTask[] }>(await send('GET', '?status=open'))).tasks).toHaveLength(0)
   })
 })
 

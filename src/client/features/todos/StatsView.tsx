@@ -12,7 +12,7 @@
  * "what is left". Comparison against the previous window is a chip on each headline number rather than
  * a section of its own — the same fact, one row closer to the number it describes.
  */
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, type HTMLAttributes } from 'react'
 import { Download } from 'lucide-react'
 import { localDate } from '@shared/assistant-time'
 import type { TaskStatsBucket, TaskStatsNamedCount, TodoStats } from '@shared/todos/model'
@@ -46,6 +46,7 @@ import {
   durationLabel,
   type StatSlice,
 } from './stats-charts'
+import { WorklogSection, useWorklog } from './WorklogSection'
 
 const RANGE_CHOICES = [
   { value: '7', labelKey: 'todo.stats.range.7', days: 7 },
@@ -137,11 +138,16 @@ function Card({ title, hint, action, children, className }: {
 }
 
 /**
- * The four numbers the screen is about.
+ * The five numbers the screen is about.
  *
  * Each carries its own change against the equally long window before it, and the two that have a
  * shape — completed and created — carry a sparkline of the same series the trend draws. A window that
  * held nothing prints a dash rather than an infinity dressed up as a percentage.
+ *
+ * The two rates sit next to each other on purpose (D10): the completion rate counts finished over
+ * finished-plus-owed and leaves the abandonments out of both halves, so the sentence is only honest
+ * when the reader can see what was left out beside it. `DefinitionsTable` spells all three rules for a
+ * screen reader, because a label like "completion rate" carries its whole meaning in its denominator.
  */
 function HeadlineStats({ stats, comparison }: { stats: TodoStats; comparison: PreviousStats }) {
   const { summary, series } = stats
@@ -153,12 +159,22 @@ function HeadlineStats({ stats, comparison }: { stats: TodoStats; comparison: Pr
   const completionDelta = previous !== null && previous.summary.completed > 0
     ? rateDeltaPoints(summary.completionRate, previous.summary.completionRate, previous.summary.completed + previous.summary.open)
     : null
+  const abandonedDelta = previous !== null && previous.summary.abandoned > 0
+    ? rateDeltaPoints(
+      summary.abandonedRate,
+      previous.summary.abandonedRate,
+      previous.summary.completed + previous.summary.abandoned + previous.summary.open,
+    )
+    : null
   const onTimeDelta = previous === null
     ? null
     : rateDeltaPoints(summary.onTimeRate, previous.summary.onTimeRate, previous.summary.onTimeDue)
   return (
     <div className="flex flex-col gap-2">
-    <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+    {/* Five across from `md` up: the two rates have to read as one pair, and a grid that left the
+        fifth card alone on a second row would not say that. Below `md` the cards stay two across and
+        wrap, which is the shape the narrowest window already handles. */}
+    <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
       <KpiCard
         id="completed"
         label={t('todo.stats.completed')}
@@ -184,6 +200,17 @@ function HeadlineStats({ stats, comparison }: { stats: TodoStats; comparison: Pr
         points
       />
       <KpiCard
+        id="abandoned_rate"
+        label={t('todo.stats.abandoned_rate')}
+        value={percent(summary.abandonedRate)}
+        hint={t('todo.stats.abandoned_rate_hint', {
+          abandoned: summary.abandoned,
+          total: summary.completed + summary.abandoned + summary.open,
+        })}
+        delta={abandonedDelta}
+        points
+      />
+      <KpiCard
         id="on_time"
         label={t('todo.stats.on_time')}
         value={summary.onTimeDue === 0 ? '—' : percent(summary.onTimeRate)}
@@ -192,6 +219,7 @@ function HeadlineStats({ stats, comparison }: { stats: TodoStats; comparison: Pr
         points
       />
     </div>
+    <DefinitionsTable />
     {comparison.status === 'loading' && (
       <p role="status" className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
         {t('todo.stats.compare.loading')}
@@ -401,10 +429,63 @@ function GoalReference({ stats, goals }: { stats: TodoStats; goals: TodoGoals })
   )
 }
 
+/**
+ * A table only a screen reader reads.
+ *
+ * `sr-only` cannot go on the table itself: a table's used width never drops below the width of what it
+ * holds, and these hold whole sentences, so the hidden definitions table pushed the statistics screen
+ * wider than a phone window and made it scroll sideways to reveal nothing. The clip has to sit on a box
+ * that obeys it.
+ */
+function HiddenTable(props: HTMLAttributes<HTMLTableElement>) {
+  return (
+    <div className="sr-only">
+      <table {...props} />
+    </div>
+  )
+}
+
+/**
+ * The three counting rules, as data rather than as prose.
+ *
+ * A rate's whole meaning lives in its denominator, and the denominator of the first one is the thing a
+ * reader cannot see from the label: `completionRate` deliberately does not count the tasks the reader
+ * gave up, because the number was published before that state existed and moving it under their feet
+ * would read as a drop they had caused. The screen says so out loud beside the two cards (their hints)
+ * and again here, where a screen reader gets the same three definitions the worker's own header states
+ * (plan §5 D10) rather than a picture of a bar.
+ */
+function DefinitionsTable() {
+  const rows = [
+    { id: 'completion_rate', label: t('todo.stats.completion_rate'), definition: t('todo.stats.definitions.completion_rate') },
+    { id: 'abandoned_rate', label: t('todo.stats.abandoned_rate'), definition: t('todo.stats.definitions.abandoned_rate') },
+    { id: 'finished_only', label: t('todo.stats.definitions.finished_only_label'), definition: t('todo.stats.definitions.finished_only') },
+  ]
+  return (
+    <HiddenTable data-stats-definitions="">
+      <caption>{t('todo.stats.definitions.caption')}</caption>
+      <thead>
+        <tr>
+          <th scope="col">{t('todo.stats.definitions.column.metric')}</th>
+          <th scope="col">{t('todo.stats.definitions.column.definition')}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr key={row.id}>
+            <th scope="row">{row.label}</th>
+            <td>{row.definition}</td>
+          </tr>
+        ))}
+      </tbody>
+    </HiddenTable>
+  )
+}
+
 /** The hidden table behind the trend, so the picture is also readable as numbers. */
 function SeriesTable({ stats }: { stats: TodoStats }) {
   return (
-    <table className="sr-only" data-stats-series="">
+    <HiddenTable data-stats-series="">
       <caption>{t('todo.stats.trend.table_caption')}</caption>
       <thead>
         <tr>
@@ -422,14 +503,14 @@ function SeriesTable({ stats }: { stats: TodoStats }) {
           </tr>
         ))}
       </tbody>
-    </table>
+    </HiddenTable>
   )
 }
 
 /** The hidden table behind the flow, so the bands are also readable as numbers. */
 function FlowTable({ stats }: { stats: TodoStats }) {
   return (
-    <table className="sr-only" data-stats-flow="">
+    <HiddenTable data-stats-flow="">
       <caption>{t('todo.stats.flow.table_caption')}</caption>
       <thead>
         <tr>
@@ -449,7 +530,7 @@ function FlowTable({ stats }: { stats: TodoStats }) {
           </tr>
         ))}
       </tbody>
-    </table>
+    </HiddenTable>
   )
 }
 
@@ -574,6 +655,10 @@ export function StatsView() {
   const statsBucket = useTodos((state) => state.statsBucket)
   const loadStats = useTodos((state) => state.loadStats)
   const setStatsRange = useTodos((state) => state.setStatsRange)
+  // One read of the ledger, shared by the section and the export: two consumers asking separately can
+  // disagree about the same window, and an export that disagrees with the screen is the worse of the
+  // two ways to be wrong.
+  const worklog = useWorklog({ from: statsFrom ?? '', to: statsTo ?? '' })
   const dailyGoal = useSession((state) => state.settings.todo.dailyGoal) ?? null
   const weeklyGoal = useSession((state) => state.settings.todo.weeklyGoal) ?? null
 
@@ -614,7 +699,7 @@ export function StatsView() {
           stats={stats}
           onRange={pickRange}
           onBucket={pickBucket}
-          onExport={() => { downloadStatsCsv(stats) }}
+          onExport={() => { downloadStatsCsv(stats, worklog.answer) }}
         />
       )}
       {status === 'error' ? (
@@ -624,7 +709,12 @@ export function StatsView() {
       ) : stats.summary.completed === 0 && stats.summary.created === 0 ? (
         <Empty title={t('todo.stats.empty')} description={t('todo.stats.empty_hint')} />
       ) : (
-        <StatsBody stats={stats} comparison={comparison} goals={{ daily: dailyGoal, weekly: weeklyGoal }} />
+        <>
+          <StatsBody stats={stats} comparison={comparison} goals={{ daily: dailyGoal, weekly: weeklyGoal }} />
+          {/* The hours the ledger holds, beside the counts the plate moved: the two read different
+              tables and are allowed to disagree about the same week. */}
+          <WorklogSection state={worklog} />
+        </>
       )}
     </div>
   )

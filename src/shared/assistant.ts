@@ -51,8 +51,27 @@ export type AssistantMemoryStatus = (typeof ASSISTANT_MEMORY_STATUSES)[number]
 export const ASSISTANT_MEMORY_SOURCES = ['manual', 'assistant', 'import'] as const
 export type AssistantMemorySource = (typeof ASSISTANT_MEMORY_SOURCES)[number]
 
-export const TASK_STATUSES = ['todo', 'in_progress', 'done'] as const
+export const TASK_STATUSES = ['todo', 'in_progress', 'done', 'cancelled'] as const
 export type TaskStatus = (typeof TASK_STATUSES)[number]
+
+/**
+ * The finished state as the notebook's board and the chat's task surface read it.
+ *
+ * Those surfaces draw a `Task`, so they share this type, but they answer a two-state question —
+ * finished or not — and the notes board has no abandoned state to draw: a kanban column and the
+ * chat's "on me today" list gain nothing from a third terminal status. The to-do app's own rule is
+ * `TASK_OPEN_STATUSES`/`TASK_DONE_STATUSES` in `shared/todos/status`, and widening those sets is
+ * deliberate work with its own tests; this list exists so that widening them cannot quietly move a
+ * notebook UI. A reader who wants a cancelled column on the board should widen this list there, not
+ * borrow the app's sets.
+ */
+export const TASK_DONE_STATUSES_LEGACY: readonly TaskStatus[] = ['done']
+
+/** Whether a task reads as finished on the notes board or the chat's task surface. */
+export function isTaskDoneLegacy(status: unknown): boolean {
+  return typeof status === 'string'
+    && (TASK_DONE_STATUSES_LEGACY as readonly string[]).includes(status)
+}
 
 export const TASK_PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const
 export type TaskPriority = (typeof TASK_PRIORITIES)[number]
@@ -111,8 +130,14 @@ export const MAX_TITLE_SUGGESTION_CHARS = 200
  * One number for both halves: a backup that can be written but not read back is not a backup, so the
  * reader is told when the file they just downloaded is past the ceiling instead of finding out on the
  * day they need it.
+ *
+ * The number is measured, not guessed: a ten-thousand-task account — the scale this app's own stress
+ * tests use — writes a backup of 8.13 MB pretty-printed (5.42 MB compact) through the real store and the
+ * real routes, so four megabytes was a ceiling an ordinary heavy reader crossed by using the app.
+ * Sixteen keeps that account restorable with room for another year at the same pace, and it is still a
+ * bound: one request parses the whole file.
  */
-export const MAX_BACKUP_BYTES = 4 * 1024 * 1024
+export const MAX_BACKUP_BYTES = 16 * 1024 * 1024
 
 /**
  * How long a temporary conversation is kept before the sweep deletes it.

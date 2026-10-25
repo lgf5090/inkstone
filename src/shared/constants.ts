@@ -29,11 +29,14 @@ import type {
   TemplaterFolderTrigger,
   TemplaterHotkey,
   TemplaterSettings,
+  TodoFocusSettings,
   TodoSettings,
+  TodoWorkdaySettings,
   UserSettings,
   ViewKind,
 } from './types'
 import { COVER_POSITIONS, COVER_SHAPES } from './property-decorations'
+import { isRemindOffset } from './todos/reminders'
 import { DEFAULT_LINTER_SETTINGS, normalizeLinterSettings } from './linter'
 import { DEFAULT_READING_SPEED_WPM } from './markdown-utils'
 import { version as packageVersion } from '../../package.json'
@@ -275,6 +278,35 @@ aliases:
  * account keeps.
  */
 export const NEW_NOTE_TEMPLATE_MAX_LENGTH = 4096
+
+/**
+ * The focus settings as they stand for an account that never touched them.
+ *
+ * Spelled out here rather than left to the overlay: these are the documented defaults the merge falls
+ * back to, the numbers the settings fields offer, and the values a test names when it checks that an
+ * impossible input degraded to something legal. `sound` starts silent — see D9: the cues are
+ * synthesised when the overlay plays them, and a reader who has not asked for sound gets none.
+ */
+export const DEFAULT_TODO_FOCUS: TodoFocusSettings = {
+  enabled: true,
+  strategy: 'countdown',
+  defaultMinutes: 25,
+  pomodoro: { work: 25, short: 5, long: 15, every: 4 },
+  flowtime: { breakEnabled: false, breakPercentage: 20 },
+  pauseTrackingDuringBreak: true,
+  sound: 'off',
+}
+
+/**
+ * The finish-day settings an account starts with.
+ *
+ * No daily estimate is stored for a reader who has not named one: the page reads `null` as "no plan to
+ * compare against" rather than as a zero-length day, which would report every task as over budget.
+ */
+export const DEFAULT_TODO_WORKDAY: TodoWorkdaySettings = {
+  dailyEstimateMinutes: null,
+  finishDayEnabled: true,
+}
 
 export const DEFAULT_SETTINGS: UserSettings = {
   linter: {
@@ -593,6 +625,8 @@ export const DEFAULT_SETTINGS: UserSettings = {
     dailyGoal: null,
     weeklyGoal: null,
     savedFilters: [],
+    focus: DEFAULT_TODO_FOCUS,
+    workday: DEFAULT_TODO_WORKDAY,
   },
 }
 
@@ -636,6 +670,48 @@ export const TODO_SAVED_FILTER_QUERY_MAX = 200
  * number the reader types and the number the merge keeps share one edge.
  */
 export const TODO_GOAL_RANGE = [0, 999] as const
+
+/**
+ * How a focus session is measured.
+ *
+ * `countdown` runs one fixed block, `pomodoro` cycles work against short and long breaks, `flowtime`
+ * runs until the reader stops and only then suggests a break. The overlay is the only thing that reads
+ * this, and it dispatches on exactly these three ids.
+ */
+export const TODO_FOCUS_STRATEGIES = ['countdown', 'pomodoro', 'flowtime'] as const
+/**
+ * What a focus session says out loud. D9: every cue behind these is synthesised by WebAudio, so no
+ * asset and no download sits behind any of them, and `'off'` is the default for shared rooms.
+ */
+export const TODO_FOCUS_SOUNDS = ['off', 'tick', 'chime', 'both'] as const
+
+/**
+ * The shortest and longest focus block the settings will hold, in whole minutes.
+ *
+ * One minute is the smallest thing a timer can meaningfully show and four hours is longer than a
+ * session a reader should be nudged to sit through; both edges are also the field's own `min`/`max`,
+ * so the number typed and the number kept share one edge. The same range bounds each pomodoro length.
+ */
+export const TODO_FOCUS_MINUTES_RANGE = [1, 240] as const
+
+/** How many work rounds make a long break. Past a dozen the cycle is too loose to be a rhythm. */
+export const TODO_POMODORO_EVERY_RANGE = [1, 12] as const
+
+/**
+ * How much of the work just done flowtime suggests a break for, as a percentage.
+ *
+ * Held to whole percents because the suggestion is a nudge, not an alarm, and 100 means the break is
+ * only ever due after a full block.
+ */
+export const TODO_FLOWTIME_BREAK_PERCENT_RANGE = [1, 100] as const
+
+/**
+ * The longest working day a daily estimate may name, in whole minutes.
+ *
+ * 960 is sixteen hours: past that the number has stopped being a plan and is either a typo or a week.
+ * Zero and an empty field mean no estimate, the same way {@link TODO_GOAL_RANGE}'s floor means no goal.
+ */
+export const TODO_WORKDAY_ESTIMATE_RANGE = [1, 960] as const
 
 export const PROPERTY_NAME_MAX = 60
 export const PROPERTY_LIST_MAX = 80
@@ -1002,6 +1078,11 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.todo.dailyGoal = todoGoal(todo.dailyGoal)
   base.todo.weeklyGoal = todoGoal(todo.weeklyGoal)
   base.todo.savedFilters = savedTodoFilters(todo.savedFilters)
+  // Each subgroup is rebuilt from the stored blob rather than trusted as it arrived, and this is the
+  // only place that says so: a key left out here reads back as its default no matter what the panel
+  // wrote, with no error anywhere to say it happened.
+  base.todo.focus = todoFocusSettings(todo.focus)
+  base.todo.workday = todoWorkdaySettings(todo.workday)
 
   base.appearance.theme = enumValue(appearance.theme, THEMES, base.appearance.theme)
   base.appearance.language = enumValue(
@@ -1837,9 +1918,15 @@ export function normalizeTodoTags(value: unknown): string {
   return [...seen].join(',')
 }
 
+/**
+ * The reader's default reminder tier.
+ *
+ * Read from the one list rather than a copy of it: a validator that has never heard of a tier folds the
+ * setting to null, and the panel keeps showing the choice the merge silently threw away — which is the
+ * shape this function's four-item list used to be. `none` is not a default, so it means "no reminder".
+ */
 function todoRemindOffset(value: unknown): TodoSettings['defaultRemind'] {
-  if (value === 'due' || value === '15m' || value === '1h' || value === '1d') return value
-  return null
+  return isRemindOffset(value) && value !== 'none' ? value : null
 }
 
 /**
@@ -1857,6 +1944,89 @@ function todoGoal(value: unknown): number | null {
   if (rounded <= TODO_GOAL_RANGE[0])
     return null
   return Math.min(TODO_GOAL_RANGE[1], rounded)
+}
+
+/**
+ * The focus subgroup, rebuilt from whatever the account blob carried.
+ *
+ * Every key is read out of the stored object rather than kept as it arrived, so a blob that names a
+ * strategy the overlay does not implement, or a length outside the field's own edges, reads back as
+ * something the overlay can actually run: a word that is not a strategy or a sound is the default,
+ * a number too long or too short is held to the edge it crossed, and anything that is not a finite
+ * number at all is the documented default. A missing subgroup, a half-written one and one that
+ * arrived as a string all take the same path, so no reader is left holding a session with no length.
+ */
+function todoFocusSettings(value: unknown): TodoFocusSettings {
+  const src = asRecord(value)
+  const pomodoro = asRecord(src.pomodoro)
+  const flowtime = asRecord(src.flowtime)
+  return {
+    enabled: booleanValue(src.enabled, DEFAULT_TODO_FOCUS.enabled),
+    strategy: enumValue(src.strategy, TODO_FOCUS_STRATEGIES, DEFAULT_TODO_FOCUS.strategy),
+    defaultMinutes: focusMinutes(src.defaultMinutes, DEFAULT_TODO_FOCUS.defaultMinutes),
+    pomodoro: {
+      work: focusMinutes(pomodoro.work, DEFAULT_TODO_FOCUS.pomodoro.work),
+      short: focusMinutes(pomodoro.short, DEFAULT_TODO_FOCUS.pomodoro.short),
+      long: focusMinutes(pomodoro.long, DEFAULT_TODO_FOCUS.pomodoro.long),
+      every: integerInRange(
+        pomodoro.every,
+        TODO_POMODORO_EVERY_RANGE[0],
+        TODO_POMODORO_EVERY_RANGE[1],
+        DEFAULT_TODO_FOCUS.pomodoro.every,
+      ),
+    },
+    flowtime: {
+      breakEnabled: booleanValue(flowtime.breakEnabled, DEFAULT_TODO_FOCUS.flowtime.breakEnabled),
+      breakPercentage: integerInRange(
+        flowtime.breakPercentage,
+        TODO_FLOWTIME_BREAK_PERCENT_RANGE[0],
+        TODO_FLOWTIME_BREAK_PERCENT_RANGE[1],
+        DEFAULT_TODO_FOCUS.flowtime.breakPercentage,
+      ),
+    },
+    pauseTrackingDuringBreak: booleanValue(
+      src.pauseTrackingDuringBreak,
+      DEFAULT_TODO_FOCUS.pauseTrackingDuringBreak,
+    ),
+    // Every level is stored even while the overlay is the only thing that would play one: the panel
+    // shows this row once the cues exist, and a setting the merge skipped is one it could never save.
+    sound: enumValue(src.sound, TODO_FOCUS_SOUNDS, DEFAULT_TODO_FOCUS.sound),
+  }
+}
+
+/**
+ * The finish-day subgroup.
+ *
+ * `dailyEstimateMinutes` shares {@link todoGoal}'s spelling of "none" — zero, an empty field and
+ * anything that is not a number all store null — because a day with no plan is not a day planned for
+ * zero minutes, and the load the page divides by needs one way to say it has no denominator.
+ */
+function todoWorkdaySettings(value: unknown): TodoWorkdaySettings {
+  const src = asRecord(value)
+  const estimate = src.dailyEstimateMinutes
+  return {
+    dailyEstimateMinutes: typeof estimate === 'number' && Number.isFinite(estimate)
+      ? todoWorkdayEstimate(estimate)
+      : null,
+    finishDayEnabled: booleanValue(src.finishDayEnabled, DEFAULT_TODO_WORKDAY.finishDayEnabled),
+  }
+}
+
+/**
+ * A stored daily estimate: a whole number of minutes inside `TODO_WORKDAY_ESTIMATE_RANGE`, or null for
+ * no plan. Zero and anything below the floor read as none, a fraction rounds to the minute it was
+ * meant to be, and a number over the ceiling is held to it — the same three edges the field offers.
+ */
+function todoWorkdayEstimate(value: number): number | null {
+  const rounded = Math.round(value)
+  if (rounded < TODO_WORKDAY_ESTIMATE_RANGE[0])
+    return null
+  return Math.min(TODO_WORKDAY_ESTIMATE_RANGE[1], rounded)
+}
+
+/** A whole-minute focus length held to `TODO_FOCUS_MINUTES_RANGE`; see {@link todoFocusSettings}. */
+function focusMinutes(value: unknown, fallback: number): number {
+  return integerInRange(value, TODO_FOCUS_MINUTES_RANGE[0], TODO_FOCUS_MINUTES_RANGE[1], fallback)
 }
 
 function sameFlatRecord(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
@@ -1943,7 +2113,18 @@ function cloneDefaultSettings(): UserSettings {
       startupTemplates: [],
       templateHotkeys: [],
     },
-    todo: { ...DEFAULT_SETTINGS.todo, savedFilters: [] },
+    todo: {
+      ...DEFAULT_SETTINGS.todo,
+      savedFilters: [],
+      // A nested subgroup needs its own copy: a shallow spread would hand every clone the same
+      // `pomodoro` object, and one reader's edit would show up in the next one's defaults.
+      focus: {
+        ...DEFAULT_TODO_FOCUS,
+        pomodoro: { ...DEFAULT_TODO_FOCUS.pomodoro },
+        flowtime: { ...DEFAULT_TODO_FOCUS.flowtime },
+      },
+      workday: { ...DEFAULT_TODO_WORKDAY },
+    },
   }
 }
 

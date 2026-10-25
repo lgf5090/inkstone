@@ -248,13 +248,19 @@ describe('GET /feeds/:slug.ics', () => {
     insertTask({ id: 'nodue', userId: USER, title: 'No due date', dueAt: 0, status: 'todo' })
     sqlite.prepare(`UPDATE todos_tasks SET due_at = NULL WHERE id = 'nodue'`).run()
     insertTask({ id: 'done', userId: USER, title: 'Already done', dueAt: Date.now() + DAY, status: 'done' })
+    // A task the reader has begun is the most obviously owed work they have, so a third-party calendar
+    // polling this address has to keep seeing it. Reading `in_progress` as finished would drop the row
+    // from the feed while every screen in the app still lists it.
+    insertTask({ id: 'started', userId: USER, title: 'Started', dueAt: Date.now() + DAY, status: 'in_progress' })
 
     const body = await (await fetchFeed(`/feeds/${slug}.ics`)).text()
     expect(body).toContain('Overdue')
     expect(body).toContain('Soon')
+    expect(body).toContain('Started')
     expect(body).not.toContain('Far away')
     expect(body).not.toContain('No due date')
     expect(body).not.toContain('Already done')
+    expect(property(body, 'UID')).toHaveLength(3)
   })
 
   it('answers 404 for a revoked or expired feed', async () => {

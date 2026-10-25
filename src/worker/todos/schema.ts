@@ -14,6 +14,8 @@
  * `todos_*` declarations those statements are bound against.
  */
 
+import { isTimeEntrySource, type TimeEntrySource, type TodoTimeEntry } from '@shared/todos/model'
+
 export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS todos_tasks (
     user_id TEXT NOT NULL,
@@ -30,6 +32,11 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
     -- When the task may be begun, or NULL when the reader named no start. Migration 123 carries the
     -- column to databases built before this line existed.
     start_at INTEGER,
+    -- How long the reader expects the task to take, in milliseconds, or NULL when nobody estimated.
+    -- NULL is not zero: "no estimate" and "an estimate of none" are different answers to different
+    -- questions, and the worklog must be able to tell them apart. Migration 148 carries the column to
+    -- databases built before this line existed.
+    time_estimate_ms INTEGER,
     completed_at INTEGER,
     -- The account's calendar day (YYYY-MM-DD) of the two instants beside them. Stored rather than
     -- derived at query time: a day computed from an offset drifts across DST and files a task under
@@ -47,11 +54,6 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
     color TEXT,
     starred INTEGER NOT NULL DEFAULT 0,
     repeat_rule TEXT,
-    -- Superseded by todos_reminders (pending removal). The pair is emptied by migrateTaskReminders and no code
-    -- reads or writes it after that; it stays only because dropping a column needs a migration number
-    -- this change deliberately does not spend.
-    remind_at INTEGER,
-    reminded_at INTEGER,
     -- The account's calendar day (YYYY-MM-DD) the reader picked this task into "today", or NULL when
     -- it was never picked. A day rather than a boolean: a row planned for yesterday stops equalling
     -- today when the calendar moves, so the membership needs no midnight sweep to clear itself.
@@ -64,6 +66,12 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
     -- read, and a write naming an older one is refused instead of replacing an edit it never saw.
     -- Migration 119 carries the column to databases built before this line existed.
     rev INTEGER NOT NULL DEFAULT 1,
+    -- When the reader put this task away, or NULL while it is in front of them. Archiving is not
+    -- deleting: the status, the hours and the row itself stay, in the statistics, in every export and
+    -- in a read by id. What leaves is every screen the reader browses, the completed list included --
+    -- which is the one rule taskVisible states, so nothing here filters it a second time. Migration
+    -- 149 carries the column to databases built before this line existed.
+    archived_at INTEGER,
     -- When the task was moved to the trash, or NULL while it is live. Deleting stamps this column
     -- instead of removing the row, so a restore brings back the same steps, tags and reminders; every
     -- task read filters on it through TASK_LIVE_PREDICATE in assistant/store.ts. Migration 122
@@ -79,8 +87,10 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
      ON todos_tasks(user_id, project_id)`,
   `CREATE INDEX IF NOT EXISTS idx_todos_tasks_star
      ON todos_tasks(user_id, starred, status)`,
-  `CREATE INDEX IF NOT EXISTS idx_todos_tasks_remind
-     ON todos_tasks(remind_at) WHERE remind_at IS NOT NULL`,
+  // There is deliberately no index over a reminder instant here. `todos_tasks` once held one
+  // (`remind_at`, with `idx_todos_tasks_remind` partial over it) for the sweep that read the column;
+  // `todos_reminders` superseded both, and migration 155 takes the pair and that index away from the
+  // databases that still have them.
   // The two orders the list gained after it shipped — `sort=created` and `sort=completed` — walk one
   // account's tasks by a column no index above leads with. Without these, every page of a long-lived
   // account sorted its whole table; the migration numbers 111 and 112 carry them to databases built
@@ -109,11 +119,11 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_todos_tasks_trash
      ON todos_tasks(user_id, deleted_at)`,
 
-  // The reminders a task carries, one row each. The todos_tasks columns remind_at / reminded_at held
-  // the same idea as a single pair and are no longer read or written: the one-shot repair
-  // migrateTaskReminders moved their rows here, and they stay on the table only until a later
-  // migration drops them (pending removal). A row is claimed by stamping fired_at, so the sweep needs no
-  // scheduler of its own and two overlapping ticks cannot both deliver the same reminder.
+  // The reminders a task carries, one row each. `todos_tasks.remind_at` / `reminded_at` held the same
+  // idea as a single pair of columns and are gone: the one-shot `migrateTaskReminders` moved their rows
+  // here on the boot that needed it, and migration 155 dropped the pair behind it. A row is claimed by
+  // stamping fired_at, so the sweep needs no scheduler of its own and two overlapping ticks cannot both
+  // deliver the same reminder.
   `CREATE TABLE IF NOT EXISTS todos_reminders (
     user_id TEXT NOT NULL,
     id TEXT NOT NULL,
@@ -234,6 +244,84 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_todos_tag_links_tag
      ON todos_tag_links(user_id, tag_id)`,
 
+  // The time ledger: one row per timed interval (or one manual back-fill), detail rather than a
+  // running aggregate on the task row — the plan's D3, because `timeSpent` and every daily total are
+  // derived from these rows and a second stored copy would be a second truth to keep in step.
+  //
+  // `day` is the account's calendar day (YYYY-MM-DD) the interval belongs to, fixed at write time for
+  // the reason `completed_on` carries its own day: a day derived at query time drifts across DST. An
+  // interval that crosses the account's midnight is split at close into one row per day, so a night
+  // shift is filed against the days the work actually happened on; a running row (`end_at IS NULL`)
+  // carries the day it started on, for display only — every aggregate reads closed rows. `source`
+  // says who wrote the row: the stopwatch, the focus overlay (later round), or a hand-entered span.
+  //
+  // The unique partial index is the single source of "no parallel timers": one open row per account,
+  // enforced by the database rather than by client discipline. On a conflict SQLite names only the
+  // index's columns and not its WHERE clause, so callers judge the business condition ("an open row
+  // already exists") instead of parsing the message. Measured on both runtimes this schema runs on —
+  // the D1 double's node:sqlite and the platform — the partial unique index is accepted and enforced.
+  `CREATE TABLE IF NOT EXISTS todos_time_entries (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    start_at INTEGER NOT NULL,
+    end_at INTEGER,
+    day TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'timer',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS ux_todos_time_open
+     ON todos_time_entries(user_id) WHERE end_at IS NULL`,
+  // What a task's own ledger reads: one account's rows for one task, in the order the intervals ran.
+  `CREATE INDEX IF NOT EXISTS idx_todos_time_task
+     ON todos_time_entries(user_id, task_id, start_at)`,
+  // What the worklog groups by: one account's rows by the day the work landed on.
+  `CREATE INDEX IF NOT EXISTS idx_todos_time_day
+     ON todos_time_entries(user_id, day)`,
+
+  // What the habits screen counts: one row per habit, and one row per habit-day.
+  //
+  // A habit is not a task and its seconds are not a ledger row. `todos_time_entries` keys on `task_id`
+  // and lets an account hold exactly one open timer, so a meditation run beside a running work timer
+  // would be refused by that index. The two answer different questions — "how long did this take" and
+  // "did I do this today" — and share nothing but a clock. Amounts are whole numbers in the kind's own
+  // unit: taps for `clicks`, seconds for `stopwatch`. There is no `position` here, because nothing yet
+  // lets a reader put a habit elsewhere: the column arrives with the drag that writes it, in one change.
+  `CREATE TABLE IF NOT EXISTS todos_counters (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    icon TEXT,
+    color TEXT,
+    -- What a full day is, in the kind's own unit, or NULL while the reader tracks without a target.
+    -- NULL is not zero: "no target" and "a target of nothing" are different answers, and a run of
+    -- days has to know which one it is measuring against.
+    goal INTEGER,
+    -- The instant this habit's own stopwatch began running, or NULL while it is stopped. One column
+    -- rather than a row because a habit holds at most one run; the day a finished run files itself
+    -- under is named by the server at the stop, from the account's zone, for the same reason
+    -- todos_tasks.completed_on is stored at the write instead of derived at read time.
+    running_since INTEGER,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  // How much one habit did on one day — the row a tap upserts and a heatmap reads. The key already is
+  // the whole question the screen asks, so one habit's days come back in day order from the key itself.
+  // The habits screen's other read covers every habit at once over one day window; it filters on the
+  // account prefix of the same key, and an account's habits are capped, so no second index earns a
+  // write on a table this small.
+  `CREATE TABLE IF NOT EXISTS todos_counter_ticks (
+    user_id TEXT NOT NULL,
+    counter_id TEXT NOT NULL,
+    day TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    PRIMARY KEY (user_id, counter_id, day)
+  )`,
+
   // The read-only calendar subscription the to-do app publishes. Keyed on `user_id, slug` — the
   // opposite of `shares`, which keys on `slug` alone — because the schema guard refuses an
   // account-scoped table led by a global key; the unique index below is what lets the public reader
@@ -288,6 +376,9 @@ export const TODOS_REQUIRED_TABLES: readonly string[] = [
   'todos_attachments',
   'todos_tags',
   'todos_tag_links',
+  'todos_time_entries',
+  'todos_counters',
+  'todos_counter_ticks',
   'todos_feeds',
   'todos_mail_tokens',
   'todos_mail_messages',
@@ -298,7 +389,6 @@ export const TODOS_REQUIRED_INDEXES: readonly string[] = [
   'idx_todos_tasks_list',
   'idx_todos_tasks_project',
   'idx_todos_tasks_star',
-  'idx_todos_tasks_remind',
   'idx_todos_tasks_created',
   'idx_todos_tasks_completed',
   'idx_todos_tasks_completed_on',
@@ -313,20 +403,20 @@ export const TODOS_REQUIRED_INDEXES: readonly string[] = [
   'idx_todos_steps_task',
   'idx_todos_tags_unique',
   'idx_todos_tag_links_tag',
+  'ux_todos_time_open',
+  'idx_todos_time_task',
+  'idx_todos_time_day',
   'idx_todos_feeds_slug',
   'idx_todos_feeds_user',
   'idx_todos_mail_tokens_token',
 ]
 
 export const TODOS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
-  // `remind_at` / `reminded_at` stay listed because a database that predates the reminders table
-  // still carries them and the boot guard compares the declared shape with the real one; nothing
-  // reads or writes them any more, and `migrateTaskReminders` is what empties them (pending removal).
   todos_tasks: [
     'user_id', 'id', 'title', 'description', 'status', 'priority', 'position', 'due_at', 'start_at', 'completed_at',
     'completed_on', 'created_on',
-    'project_id', 'list_id', 'icon', 'color', 'starred', 'repeat_rule', 'remind_at', 'reminded_at', 'planned_for', 'note_id',
-    'conversation_id', 'created_at', 'updated_at', 'rev', 'deleted_at',
+    'project_id', 'list_id', 'icon', 'color', 'starred', 'repeat_rule', 'planned_for', 'note_id',
+    'conversation_id', 'created_at', 'updated_at', 'rev', 'deleted_at', 'archived_at', 'time_estimate_ms',
   ],
   todos_reminders: ['user_id', 'id', 'task_id', 'remind_at', 'fired_at', 'created_at'],
   todos_task_events: ['user_id', 'id', 'task_id', 'at', 'on_day', 'kind', 'from_status', 'to_status'],
@@ -335,9 +425,46 @@ export const TODOS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>>
   todos_attachments: ['user_id', 'task_id', 'attachment_id', 'created_at'],
   todos_tags: ['user_id', 'id', 'name', 'color', 'created_at', 'updated_at'],
   todos_tag_links: ['user_id', 'task_id', 'tag_id', 'created_at'],
+  todos_time_entries: ['user_id', 'id', 'task_id', 'start_at', 'end_at', 'day', 'source', 'created_at', 'updated_at'],
+  todos_counters: ['user_id', 'id', 'title', 'kind', 'icon', 'color', 'goal', 'running_since', 'created_at', 'updated_at'],
+  todos_counter_ticks: ['user_id', 'counter_id', 'day', 'amount'],
   todos_feeds: ['slug', 'user_id', 'password_hash', 'expires_at', 'revoked_at', 'created_at'],
   todos_mail_tokens: ['user_id', 'token', 'created_at'],
   todos_mail_messages: ['user_id', 'message_id', 'created_at'],
+}
+
+// ------------------------------------------------------------- time ledger
+
+/** One row of `todos_time_entries`, as the reads that own it bind against it. */
+export interface TodoTimeEntryRow {
+  id: string
+  task_id: string
+  start_at: number
+  end_at: number | null
+  day: string
+  source: string
+  created_at: number
+  updated_at: number
+}
+
+/**
+ * The row the database holds, as the shape every surface speaks.
+ *
+ * The stored `source` is checked rather than cast: a row written by a hand-edited restore could name
+ * anything, and the worklog would rather show an unknown source as the timer's own than crash on it.
+ */
+export function toTimeEntry(row: TodoTimeEntryRow): TodoTimeEntry {
+  const source: TimeEntrySource = isTimeEntrySource(row.source) ? row.source : 'timer'
+  return {
+    id: row.id,
+    taskId: row.task_id,
+    startAt: row.start_at,
+    endAt: row.end_at,
+    day: row.day,
+    source,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
 }
 
 // ------------------------------------------------------------- task attachments

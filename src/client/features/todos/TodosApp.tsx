@@ -5,18 +5,22 @@
  * phone gets a large title, the same board in two columns, a floating bottom bar for the three
  * cross-cutting views, and a button that adds a task. The breakpoint is a `matchMedia` query rather
  * than CSS alone because the two layouts differ in structure, not only in spacing.
+ *
+ * The keys this surface answers, and the `?` panel that lists them, live in `use-todo-shortcuts.ts`.
+ * What stays here is the half only the frame knows: which field to hand the caret to, whether the
+ * sidebar is open, and which page a key was pressed from.
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { CalendarRange, ChartNoAxesColumn, Filter, ListChecks, MoreHorizontal, PanelLeft, Paperclip, Plus, Search, Settings2, Sparkles, Sun, X } from 'lucide-react'
+import { CalendarRange, Filter, ListChecks, MoreHorizontal, PanelLeft, Paperclip, Plus, Search, Settings2, Sparkles, X } from 'lucide-react'
 import type { SavedTodoFilter } from '@shared/types'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { IS_DEMO_MODE } from '../../lib/runtime'
-import { isEditableTarget } from '../../lib/hotkeys'
 import { isImeComposing } from '../../lib/ime'
 import { useMediaQuery } from '../../lib/hooks'
 import { IconButton } from '../../components/primitives'
+import { DEFAULT_TODO_WORKDAY } from '@shared/constants'
 import { Input } from '../../components/form'
 import { Menu, type MenuItem } from '../../components/overlay'
 import { LoadingBlock } from '../../components/feedback'
@@ -26,7 +30,7 @@ import { Resizer } from '../shell/Resizer'
 import { useAssistant } from '../chat/assistant-store'
 import { AssistantDock } from '../chat/AssistantDock'
 import { useAssistantToolRefresh } from '../chat/tool-refresh'
-import { useTodos } from './store'
+import { readsOwnRows, useTodos } from './store'
 import { buildTodoAssistantContext } from './assistant-context'
 import { BatchBar } from './BatchBar'
 import { TaskEditor } from './TaskEditor'
@@ -34,7 +38,11 @@ import { ListEditor } from './OrganizerEditors'
 import { useViewTitle } from './TaskViews'
 import { TodoFilters } from './TodoFilters'
 import { ListIcon } from './list-icons'
-import { TodoContent, surfaceBadge, surfacesFor } from './views/registry'
+import { RunningTimerBar } from './running-timer'
+import { FocusLayer } from './FocusOverlay'
+import { TodoKeysHelp } from './TodoKeysHelp'
+import { TODO_ROW_MENU_WIDTH, useTodoShortcuts } from './use-todo-shortcuts'
+import { TodoContent, surfaceBadge, surfacesFor, surfacesForPhoneMore } from './views/registry'
 
 type Page = 'main' | 'lists'
 
@@ -88,7 +96,6 @@ export function TodosApp() {
   const setQuery = useTodos((state) => state.setQuery)
   const openEditor = useTodos((state) => state.openEditor)
   const selecting = useTodos((state) => state.selectedIds.size > 0)
-  const clearSelection = useTodos((state) => state.clearSelection)
   const counts = useTodos((state) => state.counts)
   const lists = useTodos((state) => state.lists)
   const tags = useTodos((state) => state.tags)
@@ -105,6 +112,10 @@ export function TodosApp() {
   const setLayout = useUi((state) => state.setLayout)
   const applySavedFilter = useTodos((state) => state.applySavedFilter)
   const savedFilters = useSession((state) => state.settings.todo.savedFilters) ?? NO_SAVED_FILTERS
+  // The two navs ask the account which rows it wants drawn. Read here rather than inside the registry,
+  // so switching the end-of-day page back on redraws the sidebar on the same tick.
+  const workday = useSession((state) => state.settings.todo.workday) ?? DEFAULT_TODO_WORKDAY
+  const navFlags = { finishDayEnabled: workday.finishDayEnabled }
   const updateSettings = useSession((state) => state.updateSettings)
   const title = useViewTitle()
   const [page, setPage] = useState<Page>('main')
@@ -170,39 +181,20 @@ export function TodosApp() {
     updateSettings({ todo: { savedFilters: savedFilters.filter((entry) => entry.id !== id) } })
   }
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return
-      if (isEditableTarget(event.target)) return
-      // Selection is a mode, so Escape is the way out of it before it is the way out of a search or a
-      // page: the reader is looking at the bar, and leaving it is what they asked for.
-      if (event.key === 'Escape' && selecting) { event.preventDefault(); clearSelection(); return }
-      if (event.key === 'n') { event.preventDefault(); newTask(); return }
-      if (event.key === '/') {
-        event.preventDefault()
-        if (wide) searchRef.current?.focus()
-        else setSearchOpen(true)
-        return
-      }
-      if (event.key === '[') { event.preventDefault(); setSidebarOpen((open) => !open); return }
-      if (event.key === 'Escape') {
-        // Out of the field, Escape is the way back out of a search a phone opened full-width; inside it,
-        // the field's own handler answers first.
-        if (searchOpen) { setSearchOpen(false); return }
-        setPage('main')
-        return
-      }
-      if (event.key === 'j' || event.key === 'k') {
-        const nodes = [...(contentRef.current?.querySelectorAll<HTMLElement>('[data-todo-open]') ?? [])]
-        if (!nodes.length) return
-        event.preventDefault()
-        const index = nodes.findIndex((node) => node === document.activeElement)
-        const next = event.key === 'j' ? Math.min(nodes.length - 1, index + 1) : Math.max(0, index - 1)
-        nodes[index === -1 ? 0 : next]?.focus()
-      }
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
+  // Every keystroke the container answers lives in `use-todo-shortcuts.ts`, which also holds the list
+  // the `?` panel prints. What used to sit here was a five-key handler inside an effect with no
+  // dependency list, so each render left another listener on the document behind it (defect A18).
+  const shortcuts = useTodoShortcuts({
+    wide,
+    page,
+    searchOpen,
+    contentRef,
+    searchRef,
+    openSearch: () => setSearchOpen(true),
+    closeSearch: () => setSearchOpen(false),
+    toggleSidebar: () => setSidebarOpen((open) => !open),
+    newTask,
+    goMain: () => setPage('main'),
   })
 
   /** Escape in the box is the reader taking the words back out — and, on a phone, the box with them. */
@@ -231,22 +223,20 @@ export function TodosApp() {
    * What the phone's `⋯` opens.
    *
    * These four used to be header buttons; on a 360px screen they pushed the title down to a few
-   * characters. Each row is the same surface the sidebar names on a wide window, so the two layouts
-   * offer one vocabulary in two shapes.
+   * characters. The view rows are the ones the sidebar offers and the phone's tabs do not, which is the
+   * same vocabulary in a second shape — and the reason a screen cannot be added to the wide layout and
+   * left unreachable here. The lists page and the assistant are not views, so they keep their own rows.
    */
   const phoneMoreItems: MenuItem[] = [
-    {
-      id: 'today',
-      label: t('todo.view.today'),
-      icon: <Sun size={14} />,
-      onSelect: () => { setPage('main'); setView('today') },
-    },
-    {
-      id: 'stats',
-      label: t('todo.view.stats'),
-      icon: <ChartNoAxesColumn size={14} />,
-      onSelect: () => { setPage('main'); setView('stats') },
-    },
+    ...surfacesForPhoneMore(navFlags).map((surface) => {
+      const Icon = surface.icon
+      return {
+        id: surface.view,
+        label: t(surface.sidebar!.labelKey),
+        icon: <Icon size={14} />,
+        onSelect: () => { setPage('main'); setView(surface.view) },
+      }
+    }),
     {
       id: 'lists',
       label: t('todo.action.lists'),
@@ -383,7 +373,7 @@ export function TodosApp() {
   const sidebar = (
     <nav aria-label={t('todo.a11y.lists')} style={{ width: todoNavWidth }} className="flex h-full shrink-0 flex-col gap-4 overflow-y-auto border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-3">
       <div className="flex flex-col gap-0.5">
-        {surfacesFor('sidebar').map((surface) => {
+        {surfacesFor('sidebar', navFlags).map((surface) => {
           const Icon = surface.icon
           return (
             <SidebarRow
@@ -489,6 +479,15 @@ export function TodosApp() {
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden bg-[var(--bg-base)]" data-todos-app="">
       {header}
+      {/* The running interval, above every screen and above the filters: it belongs to the account
+          rather than to the view, so it is the one line that has to survive a change of screen. The
+          header itself is the narrowest row in the app on a phone, which is why it is a strip under
+          that row rather than a sixth control inside it. */}
+      <RunningTimerBar />
+      {/* The focus session's own two faces, mounted by the frame rather than by a view: a block started on
+          the board has to survive a trip to the calendar, and the strip that stands in for the panel while
+          `Esc` has taken it away belongs to the same lifetime. */}
+      <FocusLayer />
       <div className="flex min-h-0 flex-1">
         {wide && sidebarOpen && (
           <>
@@ -505,9 +504,10 @@ export function TodosApp() {
         )}
         <div className="flex min-w-0 flex-1 flex-col">
           {/* The order is a question about the tasks, not about one view: the bar stays above every
-              list, and the lists page is a different screen with no listing behind it. Statistics has
-              no listing either, so its own range controls replace this bar rather than join it. */}
-          {page === 'main' && view !== 'stats' && view !== 'calendar' && <TodoFilters />}
+              list, and the lists page is a different screen with no listing behind it. The statistics,
+              the calendar and the close-out read their own rows, so their own controls replace this bar
+              rather than join it — a filter that narrowed nothing would be a control that lies. */}
+          {page === 'main' && !readsOwnRows(view) && <TodoFilters />}
           {status === 'loading' && !counts ? <LoadingBlock /> : content}
         </div>
         {assistantDockOpen && !IS_DEMO_MODE && <AssistantDock surface="todos" />}
@@ -535,7 +535,7 @@ export function TodosApp() {
           >
             {/* Order, glyphs, labels and the one badge all come from the surface table, so a view that
                 earns a tab on the phone is added there rather than here. */}
-            {surfacesFor('phone').map((surface) => {
+            {surfacesFor('phone', navFlags).map((surface) => {
               const Icon = surface.icon
               return (
                 <MobileTab
@@ -563,6 +563,21 @@ export function TodosApp() {
       {/* Rendered here rather than inside the lists page: the sidebar's "+" opens it from any
           screen, so the editor cannot be unmounted with the page that also renders a button for it. */}
       <ListEditor />
+
+      {/* The panel `q` or `s` opened, anchored at the row that asked for it. Its rows come from
+          `task-menu.ts` — the list a kebab and a right-click already answer with — so a key is a third
+          way to reach them rather than a fourth copy of them. */}
+      {shortcuts.menu && (
+        <Menu
+          anchor={shortcuts.menu.point}
+          open
+          onClose={shortcuts.closeMenu}
+          items={shortcuts.menu.items}
+          width={TODO_ROW_MENU_WIDTH}
+          label={shortcuts.menu.label}
+        />
+      )}
+      <TodoKeysHelp open={shortcuts.helpOpen} onClose={shortcuts.closeHelp} />
     </section>
   )
 }

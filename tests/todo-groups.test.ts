@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TodoTask } from '../src/shared/todos/model'
-import { compareTasks, groupByPlan, groupCompleted, groupByList } from '../src/client/features/todos/task-groups'
+import { compareTasks, groupByPlan, groupBySection, groupCompleted, groupByList } from '../src/client/features/todos/task-groups'
 
 const DAY = 24 * 60 * 60 * 1000
 const NOW = Date.parse('2026-10-19T10:00:00Z')
@@ -60,6 +60,50 @@ describe('the plan view', () => {
   })
 })
 
+describe('a list read as sections', () => {
+  const sections = [{ id: 'billing' }, { id: 'retainers' }]
+
+  it('draws one group per section, in the order the reader filed them, and the list own rows first', () => {
+    const groups = groupBySection([
+      task('in-retainers', { listId: 'retainers' }),
+      task('own-row', { listId: 'parent' }),
+      task('in-billing', { listId: 'billing' }),
+    ], sections)
+    expect(groups.map((group) => [group.key, group.tasks.map((entry) => entry.id)])).toEqual([
+      ['unsectioned', ['own-row']],
+      ['section:billing', ['in-billing']],
+      ['section:retainers', ['in-retainers']],
+    ])
+  })
+
+  it('keeps an empty section on the page, because a section is somewhere to drop a row onto', () => {
+    const groups = groupBySection([task('own-row', { listId: 'parent' })], sections)
+    expect(groups.map((group) => group.key)).toEqual(['unsectioned', 'section:billing', 'section:retainers'])
+    expect(groups[1]!.tasks).toEqual([])
+  })
+
+  it('files finished rows together and says which collection each came from', () => {
+    const groups = groupBySection([
+      task('billing-done', { listId: 'billing', status: 'done', completedAt: 5 }),
+      task('own-open', { listId: 'parent' }),
+      task('retainer-done', { listId: 'retainers', status: 'done', completedAt: 9 }),
+    ], sections)
+    const done = groups.find((group) => group.key === 'done')
+    expect(done?.tasks.map((entry) => entry.id)).toEqual(['retainer-done', 'billing-done'])
+    // The rows in that group arrive from two sections and the list itself, and nothing else on the
+    // screen says so; the open groups each stand under a heading that already names their section.
+    expect(done?.showList).toBe(true)
+    expect(groups.find((group) => group.key === 'unsectioned')?.showList).toBeUndefined()
+  })
+
+  it('keeps a row the sections do not explain in the list own group rather than dropping it', () => {
+    // The page came from the server already scoped, so a row here that matches no section is a row the
+    // reader was told about. Dropping it to keep the grouping tidy is the worse answer.
+    const groups = groupBySection([task('elsewhere', { listId: 'somewhere-else' })], sections)
+    expect(groups[0]!.tasks.map((entry) => entry.id)).toEqual(['elsewhere'])
+  })
+})
+
 describe('a list', () => {
   it('reads open tasks first and finished ones last, in the page order', () => {
     const groups = groupByList([
@@ -79,6 +123,22 @@ describe('a list', () => {
       task('dated-first'),
     ])
     expect(groups[0]!.tasks.map((entry) => entry.id)).toEqual(['moved-to-top', 'dated-first'])
+  })
+
+  it('holds a started row in the open group, beside the untouched ones', () => {
+    // `groupByList` splits on the open/done predicate rather than on a status literal, because the list
+    // screen is where a reader sees the work they are in the middle of. Filed into "done" it would sit
+    // under the finished rows by completion time; dropped from both groups it would simply vanish from
+    // a page the server had just listed it on.
+    const groups = groupByList([
+      task('finished', { status: 'done', completedAt: 5 }),
+      task('started', { status: 'in_progress' }),
+      task('untouched'),
+    ])
+    expect(groups.map((group) => [group.key, group.tasks.map((entry) => entry.id)])).toEqual([
+      ['open', ['started', 'untouched']],
+      ['done', ['finished']],
+    ])
   })
 })
 

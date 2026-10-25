@@ -147,12 +147,14 @@ beforeAll(async () => {
     needles.push(task.id)
   }
   needleDone = needles[2]!
-  await store.updateTask(needleDone, { status: 'done' })
+  // Finished through `completeTask`: the general patch refuses a transition into `done`, because
+  // completing a task is also what files the next occurrence of a repeating one.
+  await store.completeTask(needleDone, 'UTC')
   await store.updateTask(needles[0]!, { starred: true })
   // Undated and filed last, so the due order, the created order and the completed order differ.
   const done = await store.createTask({ title: 'Bulk done', listId: workList.id })
   bulkDone = done.id
-  await store.updateTask(done.id, { status: 'done' })
+  await store.completeTask(done.id, 'UTC')
 
   // A second reader whose finished rows carry known days: completion happens "now", so the columns
   // are pinned afterwards rather than the clock being frozen for the whole file.
@@ -160,14 +162,14 @@ beforeAll(async () => {
   await ranged.saveSettings({ ...(await ranged.getSettings()), timezone: 'UTC' })
   for (const day of ['2026-01-01', '2026-01-02', '2026-01-03']) {
     const task = await ranged.createTask({ title: `Finished ${day}` })
-    await ranged.updateTask(task.id, { status: 'done' })
+    await ranged.completeTask(task.id, 'UTC')
     await env.DB.prepare(
       `UPDATE todos_tasks SET completed_at = ?, completed_on = ? WHERE user_id = ? AND id = ?`,
     ).bind(Date.parse(`${day}T09:00:00Z`), day, RANGE_USER, task.id).run()
     finishedDays.push({ id: task.id, day })
   }
   const undated = await ranged.createTask({ title: 'Finished without a day' })
-  await ranged.updateTask(undated.id, { status: 'done' })
+  await ranged.completeTask(undated.id, 'UTC')
   await env.DB.prepare(
     `UPDATE todos_tasks SET completed_on = NULL WHERE user_id = ? AND id = ?`,
   ).bind(RANGE_USER, undated.id).run()

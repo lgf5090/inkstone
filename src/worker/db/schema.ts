@@ -612,6 +612,16 @@ export interface SchemaMigration {
   version: number
   statements: readonly string[]
   skipIfColumnExists?: { table: string; column: string }
+  /**
+   * The mirror of the guard above, for a migration that takes a column away rather than adding one.
+   *
+   * `skipIfColumnExists` answers "is the shape this version writes already here", which is the only
+   * question an `ADD COLUMN` can ask. A `DROP COLUMN` fails outright on a database that never had the
+   * column — every fresh one, since the table declaration no longer carries it — so its version is
+   * satisfied by the column being absent. The ledger records the number either way, so the next boot
+   * asks once instead of every time.
+   */
+  skipIfColumnMissing?: { table: string; column: string }
 }
 
 export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
@@ -2368,6 +2378,59 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     ],
   },
   {
+    // How long a task's reader expects it to take, in milliseconds.
+    //
+    // Nullable on purpose: "nobody estimated" and "the estimate is zero" are different answers, and
+    // the worklog has to tell them apart. The table declaration carries the column for a fresh
+    // database; this version is what an older one gains it under. `todos_time_entries` itself needs
+    // no number — tables are built before the ledger is consulted, the same way `todos_task_events`
+    // arrived without one.
+    version: 153,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'time_estimate_ms' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN time_estimate_ms INTEGER`,
+    ],
+  },
+  {
+    // The shelf a task is put away on, as distinct from the trash it is deleted into.
+    //
+    // "Finish day" needs a place to send work the reader has looked at and is not going to do — a row
+    // that is neither owed (so it leaves today, the badges, the board and the calendar) nor gone (so its
+    // hours stay in the statistics and its record stays in the completed list). Nullable, because every
+    // row written before this line is, correctly, not put away.
+    version: 154,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'archived_at' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN archived_at INTEGER`,
+    ],
+  },
+  {
+    // The two columns a task's one reminder used to live in, and the index that read them.
+    //
+    // `todos_reminders` (one row per instant, `fired_at` as the delivery mark) superseded both: no code
+    // has read or written `remind_at` / `reminded_at` since, `migrateTaskReminders` empties whatever a
+    // database still holds into the table, and five reminders per task cannot fit in one column at all.
+    // This round of the to-do app lives at 153, 154 and here: 148 to 152 were reached first by the
+    // share hub on the branch this one merged, and a migration number is a promise to every database.
+    //
+    // Three statements, in this order, in one batch:
+    //  - SQLite refuses `DROP COLUMN` for a column an index still names, so the partial index over
+    //    `remind_at` has to go first (measured: the drop alone fails with "error in index … after drop
+    //    column: no such column"). It is a dead index in any case — the sweep has read
+    //    `todos_reminders.remind_at` since the table arrived, so this also stops every task write from
+    //    maintaining an index nothing queries.
+    //  - the columns follow, in the order the table declared them.
+    // The guard is the mirror of an `ADD`'s: a fresh database has neither column, and `ALTER TABLE …
+    // DROP COLUMN` of a column that is not there is an error rather than a no-op.
+    version: 155,
+    skipIfColumnMissing: { table: 'todos_tasks', column: 'remind_at' },
+    statements: [
+      `DROP INDEX IF EXISTS idx_todos_tasks_remind`,
+      `ALTER TABLE todos_tasks DROP COLUMN remind_at`,
+      `ALTER TABLE todos_tasks DROP COLUMN reminded_at`,
+    ],
+  },
+  {
     version: 156,
     skipIfColumnExists: { table: 'mcp_preferences', column: 'email_enabled' },
     statements: [
@@ -2760,11 +2823,16 @@ async function createSchema(db: D1Database): Promise<DatabaseState> {
     // lets a partially initialized database recover missing feature tables.
     await runStatements(db, TABLE_SCHEMA_STATEMENTS)
   }
+  // Ahead of the migrations, and that order is load-bearing: migration 155 drops the two columns this
+  // reads, so a boot that ran the migrations first would delete a pending reminder out of the only place
+  // an older account had ever written one. Nothing here needs a migration's output — `todos_reminders` is
+  // a declared table created by the statements just above, and the pair it empties has been on the task
+  // table since before any version number was spent on it.
+  await migrateTaskReminders(db)
   await applyMigrations(db)
   await repairReaderBookTenantKey(db)
   await migrateTaskTable(db)
   await migrateTodoDayColumns(db)
-  await migrateTaskReminders(db)
   // The event backfill asks "does this task have a birth/completion yet" once per task, and without
   // `idx_todos_task_events_task` each answer walks the whole history. On a shelf of ten thousand
   // rows that turns the boot into minutes, so the indexes have to be in place before the probe, not
@@ -3018,7 +3086,10 @@ async function todoDayCounts(db: D1Database): Promise<{
  * each `remind_at` becomes a row, and a non-null `reminded_at` becomes its `fired_at` — a reminder the
  * reader was already told about must not be announced a second time by a deployment upgrade.
  *
- * Three properties make it safe to run on every boot:
+ * Four properties make it safe to run on every boot:
+ *  - it starts by asking whether the table still has the column at all. Migration 155 drops the pair
+ *    behind this repair, and a database that has been through it holds nothing to move and no column for
+ *    the statements below to name;
  *  - it only looks at rows whose `remind_at` is not null, and the same batch clears that column, so a
  *    converged database pays one count and nothing else;
  *  - the insert and the clear are one `db.batch`, which D1 runs as a transaction: a failure (a locked
@@ -3032,6 +3103,7 @@ async function todoDayCounts(db: D1Database): Promise<{
  * statement rather than read into memory and written back one at a time.
  */
 async function migrateTaskReminders(db: D1Database): Promise<void> {
+  if (!await hasColumn(db, { table: 'todos_tasks', column: 'remind_at' })) return
   const legacy = await db.prepare(
     `SELECT COUNT(*) AS n FROM todos_tasks WHERE remind_at IS NOT NULL`,
   ).first<{ n: number | null }>()
@@ -3174,7 +3246,13 @@ async function applyMigrations(db: D1Database): Promise<void> {
     // it, so the note is corrected afterwards by `repairMissingColumns` rather than trusted here.
     if (applied.has(migration.version)) continue
     let migrationStatements = migration.statements
+    // Either guard means the shape this version exists to produce is already the shape of the database:
+    // an `ADD` whose column is here, or a `DROP` whose column is not. The statements are skipped and the
+    // number is written all the same, which is what keeps a version from being asked twice per boot.
     if (migration.skipIfColumnExists && await hasColumn(db, migration.skipIfColumnExists)) {
+      migrationStatements = []
+    }
+    if (migration.skipIfColumnMissing && !await hasColumn(db, migration.skipIfColumnMissing)) {
       migrationStatements = []
     }
     const statements = migrationStatements.map((statement) => db.prepare(statement))

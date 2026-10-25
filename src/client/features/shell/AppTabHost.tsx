@@ -52,7 +52,11 @@ export function AppTabHost() {
   return (
     <div className="flex h-full min-h-0 overflow-hidden bg-[var(--bg-base)]">
       <AppRail />
-      <div className="min-w-0 flex-1">
+      {/* The column an app is drawn in, and the only container that is always there: it is where the caret
+          lands when a dialog closes over a control that has left the document (`returnCaret` in
+          `components/overlay.tsx`). Focusable, and left with its own ring — a reader who loses the row a
+          dialog was opened from should see where they ended up. */}
+      <div className="min-w-0 flex-1" data-app-frame="" tabIndex={-1}>
         {Container
           ? (
               <Suspense fallback={<LoadingBlock />}>

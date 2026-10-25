@@ -21,26 +21,35 @@ import { SelectMenu } from '../../components/select-menu'
 import { TagPill } from '../../components/TagChip'
 import { renderMarkdown } from '../../lib/markdown/renderer'
 import { DatePicker } from '../../components/date-picker'
-import { Menu, Modal, confirm } from '../../components/overlay'
+import { Menu, Modal } from '../../components/overlay'
 import { api } from '../../lib/api'
 import { useUi } from '../../store/ui'
 import { useTodos, remindOffsetOf } from './store'
 import { dueValue, priorityDot, priorityLabel } from './todo-ui'
+import { EstimatePicker } from './estimate-picker'
 import { ListIcon } from './list-icons'
 import { ColorPicker } from './OrganizerEditors'
 import { ListIconPicker } from './ListIconPicker'
 import { openConversationInChat, startChatAboutTask } from '../chat/start-chat'
 import { sendForAnswerDetailed, type AnswerResult } from '../chat/editor-ai'
 import { parseLocalTime, localDate } from '@shared/assistant-time'
+import { daysInMonth, getZonedParts } from '@shared/assistant-schedule'
 import type { MessageKey } from '@shared/locales/en-US'
 import {
+  MAX_REPEAT_COUNT,
+  MAX_REPEAT_INTERVAL,
   MAX_REMINDERS_PER_TASK,
+  MIN_REPEAT_COUNT,
+  MIN_REPEAT_INTERVAL,
   REPEAT_FREQUENCIES,
   REMIND_OFFSETS,
+  nextOccurrence,
   normalizeReminderTimes,
   remindAtFor,
   type RemindOffset,
   type RepeatFrequency,
+  type RepeatMonthlyMode,
+  type RepeatRule,
   type TaskStep,
 } from '@shared/todos/model'
 
@@ -100,6 +109,106 @@ const WEEKDAY_CHOICES: readonly { day: number, label: MessageKey }[] = [
   { day: 6, label: 'assistant.weekday.6' },
   { day: 0, label: 'assistant.weekday.7' },
 ]
+
+/** The positions a monthly nth-weekday rule can name: a month holds a given weekday at most five times. */
+const NTH_CHOICES = [1, 2, 3, 4, 5] as const
+
+/** The words one of those positions reads as. */
+const NTH_LABELS: Record<(typeof NTH_CHOICES)[number], MessageKey> = {
+  1: 'todo.repeat.nth_1',
+  2: 'todo.repeat.nth_2',
+  3: 'todo.repeat.nth_3',
+  4: 'todo.repeat.nth_4',
+  5: 'todo.repeat.nth_5',
+}
+
+/** The nth weekday of a month that its `day` is, as the repeat rule counts it. */
+function nthOfMonth(day: number): number {
+  return Math.ceil(day / 7)
+}
+
+/** The day of `month` that is the nth `weekday`, falling back to the month's last one when it has four. */
+function dayOfNthWeekday(year: number, month: number, weekday: number, nth: number): number {
+  const firstWeekday = new Date(Date.UTC(year, month - 1, 1)).getUTCDay()
+  const day = 1 + (weekday - firstWeekday + 7) % 7 + (nth - 1) * 7
+  return day <= daysInMonth(year, month) ? day : day - 7
+}
+
+/**
+ * The half of a rule this panel edits: the series rather than the rhythm.
+ *
+ * `produced` rides with them although no control shows it. The counter is what makes a bounded series
+ * end where the reader said, and a save writes the rule whole, so a panel that dropped it would start
+ * a series again from its first occurrence every time it edited the title.
+ */
+type RepeatSeries = Pick<RepeatRule, 'untilAt' | 'count' | 'produced' | 'paused' | 'fromCompletionDate' | 'excludedDays'>
+
+const NO_SERIES: RepeatSeries = {}
+
+/** The series a row or a quick-add draft already carries; an absent limit reads as no limit. */
+function seriesOf(rule: RepeatRule | null | undefined): RepeatSeries {
+  if (!rule) return NO_SERIES
+  return {
+    untilAt: rule.untilAt ?? null,
+    count: rule.count ?? null,
+    produced: rule.produced,
+    paused: rule.paused,
+    fromCompletionDate: rule.fromCompletionDate,
+    excludedDays: rule.excludedDays,
+  }
+}
+
+/**
+ * The last instant of a day the picker names.
+ *
+ * The ceiling is compared against the instants the occurrences land on, so a day stored at its own
+ * midnight would stop a series an occurrence the reader asked to include: "until the 31st" means the
+ * report owed at nine on the 31st still comes.
+ */
+function endOfLocalDay(key: string, timeZone: string): number | null {
+  if (!key) return null
+  const nextDay = parseLocalTime(addDaysKey(key, 1), timeZone)
+  return nextDay === null ? parseLocalTime(key, timeZone) : nextDay - 1
+}
+
+/** The number the occurrences box holds; empty text is the reader clearing the ceiling. */
+function countOrNull(text: string): number | null {
+  if (!text) return null
+  const value = Number(text)
+  if (!Number.isFinite(value)) return null
+  return Math.max(MIN_REPEAT_COUNT, Math.min(MAX_REPEAT_COUNT, Math.trunc(value)))
+}
+
+/**
+ * The series as the row stores it: the fields that carry an answer, and only those.
+ *
+ * The controls hold `null` for "no ceiling" because a box needs something to show, but a rule that
+ * reads `untilAt: null, count: null, paused: undefined` states five absences the reader would have to
+ * decode, and every one of them is already what a missing field means to the server, to the counter
+ * and to the next time this panel opens. Keeping the stored shape minimal is also what makes the rule
+ * this panel writes read back as the rule it wrote.
+ */
+function storedSeries(series: RepeatSeries): RepeatSeries {
+  const stored: RepeatSeries = {}
+  if (series.untilAt != null) stored.untilAt = series.untilAt
+  if (series.count != null) stored.count = series.count
+  if (series.produced != null) stored.produced = series.produced
+  if (series.paused) stored.paused = true
+  if (series.fromCompletionDate) stored.fromCompletionDate = true
+  if (series.excludedDays?.length) stored.excludedDays = series.excludedDays
+  return stored
+}
+
+/**
+ * The due field's wall-clock reading, in the one shape the field and the route both take.
+ *
+ * The time is carried only when the date being replaced had one: a task nobody has owed at an hour
+ * yet stays a day, and picking a weekday does not quietly invent a 00:00 it will remind at.
+ */
+function dueKey(year: number, month: number, day: number, hour: number, minute: number, timed: boolean): string {
+  const date = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+  return timed ? `${date}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}` : date
+}
 
 /**
  * What the start field opens with.
@@ -163,6 +272,25 @@ export function TaskEditor() {
   const [starred, setStarred] = useState(false)
   const [dueText, setDueText] = useState('')
   const [startText, setStartText] = useState('')
+  /**
+   * What the reader plans the task to take, and whether the words in the box can be honoured.
+   *
+   * The number is the picker's own ladder read back through the shared duration grammar, so the panel and
+   * the row's chip never disagree about what `1h20m` means. `estimateInvalid` is kept beside it rather
+   * than folded in because "no plan" (`null`) and "words nobody has read yet" are different answers: the
+   * first is a value a save must write, the second is a save that must not happen at all.
+   */
+  const [estimate, setEstimate] = useState<number | null>(null)
+  const [estimateInvalid, setEstimateInvalid] = useState(false)
+  /**
+   * How many times this panel has read the row it was opened on.
+   *
+   * The picker holds its own draft of the number — it is the control the chip's dialog mounts per opening,
+   * keyed by what changed — so this panel re-keys it on the same event that re-reads every other field.
+   * Keying it by the estimate itself would be the other mistake: the reader's own pick moves that state,
+   * and remounting then would wipe the custom box mid-word.
+   */
+  const [seed, setSeed] = useState(0)
   const [listId, setListId] = useState('')
   /**
    * The task's own face: a glyph and a colour of its own, or null to wear the list's.
@@ -177,7 +305,13 @@ export function TaskEditor() {
   const [interval, setInterval] = useState(1)
   /** The named weekdays of a weekly rule, and which day a monthly rule lands on. */
   const [weekdays, setWeekdays] = useState<number[]>([])
-  const [monthlyMode, setMonthlyMode] = useState<'day' | 'lastDay'>('day')
+  const [monthlyMode, setMonthlyMode] = useState<RepeatMonthlyMode>('day')
+  /**
+   * What the series around the rhythm does: when it ends, whether it is paused, which days it steps
+   * over. One object rather than five fields, because the five are one answer — the shape of the
+   * series — and every one of them is saved or dropped together.
+   */
+  const [series, setSeries] = useState<RepeatSeries>(NO_SERIES)
   /**
    * The preset picker is an "add" control, not the value: the list on the right of it is what the task
    * saves. The select stays in the form because it is the fastest way to add the common four, and its
@@ -219,13 +353,19 @@ export function TaskEditor() {
       ? dueValue(task.dueAt, timezone)
       : typeof source.dueAt === 'string' ? source.dueAt : source.dueAt ? dueValue(source.dueAt, timezone) : '')
     setStartText(seedStartText(source, task, timezone))
+    // Both doors hand the same number in milliseconds — the row's own column, or the estimate a
+    // quick-add line wrote into the draft — so the panel opens on it without parsing anything.
+    setEstimate(task?.timeEstimateMs ?? source.timeEstimate ?? null)
+    setEstimateInvalid(false)
+    setSeed((count) => count + 1)
     setListId(task?.listId ?? source.listId ?? '')
     setIcon(task?.icon ?? source.icon ?? null)
     setColor(task?.color ?? source.color ?? null)
     setRepeat(task?.repeat?.freq ?? source.repeat?.freq ?? 'none')
     setInterval(task?.repeat?.interval ?? source.repeat?.interval ?? 1)
     setWeekdays(task?.repeat?.weekdays ?? source.repeat?.weekdays ?? [])
-    setMonthlyMode(task?.repeat?.monthlyMode === 'lastDay' ? 'lastDay' : 'day')
+    setMonthlyMode(task?.repeat?.monthlyMode ?? source.repeat?.monthlyMode ?? 'day')
+    setSeries(seriesOf(task?.repeat ?? source.repeat))
     // An existing task brings its pending list; a quick-add draft brings one instant. The select shows
     // the preset that instant equals, so a line typed as "15 minutes before" arrives with the same
     // words in the panel, while the list below is what will actually be saved.
@@ -273,6 +413,73 @@ export function TaskEditor() {
     [tags, tagNames],
   )
 
+  /**
+   * The date a monthly nth-weekday rule reads, in the reader's own calendar.
+   *
+   * The rule names no position of its own — `nextOccurrence` takes both the nth and the weekday out of
+   * the due date — so this is that same reading, and the two controls below move the due date rather
+   * than keeping a second answer a save would have to reconcile. With no due date yet, the reader's own
+   * today names the month, and the day the picker writes stays without an hour: nothing was owed at one.
+   */
+  const nthWeekday = useMemo(() => {
+    const at = dueText ? parseLocalTime(dueText, timezone) : null
+    const parts = getZonedParts(new Date(at ?? Date.now()), timezone)
+    return {
+      year: parts.year,
+      month: parts.month,
+      nth: nthOfMonth(parts.day),
+      weekday: parts.weekday,
+      hour: parts.hour,
+      minute: parts.minute,
+      timed: at !== null && dueText.includes('T'),
+    }
+  }, [dueText, timezone])
+
+  /** Makes the due date the nth weekday of its own month, keeping the time it was owed at. */
+  const pickNthWeekday = (nth: number, weekday = nthWeekday.weekday): void => {
+    const { year, month, hour, minute, timed } = nthWeekday
+    setDueText(dueKey(year, month, dayOfNthWeekday(year, month, weekday, nth), hour, minute, timed))
+  }
+
+  const patchSeries = (patch: Partial<RepeatSeries>): void => {
+    setSeries((current) => ({ ...current, ...patch }))
+  }
+
+  /**
+   * The whole rule as the panel reads it: the rhythm and the series together.
+   *
+   * Built once and used twice — the save writes it, and the day below is found by running it — so the
+   * two cannot disagree about what pressing Save stores. Nothing is left out of it, because the server
+   * replaces the stored rule with exactly this: a field the panel forgot is a field that is gone.
+   */
+  const rule: RepeatRule | null = repeat === 'none' ? null : {
+    freq: repeat,
+    interval: Math.max(MIN_REPEAT_INTERVAL, Math.min(MAX_REPEAT_INTERVAL, interval)),
+    ...(repeat === 'weekly' && weekdays.length ? { weekdays: [...weekdays].sort((a, b) => a - b) } : {}),
+    ...(repeat === 'monthly' && monthlyMode !== 'day' ? { monthlyMode } : {}),
+    ...storedSeries(series),
+  }
+
+  /**
+   * The day the next occurrence would land on, and so the one the skip button lets go of.
+   *
+   * Counted the way the server counts it — from the old due date, or from today when the series runs
+   * from the day the reader finishes — because "the next one" has to mean the occurrence the reader is
+   * about to be owed, not whichever day the panel happens to open on.
+   */
+  const nextOccurrenceDay = (() => {
+    if (!rule) return null
+    const fromForm = dueText ? parseLocalTime(dueText, timezone) : null
+    const anchor = rule.fromCompletionDate ? Date.now() : (fromForm ?? Date.now())
+    return localDate(nextOccurrence(anchor, rule, timezone), timezone)
+  })()
+
+  const excludedDays = series.excludedDays ?? []
+
+  const excludeDay = (day: string): void => {
+    patchSeries({ excludedDays: [...new Set([...excludedDays, day])].sort() })
+  }
+
   const save = async (): Promise<void> => {
     const body = {
       title: title.trim(),
@@ -281,34 +488,45 @@ export function TaskEditor() {
       starred,
       dueAt: dueText ? dueText : null,
       startAt: startText ? startText : null,
+      // The plan rides the same write as every other field of this panel. `null` is sent rather than
+      // left out because taking an estimate away is an answer the reader gave, not an absence.
+      timeEstimate: estimate,
       listId: listId || null,
       icon,
       color,
-      repeat: repeat === 'none' ? null : {
-        freq: repeat,
-        interval: Math.max(1, Math.min(99, interval)),
-        ...(repeat === 'weekly' && weekdays.length ? { weekdays: [...weekdays].sort((a, b) => a - b) } : {}),
-        ...(repeat === 'monthly' && monthlyMode === 'lastDay' ? { monthlyMode } : {}),
-      },
+      repeat: rule,
       reminders,
       tags: tagNames,
     }
-    if (!body.title) return
+    // Refused rather than half-written: the words in the estimate box are not a duration, and saving the
+    // rest would drop what the reader typed without saying so. The field itself says it (role="alert"),
+    // and the footer's save is disabled for the same reason, so the panel is never left with a press that
+    // quietly does nothing.
+    if (!body.title || estimateInvalid) return
     if (existing) await updateTask(existing.id, body)
-    else await createTask({ ...body, steps: steps.map((step) => step.text) })
+    // The spent half of a quick-add pair is the one thing this panel hands on without owning it: no
+    // field of the form shows it, because it is a ledger span rather than a column of the row. Reading
+    // it off the opening draft — and only off a draft that names no row — is what keeps this door the
+    // same shape as the board's inline enter, which forwards the same field to the same ledger write.
+    else await createTask({
+      ...body,
+      steps: steps.map((step) => step.text),
+      ...(draft?.id === undefined && draft?.timeLoggedMs !== undefined
+        ? { timeLoggedMs: draft.timeLoggedMs }
+        : {}),
+    })
     close()
   }
 
+  /**
+   * Delete this row at once.
+   *
+   * One row needs no question: the store's toast already carries the way back — the same stamped row
+   * restored, not a copy — and a reader who misses the window still has the trash. A group of more than
+   * one asks first, and that question lives with the batch bar (`task-menu.ts`'s `confirmBatchDelete`).
+   */
   const remove = async (): Promise<void> => {
     if (!existing) return
-    const ok = await confirm({
-      title: t('todo.action.delete'),
-      description: t('todo.task.delete_hint', { title: existing.title }),
-      confirmLabel: t('todo.action.delete'),
-      tone: 'danger',
-    })
-    if (!ok) return
-    // The store takes the snapshot before the row leaves and offers the rebuild on its toast.
     await removeTask(existing.id)
     close()
   }
@@ -433,7 +651,7 @@ export function TaskEditor() {
           )}
           <span className="ml-auto" />
           <Button variant="ghost" size="sm" onClick={close}>{t('todo.action.cancel')}</Button>
-          <Button size="sm" disabled={!title.trim() || saving} onClick={() => { void save() }}>{t('todo.action.save')}</Button>
+          <Button size="sm" disabled={!title.trim() || saving || estimateInvalid} onClick={() => { void save() }}>{t('todo.action.save')}</Button>
         </div>
       )}
     >
@@ -654,6 +872,22 @@ export function TaskEditor() {
           <Field label={t('todo.task.start_label')}>
             <DatePicker label={t('todo.task.start_label')} value={startText} withTime onChange={setStartText} />
           </Field>
+          {/* How long the reader plans the work to take, on the row's own ladder and in the row's own
+              grammar: the same `EstimatePicker` the chip on the listing opens, so one screen never says
+              `90` while the other means an hour and a half. This is the other door to the plan — the one
+              a task reaches when it is being written up rather than timed. */}
+          <Field label={t('todo.time.label')}>
+            <div className="flex flex-col gap-1.5">
+              <EstimatePicker
+                key={seed}
+                estimate={estimate}
+                onChange={(edit) => {
+                  setEstimate(edit.value)
+                  setEstimateInvalid(edit.invalid)
+                }}
+              />
+            </div>
+          </Field>
           {/* The select sits where the single-reminder field always did and adds one instant to the
               list below; the list, not the select, is what the task saves. */}
           <Field label={t('todo.task.reminder_preset')}>
@@ -680,8 +914,8 @@ export function TaskEditor() {
                 {repeat !== 'none' && (
                   <Input
                     type="number"
-                    min={1}
-                    max={99}
+                    min={MIN_REPEAT_INTERVAL}
+                    max={MAX_REPEAT_INTERVAL}
                     value={interval}
                     aria-label={t('todo.repeat.every', { count: interval, unit: '' })}
                     onChange={(event) => setInterval(Number(event.target.value) || 1)}
@@ -716,12 +950,115 @@ export function TaskEditor() {
                 <SelectMenu
                   label={t('todo.repeat.monthly_mode')}
                   value={monthlyMode}
-                  onChange={(next) => setMonthlyMode(next === 'lastDay' ? 'lastDay' : 'day')}
+                  onChange={(next) => setMonthlyMode(next as RepeatMonthlyMode)}
                   options={[
                     { value: 'day', label: t('todo.repeat.monthly_day') },
                     { value: 'lastDay', label: t('todo.repeat.last_day') },
+                    { value: 'nthWeekday', label: t('todo.repeat.nth_weekday') },
                   ]}
                 />
+              )}
+              {repeat === 'monthly' && monthlyMode === 'nthWeekday' && (
+                // The rule reads its position off the due date, so these two controls move that date
+                // rather than storing a third answer: picking "the 3rd Friday" makes the task owed on
+                // the 3rd Friday, and every month after it lands on the same one.
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <SelectMenu
+                      className="w-auto min-w-[96px]"
+                      label={t('todo.repeat.nth')}
+                      value={String(nthWeekday.nth)}
+                      onChange={(next) => pickNthWeekday(Number(next))}
+                      options={NTH_CHOICES.map((entry) => ({ value: String(entry), label: t(NTH_LABELS[entry]) }))}
+                    />
+                    <div role="group" aria-label={t('todo.repeat.weekdays')} className="flex flex-wrap items-center gap-1">
+                      {WEEKDAY_CHOICES.map((choice) => (
+                        <button
+                          key={choice.day}
+                          type="button"
+                          aria-pressed={choice.day === nthWeekday.weekday}
+                          aria-label={t(choice.label)}
+                          onClick={() => pickNthWeekday(nthWeekday.nth, choice.day)}
+                          className="flex size-9 items-center justify-center rounded-[var(--r-sm)] border border-[var(--border-subtle)] text-[length:var(--text-11)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] aria-pressed:border-[var(--accent)] aria-pressed:bg-[var(--accent-soft)] aria-pressed:text-[var(--accent-on-soft)] md:size-7"
+                        >
+                          {t(choice.label)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+              {repeat !== 'none' && (
+                // The series around the rhythm: how often comes from the four controls above, how long
+                // is set here. A reader who asks for "every Monday for six weeks" sets both, and the
+                // two are stored in the one rule the server replaces whole.
+                <div
+                  role="group"
+                  aria-label={t('todo.repeat.series')}
+                  className="flex flex-col gap-1.5 border-t border-[var(--border-subtle)] pt-1.5"
+                >
+                  <span className="text-[length:var(--text-11)] font-medium text-[var(--text-secondary)]">
+                    {t('todo.repeat.series')}
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <DatePicker
+                      className="flex-1"
+                      label={t('todo.repeat.until')}
+                      value={series.untilAt != null ? localDate(series.untilAt, timezone) : ''}
+                      onChange={(value) => patchSeries({ untilAt: endOfLocalDay(value, timezone) })}
+                    />
+                    <Input
+                      type="number"
+                      min={MIN_REPEAT_COUNT}
+                      max={MAX_REPEAT_COUNT}
+                      value={series.count ?? ''}
+                      aria-label={t('todo.repeat.count')}
+                      onChange={(event) => patchSeries({ count: countOrNull(event.target.value) })}
+                      className="w-16"
+                    />
+                  </div>
+                  <Checkbox
+                    checked={series.fromCompletionDate === true}
+                    onChange={(next) => patchSeries({ fromCompletionDate: next })}
+                    label={t('todo.repeat.from_completion')}
+                  />
+                  <Checkbox
+                    checked={series.paused === true}
+                    onChange={(next) => patchSeries({ paused: next })}
+                    label={t('todo.repeat.paused')}
+                  />
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[length:var(--text-11)] font-medium text-[var(--text-secondary)]">
+                      {t('todo.repeat.excluded_label')}
+                    </span>
+                    {!excludedDays.length && (
+                      <span className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">
+                        {t('todo.repeat.excluded_none')}
+                      </span>
+                    )}
+                    {!!excludedDays.length && (
+                      <div role="group" aria-label={t('todo.repeat.excluded_label')} className="flex flex-wrap items-center gap-1">
+                        {excludedDays.map((day) => (
+                          <button
+                            key={day}
+                            type="button"
+                            aria-label={t('todo.repeat.excluded_remove', { day })}
+                            onClick={() => patchSeries({ excludedDays: excludedDays.filter((entry) => entry !== day) })}
+                            className="flex h-7 items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-subtle)] px-1.5 text-[length:var(--text-11)] tabular-nums text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+                          >
+                            {day}
+                            <X size={11} />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {nextOccurrenceDay && (
+                      <Button variant="ghost" size="sm" onClick={() => excludeDay(nextOccurrenceDay)}>
+                        {t('todo.repeat.skip_next')}
+                      </Button>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
           </Field>

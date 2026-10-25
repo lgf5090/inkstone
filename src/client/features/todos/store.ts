@@ -29,7 +29,9 @@ import { parseTodoFilter, type TodoFilterQuery } from '@shared/todos/filter-quer
 import type { SavedTodoFilter } from '@shared/types'
 import type { MessageKey } from '@shared/locales/en-US'
 import {
+  MAX_SINGLE_TIME_ENTRY_MS,
   isSnoozeMinutes,
+  remindOffsetForDelta,
   toggledStatus,
   type RemindOffset,
   type SnoozeMinutes,
@@ -39,11 +41,13 @@ import {
   type TaskList,
   type TaskSort,
   type TaskStatsBucket,
+  type TaskStatus,
   type TaskStep,
   type TaskTag,
   type TodoStats,
   type TodoTask,
 } from '@shared/todos/model'
+import { isTaskDone, isTaskOpen } from '@shared/todos/status'
 import {
   pushTodoAddress,
   pushTodoTaskAddress,
@@ -54,7 +58,7 @@ import {
 } from './todo-address'
 import { daysToRange } from './due-range'
 
-export type TodoView = 'board' | 'today' | 'plan' | 'calendar' | 'starred' | 'completed' | 'list' | 'tag' | 'stats'
+export type TodoView = 'board' | 'today' | 'plan' | 'upcoming' | 'calendar' | 'starred' | 'completed' | 'list' | 'tag' | 'stats' | 'finish-day' | 'counters'
 
 /** The list shape this feature reads, re-exported so its screens do not reach the API module. */
 export type { TaskListEntry } from '../../lib/api'
@@ -92,6 +96,21 @@ export interface TaskDraft {
   conversationId?: string | null
   noteId?: string | null
   steps?: string[]
+  /**
+   * What the reader plans the task to take, in milliseconds, or null for no plan.
+   *
+   * The wire name the task routes read, kept as it goes over the network so a draft is one shape on the
+   * way in and on the way out. A quick-add line that wrote `2h` lands here; the spent half of `5m/2h`
+   * does not, because that is a ledger entry rather than a property of the row.
+   */
+  timeEstimate?: number | null
+  /**
+   * Hours the line says have already gone, filed as a span ending at the press.
+   *
+   * The `5m` half of `5m/1h`. It is a fact about time rather than a column on the row, so it never
+   * reaches the create body: `createTask` writes it through the ledger's back-fill door instead.
+   */
+  timeLoggedMs?: number
 }
 
 interface TodosState {
@@ -235,15 +254,39 @@ interface TodosState {
    * removed, because the rail holds one step and a batch is one step.
    */
   batchTasks: (op: TaskBatchOp, value?: string | string[] | null) => Promise<TaskBatchResult | null>
+  /**
+   * Report a write the reader can take back, on the same single-slot rail every other undo shares.
+   *
+   * A surface that owns its own reads (the end-of-day pass) still has to put its step back on the toast
+   * rail, and the rail holds exactly one step with one window. Re-implementing that per screen is how
+   * two toasts start offering to undo the same write.
+   */
+  reportUndo: (label: string, undo: () => Promise<void>) => void
   /** Pick a task into an account-zone day, or clear the pick with `null`; re-reads the listing after. */
   planTask: (id: string, date: string | null) => Promise<TodoTask | null>
   /** Append one reminder `minutes` from now; the task's existing reminders stay. */
   snoozeTask: (id: string, minutes: SnoozeMinutes) => Promise<TodoTask | null>
+  /**
+   * Start the account's one running interval on this task, and move the row to `in_progress` with it.
+   *
+   * One gesture, because "am I working on this" has to have one answer: an interval running under a row
+   * that still says `todo` is the second truth the card rule forbids. The status is written first and
+   * through the row's own guard, and nothing here writes `done` — finishing stays `completeTask`'s path.
+   */
+  startTimer: (task: TodoTask) => Promise<void>
+  /** Close this task's running interval. The row keeps whatever status it had: stopping is not finishing. */
+  stopTimer: (id: string) => Promise<void>
   /** Open tasks matching a title search, for the today screen's picker. Errors are reported, not thrown. */
   searchTasks: (query: string) => Promise<TodoTask[]>
 
   createList: (input: { name: string; icon?: string | null; color?: string | null }) => Promise<TaskListEntry | null>
-  updateList: (id: string, patch: { name?: string; icon?: string | null; color?: string | null; archived?: boolean; parentId?: string | null }) => Promise<TaskListEntry | null>
+  /**
+   * Save one field set of a list.
+   *
+   * `position` is the slot the organizer page wrote the list into: the route forwards it and the
+   * worker stores it whole, so a reorder is a plain write with no revision to name.
+   */
+  updateList: (id: string, patch: { name?: string; icon?: string | null; color?: string | null; position?: number; archived?: boolean; parentId?: string | null }) => Promise<TaskListEntry | null>
   removeList: (id: string) => Promise<void>
   /** Read the archive shelf; called when the reader opens it, not on every page load. */
   loadArchivedLists: () => Promise<void>
@@ -312,10 +355,10 @@ async function resolveRevisionConflict(
   // The server's row replaces whichever bucket held the old one; a row that finished elsewhere moves
   // to the finished page rather than staying on the open board.
   set((state) => ({
-    tasks: server.status === 'done'
+    tasks: inFinishedPage(server.status)
       ? state.tasks.filter((entry) => entry.id !== id)
       : [...state.tasks.filter((entry) => entry.id !== id), server],
-    completed: server.status === 'done'
+    completed: inFinishedPage(server.status)
       ? [server, ...state.completed.filter((entry) => entry.id !== id)]
       : state.completed.filter((entry) => entry.id !== id),
   }))
@@ -379,6 +422,7 @@ const BATCH_TOAST_KEYS: Record<TaskBatchOp, MessageKey> = {
   priority: 'todo.toast.batch_priority',
   star: 'todo.toast.batch_starred',
   tag: 'todo.toast.batch_tagged',
+  archive: 'todo.toast.batch_archived',
 }
 
 /** What one snooze duration reads as, shared by the card menu and the notification row. */
@@ -389,12 +433,7 @@ export function snoozeLabel(minutes: SnoozeMinutes): string {
 /** The offset a stored reminder stands for, as the forms and the create route speak it. */
 export function remindOffsetOf(task: { remindAt: number | null; dueAt: number | null }): RemindOffset {
   if (task.remindAt === null || task.dueAt === null) return 'none'
-  const delta = task.dueAt - task.remindAt
-  if (delta <= 0) return 'due'
-  if (delta === 15 * 60_000) return '15m'
-  if (delta === 60 * 60_000) return '1h'
-  if (delta === 24 * 60 * 60_000) return '1d'
-  return 'none'
+  return remindOffsetForDelta(task.dueAt - task.remindAt)
 }
 
 /**
@@ -425,6 +464,8 @@ export function quickAddDraft(
     ...(parsed.priority ? { priority: parsed.priority } : {}),
     ...(parsed.tags.length ? { tags: parsed.tags } : {}),
     ...(parsed.repeat ? { repeat: parsed.repeat } : {}),
+    ...(parsed.timeEstimateMs !== null ? { timeEstimate: parsed.timeEstimateMs } : {}),
+    ...(parsed.timeLoggedMs !== null ? { timeLoggedMs: parsed.timeLoggedMs } : {}),
   }
 }
 
@@ -464,12 +505,32 @@ const PAGE_SIZE = 100
  */
 const SEARCH_DEBOUNCE_MS = 250
 
-/** The server-side view each aggregate screen reads. A list or a tag names its own collection instead. */
-const SERVER_VIEWS: Record<'board' | 'today' | 'plan' | 'starred', string> = {
+/**
+ * The server-side view each aggregate screen reads. A list or a tag names its own collection instead.
+ *
+ * The plan screen reads the whole open set because that is the set its five headings divide: scoped
+ * to today's shelf, its upcoming, later and no-date groups are empty by construction rather than by
+ * the reader having none of that work.
+ */
+const SERVER_VIEWS: Record<'board' | 'today' | 'plan' | 'upcoming' | 'starred', string> = {
   board: 'open',
   today: 'today',
-  plan: 'today',
+  plan: 'open',
+  upcoming: 'upcoming',
   starred: 'starred',
+}
+
+/**
+ * The screens that read their own rows.
+ *
+ * The statistics, the calendar, the end-of-day pass and the habits screen get their content from
+ * somewhere other than the plate's listing, so three things follow at once: the frame does not fetch a
+ * page of tasks for them, it does not resolve a `#tag`/`@list` name they cannot have typed, and it does
+ * not draw the filter bar beside rows nobody is showing. One predicate, because the three followings are
+ * one fact.
+ */
+export function readsOwnRows(view: TodoView): view is 'stats' | 'calendar' | 'finish-day' | 'counters' {
+  return view === 'stats' || view === 'calendar' || view === 'finish-day' || view === 'counters'
 }
 
 /**
@@ -480,8 +541,17 @@ const SERVER_VIEWS: Record<'board' | 'today' | 'plan' | 'starred', string> = {
  */
 const PICKER_LIMIT = 8
 
-/** What one queued task write asks the server to do. The queue row's `entity` already says "task". */
-type TodoOutboxOp = 'create' | 'update' | 'delete' | 'plan' | 'snooze'
+/**
+ * What one queued task write asks the server to do. The queue row's `entity` already says "task".
+ *
+ * The two timer gestures are here: a start is idempotent (starting on the task already running answers
+ * with the interval that is), and a stop of nothing running is the 404 that means the stop already
+ * landed. A back-filled span is missing from this set on purpose: `logTimeSpan` is the one door that
+ * files hours, and it refuses with a reason when there is no network rather than queueing a write the
+ * replay could land twice — `/time` has no idempotency key, so a lost answer would turn five minutes
+ * into ten.
+ */
+type TodoOutboxOp = 'create' | 'update' | 'delete' | 'plan' | 'snooze' | 'timer-start' | 'timer-stop'
 
 type TodoOutboxPayload = {
   op: TodoOutboxOp
@@ -492,6 +562,8 @@ type TodoOutboxPayload = {
   rev?: number
   date?: string | null
   minutes?: SnoozeMinutes
+  /** The instant a queued timer gesture was pressed at, in the reader's own clock. */
+  at?: number
 }
 
 /** How a replay pass ended for one row; the note store's loop acts on it. */
@@ -503,6 +575,7 @@ export type TodoOutboxOutcome =
 function isTodoOutboxPayload(value: Record<string, unknown>): value is TodoOutboxPayload {
   return value.op === 'create' || value.op === 'update' || value.op === 'delete'
     || value.op === 'plan' || value.op === 'snooze'
+    || value.op === 'timer-start' || value.op === 'timer-stop'
 }
 
 /** The revision a queued write names, or undefined when the row was created offline. */
@@ -525,16 +598,16 @@ function storeServerTask(task: TodoTask, options: { addIfMissing?: boolean; repl
   if (!present && !options.addIfMissing) return
   useTodos.setState((state) => {
     const without = (entry: TodoTask) => entry.id !== task.id && entry.id !== options.replaceId
-    const tasks = task.status === 'done'
+    const tasks = inFinishedPage(task.status)
       ? state.tasks.filter(without)
       : [...state.tasks.filter(without), task]
-    const completed = task.status === 'done'
+    const completed = inFinishedPage(task.status)
       ? [task, ...state.completed.filter(without)]
       : state.completed.filter(without)
     return {
       tasks,
       completed,
-      total: task.status === 'done' || present ? state.total : state.total + 1,
+      total: inFinishedPage(task.status) || present ? state.total : state.total + 1,
       selectedId: options.replaceId && state.selectedId === options.replaceId ? task.id : state.selectedId,
       draft: options.replaceId && state.draft?.id === options.replaceId
         ? { ...state.draft, id: task.id }
@@ -634,7 +707,11 @@ export async function replayTodoOutboxItem(
     switch (payload.op) {
       case 'create': {
         const body = payload.task ?? {}
-        const { task } = await api.todos.create(body)
+        // The queued row's own write id is the idempotency key: it was minted when this create was
+        // enqueued and travels with the queue row, so a second attempt at the same queued write —
+        // the one where the server wrote the task and the response was lost — is answered with the
+        // task it already made rather than with a second copy.
+        const { task } = await api.todos.create(body, item.writeId)
         storeServerTask(task, { addIfMissing: true, replaceId: id })
         // Every later queued write for the row this create just minted names the local id. Move them
         // together, or they would edit a task that never existed.
@@ -661,7 +738,9 @@ export async function replayTodoOutboxItem(
         return { status: 'done' }
       }
       case 'plan': {
-        const { task } = await api.todos.plan(id, payload.date ?? null)
+        // The revision the row carried when the pick was queued rides to the route, which is what
+        // makes an offline pick a conditional write rather than a blind one.
+        const { task } = await api.todos.plan(id, payload.date ?? null, todoQueuedRev(payload))
         storeServerTask(task, { addIfMissing: true })
         await advanceTodoDependents(item, payload, task.rev ?? 1, siblings)
         return { status: 'done' }
@@ -672,8 +751,35 @@ export async function replayTodoOutboxItem(
           await localDb.markOutboxFailure(item.id, item.writeId, 'invalid snooze duration').catch(() => {})
           return { status: 'retry' }
         }
-        const { task } = await api.todos.snooze(id, minutes)
+        const { task } = await api.todos.snooze(id, minutes, todoQueuedRev(payload))
         storeServerTask(task, { addIfMissing: true })
+        // A snooze spends a revision like any other write, so the edits queued behind it have to be
+        // moved onto the one that landed — otherwise the next replay reports a conflict this tab made.
+        await advanceTodoDependents(item, payload, task.rev ?? 1, siblings)
+        return { status: 'done' }
+      }
+      case 'timer-start': {
+        // The instant travels. A reader who started an interval at two and reconnected at six worked
+        // from two, and replaying the gesture as "now" would move those four hours into a different
+        // day of the ledger — which is the one thing the day buckets and the per-day ceiling read off.
+        const { entry } = await api.todos.startTimer(id, payload.at === undefined ? {} : { startAt: payload.at })
+        // The row this start displaced, if any, spent a revision too — the server closed its interval
+        // where this one begins — so it is re-read alongside the row that now holds the open span.
+        const displaced = timedRowIds(useTodos.getState()).filter((rowId) => rowId !== entry.taskId)
+        paintTimedRow(entry.taskId, entry.startAt)
+        await refreshTimedRows([entry.taskId, ...displaced])
+        return { status: 'done' }
+      }
+      case 'timer-stop': {
+        try {
+          await api.todos.stopTimer(id, payload.at === undefined ? {} : { endAt: payload.at })
+        } catch (error) {
+          // Nothing running on this task is the state a stop wants, exactly as a delete of a row that
+          // is already gone is: the only way here is a replay of a stop that landed and lost its answer.
+          if (!(error instanceof ApiError && error.status === 404)) throw error
+        }
+        paintTimedRow(id, null)
+        await refreshTimedRows([id])
         return { status: 'done' }
       }
     }
@@ -761,6 +867,19 @@ function tagsForNames(names: readonly string[]): TaskTag[] {
 }
 
 /**
+ * Whether a row belongs on the finished page rather than among the work still owed.
+ *
+ * The client keeps two buckets — the live list and the completed page — and mirrors each server row
+ * into one of them. That choice is "has this row stopped being owed", which the open set answers, not
+ * "was it finished": a cancelled task is abandoned work that lives on the finished page beside the done
+ * ones, so the membership test reads the open set inverted rather than `isTaskDone`, which would leave
+ * an abandoned row sitting among the tasks the reader still owes.
+ */
+function inFinishedPage(status: TaskStatus): boolean {
+  return !isTaskOpen(status)
+}
+
+/**
  * What a patch looks like on screen before the server has seen it.
  *
  * Only the fields the form writes are mapped; everything else keeps the row it had. A due date given
@@ -771,9 +890,11 @@ function applyTodoPatch(task: TodoTask, patch: Record<string, unknown>): TodoTas
   const next: TodoTask = { ...task, updatedAt: now }
   if (typeof patch.title === 'string') next.title = patch.title
   if (typeof patch.description === 'string') next.description = patch.description
-  if (patch.status === 'todo' || patch.status === 'in_progress' || patch.status === 'done') {
+  if (patch.status === 'todo' || patch.status === 'in_progress' || patch.status === 'done' || patch.status === 'cancelled') {
     next.status = patch.status
-    next.completedAt = patch.status === 'done' ? (task.completedAt ?? now) : null
+    // End moment, not finish moment: stamped for both ways a row leaves the plate (finished, abandoned)
+    // and cleared on a reopen, matching the store's own `completed_at` write.
+    next.completedAt = !isTaskOpen(patch.status) ? (task.completedAt ?? now) : null
   }
   if (patch.priority === 'low' || patch.priority === 'medium' || patch.priority === 'high' || patch.priority === 'urgent')
     next.priority = patch.priority
@@ -793,6 +914,12 @@ function applyTodoPatch(task: TodoTask, patch: Record<string, unknown>): TodoTas
   if (patch.projectId === null) next.projectId = null
   else if (typeof patch.projectId === 'string') next.projectId = patch.projectId
   if (typeof patch.starred === 'boolean') next.starred = patch.starred
+  // The estimate is the one ledger field a reader writes directly, so the optimistic row has to move it
+  // too: a chip that kept printing the old plan after a saved change would be a row that disagreed with
+  // itself for as long as the request took. `timeEstimate` is the wire name the routes speak.
+  if ('timeEstimate' in patch) {
+    next.timeEstimateMs = typeof patch.timeEstimate === 'number' ? patch.timeEstimate : null
+  }
   if (Array.isArray(patch.tags)) next.tags = tagsForNames(patch.tags.filter((tag): tag is string => typeof tag === 'string'))
   if (Array.isArray(patch.reminders)) {
     const reminders = patch.reminders.filter((at): at is number => typeof at === 'number' && Number.isFinite(at))
@@ -836,6 +963,10 @@ function optimisticTask(id: string, input: TaskDraft): TodoTask {
     conversationId: input.conversationId ?? null,
     stepTotal: 0,
     stepDone: 0,
+    // The plan is the row's own column, stated in the same words the create body carries, so the
+    // optimistic row can show it before the server has heard of it. What was already spent is not: that
+    // half is a ledger row, and its number arrives with the replay that files it.
+    timeEstimateMs: input.timeEstimate ?? null,
   }
 }
 
@@ -850,6 +981,110 @@ function storeOptimisticTask(task: TodoTask, replaceId?: string): void {
 }
 
 /**
+ * Mirror the account's one open interval onto the rows on screen.
+ *
+ * `ux_todos_time_open` guarantees the server holds at most one running row for the whole account, so
+ * naming the task that holds it is enough to say where every other row no longer does — which is what
+ * makes starting a second task's timer take the first one's indicator away. A row that already reads
+ * the way it is being painted is returned untouched, so a gesture on row B does not re-render row A.
+ */
+function paintTimedRow(id: string, since: number | null): void {
+  const apply = (task: TodoTask): TodoTask => {
+    const next = task.id === id ? since : null
+    return (task.runningSince ?? null) === next ? task : { ...task, runningSince: next }
+  }
+  useTodos.setState((state) => ({
+    tasks: state.tasks.map(apply),
+    completed: state.completed.map(apply),
+  }))
+}
+
+/**
+ * Re-read the rows a ledger write moved, instead of adjusting them here.
+ *
+ * A ledger write spends the task's revision — the interval hangs off the row, and moving `updated_at`
+ * is what carries it to the other devices — while the timer routes answer with the interval alone. So
+ * the mirror of the write has to be read, not guessed: a local `rev + 1` would be a guess about a
+ * number the server holds, and the reader's next edit would then report a conflict this very press
+ * caused. Rows that left the page are left alone, because `storeServerTask` only replaces what is on
+ * screen and the next listing read owns the rest.
+ */
+async function refreshTimedRows(ids: readonly string[]): Promise<void> {
+  await Promise.all(ids.map(async (id) => {
+    try {
+      const { task } = await api.todos.get(id)
+      storeServerTask(task)
+    } catch (error) {
+      // The gesture landed and only its mirror failed; that is said out loud rather than left for the
+      // reader to discover as a conflict on the next edit.
+      toastError(error)
+    }
+  }))
+}
+
+/** The rows the account is holding an open interval on, newest gesture included. */
+function timedRowIds(state: Pick<TodosState, 'tasks' | 'completed'>): string[] {
+  return [...state.tasks, ...state.completed]
+    .filter((entry) => entry.runningSince != null)
+    .map((entry) => entry.id)
+}
+
+/**
+ * The span a quick-add line's spent half stands for: as long as the words said, ending at the press.
+ *
+ * The line names no clock of its own, and "the last five minutes" is the only reading that does not
+ * invent one. Past one ledger row's ceiling the span is refused here rather than sent — a request the
+ * route is already known to answer 400 would say the same failure twice, and the reader is told once
+ * instead.
+ */
+function loggedSpan(ms: number): { startAt: number, endAt: number } | null {
+  if (!Number.isInteger(ms) || ms <= 0 || ms > MAX_SINGLE_TIME_ENTRY_MS) return null
+  const endAt = Date.now()
+  return { startAt: endAt - ms, endAt }
+}
+
+/** Refuse a span this app may not file, in the reader's own words rather than in a silent return. */
+function refuseLoggedSpan(reason: MessageKey): void {
+  useUi.getState().toast({ title: t(reason), tone: 'danger' })
+}
+
+/**
+ * File the back-filled span one line asked for, then re-read the row the ledger moved.
+ *
+ * The span is written apart from the create because it is a different kind of fact: the plan is a column
+ * on the row and the hours are rows of their own, and the server decides which account day each of them
+ * belongs to. A refusal is reported with the route's reason and leaves the task standing — the reader
+ * created something real, and losing it over a number they can add again would be the worse failure.
+ *
+ * This is the one task write the offline queue does not carry, and it is refused here rather than
+ * queued: see the door below.
+ */
+async function logTimeSpan(id: string, ms: number): Promise<void> {
+  const span = loggedSpan(ms)
+  if (!span) {
+    refuseLoggedSpan('todo.time.logged_refused')
+    return
+  }
+  // With no network the span is not filed, and the reader hears why. `POST /api/todos/:id/time` answers
+  // by inserting, and it is the only task write with no idempotency door of its own — `Idempotency-Key`
+  // is read by `POST /api/todos` alone — so a replay of a back-fill whose response was lost would file
+  // the same five minutes twice. A doubled number in the ledger is precisely the wrong fact the route's
+  // four clock guards were put there to make impossible, and the queue has no way to tell "never sent"
+  // from "sent, answer lost". Telling the reader to add the hours once they are back is the honest
+  // answer; the row they created is kept either way.
+  if (offlineNow()) {
+    refuseLoggedSpan('todo.time.logged_offline')
+    return
+  }
+  try {
+    await api.todos.addTime(id, span)
+    await refreshTimedRows([id])
+  } catch (error) {
+    toastError(error)
+  }
+}
+
+/**
  * Fold a server delta into the listing every tab holds.
  *
  * Rows already on screen are replaced in place, a row that changed bucket moves, and deleted ids
@@ -860,6 +1095,14 @@ function storeOptimisticTask(task: TodoTask, replaceId?: string): void {
 export function applyTodoSync(payload: { todos: TodoTask[]; deleted: string[] }): void {
   const deleted = new Set(payload.deleted)
   if (!payload.todos.length && !deleted.size) return
+  const before = useTodos.getState()
+  // A task can arrive on this stream from a list the device has never been told about: the directory
+  // rides on a listing read, not here. Left alone, that task reads as unfiled work beside a sidebar with
+  // no row for its list — so the one thing the merge can tell is that its picture is behind, and the
+  // directory is asked again. Only once a directory exists: a cold screen reads it as its first step.
+  const known = new Set(before.lists.map((entry) => entry.id))
+  const unknownList = payload.todos.some((task) => task.listId !== null && !known.has(task.listId))
+    && before.directoryKnown
   useTodos.setState((state) => {
     let tasks = state.tasks.filter((entry) => !deleted.has(entry.id))
     let completed = state.completed.filter((entry) => !deleted.has(entry.id))
@@ -869,7 +1112,7 @@ export function applyTodoSync(payload: { todos: TodoTask[]; deleted: string[] })
       if (deleted.has(task.id)) continue
       const inTasks = tasks.some((entry) => entry.id === task.id)
       const inCompleted = completed.some((entry) => entry.id === task.id)
-      if (task.status === 'done') {
+      if (inFinishedPage(task.status)) {
         if (inTasks) {
           tasks = tasks.filter((entry) => entry.id !== task.id)
           total -= 1
@@ -898,6 +1141,7 @@ export function applyTodoSync(payload: { todos: TodoTask[]; deleted: string[] })
       completedTotal: Math.max(0, completedTotal),
     }
   })
+  if (unknownList) void useTodos.getState().load()
 }
 
 /**
@@ -917,9 +1161,7 @@ function listingParams(
   offset = 0,
 ): ListingParams {
   const params: ListingParams = { limit: PAGE_SIZE }
-  // The statistics and calendar screens have no listing of their own, so they ask for nothing more than
-  // the counts and the lists that their own frame still needs.
-  if (state.view === 'stats' || state.view === 'calendar') return { ...params, limit: 1 }
+  if (readsOwnRows(state.view)) return { ...params, limit: 1 }
   const filter = parseTodoFilter(state.query)
   if (offset > 0) params.offset = offset
   // The order is the reader's when they picked one, and otherwise absent: the route reads the order a
@@ -930,6 +1172,9 @@ function listingParams(
     // page and a guess about the rest. The inbox is a collection with no row behind it: `none`.
     params.view = 'all'
     params.list = state.listId && state.listId !== 'inbox' ? state.listId : 'none'
+    // A list's page also draws its sections, and a section is a child list: asked in the same read, so
+    // the page cannot draw a section it has not fetched and then offer to drop a row into it.
+    if (params.list !== 'none') params.scope = 'subtree'
   } else if (state.view === 'tag') {
     params.view = 'all'
     if (state.tagId) params.tag = state.tagId
@@ -998,7 +1243,7 @@ function earlierBound(a: string | null, b: string | null): string | null {
  * current, and a name that still matches nothing is put back into the search words instead.
  */
 function needsDirectory(state: Pick<TodosState, 'view' | 'query' | 'directoryKnown'>): boolean {
-  if (state.directoryKnown || state.view === 'stats' || state.view === 'calendar') return false
+  if (state.directoryKnown || readsOwnRows(state.view)) return false
   const filter: TodoFilterQuery = parseTodoFilter(state.query)
   return filter.list !== null || filter.tag !== null
 }
@@ -1409,7 +1654,7 @@ export const useTodos = create<TodosState>((set, get) => ({
     if (!found) {
       try {
         const { task } = await api.todos.get(id)
-        set((state) => (task.status === 'done'
+        set((state) => (inFinishedPage(task.status)
           ? { completed: [task, ...state.completed.filter((entry) => entry.id !== task.id)] }
           : { tasks: [...state.tasks.filter((entry) => entry.id !== task.id), task] }))
       } catch (error) {
@@ -1424,14 +1669,21 @@ export const useTodos = create<TodosState>((set, get) => ({
 
   createTask: async (input) => {
     set({ saving: true })
+    // The plan rides the create body as the row's own column; the hours the line says are already gone
+    // do not, because they are ledger rows and the server decides which account day each of them falls
+    // on. Both branches file that half afterwards, through `logTimeSpan` and the one door it has.
+    const { id: _ignored, timeLoggedMs, ...body } = input
     if (offlineNow()) {
       const id = newLocalTodoId()
-      const { id: _ignored, ...body } = input
       const task = optimisticTask(id, input)
       storeOptimisticTask(task)
       try {
         await localDb.enqueueOutbox(queuedTodoItem(id, { op: 'create', task: body as Record<string, unknown> }))
         set({ saving: false })
+        // The row is queued; the hours are not, and `logTimeSpan` is the door that says so out loud.
+        // Sending them now would address a `local-` id the server has never seen, and queueing them
+        // would risk filing them twice — the reason lives with the guard, not with this call.
+        if (timeLoggedMs !== undefined) await logTimeSpan(id, timeLoggedMs)
         return task
       } catch (error) {
         // A queue write that could not be stored has nothing behind it: take the optimistic row back
@@ -1443,10 +1695,10 @@ export const useTodos = create<TodosState>((set, get) => ({
       }
     }
     try {
-      const { id: _ignored, ...body } = input
       const { task } = await api.todos.create(body as Record<string, unknown>)
       set((state) => ({ tasks: [...state.tasks, task], saving: false }))
       void get().refreshCounts()
+      if (timeLoggedMs !== undefined) await logTimeSpan(task.id, timeLoggedMs)
       return task
     } catch (error) {
       set({ saving: false })
@@ -1487,17 +1739,17 @@ export const useTodos = create<TodosState>((set, get) => ({
         // the box sees the following one on the list instead of finding out about it on the next reload.
         tasks: [
           ...state.tasks.filter((entry) => entry.id !== id && entry.id !== next?.id),
-          ...(task.status === 'done' ? [] : [task]),
+          ...(inFinishedPage(task.status) ? [] : [task]),
           ...(next ? [next] : []),
         ],
-        completed: task.status === 'done'
+        completed: inFinishedPage(task.status)
           ? [task, ...state.completed.filter((entry) => entry.id !== id)]
           : state.completed.filter((entry) => entry.id !== id),
         saving: false,
       }))
       // A tick is the one write whose answer carries a second row, so its inverse owns both: the
       // occurrence the server filed goes back first, and only then does the original reopen.
-      if (!undoing && before && before.status !== 'done' && patch.status === 'done') {
+      if (!undoing && before && !isTaskDone(before.status) && isTaskDone(patch.status)) {
         const restoreStatus = before.status
         offerUndo(set, get, t('todo.toast.completed'), async () => {
           if (next) {
@@ -1585,8 +1837,13 @@ export const useTodos = create<TodosState>((set, get) => ({
   /** The way back from the trash, shared by the delete undo and the trash screen. */
   restoreTask: async (id) => {
     try {
-      await api.todos.restore(id)
-      useUi.getState().toast({ title: t('todo.toast.restored'), tone: 'success' })
+      const { droppedReminders } = await api.todos.restore(id)
+      useUi.getState().toast({
+        // The row came back, but the alerts whose moment passed while it sat in the trash did not.
+        // Saying only "restored" would let the reader keep expecting a reminder that is already gone.
+        title: droppedReminders > 0 ? t('todo.toast.restored_dropped', { count: droppedReminders }) : t('todo.toast.restored'),
+        tone: 'success',
+      })
       await get().load()
       return true
     } catch (error) {
@@ -1614,6 +1871,12 @@ export const useTodos = create<TodosState>((set, get) => ({
     try {
       const result = await api.todos.batch({ ids, op, ...(value !== undefined ? { value } : {}) })
       set({ selectedIds: new Set<string>() })
+      // A completion files an occurrence for every repeating row it finished and the answer carries it,
+      // so the next one is painted before the page is re-read: a reload that fails — a connection that
+      // drops in the gap — must not be what tells the reader about the row the server already made.
+      for (const entry of result.done) {
+        if (entry.next) storeServerTask(entry.next, { addIfMissing: true })
+      }
       await get().load()
       if (result.failed.length) {
         const reasons = [...new Set(result.failed.map((entry) => entry.reason))].slice(0, 3).join(' · ')
@@ -1626,7 +1889,9 @@ export const useTodos = create<TodosState>((set, get) => ({
         useUi.getState().toast({ title: t(BATCH_TOAST_KEYS[op], { count: result.done.length }), tone: 'success' })
       }
       if (op === 'delete' && result.done.length) {
-        const deleted = result.done
+        // The answer names each row as an object beside the occurrence a completion filed, so the ids
+        // the undo has to hand back are read out of it rather than assumed.
+        const deleted = result.done.map((entry) => entry.id)
         offerUndo(set, get, t('todo.toast.batch_deleted', { count: deleted.length }), async () => {
           for (const id of deleted) {
             try {
@@ -1638,11 +1903,25 @@ export const useTodos = create<TodosState>((set, get) => ({
           await get().load()
         })
       }
+      if (op === 'archive' && result.done.length) {
+        // The shelf is the one batch gesture that takes a row out of every list the reader browses, so
+        // the toast is the way back — the same window the delete undo lives in, and the same reason: a
+        // press that was a mistake should not need a search for the thing that disappeared.
+        const shelved = result.done.map((entry) => entry.id)
+        offerUndo(set, get, t('todo.toast.batch_archived', { count: shelved.length }), async () => {
+          await api.todos.batch({ ids: shelved, op: 'archive', value: 'false' })
+          await get().load()
+        })
+      }
       return result
     } catch (error) {
       toastError(error)
       return null
     }
+  },
+
+  reportUndo: (label, undo) => {
+    offerUndo(set, get, label, undo)
   },
 
   /**
@@ -1728,6 +2007,89 @@ export const useTodos = create<TodosState>((set, get) => ({
   },
 
   /**
+   * Start the account's one running interval on this task, and move the row to `in_progress` with it.
+   *
+   * Two writes, and the status first: a row that says `in_progress` with nothing timed yet is a state
+   * the reader can see and put down, while an interval running on a row that still says `todo` is the
+   * second answer this gesture exists to prevent. The status write is the same guarded edit every other
+   * card action makes, and it writes nothing else — `done` is `completeTask`'s own path, so a stopwatch
+   * cannot finish a task by accident.
+   *
+   * The account holds at most one open interval, and the server closes the previous one where a new one
+   * begins, so the mirror of that is taken here rather than asked for: every other row stops claiming a
+   * running timer, and the rows the ledger moved are re-read for the revision it spent.
+   *
+   * With no network the press is queued, and it is queued **with its own timestamp**. The route takes
+   * `startAt` for exactly this caller: online, "now" is the server's clock and nothing is sent, but a
+   * device that was away has the only reading of when the reader actually began. Both halves of the
+   * gesture are replayable — a start on the task already running answers with that interval, and the
+   * `in_progress` write ahead of it in the queue has already put the row where a start belongs.
+   */
+  startTimer: async (task) => {
+    if (task.status === 'todo') {
+      const saved = await get().updateTask(task.id, { status: 'in_progress' })
+      // The row guard has already said what went wrong. Starting an interval on top of a row that
+      // refused to move would put the two truths back together again.
+      if (!saved) return
+    }
+    const closed = timedRowIds(get()).filter((id) => id !== task.id)
+    // The press happened at an instant only this device has a clock for. Online, the server's now is
+    // the one the ledger trusts and nothing is sent; away from the network, this reading is the whole
+    // of what the interval is, because by the time the queue drains the press is hours past.
+    const at = Date.now()
+    if (offlineNow()) {
+      try {
+        await localDb.enqueueOutbox(queuedTodoItem(task.id, { op: 'timer-start', at }))
+      } catch (error) {
+        // A gesture that could not be queued has no record anywhere, so it is not painted: an indicator
+        // counting hours that no replay will ever file is the silent failure this door exists to avoid.
+        toastError(error)
+        return
+      }
+      paintTimedRow(task.id, at)
+      return
+    }
+    try {
+      const { entry } = await api.todos.startTimer(task.id)
+      paintTimedRow(entry.taskId, entry.startAt)
+      await refreshTimedRows([entry.taskId, ...closed])
+    } catch (error) {
+      toastError(error)
+    }
+  },
+
+  /**
+   * Stop this task's running interval, and nothing else.
+   *
+   * The status stays as it was: putting a task down is not finishing it, and the one door to `done` is
+   * `completeTask`. The row is read back rather than adjusted because the closed span is the server's
+   * to divide — an interval that crossed the account's midnight became several rows, and re-doing that
+   * arithmetic here would be a second ledger.
+   */
+  stopTimer: async (id) => {
+    const at = Date.now()
+    if (offlineNow()) {
+      try {
+        await localDb.enqueueOutbox(queuedTodoItem(id, { op: 'timer-stop', at }))
+      } catch (error) {
+        toastError(error)
+        return
+      }
+      // The row stops counting right here. What the span is finally divided into is the server's
+      // ledger to say, on the pass that lands it — the same reason the online branch re-reads.
+      paintTimedRow(id, null)
+      return
+    }
+    try {
+      await api.todos.stopTimer(id)
+      paintTimedRow(id, null)
+      await refreshTimedRows([id])
+    } catch (error) {
+      toastError(error)
+    }
+  },
+
+  /**
    * The picker's search: open tasks whose title (or note, or tag) says what the reader typed.
    *
    * A read on its own, not the page's listing: the picker is looking across the whole shelf while the
@@ -1739,7 +2101,10 @@ export const useTodos = create<TodosState>((set, get) => ({
     const text = query.trim()
     if (!text) return []
     try {
-      const page = await api.todos.list({ view: 'open', q: text, limit: PICKER_LIMIT })
+      // The shelf is read from both sides here, and this is the surface that makes a put-away task
+      // findable again: every listing hides it, so a search that hid it too would tell the reader the
+      // work never existed. The hit still names which side it came from, so nothing downstream guesses.
+      const page = await api.todos.list({ view: 'open', q: text, limit: PICKER_LIMIT, archived: 'any' })
       return page.tasks
     } catch (error) {
       toastError(error)

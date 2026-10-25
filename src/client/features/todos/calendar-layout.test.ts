@@ -91,6 +91,16 @@ describe('a day’s chips', () => {
     ], '2026-03-03', TZ)
     expect(chips.map((entry) => entry.id)).toEqual(['early', 'late'])
   })
+
+  it('draws a task the reader has started as the chip it is due to be', () => {
+    // The calendar screen reads the same open set the list screens do. A started row that left the day
+    // strip would leave the reader with a task they are working on and no square showing it.
+    const chips = dayChips([
+      task('started', { dueAt: at('2026-03-03', 10), status: 'in_progress' }),
+      task('done', { dueAt: at('2026-03-03', 11), status: 'done' }),
+    ], '2026-03-03', TZ)
+    expect(chips.map((entry) => entry.id)).toEqual(['started'])
+  })
 })
 
 describe('the hour axis', () => {

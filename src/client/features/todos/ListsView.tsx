@@ -8,18 +8,265 @@
  * A row is a name and a count; everything a row can do — rename, re-parent, archive — lives in one
  * menu at its end. The parent picker used to be a `<select>` on every row, which on a 360px screen took
  * a third of the width and pushed the row's own actions off the edge.
+ *
+ * Rows are also the one place a reader reorders the tree, by dragging one. The order itself is not
+ * stored as a list of ids: `todos_lists.position` is an INTEGER column that the worker truncates, so
+ * folding a midpoint between two neighbours — what a task row does, in a REAL column — would put two
+ * lists on the same number after a single drop. The page therefore re-derives the order as a strided
+ * sequence and writes back only the rows the move passed over, which keeps every position whole,
+ * distinct and bounded by `count * stride`.
  */
 import { useRef, useState, type ReactNode } from 'react'
-import { Archive, ArchiveRestore, ChevronDown, ChevronRight, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, ArrowDown, ArrowUp, ChevronDown, ChevronRight, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
+import { useDropState } from '../../lib/drop-state'
+import { useMediaQuery } from '../../lib/hooks'
 import { IconButton } from '../../components/primitives'
 import { Menu, type MenuItem } from '../../components/overlay'
 import { useTodos, type TaskListEntry } from './store'
+import { FINE_POINTER_QUERY } from './TaskCard'
 import { TagEditor } from './OrganizerEditors'
 import { TrashPanel } from './TrashPanel'
+import { ArchivedPanel } from './ArchivedPanel'
 import { ListIcon } from './list-icons'
 import type { TaskTag } from '@shared/todos/model'
+
+/** How far apart two renumbered list positions sit, so a later drop has a whole number to land on. */
+const LIST_POSITION_STRIDE = 1000
+
+/** The band edges of a row. A pointer nearer either edge means the gap beside that row. */
+const BAND_BEFORE_MAX = 0.28
+const BAND_AFTER_MIN = 0.72
+
+/**
+ * What a dragged list carries.
+ *
+ * Deliberately not `TODO_DRAG_TYPE`: that one holds a task id and ends up in `api.todos.move`, so a
+ * row that answered it would send a list id down a task's route. The note tree, the folder tree and
+ * the tag rail each name their own format for the same reason.
+ */
+export const TODO_LIST_DRAG_TYPE = 'application/x-inkstone-todo-list'
+
+/** Whether a drag over this surface is one of ours rather than a task, a file or a note. */
+export function isTodoListDrag(event: React.DragEvent): boolean {
+  return Array.from(event.dataTransfer.types).includes(TODO_LIST_DRAG_TYPE)
+}
+
+/** Where a drop lands against the row the pointer is over. */
+export type ListDropPlacement = 'before' | 'inside' | 'after'
+
+/** One row's write: the slot it now holds, and its container when the drop crossed one. */
+export interface ListPositionWrite {
+  id: string
+  position: number
+  parentId?: string | null
+}
+
+/**
+ * The band a pointer sits in over one row.
+ *
+ * A row that can hold another list gets the middle band, which is the only way to say "into it"
+ * without a second control; a nested row has nothing to hold, so its middle belongs to whichever
+ * half the pointer is nearer.
+ */
+export function listDropPlacement(ratio: number, canHold: boolean): ListDropPlacement {
+  if (ratio < BAND_BEFORE_MAX) return 'before'
+  if (ratio > BAND_AFTER_MIN) return 'after'
+  if (canHold) return 'inside'
+  return ratio < 0.5 ? 'before' : 'after'
+}
+
+/** The page split the way it is drawn: roots in their stored order, and under each its children. */
+function splitLists(lists: readonly TaskListEntry[]) {
+  const ids = new Set(lists.map((list) => list.id))
+  const roots: TaskListEntry[] = []
+  const children = new Map<string, TaskListEntry[]>()
+  const parent = new Map<string, string | null>()
+  for (const list of lists) {
+    // A parent that is not on this page — archived, or gone — reads as top level, which is what the
+    // tree draws.
+    const held = list.parentId && ids.has(list.parentId) ? list.parentId : null
+    parent.set(list.id, held)
+    if (held === null) {
+      roots.push(list)
+      continue
+    }
+    const bucket = children.get(held)
+    if (bucket) bucket.push(list)
+    else children.set(held, [list])
+  }
+  return {
+    roots,
+    children,
+    parentOf: (id: string): string | null => parent.get(id) ?? null,
+    groupOf: (id: string | null): TaskListEntry[] => (id === null ? roots : children.get(id) ?? []),
+  }
+}
+
+/** How the tree reads once each row holds the position the planner gave it. */
+function flatten(roots: readonly TaskListEntry[], children: ReadonlyMap<string, TaskListEntry[]>): TaskListEntry[] {
+  const ordered: TaskListEntry[] = []
+  for (const root of roots) {
+    ordered.push(root)
+    for (const child of children.get(root.id) ?? []) ordered.push(child)
+  }
+  return ordered
+}
+
+/**
+ * The gap one drop opens, as the writes the route needs.
+ *
+ * Answers `null` for a drop the one-level grouping refuses, and `[]` for a legal drop that lands
+ * where the row already sits — the caller writes nothing for either, and the row paints no line for
+ * the first. Positions are re-derived from the order rather than folded between neighbours, because
+ * the column is an integer; only the rows whose slot actually changed are returned, so a short move
+ * costs two writes rather than one per list.
+ */
+export function planListDrop(
+  lists: readonly TaskListEntry[],
+  draggedId: string,
+  targetId: string,
+  placement: ListDropPlacement,
+): ListPositionWrite[] | null {
+  // The shelf is not part of the order: a put-away list is drawn in its own section and takes no
+  // slot, so it is neither end of a drop.
+  const live = lists.filter((list) => list.archivedAt === null)
+  const dragged = live.find((list) => list.id === draggedId)
+  const target = live.find((list) => list.id === targetId)
+  if (!dragged || !target || dragged.id === target.id) return null
+
+  const tree = splitLists(live)
+  const from = tree.parentOf(dragged.id)
+  const heldByDragged = tree.groupOf(dragged.id).length
+
+  let to: string | null
+  let slot: 'end' | ListDropPlacement
+  if (placement === 'inside') {
+    // Only a top-level row has a middle band to aim at.
+    if (tree.parentOf(target.id) !== null) return null
+    to = target.id
+    slot = 'end'
+  } else {
+    to = tree.parentOf(target.id)
+    slot = placement
+  }
+  // The route's own two refusals, so a drag never offers a drop that would answer 400: a container
+  // cannot move under another list, and no list can move under its own child.
+  if (to === dragged.id) return null
+  if (to !== null && heldByDragged > 0) return null
+
+  // Take the row out before measuring the gap, or a move down within its own group would land one
+  // slot further than the reader pointed at.
+  const source = tree.groupOf(from)
+  const leaving = source.findIndex((entry) => entry.id === dragged.id)
+  if (leaving >= 0) source.splice(leaving, 1)
+
+  const destination = to === null ? tree.roots : (tree.children.get(to) ?? [])
+  if (to !== null) tree.children.set(to, destination)
+  if (slot === 'end') destination.push(dragged)
+  else {
+    const landing = destination.findIndex((entry) => entry.id === target.id)
+    if (landing < 0) return null
+    destination.splice(slot === 'before' ? landing : landing + 1, 0, dragged)
+  }
+
+  const changedParent = to !== from
+  const writes: ListPositionWrite[] = []
+  flatten(tree.roots, tree.children).forEach((entry, index) => {
+    const position = (index + 1) * LIST_POSITION_STRIDE
+    const parentId = entry.id === dragged.id && changedParent ? to : undefined
+    if (entry.position !== position || parentId !== undefined) {
+      writes.push({ id: entry.id, position, ...(parentId === undefined ? {} : { parentId }) })
+    }
+  })
+  return writes
+}
+
+/**
+ * The same move without a pointer: one row past its own neighbour.
+ *
+ * `up` and `down` stay inside the group the row is drawn in, which is the group the reader sees: a
+ * child's neighbour above it is its own container on screen, and swapping with that would be a
+ * re-parent dressed up as a reorder. Moving out of a container is what its grouping submenu is for.
+ */
+export function planListMove(
+  lists: readonly TaskListEntry[],
+  id: string,
+  direction: 'up' | 'down',
+): ListPositionWrite[] | null {
+  const live = lists.filter((list) => list.archivedAt === null)
+  if (!live.some((list) => list.id === id)) return null
+  const tree = splitLists(live)
+  const group = tree.groupOf(tree.parentOf(id))
+  const index = group.findIndex((entry) => entry.id === id)
+  if (index < 0) return null
+  const neighbour = direction === 'up' ? group[index - 1] : group[index + 1]
+  if (!neighbour) return null
+  return planListDrop(live, id, neighbour.id, direction === 'up' ? 'before' : 'after')
+}
+
+/**
+ * The grouping submenu's move, in the drag's arithmetic.
+ *
+ * Picking a new parent has to land the list at the end of the group it joins: a bare `parentId`
+ * write leaves the row's global position where the old group put it, and the flat re-sort then
+ * reads as an arbitrary slot. `inside` is exactly "append to that container" and beside the last
+ * root is "append to the top level", so this runs the planner a drop runs rather than a second one.
+ * Answers null for a move that changes nothing — the row already sits under the picked list — and
+ * for one the grouping refuses. The parent write is forced onto the row even when the display
+ * order never shifted, because a pointer the page does not draw (an archived parent) still moves.
+ */
+export function planListReparent(
+  lists: readonly TaskListEntry[],
+  id: string,
+  nextParentId: string | null,
+): ListPositionWrite[] | null {
+  const live = lists.filter((list) => list.archivedAt === null)
+  const dragged = live.find((list) => list.id === id)
+  if (!dragged) return null
+  if ((dragged.parentId ?? null) === nextParentId) return null
+  const tree = splitLists(live)
+  let writes: ListPositionWrite[] | null
+  if (nextParentId !== null) {
+    writes = planListDrop(live, id, nextParentId, 'inside')
+  } else {
+    const lastRoot = tree.roots.filter((root) => root.id !== id).at(-1)
+    writes = lastRoot ? planListDrop(live, id, lastRoot.id, 'after') : []
+  }
+  if (writes === null) return null
+  const moved = writes.find((write) => write.id === id)
+  if (!moved) return [...writes, { id, position: dragged.position, parentId: nextParentId }]
+  if (moved.parentId === undefined) moved.parentId = nextParentId
+  return writes
+}
+
+/** The pointer's place in the row, as the fraction the bands are cut from. */
+function pointerRatio(event: React.DragEvent<HTMLElement>): number {
+  const rect = event.currentTarget.getBoundingClientRect()
+  return rect.height ? (event.clientY - rect.top) / rect.height : 0.5
+}
+
+/** What one row needs to take part in a drag; absent on a row that is not a list of the page. */
+interface RowDrag {
+  /** Whether this row's middle band means "into it" — true for a top-level row, false for a nested one. */
+  canHold: boolean
+  /** Whether this is the row in hand, which is painted through rather than hidden. */
+  dragging: boolean
+  onStart: (event: React.DragEvent<HTMLDivElement>) => void
+  onEnd: () => void
+  /** The writes a drop at that band would send, or null when the grouping refuses it. */
+  plan: (band: ListDropPlacement) => ListPositionWrite[] | null
+  onDrop: (band: ListDropPlacement) => void
+}
+
+/** The same two moves as the row menu, for a pointer that cannot drag. */
+interface RowMove {
+  canUp: boolean
+  canDown: boolean
+  onUp: () => void
+  onDown: () => void
+}
 
 export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagId?: string }) => void }) {
   const lists = useTodos((state) => state.lists)
@@ -34,12 +281,68 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
   const openListEditor = useTodos((state) => state.openListEditor)
   const [archivedOpen, setArchivedOpen] = useState(false)
   const [trashOpen, setTrashOpen] = useState(false)
+  const [shelfOpen, setShelfOpen] = useState(false)
   const [tagEditor, setTagEditor] = useState<{ open: boolean; tag: TaskTag | null }>({ open: false, tag: null })
+  // A drag that never reached a row still has to let go of the row it picked up, so the row in hand
+  // is page state rather than the row's own.
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+  // A phone cannot start an HTML5 drag at all, so its rows get no handle and the menu is the only
+  // path — which is why the menu rows are built whether or not this pointer can drag. The question is
+  // the card's own, asked once, so it reads the card's spelling of it.
+  const finePointer = useMediaQuery(FINE_POINTER_QUERY)
 
   const toggleArchive = (): void => {
     const next = !archivedOpen
     setArchivedOpen(next)
     if (next) void loadArchivedLists()
+  }
+
+  /** One write per row the move passed over; the store re-reads the order from each answer. */
+  const applyWrites = async (writes: ListPositionWrite[]): Promise<void> => {
+    if (writes.length === 0) return
+    await Promise.all(writes.map((write) => updateList(
+      write.id,
+      write.parentId === undefined
+        ? { position: write.position }
+        : { position: write.position, parentId: write.parentId },
+    )))
+  }
+
+  /**
+   * The drag bundle one row gets.
+   *
+   * `plan` and `apply` are the same call on the same function, which is the whole point: the line a
+   * row paints is painted exactly where a drop would be accepted, so a reader is never invited to aim
+   * at a refusal the grouping would answer with a 400.
+   */
+  const dragFor = (list: TaskListEntry, nested: boolean): RowDrag => ({
+    // A top-level row can hold another list; a nested one already holds nothing.
+    canHold: !nested,
+    dragging: draggingId === list.id,
+    onStart: (event) => {
+      event.dataTransfer.setData(TODO_LIST_DRAG_TYPE, list.id)
+      event.dataTransfer.effectAllowed = 'move'
+      setDraggingId(list.id)
+    },
+    onEnd: () => setDraggingId(null),
+    plan: (band) => (draggingId === null ? null : planListDrop(lists, draggingId, list.id, band)),
+    onDrop: (band) => {
+      const writes = draggingId === null ? null : planListDrop(lists, draggingId, list.id, band)
+      setDraggingId(null)
+      if (writes) void applyWrites(writes)
+    },
+  })
+
+  /** The menu's pair of rows for one list: the moves the drag would make at the same two gaps. */
+  const moveFor = (list: TaskListEntry): RowMove => {
+    const up = planListMove(lists, list.id, 'up')
+    const down = planListMove(lists, list.id, 'down')
+    return {
+      canUp: up !== null,
+      canDown: down !== null,
+      onUp: () => { if (up) void applyWrites(up) },
+      onDown: () => { if (down) void applyWrites(down) },
+    }
   }
 
   // One level, drawn from the flat answer: a list whose parent is not on the working page (archived
@@ -114,7 +417,12 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
                       onArchive={() => { void updateList(list.id, { archived: true }) }}
                       parents={parentOptions(list, children.length > 0)}
                       parentId={list.parentId}
-                      onReparent={(next) => { void updateList(list.id, { parentId: next }) }}
+                      onReparent={(next) => {
+                        const writes = planListReparent(lists, list.id, next)
+                        if (writes) void applyWrites(writes)
+                      }}
+                      drag={finePointer ? dragFor(list, false) : undefined}
+                      move={moveFor(list)}
                     />
                     {children.length > 0 && (
                       <ul className="m-0 list-none p-0">
@@ -132,7 +440,12 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
                               onArchive={() => { void updateList(child.id, { archived: true }) }}
                               parents={parentOptions(child, false)}
                               parentId={child.parentId}
-                              onReparent={(next) => { void updateList(child.id, { parentId: next }) }}
+                              onReparent={(next) => {
+                                const writes = planListReparent(lists, child.id, next)
+                                if (writes) void applyWrites(writes)
+                              }}
+                              drag={finePointer ? dragFor(child, true) : undefined}
+                              move={moveFor(child)}
                             />
                           </li>
                         ))}
@@ -183,6 +496,18 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
               <span className="min-w-0 flex-1 truncate text-[length:var(--text-13)]">{t('todo.trash.title')}</span>
               <ChevronRight size={13} className="text-[var(--text-quaternary)]" aria-hidden="true" />
             </button>
+            {/* The shelf beside the trash because they answer the same question two ways: this row is
+                work the reader hid on purpose, and it has no other way back. */}
+            <button
+              type="button"
+              onClick={() => setShelfOpen(true)}
+              aria-label={t('todo.shelf.title')}
+              className="flex min-h-11 w-full items-center gap-2 border-t border-[var(--border-subtle)] px-3 text-left hover:bg-[var(--bg-hover)]"
+            >
+              <Archive size={14} className="text-[var(--text-tertiary)]" aria-hidden="true" />
+              <span className="min-w-0 flex-1 truncate text-[length:var(--text-13)]">{t('todo.shelf.title')}</span>
+              <ChevronRight size={13} className="text-[var(--text-quaternary)]" aria-hidden="true" />
+            </button>
           </div>
         </section>
 
@@ -221,11 +546,12 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
 
       <TagEditor open={tagEditor.open} tag={tagEditor.tag} onClose={() => setTagEditor({ open: false, tag: null })} />
       <TrashPanel open={trashOpen} onClose={() => setTrashOpen(false)} />
+      <ArchivedPanel open={shelfOpen} onClose={() => setShelfOpen(false)} />
     </div>
   )
 }
 
-function Row({ label, count, color, icon, tag = false, nested = false, parents, parentId, onOpen, onEdit, onArchive, onRestore, onReparent }: {
+function Row({ label, count, color, icon, tag = false, nested = false, parents, parentId, drag, move, onOpen, onEdit, onArchive, onRestore, onReparent }: {
   label: string
   count: number
   color: string
@@ -237,6 +563,10 @@ function Row({ label, count, color, icon, tag = false, nested = false, parents, 
   /** The lists this row may move under; empty or absent means the row cannot be re-parented. */
   parents?: TaskListEntry[]
   parentId?: string | null
+  /** The row's own drag, absent for a row that is not a list on the working page. */
+  drag?: RowDrag
+  /** The menu's equivalent of that drag, absent for a row that has no order to hold. */
+  move?: RowMove
   onOpen: () => void
   onEdit?: () => void
   onArchive?: () => void
@@ -245,8 +575,27 @@ function Row({ label, count, color, icon, tag = false, nested = false, parents, 
 }) {
   const menuRef = useRef<HTMLButtonElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  /** The row highlight a drag paints: the same before/inside/after grammar the folder tree uses. */
+  const [dropState, setDropState] = useDropState<'none' | ListDropPlacement>('none')
   const items: MenuItem[] = [
     ...(onEdit ? [{ id: 'edit', label: t('todo.action.edit'), icon: <Pencil size={13} />, onSelect: onEdit }] : []),
+    ...(move ? [
+      {
+        id: 'move-up',
+        label: t('todo.move.up'),
+        icon: <ArrowUp size={13} />,
+        disabled: !move.canUp,
+        separatorBefore: true,
+        onSelect: move.onUp,
+      },
+      {
+        id: 'move-down',
+        label: t('todo.move.down'),
+        icon: <ArrowDown size={13} />,
+        disabled: !move.canDown,
+        onSelect: move.onDown,
+      },
+    ] : []),
     ...(onReparent && parents && parents.length > 0
       ? [{
           id: 'parent',
@@ -278,7 +627,55 @@ function Row({ label, count, color, icon, tag = false, nested = false, parents, 
   ]
 
   return (
-    <div className={cn('flex min-h-11 items-center gap-2 pr-1', nested ? 'pl-9' : 'pl-3')}>
+    <div
+      data-todo-draggable={drag ? '' : undefined}
+      data-list-drop-band={dropState === 'none' ? undefined : dropState}
+      draggable={drag ? true : undefined}
+      onDragStart={(event) => {
+        if (!drag) {
+          event.preventDefault()
+          return
+        }
+        drag.onStart(event)
+      }}
+      onDragEnd={() => drag?.onEnd()}
+      onDragOver={(event) => {
+        if (!drag || !isTodoListDrag(event)) return
+        const band = listDropPlacement(pointerRatio(event), drag.canHold)
+        // A drop the grouping would refuse is never offered: without `preventDefault` the pointer
+        // itself says "no", and no line is painted to promise a slot that will not arrive.
+        if (drag.plan(band) === null) return
+        event.preventDefault()
+        event.stopPropagation()
+        event.dataTransfer.dropEffect = 'move'
+        setDropState(band)
+      }}
+      onDragLeave={(event) => {
+        const next = event.relatedTarget
+        if (!(next instanceof Node) || !event.currentTarget.contains(next)) setDropState('none')
+      }}
+      onDrop={(event) => {
+        if (!drag || !isTodoListDrag(event)) return
+        event.preventDefault()
+        event.stopPropagation()
+        if (dropState === 'none') return
+        const band = dropState
+        setDropState('none')
+        drag.onDrop(band)
+      }}
+      className={cn(
+        'relative flex min-h-11 items-center gap-2 pr-1',
+        nested ? 'pl-9' : 'pl-3',
+        drag?.dragging && 'opacity-50',
+        dropState === 'inside' && 'ring-1 ring-[var(--accent)]',
+      )}
+    >
+      {dropState === 'before' && (
+        <span aria-hidden="true" className="pointer-events-none absolute top-0 right-1 left-1 h-0.5 rounded-full bg-[var(--accent)]" />
+      )}
+      {dropState === 'after' && (
+        <span aria-hidden="true" className="pointer-events-none absolute right-1 bottom-0 left-1 h-0.5 rounded-full bg-[var(--accent)]" />
+      )}
       <span className="flex size-6 shrink-0 items-center justify-center">
         {tag
           ? <span className="text-[length:var(--text-13)] font-medium" style={{ color }} aria-hidden="true">#</span>

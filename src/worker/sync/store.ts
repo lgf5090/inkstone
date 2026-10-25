@@ -14,9 +14,10 @@
  */
 
 import { LIMITS } from '@shared/constants'
-import type { TaskPriority, TaskStatus } from '@shared/assistant'
+import { TASK_PRIORITIES, TASK_STATUSES, type TaskPriority, type TaskStatus } from '@shared/assistant'
 import type { SyncResponse } from '@shared/types'
-import { parseRepeatRule, type TaskTag, type TodoTask } from '@shared/todos/model'
+import { parseRepeatRule, type TaskTag, type TodoTask, type TodoTimeEntry } from '@shared/todos/model'
+import { toTimeEntry, type TodoTimeEntryRow } from '../todos/schema'
 import {
   NOTE_COLUMNS_NOTAGS,
   attachNoteTags,
@@ -75,10 +76,11 @@ interface TodoSyncRow {
   completed_at: number | null
   rev: number
   deleted_at: number | null
+  archived_at: number | null
 }
 
 const TODO_SYNC_COLUMNS = `id, title, description, status, priority, due_at, project_id, list_id, icon, color, starred,
-  repeat_rule, note_id, conversation_id, planned_for, created_at, updated_at, completed_at, rev, deleted_at`
+  repeat_rule, note_id, conversation_id, planned_for, created_at, updated_at, completed_at, rev, deleted_at, archived_at`
 
 interface TodoTagSyncRow {
   task_id: string
@@ -276,12 +278,12 @@ export class SyncStore {
     return { todos: await this.todosWithDetails(rows), deleted: [], cursor: Math.max(newest, Date.now()) }
   }
 
-  /** Tags, step counts and pending reminders for one page of tasks, one query each. */
+  /** Tags, step counts, pending reminders and the time ledger for one page of tasks, one query each. */
   private async todosWithDetails(rows: TodoSyncRow[]): Promise<TodoTask[]> {
     if (!rows.length) return []
     const ids = rows.map((row) => row.id)
     const chunks = chunkIds(ids)
-    const [tagPages, stepPages, reminderPages] = await Promise.all([
+    const [tagPages, stepPages, reminderPages, timePages] = await Promise.all([
       Promise.all(chunks.map((chunk) => this.db
         .prepare(
           `SELECT l.task_id, t.id, t.name, t.color, t.created_at, t.updated_at
@@ -311,6 +313,19 @@ export class SyncStore {
         )
         .bind(this.userId, ...chunk)
         .all<{ task_id: string; remind_at: number }>())),
+      // The time ledger rides with the page it belongs to: every ledger write bumps its task's
+      // `updated_at` (assistant/store.ts `touchTaskStatement`), so the whole set of one task's
+      // intervals is restated whenever any of them changes, and a receiving device replaces rather
+      // than merges. That is what makes a deleted span propagate without a second tombstone stream.
+      Promise.all(chunks.map((chunk) => this.db
+        .prepare(
+          `SELECT id, task_id, start_at, end_at, day, source, created_at, updated_at
+             FROM todos_time_entries
+            WHERE user_id = ?1 AND task_id IN (${placeholders(chunk.length, 2)})
+            ORDER BY start_at ASC, id ASC`,
+        )
+        .bind(this.userId, ...chunk)
+        .all<TodoTimeEntryRow>())),
     ])
     const tags = new Map<string, TaskTag[]>()
     for (const page of tagPages) {
@@ -340,6 +355,14 @@ export class SyncStore {
         reminders.set(row.task_id, bucket)
       }
     }
+    const timeEntries = new Map<string, TodoTimeEntry[]>()
+    for (const page of timePages) {
+      for (const row of page.results ?? []) {
+        const bucket = timeEntries.get(row.task_id) ?? []
+        bucket.push(toTimeEntry(row))
+        timeEntries.set(row.task_id, bucket)
+      }
+    }
     return rows.map((row) => {
       const pending = reminders.get(row.id) ?? []
       const step = steps.get(row.id)
@@ -363,6 +386,7 @@ export class SyncStore {
         plannedFor: row.planned_for ?? null,
         noteId: row.note_id,
         conversationId: row.conversation_id,
+        timeEntries: timeEntries.get(row.id) ?? [],
         stepTotal: step?.total ?? 0,
         stepDone: step?.done ?? 0,
         createdAt: row.created_at,
@@ -370,6 +394,7 @@ export class SyncStore {
         completedAt: row.completed_at,
         rev: row.rev,
         deletedAt: row.deleted_at,
+        archivedAt: row.archived_at,
       }
     })
   }
@@ -424,12 +449,20 @@ function chunkIds(ids: readonly string[]): string[][] {
   return chunks
 }
 
+/**
+ * The row's own vocabulary, read from the shared lists rather than spelled out again here.
+ *
+ * A status written by hand was a status the sync could not carry: `cancelled` reached this decoder as
+ * an unknown word and left the other device as an open task — not dropped, which would be visible, but
+ * rewritten. The fallback stays: a word from a future version of the app still reads as the plain
+ * default rather than throwing away the page.
+ */
 function taskStatus(value: string): TaskStatus {
-  return value === 'in_progress' || value === 'done' ? value : 'todo'
+  return TASK_STATUSES.includes(value as TaskStatus) ? value as TaskStatus : 'todo'
 }
 
 function taskPriority(value: string): TaskPriority {
-  return value === 'low' || value === 'high' || value === 'urgent' ? value : 'medium'
+  return TASK_PRIORITIES.includes(value as TaskPriority) ? value as TaskPriority : 'medium'
 }
 
 function parseJson(value: string | null): unknown {

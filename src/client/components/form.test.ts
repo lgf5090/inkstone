@@ -1,7 +1,7 @@
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { Segmented, Slider, Switch, commitOnEnter } from './form'
+import { Checkbox, Segmented, Slider, Switch, commitOnEnter } from './form'
 
 const nextFrame = () => new Promise((resolve) => window.requestAnimationFrame(() => resolve(undefined)))
 
@@ -236,5 +236,23 @@ describe('the switch reaches the pointer floor', () => {
     // lives in is proved in `tests/touch-target-utility.test.ts`.
     expect(`${track.className} `).toMatch(/(?:^|\s)relative\s/)
     expect(track.className).toContain('md:h-[20px]')
+  })
+})
+
+describe('the checkbox row reaches the pointer floor', () => {
+  function renderCheckbox() {
+    act(() => root.render(createElement(Checkbox, { checked: false, onChange: () => {}, label: 'From completion' })))
+    return host.querySelector<HTMLButtonElement>('button[role="checkbox"]')!
+  }
+
+  it('pads the drawn row instead of standing every label up to 24 pixels', () => {
+    const row = renderCheckbox()
+    expect(`${row.className} `).toMatch(/(?:^|\s)ink-tap-pad\s/)
+    // A measured row paints 19 pixels tall on the desktop frame, and the 30-pixel pitch between two steps
+    // leaves 11 to spare, so the pad can reach the floor without covering its neighbour. The hit-test that
+    // proves both halves of that sentence ran in a real browser; what is pinned here is that the row is
+    // still the dense one, so the pad — not a repaint — is what carries the floor.
+    expect(`${row.className} `).toMatch(/(?:^|\s)relative\s/)
+    expect(row.className).toContain('md:min-h-0')
   })
 })

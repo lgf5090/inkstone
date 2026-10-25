@@ -32,6 +32,8 @@ const STATS: TodoStats = {
     net: 0,
     open: 3,
     completionRate: 0.25,
+    abandoned: 0,
+    abandonedRate: 0,
     onTime: 0,
     onTimeDue: 0,
     onTimeRate: 0,

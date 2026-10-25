@@ -27,31 +27,60 @@ import { localDate, localDayBounds, parseLocalTime } from '@shared/assistant-tim
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import {
   MAX_BATCH_TASKS,
+  COUNTER_KINDS,
+  COUNTER_WINDOW_DAYS,
+  MAX_COUNTERS_PER_ACCOUNT,
+  MAX_COUNTER_DAY_AMOUNT,
+  WORKLOG_DIMENSIONS,
+  WORKLOG_GROUP_LIMIT,
+  type CounterKind,
+  type FinishDayBucket,
+  type WorklogDimension,
   MAX_LIST_NAME_CHARS,
   MAX_REMINDERS_PER_TASK,
+  MAX_SINGLE_TIME_ENTRY_MS,
   MAX_STEP_TEXT_CHARS,
   MAX_TAGS_PER_TASK,
   MAX_TAG_NAME_CHARS,
   MAX_TASKS_PER_QUERY,
+  MAX_TIME_ENTRY_AGE_DAYS,
+  MAX_TIME_ESTIMATE_MS,
+  MAX_TIMER_START_FUTURE_MS,
   REMIND_OFFSETS,
   isSnoozeMinutes,
   isTaskBatchRequestOp,
   isTaskSort,
   isTaskStatsBucket,
   isTaskView,
+  isTimeEstimateMs,
   normalizeReminderTimes,
   normalizeTagNames,
   parseRepeatRule,
   remindAtFor,
   type RemindOffset,
   type RepeatRule,
+  type TaskBatchDone,
   type TaskSort,
   type TaskStatsBucket,
+  type TodoTask,
 } from '@shared/todos/model'
-import type { TaskPriority, TaskStatus } from '@shared/assistant'
+import { isTaskDone } from '@shared/todos/status'
+import { TASK_STATUSES, type TaskPriority, type TaskStatus } from '@shared/assistant'
 import { AssistantStore, type TaskQuery } from '../assistant/store'
+import { runIdempotent } from '../mcp/operations'
 import { insertFeed, listFeeds, revokeFeed, type OwnFeedRow } from '../todos/feeds'
+import {
+  addCounterTick,
+  createCounter,
+  deleteCounter,
+  getCounter,
+  loadCounterReadings,
+  startCounterTimer,
+  stopCounterTimer,
+  updateCounter,
+} from '../todos/counters'
 import { addDays, isStatsDay, loadTodoStats } from '../todos/stats'
+import { loadTrackedTotals, loadWorklog } from '../todos/worklog'
 
 const BODY_LIMIT = JSON_BODY_LIMITS.settings
 const TITLE_MAX = 300
@@ -128,7 +157,12 @@ function requiredId(value: unknown): string {
 }
 
 function asStatus(value: unknown): TaskStatus {
-  if (value === 'todo' || value === 'in_progress' || value === 'done') return value
+  // Read off the enum the whole app shares, not a re-listed set of words: the moment a status joins
+  // `TASK_STATUSES` the route has to accept it, and a hand-copied list here would silently refuse a
+  // value the store and the schema already understand (a `cancelled` write rejected with 400 while the
+  // row below could hold it). The cast is safe because membership was just proven against the array
+  // that defines the union.
+  if (typeof value === 'string' && (TASK_STATUSES as readonly string[]).includes(value)) return value as TaskStatus
   throw ApiError.badRequest('Unknown task status.')
 }
 
@@ -139,6 +173,26 @@ function asPriority(value: unknown): TaskPriority {
 
 function asBoolean(value: unknown, field: string): boolean {
   if (typeof value !== 'boolean') throw ApiError.badRequest(`${field} must be true or false`)
+  return value
+}
+
+/**
+ * A planned duration, in milliseconds — or nothing at all.
+ *
+ * Absent leaves the task's own estimate alone and null takes it back out, because "nobody estimated"
+ * and "the reader estimated zero" are different answers that the worklog has to tell apart. A number is
+ * accepted only as a whole count of milliseconds inside {@link MAX_TIME_ESTIMATE_MS}: a fractional or
+ * wildly large one is a client that mistyped its unit, and storing it would make every consumption bar
+ * on the row read as empty rather than telling the reader what went wrong.
+ */
+function asTimeEstimate(value: unknown): number | null | undefined {
+  if (value === undefined) return undefined
+  if (value === null || value === '') return null
+  if (!isTimeEstimateMs(value)) {
+    throw ApiError.badRequest(
+      `timeEstimate must be a whole number of milliseconds between 0 and ${MAX_TIME_ESTIMATE_MS}.`,
+    )
+  }
   return value
 }
 
@@ -169,6 +223,29 @@ function asRepeat(value: unknown): RepeatRule | null {
  * it would lose the fact rather than the membership. What is refused is text that is not a day at all,
  * including a date that does not exist on the calendar.
  */
+/** Which side of the shelf a listing parameter names, or none for the ordinary listing. */
+function asShelf(value: string | undefined): boolean | 'any' | undefined {
+  if (value === '1' || value === 'true') return true
+  return value === 'any' ? 'any' : undefined
+}
+
+/**
+ * Whether a listing wants a list's sections along with it, where a section is a child list.
+ *
+ * Absent is the plain reading. Any other word is a 400: a scope silently dropped hands back one
+ * collection's rows while the reader asked for a whole group of them, and the page would read as short
+ * rather than as wrong. A scope with no list is refused for the same family of reason — there is no
+ * collection whose sections it could mean.
+ */
+function listScope(value: string | undefined, list: string | undefined): boolean | undefined {
+  if (value === undefined || value === '') return undefined
+  if (value !== 'subtree') throw ApiError.badRequest('A list scope is either `subtree` or absent.')
+  if (list === undefined || list === 'none') {
+    throw ApiError.badRequest('A scope of `subtree` names the list it is the subtree of.')
+  }
+  return true
+}
+
 function plannedDay(value: unknown): string | null {
   if (value === null) return null
   if (typeof value !== 'string' || !isStatsDay(value)) {
@@ -348,10 +425,21 @@ function revisionConflict(id: string, rev: number | undefined): ApiError {
 }
 
 /** The flag a star batch sets. Absent means "star them", which is the gesture the bar offers. */
-function batchStarValue(value: unknown): boolean {
+/**
+ * A batch's on/off target, in the two shapes a client actually sends.
+ *
+ * `value` arrives as a JSON boolean from the app and as the string a form or a script writes, and
+ * `undefined` is the answer a bare "do it" gesture means: star a batch, archive a batch. `what` names
+ * the operation in the refusal, because a message that blames the wrong control is a dead end.
+ */
+function asBatchFlag(value: unknown, what: string): boolean {
   if (value === undefined || value === null || value === true || value === 'true') return true
   if (value === false || value === 'false') return false
-  throw ApiError.badRequest('A star batch takes true or false.')
+  throw ApiError.badRequest(`A ${what} batch takes true or false.`)
+}
+
+function batchStarValue(value: unknown): boolean {
+  return asBatchFlag(value, 'star')
 }
 
 /**
@@ -419,9 +507,17 @@ function listingQuery(c: Ctx, timezone: string, dayEnd: number, today: string): 
     // The inbox is a collection with no row behind it, so the address spells it `none` rather than
     // leaving the parameter out, which would mean "any list".
     listId: list === undefined ? undefined : list === 'none' ? null : requiredId(list),
+    // `scope=subtree` is how the list page asks for its sections too, where a section is a child list.
+    // It is refused without a list and refused for any other word: a scope that was silently ignored
+    // would answer for one collection while the reader asked about a whole group of them.
+    listSubtree: listScope(c.req.query('scope'), list),
     tagId: tag ? requiredId(tag) : undefined,
     priority: priority ? asPriority(priority) : undefined,
     starred: c.req.query('starred') === '1' ? true : undefined,
+    // `archived=1` asks for the shelf, `archived=any` for both sides of it. Anything else — including a
+    // word nobody spelled — means the ordinary listing, because widening what a reader sees has to be
+    // something they asked for, not a fallback for a malformed parameter.
+    archived: asShelf(c.req.query('archived')),
     query: c.req.query('q')?.trim().slice(0, 200) || undefined,
     dueFrom: optionalDue(c.req.query('dueFrom'), timezone),
     dueTo: optionalDue(c.req.query('dueTo'), timezone),
@@ -434,6 +530,8 @@ function listingQuery(c: Ctx, timezone: string, dayEnd: number, today: string): 
     // The one day the today view adds its picked rows by. Handed to the listing and the counts from
     // the same request, so the badge cannot be a day ahead of the page it opens.
     today,
+    // The zone behind that day, so the three reads below cut their windows by one answer too.
+    zone: timezone,
   }
 }
 
@@ -470,7 +568,7 @@ todoRoutes.get('/', async (c) => {
   const [tasks, total, counts] = await Promise.all([
     s.listTasks(query),
     s.countTasks(query),
-    s.taskCounts(dayEnd, today),
+    s.taskCounts(dayEnd, today, settings.timezone),
   ])
   return c.json({ tasks, total, counts, dayEnd, timezone: settings.timezone })
 })
@@ -491,6 +589,222 @@ todoRoutes.get('/stats', async (c) => {
     now: Date.now(),
   })
   return c.json(stats)
+})
+
+/**
+ * The worklog: where the hours went, over the same window the statistics read.
+ *
+ * A second endpoint rather than more fields on the first: the statistics replay the plate's rows and
+ * this sums the ledger, and the two answer about different things — an account can hold forty hours in
+ * a week whose tasks were mostly closed later. Folding them would make one number answer two questions,
+ * and one request would always be paying for the half the screen did not show.
+ */
+todoRoutes.get('/worklog', async (c) => {
+  const settings = await store(c).getSettings()
+  const range = statsRange(c, settings.timezone)
+  const asked = c.req.query('group')
+  if (asked !== undefined && !(WORKLOG_DIMENSIONS as readonly string[]).includes(asked))
+    throw ApiError.badRequest('The worklog groups by list, tag or task.')
+  return c.json(await loadWorklog(c.env.DB, c.get('userId'), {
+    from: range.from,
+    to: range.to,
+    dimension: (asked ?? 'list') as WorklogDimension,
+    limit: WORKLOG_GROUP_LIMIT,
+  }))
+})
+
+/**
+ * The end-of-day pass: the four questions one close-out asks about one day.
+ *
+ * Four reads through the listing's own filter builder, not four hand-written statements. Every bucket is
+ * a question this app already knows how to ask — finished on a day, past due, owed on a day — and the one
+ * that is new ("the ledger holds a closed span for it today") is a clause in the same builder. A second
+ * spelling of "overdue" here is how the plate and the close-out start disagreeing about the same task,
+ * which is the defect this plan has been removing all round.
+ *
+ * Registered before `/:id`, like the worklog: "finish-day" is a route, not a task called finish-day.
+ */
+todoRoutes.get('/finish-day', async (c) => {
+  const s = store(c)
+  const settings = await s.getSettings()
+  const day = finishDayQuery(c, settings.timezone)
+  const tomorrow = addDays(day, 1)
+  const limit = finishDayLimit(c)
+  const [done, worked, overdue, planned, tracked] = await Promise.all([
+    finishBucket(s, { view: 'completed', completedFrom: day, completedTo: tomorrow }, limit),
+    finishBucket(s, { workedOn: day }, limit),
+    finishBucket(s, { view: 'overdue' }, limit),
+    finishBucket(s, { owedOn: tomorrow }, limit),
+    loadTrackedTotals(c.env.DB, c.get('userId'), { from: day, to: day }),
+  ])
+  return c.json({
+    day,
+    tomorrow,
+    timezone: settings.timezone,
+    trackedMs: tracked.totalMs,
+    done,
+    worked,
+    overdue,
+    planned,
+  })
+})
+
+/** The day a close-out reads: the one the address names, or the account's own today. */
+function finishDayQuery(c: Ctx, timezone: string): string {
+  const day = c.req.query('day') || localDate(Date.now(), timezone)
+  if (!isStatsDay(day)) throw ApiError.badRequest('An end-of-day pass reads one date like 2026-01-31.')
+  return day
+}
+
+/**
+ * How many rows one bucket carries.
+ *
+ * A close-out is a screen of decisions, not a report, so the ceiling is the listing's own. What a reader
+ * cannot see here is counted into `more` beside it: fifty of ninety finished tasks would otherwise read
+ * as a day that held fifty.
+ */
+function finishDayLimit(c: Ctx): number {
+  const asked = Number(c.req.query('limit'))
+  return Number.isFinite(asked) && asked >= 1 ? Math.min(MAX_TASKS_PER_QUERY, Math.trunc(asked)) : MAX_TASKS_PER_QUERY
+}
+
+/** One bucket: the rows the page carries, and how many the account held behind them. */
+async function finishBucket(s: AssistantStore, query: TaskQuery, limit: number): Promise<FinishDayBucket> {
+  const [rows, total] = await Promise.all([s.listTasks({ ...query, limit }), s.countTasks(query)])
+  return { rows, more: Math.max(0, total - rows.length) }
+}
+
+// --------------------------------------------------------------- time ledger
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/**
+ * An instant the ledger may be written at, as the request names it — or a refusal with a reason.
+ *
+ * The server clock is the final trust boundary (AGENTS.md rule 1), and every guard here refuses
+ * out loud rather than clamping (rule 2): a silently trimmed timestamp is a wrong fact the worklog
+ * can never distinguish from real overtime. A client clock rebuilt from sleep, set by hand, or filed
+ * from a wrong zone can therefore only produce three honest outcomes — a number inside the window,
+ * a 400 naming what was wrong, or nothing. The five-minute future tolerance covers the drift the
+ * platform admits; the lower bound is the harsher of the account's own birth and a remembered year,
+ * because anything older is not a back-fill but a clock nobody set.
+ */
+function ledgerInstant(c: Ctx, value: unknown, field: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw ApiError.badRequest(`${field} must be a millisecond timestamp.`)
+  }
+  const at = Math.trunc(value)
+  const now = Date.now()
+  if (at > now + MAX_TIMER_START_FUTURE_MS) {
+    throw ApiError.badRequest(`${field} is in the future; the server clock decides when work happened.`)
+  }
+  const accountCreatedAt = c.get('user')?.createdAt ?? 0
+  const floor = Math.max(accountCreatedAt, now - MAX_TIME_ENTRY_AGE_DAYS * DAY_MS)
+  if (at < floor) {
+    throw ApiError.badRequest(`${field} is before the oldest instant this account may record.`)
+  }
+  return at
+}
+
+/**
+ * The window and grouping a ledger read asks for.
+ *
+ * The same day grammar, the same default 30 days and the same refusals the statistics window
+ * already uses — a second reading of `from`/`to` would eventually disagree with the first. `group`
+ * is the bucket the answer is cut by: by day for a worklog, by task for "where did the hours go".
+ */
+function timeRange(c: Ctx, timezone: string): { from: string, to: string, group: 'day' | 'task' } {
+  const today = localDate(Date.now(), timezone)
+  const to = c.req.query('to') || today
+  if (!isStatsDay(to)) throw ApiError.badRequest('A time range must end on a date like 2026-01-31.')
+  const from = c.req.query('from') || addDays(to, -29)
+  if (!isStatsDay(from)) throw ApiError.badRequest('A time range must start on a date like 2026-01-31.')
+  if (from > to) throw ApiError.badRequest('A time range cannot start after it ends.')
+  const group = c.req.query('group') ?? 'day'
+  if (group !== 'day' && group !== 'task') {
+    throw ApiError.badRequest('A time group must be day or task.')
+  }
+  return { from, to, group }
+}
+
+/**
+ * The grouped hours over one window, in the one read the group needs.
+ *
+ * Registered above `/:id` or "time" reads as a task id. A running interval is deliberately absent
+ * from every bucket: it is not yet a fact, and counting the open slot is how "yesterday" starts
+ * growing while nobody watches.
+ */
+todoRoutes.get('/time', async (c) => {
+  const s = store(c)
+  const settings = await s.getSettings()
+  const { from, to, group } = timeRange(c, settings.timezone)
+  const totals = group === 'day' ? await s.timeByDay(from, to) : await s.timeByTask(from, to)
+  return c.json({ from, to, group, totals, totalMs: totals.reduce((total, row) => total + row.ms, 0) })
+})
+
+/**
+ * Start the one timer this account may run.
+ *
+ * `startAt` is optional because the common gesture has no timestamp to name — "now" is the server's
+ * own clock. A client that does name one (an offline replay) is read through the ledger's window.
+ * Starting is idempotent by the store's rule: the row that is already running comes back, and
+ * another task's timer is stopped where this one begins rather than refused.
+ */
+todoRoutes.post('/:id/timer/start', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
+  const startAt = body.startAt === undefined ? Date.now() : ledgerInstant(c, body.startAt, 'startAt')
+  const entry = await s.openTimeEntry(id, startAt)
+  if (!entry) throw ApiError.notFound('Task not found')
+  return c.json({ entry })
+})
+
+/**
+ * Stop this task's running timer, split at the account midnights it crossed.
+ *
+ * A stop names no instant unless the caller does: the default is the server's now, and a client that
+ * was asleep checks in with its own reading of the stop instant, which passes the same window as a
+ * start does. Nothing running for this task is the 404 the other task gestures already give.
+ */
+todoRoutes.post('/:id/timer/stop', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
+  const endAt = body.endAt === undefined ? Date.now() : ledgerInstant(c, body.endAt, 'endAt')
+  const entries = await s.closeTimeEntry(id, endAt)
+  if (!entries) throw ApiError.notFound('No timer is running for this task.')
+  return c.json({ entries })
+})
+
+/**
+ * Back-fill one span by hand — the answer to "I worked on this and never started the timer".
+ *
+ * The span is refused past the per-entry ceiling rather than trimmed: four hours is the longest a
+ * real session runs, and what is longer is either a mistake or a period the reader should have
+ * broken up — the refusal names both, and the day ceiling inside the store refuses the pile-up.
+ */
+todoRoutes.post('/:id/time', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
+  const startAt = ledgerInstant(c, body.startAt, 'startAt')
+  const endAt = ledgerInstant(c, body.endAt, 'endAt')
+  if (endAt - startAt > MAX_SINGLE_TIME_ENTRY_MS) {
+    throw ApiError.badRequest(
+      `A single time entry cannot be longer than ${MAX_SINGLE_TIME_ENTRY_MS / 3_600_000} hours — add it in shorter spans.`,
+    )
+  }
+  const entries = await s.addManualTime(id, startAt, endAt)
+  if (!entries) throw ApiError.notFound('Task not found')
+  return c.json({ entries }, 201)
+})
+
+/** Take one ledger row back out: the back-space key of a mistaken span, or a timer nobody wants kept. */
+todoRoutes.delete('/time/:entryId', async (c) => {
+  const removed = await store(c).removeTimeEntry(requiredId(c.req.param('entryId')))
+  if (!removed) throw ApiError.notFound('Time entry not found')
+  return c.json({ deleted: true })
 })
 
 /** One page of the trash, newest deletion first; `total` counts the whole trash, not the page. */
@@ -518,9 +832,9 @@ todoRoutes.get('/trash', async (c) => {
 
 todoRoutes.post('/:id/restore', async (c) => {
   const s = store(c)
-  const task = await s.restoreTask(requiredId(c.req.param('id')))
+  const { task, droppedReminders } = await s.restoreTask(requiredId(c.req.param('id')))
   if (!task) throw ApiError.notFound('Task not found')
-  return c.json({ task })
+  return c.json({ task, droppedReminders })
 })
 
 todoRoutes.delete('/:id/purge', async (c) => {
@@ -634,13 +948,17 @@ todoRoutes.delete('/feed/:slug', async (c) => {
  * The write bucket counts the call once, through the middleware every other write already passes: a
  * batch is one gesture from the client, and a second, unmetered door for it is how a batch becomes a
  * bypass. The work inside is bounded by `MAX_BATCH_TASKS`.
+ *
+ * A row that changed is answered as `{id, next}` rather than as an id: finishing a repeating row
+ * creates another row, and the caller that pressed the bar is owed the new one, exactly as the
+ * single-task PATCH hands it over. The other six operations answer `next` as null.
  */
 todoRoutes.post('/batch', async (c) => {
   const s = store(c)
   const settings = await s.getSettings()
   const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
   if (!isTaskBatchRequestOp(body.op)) {
-    throw ApiError.badRequest('A batch operation must be complete, delete, move, priority, star, tag or due.')
+    throw ApiError.badRequest('A batch operation must be complete, delete, move, priority, star, tag, due or archive.')
   }
   const op = body.op
   const ids = batchIds(body.ids)
@@ -650,6 +968,7 @@ todoRoutes.post('/batch', async (c) => {
   let moveListId: string | null = null
   let priority: TaskPriority = 'medium'
   let starred = true
+  let archive = true
   let tagAdd: string[] = []
   let dueAt: number | null = null
   switch (op) {
@@ -662,6 +981,11 @@ todoRoutes.post('/batch', async (c) => {
       break
     case 'star':
       starred = batchStarValue(body.value)
+      break
+    case 'archive':
+      // The day's close files rows away; the same door with `false` is the way back, which is what makes
+      // a result toast that offers undo a real offer rather than a one-way write.
+      archive = asBatchFlag(body.value, 'archive')
       break
     case 'tag':
       if (typeof body.value !== 'string' && !Array.isArray(body.value)) {
@@ -685,9 +1009,12 @@ todoRoutes.post('/batch', async (c) => {
       break
   }
 
-  const done: string[] = []
+  const done: TaskBatchDone[] = []
   const failed: { id: string; reason: string }[] = []
   for (const id of ids) {
+    // The occurrence a completion files, answered beside the id so the caller does not have to reload
+    // the listing to find the row it just created. Every other operation leaves it null.
+    let filed: TodoTask | null = null
     try {
       const existing = await s.getTask(id)
       if (!existing) {
@@ -700,19 +1027,27 @@ todoRoutes.post('/batch', async (c) => {
         continue
       }
       switch (op) {
-        case 'complete':
+        case 'complete': {
           // The store method, not a status column: a repeating task has to file its next occurrence,
-          // and that happens in exactly one place.
-          if (!(await s.completeTask(id, settings.timezone))) {
+          // and that happens in exactly one place. The row's own revision rides along, so a row that
+          // moved between the read above and this press is refused per row rather than finished over
+          // whoever changed it.
+          const finished = await s.completeTask(id, settings.timezone, expectedRev)
+          if (!finished) {
             failed.push({ id, reason: 'not found' })
             continue
           }
+          filed = finished.next
           break
+        }
         case 'delete':
           await s.deleteTask(id)
           break
         case 'move':
-          if (!(await s.updateTask(id, { listId: moveListId }, settings.timezone, expectedRev))) {
+          // The same door a card drop uses, with a null anchor: the end of the destination. Naming only
+          // the list would leave the row's old place on it, and it would sort into the middle of an
+          // order the reader never put it in — a batch is not a different kind of move.
+          if (!(await s.moveTask(id, { beforeId: null, listId: moveListId }, expectedRev))) {
             failed.push({ id, reason: 'not found' })
             continue
           }
@@ -725,6 +1060,14 @@ todoRoutes.post('/batch', async (c) => {
           break
         case 'star':
           if (!(await s.updateTask(id, { starred }, settings.timezone, expectedRev))) {
+            failed.push({ id, reason: 'not found' })
+            continue
+          }
+          break
+        case 'archive':
+          // Only the stamp moves. The status, the hours and the row are untouched — the shelf is about
+          // which screens show it, and `taskVisible` is the one place that knows.
+          if (!(await s.updateTask(id, { archivedAt: archive ? Date.now() : null }, settings.timezone, expectedRev))) {
             failed.push({ id, reason: 'not found' })
             continue
           }
@@ -743,7 +1086,7 @@ todoRoutes.post('/batch', async (c) => {
           }
           break
       }
-      done.push(id)
+      done.push({ id, next: filed })
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
         // The row moved between the read above and the guarded write: the same per-row answer the
@@ -762,6 +1105,17 @@ todoRoutes.post('/batch', async (c) => {
   return c.json({ done, failed })
 })
 
+/**
+ * A new task.
+ *
+ * `Idempotency-Key` is optional and turns a retried create into one create: the client that queued the
+ * write offline replays it, and a first attempt the server landed but whose response was lost would
+ * otherwise mint a second task. The key is answered by `runIdempotent`, the very door every MCP write
+ * already goes through, so no second operation table is added and the sweep that expires MCP
+ * operations expires these keys too. A key reused with a different body is a 409 rather than a second
+ * row: two different questions cannot share one answer. A key that is not 8-128 safe ASCII characters
+ * is a 400, which is `runIdempotent`'s own rule for the id it stores beside the response.
+ */
 todoRoutes.post('/', async (c) => {
   const s = store(c)
   const settings = await s.getSettings()
@@ -775,7 +1129,7 @@ todoRoutes.post('/', async (c) => {
     : body.remind !== undefined
       ? reminderOffsetTimes(body.remind, dueAt)
       : defaultReminderTimes(c.get('user')?.settingsRaw ?? '', dueAt)
-  const task = await s.createTask({
+  const input = {
     title: text(body.title, TITLE_MAX, 'A task title'),
     description: optionalText(body.description, DESCRIPTION_MAX, 'A task note') ?? '',
     status: body.status === undefined ? undefined : asStatus(body.status),
@@ -791,13 +1145,35 @@ todoRoutes.post('/', async (c) => {
     color: colorValue(body.color) ?? null,
     starred: body.starred === undefined ? undefined : asBoolean(body.starred, 'starred'),
     repeat: asRepeat(body.repeat),
+    // A new row has no plan of its own to leave alone, so an absent field is "none" rather than absent.
+    timeEstimateMs: asTimeEstimate(body.timeEstimate) ?? null,
     reminders,
     noteId: optionalId(body.noteId, 'noteId') ?? null,
     conversationId: optionalId(body.conversationId, 'conversationId') ?? null,
     tags: tagNames(body.tags),
     steps: stepTexts(body.steps),
-  })
-  await s.recordActivity('task.created', task.title)
+  }
+  // Everything the request has to say about itself is read above, so a body that is refused never
+  // spends an operation row, and what the key is hashed over is the task this call asks for rather
+  // than the spelling it happened to arrive in.
+  const write = async (): Promise<{ task: TodoTask }> => {
+    const task = await s.createTask(input)
+    await s.recordActivity('task.created', task.title)
+    return { task }
+  }
+  const key = c.req.header('idempotency-key')?.trim()
+  const { task } = key
+    ? await runIdempotent<{ task: TodoTask }>({
+      db: c.env.DB,
+      userId: c.get('userId'),
+      operationId: key,
+      // Named apart from the MCP tool's own `create_todo`, so one account's agent and its app cannot
+      // collide on an id and answer each other's question with a conflict.
+      tool: 'http.todos.create',
+      request: input,
+      execute: write,
+    })
+    : await write()
   return c.json({ task }, 201)
 })
 
@@ -807,16 +1183,18 @@ todoRoutes.post('/', async (c) => {
  * A separate endpoint rather than a `plannedFor` field on PATCH: the pick is its own gesture with its
  * own body shape (`{date}`), and the old client's PATCH never has to learn about a column it does not
  * send. The task id is scoped by the store, so another account's id is a 404 like every other id here.
+ *
+ * The guard is the store's, not a read of this row's own: the route hands over the revision the caller
+ * named and the write either matches it or refuses. Reading the row here to compare first was a second
+ * copy of the same rule, and the two disagreed inside the window between the read and the write — the
+ * exact window a conditional write exists to close.
  */
 todoRoutes.post('/:id/plan', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
   const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
   const expectedRev = requestRevision(c, body)
-  const existing = await s.getTask(id)
-  if (!existing) throw ApiError.notFound('Task not found')
-  if (expectedRev !== undefined && existing.rev !== expectedRev) throw revisionConflict(id, existing.rev)
-  const task = await s.planTask(id, plannedDay(body.date))
+  const task = await s.planTask(id, plannedDay(body.date), expectedRev)
   if (!task) throw ApiError.notFound('Task not found')
   return c.json({ task })
 })
@@ -844,18 +1222,19 @@ function moveAnchor(value: unknown, taskId: string): string | null {
  * account's task is a 404 and an anchor outside the destination is a 400 that names the request.
  * `listId` absent keeps the task where it is; null is the inbox, the same reading every other list
  * field in this file gives it.
+ *
+ * The revision the caller named goes to the store rather than being checked against a read here: a
+ * drop computed from a listing the row has already moved past must not land, and the guard that says so
+ * belongs on the write, not beside it.
  */
 todoRoutes.post('/:id/move', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
   const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
   const beforeId = moveAnchor(body.beforeId, id)
-  const existing = await s.getTask(id)
-  if (!existing) throw ApiError.notFound('Task not found')
   const expectedRev = requestRevision(c, body)
-  if (expectedRev !== undefined && existing.rev !== expectedRev) throw revisionConflict(id, existing.rev)
   const listId = body.listId === undefined ? undefined : await listRef(s, body.listId)
-  const task = await s.moveTask(id, { beforeId, listId })
+  const task = await s.moveTask(id, { beforeId, listId }, expectedRev)
   if (!task) throw ApiError.notFound('Task not found')
   return c.json({ task })
 })
@@ -868,6 +1247,10 @@ todoRoutes.post('/:id/move', async (c) => {
  * the task endpoints already take, and a second way to say the same thing would be a second validator
  * to keep in step. A finished task is refused because nothing will ever be announced for it, and a
  * task already at the five-reminder ceiling is refused rather than silently dropping one.
+ *
+ * The row is read here for those two questions only — what this request is asking for. Whether the
+ * caller still holds it is the store's guard to answer, so the revision rides to `snoozeTask` and the
+ * reminder is queued only when the row it lands on is the row the caller saw.
  */
 todoRoutes.post('/:id/snooze', async (c) => {
   const s = store(c)
@@ -879,12 +1262,11 @@ todoRoutes.post('/:id/snooze', async (c) => {
   const expectedRev = requestRevision(c, body)
   const existing = await s.getTask(id)
   if (!existing) throw ApiError.notFound('Task not found')
-  if (expectedRev !== undefined && existing.rev !== expectedRev) throw revisionConflict(id, existing.rev)
-  if (existing.status === 'done') throw ApiError.badRequest('A finished task cannot be snoozed.')
+  if (isTaskDone(existing.status)) throw ApiError.badRequest('A finished task cannot be snoozed.')
   if ((existing.reminders?.length ?? 0) >= MAX_REMINDERS_PER_TASK) {
     throw ApiError.badRequest(`This task already has ${MAX_REMINDERS_PER_TASK} reminders.`)
   }
-  const task = await s.snoozeTask(id, Date.now() + body.minutes * 60_000)
+  const task = await s.snoozeTask(id, Date.now() + body.minutes * 60_000, expectedRev)
   if (!task) throw ApiError.notFound('Task not found')
   return c.json({ task, reminders: task.reminders ?? [] })
 })
@@ -913,10 +1295,27 @@ todoRoutes.post('/lists', async (c) => {
   return c.json({ list }, 201)
 })
 
+/**
+ * Where a PATCH wants the list in the order, read from the body.
+ *
+ * The store only truncates what it is handed and binds the answer to an INTEGER column, and
+ * `Math.trunc(NaN)` is NaN — so the route says no first: a finite, whole, non-negative number, or a
+ * 400 naming the field. Absent is not a move. Same grammar as `stepPlacement` for a step.
+ */
+function listPosition(body: Record<string, unknown>): number | undefined {
+  const value = body.position
+  if (value === undefined) return undefined
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw ApiError.badRequest('position must be a whole list number from zero.')
+  }
+  return value
+}
+
 todoRoutes.patch('/lists/:id', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
   const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
+  const position = listPosition(body)
   const existing = await s.getTaskList(id)
   if (!existing) throw ApiError.notFound('List not found')
   // Grouping is one level deep. The parent is read first, so "that parent does not exist" is a 400
@@ -940,7 +1339,7 @@ todoRoutes.patch('/lists/:id', async (c) => {
     ...(body.name !== undefined ? { name: text(body.name, MAX_LIST_NAME_CHARS, 'A list name') } : {}),
     ...(body.icon !== undefined ? { icon: iconValue(body.icon) ?? null } : {}),
     ...(body.color !== undefined ? { color: colorValue(body.color) ?? null } : {}),
-    ...(typeof body.position === 'number' ? { position: body.position } : {}),
+    ...(position !== undefined ? { position } : {}),
     // The stamp is the moment the list left the working page. A false answer clears it instead of
     // writing a second value, so unarchiving restores exactly the state the list was in.
     ...(body.archived !== undefined ? { archivedAt: asBoolean(body.archived, 'archived') ? Date.now() : null } : {}),
@@ -994,6 +1393,159 @@ todoRoutes.delete('/tags/:id', async (c) => {
   return c.json({ deleted: true })
 })
 
+// ------------------------------------------------------------------ habits
+
+/**
+ * The habits page in one read: every habit with the days behind it.
+ *
+ * The listing carries each habit's day window as well as its row, because the screen shades a year behind
+ * every name and asking per habit would be one round trip per habit. `today` travels with the answer for
+ * the reason it travels on the end-of-day pass: a run of days is counted back from the reader's day, not
+ * from the server's clock.
+ */
+todoRoutes.get('/counters', async (c) => {
+  const timezone = (await store(c).getSettings()).timezone
+  const today = localDate(Date.now(), timezone)
+  return c.json({ today, readings: await loadCounterReadings(c.env.DB, c.get('userId'), today) })
+})
+
+/**
+ * What a habit asks of a day: a whole number of its own unit, or null for no target at all.
+ *
+ * Three states because the editor's three gestures reach the same field — absent is "leave the target
+ * alone", null is "the reader cleared it" — and folding the second into the first is how a clear silently
+ * keeps the old number.
+ */
+function asCounterGoal(value: unknown): number | null | undefined {
+  if (value === undefined) return undefined
+  if (value === null) return null
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > MAX_COUNTER_DAY_AMOUNT) {
+    throw ApiError.badRequest(`A habit target is a whole number from 0 to ${MAX_COUNTER_DAY_AMOUNT}.`)
+  }
+  return value
+}
+
+/**
+ * The kind a request names, read off the shared enum.
+ *
+ * A habit created without one counts taps, which is what a reader means by a checkbox; a kind the app
+ * does not have is refused by name rather than folded into the nearest one, because a "remind me every
+ * N minutes" habit accepted as a counter would be a silent promise nobody keeps.
+ */
+function asCounterKind(value: unknown): CounterKind {
+  if (value === undefined) return 'clicks'
+  if (typeof value === 'string' && (COUNTER_KINDS as readonly string[]).includes(value)) return value as CounterKind
+  throw ApiError.badRequest('A habit counts taps or seconds.')
+}
+
+/** How much one press adds or takes back, in the habit's unit. Zero is not a press. */
+function counterDelta(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value)) throw ApiError.badRequest('A habit tap is a whole number.')
+  if (value === 0) throw ApiError.badRequest('A tap of nothing changes nothing.')
+  if (Math.abs(value) > MAX_COUNTER_DAY_AMOUNT) {
+    throw ApiError.badRequest(`One tap reaches at most ${MAX_COUNTER_DAY_AMOUNT} times or seconds.`)
+  }
+  return value
+}
+
+/**
+ * The day a tap lands on: the reader's today, or the day they name for one they forgot.
+ *
+ * A habit cannot be tapped on a day that has not arrived, and a back-fill stops where the screen's own
+ * window stops — a day the habits page cannot draw is a day nobody can reach again, so writing one would
+ * be filing a record into the dark.
+ */
+function counterDay(value: unknown, today: string): string {
+  if (value === undefined) return today
+  if (typeof value !== 'string' || !isStatsDay(value)) throw ApiError.badRequest('A habit day is a date like 2026-01-31.')
+  if (value > today) throw ApiError.badRequest('A habit cannot be tapped on a day that has not arrived.')
+  if (value < addDays(today, -(COUNTER_WINDOW_DAYS - 1))) {
+    throw ApiError.badRequest(`A habit back-fill reaches back ${COUNTER_WINDOW_DAYS} days at most.`)
+  }
+  return value
+}
+
+todoRoutes.post('/counters', async (c) => {
+  const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
+  const counter = await createCounter(c.env.DB, c.get('userId'), {
+    title: text(body.title, MAX_LIST_NAME_CHARS, 'A habit name'),
+    kind: asCounterKind(body.kind),
+    icon: iconValue(body.icon) ?? null,
+    color: colorValue(body.color) ?? null,
+    goal: asCounterGoal(body.goal),
+  })
+  if (!counter) throw ApiError.badRequest(`A reader can keep at most ${MAX_COUNTERS_PER_ACCOUNT} habits.`)
+  return c.json({ counter }, 201)
+})
+
+todoRoutes.patch('/counters/:id', async (c) => {
+  const id = requiredId(c.req.param('id'))
+  const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
+  const counter = await updateCounter(c.env.DB, c.get('userId'), id, {
+    ...(body.title !== undefined ? { title: text(body.title, MAX_LIST_NAME_CHARS, 'A habit name') } : {}),
+    ...(body.kind !== undefined ? { kind: asCounterKind(body.kind) } : {}),
+    ...(body.icon !== undefined ? { icon: iconValue(body.icon) ?? null } : {}),
+    ...(body.color !== undefined ? { color: colorValue(body.color) ?? null } : {}),
+    ...(body.goal !== undefined ? { goal: asCounterGoal(body.goal) } : {}),
+  })
+  if (!counter) throw ApiError.notFound('Habit not found')
+  return c.json({ counter })
+})
+
+todoRoutes.delete('/counters/:id', async (c) => {
+  const id = requiredId(c.req.param('id'))
+  if (!await deleteCounter(c.env.DB, c.get('userId'), id)) throw ApiError.notFound('Habit not found')
+  return c.json({ deleted: true })
+})
+
+todoRoutes.post('/counters/:id/tick', async (c) => {
+  const id = requiredId(c.req.param('id'))
+  const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
+  const userId = c.get('userId')
+  if (!await getCounter(c.env.DB, userId, id)) throw ApiError.notFound('Habit not found')
+  const timezone = (await store(c).getSettings()).timezone
+  const today = localDate(Date.now(), timezone)
+  const day = counterDay(body.day, today)
+  return c.json({ day, amount: await addCounterTick(c.env.DB, userId, id, day, counterDelta(body.delta)) })
+})
+
+/**
+ * The habit a stopwatch runs on, or the refusal for one that counts taps.
+ *
+ * The kind is asked here rather than left to the store because "start the timer" on a tap habit is not a
+ * row the ledger cannot hold — it is a request the screen should never have offered, and a 400 naming it
+ * is the answer that says what happened.
+ */
+async function timerHabit(c: Ctx): Promise<string> {
+  const id = requiredId(c.req.param('id'))
+  const existing = await getCounter(c.env.DB, c.get('userId'), id)
+  if (!existing) throw ApiError.notFound('Habit not found')
+  if (existing.kind !== 'stopwatch') throw ApiError.badRequest('Only a habit that counts seconds can run a timer.')
+  return id
+}
+
+/**
+ * Starting a habit's run, on the server's clock.
+ *
+ * The request names no instant, so a device whose clock is wrong cannot move a run to another day, and a
+ * press replayed after a dropped response takes the run that is already going. An offline habit is not
+ * queued the way a task timer is: a tap that arrives an hour late has no honest day to land on.
+ */
+todoRoutes.post('/counters/:id/timer/start', async (c) => {
+  const id = await timerHabit(c)
+  const counter = await startCounterTimer(c.env.DB, c.get('userId'), id, Date.now())
+  if (!counter) throw ApiError.notFound('Habit not found')
+  return c.json({ counter })
+})
+
+todoRoutes.post('/counters/:id/timer/stop', async (c) => {
+  const id = await timerHabit(c)
+  const timezone = (await store(c).getSettings()).timezone
+  const stopped = await stopCounterTimer(c.env.DB, c.get('userId'), id, Date.now(), timezone)
+  if (!stopped) throw ApiError.notFound('Habit not found')
+  return c.json(stopped)
+})
+
 todoRoutes.get('/:id', async (c) => {
   const s = store(c)
   const task = await s.getTask(requiredId(c.req.param('id')))
@@ -1009,8 +1561,10 @@ todoRoutes.patch('/:id', async (c) => {
   const expectedRev = requestRevision(c, body)
   const existing = await s.getTask(id)
   if (!existing) throw ApiError.notFound('Task not found')
-  // A guard that already disagrees is refused before anything is written, which is what protects the
-  // completion path: `completeTask` has no guarded variant, so the pre-check is its conflict check.
+  // A guard that already disagrees is refused before anything is written. Once the patch below has
+  // written, that write has spent the revision, and the completion after it can only lean on this
+  // pre-check as its conflict check. While nothing has been written — a bare tick — the revision the
+  // caller named still stands, so `completeTask` is guarded by it too.
   if (expectedRev !== undefined && existing.rev !== expectedRev) throw revisionConflict(id, existing.rev)
   const dueAt = body.dueAt === undefined ? undefined : parseDue(body.dueAt, settings.timezone)
   // Absent leaves the column alone; null clears it, exactly as the due date's own field reads.
@@ -1024,7 +1578,7 @@ todoRoutes.patch('/:id', async (c) => {
    * row and drop the occurrence — which is what the checkbox did until this branch existed, so the same
    * press meant different things depending on whether it came from the app or from the chat.
    */
-  const completing = nextStatus === 'done' && existing.status !== 'done'
+  const completing = isTaskDone(nextStatus) && !isTaskDone(existing.status)
   // Every other column lands first, so the row being completed already carries the new title, due date
   // and tags — `completeTask` copies those into the next occurrence.
   const patch = {
@@ -1041,30 +1595,35 @@ todoRoutes.patch('/:id', async (c) => {
     ...(body.color !== undefined ? { color: colorValue(body.color) ?? null } : {}),
     ...(body.starred !== undefined ? { starred: asBoolean(body.starred, 'starred') } : {}),
     ...(body.repeat !== undefined ? { repeat: asRepeat(body.repeat) } : {}),
+    // Absent leaves the reader's own plan in place; null is the gesture that takes it back out.
+    ...(body.timeEstimate !== undefined ? { timeEstimateMs: asTimeEstimate(body.timeEstimate) ?? null } : {}),
     ...(body.reminders !== undefined ? { reminders: reminderTimes(body.reminders) } : {}),
     ...(body.noteId !== undefined ? { noteId: optionalId(body.noteId, 'noteId') } : {}),
     ...(body.conversationId !== undefined ? { conversationId: optionalId(body.conversationId, 'conversationId') } : {}),
     ...(body.tags !== undefined ? { tags: tagNames(body.tags) ?? [] } : {}),
   }
-  let task = Object.keys(patch).length
+  // Whether this request also names content. A write here spends the revision the caller named, so a
+  // second write made by the same request — the completion, or a reopen — must not name it again: the
+  // guard would refuse this caller's own follow-up. A bare tick writes nothing first, and so keeps its
+  // guard: the completion is that request's only write, and it should answer for the read it came from.
+  const wroteFields = Object.keys(patch).length > 0
+  let task = wroteFields
     ? await s.updateTask(id, patch, settings.timezone, expectedRev)
     : existing
   if (!task) throw ApiError.notFound('Task not found')
   let next = null
   if (completing) {
-    const done = await s.completeTask(id, settings.timezone)
+    const done = await s.completeTask(id, settings.timezone, wroteFields ? undefined : expectedRev)
     if (!done) throw ApiError.notFound('Task not found')
     task = done.task
     next = done.next
     await s.recordActivity('task.completed', task.title)
   } else if (nextStatus !== undefined && nextStatus !== task.status) {
-    // The revision was already spent by the patch above; naming it twice would refuse this caller's
-    // own second write.
     task = (await s.updateTask(
       id,
       { status: nextStatus },
       settings.timezone,
-      Object.keys(patch).length ? undefined : expectedRev,
+      wroteFields ? undefined : expectedRev,
     )) ?? task
   }
   return c.json({ task, ...(next ? { next } : {}) })

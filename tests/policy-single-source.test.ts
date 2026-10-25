@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { LIMITS } from '../src/shared/constants'
+import { TASK_STATUSES } from '../src/shared/assistant'
 import { normalizeOrganizerIcon } from '../src/shared/organizer-colors'
 import { assertOrganizerQuota, assertNoteQuota } from '../src/worker/db/quota'
 import { grantedMcpScopes, MCP_SCOPES, MCP_SUPPORTED_SCOPES } from '../src/worker/mcp/settings'
@@ -114,5 +115,16 @@ describe('organizer quotas', () => {
     for (let index = 0; index < LIMITS.notesMaxPerUser; index++) live.run(`n${index}`, 'user')
     trashed.run('gone', 'user')
     await expect(assertNoteQuota(makeD1(sqlite), 'user')).rejects.toThrow(/quota is exhausted/)
+  })
+
+  it('reads the task statuses from one list rather than spelling them out again', () => {
+    expect(TASK_STATUSES).toEqual(['todo', 'in_progress', 'done', 'cancelled'])
+
+    // The sync guard decides whether a whole page is trusted. A status written out by hand there is a
+    // page thrown away in silence — `cancelled` was added to the vocabulary and left this file behind,
+    // so a task given up on one device never reached another.
+    const sync = read('../src/client/lib/sync.ts')
+    expect(sync).toContain("TASK_STATUSES.includes(")
+    expect(sync).not.toMatch(/status === '(in_progress|done)'/)
   })
 })

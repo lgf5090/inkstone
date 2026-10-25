@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import { localDate, toLocalMinute } from '@shared/assistant-time'
-import type { TaskList, TodoTask } from '@shared/todos/model'
+import { MAX_TASKS_PER_QUERY, type TaskList, type TodoTask } from '@shared/todos/model'
 import { buildMonthGridCells, type MonthGridCell } from '../../components/calendar-grids'
 import { Segmented } from '../../components/form'
 import { LoadingBlock } from '../../components/feedback'
@@ -34,7 +34,7 @@ import {
   type WeekStartDay,
 } from '../../lib/time'
 import { useTodos } from './store'
-import { TODO_DRAG_TYPE, isTodoTaskDrag, readTodoTaskDrag } from './TaskCard'
+import { FINE_POINTER_QUERY, TODO_DRAG_TYPE, isTodoTaskDrag, readTodoTaskDrag } from './TaskCard'
 import { taskColorOf } from './task-face'
 import {
   allDayTasksForDay,
@@ -55,7 +55,12 @@ import { DayAgenda } from './DayAgenda'
 type CalendarMode = 'month' | 'week'
 type LoadState = 'loading' | 'ready' | 'error'
 
-const CALENDAR_LIMIT = 500
+/**
+ * How many open rows one calendar window reads. It is the listing's own ceiling, not a calendar number:
+ * a route answers at most `MAX_TASKS_PER_QUERY` rows however wide the window is, so a busy month can
+ * carry more than one page and the screen has to say so rather than draw the first page as the whole.
+ */
+const CALENDAR_LIMIT = MAX_TASKS_PER_QUERY
 const TITLES_PER_DAY = 3
 const WEEK_LENGTH = 7
 /** The date row a month cell reserves above its chips, and the height of one bar lane. */
@@ -679,7 +684,7 @@ export function CalendarView() {
   const updateTask = useTodos((state) => state.updateTask)
   const locale = useLocale()
   const wide = useMediaQuery('(min-width: 1024px)')
-  const finePointer = useMediaQuery('(hover: hover) and (pointer: fine)')
+  const finePointer = useMediaQuery(FINE_POINTER_QUERY)
   const prefs = useCalendarDisplayPrefs()
   const weekStart = resolveWeekStart(prefs.weekStart, locale)
   const display = useMemo(() => resolveDisplay(prefs, locale), [prefs, locale])
@@ -696,6 +701,8 @@ export function CalendarView() {
   const [zoom, setZoom] = useState<CalendarZoom>('hour')
   const [anchor, setAnchor] = useState(() => new Date())
   const [tasks, setTasks] = useState<TodoTask[]>([])
+  /** How many open rows match this window — read from the listing, bigger than `tasks` when the page is cut short. */
+  const [total, setTotal] = useState(0)
   const [status, setStatus] = useState<LoadState>('loading')
   const [error, setError] = useState<string | null>(null)
   const [reloadToken, setReloadToken] = useState(0)
@@ -729,6 +736,7 @@ export function CalendarView() {
       .then((page) => {
         if (id !== sequence.current) return
         setTasks(page.tasks)
+        setTotal(page.total)
         setStatus('ready')
       })
       .catch((failure: unknown) => {
@@ -847,6 +855,23 @@ export function CalendarView() {
       ? <LoadingBlock />
       : (
         <div className="no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto">
+          {/*
+            The calendar reads its own window through `api.todos.list`, not the store's paged listing, so
+            the shared `TodoPageFooter` (whose "load more" drives the store's page) cannot serve it here.
+            When the route hands back fewer rows than the window matches, this is the honest signal — the
+            rows past one page are simply not on the month, and a control that read them would ask a
+            different question than the one the grid answers.
+          */}
+          {total > tasks.length && (
+            <p
+              role="status"
+              data-calendar-truncated=""
+              className="mx-3 mb-2 flex items-center gap-1.5 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)]/40 px-3 py-2 text-[length:var(--text-12)] text-[var(--text-tertiary)] md:mx-5"
+            >
+              <CalendarDays size={13} className="shrink-0" aria-hidden="true" />
+              <span className="min-w-0">{t('todo.calendar.truncated', { count: CALENDAR_LIMIT })}</span>
+            </p>
+          )}
           {tasks.length === 0 && (
             <p className="mx-3 mb-2 flex items-center gap-1.5 rounded-[var(--r-md)] border border-dashed border-[var(--border-subtle)] px-3 py-2 text-[length:var(--text-12)] text-[var(--text-tertiary)] md:mx-5">
               <CalendarDays size={13} className="shrink-0" aria-hidden="true" />

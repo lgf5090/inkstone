@@ -13,13 +13,17 @@
  */
 import { isTaskStatsBucket, TASK_SORTS, type TaskSort, type TaskStatsBucket } from '@shared/todos/model'
 import { currentPathname, currentSearch, navigateToAddress, replaceAddress } from '../../lib/app-history'
+import { BOARD_DIMENSIONS, type BoardDimension } from './task-groups'
 import type { TodoView } from './store'
 
 /** The app's own address, and the prefix every screen under it hangs off. */
 export const TODO_PATH = '/todo'
 
-/** The arrangement a list's own screen can be read in: the plain list, or one column per status. */
+/** The arrangement a list's own screen can be read in: the plain list, or one column per group. */
 export type TodoLayout = 'list' | 'columns'
+
+/** The field one column of that arrangement stands for. */
+export type TodoGroup = BoardDimension
 
 /**
  * Whether an address is one of the to-do app's screens.
@@ -56,10 +60,13 @@ export function taskIdFromNotificationLink(link: string | null | undefined): str
 }
 
 /** The views the container draws, which is what a `view=` parameter can name. */
-export const TODO_VIEWS: readonly TodoView[] = ['board', 'today', 'plan', 'calendar', 'starred', 'completed', 'list', 'tag', 'stats']
+export const TODO_VIEWS: readonly TodoView[] = ['board', 'today', 'plan', 'upcoming', 'calendar', 'starred', 'completed', 'list', 'tag', 'stats', 'finish-day', 'counters']
 
 /** The orders a `sort=` parameter may name, which are the ones the route reads. */
 export const TODO_SORTS: readonly TaskSort[] = TASK_SORTS
+
+/** The dimensions a `group=` parameter may name, which are the ones the column board draws. */
+export const TODO_GROUPS: readonly TodoGroup[] = BOARD_DIMENSIONS
 
 /** The part of the screen the query carries. */
 export interface TodoViewSelection {
@@ -92,6 +99,12 @@ export interface TodoViewSelection {
    * one, and only a named list has a layout to write at all.
    */
   layout?: TodoLayout | null
+  /**
+   * The field a column of that arrangement stands for, read with the layout it belongs to. Optional
+   * for the same reason: `status` is what the columns mean without being told, so an address writer
+   * carries the dimension across and only the columns have one to carry.
+   */
+  group?: TodoGroup | null
 }
 
 /** A due bound the address can mean: a local calendar day, or that day at a wall-clock minute. */
@@ -122,8 +135,32 @@ function completionDay(value: string | null): string | null {
  * every other value as well: a pasted `layout=nonsense` opens the list rather than a broken screen.
  */
 export function todoLayoutFromSearch(search: string): TodoLayout {
-  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
-  return params.get('layout') === 'columns' ? 'columns' : 'list'
+  return searchParamsOf(search).get('layout') === 'columns' ? 'columns' : 'list'
+}
+
+/** The query parameters of a search, with or without its leading `?`. */
+function searchParamsOf(search: string): URLSearchParams {
+  return new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
+}
+
+/**
+ * The dimension a `group=` value names, or the status columns for anything else.
+ *
+ * Status is what the board has always meant, so it is the fallback rather than a failure: a pasted
+ * `group=nonsense` cuts the columns the way they were cut before the switch existed.
+ */
+function groupParam(value: string | null): TodoGroup {
+  return TODO_GROUPS.includes(value as TodoGroup) ? (value as TodoGroup) : 'status'
+}
+
+/**
+ * The dimension a query names for the columns on screen.
+ *
+ * Read apart from the layout, because a caller that has the columns up only wants to know what one
+ * column stands for; a query that never asked for columns answers with the default all the same.
+ */
+export function todoGroupFromSearch(search: string): TodoGroup {
+  return groupParam(searchParamsOf(search).get('group'))
 }
 
 /** The whole screen, as the address states it: which view, and which task is open on it. */
@@ -156,10 +193,11 @@ export function parseTodoAddress(pathname: string, search: string): TodoAddress 
   if (pathname !== TODO_PATH && !pathname.startsWith(`${TODO_PATH}/`)) {
     return {
       view: 'board', listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null,
-      completedFrom: null, completedTo: null, statsFrom: null, statsTo: null, statsBucket: null, layout: null, taskId: null,
+      completedFrom: null, completedTo: null, statsFrom: null, statsTo: null, statsBucket: null,
+      layout: null, group: null, taskId: null,
     }
   }
-  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
+  const params = searchParamsOf(search)
   const listId = params.get('list')
   const tagId = params.get('tag')
   const named = params.get('view')
@@ -167,6 +205,8 @@ export function parseTodoAddress(pathname: string, search: string): TodoAddress 
   const namedSort = params.get('sort')
   const sort = namedSort && (TODO_SORTS as readonly string[]).includes(namedSort) ? (namedSort as TaskSort) : null
   const layout: TodoLayout | null = params.get('layout') === 'columns' ? 'columns' : null
+  // The dimension is only ever an answer while the columns are up; the plain list has nothing to cut.
+  const group: TodoGroup | null = layout ? groupParam(params.get('group')) : null
   const dueFrom = dueBound(params.get('dueFrom'))
   const dueTo = dueBound(params.get('dueTo'))
   // A completion window belongs to the finished view; the other views are not narrowed by one, and a
@@ -181,7 +221,9 @@ export function parseTodoAddress(pathname: string, search: string): TodoAddress 
   const statsBucket = isTaskStatsBucket(rawBucket) ? rawBucket : null
   const common = {
     query, sort, dueFrom, dueTo, completedFrom, completedTo,
-    statsFrom, statsTo, statsBucket, layout: null as TodoLayout | null, taskId: taskIdFromPathname(pathname),
+    statsFrom, statsTo, statsBucket,
+    layout: null as TodoLayout | null, group: null as TodoGroup | null,
+    taskId: taskIdFromPathname(pathname),
   }
   // The completed view is the one screen a `list=` narrows rather than renames: there is no
   // completed list view to confuse it with, and the dropdown there scopes finished work to one
@@ -189,7 +231,7 @@ export function parseTodoAddress(pathname: string, search: string): TodoAddress 
   if (named === 'completed') return { ...common, view: 'completed', listId, tagId: null }
   // A collection names its own view, and it wins over a `view=` left beside it: the two spellings of the
   // same screen have to have one reading, and the narrower one is the one a reader can paste.
-  if (listId) return { ...common, view: 'list', listId, tagId: null, layout }
+  if (listId) return { ...common, view: 'list', listId, tagId: null, layout, group }
   if (tagId) return { ...common, view: 'tag', listId: null, tagId }
   const view: TodoView = TODO_VIEWS.includes(named as TodoView) ? (named as TodoView) : 'board'
   return { ...common, view, listId: null, tagId: null }
@@ -202,7 +244,12 @@ export function writeTodoSearch(selection: TodoViewSelection): string {
     if (selection.listId) params.set('list', selection.listId)
     // The plain list is what an address without the parameter already means, so only the split is
     // written, and only beside the list it belongs to.
-    if (selection.listId && selection.layout === 'columns') params.set('layout', 'columns')
+    if (selection.listId && selection.layout === 'columns') {
+      params.set('layout', 'columns')
+      // Status is what the columns mean when the address says nothing, so only another dimension is
+      // written — the same rule that keeps the plain list out of an address that means it.
+      if (selection.group && selection.group !== 'status') params.set('group', selection.group)
+    }
   } else if (selection.view === 'tag') {
     if (selection.tagId) params.set('tag', selection.tagId)
   } else if (selection.view === 'completed') {
@@ -236,7 +283,8 @@ export function readTodoAddress(): TodoAddress {
   if (typeof window === 'undefined') {
     return {
       view: 'board', listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null,
-      completedFrom: null, completedTo: null, statsFrom: null, statsTo: null, statsBucket: null, layout: null, taskId: null,
+      completedFrom: null, completedTo: null, statsFrom: null, statsTo: null, statsBucket: null,
+      layout: null, group: null, taskId: null,
     }
   }
   return parseTodoAddress(currentPathname(), currentSearch())
@@ -248,16 +296,18 @@ function currentTaskPath(taskId: string | null): string {
 }
 
 /**
- * The layout a write keeps when its caller did not name one.
+ * The arrangement a write keeps when its caller did not name one.
  *
  * The store's selection describes which view is up, not how a list screen is arranged, so a search,
- * a sort or opening a task rewrites the address without a layout. Dropping it there would take the
- * reader back to the plain list on the next keystroke; only a list has one to carry, and an explicit
- * null is the reader choosing the plain list rather than the writer not knowing.
+ * a sort or opening a task rewrites the address without a layout or a dimension. Dropping them there
+ * would take the reader back to the plain list — or to the status columns — on the next keystroke;
+ * only a list has an arrangement to carry, and an explicit null is the reader choosing the plain list
+ * rather than the writer not knowing.
  */
-function withCarriedLayout(selection: TodoViewSelection): TodoViewSelection {
+function withCarriedArrangement(selection: TodoViewSelection): TodoViewSelection {
   if (selection.view !== 'list' || selection.layout !== undefined) return selection
-  return { ...selection, layout: readTodoAddress().layout ?? null }
+  const current = readTodoAddress()
+  return { ...selection, layout: current.layout ?? null, group: current.group ?? null }
 }
 
 /**
@@ -267,22 +317,37 @@ function withCarriedLayout(selection: TodoViewSelection): TodoViewSelection {
  * a panel is open leaves that panel's address standing, which is what the back button then goes back to.
  */
 export function pushTodoAddress(selection: TodoViewSelection): void {
-  navigateToAddress(currentTaskPath(readTodoAddress().taskId), writeTodoSearch(withCarriedLayout(selection)))
+  navigateToAddress(currentTaskPath(readTodoAddress().taskId), writeTodoSearch(withCarriedArrangement(selection)))
 }
 
 /** The same screen, without another back button — the one for state that moves while the reader types. */
 export function replaceTodoAddress(selection: TodoViewSelection): void {
-  replaceAddress(currentTaskPath(readTodoAddress().taskId), writeTodoSearch(withCarriedLayout(selection)))
+  replaceAddress(currentTaskPath(readTodoAddress().taskId), writeTodoSearch(withCarriedArrangement(selection)))
 }
 
 /** Take one task's screen into the address, with the view the reader was on still named. */
 export function pushTodoTaskAddress(taskId: string, selection: TodoViewSelection): void {
-  navigateToAddress(todoPathForTask(taskId), writeTodoSearch(withCarriedLayout(selection)))
+  navigateToAddress(todoPathForTask(taskId), writeTodoSearch(withCarriedArrangement(selection)))
 }
 
 /** Drop the task from the address, leaving the view it was open over. */
 export function replaceTodoTaskAddress(selection: TodoViewSelection): void {
-  replaceAddress(TODO_PATH, writeTodoSearch(withCarriedLayout(selection)))
+  replaceAddress(TODO_PATH, writeTodoSearch(withCarriedArrangement(selection)))
+}
+
+/**
+ * The address as a view selection, arrangement left out.
+ *
+ * The two switches below answer for one part of the arrangement each and carry the rest of the screen
+ * untouched; naming the whole selection twice would be two lists of the same fields to keep in step.
+ */
+function selectionOf(current: TodoAddress): TodoViewSelection {
+  return {
+    view: current.view, listId: current.listId, tagId: current.tagId, query: current.query,
+    sort: current.sort, dueFrom: current.dueFrom, dueTo: current.dueTo,
+    completedFrom: current.completedFrom, completedTo: current.completedTo,
+    statsFrom: current.statsFrom, statsTo: current.statsTo, statsBucket: current.statsBucket,
+  }
 }
 
 /**
@@ -290,25 +355,28 @@ export function replaceTodoTaskAddress(selection: TodoViewSelection): void {
  *
  * The arrangement is the address's, like the view and the filters: a reload or a pasted link opens the
  * same screen. A deliberate choice earns its own history entry, the way opening another view does; a
- * choice that is already up writes nothing.
+ * choice that is already up writes nothing. The dimension travels with it, so back to the plain list
+ * drops the reading that has nothing left to cut.
  */
 export function setTodoLayout(layout: TodoLayout): void {
   const current = readTodoAddress()
   const next = layout === 'columns' ? 'columns' : null
   if ((current.layout ?? null) === next) return
   pushTodoAddress({
-    view: current.view,
-    listId: current.listId,
-    tagId: current.tagId,
-    query: current.query,
-    sort: current.sort,
-    dueFrom: current.dueFrom,
-    dueTo: current.dueTo,
-    completedFrom: current.completedFrom,
-    completedTo: current.completedTo,
-    statsFrom: current.statsFrom,
-    statsTo: current.statsTo,
-    statsBucket: current.statsBucket,
+    ...selectionOf(current),
     layout: next,
+    group: next ? (current.group ?? 'status') : null,
   })
+}
+
+/**
+ * Choose the field one column of the board stands for.
+ *
+ * The question is only ever asked while the columns are up, so the layout is written along with it: a
+ * dimension beside the plain list would be a switch that changed nothing on the screen it stands on.
+ */
+export function setTodoGroup(group: TodoGroup): void {
+  const current = readTodoAddress()
+  if ((current.group ?? 'status') === group) return
+  pushTodoAddress({ ...selectionOf(current), layout: current.layout ?? 'columns', group })
 }

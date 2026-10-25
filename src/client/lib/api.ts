@@ -113,7 +113,6 @@ import type {
   SavedMessage,
 } from '@shared/assistant'
 import type {
-  RemindOffset,
   SnoozeMinutes,
   TaskBatchRequestOp,
   TaskBatchResult,
@@ -125,7 +124,9 @@ import type {
   TaskTrashPage,
   TodoStats,
   TodoTask,
+  TodoTimeEntry,
 } from '@shared/todos/model'
+import { REMIND_OFFSET_MS, type CounterReadings, type CounterStop, type CounterTick, type CounterKind, type FinishDay, type RemindTier, type TodoCounter, type Worklog } from '@shared/todos/model'
 import type {
   EmailAccount,
   EmailBatchInput,
@@ -385,6 +386,12 @@ export interface RequestOptions {
    * task routes compare with the row's own revision before they write.
    */
   ifMatch?: string
+  /**
+   * The key that makes a retried create one create. Sent as `Idempotency-Key`, which the task route
+   * answers through the same operation table every MCP write already uses: a create the server landed
+   * but whose response was lost is answered with the row it wrote, not with a second one.
+   */
+  idempotencyKey?: string
   onEtag?: (etag: string | null) => void
   /** A question about *now* must not be answered from the cache; a stored "where is the talk" is a
    * different question's answer. */
@@ -421,7 +428,7 @@ export interface SettingsPatch {
 }
 
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, signal, formData, timeoutMs, ifNoneMatch, ifMatch, onEtag, cache } = options
+  const { method = 'GET', body, signal, formData, timeoutMs, ifNoneMatch, ifMatch, idempotencyKey, onEtag, cache } = options
 
   const headers: Record<string, string> = {
     [CLIENT_HEADER]: '1',
@@ -430,6 +437,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   }
   if (ifNoneMatch) headers['If-None-Match'] = ifNoneMatch
   if (ifMatch) headers['If-Match'] = ifMatch
+  if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey
   let payload: BodyInit | undefined
   if (formData) {
     payload = formData
@@ -766,14 +774,6 @@ export interface PushSubscriptionPayload {
   keys: { p256dh: string, auth: string }
 }
 
-/** How far before the due time each quick-add preset sits; "none" removes the reminder. */
-const REMINDER_DELAYS: Readonly<Record<Exclude<RemindOffset, 'none'>, number>> = {
-  due: 0,
-  '15m': 15 * 60_000,
-  '1h': 60 * 60_000,
-  '1d': 24 * 60 * 60_000,
-}
-
 /**
  * Reads the quick-add offset into the absolute reminder list the route accepts.
  *
@@ -790,7 +790,7 @@ function withReminderList(body: Record<string, unknown>): Record<string, unknown
   const dueAt = rest.dueAt
   if (typeof dueAt !== 'number' || typeof remind !== 'string') return rest
   if (remind === 'none') return { ...rest, reminders: [] }
-  const delay = REMINDER_DELAYS[remind as Exclude<RemindOffset, 'none'>]
+  const delay = REMIND_OFFSET_MS[remind as RemindTier]
   if (delay === undefined) return rest
   return { ...rest, reminders: [dueAt - delay] }
 }
@@ -1376,12 +1376,23 @@ export const api = {
     list: (params: {
       status?: string, view?: string, list?: string, tag?: string, priority?: string, starred?: string,
       q?: string, dueFrom?: string, dueTo?: string, completedFrom?: string, completedTo?: string,
+      archived?: string, scope?: string,
       sort?: string, limit?: number, offset?: number
     } = {}) =>
       request<TaskPage>(`/api/todos${toQuery(params)}`),
     get: (id: string) => request<{ task: TodoTask, steps: TaskStep[] }>(`/api/todos/${id}`),
-    create: (body: Record<string, unknown>) =>
-      request<{ task: TodoTask }>('/api/todos', { method: 'POST', body: withReminderList(body) }),
+    /**
+     * A new task.
+     *
+     * `idempotencyKey` is what a replay of a queued create sends: the row the queue already holds is
+     * the one operation the server must recognise twice, and a fresh press from the app names none.
+     */
+    create: (body: Record<string, unknown>, idempotencyKey?: string) =>
+      request<{ task: TodoTask }>('/api/todos', {
+        method: 'POST',
+        body: withReminderList(body),
+        ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+      }),
     /**
      * `next` is present when the patch finished a repeating task and it filed the next occurrence.
      *
@@ -1399,9 +1410,15 @@ export const api = {
      *
      * The day is an account-zone `YYYY-MM-DD`, not an instant: "planned for today" is a calendar
      * membership that lapses on its own when the day changes, not a timestamp that has to be cleared.
+     * `rev` names the revision the row was read at, so a pick computed from a stale screen is refused
+     * rather than painted over whatever the row became in the meantime.
      */
-    plan: (id: string, date: string | null) =>
-      request<{ task: TodoTask }>(`/api/todos/${id}/plan`, { method: 'POST', body: { date } }),
+    plan: (id: string, date: string | null, rev?: number) =>
+      request<{ task: TodoTask }>(`/api/todos/${id}/plan`, {
+        method: 'POST',
+        body: { date },
+        ...(rev === undefined ? {} : { ifMatch: String(rev) }),
+      }),
     /**
      * Places a task before another row, or at the end when `beforeId` is null.
      *
@@ -1413,10 +1430,43 @@ export const api = {
       request<{ task: TodoTask }>(`/api/todos/${id}/move`, { method: 'POST', body }),
     /**
      * "Remind me again": adds one reminder `minutes` from now and answers with the whole pending list.
-     * The earlier reminders stay — a snooze is a second chance, not a cancellation.
+     * The earlier reminders stay — a snooze is a second chance, not a cancellation. `rev` is the same
+     * conditional guard a pick carries, so a snooze replayed from a row that moved since is refused.
      */
-    snooze: (id: string, minutes: SnoozeMinutes) =>
-      request<{ task: TodoTask, reminders: number[] }>(`/api/todos/${id}/snooze`, { method: 'POST', body: { minutes } }),
+    snooze: (id: string, minutes: SnoozeMinutes, rev?: number) =>
+      request<{ task: TodoTask, reminders: number[] }>(`/api/todos/${id}/snooze`, {
+        method: 'POST',
+        body: { minutes },
+        ...(rev === undefined ? {} : { ifMatch: String(rev) }),
+      }),
+    /**
+     * The account's one running interval, started on this task.
+     *
+     * A live press names no instant: "now" is the server's clock, and only a client that was away from
+     * the network has a timestamp of its own to defend. Another task's interval is closed where this
+     * one begins — the database holds "at most one open row", not this screen's politeness — and a
+     * start that is already running answers with the row that is.
+     */
+    startTimer: (id: string, body: { startAt?: number } = {}) =>
+      request<{ entry: TodoTimeEntry }>(`/api/todos/${id}/timer/start`, { method: 'POST', body }),
+    /**
+     * Stop this task's running interval, split into one row per account day it crossed.
+     *
+     * `endAt` is absent for the same reason `startAt` is: a reader who presses the button while the
+     * device is online means "now", and the server's now is the one the ledger trusts. A 404 means
+     * nothing was running on this task, which is the state a stop wants.
+     */
+    stopTimer: (id: string, body: { endAt?: number } = {}) =>
+      request<{ entries: TodoTimeEntry[] }>(`/api/todos/${id}/timer/stop`, { method: 'POST', body }),
+    /**
+     * Back-fill one span by hand: the answer to "I worked on this and never started the timer".
+     *
+     * The caller names both ends, because unlike the two timer gestures this one is *about* a period
+     * that has already happened. The route refuses a span past its ceiling with a reason rather than
+     * trimming it, and splits what crossed the account's midnight into one row per day.
+     */
+    addTime: (id: string, body: { startAt: number, endAt: number }) =>
+      request<{ entries: TodoTimeEntry[] }>(`/api/todos/${id}/time`, { method: 'POST', body }),
     remove: (id: string) => request<{ deleted: true }>(`/api/todos/${id}`, { method: 'DELETE' }),
 
     /**
@@ -1428,7 +1478,8 @@ export const api = {
      */
     trash: (params: { limit?: number, offset?: number } = {}) =>
       request<TaskTrashPage>(`/api/todos/trash${toQuery(params)}`),
-    restore: (id: string) => request<{ task: TodoTask }>(`/api/todos/${id}/restore`, { method: 'POST' }),
+    restore: (id: string) =>
+      request<{ task: TodoTask, droppedReminders: number }>(`/api/todos/${id}/restore`, { method: 'POST' }),
     purge: (id: string) => request<{ purged: true }>(`/api/todos/${id}/purge`, { method: 'DELETE' }),
 
     /**
@@ -1448,8 +1499,50 @@ export const api = {
      * (the last 30 days), and the answer echoes the range it actually measured so the client never
      * has to guess which days the numbers describe.
      */
+    /**
+     * The worklog over a window, grouped one dimension at a time.
+     *
+     * Its own request rather than a field of `stats`: the two read different tables and answer about
+     * different things, and a screen that shows only one should not pay for the other.
+     */
+    worklog: (params: { from: string, to: string, group?: string }) =>
+      request<Worklog>(`/api/todos/worklog${toQuery(params)}`),
+    /**
+     * The end-of-day pass: what the day finished, what it touched and left open, what fell behind, and
+     * what tomorrow already holds.
+     *
+     * One request rather than four listings, because this screen files rows while it is open: four reads
+     * made one at a time would let the third answer describe a day the first two had already changed.
+     */
+    finishDay: (params: { day?: string, limit?: number } = {}) =>
+      request<FinishDay>(`/api/todos/finish-day${toQuery(params)}`),
     stats: (params: { from?: string, to?: string, bucket?: TaskStatsBucket } = {}) =>
       request<TodoStats>(`/api/todos/stats${toQuery(params)}`),
+
+    /**
+     * The habits screen: every habit with the days behind it, in one read.
+     *
+     * The days travel with the rows because the screen shades a year under every name; asking per habit
+     * would be one round trip per habit, and the server already reads them in one pass.
+     */
+    counters: () => request<CounterReadings>('/api/todos/counters'),
+    createCounter: (body: { title: string, kind?: CounterKind, goal?: number | null, icon?: string | null, color?: string | null }) =>
+      request<{ counter: TodoCounter }>('/api/todos/counters', { method: 'POST', body }),
+    updateCounter: (id: string, body: { title?: string, kind?: CounterKind, goal?: number | null, icon?: string | null, color?: string | null }) =>
+      request<{ counter: TodoCounter }>(`/api/todos/counters/${id}`, { method: 'PATCH', body }),
+    removeCounter: (id: string) =>
+      request<{ deleted: true }>(`/api/todos/counters/${id}`, { method: 'DELETE' }),
+    /**
+     * One press on one habit. `day` is the only way a habit reaches a past date, and the server decides
+     * which day a press lands on when the caller names none.
+     */
+    tickCounter: (id: string, body: { delta: number, day?: string }) =>
+      request<CounterTick>(`/api/todos/counters/${id}/tick`, { method: 'POST', body }),
+    startCounter: (id: string) =>
+      request<{ counter: TodoCounter }>(`/api/todos/counters/${id}/timer/start`, { method: 'POST' }),
+    /** The server's own clock starts and stops the run; a device never names the instant it began. */
+    stopCounter: (id: string) =>
+      request<CounterStop>(`/api/todos/counters/${id}/timer/stop`, { method: 'POST' }),
 
     addStep: (id: string, text: string) =>
       request<{ step: TaskStep }>(`/api/todos/${id}/steps`, { method: 'POST', body: { text } }),

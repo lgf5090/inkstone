@@ -48,6 +48,26 @@ export function localDayBounds(timeZone: string, at = new Date()): { start: numb
   return { start: start.getTime(), end: end.getTime() }
 }
 
+/**
+ * The half-open UTC bounds of one named calendar day in a zone, or `null` when the text is not a day.
+ *
+ * A day a screen names has to be cut in the account's own zone: comparing `due_at` against UTC midnight
+ * would hand a Shanghai reader the wrong twelve hours of "tomorrow", and a day that spans a
+ * daylight-saving change would hold 23 or 25 hours of work.
+ *
+ * The anchor is midday UTC on purpose. Every inhabited zone offset lands inside the day it anchors, so
+ * neither a +14 nor a -12 account can have the anchor fall on a neighbouring day.
+ */
+export function dayBounds(day: string, timeZone: string): { start: number, end: number } | null {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day)
+  if (!parts) return null
+  const year = Number(parts[1])
+  const month = Number(parts[2])
+  const date = Number(parts[3])
+  if (!isValidCalendarDate(year, month, date)) return null
+  return localDayBounds(timeZone, new Date(Date.UTC(year, month - 1, date, 12)))
+}
+
 /** `YYYY-MM-DDTHH:MM` in the reader's timezone, for a datetime input's value. */
 export function toLocalMinute(instant: number | Date, timeZone: string): string {
   const parts = getZonedParts(new Date(instant), timeZone)

@@ -6,8 +6,9 @@
  * of the reader's own day), which is why nothing in this file calls `Date.now()` for "today".
  */
 
-import { localDate } from '@shared/assistant-time'
-import { UPCOMING_DAYS, type TaskPriority, type TodoTask } from '@shared/todos/model'
+import { localDate, toLocalMinute } from '@shared/assistant-time'
+import { UPCOMING_DAYS, type TaskList, type TaskPriority, type TaskStatus, type TodoTask } from '@shared/todos/model'
+import { isTaskDone, isTaskOpen } from '@shared/todos/status'
 
 export type PlanGroupKey = 'overdue' | 'today' | 'upcoming' | 'later' | 'none'
 
@@ -17,11 +18,27 @@ export type TodayGroupKey = 'planned' | 'today' | 'overdue'
 export interface TaskGroup<K extends string = string> {
   key: K
   tasks: TodoTask[]
+  /**
+   * Whether the rows here have to name their own list.
+   *
+   * A page of one collection's rows does not repeat the collection on every line; a group that gathers
+   * rows from several collections has no other way to say which one a row came from.
+   */
+  showList?: boolean
 }
 
 const PRIORITY_ORDER: Record<TaskPriority, number> = { urgent: 0, high: 1, medium: 2, low: 3 }
 
 const DAY = 24 * 60 * 60 * 1000
+
+/**
+ * The local minute that means "the reader wrote a day, not an hour".
+ *
+ * A date without a clock time is stored at the day's 23:59 across every screen (`dueLabel`,
+ * the calendar and the board all test for this same suffix), so the today screen's later bucket has
+ * to recognise it the same way rather than invent a fourth reading.
+ */
+const END_OF_DAY_MINUTE = 'T23:59'
 
 /** Overdue first, then by due time, then by priority, then oldest first. */
 export function compareTasks(a: TodoTask, b: TodoTask): number {
@@ -48,7 +65,10 @@ export function groupByPlan(tasks: readonly TodoTask[], bounds: { dayEnd: number
   const upcomingEnd = bounds.dayEnd + UPCOMING_DAYS * DAY
   const groups: Record<PlanGroupKey, TodoTask[]> = { overdue: [], today: [], upcoming: [], later: [], none: [] }
   for (const task of tasks) {
-    if (task.status === 'done') continue
+    // Only work still owed is placed on the plan. A row that already stopped being owed — finished or
+    // abandoned — is not planned work; skipping on the open set (rather than "not done") is what keeps an
+    // abandoned task out of "upcoming" and "today" instead of resurfacing it as something still to do.
+    if (!isTaskOpen(task.status)) continue
     const startAt = task.startAt ?? null
     if (task.dueAt === null) {
       if (startAt === null) {
@@ -84,18 +104,73 @@ export function groupByPlan(tasks: readonly TodoTask[], bounds: { dayEnd: number
  */
 export function groupToday(
   tasks: readonly TodoTask[],
-  bounds: { dayEnd: number; now: number; today: string },
+  bounds: { dayEnd: number; now: number; today: string; timezone: string },
 ): TaskGroup<TodayGroupKey>[] {
   const groups: Record<TodayGroupKey, TodoTask[]> = { planned: [], today: [], overdue: [] }
   for (const task of tasks) {
-    if (task.status === 'done') continue
+    // The today screen lists what is owed; a row that stopped being owed — finished or abandoned — has
+    // no place on it, so the skip reads the open set rather than "not done".
+    if (!isTaskOpen(task.status)) continue
     if (task.plannedFor === bounds.today) groups.planned.push(task)
-    else if (task.dueAt !== null && task.dueAt < bounds.now) groups.overdue.push(task)
+    // "Overdue" here means the day the row was owed on has already passed, not merely that its hour
+    // has. This group carries the banner that offers to push a missed day into today, and a row due at
+    // 14:00 is not a day the reader missed at 16:00 — filing it there would have the screen declare a
+    // failure for the rest of the afternoon, and the batch would offer to postpone the reader's own
+    // today onto itself. A late hour is still shown: the row keeps its red time in the main list,
+    // which sorts it to the front. The sidebar's overdue badge answers a different question — how many
+    // rows are past the instant they named — and keeps the server's `due_at < now`, deliberately.
+    else if (task.dueAt !== null && localDate(task.dueAt, bounds.timezone) < bounds.today) groups.overdue.push(task)
     else groups.today.push(task)
   }
   return (['planned', 'today', 'overdue'] as const)
     .map((key) => ({ key, tasks: groups[key].sort(compareTasks) }))
     .filter((group) => group.tasks.length > 0)
+}
+
+/**
+ * Whether a row is owed today but has not reached its hour yet.
+ *
+ * Three conditions, each ruling out a row that must not vanish into the collapsed section:
+ * the due instant lies between `now` and the end of the day, and it carries a clock time —
+ * a day written without one is stored as the local 23:59 the whole app already hides behind the
+ * words "today" (see `dueLabel`), and filing that under "later" would hide half the screen.
+ * `startAt` is deliberately not consulted: the today screen groups by `dueAt` alone (see
+ * `groupToday`), and the two readings of `startAt` — event start in the calendar, future filing
+ * in the lists — are not reconciled yet. A row's due hour, not a hypothetical earliest-start,
+ * is what says "not yet".
+ */
+function isLaterToday(task: TodoTask, bounds: { now: number; dayEnd: number; timezone: string }): boolean {
+  if (task.dueAt === null || task.dueAt <= bounds.now || task.dueAt >= bounds.dayEnd) return false
+  return !toLocalMinute(task.dueAt, bounds.timezone).endsWith(END_OF_DAY_MINUTE)
+}
+
+/**
+ * Pull the not-yet rows out of the today screen's buckets for the screen's collapsed "later" section.
+ *
+ * Only the due-today bucket can hold one: a picked row is here for the pick and keeps its place in
+ * the planned bucket, and an overdue row has by definition passed its hour. The rest of the today
+ * buckets are returned exactly as given — this splits what is drawn, never what `groupToday` decided,
+ * so the three buckets keep one rule and one owner. The keys read as plain strings because a page
+ * that chose its own server order arrives through `inServerOrder`, which hands back the unkeyed
+ * group shape.
+ */
+export function splitTodayLater(
+  groups: readonly TaskGroup[],
+  bounds: { now: number; dayEnd: number; timezone: string },
+): { groups: TaskGroup[]; later: TodoTask[] } {
+  const later: TodoTask[] = []
+  const kept = groups
+    .map((group) => {
+      if (group.key !== 'today') return group
+      const rest: TodoTask[] = []
+      for (const task of group.tasks) {
+        if (isLaterToday(task, bounds)) later.push(task)
+        else rest.push(task)
+      }
+      return { key: group.key, tasks: rest }
+    })
+    .filter((group) => group.tasks.length > 0)
+  return { groups: kept, later }
 }
 
 /**
@@ -107,11 +182,43 @@ export function groupToday(
  * first.
  */
 export function groupByList(tasks: readonly TodoTask[]): TaskGroup<'open' | 'done'>[] {
-  const open = tasks.filter((task) => task.status !== 'done')
-  const done = tasks.filter((task) => task.status === 'done').sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0))
+  const open = tasks.filter((task) => isTaskOpen(task.status))
+  const done = tasks.filter((task) => isTaskDone(task.status)).sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0))
   return [
     ...(open.length ? [{ key: 'open' as const, tasks: open }] : []),
     ...(done.length ? [{ key: 'done' as const, tasks: done }] : []),
+  ]
+}
+
+/**
+ * The list page's own reading of its rows: the list first, then one section per child list, then
+ * everything finished today or any other day.
+ *
+ * A section with nothing open in it still gets its group. The section is a place a row is dropped
+ * *onto*, and one that only appears once something has landed in it cannot be dropped onto.
+ *
+ * The finished rows come from every collection on the page at once, so they say which one — unless the
+ * page has no sections, in which case the caller reads `groupByList` instead and there is one answer.
+ */
+export function groupBySection(
+  tasks: readonly TodoTask[],
+  sections: readonly { id: string }[],
+): TaskGroup[] {
+  const open = tasks.filter((task) => isTaskOpen(task.status))
+  const done = tasks.filter((task) => isTaskDone(task.status)).sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0))
+  const bySection = new Map(sections.map((section) => [section.id, [] as TodoTask[]]))
+  // A row that belongs to neither the list nor one of its sections is still on the page the reader asked
+  // for. Dropping it would be the quieter wrong answer, so it rides in the list's own group.
+  const own: TodoTask[] = []
+  for (const task of open) {
+    const bucket = task.listId === null ? undefined : bySection.get(task.listId)
+    if (bucket) bucket.push(task)
+    else own.push(task)
+  }
+  return [
+    { key: 'unsectioned', tasks: own },
+    ...sections.map((section) => ({ key: `section:${section.id}`, tasks: bySection.get(section.id) ?? [] })),
+    ...(done.length ? [{ key: 'done', tasks: done, showList: sections.length > 0 }] : []),
   ]
 }
 
@@ -124,7 +231,7 @@ export function groupByList(tasks: readonly TodoTask[]): TaskGroup<'open' | 'don
 export function groupCompleted(tasks: readonly TodoTask[], timezone: string): TaskGroup[] {
   const byDay = new Map<string, TodoTask[]>()
   for (const task of tasks) {
-    if (task.status !== 'done') continue
+    if (!isTaskDone(task.status)) continue
     const day = localDate(task.completedAt ?? task.updatedAt, timezone)
     const bucket = byDay.get(day) ?? []
     bucket.push(task)
@@ -136,4 +243,77 @@ export function groupCompleted(tasks: readonly TodoTask[], timezone: string): Ta
       key,
       tasks: entries.sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0)),
     }))
+}
+
+/**
+ * The rows the completed page shows, split into the two sections it draws side by side.
+ *
+ * Finished and abandoned are both work that left the plate, but they are not the same statement about
+ * the reader, so they never share a bucket: the finished rows keep the by-the-day grouping a done list
+ * has always had, and the abandoned rows form their own single section beneath it. The split reads the
+ * status sets rather than "not open", so a stray value joins neither section.
+ */
+export function groupCompletedAndAbandoned(
+  tasks: readonly TodoTask[],
+  timezone: string,
+): { done: TaskGroup[]; abandoned: TodoTask[] } {
+  const abandoned = tasks.filter((task) => task.status === 'cancelled')
+    .sort((a, b) => (b.completedAt ?? b.updatedAt) - (a.completedAt ?? a.updatedAt))
+  return { done: groupCompleted(tasks, timezone), abandoned }
+}
+
+/**
+ * The columns a board draws.
+ *
+ * `status` files a row under the state it is in, `list` under the collection that holds it, `priority`
+ * under how urgent it is. One of the three is the column at a time, and the column is a reading of the
+ * row rather than a second place it is kept: there is no table behind these, which is the whole point of
+ * cutting a page into columns instead of storing the cut.
+ */
+export type BoardDimension = 'status' | 'list' | 'priority'
+
+/** The dimensions the switch offers, in the order a reader meets them. */
+export const BOARD_DIMENSIONS: readonly BoardDimension[] = ['status', 'list', 'priority']
+
+/** The three states a task can be in, in the order the columns are read. */
+export const BOARD_STATUS_COLUMNS: readonly TaskStatus[] = ['todo', 'in_progress', 'done']
+
+/** The four priorities, most urgent first — the order a page is scanned in. */
+export const BOARD_PRIORITY_COLUMNS: readonly TaskPriority[] = ['urgent', 'high', 'medium', 'low']
+
+/**
+ * The key of the inbox column.
+ *
+ * The inbox is a collection with no row behind it, so it needs a name of its own the way the store's
+ * `listId` does; the app's existing sentinel for it is `inbox`, and reusing it keeps one word for one
+ * thing across the address, the sidebar and this board.
+ */
+export const BOARD_INBOX_COLUMN = 'inbox'
+
+/**
+ * The columns of one dimension, with the rows of the page filed under each.
+ *
+ * A column is drawn even when nothing is in it: an empty one is still somewhere a task can be dropped,
+ * and a board that lost its last row into another column would take the door away while the reader is
+ * still holding it. Rows keep the order the page arrived in — the server's — because a column that
+ * sorted again would quietly overrule a move or a drag that had just been accepted.
+ */
+export function boardColumns(
+  dimension: BoardDimension,
+  tasks: readonly TodoTask[],
+  lists: readonly TaskList[],
+): TaskGroup[] {
+  const keys: string[] = dimension === 'status'
+    ? [...BOARD_STATUS_COLUMNS]
+    : dimension === 'priority'
+      ? [...BOARD_PRIORITY_COLUMNS]
+      : [BOARD_INBOX_COLUMN, ...lists.map((list) => list.id)]
+  return keys.map((key) => ({ key, tasks: tasks.filter((task) => boardColumnKey(dimension, task) === key) }))
+}
+
+/** Which column of one dimension a row belongs to. */
+export function boardColumnKey(dimension: BoardDimension, task: TodoTask): string {
+  if (dimension === 'status') return task.status
+  if (dimension === 'priority') return task.priority
+  return task.listId ?? BOARD_INBOX_COLUMN
 }

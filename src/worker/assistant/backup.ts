@@ -10,9 +10,18 @@
  */
 
 import type { AssistantImportSummary, AssistantSettings } from '@shared/assistant'
-import { clipReasoning, normalizeAssistantSettings } from '@shared/assistant'
+import { clipReasoning, normalizeAssistantSettings, TASK_PRIORITIES, TASK_STATUSES } from '@shared/assistant'
 import { parseScheduleSpec } from '@shared/assistant-schedule'
-import { parseRepeatRule } from '@shared/todos/model'
+import {
+  normalizeReminderTimes,
+  parseRepeatRule,
+  taskColorOrNull,
+  taskIconOrNull,
+  COUNTER_KINDS,
+  MAX_COUNTER_DAY_AMOUNT,
+  TIME_ENTRY_SOURCES,
+} from '@shared/todos/model'
+import { isTaskOpen } from '@shared/todos/status'
 import { ASSISTANT_MEMORY_CATEGORIES, AUTOMATION_KINDS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_AUTOMATION_TARGET_ID_CHARS, MAX_MESSAGE_CHARS, MAX_PROJECT_NOTES } from '@shared/assistant'
 import { ApiError } from '../lib/errors'
 import { AssistantStore, decodeFeedback, encodeFeedback } from './store'
@@ -107,6 +116,19 @@ const NOTIFICATION_LINK_MAX_CHARS = 200
 function notificationLinkValue(value: unknown): string | null {
   if (typeof value !== 'string') return null
   return value.trim().slice(0, NOTIFICATION_LINK_MAX_CHARS) || null
+}
+
+/**
+ * The pending instants one task row of the file names, in either shape the format has had.
+ *
+ * The current field is `reminders`, the whole pending list. Every file written before it carries a
+ * single `remind_at` number instead, and a restore of one of those used to bring back exactly that one
+ * alarm while the reader's other four had gone out of the file silently — so the old shape stays
+ * readable for a version cycle, and the new one wins whenever both are present.
+ */
+function fileReminders(task: Record<string, unknown>): number[] {
+  if (Array.isArray(task.reminders)) return normalizeReminderTimes(task.reminders.filter((value): value is number => typeof value === 'number'))
+  return typeof task.remind_at === 'number' ? normalizeReminderTimes([task.remind_at]) : []
 }
 
 export async function importAssistant(store: AssistantStore, raw: Record<string, unknown>): Promise<ImportSummary> {
@@ -493,16 +515,31 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
   // already in the account wins: it is the reader's own object, and the file's copy has no newer claim.
   const listRows: Record<string, unknown>[] = []
   const knownLists = new Set<string>()
+  // The nesting is resolved in a second pass on purpose: a file may carry a child list before its parent,
+  // and a parent looked up while walking would be dropped for a reason as accidental as array order.
+  for (const list of rows(data.task_lists)) {
+    const id = idValue(list.id)
+    if (id) knownLists.add(id)
+  }
   for (const list of rows(data.task_lists)) {
     const id = idValue(list.id)
     if (!id) continue
-    knownLists.add(id)
+    // `parent_id` is kept only when it names a list this file actually contains, and a list that names
+    // itself is dropped to the top level: that pair is a cycle no screen can draw. Without the check a
+    // restored account would hold a child whose parent is nobody, and the list it belongs to would be
+    // missing from every screen that reads the nesting.
+    const parentId = idValue(list.parent_id)
     listRows.push({
       id,
       name: textValue(list.name, 60) || 'List',
       icon: typeof list.icon === 'string' ? list.icon.slice(0, 40) : null,
       color: typeof list.color === 'string' && /^#[0-9a-f]{6}$/i.test(list.color) ? list.color : null,
       position: numberValue(list.position),
+      // The stamp and the parent are the two facts a restored account cannot rediscover: an archived
+      // collection that came back un-archived puts every finished day back on the working page, and a
+      // child that lost its parent stops being the section it was inside.
+      archived_at: numberOrNull(list.archived_at),
+      parent_id: parentId !== null && parentId !== id && knownLists.has(parentId) ? parentId : null,
       created_at: numberValue(list.created_at, Date.now()),
       updated_at: numberValue(list.updated_at, Date.now()),
     })
@@ -522,27 +559,50 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
     const projectId = idValue(task.project_id)
     const listId = idValue(task.list_id)
     const repeat = storedRepeatRule(task.repeat_rule)
+    const status = oneOf(task.status, TASK_STATUSES, 'todo')
     const row = {
       id,
       title: textValue(task.title, 300) || 'Untitled task',
       description: textValue(task.description, 10_000),
-      status: oneOf(task.status, ['todo', 'in_progress', 'done'], 'todo'),
-      priority: oneOf(task.priority, ['low', 'medium', 'high', 'urgent'], 'medium'),
+      // The shared enums, not a copy: a reader who abandoned a task and restored it as `todo` got work
+      // back they had already let go of, and the second half of that story is a rate on the statistics
+      // page that no longer describes the plate.
+      status,
+      priority: oneOf(task.priority, TASK_PRIORITIES, 'medium'),
       due_at: numberOrNull(task.due_at),
+      start_at: numberOrNull(task.start_at),
       project_id: projectId && knownProjects.has(projectId) ? projectId : null,
       // A list the file did not carry leaves the task in the inbox rather than pointing at nothing.
       list_id: listId && knownLists.has(listId) ? listId : null,
+      // The task's own face, through the same guards that wrote it: a file that names a 400-character
+      // icon or a colour outside the palette gets null, which is "wear the list's", not the junk.
+      icon: taskIconOrNull(task.icon),
+      color: taskColorOrNull(task.color),
       starred: task.starred === true || task.starred === 1 ? 1 : 0,
       repeat_rule: repeat ? JSON.stringify(repeat) : null,
-      remind_at: numberOrNull(task.remind_at),
-      // A restore is not a delivery: the reminder has to be able to fire on the machine that received
-      // the file, so the mark that says it already went out does not travel.
-      reminded_at: null,
+      // The pending instants, both shapes of them folded into one list. They are not a column of the
+      // task row — `todos_reminders` owns them, and `importRows` turns this field into those rows — and
+      // a fired reminder never comes back as a pending one, because a restore is not a delivery.
+      reminders: fileReminders(task),
       note_id: idValue(task.note_id),
       conversation_id: idValue(task.conversation_id),
       created_at: numberValue(task.created_at, Date.now()),
       updated_at: numberValue(task.updated_at, Date.now()),
       completed_at: numberOrNull(task.completed_at),
+      // The two day columns are what the statistics' buckets and the streak read, so a restore that
+      // forgot them left every restored task with no day at all until a boot backfilled it — and the
+      // fingerprint note means a boot after a restore does not come back through that repair.
+      // `completed_on` is carried only for a row that ended: naming a finish day for a task still owed
+      // would let a file invent a day the reader never closed.
+      created_on: dayValue(task.created_on),
+      completed_on: isTaskOpen(status) ? null : dayValue(task.completed_on),
+      // The planned length travels with the row it belongs to: a restored task that forgot its
+      // estimate lost the half of the worklog that compares hours spent against hours intended.
+      // Nullable, so a file written before the column exists simply does not name it.
+      time_estimate_ms: numberOrNull(task.time_estimate_ms),
+      // The shelf travels, unlike the trash: work the reader put away is still theirs, and a restore
+      // that lost the stamp would refill today's board with the days they have already closed.
+      archived_at: numberOrNull(task.archived_at),
     }
     // A task the reader has checked off or edited here since the file was written stays theirs.
     const localAt = localTaskAt.get(id) ?? null
@@ -601,6 +661,115 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
     })
   }
   await store.importRows('todos_steps', stepRows)
+
+  // Which file each task shows. The file's own row lives in the attachment hub and travels in no backup,
+  // so a link whose task is not here is dropped rather than left pointing at nothing, and one whose file
+  // the device no longer holds resolves to nothing on read — the join that lists a task's files already
+  // insists the file belongs to this account, so restoring the link can neither leak nor lie.
+  const attachmentEntries = rows(data.task_attachments)
+  const attachmentTaskIds = attachmentEntries
+    .map((entry) => idValue(entry.task_id))
+    .filter((id): id is string => id !== null)
+  const tasksWithFiles = await store.hasRows('todos_tasks', attachmentTaskIds)
+  const attachmentRows: Record<string, unknown>[] = []
+  for (const link of attachmentEntries) {
+    const taskId = idValue(link.task_id)
+    // An attachment id is one of this app's own ids, so it goes through the same gate as every other
+    // key the file names; anything shaped differently cannot be a file of this account.
+    const attachmentId = idValue(link.attachment_id)
+    if (!taskId || !attachmentId || !tasksWithFiles.has(taskId)) continue
+    attachmentRows.push({
+      task_id: taskId,
+      attachment_id: attachmentId,
+      created_at: numberValue(link.created_at, Date.now()),
+    })
+  }
+  await store.importRows('todos_attachments', attachmentRows)
+
+  // The time ledger lands after the tasks it belongs to, and an interval whose task is not here goes
+  // with it: the file carries hours spent, and hours no task owns are a fact nothing will ever read
+  // again. A row whose `end_at` is missing is skipped for the export's own reason (D13): the running
+  // timer is one device's state, and no file gets to resurrect it on another. `day` is the day the
+  // server fixed at write time — the restore keeps it rather than recomputing, because the whole
+  // point of the column is that the account's calendar, not this machine's clock, decided it.
+  const timeEntryEntries = rows(data.task_time_entries)
+  const timeEntryTaskIds = timeEntryEntries
+    .map((entry) => idValue(entry.task_id))
+    .filter((id): id is string => id !== null)
+  const tasksWithLedger = await store.hasRows('todos_tasks', timeEntryTaskIds)
+  const timeEntryRows: Record<string, unknown>[] = []
+  for (const entry of timeEntryEntries) {
+    const id = idValue(entry.id)
+    const taskId = idValue(entry.task_id)
+    const day = dateValue(entry.day)
+    const endAt = numberOrNull(entry.end_at)
+    if (!id || !taskId || !tasksWithLedger.has(taskId) || day === null || endAt === null) continue
+    timeEntryRows.push({
+      id,
+      task_id: taskId,
+      start_at: numberValue(entry.start_at),
+      end_at: endAt,
+      day,
+      source: oneOf(entry.source, TIME_ENTRY_SOURCES, 'timer'),
+      created_at: numberValue(entry.created_at, Date.now()),
+      updated_at: numberValue(entry.updated_at, Date.now()),
+    })
+  }
+  await store.importRows('todos_time_entries', timeEntryRows)
+
+  // A habit is nothing's child, so its own id is all the file has to get right. Two things it does not
+  // bring back: a run in progress, which the export deliberately does not carry, and a kind this app has
+  // no screen for — an unknown word reads as the counting habit rather than as a timer the restore
+  // invented beside it.
+  const counterRows: Record<string, unknown>[] = []
+  for (const entry of rows(data.counters)) {
+    const id = idValue(entry.id)
+    if (!id) continue
+    counterRows.push({
+      id,
+      title: textValue(entry.title, 60) || 'Habit',
+      kind: oneOf(entry.kind, COUNTER_KINDS, 'clicks'),
+      icon: taskIconOrNull(entry.icon),
+      color: taskColorOrNull(entry.color),
+      goal: counterGoal(entry.goal),
+      created_at: numberValue(entry.created_at, Date.now()),
+      updated_at: numberValue(entry.updated_at, Date.now()),
+    })
+  }
+  await store.importRows('todos_counters', counterRows)
+
+  // The days follow their habit, and a day whose habit the file does not carry is a record of a habit
+  // nobody can name — the rule the ledger applies to a task that is not in the file, at the same cost:
+  // an orphan row no screen reaches is a leak that outlives the restore. A day of nothing is dropped for
+  // the other half of the same reason: the writer removes a zero rather than storing it, and a restore
+  // that kept one would be a second spelling of "this day held nothing".
+  const tickEntries = rows(data.counter_ticks)
+  const knownCounters = await store.hasRows(
+    'todos_counters',
+    tickEntries.map((entry) => idValue(entry.counter_id)).filter((id): id is string => id !== null),
+  )
+  const tickRows: Record<string, unknown>[] = []
+  for (const entry of tickEntries) {
+    const counterId = idValue(entry.counter_id)
+    // `dayValue` rather than `dateValue`: a habit's day is the whole key of its row and the screen matches
+    // it as a string, so a file's `2026` is a day no window ever lands on.
+    const day = dayValue(entry.day)
+    if (!counterId || day === null || !knownCounters.has(counterId)) continue
+    const amount = counterAmount(entry.amount)
+    if (amount <= 0) continue
+    tickRows.push({ counter_id: counterId, day, amount })
+  }
+  await store.importRows('todos_counter_ticks', tickRows)
+
+  // Two things this format leaves out by decision, said on the summary rather than left for the reader to
+  // discover by counting what came back. A feed's password hash and a mail address's token are the
+  // capability itself, so they go nowhere near a file that may leave the deployment; and the event table
+  // the cumulative flow replays is the one history whose rows cost more than the restore ceiling can spare.
+  // Both notes are unconditional: the file says nothing about whether the account had either, so the only
+  // honest answer is the one given every time.
+  skipped.push('calendar feed links and the mail inbox address are not part of a backup — regenerate them in Settings')
+  skipped.push('the task history the cumulative flow replays is not part of a backup — the flow starts again from this restore')
+
   const notificationEntries = rows(data.notifications)
   const heldNotifications = await store.hasRows(
     'chat_notifications',
@@ -729,6 +898,35 @@ function numberOrNull(value: unknown): number | null {
 
 function dateValue(value: unknown): string | null {
   return typeof value === 'string' && /^\d{4}(-\d{2}(-\d{2})?)?$/.test(value) ? value : null
+}
+
+/**
+ * A calendar day, in the one form the day columns store.
+ *
+ * Stricter than `dateValue` above because these two are compared as strings against a computed today:
+ * a file that wrote `2026` or `2026-1` would land as a day no bucket ever matches, which is the loss
+ * again, just quieter.
+ */
+function dayValue(value: unknown): string | null {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null
+}
+
+/**
+ * One habit's target or one day's amount, in the unit the habit itself speaks.
+ *
+ * Whole, never negative, and never more than a day holds: the two ceilings are the writer's, restated
+ * here because a backup file is input off a disk and a restore that wrote `1e9` taps would be a fact no
+ * screen can draw. A goal of none is a different answer from a goal of zero, so only an unreadable value
+ * falls back to `null` — a zero in the file stays the target the reader set.
+ */
+function counterAmount(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 0
+  return Math.max(0, Math.min(Math.trunc(value), MAX_COUNTER_DAY_AMOUNT))
+}
+
+function counterGoal(value: unknown): number | null {
+  if (value === null || value === undefined || typeof value !== 'number' || !Number.isFinite(value)) return null
+  return Math.max(0, Math.min(Math.trunc(value), MAX_COUNTER_DAY_AMOUNT))
 }
 
 /**

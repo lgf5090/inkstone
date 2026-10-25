@@ -318,6 +318,30 @@ describe('delete needs its own consent', () => {
     expect(outcome.ok).toBe(true)
     expect(await store.getTask(task.id)).toBeNull()
   })
+
+  it('describes the trash the tool actually writes, rather than a deletion that never was', async () => {
+    // A published description is a contract with the agent reading it. This one used to promise a
+    // deletion "for good" with "no trash to restore from", while the handler has always stamped
+    // `deleted_at` and left the row restorable for the retention window — so an outside agent
+    // apologises for work the reader can still get back, and never mentions the way back.
+    const tools = await listedTools(DANGER)
+    const description = String(tools.get('delete_todo')!.description ?? '')
+    expect(description).toMatch(/trash/i)
+    expect(description).toMatch(/restor/i)
+    expect(description.toLowerCase()).not.toMatch(/for good|no trash/)
+
+    const task = await store.createTask({ title: 'Only hidden, not erased' })
+    await switchPreferences(true, true)
+    expect((await callTool(DANGER, 'delete_todo', { operation_id: 'op-delete-soft', task_id: task.id })).ok).toBe(true)
+
+    // The behaviour the description now tells: the row is stamped, every read hides it, and the
+    // trash's own door puts the same row back.
+    const row = sqlite.prepare('SELECT deleted_at FROM todos_tasks WHERE user_id = ?1 AND id = ?2')
+      .get(USER, task.id) as { deleted_at: number | null }
+    expect(row.deleted_at).not.toBeNull()
+    expect(await store.getTask(task.id)).toBeNull()
+    expect((await store.restoreTask(task.id)).task?.id).toBe(task.id)
+  })
 })
 
 describe('the answers use the model, not a second copy of it', () => {
@@ -470,6 +494,28 @@ describe('the answers use the model, not a second copy of it', () => {
     const body = outcome.body as { task: Record<string, unknown>; next: Record<string, unknown> }
     expect(body.task.status).toBe('done')
     expect(new Date(Number(body.next.due_at)).toISOString()).toBe('2026-04-05T01:00:00.000Z')
+  })
+
+  // Same reason as the chat's tool: an MCP caller names a rhythm and has no vocabulary for the series
+  // around it, so the ceiling, the counter and the pause have to ride over the rule it wrote.
+  it('changes a rhythm without deleting the series the row already runs', async () => {
+    const task = await store.createTask({
+      title: 'Fortnightly statement',
+      dueAt: Date.UTC(2026, 2, 5, 1, 0),
+      repeat: { freq: 'monthly', interval: 1, count: 6, produced: 2, paused: true },
+    })
+    await switchPreferences(true, false)
+
+    const outcome = await callTool(WRITE, 'update_todo', {
+      operation_id: 'op-update-rhythm-1',
+      task_id: task.id,
+      repeat: 'weekly',
+      repeat_interval: 2,
+    })
+    expect(outcome.ok).toBe(true)
+    expect(await store.getTask(task.id)).toMatchObject({
+      repeat: { freq: 'weekly', interval: 2, count: 6, produced: 2, paused: true },
+    })
   })
 
   it('replays one operation_id as the task it first made, without writing a second', async () => {

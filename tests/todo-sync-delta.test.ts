@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { syncRoutes } from '../src/worker/routes/sync'
 import type { AppBindings } from '../src/worker/env'
@@ -9,7 +9,7 @@ import type { SyncResponse, TodosSyncResponse } from '../src/shared/types'
 import type { TodoTask } from '../src/shared/todos/model'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
-import { applyTodoSync, useTodos } from '../src/client/features/todos/store'
+import { applyTodoSync, useTodos, type TaskListEntry } from '../src/client/features/todos/store'
 
 const USER = 'user-a'
 const OTHER = 'user-b'
@@ -85,6 +85,17 @@ function row(id: string, title: string, extra: Partial<TodoTask> = {}): TodoTask
   }
 }
 
+const EMPTY_COUNTS = {
+  inbox: 0, today: 0, upcoming: 0, overdue: 0, all: 0, completed: 0, starred: 0, byList: {}, byTag: {},
+}
+
+function listEntry(id: string, name: string): TaskListEntry {
+  return {
+    id, name, icon: null, color: null, position: 0, createdAt: 1, updatedAt: 1,
+    openCount: 0, doneCount: 0, archivedAt: null, parentId: null,
+  }
+}
+
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   sqlite.exec(SCHEMA_STATEMENTS.join(';'))
@@ -118,6 +129,19 @@ describe('the task delta', () => {
     })
     expect(body.todos[0]!.reminders).toEqual([1_700_000_000_000])
     expect(body.cursor).toBeGreaterThan(0)
+  })
+
+  it('carries every status the vocabulary has, including the one a reader gives up with', async () => {
+    // A status the decoder does not know used to arrive on the other device as `todo`: not dropped,
+    // which would show up as a missing row, but rewritten — an abandoned task back on the list.
+    for (const status of ['todo', 'in_progress', 'done', 'cancelled']) {
+      insertTask(`s-${status}`, `A row that is ${status}`, { status })
+    }
+
+    const body = await get('/api/sync/todos?since=0') as TodosSyncResponse
+
+    expect(body.todos.map((task) => [task.id, task.status]).sort())
+      .toEqual([['s-cancelled', 'cancelled'], ['s-done', 'done'], ['s-in_progress', 'in_progress'], ['s-todo', 'todo']])
   })
 
   it('carries an updated row and a deletion stamped after the cursor', async () => {
@@ -171,6 +195,62 @@ describe('folding a task delta into the listing', () => {
     expect(state.tasks.map((task) => [task.id, task.title])).toEqual([['t1', 'Changed elsewhere']])
     expect(state.tasks[0]!.rev).toBe(4)
     expect(state.total).toBe(1)
+  })
+
+  it('asks for the directory again when a merged row names a list it has never seen', async () => {
+    useTodos.setState({
+      tasks: [],
+      completed: [],
+      total: 0,
+      completedTotal: 0,
+      lists: [],
+      directoryKnown: true,
+    })
+    const paths: string[] = []
+    const real = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const path = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input)
+      paths.push(path)
+      const body = path.includes('/lists')
+        ? { lists: [listEntry('l9', 'Elsewhere')] }
+        : path.includes('/tags')
+          ? { tags: [] }
+          : { tasks: [], total: 0, counts: EMPTY_COUNTS, dayEnd: Date.now(), timezone: 'UTC' }
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }) as typeof fetch
+
+    try {
+      applyTodoSync({ todos: [row('t1', 'Filed away elsewhere', { listId: 'l9' })], deleted: [] })
+      await vi.waitFor(() => expect(paths.some((entry) => entry.includes('/api/todos/lists'))).toBe(true))
+    } finally {
+      globalThis.fetch = real
+    }
+  })
+
+  it('leaves the directory alone when every merged row is already accounted for', async () => {
+    useTodos.setState({
+      tasks: [],
+      completed: [],
+      total: 0,
+      completedTotal: 0,
+      lists: [listEntry('l1', 'Mine')],
+      directoryKnown: true,
+    })
+    const paths: string[] = []
+    const real = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      paths.push(typeof input === 'string' ? input : String(input))
+      return new Response('{}', { status: 200 })
+    }) as typeof fetch
+
+    try {
+      applyTodoSync({ todos: [row('t1', 'Same list', { listId: 'l1' })], deleted: [] })
+      await new Promise((resolve) => { setTimeout(resolve, 40) })
+    } finally {
+      globalThis.fetch = real
+    }
+
+    expect(paths).toEqual([])
   })
 
   it('moves a finished row out of the open list and into the finished one', () => {

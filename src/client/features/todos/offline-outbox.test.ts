@@ -6,12 +6,17 @@
  * a queued create is replayed by the shared lease loop, a 409 stops at the same two-answer conflict
  * choice a live write offers, and a delete is queued as a tombstone so an already-gone row is a
  * success rather than a failure that retries forever.
+ *
+ * The ledger's back-fill door is in scope here as well, because it is the one task write this queue
+ * deliberately does *not* carry: the hours a quick-add line says have already gone are refused out
+ * loud with no network rather than queued, and the reason is pinned beside the behaviour.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { TodoTask } from '@shared/todos/model'
 import { ApiError } from '../../lib/api'
 import { initI18n, t } from '../../lib/i18n'
 import { useNotes } from '../../store/notes'
+import { useUi } from '../../store/ui'
 import { useTodos, replayTodoOutboxItem } from './store'
 
 const mocks = vi.hoisted(() => ({
@@ -22,6 +27,9 @@ const mocks = vi.hoisted(() => ({
   remove: vi.fn(),
   plan: vi.fn(),
   snooze: vi.fn(),
+  addTime: vi.fn(),
+  startTimer: vi.fn(),
+  stopTimer: vi.fn(),
   updateOutboxRevision: vi.fn(async () => {}),
   markOutboxFailure: vi.fn(async () => {}),
 }))
@@ -94,6 +102,9 @@ vi.mock('../../lib/api', async () => {
         remove: mocks.remove,
         plan: mocks.plan,
         snooze: mocks.snooze,
+        addTime: mocks.addTime,
+        startTimer: mocks.startTimer,
+        stopTimer: mocks.stopTimer,
       },
     },
   }
@@ -150,7 +161,8 @@ beforeEach(async () => {
   await initI18n()
   mocks.queue = []
   for (const fn of [mocks.create, mocks.update, mocks.get, mocks.remove, mocks.plan, mocks.snooze,
-    mocks.updateOutboxRevision, mocks.markOutboxFailure, confirmMock]) fn.mockReset()
+    mocks.addTime, mocks.startTimer, mocks.stopTimer, mocks.updateOutboxRevision,
+    mocks.markOutboxFailure, confirmMock]) fn.mockReset()
   confirmMock.mockResolvedValue(false)
   setOnline(false)
   useTodos.setState(original, true)
@@ -166,12 +178,16 @@ describe('a task write made offline', () => {
     expect(mocks.create).not.toHaveBeenCalled()
     expect(mocks.queue).toHaveLength(1)
     expect(mocks.queue[0]).toMatchObject({ entity: 'todo', entityId: task?.id, payload: { op: 'create' } })
+    // The key a replay sends is the queued row's own write id, so it is persisted with the row rather
+    // than minted afresh each pass: the server has to be able to tell two attempts at one create apart
+    // from two creates.
+    const writeId = (mocks.queue[0] as { writeId: string }).writeId
 
     setOnline(true)
     mocks.create.mockResolvedValue({ task: row('server-1', 'Book the room', { rev: 1 }) })
     await useNotes.getState().replayPending()
 
-    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ title: 'Book the room' }))
+    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ title: 'Book the room' }), writeId)
     expect(useTodos.getState().tasks.map((entry) => entry.id)).toEqual(['server-1'])
     expect(mocks.queue).toHaveLength(0)
   })
@@ -207,6 +223,39 @@ describe('a task write made offline', () => {
 
     expect(mocks.update).toHaveBeenNthCalledWith(1, 't1', { title: 'First edit' }, 3)
     expect(mocks.update).toHaveBeenNthCalledWith(2, 't1', { priority: 'high' }, 4)
+    expect(mocks.queue).toHaveLength(0)
+  })
+
+  it('replays a queued pick against the revision it was made at', async () => {
+    useTodos.setState({ tasks: [row('t1', 'Mine', { rev: 3 })], total: 1 })
+    await useTodos.getState().planTask('t1', '2026-10-21')
+    expect(mocks.queue[0]).toMatchObject({ entity: 'todo', payload: { op: 'plan', date: '2026-10-21', rev: 3 } })
+
+    setOnline(true)
+    mocks.plan.mockResolvedValue({ task: row('t1', 'Mine', { rev: 4, plannedFor: '2026-10-21' }) })
+    await replayTodoOutboxItem(mocks.queue[0] as never)
+
+    // A pick made offline is still a conditional write: the revision the reader was looking at goes
+    // to the route, so a row that moved meanwhile is refused rather than overwritten.
+    expect(mocks.plan).toHaveBeenCalledWith('t1', '2026-10-21', 3)
+  })
+
+  it('replays a queued snooze against its revision and moves the edits behind it', async () => {
+    useTodos.setState({ tasks: [row('t1', 'Mine', { rev: 3 })], total: 1 })
+    await useTodos.getState().snoozeTask('t1', 60)
+    await useTodos.getState().updateTask('t1', { title: 'Renamed' })
+    expect(mocks.queue).toHaveLength(2)
+
+    setOnline(true)
+    mocks.snooze
+      .mockResolvedValueOnce({ task: row('t1', 'Mine', { rev: 4 }), reminders: [Date.now() + 60_000] })
+    mocks.update.mockResolvedValueOnce({ task: row('t1', 'Renamed', { rev: 5 }) })
+    await useNotes.getState().replayPending()
+
+    expect(mocks.snooze).toHaveBeenCalledWith('t1', 60, 3)
+    // The snooze spent a revision of its own, so the edit queued behind it names the one that landed:
+    // left at 3 it would report a conflict this tab created itself.
+    expect(mocks.update).toHaveBeenCalledWith('t1', { title: 'Renamed' }, 4)
     expect(mocks.queue).toHaveLength(0)
   })
 
@@ -266,5 +315,149 @@ describe('a task write made offline', () => {
 
     expect(mocks.remove).toHaveBeenCalledWith('t1')
     expect(outcome).toEqual({ status: 'done' })
+  })
+
+  it('refuses the hours a line back-fills while there is no network, and says so', async () => {
+    const task = await useTodos.getState().createTask({ title: 'Write the report', timeLoggedMs: 5 * 60_000 })
+    expect(task).not.toBeNull()
+
+    // The row is a queued fact; the hours are not a queued fact on purpose. `POST /api/todos/:id/time`
+    // answers by inserting, and it is the one task write with no idempotency door of its own — only
+    // `POST /api/todos` reads `Idempotency-Key`. A replay of a back-fill whose response was lost would
+    // therefore file the same five minutes twice, and a doubled number in the ledger is exactly the
+    // wrong fact the server-side clock guards exist to make impossible.
+    expect(mocks.queue).toHaveLength(1)
+    expect(mocks.queue[0]).toMatchObject({ entity: 'todo', entityId: task?.id, payload: { op: 'create' } })
+    expect((mocks.queue[0] as { payload: { task: Record<string, unknown> } }).payload.task)
+      .not.toHaveProperty('timeLoggedMs')
+    expect(mocks.addTime, 'a back-fill was asked for against an id the server has never seen')
+      .not.toHaveBeenCalled()
+    const said = useUi.getState().toasts.map((entry) => entry.title)
+    expect(said, 'the hours were dropped without saying where they went')
+      .toContain(t('todo.time.logged_offline'))
+
+    // Coming back online does not file them either: the reader was told at the press, and hours that
+    // appeared on their own after the replay would contradict the one answer they were given.
+    setOnline(true)
+    mocks.create.mockResolvedValue({ task: row('server-1', 'Write the report', { rev: 1 }) })
+    await useNotes.getState().replayPending()
+
+    expect(mocks.create).toHaveBeenCalledTimes(1)
+    expect(mocks.addTime).not.toHaveBeenCalled()
+    expect(mocks.queue).toHaveLength(0)
+    expect(useTodos.getState().tasks.map((entry) => entry.id)).toEqual(['server-1'])
+  })
+
+  it('files the hours the same line back-fills when there is a network', async () => {
+    setOnline(true)
+    mocks.create.mockResolvedValue({ task: row('server-1', 'Write the report', { rev: 1 }) })
+    mocks.addTime.mockResolvedValue({ entries: [] })
+    mocks.get.mockResolvedValue({ task: row('server-1', 'Write the report', { rev: 2, timeSpentMs: 5 * 60_000 }), steps: [] })
+
+    await useTodos.getState().createTask({ title: 'Write the report', timeLoggedMs: 5 * 60_000 })
+
+    // The refusal above is about the door, not about the number: online, the span goes to the ledger in
+    // the same press that created the row.
+    expect(mocks.addTime).toHaveBeenCalledTimes(1)
+    const [id, span] = mocks.addTime.mock.calls[0] as [string, { startAt: number, endAt: number }]
+    expect(id).toBe('server-1')
+    expect(span.endAt - span.startAt).toBe(5 * 60_000)
+    expect(useTodos.getState().tasks[0]).toMatchObject({ timeSpentMs: 5 * 60_000 })
+  })
+
+  // The two timer gestures are queueable where the back-fill above is not, and the reason is the shape
+  // of each door: starting on the task whose interval is already open answers with that interval, and
+  // stopping one that is no longer running is the 404 that says the stop wanted state. Neither can be
+  // filed twice by a replay that lost its answer.
+  describe('a timer gesture made offline', () => {
+    /** The instant the reader pressed, bracketed by the two clock reads around the action. */
+    function queuedInstant(item: unknown): number {
+      return (item as { payload: { at: number } }).payload.at
+    }
+
+    it('queues the press with the instant it happened and puts the indicator up at once', async () => {
+      useTodos.setState({ tasks: [row('t1', 'Mine', { status: 'in_progress' })], total: 1 })
+
+      const before = Date.now()
+      await useTodos.getState().startTimer(row('t1', 'Mine', { status: 'in_progress' }))
+      const after = Date.now()
+
+      expect(mocks.startTimer, 'a gesture with no network reached the route anyway').not.toHaveBeenCalled()
+      expect(mocks.queue).toHaveLength(1)
+      expect(mocks.queue[0]).toMatchObject({ entity: 'todo', entityId: 't1', payload: { op: 'timer-start' } })
+      const at = queuedInstant(mocks.queue[0])
+      expect(at).toBeGreaterThanOrEqual(before)
+      expect(at).toBeLessThanOrEqual(after)
+      // The card counts from the press, not from whenever the device finds a network again.
+      expect(useTodos.getState().tasks[0]?.runningSince).toBe(at)
+    })
+
+    it('replays the start at the instant it was pressed rather than when the queue drained', async () => {
+      useTodos.setState({ tasks: [row('t1', 'Mine', { status: 'in_progress' })], total: 1 })
+      await useTodos.getState().startTimer(row('t1', 'Mine', { status: 'in_progress' }))
+      const at = queuedInstant(mocks.queue[0])
+
+      setOnline(true)
+      mocks.startTimer.mockResolvedValue({ entry: { id: 'e1', taskId: 't1', startAt: at, endAt: null, day: '2026-10-22', source: 'timer' } })
+      await useNotes.getState().replayPending()
+
+      // Four hours of work happened at two o'clock. Filing them as a span that opened at six would move
+      // them into a different row of the day ledger, which is what the day buckets and the ceiling read.
+      expect(mocks.startTimer).toHaveBeenCalledWith('t1', { startAt: at })
+      expect(mocks.queue).toHaveLength(0)
+    })
+
+    it('queues the stop, takes the indicator down at once, and files the span it was pressed at', async () => {
+      useTodos.setState({ tasks: [row('t1', 'Mine', { status: 'in_progress', runningSince: Date.now() - 60_000 })], total: 1 })
+
+      await useTodos.getState().stopTimer('t1')
+      expect(mocks.stopTimer).not.toHaveBeenCalled()
+      expect(useTodos.getState().tasks[0]?.runningSince, 'the card kept counting a span the reader put down')
+        .toBeNull()
+      expect(mocks.queue[0]).toMatchObject({ entityId: 't1', payload: { op: 'timer-stop' } })
+      const at = queuedInstant(mocks.queue[0])
+
+      setOnline(true)
+      mocks.stopTimer.mockResolvedValue({ entries: [{ id: 'e1', taskId: 't1', startAt: at - 60_000, endAt: at }] })
+      await replayTodoOutboxItem(mocks.queue[0] as never)
+
+      expect(mocks.stopTimer).toHaveBeenCalledWith('t1', { endAt: at })
+    })
+
+    it('treats a stop whose interval is already gone as the state it wanted', async () => {
+      useTodos.setState({ tasks: [row('t1', 'Mine', { status: 'in_progress', runningSince: Date.now() - 60_000 })], total: 1 })
+      await useTodos.getState().stopTimer('t1')
+
+      setOnline(true)
+      // The one way here is a replay of a stop that landed and lost its answer — same tombstone rule a
+      // queued delete follows, and for the same reason: retrying it forever would be a failure of ours.
+      mocks.stopTimer.mockRejectedValue(new ApiError(404, 'not-found', 'No timer is running for this task.'))
+      const outcome = await replayTodoOutboxItem(mocks.queue[0] as never)
+
+      expect(outcome).toEqual({ status: 'done' })
+      expect(mocks.markOutboxFailure).not.toHaveBeenCalled()
+    })
+
+    it('moves a queued start onto the id the server minted for the row it was pressed on', async () => {
+      const mine = await useTodos.getState().createTask({ title: 'Written offline' })
+      await useTodos.getState().startTimer(mine!)
+      // Three rows: the create, the move to `in_progress` the gesture makes first, and the interval.
+      expect(mocks.queue).toHaveLength(3)
+      expect(mocks.queue[2]).toMatchObject({ entityId: mine!.id, payload: { op: 'timer-start' } })
+      const at = queuedInstant(mocks.queue[2])
+      expect(mine!.id.startsWith('local-')).toBe(true)
+
+      setOnline(true)
+      mocks.create.mockResolvedValue({ task: row('server-1', 'Written offline') })
+      mocks.update.mockResolvedValue({ task: row('server-1', 'Written offline', { status: 'in_progress', rev: 2 }) })
+      mocks.startTimer.mockResolvedValue({ entry: { id: 'e1', taskId: 'server-1', startAt: at, endAt: null, day: '2026-10-22', source: 'timer' } })
+      mocks.get.mockResolvedValue({ task: row('server-1', 'Written offline', { status: 'in_progress', runningSince: at }), steps: [] })
+      await useNotes.getState().replayPending()
+
+      // The create replays first and retargets what came after it, so the interval is filed against a
+      // task that exists rather than against an id only this device ever saw.
+      expect(mocks.startTimer).toHaveBeenCalledWith('server-1', { startAt: at })
+      expect(mocks.queue).toHaveLength(0)
+    })
   })
 })

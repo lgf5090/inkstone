@@ -17,6 +17,7 @@
 
 import { Hono } from 'hono'
 import { MAX_TASKS_PER_QUERY, type TodoTask } from '@shared/todos/model'
+import { isTaskDone } from '@shared/todos/status'
 import { AssistantStore, type NewTask } from '../assistant/store'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
@@ -113,7 +114,7 @@ function sameImportedFields(
   if (task.dueAt !== row.dueAt || task.priority !== row.priority) return false
   // A list the file names but this account does not have says nothing about the task's current one.
   if (!missingList && task.listId !== listId) return false
-  if (row.completed !== null && (task.status === 'done') !== row.completed) return false
+  if (row.completed !== null && isTaskDone(task.status) !== row.completed) return false
   const current = task.tags.map((tag) => tag.name.toLocaleLowerCase()).sort()
   const wanted = row.tags.map((name) => name.toLocaleLowerCase()).sort()
   return current.length === wanted.length && current.every((name, index) => name === wanted[index])
@@ -178,6 +179,12 @@ todoImportRoutes.post('/', async (c) => {
         skipped++
         continue
       }
+      // A finished row is not one column the patch may write: completing a task files the next
+      // occurrence of a repeating one, and only `completeTask` does that. So `completed` leaves the
+      // patch below and lands as its own call, after every other field — the order the single-task
+      // PATCH keeps, so the occurrence the repeat files carries the title, due date and tags this file
+      // just brought. Naming the status a row already has is still an ordinary patch.
+      const finishing = row.completed === true && !isTaskDone(match.status)
       const patch: Partial<NewTask> = {
         title: row.title,
         description: row.notes,
@@ -185,11 +192,17 @@ todoImportRoutes.post('/', async (c) => {
         dueAt: row.dueAt,
         ...(list.missing ? {} : { listId: list.id }),
         tags: row.tags,
-        ...(row.completed === null ? {} : { status: row.completed ? 'done' : 'todo' }),
+        ...(row.completed === null || finishing ? {} : { status: row.completed ? 'done' : 'todo' }),
       }
       const written = await store.updateTask(match.id, patch, settings.timezone)
       if (!written) throw ApiError.conflict('That task disappeared while it was being imported.')
-      existing.set(key, written)
+      if (finishing) {
+        const done = await store.completeTask(written.id, settings.timezone)
+        if (!done) throw ApiError.conflict('That task disappeared while it was being imported.')
+        existing.set(key, done.task)
+      } else {
+        existing.set(key, written)
+      }
       updated++
       if (list.missing) missingLists++
       continue

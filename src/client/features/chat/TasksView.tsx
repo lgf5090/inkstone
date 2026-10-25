@@ -11,6 +11,7 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowRight, CalendarDays, CheckCircle2, Circle, Plus } from 'lucide-react'
+import { isTaskDoneLegacy } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
@@ -43,7 +44,7 @@ export function TasksView() {
   const today = useMemo(() => {
     if (!dayEnd) return []
     return tasks
-      .filter((task) => task.status !== 'done' && task.dueAt !== null && task.dueAt <= dayEnd)
+      .filter((task) => !isTaskDoneLegacy(task.status) && task.dueAt !== null && task.dueAt <= dayEnd)
       .sort((left, right) => (left.dueAt ?? 0) - (right.dueAt ?? 0))
   }, [tasks, dayEnd])
 
@@ -108,7 +109,7 @@ export function TasksView() {
                     aria-label={t('todo.a11y.mark_done', { title: task.title })}
                     className="ink-tap-pad mt-0.5 shrink-0 text-[var(--text-tertiary)] transition-colors hover:text-[var(--accent)]"
                   >
-                    {task.status === 'done' ? <CheckCircle2 size={16} className="text-[var(--accent)]" /> : <Circle size={16} />}
+                    {isTaskDoneLegacy(task.status) ? <CheckCircle2 size={16} className="text-[var(--accent)]" /> : <Circle size={16} />}
                   </button>
                   <div className="min-w-0 flex-1">
                     <p className="text-[length:var(--text-13)] leading-relaxed text-[var(--text-primary)]">{task.title}</p>

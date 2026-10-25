@@ -12,15 +12,16 @@
  */
 
 import { useRef, useState } from 'react'
-import { Check, Flag, FolderInput, Tag, Trash2, X } from 'lucide-react'
+import { Archive, Check, Flag, FolderInput, Star, Tag, Trash2, X } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
-import { Menu, confirm, type MenuItem } from '../../components/overlay'
+import { Menu } from '../../components/overlay'
 import { useTodos } from './store'
-import { priorityLabel } from './todo-ui'
-import type { TaskBatchOp, TaskPriority } from '@shared/todos/model'
+import { batchMenuVocabulary, buildBatchMenuItems, confirmBatchDelete } from './task-menu'
+import type { TaskBatchOp } from '@shared/todos/model'
 
-const PRIORITIES: readonly TaskPriority[] = ['low', 'medium', 'high', 'urgent']
+/** How wide a right-clicked row's batch panel is: as wide as the bar's own widest menu. */
+const BATCH_MENU_WIDTH = 200
 
 type OpenMenu = 'move' | 'priority' | 'tag' | null
 
@@ -43,27 +44,12 @@ export function BatchBar() {
     void batchTasks(op, value)
   }
 
-  const moveItems: MenuItem[] = [
-    { id: 'inbox', label: t('todo.smart.inbox'), onSelect: () => run('move', null) },
-    ...lists.map((list) => ({ id: list.id, label: list.name, onSelect: () => run('move', list.id) })),
-  ]
-  const priorityItems: MenuItem[] = PRIORITIES.map((priority) => ({
-    id: priority,
-    label: priorityLabel(priority),
-    onSelect: () => run('priority', priority),
-  }))
-  const tagItems: MenuItem[] = tags.length
-    ? tags.map((tag) => ({ id: tag.id, label: tag.name, onSelect: () => run('tag', tag.name) }))
-    : [{ id: 'none', label: t('todo.batch.no_tags'), disabled: true }]
+  // The rows come from the same builder a right-clicked row uses, so the bar and that menu cannot offer
+  // two different readings of "move this group".
+  const vocabulary = batchMenuVocabulary(lists, tags, run)
 
   const remove = async (): Promise<void> => {
-    const ok = await confirm({
-      title: t('todo.batch.delete'),
-      description: t('todo.batch.delete_hint', { count }),
-      confirmLabel: t('todo.action.delete'),
-      tone: 'danger',
-    })
-    if (ok) run('delete')
+    if (await confirmBatchDelete(count)) run('delete')
   }
 
   return (
@@ -109,6 +95,15 @@ export function BatchBar() {
       >
         <Tag size={13} />{t('todo.batch.tag')}
       </Button>
+      {/* The bar's star goes on and stays on: it names the value rather than leaning on the route's
+          default, and taking a star back off is the row's own button — a bar that toggled over a mixed
+          selection would answer ninety rows with one guess. */}
+      <Button size="sm" variant="ghost" onClick={() => run('star', 'true')}>
+        <Star size={13} />{t('todo.task.star')}
+      </Button>
+      <Button size="sm" variant="ghost" onClick={() => run('archive', 'true')}>
+        <Archive size={13} />{t('todo.batch.archive')}
+      </Button>
       <Button size="sm" variant="ghost" className="text-[var(--danger)]" onClick={() => { void remove() }}>
         <Trash2 size={13} />{t('todo.batch.delete')}
       </Button>
@@ -121,7 +116,7 @@ export function BatchBar() {
         anchor={moveRef}
         open={openMenu === 'move'}
         onClose={() => setOpenMenu(null)}
-        items={moveItems}
+        items={vocabulary.move}
         align="end"
         width={200}
         label={t('todo.batch.move')}
@@ -130,7 +125,7 @@ export function BatchBar() {
         anchor={priorityRef}
         open={openMenu === 'priority'}
         onClose={() => setOpenMenu(null)}
-        items={priorityItems}
+        items={vocabulary.priority}
         align="end"
         width={180}
         label={t('todo.batch.priority')}
@@ -139,11 +134,49 @@ export function BatchBar() {
         anchor={tagRef}
         open={openMenu === 'tag'}
         onClose={() => setOpenMenu(null)}
-        items={tagItems}
+        items={vocabulary.tag}
         align="end"
         width={200}
         label={t('todo.batch.tag')}
       />
     </div>
+  )
+}
+
+/**
+ * The bar's actions, offered wherever a picked row is right-clicked.
+ *
+ * The group is what a picked row acts on, so the menu names the count the bar is naming and runs one
+ * request over exactly those ids — the same vocabulary the three buttons open, never a second set of
+ * batch semantics written for a context menu. It reads the selection from the store rather than from a
+ * prop, because a row does not know what the reader picked.
+ */
+export function BatchContextMenu({ point, onClose }: {
+  point: { x: number, y: number } | null
+  onClose: () => void
+}) {
+  const lists = useTodos((state) => state.lists)
+  const tags = useTodos((state) => state.tags)
+  const count = useTodos((state) => state.selectedIds.size)
+  const batchTasks = useTodos((state) => state.batchTasks)
+  if (!point || !count) return null
+  return (
+    <Menu
+      anchor={point}
+      open
+      onClose={onClose}
+      items={buildBatchMenuItems({
+        count,
+        lists,
+        tags,
+        onClose,
+        run: (op, value) => {
+          onClose()
+          void batchTasks(op, value)
+        },
+      })}
+      width={BATCH_MENU_WIDTH}
+      label={t('todo.a11y.batch_bar')}
+    />
   )
 }

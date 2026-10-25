@@ -303,4 +303,17 @@ describe('DatePicker labelling', () => {
     expect(onChange).toHaveBeenCalledWith('')
     rendered.unmount()
   })
+
+  it('pads the cross it draws at sixteen pixels', () => {
+    const rendered = renderElement(createElement(DatePicker, { label: 'Trial ends', value: '2026-09-15', onChange: vi.fn() }))
+    const clear = [...rendered.container.querySelectorAll<HTMLButtonElement>('button')]
+      .find((node) => node !== trigger(rendered.container))!
+    // Measured in a real browser: with the class the cross answers a pointer at all five points of a
+    // 24-pixel box, without it only the centre. `relative` is what lets the pad own its containing block,
+    // and the drawn `p-0.5` is what keeps the row from growing for it.
+    expect(`${clear.className} `).toMatch(/(?:^|\s)ink-tap-pad\s/)
+    expect(`${clear.className} `).toMatch(/(?:^|\s)relative\s/)
+    expect(clear.className).toContain('p-0.5')
+    rendered.unmount()
+  })
 })

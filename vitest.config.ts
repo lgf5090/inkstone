@@ -81,7 +81,10 @@ export default defineConfig({
         test: {
           name: 'jsdom',
           environment: 'jsdom',
-          include: ['src/**/*.test.ts', 'tests/**/*.test.ts', 'tests/**/*.test.tsx'],
+          // `.tsx` joins `.ts` here because the organizer's icon picker is a component and its test
+          // spoke the component suffix — under the old pair of globs that file was collected by no
+          // project at all and never ran once. The scratch-probe marker (`*.tmp.*`) stays excluded.
+          include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'tests/**/*.test.ts', 'tests/**/*.test.tsx'],
           // The last entry is the scratch-probe marker: a `*.tmp.*` file is a measurement in flight,
           // and it is the tsconfig exclusion plus tests/no-scratch-test-files.test.ts that make it
           // invisible to the gates and impossible to leave behind.

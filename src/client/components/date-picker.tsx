@@ -566,7 +566,7 @@ export function DatePicker({
         <button
           type='button'
           onClick={() => onChange('')}
-          className='p-0.5 text-[var(--text-tertiary)] hover:text-[var(--danger)] rounded-[var(--r-xs)] transition-colors'
+          className='relative ink-tap-pad p-0.5 text-[var(--text-tertiary)] hover:text-[var(--danger)] rounded-[var(--r-xs)] transition-colors'
           aria-label={t('preview.kanban_clear_date')}
         >
           <X size={12} />

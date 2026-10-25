@@ -13,18 +13,21 @@ import { renderElement, type RenderedElement } from '../../lib/test-render'
 import { ConfirmHost } from '../../components/overlay'
 import { TrashPanel } from './TrashPanel'
 import { useTodos } from './store'
-import type { TodoTask } from '@shared/todos/model'
+import { TODO_TRASH_RETENTION_DAYS, TRASH_PAGE_SIZE, type TodoTask } from '@shared/todos/model'
 
 const service = vi.hoisted(() => ({
   tasks: [] as TodoTask[],
   purges: [] as string[],
   restores: [] as string[],
+  /** Every trash request, in the order the screen made them. */
+  requests: [] as { limit?: number, offset?: number }[],
 }))
 
 vi.mock('../../lib/api', () => ({
   api: {
     todos: {
       trash: async (params: { limit?: number, offset?: number } = {}) => {
+        service.requests.push(params)
         const offset = params.offset ?? 0
         const limit = params.limit ?? 100
         return { tasks: service.tasks.slice(offset, offset + limit), total: service.tasks.length }
@@ -119,6 +122,21 @@ describe('the trash panel', () => {
     expect(service.restores).toEqual(['a'])
     expect(document.body.textContent).not.toContain('First')
     expect(document.body.textContent).toContain('Second')
+  })
+
+  it('pages the trash by the shared page size, not by a number it invented', async () => {
+    service.tasks = Array.from({ length: TRASH_PAGE_SIZE + 10 }, (_, index) => row(`t${index}`, `Task ${index}`))
+
+    view = renderElement(createElement(TrashPanel, { open: true, onClose: () => {} }))
+    await settle()
+
+    // One page, asked for in the size the route itself answers by, and the retention sentence names
+    // the window the sweep keeps rather than a second copy of it.
+    expect(service.requests.at(0)).toEqual({ limit: TRASH_PAGE_SIZE })
+    expect(document.body.textContent).toContain(
+      t('todo.trash.description', { days: TODO_TRASH_RETENTION_DAYS }),
+    )
+    expect(document.body.querySelectorAll('[data-todo-trash-row]').length).toBe(TRASH_PAGE_SIZE)
   })
 
   it('asks before purging and only then removes the row', async () => {

@@ -130,6 +130,43 @@ describe('a guarded edit', () => {
     expect(final?.title).toBe(won[0]!.value?.title)
   })
 
+  it('refuses a stale pick, move and snooze exactly as it refuses an edit', async () => {
+    const anchor = await store.createTask({ title: 'Anchor' })
+    const task = await store.createTask({ title: 'Guarded' })
+    await store.updateTask(task.id, { title: 'Read first' })
+    const before = await store.getTask(task.id)
+    expect(before?.rev).toBe(2)
+
+    // The three paths the app drives with its own reads: each one has to answer for the revision it
+    // was handed, or a caller that checked before writing still loses the race it came to avoid.
+    const settled = await Promise.allSettled([
+      store.planTask(task.id, '2026-10-20', 1),
+      store.moveTask(task.id, { beforeId: anchor.id }, 1),
+      store.snoozeTask(task.id, Date.now() + 60_000, 1),
+    ])
+
+    for (const result of settled) {
+      expect(result.status).toBe('rejected')
+      expect((result as PromiseRejectedResult).reason)
+        .toMatchObject({ status: 409, code: 'conflict', details: { id: task.id, rev: 2 } })
+    }
+    // A refused write is zero writes: the row is exactly what the reader's own edit left, and the snooze
+    // appended no reminder — a refused "remind me again" that still queued one is the worst kind of yes.
+    expect(await store.getTask(task.id)).toEqual(before)
+    expect((await store.getTask(task.id))?.reminders ?? []).toHaveLength(0)
+  })
+
+  it('lands a pick, a move and a snooze that name the revision the row is on', async () => {
+    const anchor = await store.createTask({ title: 'Anchor' })
+    const task = await store.createTask({ title: 'Guarded' })
+
+    expect((await store.planTask(task.id, '2026-10-20', 1))?.rev).toBe(2)
+    expect((await store.moveTask(task.id, { beforeId: anchor.id }, 2))?.rev).toBe(3)
+    const snoozed = await store.snoozeTask(task.id, Date.now() + 60_000, 3)
+    expect(snoozed?.rev).toBe(4)
+    expect(snoozed?.reminders).toHaveLength(1)
+  })
+
   it('never reaches another account’s task', async () => {
     const mine = await store.createTask({ title: 'Mine' })
     const theirs = await other.createTask({ title: 'Theirs' })

@@ -15,6 +15,7 @@ import { localDate } from '@shared/assistant-time'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, stubBreakpoint, type RenderedElement } from '../../lib/test-render'
 import type { TaskCounts, TodoTask } from '@shared/todos/model'
+import { MAX_TASK_QUERY_CHARS } from '@shared/todos/model'
 
 // This checkout's `node_modules` is a junction outside the Vite root, so the KaTeX stylesheet that
 // the note export helpers inline is refused before a test can run. Nothing here exports a note.
@@ -110,6 +111,7 @@ vi.mock('../../lib/api', () => ({
 
 import { TodosApp } from './TodosApp'
 import { useTodos } from './store'
+import { groupToday, splitTodayLater } from './task-groups'
 
 const original = useTodos.getState()
 let view: RenderedElement | null = null
@@ -152,6 +154,9 @@ beforeEach(async () => {
 })
 
 afterEach(() => {
+  // Unmount on the real clock: a case that faked `Date` and `setInterval` to watch the minute tick
+  // must not leave React's own teardown waiting on a timer nobody will ever fire.
+  vi.useRealTimers()
   act(() => { view?.unmount() })
   view = null
   document.body.innerHTML = ''
@@ -284,6 +289,31 @@ describe('the today screen', () => {
     expect(container.querySelector('[data-today-suggestion]')).toBeNull()
   })
 
+  it('offers a started row, and never one that is neither finished nor owed', async () => {
+    stubBreakpoint(true)
+    service.shelf = [
+      // Past its hour and halfway through: the most obviously owed work the shelf can hold.
+      row('started', 'Write the report', { status: 'in_progress', dueAt: Date.now() - 60_000 }),
+      // The shape a `cancelled` row arrives with, read off the future enum: off the plate, so the plan
+      // may not offer it again — and not finished, so no screen may count it as completed either.
+      row('abandoned', 'Learn Esperanto', { status: 'cancelled' as TodoTask['status'] }),
+      row('done', 'Finished', { status: 'done' }),
+    ]
+
+    const container = await mount('/todo?view=today')
+    const trigger = container.querySelector<HTMLButtonElement>(`button[aria-label="${t('todo.today.ai_plan')}"]`)
+    expect(trigger, 'the today screen offers no way to plan the shelf').not.toBeNull()
+    await act(async () => {
+      trigger!.click()
+      await Promise.resolve()
+    })
+    await settle()
+
+    const offered = [...container.querySelectorAll<HTMLElement>('[data-today-suggestion]')]
+      .map((item) => item.getAttribute('data-today-suggestion'))
+    expect(offered).toEqual(['started'])
+  })
+
   it('shifts every overdue row to today from the banner', async () => {
     stubBreakpoint(true)
     service.overdueRows = [
@@ -327,6 +357,46 @@ describe('the today screen', () => {
     expect(service.batches.map((batch) => batch.ids.length)).toEqual([100, 1])
     expect(service.batches.every((batch) => batch.op === 'due')).toBe(true)
   })
+
+  it('names a started row that slipped past its hour in the overdue batch too', async () => {
+    stubBreakpoint(true)
+    // The banner's number comes from the server's overdue count and the rows it acts on come from the
+    // same overdue view, which `OverdueShift` then reads once more through the open predicate before
+    // naming them to the batch route. A row the reader started is owed work, so dropping it at that
+    // last step would leave the toast promising to move two rows and the server moving one.
+    service.overdueRows = [
+      row('late-1', 'Pay rent', { dueAt: Date.now() - 86_400_000 }),
+      row('late-2', 'Send invoice', { dueAt: Date.now() - 3_600_000, status: 'in_progress' }),
+    ]
+    service.pageRows = [...service.overdueRows]
+
+    const container = await mount('/todo?view=today')
+    const shift = container.querySelector<HTMLButtonElement>('[data-todo-overdue-shift]')
+    expect(shift, 'the today screen offers no overdue shift').not.toBeNull()
+    expect(shift!.textContent).toContain('2')
+    // The store mirrors the page it was handed, started row included; the screen has no bucket of its
+    // own to drop it into before the press ever happens.
+    expect(useTodos.getState().tasks.map((task) => task.id)).toContain('late-2')
+
+    await act(async () => {
+      shift!.click()
+      await Promise.resolve()
+    })
+    await settle()
+
+    expect(service.batches).toEqual([{ ids: ['late-1', 'late-2'], op: 'due' }])
+  })
+
+  it('caps the picker search to the shared query bound', async () => {
+    stubBreakpoint(true)
+    const container = await mount('/todo?view=today')
+    // The picker forwards what the reader types to the search; the server accepts at most
+    // MAX_TASK_QUERY_CHARS, so the field has to bound the same way rather than let a longer word be
+    // silently refused downstream.
+    const field = container.querySelector<HTMLInputElement>(`input[aria-label="${t('todo.today.pick')}"]`)
+    expect(field, 'the today picker has no search field').not.toBeNull()
+    expect(field!.maxLength, 'the picker search does not bound to the shared query length').toBe(MAX_TASK_QUERY_CHARS)
+  })
 })
 
 describe('the plan screen', () => {
@@ -336,8 +406,9 @@ describe('the plan screen', () => {
     service.pageRows = [...service.overdueRows]
 
     const container = await mount('/todo?view=plan')
-    // The plan's listing is the today listing on the server; the screen is what the address names.
-    expect(lastRequest().view).toBe('today')
+    // The plan divides the whole open set by when each row is owed, so it asks the server for that set
+    // rather than for today's shelf; the screen it renders is still whatever the address names.
+    expect(lastRequest().view).toBe('open')
     expect(useTodos.getState().view).toBe('plan')
     const shift = container.querySelector<HTMLButtonElement>('[data-todo-overdue-shift]')
     expect(shift, 'the plan screen offers no overdue shift').not.toBeNull()
@@ -350,5 +421,157 @@ describe('the plan screen', () => {
     await settle()
 
     expect(service.batches).toEqual([{ ids: ['late-1'], op: 'due' }])
+  })
+})
+
+describe('the later section of the today screen', () => {
+  const T0 = Date.parse('2026-10-19T12:00:00Z')
+  const TODAY = '2026-10-19'
+  const DAY_END = Date.parse('2026-10-19T23:59:59Z')
+
+  /**
+   * Flush work on the fake clock.
+   *
+   * `settle` cannot be used here: its wait is itself a `setTimeout`, and under faked timers nothing
+   * would ever fire it. Advancing the clock runs the pending timers and drains the microtask queue
+   * between them, which is the same "the page has answered" state `settle` buys on the real clock.
+   */
+  async function pump(ms = 0): Promise<void> {
+    await act(async () => { await vi.advanceTimersByTimeAsync(ms) })
+    await act(async () => { await Promise.resolve() })
+  }
+
+  async function mountFake(): Promise<HTMLElement> {
+    window.history.replaceState(null, '', '/todo?view=today')
+    await act(async () => { view = renderElement(createElement(TodosApp)) })
+    await pump()
+    return view!.container
+  }
+
+  function laterSection(container: HTMLElement): HTMLElement | null {
+    return container.querySelector(`section[aria-label="${t('todo.today.later')}"]`)
+  }
+
+  function laterBar(container: HTMLElement): HTMLElement | null {
+    return laterSection(container)?.querySelector('button[aria-expanded]') ?? null
+  }
+
+  it('files a row owed later today in a collapsed section instead of the main list', async () => {
+    vi.useFakeTimers({ now: T0 })
+    stubBreakpoint(true)
+    service.pageRows = [row('later', 'Call the plumber', { dueAt: T0 + 30 * 60_000 })]
+
+    const container = await mountFake()
+    const bar = laterBar(container)
+    expect(bar, 'the today screen has no later section').not.toBeNull()
+    expect(bar!.getAttribute('aria-expanded'), 'the later section opens expanded').toBe('false')
+    expect(bar!.textContent).toContain('1')
+    // The row waits behind the bar: neither in the main list nor drawn before it is asked for.
+    expect(container.querySelector('[data-todo-open="later"]')).toBeNull()
+  })
+
+  it('reveals operable rows and no drag handle when the section is opened', async () => {
+    vi.useFakeTimers({ now: T0 })
+    stubBreakpoint(true)
+    service.pageRows = [row('later', 'Call the plumber', { dueAt: T0 + 30 * 60_000 })]
+
+    const container = await mountFake()
+    const bar = laterBar(container)
+    expect(bar).not.toBeNull()
+    await act(async () => {
+      bar!.click()
+      await Promise.resolve()
+    })
+    expect(bar!.getAttribute('aria-expanded')).toBe('true')
+
+    const section = laterSection(container)
+    expect(section).not.toBeNull()
+    expect(section!.querySelector('[data-todo-open="later"]')).not.toBeNull()
+    // Operable like any other row: the finish control is there and carries its name.
+    expect(section!.querySelector(`button[role="checkbox"][aria-label="${t('todo.a11y.mark_done', { title: 'Call the plumber' })}"]`)).not.toBeNull()
+    // And the drag ban is visible rather than a dead gesture: a row nobody may pick up draws no
+    // handle at all, so nothing on the screen promises a move the section refuses.
+    expect(section!.querySelector('[data-todo-draggable]')).toBeNull()
+    expect(section!.querySelector('[draggable="true"]')).toBeNull()
+  })
+
+  it('carries a row back to the main list when the minute tick passes its time', async () => {
+    vi.useFakeTimers({ now: T0 })
+    stubBreakpoint(true)
+    service.pageRows = [row('later', 'Call the plumber', { dueAt: T0 + 30_000 })]
+
+    const container = await mountFake()
+    const bar = laterBar(container)
+    expect(bar).not.toBeNull()
+    await act(async () => {
+      bar!.click()
+      await Promise.resolve()
+    })
+    expect(container.querySelector('[data-todo-open="later"]')).not.toBeNull()
+
+    // One minute of the clock, not a reload: the section recomputes itself and lets the row go.
+    await pump(60_000)
+
+    expect(laterSection(container), 'the section still holds a row whose time has come').toBeNull()
+    expect(container.querySelector('[data-todo-open="later"]')).not.toBeNull()
+  })
+
+  it('keeps the planned, due-today and overdue buckets as they were', async () => {
+    vi.useFakeTimers({ now: T0 })
+    stubBreakpoint(true)
+    service.pageRows = [
+      row('picked', 'Draft the brief', { plannedFor: TODAY }),
+      row('due', 'Send the invoice', { dueAt: T0 - 30 * 60_000 }),
+      row('later', 'Call the plumber', { dueAt: T0 + 30 * 60_000 }),
+      row('allday', 'File the return', { dueAt: Date.parse('2026-10-19T23:59:00Z') }),
+      row('started', 'Write the report', { status: 'in_progress' }),
+    ]
+
+    const container = await mountFake()
+    const planned = container.querySelector(`section[aria-label="${t('todo.group.planned')}"]`)
+    const today = container.querySelector(`section[aria-label="${t('todo.group.today')}"]`)
+    const overdue = container.querySelector(`section[aria-label="${t('todo.group.overdue')}"]`)
+    expect(planned?.querySelector('[data-todo-open="picked"]')).not.toBeNull()
+    expect(overdue?.querySelector('[data-todo-open="due"]')).not.toBeNull()
+    expect(today?.querySelector('[data-todo-open="started"]')).not.toBeNull()
+    // Only the row whose hour has not come moves; the other buckets lose nothing. A day stored at
+    // the conventional 23:59 carries no hour the reader wrote, so it stays where it always was.
+    expect(today?.querySelector('[data-todo-open="allday"]')).not.toBeNull()
+    expect(today?.querySelector('[data-todo-open="later"]')).toBeNull()
+    expect(laterBar(container)?.textContent).toContain('1')
+  })
+
+  it('splits the later rows out without touching what groupToday files where', () => {
+    const rows = [
+      row('picked', 'Draft the brief', { plannedFor: TODAY }),
+      row('late', 'Send the invoice', { dueAt: T0 - 30 * 60_000 }),
+      row('yesterday', 'Chase the quote', { dueAt: Date.parse('2026-10-18T09:00:00Z') }),
+      row('later', 'Call the plumber', { dueAt: T0 + 30 * 60_000 }),
+      row('allday', 'File the return', { dueAt: Date.parse('2026-10-19T23:59:00Z') }),
+      row('started', 'Write the report', { status: 'in_progress' }),
+    ]
+    const bounds = { dayEnd: DAY_END, now: T0, today: TODAY, timezone: 'UTC' }
+    // A row whose hour passed an hour ago is still today's row: the overdue group is the one that
+    // offers to push a *missed day* into today, and 11:30 today is not a day the reader missed.
+    // Only the row owed yesterday belongs there.
+    expect(groupToday(rows, bounds)
+      .map((group) => [group.key, group.tasks.map((entry) => entry.id)]))
+      .toEqual([['planned', ['picked']], ['today', ['late', 'later', 'allday', 'started']], ['overdue', ['yesterday']]])
+    const split = splitTodayLater(groupToday(rows, bounds), { now: T0, dayEnd: DAY_END, timezone: 'UTC' })
+    expect(split.groups.map((group) => [group.key, group.tasks.map((entry) => entry.id)]))
+      .toEqual([['planned', ['picked']], ['today', ['late', 'allday', 'started']], ['overdue', ['yesterday']]])
+    expect(split.later.map((entry) => entry.id)).toEqual(['later'])
+  })
+
+  it('moves a row into overdue only when the day it was owed on has passed', () => {
+    const bounds = { dayEnd: DAY_END, now: T0, today: TODAY, timezone: 'UTC' }
+    const idsFor = (dueAt: number): string[] =>
+      groupToday([row('x', 'One row', { dueAt })], bounds).find((group) => group.key === 'overdue')
+        ?.tasks.map((entry) => entry.id) ?? []
+    // The last minute of yesterday and the first of today sit on either side of the line.
+    expect(idsFor(Date.parse('2026-10-18T23:59:00Z'))).toEqual(['x'])
+    expect(idsFor(Date.parse('2026-10-19T00:00:00Z'))).toEqual([])
+    // Late in the day, a morning row is still not a missed day.
+    expect(idsFor(T0 - 9 * 60 * 60_000)).toEqual([])
   })
 })

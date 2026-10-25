@@ -70,6 +70,47 @@ export function useClickOutside(refs: RefObject<HTMLElement | null>[], active: b
     }, [active]);
 }
 /**
+ * The control the reader was on before a surface took the caret away.
+ *
+ * A dialog that focuses a field of its own cannot ask `document.activeElement` where to go back to: by the
+ * time the hook runs, `autoFocus` has already moved the caret inside the panel, and that node dies with the
+ * panel — so every such dialog left the reader nowhere. This remembers the last focus that landed *outside*
+ * a surface, which is the control the reader was using when the dialog opened. It listens from import time
+ * because the trigger's own focus event arrives before any dialog exists: a listener installed when the
+ * first dialog opened would miss exactly the one dialog it was installed for.
+ */
+const SURFACE_SELECTOR = '[role="dialog"], [role="menu"], [aria-modal="true"]';
+let lastOutsideCaret: HTMLElement | null = null;
+document.addEventListener('focusin', (event) => {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (!target || target.closest(SURFACE_SELECTOR))
+        return;
+    lastOutsideCaret = target;
+}, true);
+/** The caret a panel should hand back to: itself if it is outside the panel, else the trigger it stole from. */
+function caretBeforePanel(caret: HTMLElement | null, panel: HTMLElement | null): HTMLElement | null {
+    if (caret && !panel?.contains(caret))
+        return caret;
+    return lastOutsideCaret?.isConnected ? lastOutsideCaret : null;
+}
+/**
+ * Hand the caret back to the place a surface took it from, or to the app frame when that place is gone.
+ *
+ * A surface usually closes over the control that opened it, and `isConnected` is what keeps a stale
+ * reference from being focused into nothing. But a dialog can also close over the row it just deleted —
+ * then its trigger left the document with the whole list row, and the caret would be dropped on
+ * `document.body`, one Tab away from the browser's own chrome and with no announcement of where the
+ * reader is. The frame every app hangs in is the last container that is always there, and it carries
+ * `data-app-frame` so this is the one place that has to know about it.
+ */
+function returnCaret(target: HTMLElement | null): void {
+    if (target?.isConnected) {
+        target.focus({ preventScroll: true });
+        return;
+    }
+    document.querySelector<HTMLElement>('[data-app-frame]')?.focus({ preventScroll: true });
+}
+/**
  * Move the caret into a panel while it is open, and hand it back when it closes.
  *
  * A grid of tiles — the label's icon and colour board, the lunar month and day lists — is read with Tab
@@ -88,9 +129,7 @@ export function usePanelCaret(active: boolean, panelRef: RefObject<HTMLElement |
             // The trigger wins over whatever had the caret: a panel opens on a click on it, and some
             // engines leave a clicked button unfocused, so returning to "previous" would drop the reader
             // back on the page body with nothing to Tab from.
-            const back = anchorRef.current ?? previous;
-            if (back?.isConnected)
-                back.focus({ preventScroll: true });
+            returnCaret(anchorRef.current ?? previous);
         };
     }, [active, panelRef, anchorRef]);
 }
@@ -127,7 +166,8 @@ export function useDialogFocus<T extends HTMLElement>(active: boolean, panelRef:
         if (!active)
             return;
         const token = Symbol('dialog');
-        const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        const caret = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        const previousFocus = caretBeforePanel(caret, panelRef.current);
         dialogStack.push(token);
         const panel = panelRef.current;
         const requestedInitial = initialFocusRef?.current ??
@@ -169,8 +209,7 @@ export function useDialogFocus<T extends HTMLElement>(active: boolean, panelRef:
             const index = dialogStack.indexOf(token);
             if (index >= 0)
                 dialogStack.splice(index, 1);
-            if (previousFocus?.isConnected)
-                previousFocus.focus({ preventScroll: true });
+            returnCaret(previousFocus);
         };
     }, [active, initialFocusRef, panelRef]);
 }
@@ -705,10 +744,10 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
     useEffect(() => {
         if (!open)
             return;
-        const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        const caret = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        const previousFocus = caretBeforePanel(caret, menuRef.current);
         return () => {
-            if (previousFocus?.isConnected)
-                previousFocus.focus({ preventScroll: true });
+            returnCaret(previousFocus);
         };
     }, [open]);
     useEffect(() => {

@@ -686,6 +686,10 @@ describe('task_stats', () => {
     }, 'Asia/Shanghai')
     await store.completeTask(done.id, 'Asia/Shanghai')
     await store.createTask({ title: 'Still open' }, 'Asia/Shanghai')
+    // The second rate has to reach a review turn too, or the assistant can only ever report what the
+    // reader finished and never what they gave up.
+    const abandoned = await store.createTask({ title: 'Not going to do it' }, 'Asia/Shanghai')
+    await store.updateTask(abandoned.id, { status: 'cancelled' }, 'Asia/Shanghai')
 
     const result = await executor().execute('task_stats', {}, 'call-1') as {
       range: Record<string, unknown>
@@ -707,6 +711,8 @@ describe('task_stats', () => {
       created: expected.summary.created,
       open: expected.summary.open,
       completionRate: expected.summary.completionRate,
+      abandoned: expected.summary.abandoned,
+      abandonedRate: expected.summary.abandonedRate,
       onTime: expected.summary.onTime,
       onTimeDue: expected.summary.onTimeDue,
       onTimeRate: expected.summary.onTimeRate,
@@ -714,6 +720,12 @@ describe('task_stats', () => {
       longestStreak: expected.summary.longestStreak,
     })
     expect(result.summary.completed).toBe(1)
+    expect(result.summary.abandoned).toBe(1)
+    // The abandoned row is in neither half of the completion rate, and it is in both halves of the
+    // other one — the pairing a review turn must not be able to get wrong from the tool alone.
+    expect(result.summary.completionRate).toBeCloseTo(expected.summary.completionRate, 10)
+    expect(expected.summary.completionRate).toBeCloseTo(1 / 2, 10)
+    expect(expected.summary.abandonedRate).toBeCloseTo(1 / 3, 10)
     expect(result.by_list).toEqual(expected.distributions.byList)
   })
 
@@ -789,6 +801,48 @@ describe('planning and repeat details', () => {
     expect(updated?.plannedFor).toBe(today())
     expect(updated?.startAt).not.toBeNull()
     expect(updated?.repeat).toEqual({ freq: 'monthly', interval: 1, monthlyMode: 'lastDay' })
+  })
+
+  it('sets a monthly rhythm that lands on an nth weekday', async () => {
+    const created = await executor().execute('create_task', {
+      title: 'Third Friday',
+      due: '2026-10-16T09:00',
+      repeat: 'monthly',
+      repeatMonthly: 'nthWeekday',
+    }, 'call-1') as { created: { id: string } }
+
+    const task = await store.getTask(created.created.id)
+    // The mode is the rule's only extra word: which Friday it is comes from the due date it names.
+    expect(task?.repeat).toEqual({ freq: 'monthly', interval: 1, monthlyMode: 'nthWeekday' })
+  })
+
+  // The chat has no words for a series ceiling, a pause or a day let go of, so a model asked to change
+  // the rhythm names only the rhythm — and the rule it writes replaces the row's whole JSON. Without
+  // the carry-over below, "make that fortnightly" would quietly un-cap a series the reader bounded.
+  it('changes the rhythm without deleting the series the row already runs', async () => {
+    const task = await store.createTask({
+      title: 'Stand-up',
+      repeat: { freq: 'weekly', interval: 1, weekdays: [1, 3], count: 12, produced: 4, untilAt: Date.parse('2026-12-31T00:00:00Z') },
+    })
+
+    await executor().execute('update_task', { task: task.id, repeat: 'weekly', repeatInterval: 2 }, 'call-1')
+
+    expect((await store.getTask(task.id))?.repeat).toEqual({
+      freq: 'weekly',
+      interval: 2,
+      weekdays: [1, 3],
+      count: 12,
+      produced: 4,
+      untilAt: Date.parse('2026-12-31T00:00:00Z'),
+    })
+  })
+
+  it('stops the series when the chat is asked to stop repeating', async () => {
+    const task = await store.createTask({ title: 'Stand-up', repeat: { freq: 'daily', interval: 1, count: 5 } })
+
+    await executor().execute('update_task', { task: task.id, repeat: 'none' }, 'call-1')
+
+    expect((await store.getTask(task.id))?.repeat).toBeNull()
   })
 
   it('refuses weekdays on a rhythm that is not weekly', async () => {

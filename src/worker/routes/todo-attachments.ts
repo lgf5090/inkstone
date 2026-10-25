@@ -7,11 +7,16 @@
  * `LIMITS` would be a second set of limits to keep in step. This file only adds the link row.
  *
  * Unlinking is not deleting: the `attachments` row and the stored object stay, and another task's link
- * to the same file is untouched. Nothing here cascades either, so trashing or purging a task leaves its
- * files and links in place, exactly as trashing a note leaves a note's attachments alone. Two existing
- * rules are worth stating because a task link reads like a retention promise and is not one:
- *  - the orphan sweep (`POST /api/files/prune`) scans note bodies and retained versions only and does
- *    not read `todos_attachments`, so a task link does not pin a file against that sweep;
+ * to the same file is untouched. Nothing here cascades either, so trashing a task leaves its files and
+ * links in place, exactly as trashing a note leaves a note's attachments alone — and purging one for
+ * good removes the link rows with the task row, but still not the files. Two existing rules are worth
+ * stating because a task link reads like a retention promise and is not one:
+ *  - a task link does pin its file against the orphan sweep. The sweep for this scope
+ *    (`POST /api/attachments/todos/files/prune`) asks `collectAttachmentReferences` with scope `todos`,
+ *    which counts every row of `todos_attachments` as a reference, and its delete re-asks the same
+ *    table as a liveness guard. That is why the purge (`purgeTaskStatements`) has to delete the link
+ *    rows with the task: a row left behind names a task that no longer exists, nothing can ever
+ *    unlink it, and the file it holds is storage that can never be reclaimed;
  *  - backups export only the files a note references, so a task attachment is not a new export column
  *    and travels only when a note also embeds it.
  *

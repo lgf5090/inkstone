@@ -9,6 +9,7 @@
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { TodoTask } from '@shared/todos/model'
+import { MAX_TASKS_PER_QUERY } from '@shared/todos/model'
 import { buildMonthGridCells } from '../../components/calendar-grids'
 import { initI18n, localeTag, t } from '../../lib/i18n'
 import { addDaysKey, daysBetweenKeys, weekStartFor } from '../../lib/time'
@@ -53,11 +54,13 @@ function row(id: string, title: string, dueAt: number, extra: Partial<TodoTask> 
 const service = vi.hoisted(() => ({
   requests: [] as ListParams[],
   rows: [] as TodoTask[],
+  /** When set, the listing answers this `total` instead of its own row count, to model a truncated page. */
+  totalOverride: undefined as number | undefined,
   answer(params: ListParams): Record<string, unknown> {
     service.requests.push(params)
     return {
       tasks: service.rows,
-      total: service.rows.length,
+      total: service.totalOverride ?? service.rows.length,
       counts: {
         inbox: 0, today: 0, upcoming: 0, overdue: 0, all: 0, completed: 0, starred: 0, byList: {}, byTag: {},
       },
@@ -98,6 +101,7 @@ beforeEach(async () => {
   await initI18n()
   service.requests.length = 0
   service.rows = []
+  service.totalOverride = undefined
   useTodos.setState({ timezone: 'UTC', editorOpen: false, draft: null })
 })
 
@@ -176,6 +180,22 @@ describe('the month grid', () => {
     const container = await mount()
     expect(container.textContent).toContain(t('todo.empty.plan'))
     expect(container.querySelectorAll('[data-calendar-day]').length).toBeGreaterThanOrEqual(28)
+  })
+
+  it('says the window was cut short when the listing carries only its first page', async () => {
+    stubBreakpoint(true)
+    // The route caps one listing at MAX_TASKS_PER_QUERY; when the month holds more than a page, the
+    // calendar must not draw it as if the whole window were on screen.
+    const due = Date.UTC(YEAR, MONTH, 5, 9)
+    service.rows = Array.from({ length: MAX_TASKS_PER_QUERY }, (_unused, index) =>
+      row(`t${index}`, `Task ${index}`, due))
+    service.totalOverride = MAX_TASKS_PER_QUERY + 40
+
+    const container = await mount()
+
+    const notice = container.querySelector<HTMLElement>('[data-calendar-truncated]')
+    expect(notice, 'a truncated window says nothing about the rows it left out').not.toBeNull()
+    expect(notice!.textContent).toContain(t('todo.calendar.truncated', { count: MAX_TASKS_PER_QUERY }))
   })
 
   it('draws one bar across the days a task covers, not a title per day', async () => {

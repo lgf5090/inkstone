@@ -1,27 +1,25 @@
 /**
- * The four reading views: plan, starred, completed, and one list or tag.
+ * The reading views: plan, upcoming, starred, completed, and one list or tag.
  *
  * They share one grouped list because they differ only in how the page is split and what the group
  * headings say. Each view owns its own split — the plan groups by when, completed by the day it was
  * finished — and hands the result here.
  */
 
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useRef } from 'react'
 import { localDate } from '@shared/assistant-time'
-import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { useMediaQuery } from '../../lib/hooks'
 import { Empty } from '../../components/feedback'
 import { SelectMenu } from '../../components/select-menu'
-import { Button } from '../../components/primitives'
-import { useUi } from '../../store/ui'
 import { TodoPageFooter } from './TodoPageFooter'
+import { OverdueShift } from './OverdueShift'
 import { useTodos } from './store'
 import { TaskCard, useTaskMoves, type TaskMoveControls } from './TaskCard'
-import { LIST_COLUMNS_QUERY, ListLayoutToggle, StatusBoard, useListLayout } from './status-board'
-import { groupByPlan, groupCompleted, groupByList, type TaskGroup, type PlanGroupKey } from './task-groups'
+import { LIST_COLUMNS_QUERY, ListLayoutToggle, StatusBoard, useBoardGroup, useListLayout } from './status-board'
+import { groupByPlan, groupBySection, groupCompletedAndAbandoned, groupByList, type TaskGroup, type PlanGroupKey } from './task-groups'
 import type { MessageKey } from '@shared/locales/en-US'
-import { MAX_BATCH_TASKS, MAX_TASKS_PER_QUERY, type TodoTask } from '@shared/todos/model'
+import { type TodoTask } from '@shared/todos/model'
 
 /**
  * Re-read grouped rows in the order the answer carried them.
@@ -32,7 +30,7 @@ import { MAX_BATCH_TASKS, MAX_TASKS_PER_QUERY, type TodoTask } from '@shared/tod
 export function inServerOrder(groups: TaskGroup[], tasks: readonly TodoTask[]): TaskGroup[] {
   const position = new Map(tasks.map((task, index) => [task.id, index]))
   return groups.map((group) => ({
-    key: group.key,
+    ...group,
     tasks: [...group.tasks].sort((a, b) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0)),
   }))
 }
@@ -98,7 +96,7 @@ export function GroupedTaskList({ groups, label, empty, onUnplan, canUnplan, mov
                   lists={lists}
                   bounds={bounds}
                   timezone={timezone}
-                  showList={showList}
+                  showList={group.showList ?? showList}
                   onOpen={() => openEditor({ id: task.id })}
                   onStar={() => { void updateTask(task.id, { starred: !task.starred }) }}
                   {...(moveFor?.(task) ? { move: moveFor(task)! } : {})}
@@ -125,69 +123,6 @@ const PLAN_LABELS: Record<PlanGroupKey, MessageKey> = {
   none: 'todo.group.none',
 }
 
-/**
- * The overdue rows, shifted to today in one press.
- *
- * The same gesture "My Day" carries in its header, at the top of the plan because an overdue row is
- * the first thing this page has to answer for. The count is the server's account-wide overdue
- * number and the rows are read by the same view it counts, so the banner and the page behind it
- * cannot disagree. A batch names at most `MAX_BATCH_TASKS`, so a longer shelf is sent in chunks and
- * both halves of every answer are summed. Only `due_at` moves: the day a row was picked for is the
- * reader's own plan and stays where it was.
- */
-function OverdueShift() {
-  const counts = useTodos((state) => state.counts)
-  const [busy, setBusy] = useState(false)
-  const overdue = counts?.overdue ?? 0
-  if (overdue === 0) return null
-
-  const shift = async (): Promise<void> => {
-    setBusy(true)
-    try {
-      const page = await api.todos.list({ view: 'overdue', limit: MAX_TASKS_PER_QUERY })
-      const ids = page.tasks.filter((task) => task.status !== 'done').map((task) => task.id)
-      let done = 0
-      let failed = 0
-      for (let start = 0; start < ids.length; start += MAX_BATCH_TASKS) {
-        const result = await api.todos.batch({ ids: ids.slice(start, start + MAX_BATCH_TASKS), op: 'due' })
-        done += result.done.length
-        failed += result.failed.length
-      }
-      // The rows moved, so the page and the count are read again rather than patched by hand — the
-      // same rule every other write in this feature follows.
-      await useTodos.getState().load()
-      if (!ids.length) return
-      useUi.getState().toast(failed
-        ? { title: t('todo.toast.batch_partial', { failed, total: done + failed }), tone: 'danger' }
-        : { title: t('todo.toast.batch_due', { count: done }), tone: 'success' })
-    } catch (error) {
-      useUi.getState().toast({
-        title: t('todo.toast.failed'),
-        description: error instanceof Error ? error.message : String(error),
-        tone: 'danger',
-      })
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div className="px-3 pb-1.5 pt-2 md:px-5">
-      <Button
-        variant="ghost"
-        size="sm"
-        block
-        data-todo-overdue-shift=""
-        disabled={busy}
-        onClick={() => { void shift() }}
-        className="justify-start text-[var(--text-secondary)]"
-      >
-        {t('todo.overdue.shift', { count: overdue })}
-      </Button>
-    </div>
-  )
-}
-
 export function PlanView() {
   const tasks = useTodos((state) => state.tasks)
   const dayEnd = useTodos((state) => state.dayEnd)
@@ -198,7 +133,7 @@ export function PlanView() {
   }, [tasks, dayEnd, sort])
   return (
     <>
-      <OverdueShift />
+      <OverdueShift className="px-3 pb-1.5 pt-2 md:px-5" />
       <GroupedTaskList
         groups={groups}
         label={(key) => t(PLAN_LABELS[key as PlanGroupKey])}
@@ -217,6 +152,25 @@ export function StarredView() {
       groups={tasks.length ? [{ key: 'starred', tasks }] : []}
       label={() => t('todo.smart.starred')}
       empty={{ title: t('todo.empty.starred'), description: t('todo.empty.starred_hint') }}
+    />
+  )
+}
+
+/**
+ * The next week, as one shelf.
+ *
+ * The server already scopes it — due after the end of today, within `UPCOMING_DAYS` — so nothing here
+ * narrows the page again: a view that filtered its own answer would show fewer rows than the number its
+ * nav row carries. The plan page divides the whole open set by when; this one answers only the question
+ * "what is coming".
+ */
+export function UpcomingView() {
+  const tasks = useTodos((state) => state.tasks)
+  return (
+    <GroupedTaskList
+      groups={tasks.length ? [{ key: 'upcoming', tasks }] : []}
+      label={() => t('todo.group.upcoming')}
+      empty={{ title: t('todo.empty.upcoming'), description: t('todo.empty.upcoming_hint') }}
     />
   )
 }
@@ -242,13 +196,16 @@ export function CompletedView() {
   const years = [...seenYears.current].sort((a, b) => (a < b ? 1 : -1))
 
   const groups = useMemo(() => {
-    const grouped = groupCompleted(completed, timezone)
+    const { done, abandoned } = groupCompletedAndAbandoned(completed, timezone)
     // The day a task was filed under is the grouping; within it, an order the reader chose is the
-    // server's answer and is not sorted again here.
-    return sort ? inServerOrder(grouped, completed) : grouped
+    // server's answer and is not sorted again here. Abandoned rows ride below the finished ones as
+    // their own section, newest-left first, so "did this" and "will not do this" never share a heading.
+    const doneGroups = sort ? inServerOrder(done, completed) : done
+    return abandoned.length ? [...doneGroups, { key: 'abandoned', tasks: abandoned }] : doneGroups
   }, [completed, sort, timezone])
 
   const label = (key: string): string => {
+    if (key === 'abandoned') return t('todo.group.cancelled')
     const [y, m, d] = key.split('-')
     return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(Number(y), Number(m) - 1, Number(d)))
   }
@@ -305,28 +262,48 @@ export function CompletedView() {
 /** One list, or one tag: the rows the server scoped for it, with the open ones first. */
 export function ListTaskView() {
   const tasks = useTodos((state) => state.tasks)
+  const lists = useTodos((state) => state.lists)
+  const listId = useTodos((state) => state.listId)
   const sort = useTodos((state) => state.sort)
   const view = useTodos((state) => state.view)
-  // Three columns are a reading of the same rows that the plain list draws; a narrower window keeps
-  // the list, and the switch that asks for the split does not exist where the split cannot be drawn.
+  // Columns are a reading of the same rows the plain list draws, cut by whichever field the reader
+  // asked for; a narrower window keeps the list, and the switches that ask for either do not exist
+  // where the columns cannot be drawn.
   const wide = useMediaQuery(LIST_COLUMNS_QUERY)
   const layout = useListLayout()
+  const group = useBoardGroup()
   const columns = view === 'list' && wide && layout === 'columns'
+  // A list's page is drawn in sections, and a section is its child lists in the order the reader filed
+  // them — the nesting the sidebar already offers, read as the sections of one page instead. `lists` is
+  // the working set, so a put-away collection is not in it to begin with.
+  const sections = useMemo(
+    () => (view === 'list' && listId && listId !== 'inbox'
+      ? lists.filter((list) => list.parentId === listId)
+      : []),
+    [view, listId, lists],
+  )
   const groups = useMemo(() => {
-    const grouped = groupByList(tasks)
+    const grouped = sections.length ? groupBySection(tasks, sections) : groupByList(tasks)
     return sort ? inServerOrder(grouped, tasks) : grouped
-  }, [tasks, sort])
+  }, [tasks, sort, sections])
   // The manual order is the list's own reading. An explicit sort replaces it, so the controls that
   // would write a place are not offered while that sort is up.
   const moveFor = useTaskMoves(view === 'list' && !sort)
 
-  const label = (key: string): string => (key === 'done' ? t('todo.group.done') : t('todo.group.open'))
+  const label = (key: string): string => {
+    if (key === 'done') return t('todo.group.done')
+    if (key === 'unsectioned') return t('todo.group.unsectioned')
+    if (key.startsWith('section:')) {
+      return lists.find((list) => list.id === key.slice('section:'.length))?.name ?? t('todo.view.list')
+    }
+    return t('todo.group.open')
+  }
 
   return (
     <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
-      {view === 'list' && wide && <ListLayoutToggle layout={layout} />}
+      {view === 'list' && wide && <ListLayoutToggle layout={layout} group={group} />}
       {columns ? (
-        <StatusBoard tasks={tasks} />
+        <StatusBoard tasks={tasks} group={group} />
       ) : (
         <GroupedTaskList
           groups={groups}
@@ -351,10 +328,13 @@ export function useViewTitle(): string {
   if (view === 'tag') return tags.find((tag) => tag.id === tagId)?.name ?? t('todo.view.tag')
   if (view === 'today') return t('todo.view.today')
   if (view === 'plan') return t('todo.view.plan')
+  if (view === 'upcoming') return t('todo.view.upcoming')
   if (view === 'calendar') return t('todo.view.calendar')
   if (view === 'starred') return t('todo.view.starred')
   if (view === 'completed') return t('todo.view.completed')
   if (view === 'stats') return t('todo.view.stats')
+  if (view === 'finish-day') return t('todo.view.finish_day')
+  if (view === 'counters') return t('todo.view.counters')
   return t('todo.view.board')
 }
 

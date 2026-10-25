@@ -124,4 +124,24 @@ describe('the account zone', () => {
     expect(shanghai.counts.today).toBe(1)
     expect(utc.counts.today).toBe(0)
   })
+
+  it('counts the coming week in calendar days, not in seven sets of twenty-four hours', async () => {
+    // The American spring-forward of 2026 falls on 8 March, so the week that follows is seven
+    // calendar days spread over 167 hours. A window built by adding 7 × 24 h to the day end lands an
+    // hour inside the eighth day, and a task owed in that hour is announced as still coming.
+    vi.setSystemTime(new Date('2026-03-04T12:00:00Z'))
+    await setZone('America/New_York')
+    const store = new AssistantStore(env.DB as D1Database, USER, env)
+    // Wednesday 11 March, 23:00 in New York: the last hour of the seventh day.
+    const inside = await store.createTask({ title: 'Last of the week', dueAt: Date.parse('2026-03-12T03:00:00Z') })
+    // Thursday 12 March, 00:30 in New York: the eighth day has already begun.
+    const outside = await store.createTask({ title: 'The eighth day', dueAt: Date.parse('2026-03-12T04:30:00Z') })
+
+    const upcoming = await page('?view=upcoming')
+    expect(upcoming.timezone).toBe('America/New_York')
+    expect(upcoming.tasks.map((task) => task.id)).toEqual([inside.id])
+    // The badge is the other door of the same window; both read one boundary.
+    expect(upcoming.counts.upcoming).toBe(1)
+    expect(outside.dueAt).toBeGreaterThan(upcoming.dayEnd)
+  })
 })

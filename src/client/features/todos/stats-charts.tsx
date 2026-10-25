@@ -25,6 +25,14 @@ export interface StatSlice {
   label: string
   value: number
   color: string
+  /**
+   * The words this slice's number means, for a caller whose unit is not a count.
+   *
+   * A bar's share is a number either way, but `0.1` beside a list's name only reads as time because the
+   * reader happens to know the block counts hours. A caller that knows the unit says it; a caller that
+   * counts tasks, which is most of them, leaves this out and gets the number.
+   */
+  display?: string
 }
 
 function percent(share: number): string {
@@ -619,7 +627,7 @@ export function SliceBars({ slices, label }: { slices: readonly StatSlice[]; lab
             <span className="truncate">{slice.label}</span>
           </span>
           <span className="shrink-0 text-[length:var(--text-11)] tabular-nums text-[var(--text-tertiary)]">
-            {slice.value} · {total > 0 ? percent(slice.value / total) : '—'}
+            {slice.display ?? slice.value} · {total > 0 ? percent(slice.value / total) : '—'}
           </span>
           <span aria-hidden="true" className="col-span-2 h-1.5 overflow-hidden rounded-full bg-[var(--bg-inset)]">
             <span className="block h-full rounded-full" style={{ width: `${Math.max(2, (slice.value / max) * 100)}%`, backgroundColor: slice.color }} />
@@ -659,6 +667,9 @@ export function StackedBar({ slices, label }: { slices: readonly StatSlice[]; la
 /** A duration in the words a reader would use, not in milliseconds. */
 export function durationLabel(ms: number | null): string {
   if (ms === null) return '—'
+  // A day nobody worked on is zero, and it has to read as zero. The rounding-up below is for a real
+  // amount too small to print as 40 seconds — not for the absence of one, which a rounded-up "1 m" invents.
+  if (ms <= 0) return t('todo.stats.duration.minutes', { value: '0' })
   const minutes = ms / MINUTE_MS
   if (minutes < 60) return t('todo.stats.duration.minutes', { value: String(Math.max(1, Math.round(minutes))) })
   const hours = minutes / 60
