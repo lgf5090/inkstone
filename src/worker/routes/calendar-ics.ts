@@ -5,7 +5,7 @@ import { createMinuteBudget } from '../lib/rate-limit'
 import { readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
 import { CalendarStore } from '../calendar/store'
-import { parseEventInput } from '../calendar/validation'
+import { parseCalendarInput, parseEventInput } from '../calendar/validation'
 import {
   IcsParseError,
   icsExternalId,
@@ -32,19 +32,20 @@ calendarIcsRoutes.use('*', async (c, next) => {
 })
 
 calendarIcsRoutes.post('/import', async (c) => {
-  const body = await readJson<{ content?: unknown; calendarId?: unknown; defaultTimeZone?: unknown }>(
-    c,
-    IMPORT_BODY_LIMIT,
-  )
+  const body = await readJson<{
+    content?: unknown
+    calendarId?: unknown
+    newCalendar?: unknown
+    defaultTimeZone?: unknown
+  }>(c, IMPORT_BODY_LIMIT)
   if (typeof body.content !== 'string' || body.content.length === 0) {
     throw ApiError.badRequest('content is required')
   }
-  if (!isCalendarEntityId(body.calendarId)) throw ApiError.notFound('Calendar not found')
+  if (!isCalendarEntityId(body.calendarId) && !body.newCalendar) {
+    throw ApiError.badRequest('calendarId or newCalendar is required')
+  }
 
   const store = new CalendarStore(c.env.DB, c.get('userId'))
-  const calendar = (await store.listCalendars()).find((entry) => entry.id === body.calendarId)
-  if (!calendar) throw ApiError.notFound('Calendar not found')
-
   const defaultTimeZone = typeof body.defaultTimeZone === 'string' && body.defaultTimeZone
     ? body.defaultTimeZone
     : (await store.preferences()).timeZone
@@ -62,6 +63,26 @@ calendarIcsRoutes.post('/import', async (c) => {
       throw ApiError.badRequest(error.message)
     }
     throw new ApiError(502, 'internal', 'The calendar file could not be parsed')
+  }
+
+  let calendar
+  let created = false
+  if (isCalendarEntityId(body.calendarId)) {
+    calendar = (await store.listCalendars()).find((entry) => entry.id === body.calendarId)
+    if (!calendar) throw ApiError.notFound('Calendar not found')
+  } else {
+    const requested = body.newCalendar
+    if (!requested || typeof requested !== 'object' || Array.isArray(requested)) {
+      throw ApiError.badRequest('newCalendar must be an object')
+    }
+    const record = requested as Record<string, unknown>
+    const requestedName = typeof record.name === 'string' ? record.name : ''
+    const name = requestedName.trim() || parsed.name || 'Imported calendar'
+    calendar = await store.createCalendar(parseCalendarInput({
+      name,
+      ...(record.color === undefined ? {} : { color: record.color }),
+    }))
+    created = true
   }
 
   const inputs = await Promise.all(parsed.events.map(async (event) => {
@@ -84,6 +105,11 @@ calendarIcsRoutes.post('/import', async (c) => {
       imported += (await store.createEvents(chunk, 'upsert')).length
     }
   } catch {
+    if (created) {
+      await store.deleteCalendar(calendar.id, { mode: 'delete' }).catch((cleanupError) => {
+        console.warn('[inkstone] Calendar import cleanup failed:', cleanupError instanceof Error ? cleanupError.message : cleanupError)
+      })
+    }
     // The events are idempotent by (source, external id), so a retry of the same file is safe.
     throw new ApiError(
       500,
