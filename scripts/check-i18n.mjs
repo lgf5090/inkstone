@@ -288,9 +288,17 @@ const musicCatalogFiles = {
         [path.join(localeRoot, 'zh-CN-music.ts'), 'ZH_CN_MUSIC'],
     ],
 };
+const toolsCatalogFiles = {
+    en: [
+        [path.join(localeRoot, 'en-US-tools.ts'), 'EN_US_TOOLS'],
+    ],
+    zh: [
+        [path.join(localeRoot, 'zh-CN-tools.ts'), 'ZH_CN_TOOLS'],
+    ],
+};
 const catalogFragments = {
-    en: [noteTemplateBodyFiles.en, ...memoCatalogFiles.en, ...emailCatalogFiles.en, ...musicCatalogFiles.en],
-    zh: [noteTemplateBodyFiles.zh, ...memoCatalogFiles.zh, ...emailCatalogFiles.zh, ...musicCatalogFiles.zh],
+    en: [noteTemplateBodyFiles.en, ...memoCatalogFiles.en, ...emailCatalogFiles.en, ...musicCatalogFiles.en, ...toolsCatalogFiles.en],
+    zh: [noteTemplateBodyFiles.zh, ...memoCatalogFiles.zh, ...emailCatalogFiles.zh, ...musicCatalogFiles.zh, ...toolsCatalogFiles.zh],
 };
 // Chinese is legal in a zh locale catalog and nowhere else; every other file is held to English.
 // The subscription notifications are a catalog of their own because the worker writes them and must

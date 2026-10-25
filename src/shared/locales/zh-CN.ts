@@ -16,6 +16,7 @@ import { ZH_CN_EMAIL_RAW } from './zh-CN-email-raw';
 import { ZH_CN_EMAIL_RULES } from './zh-CN-email-rules';
 import { ZH_CN_EMAIL_TEMPLATES } from './zh-CN-email-templates';
 import { ZH_CN_MUSIC } from './zh-CN-music';
+import { ZH_CN_TOOLS } from './zh-CN-tools';
 export const ZH_CN_MESSAGES = {
     "template.kanban_sprint_board.name": "迭代看板",
     "template.kanban_sprint_board.description": "用看板排一个迭代：四条泳道，任务带勾选。",
@@ -10106,4 +10107,5 @@ console.log(\`Hello, \${name}!\`)
     ...ZH_CN_EMAIL_RULES,
     ...ZH_CN_EMAIL_TEMPLATES,
     ...ZH_CN_MUSIC,
+    ...ZH_CN_TOOLS,
 } as const satisfies Record<BaseMessageKey, string>;
