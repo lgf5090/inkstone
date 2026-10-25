@@ -100,6 +100,23 @@ describe('the to-do container', () => {
     expect(view.container.textContent).not.toContain(t('todo.error.load'))
   })
 
+  it('reads the listing again once the account day has rolled over', async () => {
+    stubBreakpoint(true)
+    await render()
+    const before = state.listCalls
+
+    // The server names the instant the account's today ends. Handing the store a deadline that has
+    // already passed is the midnight this effect exists for: without it the tab would keep showing
+    // yesterday's rows under today's heading until the reader reloaded by hand.
+    await act(async () => {
+      useTodos.setState({ dayEnd: Date.now() - 1_000 })
+      await Promise.resolve()
+    })
+    await act(async () => { await Promise.resolve() })
+
+    expect(state.listCalls, 'the day rolled over without a re-read').toBeGreaterThan(before)
+  })
+
   it('keeps the sidebar’s own order and words for the four cross-cutting views', async () => {
     stubBreakpoint(true)
     await render()

@@ -174,6 +174,29 @@ describe('sweepTaskReminders', () => {
     await sweepTaskReminders(env, NOW)
     expect((await notificationsOf(ALICE))[0]!.title.startsWith(EN_US_TODO_NOTIFY.title)).toBe(true)
   })
+
+  it('says a reminder is late when the tick that delivers it is more than an hour behind', async () => {
+    // A deployment that was down, or a cron that skipped: the sweep has no lower bound, so it delivers
+    // what it missed — but yesterday's nine o'clock arriving at two reads as fresh news unless it says
+    // otherwise. The reminder below came due an hour and a half before the fire.
+    const store = new AssistantStore(env.DB as D1Database, ALICE, env)
+    await store.saveSettings(normalizeAssistantSettings({ language: 'en-US' }))
+    await reminderTask(ALICE, { offsetMs: -90 * 60_000 })
+
+    await sweepTaskReminders(env, NOW)
+    expect((await notificationsOf(ALICE))[0]!.body).toContain(EN_US_TODO_NOTIFY.late)
+  })
+
+  it('does not call a reminder late for the ordinary minute of cron drift', async () => {
+    const store = new AssistantStore(env.DB as D1Database, ALICE, env)
+    await store.saveSettings(normalizeAssistantSettings({ language: 'en-US' }))
+    // Ten minutes late is the ordinary case on a cron that fires every minute and one that overlapped.
+    await reminderTask(ALICE, { offsetMs: -10 * 60_000 })
+
+    await sweepTaskReminders(env, NOW)
+    const body = (await notificationsOf(ALICE))[0]!.body
+    expect(body).not.toContain(EN_US_TODO_NOTIFY.late)
+  })
 })
 
 describe('the cron fire that carries a reminder', () => {

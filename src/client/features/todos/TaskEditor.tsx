@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronUp, Link2, ListTree, MessagesSquare, Plus, Sparkles, Star, Trash2, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, LayoutTemplate, Link2, ListTree, MessagesSquare, Plus, Sparkles, Star, Trash2, X } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { addDaysKey } from '../../lib/time'
@@ -21,9 +21,10 @@ import { SelectMenu } from '../../components/select-menu'
 import { TagPill } from '../../components/TagChip'
 import { renderMarkdown } from '../../lib/markdown/renderer'
 import { DatePicker } from '../../components/date-picker'
-import { Menu, Modal } from '../../components/overlay'
+import { Menu, Modal, prompt } from '../../components/overlay'
 import { api } from '../../lib/api'
 import { useUi } from '../../store/ui'
+import { useSession } from '../../store/session'
 import { useTodos, remindOffsetOf } from './store'
 import { TaskFinder } from './TaskFinder'
 import { dueValue, priorityDot, priorityLabel } from './todo-ui'
@@ -55,6 +56,10 @@ import {
   type TaskStep,
 } from '@shared/todos/model'
 import { isTaskDone } from '@shared/todos/status'
+import { TODO_TEMPLATE_MAX } from '@shared/constants'
+import type { TodoTemplate } from '@shared/types'
+import { TaskHistory } from './TaskHistory'
+import { draftToTemplate, templateToDraft } from './todo-templates'
 
 const PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const
 
@@ -147,6 +152,7 @@ function dayOfNthWeekday(year: number, month: number, weekday: number, nth: numb
 type RepeatSeries = Pick<RepeatRule, 'untilAt' | 'count' | 'produced' | 'paused' | 'fromCompletionDate' | 'excludedDays'>
 
 const NO_SERIES: RepeatSeries = {}
+const NO_TEMPLATES: TodoTemplate[] = []
 
 /** The series a row or a quick-add draft already carries; an absent limit reads as no limit. */
 function seriesOf(rule: RepeatRule | null | undefined): RepeatSeries {
@@ -246,6 +252,8 @@ export function TaskEditor() {
   const addStep = useTodos((state) => state.addStep)
   const updateStep = useTodos((state) => state.updateStep)
   const removeStep = useTodos((state) => state.removeStep)
+  const templates = useSession((state) => state.settings.todo?.templates) ?? NO_TEMPLATES
+  const updateSettings = useSession((state) => state.updateSettings)
 
   const existing = useMemo(() => {
     if (!draft?.id) return null
@@ -345,6 +353,8 @@ export function TaskEditor() {
   /** The account's tags this task does not wear yet — the menu's rows. */
   const tagRef = useRef<HTMLInputElement>(null)
   const [tagMenuOpen, setTagMenuOpen] = useState(false)
+  const templateRef = useRef<HTMLButtonElement>(null)
+  const [templateMenuOpen, setTemplateMenuOpen] = useState(false)
   const [steps, setSteps] = useState<TaskStep[]>([])
   const [stepInput, setStepInput] = useState('')
   /** One move at a time: two presses in flight would each resolve against the order before the other. */
@@ -768,6 +778,42 @@ export function TaskEditor() {
     }
   }
 
+  const applyTemplate = (template: TodoTemplate): void => {
+    const shape = templateToDraft(template)
+    setTitle(shape.title ?? '')
+    setNotes(shape.description ?? '')
+    setPriority(shape.priority ?? 'medium')
+    setListId(shape.listId ?? '')
+    setTagNames(shape.tags ?? [])
+    setEstimate(shape.timeEstimate ?? null)
+    setEstimateInvalid(false)
+    setSeed((value) => value + 1)
+    setSteps((shape.steps ?? []).map((text, index) => ({
+      id: `template-${index}`,
+      taskId: '',
+      text,
+      done: false,
+      position: index,
+      createdAt: Date.now(),
+    })))
+  }
+
+  const saveAsTemplate = async (): Promise<void> => {
+    const name = await prompt({
+      title: t('todo.template.save'),
+      description: t('todo.template.save_hint'),
+      defaultValue: title.trim(),
+      confirmLabel: t('todo.template.save_confirm'),
+    })
+    if (!name?.trim()) return
+    const template = draftToTemplate(
+      { title, description: notes, priority, listId: listId || null, timeEstimate: estimate },
+      { name: name.trim(), steps: steps.map((step) => step.text), tags: tagNames },
+    )
+    updateSettings({ todo: { templates: [template, ...templates].slice(0, TODO_TEMPLATE_MAX) } })
+    useUi.getState().toast({ title: t('todo.template.saved'), tone: 'success' })
+  }
+
   return (
     <Modal
       open={open}
@@ -781,9 +827,36 @@ export function TaskEditor() {
               <Trash2 size={14} />{t('todo.action.delete')}
             </Button>
           )}
+          {!existing && templates.length > 0 && (
+            <Button ref={templateRef} variant="ghost" size="sm" aria-haspopup="menu" aria-expanded={templateMenuOpen} onClick={() => setTemplateMenuOpen((value) => !value)}>
+              <LayoutTemplate size={14} />{t('todo.template.use')}
+            </Button>
+          )}
+          {existing && (
+            <Button variant="ghost" size="sm" onClick={() => { void saveAsTemplate() }}>
+              <LayoutTemplate size={14} />{t('todo.template.save')}
+            </Button>
+          )}
           <span className="ml-auto" />
           <Button variant="ghost" size="sm" onClick={close}>{t('todo.action.cancel')}</Button>
           <Button size="sm" disabled={!title.trim() || submitting || estimateInvalid} onClick={() => { void save() }}>{t('todo.action.save')}</Button>
+          <Menu
+            anchor={templateRef}
+            open={templateMenuOpen}
+            onClose={() => setTemplateMenuOpen(false)}
+            align="start"
+            width={240}
+            label={t('todo.template.use')}
+            items={templates.map((template) => ({
+              id: template.id,
+              label: template.name,
+              icon: <LayoutTemplate size={13} />,
+              onSelect: () => {
+                setTemplateMenuOpen(false)
+                applyTemplate(template)
+              },
+            }))}
+          />
         </div>
       )}
     >
@@ -1458,6 +1531,8 @@ export function TaskEditor() {
             </IconButton>
           </div>
         </div>
+
+        {existing && <TaskHistory key={existing.id} taskId={existing.id} />}
       </div>
     </Modal>
   )

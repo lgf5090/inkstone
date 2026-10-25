@@ -13,6 +13,33 @@ import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
 import { applyTodoSync, useTodos, type TaskListEntry } from '../src/client/features/todos/store'
 
+/**
+ * The store's own client, with the counts door answered.
+ *
+ * A delta that lands folds in a throttled counts refresh behind it, and this file has no server to
+ * answer that read: the failed fetch becomes an error toast, and a toast in a node environment reaches
+ * for a `window` the environment does not have — an unhandled rejection after the last case has
+ * finished. Everything else stays the real client, so the directory-reload case below still watches
+ * the paths the store asks for.
+ */
+vi.mock('../src/client/lib/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/client/lib/api')>()
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      todos: {
+        ...actual.api.todos,
+        counts: async () => ({
+          counts: { inbox: 0, today: 0, upcoming: 0, overdue: 0, all: 0, completed: 0, starred: 0, byList: {}, byTag: {} },
+          dayEnd: Date.now() + 3_600_000,
+          timezone: 'UTC',
+        }),
+      },
+    },
+  }
+})
+
 const USER = 'user-a'
 const OTHER = 'user-b'
 

@@ -39,6 +39,7 @@ import {
   MAX_LIST_NAME_CHARS,
   MAX_REMINDERS_PER_TASK,
   MAX_SINGLE_TIME_ENTRY_MS,
+  MAX_SNOOZE_MINUTES,
   MAX_STEP_TEXT_CHARS,
   MAX_TAGS_PER_TASK,
   MAX_TAG_NAME_CHARS,
@@ -46,8 +47,8 @@ import {
   MAX_TIME_ENTRY_AGE_DAYS,
   MAX_TIME_ESTIMATE_MS,
   MAX_TIMER_START_FUTURE_MS,
+  MIN_SNOOZE_MINUTES,
   REMIND_OFFSETS,
-  isSnoozeMinutes,
   isTaskBatchRequestOp,
   isTaskSort,
   isTaskStatsBucket,
@@ -57,6 +58,7 @@ import {
   normalizeTagNames,
   parseRepeatRule,
   remindAtFor,
+  snoozeMinutesOrNull,
   type RemindOffset,
   type RepeatRule,
   type TaskBatchDone,
@@ -82,6 +84,7 @@ import {
 } from '../todos/counters'
 import { addDays, countStatBuckets, isStatsDay, loadTodoStats, MAX_STATS_BUCKETS } from '../todos/stats'
 import { buildTodoExportCsv, buildTodoExportJson, collectExportTasks, TodoExportTooLarge } from '../todos/export-tasks'
+import { listTaskEvents } from '../todos/events'
 import { loadTrackedTotals, loadWorklog } from '../todos/worklog'
 import { focusRunProblem, focusTaskOwned, loadFocusStats, recordFocusRun } from '../todos/focus'
 import { isFocusRunKind } from '@shared/todos/model'
@@ -1521,8 +1524,11 @@ todoRoutes.post('/:id/snooze', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
   const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
-  if (!isSnoozeMinutes(body.minutes)) {
-    throw ApiError.badRequest('A snooze must be 10, 60, 540 or 1440 minutes.')
+  // Any whole number of minutes inside the range, not only the four the menu offers: the presets are
+  // a shortcut, and "in 45 minutes" is a real answer to a reminder that arrived at the wrong moment.
+  const minutes = snoozeMinutesOrNull(body.minutes)
+  if (minutes === null) {
+    throw ApiError.badRequest(`A snooze must be a whole number of minutes from ${MIN_SNOOZE_MINUTES} to ${MAX_SNOOZE_MINUTES}.`)
   }
   const expectedRev = requestRevision(c, body)
   const existing = await s.getTask(id)
@@ -1531,7 +1537,7 @@ todoRoutes.post('/:id/snooze', async (c) => {
   if ((existing.reminders?.length ?? 0) >= MAX_REMINDERS_PER_TASK) {
     throw ApiError.badRequest(`This task already has ${MAX_REMINDERS_PER_TASK} reminders.`)
   }
-  const task = await s.snoozeTask(id, Date.now() + body.minutes * 60_000, expectedRev)
+  const task = await s.snoozeTask(id, Date.now() + minutes * 60_000, expectedRev)
   if (!task) throw ApiError.notFound('Task not found')
   return c.json({ task, reminders: task.reminders ?? [] })
 })
@@ -1816,6 +1822,21 @@ todoRoutes.get('/:id', async (c) => {
   const task = await s.getTask(requiredId(c.req.param('id')))
   if (!task) throw ApiError.notFound('Task not found')
   return c.json({ task, steps: await s.listSteps(task.id) })
+})
+
+/**
+ * A task's history: its birth and every move between statuses, newest first.
+ *
+ * The row is read before its events so another account's id answers 404 rather than an empty history —
+ * "no events" and "not yours" must not be the same answer. The read is bounded by the reader's own
+ * table (`user_id` first), so the events of a task this account cannot see are unreachable even if an
+ * id were guessed.
+ */
+todoRoutes.get('/:id/events', async (c) => {
+  const s = store(c)
+  const task = await s.getTask(requiredId(c.req.param('id')))
+  if (!task) throw ApiError.notFound('Task not found')
+  return c.json({ events: await listTaskEvents(c.env.DB, c.get('userId'), task.id) })
 })
 
 todoRoutes.patch('/:id', async (c) => {

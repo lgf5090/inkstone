@@ -139,7 +139,7 @@ import {
   type PendingActionStatus,
 } from '@shared/assistant'
 import { parseScheduleSpec, getZonedParts, zonedTimeToUtc, type ScheduleSpec } from '@shared/assistant-schedule'
-import { dayBounds, localDate, localDayBounds } from '@shared/assistant-time'
+import { dayBounds, localDate } from '@shared/assistant-time'
 import { likePattern } from '@shared/markdown-utils'
 import type { Env } from '../env'
 import { tagScopePredicate } from '../db/rows'
@@ -147,34 +147,10 @@ import { ID_READ_BATCH, MAX_BATCH_STATEMENTS, chunkMarks, idChunks } from '../db
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
 import { parseStoredJson } from '../lib/json'
+import { splitByLocalDay } from '@shared/todos/day-split'
 import { decryptAssistantKey, decryptMcpOAuth, encryptAssistantKey, encryptMcpOAuth } from '../lib/crypto'
 import { curatedModelLimits } from './vendor-model-limits'
 import { toTimeEntry, todoTaskIsLive, type TodoTimeEntryRow } from '../todos/schema'
-
-/**
- * One interval cut at the account's own midnights: every segment lands on a single calendar day.
- *
- * The plan's R1-1 split, done at close rather than per tick: a night shift is two days' work, and
- * filing it whole against either one is the same mistake `completed_on` exists to prevent. The
- * boundaries come from the account's zone, not UTC, and every segment's `day` is the day its start
- * instant falls on. A zero-length interval is one segment on its day — a timer started and stopped
- * within one clock reading is still a row the client can point at.
- */
-function timeEntrySegments(
-  startAt: number,
-  endAt: number,
-  timeZone: string,
-): { day: string, startAt: number, endAt: number }[] {
-  const segments: { day: string, startAt: number, endAt: number }[] = []
-  let cursor = startAt
-  do {
-    const bounds = localDayBounds(timeZone, new Date(cursor))
-    const segmentEnd = Math.min(endAt, bounds.end)
-    segments.push({ day: localDate(cursor, timeZone), startAt: cursor, endAt: segmentEnd })
-    cursor = segmentEnd
-  } while (cursor < endAt)
-  return segments
-}
 
 /** A stored `source` the way the shared vocabulary reads it: an unknown word is the timer's own. */
 function entrySourceOrTimer(value: string): TodoTimeEntry['source'] {
@@ -6047,18 +6023,36 @@ export class AssistantStore {
     // The children are written in bulk: a create is one gesture, and before this each tag, step and
     // reminder cost its own round trip. A brand-new task has no links to clear, so its tags are
     // inserted and linked in one batch rather than going through the replace path's delete.
-    const tags = input.tags?.length
-      ? await this.linkTaskTags(id, normalizeTagNames(input.tags), false)
-      : []
     const steps = cleanStepTexts(input.steps ?? [])
-    if (steps.length) await this.stepInsertStatement(id, steps, at).run()
     const reminders = normalizeReminderTimes(
       input.reminders ?? (input.remindAt != null ? [input.remindAt] : []),
     )
-    if (reminders.length) await this.reminderInsertStatement(id, reminders, at).run()
-    // The dependency set is written after the row exists, because the walk that refuses a cycle has to
-    // be able to see this task as a node. A create names a set or names none; it never replaces one.
-    if (input.dependsOn?.length) await this.replaceTaskDeps(id, input.dependsOn)
+    let tags: TaskTag[] = []
+    try {
+      tags = input.tags?.length
+        ? await this.linkTaskTags(id, normalizeTagNames(input.tags), false)
+        : []
+      if (steps.length) await this.stepInsertStatement(id, steps, at).run()
+      if (reminders.length) await this.reminderInsertStatement(id, reminders, at).run()
+      // The dependency set is written after the row exists, because the walk that refuses a cycle has to
+      // be able to see this task as a node. A create names a set or names none; it never replaces one.
+      if (input.dependsOn?.length) await this.replaceTaskDeps(id, input.dependsOn)
+    } catch (error) {
+      try {
+        await this.db.batch([
+          this.db.prepare(`DELETE FROM todos_steps WHERE user_id = ?1 AND task_id = ?2`).bind(this.userId, id),
+          this.db.prepare(`DELETE FROM todos_tag_links WHERE user_id = ?1 AND task_id = ?2`).bind(this.userId, id),
+          this.db.prepare(`DELETE FROM todos_task_links WHERE user_id = ?1 AND task_id = ?2`).bind(this.userId, id),
+          this.db.prepare(`DELETE FROM todos_task_links WHERE user_id = ?1 AND depends_on_id = ?2`).bind(this.userId, id),
+          this.db.prepare(`DELETE FROM todos_reminders WHERE user_id = ?1 AND task_id = ?2`).bind(this.userId, id),
+          this.db.prepare(`DELETE FROM todos_task_events WHERE user_id = ?1 AND task_id = ?2`).bind(this.userId, id),
+          this.db.prepare(`DELETE FROM todos_tasks WHERE user_id = ?1 AND id = ?2`).bind(this.userId, id),
+        ])
+      } catch (rollbackError) {
+        console.error('[inkstone] task create rollback failed:', rollbackError)
+      }
+      throw error
+    }
     // One row read, dressed with the children this call just wrote. A dependency graph needs its
     // referenced statuses, so only that less common shape pays for the full read.
     const created = input.dependsOn?.length
@@ -6332,7 +6326,17 @@ export class AssistantStore {
       // done-only statistics (lead time, streak, `completionRate`) still refuse to count it: the column
       // says "this is when it left the plate", the status says why.
       const terminal = !isTaskOpen(patch.status)
-      const completedAt = terminal ? (existing.completedAt ?? at) : null
+      /**
+       * A row abandoned and then finished is finished *now*, not when it was abandoned.
+       *
+       * `existing.completedAt` is kept on any other terminal-to-terminal move because the row already
+       * holds the moment it left the plate and rewriting it would move a recorded fact. The one
+       * exception is `cancelled → done`: the abandonment's stamp is the moment the reader gave up, and
+       * carrying it into a completion files the work under a day it was not done on — the statistics
+       * count it in the wrong bucket, and the history records a completion before the reader finished.
+       */
+      const finishedAfterAbandoning = existing.status === 'cancelled' && patch.status === 'done'
+      const completedAt = terminal ? (finishedAfterAbandoning ? at : existing.completedAt ?? at) : null
       fields.push(['status', patch.status])
       fields.push(['completed_at', completedAt])
       // The day column follows the same transition: reopened clears it, a row that stopped being owed
@@ -7284,7 +7288,7 @@ export class AssistantStore {
     timeZone: string,
     at: number,
   ): { entries: TodoTimeEntry[], statements: D1PreparedStatement[] } {
-    const segments = timeEntrySegments(open.start_at, endAt, timeZone)
+    const segments = splitByLocalDay(open.start_at, endAt, timeZone)
     const statements: D1PreparedStatement[] = []
     const entries: TodoTimeEntry[] = []
     segments.forEach((segment, index) => {
@@ -7392,7 +7396,7 @@ export class AssistantStore {
     if (endAt <= startAt) throw ApiError.badRequest('A time entry must end after it starts.')
     const timeZone = (await this.getSettings()).timezone
     const at = Date.now()
-    const segments = timeEntrySegments(startAt, endAt, timeZone)
+    const segments = splitByLocalDay(startAt, endAt, timeZone)
     await this.assertDayBudget(segments)
     const statements: D1PreparedStatement[] = []
     const entries: TodoTimeEntry[] = []
@@ -9547,7 +9551,11 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // `archived_at` travels, unlike `deleted_at`: a row the reader put away is still theirs, and a restore
   // that dropped the mark would drop the whole reason for the shelf — every finished day would come
   // back onto today's board.
-  todos_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'start_at', 'project_id', 'list_id', 'icon', 'color', 'starred', 'repeat_rule', 'note_id', 'conversation_id', 'created_at', 'updated_at', 'completed_at', 'created_on', 'completed_on', 'time_estimate_ms', 'archived_at'],
+  // `position` travels for the same kind of reason and one more: it is the manual order the reader set
+  // by dragging, which nothing else in the row can reconstruct — a restore without it would hand back
+  // the account sorted by whatever the query happens to read first. Nullable, so a file written before
+  // the column was carried still lands, and the row it restores is simply unplaced.
+  todos_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'start_at', 'project_id', 'list_id', 'icon', 'color', 'starred', 'repeat_rule', 'note_id', 'conversation_id', 'created_at', 'updated_at', 'completed_at', 'created_on', 'completed_on', 'time_estimate_ms', 'archived_at', 'position'],
   // A list's `archived_at` and `parent_id` travel for the same reason the task's shelf mark does: the
   // first is why the collection is off the working page, and the second is which list it sits inside.
   // Drop either and a restored account is not merely untidy — an archived list reappears as a live one,

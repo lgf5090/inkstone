@@ -11,7 +11,7 @@
  * owns those names.
  */
 
-import { localDate } from '@shared/assistant-time'
+import { splitByLocalDay } from '@shared/todos/day-split'
 import {
   COUNTER_WINDOW_DAYS,
   MAX_COUNTER_DAY_AMOUNT,
@@ -285,18 +285,22 @@ export async function claimCounterTimer(
 }
 
 /**
- * Stops a habit's stopwatch and files what it ran onto one day.
+ * Stops a habit's stopwatch and files what it ran, one row per calendar day.
  *
  * The claim between the read and the write carries the answer: a call that no longer names the run in the
  * row filed nothing and says so, which is what keeps a late stop from stealing a run that began after it.
  * Reading the instant from the row rather than from the request is what keeps a slow device's clock out of
  * the ledger.
  *
- * The run lands on the day it began, in the account's zone, for the reason every other day column in this
- * schema is written at the write instead of derived at the read.
+ * A run that crossed a midnight is split there, through the same helper the task ledger uses: a night
+ * shift's small hours belong to the day they were worked, and filing the whole span against the day it
+ * began would credit yesterday with today's work. The days are the account's own, for the reason every
+ * other day column in this schema is written at the write instead of derived at the read.
  *
- * `filed` is null when nothing was written — the run was already stopped, the clock went backwards, or the
- * run was shorter than a second — so no caller reports a day it did not touch.
+ * `days` lists every day the run touched, oldest first, and is empty when nothing was written — the run
+ * was already stopped, the clock went backwards, or the run was shorter than a second — so no caller
+ * reports a day it did not touch. `filed` is the first of them, kept for the one caller that asks about
+ * a single day.
  */
 export async function stopCounterTimer(
   db: D1Database,
@@ -304,23 +308,33 @@ export async function stopCounterTimer(
   id: string,
   now: number,
   timezone: string,
-): Promise<{ counter: TodoCounter, filed: CounterDay | null } | null> {
+): Promise<{ counter: TodoCounter, filed: CounterDay | null, days: CounterDay[] } | null> {
   const existing = await getCounter(db, userId, id)
   if (!existing) return null
-  if (existing.runningSince === null) return { counter: existing, filed: null }
+  if (existing.runningSince === null) return { counter: existing, filed: null, days: [] }
   const startedAt = existing.runningSince
   if (!await claimCounterTimer(db, userId, id, startedAt, now)) {
     const current = await getCounter(db, userId, id)
-    return current ? { counter: current, filed: null } : null
+    return current ? { counter: current, filed: null, days: [] } : null
   }
   // Whole seconds, floored at none: a clock that went backwards between the two calls did not run a
   // negative habit. The day's own ceiling is what catches a timer nobody stopped.
   const seconds = Math.max(0, Math.floor((now - startedAt) / 1000))
-  const day = localDate(startedAt, timezone)
-  const amount = seconds > 0 ? await addCounterTick(db, userId, id, day, seconds) : 0
+  const days: CounterDay[] = []
+  if (seconds > 0) {
+    // A run that crossed the account's midnight is two days' work, the same way a task interval is:
+    // filing it whole against the day it began would credit a night shift's small hours to yesterday.
+    // Each segment is written through the same tick door as a tap, so the day's ceiling applies to it.
+    for (const segment of splitByLocalDay(startedAt, now, timezone)) {
+      const length = Math.floor((segment.endAt - segment.startAt) / 1000)
+      if (length <= 0) continue
+      const amount = await addCounterTick(db, userId, id, segment.day, length)
+      if (amount > 0) days.push({ day: segment.day, amount: length })
+    }
+  }
   const counter = await getCounter(db, userId, id)
   if (!counter) throw new Error(`The habit ${id} held a run but could not be read back.`)
-  return { counter, filed: amount > 0 ? { day, amount } : null }
+  return { counter, filed: days[0] ?? null, days }
 }
 
 /**

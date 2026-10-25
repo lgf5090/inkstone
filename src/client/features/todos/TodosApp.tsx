@@ -114,6 +114,7 @@ export function TodosApp() {
   const timezone = useTodos((state) => state.timezone)
   const dueFrom = useTodos((state) => state.dueFrom)
   const dueTo = useTodos((state) => state.dueTo)
+  const dayEnd = useTodos((state) => state.dayEnd)
   const assistantDockOpen = useUi((state) => state.assistantDockOpen)
   const todoNavWidth = useUi((state) => state.todoNavWidth)
   const setLayout = useUi((state) => state.setLayout)
@@ -136,6 +137,8 @@ export function TodosApp() {
   const [moreOpen, setMoreOpen] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
   const lastAssistantScreen = useRef<string | null>(null)
+  /** The last end-of-day deadline this tab has already acted on; see the rollover effect below. */
+  const lastRolledDayEnd = useRef(0)
   const assistantScreen = `${view}|${listId ?? ''}|${tagId ?? ''}|${query}|${dueFrom ?? ''}|${dueTo ?? ''}|${editorOpen ? draft?.id ?? 'new' : ''}`
 
   useEffect(() => {
@@ -175,6 +178,39 @@ export function TodosApp() {
   }, [assistantScreen, completed, draft, editorOpen, dueFrom, dueTo, listId, lists, query, tagId, tags, tasks, timezone, view])
 
   useAssistantToolRefresh(TODO_WRITE_TOOLS, () => useTodos.getState().load())
+
+  // The account's "today" ends at an instant the server names (`dayEnd`), and a tab left open across
+  // it would keep yesterday's rows under today's heading and yesterday's numbers on the badges until
+  // something read again. So the deadline arms one timer, and waking the tab re-checks it — a machine
+  // that slept through midnight never fires the timer it set. Either way the answer carries the next
+  // `dayEnd`, which re-arms this effect for the day after.
+  useEffect(() => {
+    if (!dayEnd) return
+    // One roll per named deadline: a read that fails leaves `dayEnd` where it was, and re-entering
+    // this effect for the same value would ask again and again for a day that already ended.
+    if (dayEnd <= lastRolledDayEnd.current) return
+    let cancelled = false
+    const roll = (): void => {
+      if (cancelled || dayEnd <= lastRolledDayEnd.current) return
+      lastRolledDayEnd.current = dayEnd
+      void useTodos.getState().load()
+    }
+    const remaining = dayEnd - Date.now()
+    if (remaining <= 0) {
+      roll()
+      return
+    }
+    const timer = window.setTimeout(roll, remaining)
+    const onVisibility = (): void => {
+      if (document.visibilityState === 'visible') roll()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [dayEnd])
 
   const openList = (target: { listId?: string; tagId?: string }): void => {
     setPage('main')

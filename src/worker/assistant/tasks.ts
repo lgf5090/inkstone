@@ -46,7 +46,20 @@ interface DueReminder {
   task_id: string
   title: string
   due_at: number | null
+  /** The instant this reminder was asked for, so a late delivery can say it is one. */
+  remind_at: number
 }
+
+/**
+ * How late a reminder may be and still read as "now".
+ *
+ * The sweep has no lower bound: a deployment that was down for a day delivers everything it missed on
+ * the next tick, which is the right behaviour — a reminder nobody received is worse than a late one.
+ * What is not right is delivering yesterday's nine o'clock as if it were a fresh notice, so anything
+ * more than an hour past its instant says so. An hour is the width of the ordinary cron hiccup, and a
+ * reader who is told "late" for a two-minute delay would stop trusting the word.
+ */
+export const REMINDER_LATE_MS = 60 * 60_000
 
 /** The catalog for the account's own language; the sweep has no request to ask. */
 function copyFor(language: AssistantSettings['language']) {
@@ -76,7 +89,7 @@ export async function sweepTaskReminders(
   waitUntil?: WaitUntil,
 ): Promise<TaskReminderSweepResult> {
   const { results } = await env.DB.prepare(
-    `SELECT r.user_id, r.id, r.task_id, t.title, t.due_at
+    `SELECT r.user_id, r.id, r.task_id, r.remind_at, t.title, t.due_at
        FROM todos_reminders r
        JOIN todos_tasks t ON t.user_id = r.user_id AND t.id = r.task_id
       WHERE r.fired_at IS NULL AND r.remind_at <= ?1 AND ${sqlTaskOpen('t.status')} AND ${taskLive('t')}
@@ -117,9 +130,12 @@ export async function sweepTaskReminders(
       const settings = normalizeAssistantSettings(await store.getSettings())
       const copy = copyFor(settings.language)
       const body = row.due_at === null ? copy.noDue : fill(copy.due, { when: whenText(row.due_at, settings.timezone) })
+      // A backlog delivered in one tick is honest about being one: without this, a reminder set for
+      // nine o'clock that arrives at two in the afternoon reads as a task that has just come due.
+      const late = now - row.remind_at > REMINDER_LATE_MS ? ` ${copy.late}` : ''
       const notification = await store.createNotification({
         title: `${copy.title} · ${row.title}`,
-        body,
+        body: `${body}${late}`,
         // The shape every task pointer has: the app's name, a colon, the id. The notification centre
         // reads it as "this is a task of ours" and opens it; anything else stays an expandable notice.
         link: `todo:${row.task_id}`,

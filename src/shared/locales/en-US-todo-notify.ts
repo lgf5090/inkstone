@@ -10,6 +10,12 @@ export const EN_US_TODO_NOTIFY = {
   title: 'Task reminder',
   due: 'Due {when}',
   noDue: 'A reminder for this task',
+  /**
+   * Appended when the reminder is more than an hour late — a deployment that was down, a cron that
+   * skipped. The reader needs to know the notice is not a fresh one, or a reminder for nine o'clock
+   * arriving at two reads as a task that has just become due.
+   */
+  late: '(delivered late)',
   digestSummary: '{today} due today, {overdue} overdue',
   digestOverdue: 'Overdue',
   digestToday: 'Today',

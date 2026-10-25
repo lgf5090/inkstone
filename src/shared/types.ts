@@ -664,6 +664,28 @@ export interface SavedTodoFilter {
 }
 
 /**
+ * A task's shape, kept under a name so the same kind of work can be started again.
+ *
+ * It holds what a template is *for* — the words, the list, the tags, the steps, the estimate — and
+ * deliberately none of what makes one occasion: no due date, no start date, no plan day and no
+ * reminders. A template that carried yesterday's date would file today's work in the past, which is the
+ * one mistake a template exists to avoid. `TaskDraft` is what it turns into, and that function is a
+ * pure one in `features/todos/todo-templates.ts` so the mapping can be read on its own.
+ */
+export interface TodoTemplate {
+  id: string
+  name: string
+  title: string
+  description: string
+  priority: TodoTask['priority']
+  listId: string | null
+  tags: string[]
+  steps: string[]
+  /** What the work is planned to take, in milliseconds, or null for no plan. */
+  timeEstimate: number | null
+}
+
+/**
  * The to-do app's own preferences.
  *
  * `defaultRemind` is a rule for tasks not yet written, so it stores an offset rather than an instant:
@@ -703,6 +725,14 @@ export interface TodoSettings {
   focus?: TodoFocusSettings
   /** The finish-day page's inputs: the planned length of a working day, and whether the page is offered. */
   workday?: TodoWorkdaySettings
+  /**
+   * The shapes kept under a name, offered when a task is created.
+   *
+   * Optional for the same reason {@link savedFilters} is: the merge rebuilds this list from the stored
+   * blob, so a settings object from before the field reads as no templates rather than as a missing
+   * key the panel would then fail to save.
+   */
+  templates?: TodoTemplate[]
 }
 
 /** How a focus session is measured. See `TODO_FOCUS_STRATEGIES` for what each one means. */

@@ -35,7 +35,7 @@ import {
   TODO_WORKDAY_ESTIMATE_RANGE,
 } from '@shared/constants'
 import { REMIND_OFFSETS, type RemindOffset } from '@shared/todos/model'
-import type { SavedTodoFilter, TodoFocusSettings, TodoFocusStrategy, TodoWorkdaySettings } from '@shared/types'
+import type { SavedTodoFilter, TodoFocusSettings, TodoFocusStrategy, TodoTemplate, TodoWorkdaySettings } from '@shared/types'
 import { t, translateApiError } from '../../lib/i18n'
 import { api, ApiError } from '../../lib/api'
 import { randomLocalId } from '../../lib/random-id'
@@ -456,6 +456,7 @@ export function TodoSettings() {
         />
       </SettingRow>
       <SavedFiltersRow />
+      <TodoTemplatesRow />
       <FeedSettings />
       <MailToTaskSettings />
       <TodoImportRow />
@@ -548,6 +549,9 @@ function CountField({ label, value, min, max, onChange }: {
 /** The empty list a settings object without the field reads as; one instance, so the selector is stable. */
 const NO_SAVED_FILTERS: SavedTodoFilter[] = []
 
+/** The same for the kept task shapes, for the same reason. */
+const NO_TEMPLATES: TodoTemplate[] = []
+
 /**
  * The saved filter lines: a name, the line itself, and what is already kept.
  *
@@ -636,6 +640,48 @@ function SavedFiltersRow() {
           </ul>
         )}
       </div>
+    </SettingRow>
+  )
+}
+
+/**
+ * The task shapes the account has kept.
+ *
+ * Saving one happens where the task is — the editor's footer — because that is where the shape is on
+ * screen. This row is the other half: a template nobody can delete is a menu that only grows, so the
+ * list is shown here with the one action that keeps it honest. There is no "add" field: a template is a
+ * task, and typing one here would be a second way to describe a task that the editor already describes.
+ */
+function TodoTemplatesRow() {
+  const templates = useSession((state) => state.settings.todo.templates) ?? NO_TEMPLATES
+  const updateSettings = useSession((state) => state.updateSettings)
+  const remove = (id: string): void => {
+    updateSettings({ todo: { templates: templates.filter((entry) => entry.id !== id) } })
+  }
+  return (
+    <SettingRow
+      title={t('settings.todo_templates')}
+      description={t('settings.todo_templates_hint')}
+    >
+      {templates.length === 0 ? (
+        <p className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('settings.todo_templates_empty')}</p>
+      ) : (
+        <ul aria-label={t('settings.todo_templates')} className="flex w-full max-w-[460px] flex-col gap-1">
+          {templates.map((entry) => (
+            <li key={entry.id} className="flex min-h-8 items-center gap-2 rounded-[var(--r-sm)] border border-[var(--border-subtle)] px-2">
+              <span className="min-w-0 shrink-0 truncate text-[length:var(--text-12)] text-[var(--text-primary)]">{entry.name}</span>
+              <span className="min-w-0 flex-1 truncate text-[length:var(--text-11)] text-[var(--text-quaternary)]">{entry.title}</span>
+              <IconButton
+                label={t('todo.template.delete', { name: entry.name })}
+                size="xs"
+                onClick={() => remove(entry.id)}
+              >
+                <X size={12} />
+              </IconButton>
+            </li>
+          ))}
+        </ul>
+      )}
     </SettingRow>
   )
 }

@@ -870,6 +870,15 @@ describe('snooze', () => {
   const AT = Date.parse('2026-10-20T09:00:00Z')
   const before = Date.now()
 
+  // Each case spends a caller of its own: the write budget is module-wide and keyed by whoever is
+  // signed in, and these cases must not eat into what the task cases above already spent.
+  let caller = 0
+
+  beforeEach(() => {
+    caller += 1
+    mocks.userId = `snoozecase${String(caller).padStart(17, '0')}`
+  })
+
   it('appends a reminder and keeps the ones the task already had', async () => {
     const task = await create({ title: 'Snooze me', reminders: [AT] })
 
@@ -886,11 +895,32 @@ describe('snooze', () => {
     expect(body.task.reminders).toEqual(body.reminders)
   })
 
-  it('refuses a duration that is not one of the four steps', async () => {
+  it('takes a length nobody put on the menu', async () => {
+    const task = await create({ title: 'Snooze me for a while' })
+    const before = Date.now()
+
+    const response = await send('POST', `/${task.id}/snooze`, { minutes: 45 })
+    expect(response.status).toBe(200)
+    const body = await json<{ reminders: number[] }>(response)
+    const added = body.reminders.at(-1)!
+    // The four presets are a shortcut; the route's own range is what a custom length is judged by.
+    expect(added).toBeGreaterThanOrEqual(before + 45 * 60_000)
+    expect(added).toBeLessThanOrEqual(Date.now() + 45 * 60_000)
+  })
+
+  it('refuses a length outside the range, and one that is not a whole minute', async () => {
     const task = await create({ title: 'One' })
-    expect((await send('POST', `/${task.id}/snooze`, { minutes: 30 })).status).toBe(400)
+    expect((await send('POST', `/${task.id}/snooze`, { minutes: 0 })).status).toBe(400)
+    expect((await send('POST', `/${task.id}/snooze`, { minutes: 10_081 })).status).toBe(400)
+    expect((await send('POST', `/${task.id}/snooze`, { minutes: 1.5 })).status).toBe(400)
     expect((await send('POST', `/${task.id}/snooze`, { minutes: '10' })).status).toBe(400)
     expect((await send('POST', `/${task.id}/snooze`, { until: new Date().toISOString() })).status).toBe(400)
+  })
+
+  it('accepts the edges of the range', async () => {
+    const task = await create({ title: 'Edges' })
+    expect((await send('POST', `/${task.id}/snooze`, { minutes: 1 })).status).toBe(200)
+    expect((await send('POST', `/${task.id}/snooze`, { minutes: 10_080 })).status).toBe(200)
   })
 
   it('refuses a finished task and a sixth reminder', async () => {
@@ -1007,6 +1037,12 @@ describe('calendar subscriptions', () => {
 })
 
 describe('another account', () => {
+  // A caller of its own for the same reason the blocks above name one: the shared account has spent
+  // its minute by the time these cases run, and a 429 here would read as a scoping failure.
+  beforeEach(() => {
+    mocks.userId = 'anotheracct0000000000000'
+  })
+
   it('cannot read or write a task by its id', async () => {
     const task = await create({ title: 'Mine' })
     mocks.userId = OTHER
@@ -1014,8 +1050,63 @@ describe('another account', () => {
     expect((await send('GET', `/${task.id}`)).status).toBe(404)
     expect((await send('PATCH', `/${task.id}`, { title: 'Stolen' })).status).toBe(404)
     expect((await send('DELETE', `/${task.id}`)).status).toBe(404)
+    expect((await send('GET', `/${task.id}/events`)).status).toBe(404)
     const page = await json<{ tasks: TodoTask[] }>(await send('GET', ''))
     expect(page.tasks).toEqual([])
+  })
+})
+
+describe('a task’s history', () => {
+  interface EventAnswer {
+    id: string
+    kind: 'born' | 'status'
+    fromStatus: string | null
+    toStatus: string
+    at: number
+  }
+
+  // Each case spends a caller of its own: the write budget is module-wide and keyed by whoever is
+  // signed in, and these cases must not eat into what the task cases above already spent.
+  let caller = 0
+
+  beforeEach(() => {
+    caller += 1
+    mocks.userId = `historycase${String(caller).padStart(15, '0')}`
+  })
+
+  it('reads back the birth and each move, newest first', async () => {
+    const task = await create({ title: 'Water the plants' })
+    const done = await send('PATCH', `/${task.id}`, { status: 'done' })
+    expect(done.status).toBe(200)
+    const reopened = await send('PATCH', `/${task.id}`, { status: 'todo' })
+    expect(reopened.status).toBe(200)
+
+    const response = await send('GET', `/${task.id}/events`)
+    expect(response.status).toBe(200)
+    const { events } = await json<{ events: EventAnswer[] }>(response)
+
+    // Three rows: the birth, the completion and the reopen — the same rows the flow replay reads.
+    expect(events.map((event) => [event.kind, event.fromStatus, event.toStatus])).toEqual([
+      ['status', 'done', 'todo'],
+      ['status', 'todo', 'done'],
+      ['born', null, 'todo'],
+    ])
+    // Newest first, which is the order a panel prints them in.
+    const stamps = events.map((event) => event.at)
+    expect([...stamps].sort((left, right) => right - left)).toEqual(stamps)
+  })
+
+  it('answers an empty history for a task that has never moved', async () => {
+    const task = await create({ title: 'Only born' })
+    const { events } = await json<{ events: EventAnswer[] }>(await send('GET', `/${task.id}/events`))
+    // A birth is written with the row, so even an untouched task has one row rather than none.
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ kind: 'born', fromStatus: null, toStatus: 'todo' })
+  })
+
+  it('answers 404 for a task that does not exist', async () => {
+    const missing = await send('GET', '/00000000000000000000000000/events')
+    expect(missing.status).toBe(404)
   })
 })
 

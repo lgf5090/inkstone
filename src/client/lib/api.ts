@@ -153,10 +153,10 @@ import type {
   SavedMessage,
 } from '@shared/assistant'
 import type {
-  SnoozeMinutes,
   TaskBatchRequestOp,
   TaskBatchResult,
   TaskCounts,
+  TaskEvent,
   TaskList,
   TaskPage,
   TaskStatsBucket,
@@ -1823,6 +1823,13 @@ export const api = {
     exportCsv: () => request<string>('/api/todos/export?format=csv'),
     get: (id: string) => request<{ task: TodoTask, steps: TaskStep[] }>(`/api/todos/${id}`),
     /**
+     * One task's history — its birth and every move between statuses, newest first.
+     *
+     * Read when the panel's history section is opened rather than with the task, so a panel that is
+     * opened to change a title does not pay for a table nobody asked to see.
+     */
+    events: (id: string) => request<{ events: TaskEvent[] }>(`/api/todos/${id}/events`),
+    /**
      * A new task.
      *
      * `idempotencyKey` is what a replay of a queued create sends: the row the queue already holds is
@@ -1874,7 +1881,7 @@ export const api = {
      * The earlier reminders stay — a snooze is a second chance, not a cancellation. `rev` is the same
      * conditional guard a pick carries, so a snooze replayed from a row that moved since is refused.
      */
-    snooze: (id: string, minutes: SnoozeMinutes, rev?: number) =>
+    snooze: (id: string, minutes: number, rev?: number) =>
       request<{ task: TodoTask, reminders: number[] }>(`/api/todos/${id}/snooze`, {
         method: 'POST',
         body: { minutes },

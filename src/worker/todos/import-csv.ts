@@ -13,6 +13,7 @@
 
 import { parseLocalTime } from '@shared/assistant-time'
 import { normalizeTagNames, type TaskPriority } from '@shared/todos/model'
+import { columnFor, presetFor, priorityFor, type TodoImportColumn } from '@shared/todos/import-presets'
 
 /** The most task rows one import may carry. */
 export const MAX_TODO_CSV_ROWS = 1000
@@ -72,35 +73,14 @@ export interface TodoCsvParseResult {
   errors: TodoCsvRowError[]
 }
 
-type Column = 'title' | 'notes' | 'due' | 'priority' | 'list' | 'tags' | 'completed'
-
-/** The header spellings the importer understands. Unknown columns are ignored. */
-const COLUMN_NAMES: Record<string, Column> = {
-  title: 'title',
-  notes: 'notes',
-  description: 'notes',
-  due: 'due',
-  priority: 'priority',
-  list: 'list',
-  tags: 'tags',
-  completed: 'completed',
-}
-
-/** What each priority spelling means; anything else keeps the app's default. */
-const PRIORITIES: Record<string, TaskPriority> = {
-  urgent: 'urgent',
-  high: 'high',
-  medium: 'medium',
-  low: 'low',
-  p1: 'urgent',
-  p2: 'high',
-  p3: 'medium',
-  p4: 'low',
-  '1': 'urgent',
-  '2': 'high',
-  '3': 'medium',
-  '4': 'low',
-}
+/**
+ * The header vocabulary is a preset's, not this file's.
+ *
+ * A generic table here would read a Todoist export with every priority inverted — its `4` is the most
+ * urgent and this app's `4` was the least — so the header row picks the vocabulary before any cell is
+ * read. `shared/todos/import-presets.ts` holds the three tables and the rule that chooses between them.
+ */
+type Column = TodoImportColumn
 
 /** The words a `completed` cell may use for "yes"; every other value is "no". */
 const TRUTHY = new Set(['1', 'true', 'yes', 'y', 'done', 'completed', 'x'])
@@ -186,9 +166,6 @@ function readRecords(text: string): { records: CsvRecord[]; errors: TodoCsvRowEr
   return { records, errors }
 }
 
-function readPriority(value: string): TaskPriority {
-  return PRIORITIES[value.trim().toLowerCase()] ?? 'medium'
-}
 
 /**
  * Reads one CSV file into importable rows.
@@ -202,9 +179,10 @@ export function parseTodoCsv(text: string, timeZone: string): TodoCsvParseResult
   const header = records.shift()
   if (!header) throw new TodoCsvError('The CSV is empty.')
 
+  const preset = presetFor(header.fields)
   const columns = new Map<Column, number>()
   header.fields.forEach((name, index) => {
-    const column = COLUMN_NAMES[name.trim().toLowerCase()]
+    const column = columnFor(preset, name)
     if (column && !columns.has(column)) columns.set(column, index)
   })
   if (!columns.has('title')) throw new TodoCsvError('The CSV needs a title column.')
@@ -236,7 +214,7 @@ export function parseTodoCsv(text: string, timeZone: string): TodoCsvParseResult
       title,
       notes: cell('notes'),
       dueAt,
-      priority: readPriority(cell('priority')),
+      priority: priorityFor(preset, cell('priority')),
       listName: cell('list').trim() || null,
       tags: normalizeTagNames(cell('tags').split(';')),
       completed: columns.has('completed') ? TRUTHY.has(cell('completed').trim().toLowerCase()) : null,

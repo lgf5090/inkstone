@@ -30,8 +30,8 @@ import type { SavedTodoFilter } from '@shared/types'
 import type { MessageKey } from '@shared/locales/en-US'
 import {
   MAX_SINGLE_TIME_ENTRY_MS,
-  isSnoozeMinutes,
   remindOffsetForDelta,
+  snoozeMinutesOrNull,
   toggledStatus,
   type RemindOffset,
   type SnoozeMinutes,
@@ -294,7 +294,8 @@ interface TodosState {
   /** Pick a task into an account-zone day, or clear the pick with `null`; re-reads the listing after. */
   planTask: (id: string, date: string | null) => Promise<TodoTask | null>
   /** Append one reminder `minutes` from now; the task's existing reminders stay. */
-  snoozeTask: (id: string, minutes: SnoozeMinutes) => Promise<TodoTask | null>
+  /** Any whole number of minutes the route accepts; the four presets are a menu, not the range. */
+  snoozeTask: (id: string, minutes: number) => Promise<TodoTask | null>
   /**
    * Start the account's one running interval on this task, and move the row to `in_progress` with it.
    *
@@ -604,7 +605,8 @@ type TodoOutboxPayload = {
   /** The revision the write was made against, when the row had one. */
   rev?: number
   date?: string | null
-  minutes?: SnoozeMinutes
+  /** Any whole number of minutes the snooze route accepts; the four presets are a menu, not a range. */
+  minutes?: number
   /** The instant a queued timer gesture was pressed at, in the reader's own clock. */
   at?: number
 }
@@ -800,8 +802,8 @@ export async function replayTodoOutboxItem(
         return { status: 'done' }
       }
       case 'snooze': {
-        const minutes = payload.minutes
-        if (!isSnoozeMinutes(minutes)) {
+        const minutes = snoozeMinutesOrNull(payload.minutes)
+        if (minutes === null) {
           await localDb.markOutboxFailure(item.id, item.writeId, 'invalid snooze duration').catch(() => {})
           return { status: 'retry' }
         }
@@ -2039,12 +2041,18 @@ export const useTodos = create<TodosState>((set, get) => ({
         // the undo has to hand back are read out of it rather than assumed.
         const deleted = result.done.map((entry) => entry.id)
         offerUndo(set, get, t('todo.toast.batch_deleted', { count: deleted.length }), async () => {
-          for (const id of deleted) {
-            try {
-              await api.todos.restore(id)
-            } catch (error) {
-              throw new Error(`A deleted task could not be restored: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
-            }
+          // Every id is asked for at once, and the answers are counted rather than thrown away: the
+          // restore door is one row at a time, so a loop that stopped at the first failure left the
+          // rest in the trash with a single toast that named none of them. What a partial undo owes
+          // the reader is the count of what came back and what did not.
+          const outcomes = await Promise.allSettled(deleted.map((id) => api.todos.restore(id)))
+          const restored = outcomes.filter((outcome) => outcome.status === 'fulfilled').length
+          const failed = outcomes.length - restored
+          if (failed > 0) {
+            useUi.getState().toast({
+              title: t('todo.toast.restore_partial', { restored, failed }),
+              tone: 'danger',
+            })
           }
           await get().load()
         })

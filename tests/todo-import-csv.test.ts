@@ -146,6 +146,57 @@ describe('the CSV reader', () => {
   })
 })
 
+describe('a file from another app', () => {
+  it('reads a Todoist export with its own headers and its own priority scale', () => {
+    // Todoist's `4` is the most urgent and this app's is the least, so a generic read would invert
+    // every row; `CONTENT` is its title and `DESCRIPTION` its note, the other way round from TickTick.
+    const csv = 'TYPE,CONTENT,DESCRIPTION,PRIORITY,DUE DATE,LABELS,PROJECT\n'
+      + 'task,Ship the release,Check the changelog,4,2027-03-01,work;release,Inkstone\n'
+      + 'task,Water the plants,,1,2027-03-02,home,Personal\n'
+
+    const parsed = parseTodoCsv(csv, ZONE)
+
+    expect(parsed.errors).toEqual([])
+    expect(parsed.rows).toHaveLength(2)
+    expect(parsed.rows[0]).toMatchObject({
+      title: 'Ship the release',
+      notes: 'Check the changelog',
+      priority: 'urgent',
+      listName: 'Inkstone',
+      tags: ['work', 'release'],
+      dueAt: endOfDay('2027-03-01'),
+    })
+    expect(parsed.rows[1]).toMatchObject({ priority: 'low', listName: 'Personal' })
+  })
+
+  it('reads a TickTick export, where Content is the note and 5 is the highest', () => {
+    const csv = 'Title,Content,Priority,Due Date,Tags,List\n'
+      + 'Write the report,Include the numbers,5,2027-04-01,work,Office\n'
+      + 'Call the bank,,3,2027-04-02,,Personal\n'
+
+    const parsed = parseTodoCsv(csv, ZONE)
+
+    expect(parsed.errors).toEqual([])
+    expect(parsed.rows[0]).toMatchObject({
+      title: 'Write the report',
+      notes: 'Include the numbers',
+      priority: 'high',
+      listName: 'Office',
+      tags: ['work'],
+    })
+    // TickTick's middle step is 3, not 2; its scale has gaps and a generic read would call this medium
+    // by accident rather than by the table.
+    expect(parsed.rows[1]).toMatchObject({ priority: 'medium', listName: 'Personal' })
+  })
+
+  it('keeps reading a hand-made file with the generic vocabulary', () => {
+    // No vendor signature, so the generic table still applies — including its own priority spellings.
+    const csv = 'Title,Notes,Priority,List,Tags\nPlain row,A note,P1,Work,tag\n'
+    const parsed = parseTodoCsv(csv, ZONE)
+    expect(parsed.rows[0]).toMatchObject({ title: 'Plain row', notes: 'A note', priority: 'urgent', listName: 'Work' })
+  })
+})
+
 describe('the CSV import ceilings', () => {
   it('names a 1000-row and a 2 MiB ceiling', () => {
     expect(MAX_TODO_CSV_ROWS).toBe(1000)

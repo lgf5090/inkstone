@@ -297,6 +297,7 @@ describe('a right-clicked row', () => {
       t('todo.status.mark_todo'),
       t('todo.layout.group.priority'),
       ...SNOOZE_MINUTES.map((minutes) => snoozeLabel(minutes)),
+      t('todo.snooze.custom'),
     ])
 
     press(menuItem(t('todo.status.mark_todo')), 'the status row')
@@ -365,7 +366,7 @@ describe('a right-clicked row', () => {
     rightClick()
 
     expect(menu(), 'the right-click opened no menu').not.toBeNull()
-    expect(menuLabels()).toEqual([...stripRows(), t('todo.status.mark_in_progress'), t('todo.layout.group.priority'), ...SNOOZE_MINUTES.map((minutes) => snoozeLabel(minutes))])
+    expect(menuLabels()).toEqual([...stripRows(), t('todo.status.mark_in_progress'), t('todo.layout.group.priority'), ...SNOOZE_MINUTES.map((minutes) => snoozeLabel(minutes)), t('todo.snooze.custom')])
     expect(menuLabels()).not.toContain(t('todo.date.clear'))
   })
 

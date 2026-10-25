@@ -42,7 +42,7 @@ import { toPlainText } from '@shared/markdown-utils'
 import { formatTaskDuration } from '@shared/todos/duration'
 import { isTaskDone, isTaskOpen } from '@shared/todos/status'
 import { taskIsBlocked } from '@shared/todos/model'
-import type { SnoozeMinutes, TaskList, TodoTask } from '@shared/todos/model'
+import type { TaskList, TodoTask } from '@shared/todos/model'
 
 /** How long a finger has to stay down before the row joins a selection instead of opening. */
 const LONG_PRESS_MS = 500
@@ -699,7 +699,7 @@ export const TaskCard = memo(function TaskCard({ task, lists, bounds, timezone, 
     lists,
     move,
     update: (patch: Record<string, unknown>) => { void updateTask(task.id, patch) },
-    snooze: (minutes: SnoozeMinutes) => { void snooze(task.id, minutes) },
+    snooze: (minutes: number) => { void snooze(task.id, minutes) },
     quadrant,
   }
   const menuItems = buildTaskMenuItems(task, { ...menuHandlers, onClose: () => setMenuOpen(false) })

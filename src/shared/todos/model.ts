@@ -156,8 +156,32 @@ export const MAX_REMINDERS_PER_TASK = 5
 export const SNOOZE_MINUTES = [10, 60, 540, 1440] as const
 export type SnoozeMinutes = (typeof SNOOZE_MINUTES)[number]
 
+/**
+ * The shortest and longest a hand-typed snooze may be: a minute from now, or a week.
+ *
+ * The four presets are a menu, not the vocabulary — "in 45 minutes" is a real answer to a reminder
+ * that arrived at the wrong moment, and refusing it because it is not on the list would be the menu
+ * deciding for the reader. A week is the ceiling because a longer one is a due date, which the editor
+ * already has a field for.
+ */
+export const MIN_SNOOZE_MINUTES = 1
+export const MAX_SNOOZE_MINUTES = 10_080
+
 export function isSnoozeMinutes(value: unknown): value is SnoozeMinutes {
   return typeof value === 'number' && (SNOOZE_MINUTES as readonly number[]).includes(value)
+}
+
+/**
+ * A snooze of any length inside the range, or null for a value the route must refuse.
+ *
+ * Kept beside `isSnoozeMinutes` rather than replacing it: the presets answer "which menu row is this",
+ * which is a question with four answers, while this answers "how long did the reader ask for", which
+ * has 10,080. A whole number only — a fractional minute would make `remind_at` a time nobody chose.
+ */
+export function snoozeMinutesOrNull(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isInteger(value)) return null
+  if (value < MIN_SNOOZE_MINUTES || value > MAX_SNOOZE_MINUTES) return null
+  return value
 }
 
 export const MAX_LIST_NAME_CHARS = 60
@@ -483,6 +507,15 @@ export interface TaskRef {
 /** Whether this row is still owed something else before it can be considered finished. */
 export function taskIsBlocked(task: Pick<TodoTask, 'dependsOn'>): boolean {
   return task.dependsOn.some((entry) => !isTaskDone(entry.status))
+}
+
+/** One row of a task's history, as the panel reads it back. */
+export interface TaskEvent {
+  id: string
+  kind: 'born' | 'status'
+  fromStatus: TaskStatus | null
+  toStatus: TaskStatus
+  at: number
 }
 
 export interface TodoTask extends Task {
@@ -1500,7 +1533,21 @@ export interface CounterTick {
 /** A stopped run: the habit as it now stands, and the day its seconds landed on — or none. */
 export interface CounterStop {
   counter: TodoCounter
+  /**
+   * The day the run began on and what it put there, or null when nothing was written.
+   *
+   * A run that crossed the account's midnight is filed in two days — see `days` — so this is the
+   * first of them rather than the whole of what the stop wrote.
+   */
   filed: CounterDay | null
+  /**
+   * Every day a stopped run added to, in order.
+   *
+   * A night shift is two days' work, and filing it whole against the day it started is the mistake the
+   * task timer's own midnight split exists to prevent. Absent from an answer written before a run could
+   * cross a midnight, which is why it is optional rather than always present.
+   */
+  days?: CounterDay[]
 }
 
 /**
