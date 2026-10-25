@@ -41,6 +41,7 @@ export const PROXY_BREAKER_MS = 60_000
 
 const CALDAV_METHODS = new Set(['PROPFIND', 'REPORT', 'PUT', 'DELETE'])
 const OAUTH_METHODS = new Set(['GET', 'POST', 'PATCH', 'DELETE'])
+const WRITE_METHODS = new Set(['PUT', 'POST', 'PATCH', 'DELETE'])
 
 const ALLOWED_REQUEST_HEADERS = new Map<string, string>([
   ['depth', 'Depth'],
@@ -95,6 +96,11 @@ export async function proxyCalendarRequest(
 
   const baseUrl = proxyBaseFor(connection)
   const method = proxyMethod(connection.kind, input.method)
+  // `writable` is a server-side truth, not a UI hint: a connection created read-only must not be
+  // turned into a write channel by a caller that ignores the adapter's own guard.
+  if (!connection.writable && WRITE_METHODS.has(method)) {
+    throw ApiError.forbidden('This calendar connection is read-only')
+  }
   const target = resolveProxyUrl(baseUrl, input.path)
   const headers = proxyHeaders(input.headers)
   const body = proxyBody(method, input.body)
@@ -141,7 +147,8 @@ export async function proxyCalendarRequest(
     throw new ApiError(502, 'internal', 'The calendar server could not be reached')
   }
 
-  if (isRedirectResponse(response)) {
+  // 304 is a conditional read's answer, not a redirect: it carries no Location and is forwarded.
+  if (isRedirectResponse(response) && response.status !== 304) {
     recordFailure(key)
     throw new ApiError(502, 'internal', 'The calendar server redirected, and redirects are not followed')
   }

@@ -21,6 +21,7 @@ import {
   ensureAccessToken,
   safeInternalPath,
   startOAuth,
+  type CalendarOAuthCredential,
 } from '../src/worker/calendar/oauth'
 import {
   decryptCalendarCredential,
@@ -173,7 +174,7 @@ async function seedOAuth(options: {
   expiresAt?: number
   accessToken?: string
   refreshToken?: string
-} = {}): Promise<{ id: string; credential: { accessToken: string; refreshToken: string } }> {
+} = {}): Promise<{ id: string; credential: CalendarOAuthCredential }> {
   const id = options.id ?? newId()
   const userId = options.userId ?? USER
   const credential = {
@@ -216,7 +217,10 @@ describe('CalDAV presets and address validation', () => {
     ['credentials in the address', 'https://alice:secret@dav.example.com/'],
     ['a non-standard port', 'https://dav.example.com:8443/'],
     ['a loopback address', 'https://127.0.0.1/'],
+    ['an IPv6 loopback address', 'https://[::1]/'],
+    ['a cloud metadata address', 'https://169.254.169.254/latest/meta-data/'],
     ['a private network name', 'https://nas.local/'],
+    ['a localhost with a root dot', 'https://localhost./'],
     ['a query string', 'https://dav.example.com/?token=x'],
     ['a fragment', 'https://dav.example.com/#x'],
     ['a non-URL', 'not a url'],
@@ -237,7 +241,6 @@ describe('CalDAV discovery', () => {
     const result = await discoverCalendarHome(new URL('https://dav.example.com/'), 'alice', 'secret-password')
     expect(result.calendarHomeUrl).toBe('https://dav.example.com/calendars/alice/')
     expect(result.username).toBe('alice')
-    expect(result.canWrite).toBe(true)
     expect(calls).toHaveLength(2)
     expect(calls[0]!.init?.method).toBe('PROPFIND')
     expect((calls[0]!.init?.headers as Record<string, string>).depth).toBe('1')
@@ -373,7 +376,11 @@ describe('OAuth start and callback', () => {
       origin: 'https://notes.example.com',
     })).rejects.toMatchObject({ status: 400 })
     expect(() => assertInternalRedirect('//evil.example')).toThrow()
+    expect(() => assertInternalRedirect('/%2F%2Fevil.example')).toThrow()
+    expect(() => assertInternalRedirect('/%5Cevil.example')).toThrow()
+    expect(() => assertInternalRedirect('/%25252F%25252Fevil.example')).toThrow()
     expect(safeInternalPath('https://evil.example')).toBe('/calendar')
+    expect(safeInternalPath('/%2F%2Fevil.example')).toBe('/calendar')
 
     const unconfigured = testBindings(db, { CREDENTIAL_VAULT: vault.namespace })
     await expect(startOAuth(unconfigured, USER, {
@@ -490,6 +497,11 @@ describe('access token refresh', () => {
 })
 
 describe('calendar sync routes', () => {
+  it('requires a session for the connection surface', async () => {
+    mocks.userId = ''
+    expect((await request('/connections')).status).toBe(401)
+  })
+
   it('lists only the session account, without credentials', async () => {
     const seeded = await seedBasic()
     await seedOAuth({ userId: OTHER })

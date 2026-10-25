@@ -290,11 +290,23 @@ export type CalendarCredentialPayload =
   }
 
 /**
+ * The vault's scope pattern predates the calendar app: it has no `calendar` prefix, and its record
+ * policy decides which fields a scope may hold. `mcp` is the one existing scope that accepts a single
+ * opaque OAuth-sized bundle (`blob`, up to 16 KiB), which is exactly this payload's shape. The scope
+ * still ends in a 26-character id from the vault's own alphabet, so one connection's ciphertext is
+ * sealed under a key no other connection's id derives. A calendar scope in the vault would replace
+ * this constant and nothing else.
+ */
+const CALENDAR_VAULT_SCOPE_PREFIX = 'mcp:'
+const CALENDAR_VAULT_BLOB_MAX = 16 * 1024
+
+/**
  * The credential of one calendar connection.
  *
- * The scope is the connection id so a ciphertext cannot be moved to another connection and read
- * back out there. The plaintext exists only inside the worker call that talks to the provider; no
- * route returns it, and a log line never receives it.
+ * The payload is one JSON blob inside the vault's opaque-bundle field. The scope is the connection id
+ * so a ciphertext cannot be moved to another connection and read back out there. The plaintext exists
+ * only inside the worker call that talks to the provider; no route returns it, and a log line never
+ * receives it.
  */
 export async function encryptCalendarCredential(
   env: Env,
@@ -304,7 +316,7 @@ export async function encryptCalendarCredential(
   if (!isValidId(connectionId) || !isCalendarCredentialPayload(payload)) {
     throw new Error('invalid_calendar_credential')
   }
-  return encryptCredential(env, `calendar:${connectionId}`, payload)
+  return encryptCalendarBlob(env, connectionId, payload)
 }
 
 export async function decryptCalendarCredential(
@@ -313,7 +325,7 @@ export async function decryptCalendarCredential(
   stored: string,
 ): Promise<CalendarCredentialPayload | null> {
   if (!isValidId(connectionId) || stored.length > 24 * 1024) return null
-  const value = await decryptCredential(env, `calendar:${connectionId}`, stored)
+  const value = await decryptCalendarBlob(env, connectionId, stored)
   return isCalendarCredentialPayload(value) ? value : null
 }
 
@@ -321,8 +333,9 @@ export async function decryptCalendarCredential(
  * The PKCE verifier of one pending OAuth state.
  *
  * The state hash is already the row's public identifier and never leaves the server, so sealing under
- * it needs no extra column: the callback hashes the state it received and can reopen exactly that one
- * verifier. A raw verifier in the table would let anyone who can read D1 mint the code exchange.
+ * its first 26 hex characters needs no extra column: those are valid vault-id characters, and the
+ * callback hashes the state it received and can reopen exactly that one verifier. A raw verifier in
+ * the table would let anyone who can read D1 mint the code exchange.
  */
 export async function encryptCalendarOAuthVerifier(
   env: Env,
@@ -332,7 +345,7 @@ export async function encryptCalendarOAuthVerifier(
   if (!/^[a-f0-9]{64}$/.test(stateHash) || !/^[A-Za-z0-9_-]{43,128}$/.test(verifier)) {
     throw new Error('invalid_calendar_oauth_verifier')
   }
-  return encryptCredential(env, `calendar-oauth:${stateHash}`, { verifier })
+  return encryptCalendarBlob(env, stateHash.slice(0, 26), { verifier })
 }
 
 export async function decryptCalendarOAuthVerifier(
@@ -341,10 +354,27 @@ export async function decryptCalendarOAuthVerifier(
   stored: string,
 ): Promise<string | null> {
   if (!/^[a-f0-9]{64}$/.test(stateHash) || stored.length > 24 * 1024) return null
-  const value = await decryptCredential(env, `calendar-oauth:${stateHash}`, stored)
+  const value = await decryptCalendarBlob(env, stateHash.slice(0, 26), stored)
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const verifier = (value as Record<string, unknown>).verifier
   return typeof verifier === 'string' && /^[A-Za-z0-9_-]{43,128}$/.test(verifier) ? verifier : null
+}
+
+async function encryptCalendarBlob(env: Env, scopeId: string, payload: unknown): Promise<string> {
+  const blob = JSON.stringify(payload)
+  if (blob.length > CALENDAR_VAULT_BLOB_MAX) throw new Error('invalid_calendar_credential')
+  return encryptCredential(env, `${CALENDAR_VAULT_SCOPE_PREFIX}${scopeId}`, { blob })
+}
+
+async function decryptCalendarBlob(env: Env, scopeId: string, stored: string): Promise<unknown> {
+  const value = await decryptCredential(env, `${CALENDAR_VAULT_SCOPE_PREFIX}${scopeId}`, stored)
+  const blob = readStringField(value, 'blob')
+  if (blob === null || blob.length > CALENDAR_VAULT_BLOB_MAX) return null
+  try {
+    return JSON.parse(blob) as unknown
+  } catch {
+    return null
+  }
 }
 
 function isCalendarCredentialPayload(value: unknown): value is CalendarCredentialPayload {
@@ -361,14 +391,14 @@ function isCalendarCredentialPayload(value: unknown): value is CalendarCredentia
   if (record.kind !== 'oauth') return false
   return typeof record.accessToken === 'string'
     && record.accessToken.length > 0
-    && record.accessToken.length <= 8192
+    && record.accessToken.length <= 7000
     && typeof record.refreshToken === 'string'
-    && record.refreshToken.length <= 8192
+    && record.refreshToken.length <= 7000
     && typeof record.expiresAt === 'number'
     && Number.isSafeInteger(record.expiresAt)
     && record.expiresAt >= 0
     && typeof record.scope === 'string'
-    && record.scope.length <= 2048
+    && record.scope.length <= 1024
     && (record.tokenType === undefined
       || (typeof record.tokenType === 'string' && record.tokenType.length > 0 && record.tokenType.length <= 64))
 }

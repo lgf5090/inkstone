@@ -220,7 +220,7 @@ export async function completeOAuth(
   const ciphertext = await encryptCalendarCredential(env, connectionId, credential)
   // The granted scope is the truth: a provider may downgrade a write request, and a connection that
   // reported write after that would let the adapter try writes the token cannot perform.
-  const writable = tokens.scope.split(/\s+/).includes(writeScope(settings.provider))
+  const writable = grantsWriteScope(settings.provider, tokens.scope)
   await createCalendarConnection(env.DB, userId, {
     id: connectionId,
     kind: settings.provider,
@@ -266,7 +266,13 @@ export async function ensureAccessToken(
     refresh_token: credential.refreshToken,
   })
   if (settings.provider === 'outlook' && credential.scope) form.set('scope', credential.scope)
-  const response = await tokenRequest(settings.tokenUrl, form, connection.kind)
+  let response: Response
+  try {
+    response = await tokenRequest(settings.tokenUrl, form, connection.kind)
+  } catch (error) {
+    await markExpired(env, userId, connection.id)
+    throw error
+  }
   if (!response.ok) {
     console.warn('[inkstone] Calendar token refresh refused', { provider: connection.kind, status: response.status })
     await markExpired(env, userId, connection.id)
@@ -286,7 +292,7 @@ export async function ensureAccessToken(
     await markExpired(env, userId, connection.id)
     throw reconnectError()
   }
-  const accessToken = readToken(body.access_token, 8192)
+  const accessToken = readToken(body.access_token, 7000)
   if (!accessToken) {
     console.warn('[inkstone] Calendar token refresh returned no access token', { provider: connection.kind })
     await markExpired(env, userId, connection.id)
@@ -295,9 +301,9 @@ export async function ensureAccessToken(
   const next: CalendarOAuthCredential = {
     kind: 'oauth',
     accessToken,
-    refreshToken: readToken(body.refresh_token, 8192) ?? credential.refreshToken,
+    refreshToken: readToken(body.refresh_token, 7000) ?? credential.refreshToken,
     expiresAt: expiresAtFrom(body.expires_in),
-    scope: readToken(body.scope, 2048) ?? credential.scope,
+    scope: readToken(body.scope, 1024) ?? credential.scope,
     tokenType: readToken(body.token_type, 64) ?? credential.tokenType,
   }
   const ciphertext = await encryptCalendarCredential(env, connection.id, next)
@@ -399,13 +405,20 @@ function providerSettings(env: Env, provider: CalendarOAuthProvider): ProviderSe
   }
 }
 
-function writeScope(provider: CalendarOAuthProvider): string {
-  return provider === 'google' ? GOOGLE_SCOPES.write : OUTLOOK_SCOPES.write
-}
-
 function scopeFor(provider: CalendarOAuthProvider, writable: boolean): string {
   if (provider === 'google') return writable ? GOOGLE_SCOPES.write : GOOGLE_SCOPES.read
   return writable ? OUTLOOK_SCOPES.write : OUTLOOK_SCOPES.read
+}
+
+/**
+ * Whether the granted scope string contains the provider's write scope.
+ *
+ * Microsoft has been known to answer with the short `Calendars.ReadWrite` rather than the full URI
+ * that was requested, so both spellings count. Google's scope is a URI in both directions.
+ */
+function grantsWriteScope(provider: CalendarOAuthProvider, scope: string): boolean {
+  if (provider === 'google') return scope.split(/\s+/).includes(GOOGLE_SCOPES.write)
+  return /(^|\s)(?:https:\/\/graph\.microsoft\.com\/)?Calendars\.ReadWrite(?:\s|$)/i.test(scope)
 }
 
 function callbackUrl(env: Env, origin: string): string {
@@ -473,15 +486,15 @@ async function exchangeCode(
   } catch {
     throw new ApiError(502, 'internal', 'The calendar provider answered with an unreadable token response')
   }
-  const accessToken = readToken(body.access_token, 8192)
+  const accessToken = readToken(body.access_token, 7000)
   if (!accessToken) {
     throw new ApiError(502, 'internal', 'The calendar provider answered without an access token')
   }
   return {
     accessToken,
-    refreshToken: readToken(body.refresh_token, 8192) ?? '',
+    refreshToken: readToken(body.refresh_token, 7000) ?? '',
     expiresAt: expiresAtFrom(body.expires_in),
-    scope: readToken(body.scope, 2048) ?? '',
+    scope: readToken(body.scope, 1024) ?? '',
     tokenType: readToken(body.token_type, 64) ?? 'Bearer',
   }
 }
@@ -523,7 +536,12 @@ function expiresAtFrom(seconds: unknown): number {
 }
 
 function readToken(value: unknown, max: number): string | null {
-  return typeof value === 'string' && value.length > 0 && value.length <= max ? value : null
+  return typeof value === 'string'
+    && value.length > 0
+    && value.length <= max
+    && !/[\u0000-\u001f\u007f]/.test(value)
+    ? value
+    : null
 }
 
 async function pkceChallenge(verifier: string): Promise<string> {
@@ -565,6 +583,21 @@ export function safeInternalPath(value: unknown): string {
   if (path.length === 0 || path.length > 512) return '/calendar'
   if (!path.startsWith('/') || path.startsWith('//') || path.startsWith('/\\')) return '/calendar'
   if (/[\u0000-\u001f\u007f\\]/.test(path)) return '/calendar'
+  // Encoded separators are the same attack in a different spelling: a browser may turn `%5c` or
+  // `%2f%2f` back into a path that leaves this origin before it sends the request.
+  let decoded = path
+  for (let round = 0; round < 2; round++) {
+    try {
+      decoded = decodeURIComponent(decoded)
+    } catch {
+      return '/calendar'
+    }
+  }
+  if (decoded.startsWith('//') || decoded.startsWith('/\\') || decoded.includes('\\')) return '/calendar'
+  if (/[\u0000-\u001f\u007f]/.test(decoded) || /^[a-z][a-z0-9+.-]*:/i.test(decoded.slice(1))) {
+    return '/calendar'
+  }
+  if (/%25|%2e|%2f|%5c/i.test(decoded)) return '/calendar'
   try {
     const url = new URL(path, 'https://calendar.invalid')
     if (url.origin !== 'https://calendar.invalid') return '/calendar'

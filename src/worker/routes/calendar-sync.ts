@@ -28,6 +28,7 @@ import {
   ICLOUD_CALDAV_SERVER,
   discoverCalendarConnection,
   isCaldavPreset,
+  validateCalendarPassword,
 } from '../calendar/discovery'
 import {
   PROXY_JSON_BODY_LIMIT,
@@ -112,19 +113,25 @@ calendarSyncRoutes.post('/connections', requireAuth, async (c) => {
   if (body.writable !== undefined && typeof body.writable !== 'boolean') {
     throw ApiError.badRequest('writable must be a boolean')
   }
+  if (body.label !== undefined && typeof body.label !== 'string') {
+    throw ApiError.badRequest('The calendar connection name must be text')
+  }
   const discovery = await discoverCalendarConnection({
     preset,
     // iCloud ignores this value; every other preset validates it.
-    serverUrl: preset === 'icloud' ? ICLOUD_CALDAV_SERVER : body.serverUrl as string,
+    serverUrl: preset === 'icloud' ? ICLOUD_CALDAV_SERVER : body.serverUrl,
     username: body.username,
     password: body.password,
-    writable: body.writable !== false,
+    // Least privilege: a caller that omits the flag gets a read-only connection, never write access
+    // it did not ask for.
+    writable: body.writable === true,
   })
+  const password = validateCalendarPassword(body.password)
   const connectionId = newId()
   const ciphertext = await encryptCalendarCredential(c.env, connectionId, {
     kind: 'basic',
     username: discovery.username,
-    password: typeof body.password === 'string' ? body.password : '',
+    password,
   })
   const connection = await createCalendarConnection(c.env.DB, userId, {
     id: connectionId,

@@ -294,11 +294,21 @@ describe('proxy route', () => {
     expect(calls).toHaveLength(0)
   })
 
-  it('refuses methods outside the provider list', async () => {
+  it('refuses methods outside the provider list and writes on a read-only connection', async () => {
     const id = await seedBasic()
     const calls = stubFetch(() => Response.json({}))
     const response = await request(`/connections/${id}/proxy`, json({ method: 'GET', path: 'work/' }))
     expect(response.status).toBe(403)
+    expect(calls).toHaveLength(0)
+
+    sqlite.prepare('UPDATE calendar_connections SET writable = 0, scope = \'read\' WHERE user_id = ? AND id = ?')
+      .run(USER, id)
+    const write = await request(`/connections/${id}/proxy`, json({
+      method: 'PUT',
+      path: 'work/event.ics',
+      body: 'BEGIN:VCALENDAR',
+    }))
+    expect(write.status).toBe(403)
     expect(calls).toHaveLength(0)
   })
 

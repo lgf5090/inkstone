@@ -39,7 +39,6 @@ const CALENDAR_HOME_BODY = `<?xml version="1.0" encoding="utf-8"?>
 <D:propfind xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
   <D:prop>
     <C:calendar-home-set/>
-    <D:current-user-privilege-set/>
   </D:prop>
 </D:propfind>`
 
@@ -55,8 +54,6 @@ export interface ResolvedPreset {
 export interface CalendarDiscoveryResult {
   calendarHomeUrl: string
   username: string
-  /** Null when the server did not say; false only when it explicitly listed no write privilege. */
-  canWrite: boolean | null
 }
 
 export interface CalendarPrivileges {
@@ -67,7 +64,7 @@ export interface CalendarPrivileges {
 
 export interface CalendarConnectionDiscoveryInput {
   preset: CaldavPreset
-  serverUrl: string
+  serverUrl: unknown
   username: unknown
   password: unknown
   writable: boolean
@@ -107,7 +104,10 @@ export function validateConnectionUrl(raw: unknown): URL {
   if (url.username || url.password) throw ApiError.badRequest('A calendar server address may not carry credentials')
   if (url.port && url.port !== '443') throw ApiError.badRequest('Calendar servers are reached on port 443 only')
   if (url.hash || url.search) throw ApiError.badRequest('A calendar server address may not carry a query or fragment')
-  if (!url.hostname || isBlockedTarget(url.hostname)) {
+  // `localhost.` is the same host as `localhost` to a resolver; the guard is asked about the name
+  // without the root dot so the suffix table cannot be sidestepped by spelling.
+  const hostname = url.hostname.endsWith('.') ? url.hostname.slice(0, -1) : url.hostname
+  if (!hostname || isBlockedTarget(hostname)) {
     throw ApiError.badRequest('That calendar server address is not reachable from this deployment')
   }
   return url
@@ -119,8 +119,11 @@ export function validateCalendarUsername(raw: unknown): string {
   if (!username || username.length > MAX_USERNAME_LENGTH) {
     throw ApiError.badRequest('The calendar username is not valid')
   }
-  // A colon is the separator Basic auth uses; a newline could smuggle a second header.
-  if (/[\u0000-\u001f\u007f:]/.test(username)) throw ApiError.badRequest('The calendar username is not valid')
+  // A colon is the separator Basic auth uses; a newline could smuggle a second header. A username
+  // that is exactly `.` or `..` would be normalized away by the preset's URL builder.
+  if (/[\u0000-\u001f\u007f:]/.test(username) || username === '.' || username === '..') {
+    throw ApiError.badRequest('The calendar username is not valid')
+  }
   return username
 }
 
@@ -189,20 +192,16 @@ export async function discoverCalendarConnection(
   if (!isCaldavPreset(input.preset)) throw ApiError.badRequest('Unknown calendar preset')
   const preset = resolvePreset(input.preset, input.serverUrl, input.username)
   const password = validateCalendarPassword(input.password)
-  let canWrite: boolean | null = null
   let calendarHomeUrl = preset.calendarHomeUrl
   if (!calendarHomeUrl) {
     const discovered = await discoverCalendarHome(preset.serverUrl, preset.username, password)
     calendarHomeUrl = discovered.calendarHomeUrl
-    canWrite = discovered.canWrite
   }
   return {
     baseUrl: canonicalBaseUrl(preset.serverUrl),
     calendarHomeUrl,
     username: preset.username,
-    // A server that explicitly listed no write privilege wins over the reader's preference; silence
-    // (Radicale omits the property) does not, because it is not a refusal.
-    writable: input.writable && canWrite !== false,
+    writable: input.writable,
     label: preset.label,
   }
 }
@@ -235,11 +234,7 @@ export async function discoverCalendarHome(
   }
   const homeUrl = resolveHref(principalUrl, homeHref)
   assertAllowedDiscoveryUrl(homeUrl, serverUrl)
-  return {
-    calendarHomeUrl: collectionUrl(homeUrl),
-    username,
-    canWrite: writeAllowed(parseCalendarPrivileges(homeXml)),
-  }
+  return { calendarHomeUrl: collectionUrl(homeUrl), username }
 }
 
 async function propfind(url: URL, body: string, authorization: string): Promise<string> {
@@ -307,10 +302,6 @@ function resolveHref(base: URL, href: string): URL {
   return new URL(href, collectionBase)
 }
 
-function writeAllowed(privileges: CalendarPrivileges | null): boolean | null {
-  if (!privileges) return null
-  return privileges.canCreate || privileges.canUpdate || privileges.canDelete
-}
 
 // ---------------------------------------------------------------------------- XML
 

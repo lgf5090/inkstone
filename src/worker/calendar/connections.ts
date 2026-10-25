@@ -23,10 +23,8 @@ export type CalendarConnectionStatus = (typeof CALENDAR_CONNECTION_STATUSES)[num
 
 export type CalendarCredentialKind = 'basic' | 'oauth'
 
-/** A connection row with the server-side fields the proxy needs but the DTO never carries. */
-export interface CalendarConnectionRecord extends CalendarConnectionDto {
-  calendarHomeUrl: string | null
-}
+/** The DTO is already sanitized and carries the home URL the proxy needs; the row maps to it. */
+export type CalendarConnectionRecord = CalendarConnectionDto
 
 export interface NewCalendarConnection {
   id: string
@@ -86,7 +84,7 @@ export async function listCalendarConnections(
   const { results } = await db
     .prepare(
       `SELECT ${CONNECTION_COLUMNS} FROM calendar_connections
-        WHERE user_id = ?1 ORDER BY created_at DESC, id ASC`,
+        WHERE user_id = ?1 ORDER BY created_at ASC, id ASC`,
     )
     .bind(userId)
     .all<ConnectionRow>()
@@ -262,19 +260,6 @@ export async function loadCalendarCredential(
     .bind(userId, connectionId, kind)
     .first<{ ciphertext: string }>()
   return row?.ciphertext ?? null
-}
-
-export async function deleteCalendarCredentials(
-  db: D1Database,
-  userId: string,
-  connectionId: string,
-): Promise<number> {
-  if (!isValidId(userId) || !isValidId(connectionId)) return 0
-  const result = await db
-    .prepare('DELETE FROM calendar_credentials WHERE user_id = ?1 AND connection_id = ?2')
-    .bind(userId, connectionId)
-    .run()
-  return Number(result.meta?.changes ?? 0)
 }
 
 function credentialStatement(
