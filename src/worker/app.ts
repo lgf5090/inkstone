@@ -58,6 +58,10 @@ import { todoImportRoutes } from './routes/todo-import'
 import { todoFeedRoutes } from './routes/todo-feeds'
 import { emailRoutes } from './routes/email'
 import { musicRoutes } from './routes/music'
+import { calendarRoutes } from './routes/calendar'
+import { calendarIcsRoutes } from './routes/calendar-ics'
+import { calendarSubscriptionRoutes } from './routes/calendar-subscriptions'
+import { calendarSyncRoutes } from './routes/calendar-sync'
 import { musicSharePageRoutes, musicSharePublicRoutes } from './routes/music-share'
 import { emailSearchesRoutes } from './routes/email-searches'
 import { emailTemplatesRoutes } from './routes/email-templates'
@@ -163,6 +167,10 @@ export function createApp() {
   app.route('/api/templater', templaterRoutes)
   app.route('/api/quickadd', quickAddRoutes)
   app.route('/api/rss', rssRoutes)
+  app.route('/api/calendar/ics', calendarIcsRoutes)
+  app.route('/api/calendar/subscriptions', calendarSubscriptionRoutes)
+  app.route('/api/calendar', calendarSyncRoutes)
+  app.route('/api/calendar', calendarRoutes)
   app.route('/api/subscriptions', subscriptionRoutes)
   app.route('/api', searchRoutes)
   app.route('/api/sync', syncRoutes)

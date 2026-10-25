@@ -1,4 +1,17 @@
 import type { RssFetchResult } from '@shared/rss/model'
+import type {
+  CalendarDto,
+  CalendarEventDto,
+  CalendarEventInput,
+  CalendarEventPatch,
+  CalendarGroupDto,
+  CalendarGroupWriteInput,
+  CalendarMetaDto,
+  CalendarPatchInput,
+  CalendarPreferences,
+  CalendarSearchResultDto,
+  CalendarWriteInput,
+} from '@shared/calendar/model'
 import { CLIENT_HEADER } from '@shared/constants'
 import { truncateText } from '@shared/text-utils'
 import type { ReaderUsage } from '@shared/types'
@@ -1042,6 +1055,65 @@ export const api = {
       request<{ results: RssFetchResult[] }>('/api/rss/fetch', { method: 'POST', body: { requests } }),
     /** The same-origin address an article image or an episode enclosure loads from. */
     relayUrl: (url: string) => `/api/rss/relay?url=${encodeURIComponent(url)}`,
+  },
+
+  calendar: {
+    meta: () => request<CalendarMetaDto>('/api/calendar/meta'),
+    events: (query: { from: string | number; to: string | number; calendarIds?: string[]; limit?: number }) =>
+      request<{ events: CalendarEventDto[] }>(`/api/calendar/events${toQuery({
+        from: query.from,
+        to: query.to,
+        calendarIds: query.calendarIds?.join(','),
+        limit: query.limit,
+      })}`),
+    search: (q: string, limit = 20) =>
+      request<{ results: CalendarSearchResultDto[]; truncated: boolean }>(
+        `/api/calendar/events/search${toQuery({ q, limit })}`,
+      ),
+    createEvent: (event: CalendarEventInput) =>
+      request<{ event: CalendarEventDto }>('/api/calendar/events', { method: 'POST', body: event }),
+    createEvents: (events: CalendarEventInput[], mode: 'create' | 'upsert') =>
+      request<{ events: CalendarEventDto[] }>('/api/calendar/events/batch', { method: 'POST', body: { events, mode } }),
+    updateEvent: (id: string, patch: CalendarEventPatch) =>
+      request<{ event: CalendarEventDto }>(`/api/calendar/events/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        body: patch,
+      }),
+    deleteEvent: (id: string, rev: number) =>
+      request<void>(`/api/calendar/events/${encodeURIComponent(id)}${toQuery({ rev })}`, { method: 'DELETE' }),
+    createCalendar: (input: CalendarWriteInput) =>
+      request<{ calendar: CalendarDto }>('/api/calendar/calendars', { method: 'POST', body: input }),
+    updateCalendar: (id: string, patch: CalendarPatchInput) =>
+      request<{ calendar: CalendarDto }>(`/api/calendar/calendars/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        body: patch,
+      }),
+    deleteCalendar: (id: string, query: { mode: 'merge' | 'delete'; targetId?: string; rev?: number }) =>
+      request<void>(`/api/calendar/calendars/${encodeURIComponent(id)}${toQuery(query)}`, { method: 'DELETE' }),
+    mergeCalendar: (id: string, targetId: string) =>
+      request<void>(`/api/calendar/calendars/${encodeURIComponent(id)}/merge`, {
+        method: 'POST',
+        body: { targetId },
+      }),
+    reorderCalendars: (ids: string[]) =>
+      request<void>('/api/calendar/calendars/order', { method: 'PUT', body: { ids } }),
+    createGroup: (input: CalendarGroupWriteInput) =>
+      request<{ group: CalendarGroupDto }>('/api/calendar/groups', { method: 'POST', body: input }),
+    updateGroup: (id: string, name: string) =>
+      request<{ group: CalendarGroupDto }>(`/api/calendar/groups/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        body: { name },
+      }),
+    deleteGroup: (id: string) =>
+      request<void>(`/api/calendar/groups/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    reorderGroups: (ids: string[]) =>
+      request<void>('/api/calendar/groups/order', { method: 'PUT', body: { ids } }),
+    preferences: () => request<{ preferences: CalendarPreferences }>('/api/calendar/preferences'),
+    savePreferences: (preferences: CalendarPreferences) =>
+      request<{ preferences: CalendarPreferences }>('/api/calendar/preferences', {
+        method: 'PUT',
+        body: { preferences },
+      }),
   },
 
   mcp: {

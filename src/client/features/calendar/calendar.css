@@ -1,0 +1,71 @@
+/*
+ * DayFlow component styles arrive from the library; this file only maps its `--df-*` variables onto
+ * Inkstone's semantic tokens and gives the calendar the height its flex parent promises.
+ *
+ * The mapping lives on `:root` because DayFlow portals menus and dialogs to the body, outside the
+ * calendar element but still inside the document that reads these variables.
+ */
+:root {
+  --df-color-background: var(--bg-base);
+  --df-color-foreground: var(--text-primary);
+  --df-color-hover: var(--bg-hover);
+  --df-color-border: var(--border-default);
+  --df-color-card: var(--bg-surface);
+  --df-color-card-foreground: var(--text-primary);
+  --df-color-muted: var(--bg-sunken);
+  --df-color-muted-foreground: var(--text-tertiary);
+  --df-color-primary: var(--accent);
+  --df-color-primary-foreground: var(--accent-contrast);
+  --df-color-secondary: var(--bg-raised);
+  --df-color-secondary-foreground: var(--text-secondary);
+  --df-color-destructive: var(--danger);
+  /* The shell has no on-danger token; danger buttons already paint white text. */
+  --df-color-destructive-foreground: #fff;
+  --df-color-ring: var(--accent);
+
+  --df-heat-1: color-mix(in oklab, var(--accent) 12%, var(--bg-surface));
+  --df-heat-2: color-mix(in oklab, var(--accent) 26%, var(--bg-surface));
+  --df-heat-3: color-mix(in oklab, var(--accent) 44%, var(--bg-surface));
+  --df-heat-4: color-mix(in oklab, var(--accent) 66%, var(--bg-surface));
+  --df-heat-5: color-mix(in oklab, var(--accent) 86%, var(--bg-surface));
+
+  --df-task-text-none: var(--text-tertiary);
+  --df-task-text-low: var(--success);
+  --df-task-text-medium: var(--warning);
+  --df-task-text-high: var(--danger);
+
+  --df-range-picker-background: var(--bg-overlay);
+  --df-range-picker-foreground: var(--text-primary);
+  --df-range-picker-muted: var(--text-tertiary);
+  --df-range-picker-border: var(--border-default);
+  --df-range-picker-primary: var(--accent);
+  --df-range-picker-primary-foreground: var(--accent-contrast);
+  --df-range-picker-shadow-sm: var(--shadow-pop);
+  --df-range-picker-shadow-lg: var(--shadow-modal);
+}
+
+.inkstone-calendar,
+.inkstone-calendar .df-calendar-wrapper {
+  height: 100%;
+  min-height: 0;
+}
+
+.inkstone-calendar .df-calendar-container {
+  --df-calendar-height: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  font-family: inherit;
+}
+
+.inkstone-calendar .df-calendar-container,
+.inkstone-calendar .df-calendar-container * {
+  font-family: inherit;
+}
+
+/* DayFlow's menu is positioned fixed at z-index 50 from inside the calendar; raise it to the shell's
+ * popover band so it clears the app frame and the sidebar drawer without outranking public dialogs. */
+.inkstone-calendar .df-context-menu-content {
+  z-index: var(--z-pop);
+}

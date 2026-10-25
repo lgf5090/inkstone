@@ -17,8 +17,11 @@ vi.mock('../../lib/sync', () => ({
 vi.mock('./AppShell', () => ({
   AppShell: () => createElement('div', { 'data-notebook': '' }),
 }))
+vi.mock('../calendar/CalendarApp', () => ({
+  CalendarApp: () => createElement('section', { 'data-calendar-app': '' }),
+}))
 
-import { initI18n, t } from '../../lib/i18n'
+import { initI18n } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import { APP_TABS } from './app-tabs'
@@ -69,12 +72,13 @@ describe('the tab host', () => {
     expect(view.container.querySelector('nav')).not.toBeNull()
   })
 
-  it('swaps the container without reloading, and keeps the rail up', () => {
+  it('swaps the container without reloading, and keeps the rail up', async () => {
     view = renderElement(createElement(AppTabHost))
-    clickTab('/calendar')
+    await act(async () => { clickTab('/calendar'); await Promise.resolve() })
     expect(window.location.pathname).toBe('/calendar')
     expect(notebook()).toBeNull()
-    expect(placeholderHeading()).toBe(t('app.tabs.calendar'))
+    expect(view.container.querySelector('[data-calendar-app]')).not.toBeNull()
+    expect(placeholderHeading()).toBeNull()
     expect(view.container.querySelectorAll('nav a[href]').length).toBe(APP_TABS.length)
   })
 
