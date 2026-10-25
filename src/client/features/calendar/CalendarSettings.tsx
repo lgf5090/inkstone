@@ -10,7 +10,7 @@ import { t } from '../../lib/i18n'
 import { useUi } from '../../store/ui'
 import { Button } from '../../components/primitives'
 import { Modal } from '../../components/overlay'
-import { Segmented, Select, SettingRow, Switch } from '../../components/form'
+import { Input, Segmented, Select, SettingRow, Switch } from '../../components/form'
 import { DAY_HOUR_HEIGHTS } from './model'
 
 interface CalendarSettingsProps {
@@ -115,6 +115,56 @@ export function CalendarSettings({ open, onClose, preferences, onSave, onOpenCon
                 { value: 'agenda', label: t('calendar.view.agenda') },
               ]}
               size="sm"
+            />
+          </SettingRow>
+          <SettingRow title={t('calendar.settings.year_mode')} controlId="calendar-settings-year-mode">
+            <Select
+              id="calendar-settings-year-mode"
+              value={draft.yearViewMode}
+              onChange={(event) => patch({ yearViewMode: event.target.value as CalendarPreferences['yearViewMode'] })}
+              className="w-44"
+            >
+              <option value="year-canvas">{t('calendar.settings.year_mode_canvas')}</option>
+              <option value="fixed-week">{t('calendar.settings.year_mode_fixed')}</option>
+              <option value="grid">{t('calendar.settings.year_mode_grid')}</option>
+            </Select>
+          </SettingRow>
+          <SettingRow title={t('calendar.settings.year_timed')} description={t('calendar.settings.year_timed_hint')}>
+            <Switch
+              label={t('calendar.settings.year_timed')}
+              checked={draft.yearShowTimedEvents}
+              onChange={(value) => patch({ yearShowTimedEvents: value })}
+            />
+          </SettingRow>
+          <SettingRow title={t('calendar.settings.year_heatmap')} controlId="calendar-settings-year-heatmap">
+            <Select
+              id="calendar-settings-year-heatmap"
+              value={String(draft.yearHeatmapLevels)}
+              onChange={(event) => patch({ yearHeatmapLevels: Number(event.target.value) })}
+              className="w-24"
+            >
+              {[3, 4, 5, 6, 7].map(level => <option key={level} value={level}>{level}</option>)}
+            </Select>
+          </SettingRow>
+          <SettingRow title={t('calendar.settings.agenda_days')} controlId="calendar-settings-agenda-days">
+            <Input
+              id="calendar-settings-agenda-days"
+              type="number"
+              min={1}
+              max={365}
+              value={draft.agendaDays}
+              onChange={(event) => {
+                const value = Number(event.target.value)
+                if (Number.isInteger(value) && value >= 1 && value <= 365) patch({ agendaDays: value })
+              }}
+              className="w-24"
+            />
+          </SettingRow>
+          <SettingRow title={t('calendar.settings.agenda_empty')}>
+            <Switch
+              label={t('calendar.settings.agenda_empty')}
+              checked={draft.agendaShowEmptyDays}
+              onChange={(value) => patch({ agendaShowEmptyDays: value })}
             />
           </SettingRow>
           <SettingRow title={t('calendar.settings.week_start')} controlId="calendar-settings-week-start">

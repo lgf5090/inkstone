@@ -30,6 +30,9 @@ export type CalendarConnectionKind = (typeof CALENDAR_CONNECTION_KINDS)[number]
 export const CALENDAR_EVENT_TRIGGERS = ['click', 'dbClick'] as const
 export type CalendarEventTrigger = (typeof CALENDAR_EVENT_TRIGGERS)[number]
 
+export const CALENDAR_YEAR_VIEW_MODES = ['year-canvas', 'fixed-week', 'grid'] as const
+export type CalendarYearViewMode = (typeof CALENDAR_YEAR_VIEW_MODES)[number]
+
 export const MAX_CALENDAR_NAME = 80
 export const MAX_GROUP_NAME = 50
 export const MAX_EVENT_TITLE = 300
@@ -191,6 +194,11 @@ export interface CalendarPreferences {
   monthScroll: boolean
   snapToMonth: boolean
   dayHourHeight: number
+  yearViewMode: CalendarYearViewMode
+  yearShowTimedEvents: boolean
+  yearHeatmapLevels: number
+  agendaDays: number
+  agendaShowEmptyDays: boolean
   eventDetailDialog: boolean
   eventDetailTrigger: CalendarEventTrigger
   showMiniCalendar: boolean
@@ -322,6 +330,11 @@ export function defaultCalendarPreferences(): CalendarPreferences {
     monthScroll: true,
     snapToMonth: false,
     dayHourHeight: 72,
+    yearViewMode: 'year-canvas',
+    yearShowTimedEvents: false,
+    yearHeatmapLevels: 5,
+    agendaDays: 14,
+    agendaShowEmptyDays: true,
     eventDetailDialog: false,
     eventDetailTrigger: 'dbClick',
     showMiniCalendar: true,
@@ -355,6 +368,21 @@ export function normalizeCalendarPreferences(value: unknown): CalendarPreference
     && record.dayHourHeight <= 160
     ? Math.round(record.dayHourHeight)
     : defaults.dayHourHeight
+  const yearViewMode = CALENDAR_YEAR_VIEW_MODES.includes(record.yearViewMode as CalendarYearViewMode)
+    ? record.yearViewMode as CalendarYearViewMode
+    : defaults.yearViewMode
+  const heatmapLevels = typeof record.yearHeatmapLevels === 'number'
+    && Number.isInteger(record.yearHeatmapLevels)
+    && record.yearHeatmapLevels >= 3
+    && record.yearHeatmapLevels <= 7
+    ? record.yearHeatmapLevels
+    : defaults.yearHeatmapLevels
+  const agendaDays = typeof record.agendaDays === 'number'
+    && Number.isInteger(record.agendaDays)
+    && record.agendaDays >= 1
+    && record.agendaDays <= 365
+    ? record.agendaDays
+    : defaults.agendaDays
   return {
     defaultView: view,
     weekStart,
@@ -371,6 +399,11 @@ export function normalizeCalendarPreferences(value: unknown): CalendarPreference
     monthScroll: typeof record.monthScroll === 'boolean' ? record.monthScroll : defaults.monthScroll,
     snapToMonth: typeof record.snapToMonth === 'boolean' ? record.snapToMonth : defaults.snapToMonth,
     dayHourHeight: hourHeight,
+    yearViewMode,
+    yearShowTimedEvents: typeof record.yearShowTimedEvents === 'boolean' ? record.yearShowTimedEvents : defaults.yearShowTimedEvents,
+    yearHeatmapLevels: heatmapLevels,
+    agendaDays,
+    agendaShowEmptyDays: typeof record.agendaShowEmptyDays === 'boolean' ? record.agendaShowEmptyDays : defaults.agendaShowEmptyDays,
     eventDetailDialog: typeof record.eventDetailDialog === 'boolean' ? record.eventDetailDialog : defaults.eventDetailDialog,
     eventDetailTrigger: trigger,
     showMiniCalendar: typeof record.showMiniCalendar === 'boolean' ? record.showMiniCalendar : defaults.showMiniCalendar,

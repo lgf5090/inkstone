@@ -69,7 +69,6 @@ import {
 
 const COLLAPSED_STORAGE_KEY = 'inkstone:calendar:sidebar-collapsed'
 const DAY_MS = 24 * 60 * 60 * 1000
-const AGENDA_DAYS = 30
 
 interface CalendarSurfaceProps {
   meta: CalendarMetaDto
@@ -127,14 +126,15 @@ function toViews(preferences: CalendarPreferences): CalendarView[] {
     }),
     createYearView({
       startOfWeek: weekStart,
-      mode: 'year-canvas',
-      showTimedEventsInYearView: true,
+      mode: preferences.yearViewMode,
+      showTimedEventsInYearView: preferences.yearShowTimedEvents,
+      gridHeatmapLevels: preferences.yearHeatmapLevels,
       showEventDots: preferences.showEventDots,
       gridDateDoubleClick: 'create-event',
     }),
     createAgendaView({
-      daysToShow: AGENDA_DAYS,
-      showEmptyDays: true,
+      daysToShow: preferences.agendaDays,
+      showEmptyDays: preferences.agendaShowEmptyDays,
       timeFormat: preferences.timeFormat,
     }),
   ]

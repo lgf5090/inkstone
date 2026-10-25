@@ -76,6 +76,45 @@ describe('calendar model', () => {
     expect(preferences.showWeekends).toBe(false)
   })
 
+  it('keeps the year and agenda view preferences DayFlow exposes', () => {
+    const defaults = defaultCalendarPreferences()
+    expect(defaults).toMatchObject({
+      yearViewMode: 'year-canvas',
+      yearShowTimedEvents: false,
+      yearHeatmapLevels: 5,
+      agendaDays: 14,
+      agendaShowEmptyDays: true,
+    })
+
+    const prefs = normalizeCalendarPreferences({
+      ...defaults,
+      yearViewMode: 'grid',
+      yearShowTimedEvents: true,
+      yearHeatmapLevels: 7,
+      agendaDays: 30,
+      agendaShowEmptyDays: false,
+    })
+    expect(prefs).toMatchObject({
+      yearViewMode: 'grid',
+      yearShowTimedEvents: true,
+      yearHeatmapLevels: 7,
+      agendaDays: 30,
+      agendaShowEmptyDays: false,
+    })
+
+    const invalid = normalizeCalendarPreferences({
+      ...defaults,
+      yearViewMode: 'timeline',
+      yearHeatmapLevels: 12,
+      agendaDays: 0,
+      agendaShowEmptyDays: 'yes',
+    })
+    expect(invalid.yearViewMode).toBe(defaults.yearViewMode)
+    expect(invalid.yearHeatmapLevels).toBe(defaults.yearHeatmapLevels)
+    expect(invalid.agendaDays).toBe(defaults.agendaDays)
+    expect(invalid.agendaShowEmptyDays).toBe(defaults.agendaShowEmptyDays)
+  })
+
   it('finds secret-shaped metadata keys recursively', () => {
     expect(containsSecretMetaKey({ nested: { refresh_token: 'x' } })).toBe(true)
     expect(containsSecretMetaKey({ list: [{ Authorization: 'x' }] })).toBe(true)

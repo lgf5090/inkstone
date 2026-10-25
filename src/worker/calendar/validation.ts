@@ -16,6 +16,7 @@ import {
   CALENDAR_EVENT_TRIGGERS,
   CALENDAR_SYSTEMS,
   CALENDAR_VIEWS,
+  CALENDAR_YEAR_VIEW_MODES,
   containsSecretMetaKey,
   defaultCalendarPreferences,
   defaultTimeZone,
@@ -622,6 +623,24 @@ export function parsePreferences(value: unknown): CalendarPreferences {
   }
   if (record.dayHourHeight !== undefined) {
     result.dayHourHeight = integerValue(record.dayHourHeight, 'dayHourHeight', 32, 160)
+  }
+  if (record.yearViewMode !== undefined) {
+    if (!(CALENDAR_YEAR_VIEW_MODES as readonly unknown[]).includes(record.yearViewMode)) {
+      throw ApiError.badRequest('yearViewMode is not a known year view mode')
+    }
+    result.yearViewMode = record.yearViewMode as CalendarPreferences['yearViewMode']
+  }
+  if (record.yearShowTimedEvents !== undefined) {
+    result.yearShowTimedEvents = booleanValue(record.yearShowTimedEvents, 'yearShowTimedEvents')
+  }
+  if (record.yearHeatmapLevels !== undefined) {
+    result.yearHeatmapLevels = integerValue(record.yearHeatmapLevels, 'yearHeatmapLevels', 3, 7)
+  }
+  if (record.agendaDays !== undefined) {
+    result.agendaDays = integerValue(record.agendaDays, 'agendaDays', 1, 365)
+  }
+  if (record.agendaShowEmptyDays !== undefined) {
+    result.agendaShowEmptyDays = booleanValue(record.agendaShowEmptyDays, 'agendaShowEmptyDays')
   }
   if (record.eventDetailTrigger !== undefined) {
     if (!(CALENDAR_EVENT_TRIGGERS as readonly unknown[]).includes(record.eventDetailTrigger)) {
