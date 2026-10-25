@@ -101,31 +101,6 @@ export function ToolsSidebar({
               <KeyRound size={16} />
             </IconButton>
           </Tooltip>
-
-          <div className="my-1 h-px w-6 bg-[var(--border-subtle)]" />
-
-          {PASSWORD_NAV_SLOTS.map((slot) => {
-            const Icon = slot.icon
-            const isSelected =
-              activeSubmodule === 'password' &&
-              (slot.id === 'backup_settings'
-                ? isBackupSettingsOpen
-                : slot.id === 'batch_operations'
-                  ? isBatchOperationsOpen
-                  : activePasswordView === slot.id)
-            return (
-              <Tooltip key={slot.id} label={t(slot.labelKey)} side="right">
-                <IconButton
-                  label={t(slot.labelKey)}
-                  size="sm"
-                  active={isSelected}
-                  onClick={() => handleSlotClick(slot.id)}
-                >
-                  <Icon size={16} />
-                </IconButton>
-              </Tooltip>
-            )
-          })}
         </div>
       </aside>
     )

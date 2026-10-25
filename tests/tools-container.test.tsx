@@ -139,12 +139,20 @@ describe('Tools container architecture and collapsible sidebar', () => {
       view.unmount()
     })
 
-    it('renders rail mode (48px) when collapsed', async () => {
+    it('renders rail mode (48px) when collapsed with only top-level tool icons and no sub-slots', async () => {
       const onExpand = vi.fn()
       const view = await renderElement(<ToolsSidebar collapsed onExpand={onExpand} />)
 
       const aside = view.container.querySelector('aside')
       expect(aside?.className).toContain('w-12')
+
+      // Should only contain expand button and top-level module icon (KeyRound)
+      const buttons = view.container.querySelectorAll('button')
+      expect(buttons).toHaveLength(2)
+
+      // Sub-menu slot labels must not be in collapsed rail
+      expect(view.container.textContent).not.toContain(t('tools.password.nav.all'))
+      expect(view.container.textContent).not.toContain(t('tools.password.nav.backup_settings'))
 
       const expandBtn = view.container.querySelector('button[aria-label="' + t('tools.sidebar.expand') + '"]')
       expect(expandBtn).not.toBeNull()
