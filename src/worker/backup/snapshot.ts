@@ -5,6 +5,7 @@ import {
   backupCompleteBody,
   backupCompletePath,
   backupManifestPath,
+  backupCalendarPath,
   backupMusicPath,
   backupSubscriptionsPath,
   backupTemplatesPath,
@@ -32,6 +33,7 @@ import { readBackupTemplates } from './templates'
 import { readBackupQuickAdd } from './quickadd'
 import { readBackupSubscriptions } from '../subscriptions/backup'
 import { readBackupMusic } from '../music/backup'
+import { readBackupCalendar } from '../calendar/backup'
 import { readBackupEmail } from '../email/backup'
 import { attachmentObjectKey } from '../attachments/keys'
 import { storedObject } from '../lib/json'
@@ -41,7 +43,7 @@ import { sha256Hex } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import { safeAttachmentMime } from '../lib/image'
 
-export type BackupFileKind = 'note' | 'attachment' | 'readme' | 'manifest' | 'complete' | 'templates' | 'automation' | 'subscriptions' | 'music' | 'email' | 'email-attachment'
+export type BackupFileKind = 'note' | 'attachment' | 'readme' | 'manifest' | 'complete' | 'templates' | 'automation' | 'subscriptions' | 'music' | 'calendar' | 'email' | 'email-attachment'
 
 export interface BackupFile {
   path: string
@@ -261,6 +263,15 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
       'application/json; charset=utf-8',
       'music',
     )
+  const calendarText = await readBackupCalendar(env.DB, userId)
+  const calendarFile = calendarText === null
+    ? null
+    : await staticFile(
+      backupCalendarPath(stamp),
+      calendarText,
+      'application/json; charset=utf-8',
+      'calendar',
+    )
   const settingsRow = await env.DB.prepare(
     `SELECT settings FROM users WHERE id = ?1`,
   ).bind(userId).first<{ settings: string }>()
@@ -291,6 +302,9 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
       : undefined,
     music: musicFile
       ? { path: musicFile.path, bytes: musicFile.byteLength, sha256: musicFile.sha256 }
+      : undefined,
+    calendar: calendarFile
+      ? { path: calendarFile.path, bytes: calendarFile.byteLength, sha256: calendarFile.sha256 }
       : undefined,
     email: emailFile
       ? {
@@ -327,6 +341,7 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
     ...(automationFile ? [automationFile] : []),
     ...(subscriptionsFile ? [subscriptionsFile] : []),
     ...(musicFile ? [musicFile] : []),
+    ...(calendarFile ? [calendarFile] : []),
     ...(emailFile ? [emailFile] : []),
     ...(emailResult?.attachments ?? []),
   ]

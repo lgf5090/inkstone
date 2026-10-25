@@ -48,6 +48,7 @@ import { applyBackupTemplates } from '../backup/templates'
 import { applyBackupQuickAdd } from '../backup/quickadd'
 import { applyBackupSubscriptions } from '../subscriptions/backup'
 import { applyBackupMusic } from '../music/backup'
+import { applyBackupCalendar } from '../calendar/backup'
 import {
   backupEmailAttachmentPath,
   emailBackupAttachmentPrefix,
@@ -272,6 +273,9 @@ transferRoutes.post('/import', async (c) => {
           if (backup.manifest.music) {
             expected.add(`${backup.rootPrefix}${backup.manifest.music.path}`.toLowerCase())
           }
+          if (backup.manifest.calendar) {
+            expected.add(`${backup.rootPrefix}${backup.manifest.calendar.path}`.toLowerCase())
+          }
           if (backup.manifest.email) {
             expected.add(`${backup.rootPrefix}${backup.manifest.email.path}`.toLowerCase())
           }
@@ -469,6 +473,7 @@ async function importBackupFileBatch(
   const automationByPath = manifest.automation?.path.toLowerCase() ?? null
   const subscriptionsByPath = manifest.subscriptions?.path.toLowerCase() ?? null
   const musicByPath = manifest.music?.path.toLowerCase() ?? null
+  const calendarByPath = manifest.calendar?.path.toLowerCase() ?? null
   const emailByPath = manifest.email?.path.toLowerCase() ?? null
   const emailItem = emailByPath === null
     ? undefined
@@ -518,12 +523,13 @@ async function importBackupFileBatch(
     const automation = automationByPath !== null && key === automationByPath
     const subscriptions = subscriptionsByPath !== null && key === subscriptionsByPath
     const music = musicByPath !== null && key === musicByPath
+    const calendar = calendarByPath !== null && key === calendarByPath
     const email = emailByPath !== null && key === emailByPath
     const emailAttachment = emailAttachmentByPath.get(key) ?? null
-    if (!note && !attachment && !templates && !automation && !subscriptions && !music && !email && !emailAttachment) {
+    if (!note && !attachment && !templates && !automation && !subscriptions && !music && !calendar && !email && !emailAttachment) {
       throw new Error(`The file is not listed in the backup manifest: ${path}`)
     }
-    return { file, path, note, attachment, templates, automation, subscriptions, music, email, emailAttachment }
+    return { file, path, note, attachment, templates, automation, subscriptions, music, calendar, email, emailAttachment }
   })
 
   const cachedBytes = new Map<string, Uint8Array>()
@@ -559,6 +565,7 @@ async function importBackupFileBatch(
       ?? (item.automation ? manifest.automation ?? null : null)
       ?? (item.subscriptions ? manifest.subscriptions ?? null : null)
       ?? (item.music ? manifest.music ?? null : null)
+      ?? (item.calendar ? manifest.calendar ?? null : null)
     if (!entry) continue
     const bytes = new Uint8Array(await item.file.arrayBuffer())
     await verifyBackupEntry(
@@ -568,11 +575,12 @@ async function importBackupFileBatch(
         : item.templates ? manifest.templates!.bytes
         : item.automation ? manifest.automation!.bytes
         : item.music ? manifest.music!.bytes
+        : item.calendar ? manifest.calendar!.bytes
         : manifest.subscriptions!.bytes,
       entry.sha256,
       entry.path,
     )
-    if (item.note || item.templates || item.automation || item.subscriptions || item.music) {
+    if (item.note || item.templates || item.automation || item.subscriptions || item.music || item.calendar) {
       decodeBackupText(bytes, entry.path)
     }
   }
@@ -624,6 +632,14 @@ async function importBackupFileBatch(
       new Uint8Array(await musicItem.file.arrayBuffer()),
     )
     await applyBackupMusic(c.env.DB, userId, text)
+  }
+  const calendarItem = planned.find((item) => item.calendar)
+  if (calendarItem) {
+    const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
+      new Uint8Array(await calendarItem.file.arrayBuffer()),
+    )
+    const summary = await applyBackupCalendar(c.env.DB, userId, text)
+    ctx.result.calendarEvents = (ctx.result.calendarEvents ?? 0) + summary.events
   }
   if (emailBundle && emailBytes) {
     const attachments = new Map<string, Uint8Array>()

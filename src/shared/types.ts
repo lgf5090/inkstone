@@ -1350,6 +1350,7 @@ export interface ImportResult {
   musicFavorites?: number
   musicHistory?: number
   musicObjects?: number
+  calendarEvents?: number
 }
 
 

@@ -786,6 +786,18 @@ export class CalendarStore {
     return results ?? []
   }
 
+  async listAllEvents(): Promise<CalendarEventDto[]> {
+    const { results } = await this.db.prepare(
+      `SELECT e.* FROM calendar_events e
+        WHERE e.user_id = ? ORDER BY e.start_ms ASC, e.id ASC`,
+    ).bind(this.userId).all<EventRow>()
+    const rows = results ?? []
+    const memberships = await this.membershipsFor(rows.map((row) => row.id))
+    return rows
+      .filter((row) => (memberships.get(row.id)?.length ?? 0) > 0)
+      .map((row) => toEventDto(row, memberships.get(row.id) ?? []))
+  }
+
   async getEvent(id: string): Promise<CalendarEventDto | null> {
     const row = await this.eventRow(id)
     if (!row) return null
