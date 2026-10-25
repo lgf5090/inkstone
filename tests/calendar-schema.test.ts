@@ -43,14 +43,14 @@ function insertCalendar(userId: string, id: string, isDefault = 0): void {
   ).run(userId, id, isDefault)
 }
 
-function insertEvent(userId: string, id: string, source = 'local', externalId: string | null = null): void {
+function insertEvent(userId: string, id: string, source = 'local', externalId: string | null = null, externalScope = ''): void {
   sqlite.prepare(
     `INSERT INTO calendar_events (
        user_id, id, title, start_value, start_type, start_ms, end_value, end_type, end_ms,
-       calendar_source, external_id, created_at, updated_at, rev
+       calendar_source, external_scope, external_id, created_at, updated_at, rev
      ) VALUES (?, ?, 'Event', '2026-10-26T09:00:00', 'datetime', 1, '2026-10-26T10:00:00', 'datetime', 2,
-               ?, ?, 1, 1, 1)`,
-  ).run(userId, id, source, externalId)
+               ?, ?, ?, 1, 1, 1)`,
+  ).run(userId, id, source, externalScope, externalId)
 }
 
 beforeEach(() => {
@@ -122,13 +122,14 @@ describe('the calendar constraints', () => {
     ).run()).not.toThrow()
   })
 
-  it('keep external ids unique per source while allowing many local events', () => {
+  it('keep external ids unique inside a source scope while allowing many local events', () => {
     insertEvent('u1', 'e1')
     insertEvent('u1', 'e2')
-    insertEvent('u1', 'e3', 'caldav', 'remote-1')
-    expect(() => insertEvent('u1', 'e4', 'caldav', 'remote-1')).toThrow()
-    expect(() => insertEvent('u1', 'e5', 'google', 'remote-1')).not.toThrow()
-    expect(() => insertEvent('u2', 'e4', 'caldav', 'remote-1')).not.toThrow()
+    insertEvent('u1', 'e3', 'caldav', 'remote-1', 'cal-a')
+    expect(() => insertEvent('u1', 'e4', 'caldav', 'remote-1', 'cal-a')).toThrow()
+    expect(() => insertEvent('u1', 'e5', 'caldav', 'remote-1', 'cal-b')).not.toThrow()
+    expect(() => insertEvent('u1', 'e6', 'google', 'remote-1', 'cal-a')).not.toThrow()
+    expect(() => insertEvent('u2', 'e4', 'caldav', 'remote-1', 'cal-a')).not.toThrow()
   })
 
   it('allow the same id in two accounts but not twice in one', () => {

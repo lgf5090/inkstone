@@ -200,6 +200,7 @@ interface EventRow {
   meta_json: string
   recurrence_rule: string | null
   calendar_source: string
+  external_scope: string
   external_id: string | null
   rev: number
 }
@@ -347,7 +348,7 @@ const EVENT_WRITE_COLUMNS = [
   'title', 'description', 'kind', 'task_completed', 'task_completed_at',
   'task_completed_at_value', 'task_priority', 'conference_json', 'start_value', 'start_type',
   'time_zone', 'start_ms', 'end_value', 'end_type', 'end_ms', 'all_day', 'icon_json',
-  'meta_json', 'recurrence_rule', 'calendar_source', 'external_id',
+  'meta_json', 'recurrence_rule', 'calendar_source', 'external_scope', 'external_id',
 ] as const
 
 export class CalendarStore {
@@ -1005,18 +1006,28 @@ export class CalendarStore {
     }
 
     const externalMatch = new Map<string, string>()
+    const externalKey = (input: Pick<TimelineEventWrite, 'source' | 'externalId' | 'calendarIds'>): string =>
+      `${input.source}\u0000${input.calendarIds[0] ?? ''}\u0000${input.externalId ?? ''}`
     const externalKeys = [...new Set(timelineInputs
       .filter((input) => input.externalId !== null)
-      .map((input) => `${input.source}\u0000${input.externalId}`))]
+      .map((input) => externalKey(input)))]
     for (const chunk of chunks(externalKeys, EXTERNAL_MATCH_CHUNK)) {
-      const pairs = chunk.map((key) => key.split('\u0000') as [string, string])
-      const clauses = pairs.map(() => '(calendar_source = ? AND external_id = ?)').join(' OR ')
+      const triples = chunk.map((key) => key.split('\u0000') as [string, string, string])
+      const clauses = triples.map(() => '(calendar_source = ? AND external_scope = ? AND external_id = ?)').join(' OR ')
       const { results } = await this.db.prepare(
-        `SELECT id, calendar_source, external_id FROM calendar_events
+        `SELECT id, calendar_source, external_scope, external_id FROM calendar_events
           WHERE user_id = ? AND (${clauses})`,
-      ).bind(this.userId, ...pairs.flat()).all<{ id: string; calendar_source: string; external_id: string }>()
+      ).bind(this.userId, ...triples.flat()).all<{
+        id: string
+        calendar_source: string
+        external_scope: string
+        external_id: string
+      }>()
       for (const row of results ?? []) {
-        externalMatch.set(`${row.calendar_source}\u0000${row.external_id}`, row.id)
+        externalMatch.set(
+          `${row.calendar_source}\u0000${row.external_scope}\u0000${row.external_id}`,
+          row.id,
+        )
       }
     }
 
@@ -1025,7 +1036,7 @@ export class CalendarStore {
     const resolved: Array<{ input: TimelineEventWrite; id: string }> = timelineInputs.map((input) => {
       const matched = input.externalId === null
         ? undefined
-        : externalMatch.get(`${input.source}\u0000${input.externalId}`)
+        : externalMatch.get(externalKey(input))
       return { input, id: input.id ?? matched ?? newId() }
     })
     if (mode === 'upsert') {
@@ -1049,7 +1060,7 @@ export class CalendarStore {
     const statements: D1PreparedStatement[][] = []
     for (const { input, id } of resolved) {
       const group: D1PreparedStatement[] = []
-      const exists = existingIds.has(id) || externalMatch.get(`${input.source}\u0000${input.externalId}`) === id
+      const exists = existingIds.has(id) || externalMatch.get(externalKey(input)) === id
       if (exists && mode === 'upsert') {
         group.push(this.upsertEventStatement(input, id, now))
         group.push(this.db.prepare(
@@ -1358,6 +1369,7 @@ export class CalendarStore {
       JSON.stringify(input.meta),
       input.recurrenceRule,
       input.source,
+      input.calendarIds[0] ?? '',
       input.externalId,
     ]
   }

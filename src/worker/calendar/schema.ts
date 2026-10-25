@@ -72,6 +72,7 @@ export const CALENDAR_SCHEMA_STATEMENTS: readonly string[] = [
     meta_json TEXT NOT NULL DEFAULT '{}',
     recurrence_rule TEXT,
     calendar_source TEXT NOT NULL DEFAULT 'local',
+    external_scope TEXT NOT NULL DEFAULT '',
     external_id TEXT,
     remote_etag TEXT,
     remote_updated_at INTEGER,
@@ -90,7 +91,7 @@ export const CALENDAR_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_calendar_events_batch
      ON calendar_events(user_id, batch_key)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_events_external
-     ON calendar_events(user_id, calendar_source, external_id)
+     ON calendar_events(user_id, calendar_source, external_scope, external_id)
      WHERE external_id IS NOT NULL`,
 
   `CREATE TABLE IF NOT EXISTS calendar_event_calendars (
@@ -224,7 +225,7 @@ export const CALENDAR_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[
     'user_id', 'id', 'title', 'description', 'kind', 'task_completed', 'task_completed_at',
     'task_completed_at_value', 'task_priority', 'conference_json', 'start_value', 'start_type',
     'time_zone', 'start_ms', 'end_value', 'end_type', 'end_ms', 'all_day', 'icon_json',
-    'meta_json', 'recurrence_rule', 'calendar_source', 'external_id', 'remote_etag',
+    'meta_json', 'recurrence_rule', 'calendar_source', 'external_scope', 'external_id', 'remote_etag',
     'remote_updated_at', 'batch_key', 'created_at', 'updated_at', 'rev',
   ],
   calendar_event_calendars: ['user_id', 'event_id', 'calendar_id', 'position'],

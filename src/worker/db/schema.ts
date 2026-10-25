@@ -2583,6 +2583,27 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `DELETE FROM music_lyric WHERE source = 'netease' AND yrc = ''`,
     ],
   },
+  {
+    // External ids are unique per calendar, not per provider: two Google accounts (or two CalDAV
+    // servers) can legitimately hand out the same event id. Existing rows get the first calendar
+    // they belong to as their scope; the old index is replaced in the same migration.
+    version: 170,
+    skipIfColumnExists: { table: 'calendar_events', column: 'external_scope' },
+    statements: [
+      `ALTER TABLE calendar_events ADD COLUMN external_scope TEXT NOT NULL DEFAULT ''`,
+      `UPDATE calendar_events
+          SET external_scope = COALESCE((
+            SELECT m.calendar_id FROM calendar_event_calendars m
+             WHERE m.user_id = calendar_events.user_id AND m.event_id = calendar_events.id
+             ORDER BY m.position ASC, m.calendar_id ASC LIMIT 1
+          ), '')
+        WHERE external_id IS NOT NULL AND external_scope = ''`,
+      `DROP INDEX IF EXISTS idx_calendar_events_external`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_events_external
+         ON calendar_events(user_id, calendar_source, external_scope, external_id)
+         WHERE external_id IS NOT NULL`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

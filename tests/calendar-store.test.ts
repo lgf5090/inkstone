@@ -352,6 +352,27 @@ describe('batch writes', () => {
     expect(byExternal[0]?.title).toBe('By external')
     expect(byExternal[0]?.rev).toBe(created.rev + 2)
   })
+
+  it('scopes an external id to its calendar so two accounts cannot overwrite each other', async () => {
+    const second = await store.createCalendar({ name: 'Second Google' })
+    const firstEvent = await store.createEvent(eventInput({
+      title: 'First account',
+      externalId: 'same-event-id',
+      source: 'google',
+    }))
+    const secondEvent = await store.createEvents([eventInput({
+      title: 'Second account',
+      calendarId: second.id,
+      calendarIds: [second.id],
+      externalId: 'same-event-id',
+      source: 'google',
+    })], 'upsert')
+
+    expect(secondEvent[0]?.id).not.toBe(firstEvent.id)
+    expect(secondEvent[0]?.calendarIds).toEqual([second.id])
+    expect((await store.getEvent(firstEvent.id))?.title).toBe('First account')
+    expect((await store.getEvent(firstEvent.id))?.calendarIds).toEqual([calendar.id])
+  })
 })
 
 describe('calendar merge and delete semantics', () => {
