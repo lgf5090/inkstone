@@ -66,6 +66,7 @@ const NESTED_TAB_PATHS: readonly [prefix: string, id: AppTabId][] = [
   ['/memos/', 'memos'],
   ['/email/', 'email'],
   ['/music/', 'music'],
+  ['/tools/', 'tools'],
 ]
 
 const TAB_BY_PATH = new Map(APP_TABS.map((tab) => [tab.path, tab.id]))

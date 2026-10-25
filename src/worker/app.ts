@@ -58,6 +58,7 @@ import { todoImportRoutes } from './routes/todo-import'
 import { todoFeedRoutes } from './routes/todo-feeds'
 import { emailRoutes } from './routes/email'
 import { musicRoutes } from './routes/music'
+import { toolsPasswordRoutes } from './routes/tools-password'
 import { musicSharePageRoutes, musicSharePublicRoutes } from './routes/music-share'
 import { emailSearchesRoutes } from './routes/email-searches'
 import { emailTemplatesRoutes } from './routes/email-templates'
@@ -191,6 +192,7 @@ export function createApp() {
   app.route('/api/email', emailSendRoutes)
   app.route('/api/email', emailRoutes)
   app.route('/api/music', musicRoutes)
+  app.route('/api/tools/password', toolsPasswordRoutes)
   app.route('/api/assistant', assistantRoutes)
   app.route('/api/excalidraw/ai', aiProxyRoutes)
   app.route('/api/excalidraw/library', excalidrawLibraryRoutes)

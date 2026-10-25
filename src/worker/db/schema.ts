@@ -47,6 +47,12 @@ import {
   MUSIC_REQUIRED_TABLES,
   MUSIC_SCHEMA_STATEMENTS,
 } from '../music/schema'
+import {
+  TOOLS_PASSWORD_REQUIRED_COLUMNS,
+  TOOLS_PASSWORD_REQUIRED_INDEXES,
+  TOOLS_PASSWORD_REQUIRED_TABLES,
+  TOOLS_PASSWORD_SCHEMA_STATEMENTS,
+} from '../tools/password/schema'
 
 const BACKUP_ARCHIVES_TABLE = `CREATE TABLE IF NOT EXISTS backup_archives (
   user_id TEXT NOT NULL,
@@ -606,6 +612,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   ...MEMOS_SCHEMA_STATEMENTS,
   ...EMAIL_SCHEMA_STATEMENTS,
   ...MUSIC_SCHEMA_STATEMENTS,
+  ...TOOLS_PASSWORD_SCHEMA_STATEMENTS,
 ]
 
 export interface SchemaMigration {
@@ -2576,6 +2583,10 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `DELETE FROM music_lyric WHERE source = 'netease' AND yrc = ''`,
     ],
   },
+  {
+    version: 170,
+    statements: TOOLS_PASSWORD_SCHEMA_STATEMENTS,
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -2641,6 +2652,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   ...SHARE_HUB_REQUIRED_COLUMNS,
   ...EMAIL_REQUIRED_COLUMNS,
   ...MUSIC_REQUIRED_COLUMNS,
+  ...TOOLS_PASSWORD_REQUIRED_COLUMNS,
 } as const
 
 export const REQUIRED_TABLES = [
@@ -2698,6 +2710,7 @@ export const REQUIRED_TABLES = [
   ...SHARE_HUB_REQUIRED_TABLES,
   ...EMAIL_REQUIRED_TABLES,
   ...MUSIC_REQUIRED_TABLES,
+  ...TOOLS_PASSWORD_REQUIRED_TABLES,
 ] as const
 
 export const REQUIRED_INDEXES = [
@@ -2770,6 +2783,7 @@ export const REQUIRED_INDEXES = [
   ...SHARE_HUB_REQUIRED_INDEXES,
   ...EMAIL_REQUIRED_INDEXES,
   ...MUSIC_REQUIRED_INDEXES,
+  ...TOOLS_PASSWORD_REQUIRED_INDEXES,
 ] as const
 
 
