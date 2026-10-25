@@ -17,6 +17,7 @@ import {
 import { Temporal } from 'temporal-polyfill'
 import {
   defaultTimeZone,
+  isCalendarEntityId,
   parseTemporalValue,
   toTemporalValue,
   type CalendarEventDto,
@@ -262,7 +263,7 @@ export function toEventInput(event: Event, options: EventSerializationOptions): 
     icon: typeof event.icon === 'boolean' ? event.icon : null,
     recurrenceRule,
     ...(identity.source === 'local' ? {} : { source: identity.source }),
-    ...(identity.externalId ? { externalId: identity.externalId } : {}),
+    ...(identity.externalId && isCalendarEntityId(identity.externalId) ? { externalId: identity.externalId } : {}),
   }
 }
 
