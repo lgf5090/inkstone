@@ -85,6 +85,7 @@ export interface CalendarWriteInput {
   isDefault?: boolean
   isVisible?: boolean
   readOnly?: boolean
+  source?: CalendarSource
 }
 
 export interface CalendarPatchInput {
@@ -228,6 +229,8 @@ export interface CalendarMetaDto {
   subscriptions: CalendarSubscriptionDto[]
   connections: CalendarConnectionDto[]
   preferences: CalendarPreferences
+  /** False on the first load, so the client can seed the display timezone from the browser. */
+  preferencesInitialized?: boolean
 }
 
 export interface CalendarSearchResultDto {

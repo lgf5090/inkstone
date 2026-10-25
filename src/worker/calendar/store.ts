@@ -61,7 +61,11 @@ const DEFAULT_CALENDAR_COLORS: ReadonlyArray<{ color: string; darkColor: string 
   { color: '#84cc16', darkColor: '#a3e635' },
 ]
 
+// D1 refuses a statement with more than 100 bound variables. The external-id lookup binds two
+// variables per pair, so it keeps its own smaller window; the single-column IN lookups can use
+// the wider one because they add only one variable per id.
 const SQL_CHUNK = 80
+const EXTERNAL_MATCH_CHUNK = 40
 const MAX_BATCH_STATEMENTS = 80
 
 export interface CalendarTaskWrite {
@@ -126,6 +130,7 @@ export interface CalendarWriteInput {
   isDefault?: boolean
   isVisible?: boolean
   readOnly?: boolean
+  source?: CalendarSource
 }
 
 export interface CalendarPatchInput {
@@ -386,14 +391,22 @@ export class CalendarStore {
   }
 
   async meta(): Promise<CalendarMetaDto> {
-    const [calendars, groups, subscriptions, connections, preferences] = await Promise.all([
+    const [calendars, groups, subscriptions, connections, preferences, preferencesInitialized] = await Promise.all([
       this.ensureDefaultCalendar(),
       this.listGroups(),
       this.listSubscriptions(),
       this.listConnections(),
       this.preferences(),
+      this.hasPreferences(),
     ])
-    return { calendars, groups, subscriptions, connections, preferences }
+    return { calendars, groups, subscriptions, connections, preferences, preferencesInitialized }
+  }
+
+  private async hasPreferences(): Promise<boolean> {
+    const row = await this.db.prepare(
+      `SELECT 1 AS present FROM calendar_preferences WHERE user_id = ?1`,
+    ).bind(this.userId).first<{ present: number }>()
+    return Boolean(row)
   }
 
   private async calendarRow(id: string): Promise<CalendarRow | null> {
@@ -440,7 +453,7 @@ export class CalendarStore {
       `INSERT INTO calendar_calendars (
          user_id, id, name, color, dark_color, icon, group_id, is_default, is_visible,
          read_only, source, subscription_id, position, created_at, updated_at, rev
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'local', NULL, ?, ?, ?, 1)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 1)`,
     ).bind(
       this.userId,
       id,
@@ -452,6 +465,7 @@ export class CalendarStore {
       isDefault ? 1 : 0,
       input.isVisible === false ? 0 : 1,
       input.readOnly === true ? 1 : 0,
+      input.source ?? 'local',
       positionRow?.next ?? 0,
       now,
       now,
@@ -980,7 +994,7 @@ export class CalendarStore {
     const externalKeys = [...new Set(timelineInputs
       .filter((input) => input.externalId !== null)
       .map((input) => `${input.source}\u0000${input.externalId}`))]
-    for (const chunk of chunks(externalKeys, SQL_CHUNK)) {
+    for (const chunk of chunks(externalKeys, EXTERNAL_MATCH_CHUNK)) {
       const pairs = chunk.map((key) => key.split('\u0000') as [string, string])
       const clauses = pairs.map(() => '(calendar_source = ? AND external_id = ?)').join(' OR ')
       const { results } = await this.db.prepare(

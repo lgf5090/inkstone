@@ -483,6 +483,7 @@ export function parseCalendarInput(value: unknown): CalendarWriteInput {
   if (record.isDefault !== undefined) input.isDefault = booleanValue(record.isDefault, 'isDefault')
   if (record.isVisible !== undefined) input.isVisible = booleanValue(record.isVisible, 'isVisible')
   if (record.readOnly !== undefined) input.readOnly = booleanValue(record.readOnly, 'readOnly')
+  if (record.source !== undefined) input.source = parseSource(record.source)
   return input
 }
 
