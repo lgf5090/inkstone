@@ -7,6 +7,7 @@
  * disappears between the upstream and the caller.
  */
 import { apiForm, eapi, weapi } from './crypto'
+import { readStreamWithinLimit } from '../../../lib/request'
 
 export type NeteaseCryptoMode = 'weapi' | 'eapi' | 'api'
 export type NeteaseCookieInput = string | Record<string, string>
@@ -14,6 +15,7 @@ export type NeteaseCookieInput = string | Record<string, string>
 export const NETEASE_TIMEOUT_MS = 8_000
 const MAX_REDIRECTS = 3
 const MAX_ERROR_BODY = 500
+const MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 const RETRY_DELAY_MS = 250
 
 const MUSIC_DOMAIN = 'https://music.163.com'
@@ -62,17 +64,40 @@ export function isAllowedNeteaseHost(hostname: string): boolean {
   )
 }
 
+const COOKIE_ATTRIBUTE_NAMES = new Set([
+  'path',
+  'domain',
+  'expires',
+  'max-age',
+  'samesite',
+  'secure',
+  'httponly',
+  'priority',
+  'partitioned',
+])
+
+/** `name=value` pairs from a Cookie header or a Set-Cookie line, with Set-Cookie attributes dropped. */
+export function cookiePairs(input: string | readonly string[]): Array<[string, string]> {
+  const lines = typeof input === 'string' ? [input] : [...input]
+  const pairs: Array<[string, string]> = []
+  for (const line of lines) {
+    // Only the first segment is a cookie; Path/Domain/Expires/HttpOnly follow it as attributes.
+    const first = line.split(';', 1)[0] ?? ''
+    const separator = first.indexOf('=')
+    if (separator <= 0) continue
+    const name = first.slice(0, separator).trim()
+    const value = first.slice(separator + 1).trim()
+    if (!name || COOKIE_ATTRIBUTE_NAMES.has(name.toLowerCase())) continue
+    pairs.push([name, value])
+  }
+  return pairs
+}
+
 export function parseCookie(input: NeteaseCookieInput | undefined): Record<string, string> {
   if (!input) return {}
   if (typeof input !== 'string') return { ...input }
   const cookie: Record<string, string> = {}
-  for (const part of input.split(';')) {
-    const separator = part.indexOf('=')
-    if (separator <= 0) continue
-    const name = part.slice(0, separator).trim()
-    const value = part.slice(separator + 1).trim()
-    if (name) cookie[name] = value
-  }
+  for (const [name, value] of cookiePairs(input)) cookie[name] = value
   return cookie
 }
 
@@ -194,7 +219,12 @@ function parseJson(text: string): Record<string, unknown> | null {
 
 async function readResponse(response: Response): Promise<NeteaseResponse> {
   const cookie = response.headers.getSetCookie()
-  const text = await response.text()
+  // Counted while streaming: a huge playlist answer must become a named failure, not an isolate OOM.
+  const bytes = await readStreamWithinLimit(response.body, MAX_RESPONSE_BYTES)
+  if (bytes === null) {
+    return failure(502, 'Netease returned a response larger than this client will read')
+  }
+  const text = new TextDecoder().decode(bytes)
   const parsed = parseJson(text)
   if (!response.ok) {
     const body = parsed ?? { code: response.status, message: text.slice(0, MAX_ERROR_BODY) }
@@ -305,7 +335,14 @@ export async function requestNetease(
     if (!isAllowedNeteaseHost(target.hostname)) {
       return failure(502, `Netease redirected to a host this client will not follow: ${target.hostname}`)
     }
-    await response.body?.cancel()
+    if (target.protocol !== 'https:' || target.username || target.password) {
+      // The redirect is followed with the account cookie attached; an HTTP target would put the
+      // session on the wire in clear text, and credentials in an address are never this client's.
+      return failure(502, 'Netease redirected to an address this client will not follow')
+    }
+    await response.body?.cancel().catch((error: unknown) => {
+      console.warn('[inkstone] Netease redirect body could not be cancelled:', error)
+    })
     url = target.toString()
     if (response.status === 303 || response.status === 301 || response.status === 302) {
       method = 'GET'

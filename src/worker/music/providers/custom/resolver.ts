@@ -68,7 +68,10 @@ function sourceUrlOf(payload: unknown, path: string): string {
   if (isBlockedTarget(url.hostname)) {
     throw new MusicProviderError(502, 'source_unavailable', 'The custom resolver returned a blocked address')
   }
-  if (url.port && url.port !== '80' && url.port !== '443') {
+  if (url.protocol !== 'https:') {
+    throw new MusicProviderError(502, 'source_unavailable', 'The custom resolver returned a non-HTTPS address')
+  }
+  if (url.port && url.port !== '443') {
     throw new MusicProviderError(502, 'source_unavailable', 'The custom resolver returned an unsupported port')
   }
   return url.toString()

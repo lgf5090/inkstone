@@ -64,11 +64,6 @@ function boundedId(raw: string | undefined, label: string): string {
 export function createMusicDiscoveryRoutes(deps: MusicRouteDeps): Hono<AppBindings> {
   const routes = new Hono<AppBindings>()
 
-  routes.use('*', async (c, next) => {
-    deps.spendBudget(c.get('userId'))
-    await next()
-  })
-
   interface PageQuery extends MusicPageQuery {
     page: number
   }

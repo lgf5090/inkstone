@@ -23,7 +23,8 @@
  * rewrite. Anything that cannot be understood is refused before the first write, with the same 400 a
  * malformed request gets — a backup is external input and gets the same trust boundary.
  */
-import { MUSIC_LIMITS } from '@shared/music/constants'
+import { MUSIC_LIMITS, MUSIC_MAX_HISTORY_PLAYED_AT } from '@shared/music/constants'
+import { normalizeMusicSettings } from './settings'
 import {
   MUSIC_MOUNT_KINDS,
   MUSIC_MOUNT_STATUSES,
@@ -46,6 +47,7 @@ import {
   type MusicTrackKind,
 } from '@shared/music/model'
 import { utf8ByteLength } from '@shared/text-utils'
+import { isBlockedTarget } from '@shared/ai-proxy-guard'
 import { MAX_BATCH_STATEMENTS } from '../db/writes'
 import { ApiError } from '../lib/errors'
 import { MusicStore } from './store'
@@ -477,6 +479,11 @@ function parseDocument(text: string, userId: string): MusicBackupDocument {
   assertUnique(subscriptions.map((row) => `${row.kind}\u0000${row.providerId}`), 'subscription identity')
   assertUnique(mounts.map((row) => row.id), 'mount id')
 
+  const objectBytes = objects.reduce((sum, row) => sum + row.size, 0)
+  if (objectBytes > MUSIC_LIMITS.quotaBytes) {
+    throw ApiError.badRequest('The music backup ledger exceeds the account storage quota')
+  }
+
   const trackIds = new Set(tracks.map((row) => row.id))
   const playlistIds = new Set(playlists.map((row) => row.id))
   for (const item of playlistItems) {
@@ -541,7 +548,7 @@ function parseTrack(value: unknown, index: number, userId: string): MusicTrack {
     durationMs: optionalInteger(row.durationMs, 0, DURATION_MAX_MS, `Track ${index + 1} durationMs`, 0),
     format: optionalText(row.format, FORMAT_MAX, `Track ${index + 1} format`),
     bitrate: optionalNullableInteger(row.bitrate, 0, BITRATE_MAX, `Track ${index + 1} bitrate`),
-    size: optionalNullableInteger(row.size, 0, Number.MAX_SAFE_INTEGER, `Track ${index + 1} size`),
+    size: optionalNullableInteger(row.size, 0, MUSIC_LIMITS.uploadMaxBytes, `Track ${index + 1} size`),
     sha256: optionalHash(row.sha256, `Track ${index + 1} sha256`),
     r2Key,
     source: optionalText(row.source, SOURCE_MAX, `Track ${index + 1} source`),
@@ -593,7 +600,13 @@ function parseHistory(value: unknown, index: number): MusicHistoryEntry {
   return {
     id: requiredText(row.id, ID_MAX, `History entry ${index + 1} id`),
     trackId: requiredText(row.trackId, ID_MAX, `History entry ${index + 1} trackId`),
-    playedAt: optionalTimestamp(row.playedAt, `History entry ${index + 1} playedAt`),
+    playedAt: optionalInteger(
+      row.playedAt,
+      0,
+      MUSIC_MAX_HISTORY_PLAYED_AT,
+      `History entry ${index + 1} playedAt`,
+      Date.now(),
+    ),
     durationPlayed: optionalInteger(
       row.durationPlayed,
       0,
@@ -640,7 +653,7 @@ function parseObject(value: unknown, index: number, userId: string): MusicBackup
     trackId,
     format: requiredText(row.format, FORMAT_MAX, `Object ${index + 1} format`),
     quality: requiredText(row.quality, FORMAT_MAX, `Object ${index + 1} quality`),
-    size: requiredInteger(row.size, 0, Number.MAX_SAFE_INTEGER, `Object ${index + 1} size`),
+    size: requiredInteger(row.size, 0, MUSIC_LIMITS.uploadMaxBytes, `Object ${index + 1} size`),
     sha256: optionalHash(row.sha256, `Object ${index + 1} sha256`),
     createdAt: optionalTimestamp(row.createdAt, `Object ${index + 1} createdAt`),
   }
@@ -670,11 +683,16 @@ function parseSubscription(value: unknown, index: number): MusicSubscription {
 
 function parseMount(value: unknown, index: number): MusicBackupMount {
   const row = asRecord(value, `Mount ${index + 1}`)
+  const baseUrl = httpsUrl(row.baseUrl, `Mount ${index + 1} baseUrl`)
+  const host = new URL(baseUrl).hostname.toLowerCase().replace(/\.+$/, '')
+  if (isBlockedTarget(host)) {
+    throw ApiError.badRequest(`Mount ${index + 1} baseUrl must be a public host`)
+  }
   return {
     id: requiredText(row.id, ID_MAX, `Mount ${index + 1} id`),
     kind: oneOf(row.kind ?? 'alist', MUSIC_MOUNT_KINDS, `Mount ${index + 1} kind`),
     name: requiredText(row.name, NAME_MAX, `Mount ${index + 1} name`),
-    baseUrl: httpsUrl(row.baseUrl, `Mount ${index + 1} baseUrl`),
+    baseUrl,
     rootPath: mountRootPath(row.rootPath, `Mount ${index + 1} rootPath`),
     status: oneOf(row.status ?? 'active', MUSIC_MOUNT_STATUSES, `Mount ${index + 1} status`),
     createdAt: optionalTimestamp(row.createdAt, `Mount ${index + 1} createdAt`),
@@ -692,8 +710,9 @@ function parseSettings(value: unknown): MusicSettings | null {
     )
   }
   // The resolver coordinates never travel through a backup, so a hand-edited file cannot point this
-  // account's worker at an address the reader did not configure on this deployment.
-  return sanitizeResolverSettings(row as unknown as MusicSettings)
+  // account's worker at an address the reader did not configure on this deployment. Normalizing here
+  // also means a wrong type is refused at import instead of making the drive routes throw later.
+  return normalizeMusicSettings(sanitizeResolverSettings(row as unknown as MusicSettings))
 }
 
 function parseArtists(value: unknown, label: string): MusicArtist[] {
@@ -1360,7 +1379,9 @@ function toBackupSourceOverride(row: SourceOverrideBackupRow): MusicSourceOverri
   return {
     trackKey: row.track_key,
     source: row.source,
-    config: readStoredObject(row.config, 'music source config'),
+    // The config column is where a future resolver would keep a key or token. A backup leaves the
+    // machine, so the coordinates are blanked even though this table has no writer today.
+    config: {},
     updatedAt: row.updated_at,
   }
 }

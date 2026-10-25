@@ -70,7 +70,7 @@ import {
   normalizeToplistSummary,
   normalizeTrack,
 } from './normalize'
-import { cookieToString, parseCookie, NETEASE_TIMEOUT_MS } from './request'
+import { cookiePairs, cookieToString, parseCookie, NETEASE_TIMEOUT_MS } from './request'
 import { NeteaseLogin, type NeteaseLoginRequest, type NeteaseLoginTransport } from './login'
 
 export interface ExternalNeteaseOptions {
@@ -169,16 +169,7 @@ export class ExternalNeteaseProvider implements MusicProvider, NeteaseLoginTrans
   }
 
   absorbCookie(cookie: string | string[]): void {
-    const lines = Array.isArray(cookie) ? cookie : [cookie]
-    for (const line of lines) {
-      for (const part of line.split(';')) {
-        const separator = part.indexOf('=')
-        if (separator <= 0) continue
-        const name = part.slice(0, separator).trim()
-        const value = part.slice(separator + 1).trim()
-        if (name) this.cookies.set(name, value)
-      }
-    }
+    for (const [name, value] of cookiePairs(cookie)) this.cookies.set(name, value)
   }
 
   resetCookie(): void {

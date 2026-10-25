@@ -264,7 +264,6 @@ export interface MusicSettings {
   downloadFormat: 'auto' | 'mp3' | 'flac' | 'm4a'
   downloadConcurrency: number
   downloadNameFormat: string
-  exportLyrics: boolean
   autoPlay: boolean
   singleTrackMode: 'replace' | 'append'
   pureMode: boolean
@@ -289,7 +288,6 @@ export const DEFAULT_MUSIC_SETTINGS: MusicSettings = {
   downloadFormat: 'auto',
   downloadConcurrency: 3,
   downloadNameFormat: '{title} - {artist}',
-  exportLyrics: true,
   autoPlay: true,
   singleTrackMode: 'replace',
   pureMode: false,

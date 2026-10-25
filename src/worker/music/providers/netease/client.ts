@@ -68,7 +68,7 @@ import {
   normalizeToplistSummary,
   normalizeTrack,
 } from './normalize'
-import { cookieToString, parseCookie, requestNetease, type NeteaseResponse } from './request'
+import { cookiePairs, cookieToString, parseCookie, requestNetease, type NeteaseResponse } from './request'
 import { NeteaseLogin, type NeteaseLoginRequest, type NeteaseLoginTransport } from './login'
 import { ExternalNeteaseProvider } from './external'
 
@@ -76,6 +76,16 @@ export interface NeteaseProviderOptions {
   cookie?: string
   timeoutMs?: number
   retries?: number
+}
+
+function playlistTrackIds(body: unknown): string[] {
+  const playlist = (body as { playlist?: { trackIds?: unknown } } | null)?.playlist
+  const ids = Array.isArray(playlist?.trackIds) ? playlist.trackIds : []
+  return ids.flatMap((item) => {
+    if (!item || typeof item !== 'object') return []
+    const id = (item as { id?: unknown }).id
+    return typeof id === 'string' || typeof id === 'number' ? [String(id)] : []
+  })
 }
 
 const SEARCH_TYPES: Record<MusicSearchType, number> = {
@@ -136,16 +146,7 @@ export class NeteaseProvider implements MusicProvider, NeteaseLoginTransport {
   }
 
   absorbCookie(cookie: string | string[]): void {
-    const lines = Array.isArray(cookie) ? cookie : [cookie]
-    for (const line of lines) {
-      for (const part of line.split(';')) {
-        const separator = part.indexOf('=')
-        if (separator <= 0) continue
-        const name = part.slice(0, separator).trim()
-        const value = part.slice(separator + 1).trim()
-        if (name) this.cookies.set(name, value)
-      }
-    }
+    for (const [name, value] of cookiePairs(cookie)) this.cookies.set(name, value)
   }
 
   resetCookie(): void {
@@ -324,7 +325,34 @@ export class NeteaseProvider implements MusicProvider, NeteaseLoginTransport {
   }
 
   async playlist(providerId: string, page: MusicPageQuery): Promise<MusicPlaylistDetail> {
-    const detail = normalizePlaylistDetail(await this.bodyOf(neteaseEndpoints.playlistDetail(providerId)))
+    // The detail endpoint carries the whole track-id list but only returns the first `n` full
+    // snapshots. Ask for none, slice the ids for this page and fetch exactly those songs; a 100k
+    // request would make every playlist page pay for the entire catalogue payload.
+    let body = await this.bodyOf(neteaseEndpoints.playlistDetail(providerId, 0))
+    let detail = normalizePlaylistDetail(body)
+    let ids = playlistTrackIds(body)
+    if (ids.length === 0) {
+      const fallback = Math.min(5_000, page.offset + page.limit)
+      body = await this.bodyOf(neteaseEndpoints.playlistDetail(providerId, fallback))
+      detail = normalizePlaylistDetail(body)
+      ids = playlistTrackIds(body)
+    }
+    if (ids.length > 0) {
+      const pageIds = ids.slice(page.offset, page.offset + page.limit)
+      const found = await this.songDetail(pageIds)
+      const byId = new Map(found.map((track) => [track.providerId, track]))
+      const tracks = pageIds.flatMap((id) => {
+        const track = byId.get(id)
+        return track ? [track] : []
+      })
+      const total = Math.max(detail.total, ids.length)
+      return {
+        playlist: detail.playlist,
+        tracks,
+        total,
+        hasMore: page.offset + tracks.length < total,
+      }
+    }
     const tracks = detail.tracks.slice(page.offset, page.offset + page.limit)
     return {
       playlist: detail.playlist,

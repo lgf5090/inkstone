@@ -40,6 +40,11 @@ describe('netease endpoint builders', () => {
     expect(call.body.c).toBe('[{"id":123},{"id":456}]')
   })
 
+  it('asks a playlist detail for no embedded songs by default and for a bounded fallback on request', () => {
+    expect(neteaseEndpoints.playlistDetail('9').body.n).toBe(0)
+    expect(neteaseEndpoints.playlistDetail('9', 5_000).body.n).toBe(5_000)
+  })
+
   it('serializes song URL ids and adds the sky immersion tag only for sky', () => {
     expect(neteaseEndpoints.songUrl({ ids: ['1', '2'], level: 'exhigh' }).body).toEqual({
       ids: '[1,2]',

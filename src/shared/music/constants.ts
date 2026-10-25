@@ -13,13 +13,33 @@ export const MUSIC_LIMITS = {
   recentEntries: 500,
   lyricMaxBytes: 256 * 1024,
   settingsMaxBytes: 64 * 1024,
+  /** The init body carries up to 20k characters of embedded lyrics plus tags. */
+  /** 20k lyric characters can be ~60 KB in UTF-8 before JSON escaping. */
+  uploadInitMaxBytes: 128 * 1024,
   pageSize: 30,
   libraryPageSize: 50,
+  /** One request may save/import/delete at most this many track ids. */
+  trackBatchMax: 100,
+  /** One provider shelf is capped; the response says when the cap was reached. */
+  trackListMax: 1_000,
+  /** Favourites are copied into the store for heart state; beyond this the page warns instead. */
+  favoriteSyncLimit: 10_000,
+  /** Upload/download job lists return this many newest tasks and say when older ones exist. */
+  taskListMax: 100,
   searchHistory: 50,
   playlistItems: 5_000,
   resolverResponseBytes: 1024 * 1024,
   resolverTimeoutMs: 10_000,
+  maxActiveUploads: 3,
+  uploadStaleMs: 24 * 60 * 60 * 1000,
 } as const
+
+/**
+ * The largest timestamp `Date` can represent. A history play is converted to a local date by
+ * adding the reader's UTC offset, so the offset has to fit under this ceiling too.
+ */
+export const MUSIC_MAX_DATE_MS = 8_640_000_000_000_000
+export const MUSIC_MAX_HISTORY_PLAYED_AT = MUSIC_MAX_DATE_MS - 840 * 60_000
 
 export const MUSIC_AUDIO_FORMATS = ['mp3', 'flac', 'm4a', 'aac', 'ogg', 'opus', 'wav'] as const
 export type MusicAudioFormat = (typeof MUSIC_AUDIO_FORMATS)[number]

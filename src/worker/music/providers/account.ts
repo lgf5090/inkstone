@@ -10,9 +10,17 @@ import type { Env } from '../../env'
 import { decryptMusicCookie } from '../../lib/crypto'
 import { MusicStore } from '../store'
 import { createNeteaseProvider } from './netease/client'
+import { spendProviderRead } from './budget'
 import type { MusicProvider } from './types'
 
-export async function musicProviderFor(env: Env, userId: string): Promise<MusicProvider> {
+export async function musicProviderFor(
+  env: Env,
+  userId: string,
+  options: { spendBudget?: boolean } = {},
+): Promise<MusicProvider> {
+  // Playback resolves a source for every Range request; the stream route passes false and relies on
+  // its short-lived source cache instead of spending the discovery budget on a seek.
+  if (options.spendBudget !== false) spendProviderRead(userId)
   const stored = await new MusicStore(env.DB, userId).getAccountCookie('netease')
   let cookie: string | null = null
   if (stored) {

@@ -172,7 +172,6 @@ describe('discovery routes', () => {
     local.onError((err, c) => errorResponse(c, err))
     local.route('/api/music', createMusicDiscoveryRoutes({
       provider: async () => provider,
-      spendBudget: () => {},
       translate: (error) => error,
     }))
     return { local, calls }

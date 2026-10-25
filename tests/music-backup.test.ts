@@ -169,7 +169,7 @@ async function seedFullLibrary(): Promise<{ trackId: string; playlistId: string 
   await store.saveSourceOverride({
     trackKey: 'netease:42',
     source: 'custom',
-    config: { url: 'https://example.test/resolve' },
+    config: { url: 'https://example.test/resolve', apiKey: 'SECRET-SOURCE-KEY' },
   })
   await store.createSubscription({ kind: 'artist', providerId: 'ar1', name: 'Artist' })
   await store.createMount({
@@ -251,7 +251,9 @@ describe('export', () => {
     expect(payload.history).toHaveLength(1)
     expect(payload.recent).toHaveLength(1)
     expect(payload.objects).toHaveLength(1)
-    expect(payload.sourceOverrides).toHaveLength(1)
+    expect(payload.sourceOverrides).toEqual([
+      expect.objectContaining({ trackKey: 'netease:42', source: 'custom', config: {} }),
+    ])
     expect(payload.subscriptions).toHaveLength(1)
     expect(payload.mounts).toEqual([expect.objectContaining({
       kind: 'alist',
@@ -267,6 +269,7 @@ describe('export', () => {
       'SECRET-DOWNLOAD',
       'SECRET-CLEANUP',
       'SECRET-MOUNT-TOKEN',
+      'SECRET-SOURCE-KEY',
       'cookie_ciphertext',
     ]) {
       expect(text).not.toContain(secret)

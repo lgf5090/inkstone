@@ -179,8 +179,8 @@ export const neteaseEndpoints = {
       yrv: 0,
     }),
 
-  playlistDetail: (providerId: string) =>
-    call('/api/v6/playlist/detail', 'eapi', { id: providerId, n: 100000, s: 8 }),
+  playlistDetail: (providerId: string, trackLimit = 0) =>
+    call('/api/v6/playlist/detail', 'eapi', { id: providerId, n: trackLimit, s: 8 }),
 
   playlistCategories: () => call('/api/playlist/catalogue', 'eapi', {}),
 

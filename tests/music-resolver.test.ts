@@ -1,7 +1,8 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { resolveCustomSource } from '../src/worker/music/providers/custom/resolver'
-import type { MusicTrack } from '../src/shared/music/model'
+import { createMusicSourceResolver } from '../src/worker/music/providers/source'
+import { DEFAULT_MUSIC_SETTINGS, type MusicTrack } from '../src/shared/music/model'
 
 const track: MusicTrack = {
   id: 't1',
@@ -75,5 +76,42 @@ describe('custom HTTP resolver', () => {
   it('reports a non-JSON answer instead of treating it as a URL', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 200 })))
     await expect(resolveCustomSource({ track, quality: 'exhigh', config })).rejects.toThrow('JSON')
+  })
+
+  it('is consulted when the account put custom first, and skipped when disabled', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      JSON.stringify({ data: { url: 'https://cdn.example.test/a.mp3' } }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    )))
+    const customFirst = {
+      ...DEFAULT_MUSIC_SETTINGS,
+      customResolverEnabled: true,
+      customResolverUrl: config.url,
+      customResolverParams: config.params,
+      customResolverResponsePath: config.responseUrlPath,
+      customResolverQualityMap: config.qualityMapping,
+      sourcePriority: ['custom', 'official'] as Array<'official' | 'custom'>,
+    }
+    const resolver = createMusicSourceResolver(track, customFirst)
+    await expect(resolver.resolveCustom('exhigh')).resolves.toMatchObject({
+      url: 'https://cdn.example.test/a.mp3',
+    })
+    expect(resolver.officialAllowed).toBe(true)
+
+    const disabled = createMusicSourceResolver(track, {
+      ...customFirst,
+      customResolverEnabled: false,
+      sourcePriority: ['custom'],
+    })
+    await expect(disabled.resolveCustom('exhigh')).resolves.toBeNull()
+    expect(disabled.officialAllowed).toBe(true)
+  })
+
+  it('refuses an HTTP audio address even when the host is public', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      JSON.stringify({ data: { url: 'http://cdn.example.test/a.mp3' } }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    )))
+    await expect(resolveCustomSource({ track, quality: 'exhigh', config })).rejects.toThrow('HTTPS')
   })
 })

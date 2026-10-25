@@ -20,15 +20,19 @@ import { MUSIC_QUALITIES, type MusicQuality } from '@shared/music/model'
 import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidId } from '../lib/id'
-import { acquireLease } from '../lib/lease'
+import { acquireLease, type LeaseRelease } from '../lib/lease'
 import type { MusicQuota, MusicStore } from './store'
 
 export type MusicStorage = 'r2'
 
-/** Immutable audio and video objects: the key embeds everything that identifies the bytes. */
-export const MUSIC_AUDIO_CACHE_CONTROL = 'private, max-age=31536000, immutable'
-/** Covers are replaced independently of the audio object, so they get a shorter private window. */
-export const MUSIC_COVER_CACHE_CONTROL = 'private, max-age=86400'
+/**
+ * Audio and video objects can be replaced under the same track id (a download changes quality), so
+ * the browser must revalidate instead of trusting an immutable URL. R2 answers the conditional read
+ * with 304 when nothing changed.
+ */
+export const MUSIC_AUDIO_CACHE_CONTROL = 'private, max-age=0, must-revalidate'
+/** Covers are replaced under the same key, so the browser must revalidate; R2 supplies the ETag. */
+export const MUSIC_COVER_CACHE_CONTROL = 'private, max-age=0, must-revalidate'
 /** Holding the quota lease across a multipart completion needs room for a slow R2 round trip. */
 export const MUSIC_QUOTA_LEASE_MS = 2 * 60 * 1000
 
@@ -37,6 +41,7 @@ export interface MusicObjectStream {
   /** The size R2 reports for this read; a range caller already knows the length it asked for. */
   size: number | null
   contentType: string | null
+  etag: string | null
 }
 
 export interface MusicObjectPutOptions {
@@ -52,6 +57,7 @@ export interface MusicObjectHead {
   size: number
   contentType: string | null
   customMetadata: Record<string, string> | null
+  etag: string | null
 }
 
 /** The only object storage the music app uses. A KV-only deployment has no music upload surface. */
@@ -137,6 +143,32 @@ export async function putMusicObject(
   })
 }
 
+/** Stream a file body into R2 without holding a second full copy in the isolate. */
+export async function putMusicObjectStream(
+  env: Env,
+  key: string,
+  body: ReadableStream<Uint8Array>,
+  options: MusicObjectPutOptions,
+): Promise<void> {
+  if (!key.startsWith('music/')) throw new Error('music object keys must live under the music/ prefix')
+  const bucket = requireMusicBucket(env)
+  const customMetadata: Record<string, string> = {
+    userId: options.userId,
+    trackId: options.trackId,
+    kind: options.kind,
+  }
+  if (options.sha256) customMetadata.sha256 = options.sha256
+  await bucket.put(key, body, {
+    httpMetadata: {
+      contentType: options.contentType,
+      cacheControl: options.cacheControl ?? (options.kind === 'cover'
+        ? MUSIC_COVER_CACHE_CONTROL
+        : MUSIC_AUDIO_CACHE_CONTROL),
+    },
+    customMetadata,
+  })
+}
+
 export async function headMusicObject(env: Env, key: string): Promise<MusicObjectHead | null> {
   const bucket = requireMusicBucket(env)
   const object = await bucket.head(key)
@@ -145,6 +177,7 @@ export async function headMusicObject(env: Env, key: string): Promise<MusicObjec
     size: object.size,
     contentType: object.httpMetadata?.contentType ?? null,
     customMetadata: object.customMetadata ?? null,
+    etag: object.httpEtag ?? null,
   }
 }
 
@@ -203,12 +236,14 @@ export async function discardMusicObjects(
   env: Env,
   store: MusicStore,
   keys: readonly string[],
-): Promise<void> {
+): Promise<boolean> {
   try {
     await deleteMusicObjects(env, store, keys)
+    return true
   } catch (error) {
     // The user-facing operation already failed; the cleanup row is the durable part.
     console.warn('[inkstone] Music object discard will retry from the cleanup queue:', error)
+    return false
   }
 }
 
@@ -223,13 +258,25 @@ export async function withMusicQuotaLease<T>(
   store: MusicStore,
   incomingBytes: number,
   run: (usage: MusicQuota) => Promise<T>,
+  options: { waitMs?: number } = {},
 ): Promise<T> {
-  const release = await acquireLease(
-    env.DB,
-    `music-quota:${store.userId}`,
-    MUSIC_QUOTA_LEASE_MS,
-    'Another music upload is being finalized. Try again shortly',
-  )
+  let release: LeaseRelease | null = null
+  const deadline = Date.now() + Math.max(0, options.waitMs ?? 0)
+  // Background finalizers may wait for the single lease instead of failing their whole task; an
+  // interactive request passes no wait and answers the conflict immediately.
+  while (!release) {
+    try {
+      release = await acquireLease(
+        env.DB,
+        `music-quota:${store.userId}`,
+        MUSIC_QUOTA_LEASE_MS,
+        'Another music upload is being finalized. Try again shortly',
+      )
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.status !== 409 || Date.now() >= deadline) throw error
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+  }
   try {
     const usage = await store.quotaUsage()
     if (incomingBytes > 0 && usage.bytes + incomingBytes > MUSIC_LIMITS.quotaBytes) {
@@ -241,9 +288,18 @@ export async function withMusicQuotaLease<T>(
   }
 }
 
-/** Check room without writing anything: the init call reserves a size the completion checks again. */
-export async function assertMusicQuota(env: Env, store: MusicStore, incomingBytes: number): Promise<void> {
-  await withMusicQuotaLease(env, store, incomingBytes, async () => {})
+/**
+ * Check room without writing anything.
+ *
+ * This deliberately does not take the finalize lease: parallel slices and upload inits may all look
+ * at the same snapshot. The write itself is re-checked under the lease at completion, which is what
+ * keeps the quota from being spent twice.
+ */
+export async function assertMusicQuota(store: MusicStore, incomingBytes: number): Promise<void> {
+  const usage = await store.quotaUsage()
+  if (incomingBytes > 0 && usage.bytes + incomingBytes > MUSIC_LIMITS.quotaBytes) {
+    throw musicQuotaExceeded()
+  }
 }
 
 function musicQuotaExceeded(): ApiError {
@@ -260,5 +316,6 @@ function toMusicObjectStream(object: R2ObjectBody): MusicObjectStream {
     body: object.body as ReadableStream<Uint8Array>,
     size: object.size,
     contentType: object.httpMetadata?.contentType ?? null,
+    etag: object.httpEtag ?? null,
   }
 }

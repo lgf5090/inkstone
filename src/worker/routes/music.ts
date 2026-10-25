@@ -14,12 +14,12 @@ import { Hono, type Context } from 'hono'
 import { musicTrackKey } from '@shared/music/model'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
-import { createMinuteBudget } from '../lib/rate-limit'
 import { decryptMusicCookie } from '../lib/crypto'
 import { requireAuth } from '../middleware/auth'
 import { MusicStore } from '../music/store'
 import { selectMusicStorage } from '../music/storage'
 import { createNeteaseProvider } from '../music/providers/netease/client'
+import { spendProviderRead } from '../music/providers/budget'
 import { MusicProviderError, type MusicProvider } from '../music/providers/types'
 import { createMusicDiscoveryRoutes } from './music-discovery'
 import { musicDriveRoutes } from './music-drive'
@@ -32,10 +32,6 @@ import { musicUploadRoutes } from './music-uploads'
 
 type Ctx = Context<AppBindings>
 
-/** One provider read costs one spend; a runaway client is stopped before it hammers the upstream. */
-const PROVIDER_READ_BUDGET = 120
-const PROVIDER_READ_MESSAGE = 'Too many music requests. Try again in a minute.'
-
 export interface MusicProviderRequestOptions {
   /** Login flows must start from an empty jar rather than merging the account already stored. */
   anonymous?: boolean
@@ -44,7 +40,6 @@ export interface MusicProviderRequestOptions {
 /** What a child router may use from this module without importing it at runtime. */
 export interface MusicRouteDeps {
   provider(c: Ctx, options?: MusicProviderRequestOptions): Promise<MusicProvider>
-  spendBudget(userId: string): void
   translate(error: unknown): unknown
 }
 
@@ -88,6 +83,7 @@ export function musicProviderErrorToApiError(error: unknown): unknown {
  */
 async function providerFor(c: Ctx, options: MusicProviderRequestOptions = {}): Promise<MusicProvider> {
   const userId = c.get('userId')
+  spendProviderRead(userId)
   let cookie: string | undefined
   if (!options.anonymous) {
     const stored = await new MusicStore(c.env.DB, userId).getAccountCookie('netease')
@@ -106,8 +102,6 @@ async function providerFor(c: Ctx, options: MusicProviderRequestOptions = {}): P
     upstreamBaseUrl: c.env.MUSIC_UPSTREAM_API,
   })
 }
-
-const providerReadBudget = createMinuteBudget(PROVIDER_READ_BUDGET, PROVIDER_READ_MESSAGE)
 
 export const musicRoutes = new Hono<AppBindings>()
 
@@ -152,6 +146,10 @@ musicRoutes.get('/library/lyrics/:trackId', async (c) => {
   try {
     const payload = await provider.lyrics(track.providerId)
     if (!payload.lyric) throw new ApiError(404, 'music_lyrics_unavailable', 'No lyrics are available for this track')
+    const settings = await store.getSettings()
+    if (settings?.cacheLyrics === false) {
+      return c.json({ ...payload.lyric, fetchedAt: Date.now() })
+    }
     const saved = await store.saveLyric({
       trackKey: payload.lyric.trackKey,
       source: payload.lyric.source,
@@ -168,7 +166,6 @@ musicRoutes.get('/library/lyrics/:trackId', async (c) => {
 
 const deps: MusicRouteDeps = {
   provider: providerFor,
-  spendBudget: providerReadBudget,
   translate: musicProviderErrorToApiError,
 }
 

@@ -15,10 +15,12 @@ import {
   isMusicFormat,
 } from '@shared/music/constants'
 import { MUSIC_QUALITIES, type MusicQuality, type MusicTrack } from '@shared/music/model'
+import { assertRelayableEndpoint, isBlockedTarget } from '@shared/ai-proxy-guard'
 import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { contentDisposition, parseByteRange } from '../lib/http-range'
 import { MusicProviderError, type MusicProvider, type MusicStreamSource } from './providers/types'
+import type { MusicSourceResolver } from './providers/source'
 import {
   MUSIC_AUDIO_CACHE_CONTROL,
   headMusicObject,
@@ -28,7 +30,12 @@ import {
 } from './storage'
 
 const MAX_REDIRECTS = 3
+/** How long to wait for response headers. The body of a track may legitimately stream for minutes. */
+const HEADER_TIMEOUT_MS = 8_000
 const DEFAULT_STREAM_QUALITY: MusicQuality = 'exhigh'
+const STREAM_SOURCE_CACHE_MS = 60_000
+const STREAM_SOURCE_CACHE_MAX = 200
+const streamSourceCache = new Map<string, { source: MusicStreamSource; storedAt: number }>()
 const UPSTREAM_USER_AGENT = 'Mozilla/5.0 (compatible; Inkstone/1.0; +https://github.com/shuaiplus/inkstone)'
 const UPSTREAM_REFERER = 'https://music.163.com'
 
@@ -50,34 +57,54 @@ export function isAllowedMusicSourceHost(hostname: string): boolean {
  * time, at most three hops. A cancelled redirect body keeps the connection from lingering.
  */
 export async function fetchAllowedMusicUrl(rawUrl: string, init: RequestInit = {}): Promise<Response> {
-  let url = allowedMusicUrl(rawUrl)
+  return await fetchWithPolicy(rawUrl, init, allowedMusicUrl)
+}
+
+/** A URL returned by the account's resolver: public HTTPS only, and no open-proxy redirects. */
+export async function fetchRelayableMusicSource(rawUrl: string, init: RequestInit = {}): Promise<Response> {
+  return await fetchWithPolicy(rawUrl, init, allowedRelayableUrl)
+}
+
+type UrlPolicy = (raw: string) => URL | null
+
+async function fetchWithPolicy(rawUrl: string, init: RequestInit, policy: UrlPolicy): Promise<Response> {
+  let url = policy(rawUrl)
   if (!url) throw sourceUnavailable('The music source address is not allowed')
 
-  for (let redirects = 0; ; redirects += 1) {
-    let response: Response
-    try {
-      response = await fetch(url.toString(), {
-        ...init,
-        redirect: 'manual',
-        signal: init.signal ?? AbortSignal.timeout(8_000),
-      })
-    } catch (error) {
-      throw sourceUnavailable('The music source could not be reached', error)
-    }
-    if (!isRedirect(response.status)) return response
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), HEADER_TIMEOUT_MS)
+  // The header deadline must not outlive the response: a whole song takes longer than eight seconds.
+  // A caller that needs a body deadline passes its own signal, and it stays connected for the body.
+  const signal = init.signal ? AbortSignal.any([controller.signal, init.signal]) : controller.signal
+  try {
+    for (let redirects = 0; ; redirects += 1) {
+      let response: Response
+      try {
+        response = await fetch(url.toString(), {
+          ...init,
+          redirect: 'manual',
+          signal,
+        })
+      } catch (error) {
+        throw sourceUnavailable('The music source could not be reached', error)
+      }
+      if (!isRedirect(response.status)) return response
 
-    const location = response.headers.get('location')
-    await cancelBody(response)
-    if (!location) throw sourceUnavailable('The music source redirected without a location')
-    if (redirects >= MAX_REDIRECTS) throw sourceUnavailable('The music source redirected too many times')
-    let next: URL | null
-    try {
-      next = allowedMusicUrl(new URL(location, url).toString())
-    } catch {
-      next = null
+      const location = response.headers.get('location')
+      await cancelBody(response)
+      if (!location) throw sourceUnavailable('The music source redirected without a location')
+      if (redirects >= MAX_REDIRECTS) throw sourceUnavailable('The music source redirected too many times')
+      let next: URL | null
+      try {
+        next = policy(new URL(location, url).toString())
+      } catch {
+        next = null
+      }
+      if (!next) throw sourceUnavailable('The music source redirected to an address this worker will not follow')
+      url = next
     }
-    if (!next) throw sourceUnavailable('The music source redirected to an address this worker will not follow')
-    url = next
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -86,9 +113,12 @@ export async function serveMusicStream(
   track: MusicTrack,
   request: Request,
   provider?: MusicProvider,
+  requestedQuality?: MusicQuality,
+  sourceResolver?: MusicSourceResolver,
+  cacheKey?: string,
 ): Promise<Response> {
   if (track.r2Key) return serveStoredTrack(env, track, request)
-  return serveOnlineTrack(track, request, provider)
+  return serveOnlineTrack(track, request, provider, requestedQuality, sourceResolver, cacheKey)
 }
 
 async function serveStoredTrack(env: Env, track: MusicTrack, request: Request): Promise<Response> {
@@ -99,6 +129,13 @@ async function serveStoredTrack(env: Env, track: MusicTrack, request: Request): 
 
   const contentType = trackMime(track) ?? head.contentType ?? 'application/octet-stream'
   const headers = baseStreamHeaders(contentType, track)
+  if (head.etag) {
+    headers.set('ETag', head.etag)
+    const ifNoneMatch = request.headers.get('if-none-match')
+    if (ifNoneMatch && ifNoneMatch.split(',').some((tag) => tag.trim() === head.etag)) {
+      return new Response(null, { status: 304, headers })
+    }
+  }
   const rangeHeader = request.headers.get('range')
   const range = rangeHeader ? parseByteRange(rangeHeader, head.size) : null
 
@@ -128,6 +165,9 @@ async function serveOnlineTrack(
   track: MusicTrack,
   request: Request,
   provider: MusicProvider | undefined,
+  requestedQuality?: MusicQuality,
+  sourceResolver?: MusicSourceResolver,
+  cacheKey?: string,
 ): Promise<Response> {
   if (!provider) {
     throw new ApiError(502, 'music_provider_unavailable', 'No music provider is available to resolve this track')
@@ -141,18 +181,51 @@ async function serveOnlineTrack(
   }
   if (range) upstreamHeaders.Range = range
 
-  const quality = streamQuality(track)
-  let source = await resolveStreamSource(provider, track, quality)
-  let refreshed = source.expiresAt > 0 && source.expiresAt <= Date.now()
-  if (refreshed) source = await resolveStreamSource(provider, track, quality)
+  const quality = streamQuality(track, requestedQuality)
+  let custom = false
+  const nextSource = async (): Promise<MusicStreamSource> => {
+    if (sourceResolver) {
+      try {
+        const candidate = await sourceResolver.resolveCustom(quality)
+        if (candidate) {
+          custom = true
+          return candidate
+        }
+      } catch (error) {
+        if (!sourceResolver.officialAllowed) throw customSourceError(error)
+        console.warn('[inkstone] Custom music resolver failed; falling back to the official source:',
+          error instanceof Error ? error.message : error)
+      }
+    }
+    custom = false
+    const cached = cacheKey ? cachedSource(cacheKey) : null
+    if (cached) return cached
+    const official = await resolveStreamSource(provider, track, quality)
+    if (cacheKey) rememberSource(cacheKey, official)
+    return official
+  }
+  let source = await nextSource()
+  const resolvedSource = source
+  let refreshed = resolvedSource.expiresAt > 0 && resolvedSource.expiresAt <= Date.now()
+  if (refreshed) {
+    if (cacheKey) forgetSource(cacheKey)
+    source = await nextSource()
+  }
+  const fetchSource = custom ? fetchRelayableMusicSource : fetchAllowedMusicUrl
 
   let upstream: Response
   try {
-    upstream = await fetchAllowedMusicUrl(source.url, { method, headers: upstreamHeaders })
+    upstream = await fetchSource(source.url, {
+      method,
+      headers: upstreamHeaders,
+      signal: request.signal,
+    })
   } catch (error) {
     // Workerd egress can be slower than the browser's own path to a CDN; a checked redirect keeps
-    // the track playable without turning the Worker into the only network hop that must work.
+    // the track playable without turning the Worker into the only network hop that must work. A
+    // resolver URL is not on the media CSP allowlist, so it can only be proxied.
     console.warn('[inkstone] Music stream proxy could not reach the CDN; redirecting:', error instanceof Error ? error.message : error)
+    if (custom) throw sourceUnavailable('The custom music source could not be reached')
     return directSourceRedirect(source)
   }
 
@@ -160,16 +233,24 @@ async function serveOnlineTrack(
     // The URL expired between the provider lookup and the fetch; the range is unchanged.
     refreshed = true
     await cancelBody(upstream)
-    source = await resolveStreamSource(provider, track, quality)
+    if (cacheKey) forgetSource(cacheKey)
+    source = await nextSource()
     try {
-      upstream = await fetchAllowedMusicUrl(source.url, { method, headers: upstreamHeaders })
+      const retry = custom ? fetchRelayableMusicSource : fetchAllowedMusicUrl
+      upstream = await retry(source.url, {
+        method,
+        headers: upstreamHeaders,
+        signal: request.signal,
+      })
     } catch {
+      if (custom) throw sourceUnavailable('The custom music source could not be reached')
       return directSourceRedirect(source)
     }
   }
 
   if (upstream.status === 403) {
     await cancelBody(upstream)
+    if (custom) throw sourceUnavailable('The custom music source refused this track')
     return directSourceRedirect(source)
   }
 
@@ -199,10 +280,21 @@ async function serveOnlineTrack(
   copyHeader(upstream, headers, 'last-modified')
   headers.set('Accept-Ranges', 'bytes')
 
-  return new Response(method === 'HEAD' ? null : upstream.body, {
+  return new Response(await bodyForMethod(method, upstream), {
     status: upstream.status,
     headers,
   })
+}
+
+/** A HEAD answer has no body; cancel the upstream transfer instead of letting it run to completion. */
+async function bodyForMethod(method: string, upstream: Response): Promise<BodyInit | null> {
+  if (method !== 'HEAD') return upstream.body
+  try {
+    await upstream.body?.cancel()
+  } catch (error) {
+    console.warn('[inkstone] HEAD music stream body could not be cancelled:', error)
+  }
+  return null
 }
 
 /** The provider call, with its errors translated into the music API's vocabulary. */
@@ -240,7 +332,17 @@ async function resolveStreamSource(
   }
 }
 
-function streamQuality(track: MusicTrack): MusicQuality {
+function customSourceError(error: unknown): unknown {
+  if (!(error instanceof MusicProviderError)) return error
+  console.warn('[inkstone] Custom music resolver could not provide a stream:', error.code, error.status)
+  return new ApiError(502, 'music_source_unavailable', error.message || 'The custom resolver could not provide this track')
+}
+
+function streamQuality(track: MusicTrack, requested?: MusicQuality): MusicQuality {
+  if (track.kind === 'mv') return 'original'
+  if (requested && requested !== 'original' && (MUSIC_QUALITIES as readonly string[]).includes(requested)) {
+    return requested
+  }
   const value = track.sourceQuality
   if (!value || value === 'original' || !(MUSIC_QUALITIES as readonly string[]).includes(value)) {
     return DEFAULT_STREAM_QUALITY
@@ -296,6 +398,44 @@ function allowedMusicUrl(raw: string): URL | null {
   url.username = ''
   url.password = ''
   return url
+}
+
+function allowedRelayableUrl(raw: string): URL | null {
+  let url: URL
+  try {
+    url = assertRelayableEndpoint(raw)
+  } catch {
+    return null
+  }
+  if (url.protocol !== 'https:' || isBlockedTarget(url.hostname.replace(/\.+$/, ''))) return null
+  if (url.port && url.port !== '443') return null
+  url.username = ''
+  url.password = ''
+  return url
+}
+
+function cachedSource(key: string): MusicStreamSource | null {
+  const entry = streamSourceCache.get(key)
+  if (!entry) return null
+  const fresh = Date.now() - entry.storedAt < STREAM_SOURCE_CACHE_MS
+    && (entry.source.expiresAt === 0 || entry.source.expiresAt > Date.now() + 5_000)
+  if (!fresh) {
+    streamSourceCache.delete(key)
+    return null
+  }
+  return entry.source
+}
+
+function rememberSource(key: string, source: MusicStreamSource): void {
+  if (streamSourceCache.size >= STREAM_SOURCE_CACHE_MAX) {
+    const oldest = streamSourceCache.keys().next().value
+    if (oldest !== undefined) streamSourceCache.delete(oldest)
+  }
+  streamSourceCache.set(key, { source, storedAt: Date.now() })
+}
+
+function forgetSource(key: string): void {
+  streamSourceCache.delete(key)
 }
 
 function isRedirect(status: number): boolean {
