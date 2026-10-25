@@ -55,6 +55,19 @@ export function ToolsSidebar({
   const activePasswordView = useToolsStore((s) => s.activePasswordView)
   const setActivePasswordView = useToolsStore((s) => s.setActivePasswordView)
   const isUnlocked = usePasswordVaultStore((s) => s.isUnlocked)
+  const isBackupSettingsOpen = usePasswordVaultStore((s) => s.isBackupSettingsOpen)
+  const isBatchOperationsOpen = usePasswordVaultStore((s) => s.isBatchOperationsOpen)
+
+  const handleSlotClick = (slotId: PasswordNavView) => {
+    setActiveSubmodule('password')
+    if (slotId === 'backup_settings') {
+      usePasswordVaultStore.getState().openBackupSettings()
+    } else if (slotId === 'batch_operations') {
+      usePasswordVaultStore.getState().openBatchOperations()
+    } else {
+      setActivePasswordView(slotId)
+    }
+  }
 
   if (collapsed) {
     return (
@@ -93,17 +106,20 @@ export function ToolsSidebar({
 
           {PASSWORD_NAV_SLOTS.map((slot) => {
             const Icon = slot.icon
-            const isSelected = activeSubmodule === 'password' && activePasswordView === slot.id
+            const isSelected =
+              activeSubmodule === 'password' &&
+              (slot.id === 'backup_settings'
+                ? isBackupSettingsOpen
+                : slot.id === 'batch_operations'
+                  ? isBatchOperationsOpen
+                  : activePasswordView === slot.id)
             return (
               <Tooltip key={slot.id} label={t(slot.labelKey)} side="right">
                 <IconButton
                   label={t(slot.labelKey)}
                   size="sm"
                   active={isSelected}
-                  onClick={() => {
-                    setActiveSubmodule('password')
-                    setActivePasswordView(slot.id)
-                  }}
+                  onClick={() => handleSlotClick(slot.id)}
                 >
                   <Icon size={16} />
                 </IconButton>
@@ -193,16 +209,19 @@ export function ToolsSidebar({
             <div className="mt-1 ml-4 space-y-0.5 border-l border-[var(--border-subtle)] pl-2">
               {PASSWORD_NAV_SLOTS.map((slot) => {
                 const Icon = slot.icon
-                const isSelected = activeSubmodule === 'password' && activePasswordView === slot.id
+                const isSelected =
+                  activeSubmodule === 'password' &&
+                  (slot.id === 'backup_settings'
+                    ? isBackupSettingsOpen
+                    : slot.id === 'batch_operations'
+                      ? isBatchOperationsOpen
+                      : activePasswordView === slot.id)
                 return (
                   <button
                     key={slot.id}
                     type="button"
                     aria-current={isSelected ? 'page' : undefined}
-                    onClick={() => {
-                      setActiveSubmodule('password')
-                      setActivePasswordView(slot.id)
-                    }}
+                    onClick={() => handleSlotClick(slot.id)}
                     className={cn(
                       'flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]',
                       'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',

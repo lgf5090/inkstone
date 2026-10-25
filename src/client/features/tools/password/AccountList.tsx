@@ -1,5 +1,5 @@
 import { useMemo, useState, type KeyboardEvent, type DragEvent } from 'react'
-import { CheckSquare, Plus, Search, Sparkles, X } from 'lucide-react'
+import { CheckSquare, Plus, Search, Settings, Sparkles, X } from 'lucide-react'
 import type { DecryptedAccount } from '@shared/tools/password/types'
 import { cn } from '../../../lib/cn'
 import { t } from '../../../lib/i18n'
@@ -32,6 +32,7 @@ export function AccountList({
   const toggleFavorite = usePasswordVaultStore((s) => s.toggleFavorite)
   const openGeneratorModal = usePasswordVaultStore((s) => s.openGeneratorModal)
   const openBatchOperations = usePasswordVaultStore((s) => s.openBatchOperations)
+  const openBackupSettings = usePasswordVaultStore((s) => s.openBackupSettings)
   const reorderAccounts = usePasswordVaultStore((s) => s.reorderAccounts)
 
   const activePasswordView = useToolsStore((s) => s.activePasswordView)
@@ -189,6 +190,18 @@ export function AccountList({
             data-testid="account-batch-btn"
           >
             <CheckSquare size={15} />
+          </IconButton>
+        </Tooltip>
+
+        <Tooltip label={t('tools.password.nav.backup_settings')} side="bottom">
+          <IconButton
+            label={t('tools.password.nav.backup_settings')}
+            size="sm"
+            variant="ghost"
+            onClick={() => openBackupSettings()}
+            data-testid="account-backup-settings-btn"
+          >
+            <Settings size={15} />
           </IconButton>
         </Tooltip>
       </div>

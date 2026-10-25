@@ -46,6 +46,28 @@ export function PasswordApp() {
     }
   }, [isUnlocked, vaultState, checkVaultAndAutoUnlock])
 
+  useEffect(() => {
+    if (activePasswordView === 'backup_settings') {
+      usePasswordVaultStore.getState().openBackupSettings()
+    } else if (activePasswordView === 'batch_operations') {
+      usePasswordVaultStore.getState().openBatchOperations()
+    }
+  }, [activePasswordView])
+
+  const handleCloseBackupSettings = () => {
+    closeBackupSettings()
+    if (activePasswordView === 'backup_settings') {
+      useToolsStore.getState().setActivePasswordView('all')
+    }
+  }
+
+  const handleCloseBatchOperations = () => {
+    closeBatchOperations()
+    if (activePasswordView === 'batch_operations') {
+      useToolsStore.getState().setActivePasswordView('all')
+    }
+  }
+
   if (!isUnlocked) {
     if (vaultState && !vaultState.hasVault) {
       return (
@@ -93,10 +115,10 @@ export function PasswordApp() {
       <Recover />
       <PasswordGeneratorModal open={isGeneratorModalOpen} onClose={closeGeneratorModal} />
       <QuickAddModal open={isQuickAddModalOpen} onClose={closeQuickAddModal} />
-      <BatchOperationsModal open={isBatchOperationsOpen} onClose={closeBatchOperations} />
+      <BatchOperationsModal open={isBatchOperationsOpen} onClose={handleCloseBatchOperations} />
       <ExportModal open={isExportModalOpen} onClose={closeExportModal} group={targetGroup ?? undefined} />
       <ImportModal open={isImportModalOpen} onClose={closeImportModal} group={targetGroup ?? undefined} />
-      <BackupSettingsModal open={isBackupSettingsOpen} onClose={closeBackupSettings} />
+      <BackupSettingsModal open={isBackupSettingsOpen} onClose={handleCloseBackupSettings} />
     </div>
   )
 }
