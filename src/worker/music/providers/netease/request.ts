@@ -76,19 +76,22 @@ const COOKIE_ATTRIBUTE_NAMES = new Set([
   'partitioned',
 ])
 
-/** `name=value` pairs from a Cookie header or a Set-Cookie line, with Set-Cookie attributes dropped. */
+/**
+ * Every `name=value` segment in a Cookie header or a Set-Cookie line, with Set-Cookie attributes
+ * dropped. A Cookie header carries many pairs; a Set-Cookie line carries one pair plus attributes.
+ */
 export function cookiePairs(input: string | readonly string[]): Array<[string, string]> {
   const lines = typeof input === 'string' ? [input] : [...input]
   const pairs: Array<[string, string]> = []
   for (const line of lines) {
-    // Only the first segment is a cookie; Path/Domain/Expires/HttpOnly follow it as attributes.
-    const first = line.split(';', 1)[0] ?? ''
-    const separator = first.indexOf('=')
-    if (separator <= 0) continue
-    const name = first.slice(0, separator).trim()
-    const value = first.slice(separator + 1).trim()
-    if (!name || COOKIE_ATTRIBUTE_NAMES.has(name.toLowerCase())) continue
-    pairs.push([name, value])
+    for (const segment of line.split(';')) {
+      const separator = segment.indexOf('=')
+      if (separator <= 0) continue
+      const name = segment.slice(0, separator).trim()
+      const value = segment.slice(separator + 1).trim()
+      if (!name || COOKIE_ATTRIBUTE_NAMES.has(name.toLowerCase())) continue
+      pairs.push([name, value])
+    }
   }
   return pairs
 }
@@ -105,6 +108,11 @@ export function cookieToString(cookie: Record<string, string>): string {
   return Object.entries(cookie)
     .map(([name, value]) => `${encodeURIComponent(name)}=${encodeURIComponent(value)}`)
     .join('; ')
+}
+
+/** The in-memory jar as a raw Cookie header; the wire encoding happens once in `cookieToString`. */
+export function cookieJarToString(cookie: Record<string, string>): string {
+  return Object.entries(cookie).map(([name, value]) => `${name}=${value}`).join('; ')
 }
 
 function randomHex(bytes: number): string {

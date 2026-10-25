@@ -122,17 +122,25 @@ export function LoginPage(): ReactElement {
     if (tab !== 'qr' || !qr || (qrPhase !== 'waiting' && qrPhase !== 'scanned')) return
     let cancelled = false
     let transientFailures = 0
+    let lastError: unknown = null
     let timer = 0
     const tick = async (): Promise<void> => {
       if (cancelled) return
       if (Date.now() >= qr.expiresAt) {
-        setQrPhase('expired')
+        // A failed upstream answer explains more than the timer that just ran out.
+        if (lastError) {
+          setQrPhase('error')
+          setQrError(describeError(lastError))
+        } else {
+          setQrPhase('expired')
+        }
         return
       }
       try {
         const answer = await musicApi.checkQr(qr.key) as QrCheckAnswer
         if (cancelled) return
         transientFailures = 0
+        lastError = null
         if (answer.account) {
           completeLogin(answer.account)
           return
@@ -148,6 +156,7 @@ export function LoginPage(): ReactElement {
         }, QR_POLL_MS)
       } catch (error) {
         if (cancelled) return
+        lastError = error
         if (shouldRetryQrPoll(error, transientFailures)) {
           transientFailures += 1
           timer = window.setTimeout(() => {

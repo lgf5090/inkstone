@@ -12,7 +12,7 @@ const account: MusicAccount = {
   updatedAt: 1,
 }
 
-function harness(answer: Record<string, unknown>) {
+function harness(answer: Record<string, unknown>, readAccountOverride?: () => Promise<MusicAccount | null>) {
   let cookie = 'os=pc'
   const absorbed: string[] = []
   let readCalls = 0
@@ -20,6 +20,7 @@ function harness(answer: Record<string, unknown>) {
     request: async () => answer,
     readAccount: async () => {
       readCalls += 1
+      if (readAccountOverride) return readAccountOverride()
       return cookie.includes('MUSIC_U=') ? account : null
     },
     currentCookie: () => cookie,
@@ -69,4 +70,26 @@ describe('Netease QR confirmation', () => {
     expect(absorbed).toEqual([])
     expect(readCalls()).toBe(0)
   })
+
+  it('retries the account read once after a confirmed scan', async () => {
+    let reads = 0
+    const { login } = harness(
+      { code: 803, message: 'ok', cookie: 'MUSIC_U=retry-token' },
+      async () => {
+        reads += 1
+        return reads > 1 ? account : null
+      },
+    )
+    const result = await login.pollQr('key-4')
+    expect(reads).toBe(2)
+    expect(result).toMatchObject({ status: 'confirmed', account })
+  }, 5_000)
+
+  it('names the cookies it holds when the account still cannot be read', async () => {
+    const { login } = harness(
+      { code: 803, message: 'ok', cookie: 'MUSIC_U=lost-token' },
+      async () => null,
+    )
+    await expect(login.pollQr('key-5')).rejects.toThrow(/MUSIC_U/)
+  }, 5_000)
 })

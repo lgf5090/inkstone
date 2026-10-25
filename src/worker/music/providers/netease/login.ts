@@ -14,6 +14,7 @@ import {
   type MusicQrPollResult,
   type MusicQrStatus,
 } from '../types'
+import { parseCookie } from './request'
 
 export type NeteaseLoginRequest =
   | { kind: 'qr-key' }
@@ -30,6 +31,8 @@ export interface NeteaseLoginTransport {
 }
 
 const QR_TTL_MS = 5 * 60 * 1000
+/** A confirmed scan can reach the account endpoint a beat before the session is readable there. */
+const ACCOUNT_READ_RETRY_MS = 500
 
 function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -92,12 +95,20 @@ export class NeteaseLogin {
     const bodyCookie = text(body.cookie) || text(record(body.data).cookie)
     if (bodyCookie) this.transport.absorbCookie(bodyCookie)
 
-    const account = await this.transport.readAccount()
+    let account = await this.transport.readAccount().catch(() => null)
     if (!account) {
+      // The scan is already confirmed; a single retry covers Netease's own propagation delay
+      // instead of turning a successful login into a hard failure.
+      await new Promise((resolve) => setTimeout(resolve, ACCOUNT_READ_RETRY_MS))
+      account = await this.transport.readAccount()
+    }
+    if (!account) {
+      const names = Object.keys(parseCookie(this.transport.currentCookie())).sort()
+      const held = names.length > 0 ? `cookies: ${names.join(',')}` : 'no cookies'
       throw new MusicProviderError(
         502,
         'upstream_error',
-        'Netease confirmed the scan but the account profile could not be read',
+        `Netease confirmed the scan but the account profile could not be read (${held})`,
         body,
       )
     }

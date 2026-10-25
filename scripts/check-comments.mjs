@@ -6273,6 +6273,7 @@ const allowed = new Map([
     "/** A malformed or empty referrer is not a destination; the music home is the fallback. */",
     "// The referrer is a diagnostic hint, never a promise; fall through to the home address.",
     "/* A scanner reads these two colours; they are fixed rather than themed. */",
+    "// A failed upstream answer explains more than the timer that just ran out.",
   ]],
   ["src/client/features/music/pages/MusicSettingsPage.tsx", [
     "/**\n * Music preferences: the account's server settings and this device's playback preferences.\n *\n * Controls write immediately (the store debounces server writes and rolls a failed one back), so\n * there is no save button that could disagree with what the player already applied.\n */",
@@ -32091,6 +32092,9 @@ const allowed = new Map([
     "/** The key sits under `data` in the reference server's wrapper and at the top level upstream. */",
     "// The mobile eapi answer may carry the fresh session in the JSON body as well as in",
     "// `Set-Cookie`; absorbing both keeps a confirmed scan from losing its credential.",
+    "/** A confirmed scan can reach the account endpoint a beat before the session is readable there. */",
+    "// The scan is already confirmed; a single retry covers Netease's own propagation delay",
+    "// instead of turning a successful login into a hard failure.",
   ]],
   ["src/worker/music/providers/netease/normalize.ts", [
     "/** A radio program is a podcast track keyed by its `mainSong`, which is what the stream endpoint wants. */",
@@ -32102,12 +32106,12 @@ const allowed = new Map([
     "/** Extra attempts after the first, only for network failures and 5xx answers. */",
     "/** Raw `Set-Cookie` lines, so the caller can persist a login without guessing at the format. */",
     "/**\n * Redirect targets are checked against the hosts Netease actually serves music from. The initial\n * request never comes from user input, but a compromised or misconfigured upstream could still try\n * to bounce this worker somewhere else; only these suffixes are followed.\n */",
-    "/** `name=value` pairs from a Cookie header or a Set-Cookie line, with Set-Cookie attributes dropped. */",
-    "// Only the first segment is a cookie; Path/Domain/Expires/HttpOnly follow it as attributes.",
     "/**\n * Fills the device and client cookies the upstream expects, without inventing a login: `MUSIC_U` is\n * only ever carried in from a real login, and `MUSIC_A` only when the caller supplied one.\n */",
     "// Counted while streaming: a huge playlist answer must become a named failure, not an isolate OOM.",
     "// The redirect is followed with the account cookie attached; an HTTP target would put the",
     "// session on the wire in clear text, and credentials in an address are never this client's.",
+    "/**\n * Every `name=value` segment in a Cookie header or a Set-Cookie line, with Set-Cookie attributes\n * dropped. A Cookie header carries many pairs; a Set-Cookie line carries one pair plus attributes.\n */",
+    "/** The in-memory jar as a raw Cookie header; the wire encoding happens once in `cookieToString`. */",
   ]],
   ["src/worker/music/providers/source.ts", [
     "/**\n * Choose between the official provider and the account's configured HTTP resolver.\n *\n * The resolver is only consulted when it is enabled and its coordinates are present; the priority\n * list decides whether it is tried before or after the official source. A failure on a custom-first\n * attempt falls through to the official source when that source is still allowed, because a resolver\n * outage must not make the library unplayable.\n */",

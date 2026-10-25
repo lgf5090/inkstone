@@ -68,7 +68,7 @@ import {
   normalizeToplistSummary,
   normalizeTrack,
 } from './normalize'
-import { cookiePairs, cookieToString, parseCookie, requestNetease, type NeteaseResponse } from './request'
+import { cookieJarToString, cookiePairs, parseCookie, requestNetease, type NeteaseResponse } from './request'
 import { NeteaseLogin, type NeteaseLoginRequest, type NeteaseLoginTransport } from './login'
 import { ExternalNeteaseProvider } from './external'
 
@@ -138,7 +138,7 @@ export class NeteaseProvider implements MusicProvider, NeteaseLoginTransport {
   }
 
   currentCookie(): string {
-    return cookieToString(Object.fromEntries(this.cookies))
+    return cookieJarToString(Object.fromEntries(this.cookies))
   }
 
   private hasSession(): boolean {

@@ -70,7 +70,7 @@ import {
   normalizeToplistSummary,
   normalizeTrack,
 } from './normalize'
-import { cookiePairs, cookieToString, parseCookie, NETEASE_TIMEOUT_MS } from './request'
+import { cookieJarToString, cookiePairs, parseCookie, NETEASE_TIMEOUT_MS } from './request'
 import { NeteaseLogin, type NeteaseLoginRequest, type NeteaseLoginTransport } from './login'
 
 export interface ExternalNeteaseOptions {
@@ -161,7 +161,7 @@ export class ExternalNeteaseProvider implements MusicProvider, NeteaseLoginTrans
   }
 
   currentCookie(): string {
-    return cookieToString(Object.fromEntries(this.cookies))
+    return cookieJarToString(Object.fromEntries(this.cookies))
   }
 
   private hasSession(): boolean {
