@@ -8,12 +8,13 @@
  * checks the quota, records the intent and wakes the queue.
  */
 import { Hono } from 'hono'
+import { MUSIC_LIMITS } from '@shared/music/constants'
 import type { AppBindings, Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidId } from '../lib/id'
 import { JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
-import { MusicStore } from '../music/store'
+import { MusicStore, normalizeMusicLimit, normalizeMusicPage } from '../music/store'
 import { assertMusicQuota, discardMusicObjects, requireMusicStorage } from '../music/storage'
 import {
   MusicDownloadStore,
@@ -31,8 +32,19 @@ export const musicDownloadRoutes = new Hono<AppBindings>()
 musicDownloadRoutes.use('*', requireAuth)
 
 musicDownloadRoutes.get('/', async (c) => {
-  const downloads = new MusicDownloadStore(c.env.DB, c.get('userId'))
-  return c.json({ items: await downloads.list() })
+  const userId = c.get('userId')
+  const downloads = new MusicDownloadStore(c.env.DB, userId)
+  const page = normalizeMusicPage(c.req.query('page'))
+  const limit = normalizeMusicLimit(c.req.query('limit'))
+  const [listed, usage] = await Promise.all([
+    downloads.listPage(page, limit),
+    new MusicStore(c.env.DB, userId).quotaUsage(),
+  ])
+  // The page's storage gauge must describe the whole account, not the rows on this page.
+  return c.json({
+    ...listed,
+    quota: { usedBytes: usage.bytes, quotaBytes: MUSIC_LIMITS.quotaBytes },
+  })
 })
 
 musicDownloadRoutes.post('/', async (c) => {
@@ -58,7 +70,7 @@ musicDownloadRoutes.post('/', async (c) => {
   // The provider's own size is the closest estimate available before the first byte arrives; without
   // it the check still refuses an account that has no room left at all. Completion checks again.
   const expected = track.size && track.size > 0 ? track.size : 1
-  await assertMusicQuota(c.env, musicStore, expected)
+  await assertMusicQuota(musicStore, expected)
 
   const downloads = new MusicDownloadStore(c.env.DB, userId)
   const { download, created } = await downloads.enqueue({ trackId, quality, format })
@@ -99,9 +111,16 @@ musicDownloadRoutes.delete('/:id', async (c) => {
   if (removed.r2Key) {
     const musicStore = new MusicStore(c.env.DB, userId)
     if (await musicStore.removeObject(removed.r2Key)) {
-      await discardMusicObjects(c.env, musicStore, [removed.r2Key])
+      if (await discardMusicObjects(c.env, musicStore, [removed.r2Key])) {
+        await musicStore.dropCleanup(removed.r2Key).catch((error: unknown) => {
+          console.warn('[inkstone] Removed download cleanup could not be marked done:', error)
+        })
+      }
     }
   }
+  // A paused task can own a parked R2 multipart session; the row is gone, so wake the queue once to
+  // release it instead of waiting for the bucket's lifecycle rule.
+  await nudgeQueue(c.env, userId, id)
   return c.json({ ok: true })
 })
 

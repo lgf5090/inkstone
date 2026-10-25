@@ -299,6 +299,17 @@ describe('music settings', () => {
     expect((await store.getSettings())?.quality).toBe('hires')
   })
 
+  it('falls back to defaults when a stored row cannot be read', async () => {
+    sqlite.prepare(
+      `INSERT INTO music_setting (user_id, settings, updated_at) VALUES (?1, ?2, ?3)`,
+    ).run('u1', '{not json', Date.now())
+    expect(await store.getSettings()).toBeNull()
+
+    sqlite.prepare(`UPDATE music_setting SET settings = ?1 WHERE user_id = 'u1'`)
+      .run(JSON.stringify({ quality: 'hires', autoPlay: 'yes' }))
+    expect(await store.getSettings()).toBeNull()
+  })
+
   it('accepts a large document and refuses one past 64 KB', async () => {
     const large: MusicSettings = {
       ...DEFAULT_MUSIC_SETTINGS,

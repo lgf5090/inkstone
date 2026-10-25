@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MUSIC_LIMITS } from '../src/shared/music/constants'
+import { DEFAULT_MUSIC_SETTINGS } from '../src/shared/music/model'
 import { MUSIC_SCHEMA_STATEMENTS } from '../src/worker/music/schema'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { MusicStore } from '../src/worker/music/store'
@@ -129,73 +130,10 @@ function rangeResponse(request: Request): Response {
   })
 }
 
-/**
- * The shared R2 double cannot resume a multipart upload, which is exactly what a queue that keeps its
- * upload id between alarms does. This wraps it with an in-memory session table so a part written by
- * one slice is completed by a later one.
- */
+/** The shared R2 double keeps multipart sessions, which is what a queue that spans alarms needs. */
 function multipartBucket(): { bucket: R2Bucket; objects: Map<string, Uint8Array> } {
   const base = testR2Bucket()
-  const sessions = new Map<string, {
-    key: string
-    parts: Map<number, Uint8Array>
-    options?: R2MultipartOptions
-  }>()
-  let sequence = 0
-
-  const handle = (key: string, uploadId: string): R2MultipartUpload => ({
-    key,
-    uploadId,
-    async uploadPart(partNumber, value) {
-      const session = sessions.get(uploadId)
-      if (!session) throw new TypeError(`no multipart session ${uploadId}`)
-      const bytes = ArrayBuffer.isView(value)
-        ? new Uint8Array(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength))
-        : new Uint8Array(await new Response(value as BodyInit).arrayBuffer())
-      session.parts.set(partNumber, bytes)
-      return { partNumber, etag: `etag-${partNumber}` }
-    },
-    async abort() {
-      sessions.delete(uploadId)
-    },
-    async complete(parts) {
-      const session = sessions.get(uploadId)
-      if (!session) throw new TypeError(`no multipart session ${uploadId}`)
-      const ordered = parts
-        .slice()
-        .sort((left, right) => left.partNumber - right.partNumber)
-        .map((part) => {
-          const bytes = session.parts.get(part.partNumber)
-          if (!bytes) throw new TypeError(`part ${part.partNumber} was completed but never uploaded`)
-          return bytes
-        })
-      const assembled = new Uint8Array(ordered.reduce((sum, part) => sum + part.byteLength, 0))
-      let offset = 0
-      for (const part of ordered) {
-        assembled.set(part, offset)
-        offset += part.byteLength
-      }
-      sessions.delete(uploadId)
-      return await base.put(key, assembled, session.options)
-    },
-  })
-
-  const bucket = Object.assign({
-    head: base.head.bind(base),
-    get: base.get.bind(base),
-    put: base.put.bind(base),
-    delete: base.delete.bind(base),
-    list: base.list.bind(base),
-    createMultipartUpload: async (key: string, options?: R2MultipartOptions) => {
-      sequence += 1
-      const uploadId = `upload-${sequence}`
-      sessions.set(uploadId, { key, parts: new Map(), options })
-      return handle(key, uploadId)
-    },
-    resumeMultipartUpload: (key: string, uploadId: string) => handle(key, uploadId),
-  }, { objects: base.objects }) as unknown as R2Bucket
-
-  return { bucket, objects: base.objects }
+  return { bucket: base, objects: base.objects }
 }
 
 /** A Durable Object state held in one map, with the alarm left readable for assertions. */
@@ -643,6 +581,36 @@ describe('music queue object', () => {
     expect(malformed.status).toBe(400)
   })
 
+  it('runs as many slices per alarm as the account allows', async () => {
+    await store.saveSettings({ ...DEFAULT_MUSIC_SETTINGS, downloadConcurrency: 2 })
+    await expect(store.getSettings()).resolves.toMatchObject({ downloadConcurrency: 2 })
+    const firstId = await enqueue(await createTrack('one'))
+    const secondId = await enqueue(await createTrack('two'))
+    const { state } = fakeState()
+    const queue = new MusicQueue(state, env)
+
+    await queue.fetch(new Request('https://music-queue.internal/kick', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'kick', userId: USER_A, downloadId: firstId }),
+    }))
+    await queue.alarm()
+
+    const rows = await Promise.all([
+      downloads.get(firstId),
+      downloads.get(secondId),
+    ])
+    expect(rows[0]?.status).toBe('running')
+    expect(rows[1]?.status).toBe('running')
+    expect(rows[0]?.progress ?? 0).toBeGreaterThan(0)
+    expect(rows[1]?.progress ?? 0).toBeGreaterThan(0)
+
+    // The second alarm carries both cursors over the tail and completes each task.
+    await queue.alarm()
+    await expect(downloads.get(firstId)).resolves.toMatchObject({ status: 'done' })
+    await expect(downloads.get(secondId)).resolves.toMatchObject({ status: 'done' })
+  })
+
   it('answers 503 when the deployment has no queue binding', async () => {
     await expect(kickMusicQueue(testBindings(db, { FILES: testR2Bucket() }), USER_A)).rejects.toMatchObject({
       status: 503,
@@ -683,6 +651,29 @@ describe('music download routes', () => {
     const payload = await list.json() as { items: Array<{ id: string; track: { id: string } | null }> }
     expect(payload.items).toHaveLength(1)
     expect(payload.items[0]?.track?.id).toBe(trackId)
+  })
+
+  it('pages the queue with a stable total', async () => {
+    await enqueue(await createTrack('one'))
+    await enqueue(await createTrack('two'))
+    const first = await call('GET', '/api/music/downloads?page=1&limit=1', { token: tokenA })
+    const firstBody = await first.json() as {
+      items: Array<{ id: string }>
+      total: number
+      hasMore: boolean
+      quota: { usedBytes: number; quotaBytes: number }
+    }
+    const second = await call('GET', '/api/music/downloads?page=2&limit=1', { token: tokenA })
+    const secondBody = await second.json() as { items: Array<{ id: string }>; total: number; hasMore: boolean }
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    expect(firstBody).toMatchObject({
+      total: 2,
+      hasMore: true,
+      quota: { usedBytes: 0, quotaBytes: MUSIC_LIMITS.quotaBytes },
+    })
+    expect(secondBody).toMatchObject({ total: 2, hasMore: false })
+    expect(secondBody.items[0]?.id).not.toBe(firstBody.items[0]?.id)
   })
 
   it('answers a foreign or unknown task id with 404', async () => {

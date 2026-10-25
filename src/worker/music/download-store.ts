@@ -20,12 +20,13 @@ import {
   type MusicQuality,
   type MusicTrack,
 } from '@shared/music/model'
+import { MUSIC_LIMITS } from '@shared/music/constants'
 import { newId } from '../lib/id'
 import { ApiError } from '../lib/errors'
 import { MusicStore } from './store'
 
 /** The list route never returns more than one page of tasks, newest first. */
-export const MUSIC_DOWNLOAD_LIST_LIMIT = 100
+export const MUSIC_DOWNLOAD_LIST_LIMIT = MUSIC_LIMITS.taskListMax
 /** Three attempts is the same budget a provider read gets before the reader has to ask again. */
 export const MUSIC_DOWNLOAD_MAX_ATTEMPTS = 3
 /** The container hints the settings screen offers; `auto` lets the provider's answer decide. */
@@ -138,10 +139,25 @@ export class MusicDownloadStore {
   /** Newest first, each task with the track snapshot it names. */
   async list(limit: number = MUSIC_DOWNLOAD_LIST_LIMIT): Promise<MusicDownloadWithTrack[]> {
     const capped = Math.max(1, Math.min(MUSIC_DOWNLOAD_LIST_LIMIT, Math.trunc(limit)))
+    return await this.listWindow(capped, 0)
+  }
+
+  async listPage(page = 1, limit: number = MUSIC_DOWNLOAD_LIST_LIMIT): Promise<{ items: MusicDownloadWithTrack[]; total: number; hasMore: boolean }> {
+    const capped = Math.max(1, Math.min(MUSIC_DOWNLOAD_LIST_LIMIT, Math.trunc(limit)))
+    const offset = (Math.max(1, Math.trunc(page)) - 1) * capped
+    const totalRow = await this.db.prepare(
+      `SELECT COUNT(*) AS count FROM music_download WHERE user_id = ?1`,
+    ).bind(this.userId).first<{ count: number }>()
+    const total = totalRow?.count ?? 0
+    const items = await this.listWindow(capped, offset)
+    return { items, total, hasMore: offset + items.length < total }
+  }
+
+  private async listWindow(limit: number, offset: number): Promise<MusicDownloadWithTrack[]> {
     const { results } = await this.db.prepare(
       `SELECT ${DOWNLOAD_COLUMNS} FROM music_download
-        WHERE user_id = ?1 ORDER BY created_at DESC, id DESC LIMIT ?2`,
-    ).bind(this.userId, capped).all<DownloadRow>()
+        WHERE user_id = ?1 ORDER BY created_at DESC, id DESC LIMIT ?2 OFFSET ?3`,
+    ).bind(this.userId, limit, offset).all<DownloadRow>()
     if (!results.length) return []
     const tracks = await new MusicStore(this.db, this.userId)
       .getTracks(results.map((row) => row.track_id))
@@ -212,17 +228,30 @@ export class MusicDownloadStore {
    */
   async claimNextQueued(concurrency = 1): Promise<MusicDownload[]> {
     const limit = Math.max(1, Math.min(MUSIC_DOWNLOAD_CONCURRENCY_MAX, Math.trunc(concurrency)))
-    const { results } = await this.db.prepare(
-      `SELECT id FROM music_download WHERE user_id = ?1 AND status = 'queued'
-        ORDER BY created_at, id LIMIT ?2`,
-    ).bind(this.userId, limit).all<{ id: string }>()
-
     const claimed: MusicDownload[] = []
-    for (const entry of results) {
-      const row = await this.claim(entry.id)
+    const seen = new Set<string>()
+    // Parallel slices race for the same head. A lost claim leaves the row for another worker, so
+    // this walks forward: on each pass it tries the first queued row it has not lost already.
+    for (let pass = 0; pass < limit * 8 && claimed.length < limit; pass += 1) {
+      const { results } = await this.db.prepare(
+        `SELECT id FROM music_download WHERE user_id = ?1 AND status = 'queued'
+          ORDER BY created_at, rowid LIMIT ?2`,
+      ).bind(this.userId, limit + seen.size).all<{ id: string }>()
+      const next = results.find((entry) => !seen.has(entry.id))
+      if (!next) break
+      seen.add(next.id)
+      const row = await this.claim(next.id)
       if (row) claimed.push(row)
     }
     return claimed
+  }
+
+  /** Whether a new slice has anything to claim; lets the alarm avoid provider setup on an idle queue. */
+  async hasQueued(): Promise<boolean> {
+    const row = await this.db.prepare(
+      `SELECT 1 AS hit FROM music_download WHERE user_id = ?1 AND status = 'queued' LIMIT 1`,
+    ).bind(this.userId).first<{ hit: number }>()
+    return Boolean(row)
   }
 
   /** Claim one named task, for a retry that should start its own row rather than the queue head. */
@@ -293,31 +322,39 @@ export class MusicDownloadStore {
 
   /**
    * Publish a finished object: the ledger row, the track's new preferred key and the task itself, in
-   * one batch. The ledger write is what the quota counts, so it must not exist without the key.
+   * one batch. Every write is conditional on the task still being `running`, so a cancel or delete
+   * that landed while R2 was merging cannot publish bytes the reader no longer asked for.
    */
-  async complete(id: string, input: MusicDownloadCompletion): Promise<void> {
+  async complete(id: string, input: MusicDownloadCompletion): Promise<boolean> {
     const now = Date.now()
-    await this.db.batch([
+    const results = await this.db.batch([
       this.db.prepare(
         `INSERT INTO music_object (user_id, r2_key, track_id, format, quality, size, sha256, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, '', ?7)
+         SELECT ?1, ?3, ?4, ?5, ?6, ?7, '', ?8
+          WHERE EXISTS (
+            SELECT 1 FROM music_download WHERE user_id = ?1 AND id = ?2 AND status = 'running'
+          )
          ON CONFLICT(user_id, r2_key) DO UPDATE SET
            track_id = excluded.track_id,
            format = excluded.format,
            quality = excluded.quality,
            size = excluded.size`,
-      ).bind(this.userId, input.r2Key, input.trackId, input.format, input.quality, input.size, now),
+      ).bind(this.userId, id, input.r2Key, input.trackId, input.format, input.quality, input.size, now),
       this.db.prepare(
         `UPDATE music_track SET r2_key = ?3, format = ?4, size = ?5, source_quality = ?6,
            updated_at = ?7
-          WHERE user_id = ?1 AND id = ?2`,
-      ).bind(this.userId, input.trackId, input.r2Key, input.format, input.size, input.quality, now),
+          WHERE user_id = ?1 AND id = ?2
+            AND EXISTS (
+              SELECT 1 FROM music_download WHERE user_id = ?1 AND id = ?8 AND status = 'running'
+            )`,
+      ).bind(this.userId, input.trackId, input.r2Key, input.format, input.size, input.quality, now, id),
       this.db.prepare(
         `UPDATE music_download SET status = 'done', progress = 100, size = ?3, r2_key = ?4,
            error = '', completed_at = ?5, updated_at = ?5
-          WHERE user_id = ?1 AND id = ?2`,
+          WHERE user_id = ?1 AND id = ?2 AND status = 'running'`,
       ).bind(this.userId, id, input.size, input.r2Key, now),
     ])
+    return (results[2]?.meta.changes ?? 0) > 0
   }
 
   // Internals ----------------------------------------------------------------------------------

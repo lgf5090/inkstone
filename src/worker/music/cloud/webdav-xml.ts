@@ -76,7 +76,7 @@ export function parseMultistatus(xml: string): WebdavPropfindResult {
 }
 
 export function decodeHrefPath(href: string): string {
-  const withoutOrigin = href.startsWith('http://') || href.startsWith('https://')
+  const withoutOrigin = /^https?:\/\//i.test(href)
     ? new URL(href).pathname
     : href.split(/[?#]/)[0] ?? href
   const segments = withoutOrigin.split('/').map((segment) => {
@@ -86,7 +86,9 @@ export function decodeHrefPath(href: string): string {
       return segment
     }
   })
-  return segments.join('/')
+  const path = segments.join('/')
+  // RFC 4918 allows a relative href; a pathname comparison still needs a leading slash.
+  return path.startsWith('/') ? path : `/${path}`
 }
 
 const MEDIA_EXTENSION_RE = /\.(?:mp3|m4a|mp4|flac|wav|wave|ogg|oga|opus|aac|webm|mov|m4v)$/i

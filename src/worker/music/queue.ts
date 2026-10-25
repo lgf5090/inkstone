@@ -22,7 +22,7 @@ import {
   isMusicFormat,
   type MusicFormat,
 } from '@shared/music/constants'
-import type { MusicDownload, MusicTrack } from '@shared/music/model'
+import type { MusicDownload, MusicSettings, MusicTrack } from '@shared/music/model'
 import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidId } from '../lib/id'
@@ -30,14 +30,16 @@ import { evaluateInternalGuard } from '../lib/internal-auth'
 import { MusicDownloadStore } from './download-store'
 import { MusicStore } from './store'
 import { musicProviderFor } from './providers/account'
+import { createMusicSourceResolver, type MusicSourceResolver } from './providers/source'
 import {
   MUSIC_AUDIO_CACHE_CONTROL,
+  assertMusicQuota,
   discardMusicObjects,
   musicObjectKeyFor,
   requireMusicBucket,
   withMusicQuotaLease,
 } from './storage'
-import { fetchAllowedMusicUrl } from './stream'
+import { fetchAllowedMusicUrl, fetchRelayableMusicSource } from './stream'
 import { MusicProviderError, type MusicProvider, type MusicStreamSource } from './providers/types'
 
 /** One slice is one upload part: the same 8 MiB the upload path uses, and above R2's 5 MiB minimum. */
@@ -53,8 +55,12 @@ const URL_REFRESH_MARGIN_MS = 60 * 1000
 const STALE_RUNNING_MS = 10 * 60 * 1000
 /** Slice-to-slice pause: alarms are cheap and the next one should start as soon as the platform allows. */
 const NEXT_SLICE_DELAY_MS = 100
+/** Finalizers may briefly queue behind each other on the quota lease; the bytes are already in R2. */
+const COMPLETION_LEASE_WAIT_MS = 5_000
 /** A failed attempt waits long enough that a provider outage is not spent in three quick retries. */
 const RETRY_DELAY_MS = 15_000
+/** One 8 MiB range must finish inside this window; playback streams are not bounded by it. */
+const SLICE_TIMEOUT_MS = 60_000
 /** A parked cursor for a task deleted elsewhere is forgotten after the failed-task retention window. */
 const CURSOR_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -80,6 +86,8 @@ export interface MusicDownloadCursor {
   /** The container the bytes actually are, which is also what the R2 key and the track record. */
   format: MusicFormat
   quality: string
+  /** Whether the current URL came from the custom resolver rather than the provider. */
+  custom: boolean
   updatedAt: number
 }
 
@@ -95,6 +103,8 @@ export interface MusicSliceInput {
   cursor: MusicDownloadCursor | null
   /** A task the caller asked to wake; used only when no cursor is being resumed. */
   preferredId?: string | null
+  /** The account's source priority and resolver coordinates, read once per slice. */
+  settings?: MusicSettings | null
 }
 
 export interface MusicSliceResult {
@@ -135,7 +145,8 @@ export async function runMusicDownloadSlice(input: MusicSliceInput): Promise<Mus
     try {
       const track = await musicStore.getTrack(row.trackId)
       if (!track) throw new DownloadFailure('The track is no longer in the library', false)
-      cursor = await beginCursor(env, userId, provider, track, row)
+      const resolver = createMusicSourceResolver(track, input.settings ?? null)
+      cursor = await beginCursor(env, userId, provider, musicStore, track, row, resolver)
     } catch (error) {
       const message = describeFailure(error, row.id)
       await downloads.failAttempt(row.id, message, isRetryable(error))
@@ -150,9 +161,10 @@ export async function runMusicDownloadSlice(input: MusicSliceInput): Promise<Mus
     await downloads.failAttempt(cursor.downloadId, message, false)
     return { outcome: 'failed', cursor: null, downloadId: cursor.downloadId, message }
   }
+  const resolver = createMusicSourceResolver(track, input.settings ?? null)
 
   try {
-    return await advanceSlice(env, downloads, musicStore, provider, track, cursor)
+    return await advanceSlice(env, downloads, musicStore, provider, track, cursor, resolver)
   } catch (error) {
     await abortMultipart(bucket, cursor)
     const message = describeFailure(error, cursor.downloadId)
@@ -205,16 +217,22 @@ async function beginCursor(
   env: Env,
   userId: string,
   provider: MusicProvider,
+  musicStore: MusicStore,
   track: MusicTrack,
   download: MusicDownload,
+  resolver: MusicSourceResolver,
 ): Promise<MusicDownloadCursor> {
   if (track.provider !== provider.id) {
     throw new DownloadFailure('This track has no downloadable source', false)
   }
-  const source = await downloadSource(provider, track, download.quality)
+  const resolved = await downloadSourceWithResolver(provider, track, download.quality, resolver)
+  const source = resolved.source
   const format = resolveDownloadFormat(source.format, download.format)
   const key = musicObjectKeyFor({ format, userId, trackId: track.id, quality: download.quality })
   const bucket = requireMusicBucket(env)
+  // A best-effort early refusal: completion re-checks under the lease, and each slice re-checks the
+  // remaining room so an unknown-length source cannot spend far past the quota before it is stopped.
+  await assertMusicQuota(musicStore, source.size && source.size > 0 ? source.size : MUSIC_DOWNLOAD_SLICE_BYTES)
 
   let multipart: R2MultipartUpload
   try {
@@ -242,6 +260,7 @@ async function beginCursor(
     expiresAt: source.expiresAt,
     format,
     quality: download.quality,
+    custom: resolved.custom,
     updatedAt: Date.now(),
   }
 }
@@ -267,6 +286,7 @@ async function advanceSlice(
   provider: MusicProvider,
   track: MusicTrack,
   cursor: MusicDownloadCursor,
+  resolver: MusicSourceResolver,
 ): Promise<MusicSliceResult> {
   const bucket = requireMusicBucket(env)
   const requested = cursor.totalSize === null
@@ -274,7 +294,13 @@ async function advanceSlice(
     : Math.min(MUSIC_DOWNLOAD_SLICE_BYTES, cursor.totalSize - cursor.offset)
   if (requested <= 0) return await finishCursor(env, downloads, musicStore, cursor)
 
-  const response = await requestSlice(provider, track, cursor, requested)
+  const remaining = await remainingMusicQuota(musicStore)
+  const needed = cursor.totalSize !== null ? cursor.totalSize - cursor.offset : requested
+  if (needed > remaining) {
+    throw new DownloadFailure('The music library storage quota is full', false)
+  }
+
+  const response = await requestSlice(provider, track, cursor, requested, resolver)
 
   if (response.status === 416) {
     await cancelBody(response)
@@ -289,7 +315,7 @@ async function advanceSlice(
   if (response.status === 200) {
     // The source ignored the Range header. The first slice can still be the whole file, read in
     // parts; after that the offsets it answered no longer match the task, so the download stops.
-    return await consumeWholeBody(env, downloads, musicStore, cursor, response)
+    return await consumeWholeBody(env, downloads, musicStore, cursor, response, remaining)
   }
 
   if (response.status !== 206) {
@@ -308,6 +334,9 @@ async function advanceSlice(
   const bytes = await readSliceBytes(response.body, requested)
   if (bytes.byteLength === 0) {
     if (cursor.parts.length === 0) throw new DownloadFailure('The music source returned no audio bytes')
+    if (cursor.totalSize !== null && cursor.offset < cursor.totalSize) {
+      throw new DownloadFailure('The music source ended before the size it declared', false)
+    }
     cursor.totalSize = cursor.offset
     return await finishCursor(env, downloads, musicStore, cursor)
   }
@@ -337,6 +366,7 @@ async function consumeWholeBody(
   musicStore: MusicStore,
   cursor: MusicDownloadCursor,
   response: Response,
+  remaining: number,
 ): Promise<MusicSliceResult> {
   if (cursor.offset !== 0 || cursor.parts.length > 0) {
     await cancelBody(response)
@@ -345,7 +375,12 @@ async function consumeWholeBody(
   if (!response.body) throw new DownloadFailure('The music source returned an empty response')
   const bucket = requireMusicBucket(env)
   let alive = true
+  let left = remaining
   await forEachBodySlice(response.body, MUSIC_DOWNLOAD_SLICE_BYTES, async (bytes) => {
+    if (cursor.offset + bytes.byteLength > left) {
+      throw new DownloadFailure('The music library storage quota is full', false)
+    }
+    left -= bytes.byteLength
     await uploadPart(bucket, cursor, bytes)
     alive = await saveProgress(downloads, cursor)
     return alive
@@ -364,28 +399,31 @@ async function requestSlice(
   track: MusicTrack,
   cursor: MusicDownloadCursor,
   requested: number,
+  resolver: MusicSourceResolver,
 ): Promise<Response> {
   if (cursor.expiresAt - URL_REFRESH_MARGIN_MS <= Date.now()) {
-    await refreshSource(provider, track, cursor)
+    await refreshSource(provider, track, cursor, resolver)
   }
   const range = `bytes=${cursor.offset}-${cursor.offset + requested - 1}`
-  let response = await fetchSlice(cursor.url, range)
+  let response = await fetchSlice(cursor.url, range, cursor.custom)
   if (response.status !== 403) return response
 
   // The URL expired between the lookup and the fetch; the byte range is unchanged.
   await cancelBody(response)
-  await refreshSource(provider, track, cursor)
-  return await fetchSlice(cursor.url, range)
+  await refreshSource(provider, track, cursor, resolver)
+  return await fetchSlice(cursor.url, range, cursor.custom)
 }
 
-function fetchSlice(url: string, range: string): Promise<Response> {
-  return fetchAllowedMusicUrl(url, {
+function fetchSlice(url: string, range: string, custom: boolean): Promise<Response> {
+  const fetcher = custom ? fetchRelayableMusicSource : fetchAllowedMusicUrl
+  return fetcher(url, {
     headers: {
       'Range': range,
       'Accept': '*/*',
       'User-Agent': UPSTREAM_USER_AGENT,
       'Referer': UPSTREAM_REFERER,
     },
+    signal: AbortSignal.timeout(SLICE_TIMEOUT_MS),
   })
 }
 
@@ -393,11 +431,49 @@ async function refreshSource(
   provider: MusicProvider,
   track: MusicTrack,
   cursor: MusicDownloadCursor,
+  resolver: MusicSourceResolver,
 ): Promise<void> {
+  if (cursor.custom) {
+    try {
+      const custom = await resolver.resolveCustom(cursor.quality)
+      if (custom) {
+        cursor.url = custom.url
+        cursor.expiresAt = custom.expiresAt
+        if (cursor.totalSize === null && custom.size && custom.size > 0) cursor.totalSize = custom.size
+        return
+      }
+    } catch (error) {
+      if (!resolver.officialAllowed) {
+        throw new DownloadFailure(error instanceof Error ? error.message : 'The custom resolver could not provide this track')
+      }
+      console.warn('[inkstone] Custom music resolver could not refresh a download; using the official source:',
+        error instanceof Error ? error.message : error)
+    }
+    cursor.custom = false
+  }
   const source = await downloadSource(provider, track, cursor.quality)
   cursor.url = source.url
   cursor.expiresAt = source.expiresAt
   if (cursor.totalSize === null && source.size && source.size > 0) cursor.totalSize = source.size
+}
+
+async function downloadSourceWithResolver(
+  provider: MusicProvider,
+  track: MusicTrack,
+  quality: string,
+  resolver: MusicSourceResolver,
+): Promise<{ source: MusicStreamSource; custom: boolean }> {
+  try {
+    const custom = await resolver.resolveCustom(quality)
+    if (custom) return { source: custom, custom: true }
+  } catch (error) {
+    if (!resolver.officialAllowed) {
+      throw new DownloadFailure(error instanceof Error ? error.message : 'The custom resolver could not provide this track')
+    }
+    console.warn('[inkstone] Custom music resolver failed for a download; using the official source:',
+      error instanceof Error ? error.message : error)
+  }
+  return { source: await downloadSource(provider, track, quality), custom: false }
 }
 
 async function downloadSource(
@@ -479,13 +555,13 @@ async function stopAfterLoss(
   return { outcome: 'canceled', cursor: null, downloadId: cursor.downloadId }
 }
 
-/**
- * Merge the parts under the quota lease, then publish the three rows that make the bytes playable.
- *
- * The lease covers only the merge: the ledger row the quota counts is written right after it, and a
- * completion that loses the race against another upload is refused before any bytes are merged, so
- * the multipart is aborted rather than left to expire.
- */
+/** Free bytes this task may still write; the final completion re-checks under the quota lease. */
+async function remainingMusicQuota(musicStore: MusicStore): Promise<number> {
+  const usage = await musicStore.quotaUsage()
+  return Math.max(0, MUSIC_LIMITS.quotaBytes - usage.bytes)
+}
+
+/** Merge the parts under the quota lease, then publish the ledger, track and task inside the same lease. */
 async function finishCursor(
   env: Env,
   downloads: MusicDownloadStore,
@@ -497,33 +573,37 @@ async function finishCursor(
   const multipart = bucket.resumeMultipartUpload(cursor.key, cursor.uploadId)
   const parts = cursor.parts.map((part) => ({ partNumber: part.partNumber, etag: part.etag }))
 
-  let completed: R2Object
   try {
-    completed = await withMusicQuotaLease(
+    await withMusicQuotaLease(
       env,
       musicStore,
       cursor.totalSize ?? cursor.offset,
-      async () => await multipart.complete(parts),
+      async () => {
+        const object = await multipart.complete(parts)
+        try {
+          const published = await downloads.complete(cursor.downloadId, {
+            r2Key: cursor.key,
+            size: object.size,
+            format: cursor.format,
+            quality: cursor.quality,
+            trackId: cursor.trackId,
+          })
+          if (!published) {
+            throw new DownloadFailure('The download was canceled before it finished', false)
+          }
+        } catch (error) {
+          // The object exists but no row names it. Keep the bytes only when an older task or the
+          // track already points at this key; otherwise the ledger would pay for an unreachable file.
+          if (!(await musicStore.isObjectReferenced(cursor.key))) {
+            await discardMusicObjects(env, musicStore, [cursor.key])
+          }
+          throw error
+        }
+      },
+      { waitMs: COMPLETION_LEASE_WAIT_MS },
     )
   } catch (error) {
     await abortMultipart(bucket, cursor)
-    throw error
-  }
-
-  try {
-    await downloads.complete(cursor.downloadId, {
-      r2Key: cursor.key,
-      size: completed.size,
-      format: cursor.format,
-      quality: cursor.quality,
-      trackId: cursor.trackId,
-    })
-  } catch (error) {
-    // The object exists but no row names it. Keep the bytes only when an older task or the track
-    // already points at this key; otherwise the ledger would pay for an unreachable file.
-    if (!(await musicStore.isObjectReferenced(cursor.key))) {
-      await discardMusicObjects(env, musicStore, [cursor.key])
-    }
     throw error
   }
 
@@ -744,51 +824,95 @@ export class MusicQueue implements DurableObject {
 
     const activeId = (await this.state.storage.get<string>(ACTIVE_KEY)) ?? null
     const cursors = (await this.state.storage.get<Record<string, MusicDownloadCursor>>(CURSORS_KEY)) ?? {}
-    const cursor = activeId ? cursors[activeId] ?? null : null
-
     const downloads = new MusicDownloadStore(this.env.DB, userId)
     const musicStore = new MusicStore(this.env.DB, userId)
-    let result: MusicSliceResult
+
+    let results: MusicSliceResult[]
     try {
       await downloads.requeueStale(STALE_RUNNING_MS)
+      const settings = await musicStore.getSettings()
+      const concurrency = Math.max(1, Math.min(5, settings?.downloadConcurrency ?? 1))
+      // Rotate by the least recently advanced cursor. Keeping the active task first would let a long
+      // download hold every slot while later tasks waited forever.
+      const cursorIds = Object.keys(cursors)
+        .filter((id) => Boolean(cursors[id]))
+        .sort((left, right) => (cursors[left]!.updatedAt - cursors[right]!.updatedAt) || left.localeCompare(right))
+        .slice(0, concurrency)
+      if (cursorIds.length === 0 && !(await downloads.hasQueued())) return
       const provider = await musicProviderFor(this.env, userId)
-      result = await runMusicDownloadSlice({
+      const jobs = cursorIds.map((id) => runMusicDownloadSlice({
         env: this.env,
         userId,
         provider,
         downloads,
         musicStore,
-        cursor,
-        preferredId: cursor ? null : activeId,
-      })
+        cursor: cursors[id]!,
+        preferredId: null,
+        settings,
+      }))
+      for (let slot = cursorIds.length; slot < concurrency; slot += 1) {
+        jobs.push(runMusicDownloadSlice({
+          env: this.env,
+          userId,
+          provider,
+          downloads,
+          musicStore,
+          cursor: null,
+          preferredId: slot === cursorIds.length ? activeId : null,
+          settings,
+        }))
+      }
+      const settled = await Promise.allSettled(jobs)
+      results = settled.flatMap((entry) => entry.status === 'fulfilled' ? [entry.value] : [])
+      const rejected = settled.some((entry) => entry.status === 'rejected')
+      if (rejected) {
+        console.warn('[inkstone] One music download slice failed before it could record an outcome')
+      }
+      await this.remember(results, cursors)
+      if (rejected) {
+        await this.state.storage.setAlarm(Date.now() + RETRY_DELAY_MS)
+        return
+      }
     } catch (error) {
-      // Nothing task-level reached a row: D1, R2 or the vault failed before the slice could decide.
-      // The cursor is kept as it was, and the queue tries again after the retry delay.
+      // Nothing task-level reached a row: D1, R2 or the vault failed before the slices could decide.
+      // The cursors are kept as they were, and the queue tries again after the retry delay.
       console.warn('[inkstone] Music download queue could not run a slice:', error)
       await this.state.storage.setAlarm(Date.now() + RETRY_DELAY_MS)
       return
     }
 
-    await this.remember(result, cursors)
-    const delay = nextSliceDelay(result.outcome)
-    if (delay === null) return
-    await this.state.storage.setAlarm(Date.now() + delay)
+    if (results.some((result) => result.outcome === 'idle') && await downloads.hasQueued()) {
+      // A queued head can lose the claim race to a pause/cancel between select and update. Retry
+      // soon instead of treating the whole queue as empty.
+      await this.state.storage.setAlarm(Date.now() + RETRY_DELAY_MS)
+      return
+    }
+    const delays = results
+      .map((result) => nextSliceDelay(result.outcome))
+      .filter((delay): delay is number => delay !== null)
+    if (delays.length === 0) return
+    await this.state.storage.setAlarm(Date.now() + Math.min(...delays))
   }
 
-  /** Keep or release the task's cursor, and point the next alarm at the task that just advanced. */
+  /** Keep or release every task's cursor after a parallel alarm. */
   private async remember(
-    result: MusicSliceResult,
+    results: readonly MusicSliceResult[],
     cursors: Record<string, MusicDownloadCursor>,
   ): Promise<void> {
-    if (result.downloadId) {
+    let changed = false
+    let active: string | null = null
+    for (const result of results) {
+      if (!result.downloadId) continue
       if (result.cursor) {
         cursors[result.downloadId] = { ...result.cursor, updatedAt: Date.now() }
+        if (result.outcome === 'progress' && !active) active = result.downloadId
       } else {
         delete cursors[result.downloadId]
+        if (result.outcome === 'progress' && !active) active = result.downloadId
       }
-      await this.state.storage.put(CURSORS_KEY, pruneCursors(cursors, Date.now()))
+      changed = true
     }
-    const active = result.outcome === 'progress' ? result.downloadId : null
+    if (changed) await this.state.storage.put(CURSORS_KEY, pruneCursors(cursors, Date.now()))
     if (active) await this.state.storage.put(ACTIVE_KEY, active)
     else await this.state.storage.delete(ACTIVE_KEY)
   }

@@ -39,6 +39,7 @@ import { utf8ByteLength } from '@shared/text-utils'
 import { idChunks, MAX_BATCH_STATEMENTS } from '../db/writes'
 import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
+import { normalizeMusicSettings } from './settings'
 
 export const MUSIC_HISTORY_LIMIT = MUSIC_LIMITS.historyEntries
 export const MUSIC_RECENT_LIMIT = MUSIC_LIMITS.recentEntries
@@ -112,6 +113,8 @@ export interface MusicTrackInput {
   r2Key?: string | null
   source?: string
   sourceQuality?: string
+  /** Zero means a provider snapshot; a saved row carries its own update time. */
+  updatedAt?: number
 }
 
 export interface MusicPlaylistInput {
@@ -652,28 +655,50 @@ export class MusicStore {
     return this.getTrack(id)
   }
 
-  /** Resolve a set of ids in the caller's order, dropping ids this account does not own. */
   /** Every snapshot one provider owns, newest first; used by the local/cloud library shelves. */
-  async listTracksByProvider(provider: MusicProviderId, limit = 1_000): Promise<MusicTrack[]> {
+  async listTracksByProvider(
+    provider: MusicProviderId,
+    limit: number = MUSIC_LIMITS.trackListMax,
+    offset = 0,
+  ): Promise<MusicTrack[]> {
     const { results } = await this.db.prepare(
       `SELECT ${TRACK_COLUMNS} FROM music_track
         WHERE user_id = ?1 AND provider = ?2
-        ORDER BY updated_at DESC, id DESC LIMIT ?3`,
-    ).bind(this.userId, provider, Math.min(2_000, Math.max(1, Math.trunc(limit)))).all<TrackRow>()
+        ORDER BY updated_at DESC, id DESC LIMIT ?3 OFFSET ?4`,
+    ).bind(this.userId, provider, Math.min(2_000, Math.max(1, Math.trunc(limit))), Math.max(0, Math.trunc(offset))).all<TrackRow>()
     return results.map(toTrack)
   }
 
+  async countTracksByProvider(provider: MusicProviderId): Promise<number> {
+    const row = await this.db.prepare(
+      `SELECT COUNT(*) AS count FROM music_track WHERE user_id = ?1 AND provider = ?2`,
+    ).bind(this.userId, provider).first<{ count: number }>()
+    return row?.count ?? 0
+  }
+
   /** Online snapshots whose bytes were copied into R2; they behave like local files now. */
-  async listDownloadedTracks(limit = 1_000): Promise<MusicTrack[]> {
+  async listDownloadedTracks(
+    limit: number = MUSIC_LIMITS.trackListMax,
+    offset = 0,
+  ): Promise<MusicTrack[]> {
     const { results } = await this.db.prepare(
       `SELECT ${TRACK_COLUMNS} FROM music_track
         WHERE user_id = ?1 AND r2_key IS NOT NULL AND r2_key <> ''
           AND provider <> 'upload'
-        ORDER BY updated_at DESC, id DESC LIMIT ?2`,
-    ).bind(this.userId, Math.min(2_000, Math.max(1, Math.trunc(limit)))).all<TrackRow>()
+        ORDER BY updated_at DESC, id DESC LIMIT ?2 OFFSET ?3`,
+    ).bind(this.userId, Math.min(2_000, Math.max(1, Math.trunc(limit))), Math.max(0, Math.trunc(offset))).all<TrackRow>()
     return results.map(toTrack)
   }
 
+  async countDownloadedTracks(): Promise<number> {
+    const row = await this.db.prepare(
+      `SELECT COUNT(*) AS count FROM music_track
+        WHERE user_id = ?1 AND r2_key IS NOT NULL AND r2_key <> '' AND provider <> 'upload'`,
+    ).bind(this.userId).first<{ count: number }>()
+    return row?.count ?? 0
+  }
+
+  /** Resolve a set of ids in the caller's order, dropping ids this account does not own. */
   async getTracks(ids: readonly string[]): Promise<MusicTrack[]> {
     const unique = [...new Set(ids)].filter(Boolean)
     if (!unique.length) return []
@@ -709,6 +734,10 @@ export class MusicStore {
     const now = Date.now()
 
     if (existing) {
+      // A provider snapshot (`updatedAt: 0`) may be older than the row the reader edited. Pressing a
+      // search result again must not roll that edit back; explicit metadata changes use
+      // `updateTrackMetadata`, and backup restore plans existing identities without this call.
+      if (input.updatedAt === 0) return toTrack(existing)
       const title = input.title
       const artists = input.artists ?? parseArtists(existing.artists)
       const album = input.album ?? existing.album
@@ -835,6 +864,8 @@ export class MusicStore {
           this.db.prepare(
             `INSERT OR IGNORE INTO music_cleanup (object_key, user_id, created_at) VALUES (?1, ?2, ?3)`,
           ).bind(row.cover_key, this.userId, now),
+          this.db.prepare(`DELETE FROM music_object WHERE user_id = ?1 AND r2_key = ?2`)
+            .bind(this.userId, row.cover_key),
         )
       }
     }
@@ -861,6 +892,110 @@ export class MusicStore {
 
     await this.runStatements(statements)
     return { deleted: true, queuedObjects: queued }
+  }
+
+  /**
+   * Delete many owned snapshots with one reference pass and one batch.
+   *
+   * A hundred separate `deleteTrack` calls turn into hundreds of D1 round trips. The rows, their
+   * ledger keys and every cross-reference count are read once, then the deletes and cleanup rows
+   * land in a small number of statements; missing ids stay skips rather than errors.
+   */
+  async deleteTracks(ids: readonly string[]): Promise<{
+    removed: string[]
+    skipped: Array<{ id: string; reason: 'missing' }>
+    queuedObjects: string[]
+  }> {
+    const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))]
+    if (!unique.length) return { removed: [], skipped: [], queuedObjects: [] }
+
+    const found: TrackRow[] = []
+    for (const chunk of idChunks(unique)) {
+      const marks = chunk.map((_, index) => `?${index + 2}`).join(', ')
+      const { results } = await this.db.prepare(
+        `SELECT ${TRACK_COLUMNS} FROM music_track WHERE user_id = ?1 AND id IN (${marks})`,
+      ).bind(this.userId, ...chunk).all<TrackRow>()
+      found.push(...results)
+    }
+    const foundIds = found.map((row) => row.id)
+    const foundSet = new Set(foundIds)
+    const skipped = unique.filter((id) => !foundSet.has(id)).map((id) => ({ id, reason: 'missing' as const }))
+    if (!foundIds.length) return { removed: [], skipped, queuedObjects: [] }
+
+    const idsJson = JSON.stringify(foundIds)
+    const ledger = await this.db.prepare(
+      `SELECT track_id, r2_key FROM music_object
+        WHERE user_id = ?1 AND track_id IN (SELECT value FROM json_each(?2))`,
+    ).bind(this.userId, idsJson).all<{ track_id: string; r2_key: string }>()
+    const keys = new Set<string>()
+    for (const row of found) if (row.r2_key) keys.add(row.r2_key)
+    for (const row of ledger.results) if (row.r2_key) keys.add(row.r2_key)
+    for (const row of found) if (row.cover_key) keys.add(row.cover_key)
+
+    const queued: string[] = []
+    if (keys.size > 0) {
+      const keysJson = JSON.stringify([...keys])
+      const { results: refs } = await this.db.prepare(
+        `SELECT j.value AS key,
+           (SELECT COUNT(*) FROM music_track
+             WHERE user_id = ?1 AND r2_key = j.value
+               AND id NOT IN (SELECT value FROM json_each(?3))) AS r2_refs,
+           (SELECT COUNT(*) FROM music_track
+             WHERE user_id = ?1 AND cover_key = j.value
+               AND id NOT IN (SELECT value FROM json_each(?3))) AS cover_refs,
+           (SELECT COUNT(*) FROM music_download
+             WHERE user_id = ?1 AND r2_key = j.value) AS download_refs
+         FROM json_each(?2) AS j`,
+      ).bind(this.userId, keysJson, idsJson).all<{
+        key: string
+        r2_refs: number
+        cover_refs: number
+        download_refs: number
+      }>()
+      for (const row of refs) {
+        if ((row.r2_refs ?? 0) === 0 && (row.cover_refs ?? 0) === 0 && (row.download_refs ?? 0) === 0) {
+          queued.push(row.key)
+        }
+      }
+    }
+
+    const now = Date.now()
+    const trackKeysJson = JSON.stringify(
+      found.map((row) => musicTrackKey(row.provider as MusicProviderId, row.provider_id)),
+    )
+    const statements: D1PreparedStatement[] = []
+    if (queued.length > 0) {
+      const queuedJson = JSON.stringify(queued)
+      statements.push(
+        this.db.prepare(
+          `INSERT OR IGNORE INTO music_cleanup (object_key, user_id, created_at)
+           SELECT value, ?1, ?2 FROM json_each(?3)`,
+        ).bind(this.userId, now, queuedJson),
+        this.db.prepare(
+          `DELETE FROM music_object WHERE user_id = ?1 AND r2_key IN (SELECT value FROM json_each(?2))`,
+        ).bind(this.userId, queuedJson),
+      )
+    }
+    statements.push(
+      this.db.prepare(`DELETE FROM music_playlist_item
+        WHERE user_id = ?1 AND track_id IN (SELECT value FROM json_each(?2))`).bind(this.userId, idsJson),
+      this.db.prepare(`DELETE FROM music_favorite
+        WHERE user_id = ?1 AND track_id IN (SELECT value FROM json_each(?2))`).bind(this.userId, idsJson),
+      this.db.prepare(`DELETE FROM music_history
+        WHERE user_id = ?1 AND track_id IN (SELECT value FROM json_each(?2))`).bind(this.userId, idsJson),
+      this.db.prepare(`DELETE FROM music_lyric
+        WHERE user_id = ?1 AND track_key IN (SELECT value FROM json_each(?2))`).bind(this.userId, trackKeysJson),
+      this.db.prepare(`DELETE FROM music_lyric_ai
+        WHERE user_id = ?1 AND track_key IN (SELECT value FROM json_each(?2))`).bind(this.userId, trackKeysJson),
+      this.db.prepare(`DELETE FROM music_source_override
+        WHERE user_id = ?1 AND track_key IN (SELECT value FROM json_each(?2))`).bind(this.userId, trackKeysJson),
+      this.db.prepare(`UPDATE music_object SET track_id = NULL
+        WHERE user_id = ?1 AND track_id IN (SELECT value FROM json_each(?2))`).bind(this.userId, idsJson),
+      this.db.prepare(`DELETE FROM music_track
+        WHERE user_id = ?1 AND id IN (SELECT value FROM json_each(?2))`).bind(this.userId, idsJson),
+    )
+    await this.db.batch(statements)
+    return { removed: foundIds, skipped, queuedObjects: queued }
   }
 
   // Playlists ----------------------------------------------------------------------------------
@@ -1140,18 +1275,26 @@ export class MusicStore {
   /** Rewrite positions to match the full order the reader dropped into place. Unknown ids are ignored. */
   async reorderPlaylistItems(playlistId: string, trackIds: readonly string[]): Promise<number | null> {
     if (!(await this.playlistExists(playlistId))) return null
-    const unique = [...new Set(trackIds)].filter(Boolean)
+    const unique = [...new Set(trackIds.map((id) => id.trim()).filter(Boolean))]
     if (!unique.length) return 0
-    const statements = unique.map((trackId, index) => this.db.prepare(
-      `UPDATE music_playlist_item SET position = ?4
-        WHERE user_id = ?1 AND playlist_id = ?2 AND track_id = ?3`,
-    ).bind(this.userId, playlistId, trackId, index + 1))
-    statements.push(
+    const encoded = JSON.stringify(unique)
+    // One statement over `json_each` instead of one UPDATE per id: a long playlist would otherwise
+    // spend hundreds of D1 subrequests and could only be partially applied.
+    const statements = [
+      this.db.prepare(
+        `UPDATE music_playlist_item
+            SET position = (
+              SELECT CAST(json_each.key AS INTEGER) + 1
+                FROM json_each(?3) WHERE json_each.value = music_playlist_item.track_id
+            )
+          WHERE user_id = ?1 AND playlist_id = ?2
+            AND track_id IN (SELECT value FROM json_each(?3))`,
+      ).bind(this.userId, playlistId, encoded),
       this.db.prepare(`UPDATE music_playlist SET updated_at = ?3 WHERE user_id = ?1 AND id = ?2`)
         .bind(this.userId, playlistId, Date.now()),
-    )
-    // The playlist timestamp bumps too; the caller asked how many items moved.
-    return Math.max(0, (await this.runStatements(statements)) - 1)
+    ]
+    const results = await this.db.batch(statements)
+    return results[0]?.meta.changes ?? 0
   }
 
   // Favourites ---------------------------------------------------------------------------------
@@ -1312,7 +1455,9 @@ export class MusicStore {
     const perDay = new Map<string, number>()
     for (const row of results) {
       if (!Number.isFinite(row.played_at) || row.played_at <= 0) continue
-      const date = new Date(row.played_at + offsetMs).toISOString().slice(0, 10)
+      const local = new Date(row.played_at + offsetMs)
+      if (!Number.isFinite(local.getTime())) continue
+      const date = local.toISOString().slice(0, 10)
       perDay.set(date, (perDay.get(date) ?? 0) + 1)
     }
     const days = [...perDay.entries()]
@@ -1430,7 +1575,15 @@ export class MusicStore {
     const row = await this.db.prepare(
       `SELECT settings FROM music_setting WHERE user_id = ?1`,
     ).bind(this.userId).first<{ settings: string }>()
-    return row ? parseStoredObject<MusicSettings>(row.settings, 'music settings') : null
+    if (!row) return null
+    try {
+      return normalizeMusicSettings(parseStoredObject<MusicSettings>(row.settings, 'music settings'))
+    } catch (error) {
+      // One hand-edited or half-written row must not make settings, backups and the cloud routes
+      // fail together; defaults are the same state a fresh account starts from.
+      console.warn('[inkstone] Music settings could not be read; using defaults:', error)
+      return null
+    }
   }
 
   async saveSettings(settings: MusicSettings): Promise<MusicSettings> {
@@ -1828,6 +1981,13 @@ export class MusicStore {
     ).run()
   }
 
+  /** Drop one ledger row after its bytes were deleted or a cover was replaced. */
+  async unregisterObject(r2Key: string): Promise<void> {
+    await this.db.prepare(
+      `DELETE FROM music_object WHERE user_id = ?1 AND r2_key = ?2`,
+    ).bind(this.userId, r2Key).run()
+  }
+
   /** Usage across every format and quality; one row per object, so deduplicated content counts once. */
   async quotaUsage(): Promise<MusicQuota> {
     const row = await this.db.prepare(
@@ -1840,6 +2000,8 @@ export class MusicStore {
     const row = await this.db.prepare(
       `SELECT
          (SELECT COUNT(*) FROM music_track WHERE user_id = ?1 AND r2_key = ?2) +
+         (SELECT COUNT(*) FROM music_track WHERE user_id = ?1 AND cover_key = ?2) +
+         (SELECT COUNT(*) FROM music_playlist WHERE user_id = ?1 AND cover_key = ?2) +
          (SELECT COUNT(*) FROM music_download WHERE user_id = ?1 AND r2_key = ?2) AS count`,
     ).bind(this.userId, r2Key).first<{ count: number }>()
     return row?.count ?? 0

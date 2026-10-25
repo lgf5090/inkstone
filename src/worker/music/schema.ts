@@ -40,6 +40,8 @@ export const MUSIC_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_music_track_provider ON music_track(user_id, provider, provider_id)`,
   `CREATE INDEX IF NOT EXISTS idx_music_track_sha ON music_track(user_id, sha256)`,
   `CREATE INDEX IF NOT EXISTS idx_music_track_size ON music_track(user_id, size)`,
+  `CREATE INDEX IF NOT EXISTS idx_music_track_r2_key ON music_track(user_id, r2_key)`,
+  `CREATE INDEX IF NOT EXISTS idx_music_track_cover_key ON music_track(user_id, cover_key)`,
 
   `CREATE TABLE IF NOT EXISTS music_playlist (
     user_id TEXT NOT NULL,
@@ -137,6 +139,7 @@ export const MUSIC_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_music_download_queue
     ON music_download(user_id, status, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_music_download_key ON music_download(user_id, r2_key)`,
 
   `CREATE TABLE IF NOT EXISTS music_object (
     user_id TEXT NOT NULL,

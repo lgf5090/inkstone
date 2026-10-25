@@ -16,7 +16,6 @@ import {
   type MusicDriveDeleteResult,
   type MusicDriveImportResult,
   type MusicDriveR2Listing,
-  type MusicDriveR2UploadResult,
   type MusicDriveSkip,
   type MusicDriveUploadResult,
 } from '@shared/music/api'
@@ -33,20 +32,16 @@ import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
 import { encryptMusicMountToken } from '../lib/crypto'
-import { readBytesWithinLimit, readFormDataWithinLimit, readJson } from '../lib/request'
+import { readFormDataWithinLimit, readJson } from '../lib/request'
 import { MusicDownloadStore } from '../music/download-store'
 import { MusicStore } from '../music/store'
 import { musicProviderFor } from '../music/providers/account'
 import { MusicProviderError, type MusicStreamSource } from '../music/providers/types'
 import { fetchAllowedMusicUrl } from '../music/stream'
 import {
-  declaredUploadFormat,
-  formatCompatibleWithContainer,
   inspectMusicCover,
   sanitizeMusicFilename,
   sanitizeUploadMetadata,
-  sniffMusicFormat,
-  titleFromFilename,
 } from '../music/metadata'
 import {
   MUSIC_COVER_CACHE_CONTROL,
@@ -54,9 +49,7 @@ import {
   discardMusicObjects,
   hasMusicStorage,
   musicCoverKeyFor,
-  musicObjectKeyFor,
   putMusicObject as putR2Object,
-  withMusicQuotaLease,
 } from '../music/storage'
 import { resolveMusicWebdav } from '../music/cloud/config'
 import {
@@ -84,8 +77,6 @@ import {
 
 /** Room for fifty maximum-length paths plus their JSON punctuation. */
 const IMPORT_BODY_LIMIT = 64 * 1024
-/** The multipart envelope around a file at the ceiling, with room for a boundary and the field. */
-const UPLOAD_FORM_LIMIT = MUSIC_DRIVE_UPLOAD_MAX_BYTES + 1024 * 1024
 /** One parsed tag document plus a cover at the image ceiling. */
 const METADATA_FORM_LIMIT = MUSIC_LIMITS.coverMaxBytes + 128 * 1024
 const TRANSFER_BODY_LIMIT = 16 * 1024
@@ -126,110 +117,6 @@ musicDriveRoutes.get('/r2', async (c) => {
     truncated: objects.length >= 500,
   }
   return c.json(result)
-})
-
-/**
- * Store one file directly into R2.
- *
- * This is the cloud-drive path, so it also creates the library snapshot: the bytes, the track row and
- * the ledger entry are one operation under the quota lease. Metadata comes from the browser's parser
- * but is trimmed here, and the container is decided from the bytes rather than the extension.
- */
-musicDriveRoutes.post('/r2/upload', async (c) => {
-  const form = await readFormDataWithinLimit(c.req, UPLOAD_FORM_LIMIT)
-  const file = form.get('file')
-  if (!(file instanceof File)) throw ApiError.badRequest('Attach one file in the "file" field.')
-  if (file.size === 0) throw ApiError.badRequest('That file is empty.')
-  if (file.size > MUSIC_DRIVE_UPLOAD_MAX_BYTES) {
-    throw ApiError.tooLarge(`Files must be ${MUSIC_DRIVE_UPLOAD_MAX_BYTES / (1024 * 1024)} MB or smaller.`)
-  }
-  const filename = sanitizeMusicFilename(file.name)
-  const declared = declaredUploadFormat(filename, form.get('format') ?? undefined)
-  if (!declared) throw new ApiError(415, 'music_upload_invalid', 'Upload an audio file or an MP4 video.')
-  const bytes = new Uint8Array(await file.arrayBuffer())
-  const format = sniffMusicFormat(bytes, declared)
-  if (!format) {
-    throw new ApiError(415, 'music_upload_invalid', 'The file is not a supported audio or video container')
-  }
-  if (!formatCompatibleWithContainer(declared, format)) {
-    throw new ApiError(415, 'music_upload_invalid', 'The file content does not match its extension')
-  }
-  const rawMetadata = form.get('metadata')
-  let parsedMetadata: unknown = {}
-  if (typeof rawMetadata === 'string' && rawMetadata) {
-    try {
-      parsedMetadata = JSON.parse(rawMetadata)
-    } catch {
-      throw ApiError.badRequest('The metadata field must be JSON')
-    }
-  }
-  const metadata = sanitizeUploadMetadata(parsedMetadata, titleFromFilename(filename))
-
-  const store = new MusicStore(c.env.DB, c.get('userId'))
-  const trackId = newId()
-  const userId = c.get('userId')
-  const key = musicObjectKeyFor({ format, userId, trackId, quality: 'original' })
-  const track = await withMusicQuotaLease(c.env, store, bytes.length, async () => {
-    await putR2Object(c.env, key, bytes, {
-      contentType: MUSIC_MIME_BY_FORMAT[format],
-      userId,
-      trackId,
-      kind: 'track',
-    })
-    try {
-      const created = await store.upsertTrack({
-        id: trackId,
-        provider: 'upload',
-        providerId: trackId,
-        kind: 'song',
-        title: metadata.title,
-        artists: metadata.artists.map((name) => ({ id: '', name })),
-        album: metadata.album,
-        durationMs: metadata.durationMs,
-        format,
-        bitrate: metadata.bitrate,
-        size: bytes.length,
-        r2Key: key,
-        source: 'upload',
-        sourceQuality: 'original',
-      })
-      await store.registerObject({
-        r2Key: key,
-        trackId: created.id,
-        format,
-        quality: 'original',
-        size: bytes.length,
-      })
-      if (metadata.lyrics) {
-        await store.saveLyric({
-          trackKey: `upload:${created.id}`,
-          source: 'embedded',
-          lrc: metadata.lyrics,
-          tlyric: '',
-          yrc: '',
-        }).catch((error: unknown) => {
-          console.warn('[inkstone] Embedded music lyrics could not be cached:', error)
-        })
-      }
-      return created
-    } catch (error) {
-      await discardMusicObjects(c.env, store, [key])
-      throw error
-    }
-  })
-  const result: MusicDriveR2UploadResult = {
-    track,
-    entry: {
-      key,
-      trackId: track.id,
-      title: track.title,
-      artists: track.artists.map((artist) => artist.name).filter(Boolean),
-      format,
-      size: bytes.length,
-      createdAt: track.createdAt,
-    },
-  }
-  return c.json(result, 201)
 })
 
 /** Delete objects, and the library tracks that name them, when nothing else still references them. */
@@ -422,6 +309,13 @@ musicDriveRoutes.post('/imported/:trackId/metadata', async (c) => {
         trackId: track.id,
         kind: 'cover',
       })
+      await store.registerObject({
+        r2Key: key,
+        trackId: track.id,
+        format: 'cover',
+        quality: 'original',
+        size: bytes.byteLength,
+      })
       previousCoverKey = track.coverKey
       coverKey = key
     } else {
@@ -446,7 +340,9 @@ musicDriveRoutes.post('/imported/:trackId/metadata', async (c) => {
       coverKey,
     })
   } catch (error) {
-    if (coverKey !== previousCoverKey) await discardMusicObjects(c.env, store, [coverKey])
+    if (coverKey !== previousCoverKey) {
+      if (await discardMusicObjects(c.env, store, [coverKey])) await store.unregisterObject(coverKey)
+    }
     throw error
   }
   if (!updated) throw ApiError.notFound('That track does not exist')
@@ -463,7 +359,9 @@ musicDriveRoutes.post('/imported/:trackId/metadata', async (c) => {
     })
   }
   if (previousCoverKey && previousCoverKey !== coverKey) {
-    await discardMusicObjects(c.env, store, [previousCoverKey])
+    if (await discardMusicObjects(c.env, store, [previousCoverKey])) {
+      await store.unregisterObject(previousCoverKey)
+    }
   }
   return c.json({ track: updated })
 })
@@ -526,18 +424,8 @@ musicDriveRoutes.post('/transfer', async (c) => {
     await upstream.body?.cancel().catch(() => undefined)
     throw ApiError.tooLarge(`The track is larger than the ${TRANSFER_MAX_BYTES / (1024 * 1024)} MB transfer limit`)
   }
-  let bytes: Uint8Array
-  try {
-    bytes = await readBytesWithinLimit(upstream.body, TRANSFER_MAX_BYTES)
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 413) {
-      throw ApiError.tooLarge(`The track is larger than the ${TRANSFER_MAX_BYTES / (1024 * 1024)} MB transfer limit`)
-    }
-    throw error
-  }
-  if (bytes.byteLength === 0) {
-    throw new ApiError(502, 'music_source_unavailable', 'The music source returned an empty file')
-  }
+  if (!upstream.body) throw new ApiError(502, 'music_source_unavailable', 'The music source returned no file bytes')
+  const bounded = boundedBody(upstream.body, TRANSFER_MAX_BYTES)
 
   const reported = source.format.trim().toLowerCase()
   const format = isMusicFormat(reported) ? reported : isMusicFormat(track.format) ? track.format : 'mp3'
@@ -547,25 +435,48 @@ musicDriveRoutes.post('/transfer', async (c) => {
   let providerId: string
   let path: string
   let mountName = ''
-  let cleanup: () => Promise<void>
-  if (target === 'webdav') {
-    const ctx = await resolveMusicWebdav(c.env, store, userId)
-    path = await uniqueWebdavPath(ctx, filename, track.id)
-    await putMusicObject(ctx, path, bytes, mime)
-    providerId = musicWebdavProviderId(ctx.targetId, path)
-    cleanup = async () => { await deleteMusicObject(ctx, path) }
-  } else {
-    const mounts = await store.listMounts()
-    const mount = mounts.find((entry) => entry.kind === 'alist' && entry.status === 'active')
-      ?? mounts.find((entry) => entry.kind === 'alist')
-    if (!mount) throw new ApiError(503, 'music_storage_unavailable', 'Add an Alist mount in the cloud page first')
-    const ctx = await resolveAlistMount(c.env, store, mount.id)
-    path = await uniqueAlistPath(ctx, filename, track.id)
-    await putAlistFile(ctx, path, bytes, mime)
-    providerId = musicAlistProviderId(mount.id, path)
-    mountName = mount.name
-    cleanup = async () => { await removeAlistFile(ctx, path) }
+  let cleanup: (() => Promise<void>) | null = null
+  try {
+    if (target === 'webdav') {
+      const ctx = await resolveMusicWebdav(c.env, store, userId)
+      path = await uniqueWebdavPath(ctx, filename, track.id)
+      cleanup = async () => { await deleteMusicObject(ctx, path) }
+      await putMusicObject(ctx, path, bounded.stream, mime, {
+        ifNoneMatch: true,
+        contentLength: Number.isFinite(declared) && declared > 0 ? declared : undefined,
+      })
+      providerId = musicWebdavProviderId(ctx.targetId, path)
+    } else {
+      const mounts = await store.listMounts()
+      const mount = mounts.find((entry) => entry.kind === 'alist' && entry.status === 'active')
+        ?? mounts.find((entry) => entry.kind === 'alist')
+      if (!mount) throw new ApiError(503, 'music_storage_unavailable', 'Add an Alist mount in the cloud page first')
+      const ctx = await resolveAlistMount(c.env, store, mount.id)
+      path = await uniqueAlistPath(ctx, filename, track.id)
+      cleanup = async () => { await removeAlistFile(ctx, path) }
+      await putAlistFile(ctx, path, bounded.stream, mime, {
+        ifNoneMatch: true,
+        contentLength: Number.isFinite(declared) && declared > 0 ? declared : undefined,
+      })
+      providerId = musicAlistProviderId(mount.id, path)
+      mountName = mount.name
+    }
+  } catch (error) {
+    if (cleanup && !(error instanceof ApiError && error.status === 409)) {
+      await cleanup().catch((cleanupError: unknown) => {
+        console.warn('[inkstone] A partial transferred music file could not be rolled back:', cleanupError)
+      })
+    }
+    if (bounded.exceeded()) {
+      throw ApiError.tooLarge(`The track is larger than the ${TRANSFER_MAX_BYTES / (1024 * 1024)} MB transfer limit`)
+    }
+    throw error
   }
+  if (bounded.bytes() === 0) {
+    if (cleanup) await cleanup().catch(() => undefined)
+    throw new ApiError(502, 'music_source_unavailable', 'The music source returned an empty file')
+  }
+  const writtenBytes = Number.isFinite(declared) && declared > 0 ? declared : bounded.bytes()
 
   let saved: MusicTrack
   try {
@@ -581,15 +492,17 @@ musicDriveRoutes.post('/transfer', async (c) => {
       durationMs: track.durationMs,
       format,
       bitrate: source.bitrate ?? track.bitrate,
-      size: bytes.byteLength,
+      size: writtenBytes,
       r2Key: null,
       source: target,
       sourceQuality: source.quality || quality,
     })
   } catch (error) {
-    await cleanup().catch((cleanupError: unknown) => {
-      console.warn('[inkstone] A transferred music file could not be rolled back:', cleanupError)
-    })
+    if (cleanup) {
+      await cleanup().catch((cleanupError: unknown) => {
+        console.warn('[inkstone] A transferred music file could not be rolled back:', cleanupError)
+      })
+    }
     throw error
   }
 
@@ -607,6 +520,28 @@ musicDriveRoutes.post('/transfer', async (c) => {
   }
   return c.json({ track: saved, target, path, mountName }, 201)
 })
+
+function boundedBody(body: ReadableStream<Uint8Array>, maxBytes: number): {
+  stream: ReadableStream<Uint8Array>
+  bytes: () => number
+  exceeded: () => boolean
+} {
+  let count = 0
+  let exceeded = false
+  const stream = body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      if (exceeded) return
+      count += chunk.byteLength
+      if (count > maxBytes) {
+        exceeded = true
+        controller.error(new Error('transfer_too_large'))
+        return
+      }
+      controller.enqueue(chunk)
+    },
+  }))
+  return { stream, bytes: () => count, exceeded: () => exceeded }
+}
 
 function transferFilename(track: MusicTrack, format: string, pattern: string): string {
   const rendered = (pattern || '{title} - {artist}')
@@ -628,7 +563,12 @@ async function uniqueWebdavPath(
   if (!(await statMusicObject(ctx, filename))) return filename
   const stem = filename.replace(/\.[^.]+$/, '')
   const extension = filename.slice(stem.length)
-  return sanitizeMusicFilename(`${stem} (${trackId.slice(-6)})${extension}`)
+  const suffix = trackId.slice(-6)
+  for (let attempt = 1; attempt <= 20; attempt += 1) {
+    const candidate = sanitizeMusicFilename(`${stem} (${suffix}${attempt === 1 ? '' : `-${attempt}`})${extension}`)
+    if (!(await statMusicObject(ctx, candidate))) return candidate
+  }
+  throw new ApiError(409, 'conflict', 'A free file name could not be found on the WebDAV target.')
 }
 
 async function uniqueAlistPath(
@@ -637,48 +577,69 @@ async function uniqueAlistPath(
   trackId: string,
 ): Promise<string> {
   const exists = async (candidate: string): Promise<boolean> => {
-    try {
-      await statAlistFile(ctx, candidate)
-      return true
-    } catch (error) {
-      if (error instanceof ApiError && /\b404\b/.test(error.message)) return false
-      throw error
-    }
+    return (await statAlistFile(ctx, candidate)) !== null
   }
   if (!(await exists(filename))) return filename
   const stem = filename.replace(/\.[^.]+$/, '')
   const extension = filename.slice(stem.length)
-  return sanitizeMusicFilename(`${stem} (${trackId.slice(-6)})${extension}`)
+  const suffix = trackId.slice(-6)
+  for (let attempt = 1; attempt <= 20; attempt += 1) {
+    const candidate = sanitizeMusicFilename(`${stem} (${suffix}${attempt === 1 ? '' : `-${attempt}`})${extension}`)
+    if (!(await exists(candidate))) return candidate
+  }
+  throw new ApiError(409, 'conflict', 'A free file name could not be found on the Alist mount.')
 }
 
 /**
  * Put one file into the folder the reader is looking at.
  *
- * The name is reduced to its base name and the extension decides the MIME type, so a client-declared
- * type cannot make this route store an HTML page. A file that already exists is refused rather than
- * overwritten: the reader chose a name, and the honest answer is to let them choose another.
+ * The browser streams the bytes; the worker never builds a form. The name is reduced to its base
+ * name and the extension decides the MIME type, so a client-declared type cannot make this route
+ * store an HTML page. A file that already exists is refused rather than overwritten.
  */
-musicDriveRoutes.post('/webdav/upload', async (c) => {
+musicDriveRoutes.put('/webdav/upload', async (c) => {
   const dir = normalizeCloudPath(c.req.query('path') ?? '', { allowEmpty: true })
-  const form = await readFormDataWithinLimit(c.req, UPLOAD_FORM_LIMIT)
-  const file = form.get('file')
-  if (!(file instanceof File)) throw ApiError.badRequest('Attach one file in the "file" field.')
-  if (file.size === 0) throw ApiError.badRequest('That file is empty.')
-  if (file.size > MUSIC_DRIVE_UPLOAD_MAX_BYTES) {
-    throw ApiError.tooLarge(`Files must be ${MUSIC_DRIVE_UPLOAD_MAX_BYTES / (1024 * 1024)} MB or smaller.`)
-  }
-  const filename = uploadFilename(file.name)
+  const filename = uploadFilename(c.req.query('name') ?? '')
   const format = formatFromFilename(filename)
   if (!format) throw new ApiError(415, 'music_upload_invalid', 'Upload an audio file or an MP4 video.')
-
+  const declared = Number(c.req.header('content-length') ?? '')
+  if (Number.isFinite(declared) && declared > MUSIC_DRIVE_UPLOAD_MAX_BYTES) {
+    throw ApiError.tooLarge(`Files must be ${MUSIC_DRIVE_UPLOAD_MAX_BYTES / (1024 * 1024)} MB or smaller.`)
+  }
+  if (!c.req.raw.body) throw ApiError.badRequest('Attach one file in the request body.')
+  const bounded = boundedBody(c.req.raw.body, MUSIC_DRIVE_UPLOAD_MAX_BYTES)
   const store = new MusicStore(c.env.DB, c.get('userId'))
   const ctx = await resolveMusicWebdav(c.env, store, c.get('userId'))
   const target = joinCloudPath(dir, filename)
   if (await statMusicObject(ctx, target)) {
     throw new ApiError(409, 'conflict', 'A file with that name already exists in this folder.')
   }
-  await putMusicObject(ctx, target, file, MUSIC_MIME_BY_FORMAT[format])
-  const result: MusicDriveUploadResult = { path: target, size: file.size }
+  try {
+    await putMusicObject(ctx, target, bounded.stream, MUSIC_MIME_BY_FORMAT[format], {
+      ifNoneMatch: true,
+      contentLength: Number.isFinite(declared) && declared > 0 ? declared : undefined,
+    })
+  } catch (error) {
+    // A conditional 412 means the name was taken and nothing was written; deleting the target here
+    // would remove the file that won the race.
+    if (!(error instanceof ApiError && error.status === 409)) {
+      await deleteMusicObject(ctx, target).catch((cleanupError: unknown) => {
+        console.warn('[inkstone] A partial WebDAV upload could not be rolled back:', cleanupError)
+      })
+    }
+    if (bounded.exceeded()) {
+      throw ApiError.tooLarge(`Files must be ${MUSIC_DRIVE_UPLOAD_MAX_BYTES / (1024 * 1024)} MB or smaller.`)
+    }
+    throw error
+  }
+  if (bounded.bytes() === 0) {
+    await deleteMusicObject(ctx, target).catch(() => undefined)
+    throw ApiError.badRequest('That file is empty.')
+  }
+  const result: MusicDriveUploadResult = {
+    path: target,
+    size: Number.isFinite(declared) && declared > 0 ? declared : bounded.bytes(),
+  }
   return c.json(result, 201)
 })
 
@@ -868,6 +829,10 @@ musicDriveRoutes.post('/alist/:id/import', async (c) => {
   for (const raw of paths) {
     const path = normalizeAlistPath(raw)
     const info = await statAlistFile(ctx, path)
+    if (!info) {
+      skipped.push({ path, reason: 'missing' })
+      continue
+    }
     if (info.isDirectory) {
       skipped.push({ path, reason: 'directory' })
       continue
@@ -898,30 +863,49 @@ musicDriveRoutes.post('/alist/:id/import', async (c) => {
   return c.json(result)
 })
 
-/** Upload into the folder on screen. As with WebDAV, the file name decides the type. */
-musicDriveRoutes.post('/alist/:id/upload', async (c) => {
+musicDriveRoutes.put('/alist/:id/upload', async (c) => {
   const dir = normalizeAlistPath(c.req.query('path') ?? '')
-  const form = await readFormDataWithinLimit(c.req, UPLOAD_FORM_LIMIT)
-  const file = form.get('file')
-  if (!(file instanceof File)) throw ApiError.badRequest('Attach one file in the "file" field.')
-  if (file.size === 0) throw ApiError.badRequest('That file is empty.')
-  if (file.size > MUSIC_DRIVE_UPLOAD_MAX_BYTES) {
-    throw ApiError.tooLarge(`Files must be ${MUSIC_DRIVE_UPLOAD_MAX_BYTES / (1024 * 1024)} MB or smaller.`)
-  }
-  const filename = uploadFilename(file.name)
+  const filename = uploadFilename(c.req.query('name') ?? '')
   const format = formatFromFilename(filename)
   if (!format) throw new ApiError(415, 'music_upload_invalid', 'Upload an audio file or an MP4 video.')
+  const declared = Number(c.req.header('content-length') ?? '')
+  if (Number.isFinite(declared) && declared > MUSIC_DRIVE_UPLOAD_MAX_BYTES) {
+    throw ApiError.tooLarge(`Files must be ${MUSIC_DRIVE_UPLOAD_MAX_BYTES / (1024 * 1024)} MB or smaller.`)
+  }
+  if (!c.req.raw.body) throw ApiError.badRequest('Attach one file in the request body.')
+  const bounded = boundedBody(c.req.raw.body, MUSIC_DRIVE_UPLOAD_MAX_BYTES)
   const store = new MusicStore(c.env.DB, c.get('userId'))
   const ctx = await resolveAlistMount(c.env, store, c.req.param('id'))
   const target = normalizeAlistPath(dir ? `${dir}/${filename}` : filename)
-  // The parent directory is already the one on screen: listing it is the one check that separates
-  // "missing" from "the token is wrong" before a PUT could overwrite a same-named remote file.
-  const listing = await listAlistDirectory(ctx, dir)
-  if (listing.entries.some((entry) => entry.name === filename)) {
+  if (await statAlistFile(ctx, target)) {
     throw new ApiError(409, 'conflict', 'A file with that name already exists in this folder.')
   }
-  await putAlistFile(ctx, target, new Uint8Array(await file.arrayBuffer()), MUSIC_MIME_BY_FORMAT[format])
-  const result: MusicDriveUploadResult = { path: target, size: file.size }
+  try {
+    await putAlistFile(ctx, target, bounded.stream, MUSIC_MIME_BY_FORMAT[format], {
+      ifNoneMatch: true,
+      contentLength: Number.isFinite(declared) && declared > 0 ? declared : undefined,
+    })
+  } catch (error) {
+    // A conditional refusal means the server did not take these bytes; removing the target would
+    // delete the file that already owned the name.
+    if (!(error instanceof ApiError && error.status === 409)) {
+      await removeAlistFile(ctx, target).catch((cleanupError: unknown) => {
+        console.warn('[inkstone] A partial Alist upload could not be rolled back:', cleanupError)
+      })
+    }
+    if (bounded.exceeded()) {
+      throw ApiError.tooLarge(`Files must be ${MUSIC_DRIVE_UPLOAD_MAX_BYTES / (1024 * 1024)} MB or smaller.`)
+    }
+    throw error
+  }
+  if (bounded.bytes() === 0) {
+    await removeAlistFile(ctx, target).catch(() => undefined)
+    throw ApiError.badRequest('That file is empty.')
+  }
+  const result: MusicDriveUploadResult = {
+    path: target,
+    size: Number.isFinite(declared) && declared > 0 ? declared : bounded.bytes(),
+  }
   return c.json(result, 201)
 })
 

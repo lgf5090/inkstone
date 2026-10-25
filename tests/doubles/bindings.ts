@@ -147,6 +147,8 @@ class InMemoryR2Bucket implements TestR2Bucket {
   readonly types = new Map<string, string>()
   readonly metadata = new Map<string, Record<string, string>>()
   private readonly uploaded = new Map<string, Date>()
+  private readonly multipart = new Map<string, { key: string; options?: R2MultipartOptions; parts: Map<number, Uint8Array> }>()
+  private multipartSequence = 0
 
   async head(key: string): Promise<R2Object | null> {
     const bytes = this.objects.get(key)
@@ -213,24 +215,42 @@ class InMemoryR2Bucket implements TestR2Bucket {
   }
 
   async createMultipartUpload(key: string, options?: R2MultipartOptions): Promise<R2MultipartUpload> {
-    const uploadId = `upload-${key}-${this.objects.size}`
-    const parts = new Map<number, Uint8Array>()
+    const uploadId = `upload-${++this.multipartSequence}`
+    this.multipart.set(uploadId, { key, options, parts: new Map() })
+    return this.multipartUpload(key, uploadId)
+  }
+
+  resumeMultipartUpload(key: string, uploadId: string): R2MultipartUpload {
+    const session = this.multipart.get(uploadId)
+    if (!session || session.key !== key) {
+      throw new TypeError(`the test R2 double has no multipart upload ${uploadId} of ${key}`)
+    }
+    return this.multipartUpload(key, uploadId)
+  }
+
+  private multipartUpload(key: string, uploadId: string): R2MultipartUpload {
     const bucket = this
+    const session = () => {
+      const current = this.multipart.get(uploadId)
+      if (!current) throw new TypeError(`the test R2 double has no multipart upload ${uploadId} of ${key}`)
+      return current
+    }
     return {
       key,
       uploadId,
       async uploadPart(partNumber, value) {
         const bytes = await toBytes(value)
-        parts.set(partNumber, bytes)
+        session().parts.set(partNumber, bytes)
         return { partNumber, etag: fingerprint(bytes) }
       },
       async abort() {
-        parts.clear()
+        bucket.multipart.delete(uploadId)
       },
       async complete(uploadedParts) {
+        const current = session()
         const ordered: Uint8Array[] = []
         for (const part of uploadedParts.slice().sort((a, b) => a.partNumber - b.partNumber)) {
-          const bytesOfPart = parts.get(part.partNumber)
+          const bytesOfPart = current.parts.get(part.partNumber)
           if (!bytesOfPart) {
             throw new TypeError(`part ${part.partNumber} of ${key} was completed but never uploaded`)
           }
@@ -242,13 +262,10 @@ class InMemoryR2Bucket implements TestR2Bucket {
           assembled.set(part, offset)
           offset += part.byteLength
         }
-        return bucket.put(key, assembled, options)
+        bucket.multipart.delete(uploadId)
+        return bucket.put(key, assembled, current.options)
       },
     }
-  }
-
-  resumeMultipartUpload(key: string, uploadId: string): R2MultipartUpload {
-    throw new TypeError(`the test R2 double cannot resume upload ${uploadId} of ${key}`)
   }
 
   async delete(keys: string | string[]): Promise<void> {

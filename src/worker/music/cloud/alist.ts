@@ -9,9 +9,12 @@
  */
 import { decryptMusicMountToken } from '../../lib/crypto'
 import { ApiError } from '../../lib/errors'
+import { readStreamWithinLimit } from '../../lib/request'
 import type { Env } from '../../env'
 import { MusicStore } from '../store'
 import type { MusicMount } from '@shared/music/model'
+import { isBlockedTarget } from '@shared/ai-proxy-guard'
+import { uploadBodyInit } from './request-body'
 
 const MAX_PATH = 1_024
 const MAX_NAME = 120
@@ -22,7 +25,6 @@ const SEARCH_PAGE_SIZE = 100
 const RESPONSE_MAX_BYTES = 2 * 1024 * 1024
 const REQUEST_DEADLINE_MS = 10_000
 const MEDIA_RE = /\.(?:mp3|m4a|mp4|flac|wav|wave|ogg|oga|opus|aac|webm|mov|m4v)$/i
-const PRIVATE_HOST_RE = /^(?:localhost|127(?:\.\d{1,3}){3}|10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}|169\.254(?:\.\d{1,3}){2}|0(?:\.\d{1,3}){3}|\[?::1\]?)$/i
 
 export interface MusicAlistEntry {
   name: string
@@ -144,7 +146,9 @@ function isMediaName(name: string): boolean {
 }
 
 function isPrivateHostname(hostname: string): boolean {
-  return PRIVATE_HOST_RE.test(hostname) || hostname.endsWith('.local') || hostname.endsWith('.internal')
+  // The shared guard understands IPv6, mapped IPv4, decimal/hex spellings and reserved suffixes.
+  // A trailing dot is legal in a hostname but not meaningful to the guard, so normalize it first.
+  return isBlockedTarget(hostname.toLowerCase().replace(/\.+$/, ''))
 }
 
 async function readJsonLimited(response: Response): Promise<unknown> {
@@ -152,15 +156,31 @@ async function readJsonLimited(response: Response): Promise<unknown> {
   if (Number.isFinite(declared) && declared > RESPONSE_MAX_BYTES) {
     throw new ApiError(502, 'music_storage_unavailable', 'The Alist response is too large to read.')
   }
-  const body = await response.text()
-  if (body.length > RESPONSE_MAX_BYTES) {
+  const bytes = await readStreamWithinLimit(response.body, RESPONSE_MAX_BYTES)
+  if (bytes === null) {
     throw new ApiError(502, 'music_storage_unavailable', 'The Alist response is too large to read.')
   }
+  const body = new TextDecoder().decode(bytes)
   if (!body.trim()) return null
   try {
     return JSON.parse(body)
   } catch {
     throw new ApiError(502, 'music_storage_unavailable', 'The Alist server answered with something that is not JSON.')
+  }
+}
+
+function alistNotFound(parsed: AlistResponse<unknown> | null): boolean {
+  if (!parsed) return false
+  if (parsed.code === 404) return true
+  const message = parsed.message ?? ''
+  return /not\s+found|does not exist|no such|\u4e0d\u5b58\u5728|\u627e\u4e0d\u5230/i.test(message)
+}
+
+async function discardAlistBody(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel()
+  } catch (error) {
+    console.warn('[inkstone] Alist response body could not be cancelled:', error)
   }
 }
 
@@ -171,44 +191,70 @@ async function alistRequest<T>(ctx: AlistContext, endpoint: string, body: Record
   }
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), REQUEST_DEADLINE_MS)
-  let response: Response
   try {
-    response = await fetch(url, {
-      method: 'POST',
-      // The edge runtime implements only follow/manual; a redirect is refused below, not followed.
-      redirect: 'manual',
-      headers: {
-        Authorization: ctx.token,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    })
+    let response: Response
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        // The edge runtime implements only follow/manual; a redirect is refused below, not followed.
+        redirect: 'manual',
+        headers: {
+          Authorization: ctx.token,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      })
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new ApiError(502, 'music_storage_unavailable', 'The Alist server did not answer in time.')
+      }
+      console.warn('[inkstone] Alist request failed:', error)
+      throw new ApiError(502, 'music_storage_unavailable', 'The Alist server could not be reached.')
+    }
+    if (response.status >= 300 && response.status < 400) {
+      await discardAlistBody(response)
+      throw new ApiError(502, 'music_storage_unavailable', 'The Alist server redirected this request. Enter the final HTTPS address instead.')
+    }
+    if (response.status === 404) {
+      await discardAlistBody(response)
+      throw ApiError.notFound('That Alist path does not exist.')
+    }
+    if (!response.ok) {
+      // Some Alist builds answer a missing path with a 5xx envelope whose `message` is the only
+      // place that says "not found"; reading that small body keeps the caller from misclassifying it.
+      const refusal = await readJsonLimited(response).catch((error: unknown) => {
+        console.warn('[inkstone] Alist refusal body could not be read:', error)
+        return null
+      }) as AlistResponse<unknown> | null
+      if (alistNotFound(refusal)) {
+        throw ApiError.notFound('That Alist path does not exist.')
+      }
+      if (response.status === 401 || response.status === 403) {
+        throw new ApiError(502, 'music_storage_unavailable', 'The Alist server refused the saved token. Edit the mount and try again.')
+      }
+      throw new ApiError(
+        502,
+        'music_storage_unavailable',
+        refusal?.message?.slice(0, 200) || `The Alist server answered ${response.status}.`,
+      )
+    }
+    const parsed = await readJsonLimited(response) as AlistResponse<T> | null
+    if (alistNotFound(parsed as AlistResponse<unknown> | null)) {
+      throw ApiError.notFound('That Alist path does not exist.')
+    }
+    if (!parsed || (parsed.code !== undefined && parsed.code !== 200)) {
+      throw new ApiError(502, 'music_storage_unavailable', parsed?.message?.slice(0, 200) || 'The Alist server refused the request.')
+    }
+    return parsed.data as T
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       throw new ApiError(502, 'music_storage_unavailable', 'The Alist server did not answer in time.')
     }
-    console.warn('[inkstone] Alist request failed:', error)
-    throw new ApiError(502, 'music_storage_unavailable', 'The Alist server could not be reached.')
+    throw error
   } finally {
     clearTimeout(timer)
   }
-  if (response.status >= 300 && response.status < 400) {
-    await response.body?.cancel().catch(() => undefined)
-    throw new ApiError(502, 'music_storage_unavailable', 'The Alist server redirected this request. Enter the final HTTPS address instead.')
-  }
-  if (!response.ok) {
-    await response.body?.cancel().catch(() => undefined)
-    if (response.status === 401 || response.status === 403) {
-      throw new ApiError(502, 'music_storage_unavailable', 'The Alist server refused the saved token. Edit the mount and try again.')
-    }
-    throw new ApiError(502, 'music_storage_unavailable', `The Alist server answered ${response.status}.`)
-  }
-  const parsed = await readJsonLimited(response) as AlistResponse<T> | null
-  if (!parsed || (parsed.code !== undefined && parsed.code !== 200)) {
-    throw new ApiError(502, 'music_storage_unavailable', parsed?.message?.slice(0, 200) || 'The Alist server refused the request.')
-  }
-  return parsed.data as T
 }
 
 export async function resolveAlistMount(env: Env, store: MusicStore, id: string): Promise<AlistContext> {
@@ -324,18 +370,25 @@ function mediaUrl(ctx: AlistContext, raw: string): URL {
   return url
 }
 
-/** Metadata for one file; the caller imports only files that report a size and a media name. */
-export async function statAlistFile(ctx: AlistContext, rawPath: string): Promise<AlistFileInfo> {
+/** Metadata for one file, or null when the mount says the path does not exist. */
+export async function statAlistFile(ctx: AlistContext, rawPath: string): Promise<AlistFileInfo | null> {
   const path = normalizeAlistPath(rawPath)
-  const data = await alistRequest<AlistRawFile>(ctx, '/api/fs/get', {
-    path: joinAlistPath(ctx.root, path),
-  })
-  const name = typeof data?.name === 'string' && data.name ? data.name : path.split('/').pop() ?? path
+  let data: AlistRawFile | null
+  try {
+    data = await alistRequest<AlistRawFile | null>(ctx, '/api/fs/get', {
+      path: joinAlistPath(ctx.root, path),
+    })
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null
+    throw error
+  }
+  if (!data) return null
+  const name = typeof data.name === 'string' && data.name ? data.name : path.split('/').pop() ?? path
   return {
     name,
-    sizeBytes: typeof data?.size === 'number' && Number.isFinite(data.size) && data.size >= 0 ? Math.trunc(data.size) : 0,
-    isDirectory: data?.is_dir === true,
-    rawUrl: typeof data?.raw_url === 'string' ? data.raw_url : '',
+    sizeBytes: typeof data.size === 'number' && Number.isFinite(data.size) && data.size >= 0 ? Math.trunc(data.size) : 0,
+    isDirectory: data.is_dir === true,
+    rawUrl: typeof data.raw_url === 'string' ? data.raw_url : '',
   }
 }
 
@@ -350,7 +403,7 @@ export async function fetchAlistStream(
   signal: AbortSignal,
 ): Promise<Response> {
   const info = await statAlistFile(ctx, path)
-  if (info.isDirectory || !info.rawUrl) {
+  if (!info || info.isDirectory || !info.rawUrl) {
     throw new ApiError(502, 'music_source_unavailable', 'The Alist file has no playable download address.')
   }
   let url = mediaUrl(ctx, info.rawUrl)
@@ -387,8 +440,9 @@ export async function fetchAlistStream(
 export async function putAlistFile(
   ctx: AlistContext,
   rawPath: string,
-  bytes: Uint8Array,
+  bytes: Uint8Array | Blob | ReadableStream<Uint8Array>,
   mime: string,
+  options: { ifNoneMatch?: boolean; contentLength?: number } = {},
 ): Promise<void> {
   const path = normalizeAlistPath(rawPath)
   if (!path) throw ApiError.badRequest('Name a file path inside the mount.')
@@ -407,8 +461,12 @@ export async function putAlistFile(
         Authorization: ctx.token,
         'Content-Type': mime,
         'File-Path': encodeURIComponent(joinAlistPath(ctx.root, path)),
+        ...(options.ifNoneMatch ? { 'If-None-Match': '*' } : {}),
+        ...(options.contentLength && options.contentLength > 0
+          ? { 'Content-Length': String(options.contentLength) }
+          : {}),
       },
-      body: bytes as BodyInit,
+      ...uploadBodyInit(bytes),
       signal: controller.signal,
     })
   } catch (error) {
@@ -423,6 +481,10 @@ export async function putAlistFile(
   if (response.status >= 300 && response.status < 400) {
     await response.body?.cancel().catch(() => undefined)
     throw new ApiError(502, 'music_storage_unavailable', 'The Alist server redirected this upload. Enter the final HTTPS address instead.')
+  }
+  if (response.status === 412) {
+    await response.body?.cancel().catch(() => undefined)
+    throw new ApiError(409, 'conflict', 'A file with that name already exists in this folder.')
   }
   if (!response.ok) {
     await response.body?.cancel().catch(() => undefined)

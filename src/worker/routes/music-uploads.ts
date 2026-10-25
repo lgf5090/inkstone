@@ -12,7 +12,6 @@ import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidId } from '../lib/id'
 import {
-  JSON_BODY_LIMITS,
   assertDeclaredBodySize,
   readBytesWithinLimit,
   readJson,
@@ -21,20 +20,24 @@ import { requireAuth } from '../middleware/auth'
 import {
   abortMusicUpload,
   completeMusicUpload,
-  listMusicUploads,
   musicPartLength,
   readMusicUpload,
   startMusicUpload,
   storeMusicCover,
   uploadMusicPart,
+  MusicUploadStore,
 } from '../music/upload-store'
+import { normalizeMusicLimit, normalizeMusicPage } from '../music/store'
 
 export const musicUploadRoutes = new Hono<AppBindings>()
 
 musicUploadRoutes.use('*', requireAuth)
 
 musicUploadRoutes.get('/', async (c) => {
-  return c.json({ items: await listMusicUploads(c.env, c.get('userId')) })
+  const uploads = new MusicUploadStore(c.env.DB, c.get('userId'))
+  const page = normalizeMusicPage(c.req.query('page'))
+  const limit = normalizeMusicLimit(c.req.query('limit'))
+  return c.json(await uploads.listPage(page, limit))
 })
 
 musicUploadRoutes.get('/:id', async (c) => {
@@ -47,7 +50,7 @@ musicUploadRoutes.get('/:id', async (c) => {
 })
 
 musicUploadRoutes.post('/', async (c) => {
-  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<Record<string, unknown>>(c, MUSIC_LIMITS.uploadInitMaxBytes)
   const init = await startMusicUpload(c.env, c.get('userId'), {
     filename: body.filename,
     mime: body.mime,

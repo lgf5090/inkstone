@@ -21,11 +21,16 @@ import {
   type WebdavSecret,
 } from '../../backup/webdav'
 import { ApiError } from '../../lib/errors'
+import { uploadBodyInit } from './request-body'
 import { decodeHrefPath, isMediaEntry, parseMultistatus, type WebdavPropfindEntry } from './webdav-xml'
 
 const PROPFIND_MAX_BYTES = 512 * 1024
 const MAX_PATH = 1024
 const USER_AGENT = 'Inkstone-Music/1.0'
+/** Metadata calls are small; a server that never answers must not hold the request open. */
+const METADATA_TIMEOUT_MS = 20_000
+/** A 64 MB PUT can legitimately be slow, but not unbounded. */
+const UPLOAD_TIMEOUT_MS = 5 * 60_000
 
 export interface MusicWebdavContext {
   /** The backup target this context was resolved from; part of every reference's provider id. */
@@ -127,12 +132,15 @@ function storageFailure(response: Response, action: string): ApiError {
  * seam it would surface as a 500 that blames the worker. An abort is the reader leaving, so it is
  * rethrown untouched and the route's response is dropped with the connection.
  */
-async function webdavCall<T>(action: string, work: () => Promise<T>): Promise<T> {
+async function webdavCall<T>(action: string, work: () => Promise<T>, rethrowAbort = false): Promise<T> {
   try {
     return await work()
   } catch (error) {
     if (error instanceof ApiError) throw error
-    if (error instanceof Error && error.name === 'AbortError') throw error
+    if (error instanceof Error && error.name === 'AbortError') {
+      if (rethrowAbort) throw error
+      throw new ApiError(502, 'music_storage_unavailable', `The WebDAV server did not answer in time while ${action}.`)
+    }
     console.warn('[inkstone] Music WebDAV request failed:', error instanceof Error ? error.message : error)
     throw new ApiError(502, 'music_storage_unavailable', `The WebDAV server could not be reached while ${action}.`)
   }
@@ -183,6 +191,7 @@ async function propfind(ctx: MusicWebdavContext, path: string, depth: '0' | '1')
       'User-Agent': USER_AGENT,
     },
     body: '<?xml version="1.0" encoding="utf-8"?><D:propfind xmlns:D="DAV:"><D:prop><D:displayname/><D:resourcetype/><D:getcontentlength/><D:getcontenttype/><D:getlastmodified/></D:prop></D:propfind>',
+    signal: AbortSignal.timeout(METADATA_TIMEOUT_MS),
   }, ctx.base.origin))
   if (!response.ok) {
     await discardBody(response.body)
@@ -194,7 +203,9 @@ async function propfind(ctx: MusicWebdavContext, path: string, depth: '0' | '1')
 
 function relativeToMusicDir(ctx: MusicWebdavContext, href: string): string | null {
   const decoded = decodeHrefPath(href)
-  const basePath = ctx.base.pathname.endsWith('/') ? ctx.base.pathname : `${ctx.base.pathname}/`
+  // The configured base may carry percent-encoded segments (`My%20Music`); hrefs are compared after
+  // both sides have been decoded, or every entry would fall outside the configured folder.
+  const basePath = decodeHrefPath(ctx.base.pathname.endsWith('/') ? ctx.base.pathname : `${ctx.base.pathname}/`)
   if (!decoded.startsWith(basePath)) return null
   const fromBase = decoded.slice(basePath.length).replace(/\/+$/, '')
   if (!ctx.dir) return fromBase
@@ -259,22 +270,39 @@ export async function statMusicObject(ctx: MusicWebdavContext, rawPath: string):
 export async function putMusicObject(
   ctx: MusicWebdavContext,
   rawPath: string,
-  bytes: Uint8Array | Blob,
+  bytes: Uint8Array | Blob | ReadableStream<Uint8Array>,
   mime: string,
+  options: { ifNoneMatch?: boolean; contentLength?: number } = {},
 ): Promise<void> {
   const path = normalizeCloudPath(rawPath, { allowEmpty: false })
   const parent = parentOf(path)
-  await ensureDirs(ctx.base, ctx.auth, [joinCloudPath(ctx.dir, parent)].filter(Boolean), new Set())
+  // MKCOL failures carry the actionable credentials/permission answer; translate them the same way
+  // the PUT below is translated instead of letting a plain Error become a 500.
+  await webdavCall('creating that folder', () => ensureDirs(
+    ctx.base,
+    ctx.auth,
+    [joinCloudPath(ctx.dir, parent)].filter(Boolean),
+    new Set(),
+    AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+  ))
   const response = await webdavCall('uploading that file', () => webdavFetch(childUrl(ctx.base, joinCloudPath(ctx.dir, path)), {
     method: 'PUT',
     headers: {
       Authorization: ctx.auth,
       'Content-Type': mime,
       'User-Agent': USER_AGENT,
+      ...(options.ifNoneMatch ? { 'If-None-Match': '*' } : {}),
+      ...(options.contentLength && options.contentLength > 0
+        ? { 'Content-Length': String(options.contentLength) }
+        : {}),
     },
-    body: bytes,
+    ...uploadBodyInit(bytes),
+    signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
   }, ctx.base.origin))
   await discardBody(response.body)
+  if (response.status === 412) {
+    throw new ApiError(409, 'conflict', 'A file with that name already exists in this folder.')
+  }
   if (!response.ok) throw storageFailure(response, 'uploading that file')
 }
 
@@ -283,6 +311,7 @@ export async function deleteMusicObject(ctx: MusicWebdavContext, rawPath: string
   const response = await webdavCall('deleting that file', () => webdavFetch(childUrl(ctx.base, joinCloudPath(ctx.dir, path)), {
     method: 'DELETE',
     headers: { Authorization: ctx.auth, 'User-Agent': USER_AGENT },
+    signal: AbortSignal.timeout(METADATA_TIMEOUT_MS),
   }, ctx.base.origin))
   await discardBody(response.body)
   if (response.status === 404) return false
@@ -304,7 +333,7 @@ export async function fetchMusicObject(
     method: 'GET',
     headers,
     signal,
-  }, ctx.base.origin))
+  }, ctx.base.origin), true)
   if (response.status === 404) {
     await discardBody(response.body)
     throw new ApiError(404, 'not_found', 'That file no longer exists on the WebDAV server.')

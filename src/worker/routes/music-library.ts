@@ -24,7 +24,7 @@ import type {
   MusicTrackKind,
 } from '@shared/music/model'
 import { MUSIC_PROVIDERS, MUSIC_SUBSCRIPTION_KINDS, MUSIC_TRACK_KINDS } from '@shared/music/model'
-import { MUSIC_LIMITS } from '@shared/music/constants'
+import { MUSIC_LIMITS, MUSIC_MAX_HISTORY_PLAYED_AT } from '@shared/music/constants'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { newSlug } from '../lib/id'
@@ -44,6 +44,7 @@ import {
   type MusicTrackInput,
 } from '../music/store'
 import { listMusicUploads } from '../music/upload-store'
+import { inspectMusicCover } from '../music/metadata'
 import { translateMusicLyrics } from '../music/lyrics-ai'
 
 const TITLE_MAX = 500
@@ -54,7 +55,7 @@ const PROVIDER_ID_MAX = 128
 const ARTISTS_MAX = 20
 const ARTIST_NAME_MAX = 200
 const FORMAT_MAX = 16
-const TRACK_BATCH_MAX = 100
+const TRACK_BATCH_MAX = MUSIC_LIMITS.trackBatchMax
 const TRACK_BODY_LIMIT = 512 * 1024
 const SMALL_BODY_LIMIT = 16 * 1024
 const FAVORITE_BODY_LIMIT = 64 * 1024
@@ -88,6 +89,15 @@ function integer(value: unknown, min: number, max: number, fallback: number, fie
   return Math.min(max, Math.max(min, Math.trunc(parsed)))
 }
 
+function historyPlayedAt(value: unknown): number | undefined {
+  if (value === undefined) return undefined
+  const parsed = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > MUSIC_MAX_HISTORY_PLAYED_AT) {
+    throw ApiError.badRequest('Played time is outside the supported range')
+  }
+  return Math.trunc(parsed)
+}
+
 function isProviderId(value: unknown): value is MusicProviderId {
   return typeof value === 'string' && (MUSIC_PROVIDERS as readonly string[]).includes(value)
 }
@@ -106,26 +116,12 @@ function isSubscriptionKind(value: unknown): value is (typeof MUSIC_SUBSCRIPTION
 
 function coverUrl(value: unknown): string {
   const url = text(value, URL_MAX, 'Cover URL')
-  if (url && !/^https?:\/\//i.test(url)) throw ApiError.badRequest('The cover URL must use HTTP or HTTPS')
+  // A playlist cover this deployment stores is addressed as a same-origin media route; a provider
+  // cover stays an HTTP(S) address. Anything else (javascript:, data:, //host) is refused.
+  if (url && !/^https?:\/\//i.test(url) && !/^\/api\/music\//.test(url)) {
+    throw ApiError.badRequest('The cover URL must use HTTP, HTTPS or the music media route')
+  }
   return url
-}
-
-/** The four image containers a cover may use, identified by their own bytes. */
-function imageType(bytes: Uint8Array): { extension: string; mime: string } | null {
-  if (bytes.length < 12) return null
-  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
-    return { extension: 'jpg', mime: 'image/jpeg' }
-  }
-  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
-    return { extension: 'png', mime: 'image/png' }
-  }
-  if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38) {
-    return { extension: 'gif', mime: 'image/gif' }
-  }
-  const riff = String.fromCharCode(...bytes.slice(0, 4))
-  const webp = String.fromCharCode(...bytes.slice(8, 12))
-  if (riff === 'RIFF' && webp === 'WEBP') return { extension: 'webp', mime: 'image/webp' }
-  return null
 }
 
 function artistsOf(value: unknown): MusicArtist[] {
@@ -170,6 +166,7 @@ function trackInputOf(value: unknown): MusicTrackInput {
     durationMs: integer(raw.durationMs, 0, DURATION_MAX_MS, 0, 'Duration'),
     format: text(raw.format, FORMAT_MAX, 'Format'),
     bitrate,
+    updatedAt: raw.updatedAt === undefined ? 0 : integer(raw.updatedAt, 0, Number.MAX_SAFE_INTEGER, 0, 'Track version'),
   }
 }
 
@@ -251,8 +248,21 @@ musicLibraryRoutes.get('/tracks', async (c) => {
     throw ApiError.badRequest('provider must be upload, webdav, alist or download')
   }
   const store = new MusicStore(c.env.DB, c.get('userId'))
-  if (provider === 'download') return c.json({ items: await store.listDownloadedTracks() })
-  return c.json({ items: await store.listTracksByProvider(provider) })
+  const page = normalizeMusicPage(c.req.query('page'))
+  const limit = normalizeMusicLimit(c.req.query('limit'), MUSIC_LIMITS.trackListMax, MUSIC_LIMITS.trackListMax)
+  const offset = (page - 1) * limit
+  if (provider === 'download') {
+    const [items, total] = await Promise.all([
+      store.listDownloadedTracks(limit, offset),
+      store.countDownloadedTracks(),
+    ])
+    return c.json({ items, total, hasMore: offset + items.length < total, page })
+  }
+  const [items, total] = await Promise.all([
+    store.listTracksByProvider(provider, limit, offset),
+    store.countTracksByProvider(provider),
+  ])
+  return c.json({ items, total, hasMore: offset + items.length < total, page })
 })
 
 /**
@@ -303,34 +313,20 @@ musicLibraryRoutes.post('/tracks/delete', async (c) => {
   if (ids.length === 0) throw ApiError.badRequest('Name at least one track to remove')
 
   const store = new MusicStore(c.env.DB, c.get('userId'))
-  const removed: string[] = []
-  const skipped: Array<{ id: string; reason: 'missing' | 'failed' }> = []
-  for (const id of ids) {
+  const result = await store.deleteTracks(ids)
+  if (result.queuedObjects.length > 0) {
     try {
-      const result = await store.deleteTrack(id)
-      if (!result.deleted) {
-        skipped.push({ id, reason: 'missing' })
-        continue
+      await deleteMusicObjects(c.env, store, result.queuedObjects)
+      for (const key of result.queuedObjects) {
+        await store.dropCleanup(key).catch((error: unknown) => {
+          console.warn('[inkstone] Removed track cleanup could not be marked done:', error)
+        })
       }
-      if (result.queuedObjects.length > 0) {
-        try {
-          await deleteMusicObjects(c.env, store, result.queuedObjects)
-        } catch (error) {
-          console.warn('[inkstone] Removed tracks left objects for the cleanup queue:', error)
-        }
-        for (const key of result.queuedObjects) {
-          await store.dropCleanup(key).catch((error: unknown) => {
-            console.warn('[inkstone] Removed track cleanup could not be marked done:', error)
-          })
-        }
-      }
-      removed.push(id)
     } catch (error) {
-      console.warn('[inkstone] Music track could not be removed:', error)
-      skipped.push({ id, reason: 'failed' })
+      console.warn('[inkstone] Removed tracks left objects for the cleanup queue:', error)
     }
   }
-  return c.json({ removed, skipped })
+  return c.json({ removed: result.removed, skipped: result.skipped })
 })
 
 musicLibraryRoutes.get('/favorites', async (c) => {
@@ -419,7 +415,9 @@ musicLibraryRoutes.patch('/playlists/:id', async (c) => {
     if (!updated) throw ApiError.notFound('That playlist does not exist')
     playlist = updated
     if (previousCoverKey) {
-      await discardMusicObjects(c.env, store, [previousCoverKey])
+      if (await discardMusicObjects(c.env, store, [previousCoverKey])) {
+        await store.unregisterObject(previousCoverKey)
+      }
     }
   }
   if (pinned !== undefined) {
@@ -468,8 +466,7 @@ musicLibraryRoutes.post('/playlists/:id/cover', async (c) => {
     throw ApiError.tooLarge(`Covers must be ${Math.round(MUSIC_LIMITS.coverMaxBytes / (1024 * 1024))} MB or smaller.`)
   }
   const bytes = new Uint8Array(await file.arrayBuffer())
-  const image = imageType(bytes)
-  if (!image) throw new ApiError(415, 'music_upload_invalid', 'Use a JPEG, PNG, GIF or WebP image.')
+  const image = inspectMusicCover(bytes, file.type)
 
   const key = musicCoverKeyFor({ userId: c.get('userId'), trackId: id, extension: image.extension })
   await putMusicObject(c.env, key, bytes, {
@@ -478,13 +475,24 @@ musicLibraryRoutes.post('/playlists/:id/cover', async (c) => {
     trackId: id,
     kind: 'cover',
   })
+  await store.registerObject({
+    r2Key: key,
+    trackId: id,
+    format: 'cover',
+    quality: 'original',
+    size: bytes.byteLength,
+  })
   const previous = await store.getPlaylistCoverKey(id)
   const playlist = await store.updatePlaylist(id, {
     coverKey: key,
     coverUrl: `/api/music/media/cover/playlist/${id}?v=${Date.now()}`,
   })
   if (!playlist) throw ApiError.notFound('That playlist does not exist')
-  if (previous && previous !== key) await discardMusicObjects(c.env, store, [previous])
+  if (previous && previous !== key) {
+    if (await discardMusicObjects(c.env, store, [previous])) {
+      await store.unregisterObject(previous)
+    }
+  }
   return c.json({ playlist })
 })
 
@@ -496,7 +504,9 @@ musicLibraryRoutes.delete('/playlists/:id/cover', async (c) => {
   const previous = await store.getPlaylistCoverKey(id)
   const playlist = await store.updatePlaylist(id, { coverUrl: '', coverKey: '' })
   if (!playlist) throw ApiError.notFound('That playlist does not exist')
-  if (previous) await discardMusicObjects(c.env, store, [previous])
+  if (previous) {
+    if (await discardMusicObjects(c.env, store, [previous])) await store.unregisterObject(previous)
+  }
   return c.json({ playlist })
 })
 
@@ -505,9 +515,11 @@ musicLibraryRoutes.delete('/playlists/:id', async (c) => {
   const store = new MusicStore(c.env.DB, c.get('userId'))
   const coverKey = await store.getPlaylistCoverKey(id)
   if (!(await store.deletePlaylist(id))) throw ApiError.notFound('That playlist does not exist')
-  // The cover lives outside the object ledger, so its row is the last reference: drop the bytes here
-  // rather than leaving an orphan nothing can name again.
-  if (coverKey) await discardMusicObjects(c.env, store, [coverKey])
+  // The cover is a ledger object like audio; its row is the last reference, so drop the bytes and
+  // the ledger row together.
+  if (coverKey) {
+    if (await discardMusicObjects(c.env, store, [coverKey])) await store.unregisterObject(coverKey)
+  }
   return c.json({ ok: true })
 })
 
@@ -538,9 +550,11 @@ musicLibraryRoutes.post('/playlists/:id/items', async (c) => {
     trackIds = (await saveTracks(store, body.tracks.map(trackInputOf))).map((track) => track.id)
   } else {
     if (!Array.isArray(body.trackIds)) throw ApiError.badRequest('tracks must be a list')
+    if (body.trackIds.length > TRACK_BATCH_MAX) {
+      throw ApiError.badRequest(`At most ${TRACK_BATCH_MAX} tracks may be added at once`)
+    }
     trackIds = body.trackIds
       .filter((id): id is string => typeof id === 'string' && id.length > 0)
-      .slice(0, TRACK_BATCH_MAX)
   }
   if (await store.addPlaylistItems(playlistId, trackIds) === null) {
     throw ApiError.notFound('That playlist does not exist')
@@ -558,7 +572,11 @@ musicLibraryRoutes.post('/playlists/:id/items', async (c) => {
 musicLibraryRoutes.put('/playlists/:id/items/order', async (c) => {
   const body = await readJson<{ trackIds?: unknown }>(c, TRACK_BODY_LIMIT)
   if (!Array.isArray(body.trackIds)) throw ApiError.badRequest('trackIds must be a list')
-  const trackIds = body.trackIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
+  if (body.trackIds.length > MUSIC_LIMITS.playlistItems) {
+    throw ApiError.badRequest(`At most ${MUSIC_LIMITS.playlistItems} tracks may be reordered at once`)
+  }
+  const trackIds = body.trackIds
+    .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
   const store = new MusicStore(c.env.DB, c.get('userId'))
   if (await store.reorderPlaylistItems(c.req.param('id'), trackIds) === null) {
     throw ApiError.notFound('That playlist does not exist')
@@ -613,7 +631,7 @@ musicLibraryRoutes.post('/history', async (c) => {
     : text(body.trackId, PROVIDER_ID_MAX, 'Track id', true)
   const input: MusicHistoryInput = {
     trackId,
-    playedAt: body.playedAt === undefined ? undefined : integer(body.playedAt, 0, Number.MAX_SAFE_INTEGER, Date.now(), 'Played time'),
+    playedAt: historyPlayedAt(body.playedAt),
     durationPlayed: integer(body.durationPlayed, 0, DURATION_MAX_MS, 0, 'Played duration'),
     completed: body.completed === true,
     contextType: text(body.contextType, 32, 'Context type'),

@@ -10,6 +10,7 @@ import { musicArtistNames } from '@shared/music/format'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidSlug } from '../lib/id'
+import { createMinuteBudget } from '../lib/rate-limit'
 import { MusicStore, type MusicPlaylistItemEntry } from '../music/store'
 import { readMusicObjectStream, requireMusicStorage } from '../music/storage'
 
@@ -24,6 +25,24 @@ const COVER_MIME_BY_EXTENSION: Record<string, string> = {
 }
 
 export const musicSharePublicRoutes = new Hono<AppBindings>()
+
+const publicShareBudget = createMinuteBudget(120, 'Too many requests for this shared playlist. Try again in a minute.')
+
+async function meterPublicShare(
+  c: Context<AppBindings>,
+  next: () => Promise<void>,
+): Promise<void> {
+  // A public slug has no session to meter; the caller address plus the slug keeps one hot link from
+  // spending the deployment's D1 budget without making the same visitor's other links share a bucket.
+  const ip = c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for')?.split(',', 1)[0]?.trim() ?? 'anonymous'
+  const slug = /\/playlists\/([^/]+)/.exec(c.req.path)?.[1]
+    ?? c.req.path.split('/').filter(Boolean).at(-1)
+    ?? 'index'
+  publicShareBudget(`${ip}:${slug}`)
+  await next()
+}
+
+musicSharePublicRoutes.use('*', meterPublicShare)
 
 musicSharePublicRoutes.get('/playlists/:slug', async (c) => {
   const found = await sharedPlaylist(c)
@@ -71,7 +90,8 @@ musicSharePublicRoutes.get('/playlists/:slug/cover', async (c) => {
   const headers = new Headers({
     'Content-Type': object.contentType ?? COVER_MIME_BY_EXTENSION[extension] ?? 'application/octet-stream',
     'Content-Disposition': 'inline',
-    'Cache-Control': 'public, max-age=3600',
+    // Revoking the slug is the only way this address stops answering; a stored copy would outlive it.
+    'Cache-Control': 'private, no-store',
     'X-Content-Type-Options': 'nosniff',
   })
   if (object.size !== null) headers.set('Content-Length', String(object.size))
@@ -101,6 +121,8 @@ function cacheBust(coverUrl: string): string {
 }
 
 export const musicSharePageRoutes = new Hono<AppBindings>()
+
+musicSharePageRoutes.use('*', meterPublicShare)
 
 musicSharePageRoutes.get('/:slug', async (c) => {
   const slug = c.req.param('slug')

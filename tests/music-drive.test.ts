@@ -292,8 +292,8 @@ describe('imported metadata', () => {
     expect(bucket.objects.has(body.track.coverKey)).toBe(true)
     const lyric = await store.getLyric(`webdav:${TARGET}:Album/song.mp3`)
     expect(lyric).toMatchObject({ source: 'embedded', lrc: '[00:01.00]hello' })
-    // A reference still costs no R2 quota; only the small cover object was written.
-    expect(await store.quotaUsage()).toEqual({ bytes: 0, count: 0 })
+    // A reference still costs no audio bytes, but the cover now has a ledger row of its own.
+    expect(await store.quotaUsage()).toEqual({ bytes: PNG_1PX.byteLength, count: 1 })
 
     // A new artwork extension replaces the old object instead of leaking both.
     const replacement = new FormData()
@@ -401,6 +401,18 @@ describe('library track removal', () => {
     })
     await store.registerObject({ r2Key: key, trackId: owned.id, format: 'mp3', quality: 'original', size: 3 })
 
+    const second = await store.upsertTrack({
+      provider: 'upload',
+      providerId: 'owned-upload-2',
+      kind: 'song',
+      title: 'Owned second',
+      format: 'mp3',
+      source: 'upload',
+    })
+    const secondKey = `music/mp3/${OWNER}/${second.id}-original.mp3`
+    await bucket.put(secondKey, new Uint8Array([4, 5]))
+    await store.registerObject({ r2Key: secondKey, trackId: second.id, format: 'mp3', quality: 'original', size: 2 })
+
     const foreign = await new MusicStore(db, MEMBER).upsertTrack({
       provider: 'webdav',
       providerId: `${TARGET}:theirs.mp3`,
@@ -413,17 +425,20 @@ describe('library track removal', () => {
     const response = await send('/api/music/library/tracks/delete', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ ids: [owned.id, foreign.id, 'missing'] }),
+      body: JSON.stringify({ ids: [owned.id, second.id, foreign.id, 'missing'] }),
     })
     expect(response.status).toBe(200)
     const body = await json<{ removed: string[]; skipped: Array<{ id: string; reason: string }> }>(response)
-    expect(body.removed).toEqual([owned.id])
+    expect(body.removed).toEqual([owned.id, second.id])
     expect(body.skipped).toEqual([
       { id: foreign.id, reason: 'missing' },
       { id: 'missing', reason: 'missing' },
     ])
     expect(await store.getTrack(owned.id)).toBeNull()
+    expect(await store.getTrack(second.id)).toBeNull()
     expect(bucket.objects.has(key)).toBe(false)
+    expect(bucket.objects.has(secondKey)).toBe(false)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM music_cleanup WHERE user_id = ?').get(OWNER)).toEqual({ count: 0 })
     expect(await new MusicStore(db, MEMBER).getTrack(foreign.id)).not.toBeNull()
   })
 })
@@ -452,7 +467,12 @@ describe('online track transfer', () => {
       if (url.hostname === 'dav.example.com') {
         const method = (init.method ?? 'GET').toUpperCase()
         if (method === 'PROPFIND') return new Response('missing', { status: 404 })
-        if (method === 'MKCOL' || method === 'PUT') return new Response(null, { status: 201 })
+        if (method === 'MKCOL' || method === 'PUT') {
+          // The worker counts the bytes it streams; a stub that ignores the body would report an
+          // empty upload even though the real server reads it.
+          await new Response(init.body as BodyInit | null).arrayBuffer()
+          return new Response(null, { status: 201 })
+        }
       }
       return new Response('unexpected', { status: 500 })
     })
@@ -504,22 +524,54 @@ describe('online track transfer', () => {
     })
     expect(body.path).toBe('Moon - Singer.mp3')
     expect(await store.getTrack(body.track.id)).not.toBeNull()
-    expect(stub.mock.calls.some(([input, init]) =>
+    const putCall = stub.mock.calls.find(([input, init]) =>
       String(input).includes('dav.example.com') && (init as RequestInit | undefined)?.method === 'PUT',
-    )).toBe(true)
+    )
+    expect(putCall).toBeTruthy()
+    expect(typeof (putCall?.[1] as RequestInit | undefined)?.body).not.toBe('string')
+    expect(typeof ((putCall?.[1] as RequestInit | undefined)?.body as ReadableStream<Uint8Array>).getReader).toBe('function')
+  })
+
+  it('refuses a declared size over the transfer ceiling before writing anything', async () => {
+    const calls: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: URL | string, init: RequestInit = {}) => {
+      const url = new URL(String(input))
+      calls.push(`${init.method ?? 'GET'} ${url.hostname}${url.pathname}`)
+      if (url.hostname === 'interface.music.163.com' || url.hostname === 'music.163.com') {
+        return Response.json({
+          code: 200,
+          data: [{ url: 'https://m801.music.126.net/full.mp3', type: 'mp3', size: 99, freeTrialInfo: null }],
+        })
+      }
+      if (url.hostname === 'm801.music.126.net') {
+        return new Response(new Uint8Array([0x49, 0x44, 0x33]), {
+          status: 200,
+          headers: {
+            'content-type': 'audio/mpeg',
+            'content-length': String(MUSIC_DRIVE_UPLOAD_MAX_BYTES + 1),
+          },
+        })
+      }
+      return new Response(null, { status: 201 })
+    }))
+    const track = await onlineTrack()
+    const response = await send('/api/music/drive/transfer', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ trackId: track.id, target: 'webdav' }),
+    })
+    expect(response.status).toBe(413)
+    expect(calls.some((entry) => entry.startsWith('PUT dav.example.com'))).toBe(false)
   })
 })
 
 function uploadRequest(path: string, file: File, declaredLength?: number): Request {
-  const form = new FormData()
-  form.append('file', file, file.name)
   const headers = new Headers({ 'x-test-user': OWNER, 'X-Inkstone-Client': '1' })
   if (declaredLength !== undefined) headers.set('content-length', String(declaredLength))
-  return new Request(`http://localhost/api/music/drive/webdav/upload?path=${encodeURIComponent(path)}`, {
-    method: 'POST',
-    headers,
-    body: form,
-  })
+  return new Request(
+    `http://localhost/api/music/drive/webdav/upload?path=${encodeURIComponent(path)}&name=${encodeURIComponent(file.name)}`,
+    { method: 'PUT', headers, body: file },
+  )
 }
 
 describe('webdav upload', () => {
@@ -531,6 +583,7 @@ describe('webdav upload', () => {
       if (init.method === 'PROPFIND') return new Response('missing', { status: 404 })
       if (init.method === 'PUT') {
         putHeaders.push(new Headers(init.headers))
+        await new Response(init.body as BodyInit | null).arrayBuffer()
         return new Response(null, { status: 201 })
       }
       return new Response(null, { status: 405 })
@@ -541,6 +594,23 @@ describe('webdav upload', () => {
     expect(await json(response)).toEqual({ path: 'Album/song.mp3', size: 3 })
     expect(methods.at(-1)).toBe('PUT')
     expect(putHeaders[0]?.get('content-type')).toBe('audio/mpeg')
+    expect(putHeaders[0]?.get('if-none-match')).toBe('*')
+  })
+
+  it('turns a conditional PUT refusal into a conflict without deleting the winner', async () => {
+    const methods: string[] = []
+    vi.stubGlobal('fetch', async (_input: URL | string, init: RequestInit = {}) => {
+      methods.push(String(init.method))
+      if (init.method === 'PROPFIND') return new Response('missing', { status: 404 })
+      if (init.method === 'PUT') {
+        await new Response(init.body as BodyInit | null).arrayBuffer()
+        return new Response(null, { status: 412 })
+      }
+      return new Response(null, { status: 204 })
+    })
+    const response = await app.fetch(uploadRequest('', new File(['x'], 'song.mp3')), env)
+    expect(response.status).toBe(409)
+    expect(methods).not.toContain('DELETE')
   })
 
   it('refuses a file that already exists in that folder', async () => {
@@ -564,9 +634,9 @@ describe('webdav upload', () => {
     expect(response.status).toBe(415)
   })
 
-  it('refuses a declared body over the upload envelope', async () => {
-    // The envelope adds one megabyte for the multipart frame; a declared body past it is refused
-    // before the form is parsed, without needing to allocate the file itself.
+  it('refuses a declared body over the upload ceiling', async () => {
+    // A declared body past the ceiling is refused before any byte is read, without needing to
+    // allocate the file itself.
     const response = await app.fetch(
       uploadRequest('', new File(['x'], 'song.mp3'), MUSIC_DRIVE_UPLOAD_MAX_BYTES + 2 * 1024 * 1024),
       env,
@@ -577,6 +647,7 @@ describe('webdav upload', () => {
   it('scrubs a client filename down to its base name', async () => {
     vi.stubGlobal('fetch', async (_input: URL | string, init: RequestInit = {}) => {
       if (init.method === 'PROPFIND') return new Response('missing', { status: 404 })
+      await new Response(init.body as BodyInit | null).arrayBuffer()
       return new Response(null, { status: 201 })
     })
     const response = await app.fetch(uploadRequest('', new File(['x'], '../../evil.mp3')), env)
@@ -824,6 +895,7 @@ describe('alist mounts', () => {
   it('uploads into the current folder and deletes a remote file', async () => {
     const mount = await createMount()
     const calls: Array<{ url: string; method: string; path: string | null; body: unknown }> = []
+    const headers: Headers[] = []
     vi.stubGlobal('fetch', async (input: URL | string, init: RequestInit = {}) => {
       const url = String(input)
       calls.push({
@@ -833,17 +905,23 @@ describe('alist mounts', () => {
         body: typeof init.body === 'string' ? JSON.parse(init.body) : null,
       })
       if (url.endsWith('/api/fs/get')) return Response.json({ code: 500, message: 'not found' }, { status: 500 })
+      if (url.endsWith('/api/fs/put')) {
+        await new Response(init.body as BodyInit | null).arrayBuffer()
+        headers.push(new Headers(init.headers))
+      }
       return Response.json({ code: 200 })
     })
 
-    const form = new FormData()
-    form.append('file', new File([new Uint8Array(42)], 'upload.mp3', { type: 'audio/mpeg' }))
-    const uploaded = await send(`/api/music/drive/alist/${mount.id}/upload?path=Album`, { method: 'POST', body: form })
+    const uploaded = await send(
+      `/api/music/drive/alist/${mount.id}/upload?path=Album&name=upload.mp3`,
+      { method: 'PUT', body: new Uint8Array(42) },
+    )
     expect(uploaded.status).toBe(201)
     expect(await json<{ path: string; size: number }>(uploaded)).toEqual({ path: 'Album/upload.mp3', size: 42 })
     const put = calls.find((call) => call.url.endsWith('/api/fs/put'))
     expect(put?.method).toBe('PUT')
     expect(put?.path).toBe(encodeURIComponent('/music/Album/upload.mp3'))
+    expect(headers[0]?.get('if-none-match')).toBe('*')
 
     const removed = await send(`/api/music/drive/alist/${mount.id}/delete`, {
       method: 'POST',
@@ -854,6 +932,27 @@ describe('alist mounts', () => {
     expect(await json(removed)).toEqual({ removed: ['Album/upload.mp3'], skipped: [] })
     const remove = calls.find((call) => call.url.endsWith('/api/fs/remove'))
     expect(remove?.body).toEqual({ dir: '/music/Album', names: ['upload.mp3'] })
+  })
+
+  it('does not remove the Alist file that won a conditional upload race', async () => {
+    const mount = await createMount()
+    const methods: string[] = []
+    vi.stubGlobal('fetch', async (input: URL | string, init: RequestInit = {}) => {
+      const url = String(input)
+      methods.push(`${init.method} ${new URL(url).pathname}`)
+      if (url.endsWith('/api/fs/get')) return Response.json({ code: 500, message: 'not found' }, { status: 500 })
+      if (url.endsWith('/api/fs/put')) {
+        await new Response(init.body as BodyInit | null).arrayBuffer()
+        return new Response(null, { status: 412 })
+      }
+      return Response.json({ code: 200 })
+    })
+    const response = await send(
+      `/api/music/drive/alist/${mount.id}/upload?path=Album&name=upload.mp3`,
+      { method: 'PUT', body: new Uint8Array(42) },
+    )
+    expect(response.status).toBe(409)
+    expect(methods.some((entry) => entry.includes('/api/fs/remove'))).toBe(false)
   })
 
   it('refuses unsafe addresses and lets the owner delete a mount', async () => {
@@ -876,23 +975,54 @@ describe('alist mounts', () => {
 describe('r2 drive', () => {
   const mp3 = new Uint8Array([0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
 
-  async function uploadMp3(title = 'Direct'): Promise<{
-    track: { id: string; provider: string; r2Key: string | null; size: number | null }
-    entry: { key: string; title: string; size: number }
-  }> {
-    const form = new FormData()
-    form.append('file', new File([mp3], `${title.toLowerCase()}.mp3`, { type: 'audio/mpeg' }))
-    form.append('metadata', JSON.stringify({
-      title,
-      artists: ['Singer'],
-      album: 'Album',
-      durationMs: 1_200,
-      bitrate: 128_000,
-      lyrics: '',
-    }))
-    const response = await send('/api/music/drive/r2/upload', { method: 'POST', body: form })
+  async function startMp3(
+    title = 'Direct',
+    filename = `${title.toLowerCase()}.mp3`,
+    format = 'mp3',
+  ): Promise<string> {
+    const response = await send('/api/music/uploads', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        filename,
+        mime: 'audio/mpeg',
+        size: mp3.byteLength,
+        format,
+        metadata: {
+          title,
+          artists: ['Singer'],
+          album: 'Album',
+          durationMs: 1_200,
+          bitrate: 128_000,
+          lyrics: '',
+        },
+      }),
+    })
     expect(response.status).toBe(201)
-    return await json(response)
+    return (await json<{ uploadId: string }>(response)).uploadId
+  }
+
+  async function uploadMp3(title = 'Direct'): Promise<{
+    track: { id: string; provider: string; r2Key: string | null; size: number | null; title: string; artists: Array<{ name: string }> }
+    entry: { key: string; title: string; size: number; artists: string[] }
+  }> {
+    const uploadId = await startMp3(title)
+    const part = await send(`/api/music/uploads/${uploadId}/parts/1`, { method: 'PUT', body: mp3 })
+    expect(part.status).toBe(200)
+    const complete = await send(`/api/music/uploads/${uploadId}/complete`, { method: 'POST' })
+    expect(complete.status).toBe(200)
+    const body = await json<{
+      track: { id: string; provider: string; r2Key: string | null; size: number | null; title: string; artists: Array<{ name: string }> }
+    }>(complete)
+    return {
+      track: body.track,
+      entry: {
+        key: body.track.r2Key ?? '',
+        title: body.track.title,
+        size: body.track.size ?? 0,
+        artists: body.track.artists.map((artist) => artist.name),
+      },
+    }
   }
 
   it('uploads one file, lists it and deletes its bytes with the track', async () => {
@@ -923,13 +1053,71 @@ describe('r2 drive', () => {
     expect(sqlite.prepare('SELECT COUNT(*) AS count FROM music_cleanup WHERE user_id = ?').get(OWNER)).toEqual({ count: 0 })
   })
 
+  it('pages the upload shelf, with the total and no repeated rows', async () => {
+    await uploadMp3('First')
+    await uploadMp3('Second')
+    const page = await json<{ items: Array<{ title: string }>; total: number; hasMore: boolean; page: number }>(
+      await send('/api/music/library/tracks?provider=upload&page=2&limit=1'),
+    )
+    expect(page).toMatchObject({ total: 2, hasMore: false, page: 2 })
+    expect(page.items.map((track) => track.title)).toHaveLength(1)
+    const first = await json<{ items: Array<{ title: string }> }>(
+      await send('/api/music/library/tracks?provider=upload&page=1&limit=1'),
+    )
+    expect(first.items[0]?.title).not.toBe(page.items[0]?.title)
+  })
+
   it('refuses a container that disagrees with the extension', async () => {
-    const form = new FormData()
-    form.append('file', new File([mp3], 'not-flac.flac', { type: 'audio/flac' }))
-    form.append('metadata', JSON.stringify({ title: 'Wrong' }))
-    const response = await send('/api/music/drive/r2/upload', { method: 'POST', body: form })
+    const uploadId = await startMp3('Wrong', 'not-flac.flac', 'flac')
+    const part = await send(`/api/music/uploads/${uploadId}/parts/1`, { method: 'PUT', body: mp3 })
+    expect(part.status).toBe(200)
+    const response = await send(`/api/music/uploads/${uploadId}/complete`, { method: 'POST' })
     expect(response.status).toBe(415)
     expect(bucket.objects.size).toBe(0)
+  })
+
+  it('admits exactly the active-upload ceiling under four simultaneous starts', async () => {
+    const responses = await Promise.all(Array.from({ length: 4 }, (_, index) => send('/api/music/uploads', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        filename: `parallel-${index}.mp3`,
+        mime: 'audio/mpeg',
+        size: mp3.byteLength,
+        format: 'mp3',
+        metadata: { title: `Parallel ${index}` },
+      }),
+    })))
+    expect(responses.map((response) => response.status).sort()).toEqual([201, 201, 201, 409])
+    const listed = await json<{ total: number }>(await send('/api/music/uploads'))
+    expect(listed.total).toBe(3)
+  })
+
+  it('counts active uploads atomically and frees the slot on abort', async () => {
+    const active: string[] = []
+    for (let index = 0; index < 3; index += 1) active.push(await startMp3(`Active ${index}`))
+    const refused = await send('/api/music/uploads', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        filename: 'fourth.mp3',
+        mime: 'audio/mpeg',
+        size: mp3.byteLength,
+        format: 'mp3',
+        metadata: { title: 'Fourth' },
+      }),
+    })
+    expect(refused.status).toBe(409)
+    const listed = await json<{ items: unknown[]; total: number }>(await send('/api/music/uploads'))
+    expect(listed.total).toBe(3)
+    const secondPage = await json<{ items: unknown[]; total: number; hasMore: boolean }>(
+      await send('/api/music/uploads?page=2&limit=2'),
+    )
+    expect(secondPage).toMatchObject({ total: 3, hasMore: false })
+    expect(secondPage.items).toHaveLength(1)
+    expect((await send(`/api/music/uploads/${active[0]}`, { method: 'DELETE' })).status).toBe(200)
+    const fifth = await startMp3('Fifth')
+    expect(fifth).toBeTruthy()
   })
 
   it('deletes a download cache without deleting the track it came from', async () => {
@@ -975,5 +1163,24 @@ describe('r2 drive', () => {
     )
     expect(foreignDelete).toEqual({ removed: [], skipped: [{ path: uploaded.entry.key, reason: 'missing' }] })
     expect(bucket.objects.has(uploaded.entry.key)).toBe(true)
+  })
+
+  it('accepts an upload init whose embedded lyrics exceed the old 8 KB body limit', async () => {
+    const lyrics = `[00:01.00]${'\u8bcd'.repeat(19_990)}`
+    const response = await send('/api/music/uploads', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        filename: 'long-tags.mp3',
+        mime: 'audio/mpeg',
+        size: 1_024,
+        format: 'mp3',
+        metadata: { title: 'Long tags', artists: ['Singer'], lyrics },
+      }),
+    })
+    expect(response.status).toBe(201)
+    const body = await json<{ uploadId: string; partSize: number }>(response)
+    expect(body.uploadId).toBeTruthy()
+    expect(body.partSize).toBeGreaterThan(0)
   })
 })

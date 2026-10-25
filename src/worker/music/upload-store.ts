@@ -54,7 +54,7 @@ import { MusicStore } from './store'
 
 const MAX_UPLOAD_PARTS = 10_000
 const MAX_STORED_ERROR_CHARS = 300
-const UPLOAD_LIST_LIMIT = 100
+const UPLOAD_LIST_LIMIT = MUSIC_LIMITS.taskListMax
 
 const UPLOAD_COLUMNS = `user_id, id, filename, mime, size, format, status, r2_key, track_id,
   cover_key, metadata_json, upload_id, parts_json, error, created_at, updated_at`
@@ -151,6 +151,21 @@ export class MusicUploadStore {
     return results.map(toUpload)
   }
 
+  async listPage(page = 1, limit: number = UPLOAD_LIST_LIMIT): Promise<{ items: MusicUpload[]; total: number; hasMore: boolean }> {
+    const capped = Math.max(1, Math.min(UPLOAD_LIST_LIMIT, Math.trunc(limit)))
+    const offset = (Math.max(1, Math.trunc(page)) - 1) * capped
+    const totalRow = await this.db.prepare(
+      `SELECT COUNT(*) AS count FROM music_upload WHERE user_id = ?1`,
+    ).bind(this.userId).first<{ count: number }>()
+    const total = totalRow?.count ?? 0
+    const { results } = await this.db.prepare(
+      `SELECT ${UPLOAD_COLUMNS} FROM music_upload
+        WHERE user_id = ?1 ORDER BY created_at DESC, id DESC LIMIT ?2 OFFSET ?3`,
+    ).bind(this.userId, capped, offset).all<UploadRow>()
+    const items = results.map(toUpload)
+    return { items, total, hasMore: offset + items.length < total }
+  }
+
   async insert(input: {
     id: string
     filename: string
@@ -160,13 +175,16 @@ export class MusicUploadStore {
     r2Key: string
     r2UploadId: string
     metadata: MusicUploadMetadata
-  }): Promise<void> {
+  }): Promise<boolean> {
     const now = Date.now()
-    await this.db.prepare(
+    // Reservation and the active-upload ceiling are one statement: two concurrent starts cannot both
+    // observe three free slots and insert a fourth row.
+    const result = await this.db.prepare(
       `INSERT INTO music_upload
          (user_id, id, filename, mime, size, format, status, r2_key, upload_id,
           metadata_json, parts_json, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'uploading', ?7, ?8, ?9, '[]', ?10, ?10)`,
+       SELECT ?1, ?2, ?3, ?4, ?5, ?6, 'uploading', ?7, ?8, ?9, '[]', ?10, ?10
+        WHERE (SELECT COUNT(*) FROM music_upload WHERE user_id = ?1 AND status = 'uploading') < ?11`,
     ).bind(
       this.userId,
       input.id,
@@ -178,7 +196,18 @@ export class MusicUploadStore {
       input.r2UploadId,
       JSON.stringify(input.metadata),
       now,
+      MUSIC_LIMITS.maxActiveUploads,
     ).run()
+    return (result.meta.changes ?? 0) > 0
+  }
+
+  /** Attach the R2 multipart id to a reservation; false means the row stopped being a reservation. */
+  async setUploadId(id: string, uploadId: string): Promise<boolean> {
+    const result = await this.db.prepare(
+      `UPDATE music_upload SET upload_id = ?3, updated_at = ?4
+        WHERE user_id = ?1 AND id = ?2 AND status = 'uploading' AND upload_id = ''`,
+    ).bind(this.userId, id, uploadId, Date.now()).run()
+    return (result.meta.changes ?? 0) > 0
   }
 
   /** Replace the whole part list; false means the task stopped accepting parts meanwhile. */
@@ -212,15 +241,28 @@ export class MusicUploadStore {
     await this.db.prepare(
       `UPDATE music_upload SET status = 'completed', track_id = ?3, format = ?4, size = ?5,
          error = '', updated_at = ?6
-        WHERE user_id = ?1 AND id = ?2`,
+        WHERE user_id = ?1 AND id = ?2 AND status = 'uploading' AND upload_id = ''`,
     ).bind(this.userId, id, input.trackId, input.format, input.size, Date.now()).run()
   }
 
   async markFailed(id: string, error: string): Promise<void> {
     await this.db.prepare(
       `UPDATE music_upload SET status = 'failed', error = ?3, updated_at = ?4
-        WHERE user_id = ?1 AND id = ?2`,
+        WHERE user_id = ?1 AND id = ?2 AND status = 'uploading'`,
     ).bind(this.userId, id, truncateText(error, MAX_STORED_ERROR_CHARS), Date.now()).run()
+  }
+
+  /**
+   * Take the one completion slot for an upload. Clearing `upload_id` is the claim: a second request
+   * that read the same snapshot can no longer find a multipart session to complete, and a request
+   * that arrives after the claim sees the empty id. This is what keeps two retries from racing.
+   */
+  async claimCompletion(id: string): Promise<boolean> {
+    const result = await this.db.prepare(
+      `UPDATE music_upload SET upload_id = '', updated_at = ?3
+        WHERE user_id = ?1 AND id = ?2 AND status = 'uploading' AND upload_id <> ''`,
+    ).bind(this.userId, id, Date.now()).run()
+    return (result.meta.changes ?? 0) > 0
   }
 
   async markAborted(id: string): Promise<void> {
@@ -261,10 +303,28 @@ export async function startMusicUpload(
   const uploads = new MusicUploadStore(env.DB, userId)
   const metadata = sanitizeUploadMetadata(input.metadata, titleFromFilename(filename))
 
-  await assertMusicQuota(env, musicStore, size)
+  await assertMusicQuota(musicStore, size)
 
   const id = newId()
   const r2Key = musicObjectKeyFor({ format, userId, trackId: id, quality: 'original' })
+  // Reserve the slot before R2 is touched; the conditional insert is the concurrency guard.
+  if (!(await uploads.insert({
+    id,
+    filename,
+    mime: MUSIC_MIME_BY_FORMAT[format],
+    size,
+    format,
+    r2Key,
+    r2UploadId: '',
+    metadata,
+  }))) {
+    throw new ApiError(
+      409,
+      'conflict',
+      `Finish or cancel an active upload first; at most ${MUSIC_LIMITS.maxActiveUploads} may run at once`,
+    )
+  }
+
   let multipart: R2MultipartUpload
   try {
     multipart = await bucket.createMultipartUpload(r2Key, {
@@ -276,20 +336,18 @@ export async function startMusicUpload(
     })
   } catch (error) {
     console.warn('[inkstone] Music multipart upload could not be created:', error)
+    await uploads.markAborted(id).catch((releaseError: unknown) => {
+      console.warn('[inkstone] Reserved music upload could not be released:', releaseError)
+    })
     throw new ApiError(502, 'music_storage_unavailable', 'The upload could not be started')
   }
 
   try {
-    await uploads.insert({
-      id,
-      filename,
-      mime: MUSIC_MIME_BY_FORMAT[format],
-      size,
-      format,
-      r2Key,
-      r2UploadId: multipart.uploadId,
-      metadata,
-    })
+    if (!(await uploads.setUploadId(id, multipart.uploadId))) {
+      await abortMultipart(env, r2Key, multipart.uploadId)
+      await uploads.markAborted(id)
+      throw uploadClosed()
+    }
   } catch (error) {
     await abortMultipart(env, r2Key, multipart.uploadId)
     throw error
@@ -369,13 +427,25 @@ export async function storeMusicCover(
     trackId: id,
     kind: 'cover',
   })
+  // Covers occupy R2 bytes like audio; without a ledger row the quota would silently exclude them.
+  await musicStore.registerObject({
+    r2Key: key,
+    trackId: id,
+    format: 'cover',
+    quality: 'original',
+    size: bytes.byteLength,
+  })
 
   if (!(await uploads.setCoverKey(id, key))) {
-    await discardMusicObjects(env, musicStore, [key])
+    if (await discardMusicObjects(env, musicStore, [key])) await musicStore.unregisterObject(key)
     throw uploadClosed()
   }
   const previous = snapshot.upload.coverKey
-  if (previous && previous !== key) await discardMusicObjects(env, musicStore, [previous])
+  if (previous && previous !== key) {
+    if (await discardMusicObjects(env, musicStore, [previous])) {
+      await musicStore.unregisterObject(previous)
+    }
+  }
   return { key }
 }
 
@@ -414,6 +484,14 @@ export async function completeMusicUpload(
   const parts = [...snapshot.parts].sort((left, right) => left.partNumber - right.partNumber)
   if (parts.length !== expectedParts || parts.some((part, index) => part.partNumber !== index + 1)) {
     throw invalidUpload('The upload is missing one or more parts')
+  }
+  if (!(await uploads.claimCompletion(id))) {
+    const latest = await uploads.get(id)
+    if (latest?.upload.status === 'completed') {
+      const track = latest.upload.trackId ? await musicStore.getTrack(latest.upload.trackId) : null
+      if (track && latest.upload.r2Key) return { track, upload: latest.upload }
+    }
+    throw new ApiError(409, 'music_upload_invalid', 'The upload is already being completed. Try again shortly.')
   }
 
   return withMusicQuotaLease(env, musicStore, snapshot.upload.size, async () => {
@@ -499,7 +577,9 @@ export async function completeMusicUpload(
       }
       if (snapshot.upload.coverKey) {
         await uploads.clearCover(id)
-        await discardMusicObjects(env, musicStore, [snapshot.upload.coverKey])
+        if (await discardMusicObjects(env, musicStore, [snapshot.upload.coverKey])) {
+          await musicStore.unregisterObject(snapshot.upload.coverKey)
+        }
       }
       await uploads.markFailed(id, failureMessage(error))
       if (error instanceof ApiError) throw error
@@ -521,7 +601,11 @@ export async function abortMusicUpload(env: Env, userId: string, id: string): Pr
   if (snapshot.upload.r2Key && snapshot.r2UploadId) {
     await abortMultipart(env, snapshot.upload.r2Key, snapshot.r2UploadId)
   }
-  if (snapshot.upload.coverKey) await discardMusicObjects(env, musicStore, [snapshot.upload.coverKey])
+  if (snapshot.upload.coverKey) {
+    if (await discardMusicObjects(env, musicStore, [snapshot.upload.coverKey])) {
+      await musicStore.unregisterObject(snapshot.upload.coverKey)
+    }
+  }
   await uploads.markAborted(id)
 }
 

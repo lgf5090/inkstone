@@ -13,6 +13,10 @@ import { makeD1 } from './doubles/d1-sqlite'
 // Valid generated ids: cover keys and the credential vault reject arbitrary account labels.
 const ALICE = 'a'.repeat(26)
 const BOB = 'b'.repeat(26)
+const PNG_1PX = new Uint8Array(Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lK3CnwAAAABJRU5ErkJggg==',
+  'base64',
+))
 const mocks = vi.hoisted(() => ({ userId: 'user-alice' }))
 
 vi.mock('../src/worker/middleware/auth', () => ({
@@ -66,8 +70,8 @@ async function json<T>(response: Response): Promise<T> {
   return await response.json() as T
 }
 
-async function publicSend(path: string): Promise<Response> {
-  return publicApp.request(`/api/public/music${path}`, {}, env())
+async function publicSend(path: string, headers: Record<string, string> = {}): Promise<Response> {
+  return publicApp.request(`/api/public/music${path}`, { headers }, env())
 }
 
 beforeEach(() => {
@@ -221,11 +225,96 @@ describe('music routes', () => {
     expect((await publicSend(`/playlists/${slug}`)).status).toBe(404)
   })
 
+  it('meters public reads per address and playlist, and does not cache a revocable cover', async () => {
+    const playlist = await json<{ id: string }>(await send('POST', '/library/playlists', { name: 'Metered' }))
+    const form = new FormData()
+    form.append('cover', new File([PNG_1PX], 'cover.png', { type: 'image/png' }))
+    expect((await app.request(`/api/music/library/playlists/${playlist.id}/cover`, {
+      method: 'POST',
+      body: form,
+    }, env())).status).toBe(200)
+    const shared = await json<{ playlist: { shareSlug: string } }>(
+      await send('POST', `/library/playlists/${playlist.id}/share`),
+    )
+    const slug = shared.playlist.shareSlug
+    const reader = { 'cf-connecting-ip': '203.0.113.9' }
+
+    const cover = await publicSend(`/playlists/${slug}/cover`, reader)
+    expect(cover.status).toBe(200)
+    expect(cover.headers.get('cache-control')).toBe('private, no-store')
+
+    // The cover request above used one of the 120 requests allowed in a minute.
+    for (let request = 0; request < 119; request += 1) {
+      expect((await publicSend(`/playlists/${slug}`, reader)).status).toBe(200)
+    }
+    const blocked = await publicSend(`/playlists/${slug}`, reader)
+    expect(blocked.status).toBe(429)
+    expect((await publicSend(`/playlists/${slug}`, { 'cf-connecting-ip': '203.0.113.10' })).status).toBe(200)
+  })
+
+  it('proxies a public provider cover, revalidates it and refuses a private address', async () => {
+    let calls = 0
+    vi.stubGlobal('fetch', async (input: URL | string) => {
+      calls += 1
+      if (String(input).includes('markup.svg')) {
+        return new Response('<svg xmlns="http://www.w3.org/2000/svg"/>', {
+          status: 200,
+          headers: { 'content-type': 'image/svg+xml' },
+        })
+      }
+      return new Response(new Uint8Array([1, 2, 3]), {
+        status: 200,
+        headers: { 'content-type': 'image/webp', 'etag': '"cover-1"' },
+      })
+    })
+    const address = `/api/music/media/provider-cover?url=${encodeURIComponent('https://cdn.example.test/a.webp')}`
+    const first = await app.request(address, {}, env())
+    expect(first.status).toBe(200)
+    expect(first.headers.get('content-type')).toBe('image/webp')
+    expect(first.headers.get('etag')).toBe('"cover-1"')
+    expect([...(new Uint8Array(await first.arrayBuffer()))]).toEqual([1, 2, 3])
+    const revalidated = await app.request(address, { headers: { 'if-none-match': '"cover-1"' } }, env())
+    expect(revalidated.status).toBe(304)
+
+    const markup = await app.request(
+      `/api/music/media/provider-cover?url=${encodeURIComponent('https://cdn.example.test/markup.svg')}`,
+      {},
+      env(),
+    )
+    expect(markup.status).toBe(502)
+
+    const before = calls
+    const denied = await app.request(
+      `/api/music/media/provider-cover?url=${encodeURIComponent('http://127.0.0.1/cover.png')}`,
+      {},
+      env(),
+    )
+    expect(denied.status).toBe(502)
+    expect(calls).toBe(before)
+  })
+
+  it('serves a saved track provider cover through the same capped proxy', async () => {
+    vi.stubGlobal('fetch', async () => new Response(new Uint8Array([7, 8]), {
+      status: 200,
+      headers: { 'content-type': 'image/webp', 'etag': '"track-cover"' },
+    }))
+    const saved = await json<{ tracks: Array<{ id: string }> }>(await send('POST', '/library/tracks', {
+      tracks: [{ ...track, coverUrl: 'https://cdn.example.test/track.webp' }],
+    }))
+    const address = `/api/music/media/cover/${saved.tracks[0]!.id}`
+    const first = await app.request(address, {}, env())
+    expect(first.status).toBe(200)
+    expect(first.headers.get('content-type')).toBe('image/webp')
+    expect(first.headers.get('cache-control')).toBe('private, max-age=3600')
+    const second = await app.request(address, { headers: { 'if-none-match': '"track-cover"' } }, env())
+    expect(second.status).toBe(304)
+  })
+
   it('stores an uploaded cover and serves it through the playlist media route', async () => {
     const playlist = await json<{ id: string }>(await send('POST', '/library/playlists', { name: 'Covered' }))
     const form = new FormData()
     form.append('cover', new File([
-      new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]),
+      PNG_1PX,
     ], 'cover.png', { type: 'image/png' }))
     const upload = await app.request(`/api/music/library/playlists/${playlist.id}/cover`, {
       method: 'POST',
@@ -240,6 +329,13 @@ describe('music routes', () => {
     const served = await app.request(`/api/music/media/cover/playlist/${playlist.id}`, {}, env())
     expect(served.status).toBe(200)
     expect(served.headers.get('content-type')).toBe('image/png')
+    expect(served.headers.get('cache-control')).toBe('private, max-age=0, must-revalidate')
+    const etag = served.headers.get('etag')
+    expect(etag).toBeTruthy()
+    const revalidated = await app.request(`/api/music/media/cover/playlist/${playlist.id}`, {
+      headers: { 'if-none-match': etag! },
+    }, env())
+    expect(revalidated.status).toBe(304)
 
     const removed = await app.request(`/api/music/library/playlists/${playlist.id}/cover`, {
       method: 'DELETE',
@@ -253,7 +349,7 @@ describe('music routes', () => {
     const playlist = await json<{ id: string }>(await send('POST', '/library/playlists', { name: 'Doomed' }))
     const form = new FormData()
     form.append('cover', new File([
-      new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]),
+      PNG_1PX,
     ], 'cover.png', { type: 'image/png' }))
     expect((await app.request(`/api/music/library/playlists/${playlist.id}/cover`, { method: 'POST', body: form }, env())).status).toBe(200)
     const key = `music/covers/${ALICE}/${playlist.id}.png`
@@ -261,5 +357,38 @@ describe('music routes', () => {
 
     expect((await send('DELETE', `/library/playlists/${playlist.id}`)).status).toBe(200)
     expect(bucket.objects.has(key)).toBe(false)
+  })
+
+  it('refuses a cover whose bytes have no readable dimensions', async () => {
+    const playlist = await json<{ id: string }>(await send('POST', '/library/playlists', { name: 'Bad cover' }))
+    const form = new FormData()
+    form.append('cover', new File([
+      new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]),
+    ], 'cover.png', { type: 'image/png' }))
+    const response = await app.request(`/api/music/library/playlists/${playlist.id}/cover`, {
+      method: 'POST',
+      body: form,
+    }, env())
+    expect(response.status).toBe(415)
+    expect([...bucket.objects.keys()].some((key) => key.includes(playlist.id))).toBe(false)
+  })
+
+  it('refuses a playedAt outside the Date range instead of poisoning the summary', async () => {
+    const saved = await json<{ tracks: Array<{ id: string }> }>(
+      await send('POST', '/library/tracks', { tracks: [track] }),
+    )
+    const rejected = await send('POST', '/library/history', {
+      trackId: saved.tracks[0]!.id,
+      playedAt: Number.MAX_SAFE_INTEGER,
+    })
+    expect(rejected.status).toBe(400)
+    expect((await send('GET', '/library/history/summary')).status).toBe(200)
+  })
+
+  it('caps a reorder request before building D1 statements', async () => {
+    const playlist = await json<{ id: string }>(await send('POST', '/library/playlists', { name: 'Huge' }))
+    const trackIds = Array.from({ length: 5_001 }, (_, index) => `track-${index}`)
+    const response = await send('PUT', `/library/playlists/${playlist.id}/items/order`, { trackIds })
+    expect(response.status).toBe(400)
   })
 })
