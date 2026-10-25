@@ -5,8 +5,8 @@
  * restore and the library's first load. The screen itself is chosen by `page.kind`; pages below own
  * their own loading, empty, error and ready answers.
  */
-import { useEffect, useMemo, useRef, type ComponentType, type ReactElement } from 'react'
-import { CalendarDays, Cloud, Compass, Disc3, HardDrive, Library, ListMusic, ListOrdered, Radio, Search, Settings, Sparkles, UserRound, Video } from 'lucide-react'
+import { useEffect, useMemo, type ComponentType, type ReactElement } from 'react'
+import { CalendarDays, Cloud, Compass, Disc3, Download, HardDrive, Library, ListMusic, ListOrdered, Radio, Search, Settings, Sparkles, UserRound, Video } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import { cn } from '../../lib/cn'
 import { navigateToAddress, replaceAddress, usePathname, useSearch } from '../../lib/app-history'
@@ -40,7 +40,8 @@ import { NowPlaying } from './components/NowPlaying'
 import { PlayBar } from './components/PlayBar'
 import { QueueDrawer } from './components/QueueDrawer'
 import { useMusicLibrary } from './store/library'
-import { selectCurrentTrack, useMusicPlayer } from './store/player'
+import { useMusicPlayer } from './store/player'
+import { useMusicSettings } from './store/settings'
 import { useMusicShortcuts } from './shortcuts'
 import { useMusicAssistantContext } from './assistant-surface'
 import { useMusicToolEffects } from './use-tool-effects'
@@ -67,6 +68,7 @@ const NAV_ITEMS: readonly NavItem[] = [
   { path: '/music/favorites', labelKey: 'music.page.favorites', icon: Library },
   { path: '/music/cloud', labelKey: 'music.nav.drive', icon: Cloud },
   { path: '/music/local', labelKey: 'music.page.local', icon: HardDrive },
+  { path: '/music/downloads', labelKey: 'music.page.downloads', icon: Download },
   { path: '/music/history', labelKey: 'music.page.history', icon: CalendarDays },
   { path: '/music/playlists', labelKey: 'music.page.playlists', icon: ListMusic },
   { path: '/music/albums', labelKey: 'music.page.albums', icon: Disc3 },
@@ -152,10 +154,10 @@ function MusicPageContent({ page }: { page: MusicPage }): ReactElement {
       return <ToplistPage key={page.id} id={page.id} />
     case 'mv':
     case 'mvDetail':
-      return <MvPage />
+      return <MvPage page={page} />
     case 'podcast':
     case 'podcastDetail':
-      return <PodcastPage />
+      return <PodcastPage page={page} />
     case 'favorites':
       return <FavoritesPage />
     case 'history':
@@ -175,9 +177,9 @@ function MusicPageContent({ page }: { page: MusicPage }): ReactElement {
     case 'toplists':
       return <ToplistsPage />
     case 'user':
-      return <UserPage />
+      return <UserPage page={page} />
     case 'me':
-      return <UserPage />
+      return <UserPage page={{ kind: 'me' }} />
     case 'login':
       return <LoginPage />
     case 'settings':
@@ -195,28 +197,17 @@ export function MusicApp(): ReactElement {
   const assistantDockOpen = useUi((state) => state.assistantDockOpen)
   useMusicShortcuts()
   useMusicToolEffects()
-  const currentTrack = useMusicPlayer(selectCurrentTrack)
-  const playbackStatus = useMusicPlayer((state) => state.status)
-  const recordedTrackId = useRef<string | null>(null)
-
-  // A play is a fact once the engine says it is sounding, not when a page asks for it. This covers
-  // automatic next tracks and every page that starts audio without naming a history context; the
-  // library's thirty-second window keeps a page's own context from becoming a second row.
-  useEffect(() => {
-    if (!currentTrack) {
-      recordedTrackId.current = null
-      return
-    }
-    if (playbackStatus !== 'playing' || recordedTrackId.current === currentTrack.id) return
-    recordedTrackId.current = currentTrack.id
-    void useMusicLibrary.getState().recordHistory({ track: currentTrack, contextType: 'player' })
-  }, [currentTrack, playbackStatus])
 
   // A restored queue is a promise the browser will not let us keep without a gesture: it comes back
   // paused, and the bar says so. Restore is idempotent, which is what makes the StrictMode second
   // call harmless.
   useEffect(() => {
     useMusicPlayer.getState().restore()
+    // Settings feed playback, download and single-track behaviour from the first press, not only
+    // after the settings page has been opened.
+    if (useMusicSettings.getState().serverStatus === 'idle') {
+      void useMusicSettings.getState().loadServer()
+    }
   }, [])
 
   // The address is the source of truth; the store mirrors it so panels can read one selector.
@@ -237,11 +228,12 @@ export function MusicApp(): ReactElement {
     if (library.status !== 'idle') return
     void library.load().then(() => {
       const next = useMusicLibrary.getState()
-      if (next.status !== 'error') return
+      if (!next.error) void next.loadAllFavorites()
+      if (!next.error) return
       useUi.getState().toast({
-        title: musicText(next.error ?? 'music.library.error.load'),
+        title: musicText(next.error),
         description: next.errorDetail ?? undefined,
-        tone: 'danger',
+        tone: next.status === 'error' ? 'danger' : 'warning',
       })
     })
   }, [])

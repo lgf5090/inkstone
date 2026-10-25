@@ -1,6 +1,7 @@
 /** The tracks this deployment owns: uploads first, then remote WebDAV references, as real library rows. */
 import { useEffect, useId, useMemo, useState, type ReactElement } from 'react'
 import { formatBytes, formatDuration } from '@shared/music/format'
+import { MUSIC_LIMITS } from '@shared/music/constants'
 import type { MusicTrack } from '@shared/music/model'
 import { Clock3, HardDrive, ListChecks, Music, Search, Trash2, X } from 'lucide-react'
 import { Button } from '../../../components/primitives'
@@ -20,7 +21,7 @@ import { MusicStatCard } from './parts/StatCard'
 import { SectionHeader } from '../components/SectionHeader'
 import { musicText } from '../components/labels'
 import { PageError } from './parts/PageState'
-import { PAGE_STACK } from './parts/P2QueryState'
+import { PAGE_STACK, toastFailure } from './parts/P2QueryState'
 
 type SourceFilter = 'all' | 'upload' | 'webdav' | 'alist'
 
@@ -81,19 +82,44 @@ export function LocalMusicPage(): ReactElement {
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set())
   const [playlistOpen, setPlaylistOpen] = useState(false)
   const [batchBusy, setBatchBusy] = useState(false)
+  const [renderLimit, setRenderLimit] = useState(200)
+  const [moreTracks, setMoreTracks] = useState<MusicTrack[]>([])
+  const [morePage, setMorePage] = useState(1)
+  const [moreHasMore, setMoreHasMore] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
   const trackRevision = useMusicLibrary((state) => state.trackRevision)
   const playlists = useMusicLibrary((state) => state.playlists)
   const addPlaylistTracks = useMusicLibrary((state) => state.addPlaylistTracks)
   const query = useMusicQuery(async () => {
     const [uploads, downloads, webdav, alist] = await Promise.all([
-      musicApi.tracks('upload'),
-      musicApi.tracks('download'),
-      musicApi.tracks('webdav'),
-      musicApi.tracks('alist'),
+      musicApi.tracks('upload', 1, MUSIC_LIMITS.trackListMax),
+      musicApi.tracks('download', 1, MUSIC_LIMITS.trackListMax),
+      musicApi.tracks('webdav', 1, MUSIC_LIMITS.trackListMax),
+      musicApi.tracks('alist', 1, MUSIC_LIMITS.trackListMax),
     ])
-    return [...uploads.items, ...downloads.items, ...webdav.items, ...alist.items]
+    const answers = [uploads, downloads, webdav, alist]
+    return {
+      tracks: answers.flatMap((answer) => answer.items),
+      hasMore: answers.some((answer) => answer.hasMore),
+      total: answers.reduce((sum, answer) => sum + (answer.total ?? answer.items.length), 0),
+    }
   }, [trackRevision])
-  const tracks = query.data ?? []
+  const baseTracks = query.data?.tracks ?? []
+  const tracks = useMemo(() => {
+    if (moreTracks.length === 0) return baseTracks
+    const seen = new Set(baseTracks.map((track) => track.id))
+    return [...baseTracks, ...moreTracks.filter((track) => !seen.has(track.id))]
+  }, [baseTracks, moreTracks])
+  const totalCount = query.data?.total ?? tracks.length
+  // The first page's `hasMore` describes the server snapshot, not the page the reader has already
+  // fetched: once every row is here, the button must go away even though that snapshot was short.
+  const hasMore = moreHasMore || tracks.length < totalCount || (morePage === 1 && query.data?.hasMore === true)
+
+  useEffect(() => {
+    setMoreTracks([])
+    setMorePage(1)
+    setMoreHasMore(false)
+  }, [query.data])
   const totalDuration = tracks.reduce((sum, track) => sum + track.durationMs, 0)
   const totalSize = tracks.reduce((sum, track) => sum + (track.size ?? 0), 0)
 
@@ -117,18 +143,41 @@ export function LocalMusicPage(): ReactElement {
     return list
   }, [tracks, filter, source, sort, manualOrder])
 
+  const shown = useMemo(() => visible.slice(0, renderLimit), [visible, renderLimit])
+
   const selectedTracks = useMemo(
-    () => visible.filter((track) => selectedIds.has(track.id)),
-    [visible, selectedIds],
+    () => shown.filter((track) => selectedIds.has(track.id)),
+    [shown, selectedIds],
   )
-  const allVisibleSelected = visible.length > 0 && visible.every((track) => selectedIds.has(track.id))
+  const allVisibleSelected = shown.length > 0 && shown.every((track) => selectedIds.has(track.id))
 
   useEffect(() => {
     setSelectedIds(new Set())
-  }, [filter, source])
+    setRenderLimit(200)
+  }, [filter, source, sort])
 
   const play = (track: MusicTrack, queue: readonly MusicTrack[]): void => {
     void useMusicPlayer.getState().playTrack(track, { queue })
+  }
+
+  const loadMore = async (): Promise<void> => {
+    const nextPage = morePage + 1
+    setLoadingMore(true)
+    try {
+      const answers = await Promise.all([
+        musicApi.tracks('upload', nextPage, MUSIC_LIMITS.trackListMax),
+        musicApi.tracks('download', nextPage, MUSIC_LIMITS.trackListMax),
+        musicApi.tracks('webdav', nextPage, MUSIC_LIMITS.trackListMax),
+        musicApi.tracks('alist', nextPage, MUSIC_LIMITS.trackListMax),
+      ])
+      setMoreTracks((current) => [...current, ...answers.flatMap((answer) => answer.items)])
+      setMorePage(nextPage)
+      setMoreHasMore(answers.some((answer) => answer.hasMore))
+    } catch (error) {
+      toastFailure(musicText('music.local.load_more_failed'), error)
+    } finally {
+      setLoadingMore(false)
+    }
   }
 
   const cycleSort = (key: MusicTrackSortKey): void => {
@@ -139,14 +188,27 @@ export function LocalMusicPage(): ReactElement {
     })
   }
 
-  const applyOrder = (ids: string[]): void => {
+  const applyOrder = (reorderedVisible: string[]): void => {
+    // `reorderedVisible` is only the filtered slice. Persist a full order by replacing those ids in
+    // the list the reader is currently looking at, so hidden tracks keep their relative positions.
+    const base = [...tracks]
+    if (sort) {
+      const direction = sort.direction === 'asc' ? 1 : -1
+      base.sort((left, right) => direction * compareTracks(left, right, sort.key))
+    } else if (manualOrder.length > 0) {
+      const rank = new Map(manualOrder.map((id, index) => [id, index]))
+      base.sort((left, right) => (rank.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(right.id) ?? Number.MAX_SAFE_INTEGER))
+    }
+    const visibleIds = new Set(reorderedVisible)
+    let cursor = 0
+    const merged = base.map((track) => (visibleIds.has(track.id) ? reorderedVisible[cursor++]! : track.id))
     setSort(null)
-    setManualOrder(ids)
-    saveOrder(ids)
+    setManualOrder(merged)
+    saveOrder(merged)
   }
 
   const reorder = (fromId: string, toId: string): void => {
-    const ids = visible.map((track) => track.id)
+    const ids = shown.map((track) => track.id)
     const from = ids.indexOf(fromId)
     const to = ids.indexOf(toId)
     if (from < 0 || to < 0) return
@@ -158,7 +220,7 @@ export function LocalMusicPage(): ReactElement {
   }
 
   const moveTrack = (trackId: string, direction: -1 | 1): void => {
-    const ids = visible.map((track) => track.id)
+    const ids = shown.map((track) => track.id)
     const index = ids.indexOf(trackId)
     const target = index + direction
     if (index < 0 || target < 0 || target >= ids.length) return
@@ -185,7 +247,7 @@ export function LocalMusicPage(): ReactElement {
   }
 
   const toggleSelectAll = (): void => {
-    setSelectedIds(allVisibleSelected ? new Set() : new Set(visible.map((track) => track.id)))
+    setSelectedIds(allVisibleSelected ? new Set() : new Set(shown.map((track) => track.id)))
   }
 
   const leaveSelection = (): void => {
@@ -205,16 +267,24 @@ export function LocalMusicPage(): ReactElement {
     if (!approved) return
     setBatchBusy(true)
     try {
-      const answer = await musicApi.deleteTracks(ids)
-      for (const id of answer.removed) await useMusicPlayer.getState().removeFromQueue(id)
+      const removed: string[] = []
+      const skipped: Array<{ id: string }> = []
+      // The route caps one request; a select-all action must not turn into a 400 after the first
+      // hundred rows.
+      for (let start = 0; start < ids.length; start += MUSIC_LIMITS.trackBatchMax) {
+        const answer = await musicApi.deleteTracks(ids.slice(start, start + MUSIC_LIMITS.trackBatchMax))
+        removed.push(...answer.removed)
+        skipped.push(...answer.skipped)
+      }
+      for (const id of removed) await useMusicPlayer.getState().removeFromQueue(id)
       useMusicLibrary.getState().bumpTrackRevision()
       setSelectedIds(new Set())
       useUi.getState().toast({
-        title: musicText('music.local.batch_removed', { count: answer.removed.length }),
-        description: answer.skipped.length > 0
-          ? musicText('music.local.batch_remove_partial', { count: answer.skipped.length })
+        title: musicText('music.local.batch_removed', { count: removed.length }),
+        description: skipped.length > 0
+          ? musicText('music.local.batch_remove_partial', { count: skipped.length })
           : undefined,
-        tone: answer.skipped.length > 0 ? 'warning' : 'success',
+        tone: skipped.length > 0 ? 'warning' : 'success',
       })
     } catch (error) {
       useUi.getState().toast({
@@ -256,7 +326,7 @@ export function LocalMusicPage(): ReactElement {
         level={1}
         id={headingId}
         title={musicText('music.page.local')}
-        description={musicText('music.local.description', { count: tracks.length })}
+        description={musicText('music.local.description', { count: totalCount })}
       />
 
       <div className="flex flex-wrap items-center gap-[var(--sp-2)]">
@@ -286,7 +356,7 @@ export function LocalMusicPage(): ReactElement {
           label={musicText('music.local.source_filter')}
         />
         <span className="text-[length:var(--text-11)] tabular-nums text-[var(--text-tertiary)]">
-          {musicText('music.local.filter_count', { shown: visible.length, total: tracks.length })}
+          {musicText('music.local.filter_count', { shown: visible.length, total: totalCount })}
         </span>
         {(sort || manualOrder.length > 0) && (
           <Button size="sm" variant="ghost" onClick={resetOrder}>
@@ -376,21 +446,42 @@ export function LocalMusicPage(): ReactElement {
           action={<Button variant="secondary" onClick={clearFilters}>{musicText('music.local.clear_filters')}</Button>}
         />
       ) : (
-        <SongList
-          tracks={visible}
-          onPlay={play}
-          onEditTrack={setEditing}
-          onRemoveTrack={() => setSelectedIds(new Set())}
-          columns={{ source: true, size: true }}
-          sort={sort}
-          onSort={cycleSort}
-          selectionMode={selectionMode}
-          selectedIds={selectedIds}
-          onToggleSelect={toggleSelection}
-          reorderable
-          onReorder={reorder}
-          onMoveTrack={moveTrack}
-        />
+        <>
+          <SongList
+            tracks={shown}
+            onPlay={play}
+            onEditTrack={setEditing}
+            onRemoveTrack={() => setSelectedIds(new Set())}
+            columns={{ source: true, size: true }}
+            sort={sort}
+            onSort={cycleSort}
+            selectionMode={selectionMode}
+            selectedIds={selectedIds}
+            onToggleSelect={toggleSelection}
+            reorderable
+            onReorder={reorder}
+            onMoveTrack={moveTrack}
+          />
+          {hasMore && (
+            <Button
+              variant="secondary"
+              loading={loadingMore}
+              onClick={() => {
+                void loadMore().then(() => setRenderLimit((limit) => limit + 200))
+              }}
+            >
+              {musicText('music.local.load_more_server', { count: Math.max(0, totalCount - tracks.length) })}
+            </Button>
+          )}
+          {shown.length < visible.length && (
+            <Button
+              variant="secondary"
+              onClick={() => setRenderLimit((limit) => limit + 200)}
+            >
+              {musicText('music.local.load_more', { count: visible.length - shown.length })}
+            </Button>
+          )}
+        </>
       )}
 
       <Modal

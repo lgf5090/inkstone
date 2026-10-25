@@ -40,9 +40,13 @@ export function Cover({
   alt = '',
   className,
 }: MusicCoverProps): ReactElement {
-  const resolved = src ?? (trackId
-    ? `${musicApi.coverUrl(trackId)}${version === undefined ? '' : `?v=${encodeURIComponent(String(version))}`}`
-    : '')
+  const resolved = src
+    ? (/^https?:\/\//i.test(src)
+      ? `${musicApi.providerCoverUrl(src)}${version === undefined ? '' : `&v=${encodeURIComponent(String(version))}`}`
+      : src)
+    : (trackId
+      ? `${musicApi.coverUrl(trackId)}${version === undefined ? '' : `?v=${encodeURIComponent(String(version))}`}`
+      : '')
   const [failed, setFailed] = useState(false)
 
   useEffect(() => {

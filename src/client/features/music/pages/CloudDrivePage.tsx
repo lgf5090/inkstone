@@ -14,7 +14,7 @@ import {
   type MusicDriveR2Entry,
   type MusicDriveSkipReason,
 } from '@shared/music/api'
-import { MUSIC_ALL_FORMATS, formatFromFilename } from '@shared/music/constants'
+import { MUSIC_ALL_FORMATS, MUSIC_MIME_BY_FORMAT, formatFromFilename } from '@shared/music/constants'
 import type { MusicTrack } from '@shared/music/model'
 import { formatBytes } from '@shared/music/format'
 import { Button, IconButton } from '../../../components/primitives'
@@ -351,15 +351,57 @@ export function CloudDrivePage(): ReactElement {
     let failed = 0
     setR2Progress({ done: 0, total: valid.length })
     for (const [index, file] of valid.entries()) {
+      const format = formatFromFilename(file.name)
+      let uploadId: string | null = null
       try {
+        if (!format) throw new Error('Unsupported audio format')
         const parsed = await parseUploadMetadata(file)
         const metadata = parsed.ok
           ? parsed.data
-          : { title: baseName(file.name).replace(/\.[^.]+$/, ''), artists: [], album: '', durationMs: 0, bitrate: null, lyrics: '' }
-        await musicApi.driveR2Upload(file, metadata)
+          : {
+              title: baseName(file.name).replace(/\.[^.]+$/, ''),
+              artists: [],
+              album: '',
+              durationMs: 0,
+              bitrate: null,
+              lyrics: '',
+              cover: null,
+            }
+        const init = await musicApi.initUpload({
+          filename: file.name,
+          mime: MUSIC_MIME_BY_FORMAT[format],
+          size: file.size,
+          format,
+          metadata: {
+            title: metadata.title,
+            artists: metadata.artists,
+            album: metadata.album,
+            durationMs: metadata.durationMs,
+            bitrate: metadata.bitrate,
+            lyrics: metadata.lyrics,
+          },
+        })
+        uploadId = init.uploadId
+        const partSize = init.partSize > 0 ? init.partSize : file.size
+        const totalParts = Math.ceil(file.size / partSize)
+        for (let partNumber = 1; partNumber <= totalParts; partNumber += 1) {
+          const start = (partNumber - 1) * partSize
+          await musicApi.uploadPart(
+            uploadId,
+            partNumber,
+            file.slice(start, Math.min(start + partSize, file.size)),
+          )
+        }
+        if (metadata.cover) await musicApi.uploadCover(uploadId, metadata.cover)
+        await musicApi.completeUpload(uploadId)
       } catch (error) {
         failed += 1
         console.warn('[inkstone] A cloud-drive upload failed:', error)
+        if (uploadId) {
+          await musicApi.abortUpload(uploadId).catch((abortError: unknown) => {
+            console.warn('[inkstone] A failed cloud-drive upload could not be released:', abortError)
+          })
+        }
       }
       setR2Progress({ done: index + 1, total: valid.length })
     }

@@ -40,7 +40,12 @@ import { LyricPanel } from './LyricPanel'
 import { MusicTabs, type MusicTabItem } from './Tabs'
 import { musicText } from './labels'
 
-export function NowPlaying(): ReactElement {
+export function NowPlaying(): ReactElement | null {
+  const open = useMusicUi((state) => state.nowPlayingOpen)
+  return open ? <NowPlayingLayer /> : null
+}
+
+function NowPlayingLayer(): ReactElement {
   const open = useMusicUi((state) => state.nowPlayingOpen)
   const tab = useMusicUi((state) => state.nowPlayingTab)
   const setNowPlayingOpen = useMusicUi((state) => state.setNowPlayingOpen)

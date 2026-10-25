@@ -13,7 +13,6 @@ import { Button, IconButton } from '../../../components/primitives'
 import { confirm } from '../../../components/overlay'
 import { navigateToAddress } from '../../../lib/app-history'
 import type { MusicHistoryItem } from '../store/library'
-import { useMusicLibrary } from '../store/library'
 import { useMusicPlayer } from '../store/player'
 import { musicApi } from '../api'
 import { musicPathFor } from '../music-address'
@@ -547,7 +546,6 @@ function HistoryList({
   const queue = useMemo(() => items.map((item) => item.track), [items])
   const play = (track: MusicTrack): void => {
     void useMusicPlayer.getState().playTrack(track, { queue })
-    void useMusicLibrary.getState().recordHistory({ track, contextType: 'history' })
   }
 
   if (loading) {

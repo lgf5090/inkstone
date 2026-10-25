@@ -36,6 +36,7 @@ import { useMusicQuery } from '../query'
 import { useMusicLibrary } from '../store/library'
 import { useMusicPlayer } from '../store/player'
 import { musicText } from '../components/labels'
+import { Pager } from '../components/Pager'
 import { BlobCover } from './parts/P2MediaCard'
 import { Cover } from '../components/Cover'
 import {
@@ -98,8 +99,16 @@ export function UploadsPage(): ReactElement {
   const [dragging, setDragging] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [bulkRunning, setBulkRunning] = useState(false)
-  const uploadsQuery = useMusicQuery(() => musicApi.uploads(), [])
+  const [serverPage, setServerPage] = useState(1)
+  const uploadsQuery = useMusicQuery(
+    () => musicApi.uploads(serverPage, MUSIC_LIMITS.taskListMax),
+    [serverPage],
+  )
   const serverUploads = uploadsQuery.data?.items ?? []
+  const serverPageCount = Math.max(
+    1,
+    Math.ceil((uploadsQuery.data?.total ?? serverUploads.length) / MUSIC_LIMITS.taskListMax),
+  )
   const serverUploadsRef = useRef<MusicUpload[]>([])
 
   useEffect(() => {
@@ -529,6 +538,9 @@ export function UploadsPage(): ReactElement {
             ))}
           </ul>
         )}
+        {serverPageCount > 1 && (
+          <Pager page={serverPage} pageCount={serverPageCount} onChange={setServerPage} />
+        )}
       </section>
 
       {editingItem && (
@@ -641,7 +653,6 @@ function UploadQueueRow({
               const track = item.track
               if (!track) return
               void useMusicPlayer.getState().playTrack(track)
-              void useMusicLibrary.getState().recordHistory({ track, contextType: 'uploads' })
             }}
           >
             {musicText('music.common.play')}

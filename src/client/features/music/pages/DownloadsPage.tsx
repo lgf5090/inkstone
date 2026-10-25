@@ -23,6 +23,7 @@ import { musicApi } from '../api'
 import { musicPathFor } from '../music-address'
 import { useMusicQuery } from '../query'
 import { Cover } from '../components/Cover'
+import { Pager } from '../components/Pager'
 import { musicText } from '../components/labels'
 import {
   PAGE_STACK,
@@ -59,19 +60,26 @@ const STATUS_TONE: Record<MusicDownloadItem['status'], 'neutral' | 'accent' | 's
 
 export function DownloadsPage(): ReactElement {
   const headingId = useId()
+  const [page, setPage] = useState(1)
   const [items, setItems] = useState<MusicDownloadItem[]>([])
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [removingId, setRemovingId] = useState<string | null>(null)
   const query = useMusicQuery(async () => {
-    const [downloads, uploads] = await Promise.all([musicApi.downloads(), musicApi.uploads()])
-    return { downloads: downloads.items, uploads: uploads.items }
-  }, [])
+    const downloads = await musicApi.downloads(page, MUSIC_LIMITS.taskListMax)
+    return {
+      downloads: downloads.items,
+      total: downloads.total ?? downloads.items.length,
+      hasMore: downloads.hasMore ?? false,
+      quota: downloads.quota,
+    }
+  }, [page])
 
   useEffect(() => {
     if (query.data) setItems(query.data.downloads)
   }, [query.data])
 
   const hasActive = items.some((item) => item.status === 'queued' || item.status === 'running')
+  const pageCount = Math.max(1, Math.ceil((query.data?.total ?? items.length) / MUSIC_LIMITS.taskListMax))
   const reload = query.reload
   useEffect(() => {
     if (!hasActive) return
@@ -79,13 +87,8 @@ export function DownloadsPage(): ReactElement {
     return () => window.clearInterval(timer)
   }, [hasActive, reload])
 
-  const usedBytes = (query.data?.uploads ?? [])
-    .filter((upload) => upload.status === 'completed')
-    .reduce((sum, upload) => sum + upload.size, 0)
-    + items
-      .filter((item) => item.status === 'done')
-      .reduce((sum, item) => sum + (item.size ?? 0), 0)
-  const quotaBytes = MUSIC_LIMITS.quotaBytes
+  const usedBytes = query.data?.quota?.usedBytes ?? 0
+  const quotaBytes = query.data?.quota?.quotaBytes ?? MUSIC_LIMITS.quotaBytes
   const quotaPercent = Math.min(100, Math.round((usedBytes / quotaBytes) * 100))
   const activeCount = items.filter((item) => item.status === 'queued' || item.status === 'running').length
 
@@ -153,7 +156,7 @@ export function DownloadsPage(): ReactElement {
           <p className="music-section-header__description">
             {musicText('music.downloads.description', {
               active: activeCount,
-              total: items.length,
+              total: query.data?.total ?? items.length,
             })}
           </p>
         </div>
@@ -239,6 +242,7 @@ export function DownloadsPage(): ReactElement {
           </ul>
         </>
       )}
+      {pageCount > 1 && <Pager page={page} pageCount={pageCount} onChange={setPage} />}
     </section>
   )
 }

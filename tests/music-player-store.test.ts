@@ -538,7 +538,7 @@ describe('music library store', () => {
     expect(fetchMock).toHaveBeenCalledTimes(6)
     const urls = fetchMock.mock.calls.map((call) => String(call[0]))
     expect(urls).toEqual(expect.arrayContaining([
-      '/api/music/library/favorites',
+      '/api/music/library/favorites?limit=100',
       '/api/music/library/history',
       '/api/music/library/recent',
       '/api/music/library/playlists',

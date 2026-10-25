@@ -35,7 +35,6 @@ import type {
   MusicPublicPlaylistPayload,
   MusicDriveBatchResult,
   MusicDriveR2Listing,
-  MusicDriveR2UploadResult,
   MusicTrackDeleteResult,
 } from '@shared/music/api'
 import type {
@@ -93,12 +92,6 @@ export const musicApi = {
 
   drive: () => request<MusicDriveSummary>('/api/music/drive'),
   driveR2: () => request<MusicDriveR2Listing>('/api/music/drive/r2'),
-  driveR2Upload: (file: File, metadata: unknown) => {
-    const form = new FormData()
-    form.append('file', file, file.name)
-    form.append('metadata', JSON.stringify(metadata))
-    return request<MusicDriveR2UploadResult>('/api/music/drive/r2/upload', { method: 'POST', formData: form })
-  },
   driveR2Delete: (keys: string[]) =>
     request<MusicDriveBatchResult>('/api/music/drive/r2/delete', { method: 'POST', body: { keys } }),
   alistMounts: () => request<{ mounts: MusicMount[] }>('/api/music/drive/alist'),
@@ -117,14 +110,12 @@ export const musicApi = {
       method: 'POST',
       body: { paths },
     }),
-  alistUpload: (id: string, dir: string, file: File) => {
-    const form = new FormData()
-    form.append('file', file, file.name)
-    return request<MusicDriveUploadResult>(
-      `/api/music/drive/alist/${encodeURIComponent(id)}/upload${query({ path: dir })}`,
-      { method: 'POST', formData: form },
-    )
-  },
+  alistUpload: (id: string, dir: string, file: File) =>
+    uploadWithProgress<MusicDriveUploadResult>(
+      `/api/music/drive/alist/${encodeURIComponent(id)}/upload${query({ path: dir, name: file.name })}`,
+      file,
+      file.size,
+    ),
   alistDelete: (id: string, paths: string[]) =>
     request<MusicDriveBatchResult>(`/api/music/drive/alist/${encodeURIComponent(id)}/delete`, {
       method: 'POST',
@@ -138,14 +129,12 @@ export const musicApi = {
       method: 'POST',
       body: targetPlaylistId ? { paths, targetPlaylistId } : { paths },
     }),
-  driveWebdavUpload: (dir: string, file: File) => {
-    const form = new FormData()
-    form.append('file', file, file.name)
-    return request<MusicDriveUploadResult>(`/api/music/drive/webdav/upload${query({ path: dir })}`, {
-      method: 'POST',
-      formData: form,
-    })
-  },
+  driveWebdavUpload: (dir: string, file: File) =>
+    uploadWithProgress<MusicDriveUploadResult>(
+      `/api/music/drive/webdav/upload${query({ path: dir, name: file.name })}`,
+      file,
+      file.size,
+    ),
   driveWebdavDelete: (path: string) =>
     request<MusicDriveDeleteResult>(`/api/music/drive/webdav/object${query({ path })}`, { method: 'DELETE' }),
   driveWebdavDeleteMany: (paths: string[]) =>
@@ -243,7 +232,10 @@ export const musicApi = {
 
   library: () => request<MusicLibraryPayload>('/api/music/library'),
   track: (id: string) => request<{ track: MusicTrack }>(`/api/music/library/tracks/${encodeURIComponent(id)}`),
-  tracks: (provider: 'upload' | 'webdav' | 'alist' | 'download') => request<{ items: MusicTrack[] }>(`/api/music/library/tracks${query({ provider })}`),
+  tracks: (provider: 'upload' | 'webdav' | 'alist' | 'download', page = 1, limit = 1_000) =>
+    request<{ items: MusicTrack[]; total?: number; hasMore?: boolean }>(
+      `/api/music/library/tracks${query({ provider, page, limit })}`,
+    ),
   updateTrackMetadata: (trackId: string, patch: { title?: string; artists?: Array<{ id: string; name: string }>; album?: string; coverUrl?: string }) =>
     request<{ track: MusicTrack }>(`/api/music/library/tracks/${encodeURIComponent(trackId)}`, { method: 'PATCH', body: patch }),
   upsertTracks: (tracks: MusicTrack[]) =>
@@ -296,13 +288,21 @@ export const musicApi = {
     request<{ ok: true }>('/api/music/library/history', { method: 'POST', body: entry }),
   recent: () => request<{ items: Array<Record<string, unknown>> }>('/api/music/library/recent'),
 
-  downloads: () => request<MusicDownloadListPayload>('/api/music/downloads'),
+  downloads: (page = 1, limit = 100) =>
+    request<MusicDownloadListPayload & {
+      total?: number
+      hasMore?: boolean
+      quota?: { usedBytes: number; quotaBytes: number }
+    }>(`/api/music/downloads${query({ page, limit })}`),
   removeDownload: (id: string) =>
     request<{ ok: true }>(`/api/music/downloads/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   updateDownload: (id: string, action: 'pause' | 'resume' | 'retry' | 'cancel') =>
     request<MusicDownload>(`/api/music/downloads/${encodeURIComponent(id)}`, { method: 'PATCH', body: { action } }),
 
-  uploads: () => request<{ items: MusicUpload[] }>('/api/music/uploads'),
+  uploads: (page = 1, limit = 100) =>
+    request<{ items: MusicUpload[]; total?: number; hasMore?: boolean }>(
+      `/api/music/uploads${query({ page, limit })}`,
+    ),
   initUpload: (input: { filename: string; mime: string; size: number; format: string; metadata?: Record<string, unknown> }) =>
     request<MusicUploadInit>('/api/music/uploads', { method: 'POST', body: input }),
   uploadPart: (uploadId: string, partNumber: number, chunk: Blob, onProgress?: (sent: number, total: number) => void, signal?: AbortSignal) =>
@@ -334,4 +334,5 @@ export const musicApi = {
   subscriptions: () => request<{ items: MusicSubscription[] }>('/api/music/library/subscriptions'),
   streamUrl: (trackId: string) => `/api/music/media/stream/${encodeURIComponent(trackId)}`,
   coverUrl: (trackId: string) => `/api/music/media/cover/${encodeURIComponent(trackId)}`,
+  providerCoverUrl: (url: string) => `/api/music/media/provider-cover?url=${encodeURIComponent(url)}`,
 }

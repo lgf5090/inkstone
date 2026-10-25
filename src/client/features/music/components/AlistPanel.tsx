@@ -193,6 +193,7 @@ export function AlistPanel({ mounts, onChanged, filter = '', onMatchesChange }: 
   const [uploading, setUploading] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const uploadInput = useRef<HTMLInputElement>(null)
+  const searchToken = useRef(0)
   const active = mounts.find((mount) => mount.id === selected) ?? mounts[0] ?? null
   const query = useMusicQuery(async () => {
     if (!active) return null
@@ -203,6 +204,12 @@ export function AlistPanel({ mounts, onChanged, filter = '', onMatchesChange }: 
     setSelectedPaths(new Set())
   }, [active?.id, path, search])
 
+  // A search that was in flight when the mount or folder changed must not overwrite the new view.
+  useEffect(() => {
+    searchToken.current += 1
+    setSearching(false)
+  }, [active?.id, path])
+
   const choose = (mount: MusicMount): void => {
     setSelected(mount.id)
     setPath('')
@@ -212,15 +219,18 @@ export function AlistPanel({ mounts, onChanged, filter = '', onMatchesChange }: 
 
   const runSearch = async (): Promise<void> => {
     if (!active || !keywords.trim()) return
+    const token = ++searchToken.current
     setSearching(true)
     setSearchError(null)
     try {
       const answer = await musicApi.alistSearch(active.id, keywords.trim())
+      if (token !== searchToken.current) return
       setSearch(answer.entries)
     } catch (reason) {
+      if (token !== searchToken.current) return
       setSearchError(reason instanceof Error ? reason.message : String(reason))
     } finally {
-      setSearching(false)
+      if (token === searchToken.current) setSearching(false)
     }
   }
 

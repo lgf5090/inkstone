@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { clearMusicSessionStorage, onSessionCleared } from './features/music/session-storage'
 import { RefreshCw, TriangleAlert } from 'lucide-react'
 import { ConfirmHost, PromptHost } from './components/overlay'
 import { QuickAddPromptGate } from './features/quickadd/prompt-gate'
@@ -109,6 +110,7 @@ function BootStalled({ onRetry }: { onRetry: () => void }) {
 export function App() {
 
   useLocale()
+  useEffect(() => onSessionCleared(clearMusicSessionStorage), [])
   const status = useSession((s) => s.status)
   const load = useSession((s) => s.load)
   // One-way: raised when the boot screen's ceiling is reached, never lowered again. A retry that hangs

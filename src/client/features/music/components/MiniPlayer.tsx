@@ -24,6 +24,7 @@ export function MiniPlayer({ onOpenNowPlaying }: MiniPlayerProps): ReactElement 
   const status = useMusicPlayer((state) => state.status)
   const positionMs = useMusicPlayer((state) => state.positionMs)
   const durationMs = useMusicPlayer((state) => state.durationMs)
+  const preview = useMusicPlayer((state) => state.preview)
   const toggle = useMusicPlayer((state) => state.toggle)
   const next = useMusicPlayer((state) => state.next)
 
@@ -51,7 +52,10 @@ export function MiniPlayer({ onOpenNowPlaying }: MiniPlayerProps): ReactElement 
       >
         <Cover trackId={current.id} src={current.coverUrl || undefined} version={current.updatedAt} size="sm" radius="sm" />
         <span className="music-miniplayer__text">
-          <span className="music-miniplayer__title">{current.title}</span>
+          <span className="music-miniplayer__title">
+            {current.title}
+            {preview && ` · ${musicText('music.playbar.preview')}`}
+          </span>
           <span className="music-miniplayer__artist">
             {musicArtistNames(current)} · {formatDuration(current.durationMs)}
           </span>

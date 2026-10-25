@@ -184,7 +184,10 @@ export function MusicSettingsPage(): ReactElement {
             onChange={(downloadFormat) => save({ downloadFormat: downloadFormat as MusicSettings['downloadFormat'] })}
           />
         </SettingRow>
-        <SettingRow title={t('music.settings.download_concurrency.title')}>
+        <SettingRow
+          title={t('music.settings.download_concurrency.title')}
+          description={t('music.settings.download_concurrency.description')}
+        >
           <Slider
             label={t('music.settings.download_concurrency.title')}
             value={server.downloadConcurrency}
@@ -198,12 +201,10 @@ export function MusicSettingsPage(): ReactElement {
         <SettingRow title={t('music.settings.download_name.title')} description={t('music.settings.download_name.description')}>
           <Input
             value={nameFormat}
+            aria-label={t('music.settings.download_name.title')}
             onChange={(event) => setNameFormat(event.target.value)}
             onBlur={() => save({ downloadNameFormat: nameFormat })}
           />
-        </SettingRow>
-        <SettingRow title={t('music.settings.export_lyrics.title')}>
-          <Switch checked={server.exportLyrics} onChange={(exportLyrics) => save({ exportLyrics })} label={t('music.settings.export_lyrics.title')} />
         </SettingRow>
       </Section>
 
@@ -272,6 +273,7 @@ export function MusicSettingsPage(): ReactElement {
         <SettingRow title={t('music.settings.sources_url.title')} description={t('music.settings.sources_url.description')}>
           <Input
             value={resolverUrl}
+            aria-label={t('music.settings.sources_url.title')}
             onChange={(event) => setResolverUrl(event.target.value)}
             onBlur={() => save({ customResolverUrl: resolverUrl })}
             placeholder="https://resolver.example.test/audio"
@@ -288,6 +290,7 @@ export function MusicSettingsPage(): ReactElement {
         <SettingRow title={t('music.settings.sources_path.title')} description={t('music.settings.sources_path.description')}>
           <Input
             value={resolverPath}
+            aria-label={t('music.settings.sources_path.title')}
             onChange={(event) => setResolverPath(event.target.value)}
             onBlur={() => save({ customResolverResponsePath: resolverPath })}
             placeholder="data.url"

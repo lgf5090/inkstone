@@ -11,11 +11,10 @@ import { Empty } from '../../../components/feedback'
 import { Button, IconButton } from '../../../components/primitives'
 import { navigateToAddress } from '../../../lib/app-history'
 import { musicApi } from '../api'
-import { musicPathFor } from '../music-address'
+import { musicPathFor, type MusicPage } from '../music-address'
 import { useMusicQuery } from '../query'
 import { useMusicLibrary } from '../store/library'
 import { useMusicPlayer } from '../store/player'
-import { useMusicUi } from '../store/ui'
 import { Cover } from '../components/Cover'
 import { PlaylistImportDialog } from '../components/PlaylistImportDialog'
 import { musicText } from '../components/labels'
@@ -33,8 +32,7 @@ interface UserPageData {
   account: MusicAccount | null
 }
 
-export function UserPage(): ReactElement {
-  const page = useMusicUi((state) => state.page)
+export function UserPage({ page }: { page: MusicPage }): ReactElement {
   const isMe = page.kind === 'me'
   const id = page.kind === 'user' ? page.id : ''
   const headingId = useId()
@@ -406,5 +404,4 @@ function UserCentre({
 
 function playTop(track: MusicTrack, queue: readonly MusicTrack[]): void {
   void useMusicPlayer.getState().playTrack(track, { queue })
-  void useMusicLibrary.getState().recordHistory({ track, contextType: 'user' })
 }

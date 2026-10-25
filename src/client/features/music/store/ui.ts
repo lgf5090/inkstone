@@ -109,7 +109,9 @@ export const useMusicUi = create<MusicUiState>((set, get) => ({
   },
 
   setLyricsOpen(open) {
-    set({ lyricsOpen: open, ...(open ? { queueOpen: false } : {}) })
+    // The standalone lyrics layer and Now Playing are alternative full-screen surfaces; opening one
+    // while the other stays mounted stacks two transports and two focus traps.
+    set({ lyricsOpen: open, ...(open ? { queueOpen: false, nowPlayingOpen: false } : {}) })
   },
 
   toggleLyrics() {

@@ -249,6 +249,7 @@ export interface MusicLibraryPayload {
 
 export interface MusicDownloadListPayload {
   items: Array<MusicDownload & { track: MusicTrack | null }>
+  truncated?: boolean
 }
 
 export interface MusicLyricResponse {
@@ -309,11 +310,6 @@ export interface MusicDriveR2Entry {
 export interface MusicDriveR2Listing {
   entries: MusicDriveR2Entry[]
   truncated: boolean
-}
-
-export interface MusicDriveR2UploadResult {
-  track: MusicTrack
-  entry: MusicDriveR2Entry
 }
 
 export interface MusicDriveBatchResult {

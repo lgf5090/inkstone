@@ -38,7 +38,7 @@ import {
 } from 'lucide-react'
 import { formatDuration, musicArtistNames } from '@shared/music/format'
 import { MUSIC_PLAY_MODES } from '@shared/music/model'
-import { Button, IconButton, Spinner } from '../../../components/primitives'
+import { Badge, Button, IconButton, Spinner } from '../../../components/primitives'
 import { Slider } from '../../../components/form'
 import { Drawer, Menu, Tooltip, useClickOutside, useEscape } from '../../../components/overlay'
 import { Z_INDEX } from '../../../lib/z-index'
@@ -66,6 +66,7 @@ export function PlayBar(): ReactElement {
   const rate = useMusicPlayer((state) => state.rate)
   const mode = useMusicPlayer((state) => state.queue.mode)
   const awaitingGesture = useMusicPlayer((state) => state.awaitingGesture)
+  const preview = useMusicPlayer((state) => state.preview)
   const error = useMusicPlayer((state) => state.error)
   const toggle = useMusicPlayer((state) => state.toggle)
   const next = useMusicPlayer((state) => state.next)
@@ -182,7 +183,10 @@ export function PlayBar(): ReactElement {
       <div className="music-playbar__left">
         <Cover trackId={current.id} src={current.coverUrl || undefined} version={current.updatedAt} size="sm" radius="sm" className="music-playbar__cover" />
         <span className="music-playbar__meta">
-          <span className="music-playbar__title">{current.title}</span>
+          <span className="music-playbar__title">
+            {current.title}
+            {preview && <Badge tone="warning">{musicText('music.playbar.preview')}</Badge>}
+          </span>
           <span className="music-playbar__artist">
             {awaitingGesture ? musicText('music.playbar.resume') : musicArtistNames(current)}
           </span>

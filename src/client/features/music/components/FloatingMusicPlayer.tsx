@@ -53,6 +53,7 @@ import { SleepTimer } from './SleepTimer'
 import { useTrackLyrics } from './LyricPanel'
 import { selectCurrentTrack, useMusicPlayer } from '../store/player'
 import { useMusicLibrary } from '../store/library'
+import { useMusicSettings } from '../store/settings'
 import { useMusicUi } from '../store/ui'
 import { musicText } from './labels'
 
@@ -164,23 +165,21 @@ export function FloatingMusicPlayer(): ReactElement | null {
   const panelRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<DragState | null>(null)
   const suppressClickRef = useRef(false)
-  const recordedRef = useRef<string | null>(null)
 
   useEffect(() => {
     useMusicPlayer.getState().restore()
+    if (useMusicSettings.getState().serverStatus === 'idle') {
+      void useMusicSettings.getState().loadServer()
+    }
   }, [])
 
   useEffect(() => {
     if (!current) return
     const library = useMusicLibrary.getState()
-    if (library.status === 'idle') void library.load()
+    if (library.status === 'idle') {
+      void library.load().then(() => useMusicLibrary.getState().loadAllFavorites())
+    }
   }, [current?.id])
-
-  useEffect(() => {
-    if (!current || hidden || status !== 'playing' || recordedRef.current === current.id) return
-    recordedRef.current = current.id
-    void useMusicLibrary.getState().recordHistory({ track: current, contextType: 'player' })
-  }, [current, hidden, status])
 
   useEffect(() => {
     const element = panelRef.current

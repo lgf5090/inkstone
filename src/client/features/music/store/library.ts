@@ -50,6 +50,7 @@ export interface MusicRecentInput {
 
 export const MUSIC_LIBRARY_ERROR_KEYS = {
   load: 'music.library.error.load',
+  partial: 'music.library.error.partial',
   favorite: 'music.library.error.favorite',
   history: 'music.library.error.history',
   recent: 'music.library.error.recent',
@@ -72,6 +73,7 @@ const ENDPOINTS = {
 
 interface ItemsAnswer<T> {
   items: T[]
+  total?: number
 }
 
 interface PlaylistAnswer {
@@ -80,6 +82,7 @@ interface PlaylistAnswer {
 
 interface PlaylistItemsAnswer {
   items: MusicTrack[]
+  total?: number
 }
 
 interface DownloadAnswer {
@@ -200,6 +203,10 @@ export interface MusicLibraryState {
   error: string | null
   errorDetail: string | null
   favorites: MusicFavoriteTrack[]
+  /** The server's total, so a page knows whether the loaded window is the whole list. */
+  favoritesTotal: number
+  /** False when the sync ceiling stopped loading before the server total. */
+  favoritesComplete: boolean
   history: MusicHistoryItem[]
   recent: MusicRecentEntry[]
   playlists: MusicPlaylist[]
@@ -210,13 +217,15 @@ export interface MusicLibraryState {
   trackRevision: number
   bumpTrackRevision: () => void
   load: () => Promise<void>
+  /** Fill in favourites past the first page; the heart state on every row depends on this list. */
+  loadAllFavorites: () => Promise<void>
   reset: () => void
   isFavorite: (trackId: string) => boolean
   toggleFavorite: (track: MusicTrack) => Promise<boolean>
   setFavoritePinned: (trackId: string, pinned: boolean) => Promise<boolean>
   recordHistory: (input: MusicHistoryInput) => Promise<void>
   touchRecent: (input: MusicRecentInput) => Promise<void>
-  createPlaylist: (input: MusicLibraryPlaylistInput) => Promise<MusicPlaylist | null>
+  createPlaylist: (input: MusicLibraryPlaylistInput) => Promise<MusicPlaylist>
   updatePlaylist: (id: string, patch: { name?: string; description?: string; coverUrl?: string; pinned?: boolean }) => Promise<boolean>
   deletePlaylist: (id: string) => Promise<boolean>
   sharePlaylist: (id: string, shared: boolean) => Promise<string | null>
@@ -242,6 +251,8 @@ export const useMusicLibrary = create<MusicLibraryState>((set, get) => ({
   error: null,
   errorDetail: null,
   favorites: [],
+  favoritesTotal: 0,
+  favoritesComplete: true,
   history: [],
   recent: [],
   playlists: [],
@@ -257,19 +268,37 @@ export const useMusicLibrary = create<MusicLibraryState>((set, get) => ({
   async load() {
     set({ status: 'loading', error: null, errorDetail: null })
     try {
-      const [favorites, history, recent, playlists, downloads, uploads] = await Promise.all([
-        musicRequest<ItemsAnswer<MusicFavoriteTrack>>(ENDPOINTS.favorites),
+      // One slow or failing secondary shelf must not hide the favourites and playlists that did
+      // answer; a partial answer renders, with a visible warning rather than a blank page.
+      const settled = await Promise.allSettled([
+        musicRequest<ItemsAnswer<MusicFavoriteTrack>>(`${ENDPOINTS.favorites}?limit=${MUSIC_LIMITS.libraryPageSize * 2}`),
         musicRequest<ItemsAnswer<MusicHistoryItem>>(ENDPOINTS.history),
         musicRequest<ItemsAnswer<MusicRecentEntry>>(ENDPOINTS.recent),
         musicRequest<ItemsAnswer<MusicPlaylist>>(ENDPOINTS.playlists),
         musicRequest<MusicDownloadListPayload>(ENDPOINTS.downloads),
         musicRequest<ItemsAnswer<MusicUpload>>(ENDPOINTS.uploads),
       ])
+      const failed = settled.filter((result) => result.status === 'rejected')
+      if (failed.length === settled.length) throw failed[0]!.reason
+      const valueAt = <T,>(index: number, fallback: T): T => {
+        const result = settled[index]
+        return result?.status === 'fulfilled' ? result.value as T : fallback
+      }
+      const favorites = valueAt<ItemsAnswer<MusicFavoriteTrack>>(0, { items: [] })
+      const history = valueAt<ItemsAnswer<MusicHistoryItem>>(1, { items: [] })
+      const recent = valueAt<ItemsAnswer<MusicRecentEntry>>(2, { items: [] })
+      const playlists = valueAt<ItemsAnswer<MusicPlaylist>>(3, { items: [] })
+      const downloads = valueAt<MusicDownloadListPayload>(4, { items: [] })
+      const uploads = valueAt<ItemsAnswer<MusicUpload>>(5, { items: [] })
+      const favoriteItems = itemsOf(favorites) ?? []
+      const favoriteTotal = favorites.total ?? favoriteItems.length
       set({
         status: 'ready',
-        error: null,
-        errorDetail: null,
-        favorites: itemsOf(favorites) ?? [],
+        error: failed.length > 0 ? MUSIC_LIBRARY_ERROR_KEYS.partial : null,
+        errorDetail: failed.length > 0 ? describe(failed[0]!.reason) : null,
+        favorites: favoriteItems,
+        favoritesTotal: favoriteTotal,
+        favoritesComplete: favoriteItems.length >= favoriteTotal,
         history: itemsOf(history) ?? [],
         recent: itemsOf(recent) ?? [],
         playlists: itemsOf(playlists) ?? [],
@@ -286,6 +315,44 @@ export const useMusicLibrary = create<MusicLibraryState>((set, get) => ({
     }
   },
 
+  async loadAllFavorites() {
+    const { favorites, favoritesTotal, status } = get()
+    if (status !== 'ready' || favorites.length >= favoritesTotal) return
+    const pageSize = MUSIC_LIMITS.libraryPageSize * 2
+    const seen = new Set(favorites.map((entry) => entry.id))
+    const all = [...favorites]
+    const lastPage = Math.ceil(favoritesTotal / pageSize)
+    for (let page = 2; page <= lastPage; page += 1) {
+      if (all.length >= MUSIC_LIMITS.favoriteSyncLimit) break
+      try {
+        const answer = await musicRequest<ItemsAnswer<MusicFavoriteTrack>>(
+          `${ENDPOINTS.favorites}?page=${page}&limit=${pageSize}`,
+        )
+        const items = itemsOf(answer) ?? []
+        let added = 0
+        for (const item of items) {
+          if (seen.has(item.id)) continue
+          seen.add(item.id)
+          all.push(item)
+          added += 1
+          if (all.length >= MUSIC_LIMITS.favoriteSyncLimit) break
+        }
+        if (added === 0) break
+      } catch (error) {
+        set({
+          error: MUSIC_LIBRARY_ERROR_KEYS.partial,
+          errorDetail: describe(error),
+        })
+        break
+      }
+    }
+    set({
+      favorites: all,
+      favoritesTotal: Math.max(favoritesTotal, all.length),
+      favoritesComplete: all.length >= favoritesTotal,
+    })
+  },
+
   reset() {
     lastHistoryWrite.clear()
     set({
@@ -293,6 +360,8 @@ export const useMusicLibrary = create<MusicLibraryState>((set, get) => ({
       error: null,
       errorDetail: null,
       favorites: [],
+      favoritesTotal: 0,
+      favoritesComplete: true,
       history: [],
       recent: [],
       playlists: [],
@@ -308,11 +377,20 @@ export const useMusicLibrary = create<MusicLibraryState>((set, get) => ({
 
   async toggleFavorite(track) {
     const before = get().favorites
+    const beforeTotal = get().favoritesTotal
+    const beforeComplete = get().favoritesComplete
     const exists = before.some((entry) => entry.id === track.id)
     const optimistic = exists
       ? before.filter((entry) => entry.id !== track.id)
       : [{ ...track, pinnedAt: null }, ...before]
-    set({ favorites: optimistic, error: null, errorDetail: null })
+    const total = Math.max(0, beforeTotal + (exists ? -1 : 1))
+    set({
+      favorites: optimistic,
+      favoritesTotal: total,
+      favoritesComplete: optimistic.length >= total,
+      error: null,
+      errorDetail: null,
+    })
     try {
       if (exists) {
         await musicRequest<{ ok: true }>(
@@ -333,6 +411,8 @@ export const useMusicLibrary = create<MusicLibraryState>((set, get) => ({
     } catch (error) {
       set({
         favorites: before,
+        favoritesTotal: beforeTotal,
+        favoritesComplete: beforeComplete,
         error: MUSIC_LIBRARY_ERROR_KEYS.favorite,
         errorDetail: describe(error),
       })
@@ -429,7 +509,7 @@ export const useMusicLibrary = create<MusicLibraryState>((set, get) => ({
       return playlist
     } catch (error) {
       set({ error: MUSIC_LIBRARY_ERROR_KEYS.playlist, errorDetail: describe(error) })
-      return null
+      throw error
     }
   },
 
@@ -561,20 +641,26 @@ export const useMusicLibrary = create<MusicLibraryState>((set, get) => ({
       errorDetail: null,
     })
     try {
-      const answer = await musicRequest<PlaylistItemsAnswer>(
-        `${ENDPOINTS.playlists}/${encodeURIComponent(id)}/items`,
-        requestBody({ tracks }),
-      )
-      const items = itemsOf(answer)
-      if (items) {
+      let total: number | undefined
+      // The route accepts at most one batch; splitting here keeps a select-all action working while
+      // the server still gets a bounded body.
+      for (let start = 0; start < tracks.length; start += MUSIC_LIMITS.trackBatchMax) {
+        const answer = await musicRequest<PlaylistItemsAnswer>(
+          `${ENDPOINTS.playlists}/${encodeURIComponent(id)}/items`,
+          requestBody({ tracks: tracks.slice(start, start + MUSIC_LIMITS.trackBatchMax) }),
+        )
+        total = answer.total
+      }
+      if (total !== undefined) {
         set({
           playlists: get().playlists.map((playlist) => (
-            playlist.id === id ? { ...playlist, trackCount: items.length } : playlist
+            playlist.id === id ? { ...playlist, trackCount: total } : playlist
           )),
         })
       }
     } catch (error) {
       set({ playlists: before, error: MUSIC_LIBRARY_ERROR_KEYS.playlist, errorDetail: describe(error) })
+      throw error
     }
   },
 
@@ -622,6 +708,7 @@ export const useMusicLibrary = create<MusicLibraryState>((set, get) => ({
       })
     } catch (error) {
       set({ error: MUSIC_LIBRARY_ERROR_KEYS.download, errorDetail: describe(error) })
+      throw error
     }
   },
 

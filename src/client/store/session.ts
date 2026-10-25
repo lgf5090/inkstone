@@ -269,6 +269,9 @@ export const useSession = create<SessionState>((set, get) => ({
       // not started into a no-op. Reporting its failure would describe a cache about to be destroyed.
       await pendingSessionCache.catch(() => {})
       await localDb.clear()
+      // Feature-owned localStorage snapshots (the music queue and preferences) belong to the account
+      // that just left; the reload would otherwise reveal them to the next login on this browser.
+      window.dispatchEvent(new Event('inkstone:session-cleared'))
       set({ status: 'anonymous', user: null, settings: DEFAULT_SETTINGS })
       location.reload()
     })()

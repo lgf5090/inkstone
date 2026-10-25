@@ -42,7 +42,12 @@ import { musicText } from './labels'
 const MAX_ACTIVE_FONT_SIZE = 56
 const ACTIVE_LINE_SCALE = 1.35
 
-export function FullLyrics(): ReactElement {
+export function FullLyrics(): ReactElement | null {
+  const open = useMusicUi((state) => state.lyricsOpen)
+  return open ? <FullLyricsLayer /> : null
+}
+
+function FullLyricsLayer(): ReactElement {
   const open = useMusicUi((state) => state.lyricsOpen)
   const setLyricsOpen = useMusicUi((state) => state.setLyricsOpen)
   const current = useMusicPlayer(selectCurrentTrack)

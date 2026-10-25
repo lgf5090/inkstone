@@ -28,6 +28,7 @@ import {
   sanitizeEqSettings,
   type EqSettings,
 } from '../player/eq'
+import { musicAudioEngine } from '../player/engine'
 
 const STORAGE_KEY = IS_DEMO_MODE ? 'inkstone.demo.music.settings' : 'inkstone.music.settings'
 const SAVE_DELAY_MS = 600
@@ -246,7 +247,6 @@ export function normalizeMusicSettings(value: unknown): MusicSettings {
       5,
     )),
     downloadNameFormat: textOr(input.downloadNameFormat, defaults.downloadNameFormat, 200),
-    exportLyrics: booleanOr(input.exportLyrics, defaults.exportLyrics),
     autoPlay: booleanOr(input.autoPlay, defaults.autoPlay),
     singleTrackMode: oneOf(input.singleTrackMode, ['replace', 'append'] as const, defaults.singleTrackMode),
     pureMode: booleanOr(input.pureMode, defaults.pureMode),
@@ -393,6 +393,7 @@ export const useMusicSettings = create<MusicSettingsState>((set, get) => {
       const eq = sanitizeEqSettings({ ...get().local.eq, ...patch })
       set({ local: { ...get().local, eq } })
       applyEq(eq)
+      if (eq.enabled || eq.leveling) musicAudioEngine.enableEqualizer()
       writeLocal(get().local)
     },
 
@@ -410,9 +411,13 @@ export const useMusicSettings = create<MusicSettingsState>((set, get) => {
     },
 
     async loadServer() {
+      const startedAt = revision
       set({ serverStatus: 'loading', serverError: null, serverErrorDetail: null })
       try {
         const answer = await settingsRequest()
+        // An edit made while the first read was in flight owns the newer value; the load must not
+        // overwrite it with the server's older answer.
+        if (revision !== startedAt) return
         set({
           server: normalizeMusicSettings(answer.settings),
           serverStatus: 'idle',
@@ -420,6 +425,7 @@ export const useMusicSettings = create<MusicSettingsState>((set, get) => {
           serverErrorDetail: null,
         })
       } catch (error) {
+        if (revision !== startedAt) return
         set({
           serverStatus: 'error',
           serverError: MUSIC_SETTINGS_ERROR_KEYS.load,

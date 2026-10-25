@@ -45,6 +45,7 @@ import {
   updateMediaSessionPosition,
 } from '../player/media-session'
 import { MUSIC_RATE_RANGE, MUSIC_VOLUME_RANGE, useMusicSettings } from './settings'
+import { useMusicLibrary } from './library'
 
 const STORAGE_KEY = IS_DEMO_MODE ? 'inkstone.demo.music.player' : 'inkstone.music.player'
 
@@ -100,6 +101,8 @@ export interface MusicPlayerState {
   consecutiveFailures: number
   /** A restored queue waits for a press: autoplay policy is not a failure to hide. */
   awaitingGesture: boolean
+  /** The provider only offered a trial clip for the current track. */
+  preview: boolean
   /** The URL the current track is (or would be) loaded from. */
   sourceUrl: string
   setQueue: (tracks: readonly MusicTrack[], options?: SetQueueOptions) => MusicTrack | null
@@ -273,15 +276,19 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
       error: null,
       errorDetail: null,
       awaitingGesture: false,
+      preview: false,
     })
-    // A track picked from search or a chart has catalog metadata but no local row yet. The stream
-    // and cover routes resolve by provider identity, so persisting the snapshot first is what makes
-    // "press a search result" work without adding it to the library by hand.
-    try {
-      await musicApi.upsertTracks([track])
-    } catch (error) {
-      console.warn('[inkstone] Music track metadata could not be saved before playback:', error)
+    // A track opened from discovery has no library id yet; saving the snapshot is what lets the
+    // stream and cover routes find it. An already-saved track is not written again: the queue's copy
+    // may be older than the reader's edited metadata, and preservation is the server's default then.
+    if (track.updatedAt === 0) {
+      try {
+        await musicApi.upsertTracks([track])
+      } catch (error) {
+        console.warn('[inkstone] Music track metadata could not be saved before playback:', error)
+      }
     }
+    if (request !== generation) return false
     try {
       await musicAudioEngine.play({
         url: sourceUrl,
@@ -290,9 +297,24 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
         volume: get().volume,
         muted: get().muted,
         rate: get().rate,
+        equalizer: useMusicSettings.getState().local.eq.enabled
+          || useMusicSettings.getState().local.eq.leveling,
       })
       if (request !== generation) return false
       set({ status: 'playing', consecutiveFailures: 0, error: null, errorDetail: null })
+      // One place records a play, so leaving and re-entering the music tab (or the floating player
+      // remounting) cannot append the same listen again. The library still deduplicates within 30s.
+      void useMusicLibrary.getState().recordHistory({ track, contextType: 'player' })
+      if (track.provider === 'netease' && !track.r2Key) {
+        // The audio element cannot read a response header, so a concurrent HEAD names a preview.
+        // It does not gate playback; the badge appears when the answer arrives.
+        void fetch(sourceUrl, { method: 'HEAD' }).then((response) => {
+          if (request !== generation) return
+          if (response.headers.get('x-music-free-trial') === '1') set({ preview: true })
+        }).catch((error: unknown) => {
+          console.warn('[inkstone] Music preview probe failed:', error)
+        })
+      }
       syncMediaSession(get())
       return true
     } catch (error) {
@@ -405,6 +427,7 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
     errorDetail: null,
     consecutiveFailures: 0,
     awaitingGesture: false,
+    preview: false,
     sourceUrl: '',
 
     setQueue(tracks, options = {}) {
@@ -427,6 +450,7 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
         sourceUrl: track ? streamUrlFor(track) : '',
         error: null,
         errorDetail: null,
+        preview: false,
         consecutiveFailures: 0,
         awaitingGesture: false,
       })
@@ -440,6 +464,7 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
     async playTrack(track, options = {}) {
       if (!track || !track.id) return false
       const state = get()
+      const preferences = useMusicSettings.getState().server
       let queue: MusicQueue
       if (options.queue) {
         // A page can hand the list it rendered with a track that arrived later (a recommendation,
@@ -454,25 +479,29 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
           ...state.queue,
           index: state.queue.tracks.findIndex((entry) => entry.id === track.id),
         }
+      } else if (preferences.singleTrackMode === 'append') {
+        const appended = appendTrack(state.queue, track)
+        queue = { ...appended, index: Math.max(0, appended.tracks.findIndex((entry) => entry.id === track.id)) }
       } else {
-        const inserted = addNextTrack(state.queue, track)
-        queue = { ...inserted, index: Math.max(0, inserted.tracks.findIndex((entry) => entry.id === track.id)) }
+        queue = createQueue({ tracks: [track], mode: state.queue.mode, trackId: track.id })
       }
       generation++
+      if (!preferences.autoPlay) musicAudioEngine.stop()
       set({
         queue,
-        status: 'loading',
+        status: preferences.autoPlay ? 'loading' : 'paused',
         positionMs: 0,
         durationMs: track.durationMs,
         sourceUrl: options.sourceUrl ?? streamUrlFor(track),
         error: null,
         errorDetail: null,
         consecutiveFailures: 0,
-        awaitingGesture: false,
+        awaitingGesture: !preferences.autoPlay,
+        preview: false,
       })
       persistPlayer(queue, 0)
       syncMediaSession(get())
-      return playCurrent()
+      return preferences.autoPlay ? playCurrent() : false
     },
 
     async next(reason = 'user') {
@@ -515,7 +544,10 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
         return true
       }
       set({ consecutiveFailures: 0, error: null, errorDetail: null })
-      return playCurrent()
+      // A restored queue is paused with its position saved but no element source yet; pressing play
+      // has to start where the reader left off, not at zero.
+      const resumeAt = !musicAudioEngine.hasSource() && state.positionMs > 0 ? state.positionMs : undefined
+      return playCurrent(resumeAt)
     },
 
     pause() {
@@ -578,8 +610,8 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
       const removal = removeTrackFromQueue(state.queue, trackId)
       if (!removal.found) return false
       const wasActive = state.status === 'playing' || state.status === 'loading'
-      generation++
       if (!removal.queue.tracks.length) {
+        generation++
         musicAudioEngine.stop()
         set({
           queue: removal.queue,
@@ -597,6 +629,7 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
       }
       const track = currentTrack(removal.queue)
       if (removal.removedCurrent) {
+        generation++
         musicAudioEngine.stop()
         set({
           queue: removal.queue,
@@ -693,6 +726,7 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
           muted: local.muted,
           rate: local.rate,
           status: 'idle',
+          preview: false,
         })
         return false
       }
@@ -713,6 +747,7 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
         errorDetail: null,
         consecutiveFailures: 0,
         awaitingGesture: Boolean(track),
+        preview: false,
       })
       useMusicSettings.getState().setMode(queue.mode)
       syncMediaSession(get())

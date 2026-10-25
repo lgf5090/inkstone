@@ -23,6 +23,7 @@ import { SongList } from '../components/SongList'
 import { musicText } from '../components/labels'
 import { musicPathFor } from '../music-address'
 import { useMusicQuery } from '../query'
+import { useMusicSettings } from '../store/settings'
 import { DetailHeroSkeleton } from './parts/Hero'
 import { CardGridSkeleton, MusicCard } from './parts/MediaCards'
 import { MusicPageBody, PageError, TrackListSkeleton, musicErrorMessage } from './parts/PageState'
@@ -77,6 +78,7 @@ export function HomePage(): ReactElement {
   const artistsId = useId()
   const fmTitleId = useId()
   const connectTitleId = useId()
+  const pureMode = useMusicSettings((state) => state.server.pureMode)
   const home = useMusicQuery(() => musicApi.home(), [])
   const data = home.data
   const daily = data?.dailyTracks ?? []
@@ -87,10 +89,12 @@ export function HomePage(): ReactElement {
   const connected = Boolean(data?.fmEnabled)
   const hasContent = connected
     || daily.length > 0
-    || recommended.length > 0
-    || albums.length > 0
-    || artists.length > 0
-    || newTracks.length > 0
+    || (!pureMode && (
+      recommended.length > 0
+      || albums.length > 0
+      || artists.length > 0
+      || newTracks.length > 0
+    ))
   const pageTitle = (
     <h1 className="music-section-header__title">{musicText('music.page.home')}</h1>
   )
@@ -143,7 +147,7 @@ export function HomePage(): ReactElement {
   }
 
   const dailyHero = daily.length > 0
-  const featured = dailyHero ? null : recommended[0]
+  const featured = dailyHero || pureMode ? null : recommended[0]
   const hero = dailyHero ? (
     <section className="music-hero" aria-label={musicText('music.home.daily.eyebrow')}>
       <button
@@ -300,7 +304,7 @@ export function HomePage(): ReactElement {
         aside
       )}
 
-      {recommended.length > 0 && (
+      {!pureMode && recommended.length > 0 && (
         <section aria-labelledby={playlistsId}>
           <SectionHeader id={playlistsId} title={musicText('music.home.section.playlists')} />
           <div className="music-card-grid">
@@ -317,7 +321,7 @@ export function HomePage(): ReactElement {
         </section>
       )}
 
-      {albums.length > 0 && (
+      {!pureMode && albums.length > 0 && (
         <section aria-labelledby={albumsId}>
           <SectionHeader id={albumsId} title={musicText('music.home.section.new_albums')} />
           <div className="music-card-grid">
@@ -338,7 +342,7 @@ export function HomePage(): ReactElement {
         </section>
       )}
 
-      {newTracks.length > 0 && (
+      {!pureMode && newTracks.length > 0 && (
         <section aria-labelledby={tracksId}>
           <SectionHeader id={tracksId} title={musicText('music.home.section.new_tracks')} />
           <SongList
@@ -348,7 +352,7 @@ export function HomePage(): ReactElement {
         </section>
       )}
 
-      {artists.length > 0 && (
+      {!pureMode && artists.length > 0 && (
         <section aria-labelledby={artistsId}>
           <SectionHeader id={artistsId} title={musicText('music.home.section.hot_artists')} />
           <div className="music-card-grid">

@@ -50,8 +50,11 @@ function loadLibrary(): Promise<void> {
 export function FavoritesPage(): ReactElement {
   const [sort, setSort] = useState<FavoriteSort>('recent')
   const [downloading, setDownloading] = useState(false)
+  const [renderLimit, setRenderLimit] = useState(200)
   const headingId = useId()
   const favorites = useMusicLibrary((state) => state.favorites)
+  const favoritesTotal = useMusicLibrary((state) => state.favoritesTotal)
+  const favoritesComplete = useMusicLibrary((state) => state.favoritesComplete)
   const requestDownload = useMusicLibrary((state) => state.requestDownload)
   const settings = useMusicSettings((state) => state.server)
 
@@ -63,7 +66,8 @@ export function FavoritesPage(): ReactElement {
     if (current.status === 'error') {
       throw new Error(current.errorDetail ?? musicText(current.error ?? 'music.library.error.load'))
     }
-    return current.favorites
+    await current.loadAllFavorites()
+    return useMusicLibrary.getState().favorites
   }, [])
 
   const sorted = useMemo(() => {
@@ -76,6 +80,8 @@ export function FavoritesPage(): ReactElement {
     list.sort((left, right) => Number(Boolean(right.pinnedAt)) - Number(Boolean(left.pinnedAt)))
     return list
   }, [favorites, sort])
+
+  const shown = useMemo(() => sorted.slice(0, renderLimit), [sorted, renderLimit])
 
   const shuffleAll = (): void => {
     if (sorted.length === 0) return
@@ -102,11 +108,22 @@ export function FavoritesPage(): ReactElement {
     }
     setDownloading(true)
     try {
-      const results = await Promise.allSettled(
-        downloadable.map((track) => requestDownload(track, settings.downloadQuality, settings.downloadFormat)),
-      )
-      const started = results.filter((result) => result.status === 'fulfilled').length
-      const failed = results.length - started
+      const queue = [...downloadable]
+      let started = 0
+      let failed = 0
+      const workers = Math.min(settings.downloadConcurrency, queue.length)
+      await Promise.all(Array.from({ length: workers }, async () => {
+        for (;;) {
+          const track = queue.shift()
+          if (!track) return
+          try {
+            await requestDownload(track, settings.downloadQuality, settings.downloadFormat)
+            started += 1
+          } catch {
+            failed += 1
+          }
+        }
+      }))
       useUi.getState().toast({
         title: started > 0
           ? musicText('music.favorites.download_started', { count: started })
@@ -123,7 +140,6 @@ export function FavoritesPage(): ReactElement {
 
   const playTrack = (track: MusicTrack, queue: readonly MusicTrack[]): void => {
     void useMusicPlayer.getState().playTrack(track, { queue })
-    void useMusicLibrary.getState().recordHistory({ track, contextType: 'favorites' })
   }
 
   const discoverHref = musicPathFor({ kind: 'home' })
@@ -136,7 +152,7 @@ export function FavoritesPage(): ReactElement {
             {musicText('music.page.favorites')}
           </h1>
           <p className="music-section-header__description">
-            {musicText('music.favorites.count', { count: favorites.length })}
+            {musicText('music.favorites.count', { count: favoritesTotal || favorites.length })}
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-[var(--sp-2)]">
@@ -188,6 +204,12 @@ export function FavoritesPage(): ReactElement {
         />
       )}
 
+      {!favoritesComplete && (
+        <p role="status" className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+          {musicText('music.favorites.partial', { loaded: favorites.length, total: favoritesTotal })}
+        </p>
+      )}
+
       {query.status === 'loading' && favorites.length === 0 ? (
         <SongList loading onPlay={() => undefined} />
       ) : query.status === 'error' && favorites.length === 0 ? (
@@ -208,7 +230,17 @@ export function FavoritesPage(): ReactElement {
           )}
         />
       ) : (
-        <SongList tracks={sorted} onPlay={playTrack} />
+        <>
+          <SongList tracks={shown} onPlay={playTrack} />
+          {shown.length < sorted.length && (
+            <Button
+              variant="secondary"
+              onClick={() => setRenderLimit((limit) => limit + 200)}
+            >
+              {musicText('music.favorites.load_more', { count: sorted.length - shown.length })}
+            </Button>
+          )}
+        </>
       )}
     </section>
   )

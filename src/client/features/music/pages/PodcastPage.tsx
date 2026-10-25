@@ -7,11 +7,10 @@ import type { MusicTrack } from '@shared/music/model'
 import { Empty } from '../../../components/feedback'
 import { Button } from '../../../components/primitives'
 import { musicApi } from '../api'
-import { musicPathFor } from '../music-address'
+import { musicPathFor, type MusicPage as MusicAddress } from '../music-address'
 import { useMusicQuery, type MusicQueryState } from '../query'
 import { useMusicLibrary } from '../store/library'
 import { useMusicPlayer } from '../store/player'
-import { useMusicUi } from '../store/ui'
 import { useUi } from '../../../store/ui'
 import { Cover } from '../components/Cover'
 import { Pager } from '../components/Pager'
@@ -31,8 +30,7 @@ import {
 const PAGE_SIZE = 30
 const DISCOVER_TAB = 'discover'
 
-export function PodcastPage(): ReactElement {
-  const page = useMusicUi((state) => state.page)
+export function PodcastPage({ page }: { page: MusicAddress }): ReactElement {
   if (page.kind === 'podcastDetail') return <PodcastDetailPage key={page.id} id={page.id} />
   return <PodcastListPage />
 }
@@ -250,7 +248,6 @@ function PodcastDetailPage({ id }: { id: string }): ReactElement {
 
   const playProgram = (track: MusicTrack, queue: readonly MusicTrack[]): void => {
     void useMusicPlayer.getState().playTrack(track, { queue })
-    void useMusicLibrary.getState().recordHistory({ track, contextType: 'radio', contextId: id })
     if (radio) {
       void useMusicLibrary.getState().touchRecent({
         kind: 'radio',

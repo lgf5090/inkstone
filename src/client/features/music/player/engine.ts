@@ -44,6 +44,8 @@ export interface MusicEngineLoadRequest {
   volume: number
   muted: boolean
   rate: number
+  /** Capture the element into Web Audio only when the equalizer or leveling is actually on. */
+  equalizer?: boolean
 }
 
 export class MusicPlaybackError extends Error {
@@ -145,6 +147,12 @@ export class MusicAudioEngine {
     return Boolean(this.audio?.src)
   }
 
+  /** Attach the graph to the element that is already playing, when EQ is switched on mid-track. */
+  enableEqualizer(): void {
+    if (!this.audio?.src) return
+    musicEqualizer.connect(this.audio, this.audio.src)
+  }
+
   async play(request: MusicEngineLoadRequest): Promise<void> {
     const audio = this.element()
     const generation = ++this.loadGeneration
@@ -155,9 +163,9 @@ export class MusicAudioEngine {
     audio.muted = this.muted
     audio.playbackRate = this.rate
 
-    // The equalizer needs the stream's origin before the element starts loading. A refusal is
-    // remembered by the equalizer and does not block playback.
-    musicEqualizer.connect(audio, request.url)
+    // Capture is a one-way door: if the response later redirects to another origin, Web Audio would
+    // render silence. Only attach the graph when the reader actually asked for EQ or leveling.
+    if (request.equalizer) musicEqualizer.connect(audio, request.url)
 
     const source = absoluteUrl(request.url)
     const sameSource = audio.src === source && !audio.error && audio.readyState > 0

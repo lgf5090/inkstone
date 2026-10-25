@@ -7,9 +7,9 @@ import type { MusicTrack } from '@shared/music/model'
 import { Empty } from '../../../components/feedback'
 import { Button } from '../../../components/primitives'
 import { musicApi } from '../api'
-import { musicPathFor } from '../music-address'
+import { musicPathFor, type MusicPage } from '../music-address'
 import { useMusicQuery } from '../query'
-import { useMusicUi } from '../store/ui'
+import { useMusicPlayer } from '../store/player'
 import { Pager } from '../components/Pager'
 import { SectionHeader } from '../components/SectionHeader'
 import { MusicTabs, type MusicTabItem } from '../components/Tabs'
@@ -30,8 +30,7 @@ const MV_AREAS = [
 
 type MvArea = (typeof MV_AREAS)[number]['value']
 
-export function MvPage(): ReactElement {
-  const page = useMusicUi((state) => state.page)
+export function MvPage({ page }: { page: MusicPage }): ReactElement {
   if (page.kind === 'mvDetail') return <MvDetailPage key={page.id} id={page.id} />
   return <MvListPage />
 }
@@ -176,6 +175,7 @@ function MvDetailPage({ id }: { id: string }): ReactElement {
               src={musicApi.streamUrl(query.data.track.id)}
               aria-label={musicText('music.mv.play_aria', { title: detail.mv.name })}
               className="aspect-video w-full"
+              onPlay={() => useMusicPlayer.getState().pause()}
               onError={(event) => {
                 setVideoFailed(true)
                 setVideoError(event.currentTarget.error?.message || null)
