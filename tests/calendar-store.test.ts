@@ -191,6 +191,9 @@ describe('event round trips', () => {
         '2026-10-26T10:00:00', Date.parse('2026-10-26T10:00:00Z'),
         1, 1,
       )
+    sqlite.prepare(
+      'INSERT INTO calendar_event_calendars (user_id, event_id, calendar_id, position) VALUES (?, ?, ?, 0)',
+    ).run(ALICE, 'legacy-task', calendar.id)
 
     const created = await store.createEvent(eventInput({ title: 'Ship it', kind: 'task' }))
     expect(created.kind).toBe('task')
