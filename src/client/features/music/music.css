@@ -427,6 +427,27 @@
   opacity: 1;
 }
 
+/* The favourites tools: one wrapping row on desktop, text-only buttons on a phone. */
+.music-favorites__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  min-inline-size: 0;
+}
+
+@media (max-width: 767px) {
+  .music-favorites__toolbar {
+    inline-size: 100%;
+    justify-content: flex-start;
+  }
+
+  .music-favorites__toolbar button > svg {
+    display: none;
+  }
+}
+
 /* The list's column names, aligned with the row grid rather than a second arrangement. */
 .music-songlist__head {
   display: grid;
@@ -666,7 +687,24 @@
     grid-template-columns: 24px 40px minmax(0, 1fr) 44px 52px;
   }
 
-  .music-songlist__head-album {
+  /* The library head has five surviving cells after album/source/size/duration are hidden; the
+     generic five-column rule would put the last one in an implicit column and pull the title out
+     of line with its rows. */
+  .music-songlist__head--library {
+    grid-template-columns: 18px 24px 40px minmax(0, 1fr) 52px;
+  }
+
+  .music-songlist__head-album,
+  .music-songlist__head--library .music-songlist__head-duration {
+    display: none;
+  }
+
+  /* A phone row keeps the title readable instead of squeezing it under the duration cell. */
+  .music-row--library .music-row__main {
+    grid-template-columns: 24px 40px minmax(0, 1fr);
+  }
+
+  .music-row--library .music-row__duration {
     display: none;
   }
 
