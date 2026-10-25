@@ -3,6 +3,7 @@ import { Temporal } from 'temporal-polyfill'
 import type { CalendarDto, CalendarEventDto } from '@shared/calendar/model'
 import {
   calendarSourceOf,
+  deriveDarkColor,
   eventCalendarIds,
   eventDateInZone,
   toCalendarType,
@@ -131,6 +132,12 @@ describe('calendar DTO mapping', () => {
     expect(calendar.source).toBe('ics')
     expect(calendar.colors.eventColor).toBeTruthy()
     expect(calendar.darkColors?.eventColor).toBeTruthy()
+  })
+
+  it('derives a storable dark colour for palette entries whose dark event colour is rgba', () => {
+    for (const color of ['#3b82f6', '#f59e0b']) {
+      expect(deriveDarkColor(color)).toMatch(/^#[0-9a-f]{6}$/i)
+    }
   })
 
   it('gives a search hit its calendar line colour', () => {

@@ -196,7 +196,7 @@ export function toCalendarType(dto: CalendarDto): CalendarType {
 
 /** The companion dark colour the API stores beside a light calendar colour. */
 export function deriveDarkColor(color: string): string {
-  return getCalendarColorsForHex(color).darkColors?.eventColor ?? color
+  return getCalendarColorsForHex(color).darkColors?.lineColor ?? color
 }
 
 /** DayFlow and the provider mappers label sources for people; the API stores a small enum. */

@@ -315,7 +315,9 @@ function toEventDto(row: EventRow, calendarIds: readonly string[]): CalendarEven
         ...(completedAt ? { completedAt } : {}),
         ...(priority ? { priority } : {}),
       }
-    : null
+    : asKind(row.kind) === 'task'
+      ? { completed: false }
+      : null
   const conference = row.conference_json ? parseStoredJson(row.conference_json) : null
   return {
     id: row.id,

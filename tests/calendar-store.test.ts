@@ -181,6 +181,25 @@ describe('event round trips', () => {
     expect(await store.getEvent(created.id)).toEqual(created)
   })
 
+  it('answers a task event without task columns as an unfinished task', async () => {
+    sqlite.prepare(`INSERT INTO calendar_events
+      (user_id, id, title, kind, start_value, start_type, start_ms, end_value, end_type, end_ms, created_at, updated_at)
+      VALUES (?, ?, ?, 'task', ?, 'datetime', ?, ?, 'datetime', ?, ?, ?)`)
+      .run(
+        ALICE, 'legacy-task', 'Legacy task',
+        '2026-10-26T09:00:00', Date.parse('2026-10-26T09:00:00Z'),
+        '2026-10-26T10:00:00', Date.parse('2026-10-26T10:00:00Z'),
+        1, 1,
+      )
+
+    const created = await store.createEvent(eventInput({ title: 'Ship it', kind: 'task' }))
+    expect(created.kind).toBe('task')
+    expect(created.task).toEqual({ completed: false })
+    expect(await store.getEvent(created.id)).toEqual(created)
+
+    expect((await store.getEvent('legacy-task'))?.task).toEqual({ completed: false })
+  })
+
   it('accepts an all-day event only with date values', async () => {
     const allDay = await store.createEvent(eventInput({
       title: 'Holiday',

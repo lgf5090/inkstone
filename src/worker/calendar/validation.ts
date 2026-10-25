@@ -411,6 +411,9 @@ export function parseEventPatch(value: unknown, options: ParseEventOptions = {})
     patch.task = parseTask(record.task, fallback)
     touched = true
   }
+  if (patch.kind === 'task' && patch.task === null) {
+    patch.task = { completed: false, completedAt: null, completedAtMs: null, priority: null }
+  }
   if ('conference' in record) {
     patch.conference = parseConference(record.conference)
     touched = true
