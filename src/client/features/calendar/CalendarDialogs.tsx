@@ -10,6 +10,7 @@ import { AlertTriangle } from 'lucide-react'
 import type { CalendarDto, CalendarGroupDto } from '@shared/calendar/model'
 import { MAX_ICS_BYTES } from '@shared/calendar/model'
 import { t } from '../../lib/i18n'
+import { isImeComposing } from '../../lib/ime'
 import { useUi } from '../../store/ui'
 import { Button } from '../../components/primitives'
 import { Modal } from '../../components/overlay'
@@ -145,6 +146,7 @@ export function CalendarFormDialog({ open, mode, calendar, groups, defaultGroupI
             placeholder={t('calendar.calendar.name_placeholder')}
             onChange={(event) => setName(event.target.value)}
             onKeyDown={(event) => {
+              if (isImeComposing(event)) return
               if (event.key === 'Enter') {
                 event.preventDefault()
                 void submit()
@@ -239,6 +241,7 @@ export function GroupDialog({ open, mode, group, onClose, onSaved }: GroupDialog
             placeholder={t('calendar.group.name_placeholder')}
             onChange={(event) => setName(event.target.value)}
             onKeyDown={(event) => {
+              if (isImeComposing(event)) return
               if (event.key === 'Enter') {
                 event.preventDefault()
                 void submit()
@@ -565,6 +568,7 @@ export function SubscribeDialog({ open, onClose, onSaved }: SubscribeDialogProps
             placeholder="https://example.com/calendar.ics"
             onChange={(event) => setUrl(event.target.value)}
             onKeyDown={(event) => {
+              if (isImeComposing(event)) return
               if (event.key === 'Enter') {
                 event.preventDefault()
                 void submit()

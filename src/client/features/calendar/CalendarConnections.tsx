@@ -4,7 +4,7 @@ import type { CalendarConnectionDto } from '@shared/calendar/model'
 import { t, useLocaleRepaint } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
 import { confirm, Modal } from '../../components/overlay'
-import { Select, SettingRow, Switch } from '../../components/form'
+import { Input, Select, SettingRow, Switch } from '../../components/form'
 import { useUi } from '../../store/ui'
 import * as api from './api'
 
@@ -181,41 +181,37 @@ export function CalendarConnections({ open, onClose, connections, onChanged }: C
               </Select>
             </Field>
             <Field label={t('calendar.connections.label')}>
-              <input
+              <Input
                 value={label}
                 onChange={event => setLabel(event.target.value)}
                 placeholder={t('calendar.connections.label_placeholder')}
-                className="h-8 rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2 text-[length:var(--text-12-5)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
               />
             </Field>
           </div>
           {preset === 'custom' && (
             <Field label={t('calendar.connections.server')} hint={t('calendar.connections.server_hint')}>
-              <input
+              <Input
                 type="url"
                 value={serverUrl}
                 onChange={event => setServerUrl(event.target.value)}
                 placeholder="https://calendar.example.com/"
-                className="h-8 rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2 text-[length:var(--text-12-5)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
               />
             </Field>
           )}
           <div className="grid grid-cols-2 gap-3">
             <Field label={t('calendar.connections.username')}>
-              <input
+              <Input
                 autoComplete="username"
                 value={username}
                 onChange={event => setUsername(event.target.value)}
-                className="h-8 rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2 text-[length:var(--text-12-5)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
               />
             </Field>
             <Field label={t('calendar.connections.password')} hint={t('calendar.connections.password_hint')}>
-              <input
+              <Input
                 type="password"
                 autoComplete="current-password"
                 value={password}
                 onChange={event => setPassword(event.target.value)}
-                className="h-8 rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2 text-[length:var(--text-12-5)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
               />
             </Field>
           </div>

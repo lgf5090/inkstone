@@ -10,6 +10,7 @@ import { Temporal } from 'temporal-polyfill'
 import type { Event, ICalendarApp } from '@dayflow/react'
 import { cn } from '../../lib/cn'
 import { useLocale, t } from '../../lib/i18n'
+import { narrowWeekdayLabels, type WeekStartDay } from '../../lib/time'
 import { useThemeDark } from '../../lib/hooks'
 import { IconButton } from '../../components/primitives'
 import { Tooltip } from '../../components/overlay'
@@ -115,13 +116,10 @@ export function MiniMonth({ app, currentDate, weekStart, timeZone, showEventDots
     [app, timeZone, dark, showEventDots, version],
   )
 
-  const weekdays = useMemo(() => {
-    const formatter = new Intl.DateTimeFormat(locale, { weekday: 'narrow' })
-    return Array.from({ length: 7 }, (_, index) => {
-      const day = new Date(2024, 0, 7 + ((weekStart + index) % 7))
-      return { key: index, label: formatter.format(day) }
-    })
-  }, [locale, weekStart])
+  const weekdays = useMemo(
+    () => narrowWeekdayLabels(locale, weekStart as WeekStartDay).map((label, index) => ({ key: index, label })),
+    [locale, weekStart],
+  )
 
   const monthLabel = useMemo(
     () => new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }).format(displayMonth),
