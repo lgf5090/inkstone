@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Temporal } from 'temporal-polyfill'
 import type { CalendarDto, CalendarEventDto } from '@shared/calendar/model'
 import {
+  calendarSourceOf,
   eventCalendarIds,
   eventDateInZone,
   toCalendarType,
@@ -140,6 +141,19 @@ describe('calendar DTO mapping', () => {
     })
     expect(result.title).toBe('Search me')
     expect(result.color).toBe('#123456')
+  })
+
+  it('keeps provider source and external identity when writing a remote event back', () => {
+    const event = toDayFlowEvent(eventDto({
+      source: 'caldav',
+      meta: { caldav: { uid: 'uid-1@example.com', href: '/cal/1.ics' } },
+    }))
+    const input = toEventInput(event, { fallbackTitle: 'Untitled', timeZone: 'Asia/Shanghai' })
+    expect(input.source).toBe('caldav')
+    expect(input.externalId).toBe('uid-1@example.com')
+    expect(calendarSourceOf('CalDAV')).toBe('caldav')
+    expect(calendarSourceOf('Google')).toBe('google')
+    expect(calendarSourceOf(undefined)).toBe('local')
   })
 
   it('projects zoned events onto the display timezone day', () => {
