@@ -113,3 +113,41 @@ export const ZH_CN_TOOLS = {
   "tools.password.import.confirm": "确认导入",
   "tools.password.import.success": "成功导入 {count} 个账号",
 }
+
+export const ZH_CN_PASSWORD_STRENGTH_LABELS = ['非常弱', '弱', '中等', '强', '非常强'] as const
+
+export const ZH_CN_PASSWORD_SUGGESTIONS: Record<string, string> = {
+  'Use a few words, avoid common phrases': '少词，避免常见短语',
+  'No need for symbols, digits, or uppercase letters': '不需要符号、数字或大写字母',
+  'Add another word or two. Uncommon words are better.': '建议添加1-2个不常用的单词',
+  'Use a longer keyboard pattern with more turns': '使用更长的键盘路径并增加转折',
+  'Avoid repeated words and characters': '避免重复的单词和字符',
+  'Avoid sequences': '避免连续字符（如123、abc）',
+  'Avoid recent years': '避免使用最近年份',
+  'Avoid years that are associated with you': '避免使用与你相关的年份',
+  'Avoid dates and years that are associated with you': '避免使用与你相关的日期和年份',
+  "Capitalization doesn't help very much": '大小写变化对安全性提升有限',
+  'All-uppercase is almost as easy to guess as all-lowercase': '全大写密码和全小写密码同样容易被猜中',
+  "Reversed words aren't much harder to guess": '反转单词并不会显著增加安全性',
+  "Predictable substitutions like '@' instead of 'a' don't help very much": '可预测的字符替换（如用\'@\'代替\'a\'）效果不佳',
+}
+
+export const ZH_CN_PASSWORD_WARNINGS: Record<string, string> = {
+  'This is a top-10 common password': '这是排名前10的常用弱密码',
+  'This is a top-100 common password': '这是排名前100的常用弱密码',
+  'This is a very common password': '这是非常常见的密码',
+  'Similar to a commonly used password': '与常用密码相似',
+  'A word by itself is easy to guess': '单字很容易被猜出',
+  'Names and surnames by themselves are easy to guess': '名字或姓氏很容易被猜出',
+  'Common names and surnames are easy to guess': '常见姓名很容易被猜出',
+  'Straight rows of keys are easy to guess': '键盘同排连续键很容易被猜出',
+  'Short keyboard patterns are easy to guess': '简短的键盘路径很容易被猜出',
+  'Repeats like "aaa" are easy to guess': '像"aaa"这样的重复字符很容易被猜出',
+  'Repeats like "abcabcabc" are only slightly harder to guess than "abc"': '像"abcabcabc"这样的重复模式很容易被猜出',
+  'Sequences like abc or 6543 are easy to guess': '像abc或6543这样的连续字符很容易被猜出',
+  'Recent years are easy to guess': '最近的年份很容易被猜出',
+  'Dates are easy to guess': '日期很容易被猜出',
+}
+
+export const ZH_CN_PASSWORD_LENGTH_SUGGESTION = '建议增长密码长度'
+
