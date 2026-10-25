@@ -43,6 +43,8 @@ const COVER_MIME_BY_EXTENSION: Record<string, string> = {
 const COVER_FETCH_TIMEOUT_MS = 15_000
 /** Raster formats only: an SVG from a cover host is markup, not a picture this route should relay. */
 const COVER_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif'])
+/** Netease's image CDN labels JPEG as `image/jpg`, which is not the registered `image/jpeg` type. */
+const COVER_MIME_ALIASES: Record<string, string> = { 'image/jpg': 'image/jpeg' }
 
 export const musicFileRoutes = new Hono<AppBindings>()
 
@@ -281,7 +283,8 @@ async function proxiedProviderCoverResponse(url: string, request: Request): Prom
     await discardBody(upstream)
     throw new ApiError(502, 'music_source_unavailable', 'The cover could not be loaded')
   }
-  const contentType = (upstream.headers.get('content-type') ?? '').split(';', 1)[0]?.trim().toLowerCase() ?? ''
+  const declaredType = (upstream.headers.get('content-type') ?? '').split(';', 1)[0]?.trim().toLowerCase() ?? ''
+  const contentType = COVER_MIME_ALIASES[declaredType] ?? declaredType
   if (!COVER_MIME_TYPES.has(contentType)) {
     await discardBody(upstream)
     throw new ApiError(502, 'music_source_unavailable', 'The cover source did not return a supported image')

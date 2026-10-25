@@ -87,6 +87,11 @@ export class NeteaseLogin {
     const message = text(body.message) || status
     if (status !== 'confirmed') return { status, message, cookie: '', account: null }
 
+    // The mobile eapi answer may carry the fresh session in the JSON body as well as in
+    // `Set-Cookie`; absorbing both keeps a confirmed scan from losing its credential.
+    const bodyCookie = text(body.cookie) || text(record(body.data).cookie)
+    if (bodyCookie) this.transport.absorbCookie(bodyCookie)
+
     const account = await this.transport.readAccount()
     if (!account) {
       throw new MusicProviderError(

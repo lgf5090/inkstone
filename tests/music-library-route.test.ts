@@ -331,6 +331,12 @@ describe('music routes', () => {
           headers: { 'content-type': 'image/svg+xml' },
         })
       }
+      if (String(input).includes('photo.jpg')) {
+        return new Response(new Uint8Array([4, 5, 6]), {
+          status: 200,
+          headers: { 'content-type': 'image/jpg; charset=UTF-8' },
+        })
+      }
       return new Response(new Uint8Array([1, 2, 3]), {
         status: 200,
         headers: { 'content-type': 'image/webp', 'etag': '"cover-1"' },
@@ -344,6 +350,14 @@ describe('music routes', () => {
     expect([...(new Uint8Array(await first.arrayBuffer()))]).toEqual([1, 2, 3])
     const revalidated = await app.request(address, { headers: { 'if-none-match': '"cover-1"' } }, env())
     expect(revalidated.status).toBe(304)
+
+    const neteaseJpg = await app.request(
+      `/api/music/media/provider-cover?url=${encodeURIComponent('https://cdn.example.test/photo.jpg')}`,
+      {},
+      env(),
+    )
+    expect(neteaseJpg.status).toBe(200)
+    expect(neteaseJpg.headers.get('content-type')).toBe('image/jpeg')
 
     const markup = await app.request(
       `/api/music/media/provider-cover?url=${encodeURIComponent('https://cdn.example.test/markup.svg')}`,
