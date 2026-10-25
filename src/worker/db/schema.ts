@@ -53,6 +53,12 @@ import {
   TOOLS_PASSWORD_REQUIRED_TABLES,
   TOOLS_PASSWORD_SCHEMA_STATEMENTS,
 } from '../tools/password/schema'
+import {
+  TOOLS_QRCODE_REQUIRED_COLUMNS,
+  TOOLS_QRCODE_REQUIRED_INDEXES,
+  TOOLS_QRCODE_REQUIRED_TABLES,
+  TOOLS_QRCODE_SCHEMA_STATEMENTS,
+} from '../tools/qrcode/schema'
 
 const BACKUP_ARCHIVES_TABLE = `CREATE TABLE IF NOT EXISTS backup_archives (
   user_id TEXT NOT NULL,
@@ -613,6 +619,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   ...EMAIL_SCHEMA_STATEMENTS,
   ...MUSIC_SCHEMA_STATEMENTS,
   ...TOOLS_PASSWORD_SCHEMA_STATEMENTS,
+  ...TOOLS_QRCODE_SCHEMA_STATEMENTS,
 ]
 
 export interface SchemaMigration {
@@ -2587,6 +2594,10 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 170,
     statements: TOOLS_PASSWORD_SCHEMA_STATEMENTS,
   },
+  {
+    version: 171,
+    statements: TOOLS_QRCODE_SCHEMA_STATEMENTS,
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -2653,6 +2664,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   ...EMAIL_REQUIRED_COLUMNS,
   ...MUSIC_REQUIRED_COLUMNS,
   ...TOOLS_PASSWORD_REQUIRED_COLUMNS,
+  ...TOOLS_QRCODE_REQUIRED_COLUMNS,
 } as const
 
 export const REQUIRED_TABLES = [
@@ -2711,6 +2723,7 @@ export const REQUIRED_TABLES = [
   ...EMAIL_REQUIRED_TABLES,
   ...MUSIC_REQUIRED_TABLES,
   ...TOOLS_PASSWORD_REQUIRED_TABLES,
+  ...TOOLS_QRCODE_REQUIRED_TABLES,
 ] as const
 
 export const REQUIRED_INDEXES = [
@@ -2784,6 +2797,7 @@ export const REQUIRED_INDEXES = [
   ...EMAIL_REQUIRED_INDEXES,
   ...MUSIC_REQUIRED_INDEXES,
   ...TOOLS_PASSWORD_REQUIRED_INDEXES,
+  ...TOOLS_QRCODE_REQUIRED_INDEXES,
 ] as const
 
 
