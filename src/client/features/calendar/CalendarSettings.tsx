@@ -12,6 +12,7 @@ import { Button } from '../../components/primitives'
 import { Modal } from '../../components/overlay'
 import { Input, Segmented, Select, SettingRow, Switch } from '../../components/form'
 import { DAY_HOUR_HEIGHTS } from './model'
+import { supportedTimeZones } from './timezone'
 
 interface CalendarSettingsProps {
   open: boolean
@@ -30,16 +31,6 @@ const WEEKDAY_KEYS = [
   'calendar.settings.weekday_5',
   'calendar.settings.weekday_6',
 ] as const
-
-function supportedTimeZones(): string[] {
-  try {
-    return Intl.supportedValuesOf('timeZone').slice().sort((a, b) => a.localeCompare(b))
-  } catch {
-    // Older engines without `supportedValuesOf` still have the account's own zone; the select would
-    // otherwise be empty and the reader would be unable to save a valid preference.
-    return [Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC']
-  }
-}
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (

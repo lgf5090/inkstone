@@ -1269,8 +1269,6 @@ const allowed = new Map([
   ]],
   ["src/client/features/calendar/CalendarSettings.tsx", [
     "/**\n * Account-wide calendar preferences. The draft is saved as a whole, because the API stores the full\n * preference object and a partial write would silently reset the fields this panel does not show.\n */",
-    "// Older engines without `supportedValuesOf` still have the account's own zone; the select would",
-    "// otherwise be empty and the reader would be unable to save a valid preference.",
     "// Reset on open only: a metadata refresh while the panel is open must not discard the draft.",
   ]],
   ["src/client/features/calendar/CalendarSidebar.tsx", [
