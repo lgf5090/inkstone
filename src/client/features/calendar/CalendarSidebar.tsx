@@ -63,6 +63,15 @@ function toastFailure(title: string, error: unknown): void {
   })
 }
 
+function feedHost(raw: string | null): string | null {
+  if (!raw) return null
+  try {
+    return new URL(raw).hostname
+  } catch {
+    return null
+  }
+}
+
 function safeFileName(name: string): string {
   const cleaned = name.replaceAll(/[\\/?%*:|"<>\u0000-\u001f]/g, '_').trim().slice(0, 120)
   return cleaned || 'calendar'
@@ -283,7 +292,7 @@ export function CalendarSidebar({
     const calendar = metaById.get(subscription.calendarId)
     const confirmed = await confirm({
       title: t('calendar.subscription.remove_title'),
-      description: t('calendar.subscription.remove_body', { name: calendar?.name ?? subscription.url ?? '' }),
+      description: t('calendar.subscription.remove_body', { name: calendar?.name ?? feedHost(subscription.url) ?? subscription.kind }),
       confirmLabel: t('calendar.subscription.remove'),
       tone: 'danger',
     })
@@ -502,7 +511,7 @@ export function CalendarSidebar({
                         label={<span className="sr-only">{t('calendar.subscription.enabled')}</span>}
                       />
                       <Rss size={12} className="shrink-0 text-[var(--text-quaternary)]" aria-hidden="true" />
-                      <span className="min-w-0 flex-1 truncate">{calendar?.name ?? subscription.url ?? subscription.kind}</span>
+                      <span className="min-w-0 flex-1 truncate">{calendar?.name ?? feedHost(subscription.url) ?? subscription.kind}</span>
                       {subscription.kind === 'ics' && (
                         <>
                           <IconButton
