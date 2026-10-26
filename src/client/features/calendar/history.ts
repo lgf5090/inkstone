@@ -44,8 +44,12 @@ export class CalendarEditHistory {
     this.redoStack = []
   }
 
-  undo(app: ICalendarApp): boolean {
-    const entry = this.undoStack.pop()
+  undo(app: ICalendarApp, entryId?: string): boolean {
+    const index = entryId === undefined
+      ? this.undoStack.length - 1
+      : this.undoStack.map(entry => entry.id).lastIndexOf(entryId)
+    if (index < 0) return false
+    const [entry] = this.undoStack.splice(index, 1)
     if (!entry) return false
     this.apply(app, entry.before, entry.after)
     this.redoStack.push(entry)

@@ -641,9 +641,9 @@ export function CalendarSurface({ meta, initialEvents, initialRange, onRefreshMe
       },
       onRecurringEdit: () => useUi.getState().toast({ title: t('calendar.error.recurring'), tone: 'warning' }),
       onReadOnlyEdit: () => useUi.getState().toast({ title: t('calendar.event.delete_read_only'), tone: 'warning' }),
-      onDeleted: (_id, title) => {
+      onDeleted: (id, title) => {
         toastWithUndo(title ? t('calendar.event.deleted_named', { title }) : t('calendar.event.deleted'), () => {
-          if (!history.undo(app)) useUi.getState().toast({ title: t('calendar.history.empty') })
+          if (!history.undo(app, id)) useUi.getState().toast({ title: t('calendar.history.empty') })
         })
       },
     })
