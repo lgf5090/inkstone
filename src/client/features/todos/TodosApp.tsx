@@ -42,7 +42,8 @@ import { RunningTimerBar } from './running-timer'
 import { FocusLayer } from './FocusOverlay'
 import { TodoKeysHelp } from './TodoKeysHelp'
 import { TODO_ROW_MENU_WIDTH, useTodoShortcuts } from './use-todo-shortcuts'
-import { TodoContent, surfaceBadge, surfacesFor, surfacesForPhoneMore } from './views/registry'
+import { TodoContent } from './views/registry'
+import { surfaceBadge, surfacesFor, surfacesForPhoneMore } from './views/nav'
 
 type Page = 'main' | 'lists'
 
