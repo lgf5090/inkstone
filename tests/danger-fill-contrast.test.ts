@@ -8,6 +8,8 @@ import { TOKENS_PATH, themeVars } from '../scripts/lib/theme-tokens.mjs'
 const AA_NORMAL = 4.5
 const TOKENS = fs.readFileSync(TOKENS_PATH, 'utf8')
 const DANGER_INK = '--danger-contrast'
+/** The white the two themes used to paint on a danger fill, in the same triple the gate compares. */
+const WHITE = [255, 255, 255]
 
 /**
  * The ink a danger fill paints has to clear AA in both themes, judged from the declarations.
@@ -53,9 +55,8 @@ describe('the ink painted on a danger fill (tokens.css declarations, since jsdom
 
   it('would have failed the white it replaced', () => {
     // The positive control: a gate that cannot fail the way the theme used to be is measuring nothing.
-    const white = parseColor('#ffffff').rgb
-    expect(contrastRatio(white, dangerOf('dark')), 'white on the dark danger fill').toBeLessThan(AA_NORMAL)
-    expect(contrastRatio(white, dangerOf('light')), 'white on the light danger fill').toBeGreaterThanOrEqual(AA_NORMAL)
+    expect(contrastRatio(WHITE, dangerOf('dark')), 'white on the dark danger fill').toBeLessThan(AA_NORMAL)
+    expect(contrastRatio(WHITE, dangerOf('light')), 'white on the light danger fill').toBeGreaterThanOrEqual(AA_NORMAL)
   })
 
   it('declares the ink in both themes rather than inheriting one value', () => {
