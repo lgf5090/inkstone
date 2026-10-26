@@ -61,6 +61,7 @@ import { musicRoutes } from './routes/music'
 import { toolsPasswordRoutes } from './routes/tools-password'
 import { toolsQrcodeRoutes } from './routes/tools-qrcode'
 import { toolsColorRoutes } from './routes/tools-color'
+import { toolsIdPhotoRoutes } from './routes/tools-id-photo'
 import { musicSharePageRoutes, musicSharePublicRoutes } from './routes/music-share'
 import { emailSearchesRoutes } from './routes/email-searches'
 import { emailTemplatesRoutes } from './routes/email-templates'
@@ -197,6 +198,7 @@ export function createApp() {
   app.route('/api/tools/password', toolsPasswordRoutes)
   app.route('/api/tools/qrcode', toolsQrcodeRoutes)
   app.route('/api/tools/color', toolsColorRoutes)
+  app.route('/api/tools/id-photo', toolsIdPhotoRoutes)
   app.route('/api/assistant', assistantRoutes)
   app.route('/api/excalidraw/ai', aiProxyRoutes)
   app.route('/api/excalidraw/library', excalidrawLibraryRoutes)
