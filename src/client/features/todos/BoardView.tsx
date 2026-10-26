@@ -516,7 +516,12 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
                   ? <ListIcon icon={card.icon} size={14} />
                   : <ListChecks size={14} style={{ color: card.color }} />}
                 <span className="min-w-0 flex-1 truncate text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">{card.name}</span>
-                <span className="shrink-0 text-[length:var(--text-10-5)] tabular-nums text-[var(--text-tertiary)]">{card.done}/{card.open + card.done}</span>
+                {/* The fraction answers "how much of this list is done", and a list with no rows has not
+                    asked that question. `0/0` on an empty card is a number that means nothing sitting
+                    where a number would have meant something; the card's own empty body says the rest. */}
+                {card.open + card.done > 0 && (
+                  <span className="shrink-0 text-[length:var(--text-10-5)] tabular-nums text-[var(--text-tertiary)]">{card.done}/{card.open + card.done}</span>
+                )}
                 <ChevronRight size={12} className="shrink-0 text-[var(--text-quaternary)]" />
               </button>
 
