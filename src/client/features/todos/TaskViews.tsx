@@ -4,22 +4,61 @@
  * They share one grouped list because they differ only in how the page is split and what the group
  * headings say. Each view owns its own split — the plan groups by when, completed by the day it was
  * finished — and hands the result here.
+ *
+ * What is empty and what is broken is decided here rather than by each view, because the two answers
+ * look the same on screen and mean different things to the reader: one is a collection with nothing in
+ * it, the other is a read that did not arrive.
  */
 
 import { useMemo, useRef } from 'react'
 import { localDate } from '@shared/assistant-time'
+import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { useMediaQuery } from '../../lib/hooks'
+import { Button } from '../../components/primitives'
 import { Empty } from '../../components/feedback'
 import { SelectMenu } from '../../components/select-menu'
 import { TodoPageFooter } from './TodoPageFooter'
 import { OverdueShift } from './OverdueShift'
 import { useTodos } from './store'
-import { TaskCard, useTaskMoves, type TaskMoveControls } from './TaskCard'
+import {
+  TaskRow,
+  useListingBounds,
+  useTaskMoves,
+  useTaskRowActions,
+  type TaskMoveControls,
+} from './TaskCard'
 import { LIST_COLUMNS_QUERY, ListLayoutToggle, StatusBoard, useBoardGroup, useListLayout } from './status-board'
 import { groupByPlan, groupBySection, groupCompletedAndAbandoned, groupByList, type TaskGroup, type PlanGroupKey } from './task-groups'
 import type { MessageKey } from '@shared/locales/en-US'
 import { type TodoTask } from '@shared/todos/model'
+
+/**
+ * The width a reading page is drawn in.
+ *
+ * The organizer page keeps its rows to 640 and the statistics to 1080; this family's text-densest member
+ * sits between them, because a row reads a short title and one line of note, and the control that
+ * belongs to it has to stay within the travel of the eye that just read the title. The board is not in
+ * this measure — its cards are columns to place work in, not lines to read.
+ */
+const READING_COLUMN = 'mx-auto w-full max-w-[820px]'
+
+/**
+ * The read failed, said as itself.
+ *
+ * A broken read used to leave the page to its empty branch, which told the reader the collection holds
+ * nothing when the server only refused to say — two different facts, and only one of them is fixable by
+ * looking again. The words are the trash's and the habits page's: the store's own message and one retry
+ * that asks for the listing the same way the first read was asked.
+ */
+export function ListingFailure({ message, onRetry }: { message: string | null; onRetry: () => void }) {
+  return (
+    <div className="flex flex-col items-start gap-2 px-4 py-10">
+      <p role="alert" className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{message}</p>
+      <Button size="sm" variant="ghost" onClick={onRetry}>{t('common.retry')}</Button>
+    </div>
+  )
+}
 
 /**
  * Re-read grouped rows in the order the answer carried them.
@@ -61,12 +100,21 @@ export function GroupedTaskList({ groups, label, empty, onUnplan, canUnplan, mov
   const lists = useTodos((state) => state.lists)
   const dayEnd = useTodos((state) => state.dayEnd)
   const timezone = useTodos((state) => state.timezone)
-  const openEditor = useTodos((state) => state.openEditor)
-  const updateTask = useTodos((state) => state.updateTask)
+  const status = useTodos((state) => state.status)
+  const error = useTodos((state) => state.error)
+  const readAgain = useTodos((state) => state.load)
   const filtered = useTodos((state) => Boolean(
     state.query.trim() || state.dueFrom || state.dueTo || state.completedFrom || state.completedTo,
   ))
-  const bounds = { dayEnd, now: Date.now() }
+  const bounds = useListingBounds(dayEnd)
+  // One actions object for the page, so a row's props only move when the row's own reading does.
+  const actions = useTaskRowActions({ moveFor, unplan: onUnplan, canUnplan })
+
+  // Before the empty branch, because the two answers are not the same fact: a read that came back
+  // broken says so, rather than telling the reader this collection has nothing in it.
+  if (status === 'error') {
+    return <ListingFailure message={error} onRetry={() => { void readAgain() }} />
+  }
 
   if (!groups.length) {
     return (
@@ -81,7 +129,7 @@ export function GroupedTaskList({ groups, label, empty, onUnplan, canUnplan, mov
 
   return (
     <>
-      <div className="flex flex-col gap-4 px-3 pb-6 pt-2 md:px-5" role="list" aria-label={t('todo.a11y.task_list')}>
+      <div className={cn('flex flex-col gap-4 px-3 pb-6 pt-2 md:px-5', READING_COLUMN)} role="list" aria-label={t('todo.a11y.task_list')}>
         {groups.map((group) => (
           <section key={group.key} aria-label={label(group.key)}>
             <div className="mb-1.5 flex items-baseline justify-between px-1">
@@ -90,17 +138,14 @@ export function GroupedTaskList({ groups, label, empty, onUnplan, canUnplan, mov
             </div>
             <div className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-0.5 py-1">
               {group.tasks.map((task) => (
-                <TaskCard
+                <TaskRow
                   key={task.id}
                   task={task}
                   lists={lists}
                   bounds={bounds}
                   timezone={timezone}
+                  actions={actions}
                   showList={group.showList ?? showList}
-                  onOpen={() => openEditor({ id: task.id })}
-                  onStar={() => { void updateTask(task.id, { starred: !task.starred }) }}
-                  {...(moveFor?.(task) ? { move: moveFor(task)! } : {})}
-                  {...(onUnplan && (!canUnplan || canUnplan(task)) ? { onUnplan: () => onUnplan(task) } : {})}
                 />
               ))}
             </div>
@@ -108,7 +153,7 @@ export function GroupedTaskList({ groups, label, empty, onUnplan, canUnplan, mov
         ))}
       </div>
       {/* Outside the list, because the rows a page still owes is not itself one of the rows. */}
-      <div className="px-3 pb-16 md:px-5 md:pb-2">
+      <div className={cn('px-3 pb-16 md:px-5 md:pb-2', READING_COLUMN)}>
         <TodoPageFooter />
       </div>
     </>
