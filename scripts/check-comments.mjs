@@ -15848,10 +15848,15 @@ const allowed = new Map([
   ["src/client/features/tools/ToolsSidebar.tsx", [
     "/* First submodule: Password Vault (tools/password) */",
     "/* Group tree mounting slot */",
+    "// The lock sits beside the row, not inside it: a button cannot hold a button, and a `span`",
+    "// dressed up as one is reachable by mouse only.",
   ]],
   ["src/client/features/tools/password/AccountArea.tsx", [
     "/* Desktop side-by-side view */",
     "/* Mobile responsive view: either show list or show form */",
+  ]],
+  ["src/client/features/tools/password/AccountCard.tsx", [
+    "/* The row is a button and the star beside it is another: a `div` wearing a role could be neither\n          keyboard-reachable past the list nor described as the two controls it actually is. */",
   ]],
   ["src/client/features/tools/password/AccountForm.tsx", [
     "// 0 to 4",
@@ -15881,6 +15886,8 @@ const allowed = new Map([
     "// Filter based on search query (instant fuzzy/substring match)",
     "/* Top action toolbar */",
     "/* Account items list */",
+    "// Each row is a button, not an option: `role=\"listbox\"` promised options, and an option",
+    "// cannot hold the star control every card carries.",
   ]],
   ["src/client/features/tools/password/BackupSettingsModal.tsx", [
     "// Backups state",
@@ -15919,6 +15926,8 @@ const allowed = new Map([
     "/* Chinese IME composition warning */",
     "/* Validation error feedback */",
     "/* 24-hour remember login checkbox */",
+    "// Enter accepts an input-method candidate rather than submitting, and the local composition flag",
+    "// says nothing about the keystroke that just committed one — so the shared helper answers.",
   ]],
   ["src/client/features/tools/password/ExportModal.tsx", [
     "// Verify master password",
@@ -15945,23 +15954,24 @@ const allowed = new Map([
   ["src/client/features/tools/password/GroupTreeNode.tsx", [
     "// 1. Account drag dropped onto this group",
     "// 2. Group drag dropped onto this group",
-    "/* Expand / Collapse Toggle Arrow */",
     "/* Folder Icon */",
     "/* Group Name */",
     "/* Account Count Badge */",
-    "/* Hover Action Buttons */",
     "/* Menu for \"More Actions\" button */",
     "/* Right Click Context Menu */",
     "/* Render Child Groups Recursively */",
+    "/* Expand / Collapse Toggle Arrow. A leaf keeps the space it would have taken, so the icons of a\n            branch and its children still line up. */",
+    "/* Selecting the group is a press on the row, so the row is a button and its controls are\n            siblings: a `div` that selected on click and held three buttons was mouse-only. */",
+    "/* Hover Action Buttons. No click handler: the row beside it is the press target now, so a tap\n            on a control cannot also select the group. */",
   ]],
   ["src/client/features/tools/password/ImportModal.tsx", [
     "// Check if text is block-formatted TXT",
     "// Fall back to standard CSV parsing",
     "/* Target Group Selector */",
-    "/* Drag and drop upload area */",
     "/* Direct Text Paste Area */",
     "/* Preview Section */",
     "/* Footer Actions */",
+    "/* Drag and drop upload area: a label whose control is the file input, so pressing anywhere on it\n            opens the picker without a handler imitating a click, and the keyboard reaches the input. */",
   ]],
   ["src/client/features/tools/password/PasswordApp.tsx", [
     "// Store modal states",
@@ -16002,6 +16012,7 @@ const allowed = new Map([
     "/* Search Input Bar */",
     "/* Results List or Empty State */",
     "/* Detail Form pane on desktop */",
+    "/* Same split as the account card: the row is a button, the star is its own control. */",
   ]],
   ["src/client/features/tools/password/Setting.tsx", [
     "// 1. Initialize vault",
@@ -16027,6 +16038,11 @@ const allowed = new Map([
     "// Before 300ms, not called yet",
     "// Fast forward debounce timer",
     "// MOCK_ACCOUNT_1 is favorite, MOCK_ACCOUNT_2 is not",
+    "// The star is a sibling of the row, not a control inside it: the press cannot reach the row's",
+    "// handler on the way out, which is what the next assertion is actually checking.",
+    "// Enter and Space are the browser's own activation for a button, so no keydown handler of ours is what",
+    "// puts the row in the tab order — and nothing here overrides that order.",
+    "// The press lands on the row button, not on the wrapper that only lays the row and its star out.",
   ]],
   ["src/client/features/tools/password/api.ts", [
     "// Ignored",
@@ -29884,11 +29900,12 @@ const allowed = new Map([
     "// A real table answers per chunk: only the chunk naming task-001 sees its link.",
     "// Only the page itself is asked about; no chunk of steps or tags runs for zero rows.",
     "// (The sweep's own SELECT is recorded too, so count the batch statements only.)",
-    "// Seven statements per 90-id chunk: six child tables — steps, tag links, reminders, the linked",
-    "// attachment rows, the time ledger and the task's history — and the tasks themselves. The two that",
-    "// arrived after this pin was written (the attachment link and the ledger) are the reason a count like",
-    "// this is worth reading rather than trusting: a child table left out of the sweep is an orphan no",
-    "// reader reaches, and this test is the only place that notices the list grew.",
+    "// Ten statements per 90-id chunk: eight child tables — steps, tag links, reminders, both ends of the",
+    "// dependency links, the attachment rows, the time ledger and the task's history — the promotion of the",
+    "// children of a purged task, and the tasks themselves. The dependency pair and that promotion arrived",
+    "// after this pin was first written, which is why a count like this is worth reading rather than",
+    "// trusting: a child table left out of the sweep is an orphan no reader reaches, and this test is the",
+    "// only place that notices the list grew.",
   ]],
   ["src/worker/assistant/store.ts", [
     "/**\n * Every read and write the assistant makes against D1.\n *\n * Two rules hold throughout, and both come from the difference between this app and the single-user\n * project it was ported from:\n *  - every statement carries `user_id`, so one reader's conversations, memories and schedules can\n *    never surface in another's assistant;\n *  - anything read out of a JSON column is decoded rather than trusted, because a row may have been\n *    written by an older build, restored from a backup file, or edited by hand — stored text is input.\n */",
@@ -34179,6 +34196,8 @@ const allowed = new Map([
     "// ---------------------------------------------------------------- Settings",
     "// ---------------------------------------------------------------- Backups",
     "// ---------------------------------------------------------------- Export",
+    "// An absent body means \"back up everything\"; a body that cannot be read is refused instead of",
+    "// defaulted, because defaulting one turned a broken request into a full backup nobody asked for.",
   ]],
   ["src/worker/routes/transfer.ts", [
     "// sha256/size were computed at persist time; re-downloading every matching",
@@ -40106,6 +40125,8 @@ const allowed = new Map([
     "// Read export TXT",
     "// 8. Export plain CSV",
     "// 9. When R2 is unavailable, returns 503",
+    "// A truncated upload used to be caught and defaulted, so the caller that meant \"back up this subset\"",
+    "// got a full snapshot instead. The route cannot honour a body it cannot read, so it says so.",
   ]],
   ["tests/touch-target-utility.test.ts", [
     "/**\n * The 24px pointer floor is one app-wide rule, not a feature's private skin.\n *\n * `.ink-tap-pad` laid the missing area over a control drawn smaller than WCAG 2.5.8's floor, and it began\n * life in `chat.css` while only the chat read it. A shared primitive that carries the class would then be\n * padded in one screen and not another, and the pad is invisible either way, so nothing on screen tells a\n * reader the switch in their settings sheet is a harder target than the same switch in a conversation.\n * The rule therefore lives in the sheet every surface loads, and a second copy is the bug this pins.\n */",
