@@ -166,6 +166,13 @@ calendarRoutes.post('/events', async (c) => {
   return c.json({ event: await s.createEvent(input) })
 })
 
+calendarRoutes.get('/events/:id', async (c) => {
+  readBudget(c.get('userId'))
+  const event = await store(c).getEvent(pathId(c))
+  if (!event) throw ApiError.notFound('Event not found')
+  return c.json({ event })
+})
+
 calendarRoutes.patch('/events/:id', async (c) => {
   const id = pathId(c)
   const s = store(c)

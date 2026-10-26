@@ -4,20 +4,22 @@
  * DayFlow announces every mutation through `subscribeEventChanges`; this is the only place those
  * announcements become API calls. Changes for the same event coalesce over a short debounce and are
  * then written one at a time, so a fast sequence of edits lands as its final state instead of a race
- * of PATCHes. A rejected write either refreshes the affected range (the server is authoritative) or
- * is retried once and then reported — never dropped silently.
+ * of PATCHes. A rejected write refreshes the affected range (the server is authoritative) or is
+ * retried once and then reported — never dropped silently. A write refused for staleness parks the
+ * edit and asks the reader which parts of it survive; see `resolveConflict`.
  */
 import type { Event, EventChange, ICalendarApp } from '@dayflow/react'
+import type { CalendarEventInput } from '@shared/calendar/model'
 import { ApiError } from '../../lib/api'
 import * as api from './api'
 import type { CalendarEditHistory } from './history'
-import { isRecurrenceOccurrence, toEventInput, toEventUpdates, eventCalendarIds } from './model'
+import { isRecurrenceOccurrence, toDayFlowEvent, toEventInput, toEventUpdates, eventCalendarIds } from './model'
 
 const DEBOUNCE_MS = 150
 const RETRY_DELAY_MS = 400
 const RECURRING_NOTICE_MS = 3000
-/** A conflict, a vanished event or a schema refusal all mean "reload; do not keep retrying". */
-const RELOAD_STATUSES = new Set([400, 404, 409])
+/** A vanished event or a schema refusal means "reload; do not keep retrying". */
+const RELOAD_STATUSES = new Set([400, 404])
 
 type Intent =
   | { kind: 'save'; event: Event; remote: boolean }
@@ -28,6 +30,19 @@ interface Draft {
   after: Event | null
 }
 
+/** The choice a refused write is asking the reader to make. */
+export interface ConflictRequest {
+  id: string
+  intent: 'save' | 'delete'
+  /** The version being edited, or null when the reader was deleting the row. */
+  mine: CalendarEventInput | null
+}
+
+export type ConflictResolution =
+  | { action: 'save'; input: CalendarEventInput; rev: number }
+  | { action: 'delete'; rev: number }
+  | { action: 'server' }
+
 export interface EventPersistenceOptions {
   app: ICalendarApp
   revs: Map<string, number>
@@ -35,9 +50,10 @@ export interface EventPersistenceOptions {
   timeZone: () => string
   fallbackTitle: () => string
   /** Re-fetch the last range and reapply it as `source: 'remote'`. */
-  onServerState: (eventId: string, status: number) => void | Promise<void>
+  onServerState: (eventId?: string, status?: number) => void | Promise<void>
   onError: (error: unknown) => void
-  onConflict: (error: unknown) => void
+  /** A 409: the row changed elsewhere, and the edit stays on screen until the reader decides. */
+  onConflict: (request: ConflictRequest) => void
   onRecurringEdit: () => void
   onReadOnlyEdit: () => void
   onCommitted?: (id: string, recurring: boolean) => void
@@ -62,6 +78,7 @@ export class EventPersistence {
   private readonly drafts = new Map<string, Draft>()
   private readonly skipped = new Set<string>()
   private readonly inFlight = new Set<string>()
+  private readonly conflicts = new Map<string, ConflictRequest>()
   private unsubscribe: (() => void) | null = null
   private timer: number | undefined
   private recurringTimer: number | undefined
@@ -84,9 +101,42 @@ export class EventPersistence {
     for (const id of ids) this.skipped.add(id)
   }
 
-  /** True while a write for this event is queued or on the wire; a range mirror must not remove it. */
+  /** True while a write for this event is queued, on the wire, or awaiting a conflict decision. */
   hasPending(id: string): boolean {
-    return this.pending.has(id) || this.inFlight.has(id)
+    return this.pending.has(id) || this.inFlight.has(id) || this.conflicts.has(id)
+  }
+
+  /**
+   * Finish a parked conflict.
+   *
+   * The dialog lives in the surface and a person may sit on it for minutes, so the decision cannot be
+   * awaited inside the write loop: it arrives here instead, after the rest of the queue has moved on.
+   */
+  async resolveConflict(id: string, resolution: ConflictResolution): Promise<void> {
+    if (!this.conflicts.delete(id)) return
+    if (resolution.action === 'server') {
+      this.drafts.delete(id)
+      await this.options.onServerState(id)
+      return
+    }
+    try {
+      if (resolution.action === 'delete') {
+        const title = this.drafts.get(id)?.before?.title
+        await api.deleteEvent(id, resolution.rev)
+        this.options.revs.delete(id)
+        this.commitDraft(id)
+        this.options.onDeleted?.(id, title)
+        return
+      }
+      const updated = await api.updateEvent(id, resolution.input, resolution.rev)
+      this.options.revs.set(id, updated.rev)
+      this.commitDraft(id, toDayFlowEvent(updated, this.options.timeZone()))
+      await this.options.onServerState(id)
+    } catch (error) {
+      this.drafts.delete(id)
+      this.options.onError(error)
+      await this.options.onServerState(id)
+    }
   }
 
   dispose(): void {
@@ -174,9 +224,21 @@ export class EventPersistence {
     try {
       await this.attempt(id, intent)
     } catch (error) {
+      // A stale revision is not a failure to guess around: the row changed elsewhere, so the reader
+      // chooses which parts survive. The edit stays on screen while they decide.
+      if (error instanceof ApiError && !error.isOffline && error.status === 409 && !this.conflicts.has(id)) {
+        const request: ConflictRequest = {
+          id,
+          intent: intent.kind,
+          mine: this.mineFor(id, intent),
+        }
+        this.conflicts.set(id, request)
+        this.options.onConflict(request)
+        return
+      }
       if (isPermanent(error) && error instanceof ApiError && RELOAD_STATUSES.has(error.status)) {
         this.drafts.delete(id)
-        this.options.onConflict(error)
+        this.options.onError(error)
         await this.options.onServerState(id, error.status)
         return
       }
@@ -194,6 +256,17 @@ export class EventPersistence {
         this.options.onError(retryError)
       }
     }
+  }
+
+  /** The version the reader was working on, in the shape both the API and the merge dialog use. */
+  private mineFor(id: string, intent: Intent): CalendarEventInput | null {
+    if (intent.kind === 'delete') return null
+    const event = this.drafts.get(id)?.after ?? intent.event
+    if (!event) return null
+    return toEventInput(event, {
+      fallbackTitle: this.options.fallbackTitle(),
+      timeZone: this.options.timeZone(),
+    })
   }
 
   private async attempt(id: string, intent: Intent): Promise<void> {
@@ -229,14 +302,15 @@ export class EventPersistence {
     this.commitDraft(id)
   }
 
-  private commitDraft(id: string): void {
+  private commitDraft(id: string, after?: Event): void {
     const draft = this.drafts.get(id)
     if (!draft) return
+    const committed = after ?? draft.after
     const recurring = Boolean(
-      draft.before?.meta?.recurrenceRule || draft.after?.meta?.recurrenceRule,
+      draft.before?.meta?.recurrenceRule || committed?.meta?.recurrenceRule,
     )
     this.drafts.delete(id)
-    this.options.history.record({ id, before: draft.before, after: draft.after })
+    this.options.history.record({ id, before: draft.before, after: committed })
     this.options.onCommitted?.(id, recurring)
   }
 

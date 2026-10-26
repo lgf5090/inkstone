@@ -1,6 +1,7 @@
 import { Temporal } from 'temporal-polyfill'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Event, EventChange, ICalendarApp } from '@dayflow/react'
+import type { CalendarEventDto, CalendarEventInput } from '../../../shared/calendar/model'
 import { ApiError } from '../../lib/api'
 import { EventPersistence } from './persistence'
 import type { CalendarEditHistory } from './history'
@@ -143,5 +144,159 @@ describe('event persistence rollback', () => {
     expect(onError).toHaveBeenCalledTimes(1)
     expect(fake.applied[0]?.changes).toMatchObject({ delete: ['evt-1'] })
     persistence.dispose()
+  })
+})
+
+describe('write conflicts', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.mocked(api.updateEvent).mockReset()
+    vi.mocked(api.createEvent).mockReset()
+    vi.mocked(api.deleteEvent).mockReset()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const merged: CalendarEventInput = {
+    title: 'Merged',
+    start: { value: '2026-10-26T09:00:00+00:00[UTC]', type: 'zoned', timeZone: 'UTC' },
+    end: { value: '2026-10-26T10:00:00+00:00[UTC]', type: 'zoned', timeZone: 'UTC' },
+  }
+
+  function serverDto(rev: number): CalendarEventDto {    return {
+      id: 'evt-1',
+      title: 'Merged',
+      description: '',
+      kind: 'event',
+      task: null,
+      conference: null,
+      start: merged.start!,
+      end: merged.end!,
+      allDay: false,
+      calendarId: 'cal-1',
+      calendarIds: ['cal-1'],
+      meta: {},
+      icon: null,
+      recurrenceRule: null,
+      rev,
+      source: 'local',
+      externalId: null,
+    }
+  }
+
+  function setup() {
+    const fake = fakeApp()
+    const onConflict = vi.fn()
+    const onServerState = vi.fn()
+    const onError = vi.fn()
+    const record = vi.fn()
+    const revs = new Map([['evt-1', 1]])
+    const persistence = new EventPersistence({
+      app: fake.app,
+      revs,
+      history: { record } as unknown as CalendarEditHistory,
+      timeZone: () => 'UTC',
+      fallbackTitle: () => 'Untitled',
+      onServerState,
+      onError,
+      onConflict,
+      onRecurringEdit: vi.fn(),
+      onReadOnlyEdit: vi.fn(),
+    })
+    persistence.start()
+    return { fake, onConflict, onServerState, onError, record, revs, persistence }
+  }
+
+  async function conflictWhileSavingEdit(
+    context: ReturnType<typeof setup>,
+    revision = 7,
+  ): Promise<void> {
+    vi.mocked(api.updateEvent).mockRejectedValueOnce(new ApiError(409, 'conflict', 'stale revision'))
+    vi.mocked(api.updateEvent).mockResolvedValue(serverDto(revision) as never)
+    context.fake.emit({ type: 'update', before: event('Original'), after: event('Edited'), source: 'local' })
+    await vi.advanceTimersByTimeAsync(200)
+  }
+
+  it('asks the reader to choose instead of dropping the edit', async () => {
+    const context = setup()
+    await conflictWhileSavingEdit(context)
+
+    expect(context.onConflict).toHaveBeenCalledTimes(1)
+    const request = context.onConflict.mock.calls[0]![0]
+    expect(request).toMatchObject({ id: 'evt-1', intent: 'save' })
+    expect(request.mine.title).toBe('Edited')
+    expect(context.onServerState).not.toHaveBeenCalled()
+    expect(context.fake.applied).toHaveLength(0)
+    expect(context.persistence.hasPending('evt-1')).toBe(true)
+    context.persistence.dispose()
+  })
+
+  it('writes the merged event with the revision the server reported', async () => {
+    const context = setup()
+    await conflictWhileSavingEdit(context)
+
+    await context.persistence.resolveConflict('evt-1', { action: 'save', input: merged, rev: 4 })
+
+    expect(api.updateEvent).toHaveBeenLastCalledWith('evt-1', merged, 4)
+    expect(context.revs.get('evt-1')).toBe(7)
+    expect(context.onServerState).toHaveBeenCalledWith('evt-1')
+    expect(context.persistence.hasPending('evt-1')).toBe(false)
+    context.persistence.dispose()
+  })
+
+  it('loads the server copy when the reader discards their changes', async () => {
+    const context = setup()
+    await conflictWhileSavingEdit(context)
+
+    await context.persistence.resolveConflict('evt-1', { action: 'server' })
+
+    expect(api.updateEvent).toHaveBeenCalledTimes(1)
+    expect(context.onServerState).toHaveBeenCalledWith('evt-1')
+    expect(context.fake.applied).toHaveLength(0)
+    expect(context.record).not.toHaveBeenCalled()
+    context.persistence.dispose()
+  })
+
+  it('stops asking about an event whose merge was refused too', async () => {
+    const context = setup()
+    await conflictWhileSavingEdit(context)
+    vi.mocked(api.updateEvent).mockRejectedValue(new ApiError(409, 'conflict', 'still stale'))
+
+    await context.persistence.resolveConflict('evt-1', { action: 'save', input: merged, rev: 4 })
+
+    expect(context.onConflict).toHaveBeenCalledTimes(1)
+    expect(context.onError).toHaveBeenCalledTimes(1)
+    expect(context.onServerState).toHaveBeenCalledWith('evt-1')
+    context.persistence.dispose()
+  })
+
+  it('deletes with the fresh revision when the reader insists', async () => {
+    const context = setup()
+    vi.mocked(api.deleteEvent).mockRejectedValueOnce(new ApiError(409, 'conflict', 'stale revision'))
+    vi.mocked(api.deleteEvent).mockResolvedValue(undefined as never)
+    context.fake.emit({ type: 'delete', event: event('Original'), source: 'local' })
+    await vi.advanceTimersByTimeAsync(200)
+
+    expect(context.onConflict.mock.calls[0]![0]).toMatchObject({ id: 'evt-1', intent: 'delete', mine: null })
+
+    await context.persistence.resolveConflict('evt-1', { action: 'delete', rev: 9 })
+
+    expect(api.deleteEvent).toHaveBeenLastCalledWith('evt-1', 9)
+    expect(context.revs.has('evt-1')).toBe(false)
+    expect(context.record).toHaveBeenCalledTimes(1)
+    context.persistence.dispose()
+  })
+
+  it('ignores a decision for an event it has already forgotten', async () => {
+    const context = setup()
+    await conflictWhileSavingEdit(context)
+    await context.persistence.resolveConflict('evt-1', { action: 'server' })
+
+    await context.persistence.resolveConflict('evt-1', { action: 'server' })
+
+    expect(context.onServerState).toHaveBeenCalledTimes(1)
+    context.persistence.dispose()
   })
 })

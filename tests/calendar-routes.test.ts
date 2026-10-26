@@ -307,3 +307,30 @@ describe('preference routes', () => {
     expect(response.status).toBe(413)
   })
 })
+
+describe('GET /events/:id', () => {
+  it('answers with the one row the reader asked for', async () => {
+    const home = (await meta()).calendars[0]!
+    const created = await json<{ event: CalendarEventDto }>(await call('POST', '/events', eventBody(home.id)))
+
+    const answer = await json<{ event: CalendarEventDto }>(await call('GET', `/events/${created.event.id}`))
+    expect(answer.event.id).toBe(created.event.id)
+    expect(answer.event.title).toBe('Review')
+    expect(answer.event.calendarIds).toEqual([home.id])
+    expect(answer.event.rev).toBe(created.event.rev)
+  })
+
+  it('does not answer for another account’s event', async () => {
+    const home = (await meta()).calendars[0]!
+    const created = await json<{ event: CalendarEventDto }>(await call('POST', '/events', eventBody(home.id)))
+
+    user = BOB
+    await meta()
+    expect((await call('GET', `/events/${created.event.id}`)).status).toBe(404)
+  })
+
+  it('refuses an id that cannot name an event', async () => {
+    expect((await call('GET', '/events/evt-1::repeat-1761462000000')).status).toBe(400)
+    expect((await call('GET', `/events/${encodeURIComponent('bad id')}`)).status).toBe(400)
+  })
+})

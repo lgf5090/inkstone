@@ -43,17 +43,19 @@ import { CALENDAR_RANGE_MAX_MS, CALENDAR_VIEWS, MAX_EVENTS_PER_QUERY, temporalTo
 import type { AppLocale } from '@shared/types'
 import { t, useLocale, useLocaleRepaint } from '../../lib/i18n'
 import { useThemeDark } from '../../lib/hooks'
-import { ApiError } from '../../lib/api'
 import { useUi, toastWithUndo } from '../../store/ui'
 import { useSession } from '../../store/session'
 import { Button, IconButton } from '../../components/primitives'
-import { Drawer } from '../../components/overlay'
+import { Drawer, confirm } from '../../components/overlay'
 import { CalendarSidebar } from './CalendarSidebar'
 import { CalendarSettings } from './CalendarSettings'
+import { CalendarConflictDialog, type ConflictTarget } from './CalendarConflictDialog'
 import { CalendarFilteredSearch, calendarSearchResultDate } from './CalendarFilteredSearch'
 import { CalendarConnections } from './CalendarConnections'
 import { CalendarEditHistory } from './history'
 import { EventPersistence } from './persistence'
+import type { ConflictRequest, ConflictResolution } from './persistence'
+import type { ConflictView } from './conflict'
 import { attachCalendarProviders } from './providers'
 import { calendarRouteHref, readCalendarRouteState } from './view-state'
 import * as api from './api'
@@ -369,6 +371,62 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
   const [rangeError, setRangeError] = useState<string | null>(null)
   const [rangeTruncated, setRangeTruncated] = useState(initialTruncated || initialRecurrenceTruncated)
   const [syncError, setSyncError] = useState<string | null>(null)
+  const [conflict, setConflict] = useState<ConflictTarget | null>(null)
+
+  const conflictView = useMemo<ConflictView>(() => ({
+    locale: appLocale,
+    timeZone: meta.preferences.timeZone,
+    calendarNames: new Map(meta.calendars.map(calendar => [calendar.id, calendar.name])),
+  }), [appLocale, meta.preferences.timeZone, meta.calendars])
+  const conflictRef = useRef<ConflictTarget | null>(null)
+  conflictRef.current = conflict
+
+  const decideConflict = useCallback((resolution: ConflictResolution): void => {
+    const id = conflictRef.current?.id
+    setConflict(null)
+    if (id) void persistenceRef.current?.resolveConflict(id, resolution)
+  }, [])
+
+  /**
+   * DayFlow's event panel and mobile drawer still hold the revision the refused write was sent
+   * against, and their portals stack above this app's dialogs — a stale editor behind a merge prompt
+   * is both a competing writer and an unreachable one.
+   */
+  const closeEventSurfaces = useCallback((): void => {
+    app.onEventDetailToggle(null)
+    app.onMobileEventDetailToggle(null)
+  }, [app])
+
+  /** A parked 409 needs the server's copy before there is anything to compare against. */
+  const openConflict = useCallback(async (request: ConflictRequest): Promise<void> => {
+    let theirs: CalendarEventDto | null
+    try {
+      theirs = await api.getEvent(request.id)
+    } catch (error) {
+      toastFailure(t('calendar.error.refresh'), error)
+      await reloadRef.current(request.id)
+      return
+    }
+    if (!theirs) {
+      await reloadRef.current(request.id)
+      return
+    }
+    if (request.intent === 'delete' || !request.mine) {
+      closeEventSurfaces()
+      const drop = await confirm({
+        title: t('calendar.conflict.delete_heading', { title: theirs.title || t('calendar.event.untitled') }),
+        description: t('calendar.conflict.delete_hint'),
+        confirmLabel: t('calendar.conflict.delete_anyway'),
+        cancelLabel: t('calendar.conflict.keep_server'),
+      })
+      void persistenceRef.current?.resolveConflict(request.id, drop
+        ? { action: 'delete', rev: theirs.rev }
+        : { action: 'server' })
+      return
+    }
+    closeEventSurfaces()
+    setConflict({ id: request.id, mine: request.mine, theirs })
+  }, [closeEventSurfaces])
 
   const metaRef = useRef(meta)
   metaRef.current = meta
@@ -696,14 +754,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       fallbackTitle: () => t('calendar.event.untitled'),
       onServerState: (eventId, status) => reloadRef.current(eventId, status),
       onError: error => toastFailure(t('calendar.error.save_failed'), error),
-      onConflict: error => {
-        const conflict = error instanceof ApiError && error.status === 409
-        useUi.getState().toast({
-          title: t(conflict ? 'calendar.error.conflict' : 'calendar.error.save_failed'),
-          description: error instanceof Error && error.message ? error.message : undefined,
-          tone: 'danger',
-        })
-      },
+      onConflict: request => { void openConflict(request) },
       onRecurringEdit: () => useUi.getState().toast({ title: t('calendar.error.recurring'), tone: 'warning' }),
       onReadOnlyEdit: () => useUi.getState().toast({ title: t('calendar.event.delete_read_only'), tone: 'warning' }),
       onCommitted: (id, recurring) => {
@@ -932,6 +983,15 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
         onClose={() => setConnectionsOpen(false)}
         onChanged={async () => { await refreshRef.current() }}
       />
+
+      {conflict && (
+        <CalendarConflictDialog
+          key={conflict.id}
+          request={conflict}
+          view={conflictView}
+          onDecide={decideConflict}
+        />
+      )}
     </div>
   )
 }

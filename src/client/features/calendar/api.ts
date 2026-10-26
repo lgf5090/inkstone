@@ -2,7 +2,7 @@
  * The calendar app's API client. Every call goes through the shell's `request` so the client header,
  * locale, error translation and 204 handling stay one implementation.
  */
-import { request } from '../../lib/api'
+import { ApiError, request } from '../../lib/api'
 import type {
   CalendarConnectionDto,
   CalendarConnectionKind,
@@ -119,8 +119,18 @@ export async function searchEvents(
   return request<EventSearchResponse>(`/api/calendar/events/search?${params.toString()}`, { signal })
 }
 
-export async function createEvent(event: CalendarEventInput): Promise<CalendarEventDto> {
-  const data = await request<{ event: CalendarEventDto }>('/api/calendar/events', { method: 'POST', body: event })
+/** One row as the server has it now, or null when it no longer exists. */
+export async function getEvent(id: string): Promise<CalendarEventDto | null> {
+  try {
+    const data = await request<{ event: CalendarEventDto }>(`/api/calendar/events/${entity(id)}`)
+    return data.event
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null
+    throw error
+  }
+}
+
+export async function createEvent(event: CalendarEventInput): Promise<CalendarEventDto> {  const data = await request<{ event: CalendarEventDto }>('/api/calendar/events', { method: 'POST', body: event })
   return data.event
 }
 

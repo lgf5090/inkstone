@@ -1251,6 +1251,10 @@ const allowed = new Map([
   ["src/client/features/calendar/CalendarApp.tsx", [
     "/**\n * `/calendar`: the container that owns loading, failure, empty and ready.\n *\n * The surface is mounted only after metadata and the first range have arrived, so DayFlow never sees\n * a half-built registry. A reload keeps the same range around today; navigation beyond it is the\n * surface's own incremental fetch.\n */",
   ]],
+  ["src/client/features/calendar/CalendarConflictDialog.tsx", [
+    "/**\n * The dialog a refused write opens.\n *\n * The queue parks an event whose revision went stale and asks here: the reader sees both versions of\n * every part they could have changed and picks which one survives. Nothing is written while the dialog\n * is open, and the row on the calendar stays as they left it, so a conflict is a choice rather than a\n * loss.\n */",
+    "/** The parked write this dialog decides about: always an edit, because a delete is answered by `confirm`. */",
+  ]],
   ["src/client/features/calendar/CalendarDialogs.tsx", [
     "/**\n * Calendar administration dialogs.\n *\n * Each dialog owns the request it makes, keeps its refusals inside the panel instead of closing it,\n * and calls `onSaved` so the container can refresh metadata and the DayFlow registry. The shell's\n * `Modal` supplies focus trapping, Escape and focus return; these never use native prompts.\n */",
     "/** The write already succeeded; a refresh failure must not present the write as failed or invite a retry. */",
@@ -1281,6 +1285,8 @@ const allowed = new Map([
     "// truncated page cannot prove absence, and a queued write must be allowed to reach the server.",
     "// A provider refresh replaces the meta object with the same values; rebuilding every view for",
     "// that defeats the point of updateConfig.",
+    "/**\n   * DayFlow's event panel and mobile drawer still hold the revision the refused write was sent\n   * against, and their portals stack above this app's dialogs — a stale editor behind a merge prompt\n   * is both a competing writer and an unreachable one.\n   */",
+    "/** A parked 409 needs the server's copy before there is anything to compare against. */",
   ]],
   ["src/client/features/calendar/MiniMonth.tsx", [
     "/**\n * The mini month: 42 cells, event dots in calendar colours, and a date that drives the main view.\n *\n * It reads DayFlow's registry and events directly rather than keeping a second copy of the data, so\n * a visibility toggle or a drag in the main grid is reflected here on the next app notification.\n */",
@@ -1291,12 +1297,17 @@ const allowed = new Map([
   ["src/client/features/calendar/api.ts", [
     "/**\n * The calendar app's API client. Every call goes through the shell's `request` so the client header,\n * locale, error translation and 204 handling stay one implementation.\n */",
     "/** The export is a calendar document, not JSON; `request` hands back the body as text. */",
+    "/** One row as the server has it now, or null when it no longer exists. */",
   ]],
   ["src/client/features/calendar/calendar.css", [
     "/*\n * DayFlow component styles arrive from the library; this file only maps its `--df-*` variables onto\n * Inkstone's semantic tokens and gives the calendar the height its flex parent promises.\n *\n * The mapping lives on `:root` because DayFlow portals menus and dialogs to the body, outside the\n * calendar element but still inside the document that reads these variables.\n */",
     "/* The shell has no on-danger token; danger buttons already paint white text. */",
     "/* DayFlow's menu is positioned fixed at z-index 50 from inside the calendar; raise it to the shell's\n * popover band so it clears the app frame and the sidebar drawer without outranking public dialogs. */",
     "/* Occurrences are a rendered view of a series, never rows of their own: every interaction is refused,\n * so make that visible by keeping the pointer off them instead of letting a click open a dead panel. */",
+  ]],
+  ["src/client/features/calendar/conflict.ts", [
+    "/**\n * Comparing the two versions of an event a write conflict landed between.\n *\n * A refused PATCH means somebody else — another tab, a phone, a provider sync — wrote the same event\n * first, and the queue used to answer that by reloading and losing whatever was just typed. This module\n * turns the two shapes into one comparable list of the parts a person can actually decide about, and\n * then builds the patched event from those decisions. Everything else on the row, including the\n * metadata a provider needs to keep recognising it, comes from the server copy.\n */",
+    "/** The event to send: the server's row, with the parts the reader chose taken from their own copy. */",
   ]],
   ["src/client/features/calendar/history.ts", [
     "/**\n * Undo/redo for events, kept beside the persistence queue rather than inside DayFlow.\n *\n * DayFlow's own `undo()` only rewinds its in-memory snapshot, which would leave the server holding\n * the state the reader just undid. Every entry here is recorded after the queue has persisted its\n * change, and replaying one goes back through `applyEventsChanges(..., 'local')` so the queue and\n * the server see the replay like any other edit.\n */",
@@ -1331,18 +1342,25 @@ const allowed = new Map([
     "/**\n * Local events a complete range says no longer exist.\n *\n * Only rows whose interval overlaps the fetched window are candidates: an event outside it was never\n * proven absent. Series and occurrences are views rather than rows, and a queued write has not reached\n * the server yet, so neither may be pruned by a mirror.\n */",
   ]],
   ["src/client/features/calendar/persistence.ts", [
-    "/**\n * The event write queue.\n *\n * DayFlow announces every mutation through `subscribeEventChanges`; this is the only place those\n * announcements become API calls. Changes for the same event coalesce over a short debounce and are\n * then written one at a time, so a fast sequence of edits lands as its final state instead of a race\n * of PATCHes. A rejected write either refreshes the affected range (the server is authoritative) or\n * is retried once and then reported — never dropped silently.\n */",
-    "/** A conflict, a vanished event or a schema refusal all mean \"reload; do not keep retrying\". */",
     "/** Re-fetch the last range and reapply it as `source: 'remote'`. */",
     "/** Server state about to be re-applied: its echo must not be written back. */",
     "// Generated recurrence occurrences are a view of their series. A remote recalculation is normal;",
     "// a local edit of one cannot be mapped back to the master with the current API, so it is refused",
     "// A transport failure or a 5xx may be transient: one retry, then the reader is told.",
     "// Created and deleted before either reached the server: there is nothing to delete.",
-    "/** True while a write for this event is queued or on the wire; a range mirror must not remove it. */",
     "// and the optimistic change is put back rather than left as a row the server never saw.",
     "/** Restore the last server-confirmed shape after a write that will not be retried. */",
     "/** Put an optimistic change back; the skip entry keeps its echo out of the write queue. */",
+    "/**\n * The event write queue.\n *\n * DayFlow announces every mutation through `subscribeEventChanges`; this is the only place those\n * announcements become API calls. Changes for the same event coalesce over a short debounce and are\n * then written one at a time, so a fast sequence of edits lands as its final state instead of a race\n * of PATCHes. A rejected write refreshes the affected range (the server is authoritative) or is\n * retried once and then reported — never dropped silently. A write refused for staleness parks the\n * edit and asks the reader which parts of it survive; see `resolveConflict`.\n */",
+    "/** A vanished event or a schema refusal means \"reload; do not keep retrying\". */",
+    "/** The choice a refused write is asking the reader to make. */",
+    "/** The version being edited, or null when the reader was deleting the row. */",
+    "/** A 409: the row changed elsewhere, and the edit stays on screen until the reader decides. */",
+    "/** True while a write for this event is queued, on the wire, or awaiting a conflict decision. */",
+    "/**\n   * Finish a parked conflict.\n   *\n   * The dialog lives in the surface and a person may sit on it for minutes, so the decision cannot be\n   * awaited inside the write loop: it arrives here instead, after the rest of the queue has moved on.\n   */",
+    "// A stale revision is not a failure to guess around: the row changed elsewhere, so the reader",
+    "// chooses which parts survive. The edit stays on screen while they decide.",
+    "/** The version the reader was working on, in the shape both the API and the merge dialog use. */",
   ]],
   ["src/client/features/calendar/providers.ts", [
     "/** A provider adapter fetch that talks only to the same-origin connection proxy. */",
