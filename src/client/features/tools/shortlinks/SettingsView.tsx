@@ -104,7 +104,8 @@ export function SettingsView() {
         scope: keyScope as 'read' | 'read,write' | 'admin',
       })
       setKeyName('')
-      setGeneratedKey(res.api_key || null)
+      const returnedKey = (res as any).apiKey || (res as any).api_key || null
+      setGeneratedKey(returnedKey)
       useUiStore.getState().toast(t('tools.shortlinks.settings.save_success'), 'success')
       void fetchApiKeys()
     } catch (err) {

@@ -437,14 +437,14 @@ toolsShortlinksRoutes.post('/keys', async (c) => {
   const store = getStore(c)
   const body = await parseBody(c, CreateApiKeySchema)
   const res = await store.createApiKey(body.title, body.scope)
-  return c.json({ ok: true, data: res })
+  return c.json({ ok: true, data: { ...res, api_key: res.apiKey } })
 })
 
 toolsShortlinksRoutes.post('/api-keys', async (c) => {
   const store = getStore(c)
   const body = await parseBody(c, CreateApiKeySchema)
   const res = await store.createApiKey(body.title, body.scope)
-  return c.json({ ok: true, data: res })
+  return c.json({ ok: true, data: { ...res, api_key: res.apiKey } })
 })
 
 toolsShortlinksRoutes.delete('/keys/:id', async (c) => {
