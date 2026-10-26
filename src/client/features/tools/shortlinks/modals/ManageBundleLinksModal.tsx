@@ -29,7 +29,7 @@ export function ManageBundleLinksModal() {
       shortlinksApi
         .getLinks({ limit: 100 })
         .then((res) => {
-          setAllUserLinks(res.links)
+          setAllUserLinks(res.links || (res as any).items || [])
           setSelectedIds(new Set(activeBundleLinks.map((l) => l.id)))
         })
         .finally(() => setLoading(false))
@@ -94,7 +94,7 @@ export function ManageBundleLinksModal() {
           <div className="py-8 text-center text-[var(--text-tertiary)] text-[length:var(--text-13)]">
             {t('common.loading')}
           </div>
-        ) : allUserLinks.length === 0 ? (
+        ) : (allUserLinks || []).length === 0 ? (
           <div className="py-8 text-center text-[var(--text-tertiary)] text-[length:var(--text-13)]">
             {t('tools.shortlinks.links.empty')}
           </div>

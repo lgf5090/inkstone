@@ -265,6 +265,14 @@ describe('Shortlinks Bundles and Analytics', () => {
     expect(aRes.status).toBe(200)
     const analytics = (await json<any>(aRes)).data
     expect(analytics.link_count).toBe(2)
+
+    // Verify bundle stats alias and PATCH update
+    const statsRes = await call('GET', `/api/tools/shortlinks/bundles/${bundle.id}/stats`)
+    expect(statsRes.status).toBe(200)
+    const patchBundleRes = await call('PATCH', `/api/tools/shortlinks/bundles/${bundle.id}`, {
+      body: { name: 'Campaign 2026 Renamed' },
+    })
+    expect(patchBundleRes.status).toBe(200)
   })
 
   it('handles dashboard overview and settings', async () => {
@@ -274,7 +282,7 @@ describe('Shortlinks Bundles and Analytics', () => {
     expect(dash).toHaveProperty('total_links')
     expect(dash).toHaveProperty('timeline')
 
-    const setRes = await call('PUT', '/api/tools/shortlinks/settings', {
+    const setRes = await call('PATCH', '/api/tools/shortlinks/settings', {
       body: { slug_default_length: 5, default_range: '7d' },
     })
     expect(setRes.status).toBe(200)
@@ -285,7 +293,7 @@ describe('Shortlinks Bundles and Analytics', () => {
 
   it('creates API key and lists keys', async () => {
     const keyRes = await call('POST', '/api/tools/shortlinks/keys', {
-      body: { title: 'CI Deployer', scope: 'read,write' },
+      body: { title: 'CI Deployer', scope: 'write' },
     })
     expect(keyRes.status).toBe(200)
     const keyData = (await json<any>(keyRes)).data
@@ -306,6 +314,10 @@ describe('Shortlinks Bundles and Analytics', () => {
     expect(exportRes.status).toBe(200)
     const expData = (await json<any>(exportRes)).data
     expect(expData.key).toContain('tools/shortlinks/txt/')
+    expect(expData.url).toContain('/api/tools/shortlinks/export/download')
+
+    const dlRes = await call('GET', expData.url)
+    expect(dlRes.status).toBe(200)
 
     const backupRes = await call('POST', '/api/tools/shortlinks/backups')
     expect(backupRes.status).toBe(200)

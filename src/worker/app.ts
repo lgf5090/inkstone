@@ -120,6 +120,10 @@ export function createApp() {
     c.set('database', await initializeDatabase(c.env))
     await next()
   })
+  app.use('/l/*', async (c, next) => {
+    c.set('database', await initializeDatabase(c.env))
+    await next()
+  })
 
   app.use('/api/*', loadSession)
   app.use('/authorize', loadSession)

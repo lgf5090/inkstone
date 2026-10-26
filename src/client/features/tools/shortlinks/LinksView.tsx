@@ -144,7 +144,7 @@ export function LinksView() {
           <div className="py-16 text-center text-[var(--text-tertiary)] text-[length:var(--text-13)]">
             {t('common.loading')}
           </div>
-        ) : links.length === 0 ? (
+        ) : (links || []).length === 0 ? (
           <div className="py-16 text-center space-y-2">
             <Link2 size={32} className="mx-auto text-[var(--text-tertiary)]" />
             <div className="text-[length:var(--text-14)] font-medium text-[var(--text-secondary)]">

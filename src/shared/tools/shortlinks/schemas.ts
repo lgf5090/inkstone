@@ -69,7 +69,7 @@ export const UpdateSettingsSchema = z.object({
 
 export const CreateApiKeySchema = z.object({
   title: z.string().trim().min(1, 'API key title is required').max(64),
-  scope: z.enum(['read', 'read,write', 'admin']).default('read,write'),
+  scope: z.enum(['read', 'write', 'read,write', 'admin']).default('read,write'),
 })
 
 export const BatchImportSchema = z.object({

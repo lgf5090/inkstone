@@ -109,6 +109,7 @@ export interface BundleStats {
   countries: { name: string; count: number }[]
   devices: { name: string; count: number }[]
   os: { name: string; count: number }[]
+  operating_systems?: { name: string; count: number }[]
   browsers: { name: string; count: number }[]
   referrers: { name: string; count: number }[]
   referrer_hosts: { name: string; count: number }[]

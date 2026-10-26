@@ -309,14 +309,19 @@ export class ShortlinksStore {
 
   async listLinks(params: {
     filter?: 'all' | 'active' | 'disabled'
+    status?: 'all' | 'active' | 'disabled'
     sort?: 'created_at' | 'clicks'
+    sort_by?: string
+    sort_order?: 'asc' | 'desc'
+    bundle_id?: number
     search?: string
     range?: TimelineRange
     offset?: number
     limit?: number
-  }): Promise<{ items: ShortLink[]; total: number }> {
-    const filter = params.filter || 'all'
-    const sort = params.sort || 'created_at'
+  }): Promise<{ items: ShortLink[]; links: ShortLink[]; total: number }> {
+    const filter = params.status || params.filter || 'all'
+    const sort = params.sort_by === 'clicks' || params.sort === 'clicks' ? 'clicks' : 'created_at'
+    const sortOrder = params.sort_order?.toLowerCase() === 'asc' ? 'ASC' : 'DESC'
     const offset = Math.max(0, params.offset || 0)
     const limit = Math.min(100, Math.max(1, params.limit || 20))
     const now = Math.floor(Date.now() / 1000)
@@ -332,6 +337,11 @@ export class ShortlinksStore {
       binds.push(now)
     }
 
+    if (params.bundle_id) {
+      whereClause += ' AND l.id IN (SELECT link_id FROM tools_shortlinks_bundle_links WHERE bundle_id = ? AND user_id = ?)'
+      binds.push(params.bundle_id, this.userId)
+    }
+
     if (params.search && params.search.trim().length > 0) {
       const q = `%${params.search.trim()}%`
       whereClause += ' AND (l.url LIKE ? OR l.label LIKE ? OR EXISTS (SELECT 1 FROM tools_shortlinks_slugs s WHERE s.link_id = l.id AND s.slug LIKE ?))'
@@ -344,9 +354,9 @@ export class ShortlinksStore {
     const total = countRow?.cnt || 0
 
     // Fetch link IDs and rows
-    let orderSql = 'ORDER BY l.created_at DESC'
+    let orderSql = `ORDER BY l.created_at ${sortOrder}`
     if (sort === 'clicks') {
-      orderSql = 'ORDER BY total_clicks DESC, l.created_at DESC'
+      orderSql = `ORDER BY total_clicks ${sortOrder}, l.created_at ${sortOrder}`
     }
 
     const query = `
@@ -373,7 +383,7 @@ export class ShortlinksStore {
 
     const linkIds = (rows.results ?? []).map((r) => r.id)
     if (linkIds.length === 0) {
-      return { items: [], total }
+      return { items: [], links: [], total }
     }
 
     // Batch load slugs
@@ -425,7 +435,7 @@ export class ShortlinksStore {
       total_clicks: r.total_clicks || 0,
     }))
 
-    return { items, total }
+    return { items, links: items, total }
   }
 
   async updateLink(
@@ -829,6 +839,7 @@ export class ShortlinksStore {
       referrer_hosts: referrerHosts.results ?? [],
       devices: devices.results ?? [],
       os: osList.results ?? [],
+      operating_systems: osList.results ?? [],
       browsers: browsers.results ?? [],
       link_modes: fillMissingOptions(linkModes.results ?? [], ['link', 'qr']),
       channels: channels.results ?? [],
@@ -926,10 +937,11 @@ export class ShortlinksStore {
     if (dimension === 'referrer' || dimension === 'referrers') col = 'referrer'
     else if (dimension === 'referrer_host' || dimension === 'referrer_hosts' || dimension === 'domain') col = 'referrer_host'
     else if (dimension === 'device_type' || dimension === 'devices') col = 'device_type'
-    else if (dimension === 'os') col = 'os'
+    else if (dimension === 'os' || dimension === 'operating_systems' || dimension === 'operating_system') col = 'os'
     else if (dimension === 'browser' || dimension === 'browsers') col = 'browser'
     else if (dimension === 'channel' || dimension === 'channels') col = 'channel'
     else if (dimension === 'link_mode' || dimension === 'link_modes') col = 'link_mode'
+    else if (dimension === 'country' || dimension === 'countries') col = 'country'
 
     let where = 'user_id = ?'
     const binds: (string | number)[] = [this.userId]
@@ -1451,6 +1463,7 @@ export class ShortlinksStore {
       countries: countries.results ?? [],
       devices: devices.results ?? [],
       os: osList.results ?? [],
+      operating_systems: osList.results ?? [],
       browsers: browsers.results ?? [],
       referrers: referrers.results ?? [],
       referrer_hosts: referrerHosts.results ?? [],

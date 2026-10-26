@@ -53,8 +53,16 @@ export const shortlinksApi = {
     if (params?.bundle_id) q.set('bundle_id', String(params.bundle_id))
     const queryStr = q.toString()
     return request<{
-      data: { links: ShortLink[]; total: number; limit: number; offset: number }
-    }>(`/api/tools/shortlinks/links${queryStr ? `?${queryStr}` : ''}`).then((r) => r.data)
+      data: { links?: ShortLink[]; items?: ShortLink[]; total: number; limit: number; offset: number }
+    }>(`/api/tools/shortlinks/links${queryStr ? `?${queryStr}` : ''}`).then((r) => {
+      const list = r.data.links || r.data.items || []
+      return {
+        ...r.data,
+        links: list,
+        items: list,
+        total: r.data.total ?? list.length,
+      }
+    })
   },
 
   createLink: (input: CreateLinkInput) =>

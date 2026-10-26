@@ -136,7 +136,11 @@ export function SettingsView() {
   const handleExportTxt = async () => {
     try {
       const res = await shortlinksApi.exportTxt()
-      window.open(res.url, '_blank')
+      if (res.url) {
+        window.open(res.url, '_blank')
+      } else {
+        useUiStore.getState().toast('Exported: ' + (res.r2_key || 'success'), 'success')
+      }
     } catch (err) {
       useUiStore.getState().toast((err as Error).message, 'error')
     }
@@ -145,7 +149,11 @@ export function SettingsView() {
   const handleExportCsv = async () => {
     try {
       const res = await shortlinksApi.exportCsv()
-      window.open(res.url, '_blank')
+      if (res.url) {
+        window.open(res.url, '_blank')
+      } else {
+        useUiStore.getState().toast('Exported: ' + (res.r2_key || 'success'), 'success')
+      }
     } catch (err) {
       useUiStore.getState().toast((err as Error).message, 'error')
     }

@@ -13,6 +13,7 @@ import { confirm } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
 import { copyText } from '../../../lib/clipboard'
 import { useUiStore } from '../../../lib/ui-store'
+import { Sparkline } from '../../todos/stats-charts'
 import type { BundleAccent, ShortLinkBundle } from '@shared/tools/shortlinks/types'
 import { useShortlinksStore } from './store'
 import { shortlinksApi } from './api'
@@ -150,6 +151,12 @@ export function BundlesView() {
                     {(bundle.total_clicks ?? 0).toLocaleString()} {t('tools.shortlinks.links.clicks')}
                   </span>
                 </div>
+
+                {bundle.sparkline && bundle.sparkline.length > 1 && (
+                  <div className="mt-2 flex justify-end">
+                    <Sparkline values={bundle.sparkline} tone={colors.dot} />
+                  </div>
+                )}
               </div>
             )
           })}
