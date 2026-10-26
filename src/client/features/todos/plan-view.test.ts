@@ -90,6 +90,8 @@ function task(id: string, extra: Partial<TodoTask> = {}): TodoTask {
     updatedAt: Date.parse('2026-10-01T08:00:00Z'),
     listId: null,
     tags: [],
+    dependsOn: [],
+    blocks: [],
     starred: false,
     repeat: null,
     remindedAt: null,

@@ -16,7 +16,7 @@
 import { LIMITS } from '@shared/constants'
 import { TASK_PRIORITIES, TASK_STATUSES, type TaskPriority, type TaskStatus } from '@shared/assistant'
 import type { SyncResponse } from '@shared/types'
-import { parseRepeatRule, type TaskTag, type TodoTask, type TodoTimeEntry } from '@shared/todos/model'
+import { parseRepeatRule, type TaskRef, type TaskTag, type TodoTask, type TodoTimeEntry } from '@shared/todos/model'
 import { toTimeEntry, type TodoTimeEntryRow } from '../todos/schema'
 import {
   NOTE_COLUMNS_NOTAGS,
@@ -81,6 +81,15 @@ interface TodoSyncRow {
 
 const TODO_SYNC_COLUMNS = `id, title, description, status, priority, due_at, project_id, list_id, icon, color, starred,
   repeat_rule, note_id, conversation_id, planned_for, created_at, updated_at, completed_at, rev, deleted_at, archived_at`
+
+/** One end of a `todos_task_links` row, joined to the task it points at. */
+interface TodoDepSyncRow {
+  key: string
+  id: string
+  title: string
+  status: string
+  created_at: number
+}
 
 interface TodoTagSyncRow {
   task_id: string
@@ -283,7 +292,7 @@ export class SyncStore {
     if (!rows.length) return []
     const ids = rows.map((row) => row.id)
     const chunks = chunkIds(ids)
-    const [tagPages, stepPages, reminderPages, timePages] = await Promise.all([
+    const [tagPages, stepPages, reminderPages, timePages, dependsDownPages, dependsUpPages] = await Promise.all([
       Promise.all(chunks.map((chunk) => this.db
         .prepare(
           `SELECT l.task_id, t.id, t.name, t.color, t.created_at, t.updated_at
@@ -326,7 +335,45 @@ export class SyncStore {
         )
         .bind(this.userId, ...chunk)
         .all<TodoTimeEntryRow>())),
+      // Which task waits on which, read from both ends. The partner's title and live status travel with
+      // the link for the same reason the ledger restates whole: a receiving device replaces a row's
+      // dependencies rather than merging them, so an offline reader is never shown a waiting task as
+      // free to go. Trashed partners are left out — a row on its way to being gone is not what you are
+      // waiting for, and it is not something to report either.
+      Promise.all(chunks.map((chunk) => this.db
+        .prepare(
+          `SELECT l.task_id AS key, t.id, t.title, t.status, l.created_at
+             FROM todos_task_links l
+             JOIN todos_tasks t ON t.user_id = l.user_id AND t.id = l.depends_on_id
+            WHERE l.user_id = ?1 AND l.task_id IN (${placeholders(chunk.length, 2)})
+              AND t.deleted_at IS NULL
+            ORDER BY l.created_at ASC, l.depends_on_id ASC`,
+        )
+        .bind(this.userId, ...chunk)
+        .all<TodoDepSyncRow>())),
+      Promise.all(chunks.map((chunk) => this.db
+        .prepare(
+          `SELECT l.depends_on_id AS key, t.id, t.title, t.status, l.created_at
+             FROM todos_task_links l
+             JOIN todos_tasks t ON t.user_id = l.user_id AND t.id = l.task_id
+            WHERE l.user_id = ?1 AND l.depends_on_id IN (${placeholders(chunk.length, 2)})
+              AND t.deleted_at IS NULL
+            ORDER BY l.created_at ASC, l.task_id ASC`,
+        )
+        .bind(this.userId, ...chunk)
+        .all<TodoDepSyncRow>())),
     ])
+    const dependsOn = new Map<string, TaskRef[]>()
+    const blocks = new Map<string, TaskRef[]>()
+    for (const [pages, into] of [[dependsDownPages, dependsOn], [dependsUpPages, blocks]] as const) {
+      for (const page of pages) {
+        for (const row of page.results ?? []) {
+          const bucket = into.get(row.key) ?? []
+          bucket.push({ id: row.id, title: row.title, status: taskStatus(row.status) })
+          into.set(row.key, bucket)
+        }
+      }
+    }
     const tags = new Map<string, TaskTag[]>()
     for (const page of tagPages) {
       for (const row of page.results ?? []) {
@@ -378,6 +425,8 @@ export class SyncStore {
         icon: row.icon,
         color: row.color,
         tags: tags.get(row.id) ?? [],
+        dependsOn: dependsOn.get(row.id) ?? [],
+        blocks: blocks.get(row.id) ?? [],
         starred: row.starred === 1,
         repeat: parseRepeatRule(parseJson(row.repeat_rule)),
         reminders: pending,

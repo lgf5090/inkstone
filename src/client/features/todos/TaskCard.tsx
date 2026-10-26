@@ -18,7 +18,7 @@
  */
 
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
-import { CalendarMinus, Check, CircleDot, Hourglass, MoreHorizontal, Paperclip, Pause, Play, Star } from 'lucide-react'
+import { CalendarMinus, Check, CircleDot, Hourglass, Link2, MoreHorizontal, Paperclip, Pause, Play, Star } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { api } from '../../lib/api'
@@ -40,6 +40,7 @@ import { ListIcon } from './list-icons'
 import { toPlainText } from '@shared/markdown-utils'
 import { formatTaskDuration } from '@shared/todos/duration'
 import { isTaskDone, isTaskOpen } from '@shared/todos/status'
+import { taskIsBlocked } from '@shared/todos/model'
 import type { SnoozeMinutes, TaskList, TodoTask } from '@shared/todos/model'
 
 /** How long a finger has to stay down before the row joins a selection instead of opening. */
@@ -413,6 +414,15 @@ export const TaskCard = memo(function TaskCard({ task, lists, bounds, timezone, 
   const finished = isTaskDone(task.status)
   const owed = isTaskOpen(task.status)
   const progress = task.stepTotal > 0 ? t('todo.steps.progress', { done: task.stepDone, total: task.stepTotal }) : null
+  /**
+   * The blockers that are still blockers.
+   *
+   * A finished predecessor is not something to wait for, and counting it would keep a row marked as
+   * waiting after the thing it was waiting on had been done — which is the one moment the mark has to
+   * come off. The status travels on the ref for exactly this reason, so no extra read is needed here.
+   */
+  const waitingOn = task.dependsOn.filter((entry) => !isTaskDone(entry.status))
+  const blocked = taskIsBlocked(task) && owed
   /**
    * The note in the row's own words, read once per note.
    *
@@ -938,6 +948,22 @@ export const TaskCard = memo(function TaskCard({ task, lists, bounds, timezone, 
           </span>
         )}
         <span id={metaId} className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+          {/* Why this row is still open, when something else is the reason. The count carries it and the
+              editor names the tasks, because a row that listed every blocker would be a second panel
+              crammed into a line — and the colour never carries it alone, nor does the icon. */}
+          {blocked && (
+            <span className="inline-flex items-center gap-1 text-[length:var(--text-11)] text-[var(--warning)]">
+              <Link2 size={12} aria-hidden="true" />
+              {t('todo.task.blocked_by', { count: waitingOn.length })}
+            </span>
+          )}
+          {/* What finishing this row would let go. Said only on the row's own page, and only when there
+              is something to let go — a count of zero is the absence of a fact, not a fact. */}
+          {!compact && owed && task.blocks.length > 0 && (
+            <span className="inline-flex items-center gap-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+              {t('todo.task.blocks_count', { count: task.blocks.filter((entry) => !isTaskDone(entry.status)).length })}
+            </span>
+          )}
           {/* A status the reader can set has to be one they can see. The word carries it; the dot is
               only the accent that makes a started row findable at a glance. */}
           {task.status === 'in_progress' && (

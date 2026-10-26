@@ -78,6 +78,7 @@ import {
   type RepeatRule,
   type TaskCounts,
   type TaskFaceDrop,
+  type TaskRef,
   type TaskList,
   type TaskSort,
   type TaskStep,
@@ -114,7 +115,7 @@ import type { Env } from '../env'
 import { tagScopePredicate } from '../db/rows'
 import { ID_READ_BATCH, MAX_BATCH_STATEMENTS, chunkMarks, idChunks } from '../db/writes'
 import { ApiError } from '../lib/errors'
-import { newId } from '../lib/id'
+import { isValidId, newId } from '../lib/id'
 import { parseStoredJson } from '../lib/json'
 import { decryptAssistantKey, decryptMcpOAuth, encryptAssistantKey, encryptMcpOAuth } from '../lib/crypto'
 import { curatedModelLimits } from './vendor-model-limits'
@@ -1087,6 +1088,14 @@ export interface NewTask {
   tags?: string[]
   /** Step texts, created in order. Only read by `createTask`. */
   steps?: string[]
+  /**
+   * The tasks this one waits on, by id, in the order the reader named them.
+   *
+   * Replaces the row's whole dependency set when given to `updateTask`; an empty list clears it, and
+   * absent leaves it alone. Refused before anything is written when one of the ids is not this account's
+   * own task, is the task itself, or would close a cycle — see {@link replaceTaskDeps}.
+   */
+  dependsOn?: string[]
   /**
    * What the reader plans this task to take, in milliseconds, or null for no estimate.
    *
@@ -4525,12 +4534,145 @@ export class AssistantStore {
     return out
   }
 
+  /**
+   * Both ends of every dependency the page's rows take part in, read in two passes.
+   *
+   * A listing needs "what this row waits on" to say whether it is waiting, and "what waits on this row"
+   * to say what finishing it would let go. Those are one table read from either end. Folding them into a
+   * single statement would name the page's ids twice in one `IN` list, and D1 counts every bind against
+   * the same ceiling the chunk size is already set to — so the chunk would halve and the statement count
+   * would not. Both passes are therefore sent together, under one `Promise.all`.
+   *
+   * The partner's live status travels with it, and trashed partners are left out of the answer: a task on
+   * its way to being gone cannot be what you are waiting for, and it is not something to report either.
+   * The link rows themselves stay — a restore brings the task back with its place in the graph intact.
+   */
+  private async depsForTasks(ids: readonly string[]): Promise<TaskDeps> {
+    const dependsOn = new Map<string, TaskRef[]>()
+    const blocks = new Map<string, TaskRef[]>()
+    if (!ids.length) return { dependsOn, blocks }
+    for (const chunk of idChunks(ids)) {
+      const marks = chunkMarks(chunk)
+      const [down, up] = await Promise.all([
+        this.rows<DepRow & { key: string }>(
+          `SELECT l.user_id, l.task_id AS key, t.id, t.title, t.status
+             FROM todos_task_links l
+             JOIN todos_tasks t ON t.user_id = l.user_id AND t.id = l.depends_on_id
+            WHERE l.user_id = ?1 AND l.task_id IN (${marks}) AND t.deleted_at IS NULL
+            ORDER BY l.created_at ASC, l.depends_on_id ASC`,
+          this.userId, ...chunk,
+        ),
+        this.rows<DepRow & { key: string }>(
+          `SELECT l.user_id, l.depends_on_id AS key, t.id, t.title, t.status
+             FROM todos_task_links l
+             JOIN todos_tasks t ON t.user_id = l.user_id AND t.id = l.task_id
+            WHERE l.user_id = ?1 AND l.depends_on_id IN (${marks}) AND t.deleted_at IS NULL
+            ORDER BY l.created_at ASC, l.task_id ASC`,
+          this.userId, ...chunk,
+        ),
+      ])
+      for (const [rows, into] of [[down, dependsOn], [up, blocks]] as const) {
+        for (const row of rows) {
+          const bucket = into.get(row.key) ?? []
+          bucket.push({ id: row.id, title: row.title, status: row.status })
+          into.set(row.key, bucket)
+        }
+      }
+    }
+    return { dependsOn, blocks }
+  }
+
+  /**
+   * Sets one task's dependencies to exactly this list, refusing a graph that could not be read.
+   *
+   * Four things are checked before a single row is written, because a half-applied set is worse than a
+   * refused one: the ids are real ids, they name tasks this account holds (an id of somebody else's task
+   * is refused as missing rather than confirmed as existing), a task does not wait on itself, and no
+   * number of links closes a circle. SQLite will not refuse a cycle on insert, and a cycle would mean a
+   * set of tasks no reader could ever finish and no surface could explain — so the walk is done here.
+   *
+   * The walk goes forward from each proposed dependency along the edges that already exist: the new edge
+   * is `task -> dependency`, so a cycle exists exactly when the dependency can already reach the task.
+   */
+  async replaceTaskDeps(taskId: string, dependsOn: readonly string[]): Promise<void> {
+    const wanted = await this.checkedTaskDeps(taskId, dependsOn)
+    const at = Date.now()
+    await this.db.batch([
+      this.db.prepare(`DELETE FROM todos_task_links WHERE user_id = ?1 AND task_id = ?2`).bind(this.userId, taskId),
+      ...wanted.map((id) => this.db.prepare(
+        `INSERT INTO todos_task_links (user_id, task_id, depends_on_id, created_at) VALUES (?1, ?2, ?3, ?4)`,
+      ).bind(this.userId, taskId, id, at)),
+    ])
+  }
+
+  /**
+   * The dependency list this task may be given, or the reason it may not.
+   *
+   * Public because the HTTP route is the one that has to answer a refusal with a 400 and a sentence; the
+   * store's own write calls this too, so an MCP or assistant caller that goes straight to the store is
+   * refused by the same rule rather than by a weaker copy of it.
+   */
+  async checkedTaskDeps(taskId: string, dependsOn: readonly string[]): Promise<string[]> {
+    const wanted = [...new Set(dependsOn)]
+    if (wanted.length > MAX_DEPS_PER_TASK) {
+      throw new TaskRefusal(`A task can wait on at most ${MAX_DEPS_PER_TASK} others.`)
+    }
+    if (wanted.includes(taskId)) throw new TaskRefusal('A task cannot wait on itself.')
+    for (const id of wanted) {
+      if (!isValidId(id)) throw new TaskRefusal('A dependency must name a task id.')
+    }
+    if (wanted.length) {
+      const held = await this.rows<{ id: string }>(
+        `SELECT id FROM todos_tasks WHERE user_id = ?1 AND id IN (${wanted.map((_, i) => `?${i + 2}`).join(', ')})`,
+        this.userId, ...wanted,
+      )
+      const found = new Set(held.map((row) => row.id))
+      const missing = wanted.filter((id) => !found.has(id))
+      // One sentence for all of them, and it does not say whether the id exists somewhere else: an id
+      // belonging to another account is the same "not yours to wait on" as one nobody has ever written.
+      if (missing.length) throw new TaskRefusal('A task can only wait on another task in this account.')
+      for (const id of wanted) {
+        if (await this.dependsReaches(id, taskId)) {
+          throw new TaskRefusal('That would make two tasks wait on each other, and neither could ever finish.')
+        }
+      }
+    }
+    return wanted
+  }
+
+  /** Whether `start` already waits on `target`, walking forward to a depth no real graph reaches. */
+  private async dependsReaches(start: string, target: string): Promise<boolean> {
+    const seen = new Set<string>([start])
+    let frontier = [start]
+    for (let depth = 0; depth < 12 && frontier.length; depth += 1) {
+      const next: string[] = []
+      for (const chunk of idChunks(frontier)) {
+        const rows = await this.rows<{ depends_on_id: string }>(
+          `SELECT depends_on_id FROM todos_task_links WHERE user_id = ?1 AND task_id IN (${chunkMarks(chunk)})`,
+          this.userId, ...chunk,
+        )
+        for (const row of rows) {
+          if (row.depends_on_id === target) return true
+          if (seen.has(row.depends_on_id)) continue
+          seen.add(row.depends_on_id)
+          next.push(row.depends_on_id)
+        }
+      }
+      frontier = next
+    }
+    return false
+  }
+
   private async tasksWithDetails(rows: TaskRow[]): Promise<TodoTask[]> {
     if (!rows.length) return []
     const ids = rows.map((row) => row.id)
-    const [steps, tags] = await Promise.all([this.stepCounts(ids), this.tagsForTasks(ids)])
+    const [steps, tags, deps] = await Promise.all([
+      this.stepCounts(ids), this.tagsForTasks(ids), this.depsForTasks(ids),
+    ])
     return rows.map((row) => toTask(row, {
       tags: tags.get(row.id) ?? [],
+      dependsOn: deps.dependsOn.get(row.id) ?? [],
+      blocks: deps.blocks.get(row.id) ?? [],
       stepTotal: steps.get(row.id)?.total ?? 0,
       stepDone: steps.get(row.id)?.done ?? 0,
       // The page's own select packed these in; no separate reminder read per listing.
@@ -4675,6 +4817,9 @@ export class AssistantStore {
     )
     await this.db.batch([insert, this.taskEvent(id, at, createdOn, 'born', null, status)])
     if (input.tags?.length) await this.replaceTaskTags(id, input.tags)
+    // The dependency set is written after the row exists, because the walk that refuses a cycle has to
+    // be able to see this task as a node. A create names a set or names none; it never replaces one.
+    if (input.dependsOn?.length) await this.replaceTaskDeps(id, input.dependsOn)
     for (const text of input.steps ?? []) await this.addStep(id, text)
     const reminders = input.reminders ?? (input.remindAt != null ? [input.remindAt] : [])
     if (reminders.length) await this.replaceTaskReminders(id, reminders)
@@ -4873,6 +5018,9 @@ export class AssistantStore {
       return await this.missingOrConflict(id)
     }
     if (patch.tags !== undefined) await this.replaceTaskTags(id, patch.tags)
+    // Absent leaves the graph alone; a list — empty included — is the reader's new answer about what
+    // this row waits on, so it replaces the whole set rather than adding to it.
+    if (patch.dependsOn !== undefined) await this.replaceTaskDeps(id, patch.dependsOn)
     // Reminders follow their due date unless the caller named a list (or the single instant the
     // assistant's tools speak). `reminders` wins: it is the whole pending list, not an addition.
     const named = patch.reminders ?? (patch.remindAt !== undefined
@@ -8490,6 +8638,35 @@ interface TaskTagRow {
   updated_at: number
 }
 
+/** How many tasks one task may wait on. A screen can say that many; more is a list, not a dependency. */
+export const MAX_DEPS_PER_TASK = 20
+
+/**
+ * A dependency set this account may not be given.
+ *
+ * Its own type so the HTTP boundary can answer 400 with the sentence rather than mapping every thrown
+ * Error in the store to a 500 — which would tell a reader their edit was bad by lying about it.
+ */
+export class TaskRefusal extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'TaskRefusal'
+  }
+}
+
+/** One end of a `todos_task_links` row, joined to the task it points at. */
+interface DepRow {
+  id: string
+  title: string
+  status: TaskStatus
+}
+
+/** Both directions of the dependency graph, keyed by the row that was asked about. */
+interface TaskDeps {
+  dependsOn: Map<string, TaskRef[]>
+  blocks: Map<string, TaskRef[]>
+}
+
 interface TaskStepRow {
   id: string
   task_id: string
@@ -8519,7 +8696,7 @@ function decodeTaskStatus(value: unknown): TaskStatus {
 
 function toTask(
   r: TaskRow,
-  extras: { tags: TaskTag[]; stepTotal: number; stepDone: number; reminders: number[] },
+  extras: { tags: TaskTag[]; dependsOn: TaskRef[]; blocks: TaskRef[]; stepTotal: number; stepDone: number; reminders: number[] },
 ): TodoTask {
   return {
     id: r.id,
@@ -8535,6 +8712,8 @@ function toTask(
     icon: r.icon,
     color: r.color,
     tags: extras.tags,
+    dependsOn: extras.dependsOn,
+    blocks: extras.blocks,
     starred: (r.starred ?? 0) === 1,
     repeat: parseRepeatRule(parseJson(r.repeat_rule)),
     reminders: extras.reminders,

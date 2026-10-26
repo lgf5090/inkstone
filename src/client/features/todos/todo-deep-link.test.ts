@@ -68,6 +68,8 @@ function task(id: string, title: string, status: string = 'in_progress'): Record
     remindAt: null,
     repeat: null,
     tags: [],
+    dependsOn: [],
+    blocks: [],
     stepTotal: 0,
     stepDone: 0,
     conversationId: null,

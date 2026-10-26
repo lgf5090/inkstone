@@ -244,6 +244,30 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_todos_tag_links_tag
      ON todos_tag_links(user_id, tag_id)`,
 
+  // Which task waits on which. One row reads "`task_id` cannot be considered finished until
+  // `depends_on_id` is", and the pair is stored in that direction so the row's own subject is the first
+  // column — the same shape `todos_tag_links` uses, where the task is the thing being described.
+  //
+  // Nothing here is derived at write time: a link does not hide the blocked task, move it, or change its
+  // status. Hiding it would put the badges, the calendar and the statistics out of step with the rows on
+  // screen, which is a worse lie than a row that says "waiting" while still being counted. Whether the
+  // set of blockers is *satisfied* is computed on read, from the live status of the rows named here, so
+  // finishing a blocker unblocks its dependents without a write touching them.
+  //
+  // The graph is kept acyclic by the store rather than by the database: SQLite will not refuse a cycle on
+  // insert, and a cycle would mean a set of tasks no reader could ever finish and no surface could explain.
+  `CREATE TABLE IF NOT EXISTS todos_task_links (
+    user_id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    depends_on_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, task_id, depends_on_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_todos_task_links_depends_on
+     ON todos_task_links(user_id, depends_on_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_todos_task_links_task
+     ON todos_task_links(user_id, task_id)`,
+
   // The time ledger: one row per timed interval (or one manual back-fill), detail rather than a
   // running aggregate on the task row — the plan's D3, because `timeSpent` and every daily total are
   // derived from these rows and a second stored copy would be a second truth to keep in step.
@@ -376,6 +400,7 @@ export const TODOS_REQUIRED_TABLES: readonly string[] = [
   'todos_attachments',
   'todos_tags',
   'todos_tag_links',
+  'todos_task_links',
   'todos_time_entries',
   'todos_counters',
   'todos_counter_ticks',
@@ -403,6 +428,8 @@ export const TODOS_REQUIRED_INDEXES: readonly string[] = [
   'idx_todos_steps_task',
   'idx_todos_tags_unique',
   'idx_todos_tag_links_tag',
+  'idx_todos_task_links_depends_on',
+  'idx_todos_task_links_task',
   'ux_todos_time_open',
   'idx_todos_time_task',
   'idx_todos_time_day',
@@ -425,6 +452,7 @@ export const TODOS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>>
   todos_attachments: ['user_id', 'task_id', 'attachment_id', 'created_at'],
   todos_tags: ['user_id', 'id', 'name', 'color', 'created_at', 'updated_at'],
   todos_tag_links: ['user_id', 'task_id', 'tag_id', 'created_at'],
+  todos_task_links: ['user_id', 'task_id', 'depends_on_id', 'created_at'],
   todos_time_entries: ['user_id', 'id', 'task_id', 'start_at', 'end_at', 'day', 'source', 'created_at', 'updated_at'],
   todos_counters: ['user_id', 'id', 'title', 'kind', 'icon', 'color', 'goal', 'running_since', 'created_at', 'updated_at'],
   todos_counter_ticks: ['user_id', 'counter_id', 'day', 'amount'],

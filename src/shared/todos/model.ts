@@ -8,7 +8,7 @@
  */
 
 import type { Task, TaskPriority, TaskStatus } from '../assistant'
-import { isTaskOpen } from './status'
+import { isTaskDone, isTaskOpen } from './status'
 import { daysInMonth, getZonedParts, zonedTimeToUtc } from '../assistant-schedule'
 import { ORGANIZER_COLORS, organizerColorOrNull } from '../organizer-colors'
 
@@ -412,6 +412,25 @@ export interface TaskStep {
   createdAt: number
 }
 
+/**
+ * One end of a dependency, as the row that names it carries it: enough to read aloud, and enough to say
+ * whether the wait is over.
+ *
+ * The status travels because "waiting on the report" and "waiting on the report (already done)" are
+ * different facts for the reader, and re-reading the task table to work out which one it is would be a
+ * second answer to a question the link already knows.
+ */
+export interface TaskRef {
+  id: string
+  title: string
+  status: TaskStatus
+}
+
+/** Whether this row is still owed something else before it can be considered finished. */
+export function taskIsBlocked(task: Pick<TodoTask, 'dependsOn'>): boolean {
+  return task.dependsOn.some((entry) => !isTaskDone(entry.status))
+}
+
 export interface TodoTask extends Task {
   listId: string | null
   /**
@@ -447,6 +466,21 @@ export interface TodoTask extends Task {
    */
   position?: number | null
   tags: TaskTag[]
+  /**
+   * The tasks this one waits on, and the tasks waiting on it, as the reader arranged them.
+   *
+   * A dependency is a fact about order, not about visibility: a blocked task stays on the board, in the
+   * badges, on the calendar and in the statistics exactly where it would be with none, because hiding it
+   * would make the counts disagree with the rows a reader can see. What the pair adds is the chance to
+   * say *why* a row is still open.
+   *
+   * Both sides are read from `todos_task_links` on every listing that returns rows, the way `tags` is,
+   * and each carries the blocker's live status rather than a stored verdict — finishing a task unblocks
+   * its dependents without a write ever touching them. Judge "is this waiting" with {@link taskIsBlocked}
+   * rather than by re-reading the statuses here.
+   */
+  dependsOn: TaskRef[]
+  blocks: TaskRef[]
   starred: boolean
   repeat: RepeatRule | null
   /**

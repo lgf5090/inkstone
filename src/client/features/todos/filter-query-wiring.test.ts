@@ -84,6 +84,8 @@ function task(id: string, title: string, tags: TodoTask['tags'] = []): TodoTask 
     updatedAt: Date.parse('2026-10-01T08:00:00Z'),
     listId: 'L2',
     tags,
+    dependsOn: [],
+    blocks: [],
     starred: false,
     repeat: null,
     remindedAt: null,

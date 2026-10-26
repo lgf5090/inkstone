@@ -66,7 +66,7 @@ import {
 } from '@shared/todos/model'
 import { isTaskDone } from '@shared/todos/status'
 import { TASK_STATUSES, type TaskPriority, type TaskStatus } from '@shared/assistant'
-import { AssistantStore, type TaskQuery } from '../assistant/store'
+import { AssistantStore, TaskRefusal, type TaskQuery } from '../assistant/store'
 import { runIdempotent } from '../mcp/operations'
 import { insertFeed, listFeeds, revokeFeed, type OwnFeedRow } from '../todos/feeds'
 import {
@@ -337,6 +337,27 @@ function stepTexts(value: unknown): string[] | undefined {
     .filter((entry): entry is string => typeof entry === 'string')
     .map((entry) => entry.trim().slice(0, MAX_STEP_TEXT_CHARS))
     .filter(Boolean)
+}
+
+/**
+ * The dependency list a request names, judged by the same rule the store enforces.
+ *
+ * The route asks it so a bad set is a 400 with the store's own sentence rather than a 500 — the store
+ * re-checks on the write, because the assistant's tools and the MCP surface come in through it and must
+ * not get a weaker answer. `selfId` is the task being edited, or '' for a create, whose id nothing
+ * knows yet; a new row cannot already wait on itself.
+ */
+async function taskDepends(s: AssistantStore, value: unknown, selfId: string): Promise<string[] | undefined> {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
+    throw ApiError.badRequest('dependsOn must be a list of task ids.')
+  }
+  try {
+    return await s.checkedTaskDeps(selfId, value as string[])
+  } catch (error) {
+    if (error instanceof TaskRefusal) throw ApiError.badRequest(error.message)
+    throw error
+  }
 }
 
 function tagNames(value: unknown): string[] | undefined {
@@ -1269,6 +1290,7 @@ todoRoutes.post('/', async (c) => {
     conversationId: optionalId(body.conversationId, 'conversationId') ?? null,
     tags: tagNames(body.tags),
     steps: stepTexts(body.steps),
+    dependsOn: await taskDepends(s, body.dependsOn, ''),
   }
   // Everything the request has to say about itself is read above, so a body that is refused never
   // spends an operation row, and what the key is hashed over is the task this call asks for rather
@@ -1718,6 +1740,7 @@ todoRoutes.patch('/:id', async (c) => {
     ...(body.noteId !== undefined ? { noteId: optionalId(body.noteId, 'noteId') } : {}),
     ...(body.conversationId !== undefined ? { conversationId: optionalId(body.conversationId, 'conversationId') } : {}),
     ...(body.tags !== undefined ? { tags: tagNames(body.tags) ?? [] } : {}),
+    ...(body.dependsOn !== undefined ? { dependsOn: await taskDepends(s, body.dependsOn, id) } : {}),
   }
   // Whether this request also names content. A write here spends the revision the caller named, so a
   // second write made by the same request — the completion, or a reopen — must not name it again: the

@@ -86,6 +86,13 @@ export interface TaskDraft {
   priority?: TodoTask['priority']
   starred?: boolean
   tags?: string[]
+  /**
+   * The ids of the tasks this one waits on, replacing whatever it waited on before.
+   *
+   * The set is sent whole because an empty list is the answer "nothing waits" rather than an absence,
+   * and the row at the other end of every edge is restated by the server on the partner's own copy.
+   */
+  dependsOn?: string[]
   repeat?: TodoTask['repeat']
   /** The task's pending reminders as absolute instants; what the task endpoints accept. */
   reminders?: number[]
@@ -725,14 +732,25 @@ export async function replayTodoOutboxItem(
         // Every later queued write for the row this create just minted names the local id. Move them
         // together, or they would edit a task that never existed.
         await localDb.retargetOutboxEntity('todo', id, task.id).catch(() => {})
+        // The rows this queued create waits on each gained a partner of their own to restate.
+        await refreshServerRows(cachedDependPartners(dependsIds(body.dependsOn)))
         return { status: 'done', retarget: { from: id, to: task.id } }
       }
       case 'update': {
         const patch = payload.patch ?? {}
+        // A cached row is the only place the edges being replaced are still written down, so both sets
+        // are read here — before the answer overwrites the row this queue item was about.
+        const partners = 'dependsOn' in patch
+          ? [
+            ...(useTodos.getState().tasks.find((entry) => entry.id === id)?.dependsOn.map((ref) => ref.id) ?? []),
+            ...dependsIds(patch.dependsOn),
+          ]
+          : []
         const { task, next } = await api.todos.update(id, patch, todoQueuedRev(payload))
         storeServerTask(task, { addIfMissing: true })
         if (next) storeServerTask(next, { addIfMissing: true })
         await advanceTodoDependents(item, payload, task.rev ?? 1, siblings)
+        await refreshServerRows(cachedDependPartners(partners))
         return { status: 'done' }
       }
       case 'delete': {
@@ -776,7 +794,7 @@ export async function replayTodoOutboxItem(
         // where this one begins — so it is re-read alongside the row that now holds the open span.
         const displaced = timedRowIds(useTodos.getState()).filter((rowId) => rowId !== entry.taskId)
         paintTimedRow(entry.taskId, entry.startAt)
-        await refreshTimedRows([entry.taskId, ...displaced])
+        await refreshServerRows([entry.taskId, ...displaced])
         return { status: 'done' }
       }
       case 'timer-stop': {
@@ -788,7 +806,7 @@ export async function replayTodoOutboxItem(
           if (!(error instanceof ApiError && error.status === 404)) throw error
         }
         paintTimedRow(id, null)
-        await refreshTimedRows([id])
+        await refreshServerRows([id])
         return { status: 'done' }
       }
     }
@@ -962,6 +980,8 @@ function optimisticTask(id: string, input: TaskDraft): TodoTask {
     icon: input.icon ?? null,
     color: input.color ?? null,
     tags: tagsForNames(input.tags ?? []),
+    dependsOn: [],
+    blocks: [],
     starred: input.starred ?? false,
     repeat: input.repeat ?? null,
     reminders,
@@ -1009,16 +1029,18 @@ function paintTimedRow(id: string, since: number | null): void {
 }
 
 /**
- * Re-read the rows a ledger write moved, instead of adjusting them here.
+ * Re-read the rows a write moved but did not answer with, instead of adjusting them here.
  *
- * A ledger write spends the task's revision — the interval hangs off the row, and moving `updated_at`
- * is what carries it to the other devices — while the timer routes answer with the interval alone. So
- * the mirror of the write has to be read, not guessed: a local `rev + 1` would be a guess about a
- * number the server holds, and the reader's next edit would then report a conflict this very press
- * caused. Rows that left the page are left alone, because `storeServerTask` only replaces what is on
- * screen and the next listing read owns the rest.
+ * Two writes have that shape. A ledger write spends the task's revision — the interval hangs off the
+ * row, and moving `updated_at` is what carries it to the other devices — while the timer routes answer
+ * with the interval alone. A dependency write restates the row at the other end of the edge, and the
+ * response for the row being saved cannot speak for that one either. In both cases the mirror of the
+ * write has to be read, not guessed: a local `rev + 1` would be a guess about a number the server
+ * holds, and the reader's next edit would then report a conflict this very press caused. Rows that left
+ * the page are left alone, because `storeServerTask` only replaces what is on screen and the next
+ * listing read owns the rest.
  */
-async function refreshTimedRows(ids: readonly string[]): Promise<void> {
+async function refreshServerRows(ids: readonly string[]): Promise<void> {
   await Promise.all(ids.map(async (id) => {
     try {
       const { task } = await api.todos.get(id)
@@ -1029,6 +1051,26 @@ async function refreshTimedRows(ids: readonly string[]): Promise<void> {
       toastError(error)
     }
   }))
+}
+
+/** The ids a request's `dependsOn` field names, when it names a list of them at all. */
+function dependsIds(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === 'string')
+    : []
+}
+
+/**
+ * The partners a dependency write restates, narrowed to the rows a reader is actually looking at.
+ *
+ * Both sets are named — the edges being dropped as well as the ones being added — because a partner
+ * that stops being waited on loses a chip as loudly as one being waited on gains one. A row nobody is
+ * showing is left to the next listing read rather than fetched for a repaint no one sees.
+ */
+function cachedDependPartners(ids: readonly string[]): string[] {
+  const state = useTodos.getState()
+  const onScreen = new Set([...state.tasks, ...state.completed].map((entry) => entry.id))
+  return [...new Set(ids)].filter((id) => onScreen.has(id))
 }
 
 /** The rows the account is holding an open interval on, newest gesture included. */
@@ -1087,7 +1129,7 @@ async function logTimeSpan(id: string, ms: number): Promise<void> {
   }
   try {
     await api.todos.addTime(id, span)
-    await refreshTimedRows([id])
+    await refreshServerRows([id])
   } catch (error) {
     toastError(error)
   }
@@ -1714,6 +1756,8 @@ export const useTodos = create<TodosState>((set, get) => ({
       const { task } = await api.todos.create(body as Record<string, unknown>)
       set((state) => ({ tasks: [...state.tasks, task], saving: false }))
       void get().refreshCounts()
+      // Each row this one starts waiting on now carries a fact of its own — somebody waits on it.
+      await refreshServerRows(cachedDependPartners(dependsIds(body.dependsOn)))
       if (timeLoggedMs !== undefined) await logTimeSpan(task.id, timeLoggedMs)
       return task
     } catch (error) {
@@ -1790,6 +1834,12 @@ export const useTodos = create<TodosState>((set, get) => ({
         }
       }
       void get().refreshCounts()
+      // The rows on both sides of every edge this save touched — the ones it dropped included — answer
+      // for the change on their own copies, which this response did not carry.
+      if ('dependsOn' in patch) {
+        const partners = [...(before?.dependsOn.map((entry) => entry.id) ?? []), ...dependsIds(patch.dependsOn)]
+        await refreshServerRows(cachedDependPartners(partners))
+      }
       return task
     } catch (error) {
       set({ saving: false })
@@ -2068,7 +2118,7 @@ export const useTodos = create<TodosState>((set, get) => ({
     try {
       const { entry } = await api.todos.startTimer(task.id)
       paintTimedRow(entry.taskId, entry.startAt)
-      await refreshTimedRows([entry.taskId, ...closed])
+      await refreshServerRows([entry.taskId, ...closed])
     } catch (error) {
       toastError(error)
     }
@@ -2099,7 +2149,7 @@ export const useTodos = create<TodosState>((set, get) => ({
     try {
       await api.todos.stopTimer(id)
       paintTimedRow(id, null)
-      await refreshTimedRows([id])
+      await refreshServerRows([id])
     } catch (error) {
       toastError(error)
     }
