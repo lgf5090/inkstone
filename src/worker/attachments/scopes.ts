@@ -12,7 +12,7 @@
  * injection dressed up as configuration.
  */
 
-export const ATTACHMENT_SCOPES = ['notes', 'todos', 'memos', 'chat', 'email'] as const
+export const ATTACHMENT_SCOPES = ['notes', 'todos', 'memos', 'chat', 'email', 'calendar'] as const
 
 export type AttachmentScope = (typeof ATTACHMENT_SCOPES)[number]
 
@@ -66,6 +66,16 @@ export const ATTACHMENT_SCOPE_DESCRIPTORS = {
   todos: {
     id: 'todos',
     prefix: 'todos',
+    table: 'attachments',
+    urlBase: '/api/files',
+    ownerColumn: 'note_id',
+    keyColumn: 'object_key',
+    hasDimensions: true,
+    sharesNotesTable: true,
+  },
+  calendar: {
+    id: 'calendar',
+    prefix: 'calendar',
     table: 'attachments',
     urlBase: '/api/files',
     ownerColumn: 'note_id',

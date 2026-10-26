@@ -41,6 +41,18 @@ export interface CalendarAttendeeDto {
   status: CalendarAttendeeStatus
 }
 
+/** One file hung on an event. `url` is the account's own file door, not a public address. */
+export interface CalendarAttachmentDto {
+  id: string
+  filename: string
+  mime: string
+  size: number
+  width: number | null
+  height: number | null
+  url: string
+  createdAt: number
+}
+
 export const CALENDAR_YEAR_VIEW_MODES = ['year-canvas', 'fixed-week', 'grid'] as const
 export type CalendarYearViewMode = (typeof CALENDAR_YEAR_VIEW_MODES)[number]
 
@@ -61,6 +73,8 @@ export const MAX_REMINDER_MINUTES = 7 * 24 * 60
 export const MAX_ATTENDEES_PER_EVENT = 50
 export const MAX_ATTENDEE_EMAIL = 254
 export const MAX_ATTENDEE_NAME = 120
+/** Files one event may carry; the sidebar lists them without paging below this. */
+export const MAX_ATTACHMENTS_PER_EVENT = 20
 export const MAX_EVENTS_PER_QUERY = 5000
 export const MAX_EVENTS_PER_BATCH = 200
 export const MAX_ICS_BYTES = 5 * 1024 * 1024

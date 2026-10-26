@@ -4,6 +4,7 @@
  */
 import { ApiError, request } from '../../lib/api'
 import type {
+  CalendarAttachmentDto,
   CalendarAttendeeDto,
   CalendarConnectionDto,
   CalendarConnectionKind,
@@ -162,6 +163,28 @@ export async function setEventAttendees(
     `/api/calendar/events/${entity(id)}/attendees`,
     { method: 'PUT', body: { attendees, rev } },
   )
+}
+
+export async function getEventAttachments(id: string): Promise<CalendarAttachmentDto[]> {
+  const data = await request<{ attachments: CalendarAttachmentDto[] }>(`/api/calendar/events/${entity(id)}/attachments`)
+  return Array.isArray(data.attachments) ? data.attachments : []
+}
+
+/** One multipart field named `file`; every limit and every check is the route's to decide. */
+export async function uploadEventAttachment(id: string, file: File): Promise<CalendarAttachmentDto> {
+  const form = new FormData()
+  form.set('file', file)
+  const data = await request<{ attachment: CalendarAttachmentDto }>(
+    `/api/calendar/events/${entity(id)}/attachments`,
+    { method: 'POST', formData: form },
+  )
+  return data.attachment
+}
+
+export function removeEventAttachment(id: string, attachmentId: string): Promise<void> {
+  return request<void>(`/api/calendar/events/${entity(id)}/attachments/${entity(attachmentId)}`, {
+    method: 'DELETE',
+  })
 }
 
 export async function createEvent(event: CalendarEventInput): Promise<CalendarEventDto> {  const data = await request<{ event: CalendarEventDto }>('/api/calendar/events', { method: 'POST', body: event })

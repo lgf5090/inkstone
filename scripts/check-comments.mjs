@@ -1270,6 +1270,8 @@ const allowed = new Map([
     "/** The zone the calendar itself is read in; an event without a zone of its own uses it. */",
     "/** The row moved in time: the surface has to re-read the range so the grid shows the new instant. */",
     "/** The whole list is replaced on every edit, so a failed write puts the previous one back. */",
+    "/**\n   * Files go up one at a time: a hand of them fired together would race the account's hourly budget\n   * and report a failure count nobody could tie to a file. The size and the count are checked here only\n   * as a courtesy — the route decides both for real.\n   */",
+    "// The same file may be picked again after a refusal; an unchanged value fires no change event.",
   ]],
   ["src/client/features/calendar/CalendarFilteredSearch.tsx", [
     "/** A filtered calendar search: keyword, calendar, date span and kind, in one panel. */",
@@ -1324,6 +1326,7 @@ const allowed = new Map([
     "/** One row as the server has it now, or null when it no longer exists. */",
     "/** The calendar's public link, or null while it has never been shared. */",
     "/** Publish, or return the address the calendar already has. */",
+    "/** One multipart field named `file`; every limit and every check is the route's to decide. */",
   ]],
   ["src/client/features/calendar/attendees.ts", [
     "/**\n * The guest list's client-side rules.\n *\n * The server re-checks all of this (`parseAttendeeList`); these helpers exist so the card can refuse a\n * half-typed address before it costs a round trip, and so it never offers the same guest twice.\n */",
@@ -26656,6 +26659,8 @@ const allowed = new Map([
     "/** 0–22, the first hour on the ruler. */",
     "/** 1–24, exclusive, so the ruler can end at midnight. */",
     "/** One calendar's public read link: the slug is the whole capability, so it never leaves the owner's session. */",
+    "/** One file hung on an event. `url` is the account's own file door, not a public address. */",
+    "/** Files one event may carry; the sidebar lists them without paging below this. */",
   ]],
   ["src/shared/constants.ts", [
     "// D1 limits an entire row to 2,000,000 bytes; reserve room for note metadata.",
@@ -30912,6 +30917,9 @@ const allowed = new Map([
     "/** The columns needed to choose a key for an object that has no row to read one back from. */",
     "/** The key a scope's newest object will be written under, and the only place a prefix is chosen. */",
     "/**\n * The attachment a queued deletion names, when the key really is this account's attachment.\n *\n * One table holds every object this app deletes, so keys arrive in three shapes: the flat pre-hub\n * `<user>/<file>`, the hub `<scope>/<user>/<file>` for a registered scope, and objects that merely\n * look like the second — avatars live at `avatars/<user>/<file>`, and `avatars` is not a scope.\n * Reading segments rather than counting from a fixed offset is what keeps this true now that the\n * scope prefix moved every attachment key one level deeper; the old positional read matched nothing\n * written after the hub and simply stopped finding anything.\n */",
+    "/** The folders a calendar file lands in. The first two are the names the reference deployment used. */",
+    "/**\n * Which folder one upload belongs in.\n *\n * The extension decides first: the attachment pipeline sniffs content and allows a short MIME list, so\n * a `.docx` arrives as `application/octet-stream` and only its name still says what it is. The MIME\n * type is the fallback for extensionless files the browser labelled properly.\n */",
+    "/**\n * The same target, spelled in SQL.\n *\n * A batch that deletes many rows cannot read each key back first, so it queues the cleanup with a\n * `SELECT` instead — and the format has to be the one `parseAttachmentCleanupTarget` reads.\n */",
   ]],
   ["src/worker/attachments/organizer.ts", [
     "/**\n * Folders and tags for the attachment hub.\n *\n * Both tables carry a `scope` column rather than being one table pair per application, because the\n * row shape, the ordering rules and the detach-on-delete behaviour are identical across all four —\n * the only thing that differs is which application's sidebar is drawing them. Scoping by a column\n * keeps that to one implementation; four table pairs would mean four copies of the same eight\n * statements to keep honest.\n *\n * Names are scoped, not global: a \"Screenshots\" folder in notes and one in chat are unrelated\n * things that happen to share a name, and a rename in one must not reach into the other.\n */",
@@ -30944,6 +30952,7 @@ const allowed = new Map([
   ["src/worker/attachments/storage.ts", [
     "/** Which application the file belongs to; decides the object prefix and the hub that lists it. */",
     "/** The key the bytes were written under, kept so a rollback never has to guess it back. */",
+    "/**\n   * Where to write the object when the scope's own layout is not `<prefix>/<user>/<id>.<ext>`.\n   *\n   * Calendar uploads file themselves under a category folder (`calendar/images/…`), and the key must\n   * be the one the row will name, so the caller that knows the category chooses it.\n   */",
   ]],
   ["src/worker/attachments/store.ts", [
     "/**\n * Every read and write the files HTTP routes make against D1.\n *\n * The shape follows `notes/store.ts` and `assistant/store.ts`: a store built per request from the\n * account it serves, methods that take already-validated input and hand back rows or the answer the\n * route needs, and nothing in between that knows about HTTP. Storing and reading the bytes themselves\n * is not here: that is `attachments/storage.ts` and `attachments/backend.ts`, which take the whole\n * `Env` because an upload lands in R2 or KV and in D1 at once.\n *\n * Two rules hold throughout:\n *  - every statement binds `user_id`, so one account's files cannot surface in another's listing. The\n *    two statements the anonymous share read uses are the deliberate exceptions: an attachment is looked\n *    up by id before anyone knows who is asking, and the caller compares the row's `user_id` against the\n *    session, while the share lookup is scoped by the `user_id` that row just named.\n *  - a mutation's statements stay in the one D1 batch they are written in today. The cleanup row, the\n *    mapping delete and the attachment delete only mean \"this file left the account exactly once\" while\n *    they land together.\n */",
@@ -31056,6 +31065,13 @@ const allowed = new Map([
     "// global_fetch_strictly_public compatibility flag remains the hard outer",
     "// guard and must stay enabled in every wrangler config.",
   ]],
+  ["src/worker/calendar/attachments.ts", [
+    "/**\n * Files hung on an event.\n *\n * The bytes and their row live in the shared attachment pipeline (`scope = 'calendar'`), so one quota,\n * one MIME policy, one cleanup queue and one file door (`/api/files/:id`) already cover them; this\n * module only owns the link between an event and a file, plus the cascade that removes both when the\n * event is deleted. Objects are filed under a category folder — `calendar/images/<id>.png`,\n * `calendar/docx/<id>.pdf` — because that is the layout this deployment is read with.\n *\n * Deleting a whole calendar deletes the link rows of the events it really removes, but not their files:\n * that is the same rule task attachments follow, and it keeps a file that a surviving event in another\n * calendar still links. The files stay counted against the account quota; reclaiming them is the job of\n * a sweep this app does not have yet.\n */",
+    "/** The wire shape; the download url is the account's own file door, never a bucket address. */",
+    "/** True when the link was written; false means the event or the file is not this account's. */",
+    "/**\n * Unlink one file and forget it: the link, the attachment row and the object go together.\n *\n * The queue entry is written first and only while the link still exists, so a link that survived this\n * call cannot have lost its bytes. The link is deleted last, and its outcome is the answer.\n */",
+    "/**\n * The statements that hang off an event deletion, to run inside the caller's rev-guarded batch.\n *\n * `EXISTS (… rev = ?4)` is repeated on each one because the caller's batch is the transaction: if the\n * event changed under the caller, none of this runs either. The event row is deleted after these, so\n * the guards still see it.\n */",
+  ]],
   ["src/worker/calendar/connections.ts", [
     "/**\n * Calendar connections and the credentials behind them.\n *\n * A connection is the account-level half of remote sync: which provider, where its home collection\n * lives, what the reader may do there, and how the last attempt ended. The credential is a separate\n * row and exists only as vault ciphertext keyed to this connection's id, so listing connections never\n * touches a secret and a ciphertext copied to another connection cannot be read back.\n *\n * Every query carries `user_id`; a row that exists for another account is indistinguishable from one\n * that does not exist, which is the 404 the routes answer.\n */",
     "/** The DTO is already sanitized and carries the home URL the proxy needs; the row maps to it. */",
@@ -31141,6 +31157,8 @@ const allowed = new Map([
     "// One public link per calendar. The slug is the whole capability — a reader has no session, so it is",
     "// looked up on its own — while the key stays account-first like every other calendar table. Revoking",
     "// deletes the row, so an address a reader wrote down is gone rather than parked next to a new one.",
+    "// One row per file hung on an event. The bytes and their row live in the shared attachment tables;",
+    "// this only names which event shows the file, and it goes away with that event.",
   ]],
   ["src/worker/calendar/shares.ts", [
     "/**\n * Public calendar links.\n *\n * A shared calendar is read by someone who will never log in, so the unguessable slug *is* the\n * capability — the same model the task feeds and note shares already use. This module owns the rows:\n * minting, revoking, looking one up, and rendering the document a visitor gets. Nothing here decides\n * what the visitor may do, because there is nothing they may do but read.\n *\n * Revoking deletes the row, so an address someone wrote down before the revoke stays dead and publishing\n * again necessarily hands out a new one. Deleting a calendar deletes its row in the same batch, and a\n * row is gone with the account: nothing about a link outlives the thing it pointed at.\n */",
@@ -31195,6 +31213,11 @@ const allowed = new Map([
     "// The event row is deleted last, so its outcome is the one that says whether the rev still held.",
     "// A published link to a calendar that no longer exists must stop answering in the same statement",
     "// batch, so the delete cannot leave a public address behind.",
+    "// The events this delete really removes: the ones that live in no other calendar. Every statement",
+    "// below reads the same set, so a file cannot be reclaimed while an event that survives still shows it.",
+    "// Files first — the cleanup queue is written while the links still name them — then the rows, the",
+    "// links, and only then the events themselves.",
+    "/** Whether this event can be written at all: every calendar it is in must be writable. */",
   ]],
   ["src/worker/calendar/subscriptions.ts", [
     "/**\n * Refresh a few due ICS feeds on each cron fire.\n *\n * `last_sync_at` spaces successful runs; `last_error_at` holds a broken feed for an hour instead of\n * retrying it every minute. The limit keeps one slow feed from spending the whole scheduled budget.\n */",
@@ -31852,6 +31875,8 @@ const allowed = new Map([
     "// replaced wholesale by the editor, and a guest who appears twice would answer twice.",
     "// A public calendar link: one row per calendar, and the slug — which is the whole capability for a",
     "// reader who never logs in — gets the unique index the public lookup uses.",
+    "// Which files an event shows. The bytes live in the shared `attachments` table (scope `calendar`)",
+    "// so one quota and one file door cover them; this table only holds the link.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -33313,6 +33338,12 @@ const allowed = new Map([
   ]],
   ["src/worker/routes/backup.ts", [
     "/** The 404 every target-addressed route answers with, for a row that is not this account's. */",
+  ]],
+  ["src/worker/routes/calendar-attachments.ts", [
+    "/**\n * The HTTP surface of event attachments: put a file on an event, list what it shows, take one off.\n *\n * There is no second upload path. The bytes go through the same `attachments/storage.ts` the note and\n * task files use — the same hourly budget, multipart ceiling, 25 MB limit, MIME sniffing, filename\n * cleanup, per-account quota and R2/KV choice — because a parallel reader of `LIMITS` would be a second\n * set of limits to keep in step. This file adds the link row and the category folder the object is\n * filed under (`calendar/images/…`).\n *\n * Attaching is a write to the event, so it obeys the event's own write permission: a read-only provider\n * calendar refuses it for the same reason it refuses an edit. Removing a file removes the link, the\n * attachment row and the object; deleting the event does the same for every file it holds.\n */",
+    "// Proven before the body is read: an event this account cannot see, or cannot write, is refused even",
+    "// when the caller brought a 25 MB upload with them.",
+    "// The upload already landed; a link that cannot be written must not leave a file nothing names.",
   ]],
   ["src/worker/routes/calendar-ics.ts", [
     "// The events are idempotent by (source, external id), so a retry of the same file is safe.",
@@ -36669,6 +36700,13 @@ const allowed = new Map([
   ]],
   ["tests/builtin-templater-bodies.test.ts", [
     "/**\n * A built-in template is the app's own advertisement of what the engine does.\n *\n * Its body is written inside a JavaScript template literal, so every escape sequence the reader sees as\n * two characters — `'\\n'` inside a script block, for example — is one newline by the time the sandbox\n * parses it, and the template fails with a syntax error the reader cannot fix from the gallery. Only\n * running the engine catches that, so this compiles each body and hands the generated program to a parser\n * that stops at the first unbalanced quote.\n */",
+  ]],
+  ["tests/calendar-attachments.test.ts", [
+    "// The file door resolves its own session; the account the test drives is injected the same way the",
+    "// task attachment suite does it.",
+    "// A one-pixel PNG: the pipeline sniffs the signature, so this is stored as an image, not as text.",
+    "// The file door's contract for someone else's id is `unauthenticated`, not a 404 (files.ts).",
+    "// The refusal happens before the upload, so nothing was written for it.",
   ]],
   ["tests/calendar-attendees.test.ts", [
     "// Only a provider sync may write into a read-only calendar, and it goes through the batch route.",

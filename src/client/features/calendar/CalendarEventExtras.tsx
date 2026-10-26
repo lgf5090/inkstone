@@ -7,8 +7,15 @@
  * does not send a stale PATCH afterwards.
  */
 import { useEffect, useState } from 'react'
-import { CALENDAR_REMINDER_MINUTES, temporalValueToEpochMs } from '@shared/calendar/model'
-import type { CalendarAttendeeDto, CalendarAttendeeStatus, CalendarEventDto } from '@shared/calendar/model'
+import { LIMITS } from '@shared/constants'
+import { formatBytes } from '@shared/byte-format'
+import { CALENDAR_REMINDER_MINUTES, MAX_ATTACHMENTS_PER_EVENT, temporalValueToEpochMs } from '@shared/calendar/model'
+import type {
+  CalendarAttachmentDto,
+  CalendarAttendeeDto,
+  CalendarAttendeeStatus,
+  CalendarEventDto,
+} from '@shared/calendar/model'
 import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
 import { Input, Select } from '../../components/form'
@@ -60,6 +67,8 @@ export function CalendarEventExtras({
   const [event, setEvent] = useState<CalendarEventDto | null>(null)
   const [minutes, setMinutes] = useState<number[]>([])
   const [attendees, setAttendees] = useState<CalendarAttendeeDto[]>([])
+  const [files, setFiles] = useState<CalendarAttachmentDto[]>([])
+  const [uploading, setUploading] = useState(false)
   const [draft, setDraft] = useState('')
   const [error, setError] = useState<string | null>(null)
   const zones = supportedTimeZones()
@@ -69,6 +78,8 @@ export function CalendarEventExtras({
     setEvent(null)
     setMinutes([])
     setAttendees([])
+    setFiles([])
+    setUploading(false)
     setDraft('')
     setError(null)
     void (async () => {
@@ -79,14 +90,16 @@ export function CalendarEventExtras({
           setError(t('calendar.extras.gone'))
           return
         }
-        const [saved, guests] = await Promise.all([
+        const [saved, guests, attachments] = await Promise.all([
           api.getEventReminders(found.id),
           api.getEventAttendees(found.id),
+          api.getEventAttachments(found.id),
         ])
         if (cancelled) return
         setEvent(found)
         setMinutes(saved)
         setAttendees(guests)
+        setFiles(attachments)
       } catch (loadError) {
         if (!cancelled) setError(loadError instanceof Error && loadError.message
           ? loadError.message
@@ -168,6 +181,57 @@ export function CalendarEventExtras({
     }
     setDraft('')
     update(next)
+  }
+
+  /**
+   * Files go up one at a time: a hand of them fired together would race the account's hourly budget
+   * and report a failure count nobody could tie to a file. The size and the count are checked here only
+   * as a courtesy — the route decides both for real.
+   */
+  const upload = (picked: FileList | null): void => {
+    if (!picked?.length || rev === null) return
+    const chosen = Array.from(picked)
+    void (async () => {
+      setUploading(true)
+      let room = MAX_ATTACHMENTS_PER_EVENT - files.length
+      const problems: string[] = []
+      try {
+        for (const file of chosen) {
+          if (file.size > LIMITS.attachmentMaxBytes) {
+            problems.push(t('calendar.extras.attachment_too_large', { limit: formatBytes(LIMITS.attachmentMaxBytes) }))
+            continue
+          }
+          if (room <= 0) {
+            problems.push(t('calendar.extras.attachment_limit', { limit: MAX_ATTACHMENTS_PER_EVENT }))
+            break
+          }
+          const saved = await api.uploadEventAttachment(eventId, file)
+          room -= 1
+          setFiles((current) => [...current, saved])
+        }
+        setError(problems[0] ?? null)
+      } catch (uploadError) {
+        setError(uploadError instanceof Error && uploadError.message
+          ? uploadError.message
+          : t('calendar.extras.attachment_failed'))
+      } finally {
+        setUploading(false)
+      }
+    })()
+  }
+
+  const removeFile = (file: CalendarAttachmentDto): void => {
+    void (async () => {
+      try {
+        await api.removeEventAttachment(eventId, file.id)
+        setFiles((current) => current.filter((entry) => entry.id !== file.id))
+        setError(null)
+      } catch (removeError) {
+        setError(removeError instanceof Error && removeError.message
+          ? removeError.message
+          : t('calendar.extras.attachment_failed'))
+      }
+    })()
   }
 
   const changeZone = (zone: string): void => {
@@ -305,6 +369,56 @@ export function CalendarEventExtras({
           {t('calendar.extras.add_attendee')}
         </Button>
       </form>
+
+      <p className="mt-2.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
+        {t('calendar.extras.attachments')}
+      </p>
+      {files.length === 0 && (
+        <p className="mt-1 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">
+          {t('calendar.extras.no_attachments')}
+        </p>
+      )}
+      <ul className="mt-1.5 flex flex-col gap-1">
+        {files.map((file) => (
+          <li key={file.id} className="flex items-center gap-2">
+            <a
+              href={file.url}
+              download={file.filename}
+              title={file.filename}
+              className="min-w-0 flex-1 truncate text-[length:var(--text-11-5)] text-[var(--text-secondary)] underline-offset-2 hover:text-[var(--text-primary)] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]"
+            >
+              {file.filename}
+            </a>
+            <span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+              {formatBytes(file.size)}
+            </span>
+            <IconButton
+              label={t('calendar.extras.remove_attachment', { name: file.filename })}
+              size="sm"
+              onClick={() => { removeFile(file) }}
+            >
+              <Trash2 size={13} aria-hidden="true" />
+            </IconButton>
+          </li>
+        ))}
+      </ul>
+      <input
+        type="file"
+        multiple
+        aria-label={t('calendar.extras.add_attachment')}
+        disabled={rev === null || uploading}
+        onChange={(change) => {
+          upload(change.target.files)
+          // The same file may be picked again after a refusal; an unchanged value fires no change event.
+          change.target.value = ''
+        }}
+        className="mt-1.5 block w-full text-[length:var(--text-12)] text-[var(--text-secondary)] file:mr-2 file:cursor-pointer file:rounded-[var(--r-sm)] file:border file:border-[var(--border-default)] file:bg-[var(--bg-raised)] file:px-2.5 file:py-1.5 file:text-[length:var(--text-12)] file:font-medium file:text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
+      />
+      {uploading && (
+        <p role="status" className="mt-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+          {t('calendar.extras.uploading')}
+        </p>
+      )}
 
       {error && (
         <p role="alert" className="mt-1.5 text-[length:var(--text-11-5)] text-[var(--danger)]">

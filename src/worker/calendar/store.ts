@@ -52,6 +52,8 @@ import {
 import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
 import { parseStoredJson, storedObject } from '../lib/json'
+import { eventAttachmentDeleteStatements } from './attachments'
+import { attachmentCleanupTargetSql } from '../attachments/keys'
 
 /** Light/dark pairs the first calendar and any uncoloured create draw from, in order. */
 const DEFAULT_CALENDAR_COLORS: ReadonlyArray<{ color: string; darkColor: string }> = [
@@ -577,38 +579,44 @@ export class CalendarStore {
         `DELETE FROM calendar_event_calendars WHERE user_id = ?1 AND calendar_id = ?2`,
       ).bind(this.userId, id))
     } else {
-      statements.push(this.db.prepare(
-        `DELETE FROM calendar_events
-          WHERE user_id = ?1 AND id IN (
-            SELECT ec.event_id FROM calendar_event_calendars ec
+      // The events this delete really removes: the ones that live in no other calendar. Every statement
+      // below reads the same set, so a file cannot be reclaimed while an event that survives still shows it.
+      const doomedEvents = `SELECT ec.event_id FROM calendar_event_calendars ec
              WHERE ec.user_id = ?1 AND ec.calendar_id = ?2
                AND NOT EXISTS (
                  SELECT 1 FROM calendar_event_calendars other
                   WHERE other.user_id = ?1 AND other.event_id = ec.event_id AND other.calendar_id <> ?2
-               )
+               )`
+      // Files first — the cleanup queue is written while the links still name them — then the rows, the
+      // links, and only then the events themselves.
+      statements.push(this.db.prepare(
+        `INSERT OR IGNORE INTO attachment_cleanup (object_key, user_id, created_at)
+         SELECT ${attachmentCleanupTargetSql('a.storage', 'a.object_key')}, ?1, ?3
+           FROM attachments a
+           JOIN calendar_event_attachments l ON l.user_id = a.user_id AND l.attachment_id = a.id
+          WHERE a.user_id = ?1 AND a.object_key IS NOT NULL AND a.scope = 'calendar'
+            AND l.event_id IN (${doomedEvents})`,
+      ).bind(this.userId, id, Date.now()))
+      statements.push(this.db.prepare(
+        `DELETE FROM attachments
+          WHERE user_id = ?1 AND scope = 'calendar' AND id IN (
+            SELECT l.attachment_id FROM calendar_event_attachments l WHERE l.user_id = ?1 AND l.event_id IN (${doomedEvents})
           )`,
+      ).bind(this.userId, id))
+      statements.push(this.db.prepare(
+        `DELETE FROM calendar_event_attachments WHERE user_id = ?1 AND event_id IN (${doomedEvents})`,
+      ).bind(this.userId, id))
+      statements.push(this.db.prepare(
+        `DELETE FROM calendar_events
+          WHERE user_id = ?1 AND id IN (${doomedEvents})`,
       ).bind(this.userId, id))
       statements.push(this.db.prepare(
         `DELETE FROM calendar_event_attendees
-          WHERE user_id = ?1 AND event_id IN (
-            SELECT ec.event_id FROM calendar_event_calendars ec
-             WHERE ec.user_id = ?1 AND ec.calendar_id = ?2
-               AND NOT EXISTS (
-                 SELECT 1 FROM calendar_event_calendars other
-                  WHERE other.user_id = ?1 AND other.event_id = ec.event_id AND other.calendar_id <> ?2
-               )
-          )`,
+          WHERE user_id = ?1 AND event_id IN (${doomedEvents})`,
       ).bind(this.userId, id))
       statements.push(this.db.prepare(
         `DELETE FROM calendar_event_reminders
-          WHERE user_id = ?1 AND event_id IN (
-            SELECT ec.event_id FROM calendar_event_calendars ec
-             WHERE ec.user_id = ?1 AND ec.calendar_id = ?2
-               AND NOT EXISTS (
-                 SELECT 1 FROM calendar_event_calendars other
-                  WHERE other.user_id = ?1 AND other.event_id = ec.event_id AND other.calendar_id <> ?2
-               )
-          )`,
+          WHERE user_id = ?1 AND event_id IN (${doomedEvents})`,
       ).bind(this.userId, id))
       statements.push(this.db.prepare(
         `DELETE FROM calendar_event_calendars WHERE user_id = ?1 AND calendar_id = ?2`,
@@ -933,7 +941,8 @@ export class CalendarStore {
     }
   }
 
-  private async assertEventWritable(eventId: string): Promise<void> {
+  /** Whether this event can be written at all: every calendar it is in must be writable. */
+  async assertEventWritable(eventId: string): Promise<void> {
     const ids = (await this.membershipsFor([eventId])).get(eventId) ?? []
     if (ids.length === 0) return
     const rows = await this.calendarAccess(ids)
@@ -1300,6 +1309,7 @@ export class CalendarStore {
           WHERE user_id = ?1 AND event_id = ?2
             AND EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?3)`,
       ).bind(this.userId, id, rev),
+      ...eventAttachmentDeleteStatements(this.db, this.userId, id, rev),
       this.db.prepare(
         `DELETE FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?3`,
       ).bind(this.userId, id, rev),

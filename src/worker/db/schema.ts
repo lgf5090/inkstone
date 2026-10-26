@@ -2721,7 +2721,22 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       )`,
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_shares_slug
          ON calendar_shares(slug)`,
-
+    ],
+  },
+  {
+    // Which files an event shows. The bytes live in the shared `attachments` table (scope `calendar`)
+    // so one quota and one file door cover them; this table only holds the link.
+    version: 177,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS calendar_event_attachments (
+        user_id TEXT NOT NULL,
+        attachment_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, attachment_id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_calendar_event_attachments_event
+         ON calendar_event_attachments(user_id, event_id)`,
     ],
   },
 ]

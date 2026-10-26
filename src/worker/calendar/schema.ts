@@ -237,6 +237,18 @@ export const CALENDAR_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_shares_slug
      ON calendar_shares(slug)`,
 
+  // One row per file hung on an event. The bytes and their row live in the shared attachment tables;
+  // this only names which event shows the file, and it goes away with that event.
+  `CREATE TABLE IF NOT EXISTS calendar_event_attachments (
+    user_id TEXT NOT NULL,
+    attachment_id TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, attachment_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_calendar_event_attachments_event
+     ON calendar_event_attachments(user_id, event_id)`,
+
   `CREATE TABLE IF NOT EXISTS calendar_preferences (
     user_id TEXT NOT NULL,
     preferences_json TEXT NOT NULL,
@@ -259,6 +271,7 @@ export const CALENDAR_REQUIRED_TABLES: readonly string[] = [
   'calendar_event_reminders',
   'calendar_event_attendees',
   'calendar_shares',
+  'calendar_event_attachments',
   'calendar_provider_calendars',
 ]
 
@@ -284,6 +297,7 @@ export const CALENDAR_REQUIRED_INDEXES: readonly string[] = [
   'idx_calendar_event_reminders_window',
   'idx_calendar_event_attendees_event',
   'idx_calendar_shares_slug',
+  'idx_calendar_event_attachments_event',
   'idx_calendar_provider_local',
   'idx_calendar_provider_due',
 ]
@@ -323,6 +337,7 @@ export const CALENDAR_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[
   calendar_event_reminders: ['user_id', 'event_id', 'minutes', 'created_at'],
   calendar_event_attendees: ['user_id', 'event_id', 'email', 'name', 'status', 'created_at'],
   calendar_shares: ['user_id', 'calendar_id', 'slug', 'views', 'created_at', 'updated_at', 'last_viewed_at'],
+  calendar_event_attachments: ['user_id', 'attachment_id', 'event_id', 'created_at'],
   calendar_provider_calendars: [
     'user_id', 'connection_id', 'remote_calendar_id', 'local_calendar_id', 'last_sync_at',
     'last_error_code', 'created_at', 'updated_at',
