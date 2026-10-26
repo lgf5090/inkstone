@@ -1332,6 +1332,7 @@ const allowed = new Map([
     "/**\n   * Apply a page that arrives after the first paint.\n   *\n   * The shell renders from the cache and revalidates; when the answer differs, the grid has to take it\n   * the same way it takes any snapshot — as a complete mirror of that range, deletions included.\n   */",
     "// The last complete answer for this range goes up before the request leaves, so a reload paints the",
     "// reader's week instead of an empty grid. The fetch below replaces it with the server's answer.",
+    "// The library draws the current view; this makes it announce which one that is.",
   ]],
   ["src/client/features/calendar/MiniMonth.tsx", [
     "/**\n * The mini month: 42 cells, event dots in calendar colours, and a date that drives the main view.\n *\n * It reads DayFlow's registry and events directly rather than keeping a second copy of the data, so\n * a visibility toggle or a drag in the main grid is reflected here on the next app notification.\n */",
@@ -1472,6 +1473,11 @@ const allowed = new Map([
   ]],
   ["src/client/features/calendar/view-state.ts", [
     "/** Keep a calendar's view and day in the address bar without turning every edit into a history entry. */",
+  ]],
+  ["src/client/features/calendar/view-switcher-a11y.ts", [
+    "/**\n * The view switcher's state, made visible to assistive technology.\n *\n * DayFlow's switcher buttons carry only `data-active` for the current view, which styles the tab and\n * tells a screen reader nothing: a reader hears five identical buttons and cannot tell which view they\n * are looking at. The buttons are the library's, so this mirrors the state into `aria-pressed` instead\n * of replacing the control — an attribute the library never reads, which keeps its own handlers intact.\n */",
+    "/** Mirror each button's `data-active` into `aria-pressed`; returns how many buttons were touched. */",
+    "/**\n * Keep the mirror current for as long as the calendar is mounted.\n *\n * The library re-renders the bar on every view change and rewrites `data-active`; observing the\n * attribute is what keeps the announced state from drifting away from the drawn one.\n */",
   ]],
   ["src/client/features/chat/AppUsage.tsx", [
     "/**\n * The account's own usage, over its whole life.\n *\n * A second view of the same screen rather than a second screen: the total, the busiest day, the longest\n * turn and the streak are all facts about everything the reader has ever spent, so none of them follows the\n * range control — a cumulative total that reset when the range changed would not be cumulative. The range\n * belongs to the trend and the model ranking below, which are window-scoped like the detail view's numbers.\n *\n * The activity map is the one figure here that is read rather than looked at, which is why it has three\n * readings of the same squares rather than three maps: what the day cost, what its week cost, or how much\n * had accumulated by then.\n */",

@@ -55,6 +55,7 @@ import { CalendarEventExtras } from './CalendarEventExtras'
 import { CalendarPrintSheet } from './CalendarPrintSheet'
 import { buildPrintSheet, printCalendarSheet, printPeriod } from './print'
 import { paintableRange, rangeFor, sameRevision, saveRange } from './range-cache'
+import { observeViewSwitcher } from './view-switcher-a11y'
 import type { PrintSheet } from './print'
 import { CalendarFilteredSearch, calendarSearchResultDate } from './CalendarFilteredSearch'
 import { CalendarConnections } from './CalendarConnections'
@@ -707,6 +708,9 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
    * This is what the fingerprint is for: the reader who left a tab open overnight gets the current
    * week back for the price of one aggregate, and pays for the rows only when they really changed.
    */
+  // The library draws the current view; this makes it announce which one that is.
+  useEffect(() => observeViewSwitcher(document), [])
+
   useEffect(() => {
     const onVisibility = (): void => {
       if (document.visibilityState !== 'visible') return
