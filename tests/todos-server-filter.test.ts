@@ -285,16 +285,17 @@ describe('a search that names a tag', () => {
   })
 
   it('answers a tag-word search in the same number of statements as any other page', async () => {
-    // The settings row, the page, its steps, its tags, the count and the three sidebar numbers. A
-    // tag name looked up per row would make this number follow the page or the tags on it.
+    // The settings row, the page, its steps, its tags, both ends of its dependencies, the count and the
+    // three sidebar numbers. A tag name looked up per row would make this number follow the page or the
+    // tags on it, and a dependency walk per row would do the same for the graph.
     const found = await statementsFor(`?q=${TAG_WORD}`)
-    expect(found).toBe(8)
+    expect(found).toBe(10)
     expect(await statementsFor(`?q=${TAG_WORD}&limit=1`)).toBe(found)
     // One statement names every id the page holds, up to the chunk size: D1 counts the tenant bind
-    // against the same budget, so a page past it asks the two detail reads for a second statement
+    // against the same budget, so a page past it asks the four detail reads for a second statement
     // each. The number moves once per chunk of rows, and never once per row.
     expect(await statementsFor(`?limit=${ID_READ_BATCH}`)).toBe(found)
-    expect(await statementsFor(`?limit=${ID_READ_BATCH + 10}`)).toBe(found + 2)
+    expect(await statementsFor(`?limit=${ID_READ_BATCH + 10}`)).toBe(found + 4)
   })
 })
 

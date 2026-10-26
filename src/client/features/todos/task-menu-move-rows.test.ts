@@ -72,6 +72,8 @@ function task(): TodoTask {
     updatedAt: 0,
     listId: 'L1',
     tags: [],
+    dependsOn: [],
+    blocks: [],
     starred: false,
     repeat: null,
     remindedAt: null,

@@ -89,6 +89,8 @@ function task(id: string, status: TaskStatus = 'todo', extra: Partial<TodoTask> 
     updatedAt: 0,
     listId: 'L1',
     tags: [],
+    dependsOn: [],
+    blocks: [],
     starred: false,
     repeat: null,
     remindedAt: null,

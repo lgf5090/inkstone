@@ -40,6 +40,8 @@ function row(id: string, title: string, dueAt: number, extra: Partial<TodoTask> 
     updatedAt: 0,
     listId: null,
     tags: [],
+    dependsOn: [],
+    blocks: [],
     starred: false,
     repeat: null,
     noteId: null,

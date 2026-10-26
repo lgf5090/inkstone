@@ -75,6 +75,8 @@ function row(id: string, title: string, archivedAt: number): TodoTask {
     updatedAt: archivedAt,
     listId: null,
     tags: [],
+    dependsOn: [],
+    blocks: [],
     starred: false,
     repeat: null,
     noteId: null,

@@ -88,6 +88,8 @@ function task(id: string, listId: string | null = 'L1'): TodoTask {
     updatedAt: 0,
     listId,
     tags: [],
+    dependsOn: [],
+    blocks: [],
     starred: false,
     repeat: null,
     remindedAt: null,

@@ -59,6 +59,8 @@ function row(id: string, extra: Partial<TodoTask> = {}): TodoTask {
     updatedAt: NOW,
     listId: null,
     tags: [],
+    dependsOn: [],
+    blocks: [],
     starred: false,
     repeat: null,
     noteId: null,

@@ -19,6 +19,8 @@ function task(id: string, title: string, extra: Partial<TodoTask> = {}): TodoTas
     updatedAt: 0,
     listId: 'L1',
     tags: [],
+    dependsOn: [],
+    blocks: [],
     starred: false,
     repeat: null,
     remindedAt: null,
