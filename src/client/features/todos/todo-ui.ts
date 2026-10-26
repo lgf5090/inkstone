@@ -39,6 +39,10 @@ export function priorityDot(priority: TaskPriority): string {
  *
  * A date with no time is stored as the end of that day, so it is shown as a day and never as
  * "23:59" — the minute is an implementation detail of "due by then", not something the reader wrote.
+ *
+ * Every reading of the instant — the day it is filed under, the minute it prints, the day it prints —
+ * is the account's zone's, because the groups the row sits in are cut by that same zone. Print it in
+ * the machine's zone and a task correctly grouped under "today" arrives wearing tomorrow's date.
  */
 export function dueLabel(dueAt: number | null, bounds: { dayEnd: number; now: number }, timezone: string): { text: string; overdue: boolean } | null {
   if (dueAt === null) return null
@@ -52,7 +56,7 @@ export function dueLabel(dueAt: number | null, bounds: { dayEnd: number; now: nu
     if (!hasTime) return { text: t('todo.smart.today'), overdue }
     return { text: minute.slice(11), overdue }
   }
-  const formatted = new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric' }).format(new Date(dueAt))
+  const formatted = new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', timeZone: timezone }).format(new Date(dueAt))
   return { text: formatted, overdue }
 }
 
