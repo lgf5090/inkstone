@@ -76,3 +76,106 @@
 .inkstone-calendar .df-event[id*="::repeat-"] {
   pointer-events: none;
 }
+
+/* The printed sheet. It exists only for paper: on screen it is not there at all, and in print it is
+   the only body child left, so none of the app's own layout has to be unwound to get a clean page. */
+.calendar-print-sheet {
+  display: none;
+}
+
+@media print {
+  html.calendar-printing body > :not(.calendar-print-sheet) {
+    display: none !important;
+  }
+
+  html.calendar-printing,
+  html.calendar-printing body {
+    height: auto !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+  }
+
+  .calendar-print-sheet {
+    display: block !important;
+    /* Dark mode repaints the app with tokens; paper gets its own set so the sheet is ink on white. */
+    --bg-base: #ffffff;
+    --text-primary: #111111;
+    --text-secondary: #333333;
+    --text-tertiary: #555555;
+    --border-subtle: #dddddd;
+    color: var(--text-primary);
+    font: 400 11pt/1.45 system-ui, sans-serif;
+    padding: 0;
+  }
+
+  .calendar-print-sheet header {
+    border-bottom: 1px solid var(--border-subtle);
+    margin-bottom: 12pt;
+    padding-bottom: 6pt;
+  }
+
+  .calendar-print-sheet h1 {
+    font-size: 16pt;
+    font-weight: 600;
+    margin: 0;
+  }
+
+  .calendar-print-sheet header p {
+    color: var(--text-tertiary);
+    font-size: 10pt;
+    margin: 2pt 0 0;
+  }
+
+  .calendar-print-sheet section {
+    break-inside: avoid;
+    margin-bottom: 10pt;
+  }
+
+  .calendar-print-sheet h2 {
+    color: var(--text-secondary);
+    font-size: 11pt;
+    font-weight: 600;
+    margin: 0 0 3pt;
+  }
+
+  .calendar-print-sheet ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .calendar-print-sheet li {
+    align-items: baseline;
+    display: grid;
+    gap: 6pt;
+    grid-template-columns: 46pt minmax(0, 1fr) minmax(0, 30%);
+    padding: 1.5pt 0;
+  }
+
+  .calendar-print-time {
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .calendar-print-meta {
+    color: var(--text-tertiary);
+    font-size: 9.5pt;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .calendar-print-dot {
+    border: 1px solid rgba(0, 0, 0, .25);
+    border-radius: 50%;
+    display: inline-block;
+    height: 6pt;
+    margin-right: 3pt;
+    width: 6pt;
+  }
+
+  .calendar-print-empty {
+    color: var(--text-tertiary);
+    font-style: italic;
+  }
+}

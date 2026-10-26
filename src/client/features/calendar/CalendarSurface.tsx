@@ -51,6 +51,9 @@ import { CalendarSidebar } from './CalendarSidebar'
 import { CalendarSettings } from './CalendarSettings'
 import { CalendarConflictDialog, type ConflictTarget } from './CalendarConflictDialog'
 import { CalendarEventExtras } from './CalendarEventExtras'
+import { CalendarPrintSheet } from './CalendarPrintSheet'
+import { buildPrintSheet, printCalendarSheet, printPeriod } from './print'
+import type { PrintSheet } from './print'
 import { CalendarFilteredSearch, calendarSearchResultDate } from './CalendarFilteredSearch'
 import { CalendarConnections } from './CalendarConnections'
 import { CalendarEditHistory } from './history'
@@ -374,6 +377,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
   const [syncError, setSyncError] = useState<string | null>(null)
   const [conflict, setConflict] = useState<ConflictTarget | null>(null)
   const [extrasEventId, setExtrasEventId] = useState<string | null>(null)
+  const [printSheet, setPrintSheet] = useState<PrintSheet | null>(null)
   const shownRef = useRef<string | null>(null)
   const dismissedRef = useRef<string | null>(null)
 
@@ -396,6 +400,43 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
    * against, and their portals stack above this app's dialogs — a stale editor behind a merge prompt
    * is both a competing writer and an unreachable one.
    */
+  /** The printed page is built from a range read, so it does not depend on which view is showing. */
+  const printCurrentPeriod = useCallback(async (): Promise<void> => {
+    const preferences = preferencesRef.current
+    const view = String(app.getCurrentView().type).toLowerCase()
+    const period = printPeriod(view, app.getCurrentDate(), preferences.timeZone, preferences.weekStart)
+    try {
+      const fetched = await api.getEvents({ from: period.fromMs, to: period.toMs })
+      const visible = metaRef.current.calendars.filter(calendar => calendar.isVisible)
+      const shown = new Set(visible.map(calendar => calendar.id))
+      const events = [...fetched.events, ...fetched.occurrences].filter(event => (
+        event.calendarIds.some(id => shown.has(id))
+      ))
+      const day = (millis: number): string => new Intl.DateTimeFormat(appLocale, {
+        dateStyle: 'long', timeZone: preferences.timeZone,
+      }).format(new Date(millis))
+      setPrintSheet(buildPrintSheet({
+        events,
+        calendars: visible,
+        fromMs: period.fromMs,
+        toMs: period.toMs,
+        timeZone: preferences.timeZone,
+        locale: appLocale,
+        timeFormat: preferences.timeFormat,
+        title: t('calendar.app.title'),
+        subtitle: `${day(period.fromMs)} – ${day(period.toMs)}`,
+        emptyLabel: t('calendar.print.empty'),
+      }))
+    } catch (error) {
+      toastFailure(t('calendar.print.failed'), error)
+    }
+  }, [app, appLocale])
+
+  useEffect(() => {
+    if (!printSheet) return
+    printCalendarSheet(() => setPrintSheet(null))
+  }, [printSheet])
+
   const closeEventSurfaces = useCallback((): void => {
     app.onEventDetailToggle(null)
     app.onMobileEventDetailToggle(null)
@@ -911,6 +952,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       onRefresh={refreshCalendars}
       onSelectDate={date => app.setCurrentDate(date)}
       onRequestRange={requestMiniRange}
+      onPrint={() => { void printCurrentPeriod() }}
       extras={extrasEventId ? (
         <CalendarEventExtras
           eventId={extrasEventId}
@@ -1017,6 +1059,8 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
         onClose={() => setConnectionsOpen(false)}
         onChanged={async () => { await refreshRef.current() }}
       />
+
+      <CalendarPrintSheet sheet={printSheet} />
 
       {conflict && (
         <CalendarConflictDialog

@@ -6,7 +6,7 @@
  * `app.reorderCalendars`; the surface's callbacks persist them, which keeps one write per gesture.
  */
 import { useEffect, useReducer, useState, type ReactNode } from 'react'
-import { ChevronDown, Lock, MoreHorizontal, Plus, RefreshCw, Rss, Search, Settings, Star, Trash2 } from 'lucide-react'
+import { ChevronDown, Lock, MoreHorizontal, Plus, Printer, RefreshCw, Rss, Search, Settings, Star, Trash2 } from 'lucide-react'
 import type { CalendarType, ICalendarApp } from '@dayflow/react'
 import type {
   CalendarDto,
@@ -57,6 +57,8 @@ interface CalendarSidebarProps {
   onRequestRange?: (from: number, to: number) => void
   /** Per-event settings the DayFlow editor cannot host; shown above the footer in the full sidebar. */
   extras?: ReactNode
+  /** Hand the current period to the browser's print dialogue. */
+  onPrint?: () => void
 }
 
 function toastFailure(title: string, error: unknown): void {
@@ -153,6 +155,7 @@ export function CalendarSidebar({
   onSelectDate,
   onRequestRange,
   extras,
+  onPrint,
 }: CalendarSidebarProps) {
   useLocaleRepaint()
   const dark = useThemeDark()
@@ -589,6 +592,16 @@ export function CalendarSidebar({
         >
           <span className="truncate">{t('calendar.sidebar.settings')}</span>
         </Button>
+        {onPrint && (
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-label={t('calendar.print.action')}
+            icon={<Printer size={14} aria-hidden="true" />}
+            onClick={onPrint}
+            className="ml-auto"
+          />
+        )}
       </footer>
 
       {dialog?.kind === 'create-calendar' && (

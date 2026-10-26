@@ -1268,6 +1268,9 @@ const allowed = new Map([
   ["src/client/features/calendar/CalendarFilteredSearch.tsx", [
     "/** A filtered calendar search: keyword, calendar, date span and kind, in one panel. */",
   ]],
+  ["src/client/features/calendar/CalendarPrintSheet.tsx", [
+    "/**\n * The paper the print dialogue gets.\n *\n * Rendered into `document.body` and hidden on screen, so the app's own layout never has to be fought\n * with: the print rules hide every other body child and show this one. The sheet is built from a range\n * read rather than from what is on screen, so printing from the year view still lists the appointments\n * the reader has, in the calendars they have visible.\n */",
+  ]],
   ["src/client/features/calendar/CalendarSettings.tsx", [
     "/**\n * Account-wide calendar preferences. The draft is saved as a whole, because the API stores the full\n * preference object and a partial write would silently reset the fields this panel does not show.\n */",
     "// Reset on open only: a metadata refresh while the panel is open must not discard the draft.",
@@ -1278,6 +1281,7 @@ const allowed = new Map([
     "// Dragging across a group boundary would reorder a calendar that stays in the other group; the",
     "// \"Move to group\" menu is the explicit way to change membership.",
     "/** Per-event settings the DayFlow editor cannot host; shown above the footer in the full sidebar. */",
+    "/** Hand the current period to the browser's print dialogue. */",
   ]],
   ["src/client/features/calendar/CalendarSurface.tsx", [
     "/**\n * The live calendar surface: DayFlow, the plugins, the native sidebar and the write queue.\n *\n * Configuration is created once, because `useCalendarApp` builds its app from the first config. Later\n * preference changes go through `app.updateConfig`, which re-installs views without rebuilding the\n * app or losing the current selection. Range loading and persistence both apply server state with\n * `source: 'remote'` and a skip set, so a refresh never echoes back as a write.\n */",
@@ -1296,6 +1300,7 @@ const allowed = new Map([
     "// changes what a click does to the event surfaces. A click anywhere outside the calendar — including",
     "// on this section's own controls — clears that selection, so an open section stays open until the",
     "// reader closes it or picks another event.",
+    "/** The printed page is built from a range read, so it does not depend on which view is showing. */",
   ]],
   ["src/client/features/calendar/MiniMonth.tsx", [
     "/**\n * The mini month: 42 cells, event dots in calendar colours, and a date that drives the main view.\n *\n * It reads DayFlow's registry and events directly rather than keeping a second copy of the data, so\n * a visibility toggle or a drag in the main grid is reflected here on the next app notification.\n */",
@@ -1317,6 +1322,8 @@ const allowed = new Map([
     "/* The shell has no on-danger token; danger buttons already paint white text. */",
     "/* DayFlow's menu is positioned fixed at z-index 50 from inside the calendar; raise it to the shell's\n * popover band so it clears the app frame and the sidebar drawer without outranking public dialogs. */",
     "/* Occurrences are a rendered view of a series, never rows of their own: every interaction is refused,\n * so make that visible by keeping the pointer off them instead of letting a click open a dead panel. */",
+    "/* The printed sheet. It exists only for paper: on screen it is not there at all, and in print it is\n   the only body child left, so none of the app's own layout has to be unwound to get a clean page. */",
+    "/* Dark mode repaints the app with tokens; paper gets its own set so the sheet is ink on white. */",
   ]],
   ["src/client/features/calendar/conflict.ts", [
     "/**\n * Comparing the two versions of an event a write conflict landed between.\n *\n * A refused PATCH means somebody else — another tab, a phone, a provider sync — wrote the same event\n * first, and the queue used to answer that by reloading and losing whatever was just typed. This module\n * turns the two shapes into one comparable list of the parts a person can actually decide about, and\n * then builds the patched event from those decisions. Everything else on the row, including the\n * metadata a provider needs to keep recognising it, comes from the server copy.\n */",
@@ -1374,6 +1381,15 @@ const allowed = new Map([
     "// A stale revision is not a failure to guess around: the row changed elsewhere, so the reader",
     "// chooses which parts survive. The edit stays on screen while they decide.",
     "/** The version the reader was working on, in the shape both the API and the merge dialog use. */",
+  ]],
+  ["src/client/features/calendar/print.ts", [
+    "/**\n * The paper version of the calendar.\n *\n * Printing the live grid produces nothing usable: the columns are a fixed pixel height, the day bodies\n * scroll, and colour is the point of the screen rather than of the page. So the print surface is a\n * second document — one section per day, all-day items first, then the timed ones in order — built\n * from a range read of the server, which is why it does not depend on which view is showing.\n */",
+    "/** Empty for an all-day item; the formatted start otherwise. */",
+    "/** Shown once when the period holds nothing, instead of a page of blank dates. */",
+    "/** The period to print, in epoch milliseconds. */",
+    "/**\n * The period a printed sheet should cover.\n *\n * Day, week and month print what the reader is looking at; the year and agenda views fall back to the\n * current month, because a year of appointments is not something anyone reads on paper.\n */",
+    "/** Backstop for the browser that never fires `afterprint`, which would leave the app print-chromed. */",
+    "/** Hand the mounted sheet to the browser's print dialogue, then call `onDone` exactly once. */",
   ]],
   ["src/client/features/calendar/providers.ts", [
     "/** A provider adapter fetch that talks only to the same-origin connection proxy. */",
