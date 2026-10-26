@@ -6,6 +6,9 @@ import { QrExportControls } from './export/QrExportControls'
 import { QrHistoryView } from './history/QrHistoryView'
 import { QrTemplatesView } from './templates/QrTemplatesView'
 import { QrSettingsView } from './settings/QrSettingsView'
+import { QrScannerView } from './scanner/QrScannerView'
+import { QrCompareView } from './compare/QrCompareView'
+import { QrBatchView } from './batch/QrBatchView'
 import { QrInfoModal } from './preview/QrInfoModal'
 import { QrFullscreenModal } from './preview/QrFullscreenModal'
 
@@ -38,6 +41,9 @@ export function QrCodeApp() {
         </div>
       )}
 
+      {activeQrCodeView === 'scanner' && <QrScannerView />}
+      {activeQrCodeView === 'compare' && <QrCompareView />}
+      {activeQrCodeView === 'batch' && <QrBatchView />}
       {activeQrCodeView === 'history' && <QrHistoryView />}
       {activeQrCodeView === 'templates' && <QrTemplatesView />}
       {activeQrCodeView === 'settings' && <QrSettingsView />}

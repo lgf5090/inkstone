@@ -8,13 +8,21 @@ import type {
   QrPreset,
   QrRecord,
   QrStylingOptions,
+  QrToolkitOptions,
   QrVCardContent,
   QrWifiContent,
 } from '../../../../shared/tools/qrcode/types'
 import { DEFAULT_QR_OPTIONS } from './engine/qr-engine'
 
-export type BeautifyTab = 'template' | 'shape' | 'logo' | 'text' | 'color'
-export type QrNavView = 'generator' | 'history' | 'templates' | 'settings'
+export type BeautifyTab = 'template' | 'shape' | 'logo' | 'text' | 'color' | 'ai'
+export type QrNavView =
+  | 'generator'
+  | 'scanner'
+  | 'compare'
+  | 'batch'
+  | 'history'
+  | 'templates'
+  | 'settings'
 
 export interface QrCodeState {
   activeView: QrNavView
@@ -57,6 +65,7 @@ export interface QrCodeState {
   clearContent: () => void
 
   setOptions: (options: Partial<QrStylingOptions>) => void
+  setToolkitOptions: (toolkit: Partial<QrToolkitOptions>) => void
   setEyeShape: (shape: QrEyeShape) => void
   applyPreset: (preset: QrPreset) => void
   resetOptions: () => void
@@ -234,6 +243,18 @@ export const useQrCodeStore = create<QrCodeState>((set, get) => ({
         frameOptions: { ...s.options.frameOptions, ...newOpts.frameOptions },
         textOptions: { ...s.options.textOptions, ...newOpts.textOptions },
         logoOptions: { ...s.options.logoOptions, ...newOpts.logoOptions },
+        toolkitOptions: { ...s.options.toolkitOptions, ...newOpts.toolkitOptions },
+      },
+    })),
+
+  setToolkitOptions: (toolkit) =>
+    set((s) => ({
+      options: {
+        ...s.options,
+        toolkitOptions: {
+          ...s.options.toolkitOptions,
+          ...toolkit,
+        },
       },
     })),
 

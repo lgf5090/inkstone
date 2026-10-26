@@ -9,6 +9,7 @@ import type {
   QrStylingOptions,
 } from '../../../../../shared/tools/qrcode/types'
 import { applyFrame, drawRoundRect } from './frame-decorator'
+import { isToolkitRenderingNeeded, renderToolkitQRCode } from './qr-toolkit-engine'
 import { applyTextCaption, applyTextCaptionToSvg } from './text-decorator'
 
 export const DEFAULT_QR_OPTIONS: QrStylingOptions = {
@@ -419,43 +420,54 @@ export class QrEngine {
       (logoOpts?.logoId ? getOnlineLogoDataUrl(logoOpts.logoId) : undefined)
     const processedLogo = await prepareStyledLogo(rawLogoSrc, logoOpts)
 
-    const stylingOpts = buildQrCodeStylingOptions(
-      this._options,
-      this._data,
-      width,
-      height,
-      'canvas',
-      processedLogo
-    )
-
-    const qr = new QRCodeStyling(stylingOpts)
     let baseCanvas: HTMLCanvasElement | null = null
 
-    try {
-      if (typeof (qr as any)._getElement === 'function') {
-        const elem = await (qr as any)._getElement('canvas')
-        if (elem && elem.getContext) {
-          baseCanvas = elem as HTMLCanvasElement
+    if (isToolkitRenderingNeeded(this._options)) {
+      const tkCanvas = document.createElement('canvas')
+      await renderToolkitQRCode(tkCanvas, this._data, {
+        ...this._options,
+        width,
+        height,
+      })
+      baseCanvas = tkCanvas
+    } else {
+      const stylingOpts = buildQrCodeStylingOptions(
+        this._options,
+        this._data,
+        width,
+        height,
+        'canvas',
+        processedLogo
+      )
+
+      const qr = new QRCodeStyling(stylingOpts)
+
+      try {
+        if (typeof (qr as any)._getElement === 'function') {
+          const elem = await (qr as any)._getElement('canvas')
+          if (elem && elem.getContext) {
+            baseCanvas = elem as HTMLCanvasElement
+          }
         }
+      } catch {
+        baseCanvas = null
       }
-    } catch {
-      baseCanvas = null
-    }
 
-    if (!baseCanvas) {
-      const tempContainer = document.createElement('div')
-      qr.append(tempContainer)
-      baseCanvas = tempContainer.querySelector('canvas') as HTMLCanvasElement | null
-    }
+      if (!baseCanvas) {
+        const tempContainer = document.createElement('div')
+        qr.append(tempContainer)
+        baseCanvas = tempContainer.querySelector('canvas') as HTMLCanvasElement | null
+      }
 
-    if (!baseCanvas) {
-      const rawElem = (qr as any)._domCanvas || (qr as any)._canvas
-      if (rawElem) {
-        baseCanvas = rawElem as HTMLCanvasElement
-      } else {
-        baseCanvas = document.createElement('canvas')
-        baseCanvas.width = width
-        baseCanvas.height = height
+      if (!baseCanvas) {
+        const rawElem = (qr as any)._domCanvas || (qr as any)._canvas
+        if (rawElem) {
+          baseCanvas = rawElem as HTMLCanvasElement
+        } else {
+          baseCanvas = document.createElement('canvas')
+          baseCanvas.width = width
+          baseCanvas.height = height
+        }
       }
     }
 

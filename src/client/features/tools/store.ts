@@ -18,6 +18,9 @@ export type PasswordNavView =
 
 export type QrCodeNavView =
   | 'generator'
+  | 'scanner'
+  | 'compare'
+  | 'batch'
   | 'history'
   | 'templates'
   | 'settings'

@@ -161,6 +161,78 @@ export interface QrBackgroundOptions {
   gradient?: QrGradient
 }
 
+export type QrToolkitPixelStyle =
+  | 'square'
+  | 'rounded'
+  | 'dot'
+  | 'squircle'
+  | 'row'
+  | 'column'
+
+export type QrToolkitMarkerShape =
+  | 'square'
+  | 'circle'
+  | 'plus'
+  | 'box'
+  | 'octagon'
+  | 'random'
+  | 'tiny-plus'
+
+export type QrToolkitMarkerInnerShape =
+  | 'auto'
+  | 'square'
+  | 'circle'
+  | 'plus'
+  | 'diamond'
+  | 'eye'
+
+export type QrToolkitMarkerSubShape =
+  | 'square'
+  | 'circle'
+  | 'box'
+  | 'random'
+  | 'plus'
+
+export interface QrToolkitMarkerState {
+  markerShape: QrToolkitMarkerShape
+  markerInnerShape: QrToolkitMarkerInnerShape
+}
+
+export type QrMarginNoiseSpace = 'full' | 'marker' | 'minimal' | 'extreme' | 'none'
+export type QrCanvasEffect = 'none' | 'crystalize' | 'liquidify'
+export type QrEffectTiming = 'before' | 'after'
+export type QrRenderPointsType = 'all' | 'data' | 'function' | 'guide' | 'marker'
+
+export interface QrToolkitOptions {
+  enabled?: boolean
+  pixelStyle?: QrToolkitPixelStyle
+  markerShape?: QrToolkitMarkerShape
+  markerInnerShape?: QrToolkitMarkerInnerShape
+  markerSub?: QrToolkitMarkerSubShape
+  markers?: QrToolkitMarkerState[]
+  marginNoise?: boolean
+  marginNoiseRate?: number
+  marginNoiseSpace?: QrMarginNoiseSpace
+  marginNoiseOpacity?: number | [number, number]
+  effect?: QrCanvasEffect
+  effectTiming?: QrEffectTiming
+  effectCrystalizeRadius?: number
+  effectLiquidifyDistortRadius?: number
+  effectLiquidifyRadius?: number
+  effectLiquidifyThreshold?: number
+  transformPerspectiveX?: number
+  transformPerspectiveY?: number
+  transformScale?: number
+  rotate?: 0 | 90 | 180 | 270
+  invert?: boolean
+  maskPattern?: number
+  boostECC?: boolean
+  minVersion?: number
+  maxVersion?: number
+  renderPointsType?: QrRenderPointsType
+  seed?: number
+}
+
 export interface QrStylingOptions {
   width?: number
   height?: number
@@ -176,6 +248,7 @@ export interface QrStylingOptions {
   textOptions?: QrTextOptions
   caption?: QrCaptionOptions
   eyeShape?: QrEyeShape
+  toolkitOptions?: QrToolkitOptions
   [key: string]: unknown
 }
 

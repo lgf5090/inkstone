@@ -7,6 +7,7 @@ import {
   Shapes,
   Sparkles,
   Type,
+  Wand2,
 } from 'lucide-react'
 import { useQrCodeStore, type BeautifyTab } from '../store'
 import { cn } from '../../../../lib/cn'
@@ -16,6 +17,7 @@ import { ShapeTab } from './ShapeTab'
 import { LogoTab } from './LogoTab'
 import { TextTab } from './TextTab'
 import { ColorTab } from './ColorTab'
+import { AiEffectsTab } from './AiEffectsTab'
 
 const BEAUTIFY_TABS = [
   { id: 'template', labelKey: 'tools.qrcode.beautify.tab_template', icon: Sparkles },
@@ -23,6 +25,7 @@ const BEAUTIFY_TABS = [
   { id: 'logo', labelKey: 'tools.qrcode.beautify.tab_logo', icon: ImageIcon },
   { id: 'text', labelKey: 'tools.qrcode.beautify.tab_text', icon: Type },
   { id: 'color', labelKey: 'tools.qrcode.beautify.tab_color', icon: Palette },
+  { id: 'ai', labelKey: 'tools.qrcode.beautify.tab_ai', icon: Wand2 },
 ] as const
 
 export function QrBeautifyPanel() {
@@ -92,6 +95,7 @@ export function QrBeautifyPanel() {
             {activeTab === 'logo' && <LogoTab />}
             {activeTab === 'text' && <TextTab />}
             {activeTab === 'color' && <ColorTab />}
+            {activeTab === 'ai' && <AiEffectsTab />}
           </div>
         </div>
       )}

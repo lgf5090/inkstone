@@ -2,6 +2,7 @@ import type { ComponentType } from 'react'
 import {
   CheckSquare,
   ChevronRight,
+  Compass,
   FolderTree,
   History,
   KeyRound,
@@ -11,6 +12,7 @@ import {
   PanelLeftClose,
   Lock,
   QrCode,
+  ScanLine,
   Settings,
   Sparkles,
   Star,
@@ -39,6 +41,9 @@ interface QrNavSlot {
 
 const QRCODE_NAV_SLOTS: readonly QrNavSlot[] = [
   { id: 'generator', labelKey: 'tools.qrcode.nav.generator', icon: QrCode },
+  { id: 'scanner', labelKey: 'tools.qrcode.nav.scanner', icon: ScanLine },
+  { id: 'compare', labelKey: 'tools.qrcode.nav.compare', icon: Compass },
+  { id: 'batch', labelKey: 'tools.qrcode.nav.batch', icon: Layers },
   { id: 'history', labelKey: 'tools.qrcode.nav.history', icon: History },
   { id: 'templates', labelKey: 'tools.qrcode.nav.templates', icon: LayoutTemplate },
   { id: 'settings', labelKey: 'tools.qrcode.nav.settings', icon: Settings },

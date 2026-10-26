@@ -95,6 +95,8 @@ const GRADIENT_PRESETS: readonly { id: string; gradient: QrGradient }[] = [
 export function ColorTab() {
   const options = useQrCodeStore((s) => s.options)
   const setOptions = useQrCodeStore((s) => s.setOptions)
+  const setToolkitOptions = useQrCodeStore((s) => s.setToolkitOptions)
+  const tk = options.toolkitOptions ?? {}
 
   const [colorMode, setColorMode] = useState<'solid' | 'gradient'>(
     options.dotsOptions.gradient ? 'gradient' : 'solid'
@@ -273,6 +275,21 @@ export function ColorTab() {
             })
           }
         />
+      </div>
+
+      <div className="flex items-center justify-between border-t border-[var(--border-subtle)] pt-3 py-1">
+        <label className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">
+          {t('tools.qrcode.color.invert_colors')}
+        </label>
+        <label className="flex cursor-pointer items-center gap-1.5 text-xs text-[var(--text-tertiary)]">
+          <input
+            type="checkbox"
+            checked={Boolean(tk.invert)}
+            onChange={(e) => setToolkitOptions({ invert: e.target.checked, enabled: true })}
+            className="rounded accent-[var(--accent)]"
+          />
+          <span>{t('tools.qrcode.color.invert')}</span>
+        </label>
       </div>
     </div>
   )
