@@ -67,7 +67,7 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
           <button
             type="button"
             onClick={onStop}
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--danger)] text-white shadow-md hover:opacity-90 transition-opacity"
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--danger)] text-[var(--danger-contrast)] shadow-md hover:opacity-90 transition-opacity"
             title={t('excalidraw.stop_generating')}
             aria-label={t('excalidraw.stop_generating')}
           >
@@ -81,7 +81,7 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
             className={cn(
               'flex h-8 w-8 items-center justify-center rounded-full transition-all shadow-md',
               value.trim() && !disabled
-                ? 'bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] active:scale-95'
+                ? 'bg-[var(--accent)] text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] active:scale-95'
                 : 'bg-[var(--bg-hover)] text-[var(--text-quaternary)] cursor-not-allowed',
             )}
             title={t('excalidraw.send')}
