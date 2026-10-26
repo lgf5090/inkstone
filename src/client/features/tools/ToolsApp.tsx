@@ -10,6 +10,7 @@ import { PasswordApp } from './password/PasswordApp'
 import { QrCodeApp } from './qrcode/QrCodeApp'
 import { IdPhotoApp } from './id-photo/IdPhotoApp'
 import { ColorApp } from './color/ColorApp'
+import { ShortlinksApp } from './shortlinks/ShortlinksApp'
 import { TOOLS_NAV_WIDTH, useToolsStore } from './store'
 
 export function ToolsApp() {
@@ -53,7 +54,9 @@ export function ToolsApp() {
                   ? t('tools.qrcode.module_name')
                   : activeSubmodule === 'id_photo'
                     ? t('tools.id_photo.module_name')
-                    : t('tools.color.module_name')}
+                    : activeSubmodule === 'color'
+                      ? t('tools.color.module_name')
+                      : t('tools.shortlinks.module_name')}
             </span>
           </div>
         </header>
@@ -90,6 +93,7 @@ export function ToolsApp() {
           {activeSubmodule === 'qrcode' && <QrCodeApp />}
           {activeSubmodule === 'id_photo' && <IdPhotoApp />}
           {activeSubmodule === 'color' && <ColorApp />}
+          {activeSubmodule === 'shortlinks' && <ShortlinksApp />}
         </main>
       </div>
 

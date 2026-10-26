@@ -9,14 +9,17 @@ import {
   CheckSquare,
   ChevronRight,
   Compass,
+  FolderArchive,
   FolderTree,
   Heart,
   History,
   Image,
   KeyRound,
   Layers,
+  LayoutDashboard,
   LayoutGrid,
   LayoutTemplate,
+  Link2,
   PanelLeft,
   PanelLeftClose,
   Lock,
@@ -41,9 +44,11 @@ import {
   type IdPhotoNavView,
   type PasswordNavView,
   type QrCodeNavView,
+  type ShortlinksNavView,
 } from './store'
 import { GroupTree } from './password/GroupTree'
 import { usePasswordVaultStore } from './password/store'
+import { useShortlinksStore } from './shortlinks/store'
 
 interface NavSlot {
   id: PasswordNavView
@@ -101,6 +106,19 @@ const QRCODE_NAV_SLOTS: readonly QrNavSlot[] = [
   { id: 'settings', labelKey: 'tools.qrcode.nav.settings', icon: Settings },
 ]
 
+interface ShortlinksNavSlot {
+  id: ShortlinksNavView
+  labelKey: MessageKey
+  icon: ComponentType<{ size?: number; className?: string }>
+}
+
+const SHORTLINKS_NAV_SLOTS: readonly ShortlinksNavSlot[] = [
+  { id: 'dashboard', labelKey: 'tools.shortlinks.nav.dashboard', icon: LayoutDashboard },
+  { id: 'links', labelKey: 'tools.shortlinks.nav.links', icon: Link2 },
+  { id: 'bundles', labelKey: 'tools.shortlinks.nav.bundles', icon: FolderArchive },
+  { id: 'settings', labelKey: 'tools.shortlinks.nav.settings', icon: Settings },
+]
+
 const PASSWORD_NAV_SLOTS: readonly NavSlot[] = [
   { id: 'all', labelKey: 'tools.password.nav.all', icon: Layers },
   { id: 'favorites', labelKey: 'tools.password.nav.favorites', icon: Star },
@@ -141,6 +159,10 @@ export function ToolsSidebar({
   const toggleColorModuleExpanded = useToolsStore((s) => s.toggleColorModuleExpanded)
   const activeColorView = useToolsStore((s) => s.activeColorView)
   const setActiveColorView = useToolsStore((s) => s.setActiveColorView)
+  const shortlinksModuleExpanded = useToolsStore((s) => s.shortlinksModuleExpanded)
+  const toggleShortlinksModuleExpanded = useToolsStore((s) => s.toggleShortlinksModuleExpanded)
+  const activeShortlinksView = useToolsStore((s) => s.activeShortlinksView)
+  const setActiveShortlinksView = useToolsStore((s) => s.setActiveShortlinksView)
   const isUnlocked = usePasswordVaultStore((s) => s.isUnlocked)
   const isBackupSettingsOpen = usePasswordVaultStore((s) => s.isBackupSettingsOpen)
   const isBatchOperationsOpen = usePasswordVaultStore((s) => s.isBatchOperationsOpen)
@@ -172,6 +194,13 @@ export function ToolsSidebar({
   const handleColorSlotClick = (slotId: ColorNavView) => {
     setActiveSubmodule('color')
     setActiveColorView(slotId)
+    onNavigate?.()
+  }
+
+  const handleShortlinksSlotClick = (slotId: ShortlinksNavView) => {
+    setActiveSubmodule('shortlinks')
+    setActiveShortlinksView(slotId)
+    useShortlinksStore.getState().selectLink(null)
     onNavigate?.()
   }
 
@@ -244,6 +273,19 @@ export function ToolsSidebar({
               }}
             >
               <Palette size={16} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip label={t('tools.shortlinks.module_name')} side="right">
+            <IconButton
+              label={t('tools.shortlinks.module_name')}
+              size="sm"
+              active={activeSubmodule === 'shortlinks'}
+              onClick={() => {
+                setActiveSubmodule('shortlinks')
+                onExpand?.()
+              }}
+            >
+              <Link2 size={16} />
             </IconButton>
           </Tooltip>
         </div>
@@ -514,6 +556,61 @@ export function ToolsSidebar({
                     type="button"
                     aria-current={isSelected ? 'page' : undefined}
                     onClick={() => handleColorSlotClick(slot.id)}
+                    className={cn(
+                      'flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]',
+                      'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+                      'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+                      isSelected &&
+                        'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]',
+                    )}
+                  >
+                    <Icon size={14} className="shrink-0" />
+                    <span className="truncate">{t(slot.labelKey)}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Submodule: Short Links (tools/shortlinks) */}
+        <div>
+          <button
+            type="button"
+            aria-expanded={shortlinksModuleExpanded}
+            onClick={toggleShortlinksModuleExpanded}
+            className={cn(
+              'flex w-full items-center justify-between gap-2 rounded-[var(--r-md)] px-2.5 py-1.5 text-[length:var(--text-13)] font-medium text-[var(--text-secondary)]',
+              'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+              'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+              activeSubmodule === 'shortlinks' && 'text-[var(--text-primary)]',
+            )}
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <span
+                className={cn(
+                  'transition-transform duration-[var(--dur-fast)]',
+                  shortlinksModuleExpanded ? 'rotate-90' : 'rotate-0',
+                )}
+              >
+                <ChevronRight size={14} className="shrink-0 text-[var(--text-tertiary)]" />
+              </span>
+              <Link2 size={16} className="shrink-0 text-[var(--accent)]" />
+              <span className="truncate">{t('tools.shortlinks.module_name')}</span>
+            </div>
+          </button>
+
+          {shortlinksModuleExpanded && (
+            <div className="mt-1 ml-4 space-y-0.5 border-l border-[var(--border-subtle)] pl-2">
+              {SHORTLINKS_NAV_SLOTS.map((slot) => {
+                const Icon = slot.icon
+                const isSelected = activeSubmodule === 'shortlinks' && activeShortlinksView === slot.id
+                return (
+                  <button
+                    key={slot.id}
+                    type="button"
+                    aria-current={isSelected ? 'page' : undefined}
+                    onClick={() => handleShortlinksSlotClick(slot.id)}
                     className={cn(
                       'flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]',
                       'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',

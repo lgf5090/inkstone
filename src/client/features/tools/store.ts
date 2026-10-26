@@ -6,7 +6,9 @@ export const TOOLS_NAV_WIDTH = {
   default: 260,
 } as const
 
-export type ToolsSubmodule = 'password' | 'qrcode' | 'id_photo' | 'color'
+export type ToolsSubmodule = 'password' | 'qrcode' | 'id_photo' | 'color' | 'shortlinks'
+
+export type ShortlinksNavView = 'dashboard' | 'links' | 'bundles' | 'settings'
 
 export type IdPhotoNavView =
   | 'studio'
@@ -54,6 +56,7 @@ interface PersistedLayout {
   qrcodeModuleExpanded?: boolean
   idPhotoModuleExpanded?: boolean
   colorModuleExpanded?: boolean
+  shortlinksModuleExpanded?: boolean
   activeSubmodule?: ToolsSubmodule
 }
 
@@ -91,6 +94,8 @@ export interface ToolsState {
   activeIdPhotoView: IdPhotoNavView
   colorModuleExpanded: boolean
   activeColorView: ColorNavView
+  shortlinksModuleExpanded: boolean
+  activeShortlinksView: ShortlinksNavView
 
   setToolsNavWidth: (width: number) => void
   toggleToolsNav: () => void
@@ -110,6 +115,9 @@ export interface ToolsState {
   setColorModuleExpanded: (expanded: boolean | ((prev: boolean) => boolean)) => void
   toggleColorModuleExpanded: () => void
   setActiveColorView: (view: ColorNavView) => void
+  setShortlinksModuleExpanded: (expanded: boolean | ((prev: boolean) => boolean)) => void
+  toggleShortlinksModuleExpanded: () => void
+  setActiveShortlinksView: (view: ShortlinksNavView) => void
 }
 
 const initialPersisted = loadPersistedLayout()
@@ -134,6 +142,8 @@ export const useToolsStore = create<ToolsState>((set, get) => ({
   activeIdPhotoView: 'studio',
   colorModuleExpanded: initialPersisted.colorModuleExpanded ?? true,
   activeColorView: 'studio',
+  shortlinksModuleExpanded: initialPersisted.shortlinksModuleExpanded ?? true,
+  activeShortlinksView: 'dashboard',
 
   setToolsNavWidth: (width: number) => {
     const clamped = Math.min(
@@ -318,5 +328,37 @@ export const useToolsStore = create<ToolsState>((set, get) => ({
 
   setActiveColorView: (view: ColorNavView) => {
     set({ activeColorView: view })
+  },
+
+  setShortlinksModuleExpanded: (expanded) => {
+    const next = typeof expanded === 'function' ? expanded(get().shortlinksModuleExpanded) : expanded
+    set({ shortlinksModuleExpanded: next })
+    persistLayout({
+      toolsNavWidth: get().toolsNavWidth,
+      toolsNavCollapsed: get().toolsNavCollapsed,
+      passwordModuleExpanded: get().passwordModuleExpanded,
+      qrcodeModuleExpanded: get().qrcodeModuleExpanded,
+      colorModuleExpanded: get().colorModuleExpanded,
+      shortlinksModuleExpanded: next,
+      activeSubmodule: get().activeSubmodule,
+    })
+  },
+
+  toggleShortlinksModuleExpanded: () => {
+    const next = !get().shortlinksModuleExpanded
+    set({ shortlinksModuleExpanded: next })
+    persistLayout({
+      toolsNavWidth: get().toolsNavWidth,
+      toolsNavCollapsed: get().toolsNavCollapsed,
+      passwordModuleExpanded: get().passwordModuleExpanded,
+      qrcodeModuleExpanded: get().qrcodeModuleExpanded,
+      colorModuleExpanded: get().colorModuleExpanded,
+      shortlinksModuleExpanded: next,
+      activeSubmodule: get().activeSubmodule,
+    })
+  },
+
+  setActiveShortlinksView: (view: ShortlinksNavView) => {
+    set({ activeShortlinksView: view })
   },
 }))

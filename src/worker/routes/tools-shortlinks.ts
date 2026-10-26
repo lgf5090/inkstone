@@ -316,6 +316,13 @@ toolsShortlinksRoutes.post('/backups', async (c) => {
   return c.json({ ok: true, data: backup })
 })
 
+toolsShortlinksRoutes.post('/backups/restore', async (c) => {
+  const store = getStore(c)
+  const body = await c.req.json<{ backup_id: string }>()
+  const res = await store.restoreBackup(String(body.backup_id), c.env.FILES)
+  return c.json({ ok: true, data: res })
+})
+
 toolsShortlinksRoutes.post('/export', async (c) => {
   const store = getStore(c)
   const body = await parseBody(c, ExportOptionsSchema)
@@ -323,15 +330,33 @@ toolsShortlinksRoutes.post('/export', async (c) => {
   return c.json({ ok: true, data: res })
 })
 
+toolsShortlinksRoutes.get('/export/txt', async (c) => {
+  const store = getStore(c)
+  const res = await store.exportData('txt', c.env.FILES)
+  return c.json({ ok: true, data: res })
+})
+
+toolsShortlinksRoutes.get('/export/csv', async (c) => {
+  const store = getStore(c)
+  const res = await store.exportData('csv', c.env.FILES)
+  return c.json({ ok: true, data: res })
+})
+
 toolsShortlinksRoutes.post('/import', async (c) => {
   const store = getStore(c)
   const body = await parseBody(c, BatchImportSchema)
   const res = await store.batchImportLinks(body.items)
-  return c.json({ ok: true, data: res })
+  return c.json({ ok: true, data: { imported: res.imported, errors: res.failed > 0 ? [`${res.failed} links failed`] : [] } })
 })
 
 // ---------------------------------------------------------------- API Keys
 toolsShortlinksRoutes.get('/keys', async (c) => {
+  const store = getStore(c)
+  const keys = await store.listApiKeys()
+  return c.json({ ok: true, data: keys })
+})
+
+toolsShortlinksRoutes.get('/api-keys', async (c) => {
   const store = getStore(c)
   const keys = await store.listApiKeys()
   return c.json({ ok: true, data: keys })
@@ -344,7 +369,21 @@ toolsShortlinksRoutes.post('/keys', async (c) => {
   return c.json({ ok: true, data: res })
 })
 
+toolsShortlinksRoutes.post('/api-keys', async (c) => {
+  const store = getStore(c)
+  const body = await parseBody(c, CreateApiKeySchema)
+  const res = await store.createApiKey(body.title, body.scope)
+  return c.json({ ok: true, data: res })
+})
+
 toolsShortlinksRoutes.delete('/keys/:id', async (c) => {
+  const store = getStore(c)
+  const id = Number(c.req.param('id'))
+  await store.deleteApiKey(id)
+  return c.json({ ok: true })
+})
+
+toolsShortlinksRoutes.delete('/api-keys/:id', async (c) => {
   const store = getStore(c)
   const id = Number(c.req.param('id'))
   await store.deleteApiKey(id)

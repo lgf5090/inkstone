@@ -1658,4 +1658,49 @@ export class ShortlinksStore {
 
     return { imported, failed }
   }
+
+  async restoreBackup(
+    backupId: string,
+    r2Bucket?: R2Bucket,
+  ): Promise<{ restored: number }> {
+    const backup = await this.db
+      .prepare('SELECT * FROM tools_shortlinks_backups WHERE user_id = ? AND id = ?')
+      .bind(this.userId, backupId)
+      .first<ShortlinkBackup>()
+
+    if (!backup) {
+      throw new Error('Backup not found')
+    }
+
+    if (!r2Bucket) {
+      return { restored: 0 }
+    }
+
+    const obj = await r2Bucket.get(backup.r2_key)
+    if (!obj) {
+      throw new Error('Backup file not found in storage')
+    }
+
+    const text = await obj.text()
+    const parsed = JSON.parse(text)
+    const links = (parsed.links || []) as Array<{ url: string; label?: string; slugs?: Array<{ slug: string }> }>
+
+    let restored = 0
+    for (const l of links) {
+      try {
+        const slug = l.slugs?.[0]?.slug
+        await this.createLink({
+          url: l.url,
+          label: l.label,
+          custom_slug: slug,
+          allow_duplicate: true,
+        })
+        restored++
+      } catch {
+        // Continue on conflict
+      }
+    }
+
+    return { restored }
+  }
 }

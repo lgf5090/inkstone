@@ -19,27 +19,33 @@ export const MAX_BREAKDOWN_LIMIT = 100
 export type BundleAccent = 'orange' | 'red' | 'green' | 'blue' | 'purple'
 
 export interface ShortLinkSlug {
+  id?: number
   slug: string
   link_id: number
-  is_custom: boolean
-  is_primary: boolean
-  click_count: number
+  is_custom?: boolean
+  is_primary: boolean | number
+  is_active?: boolean | number
+  click_count?: number
   created_at: number
-  disabled_at: number | null
+  disabled_at?: number | null
 }
 
 export interface ShortLink {
   id: number
-  user_id?: string
+  user_id?: string | number
   url: string
   label: string | null
-  password_protected: boolean
+  password_protected?: boolean
+  is_password_protected?: boolean | number
+  is_active?: boolean | number
   created_at: number
+  updated_at?: number
   expires_at: number | null
   created_via?: string | null
   created_by?: string
   slugs: ShortLinkSlug[]
   total_clicks: number
+  clicks?: number
   delta_pct?: number
 }
 
@@ -79,7 +85,9 @@ export interface TimelineBucket {
 export interface TimelineData {
   range: TimelineRange
   buckets: TimelineBucket[]
-  summary: {
+  labels?: string[]
+  values?: number[]
+  summary?: {
     last_24h: number
     last_7d: number
     last_30d: number
@@ -138,11 +146,14 @@ export interface ClickData {
 
 export interface ClickStats {
   total_clicks: number
+  clicks?: number
+  avg_clicks_per_day?: number | string
   countries: { name: string; count: number }[]
   referrers: { name: string; count: number }[]
   referrer_hosts: { name: string; count: number }[]
   devices: { name: string; count: number }[]
   os: { name: string; count: number }[]
+  operating_systems?: { name: string; count: number }[]
   browsers: { name: string; count: number }[]
   link_modes: { name: string; count: number }[]
   channels: { name: string; count: number }[]
@@ -165,40 +176,49 @@ export interface BreakdownPage {
 }
 
 export interface DashboardStats {
-  range: TimelineRange
+  range?: TimelineRange
   total_links: number
+  active_links?: number
   total_clicks: number
-  total_clicks_previous: number
+  total_clicks_previous?: number
   total_clicks_delta?: number
+  delta_clicks?: number | null
   new_links_delta?: number
-  clicks_per_day: number
+  clicks_per_day?: number
+  avg_clicks_per_day?: number | string
   clicks_per_day_delta?: number
-  num_domains: number
-  num_countries: number
-  clicked_links: number
+  num_domains?: number
+  num_countries?: number
+  clicked_links?: number
   clicked_links_delta?: number
-  timeline: number[]
-  timeline_links: number[]
-  timeline_clicked_links: number[]
+  timeline: number[] | { labels: string[]; values: number[] }
+  timeline_links?: number[]
+  timeline_clicked_links?: number[]
   recent_links: ShortLink[]
-  top_links: ShortLink[]
-  top_countries: { name: string; count: number }[]
-  top_referrers: { name: string; count: number }[]
-  num_referrers: number
+  top_links?: ShortLink[]
+  top_countries: { name: string; count: number; code?: string; percentage?: number }[]
+  top_referrers: { name: string; count: number; percentage?: number }[]
+  num_referrers?: number
 }
 
 export interface ShortlinksSettings {
   slug_default_length: number
+  slug_length?: number
   default_range: TimelineRange
+  timeline_default_range?: TimelineRange
   filter_bots: boolean
+  analytics_ignore_bots?: number
   filter_self_referrers: boolean
+  analytics_ignore_self_referrer?: number
   updated_at?: number
 }
 
 export interface ShortlinkApiKey {
   id: number
-  user_id?: string
+  user_id?: string | number
   title: string
+  name?: string
+  api_key?: string
   key_prefix: string
   scope: string
   created_at: number
@@ -206,11 +226,12 @@ export interface ShortlinkApiKey {
 }
 
 export interface ShortlinkBackup {
-  id: string
-  user_id?: string
+  id: string | number
+  user_id?: string | number
   filename: string
   r2_key: string
   size: number
+  size_bytes?: number
   type: 'auto' | 'manual'
   created_at: number
 }

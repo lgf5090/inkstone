@@ -85,3 +85,15 @@ export const BatchImportSchema = z.object({
 export const ExportOptionsSchema = z.object({
   format: z.enum(['txt', 'csv', 'json', 'passwords']),
 })
+
+export type CreateLinkInput = z.infer<typeof CreateLinkSchema>
+export type UpdateLinkInput = z.infer<typeof UpdateLinkSchema>
+export type AddSlugInput = z.infer<typeof AddSlugSchema>
+export type CreateBundleInput = z.infer<typeof CreateBundleSchema>
+export type UpdateBundleInput = z.infer<typeof UpdateBundleSchema>
+export type AddBundleLinksInput = z.infer<typeof AddBundleLinksSchema>
+export type UpdateSettingsInput = z.infer<typeof UpdateSettingsSchema>
+export type CreateApiKeyInput = z.infer<typeof CreateApiKeySchema>
+export type BatchImportInput = z.infer<typeof BatchImportSchema>
+export type ExportOptionsInput = z.infer<typeof ExportOptionsSchema>
+export type ImportDataInput = BatchImportInput

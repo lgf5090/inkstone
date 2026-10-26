@@ -26,7 +26,6 @@ function testApp(): Hono<AppBindings> {
   const app = new Hono<AppBindings>()
   app.onError((err, c) => errorResponse(c, err))
 
-  // Simulate authentication for /api/*
   app.use('/api/tools/shortlinks/*', async (c, next) => {
     const userId = c.req.header('x-test-user')
     if (userId) {
@@ -120,7 +119,6 @@ describe('Shortlinks D1 Schema & Tenant Isolation', () => {
   })
 
   it('strictly isolates tenant data between users', async () => {
-    // User A creates a link
     const resA = await call('POST', '/api/tools/shortlinks/links', {
       user: USER_A,
       body: { url: 'https://example.com/alice', label: 'Alice Link' },
@@ -128,13 +126,11 @@ describe('Shortlinks D1 Schema & Tenant Isolation', () => {
     expect(resA.status).toBe(200)
     const linkA = (await json<any>(resA)).data
 
-    // User B lists links and should see 0
     const resB = await call('GET', '/api/tools/shortlinks/links', { user: USER_B })
     const dataB = (await json<any>(resB)).data
     expect(dataB.total).toBe(0)
     expect(dataB.items).toHaveLength(0)
 
-    // User B cannot access or modify Alice's link
     const getRes = await call('GET', `/api/tools/shortlinks/links/${linkA.id}`, { user: USER_B })
     expect(getRes.status).toBe(404)
 
@@ -156,14 +152,12 @@ describe('Shortlinks Link Lifecycle & Slugs', () => {
     const data1 = (await json<any>(res1)).data
     expect(data1.slugs[0].slug).toBe('gh-test')
 
-    // Duplicate creation without allow_duplicate throws 409
     const resDup = await call('POST', '/api/tools/shortlinks/links', {
       user: USER_A,
       body: { url: 'https://github.com/test', custom_slug: 'gh-test-2' },
     })
     expect(resDup.status).toBe(409)
 
-    // Duplicate creation with allow_duplicate succeeds
     const resAllowed = await call('POST', '/api/tools/shortlinks/links', {
       user: USER_A,
       body: { url: 'https://github.com/test', custom_slug: 'gh-test-2', allow_duplicate: true },
@@ -178,14 +172,12 @@ describe('Shortlinks Link Lifecycle & Slugs', () => {
     })
     const link = (await json<any>(createRes)).data
 
-    // Add alias slug
     const addSlugRes = await call('POST', `/api/tools/shortlinks/links/${link.id}/slugs`, {
       user: USER_A,
       body: { slug: 'hn-alias' },
     })
     expect(addSlugRes.status).toBe(200)
 
-    // Set hn-alias as primary
     const setPrimaryRes = await call('PUT', `/api/tools/shortlinks/links/${link.id}/slugs/primary`, {
       user: USER_A,
       body: { slug: 'hn-alias' },
@@ -196,7 +188,6 @@ describe('Shortlinks Link Lifecycle & Slugs', () => {
     const primary = updated.slugs.find((s: any) => s.is_primary)
     expect(primary.slug).toBe('hn-alias')
 
-    // Delete alias slug
     const delRes = await call('DELETE', `/api/tools/shortlinks/links/${link.id}/slugs/hn-main`)
     expect(delRes.status).toBe(200)
   })
@@ -209,22 +200,18 @@ describe('Shortlinks Link Lifecycle & Slugs', () => {
     })
     const link = (await json<any>(createRes)).data
 
-    // Works initially
     const red1 = await call('GET', '/l/disable-me', { user: null })
     expect(red1.status).toBe(302)
     expect(red1.headers.get('Location')).toBe('https://example.com/disable-test')
 
-    // Disable
     await call('POST', `/api/tools/shortlinks/links/${link.id}/disable`)
     const red2 = await call('GET', '/l/disable-me', { user: null })
     expect(red2.status).toBe(404)
 
-    // Re-enable
     await call('POST', `/api/tools/shortlinks/links/${link.id}/enable`)
     const red3 = await call('GET', '/l/disable-me', { user: null })
     expect(red3.status).toBe(302)
 
-    // Expire
     await call('PUT', `/api/tools/shortlinks/links/${link.id}`, {
       body: { expires_at: now - 100 },
     })
@@ -242,17 +229,14 @@ describe('Shortlinks Link Lifecycle & Slugs', () => {
       },
     })
 
-    // Access without password returns 401 gate HTML
     const gateRes = await call('GET', '/l/secret-link', { user: null })
     expect(gateRes.status).toBe(401)
     const html = await gateRes.text()
     expect(html).toContain('受保护的短链接')
 
-    // Access with wrong password in query or POST fails
     const wrongRes = await call('GET', '/l/secret-link?pwd=wrong', { user: null })
     expect(wrongRes.status).toBe(401)
 
-    // Access with correct password redirects
     const okRes = await call('GET', '/l/secret-link?pwd=vault-password-123', { user: null })
     expect(okRes.status).toBe(302)
     expect(okRes.headers.get('Location')).toBe('https://secret.example.com')
@@ -261,7 +245,6 @@ describe('Shortlinks Link Lifecycle & Slugs', () => {
 
 describe('Shortlinks Bundles and Analytics', () => {
   it('creates bundle, adds links and calculates aggregate metrics', async () => {
-    // Create bundle
     const bRes = await call('POST', '/api/tools/shortlinks/bundles', {
       user: USER_A,
       body: { name: 'Work Bundle', accent: 'purple', description: 'Work links' },
@@ -270,17 +253,14 @@ describe('Shortlinks Bundles and Analytics', () => {
     const bundle = (await json<any>(bRes)).data
     expect(bundle.accent).toBe('purple')
 
-    // Create 2 links
     const l1 = (await json<any>(await call('POST', '/api/tools/shortlinks/links', { body: { url: 'https://w1.com', custom_slug: 'w1' } }))).data
     const l2 = (await json<any>(await call('POST', '/api/tools/shortlinks/links', { body: { url: 'https://w2.com', custom_slug: 'w2' } }))).data
 
-    // Add links to bundle
     const addRes = await call('POST', `/api/tools/shortlinks/bundles/${bundle.id}/links`, {
       body: { link_ids: [l1.id, l2.id] },
     })
     expect(addRes.status).toBe(200)
 
-    // Fetch bundle analytics
     const aRes = await call('GET', `/api/tools/shortlinks/bundles/${bundle.id}/analytics`)
     expect(aRes.status).toBe(200)
     const analytics = (await json<any>(aRes)).data
@@ -294,7 +274,6 @@ describe('Shortlinks Bundles and Analytics', () => {
     expect(dash).toHaveProperty('total_links')
     expect(dash).toHaveProperty('timeline')
 
-    // Settings update
     const setRes = await call('PUT', '/api/tools/shortlinks/settings', {
       body: { slug_default_length: 5, default_range: '7d' },
     })

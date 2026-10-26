@@ -175,7 +175,7 @@ describe('Shortlinks Analytics & Country Helpers', () => {
   })
 
   it('fills empty buckets for time ranges', () => {
-    const fixedNow = 1761480000 // Fixed unix seconds
+    const fixedNow = 1761480000
     const map = new Map<string, number>()
     const buckets24h = fillBuckets('24h', map, fixedNow)
     expect(buckets24h).toHaveLength(24)
