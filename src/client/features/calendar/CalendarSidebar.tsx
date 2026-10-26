@@ -23,6 +23,7 @@ import { Button, IconButton, SectionLabel } from '../../components/primitives'
 import { Menu, Tooltip, confirm, type MenuItem, submenuFor } from '../../components/overlay'
 import { Checkbox } from '../../components/form'
 import { MiniMonth } from './MiniMonth'
+import { CalendarQuickAdd } from './CalendarQuickAdd'
 import {
   CalendarFormDialog,
   DeleteCalendarDialog,
@@ -90,9 +91,10 @@ function downloadIcs(name: string, content: string): void {
   URL.revokeObjectURL(url)
 }
 
-function AddMenu({ onPick, compact }: { onPick: (kind: 'calendar' | 'group' | 'import' | 'subscribe') => void; compact?: boolean }) {
+function AddMenu({ onPick, compact }: { onPick: (kind: 'calendar' | 'group' | 'import' | 'subscribe' | 'quick') => void; compact?: boolean }) {
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null)
   const items: MenuItem[] = [
+    { id: 'quick-add', label: t('calendar.quick_add.menu'), onSelect: () => onPick('quick') },
     { id: 'new-calendar', label: t('calendar.sidebar.new_calendar'), onSelect: () => onPick('calendar') },
     { id: 'new-group', label: t('calendar.sidebar.new_group'), onSelect: () => onPick('group') },
     { id: 'import', label: t('calendar.sidebar.import'), separatorBefore: true, onSelect: () => onPick('import') },
@@ -155,6 +157,7 @@ export function CalendarSidebar({
   const [dialog, setDialog] = useState<DialogState>(null)
   const [importOpen, setImportOpen] = useState(false)
   const [subscribeOpen, setSubscribeOpen] = useState(false)
+  const [quickAddOpen, setQuickAddOpen] = useState(false)
   const [dragId, setDragId] = useState<string | null>(null)
   const [dropId, setDropId] = useState<string | null>(null)
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
@@ -170,8 +173,9 @@ export function CalendarSidebar({
   const calendarColor = (calendar: CalendarType): string =>
     app.getCalendarRegistry().resolveColors(calendar.id, dark ? 'dark' : 'light').eventColor
 
-  const openAddMenu = (kind: 'calendar' | 'group' | 'import' | 'subscribe'): void => {
-    if (kind === 'calendar') setDialog({ kind: 'create-calendar', groupId: null })
+  const openAddMenu = (kind: 'calendar' | 'group' | 'import' | 'subscribe' | 'quick'): void => {
+    if (kind === 'quick') setQuickAddOpen(true)
+    else if (kind === 'calendar') setDialog({ kind: 'create-calendar', groupId: null })
     else if (kind === 'group') setDialog({ kind: 'create-group' })
     else if (kind === 'import') setImportOpen(true)
     else setSubscribeOpen(true)
@@ -636,6 +640,14 @@ export function CalendarSidebar({
           defaultTimeZone={preferences.timeZone}
           onClose={() => setImportOpen(false)}
           onSaved={() => onRefresh(true)}
+        />
+      )}
+      {quickAddOpen && (
+        <CalendarQuickAdd
+          open
+          app={app}
+          timeZone={preferences.timeZone}
+          onClose={() => setQuickAddOpen(false)}
         />
       )}
       {subscribeOpen && (

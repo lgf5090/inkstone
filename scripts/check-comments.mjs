@@ -1348,6 +1348,9 @@ const allowed = new Map([
     "/** A provider adapter fetch that talks only to the same-origin connection proxy. */",
     "/**\n * Start one adapter per remote connection. Each adapter writes through its DayFlow binding; the\n * calendar/event persistence hooks in `CalendarSurface` put the resulting rows in D1.\n */",
   ]],
+  ["src/client/features/calendar/quick-add.ts", [
+    "/** Parse a small, predictable subset of Chinese/English quick-add text. */",
+  ]],
   ["src/client/features/calendar/view-state.ts", [
     "/** Keep a calendar's view and day in the address bar without turning every edit into a history entry. */",
   ]],
@@ -26726,6 +26729,9 @@ const allowed = new Map([
   ]],
   ["src/shared/locales/zh-CN-calendar.ts", [
     "/**\n * Chinese calendar copy. The final `satisfies Record<BaseMessageKey, string>` in `zh-CN.ts`\n * fails if this object misses a key, so the two fragments cannot drift apart silently.\n */",
+  ]],
+  ["src/shared/locales/zh-CN-quick-add-keywords.ts", [
+    "/** The Chinese words the quick-add parser reads. Data about the language, not interface copy. */",
   ]],
   ["src/shared/locales/zh-CN-subscriptions-notify.ts", [
     "/**\n * The words a notification carries, in Chinese.\n *\n * The twin of `en-US-subscriptions-notify.ts`; the two are proven against each other by key and by\n * placeholder in `tests/subscriptions-notify-copy.test.ts`. This file is registered as a catalog in\n * `scripts/check-i18n.mjs`, which is what lets it hold Chinese at all — every other source file is\n * held to English.\n */",
