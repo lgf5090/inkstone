@@ -108,8 +108,8 @@ calendarRoutes.get('/events/search', async (c) => {
 calendarRoutes.get('/events', async (c) => {
   const range = parseRange(c.req.query('from'), c.req.query('to'))
   const calendarIds = parseCalendarIdList(c.req.query('calendarIds'))
-  const events = await store(c).listEvents(range.fromMs, range.toMs, calendarIds)
-  return c.json({ events })
+  const result = await store(c).listEvents(range.fromMs, range.toMs, calendarIds)
+  return c.json({ events: result.events, truncated: result.truncated })
 })
 
 calendarRoutes.post('/events/batch', async (c) => {

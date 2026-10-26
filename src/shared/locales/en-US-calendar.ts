@@ -13,6 +13,7 @@ export const EN_US_CALENDAR = {
   'calendar.error.refresh': 'Could not refresh calendar data',
   'calendar.sync.failed': '{name} could not sync, so its events may be out of date',
   'calendar.sync.open_connections': 'Connection settings',
+  'calendar.range.truncated': 'This range has too many events to show at once. Narrow the range to see everything',
   'calendar.error.recurring': 'Edit the repeating series instead of a single occurrence',
   'calendar.empty.title': 'No calendars yet',
   'calendar.empty.description': 'Create your first calendar to start scheduling.',

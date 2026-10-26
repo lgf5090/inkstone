@@ -15,6 +15,7 @@ export const ZH_CN_CALENDAR = {
   'calendar.error.refresh': '无法刷新日历数据',
   'calendar.sync.failed': '{name} 同步失败，事件可能不是最新',
   'calendar.sync.open_connections': '连接设置',
+  'calendar.range.truncated': '这个时间范围事件过多，只显示最近的一部分；请缩小范围查看完整安排',
   'calendar.error.recurring': '请编辑重复系列，而不是单个实例',
   'calendar.empty.title': '还没有日历',
   'calendar.empty.description': '创建第一个日历，开始安排日程。',

@@ -272,15 +272,16 @@ describe('event ranges and revisions', () => {
       recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO',
     }))
 
-    const events = await store.listEvents(day('2026-10-01'), day('2026-11-01'))
-    expect(events.map((event) => event.id).sort()).toEqual([inside.id, master.id].sort())
+    const page = await store.listEvents(day('2026-10-01'), day('2026-11-01'))
+    expect(page.truncated).toBe(false)
+    expect(page.events.map((event) => event.id).sort()).toEqual([inside.id, master.id].sort())
   })
 
   it('filters the range by calendar membership', async () => {
     const second = await store.createCalendar({ name: 'Second' })
     const first = await store.createEvent(eventInput({ title: 'First only' }))
     const both = await store.createEvent(eventInput({ title: 'Both', calendarIds: [calendar.id, second.id] }))
-    const events = await store.listEvents(day('2026-10-01'), day('2026-11-01'), [second.id])
+    const events = (await store.listEvents(day('2026-10-01'), day('2026-11-01'), [second.id])).events
     expect(events.map((event) => event.id)).toEqual([both.id])
     expect(events[0]?.calendarId).toBe(calendar.id)
     expect(first.id).not.toBe(both.id)
@@ -434,7 +435,7 @@ describe('account isolation', () => {
     await bobStore.ensureDefaultCalendar()
 
     expect(await bobStore.getEvent(created.id)).toBeNull()
-    expect(await bobStore.listEvents(day('2026-10-01'), day('2026-11-01'))).toEqual([])
+    expect((await bobStore.listEvents(day('2026-10-01'), day('2026-11-01'))).events).toEqual([])
     await expect(bobStore.updateEvent(created.id, { rev: created.rev, title: 'Stolen' }))
       .rejects.toMatchObject({ status: 404 })
     await expect(bobStore.deleteEvent(created.id, created.rev)).rejects.toMatchObject({ status: 404 })

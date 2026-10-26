@@ -77,9 +77,17 @@ export function getMeta(signal?: AbortSignal): Promise<CalendarMetaDto> {
   return request<CalendarMetaDto>('/api/calendar/meta', { signal })
 }
 
-export async function getEvents(query: EventRangeQuery, signal?: AbortSignal): Promise<CalendarEventDto[]> {
-  const data = await request<{ events: CalendarEventDto[] }>(`/api/calendar/events?${rangeQuery(query)}`, { signal })
-  return data.events
+export interface EventRangeResponse {
+  events: CalendarEventDto[]
+  truncated: boolean
+}
+
+export async function getEvents(query: EventRangeQuery, signal?: AbortSignal): Promise<EventRangeResponse> {
+  const data = await request<{ events: CalendarEventDto[]; truncated?: boolean }>(
+    `/api/calendar/events?${rangeQuery(query)}`,
+    { signal },
+  )
+  return { events: data.events, truncated: data.truncated === true }
 }
 
 export async function searchEvents(keyword: string, signal?: AbortSignal): Promise<EventSearchResponse> {

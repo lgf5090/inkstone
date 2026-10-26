@@ -740,38 +740,16 @@ export class CalendarStore {
   /**
    * Events overlapping the range, plus every recurrence master so the client can expand a series
    * wherever it navigates. A master outside the window still belongs to the answer.
+   *
+   * Membership is joined into the same query: a year view can hold thousands of rows, and asking for
+   * their calendars eighty ids at a time used to multiply one page into dozens of D1 round trips.
    */
-  async listEvents(fromMs: number, toMs: number, calendarIds?: readonly string[]): Promise<CalendarEventDto[]> {
-    const rows = calendarIds && calendarIds.length > 0
-      ? await this.listEventsFiltered(fromMs, toMs, calendarIds)
-      : await this.listEventsPage(fromMs, toMs, null)
-    const memberships = await this.membershipsFor(rows.map((row) => row.id))
-    return rows
-      .filter((row) => (memberships.get(row.id)?.length ?? 0) > 0)
-      .map((row) => toEventDto(row, memberships.get(row.id) ?? []))
-  }
-
-  private async listEventsFiltered(
+  async listEvents(
     fromMs: number,
     toMs: number,
-    calendarIds: readonly string[],
-  ): Promise<EventRow[]> {
-    const byId = new Map<string, EventRow>()
-    for (const chunk of chunks(calendarIds, SQL_CHUNK)) {
-      const rows = await this.listEventsPage(fromMs, toMs, chunk)
-      for (const row of rows) byId.set(row.id, row)
-    }
-    return [...byId.values()]
-      .sort((left, right) => left.start_ms - right.start_ms || left.id.localeCompare(right.id))
-      .slice(0, MAX_EVENTS_PER_QUERY)
-  }
-
-  private async listEventsPage(
-    fromMs: number,
-    toMs: number,
-    calendarIds: readonly string[] | null,
-  ): Promise<EventRow[]> {
-    const filter = calendarIds
+    calendarIds?: readonly string[],
+  ): Promise<{ events: CalendarEventDto[]; truncated: boolean }> {
+    const filter = calendarIds && calendarIds.length > 0
       ? `AND EXISTS (
            SELECT 1 FROM calendar_event_calendars ec
             WHERE ec.user_id = e.user_id AND ec.event_id = e.id
@@ -779,14 +757,37 @@ export class CalendarStore {
          )`
       : ''
     const { results } = await this.db.prepare(
-      `SELECT e.* FROM calendar_events e
-        WHERE e.user_id = ?
-          AND ((e.start_ms <= ? AND e.end_ms >= ?) OR e.recurrence_rule IS NOT NULL)
-          ${filter}
-        ORDER BY e.start_ms ASC, e.id ASC
-        LIMIT ?`,
-    ).bind(this.userId, toMs, fromMs, ...(calendarIds ?? []), MAX_EVENTS_PER_QUERY).all<EventRow>()
-    return results ?? []
+      `SELECT e.*, m.calendar_id AS membership_calendar_id
+         FROM (
+           SELECT * FROM calendar_events e
+            WHERE e.user_id = ?
+              AND ((e.start_ms <= ? AND e.end_ms >= ?) OR e.recurrence_rule IS NOT NULL)
+              ${filter}
+            ORDER BY e.start_ms ASC, e.id ASC
+            LIMIT ?
+         ) e
+         JOIN calendar_event_calendars m
+           ON m.user_id = e.user_id AND m.event_id = e.id
+        ORDER BY e.start_ms ASC, e.id ASC, m.position ASC, m.calendar_id ASC`,
+    ).bind(
+      this.userId,
+      toMs,
+      fromMs,
+      ...(calendarIds ?? []),
+      MAX_EVENTS_PER_QUERY + 1,
+    ).all<EventRow & { membership_calendar_id: string }>()
+    const groups = new Map<string, { row: EventRow; calendarIds: string[] }>()
+    for (const row of results ?? []) {
+      const group = groups.get(row.id)
+      if (group) group.calendarIds.push(row.membership_calendar_id)
+      else groups.set(row.id, { row, calendarIds: [row.membership_calendar_id] })
+    }
+    const entries = [...groups.values()]
+    const truncated = entries.length > MAX_EVENTS_PER_QUERY
+    return {
+      truncated,
+      events: entries.slice(0, MAX_EVENTS_PER_QUERY).map(({ row, calendarIds: ids }) => toEventDto(row, ids)),
+    }
   }
 
   async listAllEvents(): Promise<CalendarEventDto[]> {

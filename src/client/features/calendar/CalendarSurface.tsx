@@ -75,6 +75,7 @@ const DAY_MS = 24 * 60 * 60 * 1000
 interface CalendarSurfaceProps {
   meta: CalendarMetaDto
   initialEvents: CalendarEventDto[]
+  initialTruncated?: boolean
   initialRange: { from: number; to: number }
   onRefreshMeta: () => Promise<CalendarMetaDto>
   onSavePreferences: (next: CalendarPreferences) => Promise<void>
@@ -328,7 +329,7 @@ function buildConfig(input: {
   }
 }
 
-export function CalendarSurface({ meta, initialEvents, initialRange, onRefreshMeta, onSavePreferences }: CalendarSurfaceProps) {
+export function CalendarSurface({ meta, initialEvents, initialTruncated = false, initialRange, onRefreshMeta, onSavePreferences }: CalendarSurfaceProps) {
   useLocaleRepaint()
   const appLocale = useLocale()
   const dark = useThemeDark()
@@ -356,6 +357,7 @@ export function CalendarSurface({ meta, initialEvents, initialRange, onRefreshMe
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(readCollapsed)
   const [rangeError, setRangeError] = useState<string | null>(null)
+  const [rangeTruncated, setRangeTruncated] = useState(initialTruncated)
   const [syncError, setSyncError] = useState<string | null>(null)
 
   const metaRef = useRef(meta)
@@ -380,7 +382,7 @@ export function CalendarSurface({ meta, initialEvents, initialRange, onRefreshMe
   const searchAbort = useRef<AbortController | null>(null)
   useEffect(() => () => searchAbort.current?.abort(), [])
 
-  const applySnapshot = useCallback((dtos: CalendarEventDto[], range: { from: number; to: number }): Set<string> => {
+  const applySnapshot = useCallback((dtos: CalendarEventDto[], range: { from: number; to: number }, truncated: boolean): Set<string> => {
     const timeZone = preferencesRef.current.timeZone
     const revById = new Map(dtos.map(dto => [dto.id, dto.rev]))
     const mapped = dtos.map(dto => toDayFlowEvent(dto, timeZone))
@@ -404,7 +406,7 @@ export function CalendarSurface({ meta, initialEvents, initialRange, onRefreshMe
     // A complete range is a mirror: anything local that overlaps it and did not come back was deleted
     // elsewhere. Recurring masters and generated occurrences are views, never rows of their own; a
     // truncated page cannot prove absence, and a queued write must be allowed to reach the server.
-    const stale = dtos.length >= MAX_EVENTS_PER_QUERY
+    const stale = truncated || dtos.length >= MAX_EVENTS_PER_QUERY
       ? []
       : missingRangeEventIds({
           events: [...existing.values()],
@@ -423,8 +425,9 @@ export function CalendarSurface({ meta, initialEvents, initialRange, onRefreshMe
   }, [app, revs])
 
   const fetchRange = useCallback(async (from: number, to: number): Promise<Set<string>> => {
-    const dtos = await api.getEvents({ from, to })
-    const fetched = applySnapshot(dtos, { from, to })
+    const page = await api.getEvents({ from, to })
+    const fetched = applySnapshot(page.events, { from, to }, page.truncated)
+    setRangeTruncated(page.truncated)
     lastRange.current = { from, to }
     return fetched
   }, [applySnapshot])
@@ -790,6 +793,13 @@ export function CalendarSurface({ meta, initialEvents, initialRange, onRefreshMe
             <AlertTriangle size={13} className="shrink-0 text-[var(--warning)]" aria-hidden="true" />
             <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-secondary)]">{rangeError}</span>
             <Button size="sm" onClick={retryRange}>{t('common.retry')}</Button>
+          </div>
+        )}
+
+        {rangeTruncated && (
+          <div role="status" className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-1.5">
+            <AlertTriangle size={13} className="shrink-0 text-[var(--warning)]" aria-hidden="true" />
+            <span className="min-w-0 flex-1 text-[length:var(--text-12)] text-[var(--text-secondary)]">{t('calendar.range.truncated')}</span>
           </div>
         )}
 

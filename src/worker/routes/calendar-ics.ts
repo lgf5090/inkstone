@@ -133,10 +133,13 @@ calendarIcsRoutes.get('/export', async (c) => {
   const calendar = (await store.listCalendars()).find((entry) => entry.id === calendarId)
   if (!calendar) throw ApiError.notFound('Calendar not found')
   const preferences = await store.preferences()
-  const events = await store.listEvents(Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, [calendarId])
+  const range = await store.listEvents(Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, [calendarId])
+  if (range.truncated) {
+    throw ApiError.tooLarge('That calendar has too many events to export as one file')
+  }
   const text = serializeIcsCalendar({
     name: calendar.name,
-    events,
+    events: range.events,
     timeZone: preferences.timeZone,
   })
   if (new TextEncoder().encode(text).byteLength > MAX_ICS_EXPORT_BYTES) {
