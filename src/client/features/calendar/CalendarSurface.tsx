@@ -32,7 +32,7 @@ import { createDragPlugin } from '@dayflow/plugin-drag'
 import { createKeyboardShortcutsPlugin } from '@dayflow/plugin-keyboard-shortcuts'
 import { createLocalizationPlugin, zh } from '@dayflow/plugin-localization'
 import { createSidebarPlugin } from '@dayflow/plugin-sidebar'
-import { AlertTriangle, Menu as MenuIcon, Settings } from 'lucide-react'
+import { AlertTriangle, Menu as MenuIcon } from 'lucide-react'
 import type {
   CalendarDto,
   CalendarEventDto,
@@ -841,7 +841,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
   )
 
   return (
-    <div className="flex h-full min-h-0 bg-[var(--bg-base)]">
+    <div className="relative flex h-full min-h-0 bg-[var(--bg-base)]">
       {wide
         ? sidebar
         : (
@@ -858,20 +858,6 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
           )}
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {!wide && (
-          <header className="flex h-11 shrink-0 items-center gap-1 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2">
-            <IconButton label={t('calendar.sidebar.open')} size="sm" onClick={() => setDrawerOpen(true)}>
-              <MenuIcon size={16} />
-            </IconButton>
-            <h1 className="min-w-0 flex-1 truncate px-1 text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">
-              {t('calendar.app.title')}
-            </h1>
-            <IconButton label={t('calendar.sidebar.settings')} size="sm" onClick={() => setSettingsOpen(true)}>
-              <Settings size={15} />
-            </IconButton>
-          </header>
-        )}
-
         {rangeError && (
           <div role="alert" className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-1.5">
             <AlertTriangle size={13} className="shrink-0 text-[var(--warning)]" aria-hidden="true" />
@@ -899,6 +885,18 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
           <DayFlowCalendar calendar={app} search={search} sidebar={() => null} />
         </div>
       </div>
+
+      {!wide && !drawerOpen && (
+        <div className="pointer-events-none absolute bottom-3 right-3 z-[var(--z-pop)]">
+          <IconButton
+            label={t('calendar.sidebar.open')}
+            onClick={() => setDrawerOpen(true)}
+            className="pointer-events-auto size-10 rounded-full border border-[var(--border-default)] bg-[var(--bg-raised)] shadow-[var(--shadow-pop)]"
+          >
+            <MenuIcon size={18} />
+          </IconButton>
+        </div>
+      )}
 
       {settingsOpen && (
         <CalendarSettings

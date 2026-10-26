@@ -1293,6 +1293,7 @@ const allowed = new Map([
     "/*\n * DayFlow component styles arrive from the library; this file only maps its `--df-*` variables onto\n * Inkstone's semantic tokens and gives the calendar the height its flex parent promises.\n *\n * The mapping lives on `:root` because DayFlow portals menus and dialogs to the body, outside the\n * calendar element but still inside the document that reads these variables.\n */",
     "/* The shell has no on-danger token; danger buttons already paint white text. */",
     "/* DayFlow's menu is positioned fixed at z-index 50 from inside the calendar; raise it to the shell's\n * popover band so it clears the app frame and the sidebar drawer without outranking public dialogs. */",
+    "/* Occurrences are a rendered view of a series, never rows of their own: every interaction is refused,\n * so make that visible by keeping the pointer off them instead of letting a click open a dead panel. */",
   ]],
   ["src/client/features/calendar/history.ts", [
     "/**\n * Undo/redo for events, kept beside the persistence queue rather than inside DayFlow.\n *\n * DayFlow's own `undo()` only rewinds its in-memory snapshot, which would leave the server holding\n * the state the reader just undid. Every entry here is recorded after the queue has persisted its\n * change, and replaying one goes back through `applyEventsChanges(..., 'local')` so the queue and\n * the server see the replay like any other edit.\n */",
