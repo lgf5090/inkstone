@@ -128,7 +128,9 @@ describe('Tools container architecture and collapsible sidebar', () => {
       const view = await renderElement(<ToolsSidebar />)
       expect(view.container.textContent).toContain(t('tools.password.nav.all'))
 
-      const accordionBtn = view.container.querySelector('button[aria-expanded="true"]')
+      // Named rather than positional: the module order is the product's, not this test's.
+      const accordionBtn = [...view.container.querySelectorAll('button[aria-expanded]')]
+        .find(node => (node.textContent ?? '').includes(t('tools.password.module_name')))
       expect(accordionBtn).not.toBeNull()
 
       act(() => {

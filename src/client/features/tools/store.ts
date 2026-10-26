@@ -132,7 +132,8 @@ export const useToolsStore = create<ToolsState>((set, get) => ({
       : TOOLS_NAV_WIDTH.default,
   toolsNavCollapsed: Boolean(initialPersisted.toolsNavCollapsed),
   toolsNavDrawerOpen: false,
-  activeSubmodule: initialPersisted.activeSubmodule ?? 'password',
+  // Short links open first: the vault behind the password module would otherwise greet every visit.
+  activeSubmodule: initialPersisted.activeSubmodule ?? 'shortlinks',
   passwordModuleExpanded: initialPersisted.passwordModuleExpanded ?? true,
   activePasswordView: 'all',
   selectedGroupId: null,

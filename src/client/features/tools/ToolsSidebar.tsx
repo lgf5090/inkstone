@@ -223,6 +223,19 @@ export function ToolsSidebar({
         </div>
 
         <div className="flex w-full flex-col items-center gap-1 py-2">
+          <Tooltip label={t('tools.shortlinks.module_name')} side="right">
+            <IconButton
+              label={t('tools.shortlinks.module_name')}
+              size="sm"
+              active={activeSubmodule === 'shortlinks'}
+              onClick={() => {
+                setActiveSubmodule('shortlinks')
+                onExpand?.()
+              }}
+            >
+              <Link2 size={16} />
+            </IconButton>
+          </Tooltip>
           <Tooltip label={t('tools.password.module_name')} side="right">
             <IconButton
               label={t('tools.password.module_name')}
@@ -275,19 +288,6 @@ export function ToolsSidebar({
               <Palette size={16} />
             </IconButton>
           </Tooltip>
-          <Tooltip label={t('tools.shortlinks.module_name')} side="right">
-            <IconButton
-              label={t('tools.shortlinks.module_name')}
-              size="sm"
-              active={activeSubmodule === 'shortlinks'}
-              onClick={() => {
-                setActiveSubmodule('shortlinks')
-                onExpand?.()
-              }}
-            >
-              <Link2 size={16} />
-            </IconButton>
-          </Tooltip>
         </div>
       </aside>
     )
@@ -319,7 +319,61 @@ export function ToolsSidebar({
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2 space-y-1">
-        {/* First submodule: Password Vault (tools/password) */}
+        {/* First submodule: Short Links (tools/shortlinks) */}
+        <div>
+          <button
+            type="button"
+            aria-expanded={shortlinksModuleExpanded}
+            onClick={toggleShortlinksModuleExpanded}
+            className={cn(
+              'flex w-full items-center justify-between gap-2 rounded-[var(--r-md)] px-2.5 py-1.5 text-[length:var(--text-13)] font-medium text-[var(--text-secondary)]',
+              'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+              'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+              activeSubmodule === 'shortlinks' && 'text-[var(--text-primary)]',
+            )}
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <span
+                className={cn(
+                  'transition-transform duration-[var(--dur-fast)]',
+                  shortlinksModuleExpanded ? 'rotate-90' : 'rotate-0',
+                )}
+              >
+                <ChevronRight size={14} className="shrink-0 text-[var(--text-tertiary)]" />
+              </span>
+              <Link2 size={16} className="shrink-0 text-[var(--accent)]" />
+              <span className="truncate">{t('tools.shortlinks.module_name')}</span>
+            </div>
+          </button>
+
+          {shortlinksModuleExpanded && (
+            <div className="mt-1 ml-4 space-y-0.5 border-l border-[var(--border-subtle)] pl-2">
+              {SHORTLINKS_NAV_SLOTS.map((slot) => {
+                const Icon = slot.icon
+                const isSelected = activeSubmodule === 'shortlinks' && activeShortlinksView === slot.id
+                return (
+                  <button
+                    key={slot.id}
+                    type="button"
+                    aria-current={isSelected ? 'page' : undefined}
+                    onClick={() => handleShortlinksSlotClick(slot.id)}
+                    className={cn(
+                      'flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]',
+                      'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+                      'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+                      isSelected &&
+                        'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]',
+                    )}
+                  >
+                    <Icon size={14} className="shrink-0" />
+                    <span className="truncate">{t(slot.labelKey)}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+        {/* Second submodule: Password Vault (tools/password) */}
         <div>
           <div className="flex items-center gap-1">
             <button
@@ -453,7 +507,7 @@ export function ToolsSidebar({
           )}
         </div>
 
-        {/* Submodule: ID Photo Studio (tools/id_photo) */}
+        {/* Fourth submodule: ID Photo Studio (tools/id_photo) */}
         <div>
           <button
             type="button"
@@ -508,7 +562,7 @@ export function ToolsSidebar({
           )}
         </div>
 
-        {/* Third submodule: Color Assistant (tools/color) */}
+        {/* Fifth submodule: Color Assistant (tools/color) */}
         <div>
           <button
             type="button"
@@ -563,60 +617,6 @@ export function ToolsSidebar({
           )}
         </div>
 
-        {/* Submodule: Short Links (tools/shortlinks) */}
-        <div>
-          <button
-            type="button"
-            aria-expanded={shortlinksModuleExpanded}
-            onClick={toggleShortlinksModuleExpanded}
-            className={cn(
-              'flex w-full items-center justify-between gap-2 rounded-[var(--r-md)] px-2.5 py-1.5 text-[length:var(--text-13)] font-medium text-[var(--text-secondary)]',
-              'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
-              'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
-              activeSubmodule === 'shortlinks' && 'text-[var(--text-primary)]',
-            )}
-          >
-            <div className="flex min-w-0 items-center gap-2">
-              <span
-                className={cn(
-                  'transition-transform duration-[var(--dur-fast)]',
-                  shortlinksModuleExpanded ? 'rotate-90' : 'rotate-0',
-                )}
-              >
-                <ChevronRight size={14} className="shrink-0 text-[var(--text-tertiary)]" />
-              </span>
-              <Link2 size={16} className="shrink-0 text-[var(--accent)]" />
-              <span className="truncate">{t('tools.shortlinks.module_name')}</span>
-            </div>
-          </button>
-
-          {shortlinksModuleExpanded && (
-            <div className="mt-1 ml-4 space-y-0.5 border-l border-[var(--border-subtle)] pl-2">
-              {SHORTLINKS_NAV_SLOTS.map((slot) => {
-                const Icon = slot.icon
-                const isSelected = activeSubmodule === 'shortlinks' && activeShortlinksView === slot.id
-                return (
-                  <button
-                    key={slot.id}
-                    type="button"
-                    aria-current={isSelected ? 'page' : undefined}
-                    onClick={() => handleShortlinksSlotClick(slot.id)}
-                    className={cn(
-                      'flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]',
-                      'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
-                      'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
-                      isSelected &&
-                        'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]',
-                    )}
-                  >
-                    <Icon size={14} className="shrink-0" />
-                    <span className="truncate">{t(slot.labelKey)}</span>
-                  </button>
-                )
-              })}
-            </div>
-          )}
-        </div>
       </div>
     </aside>
   )

@@ -16082,13 +16082,13 @@ const allowed = new Map([
     "/**\n * The section as the screen mounts it: `useWorklog` owns the read so the CSV export can carry the very\n * same answer, which means the thing under test is the pair, not the presentation alone.\n */",
   ]],
   ["src/client/features/tools/ToolsSidebar.tsx", [
-    "/* First submodule: Password Vault (tools/password) */",
     "/* Group tree mounting slot */",
     "// The lock sits beside the row, not inside it: a button cannot hold a button, and a `span`",
     "// dressed up as one is reachable by mouse only.",
-    "/* Submodule: ID Photo Studio (tools/id_photo) */",
-    "/* Third submodule: Color Assistant (tools/color) */",
-    "/* Submodule: Short Links (tools/shortlinks) */",
+    "/* First submodule: Short Links (tools/shortlinks) */",
+    "/* Second submodule: Password Vault (tools/password) */",
+    "/* Fourth submodule: ID Photo Studio (tools/id_photo) */",
+    "/* Fifth submodule: Color Assistant (tools/color) */",
   ]],
   ["src/client/features/tools/color/ColorApp.tsx", [
     "// Global Modals",
@@ -16915,6 +16915,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/tools/store.ts", [
     "// Best effort background persist",
+    "// Short links open first: the vault behind the password module would otherwise greet every visit.",
   ]],
   ["src/client/features/workspace/BacklinksPanel.tsx", [
     "// Debounced refresh on note revision changes; unrelated sync traffic",
@@ -41638,6 +41639,7 @@ const allowed = new Map([
     "// Sub-menu slot labels must not be in collapsed rail",
     "// Drawer renders in a portal",
     "// One expand control plus one icon per top-level tool module — nothing from inside a module.",
+    "// Named rather than positional: the module order is the product's, not this test's.",
   ]],
   ["tests/tools-id-photo-api.test.ts", [
     "// Verify list",
