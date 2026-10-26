@@ -365,8 +365,11 @@ function flattenSelfOrMissingParent(table: string, keyColumn: string, column: st
   return (row: PreparedRow, ids: IdSets, note: Note): PreparedRow => {
     const value = row[column]
     if (typeof value !== 'string') return row
-    if (value === row[keyColumn] || !ids.get(table)?.has(value)) {
-      note(`${column} named a ${noun} it cannot sit under, restored at the top level`)
+    if (value === row[keyColumn]) {
+      note(`${column} named the ${noun} itself, restored at the top level`)
+      row[column] = null
+    } else if (!ids.get(table)?.has(value)) {
+      note(`${column} named a ${noun} the file does not carry, restored at the top level`)
       row[column] = null
     }
     return row
@@ -431,7 +434,7 @@ const TABLE_SPECS: Readonly<Record<string, TodoTableSpec>> = {
       stampRule('created_at', { notNull: true }),
       stampRule('updated_at', { notNull: true }),
     ],
-    place: flattenMissingParent('todos_lists', 'parent_id', 'list'),
+    place: flattenSelfOrMissingParent('todos_lists', 'id', 'parent_id', 'list'),
   },
   todos_tags: {
     label: 'tags',

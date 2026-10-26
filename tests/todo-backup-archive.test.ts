@@ -409,6 +409,23 @@ describe('a row the file cannot place', () => {
     expect(notes).toMatch(/lists - parent_id named a list the file does not carry/)
   })
 
+  it('levels a row the file nested inside itself, on both trees', async () => {
+    const { summary, rows } = await restore((file) => {
+      file.tables.todos_lists.find((entry) => entry.id === SECTION)!.parent_id = SECTION
+      file.tables.todos_tasks.find((entry) => entry.id === TASK)!.parent_id = TASK
+    })
+
+    // A row whose parent is itself passes "is that id in the file" — its own id is — and lands as a place
+    // in a tree nothing can draw. Both trees are flattened rather than dropped.
+    expect(rows.todos_lists.find((entry) => entry.id === SECTION)?.parent_id).toBeNull()
+    expect(rows.todos_tasks.find((entry) => entry.id === TASK)?.parent_id).toBeNull()
+    expect(rows.todos_lists).toHaveLength(2)
+    expect(rows.todos_tasks).toHaveLength(3)
+    const notes = summary.skipped.join('\n')
+    expect(notes).toMatch(/lists - parent_id named the list itself/)
+    expect(notes).toMatch(/tasks - parent_id named the task itself/)
+  })
+
   it('drops a task file link the account holds no file for', async () => {
     const { summary, rows } = await restore((file) => {
       file.tables.todos_attachments[0]!.attachment_id = idOf('att2')
