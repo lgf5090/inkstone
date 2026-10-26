@@ -756,7 +756,7 @@ export const ZH_CN_TOOLS = {
   'tools.color.ai.prompt_aria': '场景意境提示词',
   'tools.color.ai.empty_hint': '设置期望的美学参数，让 AI 色彩顾问为您生成专属调色方案。',
 
-  // --- 证件照工坊 (ID Photo Studio) ---
+  // --- ID Photo Studio ---
   'tools.id_photo.module_name': '证件照工坊',
   'tools.id_photo.nav.studio': '证件照制作',
   'tools.id_photo.nav.compliance': '合规诊断',
@@ -766,7 +766,7 @@ export const ZH_CN_TOOLS = {
   'tools.id_photo.nav.history': '历史记录',
   'tools.id_photo.nav.settings': '偏好设置',
 
-  // 国家名称
+  // Country names
   'tools.id_photo.country.cn': '中国',
   'tools.id_photo.country.us': '美国',
   'tools.id_photo.country.eu': '欧盟',
@@ -778,7 +778,7 @@ export const ZH_CN_TOOLS = {
   'tools.id_photo.country.sg': '新加坡',
   'tools.id_photo.country.in': '印度',
 
-  // 规格名称
+  // Spec names
   'tools.id_photo.specs.cn_one_inch_name': '标准一寸',
   'tools.id_photo.specs.cn_small_one_inch_name': '小一寸',
   'tools.id_photo.specs.cn_large_one_inch_name': '大一寸',
@@ -803,7 +803,7 @@ export const ZH_CN_TOOLS = {
   'tools.id_photo.specs.intl_sg_passport_name': '新加坡护照 / 签证 (ICA)',
   'tools.id_photo.specs.intl_in_passport_name': '印度护照 / OCI / Visa',
 
-  // 通用单位与标签
+  // Shared units and labels
   'tools.id_photo.unit.mm': 'mm',
   'tools.id_photo.unit.px': 'px',
   'tools.id_photo.unit.dpi': 'DPI',
@@ -824,7 +824,7 @@ export const ZH_CN_TOOLS = {
   'tools.id_photo.common.color_label': '背景颜色',
   'tools.id_photo.common.retouch_params': '精细磨皮与光影调节',
 
-  // 规格描述
+  // Spec descriptions
   'tools.id_photo.specs.cn_one_inch_desc': '常用证件通用标准，适用于各类证书、资格证等',
   'tools.id_photo.specs.cn_small_one_inch_desc': '适用于驾驶证、社保卡、学生证等',
   'tools.id_photo.specs.cn_large_one_inch_desc': '护照与大型证书通用规范尺寸',
@@ -849,7 +849,7 @@ export const ZH_CN_TOOLS = {
   'tools.id_photo.specs.intl_sg_passport_desc': '新加坡移民局(ICA)护照及电子签证规范',
   'tools.id_photo.specs.intl_in_passport_desc': '印度护照、海外公民证(OCI)及电子签证规范',
 
-  // 背景色预设
+  // Background presets
   'tools.id_photo.bg.pure_white': '纯白',
   'tools.id_photo.bg.light_gray': '浅白灰',
   'tools.id_photo.bg.light_blue': '经典浅蓝',
@@ -861,7 +861,7 @@ export const ZH_CN_TOOLS = {
   'tools.id_photo.bg.gradient_red': '渐变红',
   'tools.id_photo.bg.gradient_gray': '渐变灰',
 
-  // 正装预设
+  // Formal-wear presets
   'tools.id_photo.attire.suit': '西装',
   'tools.id_photo.attire.shirt': '衬衫',
   'tools.id_photo.attire.male_navy_suit': '男士深蓝西装',
@@ -869,12 +869,12 @@ export const ZH_CN_TOOLS = {
   'tools.id_photo.attire.female_navy_suit': '女士深蓝套服',
   'tools.id_photo.attire.female_white_shirt': '女士纯白衬衫',
 
-  // 冲印相纸
+  // Photo paper
   'tools.id_photo.print.paper_5inch': '5寸照片相纸 (3R)',
   'tools.id_photo.print.paper_6inch': '6寸照片相纸 (4R)',
   'tools.id_photo.print.paper_a4': 'A4 办公纸打印',
 
-  // 合规质检
+  // Compliance checks
   'tools.id_photo.compliance.check_dimensions': '尺寸与长宽比',
   'tools.id_photo.compliance.check_file_size': '文件存储体积',
   'tools.id_photo.compliance.check_face_ratio': '头部高度比例',
@@ -887,7 +887,7 @@ export const ZH_CN_TOOLS = {
   'tools.id_photo.compliance.tip_2': '根据标准规范，头部在画面纵向需占合理比例，头顶留出适当空间。',
   'tools.id_photo.compliance.tip_3': '如需打印请选择 300 DPI 打印级分辨率，并在排版工坊中生成冲印相纸切线。',
 
-  // 工作区与面板交互
+  // Workspace and panel interaction
   'tools.id_photo.content.accordion_title': '人像采集与构图',
   'tools.id_photo.content.upload_photo': '上传照片',
   'tools.id_photo.content.upload_drag_hint': '点击或拖拽照片至此处，支持 JPG、PNG、WEBP',
@@ -897,14 +897,14 @@ export const ZH_CN_TOOLS = {
   'tools.id_photo.content.rotate_right': '向右旋转90°',
   'tools.id_photo.content.crop_reset': '重置裁剪',
 
-  // 美化调整面板
+  // Beautify panel
   'tools.id_photo.options.accordion_title': '证件照设置选项',
   'tools.id_photo.options.tab_spec': '规格标准',
   'tools.id_photo.options.tab_color': '背景色彩',
   'tools.id_photo.options.tab_retouch': '人像微调',
   'tools.id_photo.options.tab_attire': '正装换衣',
 
-  // 规格选项卡
+  // Spec tab
   'tools.id_photo.spec.search_placeholder': '搜索国家、考试、证件名称...',
   'tools.id_photo.spec.category_all': '全部规格',
   'tools.id_photo.spec.category_cn': '中国常用',
@@ -917,32 +917,32 @@ export const ZH_CN_TOOLS = {
   'tools.id_photo.spec.pixel_size': '像素尺寸',
   'tools.id_photo.spec.recommended_bg': '官方底色',
 
-  // 背景色彩选项卡
+  // Background colour tab
   'tools.id_photo.color.preset_title': '官方标准底色预设',
   'tools.id_photo.color.gradient_toggle': '启用立体双色渐变',
   'tools.id_photo.color.feathering_label': '边缘羽化平滑',
   'tools.id_photo.color.feathering_hint': '消除发丝与背景边缘的锯齿与白边',
 
-  // 人像微调选项卡
+  // Portrait retouch tab
   'tools.id_photo.retouch.brightness': '面部亮度',
   'tools.id_photo.retouch.contrast': '光影对比',
   'tools.id_photo.retouch.whitening': '自然美白',
   'tools.id_photo.retouch.smoothness': '双边磨皮',
   'tools.id_photo.retouch.reset': '重置微调参数',
 
-  // 正装换衣选项卡
+  // Formal-wear tab
   'tools.id_photo.attire.none': '保持原着',
   'tools.id_photo.attire.scale': '正装缩放',
   'tools.id_photo.attire.offset_y': '领口高低',
 
-  // 预览与导出
+  // Preview and export
   'tools.id_photo.preview.show_guides': '标准参考辅助线',
   'tools.id_photo.preview.compare_original': '对比原图',
   'tools.id_photo.preview.fullscreen': '全屏检查',
   'tools.id_photo.preview.empty_title': '尚未选择或上传人像',
   'tools.id_photo.preview.empty_desc': '请在左侧上传半身照，系统将自动适配国家标准证件照',
 
-  // 导出面板
+  // Export panel
   'tools.id_photo.export.title': '保存与导出证件照',
   'tools.id_photo.export.target_size_label': '目标存储大小限制 (KB)',
   'tools.id_photo.export.target_size_placeholder': '不限（默认高保真质量）',
@@ -956,7 +956,7 @@ export const ZH_CN_TOOLS = {
   'tools.id_photo.export.save_success': '证件照已归档至云端存储',
   'tools.id_photo.export.save_error': '保存到云端失败',
 
-  // 冲印排版视图
+  // Print layout view
   'tools.id_photo.print.title': '相纸冲印排版工坊',
   'tools.id_photo.print.paper_select': '相纸规格',
   'tools.id_photo.print.orientation_label': '排版方向',
@@ -968,25 +968,25 @@ export const ZH_CN_TOOLS = {
   'tools.id_photo.print.preview_summary': '每版共容纳 {count} 张照片',
   'tools.id_photo.print.download_btn': '导出冲印版 (300 DPI)',
 
-  // 批量视图
+  // Batch view
   'tools.id_photo.batch.title': '批量证件照生成工坊',
   'tools.id_photo.batch.desc': '多张照片一键批量套用所选规格与背景，支持打包导出为 ZIP',
   'tools.id_photo.batch.upload_btn': '批量上传多张人像',
   'tools.id_photo.batch.export_zip': '一键打包下载 (ZIP)',
   'tools.id_photo.batch.items_count': '已就绪 {count} 张证件照',
 
-  // 历史记录视图
+  // History view
   'tools.id_photo.history.title': '证件照历史归档',
   'tools.id_photo.history.empty': '暂无已归档的证件照作品',
   'tools.id_photo.history.load_edit': '载入重新编辑',
   'tools.id_photo.history.delete_success': '证件照记录已删除',
   'tools.id_photo.history.delete_failed': '删除记录失败',
 
-  // 规格库视图
+  // Spec library view
   'tools.id_photo.specs.delete_success': '自定义规格已删除',
   'tools.id_photo.specs.delete_failed': '删除自定义规格失败',
 
-  // 偏好设置视图
+  // Preferences view
   'tools.id_photo.settings.title': '证件照偏好设置',
   'tools.id_photo.settings.default_spec': '默认开启规格',
   'tools.id_photo.settings.default_bg': '默认背景色',
@@ -995,7 +995,7 @@ export const ZH_CN_TOOLS = {
   'tools.id_photo.settings.save_btn': '保存偏好设置',
   'tools.id_photo.settings.save_success': '偏好设置已成功保存',
 
-  // 短链接管理模块 (tools/shortlinks)
+  // Short links module (tools/shortlinks)
   'tools.shortlinks.module_name': '短链接管理',
   'tools.shortlinks.nav.dashboard': '概览大盘',
   'tools.shortlinks.nav.links': '链接管理',
