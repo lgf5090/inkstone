@@ -44,7 +44,14 @@ function visibleCalendarIds(app: ICalendarApp): Set<string> {
   return new Set(app.getCalendars().filter(calendar => calendar.isVisible !== false).map(calendar => calendar.id))
 }
 
-function eventColors(events: Event[], app: ICalendarApp, timeZone: string, dark: boolean): Map<string, string[]> {
+function eventColors(
+  events: Event[],
+  app: ICalendarApp,
+  timeZone: string,
+  dark: boolean,
+  rangeStart: Temporal.PlainDate,
+  rangeEnd: Temporal.PlainDate,
+): Map<string, string[]> {
   const visible = visibleCalendarIds(app)
   const dots = new Map<string, string[]>()
   for (const event of events) {
@@ -53,9 +60,11 @@ function eventColors(events: Event[], app: ICalendarApp, timeZone: string, dark:
     const color = app.getCalendarRegistry().resolveColors(ids[0], dark ? 'dark' : 'light').lineColor
     const from = eventDateInZone(event.start, timeZone)
     const to = eventDateInZone(event.end, timeZone)
-    let cursor = from
+    if (Temporal.PlainDate.compare(to, rangeStart) < 0 || Temporal.PlainDate.compare(from, rangeEnd) > 0) continue
+    let cursor = Temporal.PlainDate.compare(from, rangeStart) < 0 ? rangeStart : from
+    const last = Temporal.PlainDate.compare(to, rangeEnd) > 0 ? rangeEnd : to
     let guard = 0
-    while (Temporal.PlainDate.compare(cursor, to) <= 0 && guard < 370) {
+    while (Temporal.PlainDate.compare(cursor, last) <= 0 && guard < 42) {
       const key = plainDateKey(cursor)
       const colors = dots.get(key) ?? []
       if (!colors.includes(color) && colors.length < MAX_DOTS) colors.push(color)
@@ -100,10 +109,17 @@ export function MiniMonth({ app, currentDate, weekStart, timeZone, showEventDots
     return Array.from({ length: CELL_COUNT }, (_, index) => addDays(first, index))
   }, [displayMonth, weekStart, calendarSystem])
 
-  const dots = useMemo(
-    () => (showEventDots ? eventColors(app.getEvents(), app, timeZone, dark) : new Map<string, string[]>()),
-    [app, timeZone, dark, showEventDots, version],
-  )
+  const dots = useMemo(() => {
+    if (!showEventDots || days.length === 0) return new Map<string, string[]>()
+    return eventColors(
+      app.getEvents(),
+      app,
+      timeZone,
+      dark,
+      Temporal.PlainDate.from(dateKey(days[0]!)),
+      Temporal.PlainDate.from(dateKey(days[days.length - 1]!)),
+    )
+  }, [app, timeZone, dark, showEventDots, version, days])
 
   useEffect(() => {
     if (!showEventDots || !onRequestRange || days.length === 0) return
