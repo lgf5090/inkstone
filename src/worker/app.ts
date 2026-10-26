@@ -62,6 +62,8 @@ import { toolsPasswordRoutes } from './routes/tools-password'
 import { toolsQrcodeRoutes } from './routes/tools-qrcode'
 import { toolsColorRoutes } from './routes/tools-color'
 import { toolsIdPhotoRoutes } from './routes/tools-id-photo'
+import { toolsShortlinksRoutes } from './routes/tools-shortlinks'
+import { toolsShortlinksRedirectRoutes } from './routes/tools-shortlinks-redirect'
 import { musicSharePageRoutes, musicSharePublicRoutes } from './routes/music-share'
 import { emailSearchesRoutes } from './routes/email-searches'
 import { emailTemplatesRoutes } from './routes/email-templates'
@@ -199,6 +201,7 @@ export function createApp() {
   app.route('/api/tools/qrcode', toolsQrcodeRoutes)
   app.route('/api/tools/color', toolsColorRoutes)
   app.route('/api/tools/id-photo', toolsIdPhotoRoutes)
+  app.route('/api/tools/shortlinks', toolsShortlinksRoutes)
   app.route('/api/assistant', assistantRoutes)
   app.route('/api/excalidraw/ai', aiProxyRoutes)
   app.route('/api/excalidraw/library', excalidrawLibraryRoutes)
@@ -231,6 +234,7 @@ export function createApp() {
   app.route('/collections', publicCollectionPageRoutes)
   app.route('/feeds', todoFeedRoutes)
   app.route('/memos', memosPublicPageRoutes)
+  app.route('/', toolsShortlinksRedirectRoutes)
   app.route('/', mcpAuthorizeRoutes)
 
 

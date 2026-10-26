@@ -48,6 +48,8 @@ run_worker_first = [
   "/m/*",
   "/tools",
   "/tools/*",
+  "/l",
+  "/l/*",
 ]
 
 [[d1_databases]]

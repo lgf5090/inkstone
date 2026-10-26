@@ -1,0 +1,342 @@
+/**
+ * Public Edge Redirect Engine with Password Gate and Async Analytics (`/l/:slug`).
+ */
+
+import { Hono } from 'hono'
+import type { AppBindings } from '../env'
+import { getCachedSlug, putCachedSlug } from '../tools/shortlinks/cache'
+import { computeVisitorFingerprint } from '../tools/shortlinks/fingerprint'
+import { isSelfReferrer, parseReferrerHost } from '../tools/shortlinks/referrer'
+import { hashPassword, ShortlinksStore } from '../tools/shortlinks/store'
+import { parseUserAgentInfo } from '../tools/shortlinks/ua'
+
+export const toolsShortlinksRedirectRoutes = new Hono<AppBindings>()
+
+function renderPasswordPage(slug: string, errorMsg?: string): Response {
+  const html = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>受保护的链接 - Inkstone Shortlinks</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --danger: #ef4444;
+      --border: #334155;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+    .card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 1rem;
+      padding: 2.5rem;
+      width: 100%;
+      max-width: 400px;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+    }
+    .icon {
+      width: 48px;
+      height: 48px;
+      margin: 0 auto 1.5rem auto;
+      color: var(--primary);
+      display: block;
+    }
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      text-align: center;
+      margin: 0 0 0.5rem 0;
+    }
+    p {
+      color: var(--text-muted);
+      font-size: 0.875rem;
+      text-align: center;
+      margin: 0 0 1.5rem 0;
+      line-height: 1.5;
+    }
+    .error {
+      background-color: rgba(239, 68, 68, 0.1);
+      border: 1px solid var(--danger);
+      color: var(--danger);
+      padding: 0.75rem;
+      border-radius: 0.5rem;
+      font-size: 0.875rem;
+      margin-bottom: 1rem;
+      text-align: center;
+    }
+    label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 500;
+      margin-bottom: 0.5rem;
+    }
+    input[type="password"] {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0.75rem 1rem;
+      border-radius: 0.5rem;
+      border: 1px solid var(--border);
+      background-color: var(--bg);
+      color: var(--text);
+      font-size: 1rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input[type="password"]:focus {
+      border-color: var(--primary);
+    }
+    button {
+      width: 100%;
+      padding: 0.75rem;
+      margin-top: 1.25rem;
+      background-color: var(--primary);
+      color: #ffffff;
+      border: none;
+      border-radius: 0.5rem;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    button:hover {
+      background-color: var(--primary-hover);
+    }
+  </style>
+</head>
+<body>
+  <div class="card" role="main">
+    <svg class="icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+    </svg>
+    <h1>受保护的短链接</h1>
+    <p>此短链接已设置访问密码保护，请输入正确的访问密码以继续跳转。</p>
+    ${errorMsg ? `<div class="error" role="alert">${errorMsg}</div>` : ''}
+    <form method="POST" action="/l/${slug}">
+      <div>
+        <label for="password">访问密码</label>
+        <input type="password" id="password" name="password" required autofocus placeholder="请输入访问密码" />
+      </div>
+      <button type="submit">验证并跳转</button>
+    </form>
+  </div>
+</body>
+</html>`
+
+  return new Response(html, {
+    status: 401,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+    },
+  })
+}
+
+function renderNotFoundPage(title = '短链接不存在', message = '抱歉，您访问的短链接不存在或已被删除。'): Response {
+  const html = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${title} - Inkstone Shortlinks</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #0f172a;
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+    .box {
+      text-align: center;
+      max-width: 420px;
+      padding: 2rem;
+    }
+    h1 { font-size: 4rem; margin: 0 0 1rem 0; color: #64748b; }
+    h2 { font-size: 1.5rem; margin: 0 0 0.5rem 0; }
+    p { color: #94a3b8; font-size: 0.95rem; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>404</h1>
+    <h2>${title}</h2>
+    <p>${message}</p>
+  </div>
+</body>
+</html>`
+
+  return new Response(html, {
+    status: 404,
+    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+  })
+}
+
+async function handleRedirect(c: any, providedPassword?: string) {
+  const slug = c.req.param('slug')
+  if (!slug) {
+    return renderNotFoundPage()
+  }
+
+  // 1. Check KV cache
+  let entry = await getCachedSlug(c.env.SHORTLINKS_KV, slug)
+
+  // 2. Read-through to D1 if missed
+  if (!entry) {
+    const store = new ShortlinksStore(c.env.DB, '')
+    const dbRecord = await store.findSlugForRedirect(slug)
+    if (!dbRecord) {
+      return renderNotFoundPage()
+    }
+
+    entry = {
+      url: dbRecord.url,
+      link_id: dbRecord.link_id,
+      user_id: dbRecord.user_id,
+      disabled_at: dbRecord.disabled_at,
+      expires_at: dbRecord.expires_at,
+      password_hash: dbRecord.password_hash,
+    }
+
+    // Populate KV
+    await putCachedSlug(c.env.SHORTLINKS_KV, slug, entry)
+  }
+
+  // 3. Status checks
+  if (entry.disabled_at !== null) {
+    return renderNotFoundPage('链接已停用', '该短链接已被创建者暂时停用。')
+  }
+
+  const now = Math.floor(Date.now() / 1000)
+  if (entry.expires_at !== null && entry.expires_at <= now) {
+    return renderNotFoundPage('链接已过期', '该短链接已达到预设有效期限并已过期失效。')
+  }
+
+  // 4. Password Gate
+  if (entry.password_hash) {
+    let inputPassword = providedPassword || c.req.query('pwd') || c.req.query('password')
+    if (!inputPassword && c.req.header('cookie')) {
+      const cookies = c.req.header('cookie') || ''
+      const match = cookies.match(new RegExp(`shortlink_auth_${slug}=([^;]+)`))
+      if (match) {
+        inputPassword = decodeURIComponent(match[1])
+      }
+    }
+
+    if (!inputPassword) {
+      return renderPasswordPage(slug)
+    }
+
+    const inputHash = await hashPassword(inputPassword)
+    if (inputHash !== entry.password_hash) {
+      return renderPasswordPage(slug, '访问密码错误，请重新输入')
+    }
+  }
+
+  // 5. Async Click Tracking via ctx.waitUntil
+  const ua = c.req.header('user-agent') || ''
+  const referer = c.req.header('referer') || null
+  const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || ''
+  const country = c.req.header('cf-ipcountry') || null
+  const region = c.req.header('cf-region') || null
+  const city = c.req.header('cf-ipcity') || null
+  const requestHost = c.req.header('host') || ''
+
+  const uaInfo = parseUserAgentInfo(ua)
+  const referrerHost = parseReferrerHost(referer)
+  const isLoop = isSelfReferrer(referer, requestHost)
+
+  const urlObj = new URL(c.req.url)
+  const utmSource = urlObj.searchParams.get('utm_source')
+  const utmMedium = urlObj.searchParams.get('utm_medium')
+  const utmCampaign = urlObj.searchParams.get('utm_campaign')
+  const utmTerm = urlObj.searchParams.get('utm_term')
+  const utmContent = urlObj.searchParams.get('utm_content')
+
+  const isQr = utmMedium === 'qr' || urlObj.searchParams.get('src') === 'qr' || urlObj.searchParams.get('qr') === '1'
+  const linkMode = isQr ? 'qr' : 'link'
+
+  const store = new ShortlinksStore(c.env.DB, entry.user_id)
+
+  const recordPromise = (async () => {
+    try {
+      const visitorFp = await computeVisitorFingerprint(ip, ua)
+      await store.recordClick(slug, entry.link_id, entry.user_id, {
+        referrer: referer,
+        referrerHost,
+        country,
+        region,
+        city,
+        deviceType: uaInfo.deviceType,
+        os: uaInfo.os,
+        browser: uaInfo.browser,
+        isBot: uaInfo.isBot,
+        linkMode,
+        utmSource,
+        utmMedium,
+        utmCampaign,
+        utmTerm,
+        utmContent,
+        userAgent: ua,
+        isSelfReferrer: isLoop ? 1 : 0,
+        visitorFp,
+      })
+    } catch {
+      // Non-fatal
+    }
+  })()
+
+  try {
+    c.executionCtx.waitUntil(recordPromise)
+  } catch {
+    await recordPromise.catch(() => {})
+  }
+
+  // Set auth cookie if protected and password was entered
+  const headers: Record<string, string> = {
+    Location: entry.url,
+    'Cache-Control': 'private, max-age=90',
+  }
+
+  if (entry.password_hash && providedPassword) {
+    headers['Set-Cookie'] = `shortlink_auth_${slug}=${encodeURIComponent(providedPassword)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400`
+  }
+
+  return new Response(null, {
+    status: 302,
+    headers,
+  })
+}
+
+toolsShortlinksRedirectRoutes.get('/l/:slug', async (c) => {
+  return handleRedirect(c)
+})
+
+toolsShortlinksRedirectRoutes.post('/l/:slug', async (c) => {
+  let password = ''
+  try {
+    const body = await c.req.parseBody()
+    password = String(body['password'] || '')
+  } catch {
+    // Non-fatal
+  }
+  return handleRedirect(c, password)
+})

@@ -11,6 +11,8 @@ export interface Env {
 
   FILES_KV?: KVNamespace
 
+  SHORTLINKS_KV?: KVNamespace
+
   OAUTH_KV: KVNamespace
 
   OAUTH_PROVIDER?: OAuthHelpers

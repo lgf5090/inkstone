@@ -76,12 +76,13 @@ export function makeD1(sqlite: DatabaseSync): D1Database {
             const rows = (exec<object[]>('all')).map(toD1Row)
             return { results: rows, meta: { changes: rows.length } }
           }
-          const row = exec<{ changes: number | bigint }>('run')
-          return { results: [], meta: { changes: Number(row.changes) } }
+          const row = exec<{ changes: number | bigint; lastInsertRowid?: number | bigint }>('run')
+          return { results: [], meta: { changes: Number(row.changes), last_row_id: Number(row.lastInsertRowid ?? 0) } }
         },
         async raw() { return (exec<object[]>('all')).map(toD1Row) },
         async run() {
-          return { meta: { changes: Number(exec<{ changes: number | bigint }>('run').changes) } }
+          const row = exec<{ changes: number | bigint; lastInsertRowid?: number | bigint }>('run')
+          return { meta: { changes: Number(row.changes), last_row_id: Number(row.lastInsertRowid ?? 0) } }
         },
       }
       return prepared
