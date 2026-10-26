@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest'
 import { Temporal } from 'temporal-polyfill'
 import {
   IcsParseError,
+  encodeIcsChunks,
+  icsCalendarChunks,
   icsExternalId,
   parseIcsCalendar,
   serializeIcsCalendar,
@@ -332,5 +334,68 @@ describe('recurrence expansion', () => {
       'Asia/Shanghai',
     )
     expect(result.occurrences).toHaveLength(8)
+  })
+})
+
+describe('icsCalendarChunks', () => {
+  function exportedEvent(id: string, title: string): CalendarEventInput {
+    return {
+      id,
+      title,
+      description: '',
+      start: { value: '2025-01-06T09:00:00+00:00[UTC]', type: 'zoned', timeZone: 'UTC' },
+      end: { value: '2025-01-06T10:00:00+00:00[UTC]', type: 'zoned', timeZone: 'UTC' },
+    }
+  }
+
+  it('yields exactly the document the whole-string serializer returns', () => {
+    const input = {
+      name: 'Recurring Fixture',
+      events: parseFixture('recurring.ics').events,
+      timeZone: 'UTC',
+    }
+    expect([...icsCalendarChunks(input)].join('')).toBe(serializeIcsCalendar(input))
+  })
+
+  it('yields a header, one self-contained block per event and a footer', () => {
+    const chunks = [...icsCalendarChunks({
+      name: 'Two',
+      events: [exportedEvent('first', 'First'), exportedEvent('second', 'Second')],
+      timeZone: 'UTC',
+    })]
+    expect(chunks[0]?.startsWith('BEGIN:VCALENDAR\r\n')).toBe(true)
+    expect(chunks[0]?.endsWith('END:VCALENDAR\r\n')).toBe(false)
+    expect(chunks.at(-1)).toBe('END:VCALENDAR\r\n')
+    const blocks = chunks.slice(1, -1)
+    expect(blocks).toHaveLength(2)
+    for (const block of blocks) {
+      expect(block.startsWith('BEGIN:VEVENT\r\n')).toBe(true)
+      expect(block.endsWith('END:VEVENT\r\n')).toBe(true)
+    }
+  })
+
+  it('collects the encoded blocks while they fit the budget and reports nothing when they do not', () => {
+    const input = {
+      name: 'Three',
+      events: [
+        exportedEvent('first', 'First'),
+        exportedEvent('second', 'Second'),
+        exportedEvent('third', 'Third'),
+      ],
+      timeZone: 'UTC',
+    }
+    const document = serializeIcsCalendar(input)
+    const bytes = new TextEncoder().encode(document).byteLength
+    const chunks = encodeIcsChunks(input, bytes)
+    expect(chunks).not.toBeNull()
+    const merged = new Uint8Array(bytes)
+    let offset = 0
+    for (const chunk of chunks!) {
+      merged.set(chunk, offset)
+      offset += chunk.byteLength
+    }
+    expect(new TextDecoder().decode(merged)).toBe(document)
+    expect(offset).toBe(bytes)
+    expect(encodeIcsChunks(input, bytes - 1)).toBeNull()
   })
 })

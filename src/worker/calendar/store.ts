@@ -786,6 +786,37 @@ export class CalendarStore {
     }
   }
 
+  /**
+   * How much text one calendar holds, measured before its rows are read.
+   *
+   * `LENGTH(CAST(... AS BLOB))` counts UTF-8 bytes rather than characters, so the export route can
+   * refuse a calendar that cannot fit in one file without first loading a hundred megabytes of
+   * descriptions into the isolate.
+   */
+  async exportSizeFor(calendarId: string): Promise<{ events: number; storedBytes: number }> {
+    const { results } = await this.db.prepare(
+      `SELECT COUNT(*) AS events,
+              COALESCE(SUM(
+                LENGTH(CAST(e.title AS BLOB))
+                + LENGTH(CAST(e.description AS BLOB))
+                + LENGTH(CAST(e.meta_json AS BLOB))
+                + LENGTH(COALESCE(CAST(e.conference_json AS BLOB), X''))
+                + LENGTH(COALESCE(CAST(e.recurrence_rule AS BLOB), X''))
+              ), 0) AS stored_bytes
+         FROM calendar_events e
+        WHERE e.user_id = ?
+          AND EXISTS (
+            SELECT 1 FROM calendar_event_calendars ec
+             WHERE ec.user_id = e.user_id AND ec.event_id = e.id AND ec.calendar_id = ?
+          )`,
+    ).bind(this.userId, calendarId).all<{ events: number; stored_bytes: number }>()
+    const row = results?.[0]
+    return {
+      events: Number(row?.events ?? 0),
+      storedBytes: Number(row?.stored_bytes ?? 0),
+    }
+  }
+
   async listAllEvents(): Promise<CalendarEventDto[]> {
     const { results } = await this.db.prepare(
       `SELECT e.* FROM calendar_events e

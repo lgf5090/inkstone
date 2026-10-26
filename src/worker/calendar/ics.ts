@@ -981,7 +981,15 @@ export function expandRecurringEvents(
   return { occurrences, truncated }
 }
 
-export function serializeIcsCalendar(input: IcsSerializeInput): string {
+const ICS_FOOTER = 'END:VCALENDAR\r\n'
+
+/**
+ * The document as separate text blocks: one header, one block per event, one footer.
+ *
+ * The export route measures and ships these blocks, so a heavy calendar is never held as one ICAL
+ * tree and one string at the same time; that pair is what used to exhaust the isolate.
+ */
+export function* icsCalendarChunks(input: IcsSerializeInput): Generator<string> {
   const calendar = new ICAL.Component(['vcalendar', [], []])
   calendar.updatePropertyWithValue('version', '2.0')
   calendar.updatePropertyWithValue('prodid', '-//Inkstone//Calendar//EN')
@@ -1001,9 +1009,11 @@ export function serializeIcsCalendar(input: IcsSerializeInput): string {
       || compareText(left.event.title, right.event.title)
       || left.index - right.index)
 
+  const header = ICAL.stringify(calendar.jCal)
+  yield header.slice(0, header.length - ICS_FOOTER.length)
+
   const usedUids = new Set<string>()
   for (const { event, uid: baseUid } of ordered) {
-    const meta = metaOf(event)
     let uid = baseUid
     let suffix = 1
     while (usedUids.has(uid)) {
@@ -1011,52 +1021,82 @@ export function serializeIcsCalendar(input: IcsSerializeInput): string {
       uid = `${baseUid}-${suffix}`
     }
     usedUids.add(uid)
-
-    const vevent = new ICAL.Component('vevent')
-    vevent.updatePropertyWithValue('uid', uid)
-    vevent.updatePropertyWithValue('dtstamp', ICAL.Time.fromJSDate(new Date(), true))
-    addTimeProperty(vevent, 'dtstart', event.start)
-    addTimeProperty(vevent, 'dtend', event.end)
-    const recurrenceId = temporalValueFrom(meta.recurrenceId)
-    if (recurrenceId) addTimeProperty(vevent, 'recurrence-id', recurrenceId)
-
-    const rule = (event.recurrenceRule
-      ?? (typeof meta.recurrenceRule === 'string' ? meta.recurrenceRule : null))
-      ?.replace(/^RRULE:/i, '').trim()
-    if (rule) {
-      if (rule.length > MAX_RECURRENCE_RULE) {
-        throw new IcsParseError('invalid_ics', 'The recurrence rule exceeds the size limit.')
-      }
-      vevent.addPropertyWithValue('rrule', ICAL.Recur.fromString(rule))
-    }
-    for (const exdate of metaDates(meta, 'exdates')) addTimeProperty(vevent, 'exdate', exdate)
-    for (const rdate of metaDates(meta, 'rdates')) addTimeProperty(vevent, 'rdate', rdate)
-
-    vevent.updatePropertyWithValue('summary', event.title || '(Untitled)')
-    if (event.description) vevent.updatePropertyWithValue('description', event.description)
-    const location = meta.location
-    if (typeof location === 'string' && location) {
-      vevent.updatePropertyWithValue('location', location)
-    }
-    const categories = meta.categories
-    if (Array.isArray(categories)) {
-      let added = 0
-      for (const category of categories) {
-        if (typeof category !== 'string' || !category.trim()) continue
-        vevent.addPropertyWithValue('categories', category.trim().slice(0, 200))
-        added += 1
-        if (added >= MAX_CATEGORIES) break
-      }
-    }
-
-    const joinUrl = safeHttpUrl(event.conference?.joinUrl, true)
-      ?? safeHttpUrl(meta.url, true)
-    const pageUrl = safeHttpUrl(meta.url, false)
-    const url = joinUrl ?? pageUrl
-    if (url) vevent.updatePropertyWithValue('url', url)
-
-    calendar.addSubcomponent(vevent)
+    yield ICAL.stringify(veventFor(event, uid).jCal)
   }
 
-  return ICAL.stringify(calendar.jCal)
+  yield ICS_FOOTER
+}
+
+export function serializeIcsCalendar(input: IcsSerializeInput): string {
+  let text = ''
+  for (const chunk of icsCalendarChunks(input)) text += chunk
+  return text
+}
+
+/**
+ * The encoded blocks, or `null` once they grow past `maxBytes`.
+ *
+ * The size question is answered while the blocks are made, so an oversized calendar costs one
+ * budget of work instead of building the whole file and only then noticing it does not fit. The
+ * blocks go straight into the response stream, so the document never becomes one concatenated string.
+ */
+export function encodeIcsChunks(input: IcsSerializeInput, maxBytes: number): Uint8Array[] | null {
+  const encoder = new TextEncoder()
+  const parts: Uint8Array[] = []
+  let bytes = 0
+  for (const chunk of icsCalendarChunks(input)) {
+    const encoded = encoder.encode(chunk)
+    bytes += encoded.byteLength
+    if (bytes > maxBytes) return null
+    parts.push(encoded)
+  }
+  return parts
+}
+
+function veventFor(event: CalendarEventInput, uid: string): IcalComponent {
+  const meta = metaOf(event)
+  const vevent = new ICAL.Component('vevent')
+  vevent.updatePropertyWithValue('uid', uid)
+  vevent.updatePropertyWithValue('dtstamp', ICAL.Time.fromJSDate(new Date(), true))
+  addTimeProperty(vevent, 'dtstart', event.start)
+  addTimeProperty(vevent, 'dtend', event.end)
+  const recurrenceId = temporalValueFrom(meta.recurrenceId)
+  if (recurrenceId) addTimeProperty(vevent, 'recurrence-id', recurrenceId)
+
+  const rule = (event.recurrenceRule
+    ?? (typeof meta.recurrenceRule === 'string' ? meta.recurrenceRule : null))
+    ?.replace(/^RRULE:/i, '').trim()
+  if (rule) {
+    if (rule.length > MAX_RECURRENCE_RULE) {
+      throw new IcsParseError('invalid_ics', 'The recurrence rule exceeds the size limit.')
+    }
+    vevent.addPropertyWithValue('rrule', ICAL.Recur.fromString(rule))
+  }
+  for (const exdate of metaDates(meta, 'exdates')) addTimeProperty(vevent, 'exdate', exdate)
+  for (const rdate of metaDates(meta, 'rdates')) addTimeProperty(vevent, 'rdate', rdate)
+
+  vevent.updatePropertyWithValue('summary', event.title || '(Untitled)')
+  if (event.description) vevent.updatePropertyWithValue('description', event.description)
+  const location = meta.location
+  if (typeof location === 'string' && location) {
+    vevent.updatePropertyWithValue('location', location)
+  }
+  const categories = meta.categories
+  if (Array.isArray(categories)) {
+    let added = 0
+    for (const category of categories) {
+      if (typeof category !== 'string' || !category.trim()) continue
+      vevent.addPropertyWithValue('categories', category.trim().slice(0, 200))
+      added += 1
+      if (added >= MAX_CATEGORIES) break
+    }
+  }
+
+  const joinUrl = safeHttpUrl(event.conference?.joinUrl, true)
+    ?? safeHttpUrl(meta.url, true)
+  const pageUrl = safeHttpUrl(meta.url, false)
+  const url = joinUrl ?? pageUrl
+  if (url) vevent.updatePropertyWithValue('url', url)
+
+  return vevent
 }

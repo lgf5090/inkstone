@@ -31007,6 +31007,8 @@ const allowed = new Map([
   ["src/worker/calendar/ics.ts", [
     "/** A stable per-calendar external id; flattened occurrences need their recurrence id in the key. */",
     "/**\n * Expand a stored RRULE for one request range.\n *\n * The client renders non-month views from these rows; month keeps DayFlow's own expansion so a\n * series can still be edited there. Occurrence ids carry `::repeat-`, are never accepted by the API\n * as entity ids, and are skipped by the persistence queue.\n */",
+    "/**\n * The document as separate text blocks: one header, one block per event, one footer.\n *\n * The export route measures and ships these blocks, so a heavy calendar is never held as one ICAL\n * tree and one string at the same time; that pair is what used to exhaust the isolate.\n */",
+    "/**\n * The encoded blocks, or `null` once they grow past `maxBytes`.\n *\n * The size question is answered while the blocks are made, so an oversized calendar costs one\n * budget of work instead of building the whole file and only then noticing it does not fit. The\n * blocks go straight into the response stream, so the document never becomes one concatenated string.\n */",
   ]],
   ["src/worker/calendar/oauth.ts", [
     "/**\n * Google and Outlook authorization-code sign-in with PKCE.\n *\n * The browser leaves for the provider and comes back to one fixed callback. Nothing secret travels in\n * either direction's URL: the state is random, D1 stores only its SHA-256, the PKCE verifier is sealed\n * in the vault under that hash, and the tokens land in the credential column and nowhere else.\n *\n * The callback is a top-level browser navigation, so it is registered before `requireAuth` and relies\n * on the session loader that already ran. It consumes the state row atomically with `UPDATE … RETURNING`\n * before the code exchange, which is what makes a replay fail even when two requests race.\n */",
@@ -31091,6 +31093,7 @@ const allowed = new Map([
     "// A provider sync writes its own remote events into a read-only calendar; a local edit must not.",
     "// Choosing the branch from each input's source/external identity keeps batch import from becoming",
     "// a general read-only bypass.",
+    "/**\n   * How much text one calendar holds, measured before its rows are read.\n   *\n   * `LENGTH(CAST(... AS BLOB))` counts UTF-8 bytes rather than characters, so the export route can\n   * refuse a calendar that cannot fit in one file without first loading a hundred megabytes of\n   * descriptions into the isolate.\n   */",
   ]],
   ["src/worker/calendar/subscriptions.ts", [
     "/**\n * Refresh a few due ICS feeds on each cron fire.\n *\n * `last_sync_at` spaces successful runs; `last_error_at` holds a broken feed for an hour instead of\n * retrying it every minute. The limit keeps one slow feed from spending the whole scheduled budget.\n */",
@@ -36543,6 +36546,12 @@ const allowed = new Map([
   ]],
   ["tests/builtin-templater-bodies.test.ts", [
     "/**\n * A built-in template is the app's own advertisement of what the engine does.\n *\n * Its body is written inside a JavaScript template literal, so every escape sequence the reader sees as\n * two characters — `'\\n'` inside a script block, for example — is one newline by the time the sandbox\n * parses it, and the template fails with a syntax error the reader cannot fix from the gallery. Only\n * running the engine catches that, so this compiles each body and hands the generated program to a parser\n * that stops at the first unbalanced quote.\n */",
+  ]],
+  ["tests/calendar-ics-export.test.ts", [
+    "/** Rows written straight to the table: the API caps one description well below a whole file. */",
+    "// DTSTAMP is stamped per request, so the two documents are compared without it.",
+    "// 'Standup' is 7 bytes, the two-character Han description is 6 UTF-8 bytes, the empty meta",
+    "// object is 2 — characters would have counted 13.",
   ]],
   ["tests/calendar-sync.test.ts", [
     "// The real application installs `loadSession` before this router; the callback depends on that, so",

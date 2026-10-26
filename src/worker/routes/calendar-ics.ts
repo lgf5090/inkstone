@@ -8,9 +8,9 @@ import { CalendarStore } from '../calendar/store'
 import { parseCalendarInput, parseEventInput } from '../calendar/validation'
 import {
   IcsParseError,
+  encodeIcsChunks,
   icsExternalId,
   parseIcsCalendar,
-  serializeIcsCalendar,
 } from '../calendar/ics'
 import {
   MAX_ICS_BYTES,
@@ -134,21 +134,28 @@ calendarIcsRoutes.get('/export', async (c) => {
   const store = new CalendarStore(c.env.DB, c.get('userId'))
   const calendar = (await store.listCalendars()).find((entry) => entry.id === calendarId)
   if (!calendar) throw ApiError.notFound('Calendar not found')
+  const size = await store.exportSizeFor(calendarId)
+  if (size.storedBytes > MAX_ICS_EXPORT_BYTES) {
+    throw ApiError.tooLarge('That calendar holds more text than one file can carry')
+  }
   const preferences = await store.preferences()
   const range = await store.listEvents(Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, [calendarId])
   if (range.truncated) {
     throw ApiError.tooLarge('That calendar has too many events to export as one file')
   }
-  const text = serializeIcsCalendar({
+  const chunks = encodeIcsChunks({
     name: calendar.name,
     events: range.events,
     timeZone: preferences.timeZone,
-  })
-  if (new TextEncoder().encode(text).byteLength > MAX_ICS_EXPORT_BYTES) {
-    throw ApiError.tooLarge('That calendar is too large to export as one file')
-  }
+  }, MAX_ICS_EXPORT_BYTES)
+  if (!chunks) throw ApiError.tooLarge('That calendar is too large to export as one file')
   const filename = `${safeFilename(calendar.name)}.ics`
-  return c.body(text, 200, {
+  return c.body(new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of chunks) controller.enqueue(chunk)
+      controller.close()
+    },
+  }), 200, {
     'Content-Type': 'text/calendar; charset=utf-8',
     'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
     'Cache-Control': 'no-store',
