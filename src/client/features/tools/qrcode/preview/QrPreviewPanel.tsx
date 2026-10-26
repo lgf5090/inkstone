@@ -5,8 +5,6 @@ import { QrEngine } from '../engine/qr-engine'
 import { IconButton } from '../../../../components/primitives'
 import { Tooltip } from '../../../../components/overlay'
 import { t } from '../../../../lib/i18n'
-import { QrInfoModal } from './QrInfoModal'
-import { QrFullscreenModal } from './QrFullscreenModal'
 
 export function QrPreviewPanel() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -66,10 +64,10 @@ export function QrPreviewPanel() {
         <div
           ref={containerRef}
           data-testid="qrcode-preview-canvas-container"
-          className="flex min-h-[280px] w-full items-center justify-center rounded-[var(--r-md)] bg-white p-4 shadow-xs"
+          className="flex min-h-[240px] md:min-h-[280px] w-full items-center justify-center rounded-[var(--r-md)] bg-white p-3 md:p-4 shadow-xs"
         />
       ) : (
-        <div className="flex flex-col items-center justify-center gap-3 text-center py-12">
+        <div className="flex flex-col items-center justify-center gap-3 text-center py-10 md:py-12">
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--bg-muted)] text-[var(--text-tertiary)]">
             <QrCode size={32} />
           </div>
@@ -78,9 +76,6 @@ export function QrPreviewPanel() {
           </p>
         </div>
       )}
-
-      <QrInfoModal />
-      <QrFullscreenModal />
     </div>
   )
 }

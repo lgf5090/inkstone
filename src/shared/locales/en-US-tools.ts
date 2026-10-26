@@ -232,6 +232,7 @@ export const EN_US_TOOLS = {
   'tools.qrcode.content.paste_clipboard': 'Paste from clipboard',
   'tools.qrcode.content.clear_content': 'Clear content',
   'tools.qrcode.content.text_placeholder': 'Enter plain text content...',
+  'tools.qrcode.content.long_text_hint': 'For longer text, L error correction is recommended to lower density and improve scan reliability',
   'tools.qrcode.content.url_placeholder': 'Enter website URL, e.g. example.com',
   'tools.qrcode.content.url_hint': 'Protocol https:// will be appended if omitted',
   'tools.qrcode.content.wifi_ssid': 'WiFi Network Name (SSID)',

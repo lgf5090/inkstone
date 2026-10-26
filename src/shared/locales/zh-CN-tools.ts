@@ -232,6 +232,7 @@ export const ZH_CN_TOOLS = {
   'tools.qrcode.content.paste_clipboard': '从剪贴板粘贴',
   'tools.qrcode.content.clear_content': '清空内容',
   'tools.qrcode.content.text_placeholder': '输入文本内容，支持换行',
+  'tools.qrcode.content.long_text_hint': '内容较多时，建议在美化面板中选择 L 级容错以优化点阵密度提高扫码率',
   'tools.qrcode.content.url_placeholder': '输入网址，如 example.com',
   'tools.qrcode.content.url_hint': '若未输入协议，将自动补充 https://',
   'tools.qrcode.content.wifi_ssid': 'WiFi 名称 (SSID)',

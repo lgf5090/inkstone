@@ -87,11 +87,13 @@ export function ToolsSidebar({
     } else {
       setActivePasswordView(slotId)
     }
+    onCollapse?.()
   }
 
   const handleQrSlotClick = (slotId: QrCodeNavView) => {
     setActiveSubmodule('qrcode')
     setActiveQrCodeView(slotId)
+    onCollapse?.()
   }
 
   if (collapsed) {
