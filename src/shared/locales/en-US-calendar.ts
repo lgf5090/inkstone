@@ -254,7 +254,7 @@ export const EN_US_CALENDAR = {
   'calendar.settings.year_mode_fixed': 'Fixed weeks',
   'calendar.settings.year_mode_grid': 'Grid',
   'calendar.settings.year_timed': 'Show timed events in year view',
-  'calendar.settings.year_timed_hint': 'Display timed event indicators on the year canvas.',
+  'calendar.settings.year_timed_hint': 'Show timed events in the year view; off leaves only all-day events.',
   'calendar.settings.year_heatmap': 'Year heatmap levels',
   'calendar.settings.agenda_days': 'Agenda days',
   'calendar.settings.agenda_empty': 'Show empty days in agenda',

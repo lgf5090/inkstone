@@ -256,7 +256,7 @@ export const ZH_CN_CALENDAR = {
   'calendar.settings.year_mode_fixed': '固定周',
   'calendar.settings.year_mode_grid': '网格',
   'calendar.settings.year_timed': '年视图显示定时事件',
-  'calendar.settings.year_timed_hint': '在年画布上显示定时事件指示。',
+  'calendar.settings.year_timed_hint': '在年视图里显示定时事件；关闭后只保留全天事件。',
   'calendar.settings.year_heatmap': '年视图热力等级',
   'calendar.settings.agenda_days': '日程视图天数',
   'calendar.settings.agenda_empty': '日程视图显示空日',
