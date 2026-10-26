@@ -1,13 +1,14 @@
 /** A filtered calendar search: keyword, calendar, date span and kind, in one panel. */
-import { useState } from 'react'
-import { CalendarSearch } from 'lucide-react'
-import type { CalendarDto, CalendarSearchResultDto } from '@shared/calendar/model'
+import { useEffect, useState } from 'react'
+import { CalendarDays, CalendarSearch } from 'lucide-react'
+import type { CalendarDto, CalendarEventDto, CalendarSearchResultDto } from '@shared/calendar/model'
 import { parseTemporalValue } from '@shared/calendar/model'
 import { t, useLocale } from '../../lib/i18n'
 import { isImeComposing } from '../../lib/ime'
-import { Button } from '../../components/primitives'
-import { Input, Select } from '../../components/form'
+import { Button, IconButton } from '../../components/primitives'
+import { Checkbox, Input, Select } from '../../components/form'
 import { Modal } from '../../components/overlay'
+import { useUi } from '../../store/ui'
 import * as api from './api'
 
 interface CalendarFilteredSearchProps {
@@ -48,6 +49,7 @@ export function CalendarFilteredSearch({ open, calendars, onClose, onPick }: Cal
   const [searched, setSearched] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [editing, setEditing] = useState<CalendarSearchResultDto | null>(null)
 
   const submit = async (): Promise<void> => {
     const fromMs = from ? new Date(`${from}T00:00:00`).getTime() : undefined
@@ -142,24 +144,133 @@ export function CalendarFilteredSearch({ open, calendars, onClose, onPick }: Cal
                 <ul className="max-h-72 overflow-y-auto rounded-[var(--r-sm)] border border-[var(--border-subtle)]">
                   {results.map(result => (
                     <li key={result.event.id} className="border-b border-[var(--border-subtle)] last:border-b-0">
-                      <button
-                        type="button"
-                        onClick={() => { onPick(result); onClose() }}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--accent)]"
-                      >
-                        <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: result.calendarColor }} aria-hidden="true" />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[length:var(--text-12-5)] text-[var(--text-primary)]">{result.event.title}</span>
-                          <span className="block truncate text-[length:var(--text-11)] text-[var(--text-quaternary)]">
-                            {result.calendarName} · {resultLabel(result, locale)}
+                      <div className="flex items-center gap-1 pr-1.5">
+                        <button
+                          type="button"
+                          onClick={() => { onPick(result); onClose() }}
+                          className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--accent)]"
+                        >
+                          <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: result.calendarColor }} aria-hidden="true" />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-[length:var(--text-12-5)] text-[var(--text-primary)]">{result.event.title}</span>
+                            <span className="block truncate text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+                              {result.calendarName} · {resultLabel(result, locale)}
+                            </span>
                           </span>
-                        </span>
-                      </button>
+                        </button>
+                        <IconButton
+                          size="xs"
+                          label={t('calendar.filtered_search.manage')}
+                          onClick={() => setEditing(result)}
+                        >
+                          <CalendarDays size={13} />
+                        </IconButton>
+                      </div>
                     </li>
                   ))}
                 </ul>
               )
         )}
+      </div>
+
+      {editing && (
+        <EventCalendarDialog
+          result={editing}
+          calendars={calendars}
+          onClose={() => setEditing(null)}
+          onSaved={(updated) => {
+            setResults(current => current.map(entry => entry.event.id === updated.id
+              ? { ...entry, event: updated }
+              : entry))
+          }}
+        />
+      )}
+    </Modal>
+  )
+}
+
+
+function EventCalendarDialog({
+  result,
+  calendars,
+  onClose,
+  onSaved,
+}: {
+  result: CalendarSearchResultDto
+  calendars: readonly CalendarDto[]
+  onClose: () => void
+  onSaved: (event: CalendarEventDto) => void
+}) {
+  const initial = result.event.calendarIds.length > 0
+    ? result.event.calendarIds
+    : result.event.calendarId ? [result.event.calendarId] : []
+  const [selected, setSelected] = useState<string[]>(initial)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setSelected(initial)
+    setSaving(false)
+    setError(null)
+  }, [result.event.id])
+
+  const toggle = (id: string, checked: boolean): void => {
+    setSelected(current => checked
+      ? [...new Set([...current, id])]
+      : current.filter(value => value !== id))
+  }
+
+  const save = async (): Promise<void> => {
+    if (selected.length === 0) {
+      setError(t('calendar.filtered_search.pick_one'))
+      return
+    }
+    setSaving(true)
+    setError(null)
+    try {
+      const updated = await api.updateEventCalendars(result.event.id, selected, result.event.rev)
+      useUi.getState().toast({ title: t('calendar.filtered_search.updated'), tone: 'success' })
+      onSaved(updated)
+      onClose()
+    } catch (saveError) {
+      setError(saveError instanceof Error && saveError.message ? saveError.message : t('calendar.filtered_search.update_failed'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={t('calendar.filtered_search.manage_title')}
+      description={t('calendar.filtered_search.manage_description')}
+      width={420}
+      dismissible={!saving}
+      footer={(
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={saving}>{t('common.cancel')}</Button>
+          <Button variant="primary" loading={saving} onClick={() => void save()}>{t('common.save')}</Button>
+        </>
+      )}
+    >
+      <div className="flex flex-col gap-1.5">
+        {calendars.map(calendar => (
+          <Checkbox
+            key={calendar.id}
+            checked={selected.includes(calendar.id)}
+            disabled={calendar.readOnly}
+            onChange={checked => toggle(calendar.id, checked)}
+            label={(
+              <span className="flex items-center gap-1.5">
+                <span className="size-2.5 rounded-full" style={{ backgroundColor: calendar.color }} aria-hidden="true" />
+                <span>{calendar.name}</span>
+                {calendar.readOnly && <span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('calendar.sidebar.read_only')}</span>}
+              </span>
+            )}
+          />
+        ))}
+        {error && <p role="alert" className="mt-2 text-[length:var(--text-12)] text-[var(--danger)]">{error}</p>}
       </div>
     </Modal>
   )

@@ -119,6 +119,12 @@ export const ZH_CN_CALENDAR = {
 
   'calendar.search.empty': '没有匹配的事件',
   'calendar.filtered_search.open': '筛选搜索',
+  'calendar.filtered_search.manage': '管理所属日历',
+  'calendar.filtered_search.manage_title': '事件所属日历',
+  'calendar.filtered_search.manage_description': '勾选这个事件要出现在哪些可写日历中。',
+  'calendar.filtered_search.pick_one': '至少保留一个日历',
+  'calendar.filtered_search.updated': '已更新事件所属日历',
+  'calendar.filtered_search.update_failed': '无法更新事件所属日历',
   'calendar.filtered_search.title': '搜索日历事件',
   'calendar.filtered_search.description': '按关键词、日历、日期范围和类型筛选。',
   'calendar.filtered_search.keyword': '关键词',

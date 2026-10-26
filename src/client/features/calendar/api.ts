@@ -145,6 +145,18 @@ export async function updateEvent(id: string, patch: CalendarEventInput, rev: nu
   return data.event
 }
 
+export async function updateEventCalendars(
+  id: string,
+  calendarIds: string[],
+  rev: number,
+): Promise<CalendarEventDto> {
+  const data = await request<{ event: CalendarEventDto }>(`/api/calendar/events/${entity(id)}`, {
+    method: 'PATCH',
+    body: { calendarIds, rev },
+  })
+  return data.event
+}
+
 export function deleteEvent(id: string, rev: number): Promise<void> {
   return request<void>(`/api/calendar/events/${entity(id)}?rev=${encodeURIComponent(String(rev))}`, { method: 'DELETE' })
 }

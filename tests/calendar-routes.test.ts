@@ -253,6 +253,25 @@ describe('event routes', () => {
     expect(page.occurrences.map(event => event.id)).not.toContain(created.event.id)
   })
 
+  it('adds an event to another writable calendar through a membership patch', async () => {
+    const home = (await meta()).calendars[0]!
+    const second = await json<{ calendar: CalendarDto }>(await call('POST', '/calendars', {
+      name: 'Second',
+      color: '#654321',
+    }))
+    const created = await json<{ event: CalendarEventDto }>(await call('POST', '/events', eventBody(home.id)))
+    const patched = await json<{ event: CalendarEventDto }>(await call('PATCH', `/events/${created.event.id}`, {
+      rev: created.event.rev,
+      calendarIds: [home.id, second.calendar.id],
+    }))
+    expect(patched.event.calendarIds).toEqual([home.id, second.calendar.id])
+    const listed = await json<{ events: CalendarEventDto[] }>(await call(
+      'GET',
+      `/events?from=2026-10-01T00:00:00Z&to=2026-11-01T00:00:00Z&calendarIds=${second.calendar.id}`,
+    ))
+    expect(listed.events.map(event => event.id)).toContain(created.event.id)
+  })
+
   it('hides another account’s events behind 404', async () => {
     const home = (await meta()).calendars[0]!
     const created = await json<{ event: CalendarEventDto }>(await call('POST', '/events', eventBody(home.id)))

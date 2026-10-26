@@ -117,6 +117,12 @@ export const EN_US_CALENDAR = {
 
   'calendar.search.empty': 'No matching events',
   'calendar.filtered_search.open': 'Filtered search',
+  'calendar.filtered_search.manage': 'Manage calendars',
+  'calendar.filtered_search.manage_title': 'Calendars for this event',
+  'calendar.filtered_search.manage_description': 'Choose which writable calendars this event appears in.',
+  'calendar.filtered_search.pick_one': 'Keep at least one calendar',
+  'calendar.filtered_search.updated': 'Event calendars updated',
+  'calendar.filtered_search.update_failed': 'Could not update the event calendars',
   'calendar.filtered_search.title': 'Search calendar events',
   'calendar.filtered_search.description': 'Filter by keyword, calendar, dates and kind.',
   'calendar.filtered_search.keyword': 'Keyword',
