@@ -365,6 +365,27 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       expect(usePasswordVaultStore.getState().isUnlocked).toBe(true)
       expect(usePasswordVaultStore.getState().masterPasswordText).toBe('Init01')
     })
+
+    it('keeps the door reachable for a lock taken right after setup', async () => {
+      // The blank pane was real, not a harness artefact: the vault state read before the setup still said
+      // "no vault", so locking took the setup branch — whose form opens only from its own modal flag — and
+      // the screen rendered nothing at all until a reload.
+      usePasswordVaultStore.setState({ vaultState: { hasVault: false }, isUnlocked: false, keyIV: null })
+      vi.spyOn(passwordApi, 'getGroups').mockResolvedValue([])
+      vi.spyOn(passwordApi, 'getAccounts').mockResolvedValue([])
+
+      await act(async () => {
+        usePasswordVaultStore.getState().unlock({ key: 'k', iv: 'i' })
+      })
+      expect(usePasswordVaultStore.getState().vaultState).toEqual({ hasVault: true })
+
+      act(() => {
+        usePasswordVaultStore.getState().lock()
+      })
+      const after = usePasswordVaultStore.getState()
+      expect(after.isUnlocked).toBe(false)
+      expect(after.vaultState?.hasVault).toBe(true)
+    })
   })
 
   // ---------------------------------------------------------------- Reset

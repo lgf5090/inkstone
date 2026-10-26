@@ -16097,6 +16097,9 @@ const allowed = new Map([
     "// ---------------------------------------------------------------- GroupTree & GroupTreeNode",
     "// ---------------------------------------------------------------- ToolsSidebar",
     "// The name is locale text, so the test asks that it exists and moves with the state — not what it says.",
+    "// The blank pane was real, not a harness artefact: the vault state read before the setup still said",
+    "// \"no vault\", so locking took the setup branch — whose form opens only from its own modal flag — and",
+    "// the screen rendered nothing at all until a reload.",
   ]],
   ["src/client/features/tools/password/store.ts", [
     "// Modals",
@@ -16106,6 +16109,9 @@ const allowed = new Map([
     "// Check 24h remember login in localStorage",
     "// Ignored",
     "// Error handled by UI boundary",
+    "// Whoever holds the key has a vault: the locked pane asks `vaultState.hasVault` to choose between the",
+    "// door and the setup form, and the answer read before the vault was created would lock a reader out of",
+    "// an empty screen until the next reload.",
   ]],
   ["src/client/features/tools/password/useAutoLock.ts", [
     "// 5 minutes",
