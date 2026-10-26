@@ -494,6 +494,43 @@ describe('access token refresh', () => {
     expect((await getCalendarConnection(db, USER, seeded.id))?.status).toBe('expired')
     expect((await getCalendarConnection(db, USER, seeded.id))?.lastErrorCode).toBe('authorization_expired')
   })
+
+  it('keeps the connection alive when the provider is temporarily unavailable', async () => {
+    const seeded = await seedOAuth({ expiresAt: Date.now() - 1 })
+    const connection = await getCalendarConnection(db, USER, seeded.id)
+    vi.stubGlobal('fetch', async () => new Response('busy', { status: 503 }))
+    await expect(ensureAccessToken(env, USER, connection!, seeded.credential))
+      .rejects.toMatchObject({ status: 502 })
+    expect((await getCalendarConnection(db, USER, seeded.id))?.status).toBe('connected')
+
+    vi.stubGlobal('fetch', async () => { throw new TypeError('network down') })
+    await expect(ensureAccessToken(env, USER, connection!, seeded.credential))
+      .rejects.toMatchObject({ status: 502 })
+    expect((await getCalendarConnection(db, USER, seeded.id))?.status).toBe('connected')
+  })
+
+  it('shares one refresh across concurrent requests for the same connection', async () => {
+    const seeded = await seedOAuth({ expiresAt: Date.now() - 1 })
+    const connection = await getCalendarConnection(db, USER, seeded.id)
+    let resolveFetch: ((response: Response) => void) | undefined
+    const fetchMock = vi.fn(() => new Promise<Response>((resolve) => { resolveFetch = resolve }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const first = ensureAccessToken(env, USER, connection!, seeded.credential)
+    const second = ensureAccessToken(env, USER, connection!, seeded.credential)
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    resolveFetch?.(Response.json({
+      access_token: 'access-shared',
+      expires_in: 3600,
+      scope: GOOGLE_SCOPE,
+      token_type: 'Bearer',
+    }))
+    await expect(Promise.all([first, second])).resolves.toMatchObject([
+      { accessToken: 'access-shared' },
+      { accessToken: 'access-shared' },
+    ])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('calendar sync routes', () => {

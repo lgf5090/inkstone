@@ -62,6 +62,8 @@ const CALLBACK_PATH = '/api/calendar/oauth/callback'
 
 export type CalendarOAuthCredential = Extract<CalendarCredentialPayload, { kind: 'oauth' }>
 
+const refreshFlights = new Map<string, Promise<CalendarOAuthCredential>>()
+
 interface ProviderSettings {
   provider: CalendarOAuthProvider
   clientId: string
@@ -239,9 +241,8 @@ export async function completeOAuth(
  * A usable access token, refreshed shortly before it expires.
  *
  * The new bundle is sealed and written back before the caller uses it, so a refresh is not repeated by
- * every request in the last minute of a token's life. A refresh that fails marks the connection
- * `expired`: the reader has to authorize again, and the connections list says so instead of reporting
- * a connection that cannot work.
+ * every request in the last minute of a token's life. Only a refused grant marks the connection
+ * `expired`; a network or provider outage stays connected so the next request can retry.
  */
 export async function ensureAccessToken(
   env: Env,
@@ -258,6 +259,27 @@ export async function ensureAccessToken(
   if (!isCalendarOAuthProvider(connection.kind)) {
     throw new ApiError(500, 'internal', 'An OAuth credential belongs to an unknown provider')
   }
+  const key = `${userId}:${connection.id}`
+  const existing = refreshFlights.get(key)
+  if (existing) return existing
+  const flight = refreshAccessToken(env, userId, connection, credential)
+  refreshFlights.set(key, flight)
+  try {
+    return await flight
+  } finally {
+    if (refreshFlights.get(key) === flight) refreshFlights.delete(key)
+  }
+}
+
+async function refreshAccessToken(
+  env: Env,
+  userId: string,
+  connection: CalendarConnectionRecord,
+  credential: CalendarOAuthCredential,
+): Promise<CalendarOAuthCredential> {
+  if (!isCalendarOAuthProvider(connection.kind)) {
+    throw new ApiError(500, 'internal', 'An OAuth credential belongs to an unknown provider')
+  }
   const settings = providerSettings(env, connection.kind)
   const form = new URLSearchParams({
     grant_type: 'refresh_token',
@@ -269,34 +291,32 @@ export async function ensureAccessToken(
   let response: Response
   try {
     response = await tokenRequest(settings.tokenUrl, form, connection.kind)
-  } catch (error) {
-    await markExpired(env, userId, connection.id)
-    throw error
+  } catch {
+    // A network failure says nothing about the grant; marking expired would force a re-login for an
+    // outage the reader cannot fix.
+    throw new ApiError(502, 'internal', 'The calendar provider could not be reached')
   }
   if (!response.ok) {
     console.warn('[inkstone] Calendar token refresh refused', { provider: connection.kind, status: response.status })
+    if (response.status === 429 || response.status >= 500) {
+      throw new ApiError(502, 'internal', 'The calendar provider is temporarily unavailable')
+    }
     await markExpired(env, userId, connection.id)
     throw reconnectError()
   }
   const text = await readStreamTextWithinLimit(response.body, MAX_TOKEN_RESPONSE_BYTES)
   if (text === null) {
-    console.warn('[inkstone] Calendar token refresh answered with too much data', { provider: connection.kind })
-    await markExpired(env, userId, connection.id)
-    throw reconnectError()
+    throw new ApiError(502, 'internal', 'The calendar provider answered with too much data')
   }
   let body: TokenResponse
   try {
     body = JSON.parse(text) as TokenResponse
   } catch {
-    console.warn('[inkstone] Calendar token refresh returned unreadable JSON', { provider: connection.kind })
-    await markExpired(env, userId, connection.id)
-    throw reconnectError()
+    throw new ApiError(502, 'internal', 'The calendar provider answered with an unreadable token response')
   }
   const accessToken = readToken(body.access_token, 7000)
   if (!accessToken) {
-    console.warn('[inkstone] Calendar token refresh returned no access token', { provider: connection.kind })
-    await markExpired(env, userId, connection.id)
-    throw reconnectError()
+    throw new ApiError(502, 'internal', 'The calendar provider answered without an access token')
   }
   const next: CalendarOAuthCredential = {
     kind: 'oauth',
