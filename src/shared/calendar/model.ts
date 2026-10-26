@@ -198,6 +198,19 @@ export interface CalendarEventPatch {
   rev: number
 }
 
+/**
+ * The hours the day columns show. Google and Notion both call this "working hours", and the
+ * library already takes a visible hour window per view, so this is a view setting rather than
+ * a shading overlay.
+ */
+export interface CalendarWorkingHours {
+  enabled: boolean
+  /** 0–22, the first hour on the ruler. */
+  startHour: number
+  /** 1–24, exclusive, so the ruler can end at midnight. */
+  endHour: number
+}
+
 export interface CalendarPreferences {
   defaultView: CalendarViewName
   weekStart: number
@@ -221,6 +234,7 @@ export interface CalendarPreferences {
   showMiniCalendar: boolean
   showEventDots: boolean
   eventReminderMinutes: number
+  workingHours: CalendarWorkingHours
 }
 
 export interface CalendarSubscriptionDto {
@@ -361,8 +375,20 @@ export function defaultCalendarPreferences(): CalendarPreferences {
     showMiniCalendar: true,
     showEventDots: true,
     eventReminderMinutes: 0,
+    workingHours: { enabled: false, startHour: 9, endHour: 18 },
   }
 }
+
+function workingHoursFrom(record: Record<string, unknown>, fallback: CalendarWorkingHours): CalendarWorkingHours {
+  const value = record.workingHours
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { ...fallback }
+  const hours = value as Record<string, unknown>
+  const start = Number.isInteger(hours.startHour) ? (hours.startHour as number) : fallback.startHour
+  const end = Number.isInteger(hours.endHour) ? (hours.endHour as number) : fallback.endHour
+  if (start < 0 || start > 22 || end < 1 || end > 24 || end <= start) return { ...fallback }
+  return { enabled: hours.enabled === true, startHour: start, endHour: end }
+}
+
 
 export function normalizeCalendarPreferences(value: unknown): CalendarPreferences {
   const defaults = defaultCalendarPreferences()
@@ -432,6 +458,7 @@ export function normalizeCalendarPreferences(value: unknown): CalendarPreference
     eventReminderMinutes: (CALENDAR_REMINDER_MINUTES as readonly number[]).includes(record.eventReminderMinutes as number)
       ? record.eventReminderMinutes as number
       : defaults.eventReminderMinutes,
+    workingHours: workingHoursFrom(record, defaults.workingHours),
   }
 }
 

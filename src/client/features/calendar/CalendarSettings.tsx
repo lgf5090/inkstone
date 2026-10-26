@@ -14,6 +14,9 @@ import { Input, Segmented, Select, SettingRow, Switch } from '../../components/f
 import { DAY_HOUR_HEIGHTS } from './model'
 import { supportedTimeZones } from './timezone'
 
+const HOURS = Array.from({ length: 23 }, (_entry, hour) => hour)
+const HOURS_END = Array.from({ length: 24 }, (_entry, index) => index + 1)
+
 interface CalendarSettingsProps {
   open: boolean
   onClose: () => void
@@ -228,6 +231,62 @@ export function CalendarSettings({ open, onClose, preferences, onSave, onOpenCon
               size="sm"
             />
           </SettingRow>
+          <SettingRow title={t('calendar.settings.working_hours')} description={t('calendar.settings.working_hours_hint')}>
+            <Switch
+              label={t('calendar.settings.working_hours')}
+              checked={draft.workingHours.enabled}
+              onChange={(value) => patch({ workingHours: { ...draft.workingHours, enabled: value } })}
+            />
+          </SettingRow>
+          {draft.workingHours.enabled && (
+            <SettingRow
+              title={t('calendar.settings.working_hours_range')}
+              controlId="calendar-settings-working-hours-start"
+            >
+              <div className="flex items-center gap-1.5">
+                <Select
+                  id="calendar-settings-working-hours-start"
+                  aria-label={t('calendar.settings.working_hours_start')}
+                  value={String(draft.workingHours.startHour)}
+                  className="w-24"
+                  onChange={(event) => {
+                    const startHour = Number(event.target.value)
+                    patch({
+                      workingHours: {
+                        ...draft.workingHours,
+                        startHour,
+                        endHour: Math.max(draft.workingHours.endHour, startHour + 1),
+                      },
+                    })
+                  }}
+                >
+                  {HOURS.map(hour => (
+                    <option key={hour} value={hour}>{t('calendar.settings.hour', { hour })}</option>
+                  ))}
+                </Select>
+                <span aria-hidden="true" className="text-[length:var(--text-12-5)] text-[var(--text-tertiary)]">–</span>
+                <Select
+                  aria-label={t('calendar.settings.working_hours_end')}
+                  value={String(draft.workingHours.endHour)}
+                  className="w-24"
+                  onChange={(event) => {
+                    const endHour = Number(event.target.value)
+                    patch({
+                      workingHours: {
+                        ...draft.workingHours,
+                        endHour,
+                        startHour: Math.min(draft.workingHours.startHour, endHour - 1),
+                      },
+                    })
+                  }}
+                >
+                  {HOURS_END.map(hour => (
+                    <option key={hour} value={hour}>{t('calendar.settings.hour', { hour: hour % 24 })}</option>
+                  ))}
+                </Select>
+              </div>
+            </SettingRow>
+          )}
           <SettingRow title={t('calendar.settings.time_format')}>
             <Segmented
               label={t('calendar.settings.time_format')}

@@ -105,6 +105,10 @@ function viewType(name: CalendarPreferences['defaultView']): ViewType {
 function toViews(preferences: CalendarPreferences): CalendarView[] {
   const secondary = preferences.secondaryTimeZone ?? undefined
   const weekStart = preferences.weekStart
+  // Working hours are the ruler the timed views open with; off means the whole day stays on show.
+  const hours = preferences.workingHours.enabled
+    ? { firstHour: preferences.workingHours.startHour, lastHour: preferences.workingHours.endHour }
+    : {}
   return [
     createDayView({
       hourHeight: preferences.dayHourHeight,
@@ -114,6 +118,7 @@ function toViews(preferences: CalendarPreferences): CalendarView[] {
       showAllDay: true,
       scrollToCurrentTime: true,
       showEventDots: preferences.showEventDots,
+      ...hours,
     }),
     createWeekView({
       hourHeight: preferences.dayHourHeight,
@@ -125,6 +130,7 @@ function toViews(preferences: CalendarPreferences): CalendarView[] {
       secondaryTimeZone: secondary,
       showEventDots: preferences.showEventDots,
       gridDateDoubleClick: 'create-event',
+      ...hours,
     }),
     createMonthView({
       startOfWeek: weekStart,

@@ -1301,6 +1301,7 @@ const allowed = new Map([
     "// on this section's own controls — clears that selection, so an open section stays open until the",
     "// reader closes it or picks another event.",
     "/** The printed page is built from a range read, so it does not depend on which view is showing. */",
+    "// Working hours are the ruler the timed views open with; off means the whole day stays on show.",
   ]],
   ["src/client/features/calendar/MiniMonth.tsx", [
     "/**\n * The mini month: 42 cells, event dots in calendar colours, and a date that drives the main view.\n *\n * It reads DayFlow's registry and events directly rather than keeping a second copy of the data, so\n * a visibility toggle or a drag in the main grid is reflected here on the next app notification.\n */",
@@ -26640,6 +26641,9 @@ const allowed = new Map([
     "/** A week ahead is the furthest reminder worth firing; eight is more than any client offers. */",
     "/** The four answers a guest list tracks, named the way the providers name them in an invite. */",
     "/** A guest list this app can render in one sidebar card. */",
+    "/**\n * The hours the day columns show. Google and Notion both call this \"working hours\", and the\n * library already takes a visible hour window per view, so this is a view setting rather than\n * a shading overlay.\n */",
+    "/** 0–22, the first hour on the ruler. */",
+    "/** 1–24, exclusive, so the ruler can end at midnight. */",
   ]],
   ["src/shared/constants.ts", [
     "// D1 limits an entire row to 2,000,000 bytes; reserve room for note metadata.",
@@ -31178,6 +31182,7 @@ const allowed = new Map([
     "/** `{ minutes: […], rev }` — the whole of a reminder write. */",
     "/** A shape check, not an RFC: it keeps the separators that would make one field two guests out. */",
     "/**\n * `{ attendees: […], rev }`. Emails are the key of the list, so they are lower-cased and de-duplicated\n * here rather than in the store: the write replaces the whole list and a repeated guest would answer twice.\n */",
+    "/** `{ enabled, startHour, endHour }` — the ruler the day and week views open with. */",
   ]],
   ["src/worker/calendar/vendor/dayflow-caldav.d.ts", [
     "/**\n * Worker-side type shim for the provider library.\n *\n * The package's published types pull Preact/DOM globals that replace the Worker's BodyInit/Headers.\n * The cron only needs these five runtime exports; Vite still resolves the real implementation.\n */",
@@ -36636,6 +36641,11 @@ const allowed = new Map([
     "// DTSTAMP is stamped per request, so the two documents are compared without it.",
     "// 'Standup' is 7 bytes, the two-character Han description is 6 UTF-8 bytes, the empty meta",
     "// object is 2 — characters would have counted 13.",
+  ]],
+  ["tests/calendar-model.test.ts", [
+    "// A reader that switched the window on but sent a broken number keeps the switch and gets",
+    "// default hours; the strict boundary that refuses the value is the route parser.",
+    "// Off is a valid choice and keeps the window the reader picked.",
   ]],
   ["tests/calendar-reminders.test.ts", [
     "// An hour ahead of the start only the 60-minute lead is due; the 10-minute one fires later.",

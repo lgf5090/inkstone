@@ -118,6 +118,35 @@ describe('calendar model', () => {
     expect(invalid.eventReminderMinutes).toBe(defaults.eventReminderMinutes)
   })
 
+  it('keeps a working-hours window only when it is a real window', () => {
+    const defaults = defaultCalendarPreferences()
+    expect(normalizeCalendarPreferences({
+      ...defaults,
+      workingHours: { enabled: true, startHour: 7, endHour: 16 },
+    }).workingHours).toEqual({ enabled: true, startHour: 7, endHour: 16 })
+    for (const workingHours of [
+      { enabled: true, startHour: 18, endHour: 9 },
+      { enabled: true, startHour: -1, endHour: 18 },
+      { enabled: true, startHour: 9, endHour: 25 },
+      undefined,
+      'text',
+    ]) {
+      expect(normalizeCalendarPreferences({ ...defaults, workingHours }).workingHours)
+        .toEqual(defaults.workingHours)
+    }
+    // A reader that switched the window on but sent a broken number keeps the switch and gets
+    // default hours; the strict boundary that refuses the value is the route parser.
+    expect(normalizeCalendarPreferences({
+      ...defaults,
+      workingHours: { enabled: true, startHour: 9.5, endHour: 18 },
+    }).workingHours).toEqual({ enabled: true, startHour: 9, endHour: 18 })
+    // Off is a valid choice and keeps the window the reader picked.
+    expect(normalizeCalendarPreferences({
+      ...defaults,
+      workingHours: { enabled: false, startHour: 6, endHour: 23 },
+    }).workingHours).toEqual({ enabled: false, startHour: 6, endHour: 23 })
+  })
+
   it('finds secret-shaped metadata keys recursively', () => {
     expect(containsSecretMetaKey({ nested: { refresh_token: 'x' } })).toBe(true)
     expect(containsSecretMetaKey({ list: [{ Authorization: 'x' }] })).toBe(true)

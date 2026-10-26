@@ -302,6 +302,21 @@ describe('preference routes', () => {
     expect((await call('PUT', '/preferences', { notASetting: true })).status).toBe(400)
   })
 
+  it('accepts a working-hours window and refuses an impossible one', async () => {
+    const answer = await json<{ preferences: CalendarPreferences }>(await call('PUT', '/preferences', {
+      workingHours: { enabled: true, startHour: 8, endHour: 17 },
+    }))
+    expect(answer.preferences.workingHours).toEqual({ enabled: true, startHour: 8, endHour: 17 })
+
+    expect((await call('PUT', '/preferences', {
+      workingHours: { enabled: true, startHour: 17, endHour: 8 },
+    })).status).toBe(400)
+    expect((await call('PUT', '/preferences', {
+      workingHours: { enabled: true, startHour: 8, endHour: 17, days: [1] },
+    })).status).toBe(400)
+    expect((await call('PUT', '/preferences', { workingHours: '9-17' })).status).toBe(400)
+  })
+
   it('refuses a body over the small limit', async () => {
     const response = await call('PUT', '/preferences', { weekStart: 0, padding: 'x'.repeat(20_000) })
     expect(response.status).toBe(413)

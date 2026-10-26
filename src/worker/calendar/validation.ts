@@ -467,6 +467,20 @@ export function parseEventPatch(value: unknown, options: ParseEventOptions = {})
   return patch
 }
 
+/** `{ enabled, startHour, endHour }` — the ruler the day and week views open with. */
+function parseWorkingHours(value: unknown): CalendarPreferences['workingHours'] {
+  const record = requireRecord(value, 'workingHours')
+  const known = new Set(['enabled', 'startHour', 'endHour'])
+  for (const key of Object.keys(record)) {
+    if (!known.has(key)) throw ApiError.badRequest(`Unknown workingHours field: ${key}`)
+  }
+  const enabled = booleanValue(record.enabled ?? false, 'workingHours.enabled')
+  const startHour = integerValue(record.startHour ?? 9, 'workingHours.startHour', 0, 22)
+  const endHour = integerValue(record.endHour ?? 18, 'workingHours.endHour', 1, 24)
+  if (endHour <= startHour) throw ApiError.badRequest('workingHours.endHour must come after startHour')
+  return { enabled, startHour, endHour }
+}
+
 /** `{ minutes: […], rev }` — the whole of a reminder write. */
 export function parseReminderMinutes(value: unknown): { minutes: number[]; rev: number } {
   const record = requireRecord(value, 'body')
@@ -678,6 +692,9 @@ export function parsePreferences(value: unknown): CalendarPreferences {
       throw ApiError.badRequest('eventReminderMinutes is not a supported reminder')
     }
     result.eventReminderMinutes = record.eventReminderMinutes as number
+  }
+  if (record.workingHours !== undefined) {
+    result.workingHours = parseWorkingHours(record.workingHours)
   }
   if (record.timeFormat !== undefined) {
     if (!(TIME_FORMATS as readonly unknown[]).includes(record.timeFormat)) {
