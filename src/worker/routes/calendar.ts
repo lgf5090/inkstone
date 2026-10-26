@@ -35,10 +35,12 @@ import { requireAuth } from '../middleware/auth'
 
 type Ctx = Context<AppBindings>
 
-/** Enough for a fast client dragging events and checking boxes; reads stay unmetered. */
+/** Enough for a fast client dragging events and checking boxes. */
 export const CALENDAR_WRITE_BUDGET_PER_MINUTE = 120
 
 const writeBudget = createMinuteBudget(CALENDAR_WRITE_BUDGET_PER_MINUTE, 'Too many calendar changes at once. Try again in a minute.')
+/** A search box and range navigation are cheap; a scripted loop is not. */
+const readBudget = createMinuteBudget(240, 'Too many calendar reads at once. Try again in a minute.')
 
 /** A single event can carry a 20k description and a 16 KiB meta object. */
 const EVENT_BODY_LIMIT = 64 * 1024
@@ -97,6 +99,7 @@ calendarRoutes.put('/preferences', async (c) => {
 // ------------------------------------------------------------- events
 
 calendarRoutes.get('/events/search', async (c) => {
+  readBudget(c.get('userId'))
   const q = (c.req.query('q') ?? '').trim()
   if (!q) throw ApiError.badRequest('q is required')
   if (q.length > SEARCH_QUERY_MAX) throw ApiError.badRequest(`q is longer than ${SEARCH_QUERY_MAX} characters`)
@@ -106,6 +109,7 @@ calendarRoutes.get('/events/search', async (c) => {
 })
 
 calendarRoutes.get('/events', async (c) => {
+  readBudget(c.get('userId'))
   const range = parseRange(c.req.query('from'), c.req.query('to'))
   const calendarIds = parseCalendarIdList(c.req.query('calendarIds'))
   const result = await store(c).listEvents(range.fromMs, range.toMs, calendarIds)

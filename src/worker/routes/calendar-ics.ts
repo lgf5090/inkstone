@@ -22,6 +22,7 @@ import {
 const IMPORT_BODY_LIMIT = MAX_ICS_BYTES * 2 + 64 * 1024
 const IMPORT_CHUNK = 200
 const importBudget = createMinuteBudget(10, 'Too many calendar imports. Try again in a minute.')
+const exportBudget = createMinuteBudget(30, 'Too many calendar exports. Try again in a minute.')
 
 export const calendarIcsRoutes = new Hono<AppBindings>()
 
@@ -127,6 +128,7 @@ calendarIcsRoutes.post('/import', async (c) => {
 })
 
 calendarIcsRoutes.get('/export', async (c) => {
+  exportBudget(c.get('userId'))
   const calendarId = c.req.query('calendarId')
   if (!isCalendarEntityId(calendarId)) throw ApiError.notFound('Calendar not found')
   const store = new CalendarStore(c.env.DB, c.get('userId'))
