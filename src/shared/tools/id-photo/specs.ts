@@ -1,10 +1,11 @@
 import type { IdPhotoSpec } from './types'
 
 export const BUILTIN_ID_PHOTO_SPECS: readonly IdPhotoSpec[] = [
-  // 1. 中国国家与常用证件标准
+  // 1. China Standards
   {
     id: 'cn_one_inch',
-    name: '标准一寸',
+    name: 'Standard 1-Inch',
+    nameKey: 'tools.id_photo.specs.cn_one_inch_name',
     category: 'cn_standard',
     countryCode: 'CN',
     countryNameKey: 'tools.id_photo.country.cn',
@@ -23,7 +24,8 @@ export const BUILTIN_ID_PHOTO_SPECS: readonly IdPhotoSpec[] = [
   },
   {
     id: 'cn_small_one_inch',
-    name: '小一寸',
+    name: 'Small 1-Inch',
+    nameKey: 'tools.id_photo.specs.cn_small_one_inch_name',
     category: 'cn_standard',
     countryCode: 'CN',
     countryNameKey: 'tools.id_photo.country.cn',
@@ -41,7 +43,8 @@ export const BUILTIN_ID_PHOTO_SPECS: readonly IdPhotoSpec[] = [
   },
   {
     id: 'cn_large_one_inch',
-    name: '大一寸',
+    name: 'Large 1-Inch',
+    nameKey: 'tools.id_photo.specs.cn_large_one_inch_name',
     category: 'cn_standard',
     countryCode: 'CN',
     countryNameKey: 'tools.id_photo.country.cn',
@@ -59,7 +62,8 @@ export const BUILTIN_ID_PHOTO_SPECS: readonly IdPhotoSpec[] = [
   },
   {
     id: 'cn_two_inch',
-    name: '标准二寸',
+    name: 'Standard 2-Inch',
+    nameKey: 'tools.id_photo.specs.cn_two_inch_name',
     category: 'cn_standard',
     countryCode: 'CN',
     countryNameKey: 'tools.id_photo.country.cn',
@@ -77,7 +81,8 @@ export const BUILTIN_ID_PHOTO_SPECS: readonly IdPhotoSpec[] = [
   },
   {
     id: 'cn_small_two_inch',
-    name: '小二寸 (护照/签证通用)',
+    name: 'Small 2-Inch',
+    nameKey: 'tools.id_photo.specs.cn_small_two_inch_name',
     category: 'cn_standard',
     countryCode: 'CN',
     countryNameKey: 'tools.id_photo.country.cn',
@@ -95,7 +100,8 @@ export const BUILTIN_ID_PHOTO_SPECS: readonly IdPhotoSpec[] = [
   },
   {
     id: 'cn_id_card',
-    name: '第二代居民身份证',
+    name: 'Resident Identity Card',
+    nameKey: 'tools.id_photo.specs.cn_id_card_name',
     category: 'cn_standard',
     countryCode: 'CN',
     countryNameKey: 'tools.id_photo.country.cn',
@@ -113,7 +119,8 @@ export const BUILTIN_ID_PHOTO_SPECS: readonly IdPhotoSpec[] = [
   },
   {
     id: 'cn_driver_license',
-    name: '机动车驾驶证',
+    name: 'Driver License',
+    nameKey: 'tools.id_photo.specs.cn_driver_license_name',
     category: 'cn_standard',
     countryCode: 'CN',
     countryNameKey: 'tools.id_photo.country.cn',
@@ -131,7 +138,8 @@ export const BUILTIN_ID_PHOTO_SPECS: readonly IdPhotoSpec[] = [
   },
   {
     id: 'cn_passport',
-    name: '中国护照 / 港澳通行证',
+    name: 'China Passport',
+    nameKey: 'tools.id_photo.specs.cn_passport_name',
     category: 'cn_standard',
     countryCode: 'CN',
     countryNameKey: 'tools.id_photo.country.cn',
@@ -150,10 +158,11 @@ export const BUILTIN_ID_PHOTO_SPECS: readonly IdPhotoSpec[] = [
     isBuiltin: true,
   },
 
-  // 2. 考试与资格认证标准
+  // 2. Exam and Certifications
   {
     id: 'exam_teacher_cert',
-    name: '中小学教师资格考试 (NTCE)',
+    name: 'Teacher Qualification Exam',
+    nameKey: 'tools.id_photo.specs.exam_teacher_cert_name',
     category: 'exam_cert',
     countryCode: 'CN',
     countryNameKey: 'tools.id_photo.country.cn',
@@ -173,7 +182,8 @@ export const BUILTIN_ID_PHOTO_SPECS: readonly IdPhotoSpec[] = [
   },
   {
     id: 'exam_cet',
-    name: '大学英语四六级考试 (CET)',
+    name: 'College English Test',
+    nameKey: 'tools.id_photo.specs.exam_cet_name',
     category: 'exam_cert',
     countryCode: 'CN',
     countryNameKey: 'tools.id_photo.country.cn',
@@ -192,7 +202,8 @@ export const BUILTIN_ID_PHOTO_SPECS: readonly IdPhotoSpec[] = [
   },
   {
     id: 'exam_ncre',
-    name: '全国计算机等级考试 (NCRE)',
+    name: 'Computer Rank Examination',
+    nameKey: 'tools.id_photo.specs.exam_ncre_name',
     category: 'exam_cert',
     countryCode: 'CN',
     countryNameKey: 'tools.id_photo.country.cn',
@@ -212,7 +223,8 @@ export const BUILTIN_ID_PHOTO_SPECS: readonly IdPhotoSpec[] = [
   },
   {
     id: 'exam_postgraduate',
-    name: '全国硕士研究生统考',
+    name: 'Graduate Entrance Exam',
+    nameKey: 'tools.id_photo.specs.exam_postgraduate_name',
     category: 'exam_cert',
     countryCode: 'CN',
     countryNameKey: 'tools.id_photo.country.cn',
@@ -232,7 +244,8 @@ export const BUILTIN_ID_PHOTO_SPECS: readonly IdPhotoSpec[] = [
   },
   {
     id: 'exam_civil_servant',
-    name: '国家公务员录用考试 (国考)',
+    name: 'Civil Service Exam',
+    nameKey: 'tools.id_photo.specs.exam_civil_servant_name',
     category: 'exam_cert',
     countryCode: 'CN',
     countryNameKey: 'tools.id_photo.country.cn',
@@ -251,10 +264,11 @@ export const BUILTIN_ID_PHOTO_SPECS: readonly IdPhotoSpec[] = [
     isBuiltin: true,
   },
 
-  // 3. 国际主流护照与签证标准
+  // 3. International Passports & Visas
   {
     id: 'intl_us_passport',
-    name: '美国护照 / 签证 / DS-160',
+    name: 'US Passport / Visa',
+    nameKey: 'tools.id_photo.specs.intl_us_passport_name',
     category: 'intl_passport',
     countryCode: 'US',
     countryNameKey: 'tools.id_photo.country.us',
@@ -273,7 +287,8 @@ export const BUILTIN_ID_PHOTO_SPECS: readonly IdPhotoSpec[] = [
   },
   {
     id: 'intl_eu_schengen',
-    name: '欧洲申根签证 / 欧盟护照 (ICAO)',
+    name: 'Schengen Visa / EU Passport',
+    nameKey: 'tools.id_photo.specs.intl_eu_schengen_name',
     category: 'visa',
     countryCode: 'EU',
     countryNameKey: 'tools.id_photo.country.eu',
@@ -291,7 +306,8 @@ export const BUILTIN_ID_PHOTO_SPECS: readonly IdPhotoSpec[] = [
   },
   {
     id: 'intl_uk_passport',
-    name: '英国护照 / 签证 (UKVI)',
+    name: 'UK Passport / Visa',
+    nameKey: 'tools.id_photo.specs.intl_uk_passport_name',
     category: 'intl_passport',
     countryCode: 'GB',
     countryNameKey: 'tools.id_photo.country.gb',
@@ -301,7 +317,7 @@ export const BUILTIN_ID_PHOTO_SPECS: readonly IdPhotoSpec[] = [
     widthPx: 413,
     heightPx: 531,
     dpi: 300,
-    recommendedBgColors: ['#E8ECEF', '#F0F2F5'], // 浅灰/奶油底，UKVI禁止纯白底
+    recommendedBgColors: ['#E8ECEF', '#F0F2F5'],
     faceRatioMin: 0.65,
     faceRatioMax: 0.75,
     descriptionKey: 'tools.id_photo.specs.intl_uk_passport_desc',
@@ -309,7 +325,8 @@ export const BUILTIN_ID_PHOTO_SPECS: readonly IdPhotoSpec[] = [
   },
   {
     id: 'intl_jp_passport',
-    name: '日本护照 / 在留卡',
+    name: 'Japan Passport / Residence Card',
+    nameKey: 'tools.id_photo.specs.intl_jp_passport_name',
     category: 'intl_passport',
     countryCode: 'JP',
     countryNameKey: 'tools.id_photo.country.jp',
@@ -327,7 +344,8 @@ export const BUILTIN_ID_PHOTO_SPECS: readonly IdPhotoSpec[] = [
   },
   {
     id: 'intl_jp_resume',
-    name: '日本求职履历书',
+    name: 'Japan Resume Photo',
+    nameKey: 'tools.id_photo.specs.intl_jp_resume_name',
     category: 'intl_passport',
     countryCode: 'JP',
     countryNameKey: 'tools.id_photo.country.jp',
@@ -345,7 +363,8 @@ export const BUILTIN_ID_PHOTO_SPECS: readonly IdPhotoSpec[] = [
   },
   {
     id: 'intl_kr_passport',
-    name: '韩国护照 / 签证',
+    name: 'Korea Passport / Visa',
+    nameKey: 'tools.id_photo.specs.intl_kr_passport_name',
     category: 'intl_passport',
     countryCode: 'KR',
     countryNameKey: 'tools.id_photo.country.kr',
@@ -363,7 +382,8 @@ export const BUILTIN_ID_PHOTO_SPECS: readonly IdPhotoSpec[] = [
   },
   {
     id: 'intl_ca_passport',
-    name: '加拿大护照 / 枫叶卡',
+    name: 'Canada Passport / PR Card',
+    nameKey: 'tools.id_photo.specs.intl_ca_passport_name',
     category: 'intl_passport',
     countryCode: 'CA',
     countryNameKey: 'tools.id_photo.country.ca',
@@ -381,7 +401,8 @@ export const BUILTIN_ID_PHOTO_SPECS: readonly IdPhotoSpec[] = [
   },
   {
     id: 'intl_au_passport',
-    name: '澳大利亚护照 / 签证',
+    name: 'Australia Passport / Visa',
+    nameKey: 'tools.id_photo.specs.intl_au_passport_name',
     category: 'intl_passport',
     countryCode: 'AU',
     countryNameKey: 'tools.id_photo.country.au',
@@ -399,7 +420,8 @@ export const BUILTIN_ID_PHOTO_SPECS: readonly IdPhotoSpec[] = [
   },
   {
     id: 'intl_sg_passport',
-    name: '新加坡护照 / 签证 (ICA)',
+    name: 'Singapore Passport / Visa',
+    nameKey: 'tools.id_photo.specs.intl_sg_passport_name',
     category: 'intl_passport',
     countryCode: 'SG',
     countryNameKey: 'tools.id_photo.country.sg',
@@ -417,7 +439,8 @@ export const BUILTIN_ID_PHOTO_SPECS: readonly IdPhotoSpec[] = [
   },
   {
     id: 'intl_in_passport',
-    name: '印度护照 / OCI / Visa',
+    name: 'India Passport / OCI / Visa',
+    nameKey: 'tools.id_photo.specs.intl_in_passport_name',
     category: 'intl_passport',
     countryCode: 'IN',
     countryNameKey: 'tools.id_photo.country.in',

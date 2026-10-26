@@ -26,8 +26,8 @@ export function calculatePrintLayout(
   const paperPreset =
     PRINT_SHEET_PRESETS.find((p) => p.id === options.paperSize) ?? PRINT_SHEET_PRESETS[1]
 
-  let paperWidthMm = paperPreset.widthMm
-  let paperHeightMm = paperPreset.heightMm
+  let paperWidthMm: number = paperPreset.widthMm
+  let paperHeightMm: number = paperPreset.heightMm
 
   if (options.orientation === 'landscape') {
     const temp = paperWidthMm

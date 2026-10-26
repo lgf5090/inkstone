@@ -233,7 +233,7 @@ export class IdPhotoStore {
 
     const created = await this.getRecord(data.id)
     if (!created) {
-      throw ApiError.internal('Failed to create ID photo record')
+      throw new ApiError(500, 'internal', 'Failed to create ID photo record')
     }
     return created
   }
@@ -311,7 +311,7 @@ export class IdPhotoStore {
       .first<SpecRow>()
 
     if (!created) {
-      throw ApiError.internal('Failed to create custom ID photo spec')
+      throw new ApiError(500, 'internal', 'Failed to create custom ID photo spec')
     }
     return toSpec(created)
   }

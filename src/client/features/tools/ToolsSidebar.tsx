@@ -1,9 +1,11 @@
 import type { ComponentType } from 'react'
 import {
+  Award,
   Binary,
   Blend,
   BookOpen,
   Bot,
+  Camera,
   CheckSquare,
   ChevronRight,
   Compass,
@@ -19,9 +21,11 @@ import {
   PanelLeftClose,
   Lock,
   Palette,
+  Printer,
   QrCode,
   ScanLine,
   Settings,
+  ShieldCheck,
   Sparkles,
   Star,
   Wrench,
@@ -31,7 +35,13 @@ import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { IconButton } from '../../components/primitives'
 import { Tooltip } from '../../components/overlay'
-import { useToolsStore, type ColorNavView, type PasswordNavView, type QrCodeNavView } from './store'
+import {
+  useToolsStore,
+  type ColorNavView,
+  type IdPhotoNavView,
+  type PasswordNavView,
+  type QrCodeNavView,
+} from './store'
 import { GroupTree } from './password/GroupTree'
 import { usePasswordVaultStore } from './password/store'
 
@@ -47,11 +57,27 @@ interface QrNavSlot {
   icon: ComponentType<{ size?: number; className?: string }>
 }
 
+interface IdPhotoNavSlot {
+  id: IdPhotoNavView
+  labelKey: MessageKey
+  icon: ComponentType<{ size?: number; className?: string }>
+}
+
 interface ColorNavSlot {
   id: ColorNavView
   labelKey: MessageKey
   icon: ComponentType<{ size?: number; className?: string }>
 }
+
+const ID_PHOTO_NAV_SLOTS: readonly IdPhotoNavSlot[] = [
+  { id: 'studio', labelKey: 'tools.id_photo.nav.studio', icon: Camera },
+  { id: 'compliance', labelKey: 'tools.id_photo.nav.compliance', icon: ShieldCheck },
+  { id: 'print', labelKey: 'tools.id_photo.nav.print', icon: Printer },
+  { id: 'batch', labelKey: 'tools.id_photo.nav.batch', icon: Layers },
+  { id: 'specs', labelKey: 'tools.id_photo.nav.specs', icon: Award },
+  { id: 'history', labelKey: 'tools.id_photo.nav.history', icon: History },
+  { id: 'settings', labelKey: 'tools.id_photo.nav.settings', icon: Settings },
+]
 
 const COLOR_NAV_SLOTS: readonly ColorNavSlot[] = [
   { id: 'studio', labelKey: 'tools.color.nav.studio', icon: Palette },
@@ -107,6 +133,10 @@ export function ToolsSidebar({
   const toggleQrcodeModuleExpanded = useToolsStore((s) => s.toggleQrcodeModuleExpanded)
   const activeQrCodeView = useToolsStore((s) => s.activeQrCodeView)
   const setActiveQrCodeView = useToolsStore((s) => s.setActiveQrCodeView)
+  const idPhotoModuleExpanded = useToolsStore((s) => s.idPhotoModuleExpanded)
+  const toggleIdPhotoModuleExpanded = useToolsStore((s) => s.toggleIdPhotoModuleExpanded)
+  const activeIdPhotoView = useToolsStore((s) => s.activeIdPhotoView)
+  const setActiveIdPhotoView = useToolsStore((s) => s.setActiveIdPhotoView)
   const colorModuleExpanded = useToolsStore((s) => s.colorModuleExpanded)
   const toggleColorModuleExpanded = useToolsStore((s) => s.toggleColorModuleExpanded)
   const activeColorView = useToolsStore((s) => s.activeColorView)
@@ -130,6 +160,12 @@ export function ToolsSidebar({
   const handleQrSlotClick = (slotId: QrCodeNavView) => {
     setActiveSubmodule('qrcode')
     setActiveQrCodeView(slotId)
+    onNavigate?.()
+  }
+
+  const handleIdPhotoSlotClick = (slotId: IdPhotoNavView) => {
+    setActiveSubmodule('id_photo')
+    setActiveIdPhotoView(slotId)
     onNavigate?.()
   }
 
@@ -182,6 +218,19 @@ export function ToolsSidebar({
               }}
             >
               <QrCode size={16} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip label={t('tools.id_photo.module_name')} side="right">
+            <IconButton
+              label={t('tools.id_photo.module_name')}
+              size="sm"
+              active={activeSubmodule === 'id_photo'}
+              onClick={() => {
+                setActiveSubmodule('id_photo')
+                onExpand?.()
+              }}
+            >
+              <Camera size={16} />
             </IconButton>
           </Tooltip>
           <Tooltip label={t('tools.color.module_name')} side="right">
@@ -355,6 +404,61 @@ export function ToolsSidebar({
                     type="button"
                     aria-current={isSelected ? 'page' : undefined}
                     onClick={() => handleQrSlotClick(slot.id)}
+                    className={cn(
+                      'flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]',
+                      'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+                      'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+                      isSelected &&
+                        'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]',
+                    )}
+                  >
+                    <Icon size={14} className="shrink-0" />
+                    <span className="truncate">{t(slot.labelKey)}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Submodule: ID Photo Studio (tools/id_photo) */}
+        <div>
+          <button
+            type="button"
+            aria-expanded={idPhotoModuleExpanded}
+            onClick={toggleIdPhotoModuleExpanded}
+            className={cn(
+              'flex w-full items-center justify-between gap-2 rounded-[var(--r-md)] px-2.5 py-1.5 text-[length:var(--text-13)] font-medium text-[var(--text-secondary)]',
+              'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+              'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+              activeSubmodule === 'id_photo' && 'text-[var(--text-primary)]',
+            )}
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <span
+                className={cn(
+                  'transition-transform duration-[var(--dur-fast)]',
+                  idPhotoModuleExpanded ? 'rotate-90' : 'rotate-0',
+                )}
+              >
+                <ChevronRight size={14} className="shrink-0 text-[var(--text-tertiary)]" />
+              </span>
+              <Camera size={16} className="shrink-0 text-[var(--accent)]" />
+              <span className="truncate">{t('tools.id_photo.module_name')}</span>
+            </div>
+          </button>
+
+          {idPhotoModuleExpanded && (
+            <div className="mt-1 ml-4 space-y-0.5 border-l border-[var(--border-subtle)] pl-2">
+              {ID_PHOTO_NAV_SLOTS.map((slot) => {
+                const Icon = slot.icon
+                const isSelected = activeSubmodule === 'id_photo' && activeIdPhotoView === slot.id
+                return (
+                  <button
+                    key={slot.id}
+                    type="button"
+                    aria-current={isSelected ? 'page' : undefined}
+                    onClick={() => handleIdPhotoSlotClick(slot.id)}
                     className={cn(
                       'flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]',
                       'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',

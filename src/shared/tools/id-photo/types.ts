@@ -10,6 +10,7 @@ export type IdPhotoCategory =
 export interface IdPhotoSpec {
   id: string
   name: string
+  nameKey?: string
   category: IdPhotoCategory
   countryCode: string // e.g. 'CN', 'US', 'GB', 'JP', 'KR', 'EU'
   countryNameKey: string

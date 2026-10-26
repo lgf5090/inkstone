@@ -56,7 +56,6 @@ export function calculateOptimalCrop(
 
   // Face-aware intelligent framing
   const faceCenterX = faceBox.x + faceBox.width / 2
-  const faceCenterY = faceBox.y + faceBox.height / 2
 
   // Total crop height should make face height equal to headRatio * cropHeight
   const estimatedHeadHeight = faceBox.height * 1.25 // Include hair crown to chin

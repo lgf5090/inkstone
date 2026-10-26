@@ -8,6 +8,7 @@ import { Resizer } from '../shell/Resizer'
 import { ToolsSidebar } from './ToolsSidebar'
 import { PasswordApp } from './password/PasswordApp'
 import { QrCodeApp } from './qrcode/QrCodeApp'
+import { IdPhotoApp } from './id-photo/IdPhotoApp'
 import { ColorApp } from './color/ColorApp'
 import { TOOLS_NAV_WIDTH, useToolsStore } from './store'
 
@@ -50,7 +51,9 @@ export function ToolsApp() {
                 ? t('tools.password.module_name')
                 : activeSubmodule === 'qrcode'
                   ? t('tools.qrcode.module_name')
-                  : t('tools.color.module_name')}
+                  : activeSubmodule === 'id_photo'
+                    ? t('tools.id_photo.module_name')
+                    : t('tools.color.module_name')}
             </span>
           </div>
         </header>
@@ -85,6 +88,7 @@ export function ToolsApp() {
         <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--bg-base)]">
           {activeSubmodule === 'password' && <PasswordApp />}
           {activeSubmodule === 'qrcode' && <QrCodeApp />}
+          {activeSubmodule === 'id_photo' && <IdPhotoApp />}
           {activeSubmodule === 'color' && <ColorApp />}
         </main>
       </div>

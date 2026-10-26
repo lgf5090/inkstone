@@ -6,7 +6,16 @@ export const TOOLS_NAV_WIDTH = {
   default: 260,
 } as const
 
-export type ToolsSubmodule = 'password' | 'qrcode' | 'color'
+export type ToolsSubmodule = 'password' | 'qrcode' | 'id_photo' | 'color'
+
+export type IdPhotoNavView =
+  | 'studio'
+  | 'compliance'
+  | 'print'
+  | 'batch'
+  | 'specs'
+  | 'history'
+  | 'settings'
 
 export type PasswordNavView =
   | 'all'
@@ -43,6 +52,7 @@ interface PersistedLayout {
   toolsNavCollapsed?: boolean
   passwordModuleExpanded?: boolean
   qrcodeModuleExpanded?: boolean
+  idPhotoModuleExpanded?: boolean
   colorModuleExpanded?: boolean
   activeSubmodule?: ToolsSubmodule
 }
@@ -77,6 +87,8 @@ export interface ToolsState {
   selectedGroupId: string | null
   qrcodeModuleExpanded: boolean
   activeQrCodeView: QrCodeNavView
+  idPhotoModuleExpanded: boolean
+  activeIdPhotoView: IdPhotoNavView
   colorModuleExpanded: boolean
   activeColorView: ColorNavView
 
@@ -92,6 +104,9 @@ export interface ToolsState {
   setQrcodeModuleExpanded: (expanded: boolean | ((prev: boolean) => boolean)) => void
   toggleQrcodeModuleExpanded: () => void
   setActiveQrCodeView: (view: QrCodeNavView) => void
+  setIdPhotoModuleExpanded: (expanded: boolean | ((prev: boolean) => boolean)) => void
+  toggleIdPhotoModuleExpanded: () => void
+  setActiveIdPhotoView: (view: IdPhotoNavView) => void
   setColorModuleExpanded: (expanded: boolean | ((prev: boolean) => boolean)) => void
   toggleColorModuleExpanded: () => void
   setActiveColorView: (view: ColorNavView) => void
@@ -115,6 +130,8 @@ export const useToolsStore = create<ToolsState>((set, get) => ({
   selectedGroupId: null,
   qrcodeModuleExpanded: initialPersisted.qrcodeModuleExpanded ?? true,
   activeQrCodeView: 'generator',
+  idPhotoModuleExpanded: initialPersisted.idPhotoModuleExpanded ?? true,
+  activeIdPhotoView: 'studio',
   colorModuleExpanded: initialPersisted.colorModuleExpanded ?? true,
   activeColorView: 'studio',
 
@@ -239,6 +256,38 @@ export const useToolsStore = create<ToolsState>((set, get) => ({
 
   setActiveQrCodeView: (view: QrCodeNavView) => {
     set({ activeQrCodeView: view })
+  },
+
+  setIdPhotoModuleExpanded: (expanded: boolean | ((prev: boolean) => boolean)) => {
+    const next = typeof expanded === 'function' ? expanded(get().idPhotoModuleExpanded) : expanded
+    set({ idPhotoModuleExpanded: next })
+    persistLayout({
+      toolsNavWidth: get().toolsNavWidth,
+      toolsNavCollapsed: get().toolsNavCollapsed,
+      passwordModuleExpanded: get().passwordModuleExpanded,
+      qrcodeModuleExpanded: get().qrcodeModuleExpanded,
+      idPhotoModuleExpanded: next,
+      colorModuleExpanded: get().colorModuleExpanded,
+      activeSubmodule: get().activeSubmodule,
+    })
+  },
+
+  toggleIdPhotoModuleExpanded: () => {
+    const next = !get().idPhotoModuleExpanded
+    set({ idPhotoModuleExpanded: next })
+    persistLayout({
+      toolsNavWidth: get().toolsNavWidth,
+      toolsNavCollapsed: get().toolsNavCollapsed,
+      passwordModuleExpanded: get().passwordModuleExpanded,
+      qrcodeModuleExpanded: get().qrcodeModuleExpanded,
+      idPhotoModuleExpanded: next,
+      colorModuleExpanded: get().colorModuleExpanded,
+      activeSubmodule: get().activeSubmodule,
+    })
+  },
+
+  setActiveIdPhotoView: (view: IdPhotoNavView) => {
+    set({ activeIdPhotoView: view })
   },
 
   setColorModuleExpanded: (expanded: boolean | ((prev: boolean) => boolean)) => {

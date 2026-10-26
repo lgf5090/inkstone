@@ -11,6 +11,7 @@ export const IdPhotoCategorySchema = z.enum([
 export const IdPhotoSpecSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
+  nameKey: z.string().optional(),
   category: IdPhotoCategorySchema,
   countryCode: z.string().default(''),
   countryNameKey: z.string().default(''),
