@@ -214,19 +214,19 @@ export async function refreshDueIcsSubscriptions(env: Env, now = Date.now()): Pr
       LIMIT ?3`,
   ).bind(now - DUE_REFRESH_INTERVAL_MS, now - DUE_REFRESH_RETRY_MS, DUE_REFRESH_LIMIT)
     .all<{ user_id: string; id: string }>()
-  let refreshed = 0
-  for (const row of results ?? []) {
+  const outcomes = await Promise.all((results ?? []).map(async (row) => {
     try {
       await refreshIcsSubscription(env, row.user_id, row.id)
-      refreshed += 1
+      return 1
     } catch (error) {
       console.warn('[inkstone] Scheduled calendar subscription refresh failed:', {
         subscription: row.id,
         error: error instanceof Error ? error.message : error,
       })
+      return 0
     }
-  }
-  return refreshed
+  }))
+  return outcomes.reduce<number>((total, value) => total + value, 0)
 }
 
 function parseFeed(text: string, defaultTimeZone: string) {
