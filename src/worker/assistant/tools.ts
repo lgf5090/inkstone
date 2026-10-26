@@ -87,7 +87,7 @@ import {
   type SubscriptionSettings,
 } from '@shared/subscriptions/model'
 import { ApiError } from '../lib/errors'
-import { ArtifactVersionConflictError, type AssistantStore, type MemoryScope } from './store'
+import { ArtifactVersionConflictError, MAX_DEPS_PER_TASK, TaskRefusal, type AssistantStore, type MemoryScope } from './store'
 import {
   fuseNoteHits,
   noteVectorGate,
@@ -411,6 +411,10 @@ function presentTask(task: TodoTask): Record<string, unknown> {
     ...(task.description ? { description: task.description.slice(0, 300) } : {}),
     ...(task.noteId ? { note_id: task.noteId } : {}),
     ...(task.conversationId ? { conversation_id: task.conversationId } : {}),
+    // Where the row sits and what it waits for, so a call that set either can read back what it got.
+    ...(task.parentId ? { parent_id: task.parentId } : {}),
+    ...(task.dependsOn.length ? { waits_on: task.dependsOn.map((entry) => entry.id) } : {}),
+    ...(task.blocks.length ? { blocking: task.blocks.map((entry) => entry.id) } : {}),
   }
 }
 
@@ -458,6 +462,42 @@ async function resolveTaskOrThrow(ref: unknown, ctx: ToolContext): Promise<TodoT
   const task = await ctx.store.resolveTask(String(ref))
   if (!task) throw new ToolError(`No single task matches "${String(ref).slice(0, 80)}". List tasks to find the exact one.`)
   return task
+}
+
+/**
+ * The tasks one argument names, as ids.
+ *
+ * A reader names another task the way they would say it out loud — a title, half-remembered — so every
+ * entry is read exactly the way an update reads its own `task` argument: an id, or a title matching one
+ * task, and an entry that matches nothing is refused with the sentence that says what to do instead.
+ * The store still judges the set — its ceiling, a self-wait, a cycle, whose task it is; this turns words into ids.
+ */
+async function resolveTaskRefsOrThrow(value: unknown, ctx: ToolContext): Promise<string[]> {
+  if (!Array.isArray(value)) throw new ToolError('Tasks to wait on are named as a list of ids or titles.')
+  const ids: string[] = []
+  for (const entry of value) {
+    const task = await ctx.store.resolveTask(String(entry))
+    if (!task) throw new ToolError(`No single task matches "${String(entry).slice(0, 80)}". List tasks to find the exact one.`)
+    if (!ids.includes(task.id)) ids.push(task.id)
+  }
+  return ids
+}
+
+/**
+ * A store refusal the model can act on.
+ *
+ * The task store judges a dependency set and a parent before it writes anything, and its reason is a
+ * sentence for the reader — "A task cannot wait on itself" — not a stack trace. Left to the generic
+ * error path it would surface as a failed tool call with no lesson, and the model would retry the same
+ * shape. Every other error still travels untouched.
+ */
+async function asToolError<T>(ask: () => Promise<T>): Promise<T> {
+  try {
+    return await ask()
+  } catch (error) {
+    if (error instanceof TaskRefusal) throw new ToolError(error.message)
+    throw error
+  }
 }
 
 /**
@@ -645,7 +685,7 @@ export const TASK_TOOLS: ToolDefinition[] = [
     name: 'create_task',
     permission: 'write',
     maxCallsPerTurn: 5,
-    description: 'Create a to-do for the reader. Use for action items, not for facts. A list, tags and steps are optional; a task without a list lands in the inbox.',
+    description: 'Create a to-do for the reader. Use for action items, not for facts. A list, tags and steps are optional; a task without a list lands in the inbox. A parent or a task to wait on is named by id or exact title.',
     fields: {
       title: { type: 'string', description: 'What needs doing, in a few words.', minLength: 1, maxLength: MAX_TASK_TITLE_CHARS },
       description: { type: 'string', description: 'Optional longer note.', maxLength: 2000, optional: true },
@@ -655,6 +695,8 @@ export const TASK_TOOLS: ToolDefinition[] = [
       planned: { type: 'string', description: 'Plan it for a day in My Day, YYYY-MM-DD; null clears it.', maxLength: 10, optional: true, nullable: true },
       list: { type: 'string', description: 'List name or id. Call list_task_lists first if unsure what exists.', maxLength: 200, optional: true },
       project: { type: 'string', description: 'Project name or id.', maxLength: 200, optional: true },
+      parent: { type: 'string', description: 'The task this one is a step of, by id or exact title. A child is an ordinary task; the parent only groups it on screen.', maxLength: 300, optional: true },
+      waitsOn: { type: 'array', items: 'string', maxItems: MAX_DEPS_PER_TASK, maxLength: 300, description: 'Tasks this one waits on, by id or exact title. A waiting task is still listed and counted; it just says why.', optional: true },
       tags: { type: 'array', items: 'string', maxItems: MAX_TAGS_PER_TASK, description: 'Tag names. One that does not exist yet is created.', optional: true },
       steps: { type: 'array', items: 'string', maxItems: 20, maxLength: MAX_STEP_TEXT_CHARS, description: 'Sub-tasks, in order.', optional: true },
       repeat: { type: 'string', enum: REPEAT_FREQUENCIES, description: 'How often it comes back. Leave it out for a one-off.', optional: true },
@@ -674,7 +716,11 @@ export const TASK_TOOLS: ToolDefinition[] = [
       const reminders = reminderInstants(args.reminders, ctx)
       const listId = await resolveListId(args.list, ctx)
       const noteId = typeof args.note === 'string' && args.note.trim() ? await resolveNoteId(args.note, ctx) : null
-      const task = await ctx.store.createTask({
+      // Where the new row sits and what it waits for are read the way every other task reference is:
+      // words the reader would use, turned into ids here, judged by the store on the write.
+      const parentId = args.parent === undefined ? undefined : (await resolveTaskOrThrow(args.parent, ctx)).id
+      const waitsOn = args.waitsOn === undefined ? undefined : await resolveTaskRefsOrThrow(args.waitsOn, ctx)
+      const task = await asToolError(async () => ctx.store.createTask({
         title: String(args.title),
         description: typeof args.description === 'string' ? args.description : '',
         priority: args.priority as TaskPriority | undefined,
@@ -682,6 +728,8 @@ export const TASK_TOOLS: ToolDefinition[] = [
         startAt,
         projectId: (await resolveProjectIdOrThrow(args.project, ctx)) ?? null,
         listId,
+        ...(parentId !== undefined ? { parentId } : {}),
+        ...(waitsOn !== undefined ? { dependsOn: waitsOn } : {}),
         starred: args.starred === true,
         repeat: repeat ?? null,
         ...(reminders !== undefined
@@ -691,7 +739,7 @@ export const TASK_TOOLS: ToolDefinition[] = [
         conversationId: ctx.conversationId ?? null,
         tags: Array.isArray(args.tags) ? args.tags as string[] : undefined,
         steps: Array.isArray(args.steps) ? args.steps as string[] : undefined,
-      })
+      }))
       if (planned !== undefined) await ctx.store.planTask(task.id, planned)
       const saved = planned !== undefined ? await ctx.store.getTask(task.id) ?? task : task
       await ctx.store.recordActivity('task.created', saved.title)
@@ -807,7 +855,7 @@ export const TASK_TOOLS: ToolDefinition[] = [
     name: 'update_task',
     permission: 'write',
     maxCallsPerTurn: 5,
-    description: 'Change a task: title, note, status, priority, due or start date, My Day plan, list, tags, star, repeat or reminder. Naming done completes it: a repeating task files its next occurrence, and the answer says its date.',
+    description: 'Change a task: title, note, status, priority, due or start date, My Day plan, list, parent, the tasks it waits on, tags, star, repeat or reminder. Naming done completes it: a repeating task files its next occurrence, and the answer says its date.',
     fields: {
       task: { type: 'string', description: 'Task id, or a title that matches exactly one task.', minLength: 1, maxLength: 300 },
       title: { type: 'string', minLength: 1, maxLength: MAX_TASK_TITLE_CHARS, optional: true },
@@ -819,6 +867,8 @@ export const TASK_TOOLS: ToolDefinition[] = [
       planned: { type: 'string', description: 'Move it to a day in My Day (YYYY-MM-DD); null clears the plan.', maxLength: 10, optional: true, nullable: true },
       list: { type: 'string', description: 'List name or id; null moves it to the inbox.', maxLength: 200, optional: true, nullable: true },
       project: { type: 'string', description: 'Project name or id; null clears it.', maxLength: 200, optional: true, nullable: true },
+      parent: { type: 'string', description: 'The task this one is a step of, by id or exact title; null puts it back at the top.', maxLength: 300, optional: true, nullable: true },
+      waitsOn: { type: 'array', items: 'string', maxItems: MAX_DEPS_PER_TASK, maxLength: 300, description: 'The tasks this one waits on, replacing the set it has; an empty list waits on nothing.', optional: true },
       tags: { type: 'array', items: 'string', maxItems: MAX_TAGS_PER_TASK, description: 'The task\'s tags, replacing the ones it has.', optional: true },
       repeat: { type: 'string', enum: [...REPEAT_FREQUENCIES, 'none'], description: 'Set or clear how often it repeats.', optional: true },
       repeatInterval: { type: 'integer', minimum: 1, maximum: 99, description: 'Occurrences every N weeks, months or years. Defaults to 1.', optional: true },
@@ -848,7 +898,15 @@ export const TASK_TOOLS: ToolDefinition[] = [
        * and tags, and the occurrence copied from it carries them too.
        */
       const completing = isTaskDone(status) && !isTaskDone(task.status)
-      const updated = await ctx.store.updateTask(task.id, {
+      // Read before the write, so a reference that matches nothing is refused as a tool error rather
+      // than as a half-applied patch.
+      const parentId = args.parent === undefined
+        ? undefined
+        : args.parent === null
+          ? null
+          : (await resolveTaskOrThrow(args.parent, ctx)).id
+      const waitsOn = args.waitsOn === undefined ? undefined : await resolveTaskRefsOrThrow(args.waitsOn, ctx)
+      const updated = await asToolError(async () => ctx.store.updateTask(task.id, {
         ...(args.title !== undefined ? { title: String(args.title) } : {}),
         ...(args.description !== undefined ? { description: String(args.description) } : {}),
         ...(status === undefined || completing ? {} : { status }),
@@ -857,6 +915,8 @@ export const TASK_TOOLS: ToolDefinition[] = [
         ...(startAt !== undefined ? { startAt } : {}),
         ...(args.list !== undefined ? { listId: await resolveListId(args.list, ctx) } : {}),
         ...(args.project !== undefined ? { projectId: (await resolveProjectIdOrThrow(args.project, ctx)) ?? null } : {}),
+        ...(parentId !== undefined ? { parentId } : {}),
+        ...(waitsOn !== undefined ? { dependsOn: waitsOn } : {}),
         ...(args.tags !== undefined ? { tags: args.tags as string[] } : {}),
         ...(repeat !== undefined ? { repeat } : {}),
         ...(reminders !== undefined
@@ -868,7 +928,7 @@ export const TASK_TOOLS: ToolDefinition[] = [
         ...(args.note !== undefined
           ? { noteId: typeof args.note === 'string' && args.note.trim() ? await resolveNoteId(args.note, ctx) : null }
           : {}),
-      })
+      }))
       let finished: TodoTask | null = updated
       // The next occurrence belongs in the payload: a model that cannot see the date it just filed
       // would tell the reader a date of its own, and be wrong about it.

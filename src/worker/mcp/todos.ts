@@ -35,7 +35,7 @@ import {
   type TodoTask,
 } from '@shared/todos/model'
 import { isTaskDone } from '@shared/todos/status'
-import { AssistantStore, type NewTask } from '../assistant/store'
+import { AssistantStore, TaskRefusal, type NewTask } from '../assistant/store'
 import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidId } from '../lib/id'
@@ -80,6 +80,10 @@ export interface McpNewTask {
   due?: string
   remind?: RemindOffset
   list?: string
+  /** The task this one is a step of, by id. */
+  parent?: string
+  /** The tasks this one waits on, by id. */
+  waitsOn?: string[]
   tags?: string[]
   steps?: string[]
   repeat?: RepeatFrequency
@@ -98,6 +102,10 @@ export interface McpTaskPatch {
   priority?: TaskPriority
   due?: string | null
   list?: string | null
+  /** A task id, or null to put the row back at the top of the tree. */
+  parent?: string | null
+  /** The whole set this task waits on, replacing the one it has. */
+  waitsOn?: string[]
   tags?: string[]
   repeat?: RepeatFrequency | 'none'
   repeatInterval?: number
@@ -158,6 +166,8 @@ export async function createMcpTask(context: McpTodoContext, input: McpNewTask):
     priority: input.priority,
     dueAt,
     listId: listId ?? null,
+    ...(input.parent === undefined ? {} : { parentId: input.parent }),
+    ...(input.waitsOn === undefined ? {} : { dependsOn: input.waitsOn }),
     starred: input.starred === true,
     repeat,
     remindAt: remindAtFor(dueAt, input.remind ?? 'none'),
@@ -172,7 +182,7 @@ export async function createMcpTask(context: McpTodoContext, input: McpNewTask):
     tool: 'create_todo',
     request: input,
     execute: async () => {
-      const task = await store.createTask(newTask)
+      const task = await asMcpRefusal(() => store.createTask(newTask))
       await store.recordActivity('task.created', task.title)
       return { task: presentTask(task, context.scopes) }
     },
@@ -194,6 +204,8 @@ export async function updateMcpTask(context: McpTodoContext, input: McpTaskPatch
     ...(input.priority !== undefined ? { priority: input.priority } : {}),
     ...(dueAt !== undefined ? { dueAt } : {}),
     ...(listId !== undefined ? { listId } : {}),
+    ...(input.parent === undefined ? {} : { parentId: input.parent }),
+    ...(input.waitsOn === undefined ? {} : { dependsOn: input.waitsOn }),
     ...(input.tags !== undefined ? { tags: normalizeTagNames(input.tags) } : {}),
     ...(input.starred !== undefined ? { starred: input.starred } : {}),
     ...(repeat !== undefined ? { repeat } : {}),
@@ -211,7 +223,7 @@ export async function updateMcpTask(context: McpTodoContext, input: McpTaskPatch
     tool: 'update_todo',
     request: input,
     execute: async () => {
-      let task = Object.keys(patch).length ? await store.updateTask(existing.id, patch) : existing
+      let task = Object.keys(patch).length ? await asMcpRefusal(() => store.updateTask(existing.id, patch)) : existing
       if (!task) throw ApiError.notFound('Task not found')
       let next: TodoTask | null = null
       if (isTaskDone(input.status)) {
@@ -284,6 +296,22 @@ export async function listMcpTaskLists(context: McpTodoContext): Promise<Record<
   }
 }
 
+/**
+ * A store refusal, in the words an MCP answer carries.
+ *
+ * The task store judges a parent and a dependency set before it writes anything, and its reason is the
+ * caller's lesson — "A task cannot wait on itself" — not a stack trace. Left alone it would surface as a
+ * server error, which tells an agent nothing to change about the next call.
+ */
+async function asMcpRefusal<T>(ask: () => Promise<T>): Promise<T> {
+  try {
+    return await ask()
+  } catch (error) {
+    if (error instanceof TaskRefusal) throw ApiError.badRequest(error.message)
+    throw error
+  }
+}
+
 function storeFor(context: McpTodoContext): AssistantStore {
   return new AssistantStore(context.env.DB, context.userId, context.env)
 }
@@ -321,6 +349,11 @@ function presentTask(task: TodoTask, scopes: readonly string[]): Record<string, 
     ...(task.stepTotal ? { steps: `${task.stepDone}/${task.stepTotal}` } : {}),
     ...(task.description ? { description: task.description.slice(0, 300) } : {}),
     ...(task.noteId && scopes.includes(MCP_SCOPES.read) ? { note_id: task.noteId } : {}),
+    // Where the row sits and what it waits for, so a call that set either can read back what it got
+    // rather than assume the write said what it was asked.
+    ...(task.parentId ? { parent_id: task.parentId } : {}),
+    ...(task.dependsOn.length ? { waits_on: task.dependsOn.map((entry) => entry.id) } : {}),
+    ...(task.blocks.length ? { blocking: task.blocks.map((entry) => entry.id) } : {}),
   }
 }
 
