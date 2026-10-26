@@ -39,6 +39,20 @@ function DialogError({ children }: { children: ReactNode }) {
   )
 }
 
+/** The write already succeeded; a refresh failure must not present the write as failed or invite a retry. */
+async function closeAfterRefresh(onSaved: () => void | Promise<void>, onClose: () => void): Promise<void> {
+  try {
+    await onSaved()
+  } catch (error) {
+    useUi.getState().toast({
+      title: t('calendar.error.refresh'),
+      description: error instanceof Error && error.message ? error.message : undefined,
+      tone: 'danger',
+    })
+  }
+  onClose()
+}
+
 function ColorPresets({ value, onChange }: { value: string; onChange: (color: string) => void }) {
   return (
     <div role="group" aria-label={t('calendar.calendar.color')} className="flex flex-wrap items-center gap-1.5">
@@ -112,8 +126,7 @@ export function CalendarFormDialog({ open, mode, calendar, groups, defaultGroupI
         })
         useUi.getState().toast({ title: t('calendar.calendar.created'), tone: 'success' })
       }
-      await onSaved()
-      onClose()
+      await closeAfterRefresh(onSaved, onClose)
     } catch (submitError) {
       setError(errorMessage(submitError, 'calendar.calendar.action_failed'))
     } finally {
@@ -207,8 +220,7 @@ export function GroupDialog({ open, mode, group, onClose, onSaved }: GroupDialog
       if (mode === 'rename' && group) await api.renameGroup(group.id, trimmed)
       else await api.createGroup(trimmed)
       useUi.getState().toast({ title: t('calendar.group.saved'), tone: 'success' })
-      await onSaved()
-      onClose()
+      await closeAfterRefresh(onSaved, onClose)
     } catch (submitError) {
       setError(errorMessage(submitError, 'calendar.group.failed'))
     } finally {
@@ -289,8 +301,7 @@ export function DeleteCalendarDialog({ open, calendar, calendars, onClose, onSav
         title: mode === 'merge' ? t('calendar.calendar.merged') : t('calendar.calendar.deleted'),
         tone: 'success',
       })
-      await onSaved()
-      onClose()
+      await closeAfterRefresh(onSaved, onClose)
     } catch (submitError) {
       setError(errorMessage(submitError, 'calendar.calendar.action_failed'))
     } finally {
@@ -398,8 +409,7 @@ export function ImportIcsDialog({ open, calendars, defaultTimeZone, onClose, onS
         description: result.warnings?.length ? t('calendar.import.warnings', { count: result.warnings.length }) : undefined,
         tone: 'success',
       })
-      await onSaved()
-      onClose()
+      await closeAfterRefresh(onSaved, onClose)
     } catch (submitError) {
       setError(errorMessage(submitError, 'calendar.import.failed'))
     } finally {
@@ -533,8 +543,7 @@ export function SubscribeDialog({ open, onClose, onSaved }: SubscribeDialogProps
         color,
       })
       useUi.getState().toast({ title: t('calendar.subscription.done'), tone: 'success' })
-      await onSaved()
-      onClose()
+      await closeAfterRefresh(onSaved, onClose)
     } catch (submitError) {
       setError(errorMessage(submitError, 'calendar.subscription.failed'))
     } finally {
