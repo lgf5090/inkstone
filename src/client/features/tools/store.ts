@@ -6,7 +6,7 @@ export const TOOLS_NAV_WIDTH = {
   default: 260,
 } as const
 
-export type ToolsSubmodule = 'password'
+export type ToolsSubmodule = 'password' | 'qrcode'
 
 export type PasswordNavView =
   | 'all'
@@ -16,12 +16,20 @@ export type PasswordNavView =
   | 'backup_settings'
   | 'batch_operations'
 
+export type QrCodeNavView =
+  | 'generator'
+  | 'history'
+  | 'templates'
+  | 'settings'
+
 const STORAGE_KEY = 'inkstone.tools.layout'
 
 interface PersistedLayout {
   toolsNavWidth?: number
   toolsNavCollapsed?: boolean
   passwordModuleExpanded?: boolean
+  qrcodeModuleExpanded?: boolean
+  activeSubmodule?: ToolsSubmodule
 }
 
 function loadPersistedLayout(): PersistedLayout {
@@ -52,6 +60,8 @@ export interface ToolsState {
   passwordModuleExpanded: boolean
   activePasswordView: PasswordNavView
   selectedGroupId: string | null
+  qrcodeModuleExpanded: boolean
+  activeQrCodeView: QrCodeNavView
 
   setToolsNavWidth: (width: number) => void
   toggleToolsNav: () => void
@@ -62,6 +72,9 @@ export interface ToolsState {
   togglePasswordModuleExpanded: () => void
   setActivePasswordView: (view: PasswordNavView) => void
   setSelectedGroupId: (id: string | null) => void
+  setQrcodeModuleExpanded: (expanded: boolean | ((prev: boolean) => boolean)) => void
+  toggleQrcodeModuleExpanded: () => void
+  setActiveQrCodeView: (view: QrCodeNavView) => void
 }
 
 const initialPersisted = loadPersistedLayout()
@@ -76,10 +89,12 @@ export const useToolsStore = create<ToolsState>((set, get) => ({
       : TOOLS_NAV_WIDTH.default,
   toolsNavCollapsed: Boolean(initialPersisted.toolsNavCollapsed),
   toolsNavDrawerOpen: false,
-  activeSubmodule: 'password',
+  activeSubmodule: initialPersisted.activeSubmodule ?? 'password',
   passwordModuleExpanded: initialPersisted.passwordModuleExpanded ?? true,
   activePasswordView: 'all',
   selectedGroupId: null,
+  qrcodeModuleExpanded: initialPersisted.qrcodeModuleExpanded ?? true,
+  activeQrCodeView: 'generator',
 
   setToolsNavWidth: (width: number) => {
     const clamped = Math.min(
@@ -121,6 +136,13 @@ export const useToolsStore = create<ToolsState>((set, get) => ({
 
   setActiveSubmodule: (submodule: ToolsSubmodule) => {
     set({ activeSubmodule: submodule })
+    persistLayout({
+      toolsNavWidth: get().toolsNavWidth,
+      toolsNavCollapsed: get().toolsNavCollapsed,
+      passwordModuleExpanded: get().passwordModuleExpanded,
+      qrcodeModuleExpanded: get().qrcodeModuleExpanded,
+      activeSubmodule: submodule,
+    })
   },
 
   setPasswordModuleExpanded: (expanded: boolean | ((prev: boolean) => boolean)) => {
@@ -130,6 +152,8 @@ export const useToolsStore = create<ToolsState>((set, get) => ({
       toolsNavWidth: get().toolsNavWidth,
       toolsNavCollapsed: get().toolsNavCollapsed,
       passwordModuleExpanded: next,
+      qrcodeModuleExpanded: get().qrcodeModuleExpanded,
+      activeSubmodule: get().activeSubmodule,
     })
   },
 
@@ -140,6 +164,8 @@ export const useToolsStore = create<ToolsState>((set, get) => ({
       toolsNavWidth: get().toolsNavWidth,
       toolsNavCollapsed: get().toolsNavCollapsed,
       passwordModuleExpanded: next,
+      qrcodeModuleExpanded: get().qrcodeModuleExpanded,
+      activeSubmodule: get().activeSubmodule,
     })
   },
 
@@ -149,5 +175,33 @@ export const useToolsStore = create<ToolsState>((set, get) => ({
 
   setSelectedGroupId: (id: string | null) => {
     set({ selectedGroupId: id })
+  },
+
+  setQrcodeModuleExpanded: (expanded: boolean | ((prev: boolean) => boolean)) => {
+    const next = typeof expanded === 'function' ? expanded(get().qrcodeModuleExpanded) : expanded
+    set({ qrcodeModuleExpanded: next })
+    persistLayout({
+      toolsNavWidth: get().toolsNavWidth,
+      toolsNavCollapsed: get().toolsNavCollapsed,
+      passwordModuleExpanded: get().passwordModuleExpanded,
+      qrcodeModuleExpanded: next,
+      activeSubmodule: get().activeSubmodule,
+    })
+  },
+
+  toggleQrcodeModuleExpanded: () => {
+    const next = !get().qrcodeModuleExpanded
+    set({ qrcodeModuleExpanded: next })
+    persistLayout({
+      toolsNavWidth: get().toolsNavWidth,
+      toolsNavCollapsed: get().toolsNavCollapsed,
+      passwordModuleExpanded: get().passwordModuleExpanded,
+      qrcodeModuleExpanded: next,
+      activeSubmodule: get().activeSubmodule,
+    })
+  },
+
+  setActiveQrCodeView: (view: QrCodeNavView) => {
+    set({ activeQrCodeView: view })
   },
 }))

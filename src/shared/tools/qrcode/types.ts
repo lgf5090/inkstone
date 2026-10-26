@@ -1,8 +1,38 @@
-/**
- * Shared types for QR Code Generator tool under Tools (`tools/qrcode`).
- */
-
 export type QrContentType = 'text' | 'url' | 'wifi' | 'vcard' | 'email' | 'phone'
+
+export interface QrWifiContent {
+  ssid: string
+  password?: string
+  encryption: 'WPA' | 'WEP' | 'none'
+  hidden?: boolean
+}
+
+export interface QrVCardContent {
+  firstName: string
+  lastName?: string
+  phone?: string
+  mobile?: string
+  email?: string
+  organization?: string
+  title?: string
+  url?: string
+  address?: string
+}
+
+export interface QrEmailContent {
+  to: string
+  subject?: string
+  body?: string
+}
+
+export interface QrPhoneContent {
+  phone: string
+  message?: string
+}
+
+export type QrRecord = QrCodeRecord
+export type QrTemplate = QrCodeTemplate
+export type QrSettings = QrCodeSettings
 
 export type QrExportFormat = 'png' | 'jpg' | 'jpeg' | 'svg' | 'webp'
 

@@ -3,11 +3,14 @@ import {
   CheckSquare,
   ChevronRight,
   FolderTree,
+  History,
   KeyRound,
   Layers,
+  LayoutTemplate,
   PanelLeft,
   PanelLeftClose,
   Lock,
+  QrCode,
   Settings,
   Sparkles,
   Star,
@@ -18,7 +21,7 @@ import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { IconButton } from '../../components/primitives'
 import { Tooltip } from '../../components/overlay'
-import { useToolsStore, type PasswordNavView } from './store'
+import { useToolsStore, type PasswordNavView, type QrCodeNavView } from './store'
 import { GroupTree } from './password/GroupTree'
 import { usePasswordVaultStore } from './password/store'
 
@@ -27,6 +30,19 @@ interface NavSlot {
   labelKey: MessageKey
   icon: ComponentType<{ size?: number; className?: string }>
 }
+
+interface QrNavSlot {
+  id: QrCodeNavView
+  labelKey: MessageKey
+  icon: ComponentType<{ size?: number; className?: string }>
+}
+
+const QRCODE_NAV_SLOTS: readonly QrNavSlot[] = [
+  { id: 'generator', labelKey: 'tools.qrcode.nav.generator', icon: QrCode },
+  { id: 'history', labelKey: 'tools.qrcode.nav.history', icon: History },
+  { id: 'templates', labelKey: 'tools.qrcode.nav.templates', icon: LayoutTemplate },
+  { id: 'settings', labelKey: 'tools.qrcode.nav.settings', icon: Settings },
+]
 
 const PASSWORD_NAV_SLOTS: readonly NavSlot[] = [
   { id: 'all', labelKey: 'tools.password.nav.all', icon: Layers },
@@ -54,6 +70,10 @@ export function ToolsSidebar({
   const togglePasswordModuleExpanded = useToolsStore((s) => s.togglePasswordModuleExpanded)
   const activePasswordView = useToolsStore((s) => s.activePasswordView)
   const setActivePasswordView = useToolsStore((s) => s.setActivePasswordView)
+  const qrcodeModuleExpanded = useToolsStore((s) => s.qrcodeModuleExpanded)
+  const toggleQrcodeModuleExpanded = useToolsStore((s) => s.toggleQrcodeModuleExpanded)
+  const activeQrCodeView = useToolsStore((s) => s.activeQrCodeView)
+  const setActiveQrCodeView = useToolsStore((s) => s.setActiveQrCodeView)
   const isUnlocked = usePasswordVaultStore((s) => s.isUnlocked)
   const isBackupSettingsOpen = usePasswordVaultStore((s) => s.isBackupSettingsOpen)
   const isBatchOperationsOpen = usePasswordVaultStore((s) => s.isBatchOperationsOpen)
@@ -67,6 +87,11 @@ export function ToolsSidebar({
     } else {
       setActivePasswordView(slotId)
     }
+  }
+
+  const handleQrSlotClick = (slotId: QrCodeNavView) => {
+    setActiveSubmodule('qrcode')
+    setActiveQrCodeView(slotId)
   }
 
   if (collapsed) {
@@ -99,6 +124,19 @@ export function ToolsSidebar({
               }}
             >
               <KeyRound size={16} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip label={t('tools.qrcode.module_name')} side="right">
+            <IconButton
+              label={t('tools.qrcode.module_name')}
+              size="sm"
+              active={activeSubmodule === 'qrcode'}
+              onClick={() => {
+                setActiveSubmodule('qrcode')
+                onExpand?.()
+              }}
+            >
+              <QrCode size={16} />
             </IconButton>
           </Tooltip>
         </div>
@@ -218,6 +256,60 @@ export function ToolsSidebar({
               >
                 <GroupTree />
               </div>
+            </div>
+          )}
+        </div>
+
+        <div>
+          <button
+            type="button"
+            aria-expanded={qrcodeModuleExpanded}
+            onClick={toggleQrcodeModuleExpanded}
+            className={cn(
+              'flex w-full items-center justify-between gap-2 rounded-[var(--r-md)] px-2.5 py-1.5 text-[length:var(--text-13)] font-medium text-[var(--text-secondary)]',
+              'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+              'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+              activeSubmodule === 'qrcode' && 'text-[var(--text-primary)]',
+            )}
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <span
+                className={cn(
+                  'transition-transform duration-[var(--dur-fast)]',
+                  qrcodeModuleExpanded ? 'rotate-90' : 'rotate-0',
+                )}
+              >
+                <ChevronRight size={14} className="shrink-0 text-[var(--text-tertiary)]" />
+              </span>
+              <QrCode size={16} className="shrink-0 text-[var(--accent)]" />
+              <span className="truncate">{t('tools.qrcode.module_name')}</span>
+            </div>
+          </button>
+
+          {qrcodeModuleExpanded && (
+            <div className="mt-1 ml-4 space-y-0.5 border-l border-[var(--border-subtle)] pl-2">
+              {QRCODE_NAV_SLOTS.map((slot) => {
+                const Icon = slot.icon
+                const isSelected = activeSubmodule === 'qrcode' && activeQrCodeView === slot.id
+                return (
+                  <button
+                    key={slot.id}
+                    type="button"
+                    aria-current={isSelected ? 'page' : undefined}
+                    onClick={() => handleQrSlotClick(slot.id)}
+                    className={cn(
+                      'flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]',
+                      'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+                      'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+                      isSelected &&
+                        'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]',
+                    )}
+                  >
+                    <Icon size={14} className="shrink-0" />
+                    <span className="truncate">{t(slot.labelKey)}</span>
+                  </button>
+                )
+              })}
             </div>
           )}
         </div>

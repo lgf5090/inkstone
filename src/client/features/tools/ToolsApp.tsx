@@ -7,6 +7,7 @@ import { Tooltip } from '../../components/overlay'
 import { Resizer } from '../shell/Resizer'
 import { ToolsSidebar } from './ToolsSidebar'
 import { PasswordApp } from './password/PasswordApp'
+import { QrCodeApp } from './qrcode/QrCodeApp'
 import { TOOLS_NAV_WIDTH, useToolsStore } from './store'
 
 export function ToolsApp() {
@@ -46,7 +47,9 @@ export function ToolsApp() {
             <span className="truncate text-[length:var(--text-13)] font-normal text-[var(--text-secondary)]">
               {activeSubmodule === 'password'
                 ? t('tools.password.module_name')
-                : activeSubmodule}
+                : activeSubmodule === 'qrcode'
+                  ? t('tools.qrcode.module_name')
+                  : activeSubmodule}
             </span>
           </div>
         </header>
@@ -80,6 +83,7 @@ export function ToolsApp() {
 
         <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--bg-base)]">
           {activeSubmodule === 'password' && <PasswordApp />}
+          {activeSubmodule === 'qrcode' && <QrCodeApp />}
         </main>
       </div>
 

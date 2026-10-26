@@ -149,7 +149,7 @@ function renderDarkGreenFrame(
 
   ctx.drawImage(qrCanvas, pad, pad)
 
-  const label = resolveLabel(options, '扫一扫 了解更多')
+  const label = resolveLabel(options, 'SCAN TO LEARN MORE')
   if (label) {
     const badgeW = Math.round(totalW * 0.65)
     const badgeH = Math.round(footerH * 0.6)
@@ -208,7 +208,7 @@ function renderRedBlueFrame(
 
   ctx.drawImage(qrCanvas, pad, pad)
 
-  const label = resolveLabel(options, '扫一扫 查看内容')
+  const label = resolveLabel(options, 'SCAN TO VIEW')
   if (label) {
     const fontSize = Math.max(13, Math.round(footerH * 0.32))
     ctx.font = `bold ${fontSize}px 'PingFang SC', sans-serif`
@@ -402,7 +402,7 @@ function renderLiquidStampFrame(
 
   ctx.drawImage(qrCanvas, pad, pad)
 
-  const label = resolveLabel(options, '★ 专属认证 ★')
+  const label = resolveLabel(options, '★ AUTHENTIC ★')
   if (label) {
     const fontSize = Math.max(11, Math.round(pad * 0.32))
     ctx.font = `bold ${fontSize}px 'PingFang SC', sans-serif`
@@ -501,7 +501,7 @@ function renderMemeBubbleFrame(
   ctx.fillStyle = bg || '#ffffff'
   ctx.fillRect(0, 0, totalW, totalH)
 
-  const label = resolveLabel(options, '快去扫码！')
+  const label = resolveLabel(options, 'SCAN ME!')
   if (label) {
     const bW = Math.round(totalW * 0.68)
     const bH = Math.round(bubbleH * 0.65)
@@ -575,7 +575,7 @@ function renderMushroomFrame(
 
   ctx.drawImage(qrCanvas, pad, pad)
 
-  const label = resolveLabel(options, '扫一扫嘛')
+  const label = resolveLabel(options, 'SCAN ME')
   if (label) {
     const fontSize = Math.max(14, Math.round(footerH * 0.42))
     ctx.font = `bold ${fontSize}px 'PingFang SC', sans-serif`

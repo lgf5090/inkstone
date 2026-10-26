@@ -1,19 +1,7 @@
-/**
- * R2 storage helpers for QR Code generated assets and uploaded logos.
- *
- * Path invariants:
- * - Rendered QR: `tools/qrcode/{png,jpg,svg,webp}/${userId}/${recordId}.${ext}`
- * - Custom Logo: `tools/qrcode/logo/${userId}/${logoId}.${ext}`
- */
-
 import { ApiError } from '../../lib/errors'
 
 export type QrExportFormat = 'png' | 'jpg' | 'jpeg' | 'svg' | 'webp'
 
-/**
- * Normalizes image format extension and directory name.
- * Maps 'jpeg' -> 'jpg', otherwise keeps standard format.
- */
 export function normalizeQrFormat(format: string): 'png' | 'jpg' | 'svg' | 'webp' {
   const lower = format.toLowerCase().trim().replace(/^\./, '')
   if (lower === 'jpeg' || lower === 'jpg') return 'jpg'
@@ -22,9 +10,6 @@ export function normalizeQrFormat(format: string): 'png' | 'jpg' | 'svg' | 'webp
   return 'png'
 }
 
-/**
- * Resolves standard MIME content-type for QR formats.
- */
 export function getQrContentType(format: string): string {
   const norm = normalizeQrFormat(format)
   switch (norm) {
@@ -39,27 +24,16 @@ export function getQrContentType(format: string): string {
   }
 }
 
-/**
- * Returns the canonical R2 storage key for a generated QR code image.
- * Pattern: `tools/qrcode/{png,jpg,svg,webp}/${userId}/${recordId}.${ext}`
- */
 export function getQrCodeR2Key(userId: string, recordId: string, format: string): string {
   const ext = normalizeQrFormat(format)
   return `tools/qrcode/${ext}/${userId}/${recordId}.${ext}`
 }
 
-/**
- * Returns the canonical R2 storage key for an uploaded logo image.
- * Pattern: `tools/qrcode/logo/${userId}/${logoId}.${ext}`
- */
 export function getLogoR2Key(userId: string, logoId: string, ext: string): string {
   const cleanExt = normalizeQrFormat(ext)
   return `tools/qrcode/logo/${userId}/${logoId}.${cleanExt}`
 }
 
-/**
- * Uploads a rendered QR code image or SVG vector to R2.
- */
 export async function uploadQrCodeToR2(
   r2: R2Bucket | undefined,
   userId: string,
@@ -93,9 +67,6 @@ export async function uploadQrCodeToR2(
   return { key, size: bytes.byteLength }
 }
 
-/**
- * Reads an object from R2 storage.
- */
 export async function readQrCodeFromR2(
   r2: R2Bucket | undefined,
   key: string,
@@ -108,9 +79,6 @@ export async function readQrCodeFromR2(
   return obj
 }
 
-/**
- * Deletes an object from R2 storage.
- */
 export async function deleteQrCodeFromR2(
   r2: R2Bucket | undefined,
   key: string,
@@ -122,9 +90,6 @@ export async function deleteQrCodeFromR2(
   await r2.delete(key)
 }
 
-/**
- * Uploads a user custom logo image to R2 storage.
- */
 export async function uploadLogoToR2(
   r2: R2Bucket | undefined,
   userId: string,

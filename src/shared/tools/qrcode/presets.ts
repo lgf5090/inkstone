@@ -1,21 +1,15 @@
-/**
- * Pre-configured beautification presets for QR code styling.
- * Covers Minimal, Frame, Artistic, and Scenario categories.
- */
-
 import { ONLINE_LOGOS } from './online-logos'
 import type { QrPreset, QrPresetCategory } from './types'
 
 const taobaoLogo = ONLINE_LOGOS.find((l) => l.id === 'taobao')?.dataUrl
 
 export const QR_PRESETS: QrPreset[] = [
-  // =================== 简洁分类 (Minimal) ===================
   {
     id: 'default',
-    name: '默认模板',
+    name: 'Default',
     nameKey: 'tools.qrcode.presets.default',
     category: 'minimal',
-    description: '标准黑白方块，经典高对比度扫码方案',
+    description: 'Standard black and white square, classic high-contrast scanning',
     options: {
       errorCorrectionLevel: 'Q',
       dotsOptions: {
@@ -40,10 +34,10 @@ export const QR_PRESETS: QrPreset[] = [
   },
   {
     id: 'wecom',
-    name: '企业微信',
+    name: 'WeCom',
     nameKey: 'tools.qrcode.presets.wecom',
     category: 'minimal',
-    description: '商务深蓝连景点阵，方圆码眼专业稳重',
+    description: 'Corporate blue connected dots with balanced eyes',
     options: {
       errorCorrectionLevel: 'Q',
       dotsOptions: {
@@ -68,10 +62,10 @@ export const QR_PRESETS: QrPreset[] = [
   },
   {
     id: 'simple-dots',
-    name: '简约圆点',
-    nameKey: 'tools.qrcode.presets.simpleDots',
+    name: 'Simple Dots',
+    nameKey: 'tools.qrcode.presets.simple_dots',
     category: 'minimal',
-    description: '轻盈圆形散点点阵，搭配极简圆形码眼',
+    description: 'Lightweight circular dots with minimalist eye shapes',
     options: {
       errorCorrectionLevel: 'Q',
       dotsOptions: {
@@ -96,10 +90,10 @@ export const QR_PRESETS: QrPreset[] = [
   },
   {
     id: 'liquid-gradient',
-    name: '液态渐变',
-    nameKey: 'tools.qrcode.presets.liquidGradient',
+    name: 'Liquid Gradient',
+    nameKey: 'tools.qrcode.presets.liquid_gradient',
     category: 'minimal',
-    description: '蓝紫双色线性流动渐变，圆润平滑现代美感',
+    description: 'Blue-cyan linear gradient with smooth fluid aesthetic',
     options: {
       errorCorrectionLevel: 'Q',
       dotsOptions: {
@@ -138,10 +132,10 @@ export const QR_PRESETS: QrPreset[] = [
   },
   {
     id: 'bar-gradient',
-    name: '长条渐变',
-    nameKey: 'tools.qrcode.presets.barGradient',
+    name: 'Bar Gradient',
+    nameKey: 'tools.qrcode.presets.bar_gradient',
     category: 'minimal',
-    description: '落日金橙至品红横向渐变，流光溢彩',
+    description: 'Sunset orange to pink horizontal gradient bars',
     options: {
       errorCorrectionLevel: 'Q',
       dotsOptions: {
@@ -173,10 +167,10 @@ export const QR_PRESETS: QrPreset[] = [
   },
   {
     id: 'square-jump',
-    name: '方块跳动',
-    nameKey: 'tools.qrcode.presets.squareJump',
+    name: 'Square Jump',
+    nameKey: 'tools.qrcode.presets.square_jump',
     category: 'minimal',
-    description: '翡翠绿至青蓝对角律动，几何感十足',
+    description: 'Emerald to teal diagonal geometric rhythm',
     options: {
       errorCorrectionLevel: 'Q',
       dotsOptions: {
@@ -206,14 +200,12 @@ export const QR_PRESETS: QrPreset[] = [
       },
     },
   },
-
-  // =================== 边框分类 (Frame) ===================
   {
     id: 'dark-green-frame',
-    name: '墨绿边框',
-    nameKey: 'tools.qrcode.presets.darkGreenFrame',
+    name: 'Dark Green Frame',
+    nameKey: 'tools.qrcode.presets.dark_green_frame',
     category: 'frame',
-    description: '雅致墨绿古典几何外框，自带扫一扫说明标识',
+    description: 'Classic dark green ornamental frame with scan banner',
     options: {
       errorCorrectionLevel: 'Q',
       dotsOptions: {
@@ -233,7 +225,7 @@ export const QR_PRESETS: QrPreset[] = [
       },
       frameOptions: {
         type: 'dark-green',
-        label: '扫一扫 了解更多',
+        label: 'SCAN TO LEARN MORE',
         color: '#1b4332',
         secondaryColor: '#d4af37',
       },
@@ -241,10 +233,10 @@ export const QR_PRESETS: QrPreset[] = [
   },
   {
     id: 'red-blue-gradient',
-    name: '红蓝渐变',
-    nameKey: 'tools.qrcode.presets.redBlueGradient',
+    name: 'Red Blue Gradient',
+    nameKey: 'tools.qrcode.presets.red_blue_gradient',
     category: 'frame',
-    description: '双色流体渐变边框卡片，吸睛醒目',
+    description: 'Fluid dual-gradient border card, bold and eye-catching',
     options: {
       errorCorrectionLevel: 'Q',
       dotsOptions: {
@@ -271,7 +263,7 @@ export const QR_PRESETS: QrPreset[] = [
       },
       frameOptions: {
         type: 'red-blue',
-        label: '扫一扫 查看内容',
+        label: 'SCAN TO VIEW',
         color: '#ef4444',
         secondaryColor: '#3b82f6',
       },
@@ -279,10 +271,10 @@ export const QR_PRESETS: QrPreset[] = [
   },
   {
     id: 'three-color-card',
-    name: '三色名片',
-    nameKey: 'tools.qrcode.presets.threeColorCard',
+    name: 'Three Color Card',
+    nameKey: 'tools.qrcode.presets.three_color_card',
     category: 'frame',
-    description: '孟菲斯三色装饰名片边框，现代活力',
+    description: 'Memphis-inspired tri-color business card border',
     options: {
       errorCorrectionLevel: 'Q',
       dotsOptions: {
@@ -310,10 +302,10 @@ export const QR_PRESETS: QrPreset[] = [
   },
   {
     id: 'heart-border',
-    name: '爱心边框',
-    nameKey: 'tools.qrcode.presets.heartBorder',
+    name: 'Heart Border',
+    nameKey: 'tools.qrcode.presets.heart_border',
     category: 'frame',
-    description: '浪漫粉嫩爱心点缀外框，节日情侣表白首选',
+    description: 'Romantic pink heart adorned border for couples and holidays',
     options: {
       errorCorrectionLevel: 'Q',
       dotsOptions: {
@@ -341,10 +333,10 @@ export const QR_PRESETS: QrPreset[] = [
   },
   {
     id: 'liquid-stamp',
-    name: '液态印章',
-    nameKey: 'tools.qrcode.presets.liquidStamp',
+    name: 'Liquid Stamp',
+    nameKey: 'tools.qrcode.presets.liquid_stamp',
     category: 'frame',
-    description: '朱砂红流体印章边框，典雅认证徽章质感',
+    description: 'Cinnabar red fluid seal stamp frame with authentic badge',
     options: {
       errorCorrectionLevel: 'Q',
       dotsOptions: {
@@ -364,20 +356,18 @@ export const QR_PRESETS: QrPreset[] = [
       },
       frameOptions: {
         type: 'liquid-stamp',
-        label: '★ 专属认证 ★',
+        label: '★ AUTHENTIC ★',
         color: '#be123c',
         secondaryColor: '#fb7185',
       },
     },
   },
-
-  // =================== 艺术分类 (Artistic) ===================
   {
     id: 'pacman',
-    name: '吃豆人',
+    name: 'Pacman',
     nameKey: 'tools.qrcode.presets.pacman',
     category: 'artistic',
-    description: '复古街机暗黑霓虹风，吃豆人游戏像素外框',
+    description: 'Retro arcade dark neon pixel frame',
     options: {
       errorCorrectionLevel: 'Q',
       dotsOptions: {
@@ -403,14 +393,12 @@ export const QR_PRESETS: QrPreset[] = [
       },
     },
   },
-
-  // =================== 场景分类 (Scenario) ===================
   {
     id: 'taobao',
-    name: '淘宝',
+    name: 'Taobao',
     nameKey: 'tools.qrcode.presets.taobao',
     category: 'scenario',
-    description: '电商导购亮橙风，内置淘宝官方矢量标志',
+    description: 'E-commerce vibrant orange with embedded Taobao logo',
     options: {
       errorCorrectionLevel: 'H',
       dotsOptions: {
@@ -444,10 +432,10 @@ export const QR_PRESETS: QrPreset[] = [
   },
   {
     id: 'meme-bubble',
-    name: '恶搞表情',
-    nameKey: 'tools.qrcode.presets.memeBubble',
+    name: 'Meme Bubble',
+    nameKey: 'tools.qrcode.presets.meme_bubble',
     category: 'scenario',
-    description: '自带萌趣卡通引导气泡，趣味十足',
+    description: 'Fun cartoon callout bubble guiding users to scan',
     options: {
       errorCorrectionLevel: 'Q',
       dotsOptions: {
@@ -467,7 +455,7 @@ export const QR_PRESETS: QrPreset[] = [
       },
       frameOptions: {
         type: 'meme-bubble',
-        label: '快去扫码！',
+        label: 'SCAN ME!',
         color: '#18181b',
         secondaryColor: '#facc15',
       },
@@ -475,10 +463,10 @@ export const QR_PRESETS: QrPreset[] = [
   },
   {
     id: 'mushroom-meme',
-    name: '蘑菇头表情',
-    nameKey: 'tools.qrcode.presets.mushroomMeme',
+    name: 'Mushroom Meme',
+    nameKey: 'tools.qrcode.presets.mushroom_meme',
     category: 'scenario',
-    description: '经典蘑菇头搞怪风格，附带表情包扫码气泡',
+    description: 'Classic playful meme character style with scan bubble',
     options: {
       errorCorrectionLevel: 'Q',
       dotsOptions: {
@@ -498,7 +486,7 @@ export const QR_PRESETS: QrPreset[] = [
       },
       frameOptions: {
         type: 'mushroom',
-        label: '扫一扫嘛',
+        label: 'SCAN ME',
         color: '#09090b',
         secondaryColor: '#ef4444',
       },

@@ -1,10 +1,3 @@
-/**
- * Database store for the QR Code tool (`tools_qrcode_t_*`).
- *
- * All operations are tenant-isolated using `user_id = ?1` as the primary dimension,
- * with builtin templates stored under `__builtin__`.
- */
-
 import type {
   QrCodeRecord,
   QrCodeSettings,
@@ -111,7 +104,6 @@ export class QrCodeStore {
     private readonly userId: string,
   ) {}
 
-  // ---------------------------------------------------------------- Records
   async listRecords(options: {
     contentType?: string
     search?: string
@@ -138,14 +130,12 @@ export class QrCodeStore {
 
     const whereClause = conditions.join(' AND ')
 
-    // Count total
     const countRow = await this.db
       .prepare(`SELECT COUNT(*) AS total FROM tools_qrcode_t_records WHERE ${whereClause}`)
       .bind(...params)
       .first<{ total: number }>()
     const total = countRow?.total ?? 0
 
-    // Fetch page
     const limitIdx = paramIndex++
     const offsetIdx = paramIndex++
     const rows = await this.db
@@ -255,7 +245,6 @@ export class QrCodeStore {
     return existing
   }
 
-  // ---------------------------------------------------------------- Templates
   async listTemplates(category?: string): Promise<QrCodeTemplate[]> {
     const conditions = [`(user_id = '__builtin__' OR user_id = ?1)`]
     const params: unknown[] = [this.userId]
@@ -422,7 +411,6 @@ export class QrCodeStore {
     return true
   }
 
-  // ---------------------------------------------------------------- Settings
   async getSettings(): Promise<QrCodeSettings> {
     const row = await this.db
       .prepare(

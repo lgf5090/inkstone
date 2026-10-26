@@ -1,7 +1,3 @@
-/**
- * D1 schema statements and invariants for the QR Code tool (`tools_qrcode_t_*`).
- */
-
 export const TOOLS_QRCODE_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS tools_qrcode_t_records (
     user_id TEXT NOT NULL,

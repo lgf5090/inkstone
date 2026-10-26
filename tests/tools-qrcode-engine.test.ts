@@ -161,7 +161,7 @@ describe('QR Code Engine & Beautification System', () => {
 
     it('retrieves logo by id and returns undefined for unknown id', () => {
       const wechat = getOnlineLogoById('wechat')
-      expect(wechat?.name).toBe('微信')
+      expect(wechat?.name).toBe('WeChat')
       expect(getOnlineLogoById('non-existent')).toBeUndefined()
     })
 
@@ -210,7 +210,7 @@ describe('QR Code Engine & Beautification System', () => {
     it('retrieves preset by ID correctly', () => {
       const wecom = getPresetById('wecom')
       expect(wecom).toBeDefined()
-      expect(wecom?.name).toBe('企业微信')
+      expect(wecom?.name).toBe('WeCom')
       expect(wecom?.options.dotsOptions.color).toBe('#1877f2')
 
       expect(getPresetById('unknown')).toBeUndefined()

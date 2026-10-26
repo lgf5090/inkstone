@@ -1,7 +1,3 @@
-/**
- * QR Code API routes (`/api/tools/qrcode/*`).
- */
-
 import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 import {
@@ -87,7 +83,6 @@ function decodeBase64OrDataUrl(data: string): { bytes: Uint8Array; contentType?:
   }
 }
 
-// ---------------------------------------------------------------- Records
 toolsQrcodeRoutes.get('/records', async (c) => {
   const store = getStore(c)
   const query = QueryQrRecordsSchema.safeParse(c.req.query())
@@ -193,7 +188,6 @@ toolsQrcodeRoutes.get('/records/:id/file', async (c) => {
   })
 })
 
-// ---------------------------------------------------------------- Templates
 toolsQrcodeRoutes.get('/templates', async (c) => {
   const store = getStore(c)
   const category = c.req.query('category')
@@ -244,7 +238,6 @@ toolsQrcodeRoutes.delete('/templates/:id', async (c) => {
   return c.json({ ok: true })
 })
 
-// ---------------------------------------------------------------- Settings
 toolsQrcodeRoutes.get('/settings', async (c) => {
   const store = getStore(c)
   const settings = await store.getSettings()
@@ -258,7 +251,6 @@ toolsQrcodeRoutes.put('/settings', async (c) => {
   return c.json({ ok: true, data: settings })
 })
 
-// ---------------------------------------------------------------- Upload Logo
 toolsQrcodeRoutes.post('/upload-logo', async (c) => {
   const userId = getUserId(c)
   const contentTypeHeader = c.req.header('Content-Type') || ''
@@ -281,7 +273,6 @@ toolsQrcodeRoutes.post('/upload-logo', async (c) => {
     mime = file.type || getQrContentType(ext)
     bytes = new Uint8Array(await file.arrayBuffer())
   } else {
-    // JSON body with base64 data
     const body = await parseBody(c, UploadLogoSchema)
     if (body.filename) {
       const parts = body.filename.split('.')

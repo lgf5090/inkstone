@@ -1,8 +1,3 @@
-/**
- * Built-in online logos library for QR code customization.
- * Provides clean SVG vectors and Data URLs for instant embedding.
- */
-
 import type { OnlineLogo } from './types'
 
 function svgToDataUrl(svg: string): string {
@@ -78,7 +73,7 @@ const REDPACKET_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 4
 export const ONLINE_LOGOS: OnlineLogo[] = [
   {
     id: 'wechat',
-    name: '微信',
+    name: 'WeChat',
     nameKey: 'tools.qrcode.logos.wechat',
     category: 'social',
     svg: WECHAT_SVG,
@@ -94,7 +89,7 @@ export const ONLINE_LOGOS: OnlineLogo[] = [
   },
   {
     id: 'taobao',
-    name: '淘宝',
+    name: 'Taobao',
     nameKey: 'tools.qrcode.logos.taobao',
     category: 'payment',
     svg: TAOBAO_SVG,
@@ -102,7 +97,7 @@ export const ONLINE_LOGOS: OnlineLogo[] = [
   },
   {
     id: 'weibo',
-    name: '微博',
+    name: 'Weibo',
     nameKey: 'tools.qrcode.logos.weibo',
     category: 'social',
     svg: WEIBO_SVG,
@@ -110,7 +105,7 @@ export const ONLINE_LOGOS: OnlineLogo[] = [
   },
   {
     id: 'qzone',
-    name: 'QQ空间',
+    name: 'Qzone',
     nameKey: 'tools.qrcode.logos.qzone',
     category: 'social',
     svg: QZONE_SVG,
@@ -134,7 +129,7 @@ export const ONLINE_LOGOS: OnlineLogo[] = [
   },
   {
     id: 'fingerprint',
-    name: '指纹图标',
+    name: 'Fingerprint',
     nameKey: 'tools.qrcode.logos.fingerprint',
     category: 'util',
     svg: FINGERPRINT_SVG,
@@ -142,7 +137,7 @@ export const ONLINE_LOGOS: OnlineLogo[] = [
   },
   {
     id: 'redpacket',
-    name: '红包图标',
+    name: 'Red Packet',
     nameKey: 'tools.qrcode.logos.redpacket',
     category: 'payment',
     svg: REDPACKET_SVG,

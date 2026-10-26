@@ -146,9 +146,9 @@ describe('Tools container architecture and collapsible sidebar', () => {
       const aside = view.container.querySelector('aside')
       expect(aside?.className).toContain('w-12')
 
-      // Should only contain expand button and top-level module icon (KeyRound)
+      // Should contain expand button and top-level module icons (KeyRound for password, QrCode for qrcode)
       const buttons = view.container.querySelectorAll('button')
-      expect(buttons).toHaveLength(2)
+      expect(buttons).toHaveLength(3)
 
       // Sub-menu slot labels must not be in collapsed rail
       expect(view.container.textContent).not.toContain(t('tools.password.nav.all'))
