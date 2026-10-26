@@ -10,15 +10,20 @@
  * box on the spot; everything else on the row is the way into the task itself. They are separate
  * controls rather than one button with a special corner, because one control that answers two
  * questions depending on where inside it the pointer landed is a control a keyboard cannot describe.
+ *
+ * `TaskRow` is the half a listing draws: the same card with the row's presses bound inside a memo, so a
+ * page of rows is redrawn by the writes that touched a row rather than by every write at all. A call
+ * site that binds the presses itself draws `TaskCard` directly, which is what the surfaces that hand in
+ * their own order controls still do.
  */
 
-import { useEffect, useId, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { CalendarMinus, Check, CircleDot, Hourglass, MoreHorizontal, Paperclip, Pause, Play, Star } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { api } from '../../lib/api'
 import { useDropState } from '../../lib/drop-state'
-import { useMediaQuery } from '../../lib/hooks'
+import { useMediaQuery, useNow } from '../../lib/hooks'
 import { isImeComposing } from '../../lib/ime'
 import { TagPill } from '../../components/TagChip'
 import { Input } from '../../components/form'
@@ -32,6 +37,7 @@ import { BatchContextMenu } from './BatchBar'
 import { dueLabel, priorityDot, priorityLabel } from './todo-ui'
 import { taskColorOf } from './task-face'
 import { ListIcon } from './list-icons'
+import { toPlainText } from '@shared/markdown-utils'
 import { formatTaskDuration } from '@shared/todos/duration'
 import { isTaskDone, isTaskOpen } from '@shared/todos/status'
 import type { SnoozeMinutes, TaskList, TodoTask } from '@shared/todos/model'
@@ -212,6 +218,27 @@ export function openTaskSiblings(tasks: readonly TodoTask[], task: TodoTask): To
 }
 
 /**
+ * The order a manual arrangement is read from, as one value: which rows are open, in which collection,
+ * in which place.
+ *
+ * It is asked once per page rather than once per row, and kept against the array it was read from,
+ * because an edit to a single row is otherwise a reason to redraw every row on the screen: a memoised
+ * row has nothing else to answer from, and this is the only part of it that can move under a write the
+ * row itself did not take.
+ */
+let openOrderCache: { rows: readonly TodoTask[], order: string } | null = null
+
+function openOrderOf(rows: readonly TodoTask[]): string {
+  if (openOrderCache?.rows === rows) return openOrderCache.order
+  const order = rows
+    .filter((row) => isTaskOpen(row.status))
+    .map((row) => `${row.listId ?? ''}/${row.id}`)
+    .join()
+  openOrderCache = { rows, order }
+  return order
+}
+
+/**
  * What a card's move menu may do, and whether it may be dragged.
  *
  * The siblings are the open rows of the card's own list in the order the page read them, which is the
@@ -246,10 +273,20 @@ export interface TaskMoveControls {
 }
 
 export function useTaskMoves(enabled: boolean): (task: TodoTask) => TaskMoveControls | null {
-  const tasks = useTodos((state) => state.tasks)
   const finePointer = useMediaQuery(FINE_POINTER_QUERY)
-  return (task) => {
+  /**
+   * The order these controls write against, as one string: which rows are open, in which collection,
+   * in which place.
+   *
+   * A row's neighbours are all the controls answer from, so the listing is not subscribed to as an array:
+   * a write that moved none of the three — a rename, a star, a due date — leaves this value equal, which
+   * is what a subscription compares, and every memoised row on the page then stands down instead of
+   * rebuilding a menu it did not change.
+   */
+  const openOrder = useTodos((state) => openOrderOf(state.tasks))
+  return useCallback((task: TodoTask): TaskMoveControls | null => {
     if (!enabled) return null
+    const tasks = useTodos.getState().tasks
     const siblings = openTaskSiblings(tasks, task)
     const index = siblings.findIndex((entry) => entry.id === task.id)
     if (index < 0) return null
@@ -289,10 +326,42 @@ export function useTaskMoves(enabled: boolean): (task: TodoTask) => TaskMoveCont
       },
       onMoveToList: (listId) => { void moveTodoTask(task.id, { beforeId: null, listId }) },
     }
-  }
+    // The sibling walk answers from `openOrder`, which is what the row's neighbours are made of, and the
+    // array is read again on every call — so the closures below are built from the order on screen.
+  }, [enabled, finePointer, openOrder])
 }
 
-export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnplan, move, compact = false, showList = true }: {
+/** How long the row clock is held still: one minute, the smallest thing a row prints. */
+const MINUTE_MS = 60_000
+
+/**
+ * The bounds a page of rows reads against, as one object that outlives the renders inside a minute.
+ *
+ * The rows are memoised, and `Date.now()` taken at every render would hand every one of them a new
+ * object every time, which is the leak that makes the memo never answer. A minute is the shortest
+ * reading a row shows — the due date prints to the minute, and so does the plan the bar under a running
+ * row pictures — so the object moves only when something a reader can see has moved, and the day end
+ * moving is what redraws the page as a whole.
+ */
+export function useListingBounds(dayEnd: number): { dayEnd: number; now: number } {
+  const now = useNow(MINUTE_MS)
+  return useMemo(() => ({ dayEnd, now }), [dayEnd, now])
+}
+
+/**
+ * The note as one line of plain words.
+ *
+ * A description is Markdown — the editor writes it and the preview renders it — so the raw text on a row
+ * prints the author's syntax rather than the note: the hashes of a heading, the dash of a bullet.
+ * `toPlainText()` is the reading the search index and the assistant already give the same note, so the
+ * row and a search result cannot disagree about what it says. The result is handed to React as a text
+ * node, which is why none of it can ever be markup.
+ */
+function descriptionPreview(description: string): string {
+  return toPlainText(description).replace(/\s+/g, ' ').trim()
+}
+
+export const TaskCard = memo(function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnplan, move, compact = false, showList = true }: {
   task: TodoTask
   lists: readonly TaskList[]
   bounds: { dayEnd: number; now: number }
@@ -344,6 +413,13 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
   const finished = isTaskDone(task.status)
   const owed = isTaskOpen(task.status)
   const progress = task.stepTotal > 0 ? t('todo.steps.progress', { done: task.stepDone, total: task.stepTotal }) : null
+  /**
+   * The note in the row's own words, read once per note.
+   *
+   * Held against the description rather than recomputed, because a row redraws for reasons the note has
+   * nothing to do with — the minute the clock crossed, another row being picked for a batch.
+   */
+  const notes = useMemo(() => descriptionPreview(task.description), [task.description])
   /**
    * What this row's ledger says, and what it can be made to say.
    *
@@ -787,7 +863,7 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
             type="button"
             data-todo-details={task.id}
             aria-label={t('todo.a11y.open_task', { title: task.title })}
-            aria-describedby={!compact && task.description ? `${notesId} ${metaId}` : metaId}
+            aria-describedby={!compact && notes ? `${notesId} ${metaId}` : metaId}
             onClick={openRow}
             onPointerDown={startLongPress}
             onPointerUp={cancelLongPress}
@@ -856,9 +932,9 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
             </button>
           )}
         </span>
-        {!compact && task.description && (
-          <span id={notesId} className="mt-0.5 line-clamp-1 break-words text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
-            {task.description}
+        {!compact && notes && (
+          <span id={notesId} data-todo-notes="" className="mt-0.5 line-clamp-1 break-words text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
+            {notes}
           </span>
         )}
         <span id={metaId} className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
@@ -1049,4 +1125,83 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
         ))}
     </article>
   )
+})
+
+/**
+ * The presses a row answers to, taken from the store once for the page rather than written per row.
+ *
+ * `TaskCard` takes its presses as zero-argument closures, so a listing that wrote them at the call site
+ * handed a memoised row a new prop on every parent render and the memo never got to answer (M-08). One
+ * of these objects is built per listing, and its identity moves only when something a row would really
+ * draw differently moves with it.
+ */
+export interface TaskRowActions {
+  /** Open the task itself — the row's whole-body press. */
+  open: (task: TodoTask) => void
+  /** Set the star to the other thing it is. */
+  star: (task: TodoTask) => void
+  /**
+   * The manual-order controls, or nothing where the page's order is not the reader's: the plan groups by
+   * day and an explicit sort has its own.
+   */
+  moveFor?: (task: TodoTask) => TaskMoveControls | null
+  /** Take this row out of today. Only the today screen has a plan to take a task out of. */
+  unplan?: (task: TodoTask) => void
+  /** Whether `unplan` would really take the row off this screen, which narrows the button further. */
+  canUnplan?: (task: TodoTask) => boolean
 }
+
+/** The page's own `TaskRowActions`, bound to the store's writes and to whatever order it keeps. */
+export function useTaskRowActions(order: {
+  moveFor?: (task: TodoTask) => TaskMoveControls | null
+  unplan?: (task: TodoTask) => void
+  canUnplan?: (task: TodoTask) => boolean
+} = {}): TaskRowActions {
+  const openEditor = useTodos((state) => state.openEditor)
+  const updateTask = useTodos((state) => state.updateTask)
+  const { moveFor, unplan, canUnplan } = order
+  return useMemo(() => ({
+    open: (task: TodoTask) => { openEditor({ id: task.id }) },
+    star: (task: TodoTask) => { void updateTask(task.id, { starred: !task.starred }) },
+    moveFor,
+    unplan,
+    canUnplan,
+  }), [openEditor, updateTask, moveFor, unplan, canUnplan])
+}
+
+/**
+ * One row, redrawn only when something it is drawn from moved.
+ *
+ * The two presses and the order controls are bound inside this boundary rather than handed in, because
+ * they are a function of the row and of one stable actions object: a store write that left the row and
+ * its neighbours alone — ticking another row, typing in the filter, the minute the clock crossed — now
+ * leaves this row's menu, tags and estimate bar on the page it already drew.
+ */
+export const TaskRow = memo(function TaskRow({ task, lists, bounds, timezone, actions, showList = true, compact = false }: {
+  task: TodoTask
+  lists: readonly TaskList[]
+  bounds: { dayEnd: number; now: number }
+  timezone: string
+  actions: TaskRowActions
+  /** Whether the row names its list; one list's own page does not repeat it on every row. */
+  showList?: boolean
+  compact?: boolean
+}) {
+  return (
+    <TaskCard
+      task={task}
+      lists={lists}
+      bounds={bounds}
+      timezone={timezone}
+      showList={showList}
+      compact={compact}
+      move={actions.moveFor?.(task) ?? undefined}
+      onOpen={() => actions.open(task)}
+      onStar={() => actions.star(task)}
+      {...(actions.unplan && (!actions.canUnplan || actions.canUnplan(task))
+        ? { onUnplan: () => { actions.unplan!(task) } }
+        : {})}
+    />
+  )
+})
+
