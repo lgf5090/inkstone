@@ -233,9 +233,11 @@ export function AccountList({
           </div>
         ) : (
           <div
-            role="listbox"
-            tabIndex={0}
+            // Each row is a button, not an option: `role="listbox"` promised options, and an option
+            // cannot hold the star control every card carries.
+            role="list"
             aria-label={t('tools.password.nav.all')}
+            tabIndex={0}
             onKeyDown={handleKeyDown}
             className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1 focus:outline-none"
             data-testid="account-cards-container"

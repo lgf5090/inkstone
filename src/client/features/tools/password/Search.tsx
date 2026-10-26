@@ -125,25 +125,24 @@ export function Search({ className }: { className?: string }) {
               return (
                 <div
                   key={acc.id}
-                  role="button"
-                  tabIndex={0}
-                  aria-selected={isSelected}
                   data-testid="search-result-item"
-                  onClick={() => setSelectedAccountId(acc.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      setSelectedAccountId(acc.id)
-                    }
-                  }}
-                  className={cn(
-                    'group relative flex items-center gap-3 rounded-lg border px-3 py-2 cursor-pointer select-none transition-colors duration-150',
-                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]',
-                    isSelected
-                      ? 'border-[var(--accent)] bg-[var(--accent-soft)]/20 shadow-sm'
-                      : 'border-transparent bg-transparent hover:bg-[var(--bg-hover)]',
-                  )}
+                  className="group relative flex items-center gap-1"
                 >
+                  {/* Same split as the account card: the row is a button, the star is its own control. */}
+                  <button
+                    type="button"
+                    aria-pressed={isSelected}
+                    aria-label={acc.title || t('tools.password.account.title')}
+                    data-testid="search-result-row"
+                    onClick={() => setSelectedAccountId(acc.id)}
+                    className={cn(
+                      'flex min-w-0 flex-1 items-center gap-3 rounded-lg border px-3 py-2 text-left select-none transition-colors duration-150',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]',
+                      isSelected
+                        ? 'border-[var(--accent)] bg-[var(--accent-soft)]/20 shadow-sm'
+                        : 'border-transparent bg-transparent hover:bg-[var(--bg-hover)]',
+                    )}
+                  >
                   <FaviconAvatar
                     url={acc.link}
                     title={acc.title}
@@ -162,6 +161,7 @@ export function Search({ className }: { className?: string }) {
                       <HighlightMatch text={acc.username || acc.link || '-'} query={query} />
                     </div>
                   </div>
+                  </button>
 
                   <button
                     type="button"

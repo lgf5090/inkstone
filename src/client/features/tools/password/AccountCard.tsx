@@ -1,4 +1,4 @@
-import type { DragEvent, KeyboardEvent, MouseEvent } from 'react'
+import type { DragEvent } from 'react'
 import { Star } from 'lucide-react'
 import type { DecryptedAccount } from '@shared/tools/password/types'
 import { cn } from '../../../lib/cn'
@@ -9,7 +9,7 @@ export interface AccountCardProps {
   account: DecryptedAccount
   isSelected: boolean
   onSelect: (account: DecryptedAccount) => void
-  onToggleFavorite?: (id: string, e: MouseEvent) => void
+  onToggleFavorite?: (id: string) => void
   draggable?: boolean
   onDragStart?: (e: DragEvent, account: DecryptedAccount) => void
   onDragOver?: (e: DragEvent) => void
@@ -43,61 +43,61 @@ export function AccountCard({
     onDrop?.(e, account)
   }
 
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault()
-      onSelect(account)
-    }
-  }
-
   const titleText = account.title || t('tools.password.account.title')
   const usernameText = account.username || account.link || '-'
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      aria-selected={isSelected}
-      aria-label={titleText}
-      data-testid="account-card"
       data-account-id={account.id}
       draggable={draggable}
       onDragStart={handleDragStart}
       onDragOver={onDragOver}
       onDrop={handleDrop}
-      onClick={() => onSelect(account)}
-      onKeyDown={handleKeyDown}
       className={cn(
-        'group relative flex items-center gap-3 rounded-lg border px-3 py-2 cursor-pointer select-none transition-all duration-150',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]',
-        isSelected
-          ? 'border-[var(--accent)] bg-[var(--accent-soft)]/20 shadow-sm'
-          : 'border-transparent bg-transparent hover:bg-[var(--bg-hover)]',
+        'group relative flex items-center gap-1 rounded-lg transition-all duration-150',
         className,
       )}
     >
-      <FaviconAvatar
-        url={account.link}
-        title={account.title}
-        favicon={account.favicon}
-        size={34}
-      />
+      {/* The row is a button and the star beside it is another: a `div` wearing a role could be neither
+          keyboard-reachable past the list nor described as the two controls it actually is. */}
+      <button
+        type="button"
+        aria-pressed={isSelected}
+        aria-label={titleText}
+        data-testid="account-card"
+        onClick={() => onSelect(account)}
+        className={cn(
+          'flex min-w-0 flex-1 items-center gap-3 rounded-lg border px-3 py-2 text-left select-none',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]',
+          'transition-colors duration-150',
+          isSelected
+            ? 'border-[var(--accent)] bg-[var(--accent-soft)]/20 shadow-sm'
+            : 'border-transparent bg-transparent hover:bg-[var(--bg-hover)]',
+        )}
+      >
+        <FaviconAvatar
+          url={account.link}
+          title={account.title}
+          favicon={account.favicon}
+          size={34}
+        />
 
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5">
-          <span
-            className={cn(
-              'truncate font-medium text-[length:var(--text-13)]',
-              isSelected ? 'font-semibold text-[var(--accent)]' : 'text-[var(--text-primary)]',
-            )}
-          >
-            {titleText}
-          </span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span
+              className={cn(
+                'truncate font-medium text-[length:var(--text-13)]',
+                isSelected ? 'font-semibold text-[var(--accent)]' : 'text-[var(--text-primary)]',
+              )}
+            >
+              {titleText}
+            </span>
+          </div>
+          <div className="truncate text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
+            {usernameText}
+          </div>
         </div>
-        <div className="truncate text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
-          {usernameText}
-        </div>
-      </div>
+      </button>
 
       <button
         type="button"
@@ -107,10 +107,7 @@ export function AccountCard({
             : t('tools.password.account.favorite')
         }
         data-testid="account-favorite-btn"
-        onClick={(e) => {
-          e.stopPropagation()
-          onToggleFavorite?.(account.id, e)
-        }}
+        onClick={() => onToggleFavorite?.(account.id)}
         className={cn(
           'shrink-0 p-1 rounded-md text-[var(--text-quaternary)] transition-colors',
           'hover:bg-[var(--bg-hover)] hover:text-amber-400',
