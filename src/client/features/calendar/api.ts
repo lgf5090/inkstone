@@ -14,6 +14,7 @@ import type {
   CalendarMetaDto,
   CalendarPreferences,
   CalendarSearchResultDto,
+  CalendarShareDto,
   CalendarSource,
 } from '@shared/calendar/model'
 
@@ -272,6 +273,23 @@ export function importIcs(input: {
 /** The export is a calendar document, not JSON; `request` hands back the body as text. */
 export function exportIcs(calendarId: string): Promise<string> {
   return request<string>(`/api/calendar/ics/export?calendarId=${entity(calendarId)}`)
+}
+
+/** The calendar's public link, or null while it has never been shared. */
+export async function getCalendarShare(calendarId: string): Promise<CalendarShareDto | null> {
+  const data = await request<{ share: CalendarShareDto | null }>(`/api/calendar/calendars/${entity(calendarId)}/share`)
+  return data.share ?? null
+}
+
+/** Publish, or return the address the calendar already has. */
+export function shareCalendar(calendarId: string): Promise<CalendarShareDto> {
+  return request<{ share: CalendarShareDto }>(`/api/calendar/calendars/${entity(calendarId)}/share`, {
+    method: 'POST',
+  }).then(data => data.share)
+}
+
+export function unshareCalendar(calendarId: string): Promise<void> {
+  return request<void>(`/api/calendar/calendars/${entity(calendarId)}/share`, { method: 'DELETE' })
 }
 
 export interface SubscriptionCreateResponse {

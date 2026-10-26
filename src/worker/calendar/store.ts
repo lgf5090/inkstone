@@ -617,6 +617,11 @@ export class CalendarStore {
     statements.push(this.db.prepare(
       `DELETE FROM calendar_subscriptions WHERE user_id = ?1 AND calendar_id = ?2`,
     ).bind(this.userId, id))
+    // A published link to a calendar that no longer exists must stop answering in the same statement
+    // batch, so the delete cannot leave a public address behind.
+    statements.push(this.db.prepare(
+      `DELETE FROM calendar_shares WHERE user_id = ?1 AND calendar_id = ?2`,
+    ).bind(this.userId, id))
     const guarded = options.rev !== null && options.rev !== undefined
     statements.push(guarded
       ? this.db.prepare(

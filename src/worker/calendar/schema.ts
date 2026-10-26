@@ -221,6 +221,22 @@ export const CALENDAR_SCHEMA_STATEMENTS: readonly string[] = [
      ON calendar_provider_calendars(user_id, local_calendar_id)`,
   `CREATE INDEX IF NOT EXISTS idx_calendar_provider_due
      ON calendar_provider_calendars(user_id, connection_id, last_sync_at)`,
+  // One public link per calendar. The slug is the whole capability — a reader has no session, so it is
+  // looked up on its own — while the key stays account-first like every other calendar table. Revoking
+  // deletes the row, so an address a reader wrote down is gone rather than parked next to a new one.
+  `CREATE TABLE IF NOT EXISTS calendar_shares (
+    user_id TEXT NOT NULL,
+    calendar_id TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    views INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    last_viewed_at INTEGER,
+    PRIMARY KEY (user_id, calendar_id)
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_shares_slug
+     ON calendar_shares(slug)`,
+
   `CREATE TABLE IF NOT EXISTS calendar_preferences (
     user_id TEXT NOT NULL,
     preferences_json TEXT NOT NULL,
@@ -242,6 +258,7 @@ export const CALENDAR_REQUIRED_TABLES: readonly string[] = [
   'calendar_reminder_fires',
   'calendar_event_reminders',
   'calendar_event_attendees',
+  'calendar_shares',
   'calendar_provider_calendars',
 ]
 
@@ -266,6 +283,7 @@ export const CALENDAR_REQUIRED_INDEXES: readonly string[] = [
   'idx_calendar_reminder_fires_fired',
   'idx_calendar_event_reminders_window',
   'idx_calendar_event_attendees_event',
+  'idx_calendar_shares_slug',
   'idx_calendar_provider_local',
   'idx_calendar_provider_due',
 ]
@@ -304,6 +322,7 @@ export const CALENDAR_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[
   calendar_reminder_fires: ['user_id', 'event_id', 'occurrence_start_ms', 'minutes', 'fired_at'],
   calendar_event_reminders: ['user_id', 'event_id', 'minutes', 'created_at'],
   calendar_event_attendees: ['user_id', 'event_id', 'email', 'name', 'status', 'created_at'],
+  calendar_shares: ['user_id', 'calendar_id', 'slug', 'views', 'created_at', 'updated_at', 'last_viewed_at'],
   calendar_provider_calendars: [
     'user_id', 'connection_id', 'remote_calendar_id', 'local_calendar_id', 'last_sync_at',
     'last_error_code', 'created_at', 'updated_at',

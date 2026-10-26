@@ -26,6 +26,7 @@ import { MiniMonth } from './MiniMonth'
 import { CalendarQuickAdd } from './CalendarQuickAdd'
 import {
   CalendarFormDialog,
+  CalendarShareDialog,
   DeleteCalendarDialog,
   GroupDialog,
   ImportIcsDialog,
@@ -37,6 +38,7 @@ type DialogState =
   | { kind: 'create-calendar'; groupId: string | null }
   | { kind: 'edit-calendar'; calendar: CalendarDto }
   | { kind: 'delete-calendar'; calendar: CalendarDto }
+  | { kind: 'share'; calendar: CalendarDto }
   | { kind: 'create-group' }
   | { kind: 'rename-group'; group: CalendarGroupDto }
   | null
@@ -384,6 +386,12 @@ export function CalendarSidebar({
         separatorBefore: true,
         onSelect: () => { if (dto) setDialog({ kind: 'delete-calendar', calendar: dto }) },
       },
+      {
+        id: 'share',
+        label: t('calendar.share.menu'),
+        disabled: !dto,
+        onSelect: () => { if (dto) setDialog({ kind: 'share', calendar: dto }) },
+      },
       { id: 'export', label: t('calendar.calendar.export'), onSelect: () => { void exportCalendar(calendar) } },
       {
         id: 'delete',
@@ -631,6 +639,13 @@ export function CalendarSidebar({
           calendars={meta.calendars}
           onClose={() => setDialog(null)}
           onSaved={() => onRefresh(true)}
+        />
+      )}
+      {dialog?.kind === 'share' && (
+        <CalendarShareDialog
+          open
+          calendar={dialog.calendar}
+          onClose={() => setDialog(null)}
         />
       )}
       {dialog?.kind === 'create-group' && (

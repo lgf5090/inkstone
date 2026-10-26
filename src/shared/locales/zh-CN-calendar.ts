@@ -338,6 +338,23 @@ export const ZH_CN_CALENDAR = {
   'calendar.connections.removed': '已断开日历',
   'calendar.connections.remove_failed': '无法断开日历',
 
+  'calendar.share.menu': '分享日历',
+  'calendar.share.title': '分享“{name}”',
+  'calendar.share.description': '任何拿到链接的人都能读取这个日历的全部日程，包括标题、时间与备注。',
+  'calendar.share.warning': '链接本身就是权限：没有密码，也不会过期。你可以随时停止分享，但已经下载了副本的日历应用仍会保留它的内容。',
+  'calendar.share.url': '订阅地址',
+  'calendar.share.url_hint': '把它粘贴到其他日历应用的“添加订阅”输入框。',
+  'calendar.share.create': '创建公开链接',
+  'calendar.share.creating': '正在创建…',
+  'calendar.share.stop': '停止分享',
+  'calendar.share.stopping': '正在停止…',
+  'calendar.share.not_shared': '这个日历还没有公开链接。',
+  'calendar.share.views': '被读取 {count} 次',
+  'calendar.share.last_viewed': '最近读取：{time}',
+  'calendar.share.created_at': '创建于 {time}',
+  'calendar.share.failed': '无法修改分享状态',
+  'calendar.share.load_failed': '无法读取分享状态',
+
   'calendar.a11y.mini_calendar': '迷你日历',
   'calendar.a11y.calendar_list': '日历列表',
 } as const satisfies Record<CalendarMessageKey, string>

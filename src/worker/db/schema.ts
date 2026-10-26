@@ -2704,6 +2704,26 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          ON calendar_event_attendees(user_id, event_id)`,
     ],
   },
+  {
+    // A public calendar link: one row per calendar, and the slug — which is the whole capability for a
+    // reader who never logs in — gets the unique index the public lookup uses.
+    version: 176,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS calendar_shares (
+        user_id TEXT NOT NULL,
+        calendar_id TEXT NOT NULL,
+        slug TEXT NOT NULL,
+        views INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        last_viewed_at INTEGER,
+        PRIMARY KEY (user_id, calendar_id)
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_shares_slug
+         ON calendar_shares(slug)`,
+
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

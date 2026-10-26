@@ -5,12 +5,15 @@
  * and calls `onSaved` so the container can refresh metadata and the DayFlow registry. The shell's
  * `Modal` supplies focus trapping, Escape and focus return; these never use native prompts.
  */
-import { useEffect, useState, type ReactNode } from 'react'
-import { AlertTriangle } from 'lucide-react'
-import type { CalendarDto, CalendarGroupDto } from '@shared/calendar/model'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { AlertTriangle, Check, Copy, Link2 } from 'lucide-react'
+import type { CalendarDto, CalendarGroupDto, CalendarShareDto } from '@shared/calendar/model'
 import { MAX_CALENDAR_NAME, MAX_GROUP_NAME, MAX_ICS_BYTES } from '@shared/calendar/model'
 import { t } from '../../lib/i18n'
 import { isImeComposing } from '../../lib/ime'
+import { copyText } from '../../lib/clipboard'
+import { fullTime } from '../../lib/time'
+import { COPY_RESET_MS } from '../../lib/motion'
 import { useUi } from '../../store/ui'
 import { Button } from '../../components/primitives'
 import { Modal } from '../../components/overlay'
@@ -25,7 +28,10 @@ interface DialogBaseProps {
   onSaved: () => void | Promise<void>
 }
 
-function errorMessage(error: unknown, fallbackKey: 'calendar.calendar.action_failed' | 'calendar.import.failed' | 'calendar.subscription.failed' | 'calendar.group.failed'): string {
+function errorMessage(
+  error: unknown,
+  fallbackKey: 'calendar.calendar.action_failed' | 'calendar.import.failed' | 'calendar.subscription.failed' | 'calendar.group.failed' | 'calendar.share.failed' | 'calendar.share.load_failed',
+): string {
   if (error instanceof Error && error.message) return error.message
   return t(fallbackKey)
 }
@@ -616,6 +622,164 @@ export function SubscribeDialog({ open, onClose, onSaved }: SubscribeDialogProps
           <div><ColorPresets value={color} onChange={setColor} /></div>
         </Field>
         {error && <DialogError>{error}</DialogError>}
+      </div>
+    </Modal>
+  )
+}
+
+interface ShareDialogProps {
+  open: boolean
+  calendar: CalendarDto
+  onClose: () => void
+}
+
+/**
+ * The address a third-party calendar subscribes to.
+ *
+ * Rebuilt from `window.location.origin`, not printed from the server: behind a reverse proxy the origin
+ * the worker saw can differ from the one a reader's calendar app can reach, and a copied address that
+ * only works inside the deployment is worse than no copy button.
+ */
+export function shareUrl(slug: string): string {
+  return `${window.location.origin}/feeds/calendar/${slug}.ics`
+}
+
+export function CalendarShareDialog({ open, calendar, onClose }: ShareDialogProps) {
+  // `undefined` is "still reading" and `null` is "this calendar has no link"; a failed read is neither,
+  // because a reader who cannot load their own sharing state must not conclude they never published.
+  const [share, setShare] = useState<CalendarShareDto | null | undefined>(undefined)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [attempt, setAttempt] = useState(0)
+  const copiedTimer = useRef(0)
+
+  useEffect(() => {
+    if (!open) return
+    let settled = false
+    setShare(undefined)
+    setError(null)
+    setBusy(false)
+    setCopied(false)
+    void api.getCalendarShare(calendar.id).then(
+      (answer) => { if (!settled) setShare(answer) },
+      (cause: unknown) => { if (!settled) setError(errorMessage(cause, 'calendar.share.load_failed')) },
+    )
+    return () => {
+      settled = true
+      window.clearTimeout(copiedTimer.current)
+    }
+  }, [open, calendar.id, attempt])
+
+  // Revoking deletes the link, so a share is either on screen or it is not.
+  const hasLink = share !== null && share !== undefined
+
+  const setLink = async (action: 'publish' | 'revoke'): Promise<void> => {
+    setBusy(true)
+    setError(null)
+    try {
+      if (action === 'publish') setShare(await api.shareCalendar(calendar.id))
+      else {
+        await api.unshareCalendar(calendar.id)
+        // The server answers 204, so the dialog describes what the write just did: the address is gone,
+        // and a fresh publish will hand out a different one.
+        setShare(null)
+      }
+    } catch (cause) {
+      setError(errorMessage(cause, 'calendar.share.failed'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const copy = async (): Promise<void> => {
+    if (!hasLink || !share) return
+    if (!(await copyText(shareUrl(share.slug)))) {
+      useUi.getState().toast({ title: t('preview.could_not_copy'), tone: 'danger' })
+      return
+    }
+    setCopied(true)
+    window.clearTimeout(copiedTimer.current)
+    copiedTimer.current = window.setTimeout(() => setCopied(false), COPY_RESET_MS)
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={t('calendar.share.title', { name: calendar.name })}
+      description={t('calendar.share.description')}
+      width={520}
+      dismissible={!busy}
+      footer={(
+        <>
+          {hasLink && (
+            <Button variant="danger" loading={busy} disabled={busy} onClick={() => void setLink('revoke')}>
+              {busy ? t('calendar.share.stopping') : t('calendar.share.stop')}
+            </Button>
+          )}
+          <Button variant="ghost" onClick={onClose} disabled={busy}>{t('common.close')}</Button>
+          {!hasLink && (
+            <Button variant="primary" loading={busy} disabled={share === undefined} onClick={() => void setLink('publish')}>
+              {busy ? t('calendar.share.creating') : t('calendar.share.create')}
+            </Button>
+          )}
+        </>
+      )}
+    >
+      <div className="space-y-3 pt-1">
+        {share === undefined && !error && (
+          <p role="status" className="py-3 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">
+            {t('common.loading')}
+          </p>
+        )}
+        {share !== undefined && !hasLink && (
+          <p className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-base)] px-3 py-3 text-[length:var(--text-12)] leading-relaxed text-[var(--text-secondary)]">
+            {t('calendar.share.not_shared')}
+          </p>
+        )}
+        {hasLink && share && (
+          <>
+            <div className="flex items-center gap-1.5">
+              <Link2 size={13} className="shrink-0 text-[var(--text-tertiary)]" aria-hidden="true" />
+              <input
+                readOnly
+                value={shareUrl(share.slug)}
+                aria-label={t('calendar.share.url')}
+                onFocus={(event) => event.currentTarget.select()}
+                className="min-w-0 flex-1 truncate rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-base)] px-2 py-1 text-[length:var(--text-11)] text-[var(--text-secondary)] transition-[box-shadow] duration-[var(--dur-fast)] focus:shadow-[var(--shadow-ring-focus)] focus:outline-none"
+              />
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={copied ? <Check size={12} /> : <Copy size={12} />}
+                onClick={() => void copy()}
+              >
+                {copied ? t('common.copied') : t('common.copy')}
+              </Button>
+            </div>
+            <p className="text-[length:var(--text-11)] leading-relaxed text-[var(--text-tertiary)]">
+              {t('calendar.share.url_hint')}
+            </p>
+            <p className="flex flex-wrap gap-x-3 gap-y-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+              <span>{t('calendar.share.views', { count: share.views })}</span>
+              <span>{t('calendar.share.created_at', { time: fullTime(share.createdAt) })}</span>
+              {share.lastViewedAt !== null && (
+                <span>{t('calendar.share.last_viewed', { time: fullTime(share.lastViewedAt) })}</span>
+              )}
+            </p>
+          </>
+        )}
+        <p className="flex items-start gap-1.5 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-2 text-[length:var(--text-11)] leading-relaxed text-[var(--text-secondary)]">
+          <AlertTriangle size={13} className="mt-[2px] shrink-0 text-[var(--warning)]" aria-hidden="true" />
+          <span>{t('calendar.share.warning')}</span>
+        </p>
+        {error && <DialogError>{error}</DialogError>}
+        {error && share === undefined && (
+          <Button size="sm" variant="secondary" onClick={() => setAttempt((current) => current + 1)}>
+            {t('common.retry')}
+          </Button>
+        )}
       </div>
     </Modal>
   )

@@ -62,6 +62,8 @@ import { calendarRoutes } from './routes/calendar'
 import { calendarIcsRoutes } from './routes/calendar-ics'
 import { calendarSubscriptionRoutes } from './routes/calendar-subscriptions'
 import { calendarSyncRoutes } from './routes/calendar-sync'
+import { calendarShareRoutes } from './routes/calendar-shares'
+import { calendarPublicRoutes } from './routes/calendar-public'
 import { musicSharePageRoutes, musicSharePublicRoutes } from './routes/music-share'
 import { emailSearchesRoutes } from './routes/email-searches'
 import { emailTemplatesRoutes } from './routes/email-templates'
@@ -170,6 +172,8 @@ export function createApp() {
   app.route('/api/calendar/ics', calendarIcsRoutes)
   app.route('/api/calendar/subscriptions', calendarSubscriptionRoutes)
   app.route('/api/calendar', calendarSyncRoutes)
+  app.route('/api/calendar', calendarShareRoutes)
+  app.route('/feeds', calendarPublicRoutes)
   app.route('/api/calendar', calendarRoutes)
   app.route('/api/subscriptions', subscriptionRoutes)
   app.route('/api', searchRoutes)

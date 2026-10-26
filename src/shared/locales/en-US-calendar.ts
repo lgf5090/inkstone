@@ -336,6 +336,23 @@ export const EN_US_CALENDAR = {
   'calendar.connections.removed': 'Calendar disconnected',
   'calendar.connections.remove_failed': 'Could not disconnect the calendar',
 
+  'calendar.share.menu': 'Share calendar',
+  'calendar.share.title': 'Share “{name}”',
+  'calendar.share.description': 'Anyone with the link can read every event in this calendar, including titles, times and notes.',
+  'calendar.share.warning': 'The link is the whole permission: there is no passcode and it does not expire. You can stop sharing at any time, but calendar apps that already downloaded a copy keep it.',
+  'calendar.share.url': 'Subscription address',
+  'calendar.share.url_hint': 'Paste it into the “add subscription” field of another calendar app.',
+  'calendar.share.create': 'Create public link',
+  'calendar.share.creating': 'Creating…',
+  'calendar.share.stop': 'Stop sharing',
+  'calendar.share.stopping': 'Stopping…',
+  'calendar.share.not_shared': 'This calendar has no public link yet.',
+  'calendar.share.views': 'Read {count} times',
+  'calendar.share.last_viewed': 'Last read: {time}',
+  'calendar.share.created_at': 'Created {time}',
+  'calendar.share.failed': 'Could not change sharing',
+  'calendar.share.load_failed': 'Could not load sharing',
+
   'calendar.a11y.mini_calendar': 'Mini calendar',
   'calendar.a11y.calendar_list': 'Calendar list',
 } as const

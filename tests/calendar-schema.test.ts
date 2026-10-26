@@ -68,7 +68,7 @@ describe('the calendar tables', () => {
   it('create every declared table', () => {
     const present = tables()
     for (const table of CALENDAR_REQUIRED_TABLES) expect(present.has(table)).toBe(true)
-    expect(CALENDAR_REQUIRED_TABLES).toHaveLength(13)
+    expect(CALENDAR_REQUIRED_TABLES).toHaveLength(14)
   })
 
   it('create every declared index', () => {

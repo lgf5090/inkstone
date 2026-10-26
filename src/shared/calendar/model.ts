@@ -279,6 +279,15 @@ export interface CalendarSearchResultDto {
   calendarColor: string
 }
 
+/** One calendar's public read link: the slug is the whole capability, so it never leaves the owner's session. */
+export interface CalendarShareDto {
+  slug: string
+  calendarId: string
+  views: number
+  createdAt: number
+  lastViewedAt: number | null
+}
+
 const CALENDAR_ENTITY_ID_RE = /^[A-Za-z0-9][A-Za-z0-9:._~@#%+-]{0,199}$/
 
 export function isCalendarEntityId(value: unknown): value is string {
