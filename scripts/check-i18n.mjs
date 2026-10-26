@@ -314,9 +314,35 @@ const calendarCatalogFiles = {
         [path.join(localeRoot, 'zh-CN-calendar.ts'), 'ZH_CN_CALENDAR'],
     ],
 };
+const cloudflareCatalogFiles = {
+    en: [
+        [path.join(localeRoot, 'en-US-cloudflare-accounts.ts'), 'EN_US_CLOUDFLARE_ACCOUNTS'],
+        [path.join(localeRoot, 'en-US-cloudflare-dashboard.ts'), 'EN_US_CLOUDFLARE_DASHBOARD'],
+        [path.join(localeRoot, 'en-US-cloudflare-dns.ts'), 'EN_US_CLOUDFLARE_DNS'],
+        [path.join(localeRoot, 'en-US-cloudflare-workers.ts'), 'EN_US_CLOUDFLARE_WORKERS'],
+        [path.join(localeRoot, 'en-US-cloudflare-storage.ts'), 'EN_US_CLOUDFLARE_STORAGE'],
+        [path.join(localeRoot, 'en-US-cloudflare-tunnels.ts'), 'EN_US_CLOUDFLARE_TUNNELS'],
+        [path.join(localeRoot, 'en-US-cloudflare-ai.ts'), 'EN_US_CLOUDFLARE_AI'],
+        [path.join(localeRoot, 'en-US-cloudflare-browser-render.ts'), 'EN_US_CLOUDFLARE_BROWSER_RENDER'],
+        [path.join(localeRoot, 'en-US-cloudflare-store.ts'), 'EN_US_CLOUDFLARE_STORE'],
+        [path.join(localeRoot, 'en-US-cloudflare-settings.ts'), 'EN_US_CLOUDFLARE_SETTINGS'],
+    ],
+    zh: [
+        [path.join(localeRoot, 'zh-CN-cloudflare-accounts.ts'), 'ZH_CN_CLOUDFLARE_ACCOUNTS'],
+        [path.join(localeRoot, 'zh-CN-cloudflare-dashboard.ts'), 'ZH_CN_CLOUDFLARE_DASHBOARD'],
+        [path.join(localeRoot, 'zh-CN-cloudflare-dns.ts'), 'ZH_CN_CLOUDFLARE_DNS'],
+        [path.join(localeRoot, 'zh-CN-cloudflare-workers.ts'), 'ZH_CN_CLOUDFLARE_WORKERS'],
+        [path.join(localeRoot, 'zh-CN-cloudflare-storage.ts'), 'ZH_CN_CLOUDFLARE_STORAGE'],
+        [path.join(localeRoot, 'zh-CN-cloudflare-tunnels.ts'), 'ZH_CN_CLOUDFLARE_TUNNELS'],
+        [path.join(localeRoot, 'zh-CN-cloudflare-ai.ts'), 'ZH_CN_CLOUDFLARE_AI'],
+        [path.join(localeRoot, 'zh-CN-cloudflare-browser-render.ts'), 'ZH_CN_CLOUDFLARE_BROWSER_RENDER'],
+        [path.join(localeRoot, 'zh-CN-cloudflare-store.ts'), 'ZH_CN_CLOUDFLARE_STORE'],
+        [path.join(localeRoot, 'zh-CN-cloudflare-settings.ts'), 'ZH_CN_CLOUDFLARE_SETTINGS'],
+    ],
+};
 const catalogFragments = {
-    en: [noteTemplateBodyFiles.en, ...memoCatalogFiles.en, ...emailCatalogFiles.en, ...musicCatalogFiles.en, ...toolsCatalogFiles.en, ...calendarCatalogFiles.en],
-    zh: [noteTemplateBodyFiles.zh, ...memoCatalogFiles.zh, ...emailCatalogFiles.zh, ...musicCatalogFiles.zh, ...toolsCatalogFiles.zh, ...calendarCatalogFiles.zh],
+    en: [noteTemplateBodyFiles.en, ...memoCatalogFiles.en, ...emailCatalogFiles.en, ...musicCatalogFiles.en, ...toolsCatalogFiles.en, ...calendarCatalogFiles.en, ...cloudflareCatalogFiles.en],
+    zh: [noteTemplateBodyFiles.zh, ...memoCatalogFiles.zh, ...emailCatalogFiles.zh, ...musicCatalogFiles.zh, ...toolsCatalogFiles.zh, ...calendarCatalogFiles.zh, ...cloudflareCatalogFiles.zh],
 };
 // Chinese is legal in a zh locale catalog and nowhere else; every other file is held to English.
 // The subscription notifications are a catalog of their own because the worker writes them and must

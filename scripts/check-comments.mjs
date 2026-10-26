@@ -5462,6 +5462,86 @@ const allowed = new Map([
     "/** What `api.todos.create` was pointed at, in order. */",
     "// The way back is the id, not a sentence about the note in the reader's own notes field.",
   ]],
+  ["src/client/features/cloudflare/CloudflareApp.tsx", [
+    "/**\n * The Cloudflare container's frame: a second navigation rail and the screen it names.\n *\n * The app is a guest on the notebook's rail, so it brings its own navigation rather than borrowing\n * the notebook sidebar: ten screens is more than a sidebar section should carry, and the reader who\n * is inside Cloudflare is looking at Cloudflare's own vocabulary (DNS, Workers, R2), not at notes.\n *\n * Copy is loaded before the first screen is drawn. A reader who opens the app with a slow network\n * sees a loading state, not a screen full of dotted keys.\n */",
+    "// A modified press or a middle click belongs to the browser: let it open a new tab.",
+    "// Subscribing here is what redraws the frame after the catalogue lands, including after a switch.",
+  ]],
+  ["src/client/features/cloudflare/api/client.ts", [
+    "/**\n * The Cloudflare app's only door to `/api/cloudflare`.\n *\n * Three shapes are needed and they do not share one: ordinary JSON goes through the notebook's\n * `request()` (timeouts, error codes, the localised refusal), downloads need the bytes rather than a\n * decoded body, and the OpenAI-compatible endpoints answer with a stream the caller reads itself.\n * All three carry the client header, because every route here is a POST away from being refused.\n */",
+    "/** A binary answer (an R2 object, a PDF) with the filename the route chose. */",
+    "/**\n * A streaming POST (the OpenAI-compatible endpoints).\n *\n * The caller owns the body and must cancel the reader when it stops: this function cannot know when\n * a stream is finished with.\n */",
+    "/** The sentence a failed call shows. The route's own reason wins over the generic code sentence. */",
+  ]],
+  ["src/client/features/cloudflare/cloudflare-address.ts", [
+    "/**\n * The Cloudflare app's address space, parsed into the screen it names.\n *\n * `/cloudflare` is one tab on the notebook's rail; every screen under it belongs to the app. A path\n * this app never links to answers the dashboard rather than a not-found card: the rail has already\n * told the reader they are in the Cloudflare app, and there is nothing behind them to go back to.\n */",
+    "/** The address one screen answers to; the tab links and the rail both use it. */",
+  ]],
+  ["src/client/features/cloudflare/cloudflare.css", [
+    "/*\n * The Cloudflare app's own styles: two surfaces Tailwind utility classes cannot express cleanly.\n *\n * Everything else on these screens is utility classes over the app's tokens. What lives here is the\n * rendered-Markdown body (generated HTML, so a class is the only hook) and the code-block chrome that\n * body carries. No colour is written literally; every value is a token.\n */",
+    "/* The app's Prism theme is scoped to `pre code`; these blocks are the same kind of surface. */",
+  ]],
+  ["src/client/features/cloudflare/components/CodeEditor.tsx", [
+    "/**\n * A plain code editor for values that are code.\n *\n * CodeMirror is loaded on demand: a reader who never opens a deploy dialog should not download an\n * editor. Escape is left to the dialog that owns this surface — the editor binds no global keys —\n * and Tab keeps its default (indent) because the surface is a code box rather than a form field.\n */",
+  ]],
+  ["src/client/features/cloudflare/components/CopyButton.tsx", [
+    "/**\n * Copy a value, with the confirmation in the button itself.\n *\n * The clipboard call is the notebook's own (`copyText`), which falls back to `execCommand` on a plain\n * http deployment where the modern API is unavailable. A failure is reported through the app's toast\n * rather than silently doing nothing.\n */",
+    "/** Visible text beside the icon; omitted for an icon-only control. */",
+  ]],
+  ["src/client/features/cloudflare/components/LineChart.tsx", [
+    "/**\n * A line chart drawn with SVG, because the app has no charting dependency.\n *\n * The traffic screen needs one figure: a value per hour (or per day) for one or two series. A chart\n * library would bring its own layout, its own colours and its own accessibility story for a shape\n * this small; here the colours are tokens, the figure carries a label, and the hover reading is a\n * positioned text block rather than a canvas.\n */",
+  ]],
+  ["src/client/features/cloudflare/components/MarkdownBody.tsx", [
+    "/**\n * Markdown as the assistant wrote it, rendered safely.\n *\n * The HTML is produced by markdown-it, sanitised by DOMPurify, and then given syntax colour by the\n * notebook's own Prism loader — the same highlighter the note preview uses. Code blocks carry a\n * language label and a copy button; both are ordinary DOM inside the sanitised fragment, with copy\n * handled by delegation because the fragment is not React's to own.\n */",
+    "/** What to draw when the source is empty; omitted leaves the box empty rather than inventing a line. */",
+    "// The string is the sanitised output of markdown-it and DOMPurify; no caller-supplied HTML",
+    "// reaches this node.",
+  ]],
+  ["src/client/features/cloudflare/components/MultiSelect.tsx", [
+    "/**\n * A multi-select the app can draw: a trigger and a panel of real checkboxes.\n *\n * The native `<select multiple>` cannot show a checked list without a modifier key, and its system\n * chrome ignores every token. This keeps the semantics (each row is a labelled checkbox) and closes on\n * Escape or a press outside, which is what the app's menus already do.\n */",
+    "/** Accessible name; also the panel's own heading. */",
+  ]],
+  ["src/client/features/cloudflare/components/SearchField.tsx", [
+    "/**\n * A search box with the app's own chrome.\n *\n * Typing is immediate; debouncing belongs to the caller, because a filter that runs on every\n * keystroke of a local list and one that asks the server are different costs. Escape clears the box,\n * which is the one shortcut every search field in this notebook shares.\n */",
+  ]],
+  ["src/client/features/cloudflare/components/SqlEditor.tsx", [
+    "/**\n * The D1 query editor.\n *\n * SQLite syntax comes from `@codemirror/lang-sql`; the completions add the function list and the\n * tables/columns of the database currently open, because a query editor that only knows keywords\n * makes a reader memorise their own schema. The document is controlled by React, and the imperative\n * handle exists for the three commands a toolbar offers: run all, run selection, run the line the\n * caret is on.\n */",
+  ]],
+  ["src/client/features/cloudflare/components/Table.tsx", [
+    "/**\n * The table primitives every Cloudflare screen composes.\n *\n * A native `<table>` rather than a grid: these screens are tabular data, and a table is what gives a\n * screen reader the column a cell belongs to. The scroll container is focusable and named so a\n * keyboard reader can scroll a wide table without a mouse.\n */",
+    "/**\n * A header that sorts. The button fills the cell so the whole header is the target, and the direction\n * is the cell's `aria-sort`, not an arrow glyph a screen reader never hears.\n */",
+    "/** The next direction a click on `key` would switch to; exported for tests and header hints. */",
+  ]],
+  ["src/client/features/cloudflare/components/UsageRing.tsx", [
+    "/**\n * A ring that says how much of an allowance is gone.\n *\n * The percentage is also printed in the middle: a ring alone is a colour and an angle, and neither is\n * something every reader can read. The colour only reinforces the number, it never carries it.\n */",
+  ]],
+  ["src/client/features/cloudflare/i18n.ts", [
+    "/**\n * The Cloudflare app's copy, loaded when the app is opened.\n *\n * The module carries about 1,200 keys per language. Folding them into the notebook's start-up\n * catalogue would make every reader pay for an app most of them never open, so each language is its\n * own chunk and `CloudflareApp` waits for the current one before drawing a screen. Until it answers,\n * `cfT` returns the key itself — readable in development, and never seen by a reader because the app\n * shows a loading state until the catalogue is there.\n */",
+    "/**\n * Load one language, or do nothing when it is the one already loaded.\n *\n * A locale switch while a load is in flight is the case that needs the `wantedLocale` check: the\n * older load can resolve after the newer one started, and applying it would leave the interface in\n * the language the reader just left.\n */",
+    "/** The language actually in memory, or null before the first load lands. */",
+    "/** Re-render a component when the catalogue arrives or the language changes. */",
+  ]],
+  ["src/client/features/cloudflare/lib/favorites.ts", [
+    "/**\n * Template favourites, kept on this device.\n *\n * A favourite is a bookmark in the store, not data the server has any use for; keeping it in\n * localStorage means starring a template costs nothing and survives a reload. The store is small\n * (ids only), and a malformed entry is dropped rather than breaking every screen that asks.\n */",
+    "// A full quota leaves the in-memory set correct for this tab; the next write may succeed.",
+  ]],
+  ["src/client/features/cloudflare/lib/format.ts", [
+    "/**\n * Number, size and duration formatting for Cloudflare's screens.\n *\n * These are arithmetic, not copy: the words around them (\"requests\", \"of\") come from the catalogue.\n * A byte count uses the notebook's own `formatBytes`, so a size in this app and the same size in the\n * attachment panel cannot disagree.\n */",
+    "/** `2026-10-27 09:41` in the reader's locale, from a millisecond timestamp. */",
+    "/** Relative time for a log or a conversation; falls back to the absolute date after a week. */",
+    "/** A percentage for a ring or a bar, clamped to what can be drawn. */",
+  ]],
+  ["src/client/features/cloudflare/lib/quota-view.ts", [
+    "/**\n * How a quota row reads on screen.\n *\n * The arithmetic is `lib/format`; this file only decides which catalogue sentence goes around it.\n * Browser-render time is minute/second shaped because that is how the browser-rendering limit is\n * published (600 seconds a day); everything else is a plain count.\n */",
+    "/** A ring colour that reddens as the allowance is spent: the number is the fact, the ring is the glance. */",
+  ]],
+  ["src/client/features/cloudflare/lib/sort.ts", [
+    "/**\n * Table sorting, in the one shape every Cloudflare table uses.\n *\n * Clicking a header walks original → ascending → descending → original, because the original order is\n * the one the server chose (newest first, usually) and a reader needs a way back to it without a\n * reload. The comparison is a cached numeric collator, so \"note 2\" sorts before \"note 10\".\n */",
+    "/** Numbers compare as numbers; everything else as text; a missing value always sorts last. */",
+  ]],
+  ["src/client/features/cloudflare/lib/sqlite-functions.ts", [
+    "/**\n * The SQLite functions the D1 editor offers while typing.\n *\n * A trimmed copy of the official function list, with the signature shown beside the name. It is data\n * rather than copy: a function is called `json_extract` in every language, and the one-line note says\n * what the manual says in the shortest form that fits a completion row.\n */",
+  ]],
   ["src/client/features/command/CommandPalette.tsx", [
     "// The pointer already sits on its row; scrolling would move other rows under it and",
     "// re-trigger the highlight, so only keyboard movement scrolls.",
@@ -27191,6 +27271,7 @@ const allowed = new Map([
     "/* Interface density is one attribute on the document element, written by `syncAppearanceToDom` from the\n   reader's own setting, and this is the only place a density value is allowed to live: a rule that reaches\n   for a pixel per surface is a second setting under the first. Compact tightens the leading the chat is\n   read at — the rows of the note list already answer it in code — and stops there, because font size, line\n   height and measure are three settings a reader moves by hand and density must not quietly move again.\n   Nothing here is eased: a re-read of the same text at a new leading has to be instant, and an animation\n   of it would be one more thing a reader who asked for reduced motion had to sit through. */",
     "/* Carried as small text — counts, warnings, the over-budget figure — on the darkest light surface\n     (#f1efe9), where these three measured 2.19 / 1.90 / 3.21. Each is now the lightest value in its own\n     hue and chroma that clears 5:1, which leaves a point of margin over the AA floor of 4.5:1. The dark\n     theme already passed and is untouched. See tests/contrast-light-semantic-colors.test.ts. */",
     "/* The warning's own wash, same recipe as the accent's: `--warning` is per scheme and per accent\n     theme, so a fixed colour here would be wrong in one of them. Only the text on it is chosen to\n     clear AA — `--warning` on `--bg-raised` is not measured, so a badge never relies on colour alone\n     to say what it means. */",
+    "/* Chart series. The Cloudflare app's graphs are the first screens here that draw more than one\n     series, so the palette is a token rather than a component's own list: `--chart-1` follows the\n     reader's accent, and the other four are hue-separated at the same lightness so no series is\n     told apart by brightness alone. */",
   ]],
   ["src/client/types/hover-card.ts", [
     "/** The destination exactly as the note wrote it, truncated for display. */",
@@ -27773,6 +27854,9 @@ const allowed = new Map([
     "/** One calendar's public read link: the slug is the whole capability, so it never leaves the owner's session. */",
     "/**\n * The rows of one range, reduced to the numbers that change when any of them changes.\n *\n * `count` moves on insert and delete, `revSum` on every write, and `maxUpdatedAt` on the one race the\n * other two can miss (a delete and a create leaving both totals equal).\n */",
   ]],
+  ["src/shared/cloudflare/model.ts", [
+    "/**\n * The vocabulary the Cloudflare app shares between the worker and the browser.\n *\n * Field names keep the spelling Cloudflare's API uses (`auth_type`, `account_id`, `is_active`), which\n * is also the reference module's spelling. Translating every one of these at the API boundary would\n * add a mapping layer with no reader to serve: the values come from Cloudflare, are stored as they\n * arrive, and the screen that shows them is the only consumer.\n */",
+  ]],
   ["src/shared/constants.ts", [
     "// D1 limits an entire row to 2,000,000 bytes; reserve room for note metadata.",
     "/** Upper bound on simultaneously selected tag filters; the sidebar warns past it. */",
@@ -27907,6 +27991,39 @@ const allowed = new Map([
   ["src/shared/locales/en-US-calendar.ts", [
     "/**\n * The calendar app's own copy. DayFlow's built-in strings come from its locale packs; everything the\n * Inkstone shell draws around it lives here so both languages stay in step.\n */",
   ]],
+  ["src/shared/locales/en-US-cloudflare-accounts.ts", [
+    "/**\n * English copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: accounts.\n */",
+  ]],
+  ["src/shared/locales/en-US-cloudflare-ai.ts", [
+    "/**\n * English copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: ai.\n */",
+  ]],
+  ["src/shared/locales/en-US-cloudflare-browser-render.ts", [
+    "/**\n * English copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: browser-render.\n */",
+  ]],
+  ["src/shared/locales/en-US-cloudflare-dashboard.ts", [
+    "/**\n * English copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: dashboard.\n */",
+  ]],
+  ["src/shared/locales/en-US-cloudflare-dns.ts", [
+    "/**\n * English copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: dns.\n */",
+  ]],
+  ["src/shared/locales/en-US-cloudflare-settings.ts", [
+    "/**\n * English copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: settings.\n */",
+  ]],
+  ["src/shared/locales/en-US-cloudflare-storage.ts", [
+    "/**\n * English copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: storage.\n */",
+  ]],
+  ["src/shared/locales/en-US-cloudflare-store.ts", [
+    "/**\n * English copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: store.\n */",
+  ]],
+  ["src/shared/locales/en-US-cloudflare-tunnels.ts", [
+    "/**\n * English copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: tunnels.\n */",
+  ]],
+  ["src/shared/locales/en-US-cloudflare-workers.ts", [
+    "/**\n * English copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: workers.\n */",
+  ]],
+  ["src/shared/locales/en-US-cloudflare.ts", [
+    "/**\n * The Cloudflare app's catalogue, one language at a time.\n *\n * Loaded by the app when a reader opens it and never by the shell: the module carries 1,200-odd keys\n * of its own, and a reader who never visits /cloudflare should pay none of them.\n */",
+  ]],
   ["src/shared/locales/en-US-subscriptions-notify.ts", [
     "/**\n * The words a notification carries, in English.\n *\n * A separate catalog from the interface's because the worker writes these and the interface never\n * shows them: the scheduler has no request and therefore no reader to ask which language to use, and\n * shipping seven thousand interface keys into the worker to reach twenty sentences would be a cost\n * every deployment pays for a feature one of them uses. `tests/subscriptions-notify-copy.test.ts`\n * pins this file and its Chinese twin to the same keys and the same placeholders.\n */",
   ]],
@@ -27947,6 +28064,39 @@ const allowed = new Map([
   ]],
   ["src/shared/locales/zh-CN-calendar.ts", [
     "/**\n * Chinese calendar copy. The final `satisfies Record<BaseMessageKey, string>` in `zh-CN.ts`\n * fails if this object misses a key, so the two fragments cannot drift apart silently.\n */",
+  ]],
+  ["src/shared/locales/zh-CN-cloudflare-accounts.ts", [
+    "/**\n * Chinese copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: accounts.\n */",
+  ]],
+  ["src/shared/locales/zh-CN-cloudflare-ai.ts", [
+    "/**\n * Chinese copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: ai.\n */",
+  ]],
+  ["src/shared/locales/zh-CN-cloudflare-browser-render.ts", [
+    "/**\n * Chinese copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: browser-render.\n */",
+  ]],
+  ["src/shared/locales/zh-CN-cloudflare-dashboard.ts", [
+    "/**\n * Chinese copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: dashboard.\n */",
+  ]],
+  ["src/shared/locales/zh-CN-cloudflare-dns.ts", [
+    "/**\n * Chinese copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: dns.\n */",
+  ]],
+  ["src/shared/locales/zh-CN-cloudflare-settings.ts", [
+    "/**\n * Chinese copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: settings.\n */",
+  ]],
+  ["src/shared/locales/zh-CN-cloudflare-storage.ts", [
+    "/**\n * Chinese copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: storage.\n */",
+  ]],
+  ["src/shared/locales/zh-CN-cloudflare-store.ts", [
+    "/**\n * Chinese copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: store.\n */",
+  ]],
+  ["src/shared/locales/zh-CN-cloudflare-tunnels.ts", [
+    "/**\n * Chinese copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: tunnels.\n */",
+  ]],
+  ["src/shared/locales/zh-CN-cloudflare-workers.ts", [
+    "/**\n * Chinese copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: workers.\n */",
+  ]],
+  ["src/shared/locales/zh-CN-cloudflare.ts", [
+    "/**\n * The Cloudflare app's catalogue, one language at a time.\n *\n * Loaded by the app when a reader opens it and never by the shell: the module carries 1,200-odd keys\n * of its own, and a reader who never visits /cloudflare should pay none of them.\n */",
   ]],
   ["src/shared/locales/zh-CN-quick-add-keywords.ts", [
     "/** The Chinese words the quick-add parser reads. Data about the language, not interface copy. */",
@@ -29653,6 +29803,8 @@ const allowed = new Map([
     "// The hub's own routers are claimed before `shareManageRoutes`, which reads any one-segment path",
     "// under `/api/share` as a note id: mounted the other way round, `GET /api/share/folders` would be",
     "// answered as \"the share of a note called folders\" rather than as the folder list.",
+    "// The Cloudflare app's own API; the prefix keeps every one of its ~150 endpoints out of the",
+    "// notebook's namespace.",
   ]],
   ["src/worker/assistant/attachments.ts", [
     "/**\n * The token each attachment line starts with.\n *\n * It is English on purpose: this block is model-facing prompt text, never the reader's UI, and the\n * reader's own labels come from the locale catalog the composer draws.\n */",
@@ -32679,6 +32831,61 @@ const allowed = new Map([
   ["src/worker/calendar/vendor/dayflow-outlook-sync.d.ts", [
     "/** Worker-side type shim; see dayflow-caldav.d.ts. */",
   ]],
+  ["src/worker/cloudflare/accounts.ts", [
+    "/**\n * Cloudflare accounts: the rows, the credential bundle beside them, and what Cloudflare says about\n * the credential when it is first offered.\n *\n * The reference module kept credentials inside its account row, encrypted with a key derived from the\n * reader's login password. That key does not exist here: a reader's session is an opaque cookie, and\n * the only encryption key this deployment has is the credential vault's. So the rows keep identity\n * and preferences, and the secrets live in R2 (`credentials.ts`). `has_credentials` is the join\n * between the two.\n */",
+    "/** The auth material one upstream call needs, decrypted for this request only. */",
+    "/** Row plus its decrypted auth material. 404 covers both \"no such row\" and \"another reader's row\". */",
+    "/** List every active account with its credentials; callers that fan out (DNS zones, quota) use this. */",
+    "// The file is written first: a row that says it has a credential must have one, and a file without",
+    "// a row is invisible garbage rather than a lie the screens would show.",
+    "// Both follow-ups are best-effort facts about the credential, not the write itself: a token that",
+    "// verified but cannot list accounts is still a usable token for some products.",
+    "/** Re-check a stored credential against Cloudflare, and refresh what the account can do. */",
+    "/**\n * Verify one credential pair against `/user`.\n *\n * This is deliberately the only verification call: every Cloudflare product answers 403 for a token\n * scoped to another product, and using a product endpoint here would refuse valid narrow tokens.\n */",
+    "/** Whether R2 is switched on for this account, as the string the account row stores. */",
+  ]],
+  ["src/worker/cloudflare/audit.ts", [
+    "/**\n * The audit trail, one row per action a reader would want to explain later.\n *\n * Writing the log must never be why an operation fails: the operation has already happened by the\n * time this runs, and a log line that could roll it back would be worse than a missing line. A failed\n * write is reported once, with the action, and swallowed deliberately.\n */",
+    "// Best-effort by design: the action already succeeded or failed on its own terms.",
+  ]],
+  ["src/worker/cloudflare/cf-api.ts", [
+    "/**\n * The one door to api.cloudflare.com.\n *\n * The reference module used the Cloudflare Node SDK in one generation and `cfFetch` in the next. A\n * Worker cannot use the SDK's Node transport (and does not need to): every call here is `fetch` with\n * the account's own headers, which is also what makes the module testable — a route test stubs one\n * origin.\n *\n * Errors keep the upstream status and body. A route decides how much of that to show; the words are\n * Cloudflare's own, and the routes never invent a status the API did not send.\n */",
+    "/** The account fields a request needs; credentials are decrypted per call, never cached. */",
+    "/** Overrides the default 20s; the batch operations and CSV import ask for more. */",
+    "/** A JSON call. Non-2xx is an error, and the upstream's own message is what the error carries. */",
+    "/** A raw response, for multipart uploads, streamed downloads and anything the caller parses itself. */",
+    "/**\n * Every page of a list endpoint.\n *\n * `MAX_PAGES` is a guard, not a feature: a listing that answers \"more pages\" forever would otherwise\n * hold a request open until the Worker is killed. Twenty pages at 50 rows is 1,000 rows, which is\n * already more than the screens show at once.\n */",
+    "/** The GraphQL door. Cloudflare reports query problems in a 200 body, so both shapes are checked. */",
+    "/** The error a route rethrows when an operation relied on Cloudflare and the call did not land. */",
+  ]],
+  ["src/worker/cloudflare/credentials.ts", [
+    "/**\n * The Cloudflare account credential bundle, and the only place it is stored.\n *\n * The reference module kept encrypted tokens in its own SQLite table. This deployment keeps the\n * ciphertext as a file in the R2 bucket instead — one file per account — because the vault is an\n * encryption oracle rather than a store, and because a credential is not relational data: nothing\n * joins to it, and deleting the account must delete it in one step.\n *\n * Path: `cloudflare/txt/accounts/<accountId>.txt`. The second segment is the file kind, so a future\n * secret that is not text (a key pair, a certificate) gets its own kind instead of a second scheme.\n * Contents are the vault's `v1.` ciphertext; plaintext never reaches the bucket.\n */",
+    "/** The bundle as stored, or null when the account has no file (an unverified import, or none yet). */",
+    "/**\n * Merge a patch into the stored bundle and rewrite the file.\n *\n * An `undefined` field is \"not mentioned\"; an empty string is \"clear this one\". When the merge leaves\n * nothing behind the file is removed rather than written empty, so `has_credentials` stays a fact\n * rather than a guess.\n */",
+  ]],
+  ["src/worker/cloudflare/model-pricing.ts", [
+    "/**\n * Cloudflare's published neuron rates, as the reference module ships them.\n *\n * Data rather than code: the table changes when Cloudflare reprices a model, and the estimates in\n * `pricing.ts` are only as honest as this file. Kept as a TypeScript module so the worker's project\n * includes it without a JSON-in-program exception.\n */",
+  ]],
+  ["src/worker/cloudflare/pricing.ts", [
+    "/**\n * What one AI request costs, in Cloudflare's neurons.\n *\n * The numbers come from `model-pricing.json`, which the reference module and this port share. A model\n * the table does not know falls back to the file's own default rather than to zero: a free-looking\n * estimate would let the quota screens stay green while the account is being drained.\n */",
+    "/** Chat models bill by token, with a cheaper rate for the prompt half a provider served from cache. */",
+    "/** Image models bill per image; the rate may differ per model. */",
+    "/** Speech bills per thousand characters. */",
+    "/** Translation is billed as input plus output characters, which the reference approximated as two rates. */",
+  ]],
+  ["src/worker/cloudflare/quota.ts", [
+    "/**\n * Daily allowances, and what is left of them.\n *\n * Cloudflare's free tier is the budget: each account has its own Workers requests, AI neurons and\n * browser-render seconds per UTC day. The reference module kept a row per account/resource/day and\n * refreshed it from Cloudflare whenever the dashboard opened; this port keeps that shape, with the\n * reader's id in front so two readers' accounts can never share a counter.\n */",
+    "/**\n * Refresh today's counters from Cloudflare before answering the dashboard.\n *\n * One account failing must not hide the others' numbers, which is the whole reason the screens exist;\n * the failure is logged with the account and the rest of the sync continues.\n */",
+  ]],
+  ["src/worker/cloudflare/schema.ts", [
+    "/**\n * The Cloudflare app's tables, declared where the boot can find them.\n *\n * Every table leads with `user_id`: the reference module was a single-reader deploy, while this\n * notebook has accounts, and one reader's Cloudflare credentials, logs, conversations and tasks must\n * never be visible to another. Account rows carry a generated 26-character id rather than the\n * reference's autoincrement, because the credential vault derives its key from that id.\n *\n * Credential material is not in any of these tables. It lives in the R2 bucket under\n * `cloudflare/txt/accounts/<id>.txt`, sealed by the credential vault (see `credentials.ts`).\n */",
+  ]],
+  ["src/worker/cloudflare/settings.ts", [
+    "/**\n * The Cloudflare module's own settings, one row per key per reader.\n *\n * Only what a reader can change and the server must remember lives here. The reference module also\n * kept the proxy configuration in this table; this deployment has no outbound proxy (see the plan's\n * D-7), so those keys are not read or written.\n */",
+  ]],
+  ["src/worker/cloudflare/usage.ts", [
+    "/**\n * Today's usage, read from Cloudflare's analytics rather than guessed from request counts.\n *\n * Both queries are the reference module's own: Workers/Pagess invocations and AI neurons, filtered to\n * one Cloudflare account and the current UTC day. The screens treat a failed query as \"no number\",\n * which is why the workers query answers zeros on failure while the AI query throws — the AI tab has\n * somewhere to show the failure, the resource cards only have a number slot.\n */",
+  ]],
   ["src/worker/db/fts.ts", [
     "/**\n * Queues every live note for re-indexing in one statement. Rebuilding in the request path\n * costs ~3 round trips per 50 notes (600 trips for 10k notes) plus a full-text tokenize\n * pass, which cannot finish inside one invocation; the queue drains in the background.\n */",
     "/** Removes search rows whose note no longer exists or was deleted. */",
@@ -33472,6 +33679,7 @@ const allowed = new Map([
     "/**\n * The vault's scope pattern predates the calendar app: it has no `calendar` prefix, and its record\n * policy decides which fields a scope may hold. `mcp` is the one existing scope that accepts a single\n * opaque OAuth-sized bundle (`blob`, up to 16 KiB), which is exactly this payload's shape. The scope\n * still ends in a 26-character id from the vault's own alphabet, so one connection's ciphertext is\n * sealed under a key no other connection's id derives. A calendar scope in the vault would replace\n * this constant and nothing else.\n */",
     "/**\n * The credential of one calendar connection.\n *\n * The payload is one JSON blob inside the vault's opaque-bundle field. The scope is the connection id\n * so a ciphertext cannot be moved to another connection and read back out there. The plaintext exists\n * only inside the worker call that talks to the provider; no route returns it, and a log line never\n * receives it.\n */",
     "/**\n * The PKCE verifier of one pending OAuth state.\n *\n * The state hash is already the row's public identifier and never leaves the server, so sealing under\n * its first 26 hex characters needs no extra column: those are valid vault-id characters, and the\n * callback hashes the state it received and can reopen exactly that one verifier. A raw verifier in\n * the table would let anyone who can read D1 mint the code exchange.\n */",
+    "/**\n * One Cloudflare account's credential bundle.\n *\n * The ciphertext is stored in R2 (`cloudflare/txt/accounts/<id>.txt`), so this is the only place the\n * plaintext exists: it is opened for the duration of one upstream Cloudflare call and never returned\n * by a route. The scope is the account row's own generated id, so a bundle copied onto another row\n * cannot be decrypted with that row's key.\n */",
   ]],
   ["src/worker/lib/encoding.ts", [
     "/**\n * The five markup metacharacters, for a string headed into an HTML document.\n *\n * The share shells interpolate a note title into `<title>` and an `og:title` attribute, and a title is\n * author text: without this a title of `</title><script>` would close the tag the server just opened.\n * It lives here rather than beside each shell because three routes needed the same rule and a route may\n * not import another one.\n */",
@@ -34837,6 +35045,57 @@ const allowed = new Map([
     "/**\n * The fingerprint of a range, without the rows.\n *\n * Registered before `/events/:id`: Hono matches in order, and `revision` would otherwise arrive as an\n * event id.\n */",
     "// ------------------------------------------------------------- calendars",
     "// ------------------------------------------------------------- groups",
+  ]],
+  ["src/worker/routes/cloudflare/accounts.ts", [
+    "/**\n * `/api/cloudflare/accounts` — one slice of the Cloudflare app.\n *\n * The router is created here and filled by its own task; keeping the file and its export in place\n * means the aggregate router never has to change again while the slices land.\n */",
+  ]],
+  ["src/worker/routes/cloudflare/ai-v1.ts", [
+    "/**\n * `/api/cloudflare/ai-v1` — one slice of the Cloudflare app.\n *\n * The router is created here and filled by its own task; keeping the file and its export in place\n * means the aggregate router never has to change again while the slices land.\n */",
+  ]],
+  ["src/worker/routes/cloudflare/ai.ts", [
+    "/**\n * `/api/cloudflare/ai` — one slice of the Cloudflare app.\n *\n * The router is created here and filled by its own task; keeping the file and its export in place\n * means the aggregate router never has to change again while the slices land.\n */",
+  ]],
+  ["src/worker/routes/cloudflare/audit-log.ts", [
+    "/**\n * `/api/cloudflare/audit-log` — one slice of the Cloudflare app.\n *\n * The router is created here and filled by its own task; keeping the file and its export in place\n * means the aggregate router never has to change again while the slices land.\n */",
+  ]],
+  ["src/worker/routes/cloudflare/browser-render.ts", [
+    "/**\n * `/api/cloudflare/browser-render` — one slice of the Cloudflare app.\n *\n * The router is created here and filled by its own task; keeping the file and its export in place\n * means the aggregate router never has to change again while the slices land.\n */",
+  ]],
+  ["src/worker/routes/cloudflare/chat-sessions.ts", [
+    "/**\n * `/api/cloudflare/chat-sessions` — one slice of the Cloudflare app.\n *\n * The router is created here and filled by its own task; keeping the file and its export in place\n * means the aggregate router never has to change again while the slices land.\n */",
+  ]],
+  ["src/worker/routes/cloudflare/dashboard.ts", [
+    "/**\n * `/api/cloudflare/dashboard` — one slice of the Cloudflare app.\n *\n * The router is created here and filled by its own task; keeping the file and its export in place\n * means the aggregate router never has to change again while the slices land.\n */",
+  ]],
+  ["src/worker/routes/cloudflare/dns.ts", [
+    "/**\n * `/api/cloudflare/dns` — one slice of the Cloudflare app.\n *\n * The router is created here and filled by its own task; keeping the file and its export in place\n * means the aggregate router never has to change again while the slices land.\n */",
+  ]],
+  ["src/worker/routes/cloudflare/index.ts", [
+    "/**\n * The `/api/cloudflare/*` surface.\n *\n * Everything under it needs a session: these routes act with a reader's own Cloudflare credentials,\n * and an unauthenticated caller has none. The routers are mounted with their static prefixes first —\n * `/ai/chat/sessions` before `/ai`, `/workers/summary` inside that router before its `/:accountId`\n * arm — because Hono answers in registration order.\n */",
+    "/** What the module needs from the deployment. Answers, it does not guess. */",
+    "// Before `/ai`: the chat history is an `/ai/chat/sessions` address, and an `/ai` router mounted first",
+    "// would answer it with its own not-found before this one saw the request.",
+  ]],
+  ["src/worker/routes/cloudflare/quota.ts", [
+    "/**\n * `/api/cloudflare/quota` — one slice of the Cloudflare app.\n *\n * The router is created here and filled by its own task; keeping the file and its export in place\n * means the aggregate router never has to change again while the slices land.\n */",
+  ]],
+  ["src/worker/routes/cloudflare/settings.ts", [
+    "/**\n * `/api/cloudflare/settings` — one slice of the Cloudflare app.\n *\n * The router is created here and filled by its own task; keeping the file and its export in place\n * means the aggregate router never has to change again while the slices land.\n */",
+  ]],
+  ["src/worker/routes/cloudflare/storage.ts", [
+    "/**\n * `/api/cloudflare/storage` — one slice of the Cloudflare app.\n *\n * The router is created here and filled by its own task; keeping the file and its export in place\n * means the aggregate router never has to change again while the slices land.\n */",
+  ]],
+  ["src/worker/routes/cloudflare/store.ts", [
+    "/**\n * `/api/cloudflare/store` — one slice of the Cloudflare app.\n *\n * The router is created here and filled by its own task; keeping the file and its export in place\n * means the aggregate router never has to change again while the slices land.\n */",
+  ]],
+  ["src/worker/routes/cloudflare/tasks.ts", [
+    "/**\n * `/api/cloudflare/tasks` — one slice of the Cloudflare app.\n *\n * The router is created here and filled by its own task; keeping the file and its export in place\n * means the aggregate router never has to change again while the slices land.\n */",
+  ]],
+  ["src/worker/routes/cloudflare/tunnels.ts", [
+    "/**\n * `/api/cloudflare/tunnels` — one slice of the Cloudflare app.\n *\n * The router is created here and filled by its own task; keeping the file and its export in place\n * means the aggregate router never has to change again while the slices land.\n */",
+  ]],
+  ["src/worker/routes/cloudflare/workers.ts", [
+    "/**\n * `/api/cloudflare/workers` — one slice of the Cloudflare app.\n *\n * The router is created here and filled by its own task; keeping the file and its export in place\n * means the aggregate router never has to change again while the slices land.\n */",
   ]],
   ["src/worker/routes/community-templates.ts", [
     "/**\n * Publishing counts against a per-account hourly budget so one account cannot\n * flood the shared directory. Updating your own template spends the same\n * budget, which is the point: an edit is another write.\n */",
@@ -38669,6 +38928,16 @@ const allowed = new Map([
     "/**\n * One live instance of the bug, recorded rather than excused.\n *\n * `AutomationsView`'s new-automation form hands its close to the success branch of a promise it has already\n * written `void` in front of: `addAutomation` catches its own failure and toasts it, so the `then` runs on a\n * refused create too and the dialog closes happily over an automation that was never made. That is the\n * model-editor bug in a second spelling. Converging it — await the action and close on its answer, the way\n * `ModelEditorDialog.tsx` does now — deletes this entry, and an entry dropped without the fix fails here.\n */",
     "/**\n * Whether this call is a write whose answer nobody is watching.\n *\n * A promise is read as pending only when the code says so: written with `void`, or an `on…` handler prop\n * called as its own statement — a prop's type is the contract at a component's boundary, and `onSave` is\n * exactly how the model editor's bug was written. A bare call to a store action is not enough, because\n * without a type checker it cannot be told from a synchronous one (`updateTemplate` answers `boolean`,\n * `editContent` answers `void`), and a guard that cried wolf on every local write would be read as noise.\n */",
     "/**\n * The pre-filter, and why it is allowed.\n *\n * Reading every feature file through the TS parser costs the suite seconds it does not need: a file that\n * never names a close, a `.then(` or a dialog-state setter cannot hold either shape. The filter is checked\n * against the tree below, so a rule-relevant file that stops matching it fails here rather than passing\n * quietly.\n */",
+  ]],
+  ["tests/cloudflare-fixtures.ts", [
+    "/**\n * A deployment shaped like the real one, for the Cloudflare routes.\n *\n * The vault double is deliberately strict about scope: a ciphertext sealed for one account must not\n * open under another, because that is the property the real Durable Object enforces and the property\n * the route tests are supposed to prove.\n */",
+    "/** A Cloudflare API stub: handlers match on path and may inspect method/body. */",
+    "/** Insert an account row and the credential file it points at. */",
+    "/** The account id the mocked session belongs to; every route test uses one reader. */",
+  ]],
+  ["tests/cloudflare-pricing.test.ts", [
+    "// Llama 3.1 8B: 25.608 in / 75.147 out per thousand tokens.",
+    "// Cached tokens never cost more than fresh ones, and never produce a negative bill.",
   ]],
   ["tests/code-sandbox.test.ts", [
     "/** A program that returns something, written the way the model is told to write one. */",

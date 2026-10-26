@@ -49,6 +49,9 @@ const apiCodeMessages: Record<string, MessageKey> = {
     music_quota_exceeded: 'api.error.music_quota_exceeded',
     music_upload_invalid: 'api.error.music_upload_invalid',
     music_lyrics_unavailable: 'api.error.music_lyrics_unavailable',
+    cloudflare_upstream: 'api.error.cloudflare_upstream',
+    cloudflare_not_configured: 'api.error.cloudflare_not_configured',
+    cloudflare_quota_exceeded: 'api.error.cloudflare_quota_exceeded',
 };
 let englishMessageKeys = new Map<string, MessageKey>();
 let locale: AppLocale = detectInitialLocale();

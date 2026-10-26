@@ -58,6 +58,7 @@ import { todoImportRoutes } from './routes/todo-import'
 import { todoFeedRoutes } from './routes/todo-feeds'
 import { emailRoutes } from './routes/email'
 import { musicRoutes } from './routes/music'
+import { cloudflareRoutes } from './routes/cloudflare'
 import { toolsPasswordRoutes } from './routes/tools-password'
 import { toolsQrcodeRoutes } from './routes/tools-qrcode'
 import { toolsColorRoutes } from './routes/tools-color'
@@ -215,6 +216,9 @@ export function createApp() {
   app.route('/api/email', emailSendRoutes)
   app.route('/api/email', emailRoutes)
   app.route('/api/music', musicRoutes)
+  // The Cloudflare app's own API; the prefix keeps every one of its ~150 endpoints out of the
+  // notebook's namespace.
+  app.route('/api/cloudflare', cloudflareRoutes)
   app.route('/api/tools/password', toolsPasswordRoutes)
   app.route('/api/tools/qrcode', toolsQrcodeRoutes)
   app.route('/api/tools/color', toolsColorRoutes)
