@@ -145,6 +145,15 @@ interface TodosState {
    */
   directoryKnown: boolean
   counts: TaskCounts | null
+  /**
+   * Whether the sidebar's numbers are known to be behind.
+   *
+   * They are the server's aggregate, refreshed after every write the reader lands. When one of those
+   * refreshes fails the old numbers stay on screen — which is the right call over blanking them — but a
+   * count that is quietly wrong is worse than one that says it may be. The nav marks itself when this is
+   * true and clears on any read that answers, so the doubt does not outlive the last failed attempt.
+   */
+  countsStale: boolean
   dayEnd: number
   timezone: string
 
@@ -1317,6 +1326,7 @@ export const useTodos = create<TodosState>((set, get) => ({
   tags: [],
   directoryKnown: false,
   counts: null,
+  countsStale: false,
   dayEnd: 0,
   timezone: 'UTC',
 
@@ -1370,6 +1380,7 @@ export const useTodos = create<TodosState>((set, get) => ({
       const visible = withoutExcludedTags(page.tasks, excluded)
       const shared = {
         counts: page.counts,
+        countsStale: false,
         dayEnd: page.dayEnd,
         timezone: page.timezone,
         lists: lists.lists,
@@ -1419,8 +1430,11 @@ export const useTodos = create<TodosState>((set, get) => ({
       // The counts endpoint rather than a page of one listing: this runs after every write the reader
       // lands, and the badges need three scalars, not a task row and the filter it was counted under.
       const fresh = await api.todos.counts()
-      set({ counts: fresh.counts, dayEnd: fresh.dayEnd, timezone: fresh.timezone })
+      set({ counts: fresh.counts, countsStale: false, dayEnd: fresh.dayEnd, timezone: fresh.timezone })
     } catch (error) {
+      // The numbers stay on screen because a blank badge helps nobody, but the reader is told they may
+      // be behind: the nav reads `countsStale` beside them.
+      set({ countsStale: true })
       toastError(error)
     }
   },

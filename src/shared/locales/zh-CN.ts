@@ -9247,6 +9247,7 @@ console.log(\`Hello, \${name}!\`)
     "todo.task.icon": "图标",
     "todo.task.tags_label": "标签",
     "todo.saved_filters": "保存的筛选",
+    "todo.counts.stale": "这些数字可能落后了——上次刷新没有成功。",
     "todo.saved_filter.delete": "删除保存的筛选“{name}”",
     "todo.task.repeat_label": "重复",
     "todo.task.reminders_label": "提醒",

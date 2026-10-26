@@ -101,6 +101,7 @@ export function TodosApp() {
   const openEditor = useTodos((state) => state.openEditor)
   const selecting = useTodos((state) => state.selectedIds.size > 0)
   const counts = useTodos((state) => state.counts)
+  const countsStale = useTodos((state) => state.countsStale)
   const lists = useTodos((state) => state.lists)
   const tags = useTodos((state) => state.tags)
   const tasks = useTodos((state) => state.tasks)
@@ -376,6 +377,15 @@ export function TodosApp() {
 
   const sidebar = (
     <nav aria-label={t('todo.a11y.lists')} style={{ width: todoNavWidth }} className="flex h-full shrink-0 flex-col gap-4 overflow-y-auto border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-3">
+      {/* The counts are the server's aggregate, and a refresh that failed left the last good answer on
+          screen. That is the right trade against blanking the nav, but the reader has to be able to tell
+          a number they can act on from one they are merely waiting on — so the doubt is said once, where
+          the numbers are, rather than only in a toast that has already gone. */}
+      {countsStale && (
+        <p role="status" className="px-2 text-[length:var(--text-10-5)] text-[var(--warning)]">
+          {t('todo.counts.stale')}
+        </p>
+      )}
       <div className="flex flex-col gap-0.5">
         {surfacesFor('sidebar', navFlags).map((surface) => {
           const Icon = surface.icon
