@@ -241,10 +241,13 @@ export function parseTodoAddress(pathname: string, search: string): TodoAddress 
 export function writeTodoSearch(selection: TodoViewSelection): string {
   const params = new URLSearchParams()
   if (selection.view === 'list') {
-    if (selection.listId) params.set('list', selection.listId)
+    // The inbox is a collection with no row behind it, and the address still has to name it. An address
+    // that says only "the list view" is a screen this app never shows — and it read back as the board, so
+    // closing a panel from the inbox carried the reader off the list they were on.
+    params.set('list', selection.listId ?? 'inbox')
     // The plain list is what an address without the parameter already means, so only the split is
-    // written, and only beside the list it belongs to.
-    if (selection.listId && selection.layout === 'columns') {
+    // written, and only beside the collection it belongs to.
+    if (selection.layout === 'columns') {
       params.set('layout', 'columns')
       // Status is what the columns mean when the address says nothing, so only another dimension is
       // written — the same rule that keeps the plain list out of an address that means it.

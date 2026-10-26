@@ -191,4 +191,21 @@ describe('asking for a task from somewhere else in the app', () => {
     expect(window.location.search).toBe('?view=plan')
     expect(dialog()).toBeNull()
   })
+
+  it('keeps the inbox list on the bar when the panel closes, so the reader is not sent to the board', async () => {
+    // `?view=list` names the list screen with no collection, which is the inbox; the sidebar's own row
+    // spells it `list=inbox`. Either way the address after a close has to keep saying "a list", or the
+    // bar reads back as the board and the reader is somewhere they did not go.
+    await mountAt('/todo/task-77?view=list')
+
+    await act(async () => { useTodos.getState().closeEditor() })
+
+    expect(window.location.search).toBe('?list=inbox')
+    expect(useTodos.getState().view).toBe('list')
+
+    await mountAt('/todo/task-77?list=inbox')
+    await act(async () => { useTodos.getState().closeEditor() })
+    expect(window.location.search).toBe('?list=inbox')
+    expect(useTodos.getState().listId).toBe('inbox')
+  })
 })
