@@ -266,6 +266,19 @@ export function CalendarSidebar({
     }
   }
 
+  const setSubscriptionEnabled = async (subscription: CalendarSubscriptionDto, enabled: boolean): Promise<void> => {
+    try {
+      await api.setSubscriptionEnabled(subscription.id, enabled)
+      useUi.getState().toast({
+        title: t(enabled ? 'calendar.subscription.enabled_done' : 'calendar.subscription.disabled'),
+        tone: 'success',
+      })
+      await onRefresh(false)
+    } catch (error) {
+      toastFailure(t('calendar.subscription.toggle_failed'), error)
+    }
+  }
+
   const removeSubscription = async (subscription: CalendarSubscriptionDto): Promise<void> => {
     const calendar = metaById.get(subscription.calendarId)
     const confirmed = await confirm({
@@ -483,6 +496,11 @@ export function CalendarSidebar({
                   const calendar = metaById.get(subscription.calendarId)
                   return (
                     <li key={subscription.id} className="flex items-center gap-1.5 px-1 py-1 text-[length:var(--text-12)] text-[var(--text-secondary)]">
+                      <Checkbox
+                        checked={subscription.enabled}
+                        onChange={enabled => void setSubscriptionEnabled(subscription, enabled)}
+                        label={<span className="sr-only">{t('calendar.subscription.enabled')}</span>}
+                      />
                       <Rss size={12} className="shrink-0 text-[var(--text-quaternary)]" aria-hidden="true" />
                       <span className="min-w-0 flex-1 truncate">{calendar?.name ?? subscription.url ?? subscription.kind}</span>
                       {subscription.kind === 'ics' && (
@@ -490,6 +508,7 @@ export function CalendarSidebar({
                           <IconButton
                             size="sm"
                             label={t('calendar.subscription.refresh')}
+                            disabled={!subscription.enabled}
                             onClick={() => void refreshSubscription(subscription)}
                           >
                             <RefreshCw size={12} />

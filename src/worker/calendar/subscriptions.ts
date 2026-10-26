@@ -34,8 +34,10 @@ interface SubscriptionRow {
   id: string
   calendar_id: string
   url: string | null
+  enabled: number
   sync_state_json: string
   last_sync_at: number | null
+  last_error_code: string | null
 }
 
 export interface CreateSubscriptionResult {
@@ -97,8 +99,10 @@ export async function createIcsSubscription(
         id: subscriptionId,
         calendar_id: calendar.id,
         url: url.href,
+        enabled: 1,
         sync_state_json: JSON.stringify({ etag: feed.etag, lastModified: feed.lastModified }),
         last_sync_at: now,
+        last_error_code: null,
       }),
       calendarId: calendar.id,
       imported,
@@ -120,6 +124,7 @@ export async function refreshIcsSubscription(
   const store = new CalendarStore(env.DB, userId)
   const row = await loadSubscription(env.DB, userId, subscriptionId)
   if (!row || !row.url) throw ApiError.notFound('Subscription not found')
+  if (!row.enabled) throw ApiError.conflict('This calendar subscription is disabled')
   const state = readSyncState(row.sync_state_json)
   const preferences = await store.preferences()
   const url = validateFeedUrl(row.url)
@@ -187,6 +192,41 @@ export async function setIcsSubscriptionEnabled(
     `UPDATE calendar_subscriptions SET enabled = ?3, updated_at = ?4
       WHERE user_id = ?1 AND id = ?2`,
   ).bind(userId, subscriptionId, enabled ? 1 : 0, Date.now()).run()
+}
+
+const DUE_REFRESH_INTERVAL_MS = 15 * 60 * 1000
+const DUE_REFRESH_RETRY_MS = 60 * 60 * 1000
+const DUE_REFRESH_LIMIT = 3
+
+/**
+ * Refresh a few due ICS feeds on each cron fire.
+ *
+ * `last_sync_at` spaces successful runs; `last_error_at` holds a broken feed for an hour instead of
+ * retrying it every minute. The limit keeps one slow feed from spending the whole scheduled budget.
+ */
+export async function refreshDueIcsSubscriptions(env: Env, now = Date.now()): Promise<number> {
+  const { results } = await env.DB.prepare(
+    `SELECT user_id, id FROM calendar_subscriptions
+      WHERE kind = 'ics' AND enabled = 1 AND url IS NOT NULL
+        AND (last_sync_at IS NULL OR last_sync_at <= ?1)
+        AND (last_error_at IS NULL OR last_error_at <= ?2)
+      ORDER BY COALESCE(last_sync_at, 0) ASC
+      LIMIT ?3`,
+  ).bind(now - DUE_REFRESH_INTERVAL_MS, now - DUE_REFRESH_RETRY_MS, DUE_REFRESH_LIMIT)
+    .all<{ user_id: string; id: string }>()
+  let refreshed = 0
+  for (const row of results ?? []) {
+    try {
+      await refreshIcsSubscription(env, row.user_id, row.id)
+      refreshed += 1
+    } catch (error) {
+      console.warn('[inkstone] Scheduled calendar subscription refresh failed:', {
+        subscription: row.id,
+        error: error instanceof Error ? error.message : error,
+      })
+    }
+  }
+  return refreshed
 }
 
 function parseFeed(text: string, defaultTimeZone: string) {
@@ -301,7 +341,7 @@ async function loadSubscription(
   id: string,
 ): Promise<SubscriptionRow | null> {
   return db.prepare(
-    `SELECT id, calendar_id, url, sync_state_json, last_sync_at
+    `SELECT id, calendar_id, url, enabled, sync_state_json, last_sync_at, last_error_code
        FROM calendar_subscriptions
       WHERE user_id = ?1 AND id = ?2`,
   ).bind(userId, id).first<SubscriptionRow>()
@@ -343,9 +383,9 @@ function subscriptionRowToDto(row: SubscriptionRow): CalendarSubscriptionDto {
     calendarId: row.calendar_id,
     kind: 'ics',
     url: row.url,
-    enabled: true,
+    enabled: row.enabled === 1,
     lastSyncAt: row.last_sync_at,
-    lastErrorCode: null,
+    lastErrorCode: row.last_error_code,
     createdAt: now,
     updatedAt: now,
   }
