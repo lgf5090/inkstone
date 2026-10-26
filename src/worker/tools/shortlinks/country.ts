@@ -11,7 +11,7 @@ export function countryFlag(code: string | null | undefined): string {
 }
 
 export function countryName(code: string | null | undefined, lang = 'zh-CN'): string {
-  if (!code) return lang.startsWith('zh') ? '未知地区' : 'Unknown'
+  if (!code) return lang.startsWith('zh') ? '\u672a\u77e5\u5730\u533a' : 'Unknown'
   try {
     const names = new Intl.DisplayNames([lang], { type: 'region' })
     return names.of(code.toUpperCase()) || code

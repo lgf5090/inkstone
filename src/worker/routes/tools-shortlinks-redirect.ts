@@ -18,7 +18,7 @@ function renderPasswordPage(slug: string, errorMsg?: string): Response {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>受保护的链接 - Inkstone Shortlinks</title>
+  <title>\u53d7\u4fdd\u62a4\u7684\u94fe\u63a5 - Inkstone Shortlinks</title>
   <style>
     :root {
       --bg: #0f172a;
@@ -124,15 +124,15 @@ function renderPasswordPage(slug: string, errorMsg?: string): Response {
     <svg class="icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
     </svg>
-    <h1>受保护的短链接</h1>
-    <p>此短链接已设置访问密码保护，请输入正确的访问密码以继续跳转。</p>
+    <h1>\u53d7\u4fdd\u62a4\u7684\u77ed\u94fe\u63a5</h1>
+    <p>\u6b64\u77ed\u94fe\u63a5\u5df2\u8bbe\u7f6e\u8bbf\u95ee\u5bc6\u7801\u4fdd\u62a4\uff0c\u8bf7\u8f93\u5165\u6b63\u786e\u7684\u8bbf\u95ee\u5bc6\u7801\u4ee5\u7ee7\u7eed\u8df3\u8f6c\u3002</p>
     ${errorMsg ? `<div class="error" role="alert">${errorMsg}</div>` : ''}
     <form method="POST" action="/l/${slug}">
       <div>
-        <label for="password">访问密码</label>
-        <input type="password" id="password" name="password" required autofocus placeholder="请输入访问密码" />
+        <label for="password">\u8bbf\u95ee\u5bc6\u7801</label>
+        <input type="password" id="password" name="password" required autofocus placeholder="\u8bf7\u8f93\u5165\u8bbf\u95ee\u5bc6\u7801" />
       </div>
-      <button type="submit">验证并跳转</button>
+      <button type="submit">\u9a8c\u8bc1\u5e76\u8df3\u8f6c</button>
     </form>
   </div>
 </body>
@@ -146,7 +146,7 @@ function renderPasswordPage(slug: string, errorMsg?: string): Response {
   })
 }
 
-function renderNotFoundPage(title = '短链接不存在', message = '抱歉，您访问的短链接不存在或已被删除。'): Response {
+function renderNotFoundPage(title = '\u77ed\u94fe\u63a5\u4e0d\u5b58\u5728', message = '\u62b1\u6b49\uff0c\u60a8\u8bbf\u95ee\u7684\u77ed\u94fe\u63a5\u4e0d\u5b58\u5728\u6216\u5df2\u88ab\u5220\u9664\u3002'): Response {
   const html = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -222,12 +222,12 @@ async function handleRedirect(c: any, providedPassword?: string) {
 
   // 3. Status checks
   if (entry.disabled_at !== null) {
-    return renderNotFoundPage('链接已停用', '该短链接已被创建者暂时停用。')
+    return renderNotFoundPage('\u94fe\u63a5\u5df2\u505c\u7528', '\u8be5\u77ed\u94fe\u63a5\u5df2\u88ab\u521b\u5efa\u8005\u6682\u65f6\u505c\u7528\u3002')
   }
 
   const now = Math.floor(Date.now() / 1000)
   if (entry.expires_at !== null && entry.expires_at <= now) {
-    return renderNotFoundPage('链接已过期', '该短链接已达到预设有效期限并已过期失效。')
+    return renderNotFoundPage('\u94fe\u63a5\u5df2\u8fc7\u671f', '\u8be5\u77ed\u94fe\u63a5\u5df2\u8fbe\u5230\u9884\u8bbe\u6709\u6548\u671f\u9650\u5e76\u5df2\u8fc7\u671f\u5931\u6548\u3002')
   }
 
   // 4. Password Gate
@@ -247,7 +247,7 @@ async function handleRedirect(c: any, providedPassword?: string) {
 
     const inputHash = await hashPassword(inputPassword)
     if (inputHash !== entry.password_hash) {
-      return renderPasswordPage(slug, '访问密码错误，请重新输入')
+      return renderPasswordPage(slug, '\u8bbf\u95ee\u5bc6\u7801\u9519\u8bef\uff0c\u8bf7\u91cd\u65b0\u8f93\u5165')
     }
   }
 
