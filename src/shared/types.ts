@@ -1461,6 +1461,7 @@ export type ApiErrorCode =
   | 'invalid_username'
   | 'invalid_profile_name'
   | 'invalid_avatar'
+  | 'invalid_timezone'
   | 'weak_password'
   | 'username_taken'
   | 'invalid_credentials'

@@ -16,7 +16,7 @@ interface SessionState {
   load: () => Promise<void>
   passwordLogin: (username: string, password: string) => Promise<TotpLoginChallenge | null>
   totpLogin: (challengeToken: string, code: string) => Promise<void>
-  passwordRegister: (username: string, password: string, setupToken?: string) => Promise<void>
+  passwordRegister: (username: string, password: string, setupToken?: string, timezone?: string) => Promise<void>
   refresh: () => Promise<void>
   refreshSettings: () => Promise<void>
   updateProfile: (patch: { name?: string; avatarUrl?: string }) => Promise<PublicUser>
@@ -120,9 +120,9 @@ export const useSession = create<SessionState>((set, get) => ({
     }
   },
 
-  async passwordRegister(username, password, setupToken) {
+  async passwordRegister(username, password, setupToken, timezone) {
     const sequence = ++sessionRequestSequence
-    const info = await api.auth.register(username, password, getLocale(), setupToken)
+    const info = await api.auth.register(username, password, getLocale(), setupToken, timezone)
     if (sequence !== sessionRequestSequence) return
     await persistSession(info)
     if (sequence !== sessionRequestSequence) return

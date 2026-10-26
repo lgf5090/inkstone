@@ -80,8 +80,9 @@ export function LoginPage() {
     busyRef.current = true
     setBusy(true)
     try {
-      if (registerMode) await passwordRegister(username.trim(), password, setupToken || undefined)
-      else {
+      if (registerMode) {
+        await passwordRegister(username.trim(), password, setupToken || undefined, browserTimeZone())
+      } else {
         const nextChallenge = await passwordLogin(username.trim(), password)
         if (nextChallenge) {
           setChallenge(nextChallenge)
@@ -298,6 +299,20 @@ export function LoginPage() {
       </footer>
     </div>
   )
+}
+
+
+/**
+ * The zone a brand-new account starts its day in.
+ *
+ * Every date the to-do app reasons about — a due label, a plan group, the close-out page — is cut in the
+ * account's own scheduling zone, and an account with no zone written is read as UTC, so a reader east of
+ * Greenwich spends the first eight hours of each day being shown yesterday. The server validates this
+ * against its own zone table and refuses one nothing can resolve, so an unreadable value costs the
+ * registration a 400 rather than silently landing an account on the wrong day.
+ */
+function browserTimeZone(): string | undefined {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined
 }
 
 
