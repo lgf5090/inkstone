@@ -398,7 +398,7 @@ export const TaskCard = memo(function TaskCard({ task, lists, bounds, timezone, 
   // The row's colour identity: the task's own when it has one, its list's otherwise. The accent stays
   // the inbox's fallback here — a card's checkbox is the row's own mark — where the calendar, whose
   // chips sit beside other days' work, draws the neutral instead (`task-face.ts`).
-  const colour = taskColorOf(task, lists, 'var(--accent)')
+  const colour = taskColorOf(task, lists)
   const due = dueLabel(task.dueAt, bounds, timezone)
   /**
    * The two questions the card used to ask with one boolean.

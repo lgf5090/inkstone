@@ -63,18 +63,28 @@ describe("a task's own colour", () => {
     expect(taskColorOf(task({ listId: 'l1', color: null }), lists)).toBe('#2563eb')
   })
 
-  it('is the caller neutral for a task in no list at all', () => {
+  /**
+   * The neutral is the same answer on every surface, and there is no way to ask for another one.
+   *
+   * The card used to pass `var(--accent)` here, which put it within 1.07:1 of the `--danger` the same row
+   * paints an overdue date with — one red saying "nobody's list" and another saying "this is late". The
+   * override parameter is gone rather than merely unused, so a third surface cannot reintroduce it.
+   */
+  it('is the neutral for a task in no list at all', () => {
     expect(taskColorOf(task({ listId: null }), [])).toBe('var(--text-tertiary)')
-    expect(taskColorOf(task({ listId: null }), [], 'var(--accent)')).toBe('var(--accent)')
+    expect(taskColorOf(task({ listId: null }), [])).not.toBe('var(--accent)')
   })
 
   it('falls back for a list that has since been deleted', () => {
     expect(taskColorOf(task({ listId: 'gone' }), [list('l1', '#2563eb')])).toBe('var(--text-tertiary)')
   })
 
-  it('is the caller neutral when the list itself has no colour', () => {
+  it('is the neutral when the list itself has no colour', () => {
     expect(taskColorOf(task({ listId: 'l1' }), [list('l1', null)])).toBe('var(--text-tertiary)')
-    expect(taskColorOf(task({ listId: 'l1' }), [list('l1', null)], 'var(--accent)')).toBe('var(--accent)')
+  })
+
+  it('takes no per-surface fallback, so the card and the calendar cannot disagree again', () => {
+    expect(taskColorOf.length).toBe(2)
   })
 })
 
