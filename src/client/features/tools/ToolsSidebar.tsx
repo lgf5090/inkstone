@@ -1,16 +1,24 @@
 import type { ComponentType } from 'react'
 import {
+  Binary,
+  Blend,
+  BookOpen,
+  Bot,
   CheckSquare,
   ChevronRight,
   Compass,
   FolderTree,
+  Heart,
   History,
+  Image,
   KeyRound,
   Layers,
+  LayoutGrid,
   LayoutTemplate,
   PanelLeft,
   PanelLeftClose,
   Lock,
+  Palette,
   QrCode,
   ScanLine,
   Settings,
@@ -23,7 +31,7 @@ import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { IconButton } from '../../components/primitives'
 import { Tooltip } from '../../components/overlay'
-import { useToolsStore, type PasswordNavView, type QrCodeNavView } from './store'
+import { useToolsStore, type ColorNavView, type PasswordNavView, type QrCodeNavView } from './store'
 import { GroupTree } from './password/GroupTree'
 import { usePasswordVaultStore } from './password/store'
 
@@ -38,6 +46,24 @@ interface QrNavSlot {
   labelKey: MessageKey
   icon: ComponentType<{ size?: number; className?: string }>
 }
+
+interface ColorNavSlot {
+  id: ColorNavView
+  labelKey: MessageKey
+  icon: ComponentType<{ size?: number; className?: string }>
+}
+
+const COLOR_NAV_SLOTS: readonly ColorNavSlot[] = [
+  { id: 'studio', labelKey: 'tools.color.nav.studio', icon: Palette },
+  { id: 'algorithm', labelKey: 'tools.color.nav.algorithm', icon: Binary },
+  { id: 'ai_palette', labelKey: 'tools.color.nav.ai_palette', icon: Bot },
+  { id: 'ui_palettes', labelKey: 'tools.color.nav.ui_palettes', icon: LayoutGrid },
+  { id: 'image_palette', labelKey: 'tools.color.nav.image_palette', icon: Image },
+  { id: 'traditional', labelKey: 'tools.color.nav.traditional', icon: BookOpen },
+  { id: 'gradient', labelKey: 'tools.color.nav.gradient', icon: Blend },
+  { id: 'color_hunt', labelKey: 'tools.color.nav.color_hunt', icon: Heart },
+  { id: 'favorites', labelKey: 'tools.color.nav.favorites', icon: Star },
+]
 
 const QRCODE_NAV_SLOTS: readonly QrNavSlot[] = [
   { id: 'generator', labelKey: 'tools.qrcode.nav.generator', icon: QrCode },
@@ -81,6 +107,10 @@ export function ToolsSidebar({
   const toggleQrcodeModuleExpanded = useToolsStore((s) => s.toggleQrcodeModuleExpanded)
   const activeQrCodeView = useToolsStore((s) => s.activeQrCodeView)
   const setActiveQrCodeView = useToolsStore((s) => s.setActiveQrCodeView)
+  const colorModuleExpanded = useToolsStore((s) => s.colorModuleExpanded)
+  const toggleColorModuleExpanded = useToolsStore((s) => s.toggleColorModuleExpanded)
+  const activeColorView = useToolsStore((s) => s.activeColorView)
+  const setActiveColorView = useToolsStore((s) => s.setActiveColorView)
   const isUnlocked = usePasswordVaultStore((s) => s.isUnlocked)
   const isBackupSettingsOpen = usePasswordVaultStore((s) => s.isBackupSettingsOpen)
   const isBatchOperationsOpen = usePasswordVaultStore((s) => s.isBatchOperationsOpen)
@@ -100,6 +130,12 @@ export function ToolsSidebar({
   const handleQrSlotClick = (slotId: QrCodeNavView) => {
     setActiveSubmodule('qrcode')
     setActiveQrCodeView(slotId)
+    onNavigate?.()
+  }
+
+  const handleColorSlotClick = (slotId: ColorNavView) => {
+    setActiveSubmodule('color')
+    setActiveColorView(slotId)
     onNavigate?.()
   }
 
@@ -146,6 +182,19 @@ export function ToolsSidebar({
               }}
             >
               <QrCode size={16} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip label={t('tools.color.module_name')} side="right">
+            <IconButton
+              label={t('tools.color.module_name')}
+              size="sm"
+              active={activeSubmodule === 'color'}
+              onClick={() => {
+                setActiveSubmodule('color')
+                onExpand?.()
+              }}
+            >
+              <Palette size={16} />
             </IconButton>
           </Tooltip>
         </div>
@@ -306,6 +355,61 @@ export function ToolsSidebar({
                     type="button"
                     aria-current={isSelected ? 'page' : undefined}
                     onClick={() => handleQrSlotClick(slot.id)}
+                    className={cn(
+                      'flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]',
+                      'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+                      'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+                      isSelected &&
+                        'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]',
+                    )}
+                  >
+                    <Icon size={14} className="shrink-0" />
+                    <span className="truncate">{t(slot.labelKey)}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Third submodule: Color Assistant (tools/color) */}
+        <div>
+          <button
+            type="button"
+            aria-expanded={colorModuleExpanded}
+            onClick={toggleColorModuleExpanded}
+            className={cn(
+              'flex w-full items-center justify-between gap-2 rounded-[var(--r-md)] px-2.5 py-1.5 text-[length:var(--text-13)] font-medium text-[var(--text-secondary)]',
+              'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+              'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+              activeSubmodule === 'color' && 'text-[var(--text-primary)]',
+            )}
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <span
+                className={cn(
+                  'transition-transform duration-[var(--dur-fast)]',
+                  colorModuleExpanded ? 'rotate-90' : 'rotate-0',
+                )}
+              >
+                <ChevronRight size={14} className="shrink-0 text-[var(--text-tertiary)]" />
+              </span>
+              <Palette size={16} className="shrink-0 text-[var(--accent)]" />
+              <span className="truncate">{t('tools.color.module_name')}</span>
+            </div>
+          </button>
+
+          {colorModuleExpanded && (
+            <div className="mt-1 ml-4 space-y-0.5 border-l border-[var(--border-subtle)] pl-2">
+              {COLOR_NAV_SLOTS.map((slot) => {
+                const Icon = slot.icon
+                const isSelected = activeSubmodule === 'color' && activeColorView === slot.id
+                return (
+                  <button
+                    key={slot.id}
+                    type="button"
+                    aria-current={isSelected ? 'page' : undefined}
+                    onClick={() => handleColorSlotClick(slot.id)}
                     className={cn(
                       'flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]',
                       'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',

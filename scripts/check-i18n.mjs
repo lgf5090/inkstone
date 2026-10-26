@@ -222,7 +222,14 @@ const inputVocabularyConstants = new Set(['SCATTER_HEADER_WORDS', 'EMOJI_ICON_CA
     'CSV_YES_WORDS',
     // Password vault CSV/TXT import column vocabulary
     'PASSWORD_CSV_HEADERS',
-    'IMPORT_TXT_VOCABULARY']);
+    'IMPORT_TXT_VOCABULARY',
+    // Tools Color Assistant traditional datasets & AI prompt vocabularies
+    'TRADITIONAL_CHINESE_COLORS',
+    'TRADITIONAL_NIPPON_COLORS',
+    'COLOR_AI_PALETTE_SYSTEM',
+    'COLOR_AI_NAMER_SYSTEM',
+    'COLOR_AI_FALLBACK_NAMES',
+    'COLOR_AI_FALLBACK_STORIES']);
 // The built-in note template bodies live in their own file so they stay out of the
 // start-up locale chunk. The gate reads them as one catalog with the rest, otherwise
 // the two languages would be proven against each other only for the keys that happen

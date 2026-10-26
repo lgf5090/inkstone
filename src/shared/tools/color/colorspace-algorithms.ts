@@ -64,7 +64,7 @@ function adjustOklab(
 }
 
 /**
- * 1. Generic Gradient (经典通用渐变阶梯 - 6 色平滑过渡)
+ * 1. Generic Gradient (Smooth gradient steps - 6 colors)
  */
 function makeGenericGradient(baseHex: string): string[] {
   const steps = 6
@@ -81,7 +81,7 @@ function makeGenericGradient(baseHex: string): string[] {
 }
 
 /**
- * 2. Matching Gradient (和弦平滑过渡色板 - 5 色)
+ * 2. Matching Gradient (Harmonic gradient steps - 5 colors)
  */
 function makeMatchingGradient(baseHex: string): string[] {
   const colors: string[] = []
@@ -95,7 +95,7 @@ function makeMatchingGradient(baseHex: string): string[] {
 }
 
 /**
- * 3. Spot Palette (聚光灯高对比焦点色板 - 1 主色 + 3 焦点色)
+ * 3. Spot Palette (Spotlight high contrast palette - 1 primary + 3 accents)
  */
 function makeSpotPalette(baseHex: string): string[] {
   const rgb = hexToRgb(baseHex)
@@ -111,7 +111,7 @@ function makeSpotPalette(baseHex: string): string[] {
 }
 
 /**
- * 4. Classy Palette (高雅莫兰迪低饱和色板 - 4 色)
+ * 4. Classy Palette (Muted classy Morandi low-saturation palette - 4 colors)
  */
 function makeClassyPalette(baseHex: string): string[] {
   const c1 = adjustHsl(baseHex, 0, -35, 15)
@@ -122,7 +122,7 @@ function makeClassyPalette(baseHex: string): string[] {
 }
 
 /**
- * 5. Cube Palette (CIELAB 色彩三维立方体截面色板 - 4 色)
+ * 5. Cube Palette (CIELAB color space 3D cube cut palette - 4 colors)
  */
 function makeCubePalette(baseHex: string): string[] {
   const c1 = baseHex
@@ -133,7 +133,7 @@ function makeCubePalette(baseHex: string): string[] {
 }
 
 /**
- * 6. Shade Palette (单色恒色相明度阶梯 - 6 色)
+ * 6. Shade Palette (Monochromatic lightness scale - 6 colors)
  */
 function makeShadePalette(baseHex: string): string[] {
   const rgb = hexToRgb(baseHex)
@@ -143,7 +143,7 @@ function makeShadePalette(baseHex: string): string[] {
 }
 
 /**
- * 7. Highlight Palette (UI 高光强调色板 - 4 色)
+ * 7. Highlight Palette (UI highlight accents - 4 colors)
  */
 function makeHighlightPalette(baseHex: string): string[] {
   const c1 = baseHex
@@ -154,7 +154,7 @@ function makeHighlightPalette(baseHex: string): string[] {
 }
 
 /**
- * 8. Dust Palette (复古风化灰度调色板 - 5 色)
+ * 8. Dust Palette (Vintage weathered dust palette - 5 colors)
  */
 function makeDustPalette(baseHex: string): string[] {
   const c1 = baseHex
@@ -174,50 +174,50 @@ export function generateAlgorithmicPalettes(baseHex: string): AlgorithmicPalette
   return [
     {
       id: 'generic_gradient',
-      name: 'Generic Gradient (通用平滑阶梯)',
-      description: 'OKLab 感知均匀无灰阶平滑过渡色板，适合背景、插画与渐变设计',
+      name: 'Generic Gradient',
+      description: 'Perceptually uniform OKLab transition, ideal for backgrounds, illustrations and smooth gradients',
       colors: makeGenericGradient(norm),
     },
     {
       id: 'matching_gradient',
-      name: 'Matching Gradient (和谐近邻微调)',
-      description: '色相微调的自然过渡，极适合按钮、卡片微渐变与柔和视觉背景',
+      name: 'Matching Gradient',
+      description: 'Neighboring hue micro-adjustments for subtle cards, buttons and background accents',
       colors: makeMatchingGradient(norm),
     },
     {
       id: 'spot',
-      name: 'Spot Palette (聚光灯焦点色)',
-      description: '1 基础主色 + 3 组鲜明醒目的高反差焦点色，非常适合 UI 按钮与强调元素',
+      name: 'Spot Palette',
+      description: '1 primary base + 3 striking high-contrast spotlight accents for buttons and callouts',
       colors: makeSpotPalette(norm),
     },
     {
       id: 'classy',
-      name: 'Classy Palette (莫兰迪高雅灰调)',
-      description: '自然降低饱和度、富于质感的莫兰迪优雅色彩组，耐看且极具高级感',
+      name: 'Classy Palette',
+      description: 'Elegant desaturated Morandi tones with understated sophistication',
       colors: makeClassyPalette(norm),
     },
     {
       id: 'cube',
-      name: 'Cube Palette (CIELAB 立方体均衡)',
-      description: '基于 CIELAB 色彩空间 3D 立方体多维截面衍生，空间距离感均衡',
+      name: 'Cube Palette',
+      description: 'Derived from CIELAB color space 3D cube cuts for balanced spatial color harmony',
       colors: makeCubePalette(norm),
     },
     {
       id: 'shade',
-      name: 'Shade Palette (纯粹单色明度阶梯)',
-      description: '严格锁定色相与色度，仅按感官递进明暗层次，适合单色系统与文字层级',
+      name: 'Shade Palette',
+      description: 'Pure hue-locked lightness step progression for typography and monochromatic systems',
       colors: makeShadePalette(norm),
     },
     {
       id: 'highlight',
-      name: 'Highlight Palette (高光高反差)',
-      description: '明快亮丽的高对比搭配，专为重点指标、标签和引导界面打造',
+      name: 'Highlight Palette',
+      description: 'High-energy, crisp contrast pairings tailored for metrics, tags and badges',
       colors: makeHighlightPalette(norm),
     },
     {
       id: 'dust',
-      name: 'Dust Palette (复古风化灰度)',
-      description: '带有岁月沉淀质感的大地灰调与微粉彩，适合复古印刷与淡雅排版',
+      name: 'Dust Palette',
+      description: 'Vintage earthy grays and weathered pastels suited for muted typography and retro prints',
       colors: makeDustPalette(norm),
     },
   ]

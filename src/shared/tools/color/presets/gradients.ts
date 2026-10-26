@@ -14,7 +14,7 @@ export interface GradientPresetItem {
 export const GRADIENT_PRESETS: GradientPresetItem[] = [
   {
     id: 'grad-01',
-    name: 'Sunset Mirage (落日幻境)',
+    name: 'Sunset Mirage',
     tags: ['warm', 'sunset', 'vibrant'],
     config: {
       type: 'linear',
@@ -28,7 +28,7 @@ export const GRADIENT_PRESETS: GradientPresetItem[] = [
   },
   {
     id: 'grad-02',
-    name: 'Deep Oceanic (深海极光)',
+    name: 'Deep Oceanic',
     tags: ['cold', 'ocean', 'blue'],
     config: {
       type: 'linear',
@@ -42,7 +42,7 @@ export const GRADIENT_PRESETS: GradientPresetItem[] = [
   },
   {
     id: 'grad-03',
-    name: 'Neon Cyberpunk (赛博霓虹)',
+    name: 'Neon Cyberpunk',
     tags: ['neon', 'dark', 'cyber'],
     config: {
       type: 'linear',
@@ -57,7 +57,7 @@ export const GRADIENT_PRESETS: GradientPresetItem[] = [
   },
   {
     id: 'grad-04',
-    name: 'Lush Forest (青翠微风)',
+    name: 'Lush Forest',
     tags: ['nature', 'green', 'fresh'],
     config: {
       type: 'linear',
@@ -71,7 +71,7 @@ export const GRADIENT_PRESETS: GradientPresetItem[] = [
   },
   {
     id: 'grad-05',
-    name: 'Nordic Dawn (北欧微晓)',
+    name: 'Nordic Dawn',
     tags: ['minimal', 'soft', 'pastel'],
     config: {
       type: 'linear',
@@ -85,7 +85,7 @@ export const GRADIENT_PRESETS: GradientPresetItem[] = [
   },
   {
     id: 'grad-06',
-    name: 'Warm Flame (赤炼炽焰)',
+    name: 'Warm Flame',
     tags: ['warm', 'fire', 'red'],
     config: {
       type: 'linear',
@@ -99,7 +99,7 @@ export const GRADIENT_PRESETS: GradientPresetItem[] = [
   },
   {
     id: 'grad-07',
-    name: 'Purple Mist (紫雾缭绕)',
+    name: 'Purple Mist',
     tags: ['purple', 'mystic', 'smooth'],
     config: {
       type: 'linear',
@@ -113,7 +113,7 @@ export const GRADIENT_PRESETS: GradientPresetItem[] = [
   },
   {
     id: 'grad-08',
-    name: 'Cosmic Radial (宇宙光晕)',
+    name: 'Cosmic Radial',
     tags: ['dark', 'radial', 'space'],
     config: {
       type: 'radial',

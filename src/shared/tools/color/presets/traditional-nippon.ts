@@ -1,12 +1,12 @@
 /**
- * Japanese Traditional Colors (和色 Nippon Colors)
+ * Japanese Traditional Colors (Nippon Colors)
  * 250+ Authentic Japanese traditional colors with Kanji, Romaji, Kana, HEX, CMYK, and Series
  */
 
 import type { TraditionalColorItem } from '../types'
 
 export const TRADITIONAL_NIPPON_COLORS: TraditionalColorItem[] = [
-  // 赤・紅・桃系 (Reds & Pinks)
+  // Reds & Pinks
   { name: '桜色', romaji: 'sakura-iro', kana: 'さくらいろ', hex: '#fef4f4', cmyk: [0, 5, 2, 0], series: '红' },
   { name: '薄桜', romaji: 'usuzakura', kana: 'うすざくら', hex: '#fdeff2', cmyk: [0, 8, 2, 0], series: '红' },
   { name: '撫子色', romaji: 'nadeshiko-iro', kana: 'なでしこいろ', hex: '#eebbcb', cmyk: [5, 30, 10, 0], series: '红' },
@@ -20,7 +20,7 @@ export const TRADITIONAL_NIPPON_COLORS: TraditionalColorItem[] = [
   { name: '深緋', romaji: 'fokiake', kana: 'こきあけ', hex: '#7b1126', cmyk: [35, 100, 75, 45], solarTerm: undefined, series: '红' },
   { name: '小豆色', romaji: 'azuki-iro', kana: 'あずきいろ', hex: '#954a45', cmyk: [30, 75, 65, 25], series: '红' },
 
-  // 黄・橙・茶系 (Yellows, Oranges & Browns)
+  // Yellows, Oranges & Browns
   { name: '山吹色', romaji: 'yamabuki-iro', kana: 'やまぶきいろ', hex: '#f8b500', cmyk: [0, 30, 100, 0], series: '黄' },
   { name: '黄金', romaji: 'kogane', kana: 'こがね', hex: '#e6b422', cmyk: [10, 30, 95, 0], series: '黄' },
   { name: '柑子色', romaji: 'kōji-iro', kana: 'こうじいろ', hex: '#f6ad49', cmyk: [0, 35, 75, 0], series: '橙' },
@@ -30,7 +30,7 @@ export const TRADITIONAL_NIPPON_COLORS: TraditionalColorItem[] = [
   { name: '枯茶', romaji: 'karecha', kana: 'かれちゃ', hex: '#8d6449', cmyk: [35, 55, 70, 20], series: '黄' },
   { name: '栗色', romaji: 'kuri-iro', kana: 'くりいろ', hex: '#762f07', cmyk: [35, 80, 100, 45], series: '黑' },
 
-  // 緑・草系 (Greens)
+  // Greens
   { name: '萌葱色', romaji: 'moegi-iro', kana: 'もえぎいろ', hex: '#006e54', cmyk: [90, 25, 70, 20], series: '绿' },
   { name: '苗色', romaji: 'nae-iro', kana: 'なえいろ', hex: '#b0ca71', cmyk: [30, 5, 65, 0], series: '绿' },
   { name: '鶸色', romaji: 'hiwa-iro', kana: 'ひわいろ', hex: '#d7cf3a', cmyk: [20, 10, 85, 0], series: '绿' },
@@ -39,7 +39,7 @@ export const TRADITIONAL_NIPPON_COLORS: TraditionalColorItem[] = [
   { name: '翡翠色', romaji: 'hisui-iro', kana: 'ひすいいろ', hex: '#38b48b', cmyk: [75, 5, 55, 0], series: '绿' },
   { name: '常磐色', romaji: 'tokiwa-iro', kana: 'ときわいろ', hex: '#007b43', cmyk: [90, 20, 90, 10], series: '绿' },
 
-  // 青・藍系 (Blues & Cyans)
+  // Blues & Cyans
   { name: '甕覗', romaji: 'kamenozoki', kana: 'かめのぞき', hex: '#a2d7dd', cmyk: [35, 0, 10, 0], series: '青' },
   { name: '浅葱色', romaji: 'asagi-iro', kana: 'あさぎいろ', hex: '#00a3af', cmyk: [80, 15, 25, 0], series: '青' },
   { name: '縹色', romaji: 'hanada-iro', kana: 'はなだいろ', hex: '#2792c3', cmyk: [80, 35, 5, 0], series: '蓝' },
@@ -49,7 +49,7 @@ export const TRADITIONAL_NIPPON_COLORS: TraditionalColorItem[] = [
   { name: '藍色', romaji: 'ai-iro', kana: 'あいいろ', hex: '#165e83', cmyk: [90, 50, 25, 10], series: '蓝' },
   { name: '留紺', romaji: 'tomegon', kana: 'とめこん', hex: '#1c305c', cmyk: [95, 80, 30, 35], series: '蓝' },
 
-  // 紫系 (Purples & Violets)
+  // Purples & Violets
   { name: '古代紫', romaji: 'kodai-murasaki', kana: 'こだいむらさき', hex: '#895b8a', cmyk: [45, 65, 15, 5], series: '紫' },
   { name: '京紫', romaji: 'kyō-murasaki', kana: 'きょうむらさき', hex: '#9d5b8b', cmyk: [40, 70, 10, 0], series: '紫' },
   { name: '二蓝', romaji: 'futaa', kana: 'ふたあい', hex: '#70649a', cmyk: [55, 55, 10, 0], series: '紫' },
@@ -57,7 +57,7 @@ export const TRADITIONAL_NIPPON_COLORS: TraditionalColorItem[] = [
   { name: '藤色', romaji: 'fuji-iro', kana: 'ふじいろ', hex: '#bbbcde', cmyk: [25, 25, 0, 0], series: '紫' },
   { name: '菖蒲色', romaji: 'ayame-iro', kana: 'あやめいろ', hex: '#cc7eb1', cmyk: [25, 60, 5, 0], series: '紫' },
 
-  // 白・灰・黒系 (Whites, Grays & Blacks)
+  // Whites, Grays & Blacks
   { name: '卯の花色', romaji: 'unohana-iro', kana: 'うのはないろ', hex: '#f7fcfe', cmyk: [2, 0, 0, 0], series: '白' },
   { name: '胡粉色', romaji: 'gofun-iro', kana: 'ごふんいろ', hex: '#fffffc', cmyk: [0, 0, 2, 0], series: '白' },
   { name: '桜鼠', romaji: 'sakuranezumi', kana: 'さくらねずみ', hex: '#e9dfe5', cmyk: [5, 10, 3, 0], series: '灰' },

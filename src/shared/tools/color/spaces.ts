@@ -451,6 +451,14 @@ export function deltaE76(c1: RgbColor, c2: RgbColor): number {
 }
 
 /**
+ * Checks if a color is considered dark using standard YIQ luminance formula
+ */
+export function isDarkColor(hex: string): boolean {
+  const rgb = hexToRgb(hex)
+  return (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000 < 128
+}
+
+/**
  * Aggregates all color space representations for a given hex color
  */
 export function getColorSpaceValues(inputHex: string): ColorSpaceValues {
@@ -462,6 +470,7 @@ export function getColorSpaceValues(inputHex: string): ColorSpaceValues {
   const cmyk = rgbToCmyk(rgb)
   const hsi = rgbToHsi(rgb)
   const lab = rgbToLab(rgb)
+  const oklab = rgbToOklab(rgb)
 
   return {
     hex,
@@ -478,5 +487,7 @@ export function getColorSpaceValues(inputHex: string): ColorSpaceValues {
     hsiString: `hsi(${hsi.h}°, ${hsi.s}%, ${hsi.i}%)`,
     lab,
     labString: `lab(${lab.l}, ${lab.a}, ${lab.b})`,
+    oklab,
+    oklabString: `oklab(${oklab.l.toFixed(3)} ${oklab.a.toFixed(3)} ${oklab.b.toFixed(3)})`,
   }
 }

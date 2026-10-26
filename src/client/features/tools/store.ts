@@ -6,7 +6,7 @@ export const TOOLS_NAV_WIDTH = {
   default: 260,
 } as const
 
-export type ToolsSubmodule = 'password' | 'qrcode'
+export type ToolsSubmodule = 'password' | 'qrcode' | 'color'
 
 export type PasswordNavView =
   | 'all'
@@ -25,6 +25,17 @@ export type QrCodeNavView =
   | 'templates'
   | 'settings'
 
+export type ColorNavView =
+  | 'studio'
+  | 'algorithm'
+  | 'ai_palette'
+  | 'ui_palettes'
+  | 'image_palette'
+  | 'traditional'
+  | 'gradient'
+  | 'color_hunt'
+  | 'favorites'
+
 const STORAGE_KEY = 'inkstone.tools.layout'
 
 interface PersistedLayout {
@@ -32,6 +43,7 @@ interface PersistedLayout {
   toolsNavCollapsed?: boolean
   passwordModuleExpanded?: boolean
   qrcodeModuleExpanded?: boolean
+  colorModuleExpanded?: boolean
   activeSubmodule?: ToolsSubmodule
 }
 
@@ -65,6 +77,8 @@ export interface ToolsState {
   selectedGroupId: string | null
   qrcodeModuleExpanded: boolean
   activeQrCodeView: QrCodeNavView
+  colorModuleExpanded: boolean
+  activeColorView: ColorNavView
 
   setToolsNavWidth: (width: number) => void
   toggleToolsNav: () => void
@@ -78,6 +92,9 @@ export interface ToolsState {
   setQrcodeModuleExpanded: (expanded: boolean | ((prev: boolean) => boolean)) => void
   toggleQrcodeModuleExpanded: () => void
   setActiveQrCodeView: (view: QrCodeNavView) => void
+  setColorModuleExpanded: (expanded: boolean | ((prev: boolean) => boolean)) => void
+  toggleColorModuleExpanded: () => void
+  setActiveColorView: (view: ColorNavView) => void
 }
 
 const initialPersisted = loadPersistedLayout()
@@ -98,6 +115,8 @@ export const useToolsStore = create<ToolsState>((set, get) => ({
   selectedGroupId: null,
   qrcodeModuleExpanded: initialPersisted.qrcodeModuleExpanded ?? true,
   activeQrCodeView: 'generator',
+  colorModuleExpanded: initialPersisted.colorModuleExpanded ?? true,
+  activeColorView: 'studio',
 
   setToolsNavWidth: (width: number) => {
     const clamped = Math.min(
@@ -109,6 +128,9 @@ export const useToolsStore = create<ToolsState>((set, get) => ({
       toolsNavWidth: clamped,
       toolsNavCollapsed: get().toolsNavCollapsed,
       passwordModuleExpanded: get().passwordModuleExpanded,
+      qrcodeModuleExpanded: get().qrcodeModuleExpanded,
+      colorModuleExpanded: get().colorModuleExpanded,
+      activeSubmodule: get().activeSubmodule,
     })
   },
 
@@ -119,6 +141,9 @@ export const useToolsStore = create<ToolsState>((set, get) => ({
       toolsNavWidth: get().toolsNavWidth,
       toolsNavCollapsed: next,
       passwordModuleExpanded: get().passwordModuleExpanded,
+      qrcodeModuleExpanded: get().qrcodeModuleExpanded,
+      colorModuleExpanded: get().colorModuleExpanded,
+      activeSubmodule: get().activeSubmodule,
     })
   },
 
@@ -128,6 +153,9 @@ export const useToolsStore = create<ToolsState>((set, get) => ({
       toolsNavWidth: get().toolsNavWidth,
       toolsNavCollapsed: collapsed,
       passwordModuleExpanded: get().passwordModuleExpanded,
+      qrcodeModuleExpanded: get().qrcodeModuleExpanded,
+      colorModuleExpanded: get().colorModuleExpanded,
+      activeSubmodule: get().activeSubmodule,
     })
   },
 
@@ -144,6 +172,7 @@ export const useToolsStore = create<ToolsState>((set, get) => ({
       toolsNavCollapsed: get().toolsNavCollapsed,
       passwordModuleExpanded: get().passwordModuleExpanded,
       qrcodeModuleExpanded: get().qrcodeModuleExpanded,
+      colorModuleExpanded: get().colorModuleExpanded,
       activeSubmodule: submodule,
     })
   },
@@ -156,6 +185,7 @@ export const useToolsStore = create<ToolsState>((set, get) => ({
       toolsNavCollapsed: get().toolsNavCollapsed,
       passwordModuleExpanded: next,
       qrcodeModuleExpanded: get().qrcodeModuleExpanded,
+      colorModuleExpanded: get().colorModuleExpanded,
       activeSubmodule: get().activeSubmodule,
     })
   },
@@ -168,6 +198,7 @@ export const useToolsStore = create<ToolsState>((set, get) => ({
       toolsNavCollapsed: get().toolsNavCollapsed,
       passwordModuleExpanded: next,
       qrcodeModuleExpanded: get().qrcodeModuleExpanded,
+      colorModuleExpanded: get().colorModuleExpanded,
       activeSubmodule: get().activeSubmodule,
     })
   },
@@ -188,6 +219,7 @@ export const useToolsStore = create<ToolsState>((set, get) => ({
       toolsNavCollapsed: get().toolsNavCollapsed,
       passwordModuleExpanded: get().passwordModuleExpanded,
       qrcodeModuleExpanded: next,
+      colorModuleExpanded: get().colorModuleExpanded,
       activeSubmodule: get().activeSubmodule,
     })
   },
@@ -200,11 +232,42 @@ export const useToolsStore = create<ToolsState>((set, get) => ({
       toolsNavCollapsed: get().toolsNavCollapsed,
       passwordModuleExpanded: get().passwordModuleExpanded,
       qrcodeModuleExpanded: next,
+      colorModuleExpanded: get().colorModuleExpanded,
       activeSubmodule: get().activeSubmodule,
     })
   },
 
   setActiveQrCodeView: (view: QrCodeNavView) => {
     set({ activeQrCodeView: view })
+  },
+
+  setColorModuleExpanded: (expanded: boolean | ((prev: boolean) => boolean)) => {
+    const next = typeof expanded === 'function' ? expanded(get().colorModuleExpanded) : expanded
+    set({ colorModuleExpanded: next })
+    persistLayout({
+      toolsNavWidth: get().toolsNavWidth,
+      toolsNavCollapsed: get().toolsNavCollapsed,
+      passwordModuleExpanded: get().passwordModuleExpanded,
+      qrcodeModuleExpanded: get().qrcodeModuleExpanded,
+      colorModuleExpanded: next,
+      activeSubmodule: get().activeSubmodule,
+    })
+  },
+
+  toggleColorModuleExpanded: () => {
+    const next = !get().colorModuleExpanded
+    set({ colorModuleExpanded: next })
+    persistLayout({
+      toolsNavWidth: get().toolsNavWidth,
+      toolsNavCollapsed: get().toolsNavCollapsed,
+      passwordModuleExpanded: get().passwordModuleExpanded,
+      qrcodeModuleExpanded: get().qrcodeModuleExpanded,
+      colorModuleExpanded: next,
+      activeSubmodule: get().activeSubmodule,
+    })
+  },
+
+  setActiveColorView: (view: ColorNavView) => {
+    set({ activeColorView: view })
   },
 }))

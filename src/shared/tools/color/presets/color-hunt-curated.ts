@@ -6,7 +6,7 @@
 import type { ColorHuntPalette } from '../types'
 
 export const COLOR_HUNT_PALETTES: ColorHuntPalette[] = [
-  // Pastel (粉彩柔和)
+  // Pastel
   {
     id: 'ch-01',
     title: 'Cotton Candy Sunset',
@@ -36,7 +36,7 @@ export const COLOR_HUNT_PALETTES: ColorHuntPalette[] = [
     likes: 2180,
   },
 
-  // Vintage & Retro (复古怀旧)
+  // Vintage & Retro
   {
     id: 'ch-05',
     title: '70s Record Store',
@@ -66,7 +66,7 @@ export const COLOR_HUNT_PALETTES: ColorHuntPalette[] = [
     likes: 2760,
   },
 
-  // Neon & Cyberpunk (霓虹赛博)
+  // Neon & Cyberpunk
   {
     id: 'ch-09',
     title: 'Cyberpunk Tokyo',
@@ -96,7 +96,7 @@ export const COLOR_HUNT_PALETTES: ColorHuntPalette[] = [
     likes: 3200,
   },
 
-  // Gold & Luxury (金色奢华)
+  // Gold & Luxury
   {
     id: 'ch-13',
     title: 'Imperial Palace Gold',
@@ -112,7 +112,7 @@ export const COLOR_HUNT_PALETTES: ColorHuntPalette[] = [
     likes: 3510,
   },
 
-  // Warm & Autumn (暖色秋日)
+  // Warm & Autumn
   {
     id: 'ch-15',
     title: 'Autumn Maple Forest',
@@ -128,7 +128,7 @@ export const COLOR_HUNT_PALETTES: ColorHuntPalette[] = [
     likes: 2980,
   },
 
-  // Cold & Winter (冷调冬日)
+  // Cold & Winter
   {
     id: 'ch-17',
     title: 'Nordic Deep Fjord',
@@ -151,7 +151,7 @@ export const COLOR_HUNT_PALETTES: ColorHuntPalette[] = [
     likes: 2780,
   },
 
-  // Summer & Tropical (夏季热情)
+  // Summer & Tropical
   {
     id: 'ch-20',
     title: 'Tropic Pineapple',
@@ -167,7 +167,7 @@ export const COLOR_HUNT_PALETTES: ColorHuntPalette[] = [
     likes: 4760,
   },
 
-  // Minimal & Modern UI (现代极简)
+  // Minimal & Modern UI
   {
     id: 'ch-22',
     title: 'Minimal Graphite',

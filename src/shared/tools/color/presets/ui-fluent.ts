@@ -7,7 +7,7 @@ import type { UiPaletteGroup } from './ui-flat'
 export const FLUENT_UI_PALETTES: UiPaletteGroup[] = [
   {
     id: 'fluent-theme',
-    name: 'Theme Primary (蓝调主色阶)',
+    name: 'Theme Primary',
     colors: [
       { name: 'themeDarker', hex: '#004578' },
       { name: 'themeDark', hex: '#005a9e' },
@@ -22,7 +22,7 @@ export const FLUENT_UI_PALETTES: UiPaletteGroup[] = [
   },
   {
     id: 'fluent-neutral',
-    name: 'Neutral (中性灰阶)',
+    name: 'Neutral',
     colors: [
       { name: 'black', hex: '#000000' },
       { name: 'neutralDark', hex: '#201f1e' },
@@ -40,7 +40,7 @@ export const FLUENT_UI_PALETTES: UiPaletteGroup[] = [
   },
   {
     id: 'fluent-accent',
-    name: 'Accent Colors (高饱和强调色)',
+    name: 'Accent Colors',
     colors: [
       { name: 'Yellow', hex: '#ffb900' },
       { name: 'Orange', hex: '#d83b01' },
@@ -54,7 +54,7 @@ export const FLUENT_UI_PALETTES: UiPaletteGroup[] = [
   },
   {
     id: 'fluent-status',
-    name: 'Message & Status (系统状态反馈色)',
+    name: 'Message & Status',
     colors: [
       { name: 'Success Dark', hex: '#0b6a0b' },
       { name: 'Success Primary', hex: '#107c10' },

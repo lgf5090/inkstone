@@ -1,12 +1,12 @@
 /**
- * Chinese Traditional Colors - Forbidden City 24 Solar Terms (故宫24节气传统色)
+ * Chinese Traditional Colors - Forbidden City 24 Solar Terms
  * 384+ Curated traditional colors with Hanzi, Pinyin, HEX, CMYK, Solar Term and Series
  */
 
 import type { TraditionalColorItem } from '../types'
 
 export const TRADITIONAL_CHINESE_COLORS: TraditionalColorItem[] = [
-  // 立春
+  // Lichun
   { name: '黄白游', pinyin: 'huáng bái yóu', hex: '#fff799', cmyk: [0, 0, 40, 0], solarTerm: '立春', series: '黄' },
   { name: '松花', pinyin: 'sōng huā', hex: '#bce672', cmyk: [20, 0, 55, 0], solarTerm: '立春', series: '绿' },
   { name: '缃叶', pinyin: 'xiāng yè', hex: '#ecd77f', cmyk: [10, 15, 55, 0], solarTerm: '立春', series: '黄' },
@@ -24,7 +24,7 @@ export const TRADITIONAL_CHINESE_COLORS: TraditionalColorItem[] = [
   { name: '纁黄', pinyin: 'xūn huáng', hex: '#c56a48', cmyk: [20, 65, 75, 10], solarTerm: '立春', series: '红' },
   { name: '珊瑚赫', pinyin: 'shān hú hè', hex: '#a64036', cmyk: [25, 80, 80, 20], solarTerm: '立春', series: '红' },
 
-  // 雨水
+  // Yushui
   { name: '盈盈', pinyin: 'yíng yíng', hex: '#f9d3e3', cmyk: [0, 25, 5, 0], solarTerm: '雨水', series: '红' },
   { name: '水红', pinyin: 'shuǐ hóng', hex: '#f1939c', cmyk: [0, 55, 25, 0], solarTerm: '雨水', series: '红' },
   { name: '苏梅', pinyin: 'sū méi', hex: '#dd7a56', cmyk: [10, 65, 65, 0], solarTerm: '雨水', series: '红' },
@@ -38,7 +38,7 @@ export const TRADITIONAL_CHINESE_COLORS: TraditionalColorItem[] = [
   { name: '缁黻', pinyin: 'zī fú', hex: '#494132', cmyk: [50, 55, 70, 50], solarTerm: '雨水', series: '黑' },
   { name: '紫瓯', pinyin: 'zǐ ōu', hex: '#634937', cmyk: [45, 60, 70, 45], solarTerm: '雨水', series: '紫' },
 
-  // 惊蛰
+  // Jingzhe
   { name: '窃蓝', pinyin: 'qiè lán', hex: '#85a3b2', cmyk: [50, 25, 20, 5], solarTerm: '惊蛰', series: '青' },
   { name: '监德', pinyin: 'jiān dé', hex: '#587a8f', cmyk: [65, 40, 30, 10], solarTerm: '惊蛰', series: '青' },
   { name: '苍筤天', pinyin: 'cāng láng tiān', hex: '#456577', cmyk: [75, 50, 40, 20], solarTerm: '惊蛰', series: '青' },
@@ -52,7 +52,7 @@ export const TRADITIONAL_CHINESE_COLORS: TraditionalColorItem[] = [
   { name: '软翠', pinyin: 'ruǎn cuì', hex: '#00aa90', cmyk: [80, 5, 50, 0], solarTerm: '惊蛰', series: '青' },
   { name: '石青', pinyin: 'shí qīng', hex: '#1661ab', cmyk: [90, 60, 0, 0], solarTerm: '惊蛰', series: '蓝' },
 
-  // 春分
+  // Chunfen
   { name: '东方既白', pinyin: 'dōng fāng jì bái', hex: '#b7d0da', cmyk: [25, 10, 10, 0], solarTerm: '春分', series: '青' },
   { name: '缃缥', pinyin: 'xiāng piǎo', hex: '#9ec4c5', cmyk: [40, 10, 20, 0], solarTerm: '春分', series: '青' },
   { name: '天水碧', pinyin: 'tiān shuǐ bì', hex: '#5aa4ae', cmyk: [65, 15, 25, 0], solarTerm: '春分', series: '青' },
@@ -62,7 +62,7 @@ export const TRADITIONAL_CHINESE_COLORS: TraditionalColorItem[] = [
   { name: '海棠红', pinyin: 'hǎi táng hóng', hex: '#db5a6b', cmyk: [10, 80, 45, 0], solarTerm: '春分', series: '红' },
   { name: '胭脂', pinyin: 'yān zhī', hex: '#9b1e36', cmyk: [25, 95, 70, 25], solarTerm: '春分', series: '红' },
 
-  // 清明
+  // Qingming
   { name: '暮山紫', pinyin: 'mù shān zǐ', hex: '#9c88a8', cmyk: [40, 45, 15, 0], solarTerm: '清明', series: '紫' },
   { name: '烟雨青', pinyin: 'yān yǔ qīng', hex: '#8ba3c7', cmyk: [45, 25, 5, 0], solarTerm: '清明', series: '青' },
   { name: '艾绿', pinyin: 'ài lǜ', hex: '#cad3c3', cmyk: [15, 10, 20, 0], solarTerm: '清明', series: '绿' },
@@ -72,7 +72,7 @@ export const TRADITIONAL_CHINESE_COLORS: TraditionalColorItem[] = [
   { name: '苍烟', pinyin: 'cāng yān', hex: '#77787b', cmyk: [50, 40, 40, 10], solarTerm: '清明', series: '灰' },
   { name: '青雀头黛', pinyin: 'qīng què tóu dài', hex: '#314f4f', cmyk: [80, 50, 60, 40], solarTerm: '清明', series: '黑' },
 
-  // 谷雨
+  // Guyu
   { name: '牡丹红', pinyin: 'mǔ dān hóng', hex: '#ea66a6', cmyk: [5, 75, 10, 0], solarTerm: '谷雨', series: '红' },
   { name: '紫棠', pinyin: 'zǐ táng', hex: '#562b3d', cmyk: [55, 80, 50, 45], solarTerm: '谷雨', series: '紫' },
   { name: '品月', pinyin: 'pǐn yuè', hex: '#2b73af', cmyk: [85, 50, 10, 0], solarTerm: '谷雨', series: '蓝' },
@@ -80,31 +80,31 @@ export const TRADITIONAL_CHINESE_COLORS: TraditionalColorItem[] = [
   { name: '雄黄', pinyin: 'xióng huáng', hex: '#ff9900', cmyk: [0, 45, 100, 0], solarTerm: '谷雨', series: '黄' },
   { name: '雌黄', pinyin: 'cí huáng', hex: '#ffc64b', cmyk: [0, 25, 75, 0], solarTerm: '谷雨', series: '黄' },
 
-  // 立夏
+  // Lixia
   { name: '朱樱', pinyin: 'zhū yīng', hex: '#c93756', cmyk: [15, 90, 55, 5], solarTerm: '立夏', series: '红' },
   { name: '丹柿', pinyin: 'dān shì', hex: '#d95a32', cmyk: [10, 75, 85, 0], solarTerm: '立夏', series: '红' },
   { name: '琥珀', pinyin: 'hǔ pò', hex: '#ca6924', cmyk: [15, 65, 95, 5], solarTerm: '立夏', series: '黄' },
   { name: '赤金', pinyin: 'chì jīn', hex: '#f2be45', cmyk: [5, 25, 80, 0], solarTerm: '立夏', series: '黄' },
 
-  // 夏至
+  // Xiazhi
   { name: '荷花红', pinyin: 'hé huā hóng', hex: '#f47983', cmyk: [0, 65, 35, 0], solarTerm: '夏至', series: '红' },
   { name: '翠玉', pinyin: 'cuì yù', hex: '#008751', cmyk: [85, 15, 85, 5], solarTerm: '夏至', series: '青' },
   { name: '竹青', pinyin: 'zhú qīng', hex: '#789262', cmyk: [50, 25, 65, 10], solarTerm: '夏至', series: '绿' },
   { name: '群青', pinyin: 'qún qīng', hex: '#1e50a2', cmyk: [90, 70, 0, 0], solarTerm: '夏至', series: '蓝' },
 
-  // 秋分
+  // Qiufen
   { name: '秋香', pinyin: 'qiū xiāng', hex: '#d9b611', cmyk: [15, 25, 95, 0], solarTerm: '秋分', series: '黄' },
   { name: '银朱', pinyin: 'yín zhū', hex: '#bf242a', cmyk: [15, 95, 90, 5], solarTerm: '秋分', series: '红' },
   { name: '月白', pinyin: 'yuè bái', hex: '#d6ecf0', cmyk: [15, 0, 5, 0], solarTerm: '秋分', series: '白' },
   { name: '玄青', pinyin: 'xuán qīng', hex: '#3d3b4f', cmyk: [70, 65, 45, 35], solarTerm: '秋分', series: '黑' },
 
-  // 霜降
+  // Shuangjiang
   { name: '枫叶红', pinyin: 'fēng yè hóng', hex: '#c21f30', cmyk: [15, 95, 85, 5], solarTerm: '霜降', series: '红' },
   { name: '落栗', pinyin: 'luò lì', hex: '#8a4b37', cmyk: [30, 70, 75, 25], solarTerm: '霜降', series: '黑' },
   { name: '驼褐', pinyin: 'tuó hè', hex: '#b78b66', cmyk: [25, 45, 60, 5], solarTerm: '霜降', series: '黄' },
   { name: '霜色', pinyin: 'shuāng sè', hex: '#e9e7ef', cmyk: [5, 5, 2, 0], solarTerm: '霜降', series: '白' },
 
-  // 冬至
+  // Dongzhi
   { name: '雪白', pinyin: 'xuě bái', hex: '#f0fcff', cmyk: [5, 0, 0, 0], solarTerm: '冬至', series: '白' },
   { name: '寒竹', pinyin: 'hán zhú', hex: '#5e7c65', cmyk: [65, 30, 60, 15], solarTerm: '冬至', series: '绿' },
   { name: '玄墨', pinyin: 'xuán mò', hex: '#1c1c1c', cmyk: [75, 68, 67, 90], solarTerm: '冬至', series: '黑' },

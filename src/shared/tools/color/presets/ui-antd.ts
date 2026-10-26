@@ -8,7 +8,7 @@ import type { UiPaletteGroup } from './ui-flat'
 export const ANTD_PALETTES: UiPaletteGroup[] = [
   {
     id: 'antd-dust-red',
-    name: '薄暮 Dust Red',
+    name: 'Dust Red',
     colors: [
       { name: 'red-1', hex: '#fff1f0' },
       { name: 'red-2', hex: '#ffccc7' },
@@ -24,7 +24,7 @@ export const ANTD_PALETTES: UiPaletteGroup[] = [
   },
   {
     id: 'antd-volcano',
-    name: '火山 Volcano',
+    name: 'Volcano',
     colors: [
       { name: 'volcano-1', hex: '#fff2e8' },
       { name: 'volcano-2', hex: '#ffd8bf' },
@@ -40,7 +40,7 @@ export const ANTD_PALETTES: UiPaletteGroup[] = [
   },
   {
     id: 'antd-sunset',
-    name: '日暮 Sunset Orange',
+    name: 'Sunset Orange',
     colors: [
       { name: 'orange-1', hex: '#fff7e6' },
       { name: 'orange-2', hex: '#ffe7ba' },
@@ -56,7 +56,7 @@ export const ANTD_PALETTES: UiPaletteGroup[] = [
   },
   {
     id: 'antd-calendula',
-    name: '金盏花 Calendula Gold',
+    name: 'Calendula Gold',
     colors: [
       { name: 'gold-1', hex: '#fffbe6' },
       { name: 'gold-2', hex: '#fff1b8' },
@@ -72,7 +72,7 @@ export const ANTD_PALETTES: UiPaletteGroup[] = [
   },
   {
     id: 'antd-sunrise',
-    name: '日出 Sunrise Yellow',
+    name: 'Sunrise Yellow',
     colors: [
       { name: 'yellow-1', hex: '#feffe6' },
       { name: 'yellow-2', hex: '#ffffb8' },
@@ -88,7 +88,7 @@ export const ANTD_PALETTES: UiPaletteGroup[] = [
   },
   {
     id: 'antd-lime',
-    name: '青柠 Lime',
+    name: 'Lime',
     colors: [
       { name: 'lime-1', hex: '#fcffe6' },
       { name: 'lime-2', hex: '#f4ffb8' },
@@ -104,7 +104,7 @@ export const ANTD_PALETTES: UiPaletteGroup[] = [
   },
   {
     id: 'antd-polar-green',
-    name: '极光绿 Polar Green',
+    name: 'Polar Green',
     colors: [
       { name: 'green-1', hex: '#f6ffed' },
       { name: 'green-2', hex: '#d9f7be' },
@@ -120,7 +120,7 @@ export const ANTD_PALETTES: UiPaletteGroup[] = [
   },
   {
     id: 'antd-cyan',
-    name: '明青 Cyan',
+    name: 'Cyan',
     colors: [
       { name: 'cyan-1', hex: '#e6fffb' },
       { name: 'cyan-2', hex: '#b5f5ec' },
@@ -136,7 +136,7 @@ export const ANTD_PALETTES: UiPaletteGroup[] = [
   },
   {
     id: 'antd-daybreak-blue',
-    name: '拂晓蓝 Daybreak Blue',
+    name: 'Daybreak Blue',
     colors: [
       { name: 'blue-1', hex: '#e6f7ff' },
       { name: 'blue-2', hex: '#bae7ff' },
@@ -152,7 +152,7 @@ export const ANTD_PALETTES: UiPaletteGroup[] = [
   },
   {
     id: 'antd-geek-blue',
-    name: '极客蓝 Geek Blue',
+    name: 'Geek Blue',
     colors: [
       { name: 'geekblue-1', hex: '#f0f5ff' },
       { name: 'geekblue-2', hex: '#d6e4ff' },
@@ -168,7 +168,7 @@ export const ANTD_PALETTES: UiPaletteGroup[] = [
   },
   {
     id: 'antd-golden-purple',
-    name: '酱紫 Golden Purple',
+    name: 'Golden Purple',
     colors: [
       { name: 'purple-1', hex: '#f9f0ff' },
       { name: 'purple-2', hex: '#efdbff' },
@@ -184,7 +184,7 @@ export const ANTD_PALETTES: UiPaletteGroup[] = [
   },
   {
     id: 'antd-neutral',
-    name: '中性灰阶 Neutral',
+    name: 'Neutral',
     colors: [
       { name: 'gray-1', hex: '#ffffff' },
       { name: 'gray-2', hex: '#fafafa' },

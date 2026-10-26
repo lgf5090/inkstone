@@ -65,6 +65,8 @@ export interface ColorSpaceValues {
   hsiString: string // e.g. hsi(28°, 100%, 49%)
   lab: LabColor
   labString: string // e.g. lab(64, 48, 67)
+  oklab: OklabColor
+  oklabString: string
 }
 
 export type ColorHarmonyType =
@@ -177,6 +179,12 @@ export interface AiPaletteResult {
   tags: string[]
 }
 
+export interface PoeticColorInterpretation {
+  hex: string
+  name: string
+  story: string
+}
+
 export type ColorBlindnessType =
   | 'normal'
   | 'protanopia' // Red-blind
@@ -213,7 +221,7 @@ export interface TraditionalColorItem {
   hex: string
   cmyk: [number, number, number, number] // [C, M, Y, K] in %
   series?: string
-  solarTerm?: string // for 故宫24节气
+  solarTerm?: string
 }
 
 export interface GradientColorStop {
