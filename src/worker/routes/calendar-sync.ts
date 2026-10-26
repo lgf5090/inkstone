@@ -11,6 +11,8 @@ import { Hono } from 'hono'
 import { encryptCalendarCredential } from '../lib/crypto'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
+import { CalendarStore } from '../calendar/store'
+import { parseProviderCalendarMappings, saveProviderCalendarMappings } from '../calendar/provider-sync'
 import { newId, isValidId } from '../lib/id'
 import { readJson } from '../lib/request'
 import { createMinuteBudget } from '../lib/rate-limit'
@@ -49,6 +51,7 @@ const STATUS_BODY_LIMIT = 8 * 1024
 const OAUTH_BODY_LIMIT = 8 * 1024
 const CREATE_BUDGET_PER_MINUTE = 10
 const OAUTH_START_BUDGET_PER_MINUTE = 10
+const MAPPING_BUDGET_PER_MINUTE = 30
 
 const takeCreateBudget = createMinuteBudget(
   CREATE_BUDGET_PER_MINUTE,
@@ -57,6 +60,10 @@ const takeCreateBudget = createMinuteBudget(
 const takeOAuthStartBudget = createMinuteBudget(
   OAUTH_START_BUDGET_PER_MINUTE,
   'Too many calendar sign-in attempts. Try again in a minute',
+)
+const takeMappingBudget = createMinuteBudget(
+  MAPPING_BUDGET_PER_MINUTE,
+  'Too many calendar mapping updates. Try again in a minute',
 )
 
 const CALLBACK_ERROR_CODES = new Set([
@@ -166,6 +173,32 @@ calendarSyncRoutes.post('/connections/oauth/start', requireAuth, async (c) => {
     origin: new URL(c.req.url).origin,
   })
   return c.json({ url: started.url })
+})
+
+/**
+ * The browser reports which local calendars its provider adapter owns. The cron only refreshes these
+ * pairs; a missing or conflicting map is never guessed.
+ */
+calendarSyncRoutes.post('/connections/:id/calendars', requireAuth, async (c) => {
+  const userId = c.get('userId')
+  takeMappingBudget(userId)
+  const connectionId = c.req.param('id')
+  if (!isValidId(connectionId)) throw ApiError.notFound('Calendar connection not found')
+  const connection = await getCalendarConnection(c.env.DB, userId, connectionId)
+  if (!connection) throw ApiError.notFound('Calendar connection not found')
+  const body = await readJson<Record<string, unknown>>(c, 64 * 1024)
+  const mappings = parseProviderCalendarMappings(body.calendars)
+  const calendars = await new CalendarStore(c.env.DB, userId).listCalendars()
+  const byId = new Map(calendars.map(calendar => [calendar.id, calendar]))
+  for (const mapping of mappings) {
+    const calendar = byId.get(mapping.localId)
+    if (!calendar) throw ApiError.notFound('A mapped calendar was not found')
+    if (calendar.source !== connection.kind) {
+      throw ApiError.badRequest('A mapped calendar does not belong to this provider')
+    }
+  }
+  const mapped = await saveProviderCalendarMappings(c.env.DB, userId, connectionId, mappings)
+  return c.json({ mapped })
 })
 
 calendarSyncRoutes.post('/connections/:id/proxy', requireAuth, async (c) => {

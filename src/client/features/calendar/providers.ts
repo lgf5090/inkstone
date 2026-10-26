@@ -25,6 +25,18 @@ import * as api from './api'
 const store = createStore('inkstone-calendar', 'sync-state')
 const STATUS_REPORT_INTERVAL_MS = 30_000
 
+function reportCalendars(
+  connection: CalendarConnectionDto,
+  sync: { listCalendars: () => Promise<Array<{ id: string }>> },
+): void {
+  void sync.listCalendars().then((calendars) => api.reportConnectionCalendars(
+    connection.id,
+    calendars.map(calendar => ({ remoteId: calendar.id, localId: calendar.id })),
+  )).catch((error: unknown) => {
+    console.warn('[inkstone] Calendar mapping report failed:', error instanceof Error ? error.message : error)
+  })
+}
+
 type ProviderStatus = 'connected' | 'error'
 
 export interface ProviderSyncOptions {
@@ -236,7 +248,7 @@ export function attachCalendarProviders(
           onError: (error) => announce(connection, 'error', error),
           onSyncComplete: () => announce(connection, 'connected'),
         })
-        void controller.start().catch((error: unknown) => announce(connection, 'error', error))
+        void controller.start().then(() => reportCalendars(connection, sync)).catch((error: unknown) => announce(connection, 'error', error))
         controllers.push({ stop: () => controller.stop() })
       } else if (connection.kind === 'google') {
         const adapter = createGoogleSyncAdapter({ fetch: fetchImpl })
@@ -251,7 +263,7 @@ export function attachCalendarProviders(
           onWriteError: error => announce(connection, 'error', error),
           onSyncComplete: () => announce(connection, 'connected'),
         })
-        void controller.start().catch((error: unknown) => announce(connection, 'error', error))
+        void controller.start().then(() => reportCalendars(connection, sync)).catch((error: unknown) => announce(connection, 'error', error))
         controllers.push({ stop: () => controller.stop() })
       } else {
         const adapter = createOutlookSyncAdapter({ fetch: fetchImpl })
@@ -266,7 +278,7 @@ export function attachCalendarProviders(
           onWriteError: error => announce(connection, 'error', error),
           onSyncComplete: () => announce(connection, 'connected'),
         })
-        void controller.start().catch((error: unknown) => announce(connection, 'error', error))
+        void controller.start().then(() => reportCalendars(connection, sync)).catch((error: unknown) => announce(connection, 'error', error))
         controllers.push({ stop: () => controller.stop() })
       }
     } catch (error) {

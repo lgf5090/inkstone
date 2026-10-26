@@ -2584,6 +2584,28 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     ],
   },
   {
+    // The server may refresh only calendars the browser has already mapped to a connection. The
+    // unique local id is the guard against two same-kind accounts claiming one calendar.
+    version: 172,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS calendar_provider_calendars (
+        user_id TEXT NOT NULL,
+        connection_id TEXT NOT NULL,
+        remote_calendar_id TEXT NOT NULL,
+        local_calendar_id TEXT NOT NULL,
+        last_sync_at INTEGER,
+        last_error_code TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, connection_id, remote_calendar_id)
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_provider_local
+         ON calendar_provider_calendars(user_id, local_calendar_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_calendar_provider_due
+         ON calendar_provider_calendars(user_id, connection_id, last_sync_at)`,
+    ],
+  },
+  {
     // Reminders are claimed by (user, event, occurrence start) so two overlapping cron fires cannot
     // announce the same occurrence twice. The row is a delivery log, not an event relation.
     version: 171,

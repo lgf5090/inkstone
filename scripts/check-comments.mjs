@@ -31023,6 +31023,12 @@ const allowed = new Map([
     "// A network failure says nothing about the grant; marking expired would force a re-login for an",
     "// outage the reader cannot fix.",
   ]],
+  ["src/worker/calendar/provider-sync.ts", [
+    "/**\n * The connection↔calendar map the background provider sync is allowed to touch.\n *\n * The browser discovers provider calendars and reports the remote/local id pair after it has created\n * the local rows. The server never invents this map: a calendar without a row here is read-only from\n * the cron's point of view. A local calendar may belong to one connection only, so two same-kind\n * accounts cannot both write the same rows.\n */",
+    "/** Replace this connection's map; rows omitted from the report stop being background-synced. */",
+    "/** The provider libraries get the same authenticated, path-scoped proxy the browser uses. */",
+    "/** Remove provider rows that the full-range answer no longer names; local-only rows have no external id. */",
+  ]],
   ["src/worker/calendar/proxy.ts", [
     "/**\n * The one door from a browser to a calendar provider.\n *\n * The reader's browser holds no credentials, so every CalDAV or Graph request arrives here as a\n * relative path and leaves with the authorization header this worker adds. That makes the path the\n * attack surface: it must stay inside the connection's own base, a traversal is refused in every\n * spelling, the method and every forwarded header come from a short list, and both directions are\n * capped while they stream. Redirects are refused outright rather than followed, because the address\n * this proxy checked is the one that was typed and a redirect would replace it with one nobody did.\n *\n * A per-connection minute budget and an in-isolate breaker sit in front of the network. Neither is a\n * quota; both exist so a broken adapter or a dead server cannot turn one reader's retry loop into an\n * unbounded fan-out or hold every request open.\n */",
     "/** The JSON envelope adds escaping on top of the body itself; the byte check below is the real cap. */",
@@ -31087,6 +31093,15 @@ const allowed = new Map([
     "/** The `calendarIds` query parameter: a comma-separated list of entity ids, or nothing. */",
     "/** A revision query parameter, or null when the caller did not send one. */",
     "/** Kept for the route's 404-on-malformed decision; the shared predicate is the single authority. */",
+  ]],
+  ["src/worker/calendar/vendor/dayflow-caldav.d.ts", [
+    "/**\n * Worker-side type shim for the provider library.\n *\n * The package's published types pull Preact/DOM globals that replace the Worker's BodyInit/Headers.\n * The cron only needs these five runtime exports; Vite still resolves the real implementation.\n */",
+  ]],
+  ["src/worker/calendar/vendor/dayflow-google-sync.d.ts", [
+    "/** Worker-side type shim; see dayflow-caldav.d.ts. */",
+  ]],
+  ["src/worker/calendar/vendor/dayflow-outlook-sync.d.ts", [
+    "/** Worker-side type shim; see dayflow-caldav.d.ts. */",
   ]],
   ["src/worker/db/fts.ts", [
     "/**\n * Queues every live note for re-indexing in one statement. Rebuilding in the request path\n * costs ~3 round trips per 50 notes (600 trips for 10k notes) plus a full-text tokenize\n * pass, which cannot finish inside one invocation; the queue drains in the background.\n */",
@@ -31707,6 +31722,8 @@ const allowed = new Map([
     "// they belong to as their scope; the old index is replaced in the same migration.",
     "// Reminders are claimed by (user, event, occurrence start) so two overlapping cron fires cannot",
     "// announce the same occurrence twice. The row is a delivery log, not an event relation.",
+    "// The server may refresh only calendars the browser has already mapped to a connection. The",
+    "// unique local id is the guard against two same-kind accounts claiming one calendar.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -33183,6 +33200,7 @@ const allowed = new Map([
     "/**\n * The client reports what its sync run saw. This never grants anything: the session and the calendar\n * rows remain the only authority, and the report is a status line for the settings screen.\n */",
     "// Best-effort: the function logs a failed revoke and returns, so a provider outage cannot keep the",
     "// reader's own connection row alive after they asked for it to be gone.",
+    "/**\n * The browser reports which local calendars its provider adapter owns. The cron only refreshes these\n * pairs; a missing or conflicting map is never guessed.\n */",
   ]],
   ["src/worker/routes/calendar.ts", [
     "/**\n * The calendar app's HTTP surface.\n *\n * Static paths are registered before `/:id` because Hono matches in registration order. Everything\n * below `use` requires a session, every mutating method spends the caller's write budget, and every\n * query goes through `CalendarStore`, which scopes by the account the session named. A malformed id\n * is a 400 and an id this account does not own is a 404, never a 403 that confirms an id exists.\n *\n * Validation lives in `calendar/validation.ts` and SQL in `calendar/store.ts`; this file only reads\n * the request, names the operation and shapes the response.\n */",

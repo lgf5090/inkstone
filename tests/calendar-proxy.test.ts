@@ -184,7 +184,7 @@ describe('proxy method and header allowlists', () => {
     expect(proxyMethod('caldav', 'REPORT')).toBe('REPORT')
     expect(proxyMethod('caldav', 'PUT')).toBe('PUT')
     expect(proxyMethod('caldav', 'DELETE')).toBe('DELETE')
-    expect(() => proxyMethod('caldav', 'GET')).toThrow()
+    expect(proxyMethod('caldav', 'GET')).toBe('GET')
     expect(() => proxyMethod('caldav', 'POST')).toThrow()
     expect(proxyMethod('google', 'GET')).toBe('GET')
     expect(proxyMethod('google', 'PATCH')).toBe('PATCH')
@@ -297,7 +297,7 @@ describe('proxy route', () => {
   it('refuses methods outside the provider list and writes on a read-only connection', async () => {
     const id = await seedBasic()
     const calls = stubFetch(() => Response.json({}))
-    const response = await request(`/connections/${id}/proxy`, json({ method: 'GET', path: 'work/' }))
+    const response = await request(`/connections/${id}/proxy`, json({ method: 'POST', path: 'work/' }))
     expect(response.status).toBe(403)
     expect(calls).toHaveLength(0)
 

@@ -39,11 +39,12 @@ export const PROXY_BUDGET_PER_MINUTE = 120
 export const PROXY_FAILURE_LIMIT = 5
 export const PROXY_BREAKER_MS = 60_000
 
-const CALDAV_METHODS = new Set(['PROPFIND', 'REPORT', 'PUT', 'DELETE'])
+const CALDAV_METHODS = new Set(['GET', 'PROPFIND', 'REPORT', 'PUT', 'DELETE'])
 const OAUTH_METHODS = new Set(['GET', 'POST', 'PATCH', 'DELETE'])
 const WRITE_METHODS = new Set(['PUT', 'POST', 'PATCH', 'DELETE'])
 
 const ALLOWED_REQUEST_HEADERS = new Map<string, string>([
+  ['accept', 'Accept'],
   ['depth', 'Depth'],
   ['content-type', 'Content-Type'],
   ['if-match', 'If-Match'],

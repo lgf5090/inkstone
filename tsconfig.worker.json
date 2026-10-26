@@ -23,7 +23,10 @@
     "resolveJsonModule": true,
 
     "paths": {
-      "@shared/*": ["./src/shared/*"]
+      "@shared/*": ["./src/shared/*"],
+      "@dayflow/caldav": ["./src/worker/calendar/vendor/dayflow-caldav.d.ts"],
+      "@dayflow/google-sync": ["./src/worker/calendar/vendor/dayflow-google-sync.d.ts"],
+      "@dayflow/outlook-sync": ["./src/worker/calendar/vendor/dayflow-outlook-sync.d.ts"]
     }
   },
   "include": ["src/worker/**/*", "src/shared/**/*", "package.json"],

@@ -34,6 +34,8 @@ import { errorResponse } from '../src/worker/lib/errors'
 import { newId } from '../src/worker/lib/id'
 import type { AppBindings, Env } from '../src/worker/env'
 import { calendarSyncRoutes } from '../src/worker/routes/calendar-sync'
+import { CalendarStore } from '../src/worker/calendar/store'
+import { syncDueProviderConnections } from '../src/worker/calendar/provider-sync'
 import { testBindings, testDurableObjectNamespace } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
 
@@ -556,6 +558,125 @@ describe('access token refresh', () => {
       { accessToken: 'access-shared' },
     ])
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('background provider sync', () => {
+  it('pulls events for a mapped Google calendar through the same proxy', async () => {
+    const seeded = await seedOAuth()
+    await new CalendarStore(db, USER).createCalendar({
+      id: 'google-cal-1',
+      name: 'Google',
+      color: '#123456',
+      source: 'google',
+    })
+    sqlite.prepare(
+      `INSERT INTO calendar_provider_calendars
+        (user_id, connection_id, remote_calendar_id, local_calendar_id, last_sync_at, created_at, updated_at)
+       VALUES (?, ?, 'google-cal-1', 'google-cal-1', NULL, 1, 1)`,
+    ).run(USER, seeded.id)
+    const calls: string[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+      calls.push(String(input))
+      return Response.json({
+        items: [{
+          id: 'google-event-1',
+          status: 'confirmed',
+          summary: 'Remote design review',
+          start: { dateTime: '2026-10-28T09:00:00Z' },
+          end: { dateTime: '2026-10-28T10:00:00Z' },
+        }],
+      })
+    })
+
+    const result = await syncDueProviderConnections(env, Date.now())
+    expect(result).toMatchObject({ connections: 1, calendars: 1, events: 1, deleted: 0, failed: 0 })
+    expect(calls[0]).toContain('/calendar/v3/calendars/google-cal-1/events')
+    const rows = sqlite.prepare(
+      `SELECT title, calendar_source, external_scope, external_id FROM calendar_events WHERE user_id = ?`,
+    ).all(USER) as Array<{ title: string; calendar_source: string; external_scope: string; external_id: string }>
+    expect(rows).toEqual([{
+      title: 'Remote design review',
+      calendar_source: 'google',
+      external_scope: 'google-cal-1',
+      external_id: 'google-event-1',
+    }])
+
+    const store = new CalendarStore(db, USER)
+    await store.createEvent({
+      title: 'Local only',
+      description: '',
+      kind: 'event',
+      task: null,
+      conference: null,
+      start: { value: '2026-10-28T11:00:00', type: 'datetime' },
+      end: { value: '2026-10-28T12:00:00', type: 'datetime' },
+      startMs: Date.parse('2026-10-28T11:00:00Z'),
+      endMs: Date.parse('2026-10-28T12:00:00Z'),
+      allDay: false,
+      calendarIds: ['google-cal-1'],
+      meta: {},
+      icon: null,
+      recurrenceRule: null,
+      source: 'local',
+      externalId: null,
+    })
+    vi.stubGlobal('fetch', async () => Response.json({ items: [] }))
+    sqlite.prepare(
+      `UPDATE calendar_provider_calendars SET last_sync_at = ? WHERE user_id = ? AND connection_id = ?`,
+    ).run(Date.now() - 16 * 60_000, USER, seeded.id)
+    const second = await syncDueProviderConnections(env, Date.now())
+    expect(second.deleted).toBe(1)
+    const remaining = sqlite.prepare(
+      `SELECT title FROM calendar_events WHERE user_id = ? ORDER BY title`,
+    ).all(USER) as Array<{ title: string }>
+    expect(remaining).toEqual([{ title: 'Local only' }])
+  })
+})
+
+describe('provider calendar mapping', () => {
+  it('maps a local calendar to one connection and removes rows when the report shrinks', async () => {
+    const connection = await seedBasic()
+    await new CalendarStore(db, USER).createCalendar({
+      id: 'remote-cal-1',
+      name: 'Remote',
+      color: '#123456',
+      source: 'caldav',
+    })
+
+    const mapped = await request(`/connections/${connection.id}/calendars`, json({
+      calendars: [{ remoteId: 'remote-cal-1', localId: 'remote-cal-1' }],
+    }))
+    expect(mapped.status).toBe(200)
+    expect(await mapped.json()).toEqual({ mapped: 1 })
+    expect(sqlite.prepare(
+      'SELECT COUNT(*) AS count FROM calendar_provider_calendars WHERE user_id = ?',
+    ).get(USER)).toEqual({ count: 1 })
+
+    const cleared = await request(`/connections/${connection.id}/calendars`, json({ calendars: [] }))
+    expect(cleared.status).toBe(200)
+    expect(sqlite.prepare(
+      'SELECT COUNT(*) AS count FROM calendar_provider_calendars WHERE user_id = ?',
+    ).get(USER)).toEqual({ count: 0 })
+  })
+
+  it('refuses a local calendar already claimed by another connection', async () => {
+    const first = await seedBasic()
+    await new CalendarStore(db, USER).createCalendar({
+      id: 'shared-cal',
+      name: 'Shared',
+      color: '#123456',
+      source: 'caldav',
+    })
+    await request(`/connections/${first.id}/calendars`, json({
+      calendars: [{ remoteId: 'shared-cal', localId: 'shared-cal' }],
+    }))
+    const secondConnection = newId()
+    await seedBasic(secondConnection)
+    const conflict = await request(`/connections/${secondConnection}/calendars`, json({
+      calendars: [{ remoteId: 'shared-cal', localId: 'shared-cal' }],
+    }))
+    expect(conflict.status).toBe(409)
   })
 })
 

@@ -293,6 +293,16 @@ export function reportConnectionStatus(
   })
 }
 
+export function reportConnectionCalendars(
+  connectionId: string,
+  calendars: Array<{ remoteId: string; localId: string }>,
+): Promise<{ mapped: number }> {
+  return request<{ mapped: number }>(`/api/calendar/connections/${entity(connectionId)}/calendars`, {
+    method: 'POST',
+    body: { calendars },
+  })
+}
+
 export function deleteConnection(connectionId: string): Promise<void> {
   return request<void>(`/api/calendar/connections/${entity(connectionId)}`, { method: 'DELETE' })
 }
