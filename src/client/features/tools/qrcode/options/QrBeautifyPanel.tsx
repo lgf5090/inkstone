@@ -36,19 +36,12 @@ export function QrBeautifyPanel() {
       aria-label={t('tools.qrcode.beautify.accordion_title')}
       className="flex flex-col rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] shadow-sm"
     >
-      <header
-        role="button"
-        tabIndex={0}
+      <button
+        type="button"
         aria-expanded={isOpen}
         onClick={toggleOpen}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            toggleOpen()
-          }
-        }}
         className={cn(
-          'flex h-12 cursor-pointer items-center justify-between px-3.5 select-none',
+          'flex h-12 w-full items-center justify-between px-3.5 select-none text-left',
           'transition-[background-color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
           'hover:bg-[var(--bg-hover)]',
           isOpen && 'border-b border-[var(--border-subtle)]'
@@ -63,11 +56,11 @@ export function QrBeautifyPanel() {
         <div className="text-[var(--text-tertiary)]">
           {isOpen ? <Minus size={16} /> : <Plus size={16} />}
         </div>
-      </header>
+      </button>
 
       {isOpen && (
         <div className="flex flex-col gap-4 p-3.5">
-          <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] pb-2 overflow-x-auto">
+          <div role="tablist" className="flex items-center gap-1 border-b border-[var(--border-subtle)] pb-2 overflow-x-auto">
             {BEAUTIFY_TABS.map((tab) => {
               const Icon = tab.icon
               const isSelected = activeTab === tab.id
@@ -75,6 +68,8 @@ export function QrBeautifyPanel() {
                 <button
                   key={tab.id}
                   type="button"
+                  role="tab"
+                  aria-selected={isSelected}
                   onClick={() => setActiveTab(tab.id as BeautifyTab)}
                   className={cn(
                     'flex items-center gap-1.5 rounded-[var(--r-md)] px-3 py-1.5 text-[length:var(--text-13)] font-medium shrink-0',
@@ -91,7 +86,7 @@ export function QrBeautifyPanel() {
             })}
           </div>
 
-          <div className="min-h-0">
+          <div role="tabpanel" className="min-h-0">
             {activeTab === 'template' && <TemplatesTab />}
             {activeTab === 'shape' && <ShapeTab />}
             {activeTab === 'logo' && <LogoTab />}

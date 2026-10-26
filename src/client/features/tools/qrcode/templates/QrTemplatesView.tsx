@@ -22,7 +22,8 @@ export function QrTemplatesView() {
     setLoading(true)
     try {
       const data = await fetchQrTemplates()
-      setCustomTemplates(data.templates.filter((tpl) => !tpl.isBuiltin))
+      const list: QrCodeTemplate[] = Array.isArray(data) ? data : (data as any)?.templates || []
+      setCustomTemplates(list.filter((tpl: QrCodeTemplate) => !tpl.isBuiltin))
     } catch {
       useUi.getState().toast({ title: t('tools.qrcode.templates.load_error'), tone: 'danger' })
     } finally {

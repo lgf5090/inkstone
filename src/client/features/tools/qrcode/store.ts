@@ -154,7 +154,7 @@ export function encodeQrData(
 
 export const useQrCodeStore = create<QrCodeState>((set, get) => ({
   activeView: 'generator',
-  contentAccordionOpen: false,
+  contentAccordionOpen: true,
   beautifyAccordionOpen: true,
   activeBeautifyTab: 'template',
 

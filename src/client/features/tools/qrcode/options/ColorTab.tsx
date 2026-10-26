@@ -138,6 +138,8 @@ export function ColorTab() {
               <button
                 key={c}
                 type="button"
+                title={c}
+                aria-label={c}
                 style={{ backgroundColor: c }}
                 onClick={() => handleSolidColorSelect(c)}
                 className={cn(
@@ -179,6 +181,8 @@ export function ColorTab() {
               <button
                 key={p.id}
                 type="button"
+                title={p.id}
+                aria-label={p.id}
                 style={{ background: bgGrad }}
                 onClick={() => handleGradientSelect(p.gradient)}
                 className={cn(

@@ -82,6 +82,8 @@ export function LogoTab() {
                 key={item.id}
                 type="button"
                 title={item.name}
+                aria-label={item.name}
+                data-testid={`logo-preset-${item.id}`}
                 onClick={() => handleSelectOnlineLogo(item.id)}
                 className={cn(
                   'flex h-10 w-10 items-center justify-center rounded-[var(--r-md)] border p-1 transition-all',

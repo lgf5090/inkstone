@@ -23,7 +23,7 @@ export function QrHistoryView() {
     setLoading(true)
     try {
       const data = await fetchQrRecords({ limit: 50 })
-      setRecords(data.records)
+      setRecords(data.items ?? (data as any).records ?? [])
     } catch {
       useUi.getState().toast({ title: t('tools.qrcode.history.load_error'), tone: 'danger' })
     } finally {
@@ -92,13 +92,13 @@ export function QrHistoryView() {
         </Button>
       </div>
 
-      {records.length === 0 && !loading ? (
+      {!records || records.length === 0 && !loading ? (
         <div className="flex flex-1 flex-col items-center justify-center text-center p-8 text-[var(--text-tertiary)]">
           <p className="text-[length:var(--text-14)]">{t('tools.qrcode.history.empty')}</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {records.map((record) => (
+          {records?.map((record) => (
             <div
               key={record.id}
               className="flex flex-col rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-3 shadow-xs"

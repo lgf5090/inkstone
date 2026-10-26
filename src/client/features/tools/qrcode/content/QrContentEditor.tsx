@@ -63,19 +63,12 @@ export function QrContentEditor() {
       aria-label={t('tools.qrcode.content.accordion_title')}
       className="flex flex-col rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] shadow-sm"
     >
-      <header
-        role="button"
-        tabIndex={0}
+      <button
+        type="button"
         aria-expanded={isOpen}
         onClick={toggleOpen}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            toggleOpen()
-          }
-        }}
         className={cn(
-          'flex h-12 cursor-pointer items-center justify-between px-3.5 select-none',
+          'flex h-12 w-full items-center justify-between px-3.5 select-none text-left',
           'transition-[background-color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
           'hover:bg-[var(--bg-hover)]',
           isOpen && 'border-b border-[var(--border-subtle)]'
@@ -90,12 +83,12 @@ export function QrContentEditor() {
         <div className="text-[var(--text-tertiary)]">
           {isOpen ? <Minus size={16} /> : <Plus size={16} />}
         </div>
-      </header>
+      </button>
 
       {isOpen && (
         <div className="flex flex-col gap-3.5 p-3.5">
           <div className="flex items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-1">
+            <div role="tablist" className="flex flex-wrap items-center gap-1">
               {CONTENT_TABS.map((tab) => {
                 const Icon = tab.icon
                 const isSelected = contentType === tab.id
@@ -103,6 +96,8 @@ export function QrContentEditor() {
                   <button
                     key={tab.id}
                     type="button"
+                    role="tab"
+                    aria-selected={isSelected}
                     onClick={() => setContentType(tab.id as QrContentType)}
                     className={cn(
                       'flex items-center gap-1.5 rounded-[var(--r-md)] px-2.5 py-1 text-[length:var(--text-12)] font-medium',
