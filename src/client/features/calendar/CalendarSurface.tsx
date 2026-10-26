@@ -39,7 +39,7 @@ import type {
   CalendarMetaDto,
   CalendarPreferences,
 } from '@shared/calendar/model'
-import { CALENDAR_RANGE_MAX_MS, MAX_EVENTS_PER_QUERY } from '@shared/calendar/model'
+import { CALENDAR_RANGE_MAX_MS, CALENDAR_VIEWS, MAX_EVENTS_PER_QUERY, type CalendarViewName } from '@shared/calendar/model'
 import type { AppLocale } from '@shared/types'
 import { t, useLocale, useLocaleRepaint } from '../../lib/i18n'
 import { useThemeDark } from '../../lib/hooks'
@@ -54,6 +54,7 @@ import { CalendarConnections } from './CalendarConnections'
 import { CalendarEditHistory } from './history'
 import { EventPersistence } from './persistence'
 import { attachCalendarProviders } from './providers'
+import { calendarRouteHref, readCalendarRouteState } from './view-state'
 import * as api from './api'
 import type { CalendarPatchInput } from './api'
 import {
@@ -253,8 +254,10 @@ function buildConfig(input: {
   mode: 'light' | 'dark'
   history: CalendarEditHistory
   actions: { current: SurfaceActions }
+  initialView?: CalendarPreferences['defaultView'] | null
+  initialDate?: Date | null
 }): CalendarAppConfig {
-  const { meta, initialEvents, preferences, locale, mode, history, actions } = input
+  const { meta, initialEvents, preferences, locale, mode, history, actions, initialView, initialDate } = input
   const timeZone = preferences.timeZone
   const callbacks: CalendarCallbacks = {
     onCalendarCreate: calendar => actions.current.onCalendarCreate?.(calendar),
@@ -311,8 +314,8 @@ function buildConfig(input: {
       createSidebarPlugin({ width: '0px', miniWidth: '0px', initialCollapsed: true, componentsOrder: [] }),
     ],
     events: initialEvents.map(event => toDayFlowEvent(event, timeZone)),
-    defaultView: viewType(preferences.defaultView),
-    initialDate: new Date(),
+    defaultView: viewType(initialView ?? preferences.defaultView),
+    initialDate: initialDate ?? new Date(),
     switcherMode: 'buttons',
     calendars: meta.calendars.map(toCalendarType),
     defaultCalendar: defaultCalendarId(meta),
@@ -336,6 +339,7 @@ export function CalendarSurface({ meta, initialEvents, initialTruncated = false,
   const wide = useWide()
   const [history] = useState(() => new CalendarEditHistory())
   const actions = useRef<SurfaceActions>({})
+  const [route] = useState(() => readCalendarRouteState(window.location.search))
   const [config] = useState(() => buildConfig({
     meta,
     initialEvents,
@@ -344,6 +348,8 @@ export function CalendarSurface({ meta, initialEvents, initialTruncated = false,
     mode: dark ? 'dark' : 'light',
     history,
     actions,
+    initialView: route.view,
+    initialDate: route.date,
   }))
   const { app } = useCalendarApp(config)
 
@@ -711,6 +717,14 @@ export function CalendarSurface({ meta, initialEvents, initialTruncated = false,
       useCalendarHeader: true,
     })
   }, [app, appLocale, dark, meta.preferences])
+
+  useEffect(() => app.subscribe(() => {
+    const view = app.getCurrentView().type
+    if (!(CALENDAR_VIEWS as readonly string[]).includes(view)) return
+    const next = calendarRouteHref(window.location.href, view as CalendarViewName, app.getCurrentDate())
+    const current = `${window.location.pathname}${window.location.search}${window.location.hash}`
+    if (next !== current) window.history.replaceState(window.history.state, '', next)
+  }), [app])
 
   const search = useMemo<CalendarSearchProps>(() => ({
     debounceDelay: 300,
