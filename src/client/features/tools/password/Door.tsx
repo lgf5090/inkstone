@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, type KeyboardEvent } from 'react'
 import { AlertCircle, KeyRound, Lock, ShieldCheck } from 'lucide-react'
 import { t } from '../../../lib/i18n'
 import { cn } from '../../../lib/cn'
+import { isImeComposing } from '../../../lib/ime'
 import { Button, Spinner } from '../../../components/primitives'
 import { usePasswordVaultStore } from './store'
 import { getKeyIv, verifyMasterPasswordCandidate } from './crypto'
@@ -74,7 +75,9 @@ export function Door({ className }: DoorProps) {
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     setIsCapsLock(e.getModifierState('CapsLock'))
-    if (e.key === 'Enter') {
+    // Enter accepts an input-method candidate rather than submitting, and the local composition flag
+    // says nothing about the keystroke that just committed one — so the shared helper answers.
+    if (e.key === 'Enter' && !isImeComposing(e)) {
       e.preventDefault()
       void handleSubmit()
     }
@@ -95,7 +98,7 @@ export function Door({ className }: DoorProps) {
       <div
         data-testid="password-door-card"
         className={cn(
-          'w-full max-w-sm rounded-[var(--r-xl)] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-6 shadow-lg',
+          'w-full max-w-sm rounded-[var(--r-xl)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-6 shadow-lg',
           'transition-[box-shadow,border-color] duration-[var(--dur-base)]',
           shake && 'door-fail',
         )}
@@ -150,7 +153,7 @@ export function Door({ className }: DoorProps) {
             <div
               data-testid="password-door-caps-lock"
               role="alert"
-              className="flex items-center gap-1.5 rounded-[var(--r-sm)] bg-[var(--warning-soft,rgba(234,179,8,0.1))] px-2.5 py-1.5 text-[length:var(--text-12)] text-[var(--warning)]"
+              className="flex items-center gap-1.5 rounded-[var(--r-sm)] bg-[var(--warning-softer)] px-2.5 py-1.5 text-[length:var(--text-12)] text-[var(--warning)]"
             >
               <AlertCircle size={14} className="shrink-0" />
               <span>{t('tools.password.door.caps_lock')}</span>
@@ -162,7 +165,7 @@ export function Door({ className }: DoorProps) {
             <div
               data-testid="password-door-ime-warn"
               role="alert"
-              className="flex items-center gap-1.5 rounded-[var(--r-sm)] bg-[var(--warning-soft,rgba(234,179,8,0.1))] px-2.5 py-1.5 text-[length:var(--text-12)] text-[var(--warning)]"
+              className="flex items-center gap-1.5 rounded-[var(--r-sm)] bg-[var(--warning-softer)] px-2.5 py-1.5 text-[length:var(--text-12)] text-[var(--warning)]"
             >
               <AlertCircle size={14} className="shrink-0" />
               <span>{t('tools.password.door.ime_warn')}</span>
