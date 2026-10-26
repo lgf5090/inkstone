@@ -11,6 +11,7 @@ import { DashboardView } from '../src/client/features/tools/shortlinks/Dashboard
 import { LinksView } from '../src/client/features/tools/shortlinks/LinksView'
 import { BundlesView } from '../src/client/features/tools/shortlinks/BundlesView'
 import { SettingsView } from '../src/client/features/tools/shortlinks/SettingsView'
+import { LinkDetailView } from '../src/client/features/tools/shortlinks/LinkDetailView'
 import { QrCodeModal } from '../src/client/features/tools/shortlinks/modals/QrCodeModal'
 import { CreateLinkModal } from '../src/client/features/tools/shortlinks/modals/CreateLinkModal'
 
@@ -224,6 +225,45 @@ describe('Shortlinks Frontend Feature UI & State Tests', () => {
       expect(view.container.textContent).toContain(t('tools.shortlinks.settings.api_keys'))
       expect(view.container.textContent).toContain(t('tools.shortlinks.settings.data_management'))
       view.unmount()
+    })
+  })
+
+  describe('LinkDetailView', () => {
+    it('handles transition from null link to loaded link without hook order violation', async () => {
+      // First render with activeLink null
+      useShortlinksStore.setState({ activeLink: null, activeLinkTimeline: null })
+      const view = await renderElement(<LinkDetailView />)
+      expect(view.container.textContent).toBe('')
+
+      // Subsequent render with activeLink and timeline loaded
+      await act(async () => {
+        useShortlinksStore.setState({
+          activeLink: {
+            id: 1,
+            user_id: 'user_1',
+            url: 'https://example.com/blog',
+            label: 'Company Blog',
+            password_protected: false,
+            created_at: 1729000000,
+            expires_at: null,
+            created_via: 'app',
+            created_by: 'user',
+            total_clicks: 120,
+            slugs: [{ slug: 'blog26', link_id: 1, is_custom: true, is_primary: true, click_count: 120, created_at: 1729000000, disabled_at: null }],
+          },
+          activeLinkTimeline: {
+            range: '30d',
+            buckets: [{ label: '2026-10-25', count: 10 }],
+            summary: { last_24h: 5, last_7d: 30, last_30d: 120, last_90d: 120, last_1y: 120 },
+          },
+        })
+      })
+
+      expect(view.container.textContent).toContain('/blog26')
+      expect(view.container.textContent).toContain('https://example.com/blog')
+      expect(view.container.textContent).toContain('Company Blog')
+      view.unmount()
+      useShortlinksStore.setState({ activeLink: null, activeLinkTimeline: null })
     })
   })
 

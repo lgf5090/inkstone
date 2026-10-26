@@ -47,6 +47,67 @@ export function LinkDetailView() {
   const openAddSlugModal = useShortlinksStore((s) => s.openAddSlugModal)
   const openBreakdown = useShortlinksStore((s) => s.openBreakdown)
 
+  // Chart configuration builder (placed before conditional return to uphold Rules of Hooks)
+  const chartBuilder = useMemo(() => {
+    if (!timeline) return null
+    const labels = timeline.labels || timeline.buckets?.map((b) => b.label) || []
+    const values = timeline.values || timeline.buckets?.map((b) => b.count) || []
+    if (labels.length === 0) return null
+
+    return (colors: ChartColors): ChartConfiguration<'line'> => ({
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: t('tools.shortlinks.links.clicks'),
+            data: values,
+            borderColor: colors.palette[0] || 'var(--accent)',
+            backgroundColor: withAlpha(colors.palette[0] || '#3b82f6', 0.15),
+            fill: true,
+            tension: 0.35,
+            borderWidth: 2,
+            pointRadius: labels.length > 20 ? 0 : 3,
+            pointHoverRadius: 5,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            mode: 'index',
+            intersect: false,
+            backgroundColor: colors.grid,
+            titleColor: colors.text,
+            bodyColor: colors.text,
+          },
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: {
+              color: colors.text,
+              maxTicksLimit: 7,
+              font: { size: 11 },
+            },
+          },
+          y: {
+            beginAtZero: true,
+            grid: { color: colors.grid },
+            ticks: {
+              color: colors.text,
+              precision: 0,
+              font: { size: 11 },
+            },
+          },
+        },
+      },
+    })
+  }, [timeline])
+
   if (!link) return null
 
   const primarySlugObj = link.slugs.find((s) => s.is_primary) || link.slugs[0]
@@ -126,66 +187,6 @@ export function LinkDetailView() {
       useUiStore.getState().toast((err as Error).message, 'error')
     }
   }
-
-  // Chart configuration builder
-  const chartBuilder = useMemo(() => {
-    const labels = timeline?.labels || timeline?.buckets?.map((b) => b.label) || []
-    const values = timeline?.values || timeline?.buckets?.map((b) => b.count) || []
-    if (labels.length === 0) return null
-
-    return (colors: ChartColors): ChartConfiguration<'line'> => ({
-      type: 'line',
-      data: {
-        labels,
-        datasets: [
-          {
-            label: t('tools.shortlinks.links.clicks'),
-            data: values,
-            borderColor: colors.palette[0] || 'var(--accent)',
-            backgroundColor: withAlpha(colors.palette[0] || '#3b82f6', 0.15),
-            fill: true,
-            tension: 0.35,
-            borderWidth: 2,
-            pointRadius: labels.length > 20 ? 0 : 3,
-            pointHoverRadius: 5,
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            mode: 'index',
-            intersect: false,
-            backgroundColor: colors.grid,
-            titleColor: colors.text,
-            bodyColor: colors.text,
-          },
-        },
-        scales: {
-          x: {
-            grid: { display: false },
-            ticks: {
-              color: colors.text,
-              maxTicksLimit: 7,
-              font: { size: 11 },
-            },
-          },
-          y: {
-            beginAtZero: true,
-            grid: { color: colors.grid },
-            ticks: {
-              color: colors.text,
-              precision: 0,
-              font: { size: 11 },
-            },
-          },
-        },
-      },
-    })
-  }, [timeline])
 
   return (
     <div className="flex-1 overflow-y-auto px-4 py-6 md:px-8 space-y-6 max-w-6xl mx-auto w-full">
