@@ -52,6 +52,7 @@ interface CalendarSidebarProps {
   /** Refresh meta and the DayFlow registry; `reloadEvents` also refetches the visible range. */
   onRefresh: (reloadEvents: boolean) => Promise<void>
   onSelectDate: (date: Date) => void
+  onRequestRange?: (from: number, to: number) => void
 }
 
 function toastFailure(title: string, error: unknown): void {
@@ -135,6 +136,7 @@ export function CalendarSidebar({
   onOpenSettings,
   onRefresh,
   onSelectDate,
+  onRequestRange,
 }: CalendarSidebarProps) {
   useLocaleRepaint()
   const dark = useThemeDark()
@@ -413,6 +415,7 @@ export function CalendarSidebar({
             showEventDots={preferences.showEventDots}
             version={version}
             onSelectDate={onSelectDate}
+            onRequestRange={onRequestRange}
           />
         )}
 

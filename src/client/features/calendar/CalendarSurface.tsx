@@ -478,6 +478,8 @@ export function CalendarSurface({ meta, initialEvents, initialRange, onRefreshMe
     })
   }, [paddedRange, runRangeFetch])
 
+  const requestMiniRange = useCallback((from: number, to: number): void => loadRange(from, to), [loadRange])
+
   const retryRange = (): void => {
     const range = failedRange.current
     if (!range) return
@@ -732,6 +734,7 @@ export function CalendarSurface({ meta, initialEvents, initialRange, onRefreshMe
       onOpenSettings={() => setSettingsOpen(true)}
       onRefresh={refreshCalendars}
       onSelectDate={date => app.setCurrentDate(date)}
+      onRequestRange={requestMiniRange}
     />
   )
 

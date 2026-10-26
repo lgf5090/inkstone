@@ -89,9 +89,11 @@ interface MiniMonthProps {
   /** Bumped by the sidebar on every app notification, so event edits refresh the dots. */
   version: number
   onSelectDate: (date: Date) => void
+  /** Ask the surface to load the six weeks this grid draws; dots are only as complete as the cache. */
+  onRequestRange?: (from: number, to: number) => void
 }
 
-export function MiniMonth({ app, currentDate, weekStart, timeZone, showEventDots, version, onSelectDate }: MiniMonthProps) {
+export function MiniMonth({ app, currentDate, weekStart, timeZone, showEventDots, version, onSelectDate, onRequestRange }: MiniMonthProps) {
   const locale = useLocale()
   const dark = useThemeDark()
   const today = startOfDay(new Date())
@@ -115,6 +117,13 @@ export function MiniMonth({ app, currentDate, weekStart, timeZone, showEventDots
     () => (showEventDots ? eventColors(app.getEvents(), app, timeZone, dark) : new Map<string, string[]>()),
     [app, timeZone, dark, showEventDots, version],
   )
+
+  useEffect(() => {
+    if (!showEventDots || !onRequestRange || days.length === 0) return
+    const first = days[0]!
+    const last = days[days.length - 1]!
+    onRequestRange(first.getTime(), addDays(last, 1).getTime())
+  }, [days, showEventDots, onRequestRange])
 
   const weekdays = useMemo(
     () => narrowWeekdayLabels(locale, weekStart as WeekStartDay).map((label, index) => ({ key: index, label })),
