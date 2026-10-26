@@ -17,7 +17,7 @@ import {
 } from '@dayflow/react'
 import { cn } from '../../lib/cn'
 import { useLocale, t } from '../../lib/i18n'
-import { narrowWeekdayLabels, type WeekStartDay } from '../../lib/time'
+import { dateKey, narrowWeekdayLabels, startOfDay, startOfWeek, type WeekStartDay } from '../../lib/time'
 import { useThemeDark } from '../../lib/hooks'
 import { IconButton } from '../../components/primitives'
 import { Tooltip } from '../../components/overlay'
@@ -26,21 +26,8 @@ import { eventDateInZone } from './model'
 const CELL_COUNT = 42
 const MAX_DOTS = 4
 
-function startOfDay(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
-}
-
 function addDays(date: Date, days: number): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days)
-}
-
-function startOfWeek(date: Date, weekStart: number): Date {
-  const day = date.getDay()
-  return addDays(date, -((day - weekStart + 7) % 7))
-}
-
-function dateKey(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
 function plainDateKey(date: Temporal.PlainDate): string {
@@ -109,7 +96,7 @@ export function MiniMonth({ app, currentDate, weekStart, timeZone, showEventDots
   }, [currentMonthKey, calendarSystem])
 
   const days = useMemo(() => {
-    const first = startOfWeek(startOfCalendarMonth(displayMonth, calendarSystem), weekStart)
+    const first = startOfWeek(startOfCalendarMonth(displayMonth, calendarSystem), weekStart as WeekStartDay)
     return Array.from({ length: CELL_COUNT }, (_, index) => addDays(first, index))
   }, [displayMonth, weekStart, calendarSystem])
 
@@ -137,6 +124,11 @@ export function MiniMonth({ app, currentDate, weekStart, timeZone, showEventDots
       year: 'numeric',
     }),
     [locale, displayMonth, calendarSystem],
+  )
+
+  const dayLabelFormatter = useMemo(
+    () => new Intl.DateTimeFormat(locale, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }),
+    [locale],
   )
 
   const tabKey = days.some(day => dateKey(day) === selectedKey && day.getMonth() === displayMonth.getMonth())
@@ -187,7 +179,6 @@ export function MiniMonth({ app, currentDate, weekStart, timeZone, showEventDots
               const selected = key === selectedKey
               const inMonth = day.getMonth() === displayMonth.getMonth()
               const dayDots = dots.get(key) ?? []
-              const formatter = new Intl.DateTimeFormat(locale, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
               return (
                 <button
                   key={key}
@@ -198,7 +189,7 @@ export function MiniMonth({ app, currentDate, weekStart, timeZone, showEventDots
                   type="button"
                   role="gridcell"
                   aria-selected={selected}
-                  aria-label={formatter.format(day)}
+                  aria-label={dayLabelFormatter.format(day)}
                   tabIndex={key === tabKey ? 0 : -1}
                   onClick={() => onSelectDate(day)}
                   onKeyDown={(event) => {
