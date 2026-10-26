@@ -866,7 +866,7 @@ export class CalendarStore {
     if (ids.some((id) => !isCalendarEntityId(id))) throw ApiError.badRequest('Invalid calendar id')
     const rows = await this.calendarAccess(ids)
     if (rows.length !== ids.length) throw ApiError.notFound('Calendar not found')
-    if (!allowReadOnly && rows.every((row) => row.read_only === 1)) {
+    if (!allowReadOnly && rows.some((row) => row.read_only === 1)) {
       throw ApiError.forbidden('The calendar is read-only')
     }
   }
@@ -875,7 +875,7 @@ export class CalendarStore {
     const ids = (await this.membershipsFor([eventId])).get(eventId) ?? []
     if (ids.length === 0) return
     const rows = await this.calendarAccess(ids)
-    if (rows.length === ids.length && rows.every((row) => row.read_only === 1)) {
+    if (rows.length === ids.length && rows.some((row) => row.read_only === 1)) {
       throw ApiError.forbidden('The event belongs to a read-only calendar')
     }
   }

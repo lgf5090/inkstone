@@ -108,6 +108,15 @@ describe('calendar routes', () => {
     })
     expect(synced.status).toBe(200)
     expect((await json<{ events: CalendarEventDto[] }>(synced)).events[0]?.calendarIds).toEqual([readOnly.calendar.id])
+
+    const writable = await json<{ calendar: CalendarDto }>(await call('POST', '/calendars', {
+      name: 'Writable',
+      color: '#654321',
+    }))
+    const mixed = await call('POST', '/events', eventBody(writable.calendar.id, {
+      calendarIds: [writable.calendar.id, readOnly.calendar.id],
+    }))
+    expect(mixed.status).toBe(403)
   })
 
   it('creates, patches, reorders and deletes calendars', async () => {
