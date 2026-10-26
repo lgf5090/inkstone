@@ -43,6 +43,16 @@ describe('the oklab maths a contrast gate rests on', () => {
     expect(drift, `${drift.length} colour(s) do not survive oklab there and back: ${drift.slice(0, 5).map((d) => `${d.text} ±${d.worst.toFixed(1)}`).join(', ')}`).toEqual([])
   })
 
+  it('reads the same channels out of every separator a literal or a computed value uses', () => {
+    // A probe hands this helper `rgb(239,68,68)`, the browser's computed style says `rgb(239, 68, 68)`, and
+    // CSS Color 4 drops the commas entirely. Splitting on whitespace alone folded the first form into a
+    // single channel, so every channel after it compared as `undefined` — a silent pass, not a red.
+    const spaced = rgb('rgb(239, 68, 68)')
+    expect(rgb('rgb(239,68,68)')).toEqual(spaced)
+    expect(rgb('rgb(239 68 68)')).toEqual(spaced)
+    expect(parseColor('rgba(0,0,0,0)')).toEqual({ rgb: [0, 0, 0], alpha: 0 })
+  })
+
   it('mixes a colour with itself unchanged, and each end at the endpoints', () => {
     const accent = rgb('oklch(66.5% 0.15 32)')
     const surface = rgb('oklch(22% 0.015 265)')

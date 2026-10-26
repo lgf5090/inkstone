@@ -137,6 +137,9 @@ const allowed = new Map([
     "// colour the token layer declares, which is what keeps this honest rather than plausible.",
     "/**\n * `color-mix(in oklab, top percent%, bottom)` for two opaque colours: interpolate in oklab, then\n * convert back. This is the one that needs the maths — a tint mixed over a real surface is a new\n * colour, not the same colour at a lower alpha.\n */",
     "/**\n * `color-mix(in oklab, colour percent%, transparent)` — what the activity calendar's month grid uses.\n * Mixing into `transparent` keeps the colour and lowers the alpha, so the honest answer is the colour\n * itself at `percent / 100`, left for `over()` to composite onto whatever is behind it.\n */",
+    "// Arguments separate on whitespace, on commas, or on both at once: `rgb(0,0,0)` is a legal literal and",
+    "// `rgb(0, 0, 0)` is what a computed value reads like. Splitting on whitespace alone collapsed the first",
+    "// into a single channel, and a reader downstream then compared `undefined` as if it were a colour.",
   ]],
   ["scripts/lib/scratch-files.mjs", [
     "// One definition of what a scratch probe is, so a measurement in flight is invisible",
@@ -16093,6 +16096,7 @@ const allowed = new Map([
     "// ---------------------------------------------------------------- useAutoLock",
     "// ---------------------------------------------------------------- GroupTree & GroupTreeNode",
     "// ---------------------------------------------------------------- ToolsSidebar",
+    "// The name is locale text, so the test asks that it exists and moves with the state — not what it says.",
   ]],
   ["src/client/features/tools/password/store.ts", [
     "// Modals",
@@ -37220,6 +37224,9 @@ const allowed = new Map([
     "// The property the day-number contrast depends on: if the ramp were not monotonic, a cap settled",
     "// by testing the top level would not protect the levels under it.",
     "// …and composites onto a surface the way the page does, so a gate can compare text against it.",
+    "// A probe hands this helper `rgb(239,68,68)`, the browser's computed style says `rgb(239, 68, 68)`, and",
+    "// CSS Color 4 drops the commas entirely. Splitting on whitespace alone folded the first form into a",
+    "// single channel, so every channel after it compared as `undefined` — a silent pass, not a red.",
   ]],
   ["tests/conversation-share-scope.test.ts", [
     "/**\n * What a share link covers, and how that is written down.\n *\n * A link used to mean one conversation and nothing else, so the row's key was the conversation. It now\n * means one conversation *and* the turns it publishes — the empty scope being the whole thread, which is\n * what every link made before this existed meant. Two things follow from that and are pinned here: the\n * same set of turns has to write down as the same string however it was picked, and a reader who narrows a\n * link must not thereby take down the one they already sent.\n *\n * The canonical form matters more than it looks. It is the row's key, so \"these three turns\" spelled two\n * ways would be two links to the same content — and the reader would be told they had shared something\n * they had not.\n */",
