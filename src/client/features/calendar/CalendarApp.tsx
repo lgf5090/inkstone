@@ -25,6 +25,18 @@ type LoadState =
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
+const OAUTH_ERROR_KEYS = {
+  access_denied: 'calendar.connections.oauth_error_access_denied',
+  invalid_state: 'calendar.connections.oauth_error_invalid_state',
+  provider_not_configured: 'calendar.connections.oauth_error_provider_not_configured',
+  unauthenticated: 'calendar.connections.oauth_error_unauthenticated',
+  failed: 'calendar.connections.oauth_error_failed',
+} as const
+
+function oauthErrorKey(code: string | null): keyof typeof OAUTH_ERROR_KEYS {
+  return code && code in OAUTH_ERROR_KEYS ? code as keyof typeof OAUTH_ERROR_KEYS : 'failed'
+}
+
 function initialRange(): { from: number; to: number } {
   const now = Date.now()
   return { from: now - INITIAL_RANGE_DAYS * DAY_MS, to: now + INITIAL_RANGE_DAYS * DAY_MS }
@@ -74,7 +86,7 @@ export function CalendarApp() {
     } else {
       useUi.getState().toast({
         title: t('calendar.connections.oauth_failed'),
-        description: t(`calendar.connections.oauth_error_${code ?? 'failed'}`),
+        description: t(OAUTH_ERROR_KEYS[oauthErrorKey(code)]),
         tone: 'danger',
       })
     }
