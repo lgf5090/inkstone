@@ -480,6 +480,11 @@ const ACCOUNT_GLOBAL_KEYS = new Map<string, string>([
   // filters on `user_id`, and the four covering indexes all lead with it or with the slug.
   ['share_visits', 'seq INTEGER PRIMARY KEY AUTOINCREMENT, every read filters on user_id'],
   ['email_group_members', 'composite (group_id, contact_id) on newId() groups and contacts; every read binds user_id'],
+  ['tools_shortlinks_links', 'id INTEGER PRIMARY KEY AUTOINCREMENT, every read filters on user_id'],
+  ['tools_shortlinks_slugs', 'public by slug and minted by Base62 generator; public redirect by slug alone, management binds user_id'],
+  ['tools_shortlinks_clicks', 'id INTEGER PRIMARY KEY AUTOINCREMENT append-only click log; every read binds user_id'],
+  ['tools_shortlinks_bundles', 'id INTEGER PRIMARY KEY AUTOINCREMENT, every read filters on user_id'],
+  ['tools_shortlinks_api_keys', 'id INTEGER PRIMARY KEY AUTOINCREMENT, lookup by unique key_hash; management binds user_id'],
 ])
 
 /** The tables that carry a `user_id` column yet key on something else. */

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Modal } from '../../../../components/overlay'
 import { Button } from '../../../../components/primitives'
 import { FIELD_BASE, Input } from '../../../../components/form'
+import { DatePicker } from '../../../../components/date-picker'
 import { t } from '../../../../lib/i18n'
 import { useUiStore } from '../../../../lib/ui-store'
 import { useShortlinksStore } from '../store'
@@ -39,7 +40,8 @@ export function CreateLinkModal() {
 
     setSubmitting(true)
     try {
-      const expTs = expiresAt ? Math.floor(new Date(expiresAt).getTime() / 1000) : null
+      const parsed = expiresAt ? Date.parse(expiresAt) : NaN
+      const expTs = !Number.isNaN(parsed) && parsed > 0 ? Math.floor(parsed / 1000) : null
       const link = await shortlinksApi.createLink({
         url: trimmedUrl,
         label: label.trim() || undefined,
@@ -53,7 +55,7 @@ export function CreateLinkModal() {
         try {
           await shortlinksApi.addLinksToBundle(bundleId, [link.id])
         } catch {
-          // Non-fatal
+          // Best-effort addition of newly created shortlink into bundle
         }
       }
 
@@ -146,10 +148,11 @@ export function CreateLinkModal() {
             <label className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)] mb-1">
               {t('tools.shortlinks.modal.expires_label')}
             </label>
-            <Input
-              type="datetime-local"
+            <DatePicker
+              withTime
+              label={t('tools.shortlinks.modal.expires_label')}
               value={expiresAt}
-              onChange={(e) => setExpiresAt(e.target.value)}
+              onChange={setExpiresAt}
               placeholder={t('tools.shortlinks.modal.expires_placeholder')}
             />
           </div>

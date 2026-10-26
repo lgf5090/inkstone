@@ -2,18 +2,18 @@ import { useEffect, useState } from 'react'
 import { Modal } from '../../../../components/overlay'
 import { Button } from '../../../../components/primitives'
 import { Input } from '../../../../components/form'
-import { t } from '../../../../lib/i18n'
+import { type MessageKey, t } from '../../../../lib/i18n'
 import { useUiStore } from '../../../../lib/ui-store'
 import type { BundleAccent } from '@shared/tools/shortlinks/types'
 import { useShortlinksStore } from '../store'
 import { shortlinksApi } from '../api'
 
-const ACCENT_COLORS: { id: BundleAccent; label: string; bg: string }[] = [
-  { id: 'orange', label: 'Orange', bg: '#f97316' },
-  { id: 'red', label: 'Red', bg: '#ef4444' },
-  { id: 'green', label: 'Green', bg: '#10b981' },
-  { id: 'blue', label: 'Blue', bg: '#3b82f6' },
-  { id: 'purple', label: 'Purple', bg: '#a855f7' },
+const ACCENT_COLORS: { id: BundleAccent; labelKey: MessageKey; bg: string }[] = [
+  { id: 'orange', labelKey: 'tools.shortlinks.modal.color_orange', bg: '#f97316' },
+  { id: 'red', labelKey: 'tools.shortlinks.modal.color_red', bg: '#ef4444' },
+  { id: 'green', labelKey: 'tools.shortlinks.modal.color_green', bg: '#10b981' },
+  { id: 'blue', labelKey: 'tools.shortlinks.modal.color_blue', bg: '#3b82f6' },
+  { id: 'purple', labelKey: 'tools.shortlinks.modal.color_purple', bg: '#a855f7' },
 ]
 
 export function CreateBundleModal() {
@@ -119,6 +119,7 @@ export function CreateBundleModal() {
           <div className="flex items-center gap-2">
             {ACCENT_COLORS.map((c) => {
               const isSelected = accent === c.id
+              const colorName = t(c.labelKey)
               return (
                 <button
                   key={c.id}
@@ -128,8 +129,8 @@ export function CreateBundleModal() {
                   className={`size-7 rounded-full transition-transform ${
                     isSelected ? 'scale-110 ring-2 ring-offset-2 ring-[var(--accent)]' : 'opacity-80 hover:opacity-100'
                   }`}
-                  aria-label={c.label}
-                  title={c.label}
+                  aria-label={colorName}
+                  title={colorName}
                 />
               )
             })}

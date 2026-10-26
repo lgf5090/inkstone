@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Modal } from '../../../../components/overlay'
 import { Button } from '../../../../components/primitives'
 import { Input } from '../../../../components/form'
+import { DatePicker } from '../../../../components/date-picker'
 import { t } from '../../../../lib/i18n'
 import { useUiStore } from '../../../../lib/ui-store'
 import { useShortlinksStore } from '../store'
@@ -27,7 +28,8 @@ export function EditLinkModal() {
       setPassword('')
       if (link.expires_at) {
         const d = new Date(link.expires_at * 1000)
-        setExpiresAt(d.toISOString().slice(0, 16))
+        const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`)
+        setExpiresAt(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`)
       } else {
         setExpiresAt('')
       }
@@ -42,7 +44,8 @@ export function EditLinkModal() {
 
     setSubmitting(true)
     try {
-      const expTs = expiresAt ? Math.floor(new Date(expiresAt).getTime() / 1000) : null
+      const parsed = expiresAt ? Date.parse(expiresAt) : NaN
+      const expTs = !Number.isNaN(parsed) && parsed > 0 ? Math.floor(parsed / 1000) : null
       await shortlinksApi.updateLink(link.id, {
         url: trimmedUrl,
         label: label.trim() || undefined,
@@ -124,10 +127,11 @@ export function EditLinkModal() {
             <label className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)] mb-1">
               {t('tools.shortlinks.modal.expires_label')}
             </label>
-            <Input
-              type="datetime-local"
+            <DatePicker
+              withTime
+              label={t('tools.shortlinks.modal.expires_label')}
               value={expiresAt}
-              onChange={(e) => setExpiresAt(e.target.value)}
+              onChange={setExpiresAt}
               placeholder={t('tools.shortlinks.modal.expires_placeholder')}
             />
           </div>

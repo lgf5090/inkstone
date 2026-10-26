@@ -14,11 +14,26 @@ export function BreakdownModal() {
   const items = breakdownPage?.items || []
   const totalClicks = items.reduce((acc, curr) => acc + curr.count, 0)
 
+  const dimensionTitle =
+    dimension === 'country' || dimension === 'countries'
+      ? t('tools.shortlinks.detail.countries')
+      : dimension === 'referrer' || dimension === 'referrers' || dimension === 'referrer_host' || dimension === 'referrer_hosts' || dimension === 'domain'
+        ? t('tools.shortlinks.detail.referrers')
+        : dimension === 'device_type' || dimension === 'devices'
+          ? t('tools.shortlinks.detail.devices')
+          : dimension === 'os' || dimension === 'operating_systems'
+            ? t('tools.shortlinks.detail.operating_systems')
+            : dimension === 'browser' || dimension === 'browsers'
+              ? t('tools.shortlinks.detail.browsers')
+              : dimension || ''
+
+  const isCountry = dimension === 'country' || dimension === 'countries'
+
   return (
     <Modal
       open={open}
       onClose={closeBreakdown}
-      title={`${t('tools.shortlinks.modal.breakdown_title')} - ${dimension || ''}`}
+      title={`${t('tools.shortlinks.modal.breakdown_title')} - ${dimensionTitle}`}
       width={560}
       footer={
         <div className="flex w-full items-center justify-end">
@@ -46,10 +61,9 @@ export function BreakdownModal() {
             </div>
             {items.map((item, index) => {
               const pct = totalClicks > 0 ? ((item.count / totalClicks) * 100).toFixed(1) : '0.0'
-              const displayName =
-                dimension === 'countries'
-                  ? `${countryFlag(item.name)} ${countryName(item.name)}`
-                  : item.name || 'Direct / None'
+              const displayName = isCountry
+                ? `${countryFlag(item.name)} ${countryName(item.name)}`
+                : item.name || 'Direct / None'
 
               return (
                 <div

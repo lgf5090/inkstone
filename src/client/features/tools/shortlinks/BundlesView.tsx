@@ -17,12 +17,12 @@ import type { BundleAccent, ShortLinkBundle } from '@shared/tools/shortlinks/typ
 import { useShortlinksStore } from './store'
 import { shortlinksApi } from './api'
 
-const ACCENT_COLORS: Record<BundleAccent, { bg: string; border: string; text: string }> = {
-  orange: { bg: '#fff7ed', border: '#fdba74', text: '#c2410c' },
-  red: { bg: '#fef2f2', border: '#fca5a5', text: '#b91c1c' },
-  green: { bg: '#f0fdf4', border: '#86efac', text: '#15803d' },
-  blue: { bg: '#eff6ff', border: '#93c5fd', text: '#1d4ed8' },
-  purple: { bg: '#faf5ff', border: '#d8b4fe', text: '#7e22ce' },
+const ACCENT_COLORS: Record<BundleAccent, { dot: string }> = {
+  orange: { dot: 'var(--color-orange, #f97316)' },
+  red: { dot: 'var(--danger, #ef4444)' },
+  green: { dot: 'var(--success, #10b981)' },
+  blue: { dot: 'var(--accent, #3b82f6)' },
+  purple: { dot: 'var(--color-purple, #a855f7)' },
 }
 
 export function BundlesView() {
@@ -100,24 +100,24 @@ export function BundlesView() {
             return (
               <div
                 key={bundle.id}
-                onClick={() => selectBundle(bundle.id)}
-                className="group relative rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-5 hover:border-[var(--accent)] hover:shadow-xs transition-all cursor-pointer flex flex-col justify-between"
+                className="group relative rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-5 hover:border-[var(--accent)] hover:shadow-xs transition-all flex flex-col justify-between"
               >
                 <div>
                   <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => selectBundle(bundle.id)}
+                      className="flex items-center gap-2 min-w-0 flex-1 text-left focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)] rounded-[var(--r-sm)] before:absolute before:inset-0 before:z-0"
+                    >
                       <span
                         className="size-3 rounded-full shrink-0"
-                        style={{ backgroundColor: colors.border }}
+                        style={{ backgroundColor: colors.dot }}
                       />
-                      <h3 className="font-semibold text-[length:var(--text-14)] text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors">
+                      <h3 className="font-semibold text-[length:var(--text-14)] text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors truncate">
                         {bundle.name}
                       </h3>
-                    </div>
-                    <div
-                      className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={(e) => e.stopPropagation()}
-                    >
+                    </button>
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity relative z-10 shrink-0">
                       <IconButton
                         label={t('tools.shortlinks.bundles.edit')}
                         size="sm"
@@ -215,7 +215,7 @@ function BundleDetailView() {
           <div className="flex items-center gap-3">
             <span
               className="size-4 rounded-full shrink-0"
-              style={{ backgroundColor: colors.border }}
+              style={{ backgroundColor: colors.dot }}
             />
             <div>
               <h2 className="text-xl font-bold text-[var(--text-primary)]">{bundle.name}</h2>
@@ -297,10 +297,13 @@ function BundleDetailView() {
               return (
                 <div
                   key={link.id}
-                  className="p-3.5 flex items-center justify-between gap-4 hover:bg-[var(--bg-hover)] transition-colors cursor-pointer"
-                  onClick={() => selectLink(link.id)}
+                  className="p-3.5 flex items-center justify-between gap-4 hover:bg-[var(--bg-hover)] transition-colors"
                 >
-                  <div className="min-w-0 flex-1">
+                  <button
+                    type="button"
+                    onClick={() => selectLink(link.id)}
+                    className="min-w-0 flex-1 text-left focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)] rounded-[var(--r-sm)]"
+                  >
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-[length:var(--text-13)] font-semibold text-[var(--accent)]">
                         /{primarySlug}
@@ -314,9 +317,9 @@ function BundleDetailView() {
                     <div className="truncate text-[length:var(--text-11)] text-[var(--text-tertiary)] font-mono mt-0.5">
                       {link.url}
                     </div>
-                  </div>
+                  </button>
 
-                  <div className="flex items-center gap-3 shrink-0" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center gap-3 shrink-0">
                     <span className="font-mono text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
                       {(link.clicks ?? 0).toLocaleString()} {t('tools.shortlinks.links.clicks')}
                     </span>

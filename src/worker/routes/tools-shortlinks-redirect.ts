@@ -12,7 +12,17 @@ import { parseUserAgentInfo } from '../tools/shortlinks/ua'
 
 export const toolsShortlinksRedirectRoutes = new Hono<AppBindings>()
 
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 function renderPasswordPage(slug: string, errorMsg?: string): Response {
+  const safeSlug = encodeURIComponent(slug)
   const html = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -126,8 +136,8 @@ function renderPasswordPage(slug: string, errorMsg?: string): Response {
     </svg>
     <h1>\u53d7\u4fdd\u62a4\u7684\u77ed\u94fe\u63a5</h1>
     <p>\u6b64\u77ed\u94fe\u63a5\u5df2\u8bbe\u7f6e\u8bbf\u95ee\u5bc6\u7801\u4fdd\u62a4\uff0c\u8bf7\u8f93\u5165\u6b63\u786e\u7684\u8bbf\u95ee\u5bc6\u7801\u4ee5\u7ee7\u7eed\u8df3\u8f6c\u3002</p>
-    ${errorMsg ? `<div class="error" role="alert">${errorMsg}</div>` : ''}
-    <form method="POST" action="/l/${slug}">
+    ${errorMsg ? `<div class="error" role="alert">${escapeHtml(errorMsg)}</div>` : ''}
+    <form method="POST" action="/l/${safeSlug}">
       <div>
         <label for="password">\u8bbf\u95ee\u5bc6\u7801</label>
         <input type="password" id="password" name="password" required autofocus placeholder="\u8bf7\u8f93\u5165\u8bbf\u95ee\u5bc6\u7801" />
@@ -147,12 +157,14 @@ function renderPasswordPage(slug: string, errorMsg?: string): Response {
 }
 
 function renderNotFoundPage(title = '\u77ed\u94fe\u63a5\u4e0d\u5b58\u5728', message = '\u62b1\u6b49\uff0c\u60a8\u8bbf\u95ee\u7684\u77ed\u94fe\u63a5\u4e0d\u5b58\u5728\u6216\u5df2\u88ab\u5220\u9664\u3002'): Response {
+  const safeTitle = escapeHtml(title)
+  const safeMessage = escapeHtml(message)
   const html = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${title} - Inkstone Shortlinks</title>
+  <title>${safeTitle} - Inkstone Shortlinks</title>
   <style>
     body {
       margin: 0;
@@ -178,8 +190,8 @@ function renderNotFoundPage(title = '\u77ed\u94fe\u63a5\u4e0d\u5b58\u5728', mess
 <body>
   <div class="box">
     <h1>404</h1>
-    <h2>${title}</h2>
-    <p>${message}</p>
+    <h2>${safeTitle}</h2>
+    <p>${safeMessage}</p>
   </div>
 </body>
 </html>`
@@ -233,21 +245,31 @@ async function handleRedirect(c: any, providedPassword?: string) {
   // 4. Password Gate
   if (entry.password_hash) {
     let inputPassword = providedPassword || c.req.query('pwd') || c.req.query('password')
-    if (!inputPassword && c.req.header('cookie')) {
+    let verified = false
+
+    if (inputPassword) {
+      const inputHash = await hashPassword(inputPassword)
+      if (inputHash === entry.password_hash || inputPassword === entry.password_hash) {
+        verified = true
+      }
+    } else if (c.req.header('cookie')) {
       const cookies = c.req.header('cookie') || ''
-      const match = cookies.match(new RegExp(`shortlink_auth_${slug}=([^;]+)`))
+      const match =
+        cookies.match(new RegExp(`shortlink_auth_${encodeURIComponent(slug)}=([^;]+)`)) ||
+        cookies.match(new RegExp(`shortlink_auth_${slug}=([^;]+)`))
       if (match) {
-        inputPassword = decodeURIComponent(match[1])
+        const token = decodeURIComponent(match[1])
+        if (token === entry.password_hash || (await hashPassword(token)) === entry.password_hash) {
+          verified = true
+        }
       }
     }
 
-    if (!inputPassword) {
+    if (!verified) {
+      if (inputPassword) {
+        return renderPasswordPage(slug, '\u8bbf\u95ee\u5bc6\u7801\u9519\u8bef\uff0c\u8bf7\u91cd\u65b0\u8f93\u5165')
+      }
       return renderPasswordPage(slug)
-    }
-
-    const inputHash = await hashPassword(inputPassword)
-    if (inputHash !== entry.password_hash) {
-      return renderPasswordPage(slug, '\u8bbf\u95ee\u5bc6\u7801\u9519\u8bef\uff0c\u8bf7\u91cd\u65b0\u8f93\u5165')
     }
   }
 
@@ -300,14 +322,17 @@ async function handleRedirect(c: any, providedPassword?: string) {
         visitorFp,
       })
     } catch {
-      // Non-fatal
+      // Best-effort record swallow in click tracker
     }
   })()
 
   try {
     c.executionCtx.waitUntil(recordPromise)
   } catch {
-    await recordPromise.catch(() => {})
+    // Execution context is not present in local test environments; wait for record directly
+    await recordPromise.catch(() => {
+      // Best-effort swallow of click tracking failure when background execution context is unavailable
+    })
   }
 
   // Set auth cookie if protected and password was entered
@@ -316,8 +341,8 @@ async function handleRedirect(c: any, providedPassword?: string) {
     'Cache-Control': 'private, max-age=90',
   }
 
-  if (entry.password_hash && providedPassword) {
-    headers['Set-Cookie'] = `shortlink_auth_${slug}=${encodeURIComponent(providedPassword)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400`
+  if (entry.password_hash) {
+    headers['Set-Cookie'] = `shortlink_auth_${encodeURIComponent(slug)}=${encodeURIComponent(entry.password_hash)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400`
   }
 
   return new Response(null, {

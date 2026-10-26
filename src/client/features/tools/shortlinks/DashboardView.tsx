@@ -400,8 +400,9 @@ export function DashboardView() {
                   key={link.id}
                   className="py-3 flex items-center justify-between gap-4 hover:bg-[var(--bg-hover)] -mx-2 px-2 rounded-[var(--r-md)] transition-colors"
                 >
-                  <div
-                    className="min-w-0 flex-1 cursor-pointer"
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 text-left focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)] rounded-[var(--r-sm)]"
                     onClick={() => selectLink(link.id)}
                   >
                     <div className="flex items-center gap-2">
@@ -417,7 +418,7 @@ export function DashboardView() {
                     <div className="truncate text-[length:var(--text-11)] text-[var(--text-tertiary)] font-mono mt-0.5">
                       {link.url}
                     </div>
-                  </div>
+                  </button>
 
                   <div className="flex items-center gap-3 shrink-0">
                     <span className="font-mono text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
