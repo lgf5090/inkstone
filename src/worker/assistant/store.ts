@@ -1332,13 +1332,13 @@ const MODEL_UPDATES: readonly {
  * values are parsed back into instants and sorted, because `group_concat` makes no ordering promise.
  * Fired rows stay out: the panel shows what will happen next.
  */
-const TASK_REMINDER_TIMES = `(
+export const TASK_REMINDER_TIMES = `(
   SELECT group_concat(r.remind_at, ',') FROM todos_reminders r
    WHERE r.user_id = todos_tasks.user_id AND r.task_id = todos_tasks.id AND r.fired_at IS NULL
 ) AS reminder_times`
 
 /** The instants `TASK_REMINDER_TIMES` packed into one column, or none. */
-function reminderTimesOf(packed: string | null): number[] {
+export function reminderTimesOf(packed: string | null): number[] {
   if (!packed) return []
   return normalizeReminderTimes(packed.split(',').map(Number))
 }
@@ -1363,7 +1363,7 @@ function reminderTimesOf(packed: string | null): number[] {
  * `ux_todos_time_open` makes the open row at most one for the account, so the second subquery returns
  * a scalar by the same guarantee the timer methods rely on.
  */
-const TASK_TIME_ROLLUP = `(
+export const TASK_TIME_ROLLUP = `(
   SELECT COALESCE(SUM(e.end_at - e.start_at), 0) FROM todos_time_entries e
    WHERE e.user_id = todos_tasks.user_id AND e.task_id = todos_tasks.id AND e.end_at IS NOT NULL
 ) AS time_spent_ms, (
@@ -8662,7 +8662,13 @@ function toMemory(r: MemoryRow): AssistantMemory {
   }
 }
 
-interface TaskRow {
+/**
+ * One row of `todos_tasks` as the task reads bind against it.
+ *
+ * Exported because the sync stream now answers with the same shape through the same serializer, rather
+ * than carrying a second, hand-maintained column list of its own — which is how N-05 happened.
+ */
+export interface TaskRow {
   id: string
   title: string
   description: string | null
@@ -8798,7 +8804,15 @@ function decodeTaskStatus(value: unknown): TaskStatus {
   return typeof value === 'string' && value !== '' ? (value as TaskStatus) : 'todo'
 }
 
-function toTask(
+/**
+ * A task row plus the page's own side reads, into the one shape every task answer uses.
+ *
+ * The route listing and the sync stream both serialise through here. They used to be two functions, and
+ * the sync one carried a hand-written column list that had quietly lost `position`, `start_at`,
+ * `time_estimate_ms` and the ledger's two rollups — so an offline device was told a task had no start
+ * date, no place in the reader's order, and no running stopwatch. One serializer means one set of fields.
+ */
+export function toTask(
   r: TaskRow,
   extras: { tags: TaskTag[]; dependsOn: TaskRef[]; blocks: TaskRef[]; stepTotal: number; stepDone: number; reminders: number[] },
 ): TodoTask {

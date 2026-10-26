@@ -4,7 +4,9 @@ import { Hono } from 'hono'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { syncRoutes } from '../src/worker/routes/sync'
-import type { AppBindings } from '../src/worker/env'
+import { SyncStore } from '../src/worker/sync/store'
+import { AssistantStore } from '../src/worker/assistant/store'
+import type { AppBindings, Env } from '../src/worker/env'
 import type { SyncResponse, TodosSyncResponse } from '../src/shared/types'
 import type { TodoTask } from '../src/shared/todos/model'
 import { makeD1 } from './doubles/d1-sqlite'
@@ -272,5 +274,60 @@ describe('folding a task delta into the listing', () => {
     expect(state.completed.map((task) => task.id)).toEqual(['t1'])
     expect(state.total).toBe(0)
     expect(state.completedTotal).toBe(1)
+  })
+})
+
+describe('what the sync stream says about a row', () => {
+  /**
+   * The two task answers compared field by field on one row that carries everything.
+   *
+   * The stream used to keep a hand-written column list while the listing read `SELECT *`, and the list
+   * had lost `position`, `start_at`, `time_estimate_ms` and the ledger's two rollups — so a second device
+   * was shown a task with no start date, no place in the reader's order, and no stopwatch, with nothing
+   * anywhere going red. Both answers now come from `toTask`, and this is the case that keeps them there:
+   * a field one answer starts forgetting shows up here as a diff, not as a half-empty phone.
+   */
+  it('answers with every field the listing answers with', async () => {
+    const store = new AssistantStore(db, USER, testBindings(db) as unknown as Env)
+    const parent = await store.createTask({ title: '写报告' }, 'UTC')
+    const blocker = await store.createTask({ title: '先校对' }, 'UTC')
+    const task = await store.createTask({
+      title: '发出去',
+      parentId: parent.id,
+      dependsOn: [blocker.id],
+      startAt: 1_760_000_000_000,
+      dueAt: 1_760_100_000_000,
+      timeEstimateMs: 45 * 60_000,
+      reminders: [1_760_050_000_000],
+      tags: ['外发'],
+      steps: ['写好正文'],
+      repeat: { freq: 'weekly', interval: 1 },
+    }, 'UTC')
+    sqlite.prepare('UPDATE todos_tasks SET position = 7.5 WHERE id = ?').run(task.id)
+    sqlite.prepare(
+      `INSERT INTO todos_time_entries (id, task_id, user_id, start_at, end_at, day, source, created_at, updated_at)
+       VALUES ('te-open', ?, ?, 1_759_900_000_000, NULL, '2026-10-08', 'timer', 1, 1)`,
+    ).run(task.id, USER)
+
+    const page = await new SyncStore(db, USER).todosSnapshot()
+    const listed = await store.getTask(task.id)
+    const syncTask = page.todos.find((entry) => entry.id === task.id)
+    if (!syncTask || !listed) throw new Error('the row is in neither answer')
+    const { timeEntries, ...syncRest } = syncTask
+
+    expect(syncRest).toEqual(listed)
+    // The ledger is the one thing the stream carries that the listing does not: intervals travel whole
+    // so a device that was away can rebuild the day instead of trusting a sum.
+    expect(timeEntries).toEqual([{
+      id: 'te-open', taskId: task.id, startAt: 1_759_900_000_000, endAt: null, day: '2026-10-08', source: 'timer',
+      createdAt: 1, updatedAt: 1,
+    }])
+    // The four fields the old list dropped, named here so a regression says which one it lost.
+    expect(syncTask.position).toBe(7.5)
+    expect(syncTask.startAt).toBe(1_760_000_000_000)
+    expect(syncTask.timeEstimateMs).toBe(45 * 60_000)
+    expect(syncTask.runningSince).toBe(1_759_900_000_000)
+    expect(syncTask.parentId).toBe(parent.id)
+    expect(syncTask.dependsOn.map((entry) => entry.id)).toEqual([blocker.id])
   })
 })
