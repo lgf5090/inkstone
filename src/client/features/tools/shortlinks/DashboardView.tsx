@@ -319,7 +319,7 @@ export function DashboardView() {
                         {c.count.toLocaleString()} ({pct}%)
                       </span>
                     </div>
-                    <div className="h-1.5 w-full bg-[var(--bg-muted)] rounded-full overflow-hidden">
+                    <div className="h-1.5 w-full bg-[var(--bg-sunken)] rounded-full overflow-hidden">
                       <div
                         className="h-full bg-[var(--accent)] rounded-full transition-all duration-300"
                         style={{ width: `${pct}%` }}
@@ -362,7 +362,7 @@ export function DashboardView() {
                         {r.count.toLocaleString()} ({pct}%)
                       </span>
                     </div>
-                    <div className="h-1.5 w-full bg-[var(--bg-muted)] rounded-full overflow-hidden">
+                    <div className="h-1.5 w-full bg-[var(--bg-sunken)] rounded-full overflow-hidden">
                       <div
                         className="h-full bg-[var(--accent)] rounded-full transition-all duration-300"
                         style={{ width: `${pct}%` }}

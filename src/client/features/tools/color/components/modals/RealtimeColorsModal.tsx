@@ -102,7 +102,7 @@ export function RealtimeColorsModal() {
             <span>{t('tools.color.realtime.badge')}</span>
           </div>
 
-          <h3 className="text-[26px] font-extrabold tracking-tight">
+          <h3 className="text-[length:var(--text-26)] font-extrabold tracking-tight">
             {t('tools.color.realtime.hero_title')}
           </h3>
           <p className="max-w-md mx-auto text-[length:var(--text-13)]" style={{ color: textMuted }}>

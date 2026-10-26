@@ -155,29 +155,27 @@ export function IdPhotoUploadCard() {
 
       {!imageSrc ? (
         <div
-          role="button"
-          tabIndex={0}
           onDragOver={(e) => {
             e.preventDefault()
             setIsDragging(true)
           }}
           onDragLeave={() => setIsDragging(false)}
           onDrop={handleDrop}
-          onClick={() => fileInputRef.current?.click()}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              fileInputRef.current?.click()
-            }
-          }}
           className={cn(
-            'flex flex-col items-center justify-center gap-2.5 rounded-[var(--r-md)] border-2 border-dashed p-6 text-center cursor-pointer select-none',
+            'relative flex flex-col items-center justify-center gap-2.5 rounded-[var(--r-md)] border-2 border-dashed p-6 text-center cursor-pointer select-none',
             'transition-[border-color,background-color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
             isDragging
               ? 'border-[var(--accent)] bg-[var(--accent-soft)]'
               : 'border-[var(--border-subtle)] hover:border-[var(--accent)] hover:bg-[var(--bg-hover)]',
           )}
         >
-          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--bg-muted)] text-[var(--accent)]">
+          <button
+            type="button"
+            aria-label={t('tools.id_photo.content.upload_photo')}
+            onClick={() => fileInputRef.current?.click()}
+            className="absolute inset-0 z-[var(--z-sticky)] rounded-[var(--r-md)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+          />
+          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--bg-sunken)] text-[var(--accent)]">
             <UploadCloud size={22} />
           </div>
           <div className="flex flex-col gap-1">

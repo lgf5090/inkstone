@@ -125,7 +125,7 @@ export function GradientBarController({
                   style={{ backgroundColor: stop.color }}
                 />
                 <span
-                  className={`mt-1 font-mono text-[10px] font-semibold px-1 rounded-sm ${
+                  className={`mt-1 font-mono text-[length:var(--text-10)] font-semibold px-1 rounded-sm ${
                     isSelected
                       ? 'bg-[var(--accent)] text-white'
                       : 'bg-[var(--bg-surface)] text-[var(--text-secondary)] border border-[var(--border-subtle)]'

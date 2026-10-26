@@ -63,7 +63,7 @@ export function TraditionalColorCard({ color }: TraditionalColorCardProps) {
 
         {color.solarTerm && (
           <span
-            className={`text-[length:var(--text-10)] font-medium px-1.5 py-0.5 rounded backdrop-blur-xs ${
+            className={`text-[length:var(--text-10)] font-medium px-1.5 py-0.5 rounded ${
               isDark ? 'bg-white/20 text-white' : 'bg-black/20 text-zinc-900'
             }`}
           >

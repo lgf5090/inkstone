@@ -64,7 +64,7 @@ export function ColorHuntCard({ palette }: ColorHuntCardProps) {
                 <span className="font-mono text-[length:var(--text-12)] font-bold text-white drop-shadow-sm uppercase">
                   {hex}
                 </span>
-                <div className="flex items-center gap-1 bg-black/30 backdrop-blur-xs rounded-full px-1.5 py-0.5">
+                <div className="flex items-center gap-1 bg-black/30 rounded-full px-1.5 py-0.5">
                   <Tooltip label={t('tools.color.studio.seed_color')}>
                     <button
                       type="button"

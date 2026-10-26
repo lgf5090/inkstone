@@ -149,7 +149,7 @@ export function QrPreviewPanel() {
         </div>
       ) : (
         <div className="flex flex-col items-center justify-center gap-3 text-center py-10 md:py-12">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--bg-muted)] text-[var(--text-tertiary)]">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--bg-sunken)] text-[var(--text-tertiary)]">
             <QrCode size={32} />
           </div>
           <p className="text-[length:var(--text-14)] font-medium text-[var(--text-secondary)]">

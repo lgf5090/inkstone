@@ -68,7 +68,7 @@ export function TemplatesTab() {
               </div>
 
               <div className="mt-2 flex w-full items-center justify-between gap-1">
-                <span className="rounded bg-[var(--bg-muted)] px-1 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
+                <span className="rounded bg-[var(--bg-sunken)] px-1 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
                   {preset.category === 'minimal' && t('tools.qrcode.templates.cat_minimal')}
                   {preset.category === 'frame' && t('tools.qrcode.templates.cat_frame')}
                   {preset.category === 'artistic' && t('tools.qrcode.templates.cat_artistic')}

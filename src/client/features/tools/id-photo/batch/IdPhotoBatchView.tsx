@@ -143,16 +143,14 @@ export function IdPhotoBatchView() {
 
       {/* Batch Cards Grid */}
       {items.length === 0 ? (
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={() => fileInputRef.current?.click()}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click()
-          }}
-          className="flex flex-col items-center justify-center gap-3 rounded-[var(--r-lg)] border-2 border-dashed border-[var(--border-subtle)] p-12 text-center cursor-pointer hover:border-[var(--accent)] hover:bg-[var(--bg-hover)] select-none"
-        >
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--bg-muted)] text-[var(--accent)]">
+        <div className="relative flex w-full flex-col items-center justify-center gap-3 rounded-[var(--r-lg)] border-2 border-dashed border-[var(--border-subtle)] p-12 text-center cursor-pointer hover:border-[var(--accent)] hover:bg-[var(--bg-hover)] select-none">
+          <button
+            type="button"
+            aria-label={t('tools.id_photo.batch.upload_btn')}
+            onClick={() => fileInputRef.current?.click()}
+            className="absolute inset-0 z-[var(--z-sticky)] rounded-[var(--r-lg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+          />
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--bg-sunken)] text-[var(--accent)]">
             <UploadCloud size={24} />
           </div>
           <div className="flex flex-col gap-1">
@@ -183,6 +181,7 @@ export function IdPhotoBatchView() {
                   <img src={item.imgUrl} alt={item.name} className="h-full w-full object-cover" />
                   <button
                     type="button"
+                    aria-label={`${t('tools.id_photo.common.delete')}: ${item.name}`}
                     onClick={() => removeItem(item.id)}
                     className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white hover:bg-rose-600 transition-colors"
                   >

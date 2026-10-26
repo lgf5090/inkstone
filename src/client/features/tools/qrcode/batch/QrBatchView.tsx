@@ -147,7 +147,7 @@ export const QrBatchView: React.FC = () => {
                   placeholder={t('tools.qrcode.batch.lines_placeholder')}
                   className="w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-3.5 font-mono text-xs text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:border-[var(--accent)] focus:outline-hidden"
                 />
-                <span className="text-[11px] text-[var(--text-tertiary)]">
+                <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">
                   {t('tools.qrcode.batch.lines_count', {
                     count: linesText.split('\n').filter((l) => l.trim()).length,
                   })}
@@ -261,6 +261,7 @@ export const QrBatchView: React.FC = () => {
               <button
                 type="button"
                 disabled={isGenerating}
+                aria-label={t('tools.qrcode.batch.generate_zip')}
                 onClick={handleStartBatch}
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--accent)] py-2.5 text-xs font-semibold text-white shadow-md hover:opacity-95 disabled:opacity-50"
               >

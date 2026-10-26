@@ -19,11 +19,11 @@ import { useShortlinksStore } from './store'
 import { shortlinksApi } from './api'
 
 const ACCENT_COLORS: Record<BundleAccent, { dot: string }> = {
-  orange: { dot: 'var(--color-orange, #f97316)' },
+  orange: { dot: 'var(--kanban-tag-orange-fg)' },
   red: { dot: 'var(--danger, #ef4444)' },
   green: { dot: 'var(--success, #10b981)' },
   blue: { dot: 'var(--accent, #3b82f6)' },
-  purple: { dot: 'var(--color-purple, #a855f7)' },
+  purple: { dot: 'var(--kanban-tag-purple-fg)' },
 }
 
 export function BundlesView() {

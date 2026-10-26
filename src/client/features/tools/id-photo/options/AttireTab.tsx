@@ -27,7 +27,7 @@ export function AttireTab() {
               : 'border-[var(--border-subtle)] bg-[var(--bg-base)] hover:bg-[var(--bg-hover)]',
           )}
         >
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--bg-muted)] text-[var(--text-tertiary)]">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--bg-sunken)] text-[var(--text-tertiary)]">
             <Ban size={20} />
           </div>
           <span className="text-[length:var(--text-12)] font-medium text-[var(--text-primary)]">

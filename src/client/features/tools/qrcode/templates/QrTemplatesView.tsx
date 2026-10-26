@@ -227,7 +227,7 @@ export function QrTemplatesView() {
               <h3 className="text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
                 {t('tools.qrcode.templates.builtin_section')}
               </h3>
-              <span className="rounded-full bg-[var(--bg-muted)] px-2 py-0.2 text-[length:var(--text-10)] font-semibold text-[var(--text-tertiary)]">
+              <span className="rounded-full bg-[var(--bg-sunken)] px-2 py-0.2 text-[length:var(--text-10)] font-semibold text-[var(--text-tertiary)]">
                 {filteredPresets.length}
               </span>
             </div>
@@ -245,7 +245,7 @@ export function QrTemplatesView() {
                     <span className="text-[length:var(--text-13)] font-semibold text-[var(--text-primary)] truncate">
                       {preset.name}
                     </span>
-                    <span className="shrink-0 rounded bg-[var(--bg-muted)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
+                    <span className="shrink-0 rounded bg-[var(--bg-sunken)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
                       {preset.category === 'minimal' && t('tools.qrcode.templates.cat_minimal')}
                       {preset.category === 'frame' && t('tools.qrcode.templates.cat_frame')}
                       {preset.category === 'artistic' && t('tools.qrcode.templates.cat_artistic')}

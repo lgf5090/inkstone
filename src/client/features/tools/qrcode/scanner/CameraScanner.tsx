@@ -158,6 +158,7 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onScan, preprocess
 
         <button
           type="button"
+          aria-label={t(isScanning ? 'tools.qrcode.scanner.pause_camera' : 'tools.qrcode.scanner.resume_camera')}
           onClick={() => setIsScanning((prev) => !prev)}
           className="flex items-center gap-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-3 py-1.5 text-xs font-medium text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
         >

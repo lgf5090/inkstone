@@ -147,7 +147,7 @@ export function ContrastCheckerModal() {
             <span className="text-[length:var(--text-12)] text-[var(--text-secondary)] uppercase font-semibold">
               {t('tools.color.contrast.ratio')}
             </span>
-            <p className="font-mono text-[32px] font-bold text-[var(--text-primary)]">
+            <p className="font-mono text-[length:var(--text-30)] font-bold text-[var(--text-primary)]">
               {result.ratio} {': 1'}
             </p>
           </div>

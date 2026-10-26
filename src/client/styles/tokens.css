@@ -517,6 +517,8 @@
   /* ErrorBoundary paints a danger wash behind its icon; the fork builds washes with color-mix
   rather than carrying a second flat colour per theme. */
   --danger-soft: color-mix(in oklab, var(--danger) 14%, transparent);
+  --success-soft: color-mix(in oklab, var(--success) 14%, transparent);
+  --warning-soft: color-mix(in oklab, var(--warning) 14%, transparent);
   --accent-ring: color-mix(in oklab, var(--accent) 34%, transparent);
   --shadow-ring: 0 0 0 2px var(--accent-ring);
   /* The ring a text field wears when it takes focus, and the only thickness one is allowed. A control

@@ -99,7 +99,7 @@ export function GradientStudioView() {
             className="relative flex h-72 sm:h-80 w-full items-center justify-center rounded-[var(--radius-xl)] border border-[var(--border-subtle)] shadow-md transition-all"
             style={{ backgroundImage: buildCssGradient(gradientConfig) }}
           >
-            <div className="absolute top-3 right-3 flex items-center gap-1.5 rounded-full bg-black/40 backdrop-blur-md px-3 py-1 text-white text-[length:var(--text-12)] font-mono">
+            <div className="absolute top-3 right-3 flex items-center gap-1.5 rounded-full bg-black/40 px-3 py-1 text-white text-[length:var(--text-12)] font-mono">
               <span>{gradientConfig.type}</span>
               {gradientConfig.type !== 'radial' && <span>{gradientConfig.angle}°</span>}
               {gradientConfig.useOklabInterpolation && (

@@ -424,8 +424,7 @@ const CLICK_CONTAINER_EXCEPTIONS = new Map<string, { sites: number; reason: stri
       sites: 1,
       reason: 'The image stage is the gesture surface: pointer handlers pan, zoom and swipe the picture, and the download link in its failure state is a control drawn inside that surface. A press on empty stage space is the gesture, not a button; the arrows and zoom controls sit outside the handler.',
     },
-  ],
-])
+  ],])
 
 const SCAN = scan()
 const SHARED_PREFIX = 'src/client/components/'
@@ -985,6 +984,10 @@ const CLIENT_CATCH_BASELINE = new Map<string, { sites: number; reason: string }>
   ['src/client/store/session.ts', { sites: 3, reason: 'Two await an in-flight session cache write purely so it settles before localDb.clear() wipes it on sign-out, and one keeps the queue chain un-rejecting while the caller still awaits the task itself.' }],
   ['src/client/store/ui.ts', { sites: 2, reason: 'A localStorage write of UI state already applied in the store, and a ViewTransition clip-path reveal that the browser skips when the transition is skipped — the theme change it wraps is applied inside the callback.' }],
   ['src/client/store/update.ts', { sites: 1, reason: 'writeIgnoredVersion records a dismissal the reader already got; if storage refuses, the same update offer returns on the next check, which is the safe direction.' }],
+  ['src/client/features/tools/qrcode/api.ts', { sites: 1, reason: 'Reading an error response body for a nicer sentence; a body that is not JSON falls through to the generic message thrown on the next line, which is the report the caller gets.' }],
+  ['src/client/features/tools/qrcode/content/QrContentEditor.tsx', { sites: 1, reason: 'Restoring a saved draft is best-effort: an unreadable draft leaves the editor empty instead of stopping the reader from typing a new one.' }],
+  ['src/client/features/tools/qrcode/history/QrHistoryView.tsx', { sites: 1, reason: 'A record whose stored options do not parse is restored without them: the toast on the next line still tells the reader the record was opened, and the defaults of the generator are what it falls back to.' }],
+  ['src/client/features/tools/qrcode/settings/QrSettingsView.tsx', { sites: 1, reason: 'The first read of saved preferences falls back to the defaults the component already holds; every save reports its own failure through the toast in handleSave.' }],
 ])
 
 /**

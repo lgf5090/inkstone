@@ -128,6 +128,7 @@ export function LogoTab() {
           />
           <button
             type="button"
+            aria-label={t('tools.qrcode.logo.upload_logo')}
             onClick={() => fileInputRef.current?.click()}
             className={cn(
               'flex h-14 w-14 items-center justify-center rounded-[var(--r-md)] border-2 border-dashed border-[var(--border-default)]',

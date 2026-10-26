@@ -158,7 +158,7 @@ export function LinksView() {
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-muted)] text-[length:var(--text-11)] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider">
+                <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] text-[length:var(--text-11)] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider">
                   <th className="py-2.5 px-4">{t('tools.shortlinks.links.primary_slug')}</th>
                   <th className="py-2.5 px-4">{t('tools.shortlinks.links.target_url')}</th>
                   <th className="py-2.5 px-4 text-center">{t('tools.shortlinks.links.status')}</th>
@@ -188,7 +188,7 @@ export function LinksView() {
                             /{primarySlug}
                           </span>
                           {link.slugs.length > 1 && (
-                            <span className="rounded-full bg-[var(--bg-muted)] px-1.5 py-0.2 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
+                            <span className="rounded-full bg-[var(--bg-sunken)] px-1.5 py-0.2 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
                               +{link.slugs.length - 1}
                             </span>
                           )}
@@ -225,7 +225,7 @@ export function LinksView() {
                             {t('tools.shortlinks.links.filter_active')}
                           </span>
                         ) : (
-                          <span className="inline-block px-2 py-0.5 rounded text-[length:var(--text-11)] bg-[var(--bg-muted)] text-[var(--text-tertiary)]">
+                          <span className="inline-block px-2 py-0.5 rounded text-[length:var(--text-11)] bg-[var(--bg-sunken)] text-[var(--text-tertiary)]">
                             {t('tools.shortlinks.links.filter_disabled')}
                           </span>
                         )}
@@ -295,7 +295,7 @@ export function LinksView() {
 
         {/* Pagination Footer */}
         {total > filter.pageSize && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-[var(--border-subtle)] bg-[var(--bg-muted)] text-[length:var(--text-12)] text-[var(--text-secondary)]">
+          <div className="flex items-center justify-between px-4 py-3 border-t border-[var(--border-subtle)] bg-[var(--bg-sunken)] text-[length:var(--text-12)] text-[var(--text-secondary)]">
             <div>
               {t('tools.shortlinks.links.total_count', { count: total.toLocaleString() })}
             </div>

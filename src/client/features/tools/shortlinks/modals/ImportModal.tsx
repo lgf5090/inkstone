@@ -138,7 +138,7 @@ export function ImportModal() {
             type="file"
             accept={format === 'csv' ? '.csv,text/csv' : '.txt,text/plain'}
             onChange={handleFileUpload}
-            className="mb-2 block w-full text-[length:var(--text-12)] text-[var(--text-secondary)] file:mr-3 file:py-1 file:px-2.5 file:rounded file:border-0 file:text-[length:var(--text-12)] file:font-medium file:bg-[var(--bg-muted)] file:text-[var(--text-primary)] hover:file:bg-[var(--bg-hover)] cursor-pointer"
+            className="mb-2 block w-full text-[length:var(--text-12)] text-[var(--text-secondary)] file:mr-3 file:py-1 file:px-2.5 file:rounded file:border-0 file:text-[length:var(--text-12)] file:font-medium file:bg-[var(--bg-sunken)] file:text-[var(--text-primary)] hover:file:bg-[var(--bg-hover)] cursor-pointer"
           />
           <textarea
             value={content}

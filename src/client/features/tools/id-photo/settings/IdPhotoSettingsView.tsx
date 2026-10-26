@@ -89,6 +89,7 @@ export function IdPhotoSettingsView() {
               <button
                 key={preset.id}
                 type="button"
+                aria-label={t(preset.nameKey as never)}
                 onClick={() => setDefaultBgColor(preset.color)}
                 style={{ backgroundColor: preset.color }}
                 className={`h-7 w-7 rounded-full border-2 transition-transform ${

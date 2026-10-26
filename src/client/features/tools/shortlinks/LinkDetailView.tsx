@@ -285,7 +285,7 @@ export function LinkDetailView() {
           <span className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
             {t('tools.shortlinks.detail.title')}
           </span>
-          <div className="flex items-center bg-[var(--bg-muted)] p-0.5 rounded-[var(--r-md)] border border-[var(--border-subtle)] text-[length:var(--text-11)] font-medium">
+          <div className="flex items-center bg-[var(--bg-sunken)] p-0.5 rounded-[var(--r-md)] border border-[var(--border-subtle)] text-[length:var(--text-11)] font-medium">
             {RANGES.map((r) => (
               <button
                 key={r.id}
@@ -405,7 +405,7 @@ export function LinkDetailView() {
                     </span>
                   ) : null}
                   {!isSlugActive ? (
-                    <span className="rounded bg-[var(--bg-muted)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
+                    <span className="rounded bg-[var(--bg-sunken)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
                       {t('tools.shortlinks.links.filter_disabled')}
                     </span>
                   ) : null}

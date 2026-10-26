@@ -90,7 +90,7 @@ export const GridAlignModal: React.FC<GridAlignModalProps> = ({
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
     >
       <div className="flex w-full max-w-lg flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-5 shadow-2xl">
         <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-3">
@@ -102,6 +102,7 @@ export const GridAlignModal: React.FC<GridAlignModalProps> = ({
           </div>
           <button
             type="button"
+            aria-label={t('common.close')}
             onClick={onClose}
             className="rounded p-1 text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
           >

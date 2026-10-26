@@ -146,9 +146,16 @@ describe('Tools container architecture and collapsible sidebar', () => {
       const aside = view.container.querySelector('aside')
       expect(aside?.className).toContain('w-12')
 
-      // Should contain expand button and top-level module icons (KeyRound for password, QrCode for qrcode)
-      const buttons = view.container.querySelectorAll('button')
-      expect(buttons).toHaveLength(3)
+      // One expand control plus one icon per top-level tool module — nothing from inside a module.
+      const railLabels = [...view.container.querySelectorAll('button')].map(node => node.getAttribute('aria-label'))
+      const moduleLabels = [
+        t('tools.password.module_name'),
+        t('tools.qrcode.module_name'),
+        t('tools.id_photo.module_name'),
+        t('tools.color.module_name'),
+        t('tools.shortlinks.module_name'),
+      ]
+      expect([...railLabels].sort()).toEqual([t('tools.sidebar.expand'), ...moduleLabels].sort())
 
       // Sub-menu slot labels must not be in collapsed rail
       expect(view.container.textContent).not.toContain(t('tools.password.nav.all'))

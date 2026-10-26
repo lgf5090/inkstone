@@ -89,7 +89,7 @@ export function IdPhotoPreviewCard() {
       {/* Main Preview Container */}
       {!imageSrc ? (
         <div className="flex flex-col items-center justify-center gap-3 p-8 text-center select-none">
-          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--bg-muted)] text-[var(--text-tertiary)]">
+          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--bg-sunken)] text-[var(--text-tertiary)]">
             <UserCheck size={28} />
           </div>
           <div className="flex flex-col gap-1 max-w-[260px]">

@@ -128,20 +128,21 @@ export function IdPhotoSpecsView() {
           return (
             <div
               key={spec.id}
-              role="button"
-              tabIndex={0}
-              onClick={() => setSelectedSpecId(spec.id)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') setSelectedSpecId(spec.id)
-              }}
               className={cn(
-                'relative flex flex-col justify-between gap-3 rounded-[var(--r-md)] border p-4 cursor-pointer select-none',
+                'relative flex w-full flex-col justify-between gap-3 rounded-[var(--r-md)] border p-4 text-left cursor-pointer select-none',
                 'transition-[border-color,background-color,box-shadow] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
                 isSelected
                   ? 'border-[var(--accent)] bg-[var(--accent-soft)] shadow-sm'
                   : 'border-[var(--border-subtle)] bg-[var(--bg-sunken)] hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)]',
               )}
             >
+              <button
+                type="button"
+                aria-label={spec.nameKey ? t(spec.nameKey as never) : spec.name}
+                aria-pressed={isSelected}
+                onClick={() => setSelectedSpecId(spec.id)}
+                className="absolute inset-0 z-[var(--z-sticky)] rounded-[var(--r-md)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+              />
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
                   {spec.flagEmoji && (

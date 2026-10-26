@@ -41637,7 +41637,7 @@ const allowed = new Map([
   ["tests/tools-container.test.tsx", [
     "// Sub-menu slot labels must not be in collapsed rail",
     "// Drawer renders in a portal",
-    "// Should contain expand button and top-level module icons (KeyRound for password, QrCode for qrcode)",
+    "// One expand control plus one icon per top-level tool module — nothing from inside a module.",
   ]],
   ["tests/tools-id-photo-api.test.ts", [
     "// Verify list",
