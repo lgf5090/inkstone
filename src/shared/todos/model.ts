@@ -180,6 +180,24 @@ export const MAX_TASK_ICON_CHARS = 40
 export const MAX_TASK_QUERY_CHARS = 200
 /** The most a single listing answers with; a page smaller than this is what a caller normally asks for. */
 export const MAX_TASKS_PER_QUERY = 500
+/**
+ * The shape `GET /api/todos/export?format=json` answers with.
+ *
+ * Declared here rather than in the worker because both sides read it: the route builds it, the app hands
+ * it to a file and a reader who restores one needs the `truncated` mark to survive the trip — a document
+ * that walks only part of an account is a partial answer, and saying so is the difference between a
+ * backup and a false sense of one.
+ */
+export interface TodoExportDocument {
+  format: 'inkstone-todos'
+  version: 1
+  exportedAt: number
+  timezone: string
+  /** How many rows the walk took in, which is the ceiling when {@link truncated} says the walk stopped. */
+  total: number
+  truncated: boolean
+  tasks: TodoTask[]
+}
 /** A completed list is history: the newest page is enough to answer "what did I finish". */
 export const COMPLETED_PAGE_SIZE = 200
 /** One page of the trash: a holding area, not a shelf, so its pages are smaller than the listing's. */

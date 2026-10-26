@@ -80,6 +80,7 @@ import {
   updateCounter,
 } from '../todos/counters'
 import { addDays, countStatBuckets, isStatsDay, loadTodoStats, MAX_STATS_BUCKETS } from '../todos/stats'
+import { buildTodoExportCsv, buildTodoExportJson, collectExportTasks, TodoExportTooLarge } from '../todos/export-tasks'
 import { loadTrackedTotals, loadWorklog } from '../todos/worklog'
 
 const BODY_LIMIT = JSON_BODY_LIMITS.settings
@@ -627,6 +628,61 @@ todoRoutes.get('/counts', async (c) => {
     counts: await s.taskCounts(dayEnd, today, settings.timezone),
     dayEnd,
     timezone: settings.timezone,
+  })
+})
+
+/**
+ * The whole of the account's to-do list, as a file the reader keeps.
+ *
+ * The app has always been able to read its tasks in a page at a time and never able to hand them over:
+ * the statistics file is an aggregate of the work, not the work, and the scheduled backup does not read a
+ * `todos_*` table at all. This is the read half of that gap. The document is built in
+ * `todos/export-tasks`, which owns the paging, the ceiling and the importer's column vocabulary; this
+ * handler only answers with it, as an attachment, and picks the format.
+ *
+ * A read, so it spends no write budget — but it walks the account's rows a page at a time, which is more
+ * work than any other read here, so it is bounded by that module's own ceiling rather than by the
+ * listing's page size. Registered before `/:id`: "export" is a route, not a task called export.
+ */
+todoRoutes.get('/export', async (c) => {
+  const s = store(c)
+  const format = c.req.query('format') ?? 'json'
+  if (format !== 'json' && format !== 'csv') {
+    throw ApiError.badRequest('An export is written as json or csv.')
+  }
+  const settings = await s.getSettings()
+  const [{ tasks, truncated }, lists, archivedLists] = await Promise.all([
+    collectExportTasks(s),
+    s.listTaskLists(),
+    s.listTaskLists({ archived: true }),
+  ])
+  const names = new Map([...lists, ...archivedLists].map((list) => [list.id, list.name]))
+  const exportedAt = Date.now()
+  const filename = `inkstone-todos-${localDate(exportedAt, settings.timezone)}.${format}`
+  const body = (() => {
+    if (format !== 'csv') return buildTodoExportJson(tasks, { exportedAt, timezone: settings.timezone, truncated })
+    try {
+      // The CSV has nowhere to say "this is only part of the account", so an account past the ceiling is
+      // refused by name rather than answered with a short file that reads as a complete one.
+      return buildTodoExportCsv(tasks, {
+        timezone: settings.timezone,
+        truncated,
+        listName: (task) => (task.listId === null ? null : names.get(task.listId) ?? null),
+      })
+    } catch (error) {
+      if (error instanceof TodoExportTooLarge) throw ApiError.badRequest(error.message)
+      throw error
+    }
+  })()
+  return new Response(body, {
+    status: 200,
+    headers: {
+      'Content-Type': format === 'csv' ? 'text/csv; charset=utf-8' : 'application/json; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      // The document is the account's own text, so nothing may hold a copy of it on the way out.
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+    },
   })
 })
 

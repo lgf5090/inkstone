@@ -18,11 +18,14 @@
  */
 import { useRef, useState, type ReactNode } from 'react'
 import { Archive, ArchiveRestore, ArrowDown, ArrowUp, ChevronDown, ChevronRight, Globe, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
+import { localDate } from '@shared/assistant-time'
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { useDropState } from '../../lib/drop-state'
 import { useMediaQuery } from '../../lib/hooks'
-import { IconButton } from '../../components/primitives'
+import { Button, IconButton } from '../../components/primitives'
+import { api } from '../../lib/api'
+import { saveFile } from './export-file'
 import { Menu, type MenuItem } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { warmSettingsSection } from '../settings/sections'
@@ -311,6 +314,59 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
     useUi.getState().openPanel('settings')
   }
 
+  /** Which export is in flight, so neither button can be pressed twice and both say they are waiting. */
+  const [exporting, setExporting] = useState<'json' | 'csv' | null>(null)
+
+  /**
+   * The whole list, handed over as a file.
+   *
+   * The app could always read its tasks a page at a time and never give them up: the statistics file is an
+   * aggregate of the work rather than the work, and the scheduled backup does not read a `todos_*` table at
+   * all. So a reader who believed they had a backup was keeping every other app in the vault and losing
+   * this one. JSON is the lossless answer — steps, the repeat rule, the estimate and the archive mark all
+   * survive it — and CSV is the interchange one, written in this repository's own importer's column
+   * vocabulary so a file exported here reads back the same set of tasks.
+   *
+   * The walk the server makes is bounded, and the two formats meet the bound differently because only one
+   * of them can say so: the JSON document carries its own `truncated` mark, and the CSV — which has no
+   * envelope to carry one, and whose comment lines would come back as tasks — is refused at the ceiling
+   * rather than handed over short. A partial file that reads as a complete one is a wrong fact, not a
+   * smaller answer (AGENTS.md rule 2).
+   */
+  const exportAll = async (format: 'json' | 'csv'): Promise<void> => {
+    if (exporting) return
+    setExporting(format)
+    // The account's own day, which is what the server's `Content-Disposition` names the file by — a
+    // UTC stamp would disagree with it for anyone east of Greenwich.
+    const stamp = localDate(Date.now(), timezone)
+    try {
+      if (format === 'csv') {
+        // The exact bytes the server wrote: re-serialising a spreadsheet's text would be a second chance
+        // to change what a cell says.
+        const text = await api.todos.exportCsv()
+        saveFile(`inkstone-todos-${stamp}.csv`, new Blob([text], { type: 'text/csv;charset=utf-8' }))
+        useUi.getState().toast({ title: t('todo.export.done'), tone: 'success' })
+        return
+      }
+      const document = await api.todos.exportJson()
+      saveFile(
+        `inkstone-todos-${stamp}.json`,
+        new Blob([`${JSON.stringify(document, null, 2)}\n`], { type: 'application/json' }),
+      )
+      useUi.getState().toast(document.truncated
+        ? { title: t('todo.export.truncated', { limit: document.total }), tone: 'warning' }
+        : { title: t('todo.export.done'), tone: 'success' })
+    } catch (error) {
+      useUi.getState().toast({
+        title: t('todo.toast.failed'),
+        description: error instanceof Error ? error.message : String(error),
+        tone: 'danger',
+      })
+    } finally {
+      setExporting(null)
+    }
+  }
+
   const toggleArchive = (): void => {
     const next = !archivedOpen
     setArchivedOpen(next)
@@ -577,6 +633,34 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
             </button>
           </div>
           <p className="mt-1.5 px-1 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('todo.lists.timezone_hint')}</p>
+        </section>
+
+        {/* The two doors are the two answers, so they are two buttons rather than one control with a
+            menu: a reader picking "CSV" is picking the shape the file will have, and the difference is
+            the whole point of the choice. */}
+        <section>
+          <h2 className="px-1 pb-1.5 text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">{t('todo.export.title')}</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="subtle"
+              disabled={exporting !== null}
+              loading={exporting === 'json'}
+              onClick={() => { void exportAll('json') }}
+            >
+              {t('todo.export.json')}
+            </Button>
+            <Button
+              size="sm"
+              variant="subtle"
+              disabled={exporting !== null}
+              loading={exporting === 'csv'}
+              onClick={() => { void exportAll('csv') }}
+            >
+              {t('todo.export.csv')}
+            </Button>
+          </div>
+          <p className="mt-1.5 px-1 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('todo.export.hint')}</p>
         </section>
       </div>
 
