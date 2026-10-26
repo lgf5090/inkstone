@@ -1253,6 +1253,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/calendar/CalendarDialogs.tsx", [
     "/**\n * Calendar administration dialogs.\n *\n * Each dialog owns the request it makes, keeps its refusals inside the panel instead of closing it,\n * and calls `onSaved` so the container can refresh metadata and the DayFlow registry. The shell's\n * `Modal` supplies focus trapping, Escape and focus return; these never use native prompts.\n */",
+    "/** The write already succeeded; a refresh failure must not present the write as failed or invite a retry. */",
   ]],
   ["src/client/features/calendar/CalendarSettings.tsx", [
     "/**\n * Account-wide calendar preferences. The draft is saved as a whole, because the API stores the full\n * preference object and a partial write would silently reset the fields this panel does not show.\n */",
@@ -1272,11 +1273,17 @@ const allowed = new Map([
     "// Same as above: the sidebar still collapses for this visit.",
     "// The bridge is installed for the header's reference quick-create behavior; the default",
     "// Preact sidebar is overridden below, so its client-side subscription UI never mounts.",
+    "// A complete range is a mirror: anything local that overlaps it and did not come back was deleted",
+    "// elsewhere. Recurring masters and generated occurrences are views, never rows of their own; a",
+    "// truncated page cannot prove absence, and a queued write must be allowed to reach the server.",
+    "// A provider refresh replaces the meta object with the same values; rebuilding every view for",
+    "// that defeats the point of updateConfig.",
   ]],
   ["src/client/features/calendar/MiniMonth.tsx", [
     "/**\n * The mini month: 42 cells, event dots in calendar colours, and a date that drives the main view.\n *\n * It reads DayFlow's registry and events directly rather than keeping a second copy of the data, so\n * a visibility toggle or a drag in the main grid is reflected here on the next app notification.\n */",
     "/** Bumped by the sidebar on every app notification, so event edits refresh the dots. */",
     "// A date picked in the main grid should bring the mini month back to that month.",
+    "/** Ask the surface to load the six weeks this grid draws; dots are only as complete as the cache. */",
   ]],
   ["src/client/features/calendar/api.ts", [
     "/**\n * The calendar app's API client. Every call goes through the shell's `request` so the client header,\n * locale, error translation and 204 handling stay one implementation.\n */",
@@ -1316,6 +1323,8 @@ const allowed = new Map([
     "/**\n * A full mutable-field snapshot, used both to replace an event from the server and to replay an\n * undo entry through `app.applyEventsChanges`. Temporal values stay Temporal here: this never\n * crosses the API.\n */",
     "/** A search hit gets DayFlow's result colour, which is the owning calendar's line colour. */",
     "/** The plain date an event falls on in the account's display timezone. */",
+    "/** DayFlow expands a series into render-only occurrences; they are not rows the API owns. */",
+    "/**\n * Local events a complete range says no longer exist.\n *\n * Only rows whose interval overlaps the fetched window are candidates: an event outside it was never\n * proven absent. Series and occurrences are views rather than rows, and a queued write has not reached\n * the server yet, so neither may be pruned by a mirror.\n */",
   ]],
   ["src/client/features/calendar/persistence.ts", [
     "/**\n * The event write queue.\n *\n * DayFlow announces every mutation through `subscribeEventChanges`; this is the only place those\n * announcements become API calls. Changes for the same event coalesce over a short debounce and are\n * then written one at a time, so a fast sequence of edits lands as its final state instead of a race\n * of PATCHes. A rejected write either refreshes the affected range (the server is authoritative) or\n * is retried once and then reported — never dropped silently.\n */",
@@ -1324,13 +1333,19 @@ const allowed = new Map([
     "/** Server state about to be re-applied: its echo must not be written back. */",
     "// Generated recurrence occurrences are a view of their series. A remote recalculation is normal;",
     "// a local edit of one cannot be mapped back to the master with the current API, so it is refused",
-    "// rather than written as a dirty `::repeat-` row.",
     "// A transport failure or a 5xx may be transient: one retry, then the reader is told.",
     "// Created and deleted before either reached the server: there is nothing to delete.",
+    "/** True while a write for this event is queued or on the wire; a range mirror must not remove it. */",
+    "// and the optimistic change is put back rather than left as a row the server never saw.",
+    "/** Restore the last server-confirmed shape after a write that will not be retried. */",
+    "/** Put an optimistic change back; the skip entry keeps its echo out of the write queue. */",
   ]],
   ["src/client/features/calendar/providers.ts", [
     "/** A provider adapter fetch that talks only to the same-origin connection proxy. */",
     "/**\n * Start one adapter per remote connection. Each adapter writes through its DayFlow binding; the\n * calendar/event persistence hooks in `CalendarSurface` put the resulting rows in D1.\n */",
+  ]],
+  ["src/client/features/calendar/view-state.ts", [
+    "/** Keep a calendar's view and day in the address bar without turning every edit into a history entry. */",
   ]],
   ["src/client/features/chat/AppUsage.tsx", [
     "/**\n * The account's own usage, over its whole life.\n *\n * A second view of the same screen rather than a second screen: the total, the busiest day, the longest\n * turn and the streak are all facts about everything the reader has ever spent, so none of them follows the\n * range control — a cumulative total that reset when the range changed would not be cumulative. The range\n * belongs to the trend and the model ranking below, which are window-scoped like the detail view's numbers.\n *\n * The activity map is the one figure here that is read rather than looked at, which is why it has three\n * readings of the same squares rather than three maps: what the day cost, what its week cost, or how much\n * had accumulated by then.\n */",
@@ -30986,7 +31001,6 @@ const allowed = new Map([
     "/**\n * Finish a sign-in.\n *\n * The state row is consumed before the code is exchanged, so a replayed callback cannot spend the\n * same verifier twice. The returned redirect is an internal path; tokens never appear in it.\n */",
     "// The granted scope is the truth: a provider may downgrade a write request, and a connection that",
     "// reported write after that would let the adapter try writes the token cannot perform.",
-    "/**\n * A usable access token, refreshed shortly before it expires.\n *\n * The new bundle is sealed and written back before the caller uses it, so a refresh is not repeated by\n * every request in the last minute of a token's life. A refresh that fails marks the connection\n * `expired`: the reader has to authorize again, and the connections list says so instead of reporting\n * a connection that cannot work.\n */",
     "/**\n * Best-effort revocation before a local delete.\n *\n * Google has an endpoint; Microsoft's v2 endpoint does not, so the local row is the only thing this\n * app can remove and the operator note says so. A failed call is logged and swallowed because the\n * reader asked for the connection to be gone, not for a remote call to succeed first.\n */",
     "// The vault is unavailable; local deletion still proceeds and the remote grant is reported only",
     "// in this low-level line, never as a reason to keep the connection.",
@@ -30998,6 +31012,9 @@ const allowed = new Map([
     "/**\n * An internal path, or a refusal.\n *\n * The check runs before the state row is written and again after it is read. `//host` and a backslash\n * are browsers' favourite ways to turn a path into another origin, so both are refused rather than\n * normalized.\n */",
     "// Encoded separators are the same attack in a different spelling: a browser may turn `%5c` or",
     "// `%2f%2f` back into a path that leaves this origin before it sends the request.",
+    "/**\n * A usable access token, refreshed shortly before it expires.\n *\n * The new bundle is sealed and written back before the caller uses it, so a refresh is not repeated by\n * every request in the last minute of a token's life. Only a refused grant marks the connection\n * `expired`; a network or provider outage stays connected so the next request can retry.\n */",
+    "// A network failure says nothing about the grant; marking expired would force a re-login for an",
+    "// outage the reader cannot fix.",
   ]],
   ["src/worker/calendar/proxy.ts", [
     "/**\n * The one door from a browser to a calendar provider.\n *\n * The reader's browser holds no credentials, so every CalDAV or Graph request arrives here as a\n * relative path and leaves with the authorization header this worker adds. That makes the path the\n * attack surface: it must stay inside the connection's own base, a traversal is refused in every\n * spelling, the method and every forwarded header come from a short list, and both directions are\n * capped while they stream. Redirects are refused outright rather than followed, because the address\n * this proxy checked is the one that was typed and a redirect would replace it with one nobody did.\n *\n * A per-connection minute budget and an in-isolate breaker sit in front of the network. Neither is a\n * quota; both exist so a broken adapter or a dead server cannot turn one reader's retry loop into an\n * unbounded fan-out or hold every request open.\n */",
@@ -31028,7 +31045,6 @@ const allowed = new Map([
     "/** Write the order the client dragged the calendars into; every live calendar must be named once. */",
     "// ------------------------------------------------------------- groups",
     "// ------------------------------------------------------------- events",
-    "/**\n   * Events overlapping the range, plus every recurrence master so the client can expand a series\n   * wherever it navigates. A master outside the window still belongs to the answer.\n   */",
     "/**\n   * Every named calendar must belong to this account. A client-facing write also refuses a set whose\n   * calendars are all read-only (an imported/subscribed calendar), while import and sync paths may\n   * write into one because the server, not the reader, owns that change.\n   */",
     "/**\n   * Fill the fields a write needs but the shared input shape leaves optional.\n   *\n   * Validation already supplies all of them; import/sync callers may not. The account's zone is read\n   * only when a value without its own zone has to be placed on the timeline.\n   */",
     "/**\n   * Create or upsert up to 200 events as a small number of D1 batches.\n   *\n   * `batch_key` names every row this call created, so a failure in a later chunk can remove the rows\n   * earlier chunks committed. Rows an upsert merely updated keep their old key and are never removed\n   * by that cleanup.\n   */",
@@ -31043,6 +31059,13 @@ const allowed = new Map([
     "// ------------------------------------------------------------- subscriptions and connections",
     "/** Connections as the meta read exposes them: identifiers and state, never credentials. */",
     "// ------------------------------------------------------------- statements",
+    "/**\n   * Events overlapping the range, plus every recurrence master so the client can expand a series\n   * wherever it navigates. A master outside the window still belongs to the answer.\n   *\n   * Membership is joined into the same query: a year view can hold thousands of rows, and asking for\n   * their calendars eighty ids at a time used to multiply one page into dozens of D1 round trips.\n   */",
+    "// A provider sync writes its own remote events into a read-only calendar; a local edit must not.",
+    "// Choosing the branch from each input's source/external identity keeps batch import from becoming",
+    "// a general read-only bypass.",
+  ]],
+  ["src/worker/calendar/subscriptions.ts", [
+    "/**\n * Refresh a few due ICS feeds on each cron fire.\n *\n * `last_sync_at` spaces successful runs; `last_error_at` holds a broken feed for an hour instead of\n * retrying it every minute. The limit keeps one slow feed from spending the whole scheduled budget.\n */",
   ]],
   ["src/worker/calendar/validation.ts", [
     "/**\n * The calendar routes' input boundary.\n *\n * Every parser here takes `unknown` from a JSON body or a query string, returns a normalized value\n * the store can bind, and refuses anything else with `ApiError.badRequest`. The rules live here rather\n * than in the store because they are properties of the request (\"a title is 1–300 characters\"), while\n * the store owns the rules that must hold whatever the caller sent (membership, revisions, scoping).\n *\n * Temporal values are parsed once, here, and both the canonical string and the epoch milliseconds the\n * range query needs are returned together, so the store never re-derives time from text. Nothing in\n * this file logs or echoes the raw upstream text of a parse failure.\n */",
@@ -31667,6 +31690,9 @@ const allowed = new Map([
     "// The partial unique index keeps every generated address global while unshared rows stay NULL.",
     "// Earlier builds asked Netease for no lyric forms, so stored LRC-only rows have to be fetched",
     "// again now that the provider request includes YRC. Only the provider cache is cleared.",
+    "// External ids are unique per calendar, not per provider: two Google accounts (or two CalDAV",
+    "// servers) can legitimately hand out the same event id. Existing rows get the first calendar",
+    "// they belong to as their scope; the old index is replaced in the same migration.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -31807,6 +31833,8 @@ const allowed = new Map([
     "// follow find their deliveries already claimed.",
     "/**\n   * Email Routing's inbound door: `u+<token>@<MAIL_DOMAIN>` becomes a task, a mailbox address is\n   * delivered to its owner's mailbox, and anything else is dropped.\n   *\n   * The handler is one call deep — routing, parsing, idempotency and the drops all live in\n   * `email/dispatch.ts` and the modules it calls, so the Worker entry stays a list of the platform's\n   * events. Nothing here answers the sender: an unknown recipient is dropped, not rejected, which is\n   * what keeps the address space from being enumerable through bounces.\n   */",
     "/**\n * Which cron fires keep the whole-library drains.\n *\n * The minute pattern exists for the assistant's reminders. Running the queue drains on it too would\n * multiply work the deployment never asked for, so the drains are gated to the times they had before\n * the new pattern was added.\n */",
+    "// ICS feeds need a copy on the server whether or not the reader has the calendar tab open;",
+    "// the sweep itself spaces successes and failures, so this fire only starts what is due.",
   ]],
   ["src/worker/lib/crypto.ts", [
     "/**\n   * The default sentence is about the one thing only the operator can fix: no binding at all. A caller\n   * that got an answer and did not like it passes its own sentence instead — a refusal and an absent\n   * binding are different failures, and reporting a refusal as \"the binding is missing\" sends whoever\n   * reads it looking in the wrong place. Neither message carries the value that was being stored.\n   */",
@@ -33144,7 +33172,6 @@ const allowed = new Map([
   ]],
   ["src/worker/routes/calendar.ts", [
     "/**\n * The calendar app's HTTP surface.\n *\n * Static paths are registered before `/:id` because Hono matches in registration order. Everything\n * below `use` requires a session, every mutating method spends the caller's write budget, and every\n * query goes through `CalendarStore`, which scopes by the account the session named. A malformed id\n * is a 400 and an id this account does not own is a 404, never a 403 that confirms an id exists.\n *\n * Validation lives in `calendar/validation.ts` and SQL in `calendar/store.ts`; this file only reads\n * the request, names the operation and shapes the response.\n */",
-    "/** Enough for a fast client dragging events and checking boxes; reads stay unmetered. */",
     "/** A single event can carry a 20k description and a 16 KiB meta object. */",
     "/** The plan's ceiling for one batch request: 200 events, or roughly 1 MiB of JSON. */",
     "// ------------------------------------------------------------- meta and preferences",
@@ -33153,6 +33180,8 @@ const allowed = new Map([
     "// ------------------------------------------------------------- events",
     "// ------------------------------------------------------------- calendars",
     "// ------------------------------------------------------------- groups",
+    "/** Enough for a fast client dragging events and checking boxes. */",
+    "/** A search box and range navigation are cheap; a scripted loop is not. */",
   ]],
   ["src/worker/routes/community-templates.ts", [
     "/**\n * Publishing counts against a per-account hourly budget so one account cannot\n * flood the shared directory. Updating your own template spends the same\n * budget, which is the point: an edit is another write.\n */",
