@@ -1250,16 +1250,46 @@ export class CalendarStore {
    * a percent sign rather than for everything. `truncated` is answered by fetching one row past the
    * limit instead of counting the whole match set.
    */
-  async searchEvents(q: string, limit: number): Promise<{ results: CalendarSearchResultDto[]; truncated: boolean }> {
+  async searchEvents(
+    q: string,
+    limit: number,
+    filters: { calendarIds?: readonly string[]; fromMs?: number; toMs?: number; kind?: 'event' | 'task' } = {},
+  ): Promise<{ results: CalendarSearchResultDto[]; truncated: boolean }> {
     const max = Math.min(Math.max(1, limit), 50)
-    const pattern = `%${q.replace(/[\\%_]/g, '\\$&')}%`
+    const conditions = ['user_id = ?']
+    const binds: Array<string | number> = [this.userId]
+    if (q) {
+      const pattern = `%${q.replace(/[\\%_]/g, '\\$&')}%`
+      conditions.push("(title LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\')")
+      binds.push(pattern, pattern)
+    }
+    if (filters.kind) {
+      conditions.push('kind = ?')
+      binds.push(filters.kind)
+    }
+    if (filters.fromMs !== undefined) {
+      conditions.push('start_ms >= ?')
+      binds.push(filters.fromMs)
+    }
+    if (filters.toMs !== undefined) {
+      conditions.push('start_ms <= ?')
+      binds.push(filters.toMs)
+    }
+    if (filters.calendarIds && filters.calendarIds.length > 0) {
+      conditions.push(`EXISTS (
+        SELECT 1 FROM calendar_event_calendars m
+         WHERE m.user_id = calendar_events.user_id AND m.event_id = calendar_events.id
+           AND m.calendar_id IN (${placeholders(filters.calendarIds.length)})
+      )`)
+      binds.push(...filters.calendarIds)
+    }
+    binds.push(max + 1)
     const { results } = await this.db.prepare(
       `SELECT * FROM calendar_events
-        WHERE user_id = ?1
-          AND (title LIKE ?2 ESCAPE '\\' OR description LIKE ?2 ESCAPE '\\')
+        WHERE ${conditions.join(' AND ')}
         ORDER BY start_ms DESC, id ASC
-        LIMIT ?3`,
-    ).bind(this.userId, pattern, max + 1).all<EventRow>()
+        LIMIT ?`,
+    ).bind(...binds).all<EventRow>()
     const rows = results ?? []
     const truncated = rows.length > max
     const page = rows.slice(0, max)

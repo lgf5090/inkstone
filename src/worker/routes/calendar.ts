@@ -102,10 +102,28 @@ calendarRoutes.put('/preferences', async (c) => {
 calendarRoutes.get('/events/search', async (c) => {
   readBudget(c.get('userId'))
   const q = (c.req.query('q') ?? '').trim()
-  if (!q) throw ApiError.badRequest('q is required')
   if (q.length > SEARCH_QUERY_MAX) throw ApiError.badRequest(`q is longer than ${SEARCH_QUERY_MAX} characters`)
   const limit = clampInt(c.req.query('limit'), 1, 50, 20)
-  const answer = await store(c).searchEvents(q, limit)
+  const calendarIds = parseCalendarIdList(c.req.query('calendarIds'))
+  const kindRaw = c.req.query('kind')
+  if (kindRaw !== undefined && kindRaw !== 'event' && kindRaw !== 'task') {
+    throw ApiError.badRequest('kind must be event or task')
+  }
+  let fromMs: number | undefined
+  let toMs: number | undefined
+  if (c.req.query('from') !== undefined || c.req.query('to') !== undefined) {
+    const range = parseRange(c.req.query('from'), c.req.query('to'))
+    fromMs = range.fromMs
+    toMs = range.toMs
+  }
+  if (!q && !calendarIds && kindRaw === undefined && fromMs === undefined) {
+    throw ApiError.badRequest('q or a filter is required')
+  }
+  const answer = await store(c).searchEvents(q, limit, {
+    ...(calendarIds ? { calendarIds } : {}),
+    ...(fromMs === undefined ? {} : { fromMs, toMs }),
+    ...(kindRaw === undefined ? {} : { kind: kindRaw }),
+  })
   return c.json(answer)
 })
 

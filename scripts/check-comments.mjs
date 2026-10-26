@@ -1255,6 +1255,9 @@ const allowed = new Map([
     "/**\n * Calendar administration dialogs.\n *\n * Each dialog owns the request it makes, keeps its refusals inside the panel instead of closing it,\n * and calls `onSaved` so the container can refresh metadata and the DayFlow registry. The shell's\n * `Modal` supplies focus trapping, Escape and focus return; these never use native prompts.\n */",
     "/** The write already succeeded; a refresh failure must not present the write as failed or invite a retry. */",
   ]],
+  ["src/client/features/calendar/CalendarFilteredSearch.tsx", [
+    "/** A filtered calendar search: keyword, calendar, date span and kind, in one panel. */",
+  ]],
   ["src/client/features/calendar/CalendarSettings.tsx", [
     "/**\n * Account-wide calendar preferences. The draft is saved as a whole, because the API stores the full\n * preference object and a partial write would silently reset the fields this panel does not show.\n */",
     "// Older engines without `supportedValuesOf` still have the account's own zone; the select would",

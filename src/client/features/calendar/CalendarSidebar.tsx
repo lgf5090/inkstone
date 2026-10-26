@@ -6,7 +6,7 @@
  * `app.reorderCalendars`; the surface's callbacks persist them, which keeps one write per gesture.
  */
 import { useEffect, useReducer, useState, type ReactNode } from 'react'
-import { ChevronDown, Lock, MoreHorizontal, Plus, RefreshCw, Rss, Settings, Star, Trash2 } from 'lucide-react'
+import { ChevronDown, Lock, MoreHorizontal, Plus, RefreshCw, Rss, Search, Settings, Star, Trash2 } from 'lucide-react'
 import type { CalendarType, ICalendarApp } from '@dayflow/react'
 import type {
   CalendarDto,
@@ -49,6 +49,7 @@ interface CalendarSidebarProps {
   onToggleCollapsed: () => void
   onClose: () => void
   onOpenSettings: () => void
+  onOpenFilteredSearch: () => void
   /** Refresh meta and the DayFlow registry; `reloadEvents` also refetches the visible range. */
   onRefresh: (reloadEvents: boolean) => Promise<void>
   onSelectDate: (date: Date) => void
@@ -143,6 +144,7 @@ export function CalendarSidebar({
   onToggleCollapsed,
   onClose,
   onOpenSettings,
+  onOpenFilteredSearch,
   onRefresh,
   onSelectDate,
   onRequestRange,
@@ -378,6 +380,11 @@ export function CalendarSidebar({
           </IconButton>
         </Tooltip>
         <AddMenu compact onPick={openAddMenu} />
+        <Tooltip label={t('calendar.filtered_search.open')} side="right">
+          <IconButton label={t('calendar.filtered_search.open')} size="sm" onClick={onOpenFilteredSearch}>
+            <Search size={15} />
+          </IconButton>
+        </Tooltip>
         <Tooltip label={t('calendar.sidebar.settings')} side="right">
           <IconButton label={t('calendar.sidebar.settings')} size="sm" onClick={onOpenSettings}>
             <Settings size={15} />
@@ -419,6 +426,11 @@ export function CalendarSidebar({
         <h2 className="min-w-0 flex-1 truncate px-1 text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">
           {t('calendar.sidebar.title')}
         </h2>
+        <Tooltip label={t('calendar.filtered_search.open')} side="bottom">
+          <IconButton label={t('calendar.filtered_search.open')} size="sm" onClick={onOpenFilteredSearch}>
+            <Search size={15} />
+          </IconButton>
+        </Tooltip>
         <AddMenu onPick={openAddMenu} />
         <Tooltip label={t('calendar.sidebar.settings')} side="bottom">
           <IconButton label={t('calendar.sidebar.settings')} size="sm" onClick={onOpenSettings}>

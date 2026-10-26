@@ -417,6 +417,32 @@ describe('search', () => {
     expect(limited.truncated).toBe(true)
   })
 
+  it('filters by calendar, start range and kind', async () => {
+    const second = await store.createCalendar({ name: 'Second' })
+    const home = await store.createEvent(eventInput({ title: 'Home event' }))
+    const other = await store.createEvent(eventInput({
+      title: 'Second event',
+      calendarIds: [second.id],
+      calendarId: second.id,
+    }))
+    const later = await store.createEvent(eventInput({
+      title: 'Later event',
+      start: { value: '2026-11-15T09:00:00', type: 'datetime' },
+      end: { value: '2026-11-15T10:00:00', type: 'datetime' },
+    }))
+    const task = await store.createEvent(eventInput({ title: 'Task event', kind: 'task' }))
+
+    expect((await store.searchEvents('', 50, { calendarIds: [second.id] })).results.map(entry => entry.event.id))
+      .toEqual([other.id])
+    expect((await store.searchEvents('', 50, {
+      fromMs: Date.parse('2026-11-01T00:00:00Z'),
+      toMs: Date.parse('2026-11-30T23:59:59Z'),
+    })).results.map(entry => entry.event.id)).toEqual([later.id])
+    expect((await store.searchEvents('', 50, { kind: 'task' })).results.map(entry => entry.event.id))
+      .toEqual([task.id])
+    expect(home.id).not.toBe(other.id)
+  })
+
   it('treats percent and underscore as literals', async () => {
     await store.createEvent(eventInput({ title: '100% done' }))
     await store.createEvent(eventInput({ title: '100x done' }))

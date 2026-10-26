@@ -99,8 +99,23 @@ export async function getEvents(query: EventRangeQuery, signal?: AbortSignal): P
   }
 }
 
-export async function searchEvents(keyword: string, signal?: AbortSignal): Promise<EventSearchResponse> {
+export interface EventSearchFilters {
+  calendarIds?: string[]
+  from?: number
+  to?: number
+  kind?: 'event' | 'task'
+}
+
+export async function searchEvents(
+  keyword: string,
+  signal?: AbortSignal,
+  filters: EventSearchFilters = {},
+): Promise<EventSearchResponse> {
   const params = new URLSearchParams({ q: keyword.trim(), limit: '50' })
+  if (filters.calendarIds?.length) params.set('calendarIds', filters.calendarIds.join(','))
+  if (filters.from !== undefined) params.set('from', new Date(filters.from).toISOString())
+  if (filters.to !== undefined) params.set('to', new Date(filters.to).toISOString())
+  if (filters.kind) params.set('kind', filters.kind)
   return request<EventSearchResponse>(`/api/calendar/events/search?${params.toString()}`, { signal })
 }
 

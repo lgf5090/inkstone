@@ -50,6 +50,7 @@ import { Button, IconButton } from '../../components/primitives'
 import { Drawer } from '../../components/overlay'
 import { CalendarSidebar } from './CalendarSidebar'
 import { CalendarSettings } from './CalendarSettings'
+import { CalendarFilteredSearch, calendarSearchResultDate } from './CalendarFilteredSearch'
 import { CalendarConnections } from './CalendarConnections'
 import { CalendarEditHistory } from './history'
 import { EventPersistence } from './persistence'
@@ -361,6 +362,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     .join('|')
 
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [filteredSearchOpen, setFilteredSearchOpen] = useState(false)
   const [connectionsOpen, setConnectionsOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(readCollapsed)
@@ -834,6 +836,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       onToggleCollapsed={toggleCollapsed}
       onClose={() => setDrawerOpen(false)}
       onOpenSettings={() => setSettingsOpen(true)}
+      onOpenFilteredSearch={() => setFilteredSearchOpen(true)}
       onRefresh={refreshCalendars}
       onSelectDate={date => app.setCurrentDate(date)}
       onRequestRange={requestMiniRange}
@@ -910,6 +913,18 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
           }}
         />
       )}
+
+      <CalendarFilteredSearch
+        open={filteredSearchOpen}
+        calendars={meta.calendars}
+        onClose={() => setFilteredSearchOpen(false)}
+        onPick={(result) => {
+          const date = calendarSearchResultDate(result)
+          if (date) app.setCurrentDate(date)
+          app.highlightEvent(result.event.id)
+          app.selectEvent(result.event.id)
+        }}
+      />
 
       <CalendarConnections
         open={connectionsOpen}
