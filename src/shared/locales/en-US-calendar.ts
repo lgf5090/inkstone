@@ -139,6 +139,9 @@ export const EN_US_CALENDAR = {
   'calendar.extras.gone': 'This event is no longer here',
   'calendar.extras.load_failed': 'Could not load the reminders',
   'calendar.extras.follow_default': 'No reminder of its own, so the calendar default applies',
+  'calendar.extras.timezone': 'Time zone',
+  'calendar.extras.timezone_all_day': 'All-day events have no time zone',
+  'calendar.extras.timezone_shown': 'Local {local} · your calendar shows {account}',
   'calendar.history.empty': 'Nothing to undo',
 
   'calendar.search.empty': 'No matching events',

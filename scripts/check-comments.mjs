@@ -1261,6 +1261,8 @@ const allowed = new Map([
   ]],
   ["src/client/features/calendar/CalendarEventExtras.tsx", [
     "/**\n * The sidebar section for the event the reader just clicked.\n *\n * DayFlow's own editor owns the fields it renders, and it has no extension point that would let this\n * app add a row to it. Reminders are per event now, so they live here: the section reads the server's\n * row, writes back with its revision, and hands the new revision to the surface so the write queue\n * does not send a stale PATCH afterwards.\n */",
+    "/** The zone the calendar itself is read in; an event without a zone of its own uses it. */",
+    "/** The row moved in time: the surface has to re-read the range so the grid shows the new instant. */",
   ]],
   ["src/client/features/calendar/CalendarFilteredSearch.tsx", [
     "/** A filtered calendar search: keyword, calendar, date span and kind, in one panel. */",
@@ -1376,6 +1378,16 @@ const allowed = new Map([
   ]],
   ["src/client/features/calendar/quick-add.ts", [
     "/** Parse a small, predictable subset of Chinese/English quick-add text. */",
+  ]],
+  ["src/client/features/calendar/timezone.test.ts", [
+    "// 2026-03-08 02:30 does not exist in New York; the value has to come back valid, not throw.",
+    "// Temporal shifts a skipped wall clock forward by the gap: 02:30 becomes 03:30 EDT.",
+  ]],
+  ["src/client/features/calendar/timezone.ts", [
+    "/**\n * Per-event time zones.\n *\n * A stored value already carries its own zone (`…+08:00[Asia/Shanghai]`), and the server keeps it on\n * the row, so what an event needs is a way to *move* it: the reader picks the zone the appointment\n * actually happens in and the wall clock they typed stays put while the instant moves. Whole days have\n * no zone to speak of, so they are left alone.\n */",
+    "// Older engines without `supportedValuesOf` still get the zone the account is already using.",
+    "/** The zone an event happens in, or null when it is a whole day. */",
+    "/** Keep the wall clock, change the zone it is read in. */",
   ]],
   ["src/client/features/calendar/view-state.ts", [
     "/** Keep a calendar's view and day in the address bar without turning every edit into a history entry. */",

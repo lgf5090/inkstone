@@ -141,6 +141,9 @@ export const ZH_CN_CALENDAR = {
   'calendar.extras.gone': '这个日程已经不存在了',
   'calendar.extras.load_failed': '无法读取提醒设置',
   'calendar.extras.follow_default': '这条日程没有单独设置提醒，按日历默认值提醒',
+  'calendar.extras.timezone': '时区',
+  'calendar.extras.timezone_all_day': '全天日程没有时区',
+  'calendar.extras.timezone_shown': '当地 {local} · 你的日历显示 {account}',
   'calendar.history.empty': '没有可撤销的操作',
 
   'calendar.search.empty': '没有匹配的事件',

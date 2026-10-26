@@ -914,12 +914,15 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       extras={extrasEventId ? (
         <CalendarEventExtras
           eventId={extrasEventId}
+          accountTimeZone={meta.preferences.timeZone}
+          locale={appLocale}
           onClose={() => {
             dismissedRef.current = extrasEventId
             shownRef.current = null
             setExtrasEventId(null)
           }}
           onRevision={(id, rev) => { revs.set(id, rev) }}
+          onChanged={(id) => { void reloadRef.current(id) }}
         />
       ) : undefined}
     />
