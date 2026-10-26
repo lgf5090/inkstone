@@ -79,7 +79,7 @@ import {
   stopCounterTimer,
   updateCounter,
 } from '../todos/counters'
-import { addDays, isStatsDay, loadTodoStats } from '../todos/stats'
+import { addDays, countStatBuckets, isStatsDay, loadTodoStats, MAX_STATS_BUCKETS } from '../todos/stats'
 import { loadTrackedTotals, loadWorklog } from '../todos/worklog'
 
 const BODY_LIMIT = JSON_BODY_LIMITS.settings
@@ -536,15 +536,19 @@ function listingQuery(c: Ctx, timezone: string, dayEnd: number, today: string): 
 }
 
 /**
- * The range and granularity a statistics request asks for.
+ * The window and granularity a request names, read and no further judged.
  *
  * `from` and `to` are calendar days in the account's zone, both inclusive; missing values mean the last
  * 30 days, with `to` measured from the day the request lands on. A day that does not exist (30 February)
  * or a range that runs backwards is a 400 rather than an empty answer, because the reader asked a
  * different question than the one an empty range would answer. The comparison is lexical, which is exact
  * for `YYYY-MM-DD` and needs no zone arithmetic.
+ *
+ * How long the window may be is not decided here: `statsRange` adds that on for the reads whose answer
+ * grows with the window, and the worklog, which reads one row per account day at most, is bounded by the
+ * `eachDay` ceiling inside its own module.
  */
-function statsRange(c: Ctx, timezone: string): { from: string; to: string; bucket: TaskStatsBucket } {
+function statsWindow(c: Ctx, timezone: string): { from: string; to: string; bucket: TaskStatsBucket } {
   const today = localDate(Date.now(), timezone)
   const to = c.req.query('to') || today
   if (!isStatsDay(to)) throw ApiError.badRequest('A statistics range must end on a date like 2026-01-31.')
@@ -554,6 +558,33 @@ function statsRange(c: Ctx, timezone: string): { from: string; to: string; bucke
   const bucket = c.req.query('bucket') ?? 'day'
   if (!isTaskStatsBucket(bucket)) throw ApiError.badRequest('A bucket must be day, week or month.')
   return { from, to, bucket }
+}
+
+/**
+ * The window a statistics read asks for, with its span bounded.
+ *
+ * The span is the one parameter nobody checked, and it is the one that decides how big the answer is:
+ * this read emits a bucket per day, week or month, and the arithmetic that emits them costs per bucket.
+ * Measured against the real builders, a day-bucket range from 1900 to 2100 is 73 050 buckets — a
+ * 7 379 780-byte answer and ~309 ms of pure computation before D1 is asked anything at all. The UI only
+ * offers presets, but `todo-address.ts` reads `from`, `to` and `bucket` out of the address bar with
+ * format-only validation, so that range is a URL someone can paste and the assistant can build, which is
+ * also why the ceiling belongs server-side rather than in the picker (AGENTS.md rule 1).
+ *
+ * The ceiling is counted in buckets and differs per bucket, because buckets are what the answer carries.
+ * Above it the request is a 400 that names the coarser reading — a silently narrowed window would answer
+ * a different question than the one asked (rule 2).
+ */
+function statsRange(c: Ctx, timezone: string): { from: string; to: string; bucket: TaskStatsBucket } {
+  const range = statsWindow(c, timezone)
+  const buckets = countStatBuckets(range.from, range.to, range.bucket)
+  if (buckets > MAX_STATS_BUCKETS[range.bucket]) {
+    throw ApiError.badRequest(
+      `A ${range.bucket} statistics range spans at most ${MAX_STATS_BUCKETS[range.bucket]} buckets; this one spans ${buckets}.`
+      + ' Use a coarser bucket or a narrower window.',
+    )
+  }
+  return range
 }
 
 todoRoutes.get('/', async (c) => {
@@ -571,6 +602,32 @@ todoRoutes.get('/', async (c) => {
     s.taskCounts(dayEnd, today, settings.timezone),
   ])
   return c.json({ tasks, total, counts, dayEnd, timezone: settings.timezone })
+})
+
+/**
+ * The sidebar's three numbers, on their own.
+ *
+ * The listing carries `counts`, `dayEnd` and `timezone` beside its rows, and for a while the app asked
+ * for a page of one task after every write just to read those three back — a whole row and the filter it
+ * was counted under, dragged along for a badge. This route runs the same aggregate the listing runs,
+ * through the same `s.taskCounts`, and returns nothing else. It is a read, so it spends no write budget:
+ * the brake above only fires for a method that changes something, and this one is called after every
+ * change that did.
+ *
+ * Registered before `/:id`, like `/stats` and `/worklog`: "counts" is a route, not a task called counts.
+ */
+todoRoutes.get('/counts', async (c) => {
+  const s = store(c)
+  const settings = await s.getSettings()
+  const dayEnd = readerDayEnd(settings.timezone)
+  // The same day the listing would have cut its badges by, so a refresh cannot print a number one day
+  // ahead of the page it sits beside.
+  const today = localDate(Date.now(), settings.timezone)
+  return c.json({
+    counts: await s.taskCounts(dayEnd, today, settings.timezone),
+    dayEnd,
+    timezone: settings.timezone,
+  })
 })
 
 /**
@@ -598,10 +655,14 @@ todoRoutes.get('/stats', async (c) => {
  * this sums the ledger, and the two answer about different things — an account can hold forty hours in
  * a week whose tasks were mostly closed later. Folding them would make one number answer two questions,
  * and one request would always be paying for the half the screen did not show.
+ *
+ * It reads the window unbounded (`statsWindow`) and not bounded (`statsRange`), because its own answer
+ * grows one row per account day and `todos/worklog` cuts that at `eachDay`'s ceiling. The statistics
+ * answer had no such cut, which is the difference the span ceiling is for.
  */
 todoRoutes.get('/worklog', async (c) => {
   const settings = await store(c).getSettings()
-  const range = statsRange(c, settings.timezone)
+  const range = statsWindow(c, settings.timezone)
   const asked = c.req.query('group')
   if (asked !== undefined && !(WORKLOG_DIMENSIONS as readonly string[]).includes(asked))
     throw ApiError.badRequest('The worklog groups by list, tag or task.')

@@ -223,6 +223,24 @@ function utcToDay(milliseconds: number): string {
   return new Date(milliseconds).toISOString().slice(0, 10)
 }
 
+/**
+ * How many buckets one statistics answer may hold, per granularity.
+ *
+ * The ceiling is on the *bucket count* rather than on the number of days, because the bucket count is
+ * exactly what the answer costs: `series` and `flow` each carry one entry per bucket, so 366 daily bars
+ * and 240 monthly bars are the same sized response however far apart their days are, and an unbounded
+ * count is an unbounded response built by pure arithmetic before a single row is read.
+ *
+ * Each number is one screen's worth, rounded: 366 daily buckets is a whole leap year of bars and already
+ * more columns than a chart draws; 262 weekly is five years; 240 monthly is twenty. A reader who wants a
+ * longer window coarsens the bucket, and the route's refusal says so.
+ */
+export const MAX_STATS_BUCKETS: Record<TaskStatsBucket, number> = {
+  day: 366,
+  week: 262,
+  month: 240,
+}
+
 /** The first day of the bucket a day belongs to: itself, its Monday, or the first of its month. */
 function bucketStart(day: string, bucket: TaskStatsBucket): string {
   if (bucket === 'day') return day
@@ -232,14 +250,23 @@ function bucketStart(day: string, bucket: TaskStatsBucket): string {
   return utcToDay(utc - ((weekday + 6) % 7) * DAY_MS)
 }
 
-/** Every bucket start the range touches, in order. The first and last may be partial buckets. */
+/**
+ * Every bucket start the range touches, in order. The first and last may be partial buckets.
+ *
+ * Bounded by the granularity's own ceiling, the guard `eachDay` carries restated here: the range arrives
+ * from `statsRange` in the route, which refuses above the ceiling, and this is what stops a hand-built or
+ * future caller from spinning the arithmetic over a two-hundred-year window. One entry past the ceiling is
+ * pushed and then the loop stops, so an over-long range yields a truncated answer rather than a hang.
+ */
 function bucketStarts(from: string, to: string, bucket: TaskStatsBucket): string[] {
   const starts: string[] = []
+  const ceiling = MAX_STATS_BUCKETS[bucket]
   const end = dayToUtc(to)
   let cursor = dayToUtc(bucketStart(from, bucket))
   if (bucket === 'month') {
     while (cursor <= end) {
       starts.push(utcToDay(cursor))
+      if (starts.length > ceiling) break
       const date = new Date(cursor)
       cursor = Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1)
     }
@@ -248,9 +275,30 @@ function bucketStarts(from: string, to: string, bucket: TaskStatsBucket): string
   const step = bucket === 'week' ? 7 * DAY_MS : DAY_MS
   while (cursor <= end) {
     starts.push(utcToDay(cursor))
+    if (starts.length > ceiling) break
     cursor += step
   }
   return starts
+}
+
+/**
+ * How many buckets a range emits, counted rather than built.
+ *
+ * The route needs the number before it reads anything, and building the array to measure it is the very
+ * thing the ceiling exists to prevent, so this restates `bucketStarts`' arithmetic — first bucket of
+ * `from`, stepped to `to` — without a loop. The two spellings are pinned against each other in
+ * `tests/todo-stats-span-ceiling.test.ts`, because a count that quietly disagreed with the builder would
+ * be a ceiling that admits what it means to refuse.
+ */
+export function countStatBuckets(from: string, to: string, bucket: TaskStatsBucket): number {
+  if (bucket === 'month') {
+    const [fromYear, fromMonth] = from.slice(0, 7).split('-').map(Number)
+    const [toYear, toMonth] = to.slice(0, 7).split('-').map(Number)
+    return (toYear! * 12 + toMonth!) - (fromYear! * 12 + fromMonth!) + 1
+  }
+  const stepDays = bucket === 'week' ? 7 : 1
+  const first = dayToUtc(bucketStart(from, bucket))
+  return Math.floor((dayToUtc(to) - first) / (stepDays * DAY_MS)) + 1
 }
 
 /**
