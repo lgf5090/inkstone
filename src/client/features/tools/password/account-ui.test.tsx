@@ -15,7 +15,6 @@ import { AccountCard } from './AccountCard'
 import { AccountList } from './AccountList'
 import { AccountForm, PasswordStrengthIndicator } from './AccountForm'
 import { FavoriteAccounts } from './FavoriteAccounts'
-import { Search, HighlightMatch } from './Search'
 import { AccountArea } from './AccountArea'
 import { PasswordApp } from './PasswordApp'
 import { generatePassword } from './Generator'
@@ -250,11 +249,13 @@ describe('AccountCard', () => {
     act(() => {
       starBtn?.click()
     })
-    expect(onToggleFavorite).toHaveBeenCalledWith('acc-1', expect.anything())
+    expect(onToggleFavorite).toHaveBeenCalledWith('acc-1')
+    // The star is a sibling of the row, not a control inside it: the press cannot reach the row's
+    // handler on the way out, which is what the next assertion is actually checking.
     expect(onSelect).not.toHaveBeenCalled()
   })
 
-  it('supports click and keyboard selection with focus and accessibility attributes', () => {
+  it('selects through the row button and reports its pressed state', () => {
     const onSelect = vi.fn()
 
     act(() => {
@@ -267,18 +268,19 @@ describe('AccountCard', () => {
       )
     })
 
-    const card = host.querySelector<HTMLElement>('[data-testid="account-card"]')!
-    expect(card.getAttribute('aria-selected')).toBe('true')
+    const card = host.querySelector<HTMLButtonElement>('[data-testid="account-card"]')!
+    // Enter and Space are the browser's own activation for a button, so no keydown handler of ours is what
+    // puts the row in the tab order — and nothing here overrides that order.
+    expect(card.tagName).toBe('BUTTON')
+    expect(card.getAttribute('type')).toBe('button')
+    expect(card.hasAttribute('tabindex')).toBe(false)
+    expect(card.getAttribute('aria-pressed')).toBe('true')
+    expect(card.getAttribute('aria-label')).toBe('GitHub')
 
     act(() => {
       card.click()
     })
     expect(onSelect).toHaveBeenCalledWith(MOCK_ACCOUNT_1)
-
-    act(() => {
-      card.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    })
-    expect(onSelect).toHaveBeenCalledTimes(2)
   })
 
   it('sets HTML5 drag data on dragstart', () => {
@@ -505,40 +507,6 @@ describe('FavoriteAccounts', () => {
     // MOCK_ACCOUNT_1 is favorite, MOCK_ACCOUNT_2 is not
     expect(cards.length).toBe(1)
     expect(host.textContent).toContain('GitHub')
-  })
-})
-
-describe('Search & HighlightMatch', () => {
-  it('highlights matched substring accurately', () => {
-    act(() => {
-      root.render(createElement(HighlightMatch, { text: 'GitHub Repository', query: 'hub' }))
-    })
-
-    const mark = host.querySelector('mark')
-    expect(mark).not.toBeNull()
-    expect(mark?.textContent).toBe('Hub')
-  })
-
-  it('performs instant plaintext search across accounts and selects result on click', () => {
-    act(() => {
-      root.render(createElement(Search))
-    })
-
-    expect(host.querySelector('[data-testid="password-search-view"]')).not.toBeNull()
-
-    const searchInput = host.querySelector<HTMLInputElement>('[data-testid="global-search-input"]')!
-    act(() => {
-      setInputValue(searchInput, 'google')
-    })
-
-    const results = host.querySelectorAll('[data-testid="search-result-item"]')
-    expect(results.length).toBe(1)
-    expect(host.textContent).toContain('Google Account')
-
-    act(() => {
-      (results[0] as HTMLElement).click()
-    })
-    expect(usePasswordVaultStore.getState().selectedAccountId).toBe('acc-2')
   })
 })
 

@@ -157,7 +157,6 @@ export function GroupTreeNode({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        onClick={() => onSelect(group)}
         onContextMenu={(e: MouseEvent<HTMLDivElement>) => {
           setMoreMenuOpen(false)
           contextMenu.onContextMenu(e)
@@ -165,27 +164,27 @@ export function GroupTreeNode({
         style={{ paddingLeft: `${indentPx}px` }}
         className={cn(
           'group relative flex h-8 items-center gap-1.5 rounded-[var(--r-sm)] pr-1.5 text-[length:var(--text-13)]',
-          'cursor-pointer transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+          'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
           isSelected
             ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]'
             : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
           isDragOver && 'bg-[var(--accent-softer,rgba(59,130,246,0.15))] ring-1 ring-[var(--accent)]',
         )}
       >
-        {/* Expand / Collapse Toggle Arrow */}
+        {/* Expand / Collapse Toggle Arrow. A leaf keeps the space it would have taken, so the icons of a
+            branch and its children still line up. */}
         <button
           type="button"
-          aria-label={isExpanded ? 'Collapse' : 'Expand'}
-          onClick={(e) => {
-            e.stopPropagation()
-            if (hasChildren) {
-              onToggleExpand(group.id)
-            }
+          aria-label={isExpanded ? t('tools.password.group.collapse') : t('tools.password.group.expand')}
+          data-testid="group-toggle"
+          disabled={!hasChildren}
+          onClick={() => {
+            onToggleExpand(group.id)
           }}
           className={cn(
             'flex size-5 shrink-0 items-center justify-center rounded-[var(--r-xs)] text-[var(--text-tertiary)]',
             'transition-transform duration-[var(--dur-fast)]',
-            !hasChildren && 'invisible pointer-events-none',
+            !hasChildren && 'invisible',
             hasChildren && isExpanded && 'rotate-90 text-[var(--text-primary)]',
             hasChildren && 'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
           )}
@@ -193,35 +192,45 @@ export function GroupTreeNode({
           <ChevronRight size={13} />
         </button>
 
-        {/* Folder Icon */}
-        <span className="shrink-0 text-[var(--text-tertiary)]">
-          {hasChildren && isExpanded ? <FolderOpen size={15} /> : <Folder size={15} />}
-        </span>
-
-        {/* Group Name */}
-        <span
-          data-testid="group-name"
-          className="min-w-0 flex-1 truncate text-left"
-          title={group.name}
+        {/* Selecting the group is a press on the row, so the row is a button and its controls are
+            siblings: a `div` that selected on click and held three buttons was mouse-only. */}
+        <button
+          type="button"
+          data-testid="group-row"
+          aria-current={isSelected ? 'true' : undefined}
+          onClick={() => onSelect(group)}
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left"
         >
-          {group.name}
-        </span>
+          {/* Folder Icon */}
+          <span className="shrink-0 text-[var(--text-tertiary)]">
+            {hasChildren && isExpanded ? <FolderOpen size={15} /> : <Folder size={15} />}
+          </span>
 
-        {/* Account Count Badge */}
-        {accountCount > 0 && (
-          <Badge
-            tone={isSelected ? 'accent' : 'neutral'}
-            className="shrink-0 group-hover:hidden"
+          {/* Group Name */}
+          <span
+            data-testid="group-name"
+            className="min-w-0 flex-1 truncate text-left"
+            title={group.name}
           >
-            {accountCount}
-          </Badge>
-        )}
+            {group.name}
+          </span>
 
-        {/* Hover Action Buttons */}
+          {/* Account Count Badge */}
+          {accountCount > 0 && (
+            <Badge
+              tone={isSelected ? 'accent' : 'neutral'}
+              className="shrink-0 group-hover:hidden"
+            >
+              {accountCount}
+            </Badge>
+          )}
+        </button>
+
+        {/* Hover Action Buttons. No click handler: the row beside it is the press target now, so a tap
+            on a control cannot also select the group. */}
         <div
           data-testid="group-hover-actions"
           className="hidden shrink-0 items-center gap-0.5 group-hover:flex"
-          onClick={(e) => e.stopPropagation()}
         >
           {canHaveChildren && (
             <Tooltip label={t('tools.password.group.new_child')} side="top">

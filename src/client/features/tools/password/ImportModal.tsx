@@ -1,4 +1,4 @@
-import { useState, useRef, type DragEvent, type ChangeEvent } from 'react'
+import { useState, type DragEvent, type ChangeEvent } from 'react'
 import { UploadCloud, AlertCircle } from 'lucide-react'
 import { t } from '../../../lib/i18n'
 import { Modal } from '../../../components/overlay'
@@ -87,7 +87,6 @@ export function ImportModal({ open, onClose, group }: ImportModalProps) {
   const handleClose = onClose || storeClose
   const activeGroup = group !== undefined ? group : storeTargetGroup
 
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const [targetGroupId, setTargetGroupId] = useState<string>(
     activeGroup?.id || selectedGroupId || (groups[0]?.id ?? '')
   )
@@ -124,17 +123,17 @@ export function ImportModal({ open, onClose, group }: ImportModalProps) {
     }
   }
 
-  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
+  const handleDragOver = (e: DragEvent<HTMLElement>) => {
     e.preventDefault()
     setIsDragging(true)
   }
 
-  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
+  const handleDragLeave = (e: DragEvent<HTMLElement>) => {
     e.preventDefault()
     setIsDragging(false)
   }
 
-  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+  const handleDrop = (e: DragEvent<HTMLElement>) => {
     e.preventDefault()
     setIsDragging(false)
     const file = e.dataTransfer.files?.[0]
@@ -214,12 +213,12 @@ export function ImportModal({ open, onClose, group }: ImportModalProps) {
           </Select>
         </div>
 
-        {/* Drag and drop upload area */}
-        <div
+        {/* Drag and drop upload area: a label whose control is the file input, so pressing anywhere on it
+            opens the picker without a handler imitating a click, and the keyboard reaches the input. */}
+        <label
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-          onClick={() => fileInputRef.current?.click()}
           className={`flex flex-col items-center justify-center gap-2 rounded-[var(--r-lg)] border-2 border-dashed p-6 text-center cursor-pointer transition-colors ${
             isDragging
               ? 'border-[var(--accent)] bg-[var(--accent-soft)]'
@@ -227,11 +226,11 @@ export function ImportModal({ open, onClose, group }: ImportModalProps) {
           }`}
         >
           <input
-            ref={fileInputRef}
             type="file"
             accept=".csv,.txt,text/csv,text/plain"
             onChange={handleFileInputChange}
-            className="hidden"
+            aria-label={t('tools.password.import.upload')}
+            className="sr-only"
           />
           <div className="flex size-10 items-center justify-center rounded-full bg-[var(--bg-surface)] text-[var(--text-secondary)] shadow-sm">
             <UploadCloud size={20} />
@@ -244,7 +243,7 @@ export function ImportModal({ open, onClose, group }: ImportModalProps) {
               {t('tools.password.import.drop_hint')}
             </p>
           </div>
-        </div>
+        </label>
 
         {/* Direct Text Paste Area */}
         <div className="flex flex-col gap-1.5">

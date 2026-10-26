@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronUp, MessagesSquare, Plus, Sparkles, Star, Trash2, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Link2, ListTree, MessagesSquare, Plus, Sparkles, Star, Trash2, X } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { addDaysKey } from '../../lib/time'
@@ -25,6 +25,7 @@ import { Menu, Modal } from '../../components/overlay'
 import { api } from '../../lib/api'
 import { useUi } from '../../store/ui'
 import { useTodos, remindOffsetOf } from './store'
+import { TaskFinder } from './TaskFinder'
 import { dueValue, priorityDot, priorityLabel } from './todo-ui'
 import { EstimatePicker } from './estimate-picker'
 import { ListIcon } from './list-icons'
@@ -50,8 +51,10 @@ import {
   type RepeatFrequency,
   type RepeatMonthlyMode,
   type RepeatRule,
+  type TaskRef,
   type TaskStep,
 } from '@shared/todos/model'
+import { isTaskDone } from '@shared/todos/status'
 
 const PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const
 
@@ -321,6 +324,24 @@ export function TaskEditor() {
   const [remind, setRemind] = useState<RemindOffset>('none')
   const [reminders, setReminders] = useState<number[]>([])
   const [tagNames, setTagNames] = useState<string[]>([])
+  /**
+   * What this row waits on, and the words typed into the finder for one more.
+   *
+   * The refs travel with their titles and statuses so the list under the field can be read without a
+   * second lookup, and so a blocker that has since finished is visibly finished rather than silently
+   * gone from the answer.
+   */
+  const [dependsOn, setDependsOn] = useState<TaskRef[]>([])
+  /**
+   * The row this one sits under, as the id the task carries and the words the panel can show for it.
+   *
+   * Only the id travels on the row, so the title is read from the rows the app already holds and asked
+   * for once when the parent is not among them. An answer that could not be read is said as such rather
+   * than shown as a bare id, which no reader recognises.
+   */
+  const [parentId, setParentId] = useState<string | null>(null)
+  const [parentTitle, setParentTitle] = useState<string | null>(null)
+  const [parentUnreadable, setParentUnreadable] = useState(false)
   const [tagInput, setTagInput] = useState('')
   /** The account's tags this task does not wear yet — the menu's rows. */
   const tagRef = useRef<HTMLInputElement>(null)
@@ -375,6 +396,10 @@ export function TaskEditor() {
     setReminders(normalizeReminderTimes(initialReminders))
     setRemind(remindOffsetOf({ dueAt: sourceDueAt, remindAt: initialReminders[0] ?? null }))
     setTagNames(task ? task.tags.map((tag) => tag.name) : source.tags ?? [])
+    setDependsOn(task?.dependsOn ?? [])
+    setParentId(task?.parentId ?? source.parentId ?? null)
+    setParentTitle(null)
+    setParentUnreadable(false)
     setStepInput('')
     setTagInput('')
     setTagMenuOpen(false)
@@ -492,11 +517,13 @@ export function TaskEditor() {
       // left out because taking an estimate away is an answer the reader gave, not an absence.
       timeEstimate: estimate,
       listId: listId || null,
+      parentId,
       icon,
       color,
       repeat: rule,
       reminders,
       tags: tagNames,
+      dependsOn: dependsOn.map((entry) => entry.id),
     }
     // Refused rather than half-written: the words in the estimate box are not a duration, and saving the
     // rest would drop what the reader typed without saying so. The field itself says it (role="alert"),
@@ -592,6 +619,46 @@ export function TaskEditor() {
       setOrdering(false)
     }
   }
+
+  /**
+   * Name the parent the panel cannot read off its own rows.
+   *
+   * A parent picked in this panel brings its own title; a panel opened on a row that already sat under
+   * something carries only an id. The cached listing is asked first, because a parent in the same view is
+   * already in hand, and the row's own read second — and an answer that could not be read is said as
+   * unreadable rather than shown as a bare id no reader recognises.
+   */
+  useEffect(() => {
+    if (parentId === null) {
+      setParentTitle(null)
+      setParentUnreadable(false)
+      return
+    }
+    const state = useTodos.getState()
+    const cached = state.tasks.find((entry) => entry.id === parentId)
+      ?? state.completed.find((entry) => entry.id === parentId)
+      ?? null
+    if (cached) {
+      setParentTitle(cached.title)
+      setParentUnreadable(false)
+      return
+    }
+    let settled = false
+    void (async () => {
+      try {
+        const { task: found } = await api.todos.get(parentId)
+        if (settled) return
+        setParentTitle(found.title)
+        setParentUnreadable(false)
+      } catch (error) {
+        if (settled) return
+        console.warn('[inkstone] The parent task could not be read:', error)
+        setParentTitle(null)
+        setParentUnreadable(true)
+      }
+    })()
+    return () => { settled = true }
+  }, [parentId])
 
   /**
    * Ask about the task as the panel currently reads it.
@@ -1193,6 +1260,75 @@ export function TaskEditor() {
               }))}
             />
           </div>
+        </div>
+
+        {/* Where this row sits in a tree. A parent gathers rows on screen and says nothing about their
+            status: a child keeps its own list, dates, hours and counts, so the panel writes an id rather
+            than a kind. Clearing it puts the row back at the top, which is an answer and not an absence. */}
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[length:var(--text-11)] font-medium text-[var(--text-secondary)]">{t('todo.task.parent_label')}</span>
+          {parentId === null ? (
+            <span className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('todo.task.no_parent')}</span>
+          ) : (
+            <div className="flex min-w-0 items-center gap-2">
+              <ListTree size={12} className="shrink-0 text-[var(--text-quaternary)]" aria-hidden="true" />
+              <span className="min-w-0 flex-1 truncate text-[length:var(--text-12-5)]">
+                {parentUnreadable ? t('todo.task.parent_unreadable') : parentTitle ?? t('common.loading')}
+              </span>
+              <IconButton
+                label={t('todo.task.parent_clear')}
+                size="xs"
+                onClick={() => setParentId(null)}
+              >
+                <X size={11} />
+              </IconButton>
+            </div>
+          )}
+          {parentId === null && (
+            <TaskFinder
+              findLabel={t('todo.task.parent_find')}
+              statusId="todo-parent-status"
+              excludeIds={existing ? [existing.id] : []}
+              onPick={(hit) => {
+                setParentId(hit.id)
+                setParentTitle(hit.title)
+                setParentUnreadable(false)
+              }}
+            />
+          )}
+        </div>
+
+        {/* What this row waits on. A dependency is a reason, not a filter: the blocked task stays on the
+            board, in the badges and on the calendar exactly where it was, and what it gains is the ability
+            to say out loud why it is still open. The finder searches the server rather than the page in
+            hand, because the task worth naming is usually not one currently on screen. */}
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[length:var(--text-11)] font-medium text-[var(--text-secondary)]">{t('todo.task.depends_label')}</span>
+          {dependsOn.length === 0 && (
+            <span className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('todo.task.no_depends')}</span>
+          )}
+          {dependsOn.map((entry) => (
+            <div key={entry.id} className="flex min-w-0 items-center gap-2">
+              <Link2 size={12} className="shrink-0 text-[var(--text-quaternary)]" aria-hidden="true" />
+              <span className={cn('min-w-0 flex-1 truncate text-[length:var(--text-12-5)]', isTaskDone(entry.status) && 'text-[var(--text-tertiary)] line-through')}>
+                {entry.title}
+              </span>
+              {isTaskDone(entry.status) && <span className="shrink-0 text-[length:var(--text-10-5)] text-[var(--text-tertiary)]">{t('todo.smart.completed')}</span>}
+              <IconButton
+                label={`${t('todo.action.delete')} ${entry.title}`}
+                size="xs"
+                onClick={() => setDependsOn((current) => current.filter((one) => one.id !== entry.id))}
+              >
+                <X size={11} />
+              </IconButton>
+            </div>
+          ))}
+          <TaskFinder
+            findLabel={t('todo.task.depends_find')}
+            statusId="todo-depends-status"
+            excludeIds={[...(existing ? [existing.id] : []), ...dependsOn.map((entry) => entry.id)]}
+            onPick={(hit) => setDependsOn((current) => [...current, hit])}
+          />
         </div>
 
         <div className="flex flex-col gap-1.5">

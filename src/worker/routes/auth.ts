@@ -1,9 +1,12 @@
 import { Hono, type Context } from 'hono'
 import { getCookie } from 'hono/cookie'
 import { DEFAULT_SETTINGS } from '@shared/constants'
+import { DEFAULT_ASSISTANT_SETTINGS } from '@shared/assistant'
+import { isValidTimeZone } from '@shared/assistant-schedule'
 import { isBitmapAvatarDataUrl, PROFILE_NAME_MAX_LENGTH } from '@shared/avatar'
 import type { AppLocale, SessionInfo, UserSettings } from '@shared/types'
 import type { AppBindings, Env } from '../env'
+import { AssistantStore } from '../assistant/store'
 import { drainAttachmentCleanup } from '../attachments/cleanup'
 import { attachmentCleanupTarget } from '../attachments/keys'
 import {
@@ -161,8 +164,9 @@ function setupTokenRequired(env: Env, hasAnyUser: boolean): boolean {
 
 
 authRoutes.post('/register', async (c) => {
-  const body = await readJson<{ username?: string; password?: string; locale?: string; setupToken?: string }>(c, 4096)
+  const body = await readJson<{ username?: string; password?: string; locale?: string; setupToken?: string; timezone?: string }>(c, 4096)
   const locale = normalizeLocale(body.locale ?? c.req.header('Accept-Language'))
+  const timezone = registrationTimeZone(body.timezone)
   const rawUsername = typeof body.username === 'string' ? body.username.slice(0, 128) : ''
   const username = normalizeUsername(rawUsername)
   if (!USERNAME_PATTERN.test(username)) {
@@ -210,6 +214,18 @@ authRoutes.post('/register', async (c) => {
   if (!created) {
     if (await usernameTaken(db, username)) throw new ApiError(409, 'username_taken', "That username is already in use")
     throw new ApiError(403, 'registration_closed', 'Registration is closed on this instance')
+  }
+
+  if (timezone) {
+    // The day boundary every to-do surface reads is the account's scheduling zone, held in the
+    // assistant's settings row; a fresh account has no row and so answers UTC. A zone that fails to
+    // land leaves the account usable at UTC — the same state an older client registers into — and the
+    // to-do app's own Settings row shows the zone, so a reader can still correct it.
+    await new AssistantStore(db, id, c.env)
+      .saveSettings({ ...DEFAULT_ASSISTANT_SETTINGS, timezone })
+      .catch((err) => {
+        console.warn('[inkstone] Failed to seed the account timezone; the account stays on UTC until Settings → To-do:', err)
+      })
   }
 
   await seedWorkspace(c.env, id, locale).catch((err) => {
@@ -378,6 +394,27 @@ authRoutes.post('/logout', async (c) => {
 
 function normalizeLocale(value: unknown): AppLocale {
   return typeof value === 'string' && value.toLowerCase().startsWith('en') ? 'en-US' : 'zh-CN'
+}
+
+/** The longest IANA name worth reading: the shipped zone set tops out well under this. */
+const TIMEZONE_MAX_LENGTH = 64
+
+/**
+ * The zone a new account starts its day in, or null when the client named none.
+ *
+ * Without it every fresh account falls back to UTC, and a reader east of Greenwich spends eight hours
+ * of each day being told yesterday — on the due labels, the plan groups and the close-out page alike.
+ * The value comes from a browser, so it is checked against the runtime's own zone table before it is
+ * stored and refused outright if it is not one: a zone nothing can resolve would make every date the
+ * app reasons about uncomputable, which is worse than the UTC it replaces.
+ */
+function registrationTimeZone(value: unknown): string | null {
+  if (value === undefined || value === null) return null
+  const zone = typeof value === 'string' ? value.trim() : ''
+  if (!zone || zone.length > TIMEZONE_MAX_LENGTH || !isValidTimeZone(zone)) {
+    throw new ApiError(400, 'invalid_timezone', 'The timezone must be an IANA zone the server recognises')
+  }
+  return zone
 }
 
 export function normalizeDisplayName(value: unknown): string | null {

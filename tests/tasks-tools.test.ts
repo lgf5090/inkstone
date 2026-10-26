@@ -906,3 +906,67 @@ describe('moving, trash and alarms', () => {
     expect((await store.listTaskLists()).find((entry) => entry.id === list.id)?.archivedAt).toBeNull()
   })
 })
+
+describe('the tree and the waits, from a chat', () => {
+  it('files a child under a parent named in words, and says both back', async () => {
+    const parent = await store.createTask({ title: 'Write the report' })
+
+    const created = await executor().execute('create_task', {
+      title: 'Send it out', parent: 'Write the report', waitsOn: [parent.id],
+    }, 'call-1') as { created: Record<string, unknown> }
+
+    expect(created.created.parent_id).toBe(parent.id)
+    expect(created.created.waits_on).toEqual([parent.id])
+    const stored = await store.getTask(String(created.created.id))
+    expect(stored?.parentId).toBe(parent.id)
+    expect(stored?.dependsOn.map((entry) => entry.id)).toEqual([parent.id])
+  })
+
+  it('refuses a task waiting on itself with the store’s own sentence, and writes nothing', async () => {
+    const created = await executor().execute('create_task', { title: 'Solo' }, 'call-1') as { created: { id: string } }
+
+    await expect(executor().execute('update_task', { task: created.created.id, waitsOn: [created.created.id] }, 'call-2'))
+      .rejects.toThrow(/itself/)
+    expect((await store.getTask(created.created.id))?.dependsOn).toEqual([])
+  })
+
+  it('refuses nesting a parent inside its own child', async () => {
+    const parent = await store.createTask({ title: 'Upper row' })
+    const child = await executor().execute('create_task', { title: 'Lower row', parent: parent.id }, 'call-1') as { created: { id: string } }
+
+    await expect(executor().execute('update_task', { task: parent.id, parent: child.created.id }, 'call-2'))
+      .rejects.toThrow(/by a route/)
+    expect((await store.getTask(parent.id))?.parentId).toBeNull()
+  })
+
+  it('puts a row back at the top and empties its wait set when asked to', async () => {
+    const parent = await store.createTask({ title: 'Upper' })
+    const blocker = await store.createTask({ title: 'Blocker' })
+    const created = await executor().execute('create_task', {
+      title: 'Lower', parent: parent.id, waitsOn: [blocker.id],
+    }, 'call-1') as { created: { id: string } }
+
+    await executor().execute('update_task', { task: created.created.id, parent: null, waitsOn: [] }, 'call-2')
+
+    const stored = await store.getTask(created.created.id)
+    expect(stored?.parentId).toBeNull()
+    expect(stored?.dependsOn).toEqual([])
+    // The blocker's own copy of the edge is gone too, not merely hidden.
+    expect((await store.getTask(blocker.id))?.blocks).toEqual([])
+  })
+
+  it('refuses a title that matches no task rather than dropping the field', async () => {
+    await expect(executor().execute('create_task', { title: 'One', waitsOn: ['Nothing named this'] }, 'call-1'))
+      .rejects.toThrow(/No single task matches/)
+    expect(await store.listTasks({ view: 'all' })).toHaveLength(0)
+  })
+
+  it('shows what waits on a row, so a chat can answer "what is this blocking"', async () => {
+    const blocker = await store.createTask({ title: 'Blocking row' })
+    await executor().execute('create_task', { title: 'Waiting row', waitsOn: [blocker.id] }, 'call-1')
+
+    const listed = await executor().execute('list_tasks', { view: 'open' }, 'call-2') as { tasks: Record<string, unknown>[] }
+    const shown = listed.tasks.find((entry) => entry.id === blocker.id)
+    expect(shown?.blocking).toEqual([expect.any(String)])
+  })
+})

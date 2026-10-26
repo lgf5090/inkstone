@@ -216,7 +216,11 @@ describe('the task endpoints', () => {
     expect(single.task.archivedAt).toBeTypeOf('number')
 
     const stats = await json<{ summary: { completed: number, open: number } }>(
-      await send('GET', '/stats?from=2020-01-01&to=2099-12-31'))
+      // The route's own default window — the last 30 days, ending on the account's today — rather than
+      // the eighty-year span this case used to name. Both rows were written today, so the window the
+      // screen opens on answers the same question, and a day-bucket range that long is now a 400: the
+      // buckets a statistics answer carries are bounded (M-02).
+      await send('GET', '/stats'))
     // The statistics read the work, not the shelf, and that is a decision rather than an accident:
     // putting a task away is neither finishing it (so its finish still counts) nor abandoning it (so the
     // one still owed stays owed, and can be taken down and done). `cancelled` is the state that leaves

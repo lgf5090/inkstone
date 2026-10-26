@@ -14,9 +14,16 @@
  */
 
 import { LIMITS } from '@shared/constants'
-import { TASK_PRIORITIES, TASK_STATUSES, type TaskPriority, type TaskStatus } from '@shared/assistant'
+import { TASK_STATUSES, type TaskStatus } from '@shared/assistant'
 import type { SyncResponse } from '@shared/types'
-import { parseRepeatRule, type TaskTag, type TodoTask, type TodoTimeEntry } from '@shared/todos/model'
+import { type TaskRef, type TaskTag, type TodoTask, type TodoTimeEntry } from '@shared/todos/model'
+import {
+  TASK_REMINDER_TIMES,
+  TASK_TIME_ROLLUP,
+  reminderTimesOf,
+  toTask,
+  type TaskRow,
+} from '../assistant/store'
 import { toTimeEntry, type TodoTimeEntryRow } from '../todos/schema'
 import {
   NOTE_COLUMNS_NOTAGS,
@@ -47,40 +54,24 @@ export interface SyncChangeRow {
 }
 
 /**
- * The task columns the sync delta reads.
+ * The task read both sync answers share.
  *
- * Deliberately the row, not a `TodoTask`: the delta's clock is `updated_at`, and a tombstoned row
- * (`deleted_at` set) is the only way this read learns a task was removed. The mapping into the
- * shared task shape happens below, with tags, steps and reminders attached once per page.
+ * It spells the select exactly as the route listing does — every column the row carries, plus the two
+ * derived columns a task face reads — and serialises through the same `toTask`. The stream used to keep a
+ * hand-written column list of its own, and that list had quietly lost `position`, `start_at`,
+ * `time_estimate_ms` and the ledger's rollups: an offline device was told a task had no start date, no
+ * place in the reader's own order, and no stopwatch running. One serializer leaves nothing to remember.
  */
-interface TodoSyncRow {
+const TODO_SYNC_SELECT = `SELECT *, ${TASK_REMINDER_TIMES}, ${TASK_TIME_ROLLUP} FROM todos_tasks`
+
+/** One end of a `todos_task_links` row, joined to the task it points at. */
+interface TodoDepSyncRow {
+  key: string
   id: string
   title: string
-  description: string
   status: string
-  priority: string
-  due_at: number | null
-  project_id: string | null
-  list_id: string | null
-  /** The task's own icon, or null while it wears its list's. */
-  icon: string | null
-  /** The task's own colour, or null while it wears its list's. */
-  color: string | null
-  starred: number
-  repeat_rule: string | null
-  note_id: string | null
-  conversation_id: string | null
-  planned_for: string | null
   created_at: number
-  updated_at: number
-  completed_at: number | null
-  rev: number
-  deleted_at: number | null
-  archived_at: number | null
 }
-
-const TODO_SYNC_COLUMNS = `id, title, description, status, priority, due_at, project_id, list_id, icon, color, starred,
-  repeat_rule, note_id, conversation_id, planned_for, created_at, updated_at, completed_at, rev, deleted_at, archived_at`
 
 interface TodoTagSyncRow {
   task_id: string
@@ -245,12 +236,12 @@ export class SyncStore {
   async todosDelta(since: number): Promise<TodoSyncPage> {
     const { results } = await this.db
       .prepare(
-        `SELECT ${TODO_SYNC_COLUMNS} FROM todos_tasks
+        `${TODO_SYNC_SELECT}
           WHERE user_id = ?1 AND updated_at > ?2
           ORDER BY updated_at ASC, id ASC`,
       )
       .bind(this.userId, since)
-      .all<TodoSyncRow>()
+      .all<TaskRow>()
     const rows = results ?? []
     const cursor = rows.reduce((newest, row) => Math.max(newest, row.updated_at), since)
     const deleted = rows.filter((row) => row.deleted_at !== null).map((row) => row.id)
@@ -267,23 +258,23 @@ export class SyncStore {
   async todosSnapshot(): Promise<TodoSyncPage> {
     const { results } = await this.db
       .prepare(
-        `SELECT ${TODO_SYNC_COLUMNS} FROM todos_tasks
+        `${TODO_SYNC_SELECT}
           WHERE user_id = ?1 AND deleted_at IS NULL
           ORDER BY updated_at ASC, id ASC`,
       )
       .bind(this.userId)
-      .all<TodoSyncRow>()
+      .all<TaskRow>()
     const rows = results ?? []
     const newest = rows.reduce((max, row) => Math.max(max, row.updated_at), 0)
     return { todos: await this.todosWithDetails(rows), deleted: [], cursor: Math.max(newest, Date.now()) }
   }
 
-  /** Tags, step counts, pending reminders and the time ledger for one page of tasks, one query each. */
-  private async todosWithDetails(rows: TodoSyncRow[]): Promise<TodoTask[]> {
+  /** Tags, step counts, the time ledger and both ends of the dependency graph for one page of tasks. */
+  private async todosWithDetails(rows: TaskRow[]): Promise<TodoTask[]> {
     if (!rows.length) return []
     const ids = rows.map((row) => row.id)
     const chunks = chunkIds(ids)
-    const [tagPages, stepPages, reminderPages, timePages] = await Promise.all([
+    const [tagPages, stepPages, timePages, dependsDownPages, dependsUpPages] = await Promise.all([
       Promise.all(chunks.map((chunk) => this.db
         .prepare(
           `SELECT l.task_id, t.id, t.name, t.color, t.created_at, t.updated_at
@@ -304,15 +295,6 @@ export class SyncStore {
         )
         .bind(this.userId, ...chunk)
         .all<{ task_id: string; total: number; done: number | null }>())),
-      Promise.all(chunks.map((chunk) => this.db
-        .prepare(
-          `SELECT task_id, remind_at FROM todos_reminders
-            WHERE user_id = ?1 AND fired_at IS NULL
-              AND task_id IN (${placeholders(chunk.length, 2)})
-            ORDER BY remind_at ASC`,
-        )
-        .bind(this.userId, ...chunk)
-        .all<{ task_id: string; remind_at: number }>())),
       // The time ledger rides with the page it belongs to: every ledger write bumps its task's
       // `updated_at` (assistant/store.ts `touchTaskStatement`), so the whole set of one task's
       // intervals is restated whenever any of them changes, and a receiving device replaces rather
@@ -326,7 +308,45 @@ export class SyncStore {
         )
         .bind(this.userId, ...chunk)
         .all<TodoTimeEntryRow>())),
+      // Which task waits on which, read from both ends. The partner's title and live status travel with
+      // the link for the same reason the ledger restates whole: a receiving device replaces a row's
+      // dependencies rather than merging them, so an offline reader is never shown a waiting task as
+      // free to go. Trashed partners are left out — a row on its way to being gone is not what you are
+      // waiting for, and it is not something to report either.
+      Promise.all(chunks.map((chunk) => this.db
+        .prepare(
+          `SELECT l.task_id AS key, t.id, t.title, t.status, l.created_at
+             FROM todos_task_links l
+             JOIN todos_tasks t ON t.user_id = l.user_id AND t.id = l.depends_on_id
+            WHERE l.user_id = ?1 AND l.task_id IN (${placeholders(chunk.length, 2)})
+              AND t.deleted_at IS NULL
+            ORDER BY l.created_at ASC, l.depends_on_id ASC`,
+        )
+        .bind(this.userId, ...chunk)
+        .all<TodoDepSyncRow>())),
+      Promise.all(chunks.map((chunk) => this.db
+        .prepare(
+          `SELECT l.depends_on_id AS key, t.id, t.title, t.status, l.created_at
+             FROM todos_task_links l
+             JOIN todos_tasks t ON t.user_id = l.user_id AND t.id = l.task_id
+            WHERE l.user_id = ?1 AND l.depends_on_id IN (${placeholders(chunk.length, 2)})
+              AND t.deleted_at IS NULL
+            ORDER BY l.created_at ASC, l.task_id ASC`,
+        )
+        .bind(this.userId, ...chunk)
+        .all<TodoDepSyncRow>())),
     ])
+    const dependsOn = new Map<string, TaskRef[]>()
+    const blocks = new Map<string, TaskRef[]>()
+    for (const [pages, into] of [[dependsDownPages, dependsOn], [dependsUpPages, blocks]] as const) {
+      for (const page of pages) {
+        for (const row of page.results ?? []) {
+          const bucket = into.get(row.key) ?? []
+          bucket.push({ id: row.id, title: row.title, status: taskStatus(row.status) })
+          into.set(row.key, bucket)
+        }
+      }
+    }
     const tags = new Map<string, TaskTag[]>()
     for (const page of tagPages) {
       for (const row of page.results ?? []) {
@@ -347,14 +367,6 @@ export class SyncStore {
       for (const row of page.results ?? [])
         steps.set(row.task_id, { total: row.total, done: row.done ?? 0 })
     }
-    const reminders = new Map<string, number[]>()
-    for (const page of reminderPages) {
-      for (const row of page.results ?? []) {
-        const bucket = reminders.get(row.task_id) ?? []
-        bucket.push(row.remind_at)
-        reminders.set(row.task_id, bucket)
-      }
-    }
     const timeEntries = new Map<string, TodoTimeEntry[]>()
     for (const page of timePages) {
       for (const row of page.results ?? []) {
@@ -363,40 +375,19 @@ export class SyncStore {
         timeEntries.set(row.task_id, bucket)
       }
     }
-    return rows.map((row) => {
-      const pending = reminders.get(row.id) ?? []
-      const step = steps.get(row.id)
-      return {
-        id: row.id,
-        title: row.title,
-        description: row.description ?? '',
-        status: taskStatus(row.status),
-        priority: taskPriority(row.priority),
-        dueAt: row.due_at,
-        projectId: row.project_id,
-        listId: row.list_id,
-        icon: row.icon,
-        color: row.color,
+    return rows.map((row) => ({
+      ...toTask(row, {
         tags: tags.get(row.id) ?? [],
-        starred: row.starred === 1,
-        repeat: parseRepeatRule(parseJson(row.repeat_rule)),
-        reminders: pending,
-        remindAt: pending[0] ?? null,
-        remindedAt: null,
-        plannedFor: row.planned_for ?? null,
-        noteId: row.note_id,
-        conversationId: row.conversation_id,
-        timeEntries: timeEntries.get(row.id) ?? [],
-        stepTotal: step?.total ?? 0,
-        stepDone: step?.done ?? 0,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-        completedAt: row.completed_at,
-        rev: row.rev,
-        deletedAt: row.deleted_at,
-        archivedAt: row.archived_at,
-      }
-    })
+        dependsOn: dependsOn.get(row.id) ?? [],
+        blocks: blocks.get(row.id) ?? [],
+        stepTotal: steps.get(row.id)?.total ?? 0,
+        stepDone: steps.get(row.id)?.done ?? 0,
+        // The pending list rides in on the row's own packed column, the way every other task read
+        // carries it, rather than as a second query per page.
+        reminders: reminderTimesOf(row.reminder_times),
+      }),
+      timeEntries: timeEntries.get(row.id) ?? [],
+    }))
   }
 
   /**
@@ -459,19 +450,6 @@ function chunkIds(ids: readonly string[]): string[][] {
  */
 function taskStatus(value: string): TaskStatus {
   return TASK_STATUSES.includes(value as TaskStatus) ? value as TaskStatus : 'todo'
-}
-
-function taskPriority(value: string): TaskPriority {
-  return TASK_PRIORITIES.includes(value as TaskPriority) ? value as TaskPriority : 'medium'
-}
-
-function parseJson(value: string | null): unknown {
-  if (!value) return null
-  try {
-    return JSON.parse(value) as unknown
-  } catch {
-    return null
-  }
 }
 
 async function loadInChunks<T>(

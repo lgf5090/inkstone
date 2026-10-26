@@ -6,6 +6,15 @@
  * two-way sync here on purpose. Because of that, the whole job is to describe the account's *open,
  * dated* tasks as calendar events without ever stating a sequence the app itself would not produce.
  *
+ * ## What a capped read owes the subscriber
+ *
+ * The feed's query carries a `LIMIT` it must not exceed — a public, unauthenticated address that reads
+ * an account's whole table on every poll is a denial-of-service handle otherwise — so a subscriber whose
+ * owner holds more dated open tasks than the ceiling receives a partial calendar that looks complete.
+ * Nothing in the protocol lets a client see that, which is why the document states it itself, in calendar
+ * level properties, whenever it arrives holding the ceiling's worth of events. See
+ * {@link truncationLines}.
+ *
  * ## The time representation
  *
  * Every value is emitted in UTC (`Z`): `DTSTAMP` because RFC 5545 requires it to be UTC, and
@@ -34,7 +43,7 @@
 
 import type { TaskPriority } from '@shared/assistant'
 import { getZonedParts, timeZoneOffsetMs } from '@shared/assistant-schedule'
-import type { RepeatRule } from '@shared/todos/model'
+import { MAX_TASKS_PER_QUERY, type RepeatRule } from '@shared/todos/model'
 
 /** One open task, reduced to the fields a calendar may be shown. Nothing else is reachable here. */
 export interface IcsTask {
@@ -56,6 +65,17 @@ export interface IcsCalendarOptions {
   /** How far the subscriber's calendar may expand the series; used only to test for DST drift. */
   horizonMs: number
   prodId?: string
+  /**
+   * How many events the read that produced these tasks may carry at most.
+   *
+   * Defaults to {@link MAX_TASKS_PER_QUERY}, the ceiling `todos/feeds.ts` binds its `LIMIT` to and the
+   * same number the task listing caps at — one spelling, read by both sides. A document that arrives with
+   * the ceiling reached is therefore a *partial* view of the account, and a calendar client cannot tell:
+   * it shows its owner fifty tasks and reports "nothing else is due", which is a wrong fact rather than a
+   * short answer. So the builder says so inside the document. A caller that caps somewhere else names its
+   * own number here.
+   */
+  taskLimit?: number
 }
 
 /** A task is a point in time, not a meeting; the event spans this fixed window ending after the due instant. */
@@ -182,15 +202,39 @@ function eventLines(task: IcsTask, options: IcsCalendarOptions): string[] {
   return lines
 }
 
+/**
+ * The lines that tell a subscriber its calendar is looking at part of an account.
+ *
+ * A full document is the only shape a capped read can return, so reaching the ceiling is a fact the
+ * builder can state rather than a warning it has to guess at: the nearest `limit` dated open tasks are
+ * here and the rest of the account is not. `X-WR-CALDESC` is the description Google, Apple and Fastmail
+ * show for a subscribed calendar; the numeric companion is for a client that would rather read the ceiling
+ * than parse a sentence. Both sit at calendar level, before the first event, and an unknown `X-` property
+ * is one RFC 5545 tells clients to ignore.
+ */
+function truncationLines(limit: number, shown: number): string[] {
+  const sentence =
+    `Inkstone to-do feed: one subscription lists at most ${limit} open tasks with a due date, ` +
+    `and this document holds ${shown} of them. A full document is a partial view of the account: the ` +
+    'tasks past that ceiling are absent here, not finished.'
+  return [
+    `X-WR-CALDESC:${escapeIcsText(sentence)}`,
+    `X-INKSTONE-FEED-LIMIT:${limit}`,
+  ]
+}
+
 /** Render a set of open, dated tasks as a complete `text/calendar` document, earliest due first. */
 export function buildIcsCalendar(tasks: readonly IcsTask[], options: IcsCalendarOptions): string {
   const ordered = [...tasks].sort((a, b) => a.dueAt - b.dueAt || a.id.localeCompare(b.id))
+  const limit = options.taskLimit ?? MAX_TASKS_PER_QUERY
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
     `PRODID:${escapeIcsText(options.prodId ?? '-//Inkstone//Todo Feed//EN')}`,
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
+    // The read caps at `limit`, so a document that came back full is the truncation and says so.
+    ...(ordered.length >= limit ? truncationLines(limit, ordered.length) : []),
     ...ordered.flatMap((task) => eventLines(task, options)),
     'END:VCALENDAR',
   ]

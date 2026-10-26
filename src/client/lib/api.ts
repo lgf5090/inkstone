@@ -116,6 +116,7 @@ import type {
   SnoozeMinutes,
   TaskBatchRequestOp,
   TaskBatchResult,
+  TaskCounts,
   TaskList,
   TaskPage,
   TaskStatsBucket,
@@ -126,7 +127,7 @@ import type {
   TodoTask,
   TodoTimeEntry,
 } from '@shared/todos/model'
-import { REMIND_OFFSET_MS, type CounterReadings, type CounterStop, type CounterTick, type CounterKind, type FinishDay, type RemindTier, type TodoCounter, type Worklog } from '@shared/todos/model'
+import { REMIND_OFFSET_MS, type CounterReadings, type CounterStop, type CounterTick, type CounterKind, type FinishDay, type RemindTier, type TodoCounter, type TodoExportDocument, type Worklog } from '@shared/todos/model'
 import type {
   EmailAccount,
   EmailBatchInput,
@@ -800,10 +801,22 @@ export const api = {
   logout: () => request<{ ok: true }>('/api/auth/logout', { method: 'POST' }),
 
   auth: {
-    register: (username: string, password: string, locale: AppLocale = getLocale(), setupToken?: string) =>
+    register: (
+      username: string,
+      password: string,
+      locale: AppLocale = getLocale(),
+      setupToken?: string,
+      timezone?: string,
+    ) =>
       request<SessionInfo>('/api/auth/register', {
         method: 'POST',
-        body: setupToken ? { username, password, locale, setupToken } : { username, password, locale },
+        body: {
+          username,
+          password,
+          locale,
+          ...(setupToken ? { setupToken } : {}),
+          ...(timezone ? { timezone } : {}),
+        },
       }),
     login: (username: string, password: string) =>
       request<PasswordLoginResult>('/api/auth/login', { method: 'POST', body: { username, password } }),
@@ -1380,6 +1393,24 @@ export const api = {
       sort?: string, limit?: number, offset?: number
     } = {}) =>
       request<TaskPage>(`/api/todos${toQuery(params)}`),
+    /**
+     * The sidebar's numbers, without a task row attached.
+     *
+     * `counts`, `dayEnd` and `timezone` are the three fields a `TaskPage` carries beside `tasks` and
+     * `total`. A screen that only has to redraw its badges used to ask for a page of one task to get
+     * them, which read a whole row and re-ran the listing's filter for three scalars; this is the same
+     * aggregate the listing runs, on its own.
+     */
+    counts: () => request<{ counts: TaskCounts, dayEnd: number, timezone: string }>('/api/todos/counts'),
+    /**
+     * The whole list, as the file the reader keeps.
+     *
+     * JSON is the lossless answer and comes back typed; CSV is the interchange one and comes back as the
+     * exact bytes the server wrote, because re-stringifying a spreadsheet's text would be a second chance
+     * to change what a cell says. Both are handed to `saveFile` by the caller.
+     */
+    exportJson: () => request<TodoExportDocument>('/api/todos/export?format=json'),
+    exportCsv: () => request<string>('/api/todos/export?format=csv'),
     get: (id: string) => request<{ task: TodoTask, steps: TaskStep[] }>(`/api/todos/${id}`),
     /**
      * A new task.

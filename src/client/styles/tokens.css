@@ -500,6 +500,7 @@
   --accent: oklch(54% 0.15 30);
   --accent-hover: oklch(48.5% 0.155 30);
   --accent-contrast: oklch(99% 0 0);
+  --danger-contrast: oklch(99% 0 0);
   --accent-soft: color-mix(in oklab, var(--accent) 14%, transparent);
   --accent-softer: color-mix(in oklab, var(--accent) 7%, transparent);
   /* The warning's own wash, same recipe as the accent's: `--warning` is per scheme and per accent
@@ -528,7 +529,7 @@
 }
 
 
-:root[data-theme='dark'] { --accent-contrast: oklch(16% 0.008 265); }
+:root[data-theme='dark'] { --accent-contrast: oklch(16% 0.008 265); --danger-contrast: oklch(16% 0.008 265); }
 
 @media (prefers-reduced-motion: reduce) {
   :root {

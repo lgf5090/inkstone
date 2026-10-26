@@ -17,14 +17,22 @@
  * distinct and bounded by `count * stride`.
  */
 import { useRef, useState, type ReactNode } from 'react'
-import { Archive, ArchiveRestore, ArrowDown, ArrowUp, ChevronDown, ChevronRight, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, ArrowDown, ArrowUp, ChevronDown, ChevronRight, Globe, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
+import { localDate } from '@shared/assistant-time'
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { useDropState } from '../../lib/drop-state'
 import { useMediaQuery } from '../../lib/hooks'
-import { IconButton } from '../../components/primitives'
+import { Button, IconButton } from '../../components/primitives'
+import { api } from '../../lib/api'
+import { saveFile } from './export-file'
 import { Menu, type MenuItem } from '../../components/overlay'
+import { useUi } from '../../store/ui'
+import { warmSettingsSection } from '../settings/sections'
 import { useTodos, type TaskListEntry } from './store'
+import { useSession } from '../../store/session'
+import { DEFAULT_TODO_WORKDAY } from '@shared/constants'
+import { surfaceBadge, surfacesFor } from './views/nav'
 import { FINE_POINTER_QUERY } from './TaskCard'
 import { TagEditor } from './OrganizerEditors'
 import { TrashPanel } from './TrashPanel'
@@ -290,6 +298,82 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
   // path — which is why the menu rows are built whether or not this pointer can drag. The question is
   // the card's own, asked once, so it reads the card's spelling of it.
   const finePointer = useMediaQuery(FINE_POINTER_QUERY)
+  // The zone the account's day is measured in, read off the listing it just answered for.
+  const timezone = useTodos((state) => state.timezone)
+  const view = useTodos((state) => state.view)
+  // Read here rather than inside the nav table, so switching the end-of-day page back on redraws this
+  // section on the same tick the sidebar changes — the same reason the frame reads it.
+  const workday = useSession((state) => state.settings.todo.workday) ?? DEFAULT_TODO_WORKDAY
+  const navFlags = { finishDayEnabled: workday.finishDayEnabled }
+
+  /**
+   * The one door from this app to its own settings.
+   *
+   * CSV import, the time zone and day end, the mail-to-task address and the published calendar all live
+   * under Settings → To-do, and nothing inside the app said so: an account registered before its zone was
+   * seeded reads "today" eight hours off with no way to notice it here. The row carries the zone on its
+   * face, so the wrong answer is visible rather than merely wrong. `warmSettingsSection` is the panel's
+   * own prefetch entry, asked the way the account sheet asks it; the panel opens on the section the
+   * reader last left it on, which is why the row names where the setting lives instead of pretending to
+   * be the setting.
+   */
+  const openTodoSettings = (): void => {
+    warmSettingsSection('todo')
+    useUi.getState().openPanel('settings')
+  }
+
+  /** Which export is in flight, so neither button can be pressed twice and both say they are waiting. */
+  const [exporting, setExporting] = useState<'json' | 'csv' | null>(null)
+
+  /**
+   * The whole list, handed over as a file.
+   *
+   * The app could always read its tasks a page at a time and never give them up: the statistics file is an
+   * aggregate of the work rather than the work, and the scheduled backup does not read a `todos_*` table at
+   * all. So a reader who believed they had a backup was keeping every other app in the vault and losing
+   * this one. JSON is the lossless answer — steps, the repeat rule, the estimate and the archive mark all
+   * survive it — and CSV is the interchange one, written in this repository's own importer's column
+   * vocabulary so a file exported here reads back the same set of tasks.
+   *
+   * The walk the server makes is bounded, and the two formats meet the bound differently because only one
+   * of them can say so: the JSON document carries its own `truncated` mark, and the CSV — which has no
+   * envelope to carry one, and whose comment lines would come back as tasks — is refused at the ceiling
+   * rather than handed over short. A partial file that reads as a complete one is a wrong fact, not a
+   * smaller answer (AGENTS.md rule 2).
+   */
+  const exportAll = async (format: 'json' | 'csv'): Promise<void> => {
+    if (exporting) return
+    setExporting(format)
+    // The account's own day, which is what the server's `Content-Disposition` names the file by — a
+    // UTC stamp would disagree with it for anyone east of Greenwich.
+    const stamp = localDate(Date.now(), timezone)
+    try {
+      if (format === 'csv') {
+        // The exact bytes the server wrote: re-serialising a spreadsheet's text would be a second chance
+        // to change what a cell says.
+        const text = await api.todos.exportCsv()
+        saveFile(`inkstone-todos-${stamp}.csv`, new Blob([text], { type: 'text/csv;charset=utf-8' }))
+        useUi.getState().toast({ title: t('todo.export.done'), tone: 'success' })
+        return
+      }
+      const document = await api.todos.exportJson()
+      saveFile(
+        `inkstone-todos-${stamp}.json`,
+        new Blob([`${JSON.stringify(document, null, 2)}\n`], { type: 'application/json' }),
+      )
+      useUi.getState().toast(document.truncated
+        ? { title: t('todo.export.truncated', { limit: document.total }), tone: 'warning' }
+        : { title: t('todo.export.done'), tone: 'success' })
+    } catch (error) {
+      useUi.getState().toast({
+        title: t('todo.toast.failed'),
+        description: error instanceof Error ? error.message : String(error),
+        tone: 'danger',
+      })
+    } finally {
+      setExporting(null)
+    }
+  }
 
   const toggleArchive = (): void => {
     const next = !archivedOpen
@@ -367,19 +451,33 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
     <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-3 pb-28 pt-2 md:px-5 md:pb-6">
       <div className="mx-auto flex w-full max-w-[640px] flex-col gap-5">
         <section>
+          {/* The same table the sidebar draws, asked the same way — not a second list of views somebody
+              has to remember to extend. This section used to name two of the ten surfaces by hand, which
+              read as the complete answer and was not one; a surface that earns a sidebar row now earns a
+              row here on the same tick. It stays because the sidebar can be collapsed, and then this is
+              the only view switch on the page. */}
           <h2 className="mb-1.5 px-1 text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">{t('todo.lists.views')}</h2>
           <div className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
-            <button type="button" onClick={() => setView('plan')} className="flex min-h-11 w-full items-center gap-2 px-3 text-left hover:bg-[var(--bg-hover)]">
-              <span className="min-w-0 flex-1 truncate text-[length:var(--text-13)]">{t('todo.view.plan')}</span>
-              <span className="text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">{counts?.all ?? 0}</span>
-              <ChevronRight size={13} className="text-[var(--text-quaternary)]" aria-hidden="true" />
-            </button>
-            <div className="h-px bg-[var(--border-subtle)]" />
-            <button type="button" onClick={() => setView('completed')} className="flex min-h-11 w-full items-center gap-2 px-3 text-left hover:bg-[var(--bg-hover)]">
-              <span className="min-w-0 flex-1 truncate text-[length:var(--text-13)]">{t('todo.smart.completed')}</span>
-              <span className="text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">{counts?.completed ?? 0}</span>
-              <ChevronRight size={13} className="text-[var(--text-quaternary)]" aria-hidden="true" />
-            </button>
+            {surfacesFor('sidebar', navFlags).map((surface, index) => {
+              const Icon = surface.icon
+              const badge = surfaceBadge(surface, 'sidebar', counts)
+              return (
+                <div key={surface.view}>
+                  {index > 0 && <div className="h-px bg-[var(--border-subtle)]" />}
+                  <button
+                    type="button"
+                    onClick={() => setView(surface.view)}
+                    aria-current={view === surface.view ? 'page' : undefined}
+                    className="flex min-h-11 w-full items-center gap-2 px-3 text-left hover:bg-[var(--bg-hover)]"
+                  >
+                    <span className="flex size-4 shrink-0 items-center justify-center text-[var(--text-tertiary)]"><Icon size={14} /></span>
+                    <span className="min-w-0 flex-1 truncate text-[length:var(--text-13)]">{t(surface.sidebar!.labelKey)}</span>
+                    {badge > 0 && <span className="shrink-0 text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">{badge}</span>}
+                    <ChevronRight size={13} className="shrink-0 text-[var(--text-quaternary)]" aria-hidden="true" />
+                  </button>
+                </div>
+              )
+            })}
           </div>
         </section>
 
@@ -541,6 +639,50 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
               ))}
             </div>
           )}
+        </section>
+
+        <section>
+          <div className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
+            <button
+              type="button"
+              onClick={openTodoSettings}
+              className="flex min-h-11 w-full items-center gap-2 px-3 text-left hover:bg-[var(--bg-hover)]"
+            >
+              <Globe size={14} className="shrink-0 text-[var(--text-tertiary)]" aria-hidden="true" />
+              <span className="min-w-0 flex-1 truncate text-[length:var(--text-13)]">{t('todo.lists.timezone_title')}</span>
+              <span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{timezone}</span>
+              <ChevronRight size={13} className="text-[var(--text-quaternary)]" aria-hidden="true" />
+            </button>
+          </div>
+          <p className="mt-1.5 px-1 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('todo.lists.timezone_hint')}</p>
+        </section>
+
+        {/* The two doors are the two answers, so they are two buttons rather than one control with a
+            menu: a reader picking "CSV" is picking the shape the file will have, and the difference is
+            the whole point of the choice. */}
+        <section>
+          <h2 className="px-1 pb-1.5 text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">{t('todo.export.title')}</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="subtle"
+              disabled={exporting !== null}
+              loading={exporting === 'json'}
+              onClick={() => { void exportAll('json') }}
+            >
+              {t('todo.export.json')}
+            </Button>
+            <Button
+              size="sm"
+              variant="subtle"
+              disabled={exporting !== null}
+              loading={exporting === 'csv'}
+              onClick={() => { void exportAll('csv') }}
+            >
+              {t('todo.export.csv')}
+            </Button>
+          </div>
+          <p className="mt-1.5 px-1 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('todo.export.hint')}</p>
         </section>
       </div>
 

@@ -650,3 +650,82 @@ describe('no key grows because the to-do family exists', () => {
       .toEqual([MCP_SCOPES.read, MCP_SCOPES.write, MCP_SCOPES.trash, MCP_SCOPES.todoWrite, MCP_SCOPES.todoDanger])
   })
 })
+
+describe('the tree and the waits over MCP', () => {
+  it('creates a child that waits on something and answers with both edges', async () => {
+    await switchPreferences(true, false)
+    const parent = await store.createTask({ title: 'Write the report' })
+    const blocker = await store.createTask({ title: 'Proofread it' })
+
+    const created = await callTool(WRITE, 'create_todo', {
+      operation_id: 'op-tree-create',
+      title: 'Send it out',
+      parent: parent.id,
+      waits_on: [parent.id, blocker.id],
+    })
+
+    expect(created.ok).toBe(true)
+    const task = (created.body as { task: Record<string, unknown> }).task
+    expect(task.parent_id).toBe(parent.id)
+    expect(task.waits_on).toEqual([parent.id, blocker.id])
+    // The other end is answered where it lives: reading a blocker says what it is blocking.
+    const readBlocker = await callTool(READ, 'get_todo', { task_id: blocker.id })
+    expect((readBlocker.body as { task: Record<string, unknown> }).task.blocking).toEqual([task.id])
+    const readChild = await callTool(READ, 'get_todo', { task_id: task.id as string })
+    expect((readChild.body as { task: Record<string, unknown> }).task.parent_id).toBe(parent.id)
+  })
+
+  it('refuses a cycle with the store’s sentence rather than a server error', async () => {
+    await switchPreferences(true, false)
+    const parent = await store.createTask({ title: 'Upper row' })
+    const child = await store.createTask({ title: 'Lower row', parentId: parent.id })
+
+    const refused = await callTool(WRITE, 'update_todo', {
+      operation_id: 'op-tree-cycle',
+      task_id: parent.id,
+      parent: child.id,
+    })
+
+    expect(refused.ok).toBe(false)
+    expect(JSON.stringify(refused.body)).toMatch(/by a route/)
+    expect((await store.getTask(parent.id))?.parentId).toBeNull()
+  })
+
+  it('puts a row back at the top when the caller names null, and empties the set when it names none', async () => {
+    await switchPreferences(true, false)
+    const parent = await store.createTask({ title: 'Upper' })
+    const blocker = await store.createTask({ title: 'Blocker' })
+    const child = await store.createTask({ title: 'Lower', parentId: parent.id, dependsOn: [blocker.id] })
+
+    const updated = await callTool(WRITE, 'update_todo', {
+      operation_id: 'op-tree-clear',
+      task_id: child.id,
+      parent: null,
+      waits_on: [],
+    })
+
+    expect(updated.ok).toBe(true)
+    const stored = await store.getTask(child.id)
+    expect(stored?.parentId).toBeNull()
+    expect(stored?.dependsOn).toEqual([])
+    expect((await store.getTask(blocker.id))?.blocks).toEqual([])
+  })
+
+  it('refuses a task id that is not the caller’s own without saying whether it exists', async () => {
+    await switchPreferences(true, false)
+    const foreign = await new AssistantStore(env.DB as D1Database, OTHER, env).createTask({ title: 'Foreign row' })
+    const mine = await store.createTask({ title: 'Mine' })
+
+    const refused = await callTool(WRITE, 'update_todo', {
+      operation_id: 'op-tree-foreign',
+      task_id: mine.id,
+      waits_on: [foreign.id],
+    })
+
+    expect(refused.ok).toBe(false)
+    const words = JSON.stringify(refused.body)
+    expect(words).toMatch(/this account/)
+    expect(words).not.toContain(foreign.id)
+    expect((await store.getTask(mine.id))?.dependsOn).toEqual([])
+  })
+})

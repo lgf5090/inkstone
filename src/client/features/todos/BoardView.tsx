@@ -2,8 +2,8 @@
  * The board: every list as a card, the way the reference app opens.
  *
  * A card answers one question — what does this list still owe me — so it shows a few open tasks and
- * a `done / total` line, and nothing else. The chips above it are the same lists, because on a phone
- * the board is two columns wide and a list that is not on screen needs a way to be reached.
+ * a `done / total` line, and nothing else. The chips above it are the same lists, because as few as one
+ * of them fits a row and a list that is not on screen needs a way to be reached.
  */
 
 import { useEffect, useRef, useState, type ReactNode, type Ref } from 'react'
@@ -14,11 +14,20 @@ import { useDropState } from '../../lib/drop-state'
 import { useTodos, listNamed, quickAddDraft, remindOffsetOf } from './store'
 import { useUi } from '../../store/ui'
 import { TodoPageFooter } from './TodoPageFooter'
+import { ListingFailure } from './TaskViews'
 import { Input } from '../../components/form'
 import { ListIcon } from './list-icons'
 import { priorityLabel, repeatLabel } from './todo-ui'
 import { quickAddHighlights } from './quick-add-highlight'
-import { TaskCard, isTodoTaskDrag, moveTodoTask, readTodoTaskDrag, useTaskMoves } from './TaskCard'
+import {
+  TaskRow,
+  isTodoTaskDrag,
+  moveTodoTask,
+  readTodoTaskDrag,
+  useListingBounds,
+  useTaskMoves,
+  useTaskRowActions,
+} from './TaskCard'
 import { parseQuickAdd, type QuickAddParse, type QuickAddToken, type QuickAddTokenKind } from '@shared/todos/quick-parse'
 import { toLocalMinute } from '@shared/assistant-time'
 import type { MessageKey } from '@shared/locales/en-US'
@@ -273,9 +282,10 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
   const counts = useTodos((state) => state.counts)
   const dayEnd = useTodos((state) => state.dayEnd)
   const timezone = useTodos((state) => state.timezone)
+  const status = useTodos((state) => state.status)
+  const error = useTodos((state) => state.error)
+  const readAgain = useTodos((state) => state.load)
   const createTask = useTodos((state) => state.createTask)
-  const openEditor = useTodos((state) => state.openEditor)
-  const updateTask = useTodos((state) => state.updateTask)
   const sort = useTodos((state) => state.sort)
   const query = useTodos((state) => state.query)
   const dueFrom = useTodos((state) => state.dueFrom)
@@ -299,6 +309,8 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
   // on a row is handled by the row itself and never reaches this; a drop on the card appends.
   const [dropCard, setDropCard] = useDropState<string | null>(null)
   const moveFor = useTaskMoves(!sort)
+  // The rows are memoised, so the page's presses are bound once here rather than per card per render.
+  const actions = useTaskRowActions({ moveFor })
   /**
    * Voice input for the inline field.
    *
@@ -370,7 +382,7 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
     ? t('todo.voice.listening')
     : voiceState === 'error' && voiceError ? t(voiceError) : ''
 
-  const bounds = { dayEnd, now: Date.now() }
+  const bounds = useListingBounds(dayEnd)
   // A card keeps the order the page arrived in: the server read it in the order the sort control
   // states, and sorting each card again in the browser would quietly overrule that choice.
   const cards: BoardCard[] = [
@@ -423,6 +435,18 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
     if (created) useUi.getState().toast({ title: t('todo.toast.created'), tone: 'success' })
   }
 
+  // A read that came back broken is not a board of empty collections. Every card below would say its own
+  // list holds nothing, while the one fact worth saying is that this page has no answer — and a card
+  // would not be a card to add to either, since the row that writes it belongs to a collection this read
+  // did not confirm. Said once, with the way to ask again, as the trash and the habits page say it.
+  if (status === 'error') {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <ListingFailure message={error} onRetry={() => { void readAgain() }} />
+      </div>
+    )
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="no-scrollbar flex shrink-0 items-center gap-1.5 overflow-x-auto px-3 py-2 md:px-5">
@@ -447,7 +471,12 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
         {/* No standalone first-run note here: the inbox is always one of the cards below, so a centred
             "create your first list" line beside it reads as a contradiction. The card's own empty body
             and the sidebar's + carry that guidance instead. */}
-        <div className="grid grid-cols-1 gap-2.5 min-[420px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4" role="list" aria-label={t('todo.a11y.list_cards')}>
+        {/* The tracks follow the cards rather than the viewport: three lists on a 1920 screen used to draw
+            four columns and leave the fourth empty, and one list filled a quarter of the page. `auto-fit`
+            collapses the tracks no card stands in — `auto-fill` would keep reserving them, which is the
+            hole being closed — and the floor is `min(100%, 320px)` so the narrowest phone still gets one
+            column it does not overflow. */}
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,320px),1fr))] gap-2.5" role="list" aria-label={t('todo.a11y.list_cards')}>
           {cards.map((card) => (
             <section
               key={card.id}
@@ -487,22 +516,25 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
                   ? <ListIcon icon={card.icon} size={14} />
                   : <ListChecks size={14} style={{ color: card.color }} />}
                 <span className="min-w-0 flex-1 truncate text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">{card.name}</span>
-                <span className="shrink-0 text-[length:var(--text-10-5)] tabular-nums text-[var(--text-tertiary)]">{card.done}/{card.open + card.done}</span>
+                {/* The fraction answers "how much of this list is done", and a list with no rows has not
+                    asked that question. `0/0` on an empty card is a number that means nothing sitting
+                    where a number would have meant something; the card's own empty body says the rest. */}
+                {card.open + card.done > 0 && (
+                  <span className="shrink-0 text-[length:var(--text-10-5)] tabular-nums text-[var(--text-tertiary)]">{card.done}/{card.open + card.done}</span>
+                )}
                 <ChevronRight size={12} className="shrink-0 text-[var(--text-quaternary)]" />
               </button>
 
               <div className="flex min-h-0 flex-col px-0.5 py-1">
                 {card.tasks.slice(0, 3).map((task) => (
-                  <TaskCard
+                  <TaskRow
                     key={task.id}
                     task={task}
                     lists={lists}
                     bounds={bounds}
                     timezone={timezone}
+                    actions={actions}
                     compact
-                    move={moveFor(task) ?? undefined}
-                    onOpen={() => openEditor({ id: task.id })}
-                    onStar={() => { void updateTask(task.id, { starred: !task.starred }) }}
                   />
                 ))}
                 {card.tasks.length === 0 && (filtered || card.open + card.done === 0) && (

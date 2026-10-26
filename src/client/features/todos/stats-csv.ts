@@ -10,7 +10,9 @@
  * label column carries the reader's language. Days are the account-zone `YYYY-MM-DD` strings the
  * answer already holds, never UTC instants re-zoned here. Times are milliseconds, not the rounded hours
  * the bars draw: a spreadsheet can divide, and it cannot undo a rounding. The file starts with a UTF-8
- * BOM because Excel otherwise reads a Chinese label as mojibake.
+ * BOM because Excel otherwise reads a Chinese label as mojibake. A text cell that opens like a formula
+ * carries a leading apostrophe, so a label can arrive as `'=SUM(...)` — the columns and their order do
+ * not change, and a script that reads one export still reads the next.
  */
 import type { TodoStats, Worklog } from '@shared/todos/model'
 import { listName, tagName, weekdayName } from './stats-format'
@@ -18,9 +20,30 @@ import { priorityLabel } from './todo-ui'
 
 const BOM = '\ufeff'
 
-/** One CSV cell: quoted only when the text contains a delimiter, a quote or a line break. */
+/**
+ * What a spreadsheet runs instead of showing it.
+ *
+ * A cell that opens with one of these is handed to the formula engine by Excel, Numbers and WPS, and the
+ * text a statistics file can carry in that position is a name somebody else wrote: a tag or a list name
+ * reaches here from `todos_tasks` and from `todos_tag_links`, and both are filled by the CSV import as
+ * readily as by the task form, while `normalizeTagNames` strips a `#`, folds whitespace and truncates but
+ * has no reason to refuse a tag called `=HYPERLINK("http://evil","click")`. Quoting the cell does not
+ * stop the run, so the mark goes in front of the text.
+ */
+const FORMULA_LEAD = /^[=+\-@\t\r]/
+
+/** The prefix a spreadsheet prints rather than evaluates. */
+const FORMULA_MARK = "'"
+
+/**
+ * One CSV cell: defused when it opens like a formula, and quoted only when the text contains a
+ * delimiter, a quote or a line break.
+ *
+ * Only text is defused. Every number this file writes comes out of the server's own aggregates, so it
+ * cannot carry a reader's formula, and marking a negative value would change what a count column means.
+ */
 function cell(value: string | number): string {
-  const text = String(value)
+  const text = typeof value === 'string' && FORMULA_LEAD.test(value) ? `${FORMULA_MARK}${value}` : String(value)
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
 }
 

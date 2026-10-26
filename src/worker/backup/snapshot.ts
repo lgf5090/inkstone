@@ -8,6 +8,7 @@ import {
   backupMusicPath,
   backupSubscriptionsPath,
   backupTemplatesPath,
+  backupTodosPath,
   parseMarkdownBackupManifest,
   type MarkdownBackupAttachmentEntry,
   type MarkdownBackupManifest,
@@ -31,6 +32,7 @@ import {
 import { readBackupTemplates } from './templates'
 import { readBackupQuickAdd } from './quickadd'
 import { readBackupSubscriptions } from '../subscriptions/backup'
+import { readBackupTodos } from '../todos/backup'
 import { readBackupMusic } from '../music/backup'
 import { readBackupEmail } from '../email/backup'
 import { attachmentObjectKey } from '../attachments/keys'
@@ -41,7 +43,7 @@ import { sha256Hex } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import { safeAttachmentMime } from '../lib/image'
 
-export type BackupFileKind = 'note' | 'attachment' | 'readme' | 'manifest' | 'complete' | 'templates' | 'automation' | 'subscriptions' | 'music' | 'email' | 'email-attachment'
+export type BackupFileKind = 'note' | 'attachment' | 'readme' | 'manifest' | 'complete' | 'templates' | 'automation' | 'subscriptions' | 'todos' | 'music' | 'email' | 'email-attachment'
 
 export interface BackupFile {
   path: string
@@ -252,6 +254,15 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
       'application/json; charset=utf-8',
       'subscriptions',
     )
+  const todosText = await readBackupTodos(env.DB, userId)
+  const todosFile = todosText === null
+    ? null
+    : await staticFile(
+      backupTodosPath(stamp),
+      todosText,
+      'application/json; charset=utf-8',
+      'todos',
+    )
   const musicText = await readBackupMusic(env.DB, userId)
   const musicFile = musicText === null
     ? null
@@ -288,6 +299,9 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
       : undefined,
     subscriptions: subscriptionsFile
       ? { path: subscriptionsFile.path, bytes: subscriptionsFile.byteLength, sha256: subscriptionsFile.sha256 }
+      : undefined,
+    todos: todosFile
+      ? { path: todosFile.path, bytes: todosFile.byteLength, sha256: todosFile.sha256 }
       : undefined,
     music: musicFile
       ? { path: musicFile.path, bytes: musicFile.byteLength, sha256: musicFile.sha256 }
@@ -326,6 +340,7 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
     ...(templatesFile ? [templatesFile] : []),
     ...(automationFile ? [automationFile] : []),
     ...(subscriptionsFile ? [subscriptionsFile] : []),
+    ...(todosFile ? [todosFile] : []),
     ...(musicFile ? [musicFile] : []),
     ...(emailFile ? [emailFile] : []),
     ...(emailResult?.attachments ?? []),
@@ -771,6 +786,7 @@ function readme(
   const archived = notes.filter((note) => note.state === 'archived').length
   const trash = notes.filter((note) => note.state === 'trash').length
   return `Inkstone Markdown backup\n\nSnapshot (UTC): ${stamp}\nTotal notes: ${notes.length}\nActive: ${active}\nArchived: ${archived}\nTrash: ${trash}\nAttachments: ${attachments}\n\nnotes/ contains ordinary notes in their folder hierarchy.\narchived/ contains archived notes in their folder hierarchy.\ntrash/ contains trashed notes in their folder hierarchy.\nattachments/ contains referenced files in their original bytes; the checksum in each filename prevents collisions.\nmanifest.json records note state, timestamps, paths, and checksums.\ntemplates.json holds the account's own template library, when it has one.\nautomation.json holds the account's automation choices and their settings, when it has one.
-subscriptions.json holds the subscription app's plans, receipts, reminder rules and label registry — but never a notification channel credential, so a restored account has to reconnect those.\n\nRestore this ZIP directly in Inkstone. For a backup larger than the browser upload limit, extract it and select the extracted folder instead.\nA backup is valid only when its COMPLETE file is present and matches manifest.json.\n`
+subscriptions.json holds the subscription app's plans, receipts, reminder rules and label registry — but never a notification channel credential, so a restored account has to reconnect those.
+todos.json holds the to-do app's tasks, lists, tags, steps, alarms, history, worklog and habits — but never a published calendar feed address or a mail-to-task address, since either would be a way into the account that keeps working after a restore, so both are re-created in Settings. Task files themselves do not travel in this archive, so a task's files come back only when the account still holds them, and a timer or habit that was still running when the snapshot was taken comes back stopped.\n\nRestore this ZIP directly in Inkstone. For a backup larger than the browser upload limit, extract it and select the extracted folder instead.\nA backup is valid only when its COMPLETE file is present and matches manifest.json.\n`
 }
 

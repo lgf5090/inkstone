@@ -162,14 +162,15 @@ describe('the trash sweep past the bind budget', () => {
     const removed = await purgeExpiredTodoTrash(db, Date.now())
 
     expect(removed).toBe(200)
-    // Seven statements per 90-id chunk: six child tables — steps, tag links, reminders, the linked
-    // attachment rows, the time ledger and the task's history — and the tasks themselves. The two that
-    // arrived after this pin was written (the attachment link and the ledger) are the reason a count like
-    // this is worth reading rather than trusting: a child table left out of the sweep is an orphan no
-    // reader reaches, and this test is the only place that notices the list grew.
+    // Ten statements per 90-id chunk: eight child tables — steps, tag links, reminders, both ends of the
+    // dependency links, the attachment rows, the time ledger and the task's history — the promotion of the
+    // children of a purged task, and the tasks themselves. The dependency pair and that promotion arrived
+    // after this pin was first written, which is why a count like this is worth reading rather than
+    // trusting: a child table left out of the sweep is an orphan no reader reaches, and this test is the
+    // only place that notices the list grew.
     // (The sweep's own SELECT is recorded too, so count the batch statements only.)
     const batches = statements.filter((entry) => entry.sql === '')
-    expect(batches).toHaveLength(21)
+    expect(batches).toHaveLength(30)
     for (const entry of statements) expect(entry.values.length).toBeLessThanOrEqual(BIND_LIMIT)
   })
 })

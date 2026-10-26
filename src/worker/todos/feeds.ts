@@ -127,6 +127,14 @@ export async function revokeFeed(
  * The same visibility rule the app's own listings open with, so a list put away on the reader's side
  * is gone from the address a third-party calendar polls on its next fetch as well — a shelf the reader
  * cannot see past is not a shelf their calendar should see past.
+ *
+ * The `LIMIT` is {@link MAX_TASKS_PER_QUERY}, the ceiling the task listing caps at: this address is
+ * public and polled on a timer, and an uncapped read of one account's table on every poll is a
+ * denial-of-service handle. It is deliberately not raised. What an account holds past it is not silently
+ * missing — the read comes back *full* when it was cut, which is a countable fact, and the document
+ * rendered from these rows states it at calendar level (`todos/ics`'s truncation notice). Anything that
+ * changes this ceiling has to change the number the notice prints with it, which is why both read the one
+ * shared constant rather than spelling 500 twice.
  */
 export async function loadFeedTasks(db: D1Database, userId: string, horizonEnd: number): Promise<IcsTask[]> {
   const { results } = await db

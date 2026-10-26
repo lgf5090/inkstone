@@ -224,12 +224,16 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
       }
     }
 
-    set({
+    set((state) => ({
       isUnlocked: true,
       keyIV: keyiv,
       masterPasswordText: rawPassword,
       lastActiveTime: Date.now(),
-    })
+      // Whoever holds the key has a vault: the locked pane asks `vaultState.hasVault` to choose between the
+      // door and the setup form, and the answer read before the vault was created would lock a reader out of
+      // an empty screen until the next reload.
+      vaultState: state.vaultState ? { ...state.vaultState, hasVault: true } : state.vaultState,
+    }))
 
     void get().refreshData()
   },

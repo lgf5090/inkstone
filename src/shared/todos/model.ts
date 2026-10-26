@@ -8,7 +8,7 @@
  */
 
 import type { Task, TaskPriority, TaskStatus } from '../assistant'
-import { isTaskOpen } from './status'
+import { isTaskDone, isTaskOpen } from './status'
 import { daysInMonth, getZonedParts, zonedTimeToUtc } from '../assistant-schedule'
 import { ORGANIZER_COLORS, organizerColorOrNull } from '../organizer-colors'
 
@@ -180,6 +180,24 @@ export const MAX_TASK_ICON_CHARS = 40
 export const MAX_TASK_QUERY_CHARS = 200
 /** The most a single listing answers with; a page smaller than this is what a caller normally asks for. */
 export const MAX_TASKS_PER_QUERY = 500
+/**
+ * The shape `GET /api/todos/export?format=json` answers with.
+ *
+ * Declared here rather than in the worker because both sides read it: the route builds it, the app hands
+ * it to a file and a reader who restores one needs the `truncated` mark to survive the trip — a document
+ * that walks only part of an account is a partial answer, and saying so is the difference between a
+ * backup and a false sense of one.
+ */
+export interface TodoExportDocument {
+  format: 'inkstone-todos'
+  version: 1
+  exportedAt: number
+  timezone: string
+  /** How many rows the walk took in, which is the ceiling when {@link truncated} says the walk stopped. */
+  total: number
+  truncated: boolean
+  tasks: TodoTask[]
+}
 /** A completed list is history: the newest page is enough to answer "what did I finish". */
 export const COMPLETED_PAGE_SIZE = 200
 /** One page of the trash: a holding area, not a shelf, so its pages are smaller than the listing's. */
@@ -394,8 +412,38 @@ export interface TaskStep {
   createdAt: number
 }
 
+/**
+ * One end of a dependency, as the row that names it carries it: enough to read aloud, and enough to say
+ * whether the wait is over.
+ *
+ * The status travels because "waiting on the report" and "waiting on the report (already done)" are
+ * different facts for the reader, and re-reading the task table to work out which one it is would be a
+ * second answer to a question the link already knows.
+ */
+export interface TaskRef {
+  id: string
+  title: string
+  status: TaskStatus
+}
+
+/** Whether this row is still owed something else before it can be considered finished. */
+export function taskIsBlocked(task: Pick<TodoTask, 'dependsOn'>): boolean {
+  return task.dependsOn.some((entry) => !isTaskDone(entry.status))
+}
+
 export interface TodoTask extends Task {
   listId: string | null
+  /**
+   * The task this one is a step of, or null for a row that stands on its own.
+   *
+   * A place in a tree, not a second kind of row: a child is listed, counted, due, timed and exported like
+   * any other task, and nothing about its status is inherited from the parent. The parent's added power is
+   * only to gather its children next to it on the grouped listings, which is a reading of the rows already
+   * on the page — a child whose parent is not on this page is shown at the top level, not hidden.
+   *
+   * The chain is kept acyclic, shallow and this-account-only by the store on write; see `checkedTaskParent`.
+   */
+  parentId: string | null
   /**
    * The task's own icon, or null while it wears its list's.
    *
@@ -429,6 +477,21 @@ export interface TodoTask extends Task {
    */
   position?: number | null
   tags: TaskTag[]
+  /**
+   * The tasks this one waits on, and the tasks waiting on it, as the reader arranged them.
+   *
+   * A dependency is a fact about order, not about visibility: a blocked task stays on the board, in the
+   * badges, on the calendar and in the statistics exactly where it would be with none, because hiding it
+   * would make the counts disagree with the rows a reader can see. What the pair adds is the chance to
+   * say *why* a row is still open.
+   *
+   * Both sides are read from `todos_task_links` on every listing that returns rows, the way `tags` is,
+   * and each carries the blocker's live status rather than a stored verdict — finishing a task unblocks
+   * its dependents without a write ever touching them. Judge "is this waiting" with {@link taskIsBlocked}
+   * rather than by re-reading the statuses here.
+   */
+  dependsOn: TaskRef[]
+  blocks: TaskRef[]
   starred: boolean
   repeat: RepeatRule | null
   /**

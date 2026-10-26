@@ -42,7 +42,8 @@ import { RunningTimerBar } from './running-timer'
 import { FocusLayer } from './FocusOverlay'
 import { TodoKeysHelp } from './TodoKeysHelp'
 import { TODO_ROW_MENU_WIDTH, useTodoShortcuts } from './use-todo-shortcuts'
-import { TodoContent, surfaceBadge, surfacesFor, surfacesForPhoneMore } from './views/registry'
+import { TodoContent } from './views/registry'
+import { surfaceBadge, surfacesFor, surfacesForPhoneMore } from './views/nav'
 
 type Page = 'main' | 'lists'
 
@@ -58,6 +59,9 @@ const NO_SAVED_FILTERS: SavedTodoFilter[] = []
  */
 const PHONE_TAB_BAR_CLASS = 'h-[calc(64px+env(safe-area-inset-bottom))]'
 const PHONE_FAB_CLASS = 'bottom-[calc(76px+env(safe-area-inset-bottom))]'
+
+/** The largest count a badge draws as itself; above it the badge names its own ceiling. */
+const BADGE_CEILING = 9
 
 const TODO_WRITE_TOOLS = new Set([
   'create_task',
@@ -97,6 +101,7 @@ export function TodosApp() {
   const openEditor = useTodos((state) => state.openEditor)
   const selecting = useTodos((state) => state.selectedIds.size > 0)
   const counts = useTodos((state) => state.counts)
+  const countsStale = useTodos((state) => state.countsStale)
   const lists = useTodos((state) => state.lists)
   const tags = useTodos((state) => state.tags)
   const tasks = useTodos((state) => state.tasks)
@@ -372,6 +377,15 @@ export function TodosApp() {
 
   const sidebar = (
     <nav aria-label={t('todo.a11y.lists')} style={{ width: todoNavWidth }} className="flex h-full shrink-0 flex-col gap-4 overflow-y-auto border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-3">
+      {/* The counts are the server's aggregate, and a refresh that failed left the last good answer on
+          screen. That is the right trade against blanking the nav, but the reader has to be able to tell
+          a number they can act on from one they are merely waiting on — so the doubt is said once, where
+          the numbers are, rather than only in a toast that has already gone. */}
+      {countsStale && (
+        <p role="status" className="px-2 text-[length:var(--text-10-5)] text-[var(--warning)]">
+          {t('todo.counts.stale')}
+        </p>
+      )}
       <div className="flex flex-col gap-0.5">
         {surfacesFor('sidebar', navFlags).map((surface) => {
           const Icon = surface.icon
@@ -391,7 +405,9 @@ export function TodosApp() {
       <div className="flex flex-col gap-0.5">
         <div className="flex items-center justify-between px-2 pb-1">
           <span className="text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">{t('todo.a11y.lists')}</span>
-          <button type="button" aria-label={t('todo.action.new_list')} onClick={() => openListEditor(null)} className="text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]"><Plus size={12} /></button>
+          <IconButton label={t('todo.action.new_list')} size="xs" className="text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]" onClick={() => openListEditor(null)}>
+            <Plus size={12} />
+          </IconButton>
         </div>
         <SidebarRow icon={<span className="size-2 rounded-full bg-[var(--text-tertiary)]" />} label={t('todo.smart.inbox')} count={counts?.inbox ?? 0} active={view === 'list' && listId === 'inbox'} onClick={() => openList({ listId: 'inbox' })} />
         {lists.map((list) => (
@@ -525,7 +541,7 @@ export function TodosApp() {
             type="button"
             onClick={newTask}
             aria-label={t('todo.action.new_task')}
-            className={cn('fixed right-4 z-[var(--z-float)] flex size-14 items-center justify-center rounded-full bg-[var(--accent)] text-[var(--accent-contrast)] shadow-[var(--shadow-modal)] active:scale-95', PHONE_FAB_CLASS)}
+            className={cn('fixed right-4 z-[var(--z-float)] flex size-14 items-center justify-center rounded-full bg-[var(--accent)] text-[var(--accent-contrast)] shadow-[var(--shadow-pop)] active:scale-95', PHONE_FAB_CLASS)}
           >
             <Plus size={24} />
           </button>}
@@ -624,8 +640,8 @@ function MobileTab({ icon, label, active, badge, onClick }: {
       {icon}
       <span className="truncate">{label}</span>
       {badge > 0 && (
-        <span className="absolute right-[22%] top-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[var(--danger)] px-1 text-[length:var(--text-9)] font-semibold text-white">
-          {badge > 9 ? '9+' : badge}
+        <span className="absolute right-[22%] top-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[var(--danger)] px-1 text-[length:var(--text-9)] font-semibold text-[var(--danger-contrast)]">
+          {badge > BADGE_CEILING ? `${BADGE_CEILING}+` : badge}
         </span>
       )}
     </button>

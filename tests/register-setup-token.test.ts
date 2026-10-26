@@ -47,9 +47,26 @@ it('leaves the field out of an ordinary registration', async () => {
   expect(JSON.parse(sent[0]!.body)).not.toHaveProperty('setupToken')
 })
 
+/**
+ * The day boundary travels the same road the bootstrap token does.
+ *
+ * A registration that names no zone is the reason a fresh account starts its day in UTC, so the field
+ * has to reach the body when the caller knows it and stay out when it does not — the server refuses a
+ * zone it cannot resolve, which makes "sent nothing" a usable answer rather than a broken one.
+ */
+it('carries the zone when the caller names one, and leaves it out when it does not', async () => {
+  await api.auth.register('member', 'longenough-pass-1', 'en-US', undefined, 'Asia/Shanghai')
+  expect(JSON.parse(sent[0]!.body)).toMatchObject({ timezone: 'Asia/Shanghai' })
+  expect(JSON.parse(sent[0]!.body)).not.toHaveProperty('setupToken')
+
+  sent.length = 0
+  await api.auth.register('member', 'longenough-pass-1', 'en-US')
+  expect(JSON.parse(sent[0]!.body)).not.toHaveProperty('timezone')
+})
+
 it('carries the token from the session store through to the API', async () => {
   const text = (await import('node:fs')).readFileSync('src/client/store/session.ts', 'utf8')
-  expect(text).toMatch(/passwordRegister\(username, password, setupToken\)/)
-  expect(text).toMatch(/api\.auth\.register\(username, password, getLocale\(\), setupToken\)/)
-  expect(text).toMatch(/passwordRegister: \(username: string, password: string, setupToken\?: string\)/)
+  expect(text).toMatch(/passwordRegister\(username, password, setupToken, timezone\)/)
+  expect(text).toMatch(/api\.auth\.register\(username, password, getLocale\(\), setupToken, timezone\)/)
+  expect(text).toMatch(/passwordRegister: \(username: string, password: string, setupToken\?: string, timezone\?: string\)/)
 })

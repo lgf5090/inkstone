@@ -17,7 +17,7 @@ import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import { FinishDayView } from './FinishDayView'
 import { readsOwnRows, useTodos } from './store'
-import { surfacesFor, surfacesForPhoneMore, TODO_SURFACES } from './views/registry'
+import { surfacesFor, surfacesForPhoneMore, TODO_SURFACES } from './views/nav'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 import { DEFAULT_TODO_WORKDAY } from '@shared/constants'
@@ -133,6 +133,9 @@ function task(id: string, title: string, over: Partial<TodoTask> = {}): TodoTask
     updatedAt: NOW,
     listId: null,
     tags: [],
+    parentId: null,
+    dependsOn: [],
+    blocks: [],
     starred: false,
     repeat: null,
     noteId: null,

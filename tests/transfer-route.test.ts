@@ -5,10 +5,13 @@ import type { ExecutionContext } from 'hono'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
-import type { AppBindings } from '../src/worker/env'
+import { buildSnapshot, materializeSnapshot } from '../src/worker/backup/snapshot'
+import { BACKUP_TODOS_NAME, parseMarkdownBackupManifest } from '../src/shared/backup-format'
+import type { AppBindings, Env } from '../src/worker/env'
 import { transferRoutes } from '../src/worker/routes/transfer'
 import { TransferStore, type ImportedNoteWrite } from '../src/worker/transfer/store'
 import { makeD1 } from './doubles/d1-sqlite'
+import { testBindings } from './doubles/bindings'
 
 /**
  * The import half of the transfer route, against a real database.
@@ -496,5 +499,97 @@ describe('the transfer store', () => {
     )).toEqual({ color: '#ff0000', is_manual: 1 })
     expect(rows<{ id: string }>('SELECT entity_id AS id FROM changes WHERE user_id = ? AND entity = ?', ALICE, 'tag'))
       .toEqual([{ id: 'tag-alice-work' }])
+  })
+})
+
+describe('the archive’s to-do section, through the route that restores it', () => {
+  const LIST_ID = '0123456789abcdefghjkmnabc1'
+  const PARENT_ID = '0123456789abcdefghjkmndde1'
+  const CHILD_ID = '0123456789abcdefghjkmnffg1'
+
+  function seedTodos(userId: string): void {
+    sqlite.prepare(
+      `INSERT INTO todos_lists (user_id, id, name, icon, color, position, created_at, updated_at)
+       VALUES (?, ?, 'Work', NULL, NULL, 0, 1000, 1000)`,
+    ).run(userId, LIST_ID)
+    for (const [id, title, parent] of [[PARENT_ID, 'Write the report', null], [CHILD_ID, 'Send it out', PARENT_ID]] as const) {
+      sqlite.prepare(
+        `INSERT INTO todos_tasks (user_id, id, title, description, status, priority, list_id, parent_id,
+            starred, created_at, updated_at, rev)
+         VALUES (?, ?, ?, '', 'todo', 'medium', ?, ?, 0, 1000, 1000, 1)`,
+      ).run(userId, id, title, LIST_ID, parent)
+    }
+    sqlite.prepare(
+      `INSERT INTO todos_task_links (user_id, task_id, depends_on_id, created_at) VALUES (?, ?, ?, 1000)`,
+    ).run(userId, CHILD_ID, PARENT_ID)
+  }
+
+  /** The archive the export endpoint would have produced, posted the way the client posts a folder. */
+  async function backupForm(userId: string, mode: 'whole' | 'unlisted' = 'whole'): Promise<FormData> {
+    const bindings = testBindings(makeD1(sqlite))
+    const files = await materializeSnapshot(await buildSnapshot(bindings as unknown as Env, userId))
+    const manifest = parseMarkdownBackupManifest(
+      JSON.parse(new TextDecoder().decode(files.find((entry) => entry.path === 'manifest.json')!.body)),
+    )!
+    // The client posts only what the manifest names; the archive's own README and completeness marker
+    // stay out of the batch, and the route refuses a file it cannot match to an entry.
+    if (mode === 'unlisted') manifest.todos = undefined
+    const named = new Set<string>([
+      ...manifest.notes.map((entry) => entry.path),
+      ...manifest.attachments.map((entry) => entry.path),
+      ...(manifest.templates ? [manifest.templates.path] : []),
+      ...(manifest.automation ? [manifest.automation.path] : []),
+      ...(manifest.subscriptions ? [manifest.subscriptions.path] : []),
+      ...(manifest.todos ? [manifest.todos.path] : []),
+      ...(manifest.music ? [manifest.music.path] : []),
+      ...(manifest.email ? [manifest.email.path] : []),
+    ])
+    // The `unlisted` case posts the section file anyway: a file the manifest says nothing about is the
+    // one thing a restore must not guess about.
+    const posted = files.filter((entry) => named.has(entry.path) || (mode === 'unlisted' && entry.path === BACKUP_TODOS_NAME))
+    const form = new FormData()
+    form.append('backupManifest', JSON.stringify(manifest))
+    form.append('backupPaths', JSON.stringify(posted.map((entry) => entry.path)))
+    for (const entry of posted) {
+      form.append('file', new File([entry.body as BlobPart], entry.path))
+    }
+    return form
+  }
+
+  it('puts the tasks back with their nesting and their dependency edges', async () => {
+    seedTodos(ALICE)
+    const form = await backupForm(ALICE)
+    sqlite.prepare('DELETE FROM todos_task_links WHERE user_id = ?').run(ALICE)
+    sqlite.prepare('DELETE FROM todos_tasks WHERE user_id = ?').run(ALICE)
+    sqlite.prepare('DELETE FROM todos_lists WHERE user_id = ?').run(ALICE)
+
+    const response = await importForm(ALICE, form)
+    expect(response.status, await response.clone().text()).toBe(200)
+
+    const tasks = rows<{ id: string; parent_id: string | null }>(
+      'SELECT id, parent_id FROM todos_tasks WHERE user_id = ? ORDER BY id', ALICE,
+    )
+    expect(tasks.map((row) => row.id).sort()).toEqual([CHILD_ID, PARENT_ID].sort())
+    // The two facts the section exists to carry: which row sat under which, and which edge said so.
+    expect(one<{ parent_id: string }>(
+      'SELECT parent_id FROM todos_tasks WHERE id = ?', CHILD_ID,
+    )?.parent_id).toBe(PARENT_ID)
+    expect(rows('SELECT task_id, depends_on_id FROM todos_task_links WHERE user_id = ?', ALICE))
+      .toEqual([{ task_id: CHILD_ID, depends_on_id: PARENT_ID }])
+  })
+
+  it('refuses a section file the manifest does not name, and writes nothing', async () => {
+    seedTodos(ALICE)
+    const other = '0123456789abcdefghjkmnhhk1'
+    sqlite.prepare('DELETE FROM todos_tasks WHERE user_id = ?').run(ALICE)
+    sqlite.prepare('DELETE FROM todos_task_links WHERE user_id = ?').run(ALICE)
+    sqlite.prepare('DELETE FROM todos_lists WHERE user_id = ?').run(ALICE)
+    seedTodos(other)
+    const form = await backupForm(other, 'unlisted')
+
+    const response = await importForm(ALICE, form)
+
+    expect(response.status).not.toBe(200)
+    expect(rows('SELECT id FROM todos_tasks WHERE user_id = ?', ALICE)).toEqual([])
   })
 })

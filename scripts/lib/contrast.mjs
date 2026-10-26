@@ -22,7 +22,10 @@ export const parseColor = (value) => {
   if (!functional) return null
   const body = functional[2]
   const [head, alphaPart] = body.split('/')
-  const numbers = head.trim().split(/\s+/)
+  // Arguments separate on whitespace, on commas, or on both at once: `rgb(0,0,0)` is a legal literal and
+  // `rgb(0, 0, 0)` is what a computed value reads like. Splitting on whitespace alone collapsed the first
+  // into a single channel, and a reader downstream then compared `undefined` as if it were a colour.
+  const numbers = head.trim().split(/[\s,]+/)
   const alpha = alphaPart === undefined ? 1 : alphaPart.trim().endsWith('%') ? Number.parseFloat(alphaPart) / 100 : Number.parseFloat(alphaPart)
   if (functional[1] === 'rgb' || functional[1] === 'rgba') {
     // Legacy rgba() carries its alpha as a fourth channel, not after a slash.

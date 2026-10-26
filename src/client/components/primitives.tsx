@@ -42,7 +42,7 @@ const VARIANTS: Record<Variant, string> = {
   ghost: 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
   subtle: 'bg-[var(--bg-raised)] text-[var(--text-primary)] hover:bg-[var(--bg-active)]',
   danger:
-    'bg-[var(--danger)] text-white hover:brightness-108 shadow-[0_1px_2px_rgba(0,0,0,.14)]',
+    'bg-[var(--danger)] text-[var(--danger-contrast)] hover:brightness-108 shadow-[0_1px_2px_rgba(0,0,0,.14)]',
 }
 
 const SIZES: Record<Size, string> = {

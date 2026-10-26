@@ -46,7 +46,7 @@ export function NotificationsBell({ open, onOpen, onClose }: { open: boolean, on
             <Bell size={15} />
             {unread > 0 && (
               <span
-                className="absolute -right-1.5 -top-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[var(--danger)] px-[3px] text-[length:var(--text-9)] font-semibold text-white"
+                className="absolute -right-1.5 -top-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[var(--danger)] px-[3px] text-[length:var(--text-9)] font-semibold text-[var(--danger-contrast)]"
               >
                 {unread > 9 ? '9+' : unread}
               </span>

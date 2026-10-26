@@ -223,11 +223,25 @@ toolsPasswordRoutes.get('/backups', async (c) => {
 toolsPasswordRoutes.post('/backups', async (c) => {
   const store = getStore(c)
   const userId = getUserId(c)
-  const raw = await c.req.json().catch(() => ({}))
-  const body = (typeof raw === 'object' && raw !== null ? raw : {}) as {
+  // An absent body means "back up everything"; a body that cannot be read is refused instead of
+  // defaulted, because defaulting one turned a broken request into a full backup nobody asked for.
+  const text = await c.req.text()
+  let body: {
     type?: 'auto' | 'manual'
     filename?: string
     data?: PasswordBackupData
+  } = {}
+  if (text.trim() !== '') {
+    let raw: unknown
+    try {
+      raw = JSON.parse(text) as unknown
+    } catch {
+      throw ApiError.badRequest('Invalid JSON body')
+    }
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+      throw ApiError.badRequest('Invalid JSON body')
+    }
+    body = raw as typeof body
   }
 
   const type = body.type === 'auto' ? 'auto' : 'manual'

@@ -43,6 +43,13 @@ vi.mock('../../lib/api', () => ({
       }),
       lists: async () => ({ lists: [] }),
       tags: async () => ({ tags: [] }),
+      // The badges' own read: `refreshCounts` asks this rather than a page of one listing, so a store
+      // that lands a write answers the three scalars it needs.
+      counts: async () => ({
+        counts: EMPTY_COUNTS,
+        dayEnd: Date.now() + 3_600_000,
+        timezone: 'UTC',
+      }),
       get: async (id: string) => {
         const task = service.rows.get(id)
         if (!task) throw new Error('not found')
@@ -101,6 +108,9 @@ function row(id: string, title: string, extra: Partial<TodoTask> = {}): TodoTask
     updatedAt: 0,
     listId: null,
     tags: [],
+    parentId: null,
+    dependsOn: [],
+    blocks: [],
     starred: false,
     repeat: null,
     noteId: null,

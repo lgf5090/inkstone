@@ -66,7 +66,7 @@ import {
 } from '@shared/todos/model'
 import { isTaskDone } from '@shared/todos/status'
 import { TASK_STATUSES, type TaskPriority, type TaskStatus } from '@shared/assistant'
-import { AssistantStore, type TaskQuery } from '../assistant/store'
+import { AssistantStore, TaskRefusal, type TaskQuery } from '../assistant/store'
 import { runIdempotent } from '../mcp/operations'
 import { insertFeed, listFeeds, revokeFeed, type OwnFeedRow } from '../todos/feeds'
 import {
@@ -79,7 +79,8 @@ import {
   stopCounterTimer,
   updateCounter,
 } from '../todos/counters'
-import { addDays, isStatsDay, loadTodoStats } from '../todos/stats'
+import { addDays, countStatBuckets, isStatsDay, loadTodoStats, MAX_STATS_BUCKETS } from '../todos/stats'
+import { buildTodoExportCsv, buildTodoExportJson, collectExportTasks, TodoExportTooLarge } from '../todos/export-tasks'
 import { loadTrackedTotals, loadWorklog } from '../todos/worklog'
 
 const BODY_LIMIT = JSON_BODY_LIMITS.settings
@@ -338,6 +339,46 @@ function stepTexts(value: unknown): string[] | undefined {
     .filter(Boolean)
 }
 
+/**
+ * The dependency list a request names, judged by the same rule the store enforces.
+ *
+ * The route asks it so a bad set is a 400 with the store's own sentence rather than a 500 — the store
+ * re-checks on the write, because the assistant's tools and the MCP surface come in through it and must
+ * not get a weaker answer. `selfId` is the task being edited, or '' for a create, whose id nothing
+ * knows yet; a new row cannot already wait on itself.
+ */
+async function taskDepends(s: AssistantStore, value: unknown, selfId: string): Promise<string[] | undefined> {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
+    throw ApiError.badRequest('dependsOn must be a list of task ids.')
+  }
+  try {
+    return await s.checkedTaskDeps(selfId, value as string[])
+  } catch (error) {
+    if (error instanceof TaskRefusal) throw ApiError.badRequest(error.message)
+    throw error
+  }
+}
+
+/**
+ * The parent a request names, judged by the same rule the store enforces.
+ *
+ * `null` is the reader putting the row back at the top — an answer rather than an absence, so it travels
+ * as null and not as "nothing said". A bad id is a 400 with the store's own sentence, the way a bad
+ * dependency set is; `selfId` is '' for a create, whose id nothing knows yet.
+ */
+async function taskParent(s: AssistantStore, value: unknown, selfId: string): Promise<string | null | undefined> {
+  if (value === undefined) return undefined
+  if (value === null) return null
+  if (typeof value !== 'string') throw ApiError.badRequest('parentId must name a task or be null.')
+  try {
+    return await s.checkedTaskParent(selfId, value)
+  } catch (error) {
+    if (error instanceof TaskRefusal) throw ApiError.badRequest(error.message)
+    throw error
+  }
+}
+
 function tagNames(value: unknown): string[] | undefined {
   if (value === undefined) return undefined
   if (!Array.isArray(value) && typeof value !== 'string') throw ApiError.badRequest('Tags must be a list of names.')
@@ -536,15 +577,19 @@ function listingQuery(c: Ctx, timezone: string, dayEnd: number, today: string): 
 }
 
 /**
- * The range and granularity a statistics request asks for.
+ * The window and granularity a request names, read and no further judged.
  *
  * `from` and `to` are calendar days in the account's zone, both inclusive; missing values mean the last
  * 30 days, with `to` measured from the day the request lands on. A day that does not exist (30 February)
  * or a range that runs backwards is a 400 rather than an empty answer, because the reader asked a
  * different question than the one an empty range would answer. The comparison is lexical, which is exact
  * for `YYYY-MM-DD` and needs no zone arithmetic.
+ *
+ * How long the window may be is not decided here: `statsRange` adds that on for the reads whose answer
+ * grows with the window, and the worklog, which reads one row per account day at most, is bounded by the
+ * `eachDay` ceiling inside its own module.
  */
-function statsRange(c: Ctx, timezone: string): { from: string; to: string; bucket: TaskStatsBucket } {
+function statsWindow(c: Ctx, timezone: string): { from: string; to: string; bucket: TaskStatsBucket } {
   const today = localDate(Date.now(), timezone)
   const to = c.req.query('to') || today
   if (!isStatsDay(to)) throw ApiError.badRequest('A statistics range must end on a date like 2026-01-31.')
@@ -554,6 +599,33 @@ function statsRange(c: Ctx, timezone: string): { from: string; to: string; bucke
   const bucket = c.req.query('bucket') ?? 'day'
   if (!isTaskStatsBucket(bucket)) throw ApiError.badRequest('A bucket must be day, week or month.')
   return { from, to, bucket }
+}
+
+/**
+ * The window a statistics read asks for, with its span bounded.
+ *
+ * The span is the one parameter nobody checked, and it is the one that decides how big the answer is:
+ * this read emits a bucket per day, week or month, and the arithmetic that emits them costs per bucket.
+ * Measured against the real builders, a day-bucket range from 1900 to 2100 is 73 050 buckets — a
+ * 7 379 780-byte answer and ~309 ms of pure computation before D1 is asked anything at all. The UI only
+ * offers presets, but `todo-address.ts` reads `from`, `to` and `bucket` out of the address bar with
+ * format-only validation, so that range is a URL someone can paste and the assistant can build, which is
+ * also why the ceiling belongs server-side rather than in the picker (AGENTS.md rule 1).
+ *
+ * The ceiling is counted in buckets and differs per bucket, because buckets are what the answer carries.
+ * Above it the request is a 400 that names the coarser reading — a silently narrowed window would answer
+ * a different question than the one asked (rule 2).
+ */
+function statsRange(c: Ctx, timezone: string): { from: string; to: string; bucket: TaskStatsBucket } {
+  const range = statsWindow(c, timezone)
+  const buckets = countStatBuckets(range.from, range.to, range.bucket)
+  if (buckets > MAX_STATS_BUCKETS[range.bucket]) {
+    throw ApiError.badRequest(
+      `A ${range.bucket} statistics range spans at most ${MAX_STATS_BUCKETS[range.bucket]} buckets; this one spans ${buckets}.`
+      + ' Use a coarser bucket or a narrower window.',
+    )
+  }
+  return range
 }
 
 todoRoutes.get('/', async (c) => {
@@ -571,6 +643,87 @@ todoRoutes.get('/', async (c) => {
     s.taskCounts(dayEnd, today, settings.timezone),
   ])
   return c.json({ tasks, total, counts, dayEnd, timezone: settings.timezone })
+})
+
+/**
+ * The sidebar's three numbers, on their own.
+ *
+ * The listing carries `counts`, `dayEnd` and `timezone` beside its rows, and for a while the app asked
+ * for a page of one task after every write just to read those three back — a whole row and the filter it
+ * was counted under, dragged along for a badge. This route runs the same aggregate the listing runs,
+ * through the same `s.taskCounts`, and returns nothing else. It is a read, so it spends no write budget:
+ * the brake above only fires for a method that changes something, and this one is called after every
+ * change that did.
+ *
+ * Registered before `/:id`, like `/stats` and `/worklog`: "counts" is a route, not a task called counts.
+ */
+todoRoutes.get('/counts', async (c) => {
+  const s = store(c)
+  const settings = await s.getSettings()
+  const dayEnd = readerDayEnd(settings.timezone)
+  // The same day the listing would have cut its badges by, so a refresh cannot print a number one day
+  // ahead of the page it sits beside.
+  const today = localDate(Date.now(), settings.timezone)
+  return c.json({
+    counts: await s.taskCounts(dayEnd, today, settings.timezone),
+    dayEnd,
+    timezone: settings.timezone,
+  })
+})
+
+/**
+ * The whole of the account's to-do list, as a file the reader keeps.
+ *
+ * The app has always been able to read its tasks in a page at a time and never able to hand them over:
+ * the statistics file is an aggregate of the work, not the work, and the scheduled backup does not read a
+ * `todos_*` table at all. This is the read half of that gap. The document is built in
+ * `todos/export-tasks`, which owns the paging, the ceiling and the importer's column vocabulary; this
+ * handler only answers with it, as an attachment, and picks the format.
+ *
+ * A read, so it spends no write budget — but it walks the account's rows a page at a time, which is more
+ * work than any other read here, so it is bounded by that module's own ceiling rather than by the
+ * listing's page size. Registered before `/:id`: "export" is a route, not a task called export.
+ */
+todoRoutes.get('/export', async (c) => {
+  const s = store(c)
+  const format = c.req.query('format') ?? 'json'
+  if (format !== 'json' && format !== 'csv') {
+    throw ApiError.badRequest('An export is written as json or csv.')
+  }
+  const settings = await s.getSettings()
+  const [{ tasks, truncated }, lists, archivedLists] = await Promise.all([
+    collectExportTasks(s),
+    s.listTaskLists(),
+    s.listTaskLists({ archived: true }),
+  ])
+  const names = new Map([...lists, ...archivedLists].map((list) => [list.id, list.name]))
+  const exportedAt = Date.now()
+  const filename = `inkstone-todos-${localDate(exportedAt, settings.timezone)}.${format}`
+  const body = (() => {
+    if (format !== 'csv') return buildTodoExportJson(tasks, { exportedAt, timezone: settings.timezone, truncated })
+    try {
+      // The CSV has nowhere to say "this is only part of the account", so an account past the ceiling is
+      // refused by name rather than answered with a short file that reads as a complete one.
+      return buildTodoExportCsv(tasks, {
+        timezone: settings.timezone,
+        truncated,
+        listName: (task) => (task.listId === null ? null : names.get(task.listId) ?? null),
+      })
+    } catch (error) {
+      if (error instanceof TodoExportTooLarge) throw ApiError.badRequest(error.message)
+      throw error
+    }
+  })()
+  return new Response(body, {
+    status: 200,
+    headers: {
+      'Content-Type': format === 'csv' ? 'text/csv; charset=utf-8' : 'application/json; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      // The document is the account's own text, so nothing may hold a copy of it on the way out.
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+    },
+  })
 })
 
 /**
@@ -598,10 +751,14 @@ todoRoutes.get('/stats', async (c) => {
  * this sums the ledger, and the two answer about different things — an account can hold forty hours in
  * a week whose tasks were mostly closed later. Folding them would make one number answer two questions,
  * and one request would always be paying for the half the screen did not show.
+ *
+ * It reads the window unbounded (`statsWindow`) and not bounded (`statsRange`), because its own answer
+ * grows one row per account day and `todos/worklog` cuts that at `eachDay`'s ceiling. The statistics
+ * answer had no such cut, which is the difference the span ceiling is for.
  */
 todoRoutes.get('/worklog', async (c) => {
   const settings = await store(c).getSettings()
-  const range = statsRange(c, settings.timezone)
+  const range = statsWindow(c, settings.timezone)
   const asked = c.req.query('group')
   if (asked !== undefined && !(WORKLOG_DIMENSIONS as readonly string[]).includes(asked))
     throw ApiError.badRequest('The worklog groups by list, tag or task.')
@@ -1152,6 +1309,8 @@ todoRoutes.post('/', async (c) => {
     conversationId: optionalId(body.conversationId, 'conversationId') ?? null,
     tags: tagNames(body.tags),
     steps: stepTexts(body.steps),
+    dependsOn: await taskDepends(s, body.dependsOn, ''),
+    parentId: await taskParent(s, body.parentId, ''),
   }
   // Everything the request has to say about itself is read above, so a body that is refused never
   // spends an operation row, and what the key is hashed over is the task this call asks for rather
@@ -1601,6 +1760,8 @@ todoRoutes.patch('/:id', async (c) => {
     ...(body.noteId !== undefined ? { noteId: optionalId(body.noteId, 'noteId') } : {}),
     ...(body.conversationId !== undefined ? { conversationId: optionalId(body.conversationId, 'conversationId') } : {}),
     ...(body.tags !== undefined ? { tags: tagNames(body.tags) ?? [] } : {}),
+    ...(body.dependsOn !== undefined ? { dependsOn: await taskDepends(s, body.dependsOn, id) } : {}),
+    ...(body.parentId !== undefined ? { parentId: await taskParent(s, body.parentId, id) } : {}),
   }
   // Whether this request also names content. A write here spends the revision the caller named, so a
   // second write made by the same request — the completion, or a reopen — must not name it again: the

@@ -531,6 +531,33 @@ describe('Password Manager Settings Routes', () => {
 })
 
 describe('Password Manager Backups & Export Routes', () => {
+  it('reads an absent backup body as "back up everything" and refuses one it cannot parse', async () => {
+    const gRes = await call('POST', '/api/tools/password/groups', { body: { name: 'NoBodyGroup' } })
+    const g = (await json<{ ok: boolean; data: { id: string } }>(gRes)).data
+    await call('POST', '/api/tools/password/accounts', {
+      body: { groupId: g.id, title: 'NoBodyAccount', username: 'u', password: 'p' },
+    })
+
+    const emptyRes = await call('POST', '/api/tools/password/backups')
+    expect(emptyRes.status).toBe(200)
+
+    // A truncated upload used to be caught and defaulted, so the caller that meant "back up this subset"
+    // got a full snapshot instead. The route cannot honour a body it cannot read, so it says so.
+    const brokenRes = await app.fetch(
+      new Request('http://localhost/api/tools/password/backups', {
+        method: 'POST',
+        headers: { 'x-test-user': USER_A, 'X-Inkstone-Client': '1', 'content-type': 'application/json' },
+        body: '{"type":"manual"',
+      }),
+      env,
+    )
+    expect(brokenRes.status).toBe(400)
+
+    const afterBroken = await call('GET', '/api/tools/password/backups')
+    const listed = await json<{ ok: boolean; data: Array<{ id: string }> }>(afterBroken)
+    expect(listed.data).toHaveLength(1)
+  })
+
   it('creates backup in R2, lists backups, restores backup, and exports TXT/CSV files', async () => {
     // 1. Create a group and account
     const gRes = await call('POST', '/api/tools/password/groups', { body: { name: 'BackupGroup' } })

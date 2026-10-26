@@ -321,51 +321,41 @@ export function ToolsSidebar({
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2 space-y-1">
         {/* First submodule: Password Vault (tools/password) */}
         <div>
-          <button
-            type="button"
-            aria-expanded={passwordModuleExpanded}
-            onClick={togglePasswordModuleExpanded}
-            className={cn(
-              'flex w-full items-center justify-between gap-2 rounded-[var(--r-md)] px-2.5 py-1.5 text-[length:var(--text-13)] font-medium text-[var(--text-secondary)]',
-              'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
-              'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
-              activeSubmodule === 'password' && 'text-[var(--text-primary)]',
-            )}
-          >
-            <div className="flex min-w-0 items-center gap-2">
-              <span
-                className={cn(
-                  'transition-transform duration-[var(--dur-fast)]',
-                  passwordModuleExpanded ? 'rotate-90' : 'rotate-0',
-                )}
-              >
-                <ChevronRight size={14} className="shrink-0 text-[var(--text-tertiary)]" />
-              </span>
-              <KeyRound size={16} className="shrink-0 text-[var(--accent)]" />
-              <span className="truncate">{t('tools.password.module_name')}</span>
-            </div>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              aria-expanded={passwordModuleExpanded}
+              onClick={togglePasswordModuleExpanded}
+              className={cn(
+                'flex min-w-0 flex-1 items-center justify-between gap-2 rounded-[var(--r-md)] px-2.5 py-1.5 text-[length:var(--text-13)] font-medium text-[var(--text-secondary)]',
+                'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+                'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+                activeSubmodule === 'password' && 'text-[var(--text-primary)]',
+              )}
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                <span
+                  className={cn(
+                    'transition-transform duration-[var(--dur-fast)]',
+                    passwordModuleExpanded ? 'rotate-90' : 'rotate-0',
+                  )}
+                >
+                  <ChevronRight size={14} className="shrink-0 text-[var(--text-tertiary)]" />
+                </span>
+                <KeyRound size={16} className="shrink-0 text-[var(--accent)]" />
+                <span className="truncate">{t('tools.password.module_name')}</span>
+              </div>
+            </button>
             {isUnlocked && (
-              <span
-                role="button"
-                tabIndex={0}
-                aria-label={t('tools.password.door.lock_now')}
-                title={t('tools.password.door.lock_now')}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  usePasswordVaultStore.getState().lock()
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.stopPropagation()
-                    usePasswordVaultStore.getState().lock()
-                  }
-                }}
-                className="rounded p-1 text-[var(--text-tertiary)] hover:bg-[var(--bg-muted)] hover:text-[var(--text-primary)]"
-              >
-                <Lock size={13} />
-              </span>
+              // The lock sits beside the row, not inside it: a button cannot hold a button, and a `span`
+              // dressed up as one is reachable by mouse only.
+              <Tooltip label={t('tools.password.door.lock_now')}>
+                <IconButton size="sm" label={t('tools.password.door.lock_now')} onClick={() => { usePasswordVaultStore.getState().lock() }}>
+                  <Lock size={13} />
+                </IconButton>
+              </Tooltip>
             )}
-          </button>
+          </div>
 
           {passwordModuleExpanded && (
             <div className="mt-1 ml-4 space-y-0.5 border-l border-[var(--border-subtle)] pl-2">
@@ -391,21 +381,21 @@ export function ToolsSidebar({
                       isSelected &&
                         'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]',
                     )}
-                  >
-                    <Icon size={14} className="shrink-0" />
-                    <span className="truncate">{t(slot.labelKey)}</span>
-                  </button>
-                )
-              })}
+                    >
+                      <Icon size={14} className="shrink-0" />
+                      <span className="truncate">{t(slot.labelKey)}</span>
+                    </button>
+                  )
+                })}
 
-              {/* Group tree mounting slot */}
-              <div
-                data-testid="tools-password-group-tree-slot"
-                className="mt-2 pt-2 border-t border-[var(--border-subtle)]"
-              >
-                <GroupTree />
+                {/* Group tree mounting slot */}
+                <div
+                  data-testid="tools-password-group-tree-slot"
+                  className="mt-2 pt-2 border-t border-[var(--border-subtle)]"
+                >
+                  <GroupTree />
+                </div>
               </div>
-            </div>
           )}
         </div>
 

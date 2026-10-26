@@ -18,6 +18,7 @@ import {
   TASK_VIEWS,
   TODO_TRASH_RETENTION_DAYS,
 } from '@shared/todos/model'
+import { MAX_DEPS_PER_TASK } from '../assistant/store'
 import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidId } from '../lib/id'
@@ -1100,7 +1101,7 @@ export function createInkstoneMcpServer(options: InkstoneMcpServerOptions): McpS
     'create_todo',
     {
       title: 'Create to-do',
-      description: 'Create a task in the reader\'s list. Use for an action, not for a fact. Requires todos:write and an operation_id for safe retry; a list or tag named by a value the account does not have is refused rather than filed in the inbox.',
+      description: 'Create a task in the reader\'s list. Use for an action, not for a fact. Requires todos:write and an operation_id for safe retry; a list or tag named by a value the account does not have is refused rather than filed in the inbox, and so is a parent or a task to wait on.',
       inputSchema: z.object({
         operation_id: operationId,
         title: z.string().trim().min(1).max(MAX_TASK_TITLE_CHARS),
@@ -1110,6 +1111,9 @@ export function createInkstoneMcpServer(options: InkstoneMcpServerOptions): McpS
         remind: z.enum(REMIND_OFFSETS).optional()
           .describe('When to remind, measured back from the due time; needs a due date to be measured from'),
         list: z.string().trim().min(1).max(MAX_LIST_NAME_CHARS).optional(),
+        parent: taskId.optional().describe('The task this one is a step of; a child is an ordinary task, the parent only groups it on screen'),
+        waits_on: z.array(taskId).max(MAX_DEPS_PER_TASK).optional()
+          .describe('Tasks this one waits on, by id; a waiting task is still listed and counted, it just says why'),
         tags: z.array(z.string().trim().min(1).max(MAX_TAG_NAME_CHARS)).max(MAX_TAGS_PER_TASK).optional()
           .describe('Tag names; one the account does not have yet is created'),
         steps: z.array(z.string().trim().min(1).max(MAX_STEP_TEXT_CHARS)).max(MAX_STEPS_PER_TASK).optional()
@@ -1131,6 +1135,8 @@ export function createInkstoneMcpServer(options: InkstoneMcpServerOptions): McpS
       due: input.due,
       remind: input.remind,
       list: input.list,
+      parent: input.parent,
+      waitsOn: input.waits_on,
       tags: input.tags,
       steps: input.steps,
       repeat: input.repeat,
@@ -1144,7 +1150,7 @@ export function createInkstoneMcpServer(options: InkstoneMcpServerOptions): McpS
     'update_todo',
     {
       title: 'Update to-do',
-      description: 'Change only the fields named: title, note, status, priority, due date, list, tags, repeat, reminder, star or source note. Requires todos:write. Naming `done` as the status completes the task, so a repeating one files its next occurrence.',
+      description: 'Change only the fields named: title, note, status, priority, due date, list, parent, the tasks it waits on, tags, repeat, reminder, star or source note. Requires todos:write. Naming `done` as the status completes the task, so a repeating one files its next occurrence.',
       inputSchema: z.object({
         operation_id: operationId,
         task_id: taskId,
@@ -1155,6 +1161,10 @@ export function createInkstoneMcpServer(options: InkstoneMcpServerOptions): McpS
         due: localTime.nullable().optional(),
         list: z.string().trim().min(1).max(MAX_LIST_NAME_CHARS).nullable().optional()
           .describe('A list name or id; null moves the task to the inbox'),
+        parent: taskId.nullable().optional()
+          .describe('The task this one is a step of; null puts it back at the top'),
+        waits_on: z.array(taskId).max(MAX_DEPS_PER_TASK).optional()
+          .describe('The tasks this one waits on, replacing the set it has; an empty list waits on nothing'),
         tags: z.array(z.string().trim().min(1).max(MAX_TAG_NAME_CHARS)).max(MAX_TAGS_PER_TASK).optional()
           .describe('The task\'s tags, replacing the ones it has'),
         repeat: z.enum([...REPEAT_FREQUENCIES, 'none']).optional()
@@ -1176,6 +1186,8 @@ export function createInkstoneMcpServer(options: InkstoneMcpServerOptions): McpS
       priority: input.priority,
       due: input.due,
       list: input.list,
+      parent: input.parent,
+      waitsOn: input.waits_on,
       tags: input.tags,
       repeat: input.repeat,
       repeatInterval: input.repeat_interval,

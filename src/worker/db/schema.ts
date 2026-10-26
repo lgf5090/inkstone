@@ -2630,6 +2630,18 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
   {
     version: 174,
     statements: TOOLS_SHORTLINKS_SCHEMA_STATEMENTS,
+    // The task this row is a step of. A child stays an ordinary task — listed, counted, due, exported —
+    // and the parent's only added power is to gather the rows under it on screen, so the column is a
+    // place in a tree rather than a second kind of row. Nullable with no default because a row that
+    // stands on its own is not carrying a missing value. The index is declared beside the column for a
+    // new database and created here for an old one, the same pair `music_playlist.share_slug` is.
+    version: 175,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'parent_id' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN parent_id TEXT`,
+      `CREATE INDEX IF NOT EXISTS idx_todos_tasks_parent
+         ON todos_tasks(user_id, parent_id)`,
+    ],
   },
 ]
 

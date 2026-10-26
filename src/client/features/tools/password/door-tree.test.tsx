@@ -365,6 +365,27 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       expect(usePasswordVaultStore.getState().isUnlocked).toBe(true)
       expect(usePasswordVaultStore.getState().masterPasswordText).toBe('Init01')
     })
+
+    it('keeps the door reachable for a lock taken right after setup', async () => {
+      // The blank pane was real, not a harness artefact: the vault state read before the setup still said
+      // "no vault", so locking took the setup branch — whose form opens only from its own modal flag — and
+      // the screen rendered nothing at all until a reload.
+      usePasswordVaultStore.setState({ vaultState: { hasVault: false }, isUnlocked: false, keyIV: null })
+      vi.spyOn(passwordApi, 'getGroups').mockResolvedValue([])
+      vi.spyOn(passwordApi, 'getAccounts').mockResolvedValue([])
+
+      await act(async () => {
+        usePasswordVaultStore.getState().unlock({ key: 'k', iv: 'i' })
+      })
+      expect(usePasswordVaultStore.getState().vaultState).toEqual({ hasVault: true })
+
+      act(() => {
+        usePasswordVaultStore.getState().lock()
+      })
+      const after = usePasswordVaultStore.getState()
+      expect(after.isUnlocked).toBe(false)
+      expect(after.vaultState?.hasVault).toBe(true)
+    })
   })
 
   // ---------------------------------------------------------------- Reset
@@ -701,12 +722,13 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       expect(subNode?.textContent).toContain('1')
     })
 
-    it('toggles expand and collapse arrow', () => {
+    it('names the toggle for its state and folds the branch back', () => {
       renderWithHosts(createElement(GroupTree))
 
       const rootNode = document.querySelector('[data-testid="group-tree-node-grp-root"]')!
-      const toggleBtn = rootNode.querySelector<HTMLButtonElement>('button[aria-label="Collapse"]')!
-      expect(toggleBtn).toBeTruthy()
+      const toggleBtn = rootNode.querySelector<HTMLButtonElement>('[data-testid="group-toggle"]')!
+      const expandedName = toggleBtn.getAttribute('aria-label')
+      expect(expandedName).toBeTruthy()
 
       act(() => {
         toggleBtn.click()
@@ -714,9 +736,13 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
 
       expect(document.querySelector('[data-testid="group-tree-node-grp-sub1"]')).toBeNull()
 
-      const expandBtn = rootNode.querySelector<HTMLButtonElement>('button[aria-label="Expand"]')!
+      // The name is locale text, so the test asks that it exists and moves with the state — not what it says.
+      const collapsedName = toggleBtn.getAttribute('aria-label')
+      expect(collapsedName).toBeTruthy()
+      expect(collapsedName).not.toBe(expandedName)
+
       act(() => {
-        expandBtn.click()
+        toggleBtn.click()
       })
 
       expect(document.querySelector('[data-testid="group-tree-node-grp-sub1"]')).toBeTruthy()

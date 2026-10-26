@@ -93,6 +93,11 @@ describe('the to-do address grammar', () => {
     expect(parseTodoAddress('/todo', 'tag=errands')).toMatchObject({ view: 'tag', tagId: 'errands', listId: null })
     expect(writeTodoSearch({ view: 'list', listId: 'work', tagId: null, query: '', sort: null, dueFrom: null, dueTo: null })).toBe('list=work')
     expect(writeTodoSearch({ view: 'tag', listId: null, tagId: 'errands', query: '', sort: null, dueFrom: null, dueTo: null })).toBe('tag=errands')
+    // The inbox is a screen, so it is an address. Naming none is a state the sidebar never holds — and
+    // when a caller does hand one in, the address says what the screen means rather than going blank and
+    // reading back as the board.
+    expect(writeTodoSearch({ view: 'list', listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null })).toBe('list=inbox')
+    expect(parseTodoAddress('/todo', 'list=inbox')).toMatchObject({ view: 'list', listId: 'inbox' })
   })
 
   it('carries the search text beside the view, and reads it back with its spaces', () => {
@@ -151,6 +156,8 @@ describe('the to-do address grammar', () => {
       { view: 'list' as const, listId: 'work', tagId: null, query: '', sort: null, dueFrom: null, dueTo: null, layout: 'columns' as const },
       { view: 'list' as const, listId: 'work', tagId: null, query: '', sort: null, dueFrom: null, dueTo: null, layout: 'columns' as const, group: 'list' as const },
       { view: 'list' as const, listId: 'work', tagId: null, query: '', sort: null, dueFrom: null, dueTo: null, layout: 'columns' as const, group: 'priority' as const },
+      { view: 'list' as const, listId: 'inbox', tagId: null, query: '', sort: null, dueFrom: null, dueTo: null },
+      { view: 'list' as const, listId: 'inbox', tagId: null, query: 'a', sort: null, dueFrom: null, dueTo: null, layout: 'columns' as const, group: 'list' as const },
       { view: 'tag' as const, listId: null, tagId: 'errands', query: 'a b', sort: 'created' as const, dueFrom: null, dueTo: null },
       { view: 'completed' as const, listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null },
       { view: 'completed' as const, listId: 'work', tagId: null, query: '', sort: null, dueFrom: null, dueTo: null },

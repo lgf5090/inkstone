@@ -18,7 +18,7 @@ import { initI18n, localeTag, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import { CountersView } from './CountersView'
 import { readsOwnRows } from './store'
-import { surfacesFor, surfacesForPhoneMore, TODO_SURFACES } from './views/registry'
+import { surfacesFor, surfacesForPhoneMore, TODO_SURFACES } from './views/nav'
 import { durationLabel } from './stats-charts'
 import { MAX_COUNTER_DAY_AMOUNT, type CounterKind, type CounterReading, type CounterReadings, type TodoCounter } from '@shared/todos/model'
 
