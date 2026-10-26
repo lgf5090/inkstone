@@ -1416,8 +1416,10 @@ export const useTodos = create<TodosState>((set, get) => ({
     // else, so the numbers from the last landed pull stay on screen.
     if (offlineNow()) return
     try {
-      const page = await api.todos.list({ limit: 1 })
-      set({ counts: page.counts, dayEnd: page.dayEnd, timezone: page.timezone })
+      // The counts endpoint rather than a page of one listing: this runs after every write the reader
+      // lands, and the badges need three scalars, not a task row and the filter it was counted under.
+      const fresh = await api.todos.counts()
+      set({ counts: fresh.counts, dayEnd: fresh.dayEnd, timezone: fresh.timezone })
     } catch (error) {
       toastError(error)
     }

@@ -116,6 +116,7 @@ import type {
   SnoozeMinutes,
   TaskBatchRequestOp,
   TaskBatchResult,
+  TaskCounts,
   TaskList,
   TaskPage,
   TaskStatsBucket,
@@ -800,10 +801,22 @@ export const api = {
   logout: () => request<{ ok: true }>('/api/auth/logout', { method: 'POST' }),
 
   auth: {
-    register: (username: string, password: string, locale: AppLocale = getLocale(), setupToken?: string) =>
+    register: (
+      username: string,
+      password: string,
+      locale: AppLocale = getLocale(),
+      setupToken?: string,
+      timezone?: string,
+    ) =>
       request<SessionInfo>('/api/auth/register', {
         method: 'POST',
-        body: setupToken ? { username, password, locale, setupToken } : { username, password, locale },
+        body: {
+          username,
+          password,
+          locale,
+          ...(setupToken ? { setupToken } : {}),
+          ...(timezone ? { timezone } : {}),
+        },
       }),
     login: (username: string, password: string) =>
       request<PasswordLoginResult>('/api/auth/login', { method: 'POST', body: { username, password } }),
@@ -1380,6 +1393,15 @@ export const api = {
       sort?: string, limit?: number, offset?: number
     } = {}) =>
       request<TaskPage>(`/api/todos${toQuery(params)}`),
+    /**
+     * The sidebar's numbers, without a task row attached.
+     *
+     * `counts`, `dayEnd` and `timezone` are the three fields a `TaskPage` carries beside `tasks` and
+     * `total`. A screen that only has to redraw its badges used to ask for a page of one task to get
+     * them, which read a whole row and re-ran the listing's filter for three scalars; this is the same
+     * aggregate the listing runs, on its own.
+     */
+    counts: () => request<{ counts: TaskCounts, dayEnd: number, timezone: string }>('/api/todos/counts'),
     get: (id: string) => request<{ task: TodoTask, steps: TaskStep[] }>(`/api/todos/${id}`),
     /**
      * A new task.
