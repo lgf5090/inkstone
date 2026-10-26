@@ -94,7 +94,10 @@ export function ToolsApp() {
         width={toolsNavWidth}
         title={t('tools.sidebar.title')}
       >
-        <ToolsSidebar onCollapse={() => toggleToolsNavDrawer(false)} />
+        <ToolsSidebar
+          onCollapse={() => toggleToolsNavDrawer(false)}
+          onNavigate={() => toggleToolsNavDrawer(false)}
+        />
       </Drawer>
     </div>
   )

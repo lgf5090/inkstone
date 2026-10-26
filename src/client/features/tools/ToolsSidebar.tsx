@@ -62,12 +62,14 @@ export interface ToolsSidebarProps {
   collapsed?: boolean
   onCollapse?: () => void
   onExpand?: () => void
+  onNavigate?: () => void
 }
 
 export function ToolsSidebar({
   collapsed = false,
   onCollapse,
   onExpand,
+  onNavigate,
 }: ToolsSidebarProps) {
   const activeSubmodule = useToolsStore((s) => s.activeSubmodule)
   const setActiveSubmodule = useToolsStore((s) => s.setActiveSubmodule)
@@ -92,13 +94,13 @@ export function ToolsSidebar({
     } else {
       setActivePasswordView(slotId)
     }
-    onCollapse?.()
+    onNavigate?.()
   }
 
   const handleQrSlotClick = (slotId: QrCodeNavView) => {
     setActiveSubmodule('qrcode')
     setActiveQrCodeView(slotId)
-    onCollapse?.()
+    onNavigate?.()
   }
 
   if (collapsed) {
