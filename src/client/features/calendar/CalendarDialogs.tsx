@@ -8,7 +8,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import type { CalendarDto, CalendarGroupDto } from '@shared/calendar/model'
-import { MAX_ICS_BYTES } from '@shared/calendar/model'
+import { MAX_CALENDAR_NAME, MAX_GROUP_NAME, MAX_ICS_BYTES } from '@shared/calendar/model'
 import { t } from '../../lib/i18n'
 import { isImeComposing } from '../../lib/ime'
 import { useUi } from '../../store/ui'
@@ -53,6 +53,24 @@ async function closeAfterRefresh(onSaved: () => void | Promise<void>, onClose: (
   onClose()
 }
 
+const COLOR_KEYS = {
+  '#e5484d': 'calendar.color.red',
+  '#f76b15': 'calendar.color.orange',
+  '#f5b800': 'calendar.color.yellow',
+  '#46a758': 'calendar.color.green',
+  '#12a594': 'calendar.color.teal',
+  '#0091ff': 'calendar.color.blue',
+  '#3e63dd': 'calendar.color.indigo',
+  '#8e4ec6': 'calendar.color.purple',
+  '#d6409f': 'calendar.color.pink',
+  '#8d8d8d': 'calendar.color.gray',
+} as const
+
+function colorLabel(color: string): string {
+  const key = COLOR_KEYS[color as keyof typeof COLOR_KEYS]
+  return t(key ?? 'calendar.calendar.custom_color')
+}
+
 function ColorPresets({ value, onChange }: { value: string; onChange: (color: string) => void }) {
   return (
     <div role="group" aria-label={t('calendar.calendar.color')} className="flex flex-wrap items-center gap-1.5">
@@ -60,7 +78,7 @@ function ColorPresets({ value, onChange }: { value: string; onChange: (color: st
         <button
           key={color}
           type="button"
-          aria-label={color}
+          aria-label={colorLabel(color)}
           aria-pressed={value.toLowerCase() === color}
           onClick={() => onChange(color)}
           className="relative size-6 rounded-full border border-[var(--border-subtle)] transition-transform hover:scale-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
@@ -155,7 +173,7 @@ export function CalendarFormDialog({ open, mode, calendar, groups, defaultGroupI
           <Input
             data-autofocus
             value={name}
-            maxLength={80}
+            maxLength={MAX_CALENDAR_NAME}
             placeholder={t('calendar.calendar.name_placeholder')}
             onChange={(event) => setName(event.target.value)}
             onKeyDown={(event) => {
@@ -249,7 +267,7 @@ export function GroupDialog({ open, mode, group, onClose, onSaved }: GroupDialog
           <Input
             data-autofocus
             value={name}
-            maxLength={50}
+            maxLength={MAX_GROUP_NAME}
             placeholder={t('calendar.group.name_placeholder')}
             onChange={(event) => setName(event.target.value)}
             onKeyDown={(event) => {
@@ -488,7 +506,7 @@ export function ImportIcsDialog({ open, calendars, defaultTimeZone, onClose, onS
                 <Field label={t('calendar.import.new_name')}>
                   <Input
                     value={newName}
-                    maxLength={80}
+                    maxLength={MAX_CALENDAR_NAME}
                     placeholder={t('calendar.import.new_name_placeholder')}
                     onChange={(event) => setNewName(event.target.value)}
                   />
@@ -589,7 +607,7 @@ export function SubscribeDialog({ open, onClose, onSaved }: SubscribeDialogProps
         <Field label={t('calendar.subscription.name')}>
           <Input
             value={name}
-            maxLength={80}
+            maxLength={MAX_CALENDAR_NAME}
             placeholder={t('calendar.subscription.name_placeholder')}
             onChange={(event) => setName(event.target.value)}
           />
