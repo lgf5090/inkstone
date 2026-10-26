@@ -29,11 +29,13 @@ import type {
   CalendarSource,
   CalendarSubscriptionDto,
   CalendarTaskDto,
+  CalendarAttendeeDto,
   CalendarTaskPriority,
   TemporalValue,
 } from '@shared/calendar/model'
 import {
   defaultCalendarPreferences,
+  isCalendarAttendeeStatus,
   isCalendarEntityId,
   isCalendarSource,
   isTemporalKind,
@@ -578,6 +580,17 @@ export class CalendarStore {
       statements.push(this.db.prepare(
         `DELETE FROM calendar_events
           WHERE user_id = ?1 AND id IN (
+            SELECT ec.event_id FROM calendar_event_calendars ec
+             WHERE ec.user_id = ?1 AND ec.calendar_id = ?2
+               AND NOT EXISTS (
+                 SELECT 1 FROM calendar_event_calendars other
+                  WHERE other.user_id = ?1 AND other.event_id = ec.event_id AND other.calendar_id <> ?2
+               )
+          )`,
+      ).bind(this.userId, id))
+      statements.push(this.db.prepare(
+        `DELETE FROM calendar_event_attendees
+          WHERE user_id = ?1 AND event_id IN (
             SELECT ec.event_id FROM calendar_event_calendars ec
              WHERE ec.user_id = ?1 AND ec.calendar_id = ?2
                AND NOT EXISTS (
@@ -1278,10 +1291,16 @@ export class CalendarStore {
             AND EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?3)`,
       ).bind(this.userId, id, rev),
       this.db.prepare(
+        `DELETE FROM calendar_event_attendees
+          WHERE user_id = ?1 AND event_id = ?2
+            AND EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?3)`,
+      ).bind(this.userId, id, rev),
+      this.db.prepare(
         `DELETE FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?3`,
       ).bind(this.userId, id, rev),
     ])
-    if (!outcomes[2]?.meta.changes) {
+    // The event row is deleted last, so its outcome is the one that says whether the rev still held.
+    if (!outcomes[outcomes.length - 1]?.meta.changes) {
       throw ApiError.conflict('The event changed elsewhere. Refresh and try again')
     }
   }
@@ -1352,6 +1371,55 @@ export class CalendarStore {
     const event = await this.getEvent(id)
     if (!event) throw new Error('Event reminder update did not persist')
     return { event, reminders: unique }
+  }
+
+  /** The guest list of one event, in the order the reader wrote it. */
+  async eventAttendees(eventId: string): Promise<CalendarAttendeeDto[]> {
+    const { results } = await this.db.prepare(
+      `SELECT email, name, status FROM calendar_event_attendees
+        WHERE user_id = ? AND event_id = ?
+        ORDER BY created_at ASC, email ASC`,
+    ).bind(this.userId, eventId).all<{ email: string; name: string; status: string }>()
+    return (results ?? []).map((row) => ({
+      email: row.email,
+      name: row.name,
+      status: isCalendarAttendeeStatus(row.status) ? row.status : 'needs-action',
+    }))
+  }
+
+  /** Replace one event's guest list. Same revision rule as the reminders: the row owns the list. */
+  async setEventAttendees(
+    id: string,
+    attendees: readonly CalendarAttendeeDto[],
+    rev: number,
+  ): Promise<{ event: CalendarEventDto; attendees: CalendarAttendeeDto[] }> {
+    const row = await this.eventRow(id)
+    if (!row) throw ApiError.notFound('Event not found')
+    await this.assertEventWritable(id)
+    const now = Date.now()
+    const statements: D1PreparedStatement[] = [this.db.prepare(
+      `DELETE FROM calendar_event_attendees
+        WHERE user_id = ?1 AND event_id = ?2
+          AND EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?3)`,
+    ).bind(this.userId, id, rev)]
+    attendees.forEach((attendee, index) => {
+      statements.push(this.db.prepare(
+        `INSERT INTO calendar_event_attendees (user_id, event_id, email, name, status, created_at)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6
+          WHERE EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?7)`,
+      ).bind(this.userId, id, attendee.email, attendee.name, attendee.status, now + index, rev))
+    })
+    statements.push(this.db.prepare(
+      `UPDATE calendar_events SET rev = rev + 1, updated_at = ?3
+        WHERE user_id = ?1 AND id = ?2 AND rev = ?4`,
+    ).bind(this.userId, id, now, rev))
+    const outcomes = await this.db.batch(statements)
+    if (!outcomes[outcomes.length - 1]?.meta.changes) {
+      throw ApiError.conflict('The event changed elsewhere. Refresh and try again')
+    }
+    const event = await this.getEvent(id)
+    if (!event) throw new Error('Event attendee update did not persist')
+    return { event, attendees: [...attendees] }
   }
 
   private readConference(raw: string): CalendarConferenceDto | null {

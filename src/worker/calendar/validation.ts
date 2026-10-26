@@ -22,6 +22,7 @@ import {
   defaultCalendarPreferences,
   defaultTimeZone,
   isCalendarEntityId,
+  isCalendarAttendeeStatus,
   isCalendarSource,
   isTemporalKind,
   CALENDAR_RANGE_MAX_MS,
@@ -33,6 +34,9 @@ import {
   MAX_EVENT_TITLE,
   MAX_GROUP_NAME,
   MAX_RECURRENCE_RULE,
+  MAX_ATTENDEE_EMAIL,
+  MAX_ATTENDEE_NAME,
+  MAX_ATTENDEES_PER_EVENT,
   MAX_REMINDERS_PER_EVENT,
   MAX_REMINDER_MINUTES,
   MAX_EVENTS_PER_BATCH,
@@ -40,6 +44,8 @@ import {
   temporalToEpochMs,
   TIME_FORMATS,
   toTemporalValue,
+  type CalendarAttendeeDto,
+  type CalendarAttendeeStatus,
   type CalendarConferenceDto,
   type CalendarEventKind,
   type CalendarPreferences,
@@ -473,6 +479,63 @@ export function parseReminderMinutes(value: unknown): { minutes: number[]; rev: 
     minutes: record.minutes.map((entry) => integerValue(entry, 'minutes', 0, MAX_REMINDER_MINUTES)),
     rev,
   }
+}
+
+/** A shape check, not an RFC: it keeps the separators that would make one field two guests out. */
+const ATTENDEE_EMAIL = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/
+
+/**
+ * `{ attendees: […], rev }`. Emails are the key of the list, so they are lower-cased and de-duplicated
+ * here rather than in the store: the write replaces the whole list and a repeated guest would answer twice.
+ */
+export function parseAttendeeList(value: unknown): { attendees: CalendarAttendeeDto[]; rev: number } {
+  const record = requireRecord(value, 'body')
+  const rev = integerValue(record.rev, 'rev', 1, Number.MAX_SAFE_INTEGER)
+  if (!Array.isArray(record.attendees)) throw ApiError.badRequest('attendees must be an array')
+  if (record.attendees.length > MAX_ATTENDEES_PER_EVENT) {
+    throw ApiError.badRequest(`An event may invite at most ${MAX_ATTENDEES_PER_EVENT} guests`)
+  }
+  const seen = new Set<string>()
+  const attendees: CalendarAttendeeDto[] = []
+  for (const entry of record.attendees) {
+    const guest = requireRecord(entry, 'attendee')
+    const email = attendeeEmail(guest.email)
+    if (seen.has(email)) continue
+    seen.add(email)
+    attendees.push({
+      email,
+      name: attendeeName(guest.name),
+      status: guest.status === undefined
+        ? 'needs-action'
+        : attendeeStatus(guest.status),
+    })
+  }
+  return { attendees, rev }
+}
+
+function attendeeEmail(value: unknown): string {
+  if (typeof value !== 'string') throw ApiError.badRequest('attendee email must be a string')
+  const email = value.trim().toLowerCase()
+  if (email.length === 0 || email.length > MAX_ATTENDEE_EMAIL) {
+    throw ApiError.badRequest(`attendee email must be between 1 and ${MAX_ATTENDEE_EMAIL} characters`)
+  }
+  if (!ATTENDEE_EMAIL.test(email)) throw ApiError.badRequest('attendee email is not an address')
+  return email
+}
+
+function attendeeName(value: unknown): string {
+  if (value === undefined || value === null) return ''
+  if (typeof value !== 'string') throw ApiError.badRequest('attendee name must be a string')
+  const name = value.trim()
+  if (name.length > MAX_ATTENDEE_NAME) {
+    throw ApiError.badRequest(`attendee name is longer than ${MAX_ATTENDEE_NAME} characters`)
+  }
+  return name
+}
+
+function attendeeStatus(value: unknown): CalendarAttendeeStatus {
+  if (!isCalendarAttendeeStatus(value)) throw ApiError.badRequest('attendee status is not recognised')
+  return value
 }
 
 const HEX_COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i

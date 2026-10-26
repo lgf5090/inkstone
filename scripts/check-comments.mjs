@@ -1263,6 +1263,7 @@ const allowed = new Map([
     "/**\n * The sidebar section for the event the reader just clicked.\n *\n * DayFlow's own editor owns the fields it renders, and it has no extension point that would let this\n * app add a row to it. Reminders are per event now, so they live here: the section reads the server's\n * row, writes back with its revision, and hands the new revision to the surface so the write queue\n * does not send a stale PATCH afterwards.\n */",
     "/** The zone the calendar itself is read in; an event without a zone of its own uses it. */",
     "/** The row moved in time: the surface has to re-read the range so the grid shows the new instant. */",
+    "/** The whole list is replaced on every edit, so a failed write puts the previous one back. */",
   ]],
   ["src/client/features/calendar/CalendarFilteredSearch.tsx", [
     "/** A filtered calendar search: keyword, calendar, date span and kind, in one panel. */",
@@ -1306,6 +1307,10 @@ const allowed = new Map([
     "/**\n * The calendar app's API client. Every call goes through the shell's `request` so the client header,\n * locale, error translation and 204 handling stay one implementation.\n */",
     "/** The export is a calendar document, not JSON; `request` hands back the body as text. */",
     "/** One row as the server has it now, or null when it no longer exists. */",
+  ]],
+  ["src/client/features/calendar/attendees.ts", [
+    "/**\n * The guest list's client-side rules.\n *\n * The server re-checks all of this (`parseAttendeeList`); these helpers exist so the card can refuse a\n * half-typed address before it costs a round trip, and so it never offers the same guest twice.\n */",
+    "/** The address as the list stores it, or null when the text is not one yet. */",
   ]],
   ["src/client/features/calendar/calendar.css", [
     "/*\n * DayFlow component styles arrive from the library; this file only maps its `--df-*` variables onto\n * Inkstone's semantic tokens and gives the calendar the height its flex parent promises.\n *\n * The mapping lives on `:root` because DayFlow portals menus and dialogs to the body, outside the\n * calendar element but still inside the document that reads these variables.\n */",
@@ -26617,6 +26622,8 @@ const allowed = new Map([
   ["src/shared/calendar/model.ts", [
     "/** False on the first load, so the client can seed the display timezone from the browser. */",
     "/** A week ahead is the furthest reminder worth firing; eight is more than any client offers. */",
+    "/** The four answers a guest list tracks, named the way the providers name them in an invite. */",
+    "/** A guest list this app can render in one sidebar card. */",
   ]],
   ["src/shared/constants.ts", [
     "// D1 limits an entire row to 2,000,000 bytes; reserve room for note metadata.",
@@ -31137,6 +31144,9 @@ const allowed = new Map([
     "/**\n   * How much text one calendar holds, measured before its rows are read.\n   *\n   * `LENGTH(CAST(... AS BLOB))` counts UTF-8 bytes rather than characters, so the export route can\n   * refuse a calendar that cannot fit in one file without first loading a hundred megabytes of\n   * descriptions into the isolate.\n   */",
     "/** Minutes-before-start reminders set on these events, ascending, missing events left out. */",
     "/**\n   * Replace one event's reminders.\n   *\n   * A reminder belongs to the row, so the write carries the row's revision: setting a reminder on an\n   * event somebody else just moved has to fail like any other stale write rather than stomp it.\n   */",
+    "/** The guest list of one event, in the order the reader wrote it. */",
+    "/** Replace one event's guest list. Same revision rule as the reminders: the row owns the list. */",
+    "// The event row is deleted last, so its outcome is the one that says whether the rev still held.",
   ]],
   ["src/worker/calendar/subscriptions.ts", [
     "/**\n * Refresh a few due ICS feeds on each cron fire.\n *\n * `last_sync_at` spaces successful runs; `last_error_at` holds a broken feed for an hour instead of\n * retrying it every minute. The limit keeps one slow feed from spending the whole scheduled budget.\n */",
@@ -31150,6 +31160,8 @@ const allowed = new Map([
     "/** A revision query parameter, or null when the caller did not send one. */",
     "/** Kept for the route's 404-on-malformed decision; the shared predicate is the single authority. */",
     "/** `{ minutes: […], rev }` — the whole of a reminder write. */",
+    "/** A shape check, not an RFC: it keeps the separators that would make one field two guests out. */",
+    "/**\n * `{ attendees: […], rev }`. Emails are the key of the list, so they are lower-cased and de-duplicated\n * here rather than in the store: the write replaces the whole list and a repeated guest would answer twice.\n */",
   ]],
   ["src/worker/calendar/vendor/dayflow-caldav.d.ts", [
     "/**\n * Worker-side type shim for the provider library.\n *\n * The package's published types pull Preact/DOM globals that replace the Worker's BodyInit/Headers.\n * The cron only needs these five runtime exports; Vite still resolves the real implementation.\n */",
@@ -31787,6 +31799,8 @@ const allowed = new Map([
     "// own lead time. Per-event reminders mean the same occurrence can be due twice — at 60 minutes and",
     "// again at 10 — so the lead joins the key. Existing rows are stamped with the account's current",
     "// lead, which is the value that produced them unless the preference changed since.",
+    "// Who is invited, and what they answered. One row per guest so an email stays the key: the list is",
+    "// replaced wholesale by the editor, and a guest who appears twice would answer twice.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -36596,6 +36610,10 @@ const allowed = new Map([
   ]],
   ["tests/builtin-templater-bodies.test.ts", [
     "/**\n * A built-in template is the app's own advertisement of what the engine does.\n *\n * Its body is written inside a JavaScript template literal, so every escape sequence the reader sees as\n * two characters — `'\\n'` inside a script block, for example — is one newline by the time the sandbox\n * parses it, and the template fails with a syntax error the reader cannot fix from the gallery. Only\n * running the engine catches that, so this compiles each body and hands the generated program to a parser\n * that stops at the first unbalanced quote.\n */",
+  ]],
+  ["tests/calendar-attendees.test.ts", [
+    "// Only a provider sync may write into a read-only calendar, and it goes through the batch route.",
+    "// The app keeps one calendar per account, so a deletion needs another place for the account to live.",
   ]],
   ["tests/calendar-ics-export.test.ts", [
     "/** Rows written straight to the table: the API caps one description well below a whole file. */",

@@ -4,6 +4,7 @@
  */
 import { ApiError, request } from '../../lib/api'
 import type {
+  CalendarAttendeeDto,
   CalendarConnectionDto,
   CalendarConnectionKind,
   CalendarDto,
@@ -143,6 +144,22 @@ export async function setEventReminders(
   return request<{ event: CalendarEventDto; reminders: number[] }>(
     `/api/calendar/events/${entity(id)}/reminders`,
     { method: 'PUT', body: { minutes: [...minutes], rev } },
+  )
+}
+
+export async function getEventAttendees(id: string): Promise<CalendarAttendeeDto[]> {
+  const data = await request<{ attendees: CalendarAttendeeDto[] }>(`/api/calendar/events/${entity(id)}/attendees`)
+  return Array.isArray(data.attendees) ? data.attendees : []
+}
+
+export async function setEventAttendees(
+  id: string,
+  attendees: readonly CalendarAttendeeDto[],
+  rev: number,
+): Promise<{ event: CalendarEventDto; attendees: CalendarAttendeeDto[] }> {
+  return request<{ event: CalendarEventDto; attendees: CalendarAttendeeDto[] }>(
+    `/api/calendar/events/${entity(id)}/attendees`,
+    { method: 'PUT', body: { attendees, rev } },
   )
 }
 

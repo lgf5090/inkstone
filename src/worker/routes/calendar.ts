@@ -24,6 +24,7 @@ import {
   parseEventPatch,
   parseGroupInput,
   parseGroupPatch,
+  parseAttendeeList,
   parsePreferences,
   parseReminderMinutes,
   parseRange,
@@ -203,6 +204,20 @@ calendarRoutes.put('/events/:id/reminders', async (c) => {
   const id = pathId(c)
   const body = parseReminderMinutes(await readJson<unknown>(c, JSON_BODY_LIMITS.small))
   return c.json(await store(c).setEventReminders(id, body.minutes, body.rev))
+})
+
+calendarRoutes.get('/events/:id/attendees', async (c) => {
+  readBudget(c.get('userId'))
+  const id = pathId(c)
+  const s = store(c)
+  if (!(await s.getEvent(id))) throw ApiError.notFound('Event not found')
+  return c.json({ attendees: await s.eventAttendees(id) })
+})
+
+calendarRoutes.put('/events/:id/attendees', async (c) => {
+  const id = pathId(c)
+  const body = parseAttendeeList(await readJson<unknown>(c, JSON_BODY_LIMITS.small))
+  return c.json(await store(c).setEventAttendees(id, body.attendees, body.rev))
 })
 
 // ------------------------------------------------------------- calendars

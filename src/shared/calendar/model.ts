@@ -31,6 +31,16 @@ export const CALENDAR_EVENT_TRIGGERS = ['click', 'dbClick'] as const
 export type CalendarEventTrigger = (typeof CALENDAR_EVENT_TRIGGERS)[number]
 
 export const CALENDAR_REMINDER_MINUTES = [0, 5, 10, 15, 30, 60, 120, 1440] as const
+/** The four answers a guest list tracks, named the way the providers name them in an invite. */
+export const CALENDAR_ATTENDEE_STATUSES = ['needs-action', 'accepted', 'tentative', 'declined'] as const
+export type CalendarAttendeeStatus = (typeof CALENDAR_ATTENDEE_STATUSES)[number]
+
+export interface CalendarAttendeeDto {
+  email: string
+  name: string
+  status: CalendarAttendeeStatus
+}
+
 export const CALENDAR_YEAR_VIEW_MODES = ['year-canvas', 'fixed-week', 'grid'] as const
 export type CalendarYearViewMode = (typeof CALENDAR_YEAR_VIEW_MODES)[number]
 
@@ -47,6 +57,10 @@ export const MAX_CALENDAR_IDS_PER_EVENT = 20
 /** A week ahead is the furthest reminder worth firing; eight is more than any client offers. */
 export const MAX_REMINDERS_PER_EVENT = 8
 export const MAX_REMINDER_MINUTES = 7 * 24 * 60
+/** A guest list this app can render in one sidebar card. */
+export const MAX_ATTENDEES_PER_EVENT = 50
+export const MAX_ATTENDEE_EMAIL = 254
+export const MAX_ATTENDEE_NAME = 120
 export const MAX_EVENTS_PER_QUERY = 5000
 export const MAX_EVENTS_PER_BATCH = 200
 export const MAX_ICS_BYTES = 5 * 1024 * 1024
@@ -259,6 +273,10 @@ export function isCalendarEntityId(value: unknown): value is string {
 
 export function isCalendarSource(value: unknown): value is CalendarSource {
   return typeof value === 'string' && (CALENDAR_SOURCES as readonly string[]).includes(value)
+}
+
+export function isCalendarAttendeeStatus(value: unknown): value is CalendarAttendeeStatus {
+  return typeof value === 'string' && (CALENDAR_ATTENDEE_STATUSES as readonly string[]).includes(value)
 }
 
 export function isTemporalKind(value: unknown): value is TemporalKind {

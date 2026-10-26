@@ -2686,6 +2686,24 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          ON calendar_reminder_fires(user_id, fired_at)`,
     ],
   },
+  {
+    // Who is invited, and what they answered. One row per guest so an email stays the key: the list is
+    // replaced wholesale by the editor, and a guest who appears twice would answer twice.
+    version: 175,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS calendar_event_attendees (
+        user_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        email TEXT NOT NULL,
+        name TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'needs-action',
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, event_id, email)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_calendar_event_attendees_event
+         ON calendar_event_attendees(user_id, event_id)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
