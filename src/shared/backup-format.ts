@@ -24,6 +24,16 @@ export const BACKUP_SUBSCRIPTIONS_NAME = 'subscriptions.json'
 /** The music library's metadata, never its audio objects. */
 export const BACKUP_MUSIC_NAME = 'music.json'
 
+/**
+ * The to-do app's own rows.
+ *
+ * One file for the whole app, in the shape a row dump takes, because a task is neither a document nor a
+ * subscription: it has lists, tags, steps, alarms, a worklog and habits hanging off it, and every one of
+ * them is written by its id. Splitting them across files would put the order a restore has to follow in
+ * the archive's own layout rather than in the one module that owns the tables.
+ */
+export const BACKUP_TODOS_NAME = 'todos.json'
+
 export type MarkdownBackupNoteState = 'notes' | 'archived' | 'trash'
 
 export interface MarkdownBackupNoteEntry {
@@ -74,6 +84,12 @@ export interface MarkdownBackupMusicEntry {
   sha256: string
 }
 
+export interface MarkdownBackupTodosEntry {
+  path: string
+  bytes: number
+  sha256: string
+}
+
 export interface MarkdownBackupEmailEntry {
   path: string
   bytes: number
@@ -95,6 +111,8 @@ export interface MarkdownBackupManifest {
   automation?: MarkdownBackupAutomationEntry
   /** The subscription app's plans, receipts and reminder rules. */
   subscriptions?: MarkdownBackupSubscriptionsEntry
+  /** The to-do app's tasks, lists, tags, steps, alarms, worklog, habits and their history. */
+  todos?: MarkdownBackupTodosEntry
   music?: MarkdownBackupMusicEntry
   email?: MarkdownBackupEmailEntry
 }
@@ -151,6 +169,15 @@ export function backupSubscriptionsPath(
   if (version === 2) return `${backupSnapshotDir(stamp)}/${BACKUP_SUBSCRIPTIONS_NAME}`
   if (!STAMP_RE.test(stamp)) throw new Error('Invalid backup snapshot name')
   return BACKUP_SUBSCRIPTIONS_NAME
+}
+
+export function backupTodosPath(
+  stamp: string,
+  version: MarkdownBackupVersion = MARKDOWN_BACKUP_VERSION,
+): string {
+  if (version === 2) return `${backupSnapshotDir(stamp)}/${BACKUP_TODOS_NAME}`
+  if (!STAMP_RE.test(stamp)) throw new Error('Invalid backup snapshot name')
+  return BACKUP_TODOS_NAME
 }
 
 export function backupMusicPath(
@@ -317,6 +344,20 @@ export function parseMarkdownBackupManifest(value: unknown): MarkdownBackupManif
     subscriptions = { path: expectedPath, bytes: value.subscriptions.bytes, sha256: value.subscriptions.sha256 }
   }
 
+  let todos: MarkdownBackupTodosEntry | undefined
+  if (value.todos !== undefined) {
+    if (!isRecord(value.todos)) return null
+    const expectedPath = backupTodosPath(value.snapshot, value.version)
+    if (
+      value.todos.path !== expectedPath ||
+      !isSafeSize(value.todos.bytes) ||
+      value.todos.bytes > LIMITS.importUploadMaxBytes ||
+      typeof value.todos.sha256 !== 'string' ||
+      !HASH_RE.test(value.todos.sha256)
+    ) return null
+    todos = { path: expectedPath, bytes: value.todos.bytes, sha256: value.todos.sha256 }
+  }
+
   let music: MarkdownBackupMusicEntry | undefined
   if (value.music !== undefined) {
     if (!isRecord(value.music)) return null
@@ -362,6 +403,7 @@ export function parseMarkdownBackupManifest(value: unknown): MarkdownBackupManif
     templates,
     automation,
     subscriptions,
+    todos,
     music,
     email,
   }
