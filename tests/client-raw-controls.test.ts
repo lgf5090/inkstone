@@ -559,6 +559,7 @@ const LIST_FILTER_BASELINE = new Map<string, { sites: number; reason: string }>(
   ['src/client/features/quickadd/prompts.tsx', { sites: 4, reason: 'The QuickAdd prompt family (text, number and date prompts) each write a labelled field. Prompts, not list filters.' }],
   ['src/client/features/share/SharePanel.tsx', { sites: 1, reason: 'Read-only share link field that selects on focus (221). Not a filter at all.' }],
   ['src/client/features/settings/FeedSettings.tsx', { sites: 1, reason: 'The read-only subscription address that selects on focus (236); a copy field, not a list filter.' }],
+  ['src/client/features/calendar/CalendarDialogs.tsx', { sites: 1, reason: 'The read-only public calendar link that selects on focus (745), the same shape as SharePanel and FeedSettings; a copy field, not a list filter.' }],
   ['src/client/features/share/ConversationSharePanel.tsx', { sites: 1, reason: 'The same read-only share link field as SharePanel (178), for a published conversation. Not a filter at all.' }],
   ['src/client/features/tags/tag-row-parts.tsx', { sites: 1, reason: 'Tag rename row (`tags.rename` at 42) with autoFocus and a default value; an inline editor, not a list filter.' }],
   ['src/client/features/workspace/Workspace.tsx', { sites: 1, reason: 'Inline text field in the workspace surface (557). Not verified as a list filter; baseline so the rule can block new ones.' }],

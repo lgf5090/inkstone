@@ -260,7 +260,7 @@ function isCoreLazyChunk(chunk: BuildChunk): boolean {
  * used to carry silently fell out of the exclusion.
  */
 function onDemandSource(extraNames: readonly string[]): string {
-  const fixed = ['pele', 'diagram', 'auto-', 'mind-elixir', 'vendor/excalidraw', '/rss/', '/memos/', 'MemosApp', 'EmailApp']
+  const fixed = ['pele', 'diagram', 'auto-', 'mind-elixir', 'vendor/excalidraw', '/rss/', '/memos/', 'MemosApp', 'EmailApp', 'CalendarApp']
   const escaped = extraNames.map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
   return [...fixed, ...escaped].join('|')
 }

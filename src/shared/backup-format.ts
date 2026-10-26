@@ -33,6 +33,8 @@ export const BACKUP_MUSIC_NAME = 'music.json'
  * the archive's own layout rather than in the one module that owns the tables.
  */
 export const BACKUP_TODOS_NAME = 'todos.json'
+/** The calendar app's calendars, events and preferences, without remote credentials. */
+export const BACKUP_CALENDAR_NAME = 'calendar.json'
 
 export type MarkdownBackupNoteState = 'notes' | 'archived' | 'trash'
 
@@ -90,6 +92,12 @@ export interface MarkdownBackupTodosEntry {
   sha256: string
 }
 
+export interface MarkdownBackupCalendarEntry {
+  path: string
+  bytes: number
+  sha256: string
+}
+
 export interface MarkdownBackupEmailEntry {
   path: string
   bytes: number
@@ -114,6 +122,7 @@ export interface MarkdownBackupManifest {
   /** The to-do app's tasks, lists, tags, steps, alarms, worklog, habits and their history. */
   todos?: MarkdownBackupTodosEntry
   music?: MarkdownBackupMusicEntry
+  calendar?: MarkdownBackupCalendarEntry
   email?: MarkdownBackupEmailEntry
 }
 
@@ -187,6 +196,15 @@ export function backupMusicPath(
   if (version === 2) return `${backupSnapshotDir(stamp)}/${BACKUP_MUSIC_NAME}`
   if (!STAMP_RE.test(stamp)) throw new Error('Invalid backup snapshot name')
   return BACKUP_MUSIC_NAME
+}
+
+export function backupCalendarPath(
+  stamp: string,
+  version: MarkdownBackupVersion = MARKDOWN_BACKUP_VERSION,
+): string {
+  if (version === 2) return `${backupSnapshotDir(stamp)}/${BACKUP_CALENDAR_NAME}`
+  if (!STAMP_RE.test(stamp)) throw new Error('Invalid backup snapshot name')
+  return BACKUP_CALENDAR_NAME
 }
 
 export function backupAttachmentPath(sha256: string, filename: string): string {
@@ -372,6 +390,20 @@ export function parseMarkdownBackupManifest(value: unknown): MarkdownBackupManif
     music = { path: expectedPath, bytes: value.music.bytes, sha256: value.music.sha256 }
   }
 
+  let calendar: MarkdownBackupCalendarEntry | undefined
+  if (value.calendar !== undefined) {
+    if (!isRecord(value.calendar)) return null
+    const expectedPath = backupCalendarPath(value.snapshot, value.version)
+    if (
+      value.calendar.path !== expectedPath ||
+      !isSafeSize(value.calendar.bytes) ||
+      value.calendar.bytes > LIMITS.importUploadMaxBytes ||
+      typeof value.calendar.sha256 !== 'string' ||
+      !HASH_RE.test(value.calendar.sha256)
+    ) return null
+    calendar = { path: expectedPath, bytes: value.calendar.bytes, sha256: value.calendar.sha256 }
+  }
+
   let email: MarkdownBackupEmailEntry | undefined
   if (value.email !== undefined) {
     if (!isRecord(value.email)) return null
@@ -405,6 +437,7 @@ export function parseMarkdownBackupManifest(value: unknown): MarkdownBackupManif
     subscriptions,
     todos,
     music,
+    calendar,
     email,
   }
 }

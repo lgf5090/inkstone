@@ -150,6 +150,7 @@ function NotificationRow({
   // of it here. A pointer this app cannot read — another app's prefix, a tail that is not one id — is the
   // second case, which is the honest answer rather than a press that goes nowhere.
   const taskId = taskIdFromNotificationLink(notification.link)
+  const calendarDate = /^calendar:(\d{4}-\d{2}-\d{2})$/.exec(notification.link ?? '')?.[1]
   const html = useMemo(() => ({ __html: renderMarkdown(notification.body).html }), [notification.body])
   // Only a notice that points at a task can be snoozed: the others have nothing to remind about. The
   // four durations append a reminder and leave the task's own list alone, exactly like the card menu.
@@ -174,9 +175,13 @@ function NotificationRow({
             onClick={() => {
               if (unread) onRead()
               if (taskId) { onOpenTask(taskId); return }
+              if (calendarDate) {
+                window.location.assign(`/calendar?view=day&date=${calendarDate}`)
+                return
+              }
               setExpanded((value) => !value)
             }}
-            aria-expanded={taskId ? undefined : expanded}
+            aria-expanded={taskId || calendarDate ? undefined : expanded}
             className="min-w-0 flex-1 text-left"
           >
             <p className={cn(

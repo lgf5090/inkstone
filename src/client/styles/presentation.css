@@ -254,7 +254,7 @@
     overflow: visible !important;
   }
 
-  body > *:not(.deck-print-sheet):not(.kanban-print-sheet) {
+  body > *:not(.deck-print-sheet):not(.kanban-print-sheet):not(.calendar-print-sheet) {
     display: none !important;
   }
 

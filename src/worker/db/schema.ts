@@ -77,7 +77,12 @@ import {
   TOOLS_SHORTLINKS_REQUIRED_TABLES,
   TOOLS_SHORTLINKS_SCHEMA_STATEMENTS,
 } from '../tools/shortlinks/schema'
-
+import {
+  CALENDAR_REQUIRED_COLUMNS,
+  CALENDAR_REQUIRED_INDEXES,
+  CALENDAR_REQUIRED_TABLES,
+  CALENDAR_SCHEMA_STATEMENTS,
+} from '../calendar/schema'
 const BACKUP_ARCHIVES_TABLE = `CREATE TABLE IF NOT EXISTS backup_archives (
   user_id TEXT NOT NULL,
   target_id TEXT NOT NULL,
@@ -641,7 +646,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   ...TOOLS_COLOR_SCHEMA_STATEMENTS,
   ...TOOLS_ID_PHOTO_SCHEMA_STATEMENTS,
   ...TOOLS_SHORTLINKS_SCHEMA_STATEMENTS,
-]
+  ...CALENDAR_SCHEMA_STATEMENTS,]
 
 export interface SchemaMigration {
   version: number
@@ -2645,6 +2650,162 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          ON todos_tasks(user_id, parent_id)`,
     ],
   },
+  {
+    // External ids are unique per calendar, not per provider: two Google accounts (or two CalDAV
+    // servers) can legitimately hand out the same event id. Existing rows get the first calendar
+    // they belong to as their scope; the old index is replaced in the same migration.
+    version: 176,
+    skipIfColumnExists: { table: 'calendar_events', column: 'external_scope' },
+    statements: [
+      `ALTER TABLE calendar_events ADD COLUMN external_scope TEXT NOT NULL DEFAULT ''`,
+      `UPDATE calendar_events
+          SET external_scope = COALESCE((
+            SELECT m.calendar_id FROM calendar_event_calendars m
+             WHERE m.user_id = calendar_events.user_id AND m.event_id = calendar_events.id
+             ORDER BY m.position ASC, m.calendar_id ASC LIMIT 1
+          ), '')
+        WHERE external_id IS NOT NULL AND external_scope = ''`,
+      `DROP INDEX IF EXISTS idx_calendar_events_external`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_events_external
+         ON calendar_events(user_id, calendar_source, external_scope, external_id)
+         WHERE external_id IS NOT NULL`,
+    ],
+  },
+  {
+    // Reminders are claimed by (user, event, occurrence start) so two overlapping cron fires cannot
+    // announce the same occurrence twice. The row is a delivery log, not an event relation.
+    version: 177,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS calendar_reminder_fires (
+        user_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        occurrence_start_ms INTEGER NOT NULL,
+        fired_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, event_id, occurrence_start_ms)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_calendar_reminder_fires_fired
+         ON calendar_reminder_fires(user_id, fired_at)`,
+    ],
+  },
+  {
+    // The server may refresh only calendars the browser has already mapped to a connection. The
+    // unique local id is the guard against two same-kind accounts claiming one calendar.
+    version: 178,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS calendar_provider_calendars (
+        user_id TEXT NOT NULL,
+        connection_id TEXT NOT NULL,
+        remote_calendar_id TEXT NOT NULL,
+        local_calendar_id TEXT NOT NULL,
+        last_sync_at INTEGER,
+        last_error_code TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, connection_id, remote_calendar_id)
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_provider_local
+         ON calendar_provider_calendars(user_id, local_calendar_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_calendar_provider_due
+         ON calendar_provider_calendars(user_id, connection_id, last_sync_at)`,
+    ],
+  },
+  {
+    // A reminder belongs to an event, not to a row of JSON: the sweep asks which events in a window
+    // are due, and only a row per (event, minutes) can answer that without reading every event.
+    version: 179,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS calendar_event_reminders (
+        user_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        minutes INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, event_id, minutes)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_calendar_event_reminders_window
+         ON calendar_event_reminders(user_id, event_id)`,
+    ],
+  },
+  {
+    // The fire log keyed one occurrence once, which was enough while every reminder was the account's
+    // own lead time. Per-event reminders mean the same occurrence can be due twice — at 60 minutes and
+    // again at 10 — so the lead joins the key. Existing rows are stamped with the account's current
+    // lead, which is the value that produced them unless the preference changed since.
+    version: 180,
+    skipIfColumnExists: { table: 'calendar_reminder_fires', column: 'minutes' },
+    statements: [
+      `ALTER TABLE calendar_reminder_fires RENAME TO calendar_reminder_fires_v1`,
+      `CREATE TABLE calendar_reminder_fires (
+        user_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        occurrence_start_ms INTEGER NOT NULL,
+        minutes INTEGER NOT NULL DEFAULT 0,
+        fired_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, event_id, occurrence_start_ms, minutes)
+      )`,
+      `INSERT INTO calendar_reminder_fires (user_id, event_id, occurrence_start_ms, minutes, fired_at)
+       SELECT o.user_id, o.event_id, o.occurrence_start_ms,
+              COALESCE((SELECT json_extract(p.preferences_json, '$.eventReminderMinutes')
+                          FROM calendar_preferences p WHERE p.user_id = o.user_id), 0),
+              o.fired_at
+         FROM calendar_reminder_fires_v1 o`,
+      `DROP TABLE calendar_reminder_fires_v1`,
+      `CREATE INDEX IF NOT EXISTS idx_calendar_reminder_fires_fired
+         ON calendar_reminder_fires(user_id, fired_at)`,
+    ],
+  },
+  {
+    // Who is invited, and what they answered. One row per guest so an email stays the key: the list is
+    // replaced wholesale by the editor, and a guest who appears twice would answer twice.
+    version: 181,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS calendar_event_attendees (
+        user_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        email TEXT NOT NULL,
+        name TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'needs-action',
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, event_id, email)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_calendar_event_attendees_event
+         ON calendar_event_attendees(user_id, event_id)`,
+    ],
+  },
+  {
+    // A public calendar link: one row per calendar, and the slug — which is the whole capability for a
+    // reader who never logs in — gets the unique index the public lookup uses.
+    version: 182,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS calendar_shares (
+        user_id TEXT NOT NULL,
+        calendar_id TEXT NOT NULL,
+        slug TEXT NOT NULL,
+        views INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        last_viewed_at INTEGER,
+        PRIMARY KEY (user_id, calendar_id)
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_shares_slug
+         ON calendar_shares(slug)`,
+    ],
+  },
+  {
+    // Which files an event shows. The bytes live in the shared `attachments` table (scope `calendar`)
+    // so one quota and one file door cover them; this table only holds the link.
+    version: 183,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS calendar_event_attachments (
+        user_id TEXT NOT NULL,
+        attachment_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, attachment_id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_calendar_event_attachments_event
+         ON calendar_event_attachments(user_id, event_id)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -2715,7 +2876,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   ...TOOLS_COLOR_REQUIRED_COLUMNS,
   ...TOOLS_ID_PHOTO_REQUIRED_COLUMNS,
   ...TOOLS_SHORTLINKS_REQUIRED_COLUMNS,
-} as const
+  ...CALENDAR_REQUIRED_COLUMNS,} as const
 
 export const REQUIRED_TABLES = [
   'app_meta',
@@ -2777,7 +2938,7 @@ export const REQUIRED_TABLES = [
   ...TOOLS_COLOR_REQUIRED_TABLES,
   ...TOOLS_ID_PHOTO_REQUIRED_TABLES,
   ...TOOLS_SHORTLINKS_REQUIRED_TABLES,
-] as const
+  ...CALENDAR_REQUIRED_TABLES,] as const
 
 export const REQUIRED_INDEXES = [
   'idx_folders_user',
@@ -2854,7 +3015,7 @@ export const REQUIRED_INDEXES = [
   ...TOOLS_COLOR_REQUIRED_INDEXES,
   ...TOOLS_ID_PHOTO_REQUIRED_INDEXES,
   ...TOOLS_SHORTLINKS_REQUIRED_INDEXES,
-] as const
+  ...CALENDAR_REQUIRED_INDEXES,] as const
 
 
 const initializationCache = new WeakMap<D1Database, Promise<DatabaseState>>()

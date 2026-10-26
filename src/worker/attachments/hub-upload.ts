@@ -7,7 +7,7 @@ import { saveMemoAttachment } from '../memos/attachments'
 import type { Env } from '../env'
 import { getHubAttachment, patchHubRow } from './hub-rows'
 import { persistAttachmentWithinQuota, persistEmailAttachment } from './storage'
-import type { AttachmentScope } from './scopes'
+import type { AttachmentHubScope } from '@shared/attachment-hub'
 
 /**
  * Writing one file into whichever application asked for it.
@@ -24,7 +24,7 @@ import type { AttachmentScope } from './scopes'
  */
 export interface HubUploadInput {
   userId: string
-  scope: AttachmentScope
+  scope: AttachmentHubScope
   bytes: Uint8Array
   filename: string
   mime: string

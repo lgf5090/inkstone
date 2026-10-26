@@ -2,6 +2,7 @@ import { Hono, type Context } from 'hono'
 import {
   type HubAttachmentListParams,
   type HubAttachmentSizeRange,
+  type AttachmentHubScope,
   type HubAttachmentSort,
   type HubAttachmentType,
   isAttachmentHubScope,
@@ -30,7 +31,7 @@ import {
   type HubFolderInput,
   type HubTagInput,
 } from '../attachments/organizer'
-import { isAttachmentScope, type AttachmentScope } from '../attachments/scopes'
+import { isAttachmentScope } from '../attachments/scopes'
 import { sanitizeAttachmentFilename } from '../attachments/storage'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
@@ -80,7 +81,7 @@ attachmentHubRoutes.use('*', requireAuth)
  * in this file that must never reach a statement — an unrecognised value is a 404 here rather than
  * a query shape somebody else chooses.
  */
-function scopeOf(c: Ctx): AttachmentScope {
+function scopeOf(c: Ctx): AttachmentHubScope {
   const scope = c.req.param('scope')
   if (!isAttachmentScope(scope) || !isAttachmentHubScope(scope)) {
     throw ApiError.notFound('Unknown attachment scope')
@@ -321,7 +322,7 @@ function cleanTags(values: unknown[]): string[] {
 
 async function applyBatch(
   c: Ctx,
-  scope: AttachmentScope,
+  scope: AttachmentHubScope,
   userId: string,
   id: string,
   action: (typeof ACTIONS)[number],

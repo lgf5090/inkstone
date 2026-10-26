@@ -44,6 +44,13 @@ export async function collectAttachmentReferences(
         `SELECT attachment_id AS id FROM todos_attachments WHERE user_id = ?1`,
         wantedIds,
       )
+    case 'calendar':
+      return scanIdColumn(
+        db,
+        userId,
+        `SELECT attachment_id AS id FROM calendar_event_attachments WHERE user_id = ?1`,
+        wantedIds,
+      )
     case 'chat':
       return scanChatReferences(db, userId, wantedIds)
     case 'email':

@@ -34,6 +34,13 @@ export interface PersistAttachmentInput {
   reportedMime: string
   bytes: Uint8Array
   createdAt: number
+  /**
+   * Where to write the object when the scope's own layout is not `<prefix>/<user>/<id>.<ext>`.
+   *
+   * Calendar uploads file themselves under a category folder (`calendar/images/…`), and the key must
+   * be the one the row will name, so the caller that knows the category chooses it.
+   */
+  objectKey?: string
 }
 
 export interface PersistedAttachment {
@@ -121,7 +128,7 @@ export async function persistAttachment(
   const sha256 = await sha256Hex(input.bytes)
   let storedObject = false
 
-  const objectKey = newAttachmentObjectKey(input.scope, {
+  const objectKey = input.objectKey ?? newAttachmentObjectKey(input.scope, {
     user_id: input.userId,
     id: input.id,
     mime,

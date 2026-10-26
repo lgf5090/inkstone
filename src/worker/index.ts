@@ -15,6 +15,9 @@ import { purgeExpiredMcpOperations } from './mcp/operations'
 import { purgeExpiredOperationalData } from './lib/maintenance'
 import { purgeExpiredSubscriptionData } from './subscriptions/logs'
 import { sweepSubscriptions } from './subscriptions/scheduler'
+import { refreshDueIcsSubscriptions } from './calendar/subscriptions'
+import { sweepCalendarReminders } from './calendar/reminders'
+import { syncDueProviderConnections } from './calendar/provider-sync'
 import { ApiError } from './lib/errors'
 import { withSecurityHeaders } from './lib/security-headers'
 import { normalizeRepeatedOAuthResource } from './lib/oauth-request'
@@ -78,6 +81,11 @@ export default {
       // reminder is cheap, and the sweep deduplicates by the reader's own local hour, so the fires that
       // follow find their deliveries already claimed.
       const subscriptionTick = sweepSubscriptions(env, event.scheduledTime)
+      // ICS feeds need a copy on the server whether or not the reader has the calendar tab open;
+      // the sweep itself spaces successes and failures, so this fire only starts what is due.
+      const calendarTick = refreshDueIcsSubscriptions(env, event.scheduledTime)
+      const calendarReminderTick = sweepCalendarReminders(env, event.scheduledTime, (task) => { ctx.waitUntil(task) })
+      const calendarProviderTick = syncDueProviderConnections(env, event.scheduledTime)
       // Task reminders ride the same every-fire cadence, for the same reason: the claim on the row is
       // what deduplicates them, so a second fire in the same minute finds nothing left to deliver.
       const reminderTick = sweepTaskReminders(env, event.scheduledTime, (task) => { ctx.waitUntil(task) })
@@ -89,7 +97,7 @@ export default {
         return null
       })
       if (!isDrainFire(event.scheduledTime)) {
-        await Promise.all([assistantTick, subscriptionTick, reminderTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick])
+        await Promise.all([assistantTick, subscriptionTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick])
         return
       }
       const drains: Promise<unknown>[] = [
@@ -120,7 +128,7 @@ export default {
             providerForScheduled(env).purgeExpiredData(env, { batchSize: 100 }),
           ]
         : []
-      await Promise.all([...drains, ...heavy, subscriptionTick, reminderTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick])
+      await Promise.all([...drains, ...heavy, subscriptionTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick])
     })())
   },
 

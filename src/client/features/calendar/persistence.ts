@@ -1,0 +1,363 @@
+/**
+ * The event write queue.
+ *
+ * DayFlow announces every mutation through `subscribeEventChanges`; this is the only place those
+ * announcements become API calls. Changes for the same event coalesce over a short debounce and are
+ * then written one at a time, so a fast sequence of edits lands as its final state instead of a race
+ * of PATCHes. A rejected write refreshes the affected range (the server is authoritative) or is
+ * retried once and then reported — never dropped silently. A write refused for staleness parks the
+ * edit and asks the reader which parts of it survive; see `resolveConflict`.
+ */
+import type { Event, EventChange, ICalendarApp } from '@dayflow/react'
+import type { CalendarEventInput } from '@shared/calendar/model'
+import { ApiError } from '../../lib/api'
+import * as api from './api'
+import type { CalendarEditHistory } from './history'
+import { isRecurrenceOccurrence, toDayFlowEvent, toEventInput, toEventUpdates, eventCalendarIds } from './model'
+
+const DEBOUNCE_MS = 150
+const RETRY_DELAY_MS = 400
+const RECURRING_NOTICE_MS = 3000
+/** A vanished event or a schema refusal means "reload; do not keep retrying". */
+const RELOAD_STATUSES = new Set([400, 404])
+
+type Intent =
+  | { kind: 'save'; event: Event; remote: boolean }
+  | { kind: 'delete'; remote: boolean }
+
+interface Draft {
+  before: Event | null
+  after: Event | null
+}
+
+/** The choice a refused write is asking the reader to make. */
+export interface ConflictRequest {
+  id: string
+  intent: 'save' | 'delete'
+  /** The version being edited, or null when the reader was deleting the row. */
+  mine: CalendarEventInput | null
+}
+
+export type ConflictResolution =
+  | { action: 'save'; input: CalendarEventInput; rev: number }
+  | { action: 'delete'; rev: number }
+  | { action: 'server' }
+
+export interface EventPersistenceOptions {
+  app: ICalendarApp
+  revs: Map<string, number>
+  history: CalendarEditHistory
+  timeZone: () => string
+  fallbackTitle: () => string
+  /** Re-fetch the last range and reapply it as `source: 'remote'`. */
+  onServerState: (eventId?: string, status?: number) => void | Promise<void>
+  onError: (error: unknown) => void
+  /** A 409: the row changed elsewhere, and the edit stays on screen until the reader decides. */
+  onConflict: (request: ConflictRequest) => void
+  onRecurringEdit: () => void
+  onReadOnlyEdit: () => void
+  onCommitted?: (id: string, recurring: boolean) => void
+  onDeleted?: (id: string, title: string | undefined) => void
+}
+
+function changeEvent(change: EventChange): Event {
+  return change.type === 'update' ? change.after : change.event
+}
+
+function isPermanent(error: unknown): boolean {
+  return error instanceof ApiError && !error.isOffline && error.status >= 400 && error.status < 500
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise(resolve => window.setTimeout(resolve, ms))
+}
+
+export class EventPersistence {
+  private readonly options: EventPersistenceOptions
+  private readonly pending = new Map<string, Intent>()
+  private readonly drafts = new Map<string, Draft>()
+  private readonly skipped = new Set<string>()
+  private readonly inFlight = new Set<string>()
+  private readonly conflicts = new Map<string, ConflictRequest>()
+  private unsubscribe: (() => void) | null = null
+  private timer: number | undefined
+  private recurringTimer: number | undefined
+  private flushing = false
+  private notifiedRecurring = false
+
+  constructor(options: EventPersistenceOptions) {
+    this.options = options
+  }
+
+  start(): () => void {
+    this.unsubscribe = this.options.app.subscribeEventChanges(changes => {
+      for (const change of changes) this.accept(change)
+    })
+    return () => this.dispose()
+  }
+
+  /** Server state about to be re-applied: its echo must not be written back. */
+  skip(ids: Iterable<string>): void {
+    for (const id of ids) this.skipped.add(id)
+  }
+
+  /** True while a write for this event is queued, on the wire, or awaiting a conflict decision. */
+  hasPending(id: string): boolean {
+    return this.pending.has(id) || this.inFlight.has(id) || this.conflicts.has(id)
+  }
+
+  /**
+   * Finish a parked conflict.
+   *
+   * The dialog lives in the surface and a person may sit on it for minutes, so the decision cannot be
+   * awaited inside the write loop: it arrives here instead, after the rest of the queue has moved on.
+   */
+  async resolveConflict(id: string, resolution: ConflictResolution): Promise<void> {
+    if (!this.conflicts.delete(id)) return
+    if (resolution.action === 'server') {
+      this.drafts.delete(id)
+      await this.options.onServerState(id)
+      return
+    }
+    try {
+      if (resolution.action === 'delete') {
+        const title = this.drafts.get(id)?.before?.title
+        await api.deleteEvent(id, resolution.rev)
+        this.options.revs.delete(id)
+        this.commitDraft(id)
+        this.options.onDeleted?.(id, title)
+        return
+      }
+      const updated = await api.updateEvent(id, resolution.input, resolution.rev)
+      this.options.revs.set(id, updated.rev)
+      this.commitDraft(id, toDayFlowEvent(updated, this.options.timeZone()))
+      await this.options.onServerState(id)
+    } catch (error) {
+      this.drafts.delete(id)
+      this.options.onError(error)
+      await this.options.onServerState(id)
+    }
+  }
+
+  dispose(): void {
+    this.unsubscribe?.()
+    this.unsubscribe = null
+    window.clearTimeout(this.timer)
+    window.clearTimeout(this.recurringTimer)
+    this.timer = undefined
+    if (this.pending.size > 0) void this.flush()
+  }
+
+  private accept(change: EventChange): void {
+    const event = changeEvent(change)
+    const id = event.id
+
+    if (this.skipped.delete(id)) return
+
+    // Generated recurrence occurrences are a view of their series. A remote recalculation is normal;
+    // a local edit of one cannot be mapped back to the master with the current API, so it is refused
+    // and the optimistic change is put back rather than left as a row the server never saw.
+    if (isRecurrenceOccurrence(event)) {
+      if (change.source !== 'remote') {
+        this.revert(change)
+        this.reportRecurring()
+      }
+      return
+    }
+
+    const calendarIds = eventCalendarIds(event)
+    if (change.source !== 'remote'
+      && calendarIds.length > 0
+      && !calendarIds.some(id => this.options.app.canMutateFromUI(id))) {
+      this.revert(change)
+      this.options.onReadOnlyEdit()
+      return
+    }
+
+    const draft = this.drafts.get(id)
+    if (change.source !== 'remote') {
+      if (change.type === 'create') {
+        this.drafts.set(id, { before: draft?.before ?? null, after: change.event })
+      } else if (change.type === 'update') {
+        this.drafts.set(id, { before: draft?.before ?? change.before, after: change.after })
+      } else {
+        this.drafts.set(id, { before: draft?.before ?? change.event, after: null })
+      }
+    }
+
+    const remote = change.source === 'remote'
+    if (change.type === 'delete') this.pending.set(id, { kind: 'delete', remote })
+    else this.pending.set(id, { kind: 'save', event: event, remote })
+
+    this.schedule()
+  }
+
+  private schedule(delay = DEBOUNCE_MS): void {
+    if (this.timer !== undefined || this.flushing) return
+    this.timer = window.setTimeout(() => {
+      this.timer = undefined
+      void this.flush()
+    }, delay)
+  }
+
+  private async flush(): Promise<void> {
+    if (this.flushing) return
+    this.flushing = true
+    try {
+      const entries = [...this.pending.entries()]
+      this.pending.clear()
+      for (const [id, intent] of entries) {
+        this.inFlight.add(id)
+        try {
+          await this.persist(id, intent)
+        } finally {
+          this.inFlight.delete(id)
+        }
+      }
+    } finally {
+      this.flushing = false
+      if (this.pending.size > 0) this.schedule(0)
+    }
+  }
+
+  private async persist(id: string, intent: Intent): Promise<void> {
+    try {
+      await this.attempt(id, intent)
+    } catch (error) {
+      // A stale revision is not a failure to guess around: the row changed elsewhere, so the reader
+      // chooses which parts survive. The edit stays on screen while they decide.
+      if (error instanceof ApiError && !error.isOffline && error.status === 409 && !this.conflicts.has(id)) {
+        const request: ConflictRequest = {
+          id,
+          intent: intent.kind,
+          mine: this.mineFor(id, intent),
+        }
+        this.conflicts.set(id, request)
+        this.options.onConflict(request)
+        return
+      }
+      if (isPermanent(error) && error instanceof ApiError && RELOAD_STATUSES.has(error.status)) {
+        this.drafts.delete(id)
+        this.options.onError(error)
+        await this.options.onServerState(id, error.status)
+        return
+      }
+      if (isPermanent(error)) {
+        this.revertDraft(id)
+        this.options.onError(error)
+        return
+      }
+      // A transport failure or a 5xx may be transient: one retry, then the reader is told.
+      try {
+        await wait(RETRY_DELAY_MS)
+        await this.attempt(id, intent)
+      } catch (retryError) {
+        this.revertDraft(id)
+        this.options.onError(retryError)
+      }
+    }
+  }
+
+  /** The version the reader was working on, in the shape both the API and the merge dialog use. */
+  private mineFor(id: string, intent: Intent): CalendarEventInput | null {
+    if (intent.kind === 'delete') return null
+    const event = this.drafts.get(id)?.after ?? intent.event
+    if (!event) return null
+    return toEventInput(event, {
+      fallbackTitle: this.options.fallbackTitle(),
+      timeZone: this.options.timeZone(),
+    })
+  }
+
+  private async attempt(id: string, intent: Intent): Promise<void> {
+    const rev = this.options.revs.get(id)
+    if (intent.kind === 'delete') {
+      if (rev === undefined) {
+        // Created and deleted before either reached the server: there is nothing to delete.
+        this.drafts.delete(id)
+        return
+      }
+      const title = this.drafts.get(id)?.before?.title
+      await api.deleteEvent(id, rev)
+      this.options.revs.delete(id)
+      this.commitDraft(id)
+      this.options.onDeleted?.(id, title)
+      return
+    }
+
+    const input = toEventInput(intent.event, {
+      fallbackTitle: this.options.fallbackTitle(),
+      timeZone: this.options.timeZone(),
+    })
+    if (rev === undefined) {
+      const created = intent.remote
+        ? (await api.createEvents([input], 'upsert'))[0]
+        : await api.createEvent(input)
+      if (!created) throw new Error('The calendar server did not return the saved event')
+      this.options.revs.set(id, created.rev)
+    } else {
+      const updated = await api.updateEvent(id, input, rev)
+      this.options.revs.set(id, updated.rev)
+    }
+    this.commitDraft(id)
+  }
+
+  private commitDraft(id: string, after?: Event): void {
+    const draft = this.drafts.get(id)
+    if (!draft) return
+    const committed = after ?? draft.after
+    const recurring = Boolean(
+      draft.before?.meta?.recurrenceRule || committed?.meta?.recurrenceRule,
+    )
+    this.drafts.delete(id)
+    this.options.history.record({ id, before: draft.before, after: committed })
+    this.options.onCommitted?.(id, recurring)
+  }
+
+  /** Restore the last server-confirmed shape after a write that will not be retried. */
+  private revertDraft(id: string): void {
+    const draft = this.drafts.get(id)
+    if (!draft) return
+    this.drafts.delete(id)
+    this.skipped.add(id)
+    if (!draft.after) {
+      if (draft.before) this.options.app.applyEventsChanges({ add: [draft.before] }, false, 'local')
+    } else if (!draft.before) {
+      this.options.app.applyEventsChanges({ delete: [id] }, false, 'local')
+    } else {
+      this.options.app.applyEventsChanges(
+        { update: [{ id, updates: toEventUpdates(draft.before) }] },
+        false,
+        'local',
+      )
+    }
+  }
+
+  /** Put an optimistic change back; the skip entry keeps its echo out of the write queue. */
+  private revert(change: EventChange): void {
+    const event = changeEvent(change)
+    this.drafts.delete(event.id)
+    this.skipped.add(event.id)
+    if (change.type === 'create') {
+      this.options.app.applyEventsChanges({ delete: [event.id] }, false, 'local')
+    } else if (change.type === 'delete') {
+      this.options.app.applyEventsChanges({ add: [change.event] }, false, 'local')
+    } else {
+      this.options.app.applyEventsChanges(
+        { update: [{ id: event.id, updates: toEventUpdates(change.before) }] },
+        false,
+        'local',
+      )
+    }
+  }
+
+  private reportRecurring(): void {
+    if (this.notifiedRecurring) return
+    this.notifiedRecurring = true
+    this.options.onRecurringEdit()
+    window.clearTimeout(this.recurringTimer)
+    this.recurringTimer = window.setTimeout(() => {
+      this.notifiedRecurring = false
+    }, RECURRING_NOTICE_MS)
+  }
+}

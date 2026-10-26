@@ -64,6 +64,13 @@ import { toolsColorRoutes } from './routes/tools-color'
 import { toolsIdPhotoRoutes } from './routes/tools-id-photo'
 import { toolsShortlinksRoutes } from './routes/tools-shortlinks'
 import { toolsShortlinksRedirectRoutes } from './routes/tools-shortlinks-redirect'
+import { calendarRoutes } from './routes/calendar'
+import { calendarIcsRoutes } from './routes/calendar-ics'
+import { calendarSubscriptionRoutes } from './routes/calendar-subscriptions'
+import { calendarSyncRoutes } from './routes/calendar-sync'
+import { calendarShareRoutes } from './routes/calendar-shares'
+import { calendarAttachmentRoutes } from './routes/calendar-attachments'
+import { calendarPublicRoutes } from './routes/calendar-public'
 import { musicSharePageRoutes, musicSharePublicRoutes } from './routes/music-share'
 import { emailSearchesRoutes } from './routes/email-searches'
 import { emailTemplatesRoutes } from './routes/email-templates'
@@ -173,6 +180,13 @@ export function createApp() {
   app.route('/api/templater', templaterRoutes)
   app.route('/api/quickadd', quickAddRoutes)
   app.route('/api/rss', rssRoutes)
+  app.route('/api/calendar/ics', calendarIcsRoutes)
+  app.route('/api/calendar/subscriptions', calendarSubscriptionRoutes)
+  app.route('/api/calendar', calendarSyncRoutes)
+  app.route('/api/calendar', calendarShareRoutes)
+  app.route('/api/calendar', calendarAttachmentRoutes)
+  app.route('/feeds', calendarPublicRoutes)
+  app.route('/api/calendar', calendarRoutes)
   app.route('/api/subscriptions', subscriptionRoutes)
   app.route('/api', searchRoutes)
   app.route('/api/sync', syncRoutes)

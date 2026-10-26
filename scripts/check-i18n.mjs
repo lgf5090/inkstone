@@ -306,14 +306,22 @@ const toolsCatalogFiles = {
         [path.join(localeRoot, 'zh-CN-tools.ts'), 'ZH_CN_TOOLS'],
     ],
 };
+const calendarCatalogFiles = {
+    en: [
+        [path.join(localeRoot, 'en-US-calendar.ts'), 'EN_US_CALENDAR'],
+    ],
+    zh: [
+        [path.join(localeRoot, 'zh-CN-calendar.ts'), 'ZH_CN_CALENDAR'],
+    ],
+};
 const catalogFragments = {
-    en: [noteTemplateBodyFiles.en, ...memoCatalogFiles.en, ...emailCatalogFiles.en, ...musicCatalogFiles.en, ...toolsCatalogFiles.en],
-    zh: [noteTemplateBodyFiles.zh, ...memoCatalogFiles.zh, ...emailCatalogFiles.zh, ...musicCatalogFiles.zh, ...toolsCatalogFiles.zh],
+    en: [noteTemplateBodyFiles.en, ...memoCatalogFiles.en, ...emailCatalogFiles.en, ...musicCatalogFiles.en, ...toolsCatalogFiles.en, ...calendarCatalogFiles.en],
+    zh: [noteTemplateBodyFiles.zh, ...memoCatalogFiles.zh, ...emailCatalogFiles.zh, ...musicCatalogFiles.zh, ...toolsCatalogFiles.zh, ...calendarCatalogFiles.zh],
 };
 // Chinese is legal in a zh locale catalog and nowhere else; every other file is held to English.
 // The subscription notifications are a catalog of their own because the worker writes them and must
 // not carry the interface's seven thousand keys to reach twenty sentences.
-const hanAllowedCatalogs = [path.join(localeRoot, 'zh-CN.ts'), ...catalogFragments.zh.map(([file]) => file), assistantPromptBodyFiles.zh[0], path.join(localeRoot, 'zh-CN-subscriptions-notify.ts'), path.join(localeRoot, 'zh-CN-todo-notify.ts')];
+const hanAllowedCatalogs = [path.join(localeRoot, 'zh-CN.ts'), ...catalogFragments.zh.map(([file]) => file), assistantPromptBodyFiles.zh[0], path.join(localeRoot, 'zh-CN-subscriptions-notify.ts'), path.join(localeRoot, 'zh-CN-todo-notify.ts'), path.join(localeRoot, 'zh-CN-calendar-notify.ts'), path.join(localeRoot, 'zh-CN-quick-add-keywords.ts')];
 function readCatalog(variableFile, variableName, fragments) {
     const messages = readMessages(variableFile, variableName);
     for (const [file, name] of fragments) {
