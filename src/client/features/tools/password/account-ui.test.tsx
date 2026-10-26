@@ -15,7 +15,6 @@ import { AccountCard } from './AccountCard'
 import { AccountList } from './AccountList'
 import { AccountForm, PasswordStrengthIndicator } from './AccountForm'
 import { FavoriteAccounts } from './FavoriteAccounts'
-import { Search, HighlightMatch } from './Search'
 import { AccountArea } from './AccountArea'
 import { PasswordApp } from './PasswordApp'
 import { generatePassword } from './Generator'
@@ -508,43 +507,6 @@ describe('FavoriteAccounts', () => {
     // MOCK_ACCOUNT_1 is favorite, MOCK_ACCOUNT_2 is not
     expect(cards.length).toBe(1)
     expect(host.textContent).toContain('GitHub')
-  })
-})
-
-describe('Search & HighlightMatch', () => {
-  it('highlights matched substring accurately', () => {
-    act(() => {
-      root.render(createElement(HighlightMatch, { text: 'GitHub Repository', query: 'hub' }))
-    })
-
-    const mark = host.querySelector('mark')
-    expect(mark).not.toBeNull()
-    expect(mark?.textContent).toBe('Hub')
-  })
-
-  it('performs instant plaintext search across accounts and selects result on click', () => {
-    act(() => {
-      root.render(createElement(Search))
-    })
-
-    expect(host.querySelector('[data-testid="password-search-view"]')).not.toBeNull()
-
-    const searchInput = host.querySelector<HTMLInputElement>('[data-testid="global-search-input"]')!
-    act(() => {
-      setInputValue(searchInput, 'google')
-    })
-
-    const results = host.querySelectorAll('[data-testid="search-result-item"]')
-    expect(results.length).toBe(1)
-    expect(host.textContent).toContain('Google Account')
-
-    // The press lands on the row button, not on the wrapper that only lays the row and its star out.
-    const rows = host.querySelectorAll('[data-testid="search-result-row"]')
-    expect(rows.length).toBe(1)
-    act(() => {
-      (rows[0] as HTMLElement).click()
-    })
-    expect(usePasswordVaultStore.getState().selectedAccountId).toBe('acc-2')
   })
 })
 

@@ -8,7 +8,6 @@ import { Recover } from './Recover'
 import { useAutoLock } from './useAutoLock'
 import { AccountArea } from './AccountArea'
 import { FavoriteAccounts } from './FavoriteAccounts'
-import { Search } from './Search'
 import { RandomPasswordView } from './RandomPasswordView'
 import { PasswordGeneratorModal } from './PasswordGeneratorModal'
 import { QuickAddModal } from './QuickAddModal'
@@ -104,10 +103,7 @@ export function PasswordApp() {
           <RandomPasswordView />
         </div>
       )}
-      {(activePasswordView as string) === 'search' && <Search />}
-      {activePasswordView !== 'favorites' &&
-        activePasswordView !== 'generator' &&
-        (activePasswordView as string) !== 'search' && <AccountArea />}
+      {activePasswordView !== 'favorites' && activePasswordView !== 'generator' && <AccountArea />}
 
       {/* Auxiliary Modals */}
       <Setting />

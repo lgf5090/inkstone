@@ -16007,13 +16007,6 @@ const allowed = new Map([
     "// 4. Update memory keys and unlock",
     "/* Strength Indicator for New Password */",
   ]],
-  ["src/client/features/tools/password/Search.tsx", [
-    "/* Search and results column */",
-    "/* Search Input Bar */",
-    "/* Results List or Empty State */",
-    "/* Detail Form pane on desktop */",
-    "/* Same split as the account card: the row is a button, the star is its own control. */",
-  ]],
   ["src/client/features/tools/password/Setting.tsx", [
     "// 1. Initialize vault",
     "// 2. Create default group",
@@ -16042,7 +16035,6 @@ const allowed = new Map([
     "// handler on the way out, which is what the next assertion is actually checking.",
     "// Enter and Space are the browser's own activation for a button, so no keydown handler of ours is what",
     "// puts the row in the tab order — and nothing here overrides that order.",
-    "// The press lands on the row button, not on the wrapper that only lays the row and its star out.",
   ]],
   ["src/client/features/tools/password/api.ts", [
     "// Ignored",
