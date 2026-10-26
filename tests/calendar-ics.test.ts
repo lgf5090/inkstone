@@ -302,3 +302,35 @@ describe('serializeIcsCalendar', () => {
     expect(first).toContain('ics:')
   })
 })
+
+describe('recurrence expansion', () => {
+  it('expands a floating weekly rule with an Asia/Shanghai fallback', async () => {
+    const { expandRecurringEvents } = await import('../src/worker/calendar/ics')
+    const event = {
+      id: 'series-1',
+      title: 'Weekly',
+      description: '',
+      kind: 'event' as const,
+      task: null,
+      conference: null,
+      start: { value: '2026-10-28T12:00:00', type: 'datetime' as const },
+      end: { value: '2026-10-28T13:00:00', type: 'datetime' as const },
+      allDay: false,
+      calendarId: 'cal-1',
+      calendarIds: ['cal-1'],
+      meta: { recurrenceRule: 'FREQ=WEEKLY;BYDAY=TU,WE' },
+      icon: null,
+      recurrenceRule: 'FREQ=WEEKLY;BYDAY=TU,WE',
+      rev: 1,
+      source: 'local' as const,
+      externalId: null,
+    }
+    const result = expandRecurringEvents(
+      [event],
+      Date.parse('2026-10-01T00:00:00Z'),
+      Date.parse('2026-11-30T00:00:00Z'),
+      'Asia/Shanghai',
+    )
+    expect(result.occurrences).toHaveLength(8)
+  })
+})

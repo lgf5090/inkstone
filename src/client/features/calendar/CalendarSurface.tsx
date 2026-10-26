@@ -39,7 +39,7 @@ import type {
   CalendarMetaDto,
   CalendarPreferences,
 } from '@shared/calendar/model'
-import { CALENDAR_RANGE_MAX_MS, CALENDAR_VIEWS, MAX_EVENTS_PER_QUERY, type CalendarViewName } from '@shared/calendar/model'
+import { CALENDAR_RANGE_MAX_MS, CALENDAR_VIEWS, MAX_EVENTS_PER_QUERY, temporalToEpochMs, type CalendarViewName } from '@shared/calendar/model'
 import type { AppLocale } from '@shared/types'
 import { t, useLocale, useLocaleRepaint } from '../../lib/i18n'
 import { useThemeDark } from '../../lib/hooks'
@@ -76,7 +76,9 @@ const DAY_MS = 24 * 60 * 60 * 1000
 interface CalendarSurfaceProps {
   meta: CalendarMetaDto
   initialEvents: CalendarEventDto[]
+  initialOccurrences: CalendarEventDto[]
   initialTruncated?: boolean
+  initialRecurrenceTruncated?: boolean
   initialRange: { from: number; to: number }
   onRefreshMeta: () => Promise<CalendarMetaDto>
   onSavePreferences: (next: CalendarPreferences) => Promise<void>
@@ -332,7 +334,7 @@ function buildConfig(input: {
   }
 }
 
-export function CalendarSurface({ meta, initialEvents, initialTruncated = false, initialRange, onRefreshMeta, onSavePreferences }: CalendarSurfaceProps) {
+export function CalendarSurface({ meta, initialEvents, initialOccurrences, initialTruncated = false, initialRecurrenceTruncated = false, initialRange, onRefreshMeta, onSavePreferences }: CalendarSurfaceProps) {
   useLocaleRepaint()
   const appLocale = useLocale()
   const dark = useThemeDark()
@@ -363,7 +365,7 @@ export function CalendarSurface({ meta, initialEvents, initialTruncated = false,
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(readCollapsed)
   const [rangeError, setRangeError] = useState<string | null>(null)
-  const [rangeTruncated, setRangeTruncated] = useState(initialTruncated)
+  const [rangeTruncated, setRangeTruncated] = useState(initialTruncated || initialRecurrenceTruncated)
   const [syncError, setSyncError] = useState<string | null>(null)
 
   const metaRef = useRef(meta)
@@ -380,6 +382,55 @@ export function CalendarSurface({ meta, initialEvents, initialTruncated = false,
   const lastRange = useRef(initialRange)
   const failedRange = useRef<{ from: number; to: number } | null>(null)
 
+  const occurrenceRef = useRef<Map<string, Event> | null>(null)
+  if (!occurrenceRef.current) {
+    occurrenceRef.current = new Map(initialOccurrences.map(dto => [dto.id, toDayFlowEvent(dto, meta.preferences.timeZone)]))
+  }
+  const occurrenceRefreshTimer = useRef<number | undefined>(undefined)
+
+  const syncOccurrences = useCallback(() => {
+    const occurrences = occurrenceRef.current
+    if (!occurrences) return
+    const current = new Set(app.getEvents().filter(event => isRecurrenceOccurrence(event)).map(event => event.id))
+    const desired = app.getCurrentView().type === 'month' ? [] : [...occurrences.values()]
+    const desiredIds = new Set(desired.map(event => event.id))
+    const add = desired.filter(event => !current.has(event.id))
+    const remove = [...current].filter(id => !desiredIds.has(id))
+    if (add.length === 0 && remove.length === 0) return
+    app.applyEventsChanges({
+      ...(add.length > 0 ? { add } : {}),
+      ...(remove.length > 0 ? { delete: remove } : {}),
+    }, false, 'remote')
+  }, [app])
+
+  const dropOccurrencesForMaster = useCallback((masterId: string): void => {
+    const occurrences = occurrenceRef.current
+    if (!occurrences) return
+    let changed = false
+    for (const [id, event] of occurrences) {
+      if (event.id.startsWith(`${masterId}::repeat-`)) {
+        occurrences.delete(id)
+        changed = true
+      }
+    }
+    if (changed) syncOccurrences()
+  }, [syncOccurrences])
+
+  const updateOccurrences = useCallback((dtos: CalendarEventDto[], range: { from: number; to: number }): void => {
+    const occurrences = occurrenceRef.current
+    if (!occurrences) return
+    const timeZone = preferencesRef.current.timeZone
+    const incoming = new Map(dtos.map(dto => [dto.id, toDayFlowEvent(dto, timeZone)]))
+    for (const [id, event] of occurrences) {
+      const start = temporalToEpochMs(event.start, timeZone)
+      if (start >= range.from && start <= range.to && !incoming.has(id)) occurrences.delete(id)
+    }
+    for (const [id, event] of incoming) occurrences.set(id, event)
+    syncOccurrences()
+  }, [syncOccurrences])
+
+  useEffect(() => () => window.clearTimeout(occurrenceRefreshTimer.current), [])
+
   const suppressUpdate = useRef(new Set<string>())
   const suppressCreate = useRef(new Set<string>())
   const suppressDelete = useRef(new Set<string>())
@@ -394,7 +445,7 @@ export function CalendarSurface({ meta, initialEvents, initialTruncated = false,
     const mapped = dtos.map(dto => toDayFlowEvent(dto, timeZone))
     const existing = new Map(
       app.getEvents()
-        .filter(event => !event._recurrenceMasterId)
+        .filter(event => !isRecurrenceOccurrence(event))
         .map(event => [event.id, event]),
     )
     const add: Event[] = []
@@ -433,10 +484,11 @@ export function CalendarSurface({ meta, initialEvents, initialTruncated = false,
   const fetchRange = useCallback(async (from: number, to: number): Promise<Set<string>> => {
     const page = await api.getEvents({ from, to })
     const fetched = applySnapshot(page.events, { from, to }, page.truncated)
-    setRangeTruncated(page.truncated)
+    updateOccurrences(page.occurrences, { from, to })
+    setRangeTruncated(page.truncated || page.recurrenceTruncated)
     lastRange.current = { from, to }
     return fetched
-  }, [applySnapshot])
+  }, [applySnapshot, updateOccurrences])
 
   const reloadLastRange = useCallback(async (eventId?: string, status?: number): Promise<void> => {
     const range = lastRange.current
@@ -652,6 +704,12 @@ export function CalendarSurface({ meta, initialEvents, initialTruncated = false,
       },
       onRecurringEdit: () => useUi.getState().toast({ title: t('calendar.error.recurring'), tone: 'warning' }),
       onReadOnlyEdit: () => useUi.getState().toast({ title: t('calendar.event.delete_read_only'), tone: 'warning' }),
+      onCommitted: (id, recurring) => {
+        if (!recurring) return
+        dropOccurrencesForMaster(id)
+        window.clearTimeout(occurrenceRefreshTimer.current)
+        occurrenceRefreshTimer.current = window.setTimeout(() => { void reloadRef.current() }, 300)
+      },
       onDeleted: (id, title) => {
         toastWithUndo(title ? t('calendar.event.deleted_named', { title }) : t('calendar.event.deleted'), () => {
           if (!history.undo(app, id)) useUi.getState().toast({ title: t('calendar.history.empty') })
@@ -664,7 +722,12 @@ export function CalendarSurface({ meta, initialEvents, initialTruncated = false,
       dispose()
       persistenceRef.current = null
     }
-  }, [app, history, revs])
+  }, [app, history, revs, dropOccurrencesForMaster])
+
+  useEffect(() => {
+    syncOccurrences()
+    return app.subscribe(() => syncOccurrences())
+  }, [app, syncOccurrences])
 
   useEffect(() => app.subscribeVisibleRangeChange(payload => {
     loadRange(payload.start.getTime(), payload.end.getTime())

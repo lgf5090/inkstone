@@ -12,7 +12,7 @@ import {
   temporalValueToEpochMs,
   toTemporalValue,
 } from '@shared/calendar/model'
-import type { CalendarEventInput, TemporalValue } from '@shared/calendar/model'
+import type { CalendarEventDto, CalendarEventInput, TemporalValue } from '@shared/calendar/model'
 import { sha256Hex } from '../lib/encoding'
 
 type IcalComponent = InstanceType<typeof ICAL.Component>
@@ -880,6 +880,105 @@ function sortKey(event: CalendarEventInput, fallbackTimeZone: string, index: num
 function compareText(left: string, right: string): number {
   if (left === right) return 0
   return left < right ? -1 : 1
+}
+
+export const MAX_RECURRENCE_OCCURRENCES = 2000
+const MAX_RECURRENCE_ITERATIONS = 50_000
+
+export interface RecurrenceExpansion {
+  occurrences: CalendarEventDto[]
+  truncated: boolean
+}
+
+function expansionContext(value: TemporalValue, fallbackTimeZone: string): TimeContext {
+  if (value.type === 'date') return { mode: 'date' }
+  if (value.type === 'datetime') return { mode: 'floating' }
+  return { mode: 'zoned', zone: value.timeZone ?? fallbackTimeZone, useInstant: false }
+}
+
+/**
+ * Expand a stored RRULE for one request range.
+ *
+ * The client renders non-month views from these rows; month keeps DayFlow's own expansion so a
+ * series can still be edited there. Occurrence ids carry `::repeat-`, are never accepted by the API
+ * as entity ids, and are skipped by the persistence queue.
+ */
+export function expandRecurringEvents(
+  events: readonly CalendarEventDto[],
+  fromMs: number,
+  toMs: number,
+  fallbackTimeZone: string,
+): RecurrenceExpansion {
+  const occurrences: CalendarEventDto[] = []
+  let truncated = false
+  for (const event of events) {
+    const rule = (event.recurrenceRule
+      ?? (typeof event.meta?.recurrenceRule === 'string' ? event.meta.recurrenceRule : null))
+      ?.replace(/^RRULE:/i, '').trim()
+    if (!rule) continue
+    let vevent: IcalComponent
+    let context: TimeContext
+    let masterStartMs: number
+    try {
+      context = expansionContext(event.start, fallbackTimeZone)
+      masterStartMs = temporalValueToEpochMs(event.start, fallbackTimeZone)
+      if (rule.length > MAX_RECURRENCE_RULE) continue
+      vevent = new ICAL.Component('vevent')
+      addTimeProperty(vevent, 'dtstart', event.start)
+      addTimeProperty(vevent, 'dtend', event.end)
+      vevent.addPropertyWithValue('rrule', ICAL.Recur.fromString(rule))
+      for (const exdate of metaDates(event.meta, 'exdates')) addTimeProperty(vevent, 'exdate', exdate)
+      for (const rdate of metaDates(event.meta, 'rdates')) addTimeProperty(vevent, 'rdate', rdate)
+    } catch {
+      continue
+    }
+    let icalEvent: InstanceType<typeof ICAL.Event>
+    try {
+      icalEvent = new ICAL.Event(vevent)
+    } catch {
+      continue
+    }
+    const iterator = icalEvent.iterator()
+    for (let iterations = 0; iterations < MAX_RECURRENCE_ITERATIONS; iterations += 1) {
+      const next = iterator.next() as IcalTime | null
+      if (!next) break
+      let start: TemporalValue
+      let end: TemporalValue
+      let startMs: number
+      try {
+        const details = icalEvent.getOccurrenceDetails(next)
+        start = temporalValueFor(details.startDate, context)
+        end = temporalValueFor(details.endDate, context)
+        startMs = temporalValueToEpochMs(start, fallbackTimeZone)
+      } catch {
+        continue
+      }
+      if (startMs < fromMs) continue
+      if (startMs > toMs) break
+      if (startMs === masterStartMs) continue
+      if (occurrences.length >= MAX_RECURRENCE_OCCURRENCES) {
+        truncated = true
+        break
+      }
+      const meta = { ...event.meta }
+      delete meta.recurrenceRule
+      delete meta.exdates
+      delete meta.rdates
+      occurrences.push({
+        ...event,
+        id: `${event.id}::repeat-${startMs}`,
+        start,
+        end,
+        allDay: start.type === 'date',
+        meta,
+        recurrenceRule: null,
+        externalId: null,
+        rev: 0,
+      })
+    }
+    if (truncated) break
+  }
+  return { occurrences, truncated }
 }
 
 export function serializeIcsCalendar(input: IcsSerializeInput): string {

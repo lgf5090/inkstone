@@ -30990,6 +30990,7 @@ const allowed = new Map([
   ]],
   ["src/worker/calendar/ics.ts", [
     "/** A stable per-calendar external id; flattened occurrences need their recurrence id in the key. */",
+    "/**\n * Expand a stored RRULE for one request range.\n *\n * The client renders non-month views from these rows; month keeps DayFlow's own expansion so a\n * series can still be edited there. Occurrence ids carry `::repeat-`, are never accepted by the API\n * as entity ids, and are skipped by the persistence queue.\n */",
   ]],
   ["src/worker/calendar/oauth.ts", [
     "/**\n * Google and Outlook authorization-code sign-in with PKCE.\n *\n * The browser leaves for the provider and comes back to one fixed callback. Nothing secret travels in\n * either direction's URL: the state is random, D1 stores only its SHA-256, the PKCE verifier is sealed\n * in the vault under that hash, and the tokens land in the credential column and nowhere else.\n *\n * The callback is a top-level browser navigation, so it is registered before `requireAuth` and relies\n * on the session loader that already ran. It consumes the state row atomically with `UPDATE … RETURNING`\n * before the code exchange, which is what makes a replay fail even when two requests race.\n */",

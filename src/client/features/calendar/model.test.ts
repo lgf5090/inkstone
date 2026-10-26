@@ -6,6 +6,7 @@ import {
   deriveDarkColor,
   eventCalendarIds,
   eventDateInZone,
+  isRecurrenceOccurrence,
   missingRangeEventIds,
   toCalendarType,
   toDayFlowEvent,
@@ -170,6 +171,16 @@ describe('calendar DTO mapping', () => {
       end: { value: '2026-10-27T00:30:00-04:00[America/New_York]', type: 'zoned', timeZone: 'America/New_York' },
     }))
     expect(eventDateInZone(event.start, 'Asia/Shanghai').toString()).toBe('2026-10-27')
+  })
+
+  it('recognises a server-expanded occurrence by its id', () => {
+    const occurrence = toDayFlowEvent(eventDto({
+      id: 'evt_series::repeat-1793678400000',
+      start: { value: '2026-11-03T12:00:00', type: 'datetime' },
+      end: { value: '2026-11-03T13:00:00', type: 'datetime' },
+    }))
+    expect(isRecurrenceOccurrence(occurrence)).toBe(true)
+    expect(isRecurrenceOccurrence(toDayFlowEvent(eventDto()))).toBe(false)
   })
 
   it('mirrors a complete range without deleting series, occurrences, outside events or pending writes', () => {

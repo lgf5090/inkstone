@@ -221,6 +221,29 @@ describe('event routes', () => {
     expect((await call('DELETE', `/events/${home.id}`)).status).toBe(400)
   })
 
+  it('expands a recurring series for the requested range without duplicating its anchor', async () => {
+    const home = (await meta()).calendars[0]!
+    const created = await json<{ event: CalendarEventDto }>(await call('POST', '/events', eventBody(home.id, {
+      title: 'Weekly sync',
+      start: { value: '2026-10-28T12:00:00', type: 'datetime' },
+      end: { value: '2026-10-28T13:00:00', type: 'datetime' },
+      recurrenceRule: 'FREQ=WEEKLY;BYDAY=TU,WE',
+    })))
+    const page = await json<{
+      events: CalendarEventDto[]
+      occurrences: CalendarEventDto[]
+      recurrenceTruncated: boolean
+    }>(await call('GET', '/events?from=2026-10-01T00:00:00Z&to=2026-11-30T00:00:00Z'))
+
+    expect(page.events.map(event => event.id)).toContain(created.event.id)
+    expect(page.recurrenceTruncated).toBe(false)
+    expect(page.occurrences).toHaveLength(8)
+    expect(page.occurrences.every(event => event.id.startsWith(`${created.event.id}::repeat-`))).toBe(true)
+    expect(page.occurrences.every(event => event.recurrenceRule === null)).toBe(true)
+    expect(page.occurrences.map(event => event.start.value)).toContain('2026-11-03T12:00:00')
+    expect(page.occurrences.map(event => event.id)).not.toContain(created.event.id)
+  })
+
   it('hides another account’s events behind 404', async () => {
     const home = (await meta()).calendars[0]!
     const created = await json<{ event: CalendarEventDto }>(await call('POST', '/events', eventBody(home.id)))

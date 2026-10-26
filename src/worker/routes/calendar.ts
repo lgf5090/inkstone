@@ -14,6 +14,7 @@ import { Hono, type Context } from 'hono'
 import { MAX_EVENTS_PER_BATCH } from '@shared/calendar/model'
 import type { AppBindings } from '../env'
 import { CalendarStore } from '../calendar/store'
+import { expandRecurringEvents } from '../calendar/ics'
 import {
   parseCalendarIdList,
   parseCalendarInput,
@@ -112,8 +113,16 @@ calendarRoutes.get('/events', async (c) => {
   readBudget(c.get('userId'))
   const range = parseRange(c.req.query('from'), c.req.query('to'))
   const calendarIds = parseCalendarIdList(c.req.query('calendarIds'))
-  const result = await store(c).listEvents(range.fromMs, range.toMs, calendarIds)
-  return c.json({ events: result.events, truncated: result.truncated })
+  const s = store(c)
+  const result = await s.listEvents(range.fromMs, range.toMs, calendarIds)
+  const timeZone = await fallbackTimeZone(s)
+  const expansion = expandRecurringEvents(result.events, range.fromMs, range.toMs, timeZone)
+  return c.json({
+    events: result.events,
+    occurrences: expansion.occurrences,
+    truncated: result.truncated,
+    recurrenceTruncated: expansion.truncated,
+  })
 })
 
 calendarRoutes.post('/events/batch', async (c) => {

@@ -21,7 +21,7 @@ import * as api from './api'
 type LoadState =
   | { status: 'loading' }
   | { status: 'error'; error: string }
-  | { status: 'ready'; meta: CalendarMetaDto; events: CalendarEventDto[]; truncated: boolean }
+  | { status: 'ready'; meta: CalendarMetaDto; events: CalendarEventDto[]; occurrences: CalendarEventDto[]; truncated: boolean; recurrenceTruncated: boolean }
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -95,12 +95,12 @@ export function CalendarApp() {
     window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
   }, [])
 
-  const fetchAll = useCallback(async (signal?: AbortSignal): Promise<{ meta: CalendarMetaDto; events: CalendarEventDto[]; truncated: boolean }> => {
+  const fetchAll = useCallback(async (signal?: AbortSignal): Promise<{ meta: CalendarMetaDto; events: CalendarEventDto[]; occurrences: CalendarEventDto[]; truncated: boolean; recurrenceTruncated: boolean }> => {
     const [meta, eventPage] = await Promise.all([
       api.getMeta(signal),
       api.getEvents(range, signal),
     ])
-    const { events, truncated } = eventPage
+    const { events, occurrences, truncated, recurrenceTruncated } = eventPage
     if (meta.preferencesInitialized === false) {
       const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
       const preferences = normalizeCalendarPreferences({
@@ -109,7 +109,7 @@ export function CalendarApp() {
       })
       try {
         await api.putPreferences(preferences)
-        return { meta: { ...meta, preferences, preferencesInitialized: true }, events, truncated }
+        return { meta: { ...meta, preferences, preferencesInitialized: true }, events, occurrences, truncated, recurrenceTruncated }
       } catch (error) {
         useUi.getState().toast({
           title: t('calendar.error.save_failed'),
@@ -118,14 +118,14 @@ export function CalendarApp() {
         })
       }
     }
-    return { meta, events, truncated }
+    return { meta, events, occurrences, truncated, recurrenceTruncated }
   }, [range])
 
   useEffect(() => {
     const controller = new AbortController()
     setState({ status: 'loading' })
-    void fetchAll(controller.signal).then(({ meta, events, truncated }) => {
-      if (!controller.signal.aborted) setState({ status: 'ready', meta, events, truncated })
+    void fetchAll(controller.signal).then(({ meta, events, occurrences, truncated, recurrenceTruncated }) => {
+      if (!controller.signal.aborted) setState({ status: 'ready', meta, events, occurrences, truncated, recurrenceTruncated })
     }).catch((error: unknown) => {
       if (controller.signal.aborted) return
       setState({
@@ -151,8 +151,8 @@ export function CalendarApp() {
   }, [])
 
   const reload = useCallback(async (): Promise<void> => {
-    const { meta, events, truncated } = await fetchAll()
-    setState({ status: 'ready', meta, events, truncated })
+    const { meta, events, occurrences, truncated, recurrenceTruncated } = await fetchAll()
+    setState({ status: 'ready', meta, events, occurrences, truncated, recurrenceTruncated })
   }, [fetchAll])
 
   if (state.status === 'loading') return <LoadingCalendar />
@@ -216,7 +216,9 @@ export function CalendarApp() {
     <CalendarSurface
       meta={state.meta}
       initialEvents={state.events}
+      initialOccurrences={state.occurrences}
       initialTruncated={state.truncated}
+      initialRecurrenceTruncated={state.recurrenceTruncated}
       initialRange={range}
       onRefreshMeta={refreshMeta}
       onSavePreferences={savePreferences}

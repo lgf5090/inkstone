@@ -79,15 +79,24 @@ export function getMeta(signal?: AbortSignal): Promise<CalendarMetaDto> {
 
 export interface EventRangeResponse {
   events: CalendarEventDto[]
+  occurrences: CalendarEventDto[]
   truncated: boolean
+  recurrenceTruncated: boolean
 }
 
 export async function getEvents(query: EventRangeQuery, signal?: AbortSignal): Promise<EventRangeResponse> {
-  const data = await request<{ events: CalendarEventDto[]; truncated?: boolean }>(
-    `/api/calendar/events?${rangeQuery(query)}`,
-    { signal },
-  )
-  return { events: data.events, truncated: data.truncated === true }
+  const data = await request<{
+    events: CalendarEventDto[]
+    occurrences?: CalendarEventDto[]
+    truncated?: boolean
+    recurrenceTruncated?: boolean
+  }>(`/api/calendar/events?${rangeQuery(query)}`, { signal })
+  return {
+    events: data.events,
+    occurrences: data.occurrences ?? [],
+    truncated: data.truncated === true,
+    recurrenceTruncated: data.recurrenceTruncated === true,
+  }
 }
 
 export async function searchEvents(keyword: string, signal?: AbortSignal): Promise<EventSearchResponse> {

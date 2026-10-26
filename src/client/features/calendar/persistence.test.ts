@@ -90,6 +90,34 @@ describe('event persistence rollback', () => {
     persistence.dispose()
   })
 
+  it('announces a committed edit to a recurring series', async () => {
+    const fake = fakeApp()
+    const onCommitted = vi.fn()
+    const persistence = new EventPersistence({
+      app: fake.app,
+      revs: new Map([['evt-1', 1]]),
+      history: { record: vi.fn() } as unknown as CalendarEditHistory,
+      timeZone: () => 'UTC',
+      fallbackTitle: () => 'Untitled',
+      onServerState: vi.fn(),
+      onError: vi.fn(),
+      onConflict: vi.fn(),
+      onRecurringEdit: vi.fn(),
+      onReadOnlyEdit: vi.fn(),
+      onCommitted,
+    })
+    persistence.start()
+    vi.mocked(api.updateEvent).mockResolvedValue({ rev: 2 } as never)
+    const before = { ...event('Weekly'), meta: { recurrenceRule: 'FREQ=WEEKLY' } }
+    const after = { ...event('Weekly edited'), meta: { recurrenceRule: 'FREQ=WEEKLY' } }
+
+    fake.emit({ type: 'update', before, after, source: 'local' })
+    await vi.advanceTimersByTimeAsync(300)
+
+    expect(onCommitted).toHaveBeenCalledWith('evt-1', true)
+    persistence.dispose()
+  })
+
   it('removes a created event that the server never accepted', async () => {
     const fake = fakeApp()
     const onError = vi.fn()

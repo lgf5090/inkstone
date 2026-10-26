@@ -40,6 +40,7 @@ export interface EventPersistenceOptions {
   onConflict: (error: unknown) => void
   onRecurringEdit: () => void
   onReadOnlyEdit: () => void
+  onCommitted?: (id: string, recurring: boolean) => void
   onDeleted?: (id: string, title: string | undefined) => void
 }
 
@@ -231,8 +232,12 @@ export class EventPersistence {
   private commitDraft(id: string): void {
     const draft = this.drafts.get(id)
     if (!draft) return
+    const recurring = Boolean(
+      draft.before?.meta?.recurrenceRule || draft.after?.meta?.recurrenceRule,
+    )
     this.drafts.delete(id)
     this.options.history.record({ id, before: draft.before, after: draft.after })
+    this.options.onCommitted?.(id, recurring)
   }
 
   /** Restore the last server-confirmed shape after a write that will not be retried. */
