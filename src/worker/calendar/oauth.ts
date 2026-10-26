@@ -441,6 +441,10 @@ function grantsWriteScope(provider: CalendarOAuthProvider, scope: string): boole
   return /(^|\s)(?:https:\/\/graph\.microsoft\.com\/)?Calendars\.ReadWrite(?:\s|$)/i.test(scope)
 }
 
+function isLocalCallbackHost(url: URL): boolean {
+  return url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]'
+}
+
 function callbackUrl(env: Env, origin: string): string {
   const configured = env.CALENDAR_OAUTH_REDIRECT_BASE?.trim()
   if (configured) {
@@ -450,8 +454,9 @@ function callbackUrl(env: Env, origin: string): string {
     } catch {
       throw new ApiError(503, 'server_misconfigured', 'CALENDAR_OAUTH_REDIRECT_BASE is not a valid URL')
     }
-    if ((base.protocol !== 'https:' && base.protocol !== 'http:') || base.username || base.password) {
-      throw new ApiError(503, 'server_misconfigured', 'CALENDAR_OAUTH_REDIRECT_BASE is not a valid URL')
+    if (base.username || base.password
+      || !(base.protocol === 'https:' || (base.protocol === 'http:' && isLocalCallbackHost(base)))) {
+      throw new ApiError(503, 'server_misconfigured', 'CALENDAR_OAUTH_REDIRECT_BASE must be https (http is allowed only on localhost)')
     }
     return `${base.origin}${CALLBACK_PATH}`
   }
@@ -461,7 +466,8 @@ function callbackUrl(env: Env, origin: string): string {
   } catch {
     throw ApiError.badRequest('The request origin could not be read')
   }
-  if (requestOrigin.protocol !== 'https:' && requestOrigin.protocol !== 'http:') {
+  if (!(requestOrigin.protocol === 'https:'
+    || (requestOrigin.protocol === 'http:' && isLocalCallbackHost(requestOrigin)))) {
     throw ApiError.badRequest('The request origin could not be read')
   }
   return `${requestOrigin.origin}${CALLBACK_PATH}`

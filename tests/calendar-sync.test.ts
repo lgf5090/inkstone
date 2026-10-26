@@ -359,6 +359,32 @@ describe('OAuth start and callback', () => {
     await expect(decryptCalendarOAuthVerifier(env, hash, row.verifier_ciphertext)).resolves.toMatch(/^[A-Za-z0-9_-]{43}$/)
   })
 
+  it('requires https for the OAuth callback outside localhost', async () => {
+    await expect(startOAuth(env, USER, {
+      provider: 'google',
+      writable: false,
+      origin: 'http://notes.example.com',
+    })).rejects.toMatchObject({ status: 400 })
+
+    const local = await startOAuth(env, USER, {
+      provider: 'google',
+      writable: false,
+      origin: 'http://localhost:5180',
+    })
+    expect(new URL(local.url).searchParams.get('redirect_uri'))
+      .toBe('http://localhost:5180/api/calendar/oauth/callback')
+
+    const misconfigured = testBindings(db, {
+      CREDENTIAL_VAULT: vault.namespace,
+      CALENDAR_OAUTH_REDIRECT_BASE: 'http://notes.example.com',
+    })
+    await expect(startOAuth(misconfigured, USER, {
+      provider: 'google',
+      writable: false,
+      origin: 'https://notes.example.com',
+    })).rejects.toMatchObject({ status: 503, code: 'server_misconfigured' })
+  })
+
   it('uses the read scope when writable is false', async () => {
     const started = await startOAuth(env, USER, {
       provider: 'google',
