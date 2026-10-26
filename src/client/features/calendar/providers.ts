@@ -31,7 +31,7 @@ export interface ProviderSyncOptions {
   userId: string
   connections: readonly CalendarConnectionDto[]
   getInitialSnapshot: () => { events: Event[]; calendars: CalendarType[] }
-  onStatus?: (connection: CalendarConnectionDto, status: ProviderStatus) => void
+  onStatus?: (connection: CalendarConnectionDto, status: ProviderStatus, error?: unknown) => void
   onRefreshMeta?: () => void | Promise<void>
 }
 
@@ -199,7 +199,7 @@ export function attachCalendarProviders(
   const lastReport = new Map<string, number>()
 
   const announce = (connection: CalendarConnectionDto, status: ProviderStatus, error?: unknown): void => {
-    options.onStatus?.(connection, status)
+    options.onStatus?.(connection, status, error)
     const now = Date.now()
     const last = lastReport.get(connection.id) ?? 0
     if (status === 'error' || now - last >= STATUS_REPORT_INTERVAL_MS) {

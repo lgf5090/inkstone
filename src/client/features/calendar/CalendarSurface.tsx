@@ -356,6 +356,7 @@ export function CalendarSurface({ meta, initialEvents, initialRange, onRefreshMe
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(readCollapsed)
   const [rangeError, setRangeError] = useState<string | null>(null)
+  const [syncError, setSyncError] = useState<string | null>(null)
 
   const metaRef = useRef(meta)
   metaRef.current = meta
@@ -673,6 +674,20 @@ export function CalendarSurface({ meta, initialEvents, initialRange, onRefreshMe
         events: app.getEvents(),
         calendars: app.getCalendars(),
       }),
+      onStatus: (connection, status, error) => {
+        if (status === 'connected') {
+          setSyncError(null)
+          return
+        }
+        setSyncError(t('calendar.sync.failed', { name: connection.label || connection.kind }))
+        console.warn('[inkstone] Calendar sync failed:', {
+          connection: connection.id,
+          error: error instanceof Error ? error.message : error,
+        })
+        void Promise.resolve(refreshRef.current()).catch((refreshError: unknown) => {
+          toastFailure(t('calendar.error.refresh'), refreshError)
+        })
+      },
       onRefreshMeta: async () => { await refreshRef.current() },
     })
     return () => attachment.stop()
@@ -775,6 +790,14 @@ export function CalendarSurface({ meta, initialEvents, initialRange, onRefreshMe
             <AlertTriangle size={13} className="shrink-0 text-[var(--warning)]" aria-hidden="true" />
             <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-secondary)]">{rangeError}</span>
             <Button size="sm" onClick={retryRange}>{t('common.retry')}</Button>
+          </div>
+        )}
+
+        {syncError && (
+          <div role="alert" className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-1.5">
+            <AlertTriangle size={13} className="shrink-0 text-[var(--warning)]" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-secondary)]">{syncError}</span>
+            <Button size="sm" onClick={() => setConnectionsOpen(true)}>{t('calendar.sync.open_connections')}</Button>
           </div>
         )}
 

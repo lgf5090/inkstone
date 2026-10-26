@@ -11,6 +11,8 @@ export const EN_US_CALENDAR = {
   'calendar.error.save_failed': 'Could not save the change',
   'calendar.error.conflict': 'This item changed elsewhere. The latest version has been loaded.',
   'calendar.error.refresh': 'Could not refresh calendar data',
+  'calendar.sync.failed': '{name} could not sync, so its events may be out of date',
+  'calendar.sync.open_connections': 'Connection settings',
   'calendar.error.recurring': 'Edit the repeating series instead of a single occurrence',
   'calendar.empty.title': 'No calendars yet',
   'calendar.empty.description': 'Create your first calendar to start scheduling.',
