@@ -42,6 +42,8 @@ import {
   MAX_EVENTS_PER_BATCH,
   MAX_EVENTS_PER_QUERY,
   MAX_GROUPS,
+  MAX_REMINDERS_PER_EVENT,
+  MAX_REMINDER_MINUTES,
   normalizeCalendarPreferences,
   temporalValueToEpochMs,
 } from '@shared/calendar/model'
@@ -576,6 +578,17 @@ export class CalendarStore {
       statements.push(this.db.prepare(
         `DELETE FROM calendar_events
           WHERE user_id = ?1 AND id IN (
+            SELECT ec.event_id FROM calendar_event_calendars ec
+             WHERE ec.user_id = ?1 AND ec.calendar_id = ?2
+               AND NOT EXISTS (
+                 SELECT 1 FROM calendar_event_calendars other
+                  WHERE other.user_id = ?1 AND other.event_id = ec.event_id AND other.calendar_id <> ?2
+               )
+          )`,
+      ).bind(this.userId, id))
+      statements.push(this.db.prepare(
+        `DELETE FROM calendar_event_reminders
+          WHERE user_id = ?1 AND event_id IN (
             SELECT ec.event_id FROM calendar_event_calendars ec
              WHERE ec.user_id = ?1 AND ec.calendar_id = ?2
                AND NOT EXISTS (
@@ -1260,12 +1273,85 @@ export class CalendarStore {
             AND EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?3)`,
       ).bind(this.userId, id, rev),
       this.db.prepare(
+        `DELETE FROM calendar_event_reminders
+          WHERE user_id = ?1 AND event_id = ?2
+            AND EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?3)`,
+      ).bind(this.userId, id, rev),
+      this.db.prepare(
         `DELETE FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?3`,
       ).bind(this.userId, id, rev),
     ])
-    if (!outcomes[1]?.meta.changes) {
+    if (!outcomes[2]?.meta.changes) {
       throw ApiError.conflict('The event changed elsewhere. Refresh and try again')
     }
+  }
+
+  /** Minutes-before-start reminders set on these events, ascending, missing events left out. */
+  async eventReminders(eventIds: readonly string[]): Promise<Map<string, number[]>> {
+    const found = new Map<string, number[]>()
+    for (const chunk of chunks(eventIds, SQL_CHUNK)) {
+      const { results } = await this.db.prepare(
+        `SELECT event_id, minutes FROM calendar_event_reminders
+          WHERE user_id = ? AND event_id IN (${placeholders(chunk.length)})
+          ORDER BY event_id ASC, minutes ASC`,
+      ).bind(this.userId, ...chunk).all<{ event_id: string; minutes: number }>()
+      for (const row of results ?? []) {
+        const list = found.get(row.event_id)
+        if (list) list.push(Number(row.minutes))
+        else found.set(row.event_id, [Number(row.minutes)])
+      }
+    }
+    return found
+  }
+
+  /**
+   * Replace one event's reminders.
+   *
+   * A reminder belongs to the row, so the write carries the row's revision: setting a reminder on an
+   * event somebody else just moved has to fail like any other stale write rather than stomp it.
+   */
+  async setEventReminders(
+    id: string,
+    minutes: readonly number[],
+    rev: number,
+  ): Promise<{ event: CalendarEventDto; reminders: number[] }> {
+    const row = await this.eventRow(id)
+    if (!row) throw ApiError.notFound('Event not found')
+    if (row.rev !== rev) throw ApiError.conflict('The event changed elsewhere. Refresh and try again')
+    await this.assertEventWritable(id)
+    const unique = [...new Set(minutes.map((value) => Number(value)))].sort((left, right) => left - right)
+    if (unique.length > MAX_REMINDERS_PER_EVENT) {
+      throw ApiError.badRequest(`An event may carry at most ${MAX_REMINDERS_PER_EVENT} reminders`)
+    }
+    for (const value of unique) {
+      if (!Number.isInteger(value) || value < 0 || value > MAX_REMINDER_MINUTES) {
+        throw ApiError.badRequest('Reminder minutes must be whole numbers of a week or less')
+      }
+    }
+    const now = Date.now()
+    const outcomes = await this.db.batch([
+      this.db.prepare(
+        `DELETE FROM calendar_event_reminders
+          WHERE user_id = ?1 AND event_id = ?2
+            AND EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?3)`,
+      ).bind(this.userId, id, rev),
+      ...unique.map((value) => this.db.prepare(
+        `INSERT INTO calendar_event_reminders (user_id, event_id, minutes, created_at)
+         SELECT ?1, ?2, ?3, ?4
+          WHERE EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?5)`,
+      ).bind(this.userId, id, value, now, rev)),
+      this.db.prepare(
+        `UPDATE calendar_events SET rev = rev + 1, updated_at = ?3
+          WHERE user_id = ?1 AND id = ?2 AND rev = ?4`,
+      ).bind(this.userId, id, now, rev),
+    ])
+    const bumped = outcomes[outcomes.length - 1]
+    if (!bumped?.meta.changes) {
+      throw ApiError.conflict('The event changed elsewhere. Refresh and try again')
+    }
+    const event = await this.getEvent(id)
+    if (!event) throw new Error('Event reminder update did not persist')
+    return { event, reminders: unique }
   }
 
   private readConference(raw: string): CalendarConferenceDto | null {

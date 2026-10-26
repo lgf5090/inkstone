@@ -137,6 +137,10 @@ export const ZH_CN_CALENDAR = {
   'calendar.event.deleted_named': '已删除“{title}”',
   'calendar.event.delete_read_only': '该日历为只读',
   'calendar.event.delete_failed': '无法删除事件',
+  'calendar.event.reminder_at_start': '准时',
+  'calendar.extras.gone': '这个日程已经不存在了',
+  'calendar.extras.load_failed': '无法读取提醒设置',
+  'calendar.extras.follow_default': '这条日程没有单独设置提醒，按日历默认值提醒',
   'calendar.history.empty': '没有可撤销的操作',
 
   'calendar.search.empty': '没有匹配的事件',

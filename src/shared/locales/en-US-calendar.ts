@@ -135,6 +135,10 @@ export const EN_US_CALENDAR = {
   'calendar.event.deleted_named': 'Deleted “{title}”',
   'calendar.event.delete_read_only': 'This calendar is read only',
   'calendar.event.delete_failed': 'Could not delete the event',
+  'calendar.event.reminder_at_start': 'At the start',
+  'calendar.extras.gone': 'This event is no longer here',
+  'calendar.extras.load_failed': 'Could not load the reminders',
+  'calendar.extras.follow_default': 'No reminder of its own, so the calendar default applies',
   'calendar.history.empty': 'Nothing to undo',
 
   'calendar.search.empty': 'No matching events',

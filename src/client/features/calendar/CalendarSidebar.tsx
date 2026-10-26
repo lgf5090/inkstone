@@ -55,6 +55,8 @@ interface CalendarSidebarProps {
   onRefresh: (reloadEvents: boolean) => Promise<void>
   onSelectDate: (date: Date) => void
   onRequestRange?: (from: number, to: number) => void
+  /** Per-event settings the DayFlow editor cannot host; shown above the footer in the full sidebar. */
+  extras?: ReactNode
 }
 
 function toastFailure(title: string, error: unknown): void {
@@ -150,6 +152,7 @@ export function CalendarSidebar({
   onRefresh,
   onSelectDate,
   onRequestRange,
+  extras,
 }: CalendarSidebarProps) {
   useLocaleRepaint()
   const dark = useThemeDark()
@@ -575,6 +578,7 @@ export function CalendarSidebar({
         </div>
       </div>
 
+      {extras}
       <footer className="flex shrink-0 items-center gap-1 border-t border-[var(--border-subtle)] px-2 py-1.5">
         <Button
           size="sm"

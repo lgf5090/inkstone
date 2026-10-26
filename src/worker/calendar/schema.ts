@@ -178,11 +178,23 @@ export const CALENDAR_SCHEMA_STATEMENTS: readonly string[] = [
     user_id TEXT NOT NULL,
     event_id TEXT NOT NULL,
     occurrence_start_ms INTEGER NOT NULL,
+    minutes INTEGER NOT NULL DEFAULT 0,
     fired_at INTEGER NOT NULL,
-    PRIMARY KEY (user_id, event_id, occurrence_start_ms)
+    PRIMARY KEY (user_id, event_id, occurrence_start_ms, minutes)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_calendar_reminder_fires_fired
      ON calendar_reminder_fires(user_id, fired_at)`,
+  // One row per (event, minutes-before) pair: the sweep asks "which events in this window have a
+  // reminder due", and a column of JSON minutes would answer that only by reading every row.
+  `CREATE TABLE IF NOT EXISTS calendar_event_reminders (
+    user_id TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    minutes INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, event_id, minutes)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_calendar_event_reminders_window
+     ON calendar_event_reminders(user_id, event_id)`,
   `CREATE TABLE IF NOT EXISTS calendar_provider_calendars (
     user_id TEXT NOT NULL,
     connection_id TEXT NOT NULL,
@@ -217,6 +229,7 @@ export const CALENDAR_REQUIRED_TABLES: readonly string[] = [
   'calendar_oauth_states',
   'calendar_preferences',
   'calendar_reminder_fires',
+  'calendar_event_reminders',
   'calendar_provider_calendars',
 ]
 
@@ -239,6 +252,7 @@ export const CALENDAR_REQUIRED_INDEXES: readonly string[] = [
   'idx_calendar_credentials_connection',
   'idx_calendar_oauth_expiry',
   'idx_calendar_reminder_fires_fired',
+  'idx_calendar_event_reminders_window',
   'idx_calendar_provider_local',
   'idx_calendar_provider_due',
 ]
@@ -274,7 +288,8 @@ export const CALENDAR_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[
     'used_at', 'created_at',
   ],
   calendar_preferences: ['user_id', 'preferences_json', 'updated_at'],
-  calendar_reminder_fires: ['user_id', 'event_id', 'occurrence_start_ms', 'fired_at'],
+  calendar_reminder_fires: ['user_id', 'event_id', 'occurrence_start_ms', 'minutes', 'fired_at'],
+  calendar_event_reminders: ['user_id', 'event_id', 'minutes', 'created_at'],
   calendar_provider_calendars: [
     'user_id', 'connection_id', 'remote_calendar_id', 'local_calendar_id', 'last_sync_at',
     'last_error_code', 'created_at', 'updated_at',

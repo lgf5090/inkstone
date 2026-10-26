@@ -100,3 +100,89 @@ describe('calendar reminders', () => {
     expect((await sweepCalendarReminders(env, now + 7 * 24 * 60 * 60 * 1000)).sent).toBe(0)
   })
 })
+
+describe('per-event reminders', () => {
+  const store = () => new CalendarStore(db, USER)
+
+  it('fires every lead an event carries, once each', async () => {
+    const now = Date.parse('2026-10-26T08:00:00Z')
+    const id = await createEvent(now + 60 * 60_000)
+    await store().setEventReminders(id, [60, 10], (await store().getEvent(id))!.rev)
+    expect((await store().eventReminders([id])).get(id)).toEqual([10, 60])
+
+    // An hour ahead of the start only the 60-minute lead is due; the 10-minute one fires later.
+    expect(await sweepCalendarReminders(env, now)).toMatchObject({ due: 1, sent: 1 })
+    expect(await sweepCalendarReminders(env, now + 50 * 60_000)).toMatchObject({ due: 1, sent: 1 })
+    const again = await sweepCalendarReminders(env, now + 50 * 60_000)
+    expect(again).toMatchObject({ sent: 0, claimed: 1 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM chat_notifications').get()).toEqual({ count: 2 })
+  })
+
+  it('replaces the account default instead of adding to it', async () => {
+    const now = Date.parse('2026-10-26T08:00:00Z')
+    const id = await createEvent(now + 60 * 60_000)
+    await store().setEventReminders(id, [60], (await store().getEvent(id))!.rev)
+
+    // The default 10-minute lead would have fired here; the event says otherwise.
+    expect((await sweepCalendarReminders(env, now + 51 * 60_000)).sent).toBe(0)
+  })
+
+  it('reaches an account that opted out of the default', async () => {
+    const now = Date.parse('2026-10-26T08:00:00Z')
+    await store().savePreferences({
+      ...defaultCalendarPreferences(),
+      timeZone: 'UTC',
+      eventReminderMinutes: 0,
+    })
+    const id = await createEvent(now + 20 * 60_000)
+    await store().setEventReminders(id, [20], (await store().getEvent(id))!.rev)
+
+    expect(await sweepCalendarReminders(env, now)).toMatchObject({ due: 1, sent: 1 })
+  })
+
+  it('follows a recurring series occurrence', async () => {
+    const now = Date.parse('2026-10-26T08:00:00Z')
+    const id = await createEvent(now + 15 * 60_000, 'FREQ=WEEKLY;BYDAY=MO')
+    await store().setEventReminders(id, [15], (await store().getEvent(id))!.rev)
+
+    expect((await sweepCalendarReminders(env, now)).sent).toBe(1)
+    const week = now + 7 * 24 * 60 * 60 * 1000
+    expect((await sweepCalendarReminders(env, week)).sent).toBe(1)
+    expect((await sweepCalendarReminders(env, week)).claimed).toBe(1)
+  })
+
+  it('refuses a stale revision, a long list and a nonsense lead', async () => {
+    const id = await createEvent(Date.parse('2026-10-26T09:00:00Z'))
+    const fresh = (await store().getEvent(id))!
+
+    await expect(store().setEventReminders(id, [10], fresh.rev + 1)).rejects.toMatchObject({ status: 409 })
+    await expect(store().setEventReminders(id, [0, 5, 10, 15, 30, 60, 120, 1440, 2880], fresh.rev))
+      .rejects.toMatchObject({ status: 400 })
+    await expect(store().setEventReminders(id, [-1], fresh.rev)).rejects.toMatchObject({ status: 400 })
+    await expect(store().setEventReminders(id, [1.5], fresh.rev)).rejects.toMatchObject({ status: 400 })
+    await expect(store().setEventReminders('event-missing', [10], 1)).rejects.toMatchObject({ status: 404 })
+  })
+
+  it('bumps the event revision so a concurrent edit cannot be missed', async () => {
+    const id = await createEvent(Date.parse('2026-10-26T09:00:00Z'))
+    const before = (await store().getEvent(id))!
+
+    const answer = await store().setEventReminders(id, [10], before.rev)
+
+    expect(answer.event.rev).toBe(before.rev + 1)
+    expect(answer.reminders).toEqual([10])
+    await expect(store().setEventReminders(id, [20], before.rev)).rejects.toMatchObject({ status: 409 })
+  })
+
+  it('forgets the reminders when the event goes', async () => {
+    const now = Date.parse('2026-10-26T08:00:00Z')
+    const id = await createEvent(now + 60 * 60_000)
+    await store().setEventReminders(id, [60], (await store().getEvent(id))!.rev)
+    const kept = (await store().getEvent(id))!
+
+    await store().deleteEvent(id, kept.rev)
+
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_event_reminders').get())
+      .toEqual({ count: 0 })
+  })
+})

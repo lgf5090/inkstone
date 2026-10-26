@@ -2642,6 +2642,50 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          WHERE external_id IS NOT NULL`,
     ],
   },
+  {
+    // A reminder belongs to an event, not to a row of JSON: the sweep asks which events in a window
+    // are due, and only a row per (event, minutes) can answer that without reading every event.
+    version: 173,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS calendar_event_reminders (
+        user_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        minutes INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, event_id, minutes)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_calendar_event_reminders_window
+         ON calendar_event_reminders(user_id, event_id)`,
+    ],
+  },
+  {
+    // The fire log keyed one occurrence once, which was enough while every reminder was the account's
+    // own lead time. Per-event reminders mean the same occurrence can be due twice — at 60 minutes and
+    // again at 10 — so the lead joins the key. Existing rows are stamped with the account's current
+    // lead, which is the value that produced them unless the preference changed since.
+    version: 174,
+    skipIfColumnExists: { table: 'calendar_reminder_fires', column: 'minutes' },
+    statements: [
+      `ALTER TABLE calendar_reminder_fires RENAME TO calendar_reminder_fires_v1`,
+      `CREATE TABLE calendar_reminder_fires (
+        user_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        occurrence_start_ms INTEGER NOT NULL,
+        minutes INTEGER NOT NULL DEFAULT 0,
+        fired_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, event_id, occurrence_start_ms, minutes)
+      )`,
+      `INSERT INTO calendar_reminder_fires (user_id, event_id, occurrence_start_ms, minutes, fired_at)
+       SELECT o.user_id, o.event_id, o.occurrence_start_ms,
+              COALESCE((SELECT json_extract(p.preferences_json, '$.eventReminderMinutes')
+                          FROM calendar_preferences p WHERE p.user_id = o.user_id), 0),
+              o.fired_at
+         FROM calendar_reminder_fires_v1 o`,
+      `DROP TABLE calendar_reminder_fires_v1`,
+      `CREATE INDEX IF NOT EXISTS idx_calendar_reminder_fires_fired
+         ON calendar_reminder_fires(user_id, fired_at)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

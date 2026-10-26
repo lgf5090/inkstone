@@ -1,10 +1,10 @@
 /**
  * The minute sweep that delivers calendar reminders.
  *
- * The reminder is the reader's account-wide lead time, so there is no per-event row to keep in sync:
- * the sweep asks only accounts that opted in, loads the next `lead` minutes (plus a small grace for a
- * late tick), expands recurring series, and claims each occurrence in `calendar_reminder_fires`.
- * The claim is the delivery gate; the notification row is the delivery, and the push is a courtesy.
+ * An event carries its own leads, and falls back to the account-wide one when it names none. The sweep
+ * loads the window the account actually uses, expands recurring series, and claims each
+ * (occurrence, lead) pair in `calendar_reminder_fires` — the claim is the delivery gate, the
+ * notification row is the delivery, and the push is a courtesy.
  */
 import { normalizeCalendarPreferences } from '@shared/calendar/model'
 import type { CalendarEventDto } from '@shared/calendar/model'
@@ -105,57 +105,77 @@ export async function sweepCalendarReminders(
       continue
     }
     const minutes = preferences.eventReminderMinutes
-    if (minutes <= 0) continue
-    const leadMs = minutes * 60_000
+    // The window is the furthest lead this account actually uses: an account with a 10-minute default
+    // and no per-event reminders keeps scanning eleven minutes, not a week.
+    let ownLeadMax = 0
+    try {
+      const row = await env.DB.prepare(
+        `SELECT MAX(minutes) AS lead FROM calendar_event_reminders WHERE user_id = ?1`,
+      ).bind(account.user_id).first<{ lead: number | null }>()
+      ownLeadMax = Number(row?.lead ?? 0)
+    } catch (error) {
+      console.error('[inkstone] calendar reminder leads failed:', error instanceof Error ? error.message : error)
+      continue
+    }
+    const leadMinutes = Math.max(minutes, ownLeadMax)
+    if (leadMinutes <= 0) continue
     const from = now - REMINDER_GRACE_MS
-    const to = now + leadMs + 60_000
+    const to = now + leadMinutes * 60_000 + 60_000
     let events: CalendarEventDto[]
+    let ownReminders: Map<string, number[]>
     try {
       const store = new CalendarStore(env.DB, account.user_id)
       events = (await store.listEvents(from, to)).events
+      ownReminders = await store.eventReminders(events.map((event) => event.id))
     } catch (error) {
       console.error('[inkstone] calendar reminder range failed:', error instanceof Error ? error.message : error)
       continue
     }
     for (const event of events) {
+      const leads = ownReminders.get(event.id)?.length
+        ? ownReminders.get(event.id)!
+        : minutes > 0 ? [minutes] : []
       const starts = occurrenceStarts(event, from, to, preferences.timeZone)
       for (const start of starts) {
-        const remindAt = start - leadMs
-        if (remindAt > now || remindAt < now - REMINDER_GRACE_MS) continue
-        due++
-        if (sent + claimed >= SWEEP_LIMIT) break
-        try {
-          const claim = await env.DB.prepare(
-            `INSERT OR IGNORE INTO calendar_reminder_fires
-              (user_id, event_id, occurrence_start_ms, fired_at)
-             VALUES (?1, ?2, ?3, ?4)`,
-          ).bind(account.user_id, event.id, start, now).run()
-          if ((claim.meta.changes ?? 0) === 0) {
-            claimed++
-            continue
+        for (const lead of leads) {
+          const remindAt = start - lead * 60_000
+          if (remindAt > now || remindAt < now - REMINDER_GRACE_MS) continue
+          due++
+          if (sent + claimed >= SWEEP_LIMIT) break
+          try {
+            const claim = await env.DB.prepare(
+              `INSERT OR IGNORE INTO calendar_reminder_fires
+                (user_id, event_id, occurrence_start_ms, minutes, fired_at)
+               VALUES (?1, ?2, ?3, ?4, ?5)`,
+            ).bind(account.user_id, event.id, start, lead, now).run()
+            if ((claim.meta.changes ?? 0) === 0) {
+              claimed++
+              continue
+            }
+            let store = stores.get(account.user_id)
+            if (!store) {
+              store = new AssistantStore(env.DB, account.user_id, env)
+              stores.set(account.user_id, store)
+            }
+            let settings = settingsCache.get(account.user_id)
+            if (!settings) {
+              settings = await store.getSettings()
+              settingsCache.set(account.user_id, settings)
+            }
+            const copy = settings.language === 'en-US' ? EN_US_CALENDAR_NOTIFY : ZH_CN_CALENDAR_NOTIFY
+            const notification = await store.createNotification({
+              title: `${copy.title} · ${event.title}`,
+              body: fill(copy.startsAt, { title: event.title, when: whenText(start, settings.timezone) }),
+              link: `calendar:${dateKey(start, settings.timezone)}`,
+            })
+            fanout.track(account.user_id, notification.id)
+            sent++
+          } catch (error) {
+            failed++
+            console.error('[inkstone] calendar reminder failed:', error instanceof Error ? error.message : error)
           }
-          let store = stores.get(account.user_id)
-          if (!store) {
-            store = new AssistantStore(env.DB, account.user_id, env)
-            stores.set(account.user_id, store)
-          }
-          let settings = settingsCache.get(account.user_id)
-          if (!settings) {
-            settings = await store.getSettings()
-            settingsCache.set(account.user_id, settings)
-          }
-          const copy = settings.language === 'en-US' ? EN_US_CALENDAR_NOTIFY : ZH_CN_CALENDAR_NOTIFY
-          const notification = await store.createNotification({
-            title: `${copy.title} · ${event.title}`,
-            body: fill(copy.startsAt, { title: event.title, when: whenText(start, settings.timezone) }),
-            link: `calendar:${dateKey(start, settings.timezone)}`,
-          })
-          fanout.track(account.user_id, notification.id)
-          sent++
-        } catch (error) {
-          failed++
-          console.error('[inkstone] calendar reminder failed:', error instanceof Error ? error.message : error)
         }
+        if (sent + claimed >= SWEEP_LIMIT) break
       }
       if (sent + claimed >= SWEEP_LIMIT) break
     }

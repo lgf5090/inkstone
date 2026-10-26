@@ -1259,6 +1259,9 @@ const allowed = new Map([
     "/**\n * Calendar administration dialogs.\n *\n * Each dialog owns the request it makes, keeps its refusals inside the panel instead of closing it,\n * and calls `onSaved` so the container can refresh metadata and the DayFlow registry. The shell's\n * `Modal` supplies focus trapping, Escape and focus return; these never use native prompts.\n */",
     "/** The write already succeeded; a refresh failure must not present the write as failed or invite a retry. */",
   ]],
+  ["src/client/features/calendar/CalendarEventExtras.tsx", [
+    "/**\n * The sidebar section for the event the reader just clicked.\n *\n * DayFlow's own editor owns the fields it renders, and it has no extension point that would let this\n * app add a row to it. Reminders are per event now, so they live here: the section reads the server's\n * row, writes back with its revision, and hands the new revision to the surface so the write queue\n * does not send a stale PATCH afterwards.\n */",
+  ]],
   ["src/client/features/calendar/CalendarFilteredSearch.tsx", [
     "/** A filtered calendar search: keyword, calendar, date span and kind, in one panel. */",
   ]],
@@ -1273,6 +1276,7 @@ const allowed = new Map([
     "/** Refresh meta and the DayFlow registry; `reloadEvents` also refetches the visible range. */",
     "// Dragging across a group boundary would reorder a calendar that stays in the other group; the",
     "// \"Move to group\" menu is the explicit way to change membership.",
+    "/** Per-event settings the DayFlow editor cannot host; shown above the footer in the full sidebar. */",
   ]],
   ["src/client/features/calendar/CalendarSurface.tsx", [
     "/**\n * The live calendar surface: DayFlow, the plugins, the native sidebar and the write queue.\n *\n * Configuration is created once, because `useCalendarApp` builds its app from the first config. Later\n * preference changes go through `app.updateConfig`, which re-installs views without rebuilding the\n * app or losing the current selection. Range loading and persistence both apply server state with\n * `source: 'remote'` and a skip set, so a refresh never echoes back as a write.\n */",
@@ -1287,6 +1291,10 @@ const allowed = new Map([
     "// that defeats the point of updateConfig.",
     "/**\n   * DayFlow's event panel and mobile drawer still hold the revision the refused write was sent\n   * against, and their portals stack above this app's dialogs — a stale editor behind a merge prompt\n   * is both a competing writer and an unreachable one.\n   */",
     "/** A parked 409 needs the server's copy before there is anything to compare against. */",
+    "// The extras section follows DayFlow's selection rather than a click callback, because providing one",
+    "// changes what a click does to the event surfaces. A click anywhere outside the calendar — including",
+    "// on this section's own controls — clears that selection, so an open section stays open until the",
+    "// reader closes it or picks another event.",
   ]],
   ["src/client/features/calendar/MiniMonth.tsx", [
     "/**\n * The mini month: 42 cells, event dots in calendar colours, and a date that drives the main view.\n *\n * It reads DayFlow's registry and events directly rather than keeping a second copy of the data, so\n * a visibility toggle or a drag in the main grid is reflected here on the next app notification.\n */",
@@ -26598,6 +26606,7 @@ const allowed = new Map([
   ]],
   ["src/shared/calendar/model.ts", [
     "/** False on the first load, so the client can seed the display timezone from the browser. */",
+    "/** A week ahead is the furthest reminder worth firing; eight is more than any client offers. */",
   ]],
   ["src/shared/constants.ts", [
     "// D1 limits an entire row to 2,000,000 bytes; reserve room for note metadata.",
@@ -31070,12 +31079,16 @@ const allowed = new Map([
     "// `.` and `..` are judged after decoding, so `%2e%2e` and `%252e%252e` have already become one.",
   ]],
   ["src/worker/calendar/reminders.ts", [
-    "/**\n * The minute sweep that delivers calendar reminders.\n *\n * The reminder is the reader's account-wide lead time, so there is no per-event row to keep in sync:\n * the sweep asks only accounts that opted in, loads the next `lead` minutes (plus a small grace for a\n * late tick), expands recurring series, and claims each occurrence in `calendar_reminder_fires`.\n * The claim is the delivery gate; the notification row is the delivery, and the push is a courtesy.\n */",
     "// A malformed rule leaves the master's own start below; the sweep must not fail the whole tick.",
     "// The fire log only needs to outlive a late tick; pruning is best-effort and must not fail delivery.",
+    "/**\n * The minute sweep that delivers calendar reminders.\n *\n * An event carries its own leads, and falls back to the account-wide one when it names none. The sweep\n * loads the window the account actually uses, expands recurring series, and claims each\n * (occurrence, lead) pair in `calendar_reminder_fires` — the claim is the delivery gate, the\n * notification row is the delivery, and the push is a courtesy.\n */",
+    "// The window is the furthest lead this account actually uses: an account with a 10-minute default",
+    "// and no per-event reminders keeps scanning eleven minutes, not a week.",
   ]],
   ["src/worker/calendar/schema.ts", [
     "/**\n * The calendar app's tables.\n *\n * Tables are created from this list before the migration ledger is consulted; indexes follow. New\n * columns on an existing deployment need a migration and a REQUIRED_COLUMNS entry, but the tables\n * themselves do not spend a version number.\n */",
+    "// One row per (event, minutes-before) pair: the sweep asks \"which events in this window have a",
+    "// reminder due\", and a column of JSON minutes would answer that only by reading every row.",
   ]],
   ["src/worker/calendar/store.ts", [
     "/**\n * Every read and write the calendar HTTP routes make against D1.\n *\n * The shape follows the other stores: built per request from the account it serves, methods take\n * already-validated input and answer with the record the route needs, and nothing here knows about\n * HTTP. Three rules hold throughout:\n *  - every statement carries `user_id`, so one account's calendars can never surface in another's read;\n *  - a mutation's statements stay in one D1 batch, and every guarded write names the revision it read;\n *  - event membership lives in `calendar_event_calendars`, never as a column on the event, so a\n *    multi-calendar event has exactly one row per calendar and `calendarId` is derived (the lowest\n *    position) rather than stored twice.\n *\n * Batches are chunked because D1 bounds both the statement count of a batch and the variables one\n * statement may bind. A multi-chunk write is not one transaction, so a failed batch write cleans its\n * own rows through `batch_key` before rethrowing.\n */",
@@ -31112,6 +31125,8 @@ const allowed = new Map([
     "// Choosing the branch from each input's source/external identity keeps batch import from becoming",
     "// a general read-only bypass.",
     "/**\n   * How much text one calendar holds, measured before its rows are read.\n   *\n   * `LENGTH(CAST(... AS BLOB))` counts UTF-8 bytes rather than characters, so the export route can\n   * refuse a calendar that cannot fit in one file without first loading a hundred megabytes of\n   * descriptions into the isolate.\n   */",
+    "/** Minutes-before-start reminders set on these events, ascending, missing events left out. */",
+    "/**\n   * Replace one event's reminders.\n   *\n   * A reminder belongs to the row, so the write carries the row's revision: setting a reminder on an\n   * event somebody else just moved has to fail like any other stale write rather than stomp it.\n   */",
   ]],
   ["src/worker/calendar/subscriptions.ts", [
     "/**\n * Refresh a few due ICS feeds on each cron fire.\n *\n * `last_sync_at` spaces successful runs; `last_error_at` holds a broken feed for an hour instead of\n * retrying it every minute. The limit keeps one slow feed from spending the whole scheduled budget.\n */",
@@ -31124,6 +31139,7 @@ const allowed = new Map([
     "/** The `calendarIds` query parameter: a comma-separated list of entity ids, or nothing. */",
     "/** A revision query parameter, or null when the caller did not send one. */",
     "/** Kept for the route's 404-on-malformed decision; the shared predicate is the single authority. */",
+    "/** `{ minutes: […], rev }` — the whole of a reminder write. */",
   ]],
   ["src/worker/calendar/vendor/dayflow-caldav.d.ts", [
     "/**\n * Worker-side type shim for the provider library.\n *\n * The package's published types pull Preact/DOM globals that replace the Worker's BodyInit/Headers.\n * The cron only needs these five runtime exports; Vite still resolves the real implementation.\n */",
@@ -31755,6 +31771,12 @@ const allowed = new Map([
     "// announce the same occurrence twice. The row is a delivery log, not an event relation.",
     "// The server may refresh only calendars the browser has already mapped to a connection. The",
     "// unique local id is the guard against two same-kind accounts claiming one calendar.",
+    "// A reminder belongs to an event, not to a row of JSON: the sweep asks which events in a window",
+    "// are due, and only a row per (event, minutes) can answer that without reading every event.",
+    "// The fire log keyed one occurrence once, which was enough while every reminder was the account's",
+    "// own lead time. Per-event reminders mean the same occurrence can be due twice — at 60 minutes and",
+    "// again at 10 — so the lead joins the key. Existing rows are stamped with the account's current",
+    "// lead, which is the value that produced them unless the preference changed since.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -36570,6 +36592,10 @@ const allowed = new Map([
     "// DTSTAMP is stamped per request, so the two documents are compared without it.",
     "// 'Standup' is 7 bytes, the two-character Han description is 6 UTF-8 bytes, the empty meta",
     "// object is 2 — characters would have counted 13.",
+  ]],
+  ["tests/calendar-reminders.test.ts", [
+    "// An hour ahead of the start only the 60-minute lead is due; the 10-minute one fires later.",
+    "// The default 10-minute lead would have fired here; the event says otherwise.",
   ]],
   ["tests/calendar-sync.test.ts", [
     "// The real application installs `loadSession` before this router; the callback depends on that, so",

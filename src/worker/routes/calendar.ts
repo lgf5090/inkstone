@@ -25,6 +25,7 @@ import {
   parseGroupInput,
   parseGroupPatch,
   parsePreferences,
+  parseReminderMinutes,
   parseRange,
   parseReorder,
   parseRevQuery,
@@ -187,6 +188,21 @@ calendarRoutes.delete('/events/:id', async (c) => {
   if (rev === null) throw ApiError.badRequest('rev is required')
   await store(c).deleteEvent(id, rev)
   return noContent(c)
+})
+
+calendarRoutes.get('/events/:id/reminders', async (c) => {
+  readBudget(c.get('userId'))
+  const id = pathId(c)
+  const s = store(c)
+  if (!(await s.getEvent(id))) throw ApiError.notFound('Event not found')
+  const found = await s.eventReminders([id])
+  return c.json({ minutes: found.get(id) ?? [] })
+})
+
+calendarRoutes.put('/events/:id/reminders', async (c) => {
+  const id = pathId(c)
+  const body = parseReminderMinutes(await readJson<unknown>(c, JSON_BODY_LIMITS.small))
+  return c.json(await store(c).setEventReminders(id, body.minutes, body.rev))
 })
 
 // ------------------------------------------------------------- calendars

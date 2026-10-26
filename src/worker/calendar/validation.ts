@@ -33,6 +33,8 @@ import {
   MAX_EVENT_TITLE,
   MAX_GROUP_NAME,
   MAX_RECURRENCE_RULE,
+  MAX_REMINDERS_PER_EVENT,
+  MAX_REMINDER_MINUTES,
   MAX_EVENTS_PER_BATCH,
   normalizeCalendarPreferences,
   temporalToEpochMs,
@@ -459,8 +461,21 @@ export function parseEventPatch(value: unknown, options: ParseEventOptions = {})
   return patch
 }
 
-const HEX_COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i
+/** `{ minutes: […], rev }` — the whole of a reminder write. */
+export function parseReminderMinutes(value: unknown): { minutes: number[]; rev: number } {
+  const record = requireRecord(value, 'body')
+  const rev = integerValue(record.rev, 'rev', 1, Number.MAX_SAFE_INTEGER)
+  if (!Array.isArray(record.minutes)) throw ApiError.badRequest('minutes must be an array')
+  if (record.minutes.length > MAX_REMINDERS_PER_EVENT) {
+    throw ApiError.badRequest(`An event may carry at most ${MAX_REMINDERS_PER_EVENT} reminders`)
+  }
+  return {
+    minutes: record.minutes.map((entry) => integerValue(entry, 'minutes', 0, MAX_REMINDER_MINUTES)),
+    rev,
+  }
+}
 
+const HEX_COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i
 function calendarColor(value: unknown, field: string): string {
   if (typeof value !== 'string' || !HEX_COLOR.test(value)) {
     throw ApiError.badRequest(`${field} must be a hex colour`)

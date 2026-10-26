@@ -130,6 +130,22 @@ export async function getEvent(id: string): Promise<CalendarEventDto | null> {
   }
 }
 
+export async function getEventReminders(id: string): Promise<number[]> {
+  const data = await request<{ minutes: number[] }>(`/api/calendar/events/${entity(id)}/reminders`)
+  return Array.isArray(data.minutes) ? data.minutes : []
+}
+
+export async function setEventReminders(
+  id: string,
+  minutes: readonly number[],
+  rev: number,
+): Promise<{ event: CalendarEventDto; reminders: number[] }> {
+  return request<{ event: CalendarEventDto; reminders: number[] }>(
+    `/api/calendar/events/${entity(id)}/reminders`,
+    { method: 'PUT', body: { minutes: [...minutes], rev } },
+  )
+}
+
 export async function createEvent(event: CalendarEventInput): Promise<CalendarEventDto> {  const data = await request<{ event: CalendarEventDto }>('/api/calendar/events', { method: 'POST', body: event })
   return data.event
 }

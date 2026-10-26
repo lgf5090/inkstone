@@ -329,6 +329,14 @@ async function deleteProviderEvents(
              AND external_id IN (${placeholders})
         )`,
     ).bind(userId, source, localCalendarId, ...ids).run()
+    await env.DB.prepare(
+      `DELETE FROM calendar_event_reminders
+        WHERE user_id = ?1 AND event_id IN (
+          SELECT id FROM calendar_events
+           WHERE user_id = ?1 AND calendar_source = ?2 AND external_scope = ?3
+             AND external_id IN (${placeholders})
+        )`,
+    ).bind(userId, source, localCalendarId, ...ids).run()
     const removed = await env.DB.prepare(
       `DELETE FROM calendar_events
         WHERE user_id = ?1 AND calendar_source = ?2 AND external_scope = ?3

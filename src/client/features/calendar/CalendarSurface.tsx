@@ -50,6 +50,7 @@ import { Drawer, confirm } from '../../components/overlay'
 import { CalendarSidebar } from './CalendarSidebar'
 import { CalendarSettings } from './CalendarSettings'
 import { CalendarConflictDialog, type ConflictTarget } from './CalendarConflictDialog'
+import { CalendarEventExtras } from './CalendarEventExtras'
 import { CalendarFilteredSearch, calendarSearchResultDate } from './CalendarFilteredSearch'
 import { CalendarConnections } from './CalendarConnections'
 import { CalendarEditHistory } from './history'
@@ -372,6 +373,9 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
   const [rangeTruncated, setRangeTruncated] = useState(initialTruncated || initialRecurrenceTruncated)
   const [syncError, setSyncError] = useState<string | null>(null)
   const [conflict, setConflict] = useState<ConflictTarget | null>(null)
+  const [extrasEventId, setExtrasEventId] = useState<string | null>(null)
+  const shownRef = useRef<string | null>(null)
+  const dismissedRef = useRef<string | null>(null)
 
   const conflictView = useMemo<ConflictView>(() => ({
     locale: appLocale,
@@ -782,6 +786,22 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     return app.subscribe(() => syncOccurrences())
   }, [app, syncOccurrences])
 
+  // The extras section follows DayFlow's selection rather than a click callback, because providing one
+  // changes what a click does to the event surfaces. A click anywhere outside the calendar — including
+  // on this section's own controls — clears that selection, so an open section stays open until the
+  // reader closes it or picks another event.
+  useEffect(() => app.subscribe(() => {
+    const selected = app.state.selectedEventId ?? null
+    if (!selected) {
+      dismissedRef.current = null
+      return
+    }
+    if (selected.includes('::repeat-') || selected === shownRef.current) return
+    if (selected === dismissedRef.current) return
+    shownRef.current = selected
+    setExtrasEventId(selected)
+  }), [app])
+
   useEffect(() => app.subscribeVisibleRangeChange(payload => {
     loadRange(payload.start.getTime(), payload.end.getTime())
   }), [app, loadRange])
@@ -891,6 +911,17 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       onRefresh={refreshCalendars}
       onSelectDate={date => app.setCurrentDate(date)}
       onRequestRange={requestMiniRange}
+      extras={extrasEventId ? (
+        <CalendarEventExtras
+          eventId={extrasEventId}
+          onClose={() => {
+            dismissedRef.current = extrasEventId
+            shownRef.current = null
+            setExtrasEventId(null)
+          }}
+          onRevision={(id, rev) => { revs.set(id, rev) }}
+        />
+      ) : undefined}
     />
   )
 
