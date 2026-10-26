@@ -21169,6 +21169,9 @@ const allowed = new Map([
     "// choosing: the box goes on accepting keystrokes through that gap, and `render('a')` below is the",
     "// echo arriving afterwards. Adopting it blind would rewind the box to what it said before the",
     "// reader's next finger landed, which is a filter box that loses characters.",
+    "/**\n * Every root this file mounts is registered here and released after the test that made it. A root left\n * mounted keeps its debounce timer alive, and a timer that outlives the file fires React's scheduler after\n * vitest has torn the jsdom environment down — `ReferenceError: window is not defined` in the run log while\n * every assertion in the file stayed green.\n */",
+    "// Tripwire: anything still attached was mounted without `mountRoot`, and its timers will outlive this file",
+    "// exactly the way the released ones used to.",
   ]],
   ["src/client/lib/markdown/kanban/ui/kanban-search-box.tsx", [
     "// Each keystroke used to commit the whole dataset, so filtering re-ran and the",

@@ -15,8 +15,27 @@ beforeAll(async () => {
   await initI18n()
 })
 
+/**
+ * Every root this file mounts is registered here and released after the test that made it. A root left
+ * mounted keeps its debounce timer alive, and a timer that outlives the file fires React's scheduler after
+ * vitest has torn the jsdom environment down — `ReferenceError: window is not defined` in the run log while
+ * every assertion in the file stayed green.
+ */
+const live = new Set<{ container: HTMLElement, root: Root }>()
+
+function release(entry: { container: HTMLElement, root: Root } | null): void {
+  if (!entry || !live.has(entry)) return
+  live.delete(entry)
+  act(() => { entry.root.unmount() })
+  entry.container.remove()
+}
+
 afterEach(() => {
+  for (const entry of [...live]) release(entry)
   vi.useRealTimers()
+  // Tripwire: anything still attached was mounted without `mountRoot`, and its timers will outlive this file
+  // exactly the way the released ones used to.
+  expect(document.body.children, 'a test left a mounted root behind').toHaveLength(0)
 })
 
 function mountRoot() {
@@ -24,7 +43,9 @@ function mountRoot() {
   const container = document.createElement('div')
   document.body.append(container)
   const root: Root = createRoot(container)
-  return { container, root }
+  const entry = { container, root }
+  live.add(entry)
+  return { container, root, release: () => release(entry) }
 }
 
 describe('computeSelectionAfterToggleAll', () => {
@@ -54,17 +75,9 @@ function renderSelectionProbe() {
     api = useKanbanSelection(commitData, undefined, BOARD_VIEW, vi.fn())
     return null
   }
-  const container = document.createElement('div')
-  document.body.append(container)
-  const root: Root = createRoot(container)
+  const { root, release } = mountRoot()
   act(() => { root.render(createElement(Probe)) })
-  return {
-    current: () => api!,
-    unmount: () => {
-      act(() => { root.unmount() })
-      container.remove()
-    },
-  }
+  return { current: () => api!, unmount: release }
 }
 
 describe('useKanbanSelection handleToggleAll', () => {
@@ -169,13 +182,13 @@ describe('KanbanSearchBox while it is collapsed', () => {
   it('drops a pending commit when it goes away', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     const onSearchChange = vi.fn()
-    const { container, root } = mountRoot()
+    const { container, root, release } = mountRoot()
     act(() => { root.render(createElement(KanbanSearchBox, { searchQuery: '', onSearchChange })) })
     act(() => {
       container.querySelector<HTMLButtonElement>(`button[aria-label="${t('preview.kanban_search')}"]`)!.click()
     })
     act(() => { typeInto(container.querySelector('input')!, 'ghost') })
-    act(() => { root.unmount() })
+    release()
     act(() => { vi.advanceTimersByTime(1000) })
     expect(onSearchChange, 'a filter was committed into a box that had already gone').not.toHaveBeenCalled()
   })
@@ -208,7 +221,7 @@ describe('KanbanTableView select all', () => {
   it('hands every id to the batch handler in one call', () => {
     const onToggleAll = vi.fn()
     const onToggleSelect = vi.fn()
-    const { container, root } = mountRoot()
+    const { container, root, release } = mountRoot()
     act(() => {
       root.render(
         createElement(KanbanTableView, {
@@ -236,6 +249,6 @@ describe('KanbanTableView select all', () => {
     expect(onToggleAll).toHaveBeenCalledTimes(1)
     expect(onToggleAll).toHaveBeenCalledWith(['a', 'b', 'c'])
     expect(onToggleSelect).not.toHaveBeenCalled()
-    act(() => { root.unmount() })
+    release()
   })
 })
