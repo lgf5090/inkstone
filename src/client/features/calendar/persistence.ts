@@ -180,7 +180,7 @@ export class EventPersistence {
         return
       }
       if (isPermanent(error)) {
-        this.drafts.delete(id)
+        this.revertDraft(id)
         this.options.onError(error)
         return
       }
@@ -189,7 +189,7 @@ export class EventPersistence {
         await wait(RETRY_DELAY_MS)
         await this.attempt(id, intent)
       } catch (retryError) {
-        this.drafts.delete(id)
+        this.revertDraft(id)
         this.options.onError(retryError)
       }
     }
@@ -233,6 +233,25 @@ export class EventPersistence {
     if (!draft) return
     this.drafts.delete(id)
     this.options.history.record({ id, before: draft.before, after: draft.after })
+  }
+
+  /** Restore the last server-confirmed shape after a write that will not be retried. */
+  private revertDraft(id: string): void {
+    const draft = this.drafts.get(id)
+    if (!draft) return
+    this.drafts.delete(id)
+    this.skipped.add(id)
+    if (!draft.after) {
+      if (draft.before) this.options.app.applyEventsChanges({ add: [draft.before] }, false, 'local')
+    } else if (!draft.before) {
+      this.options.app.applyEventsChanges({ delete: [id] }, false, 'local')
+    } else {
+      this.options.app.applyEventsChanges(
+        { update: [{ id, updates: toEventUpdates(draft.before) }] },
+        false,
+        'local',
+      )
+    }
   }
 
   /** Put an optimistic change back; the skip entry keeps its echo out of the write queue. */
