@@ -38,6 +38,7 @@ import type {
   CalendarEventDto,
   CalendarMetaDto,
   CalendarPreferences,
+  CalendarRangeRevisionDto,
 } from '@shared/calendar/model'
 import { CALENDAR_RANGE_MAX_MS, CALENDAR_VIEWS, MAX_EVENTS_PER_QUERY, temporalToEpochMs, type CalendarViewName } from '@shared/calendar/model'
 import type { AppLocale } from '@shared/types'
@@ -53,6 +54,7 @@ import { CalendarConflictDialog, type ConflictTarget } from './CalendarConflictD
 import { CalendarEventExtras } from './CalendarEventExtras'
 import { CalendarPrintSheet } from './CalendarPrintSheet'
 import { buildPrintSheet, printCalendarSheet, printPeriod } from './print'
+import { paintableRange, rangeFor, sameRevision, saveRange } from './range-cache'
 import type { PrintSheet } from './print'
 import { CalendarFilteredSearch, calendarSearchResultDate } from './CalendarFilteredSearch'
 import { CalendarConnections } from './CalendarConnections'
@@ -86,6 +88,8 @@ interface CalendarSurfaceProps {
   initialOccurrences: CalendarEventDto[]
   initialTruncated?: boolean
   initialRecurrenceTruncated?: boolean
+  /** The fingerprint the app shell's first read carried; null when that answer had none. */
+  initialRevision?: CalendarRangeRevisionDto | null
   initialRange: { from: number; to: number }
   onRefreshMeta: () => Promise<CalendarMetaDto>
   onSavePreferences: (next: CalendarPreferences) => Promise<void>
@@ -347,7 +351,23 @@ function buildConfig(input: {
   }
 }
 
-export function CalendarSurface({ meta, initialEvents, initialOccurrences, initialTruncated = false, initialRecurrenceTruncated = false, initialRange, onRefreshMeta, onSavePreferences }: CalendarSurfaceProps) {
+/**
+ * Only a complete, fingerprinted answer is worth remembering: a truncated one cannot prove what is
+ * absent, so replaying it later would hide an event rather than show a stale one.
+ */
+function rememberRange(userId: string, from: number, to: number, page: api.EventRangeResponse): void {
+  if (!page.revision || page.truncated || page.recurrenceTruncated) return
+  saveRange(userId, {
+    from,
+    to,
+    savedAt: Date.now(),
+    revision: page.revision,
+    events: page.events,
+    occurrences: page.occurrences,
+  })
+}
+
+export function CalendarSurface({ meta, initialEvents, initialOccurrences, initialTruncated = false, initialRecurrenceTruncated = false, initialRevision = null, initialRange, onRefreshMeta, onSavePreferences }: CalendarSurfaceProps) {
   useLocaleRepaint()
   const appLocale = useLocale()
   const dark = useThemeDark()
@@ -492,6 +512,36 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
   const inFlight = useRef<Array<[number, number]>>([])
   const lastRange = useRef(initialRange)
   const failedRange = useRef<{ from: number; to: number } | null>(null)
+  /** Silent refreshes answered by the fingerprint alone; the fifth one re-reads the rows anyway. */
+  const probedRefreshes = useRef(0)
+  /**
+   * The last complete answer, kept so it can be remembered once the account is known. The first one
+   * arrives from the app shell rather than from a read this component made, so it is seeded here.
+   */
+  const lastPage = useRef<{ from: number; to: number; page: api.EventRangeResponse } | null>(
+    initialRevision && !initialTruncated && !initialRecurrenceTruncated
+      ? {
+          from: initialRange.from,
+          to: initialRange.to,
+          page: {
+            events: initialEvents,
+            occurrences: initialOccurrences,
+            truncated: initialTruncated,
+            recurrenceTruncated: initialRecurrenceTruncated,
+            revision: initialRevision,
+          },
+        }
+      : null,
+  )
+  /**
+   * The account, readable at answer time.
+   *
+   * The session usually resolves while the first range read is still in flight, so the read started
+   * with no account in hand and the callback that started it can never learn one. This ref is what the
+   * answer reads when it lands, which is the moment the snapshot can actually be filed.
+   */
+  const accountRef = useRef<string | null>(null)
+  accountRef.current = userId ?? null
 
   const occurrenceRef = useRef<Map<string, Event> | null>(null)
   if (!occurrenceRef.current) {
@@ -598,12 +648,44 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     updateOccurrences(page.occurrences, { from, to })
     setRangeTruncated(page.truncated || page.recurrenceTruncated)
     lastRange.current = { from, to }
+    lastPage.current = { from, to, page }
+    if (accountRef.current) rememberRange(accountRef.current, from, to, page)
     return fetched
-  }, [applySnapshot, updateOccurrences])
+  }, [applySnapshot, updateOccurrences, userId])
+
+  /**
+   * Ask the fingerprint before pulling the rows.
+   *
+   * Every fifth refresh reads them anyway: the triple is exact for anything that happened while the
+   * client was watching, and the periodic full read is the backstop for the one case it cannot see —
+   * a delete and a create whose totals cancel out in the same millisecond.
+   */
+  const rangeIsUnchanged = useCallback(async (from: number, to: number): Promise<boolean> => {
+    const cached = userId ? rangeFor(userId, from, to) : null
+    if (!cached) return false
+    if (probedRefreshes.current >= 4) {
+      probedRefreshes.current = 0
+      return false
+    }
+    try {
+      const revision = await api.getEventsRevision({ from, to })
+      if (!sameRevision(revision, cached.revision)) return false
+      probedRefreshes.current += 1
+      return true
+    } catch {
+      // The probe is an optimisation; a refused or failed one means the rows are read as before.
+      return false
+    }
+  }, [userId])
 
   const reloadLastRange = useCallback(async (eventId?: string, status?: number): Promise<void> => {
     const range = lastRange.current
     try {
+      // A refresh with no write behind it is the one worth probing; a call naming an event is handling
+      // that write's outcome and always re-reads.
+      if (eventId === undefined && status === undefined && await rangeIsUnchanged(range.from, range.to)) {
+        return
+      }
       const fetched = await fetchRange(range.from, range.to)
       if (eventId && status && (status === 400 || status === 404) && !fetched.has(eventId)) {
         revs.delete(eventId)
@@ -614,10 +696,80 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     } catch (error) {
       toastFailure(t('calendar.error.refresh'), error)
     }
-  }, [app, fetchRange, revs])
+  }, [app, fetchRange, rangeIsUnchanged, revs])
 
   const reloadRef = useRef(reloadLastRange)
   reloadRef.current = reloadLastRange
+
+  /**
+   * Coming back to the tab asks whether anything changed.
+   *
+   * This is what the fingerprint is for: the reader who left a tab open overnight gets the current
+   * week back for the price of one aggregate, and pays for the rows only when they really changed.
+   */
+  useEffect(() => {
+    const onVisibility = (): void => {
+      if (document.visibilityState !== 'visible') return
+      void reloadRef.current()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => { document.removeEventListener('visibilitychange', onVisibility) }
+  }, [])
+
+  /**
+   * Once the account is known, remember what the first answer was and paint what the last visit left.
+   *
+   * The session resolves after the surface has already asked for its first range, so both halves have
+   * to happen here rather than where the answer arrived: the cache is keyed by account, and neither
+   * writing nor reading it may guess which account this is.
+   */
+  /** The fingerprint whose rows the grid already holds; the shell can replace its page after a cached paint. */
+  const appliedRevision = useRef<CalendarRangeRevisionDto | null>(initialRevision ?? null)
+
+  /**
+   * Apply a page that arrives after the first paint.
+   *
+   * The shell renders from the cache and revalidates; when the answer differs, the grid has to take it
+   * the same way it takes any snapshot — as a complete mirror of that range, deletions included.
+   */
+  useEffect(() => {
+    if (!initialRevision) return
+    const page = {
+      events: initialEvents,
+      occurrences: initialOccurrences,
+      truncated: initialTruncated,
+      recurrenceTruncated: initialRecurrenceTruncated,
+      revision: initialRevision,
+    }
+    if (accountRef.current) rememberRange(accountRef.current, initialRange.from, initialRange.to, page)
+    if (appliedRevision.current && sameRevision(appliedRevision.current, initialRevision)) return
+    appliedRevision.current = initialRevision
+    applySnapshot(initialEvents, { from: initialRange.from, to: initialRange.to }, initialTruncated)
+    updateOccurrences(initialOccurrences, { from: initialRange.from, to: initialRange.to })
+    lastRange.current = { from: initialRange.from, to: initialRange.to }
+    lastPage.current = { from: initialRange.from, to: initialRange.to, page }
+  }, [
+    applySnapshot,
+    initialEvents,
+    initialOccurrences,
+    initialRange.from,
+    initialRange.to,
+    initialRecurrenceTruncated,
+    initialRevision,
+    initialTruncated,
+    updateOccurrences,
+  ])
+
+  useEffect(() => {
+    if (!userId) return
+    const page = lastPage.current
+    if (page) rememberRange(userId, page.from, page.to, page.page)
+    const range = lastRange.current
+    const cached = paintableRange(userId, range.from, range.to)
+    if (!cached) return
+    applySnapshot(cached.events, { from: range.from, to: range.to }, false)
+    updateOccurrences(cached.occurrences, { from: range.from, to: range.to })
+  }, [applySnapshot, updateOccurrences, userId])
 
   const runRangeFetch = useCallback(async (from: number, to: number): Promise<void> => {
     try {
@@ -645,11 +797,18 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
   const loadRange = useCallback((start: number, end: number): void => {
     const { from, to } = paddedRange(start, end)
     if (isCovered(covered.current, from, to) || isCovered(inFlight.current, from, to)) return
+    // The last complete answer for this range goes up before the request leaves, so a reload paints the
+    // reader's week instead of an empty grid. The fetch below replaces it with the server's answer.
+    const cached = userId ? paintableRange(userId, from, to) : null
+    if (cached) {
+      applySnapshot(cached.events, { from, to }, false)
+      updateOccurrences(cached.occurrences, { from, to })
+    }
     inFlight.current.push([from, to])
     void runRangeFetch(from, to).finally(() => {
       inFlight.current = inFlight.current.filter(([rangeFrom, rangeTo]) => rangeFrom !== from || rangeTo !== to)
     })
-  }, [paddedRange, runRangeFetch])
+  }, [applySnapshot, paddedRange, runRangeFetch, updateOccurrences, userId])
 
   const requestMiniRange = useCallback((from: number, to: number): void => loadRange(from, to), [loadRange])
 

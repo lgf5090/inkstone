@@ -3,7 +3,14 @@ import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import type { ExecutionContext } from 'hono'
 import { beforeEach, describe, expect, it } from 'vitest'
-import type { CalendarDto, CalendarEventDto, CalendarGroupDto, CalendarMetaDto, CalendarPreferences } from '../src/shared/calendar/model'
+import type {
+  CalendarDto,
+  CalendarEventDto,
+  CalendarGroupDto,
+  CalendarMetaDto,
+  CalendarPreferences,
+  CalendarRangeRevisionDto,
+} from '../src/shared/calendar/model'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
 import { calendarRoutes } from '../src/worker/routes/calendar'
@@ -347,5 +354,68 @@ describe('GET /events/:id', () => {
   it('refuses an id that cannot name an event', async () => {
     expect((await call('GET', '/events/evt-1::repeat-1761462000000')).status).toBe(400)
     expect((await call('GET', `/events/${encodeURIComponent('bad id')}`)).status).toBe(400)
+  })
+})
+
+describe('the range fingerprint', () => {
+  const WINDOW = 'from=2026-10-01T00:00:00Z&to=2026-11-01T00:00:00Z'
+
+  it('moves with every write and matches the probe endpoint', async () => {
+    const home = (await meta()).calendars[0]!
+    const empty = await json<{ revision: CalendarRangeRevisionDto }>(await call('GET', `/events?${WINDOW}`))
+    expect(empty.revision).toEqual({ count: 0, revSum: 0, maxUpdatedAt: 0 })
+
+    const created = await json<{ event: CalendarEventDto }>(await call('POST', '/events', eventBody(home.id)))
+    const afterCreate = await json<{ revision: CalendarRangeRevisionDto }>(await call('GET', `/events?${WINDOW}`))
+    expect(afterCreate.revision.count).toBe(1)
+    expect(afterCreate.revision.revSum).toBe(1)
+
+    const probe = await json<{ revision: CalendarRangeRevisionDto }>(await call('GET', `/events/revision?${WINDOW}`))
+    expect(probe.revision).toEqual(afterCreate.revision)
+
+    await json(await call('PATCH', `/events/${created.event.id}`, { rev: 1, title: 'Renamed' }))
+    const afterEdit = await json<{ revision: CalendarRangeRevisionDto }>(await call('GET', `/events?${WINDOW}`))
+    expect(afterEdit.revision).toMatchObject({ count: 1, revSum: 2 })
+    expect(afterEdit.revision).not.toEqual(afterCreate.revision)
+
+    expect((await call('DELETE', `/events/${created.event.id}?rev=2`)).status).toBe(204)
+    const afterDelete = await json<{ revision: CalendarRangeRevisionDto }>(await call('GET', `/events?${WINDOW}`))
+    expect(afterDelete.revision.count).toBe(0)
+    expect(afterDelete.revision).not.toEqual(afterEdit.revision)
+  })
+
+  it('counts only the events the window holds', async () => {
+    const home = (await meta()).calendars[0]!
+    await json(await call('POST', '/events', eventBody(home.id)))
+    await json(await call('POST', '/events', eventBody(home.id, {
+      start: { value: '2026-12-15T09:00:00', type: 'datetime' },
+      end: { value: '2026-12-15T10:00:00', type: 'datetime' },
+    })))
+    const october = await json<{ revision: CalendarRangeRevisionDto }>(await call('GET', `/events/revision?${WINDOW}`))
+    const december = await json<{ revision: CalendarRangeRevisionDto }>(
+      await call('GET', '/events/revision?from=2026-12-01T00:00:00Z&to=2027-01-01T00:00:00Z'),
+    )
+    expect(october.revision.count).toBe(1)
+    expect(december.revision.count).toBe(1)
+  })
+
+  it('narrows to the calendars asked for', async () => {
+    const home = (await meta()).calendars[0]!
+    const other = await json<{ calendar: CalendarDto }>(await call('POST', '/calendars', { name: 'Work', color: '#112233' }))
+    await json(await call('POST', '/events', eventBody(home.id)))
+    await json(await call('POST', '/events', eventBody(other.calendar.id)))
+
+    const all = await json<{ revision: CalendarRangeRevisionDto }>(await call('GET', `/events/revision?${WINDOW}`))
+    const only = await json<{ revision: CalendarRangeRevisionDto }>(
+      await call('GET', `/events/revision?${WINDOW}&calendarIds=${other.calendar.id}`),
+    )
+    expect(all.revision.count).toBe(2)
+    expect(only.revision.count).toBe(1)
+    expect((await call('GET', '/events/revision?from=nope&to=also-nope')).status).toBe(400)
+  })
+
+  it('is its own route rather than an event id', async () => {
+    // `/events/:id` answers 400 for the word "revision"; a 200 here proves the probe matched first.
+    expect((await call('GET', `/events/revision?${WINDOW}`)).status).toBe(200)
   })
 })

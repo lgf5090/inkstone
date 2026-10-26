@@ -25,6 +25,7 @@ import type {
   CalendarGroupDto,
   CalendarMetaDto,
   CalendarPreferences,
+  CalendarRangeRevisionDto,
   CalendarSearchResultDto,
   CalendarSource,
   CalendarSubscriptionDto,
@@ -239,6 +240,20 @@ interface ConnectionRow {
 
 function placeholders(count: number): string {
   return Array.from({ length: count }, () => '?').join(', ')
+}
+
+/**
+ * The membership clause a range read optionally carries, in the shape both the read and its revision
+ * fingerprint need. The caller binds `user_id, toMs, fromMs` first either way.
+ */
+function rangeCalendarFilter(calendarIds?: readonly string[]): string {
+  return calendarIds && calendarIds.length > 0
+    ? `AND EXISTS (
+         SELECT 1 FROM calendar_event_calendars ec
+          WHERE ec.user_id = e.user_id AND ec.event_id = e.id
+            AND ec.calendar_id IN (${placeholders(calendarIds.length)})
+       )`
+    : ''
 }
 
 function chunks<T>(items: readonly T[], size: number): T[][] {
@@ -784,13 +799,7 @@ export class CalendarStore {
     toMs: number,
     calendarIds?: readonly string[],
   ): Promise<{ events: CalendarEventDto[]; truncated: boolean }> {
-    const filter = calendarIds && calendarIds.length > 0
-      ? `AND EXISTS (
-           SELECT 1 FROM calendar_event_calendars ec
-            WHERE ec.user_id = e.user_id AND ec.event_id = e.id
-              AND ec.calendar_id IN (${placeholders(calendarIds.length)})
-         )`
-      : ''
+    const filter = rangeCalendarFilter(calendarIds)
     const { results } = await this.db.prepare(
       `SELECT e.*, m.calendar_id AS membership_calendar_id
          FROM (
@@ -822,6 +831,38 @@ export class CalendarStore {
     return {
       truncated,
       events: entries.slice(0, MAX_EVENTS_PER_QUERY).map(({ row, calendarIds: ids }) => toEventDto(row, ids)),
+    }
+  }
+
+  /**
+   * A cheap fingerprint of the rows one range read would return.
+   *
+   * `count` catches inserts and deletes, `revSum` catches edits (every write bumps `rev`), and the
+   * timestamp catches the one coincidence the first two cannot: one row deleted while another is
+   * created, leaving both totals identical. A client holding this range compares the triple instead of
+   * downloading every row again, and the comparison is exact because both sides read rows, not DTOs.
+   */
+  async eventsRevision(
+    fromMs: number,
+    toMs: number,
+    calendarIds?: readonly string[],
+  ): Promise<CalendarRangeRevisionDto> {
+    const row = await this.db.prepare(
+      `SELECT COUNT(*) AS count, COALESCE(SUM(e.rev), 0) AS rev_sum, COALESCE(MAX(e.updated_at), 0) AS updated_at
+         FROM calendar_events e
+        WHERE e.user_id = ?
+          AND ((e.start_ms <= ? AND e.end_ms >= ?) OR e.recurrence_rule IS NOT NULL)
+          ${rangeCalendarFilter(calendarIds)}`,
+    ).bind(
+      this.userId,
+      toMs,
+      fromMs,
+      ...(calendarIds ?? []),
+    ).first<{ count: number; rev_sum: number; updated_at: number }>()
+    return {
+      count: Number(row?.count ?? 0),
+      revSum: Number(row?.rev_sum ?? 0),
+      maxUpdatedAt: Number(row?.updated_at ?? 0),
     }
   }
 

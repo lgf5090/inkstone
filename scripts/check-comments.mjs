@@ -1250,6 +1250,10 @@ const allowed = new Map([
   ]],
   ["src/client/features/calendar/CalendarApp.tsx", [
     "/**\n * `/calendar`: the container that owns loading, failure, empty and ready.\n *\n * The surface is mounted only after metadata and the first range have arrived, so DayFlow never sees\n * a half-built registry. A reload keeps the same range around today; navigation beyond it is the\n * surface's own incremental fetch.\n */",
+    "/**\n * The last visit's calendars and range, in the shape the ready state wants.\n *\n * Returned only when both halves exist: metadata without events is a skeleton with extra steps, and\n * events without metadata cannot be drawn at all.\n */",
+    "// A cached paint is already on screen; replacing it with the skeleton would be a flash of nothing.",
+    "// A page already painted from the cache keeps working when the revalidation fails; replacing it",
+    "// with the error screen would take a readable calendar away because a refresh did not answer.",
   ]],
   ["src/client/features/calendar/CalendarConflictDialog.tsx", [
     "/**\n * The dialog a refused write opens.\n *\n * The queue parks an event whose revision went stale and asks here: the reader sees both versions of\n * every part they could have changed and picks which one survives. Nothing is written while the dialog\n * is open, and the row on the calendar stays as they left it, so a conflict is a choice rather than a\n * loss.\n */",
@@ -1313,6 +1317,21 @@ const allowed = new Map([
     "// reader closes it or picks another event.",
     "/** The printed page is built from a range read, so it does not depend on which view is showing. */",
     "// Working hours are the ruler the timed views open with; off means the whole day stays on show.",
+    "/** The fingerprint the app shell's first read carried; null when that answer had none. */",
+    "/**\n * Only a complete, fingerprinted answer is worth remembering: a truncated one cannot prove what is\n * absent, so replaying it later would hide an event rather than show a stale one.\n */",
+    "/** Silent refreshes answered by the fingerprint alone; the fifth one re-reads the rows anyway. */",
+    "/**\n   * The last complete answer, kept so it can be remembered once the account is known. The first one\n   * arrives from the app shell rather than from a read this component made, so it is seeded here.\n   */",
+    "/**\n   * The account, readable at answer time.\n   *\n   * The session usually resolves while the first range read is still in flight, so the read started\n   * with no account in hand and the callback that started it can never learn one. This ref is what the\n   * answer reads when it lands, which is the moment the snapshot can actually be filed.\n   */",
+    "/**\n   * Ask the fingerprint before pulling the rows.\n   *\n   * Every fifth refresh reads them anyway: the triple is exact for anything that happened while the\n   * client was watching, and the periodic full read is the backstop for the one case it cannot see —\n   * a delete and a create whose totals cancel out in the same millisecond.\n   */",
+    "// The probe is an optimisation; a refused or failed one means the rows are read as before.",
+    "// A refresh with no write behind it is the one worth probing; a call naming an event is handling",
+    "// that write's outcome and always re-reads.",
+    "/**\n   * Coming back to the tab asks whether anything changed.\n   *\n   * This is what the fingerprint is for: the reader who left a tab open overnight gets the current\n   * week back for the price of one aggregate, and pays for the rows only when they really changed.\n   */",
+    "/**\n   * Once the account is known, remember what the first answer was and paint what the last visit left.\n   *\n   * The session resolves after the surface has already asked for its first range, so both halves have\n   * to happen here rather than where the answer arrived: the cache is keyed by account, and neither\n   * writing nor reading it may guess which account this is.\n   */",
+    "/** The fingerprint whose rows the grid already holds; the shell can replace its page after a cached paint. */",
+    "/**\n   * Apply a page that arrives after the first paint.\n   *\n   * The shell renders from the cache and revalidates; when the answer differs, the grid has to take it\n   * the same way it takes any snapshot — as a complete mirror of that range, deletions included.\n   */",
+    "// The last complete answer for this range goes up before the request leaves, so a reload paints the",
+    "// reader's week instead of an empty grid. The fetch below replaces it with the server's answer.",
   ]],
   ["src/client/features/calendar/MiniMonth.tsx", [
     "/**\n * The mini month: 42 cells, event dots in calendar colours, and a date that drives the main view.\n *\n * It reads DayFlow's registry and events directly rather than keeping a second copy of the data, so\n * a visibility toggle or a drag in the main grid is reflected here on the next app notification.\n */",
@@ -1327,6 +1346,8 @@ const allowed = new Map([
     "/** The calendar's public link, or null while it has never been shared. */",
     "/** Publish, or return the address the calendar already has. */",
     "/** One multipart field named `file`; every limit and every check is the route's to decide. */",
+    "/** Null when the answer did not carry one; a range without a fingerprint is neither cached nor probed. */",
+    "/** The fingerprint of a range, one small read instead of the rows. */",
   ]],
   ["src/client/features/calendar/attendees.ts", [
     "/**\n * The guest list's client-side rules.\n *\n * The server re-checks all of this (`parseAttendeeList`); these helpers exist so the card can refuse a\n * half-typed address before it costs a round trip, and so it never offers the same guest twice.\n */",
@@ -1343,6 +1364,12 @@ const allowed = new Map([
   ["src/client/features/calendar/conflict.ts", [
     "/**\n * Comparing the two versions of an event a write conflict landed between.\n *\n * A refused PATCH means somebody else — another tab, a phone, a provider sync — wrote the same event\n * first, and the queue used to answer that by reloading and losing whatever was just typed. This module\n * turns the two shapes into one comparable list of the parts a person can actually decide about, and\n * then builds the patched event from those decisions. Everything else on the row, including the\n * metadata a provider needs to keep recognising it, comes from the server copy.\n */",
     "/** The event to send: the server's row, with the parts the reader chose taken from their own copy. */",
+  ]],
+  ["src/client/features/calendar/first-paint.ts", [
+    "/**\n * What the last visit left, so the calendar opens on the reader's own month instead of a skeleton.\n *\n * The app shell gates the calendar on a first read of its calendars and its range, which is one round\n * trip of empty grid on every visit. Remembering the metadata half — small, and exactly what the shell\n * refuses to render without — together with the range snapshot the surface already keeps, lets the\n * first frame be the real thing; the read that follows is a revalidation and replaces it.\n *\n * Only the account's own metadata is stored, under its own key, and a value that cannot be read is\n * discarded rather than repaired: a missing entry costs one skeleton, a wrong one would cost trust.\n */",
+    "/** The calendars and preferences the last visit showed, or null. */",
+    "// Truncated or hand-edited: drop it rather than guess what the reader's calendars are.",
+    "// Quota or a disabled store: the shell falls back to its skeleton, which is the old behaviour.",
   ]],
   ["src/client/features/calendar/history.ts", [
     "/**\n * Undo/redo for events, kept beside the persistence queue rather than inside DayFlow.\n *\n * DayFlow's own `undo()` only rewinds its in-memory snapshot, which would leave the server holding\n * the state the reader just undid. Every entry here is recorded after the queue has persisted its\n * change, and replaying one goes back through `applyEventsChanges(..., 'local')` so the queue and\n * the server see the replay like any other edit.\n */",
@@ -1412,6 +1439,26 @@ const allowed = new Map([
   ]],
   ["src/client/features/calendar/quick-add.ts", [
     "/** Parse a small, predictable subset of Chinese/English quick-add text. */",
+  ]],
+  ["src/client/features/calendar/range-cache.test.ts", [
+    "// Ranges are recomputed from the clock, so the reader asks for 990..1990 rather than 900..2000.",
+  ]],
+  ["src/client/features/calendar/range-cache.ts", [
+    "/**\n * The last complete answer for a visible range, kept so a reload paints before the network answers.\n *\n * DayFlow is empty until the first range response arrives, so every reload draws an empty grid and\n * then fills it. This keeps the previous answer next to the calendar's own preferences and hands it\n * back synchronously, which is the whole point: the first frame shows the reader's week, and the\n * fetch that follows is a revalidation rather than the first paint.\n *\n * Three rules keep it honest:\n *  - it is keyed by the account, because one browser can be used by more than one person and events\n *    are not something to show the wrong one;\n *  - it stores the revision the answer had (`count` + `maxUpdatedAt`), so a refresh can ask whether\n *    anything changed instead of pulling every row again;\n *  - it is bounded and disposable. The server is the truth; a missing, stale, oversized or corrupt\n *    entry costs one fetch, never a wrong calendar.\n */",
+    "/** What the server expanded the masters into for this range, kept so recurring events paint too. */",
+    "/** Four ranges is a month of weeks, or a week of days: more than that is history nobody returns to. */",
+    "/** One range of a very large calendar is a few hundred kilobytes; the whole file stays under this. */",
+    "/** Every usable range this account has on this browser, newest first. */",
+    "// A browser that refuses reads (private mode, a disabled store) simply has no cache.",
+    "// A truncated or hand-edited value is discarded rather than repaired; the fetch will refill it.",
+    "/** The cached answer for exactly this range, or null. Ranges are the padded ones the surface asked for. */",
+    "/** How stale a painted snapshot may be before it is not worth showing. */",
+    "/**\n * The entry to paint when the reader asks for this range.\n *\n * Ranges are computed from the current instant, so the same week asked for on two different visits is\n * never the *same* pair of milliseconds; the fingerprint comparison needs that exactness, but painting\n * does not. The entry with the largest overlap wins, and one that is too old is not painted at all —\n * a week-old calendar painted as today's would be worse than an empty grid.\n */",
+    "/** Keep this answer, dropping the oldest and anything that would push the file past its ceiling. */",
+    "// This one range is larger than the whole allowance: keep what was already there instead.",
+    "// Quota or a disabled store: the cache is an optimisation, and the next load refetches.",
+    "// Nothing to do: an unremovable entry is overwritten by the next successful save.",
+    "/** Whether two fingerprints describe the same rows; every field must match. */",
   ]],
   ["src/client/features/calendar/timezone.test.ts", [
     "// 2026-03-08 02:30 does not exist in New York; the value has to come back valid, not throw.",
@@ -26661,6 +26708,7 @@ const allowed = new Map([
     "/** One calendar's public read link: the slug is the whole capability, so it never leaves the owner's session. */",
     "/** One file hung on an event. `url` is the account's own file door, not a public address. */",
     "/** Files one event may carry; the sidebar lists them without paging below this. */",
+    "/**\n * The rows of one range, reduced to the numbers that change when any of them changes.\n *\n * `count` moves on insert and delete, `revSum` on every write, and `maxUpdatedAt` on the one race the\n * other two can miss (a delete and a create leaving both totals equal).\n */",
   ]],
   ["src/shared/constants.ts", [
     "// D1 limits an entire row to 2,000,000 bytes; reserve room for note metadata.",
@@ -31218,6 +31266,8 @@ const allowed = new Map([
     "// Files first — the cleanup queue is written while the links still name them — then the rows, the",
     "// links, and only then the events themselves.",
     "/** Whether this event can be written at all: every calendar it is in must be writable. */",
+    "/**\n * The membership clause a range read optionally carries, in the shape both the read and its revision\n * fingerprint need. The caller binds `user_id, toMs, fromMs` first either way.\n */",
+    "/**\n   * A cheap fingerprint of the rows one range read would return.\n   *\n   * `count` catches inserts and deletes, `revSum` catches edits (every write bumps `rev`), and the\n   * timestamp catches the one coincidence the first two cannot: one row deleted while another is\n   * created, leaving both totals identical. A client holding this range compares the triple instead of\n   * downloading every row again, and the comparison is exact because both sides read rows, not DTOs.\n   */",
   ]],
   ["src/worker/calendar/subscriptions.ts", [
     "/**\n * Refresh a few due ICS feeds on each cron fire.\n *\n * `last_sync_at` spaces successful runs; `last_error_at` holds a broken feed for an hour instead of\n * retrying it every minute. The limit keeps one slow feed from spending the whole scheduled budget.\n */",
@@ -33381,6 +33431,9 @@ const allowed = new Map([
     "// ------------------------------------------------------------- groups",
     "/** Enough for a fast client dragging events and checking boxes. */",
     "/** A search box and range navigation are cheap; a scripted loop is not. */",
+    "// Handed out with the rows so a client can remember what it holds without asking again; the probe",
+    "// endpoint answers the same triple later.",
+    "/**\n * The fingerprint of a range, without the rows.\n *\n * Registered before `/events/:id`: Hono matches in order, and `revision` would otherwise arrive as an\n * event id.\n */",
   ]],
   ["src/worker/routes/community-templates.ts", [
     "/**\n * Publishing counts against a per-account hourly budget so one account cannot\n * flood the shared directory. Updating your own template spends the same\n * budget, which is the point: an edit is another write.\n */",
@@ -36726,6 +36779,9 @@ const allowed = new Map([
   ["tests/calendar-reminders.test.ts", [
     "// An hour ahead of the start only the 60-minute lead is due; the 10-minute one fires later.",
     "// The default 10-minute lead would have fired here; the event says otherwise.",
+  ]],
+  ["tests/calendar-routes.test.ts", [
+    "// `/events/:id` answers 400 for the word \"revision\"; a 200 here proves the probe matched first.",
   ]],
   ["tests/calendar-shares.test.ts", [
     "// Counted, not inferred from the status: a wrong-shaped guess answers 404 either way, and the",

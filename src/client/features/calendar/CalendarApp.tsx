@@ -5,15 +5,18 @@
  * a half-built registry. A reload keeps the same range around today; navigation beyond it is the
  * surface's own incremental fetch.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, CalendarDays } from 'lucide-react'
-import type { CalendarEventDto, CalendarMetaDto, CalendarPreferences } from '@shared/calendar/model'
+import type { CalendarEventDto, CalendarMetaDto, CalendarPreferences, CalendarRangeRevisionDto } from '@shared/calendar/model'
 import { normalizeCalendarPreferences } from '@shared/calendar/model'
 import { t, useLocaleRepaint } from '../../lib/i18n'
 import { Empty, Skeleton } from '../../components/feedback'
 import { Button } from '../../components/primitives'
 import { useUi } from '../../store/ui'
+import { useSession } from '../../store/session'
 import { CalendarSurface } from './CalendarSurface'
+import { paintableRange } from './range-cache'
+import { readFirstPaintMeta, saveFirstPaintMeta } from './first-paint'
 import { CalendarFormDialog } from './CalendarDialogs'
 import { INITIAL_RANGE_DAYS } from './model'
 import * as api from './api'
@@ -21,7 +24,7 @@ import * as api from './api'
 type LoadState =
   | { status: 'loading' }
   | { status: 'error'; error: string }
-  | { status: 'ready'; meta: CalendarMetaDto; events: CalendarEventDto[]; occurrences: CalendarEventDto[]; truncated: boolean; recurrenceTruncated: boolean }
+  | { status: 'ready'; meta: CalendarMetaDto; events: CalendarEventDto[]; occurrences: CalendarEventDto[]; truncated: boolean; recurrenceTruncated: boolean; revision: CalendarRangeRevisionDto | null }
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -69,10 +72,35 @@ function LoadingCalendar() {
   )
 }
 
+/**
+ * The last visit's calendars and range, in the shape the ready state wants.
+ *
+ * Returned only when both halves exist: metadata without events is a skeleton with extra steps, and
+ * events without metadata cannot be drawn at all.
+ */
+function cachedFirstPaint(userId: string | null, range: { from: number; to: number }): LoadState | null {
+  if (!userId) return null
+  const meta = readFirstPaintMeta(userId)
+  const page = paintableRange(userId, range.from, range.to)
+  if (!meta || !page) return null
+  return {
+    status: 'ready',
+    meta,
+    events: page.events,
+    occurrences: page.occurrences,
+    truncated: false,
+    recurrenceTruncated: false,
+    revision: page.revision,
+  }
+}
+
 export function CalendarApp() {
   useLocaleRepaint()
+  const userId = useSession(state => state.user?.id ?? null)
   const [range] = useState(initialRange)
-  const [state, setState] = useState<LoadState>({ status: 'loading' })
+  const [state, setState] = useState<LoadState>(() => cachedFirstPaint(userId, range) ?? { status: 'loading' })
+  const statusRef = useRef(state.status)
+  statusRef.current = state.status
   const [attempt, setAttempt] = useState(0)
   const [createOpen, setCreateOpen] = useState(false)
 
@@ -95,12 +123,12 @@ export function CalendarApp() {
     window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
   }, [])
 
-  const fetchAll = useCallback(async (signal?: AbortSignal): Promise<{ meta: CalendarMetaDto; events: CalendarEventDto[]; occurrences: CalendarEventDto[]; truncated: boolean; recurrenceTruncated: boolean }> => {
+  const fetchAll = useCallback(async (signal?: AbortSignal): Promise<{ meta: CalendarMetaDto; events: CalendarEventDto[]; occurrences: CalendarEventDto[]; truncated: boolean; recurrenceTruncated: boolean; revision: CalendarRangeRevisionDto | null }> => {
     const [meta, eventPage] = await Promise.all([
       api.getMeta(signal),
       api.getEvents(range, signal),
     ])
-    const { events, occurrences, truncated, recurrenceTruncated } = eventPage
+    const { events, occurrences, truncated, recurrenceTruncated, revision } = eventPage
     if (meta.preferencesInitialized === false) {
       const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
       const preferences = normalizeCalendarPreferences({
@@ -109,7 +137,7 @@ export function CalendarApp() {
       })
       try {
         await api.putPreferences(preferences)
-        return { meta: { ...meta, preferences, preferencesInitialized: true }, events, occurrences, truncated, recurrenceTruncated }
+        return { meta: { ...meta, preferences, preferencesInitialized: true }, events, occurrences, truncated, recurrenceTruncated, revision }
       } catch (error) {
         useUi.getState().toast({
           title: t('calendar.error.save_failed'),
@@ -118,29 +146,37 @@ export function CalendarApp() {
         })
       }
     }
-    return { meta, events, occurrences, truncated, recurrenceTruncated }
+    return { meta, events, occurrences, truncated, recurrenceTruncated, revision }
   }, [range])
 
   useEffect(() => {
     const controller = new AbortController()
-    setState({ status: 'loading' })
-    void fetchAll(controller.signal).then(({ meta, events, occurrences, truncated, recurrenceTruncated }) => {
-      if (!controller.signal.aborted) setState({ status: 'ready', meta, events, occurrences, truncated, recurrenceTruncated })
+    // A cached paint is already on screen; replacing it with the skeleton would be a flash of nothing.
+    setState(current => (current.status === 'ready' ? current : { status: 'loading' }))
+    void fetchAll(controller.signal).then(({ meta, events, occurrences, truncated, recurrenceTruncated, revision }) => {
+      if (controller.signal.aborted) return
+      if (userId) saveFirstPaintMeta(userId, meta)
+      setState({ status: 'ready', meta, events, occurrences, truncated, recurrenceTruncated, revision })
     }).catch((error: unknown) => {
       if (controller.signal.aborted) return
-      setState({
-        status: 'error',
-        error: error instanceof Error && error.message ? error.message : t('calendar.error.load'),
-      })
+      const message = error instanceof Error && error.message ? error.message : t('calendar.error.load')
+      // A page already painted from the cache keeps working when the revalidation fails; replacing it
+      // with the error screen would take a readable calendar away because a refresh did not answer.
+      if (statusRef.current === 'ready') {
+        useUi.getState().toast({ title: t('calendar.error.refresh'), description: message, tone: 'danger' })
+        return
+      }
+      setState({ status: 'error', error: message })
     })
     return () => controller.abort()
   }, [attempt, fetchAll])
 
   const refreshMeta = useCallback(async (): Promise<CalendarMetaDto> => {
     const meta = await api.getMeta()
+    if (userId) saveFirstPaintMeta(userId, meta)
     setState(current => (current.status === 'ready' ? { ...current, meta } : current))
     return meta
-  }, [])
+  }, [userId])
 
   const savePreferences = useCallback(async (next: CalendarPreferences): Promise<void> => {
     await api.putPreferences(next)
@@ -151,8 +187,8 @@ export function CalendarApp() {
   }, [])
 
   const reload = useCallback(async (): Promise<void> => {
-    const { meta, events, occurrences, truncated, recurrenceTruncated } = await fetchAll()
-    setState({ status: 'ready', meta, events, occurrences, truncated, recurrenceTruncated })
+    const { meta, events, occurrences, truncated, recurrenceTruncated, revision } = await fetchAll()
+    setState({ status: 'ready', meta, events, occurrences, truncated, recurrenceTruncated, revision })
   }, [fetchAll])
 
   if (state.status === 'loading') return <LoadingCalendar />
@@ -219,6 +255,7 @@ export function CalendarApp() {
       initialOccurrences={state.occurrences}
       initialTruncated={state.truncated}
       initialRecurrenceTruncated={state.recurrenceTruncated}
+      initialRevision={state.revision}
       initialRange={range}
       onRefreshMeta={refreshMeta}
       onSavePreferences={savePreferences}

@@ -302,6 +302,18 @@ export interface CalendarShareDto {
   lastViewedAt: number | null
 }
 
+/**
+ * The rows of one range, reduced to the numbers that change when any of them changes.
+ *
+ * `count` moves on insert and delete, `revSum` on every write, and `maxUpdatedAt` on the one race the
+ * other two can miss (a delete and a create leaving both totals equal).
+ */
+export interface CalendarRangeRevisionDto {
+  count: number
+  revSum: number
+  maxUpdatedAt: number
+}
+
 const CALENDAR_ENTITY_ID_RE = /^[A-Za-z0-9][A-Za-z0-9:._~@#%+-]{0,199}$/
 
 export function isCalendarEntityId(value: unknown): value is string {

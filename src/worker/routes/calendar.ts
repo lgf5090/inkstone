@@ -142,6 +142,9 @@ calendarRoutes.get('/events', async (c) => {
     occurrences: expansion.occurrences,
     truncated: result.truncated,
     recurrenceTruncated: expansion.truncated,
+    // Handed out with the rows so a client can remember what it holds without asking again; the probe
+    // endpoint answers the same triple later.
+    revision: await s.eventsRevision(range.fromMs, range.toMs, calendarIds),
   })
 })
 
@@ -166,6 +169,19 @@ calendarRoutes.post('/events', async (c) => {
   const timeZone = await fallbackTimeZone(s)
   const input = parseEventInput(await readJson<unknown>(c, EVENT_BODY_LIMIT), { defaultTimeZone: timeZone })
   return c.json({ event: await s.createEvent(input) })
+})
+
+/**
+ * The fingerprint of a range, without the rows.
+ *
+ * Registered before `/events/:id`: Hono matches in order, and `revision` would otherwise arrive as an
+ * event id.
+ */
+calendarRoutes.get('/events/revision', async (c) => {
+  readBudget(c.get('userId'))
+  const range = parseRange(c.req.query('from'), c.req.query('to'))
+  const calendarIds = parseCalendarIdList(c.req.query('calendarIds'))
+  return c.json({ revision: await store(c).eventsRevision(range.fromMs, range.toMs, calendarIds) })
 })
 
 calendarRoutes.get('/events/:id', async (c) => {

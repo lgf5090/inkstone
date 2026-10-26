@@ -14,6 +14,7 @@ import type {
   CalendarGroupDto,
   CalendarMetaDto,
   CalendarPreferences,
+  CalendarRangeRevisionDto,
   CalendarSearchResultDto,
   CalendarShareDto,
   CalendarSource,
@@ -85,6 +86,8 @@ export interface EventRangeResponse {
   occurrences: CalendarEventDto[]
   truncated: boolean
   recurrenceTruncated: boolean
+  /** Null when the answer did not carry one; a range without a fingerprint is neither cached nor probed. */
+  revision: CalendarRangeRevisionDto | null
 }
 
 export async function getEvents(query: EventRangeQuery, signal?: AbortSignal): Promise<EventRangeResponse> {
@@ -93,13 +96,27 @@ export async function getEvents(query: EventRangeQuery, signal?: AbortSignal): P
     occurrences?: CalendarEventDto[]
     truncated?: boolean
     recurrenceTruncated?: boolean
+    revision?: CalendarRangeRevisionDto
   }>(`/api/calendar/events?${rangeQuery(query)}`, { signal })
   return {
     events: data.events,
     occurrences: data.occurrences ?? [],
     truncated: data.truncated === true,
     recurrenceTruncated: data.recurrenceTruncated === true,
+    revision: data.revision ?? null,
   }
+}
+
+/** The fingerprint of a range, one small read instead of the rows. */
+export async function getEventsRevision(
+  query: EventRangeQuery,
+  signal?: AbortSignal,
+): Promise<CalendarRangeRevisionDto> {
+  const data = await request<{ revision: CalendarRangeRevisionDto }>(
+    `/api/calendar/events/revision?${rangeQuery(query)}`,
+    { signal },
+  )
+  return data.revision
 }
 
 export interface EventSearchFilters {
