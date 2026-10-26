@@ -360,6 +360,25 @@ async function taskDepends(s: AssistantStore, value: unknown, selfId: string): P
   }
 }
 
+/**
+ * The parent a request names, judged by the same rule the store enforces.
+ *
+ * `null` is the reader putting the row back at the top — an answer rather than an absence, so it travels
+ * as null and not as "nothing said". A bad id is a 400 with the store's own sentence, the way a bad
+ * dependency set is; `selfId` is '' for a create, whose id nothing knows yet.
+ */
+async function taskParent(s: AssistantStore, value: unknown, selfId: string): Promise<string | null | undefined> {
+  if (value === undefined) return undefined
+  if (value === null) return null
+  if (typeof value !== 'string') throw ApiError.badRequest('parentId must name a task or be null.')
+  try {
+    return await s.checkedTaskParent(selfId, value)
+  } catch (error) {
+    if (error instanceof TaskRefusal) throw ApiError.badRequest(error.message)
+    throw error
+  }
+}
+
 function tagNames(value: unknown): string[] | undefined {
   if (value === undefined) return undefined
   if (!Array.isArray(value) && typeof value !== 'string') throw ApiError.badRequest('Tags must be a list of names.')
@@ -1291,6 +1310,7 @@ todoRoutes.post('/', async (c) => {
     tags: tagNames(body.tags),
     steps: stepTexts(body.steps),
     dependsOn: await taskDepends(s, body.dependsOn, ''),
+    parentId: await taskParent(s, body.parentId, ''),
   }
   // Everything the request has to say about itself is read above, so a body that is refused never
   // spends an operation row, and what the key is hashed over is the task this call asks for rather
@@ -1741,6 +1761,7 @@ todoRoutes.patch('/:id', async (c) => {
     ...(body.conversationId !== undefined ? { conversationId: optionalId(body.conversationId, 'conversationId') } : {}),
     ...(body.tags !== undefined ? { tags: tagNames(body.tags) ?? [] } : {}),
     ...(body.dependsOn !== undefined ? { dependsOn: await taskDepends(s, body.dependsOn, id) } : {}),
+    ...(body.parentId !== undefined ? { parentId: await taskParent(s, body.parentId, id) } : {}),
   }
   // Whether this request also names content. A write here spends the revision the caller named, so a
   // second write made by the same request — the completion, or a reopen — must not name it again: the

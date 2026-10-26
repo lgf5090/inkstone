@@ -17,6 +17,7 @@ function task(id: string, patch: Partial<TodoTask> = {}): TodoTask {
     projectId: null,
     listId: null,
     tags: [],
+    parentId: null,
     dependsOn: [],
     blocks: [],
     starred: false,

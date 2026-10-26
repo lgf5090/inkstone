@@ -19,6 +19,7 @@ const service = vi.hoisted(() => ({
   /** The ids the store re-read, in order — the restatement is the thing being pinned. */
   gets: [] as string[],
   creates: [] as Record<string, unknown>[],
+  removes: [] as string[],
   updates: [] as { id: string, body: Record<string, unknown> }[],
 }))
 
@@ -35,7 +36,22 @@ function restateEdges(taskId: string, wanted: string[]): void {
     row.blocks = row.blocks.filter((entry) => entry.id !== taskId || wanted.includes(entry.id))
   }
   service.rows.get(taskId)!.dependsOn = wanted.map(ref)
-  for (const id of wanted) service.rows.get(id)!.blocks = [ref(taskId)]
+  for (const id of wanted) {
+    const partner = service.rows.get(id)!
+    partner.blocks = [...partner.blocks.filter((entry) => entry.id !== taskId), ref(taskId)]
+  }
+}
+
+/**
+ * What a partner's copy of a row says after that row changed: a ref carries a title and a status, so a
+ * rename or a completion rewrites every ref that names it.
+ */
+function syncRefs(taskId: string): void {
+  const fresh = ref(taskId)
+  for (const row of service.rows.values()) {
+    row.dependsOn = row.dependsOn.map((entry) => (entry.id === taskId ? fresh : entry))
+    row.blocks = row.blocks.map((entry) => (entry.id === taskId ? fresh : entry))
+  }
 }
 
 vi.mock('../../lib/api', () => ({
@@ -61,7 +77,18 @@ vi.mock('../../lib/api', () => ({
         const current = service.rows.get(id)!
         service.rows.set(id, { ...current, ...(body as Partial<TodoTask>) })
         if ('dependsOn' in body) restateEdges(id, body.dependsOn as string[])
+        else syncRefs(id)
         return { task: service.rows.get(id)! }
+      },
+      remove: async (id: string) => {
+        service.removes.push(id)
+        // The trash stamp is what takes a ref out of a partner's answer.
+        service.rows.delete(id)
+        for (const row of service.rows.values()) {
+          row.dependsOn = row.dependsOn.filter((entry) => entry.id !== id)
+          row.blocks = row.blocks.filter((entry) => entry.id !== id)
+        }
+        return { trashed: true as const }
       },
     },
   },
@@ -75,7 +102,7 @@ function row(id: string, title: string, extra: Partial<TodoTask> = {}): TodoTask
   return {
     id, title, description: '', status: 'todo', priority: 'medium', dueAt: null, remindAt: null,
     remindedAt: null, plannedFor: null, completedAt: null, createdAt: 0, updatedAt: 0, listId: null,
-    tags: [], dependsOn: [], blocks: [], starred: false, repeat: null, noteId: null, conversationId: null,
+    tags: [], parentId: null, dependsOn: [], blocks: [], starred: false, repeat: null, noteId: null, conversationId: null,
     projectId: null, stepTotal: 0, stepDone: 0, ...extra,
   }
 }
@@ -95,6 +122,7 @@ beforeEach(async () => {
   service.rows.clear()
   service.gets.length = 0
   service.creates.length = 0
+  service.removes.length = 0
   service.updates.length = 0
   useUi.setState({ toasts: [] })
   useTodos.setState(original, true)
@@ -161,6 +189,55 @@ describe('restating the other end on a save', () => {
     await useTodos.getState().updateTask('b', { dependsOn: ['a'] })
 
     expect(service.gets).toEqual([])
+  })
+
+  it('takes the waiting sentence off the dependent when its blocker finishes', async () => {
+    hydrate([row('a', '写报告'), row('b', '发出去')])
+    restateEdges('b', ['a'])
+    service.gets.length = 0
+
+    await useTodos.getState().toggleTask(cached('a'))
+
+    // The server needed no write to `b`; its own copy of `a` is what had to be re-read.
+    expect(service.gets).toEqual(['b'])
+    expect(cached('b').dependsOn).toEqual([{ id: 'a', title: '写报告', status: 'done' }])
+  })
+
+  it('restates a partner when the save only renamed the row it quotes', async () => {
+    hydrate([row('a', '写报告'), row('b', '发出去')])
+    restateEdges('b', ['a'])
+    service.gets.length = 0
+
+    await useTodos.getState().updateTask('a', { title: '改名的报告' })
+
+    expect(service.gets).toEqual(['b'])
+    expect(cached('b').dependsOn[0]!.title).toBe('改名的报告')
+  })
+
+  it('reads nobody for a status that stays inside the owed set', async () => {
+    hydrate([row('a', '写报告'), row('b', '发出去')])
+    restateEdges('b', ['a'])
+    service.gets.length = 0
+
+    await useTodos.getState().updateTask('a', { status: 'in_progress' })
+
+    // Starting a blocker does not answer "is it still owed" any differently: the waiting stays waiting,
+    // so no partner copy moved and none is fetched.
+    expect(service.gets).toEqual([])
+  })
+
+  it('restates the partners of a row that was deleted', async () => {
+    hydrate([row('a', '写报告'), row('b', '发出去'), row('c', '归档')])
+    restateEdges('b', ['a'])
+    restateEdges('c', ['a'])
+    service.gets.length = 0
+
+    await useTodos.getState().removeTask('a')
+
+    expect(service.removes).toEqual(['a'])
+    expect(service.gets.sort()).toEqual(['b', 'c'])
+    expect(cached('b').dependsOn).toEqual([])
+    expect(cached('c').dependsOn).toEqual([])
   })
 })
 

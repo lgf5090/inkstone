@@ -317,3 +317,61 @@ export function boardColumnKey(dimension: BoardDimension, task: TodoTask): strin
   if (dimension === 'priority') return task.priority
   return task.listId ?? BOARD_INBOX_COLUMN
 }
+
+/** One row of a group, read as a tree: where it sits, and how much is underneath it. */
+export interface TreeRow {
+  task: TodoTask
+  /** How many levels above it this group shows, 0 for a row that stands on its own. */
+  depth: number
+  /** The rows in this same group that name it as their parent, whether or not they are being shown. */
+  childCount: number
+}
+
+/** The deepest indent a listing draws. The store refuses a fifth level for the same reason. */
+const MAX_TREE_DEPTH = 4
+
+/**
+ * The rows of one group in the order a reader reads a tree: a parent, then what sits under it.
+ *
+ * Only the rows already in this group can be a parent here. A child whose parent is on another page is
+ * shown as a top-level row rather than hidden behind a row the listing does not have — a row that
+ * vanished from the screen would leave the group's own count naming more work than the reader can see,
+ * which is the same lie the blocked-row rule refuses.
+ *
+ * The walk keeps a visited set and then emits whatever it never reached, so the answer is always a
+ * permutation of the input. That is not defensive coding for a case the write path allows: a restored
+ * backup file writes rows without the write path's judgment, and can therefore carry a pair of tasks
+ * nested inside each other. The screen cannot fix that, but it must not lose the rows either.
+ */
+export function arrangeTree(tasks: readonly TodoTask[], collapsed: ReadonlySet<string>): TreeRow[] {
+  const present = new Set(tasks.map((task) => task.id))
+  const childrenOf = new Map<string, TodoTask[]>()
+  const roots: TodoTask[] = []
+  for (const task of tasks) {
+    const parent = task.parentId
+    if (parent === null || parent === task.id || !present.has(parent)) {
+      roots.push(task)
+      continue
+    }
+    const bucket = childrenOf.get(parent) ?? []
+    bucket.push(task)
+    childrenOf.set(parent, bucket)
+  }
+  const out: TreeRow[] = []
+  const visited = new Set<string>()
+  const emit = (task: TodoTask, depth: number, hidden: boolean): void => {
+    if (visited.has(task.id)) return
+    visited.add(task.id)
+    const children = childrenOf.get(task.id) ?? []
+    // A folded row keeps its own place on the page and gives up its subtree; the count it is drawn with
+    // is what says the children are folded rather than gone.
+    if (!hidden) out.push({ task, depth, childCount: children.length })
+    const under = hidden || collapsed.has(task.id)
+    for (const child of children) emit(child, Math.min(depth + 1, MAX_TREE_DEPTH - 1), under)
+  }
+  for (const root of roots) emit(root, 0, false)
+  // A row no root reaches — the pair of tasks a restored file nested inside each other — is still the
+  // reader's task, so it is drawn at the top rather than left out of the page it belongs to.
+  for (const task of tasks) emit(task, 0, false)
+  return out
+}

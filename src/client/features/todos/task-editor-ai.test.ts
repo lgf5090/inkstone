@@ -53,6 +53,7 @@ const TASK: TodoTask = {
   completedAt: null,
   listId: null,
   tags: [],
+  parentId: null,
   dependsOn: [],
   blocks: [],
   starred: false,

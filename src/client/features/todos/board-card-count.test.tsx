@@ -46,7 +46,7 @@ function list(id: string, name: string, open = 0, done = 0): TaskListEntry {
 function task(id: string, listId: string | null): TodoTask {
   return {
     id, title: `T${id}`, description: '', status: 'todo', priority: 'medium',
-    dueAt: null, startAt: null, remindAt: null, listId, tags: [], dependsOn: [], blocks: [], starred: false,
+    dueAt: null, startAt: null, remindAt: null, listId, tags: [], parentId: null, dependsOn: [], blocks: [], starred: false,
     repeat: null, createdAt: 0, updatedAt: 0, completedAt: null, abandonedAt: null,
     rev: 1, stepDone: 0, stepTotal: 0, timeEstimateMs: null, timeSpentMs: 0,
     runningSince: null, archivedAt: null, color: null, icon: null,

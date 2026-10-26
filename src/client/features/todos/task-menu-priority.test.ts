@@ -74,6 +74,7 @@ function task(id: string, priority: TaskPriority = 'medium', status: TodoTask['s
     updatedAt: 0,
     listId: null,
     tags: [],
+    parentId: null,
     dependsOn: [],
     blocks: [],
     starred: false,

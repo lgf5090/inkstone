@@ -355,6 +355,36 @@ function flattenMissingParent(table: string, column: string, noun: string) {
 }
 
 /**
+ * The same flattening for a reference that points at the row itself.
+ *
+ * `flattenMissingParent` cannot see this one: the row's own id *is* in the file, so a task whose parent is
+ * itself passes that check and lands in the account as a row nested inside itself — a tree a reader can
+ * open forever. The same sentence covers both, because the repair is the same: put the row at the top.
+ */
+function flattenSelfOrMissingParent(table: string, keyColumn: string, column: string, noun: string) {
+  return (row: PreparedRow, ids: IdSets, note: Note): PreparedRow => {
+    const value = row[column]
+    if (typeof value !== 'string') return row
+    if (value === row[keyColumn] || !ids.get(table)?.has(value)) {
+      note(`${column} named a ${noun} it cannot sit under, restored at the top level`)
+      row[column] = null
+    }
+    return row
+  }
+}
+
+/** Two placement steps, run in order — the second sees what the first left. */
+function chainPlace(
+  first: NonNullable<TodoTableSpec['place']>,
+  second: NonNullable<TodoTableSpec['place']>,
+): NonNullable<TodoTableSpec['place']> {
+  return (row, ids, note) => {
+    const placed = first(row, ids, note)
+    return placed ? second(placed, ids, note) : null
+  }
+}
+
+/**
  * A row whose parent the file does not carry is unreachable from every screen and every later delete, so
  * writing it would plant an orphan in the account instead of restoring a row. Every column the row names
  * is checked, because a link with one half missing means something a later read cannot undo: a tag no
@@ -454,6 +484,7 @@ const TABLE_SPECS: Readonly<Record<string, TodoTableSpec>> = {
       dayRule('created_on'),
       idRule('project_id'),
       idRule('list_id'),
+      idRule('parent_id'),
       iconRule('icon'),
       colorRule('color'),
       flagRule('starred'),
@@ -467,7 +498,10 @@ const TABLE_SPECS: Readonly<Record<string, TodoTableSpec>> = {
       stampRule('archived_at'),
       stampRule('deleted_at'),
     ],
-    place: flattenMissingParent('todos_lists', 'list_id', 'list'),
+    place: chainPlace(
+      flattenMissingParent('todos_lists', 'list_id', 'list'),
+      flattenSelfOrMissingParent('todos_tasks', 'id', 'parent_id', 'task'),
+    ),
   },
   todos_reminders: {
     label: 'reminders',

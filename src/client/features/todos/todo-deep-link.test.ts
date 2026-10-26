@@ -68,6 +68,7 @@ function task(id: string, title: string, status: string = 'in_progress'): Record
     remindAt: null,
     repeat: null,
     tags: [],
+    parentId: null,
     dependsOn: [],
     blocks: [],
     stepTotal: 0,

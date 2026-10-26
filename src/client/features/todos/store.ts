@@ -86,6 +86,8 @@ export interface TaskDraft {
   priority?: TodoTask['priority']
   starred?: boolean
   tags?: string[]
+  /** The task this one sits under, or null for the top. A place in a tree, not a kind of row. */
+  parentId?: string | null
   /**
    * The ids of the tasks this one waits on, replacing whatever it waited on before.
    *
@@ -161,6 +163,15 @@ interface TodosState {
    * true and clears on any read that answers, so the doubt does not outlive the last failed attempt.
    */
   countsStale: boolean
+  /**
+   * Which parents the reader has folded up, by task id.
+   *
+   * Listing state rather than row state: a fold changes what is drawn, not what the task is, and nothing
+   * about it travels to another device or to the server. It survives a view switch because a reader who
+   * folded a section to find one thing does not want it unfolded by the act of looking elsewhere, and it
+   * is empty on a reload because a fold is not a fact worth keeping.
+   */
+  collapsedTasks: string[]
   dayEnd: number
   timezone: string
 
@@ -259,6 +270,8 @@ interface TodosState {
    */
   updateTask: (id: string, patch: Record<string, unknown>, rev?: number) => Promise<TodoTask | null>
   toggleTask: (task: TodoTask) => Promise<void>
+  /** Fold or unfold one parent's children on the listings. Writes nothing. */
+  toggleTaskCollapsed: (id: string) => void
   removeTask: (id: string) => Promise<boolean>
   /** Put a trashed task back by id and re-read the listing; answers whether the server took it. */
   restoreTask: (id: string) => Promise<boolean>
@@ -930,6 +943,10 @@ function applyTodoPatch(task: TodoTask, patch: Record<string, unknown>): TodoTas
   else if (typeof patch.dueAt === 'string') next.dueAt = parseLocalTime(patch.dueAt, useTodos.getState().timezone)
   if (patch.listId === null) next.listId = null
   else if (typeof patch.listId === 'string') next.listId = patch.listId
+  // A place in the tree mirrors the same way its list does: the row moves under or out of a parent the
+  // reader is already looking at, and nothing about its status, hours or dates changes on the way.
+  if (patch.parentId === null) next.parentId = null
+  else if (typeof patch.parentId === 'string') next.parentId = patch.parentId
   if (patch.icon === null) next.icon = null
   else if (typeof patch.icon === 'string') next.icon = patch.icon
   if (patch.color === null) next.color = null
@@ -977,6 +994,7 @@ function optimisticTask(id: string, input: TaskDraft): TodoTask {
     updatedAt: now,
     completedAt: null,
     listId: input.listId ?? null,
+    parentId: input.parentId ?? null,
     icon: input.icon ?? null,
     color: input.color ?? null,
     tags: tagsForNames(input.tags ?? []),
@@ -1369,6 +1387,7 @@ export const useTodos = create<TodosState>((set, get) => ({
   directoryKnown: false,
   counts: null,
   countsStale: false,
+  collapsedTasks: [],
   dayEnd: 0,
   timezone: 'UTC',
 
@@ -1834,10 +1853,19 @@ export const useTodos = create<TodosState>((set, get) => ({
         }
       }
       void get().refreshCounts()
-      // The rows on both sides of every edge this save touched — the ones it dropped included — answer
-      // for the change on their own copies, which this response did not carry.
-      if ('dependsOn' in patch) {
-        const partners = [...(before?.dependsOn.map((entry) => entry.id) ?? []), ...dependsIds(patch.dependsOn)]
+      // A partner row carries this one's title and status inside its own ref list, and the answer to this
+      // write says nothing about those copies. Both ends are restated whenever the write moved a fact a
+      // ref shows: the edges themselves, the row's name, or the row crossing between owed and done —
+      // which is what lets finishing a blocker take the "waiting" sentence off its dependents without a
+      // reload, the same way it takes a write off them.
+      const movedARef = 'dependsOn' in patch || typeof patch.title === 'string'
+        || (patch.status !== undefined && before !== null && isTaskDone(patch.status) !== isTaskDone(before.status))
+      if (movedARef && before) {
+        const partners = [
+          ...before.dependsOn.map((entry) => entry.id),
+          ...before.blocks.map((entry) => entry.id),
+          ...dependsIds(patch.dependsOn),
+        ]
         await refreshServerRows(cachedDependPartners(partners))
       }
       return task
@@ -1857,6 +1885,12 @@ export const useTodos = create<TodosState>((set, get) => ({
   toggleTask: async (task) => {
     await get().updateTask(task.id, { status: toggledStatus(task.status) })
   },
+
+  toggleTaskCollapsed: (id) => set((state) => ({
+    collapsedTasks: state.collapsedTasks.includes(id)
+      ? state.collapsedTasks.filter((entry) => entry !== id)
+      : [...state.collapsedTasks, id],
+  })),
 
   removeTask: async (id) => {
     if (offlineNow()) {
@@ -1878,6 +1912,12 @@ export const useTodos = create<TodosState>((set, get) => ({
       return true
     }
     try {
+      // The row's own ref lists are read before the delete, because a partner's copy of this row is a
+      // fact about the partner: the rows that waited on this one, and the ones this one waited on, each
+      // carry a ref that this delete makes untrue.
+      const gone = get().tasks.find((entry) => entry.id === id)
+        ?? get().completed.find((entry) => entry.id === id)
+        ?? null
       await api.todos.remove(id)
       set((state) => ({
         tasks: state.tasks.filter((entry) => entry.id !== id),
@@ -1888,6 +1928,12 @@ export const useTodos = create<TodosState>((set, get) => ({
           : state.selectedIds,
       }))
       void get().refreshCounts()
+      if (gone) {
+        await refreshServerRows(cachedDependPartners([
+          ...gone.dependsOn.map((entry) => entry.id),
+          ...gone.blocks.map((entry) => entry.id),
+        ]))
+      }
       // The delete only stamps the row, so the step back is the server's restore of the same id —
       // not a re-creation that would lose steps and mint a second row.
       offerUndo(set, get, t('todo.toast.deleted'), async () => {

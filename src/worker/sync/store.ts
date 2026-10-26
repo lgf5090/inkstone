@@ -62,6 +62,8 @@ interface TodoSyncRow {
   due_at: number | null
   project_id: string | null
   list_id: string | null
+  /** The task this one is a step of, or null for a row that stands on its own. */
+  parent_id: string | null
   /** The task's own icon, or null while it wears its list's. */
   icon: string | null
   /** The task's own colour, or null while it wears its list's. */
@@ -79,7 +81,7 @@ interface TodoSyncRow {
   archived_at: number | null
 }
 
-const TODO_SYNC_COLUMNS = `id, title, description, status, priority, due_at, project_id, list_id, icon, color, starred,
+const TODO_SYNC_COLUMNS = `id, title, description, status, priority, due_at, project_id, list_id, parent_id, icon, color, starred,
   repeat_rule, note_id, conversation_id, planned_for, created_at, updated_at, completed_at, rev, deleted_at, archived_at`
 
 /** One end of a `todos_task_links` row, joined to the task it points at. */
@@ -422,6 +424,7 @@ export class SyncStore {
         dueAt: row.due_at,
         projectId: row.project_id,
         listId: row.list_id,
+        parentId: row.parent_id,
         icon: row.icon,
         color: row.color,
         tags: tags.get(row.id) ?? [],

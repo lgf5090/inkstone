@@ -124,6 +124,7 @@ function task(id: string, extra: Partial<TodoTask> = {}): TodoTask {
     updatedAt: 0,
     listId: 'work',
     tags: [],
+    parentId: null,
     dependsOn: [],
     blocks: [],
     starred: false,

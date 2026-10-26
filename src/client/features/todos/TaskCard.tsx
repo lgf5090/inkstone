@@ -18,7 +18,7 @@
  */
 
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
-import { CalendarMinus, Check, CircleDot, Hourglass, Link2, MoreHorizontal, Paperclip, Pause, Play, Star } from 'lucide-react'
+import { CalendarMinus, Check, ChevronDown, ChevronRight, CircleDot, Hourglass, Link2, MoreHorizontal, Paperclip, Pause, Play, Star } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { api } from '../../lib/api'
@@ -156,6 +156,16 @@ export function readTodoTaskDropIds(event: React.DragEvent): string[] {
 
 /** Where the pointer holds the group's label, so it does not sit under the finger and vanish. */
 const DRAG_GHOST_ANCHOR_PX = 12
+
+/**
+ * How wide one level of the tree's gutter is, in pixels.
+ *
+ * Four levels is what the store allows a row to sit at (`MAX_TASK_TREE_DEPTH`), and at the narrowest
+ * supported width 14px times three indents still leaves the title the room to wrap in. It is a runtime
+ * value on one element rather than a class because the depth is per row and the alternative is four
+ * padding utilities competing with the row's own `px-2`.
+ */
+const TREE_INDENT_PX = 14
 
 /**
  * The count a picked group wears while it is in the air.
@@ -362,7 +372,7 @@ function descriptionPreview(description: string): string {
   return toPlainText(description).replace(/\s+/g, ' ').trim()
 }
 
-export const TaskCard = memo(function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnplan, move, compact = false, showList = true }: {
+export const TaskCard = memo(function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnplan, move, compact = false, showList = true, depth = 0, childCount = 0, collapsed = false, onToggleCollapsed }: {
   task: TodoTask
   lists: readonly TaskList[]
   bounds: { dayEnd: number; now: number }
@@ -386,6 +396,18 @@ export const TaskCard = memo(function TaskCard({ task, lists, bounds, timezone, 
    * name on every line is noise; the aggregate views (all, starred, plan, finished, tag) keep it.
    */
   showList?: boolean
+  /**
+   * How deep this row sits in its group's tree, 0 for a row that stands on its own.
+   *
+   * The indent is drawn as a gutter rule rather than as row padding, because the checkbox column has to
+   * stay aligned across a group and `px-*` beside a `pl-*` would make that a stylesheet-order question.
+   */
+  depth?: number
+  /** The rows this group holds that name this row as their parent, folded or not. */
+  childCount?: number
+  /** Whether this row's children are folded away. Only a row with a `onToggleCollapsed` can be folded. */
+  collapsed?: boolean
+  onToggleCollapsed?: () => void
 }) {
   const toggle = useTodos((state) => state.toggleTask)
   const snooze = useTodos((state) => state.snoozeTask)
@@ -800,6 +822,30 @@ export const TaskCard = memo(function TaskCard({ task, lists, bounds, timezone, 
           {t('attachments.drag_drop_hint')}
         </span>
       )}
+      {/* The row's place in a tree, in the gutter the checkbox already lives in: a rule for every level
+          above it, and a fold button left of the box when rows sit under it. A row with no children gets
+          neither — a control that has nothing to do is worse than no control. */}
+      {depth > 0 && (
+        <span
+          aria-hidden="true"
+          data-todo-tree-depth=""
+          className="self-stretch border-l border-[var(--border-subtle)]"
+          style={{ width: `${depth * TREE_INDENT_PX}px` }}
+        />
+      )}
+      {onToggleCollapsed && childCount > 0 && (
+        <button
+          type="button"
+          data-todo-fold={task.id}
+          aria-expanded={!collapsed}
+          aria-label={t(collapsed ? 'todo.task.expand_children' : 'todo.task.collapse_children', { count: childCount, title: task.title })}
+          onClick={onToggleCollapsed}
+          className="mt-0.5 flex size-11 shrink-0 items-center justify-center gap-0.5 rounded-[var(--r-sm)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] md:size-7"
+        >
+          {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+          {collapsed && <span className="text-[length:var(--text-10-5)] tabular-nums">{childCount}</span>}
+        </button>
+      )}
       {selectionMode ? (
         // The selection tick takes the completion box's place rather than sitting beside it: while the
         // mode is on, a press on the left of a row means "pick this row", never "finish it".
@@ -1175,6 +1221,8 @@ export interface TaskRowActions {
   unplan?: (task: TodoTask) => void
   /** Whether `unplan` would really take the row off this screen, which narrows the button further. */
   canUnplan?: (task: TodoTask) => boolean
+  /** Fold or unfold one row's children. Listing state: it writes nothing and costs no request. */
+  toggleCollapsed?: (id: string) => void
 }
 
 /** The page's own `TaskRowActions`, bound to the store's writes and to whatever order it keeps. */
@@ -1185,6 +1233,7 @@ export function useTaskRowActions(order: {
 } = {}): TaskRowActions {
   const openEditor = useTodos((state) => state.openEditor)
   const updateTask = useTodos((state) => state.updateTask)
+  const toggleCollapsed = useTodos((state) => state.toggleTaskCollapsed)
   const { moveFor, unplan, canUnplan } = order
   return useMemo(() => ({
     open: (task: TodoTask) => { openEditor({ id: task.id }) },
@@ -1192,7 +1241,8 @@ export function useTaskRowActions(order: {
     moveFor,
     unplan,
     canUnplan,
-  }), [openEditor, updateTask, moveFor, unplan, canUnplan])
+    toggleCollapsed,
+  }), [openEditor, updateTask, moveFor, unplan, canUnplan, toggleCollapsed])
 }
 
 /**
@@ -1203,7 +1253,7 @@ export function useTaskRowActions(order: {
  * its neighbours alone — ticking another row, typing in the filter, the minute the clock crossed — now
  * leaves this row's menu, tags and estimate bar on the page it already drew.
  */
-export const TaskRow = memo(function TaskRow({ task, lists, bounds, timezone, actions, showList = true, compact = false }: {
+export const TaskRow = memo(function TaskRow({ task, lists, bounds, timezone, actions, showList = true, compact = false, depth = 0, childCount = 0, collapsed = false }: {
   task: TodoTask
   lists: readonly TaskList[]
   bounds: { dayEnd: number; now: number }
@@ -1212,6 +1262,10 @@ export const TaskRow = memo(function TaskRow({ task, lists, bounds, timezone, ac
   /** Whether the row names its list; one list's own page does not repeat it on every row. */
   showList?: boolean
   compact?: boolean
+  /** This row's place in its group's tree, and what is folded under it. See `TaskCard`'s own fields. */
+  depth?: number
+  childCount?: number
+  collapsed?: boolean
 }) {
   return (
     <TaskCard
@@ -1221,6 +1275,12 @@ export const TaskRow = memo(function TaskRow({ task, lists, bounds, timezone, ac
       timezone={timezone}
       showList={showList}
       compact={compact}
+      depth={depth}
+      childCount={childCount}
+      collapsed={collapsed}
+      {...(actions.toggleCollapsed && childCount > 0
+        ? { onToggleCollapsed: () => { actions.toggleCollapsed!(task.id) } }
+        : {})}
       move={actions.moveFor?.(task) ?? undefined}
       onOpen={() => actions.open(task)}
       onStar={() => actions.star(task)}

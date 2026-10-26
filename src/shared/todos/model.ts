@@ -434,6 +434,17 @@ export function taskIsBlocked(task: Pick<TodoTask, 'dependsOn'>): boolean {
 export interface TodoTask extends Task {
   listId: string | null
   /**
+   * The task this one is a step of, or null for a row that stands on its own.
+   *
+   * A place in a tree, not a second kind of row: a child is listed, counted, due, timed and exported like
+   * any other task, and nothing about its status is inherited from the parent. The parent's added power is
+   * only to gather its children next to it on the grouped listings, which is a reading of the rows already
+   * on the page — a child whose parent is not on this page is shown at the top level, not hidden.
+   *
+   * The chain is kept acyclic, shallow and this-account-only by the store on write; see `checkedTaskParent`.
+   */
+  parentId: string | null
+  /**
    * The task's own icon, or null while it wears its list's.
    *
    * The same vocabulary a list icon speaks — `lucide:<Name>` or a single emoji — so one picker and one

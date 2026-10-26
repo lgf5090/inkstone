@@ -136,6 +136,7 @@ function stored(id: string, dueAt: number | null, repeat: RepeatRule | null): To
     updatedAt: 0,
     listId: null,
     tags: [],
+    parentId: null,
     dependsOn: [],
     blocks: [],
     starred: false,

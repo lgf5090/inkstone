@@ -11,10 +11,9 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronUp, Link2, MessagesSquare, Plus, Search, Sparkles, Star, Trash2, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Link2, ListTree, MessagesSquare, Plus, Sparkles, Star, Trash2, X } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
-import { isImeComposing } from '../../lib/ime'
 import { addDaysKey } from '../../lib/time'
 import { Button, IconButton } from '../../components/primitives'
 import { Checkbox, Input, Segmented, Textarea, Field } from '../../components/form'
@@ -26,6 +25,7 @@ import { Menu, Modal } from '../../components/overlay'
 import { api } from '../../lib/api'
 import { useUi } from '../../store/ui'
 import { useTodos, remindOffsetOf } from './store'
+import { TaskFinder } from './TaskFinder'
 import { dueValue, priorityDot, priorityLabel } from './todo-ui'
 import { EstimatePicker } from './estimate-picker'
 import { ListIcon } from './list-icons'
@@ -57,9 +57,6 @@ import {
 import { isTaskDone } from '@shared/todos/status'
 
 const PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const
-
-/** How many candidates the dependency finder offers at once. */
-const DEPENDS_FIND_LIMIT = 8
 
 /** How much of the task's note an inline question carries, the same clip the chat seed uses. */
 const ASK_CONTEXT_CHARS = 400
@@ -335,11 +332,16 @@ export function TaskEditor() {
    * gone from the answer.
    */
   const [dependsOn, setDependsOn] = useState<TaskRef[]>([])
-  const [depQuery, setDepQuery] = useState('')
-  const [depResults, setDepResults] = useState<TaskRef[]>([])
-  const [depSearching, setDepSearching] = useState(false)
-  const [depFailed, setDepFailed] = useState(false)
-  const searchTasks = useTodos((state) => state.searchTasks)
+  /**
+   * The row this one sits under, as the id the task carries and the words the panel can show for it.
+   *
+   * Only the id travels on the row, so the title is read from the rows the app already holds and asked
+   * for once when the parent is not among them. An answer that could not be read is said as such rather
+   * than shown as a bare id, which no reader recognises.
+   */
+  const [parentId, setParentId] = useState<string | null>(null)
+  const [parentTitle, setParentTitle] = useState<string | null>(null)
+  const [parentUnreadable, setParentUnreadable] = useState(false)
   const [tagInput, setTagInput] = useState('')
   /** The account's tags this task does not wear yet — the menu's rows. */
   const tagRef = useRef<HTMLInputElement>(null)
@@ -395,9 +397,9 @@ export function TaskEditor() {
     setRemind(remindOffsetOf({ dueAt: sourceDueAt, remindAt: initialReminders[0] ?? null }))
     setTagNames(task ? task.tags.map((tag) => tag.name) : source.tags ?? [])
     setDependsOn(task?.dependsOn ?? [])
-    setDepQuery('')
-    setDepResults([])
-    setDepFailed(false)
+    setParentId(task?.parentId ?? source.parentId ?? null)
+    setParentTitle(null)
+    setParentUnreadable(false)
     setStepInput('')
     setTagInput('')
     setTagMenuOpen(false)
@@ -515,6 +517,7 @@ export function TaskEditor() {
       // left out because taking an estimate away is an answer the reader gave, not an absence.
       timeEstimate: estimate,
       listId: listId || null,
+      parentId,
       icon,
       color,
       repeat: rule,
@@ -618,33 +621,44 @@ export function TaskEditor() {
   }
 
   /**
-   * Look for a task to wait on, across the account rather than the page in hand.
+   * Name the parent the panel cannot read off its own rows.
    *
-   * The store's own search is the door — it is the one that already knows the server's shape and the
-   * debounce the rest of the app pays for. Three things are answered here: a search in flight, a search
-   * that found nothing, and a search that was refused; the row itself is not a place to hide the last
-   * one behind the first.
+   * A parent picked in this panel brings its own title; a panel opened on a row that already sat under
+   * something carries only an id. The cached listing is asked first, because a parent in the same view is
+   * already in hand, and the row's own read second — and an answer that could not be read is said as
+   * unreadable rather than shown as a bare id no reader recognises.
    */
-  const findDepends = async (): Promise<void> => {
-    const words = depQuery.trim()
-    if (!words || depSearching) return
-    setDepSearching(true)
-    setDepFailed(false)
-    try {
-      const found = await searchTasks(words)
-      setDepResults(found
-        .filter((task) => task.id !== existing?.id && !dependsOn.some((one) => one.id === task.id))
-        .slice(0, DEPENDS_FIND_LIMIT)
-        .map((task) => ({ id: task.id, title: task.title, status: task.status })))
-    } catch (error) {
-      // The refusal is said rather than swallowed: an empty list would read as "no such task exists".
-      console.warn('[inkstone] The dependency finder could not search:', error)
-      setDepResults([])
-      setDepFailed(true)
-    } finally {
-      setDepSearching(false)
+  useEffect(() => {
+    if (parentId === null) {
+      setParentTitle(null)
+      setParentUnreadable(false)
+      return
     }
-  }
+    const state = useTodos.getState()
+    const cached = state.tasks.find((entry) => entry.id === parentId)
+      ?? state.completed.find((entry) => entry.id === parentId)
+      ?? null
+    if (cached) {
+      setParentTitle(cached.title)
+      setParentUnreadable(false)
+      return
+    }
+    let settled = false
+    void (async () => {
+      try {
+        const { task: found } = await api.todos.get(parentId)
+        if (settled) return
+        setParentTitle(found.title)
+        setParentUnreadable(false)
+      } catch (error) {
+        if (settled) return
+        console.warn('[inkstone] The parent task could not be read:', error)
+        setParentTitle(null)
+        setParentUnreadable(true)
+      }
+    })()
+    return () => { settled = true }
+  }, [parentId])
 
   /**
    * Ask about the task as the panel currently reads it.
@@ -1248,6 +1262,42 @@ export function TaskEditor() {
           </div>
         </div>
 
+        {/* Where this row sits in a tree. A parent gathers rows on screen and says nothing about their
+            status: a child keeps its own list, dates, hours and counts, so the panel writes an id rather
+            than a kind. Clearing it puts the row back at the top, which is an answer and not an absence. */}
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[length:var(--text-11)] font-medium text-[var(--text-secondary)]">{t('todo.task.parent_label')}</span>
+          {parentId === null ? (
+            <span className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('todo.task.no_parent')}</span>
+          ) : (
+            <div className="flex min-w-0 items-center gap-2">
+              <ListTree size={12} className="shrink-0 text-[var(--text-quaternary)]" aria-hidden="true" />
+              <span className="min-w-0 flex-1 truncate text-[length:var(--text-12-5)]">
+                {parentUnreadable ? t('todo.task.parent_unreadable') : parentTitle ?? t('common.loading')}
+              </span>
+              <IconButton
+                label={t('todo.task.parent_clear')}
+                size="xs"
+                onClick={() => setParentId(null)}
+              >
+                <X size={11} />
+              </IconButton>
+            </div>
+          )}
+          {parentId === null && (
+            <TaskFinder
+              findLabel={t('todo.task.parent_find')}
+              statusId="todo-parent-status"
+              excludeIds={existing ? [existing.id] : []}
+              onPick={(hit) => {
+                setParentId(hit.id)
+                setParentTitle(hit.title)
+                setParentUnreadable(false)
+              }}
+            />
+          )}
+        </div>
+
         {/* What this row waits on. A dependency is a reason, not a filter: the blocked task stays on the
             board, in the badges and on the calendar exactly where it was, and what it gains is the ability
             to say out loud why it is still open. The finder searches the server rather than the page in
@@ -1273,50 +1323,12 @@ export function TaskEditor() {
               </IconButton>
             </div>
           ))}
-          <div className="flex items-center gap-1.5">
-            <Input
-              value={depQuery}
-              placeholder={t('todo.task.depends_find')}
-              aria-label={t('todo.task.depends_find')}
-              aria-describedby="todo-depends-status"
-              leading={<Search size={12} />}
-              className="min-w-0 flex-1"
-              onChange={(event) => setDepQuery(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key !== 'Enter' || isImeComposing(event)) return
-                event.preventDefault()
-                void findDepends()
-              }}
-            />
-            <Button size="sm" variant="subtle" onClick={() => { void findDepends() }}>{t('todo.action.search')}</Button>
-          </div>
-          {/* The three answers a search owes: loading, nothing found, and refused. The list of hits is
-              real rows with a real button each, not a native datalist. */}
-          <p id="todo-depends-status" role="status" className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
-            {depSearching && t('common.loading')}
-            {!depSearching && depFailed && t('todo.toast.failed')}
-            {!depSearching && !depFailed && depQuery.trim() && depResults.length === 0 && t('todo.empty.search')}
-          </p>
-          {depResults.length > 0 && (
-            <ul className="flex flex-col gap-0.5">
-              {depResults.map((hit) => (
-                <li key={hit.id}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDependsOn((current) => (current.some((one) => one.id === hit.id) ? current : [...current, hit]))
-                      setDepResults([])
-                      setDepQuery('')
-                    }}
-                    className="flex min-h-9 w-full min-w-0 items-center gap-2 rounded-[var(--r-md)] px-2 text-left text-[length:var(--text-12-5)] hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
-                  >
-                    <Plus size={11} className="shrink-0 text-[var(--text-quaternary)]" aria-hidden="true" />
-                    <span className="min-w-0 flex-1 truncate">{hit.title}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+          <TaskFinder
+            findLabel={t('todo.task.depends_find')}
+            statusId="todo-depends-status"
+            excludeIds={[...(existing ? [existing.id] : []), ...dependsOn.map((entry) => entry.id)]}
+            onPick={(hit) => setDependsOn((current) => [...current, hit])}
+          />
         </div>
 
         <div className="flex flex-col gap-1.5">

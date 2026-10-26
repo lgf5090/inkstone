@@ -133,6 +133,7 @@ function task(id: string, title: string, over: Partial<TodoTask> = {}): TodoTask
     updatedAt: NOW,
     listId: null,
     tags: [],
+    parentId: null,
     dependsOn: [],
     blocks: [],
     starred: false,

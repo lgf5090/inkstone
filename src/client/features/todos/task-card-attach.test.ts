@@ -85,6 +85,7 @@ function task(id = 'a'): TodoTask {
     updatedAt: 0,
     listId: null,
     tags: [],
+    parentId: null,
     dependsOn: [],
     blocks: [],
     starred: false,

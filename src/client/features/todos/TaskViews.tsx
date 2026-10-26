@@ -29,7 +29,7 @@ import {
   type TaskMoveControls,
 } from './TaskCard'
 import { LIST_COLUMNS_QUERY, ListLayoutToggle, StatusBoard, useBoardGroup, useListLayout } from './status-board'
-import { groupByPlan, groupBySection, groupCompletedAndAbandoned, groupByList, type TaskGroup, type PlanGroupKey } from './task-groups'
+import { arrangeTree, groupByPlan, groupBySection, groupCompletedAndAbandoned, groupByList, type TaskGroup, type PlanGroupKey } from './task-groups'
 import type { MessageKey } from '@shared/locales/en-US'
 import { type TodoTask } from '@shared/todos/model'
 
@@ -107,6 +107,10 @@ export function GroupedTaskList({ groups, label, empty, onUnplan, canUnplan, mov
     state.query.trim() || state.dueFrom || state.dueTo || state.completedFrom || state.completedTo,
   ))
   const bounds = useListingBounds(dayEnd)
+  // Which parents are folded, as the set `arrangeTree` asks for. The store holds an array because that is
+  // what survives a state replace; the lookup is per row.
+  const foldedIds = useTodos((state) => state.collapsedTasks)
+  const collapsed = useMemo(() => new Set(foldedIds), [foldedIds])
   // One actions object for the page, so a row's props only move when the row's own reading does.
   const actions = useTaskRowActions({ moveFor, unplan: onUnplan, canUnplan })
 
@@ -137,14 +141,17 @@ export function GroupedTaskList({ groups, label, empty, onUnplan, canUnplan, mov
               <span className="text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">{group.tasks.length}</span>
             </div>
             <div className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-0.5 py-1">
-              {group.tasks.map((task) => (
+              {arrangeTree(group.tasks, collapsed).map((row) => (
                 <TaskRow
-                  key={task.id}
-                  task={task}
+                  key={row.task.id}
+                  task={row.task}
                   lists={lists}
                   bounds={bounds}
                   timezone={timezone}
                   actions={actions}
+                  depth={row.depth}
+                  childCount={row.childCount}
+                  collapsed={collapsed.has(row.task.id)}
                   showList={group.showList ?? showList}
                 />
               ))}
