@@ -11,7 +11,7 @@ import type { Event, EventChange, ICalendarApp } from '@dayflow/react'
 import { ApiError } from '../../lib/api'
 import * as api from './api'
 import type { CalendarEditHistory } from './history'
-import { toEventInput, eventCalendarIds } from './model'
+import { isRecurrenceOccurrence, toEventInput, toEventUpdates, eventCalendarIds } from './model'
 
 const DEBOUNCE_MS = 150
 const RETRY_DELAY_MS = 400
@@ -39,12 +39,8 @@ export interface EventPersistenceOptions {
   onError: (error: unknown) => void
   onConflict: (error: unknown) => void
   onRecurringEdit: () => void
+  onReadOnlyEdit: () => void
   onDeleted?: (id: string, title: string | undefined) => void
-}
-
-function isOccurrence(change: EventChange): boolean {
-  const event = change.type === 'update' ? change.after : change.event
-  return Boolean(event._recurrenceMasterId) || event.id.includes('::repeat-')
 }
 
 function changeEvent(change: EventChange): Event {
@@ -64,6 +60,7 @@ export class EventPersistence {
   private readonly pending = new Map<string, Intent>()
   private readonly drafts = new Map<string, Draft>()
   private readonly skipped = new Set<string>()
+  private readonly inFlight = new Set<string>()
   private unsubscribe: (() => void) | null = null
   private timer: number | undefined
   private recurringTimer: number | undefined
@@ -86,6 +83,11 @@ export class EventPersistence {
     for (const id of ids) this.skipped.add(id)
   }
 
+  /** True while a write for this event is queued or on the wire; a range mirror must not remove it. */
+  hasPending(id: string): boolean {
+    return this.pending.has(id) || this.inFlight.has(id)
+  }
+
   dispose(): void {
     this.unsubscribe?.()
     this.unsubscribe = null
@@ -103,16 +105,23 @@ export class EventPersistence {
 
     // Generated recurrence occurrences are a view of their series. A remote recalculation is normal;
     // a local edit of one cannot be mapped back to the master with the current API, so it is refused
-    // rather than written as a dirty `::repeat-` row.
-    if (isOccurrence(change)) {
-      if (change.source !== 'remote') this.reportRecurring()
+    // and the optimistic change is put back rather than left as a row the server never saw.
+    if (isRecurrenceOccurrence(event)) {
+      if (change.source !== 'remote') {
+        this.revert(change)
+        this.reportRecurring()
+      }
       return
     }
 
     const calendarIds = eventCalendarIds(event)
     if (change.source !== 'remote'
       && calendarIds.length > 0
-      && !calendarIds.some(id => this.options.app.canMutateFromUI(id))) return
+      && !calendarIds.some(id => this.options.app.canMutateFromUI(id))) {
+      this.revert(change)
+      this.options.onReadOnlyEdit()
+      return
+    }
 
     const draft = this.drafts.get(id)
     if (change.source !== 'remote') {
@@ -146,7 +155,14 @@ export class EventPersistence {
     try {
       const entries = [...this.pending.entries()]
       this.pending.clear()
-      for (const [id, intent] of entries) await this.persist(id, intent)
+      for (const [id, intent] of entries) {
+        this.inFlight.add(id)
+        try {
+          await this.persist(id, intent)
+        } finally {
+          this.inFlight.delete(id)
+        }
+      }
     } finally {
       this.flushing = false
       if (this.pending.size > 0) this.schedule(0)
@@ -217,6 +233,24 @@ export class EventPersistence {
     if (!draft) return
     this.drafts.delete(id)
     this.options.history.record({ id, before: draft.before, after: draft.after })
+  }
+
+  /** Put an optimistic change back; the skip entry keeps its echo out of the write queue. */
+  private revert(change: EventChange): void {
+    const event = changeEvent(change)
+    this.drafts.delete(event.id)
+    this.skipped.add(event.id)
+    if (change.type === 'create') {
+      this.options.app.applyEventsChanges({ delete: [event.id] }, false, 'local')
+    } else if (change.type === 'delete') {
+      this.options.app.applyEventsChanges({ add: [change.event] }, false, 'local')
+    } else {
+      this.options.app.applyEventsChanges(
+        { update: [{ id: event.id, updates: toEventUpdates(change.before) }] },
+        false,
+        'local',
+      )
+    }
   }
 
   private reportRecurring(): void {

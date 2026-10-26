@@ -6,6 +6,7 @@ import {
   deriveDarkColor,
   eventCalendarIds,
   eventDateInZone,
+  missingRangeEventIds,
   toCalendarType,
   toDayFlowEvent,
   toEventInput,
@@ -169,5 +170,27 @@ describe('calendar DTO mapping', () => {
       end: { value: '2026-10-27T00:30:00-04:00[America/New_York]', type: 'zoned', timeZone: 'America/New_York' },
     }))
     expect(eventDateInZone(event.start, 'Asia/Shanghai').toString()).toBe('2026-10-27')
+  })
+
+  it('mirrors a complete range without deleting series, occurrences, outside events or pending writes', () => {
+    const within = toDayFlowEvent(eventDto({ id: 'evt_within' }))
+    const fetched = toDayFlowEvent(eventDto({ id: 'evt_fetched' }))
+    const outside = toDayFlowEvent(eventDto({
+      id: 'evt_outside',
+      start: { value: '2026-11-05T09:00:00', type: 'datetime' },
+      end: { value: '2026-11-05T10:00:00', type: 'datetime' },
+    }))
+    const series = toDayFlowEvent(eventDto({ id: 'evt_series', recurrenceRule: 'FREQ=WEEKLY' }))
+    const occurrence = toDayFlowEvent(eventDto({ id: 'evt_series::repeat-2026-10-26' }))
+    const pending = toDayFlowEvent(eventDto({ id: 'evt_pending' }))
+
+    expect(missingRangeEventIds({
+      events: [within, fetched, outside, series, occurrence, pending],
+      fetched: new Set(['evt_fetched']),
+      from: Date.parse('2026-10-01T00:00:00Z'),
+      to: Date.parse('2026-11-01T00:00:00Z'),
+      timeZone: 'Asia/Shanghai',
+      hasPending: id => id === 'evt_pending',
+    })).toEqual(['evt_within'])
   })
 })

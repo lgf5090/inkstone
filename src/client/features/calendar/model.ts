@@ -19,6 +19,7 @@ import {
   defaultTimeZone,
   isCalendarEntityId,
   parseTemporalValue,
+  temporalToEpochMs,
   toTemporalValue,
   type CalendarEventDto,
   type CalendarEventInput,
@@ -147,6 +148,36 @@ function taskToDto(task: Event['task']): CalendarTaskDto | null {
     ...(completed && task.completedAt ? { completedAt: toTemporalValue(task.completedAt) } : {}),
     ...(task.priority ? { priority: task.priority } : {}),
   }
+}
+
+/** DayFlow expands a series into render-only occurrences; they are not rows the API owns. */
+export function isRecurrenceOccurrence(event: Pick<Event, 'id' | '_recurrenceMasterId'>): boolean {
+  return Boolean(event._recurrenceMasterId) || event.id.includes('::repeat-')
+}
+
+/**
+ * Local events a complete range says no longer exist.
+ *
+ * Only rows whose interval overlaps the fetched window are candidates: an event outside it was never
+ * proven absent. Series and occurrences are views rather than rows, and a queued write has not reached
+ * the server yet, so neither may be pruned by a mirror.
+ */
+export function missingRangeEventIds(input: {
+  events: readonly Event[]
+  fetched: ReadonlySet<string>
+  from: number
+  to: number
+  timeZone: string
+  hasPending: (id: string) => boolean
+}): string[] {
+  return input.events
+    .filter(event => !input.fetched.has(event.id)
+      && !isRecurrenceOccurrence(event)
+      && !(typeof event.meta?.recurrenceRule === 'string' && event.meta.recurrenceRule)
+      && !input.hasPending(event.id)
+      && temporalToEpochMs(event.start, input.timeZone) <= input.to
+      && temporalToEpochMs(event.end, input.timeZone) >= input.from)
+    .map(event => event.id)
 }
 
 /** Calendar IDs in DayFlow's order: the primary first, duplicates removed. */

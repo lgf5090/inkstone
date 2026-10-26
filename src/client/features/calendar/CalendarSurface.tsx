@@ -39,7 +39,7 @@ import type {
   CalendarMetaDto,
   CalendarPreferences,
 } from '@shared/calendar/model'
-import { CALENDAR_RANGE_MAX_MS } from '@shared/calendar/model'
+import { CALENDAR_RANGE_MAX_MS, MAX_EVENTS_PER_QUERY } from '@shared/calendar/model'
 import type { AppLocale } from '@shared/types'
 import { t, useLocale, useLocaleRepaint } from '../../lib/i18n'
 import { useThemeDark } from '../../lib/hooks'
@@ -61,6 +61,8 @@ import {
   MONTH_EVENT_HEIGHT,
   RANGE_PADDING_DAYS,
   eventCalendarIds,
+  isRecurrenceOccurrence,
+  missingRangeEventIds,
   toCalendarType,
   toDayFlowEvent,
   toEventUpdates,
@@ -259,6 +261,11 @@ function buildConfig(input: {
     onCalendarUpdate: calendar => actions.current.onCalendarUpdate?.(calendar),
     onCalendarDelete: calendarId => actions.current.onCalendarDelete?.(calendarId),
     onCalendarReorder: (from, to) => actions.current.onCalendarReorder?.(from, to),
+    onEventDoubleClick: event => {
+      if (!isRecurrenceOccurrence(event)) return undefined
+      useUi.getState().toast({ title: t('calendar.error.recurring'), tone: 'warning' })
+      return false
+    },
   }
   return {
     views: toViews(preferences),
@@ -281,6 +288,10 @@ function buildConfig(input: {
           },
           delete: async (app, event) => {
             if (!event) return
+            if (isRecurrenceOccurrence(event)) {
+              useUi.getState().toast({ title: t('calendar.error.recurring'), tone: 'warning' })
+              return
+            }
             const calendarIds = eventCalendarIds(event)
             if (calendarIds.length > 0 && !calendarIds.some(id => app.canMutateFromUI(id))) {
               useUi.getState().toast({ title: t('calendar.event.delete_read_only'), tone: 'warning' })
@@ -369,7 +380,7 @@ export function CalendarSurface({ meta, initialEvents, initialRange, onRefreshMe
   const searchAbort = useRef<AbortController | null>(null)
   useEffect(() => () => searchAbort.current?.abort(), [])
 
-  const applySnapshot = useCallback((dtos: CalendarEventDto[]): Set<string> => {
+  const applySnapshot = useCallback((dtos: CalendarEventDto[], range: { from: number; to: number }): Set<string> => {
     const timeZone = preferencesRef.current.timeZone
     const revById = new Map(dtos.map(dto => [dto.id, dto.rev]))
     const mapped = dtos.map(dto => toDayFlowEvent(dto, timeZone))
@@ -386,15 +397,34 @@ export function CalendarSurface({ meta, initialEvents, initialRange, onRefreshMe
       else add.push(event)
     }
     const fetched = new Set(mapped.map(event => event.id))
-    if (add.length === 0 && update.length === 0) return fetched
-    persistenceRef.current?.skip(fetched)
-    app.applyEventsChanges({ add, update }, false, 'remote')
+    if (add.length > 0 || update.length > 0) {
+      persistenceRef.current?.skip(fetched)
+      app.applyEventsChanges({ add, update }, false, 'remote')
+    }
+    // A complete range is a mirror: anything local that overlaps it and did not come back was deleted
+    // elsewhere. Recurring masters and generated occurrences are views, never rows of their own; a
+    // truncated page cannot prove absence, and a queued write must be allowed to reach the server.
+    const stale = dtos.length >= MAX_EVENTS_PER_QUERY
+      ? []
+      : missingRangeEventIds({
+          events: [...existing.values()],
+          fetched,
+          from: range.from,
+          to: range.to,
+          timeZone,
+          hasPending: id => persistenceRef.current?.hasPending(id) === true,
+        })
+    if (stale.length > 0) {
+      persistenceRef.current?.skip(stale)
+      app.applyEventsChanges({ delete: stale }, false, 'remote')
+      for (const id of stale) revs.delete(id)
+    }
     return fetched
   }, [app, revs])
 
   const fetchRange = useCallback(async (from: number, to: number): Promise<Set<string>> => {
     const dtos = await api.getEvents({ from, to })
-    const fetched = applySnapshot(dtos)
+    const fetched = applySnapshot(dtos, { from, to })
     lastRange.current = { from, to }
     return fetched
   }, [applySnapshot])
@@ -610,6 +640,7 @@ export function CalendarSurface({ meta, initialEvents, initialRange, onRefreshMe
         })
       },
       onRecurringEdit: () => useUi.getState().toast({ title: t('calendar.error.recurring'), tone: 'warning' }),
+      onReadOnlyEdit: () => useUi.getState().toast({ title: t('calendar.event.delete_read_only'), tone: 'warning' }),
       onDeleted: (_id, title) => {
         toastWithUndo(title ? t('calendar.event.deleted_named', { title }) : t('calendar.event.deleted'), () => {
           if (!history.undo(app)) useUi.getState().toast({ title: t('calendar.history.empty') })
