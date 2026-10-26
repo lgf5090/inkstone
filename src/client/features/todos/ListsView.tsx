@@ -17,13 +17,15 @@
  * distinct and bounded by `count * stride`.
  */
 import { useRef, useState, type ReactNode } from 'react'
-import { Archive, ArchiveRestore, ArrowDown, ArrowUp, ChevronDown, ChevronRight, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, ArrowDown, ArrowUp, ChevronDown, ChevronRight, Globe, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { useDropState } from '../../lib/drop-state'
 import { useMediaQuery } from '../../lib/hooks'
 import { IconButton } from '../../components/primitives'
 import { Menu, type MenuItem } from '../../components/overlay'
+import { useUi } from '../../store/ui'
+import { warmSettingsSection } from '../settings/sections'
 import { useTodos, type TaskListEntry } from './store'
 import { FINE_POINTER_QUERY } from './TaskCard'
 import { TagEditor } from './OrganizerEditors'
@@ -290,6 +292,24 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
   // path — which is why the menu rows are built whether or not this pointer can drag. The question is
   // the card's own, asked once, so it reads the card's spelling of it.
   const finePointer = useMediaQuery(FINE_POINTER_QUERY)
+  // The zone the account's day is measured in, read off the listing it just answered for.
+  const timezone = useTodos((state) => state.timezone)
+
+  /**
+   * The one door from this app to its own settings.
+   *
+   * CSV import, the time zone and day end, the mail-to-task address and the published calendar all live
+   * under Settings → To-do, and nothing inside the app said so: an account registered before its zone was
+   * seeded reads "today" eight hours off with no way to notice it here. The row carries the zone on its
+   * face, so the wrong answer is visible rather than merely wrong. `warmSettingsSection` is the panel's
+   * own prefetch entry, asked the way the account sheet asks it; the panel opens on the section the
+   * reader last left it on, which is why the row names where the setting lives instead of pretending to
+   * be the setting.
+   */
+  const openTodoSettings = (): void => {
+    warmSettingsSection('todo')
+    useUi.getState().openPanel('settings')
+  }
 
   const toggleArchive = (): void => {
     const next = !archivedOpen
@@ -541,6 +561,22 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
               ))}
             </div>
           )}
+        </section>
+
+        <section>
+          <div className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
+            <button
+              type="button"
+              onClick={openTodoSettings}
+              className="flex min-h-11 w-full items-center gap-2 px-3 text-left hover:bg-[var(--bg-hover)]"
+            >
+              <Globe size={14} className="shrink-0 text-[var(--text-tertiary)]" aria-hidden="true" />
+              <span className="min-w-0 flex-1 truncate text-[length:var(--text-13)]">{t('todo.lists.timezone_title')}</span>
+              <span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{timezone}</span>
+              <ChevronRight size={13} className="text-[var(--text-quaternary)]" aria-hidden="true" />
+            </button>
+          </div>
+          <p className="mt-1.5 px-1 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('todo.lists.timezone_hint')}</p>
         </section>
       </div>
 
