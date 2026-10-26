@@ -702,21 +702,28 @@ export function CalendarSurface({ meta, initialEvents, initialTruncated = false,
     return () => attachment.stop()
   }, [app, connectionKey, userId])
 
+  const preferencesSignature = useMemo(() => JSON.stringify(meta.preferences), [meta.preferences])
+  const appliedPreferences = useRef<string | null>(null)
+
   useEffect(() => {
+    app.updateConfig({ theme: { mode: dark ? 'dark' : 'light' }, locale: appLocale })
+  }, [app, appLocale, dark])
+
+  useEffect(() => {
+    // A provider refresh replaces the meta object with the same values; rebuilding every view for
+    // that defeats the point of updateConfig.
+    if (appliedPreferences.current === preferencesSignature) return
+    appliedPreferences.current = preferencesSignature
     app.updateConfig({
       views: toViews(meta.preferences),
-      theme: { mode: dark ? 'dark' : 'light' },
-      locale: appLocale,
       timeZone: meta.preferences.timeZone,
       timeFormat: meta.preferences.timeFormat,
       calendarSystem: meta.preferences.calendarSystem,
       enableTasks: meta.preferences.enableTasks,
       useEventDetailDialog: meta.preferences.eventDetailDialog,
       eventDetailTrigger: meta.preferences.eventDetailTrigger,
-      switcherMode: 'buttons',
-      useCalendarHeader: true,
     })
-  }, [app, appLocale, dark, meta.preferences])
+  }, [app, meta.preferences, preferencesSignature])
 
   useEffect(() => app.subscribe(() => {
     const view = app.getCurrentView().type
