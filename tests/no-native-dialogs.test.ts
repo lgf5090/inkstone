@@ -156,8 +156,12 @@ describe('no native dialogs anywhere in the shipped code', () => {
   })
 
   it('calls no window alert, confirm or prompt', () => {
+    // The scan parses every shipped source file, so its cost follows the size of the tree: measured on
+    // this checkout it runs 19.8–20.1 s, which is why the cap this test used to name for itself is the
+    // file's own 120 s rather than a tighter number the tree has now outgrown. A guard that goes red on
+    // load average is a guard that gets deleted.
     expect(PROJECT.flatMap(({ file, source }) => nativeDialogCalls(file, source))).toEqual([])
-  }, 20_000)
+  })
 
   it('documents every leave-page listener and never raises the browser dialog', () => {
     expect(PROJECT.flatMap(({ file, source }) => leavePageFindings(file, source))).toEqual([])
