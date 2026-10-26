@@ -608,10 +608,6 @@ export class CalendarStore {
     }
   }
 
-  async mergeCalendar(sourceId: string, targetId: string): Promise<void> {
-    await this.deleteCalendar(sourceId, { mode: 'merge', targetId })
-  }
-
   /** Write the order the client dragged the calendars into; every live calendar must be named once. */
   async reorderCalendars(ids: readonly string[]): Promise<void> {
     const existing = await this.listCalendars()

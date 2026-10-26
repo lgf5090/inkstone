@@ -382,7 +382,7 @@ describe('calendar merge and delete semantics', () => {
     const onlyFirst = await store.createEvent(eventInput({ title: 'Only first' }))
     const both = await store.createEvent(eventInput({ title: 'Both', calendarIds: [calendar.id, second.id] }))
 
-    await store.mergeCalendar(calendar.id, second.id)
+    await store.deleteCalendar(calendar.id, { mode: 'merge', targetId: second.id })
     expect(await store.listCalendars()).toHaveLength(1)
     const first = await store.getEvent(onlyFirst.id)
     const shared = await store.getEvent(both.id)

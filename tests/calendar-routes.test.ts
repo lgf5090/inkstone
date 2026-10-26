@@ -146,14 +146,6 @@ describe('calendar routes', () => {
     expect((await call('PATCH', '/calendars/bad!id', { rev: 1, name: 'X' })).status).toBe(400)
     expect((await call('PATCH', '/calendars/does-not-exist', { rev: 1, name: 'X' })).status).toBe(404)
   })
-
-  it('merges one calendar into another', async () => {
-    const home = (await meta()).calendars[0]!
-    const work = (await json<{ calendar: CalendarDto }>(await call('POST', '/calendars', { name: 'Work' }))).calendar
-    const merged = await call('POST', `/calendars/${work.id}/merge`, { targetId: home.id })
-    expect(merged.status).toBe(204)
-    expect((await meta()).calendars.map((entry) => entry.id)).toEqual([home.id])
-  })
 })
 
 describe('group routes', () => {

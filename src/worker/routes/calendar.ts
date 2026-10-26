@@ -168,14 +168,6 @@ calendarRoutes.put('/calendars/order', async (c) => {
   return noContent(c)
 })
 
-calendarRoutes.post('/calendars/:id/merge', async (c) => {
-  const id = pathId(c)
-  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
-  const targetId = parseEntityId(body.targetId, 'targetId')
-  await store(c).mergeCalendar(id, targetId)
-  return noContent(c)
-})
-
 calendarRoutes.patch('/calendars/:id', async (c) => {
   const id = pathId(c)
   const patch = parseCalendarPatch(await readJson<unknown>(c, JSON_BODY_LIMITS.small))
