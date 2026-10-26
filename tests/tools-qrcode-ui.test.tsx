@@ -28,7 +28,7 @@ describe('QR Code Studio UI Integration Tests', () => {
       wifiContent: { ssid: '', encryption: 'WPA' },
       vcardContent: { firstName: '', lastName: '' },
       emailContent: { to: '', subject: '', body: '' },
-      phoneContent: { number: '' },
+      phoneContent: { phone: '' },
       contentAccordionOpen: true,
       beautifyAccordionOpen: true,
       activeBeautifyTab: 'template',
