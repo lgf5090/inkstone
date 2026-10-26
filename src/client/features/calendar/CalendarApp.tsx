@@ -64,6 +64,25 @@ export function CalendarApp() {
   const [attempt, setAttempt] = useState(0)
   const [createOpen, setCreateOpen] = useState(false)
 
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    const result = url.searchParams.get('calendarConnect')
+    if (!result) return
+    const code = url.searchParams.get('code')
+    if (result === 'done') {
+      useUi.getState().toast({ title: t('calendar.connections.oauth_done'), tone: 'success' })
+    } else {
+      useUi.getState().toast({
+        title: t('calendar.connections.oauth_failed'),
+        description: t(`calendar.connections.oauth_error_${code ?? 'failed'}`),
+        tone: 'danger',
+      })
+    }
+    url.searchParams.delete('calendarConnect')
+    url.searchParams.delete('code')
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
+  }, [])
+
   const fetchAll = useCallback(async (signal?: AbortSignal): Promise<{ meta: CalendarMetaDto; events: CalendarEventDto[] }> => {
     const [meta, events] = await Promise.all([
       api.getMeta(signal),
