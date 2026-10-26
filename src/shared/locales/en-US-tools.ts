@@ -36,6 +36,8 @@ export const EN_US_TOOLS = {
   "tools.password.reset.new_pass": "New 6-digit master password",
   "tools.password.reset.confirm_new": "Confirm new master password",
   "tools.password.group.new_root": "New Group",
+  "tools.password.group.expand": "Expand subgroups",
+  "tools.password.group.collapse": "Collapse subgroups",
   "tools.password.group.new_child": "New Subgroup",
   "tools.password.group.rename": "Rename",
   "tools.password.group.delete": "Delete Group",

@@ -175,7 +175,8 @@ export function GroupTreeNode({
             branch and its children still line up. */}
         <button
           type="button"
-          aria-label={isExpanded ? 'Collapse' : 'Expand'}
+          aria-label={isExpanded ? t('tools.password.group.collapse') : t('tools.password.group.expand')}
+          data-testid="group-toggle"
           disabled={!hasChildren}
           onClick={() => {
             onToggleExpand(group.id)

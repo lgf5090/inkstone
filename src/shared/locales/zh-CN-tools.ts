@@ -36,6 +36,8 @@ export const ZH_CN_TOOLS = {
   "tools.password.reset.new_pass": "请输入新 6 位开门密码",
   "tools.password.reset.confirm_new": "请再次输入新密码确认",
   "tools.password.group.new_root": "新建根分组",
+  "tools.password.group.expand": "展开子分组",
+  "tools.password.group.collapse": "折叠子分组",
   "tools.password.group.new_child": "新建子分组",
   "tools.password.group.rename": "重命名",
   "tools.password.group.delete": "删除分组",
