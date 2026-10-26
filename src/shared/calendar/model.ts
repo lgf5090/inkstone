@@ -401,7 +401,7 @@ export function defaultCalendarPreferences(): CalendarPreferences {
     snapToMonth: false,
     dayHourHeight: 72,
     yearViewMode: 'year-canvas',
-    yearShowTimedEvents: false,
+    yearShowTimedEvents: true,
     yearHeatmapLevels: 5,
     agendaDays: 14,
     agendaShowEmptyDays: true,

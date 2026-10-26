@@ -78,7 +78,8 @@ describe('calendar model', () => {
     const defaults = defaultCalendarPreferences()
     expect(defaults).toMatchObject({
       yearViewMode: 'year-canvas',
-      yearShowTimedEvents: false,
+      // On by default: a year view that hides every event with a time is empty for most calendars.
+      yearShowTimedEvents: true,
       yearHeatmapLevels: 5,
       agendaDays: 14,
       agendaShowEmptyDays: true,

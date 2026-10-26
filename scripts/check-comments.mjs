@@ -1361,6 +1361,7 @@ const allowed = new Map([
     "/* Occurrences are a rendered view of a series, never rows of their own: every interaction is refused,\n * so make that visible by keeping the pointer off them instead of letting a click open a dead panel. */",
     "/* The printed sheet. It exists only for paper: on screen it is not there at all, and in print it is\n   the only body child left, so none of the app's own layout has to be unwound to get a clean page. */",
     "/* Dark mode repaints the app with tokens; paper gets its own set so the sheet is ink on white. */",
+    "/*\n * Year grids.\n *\n * DayFlow formats a day cell with `toLocaleDateString(locale, { day: 'numeric' })`, which in zh-CN\n * appends the day character (U+65E5); the fixed-week cell is about 34px wide, so the numeral and its\n * suffix broke onto two lines. The column header already names the weekday, so the cell only has to\n * keep this string on one line.\n */",
   ]],
   ["src/client/features/calendar/conflict.ts", [
     "/**\n * Comparing the two versions of an event a write conflict landed between.\n *\n * A refused PATCH means somebody else — another tab, a phone, a provider sync — wrote the same event\n * first, and the queue used to answer that by reloading and losing whatever was just typed. This module\n * turns the two shapes into one comparable list of the parts a person can actually decide about, and\n * then builds the patched event from those decisions. Everything else on the row, including the\n * metadata a provider needs to keep recognising it, comes from the server copy.\n */",
@@ -36781,6 +36782,7 @@ const allowed = new Map([
     "// A reader that switched the window on but sent a broken number keeps the switch and gets",
     "// default hours; the strict boundary that refuses the value is the route parser.",
     "// Off is a valid choice and keeps the window the reader picked.",
+    "// On by default: a year view that hides every event with a time is empty for most calendars.",
   ]],
   ["tests/calendar-reminders.test.ts", [
     "// An hour ahead of the start only the 60-minute lead is due; the 10-minute one fires later.",

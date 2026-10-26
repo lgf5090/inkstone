@@ -179,3 +179,17 @@
     font-style: italic;
   }
 }
+
+/*
+ * Year grids.
+ *
+ * DayFlow formats a day cell with `toLocaleDateString(locale, { day: 'numeric' })`, which in zh-CN
+ * appends the day character (U+65E5); the fixed-week cell is about 34px wide, so the numeral and its
+ * suffix broke onto two lines. The column header already names the weekday, so the cell only has to
+ * keep this string on one line.
+ */
+.df-year-fixed-day-number,
+.df-year-grid-day-number,
+.df-year-day-cell-date {
+  white-space: nowrap;
+}

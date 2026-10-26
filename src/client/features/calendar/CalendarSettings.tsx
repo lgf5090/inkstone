@@ -125,7 +125,7 @@ export function CalendarSettings({ open, onClose, preferences, onSave, onOpenCon
               <option value="grid">{t('calendar.settings.year_mode_grid')}</option>
             </Select>
           </SettingRow>
-          {draft.yearViewMode === 'year-canvas' && (
+          {draft.yearViewMode !== 'grid' && (
             <SettingRow title={t('calendar.settings.year_timed')} description={t('calendar.settings.year_timed_hint')}>
               <Switch
                 label={t('calendar.settings.year_timed')}
