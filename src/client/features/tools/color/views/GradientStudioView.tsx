@@ -103,7 +103,7 @@ export function GradientStudioView() {
               <span>{gradientConfig.type}</span>
               {gradientConfig.type !== 'radial' && <span>{gradientConfig.angle}°</span>}
               {gradientConfig.useOklabInterpolation && (
-                <span className="text-[var(--color-primary-300)] font-semibold">{'OKLab'}</span>
+                <span className="text-[var(--accent)] font-semibold">{'OKLab'}</span>
               )}
             </div>
           </div>
@@ -115,7 +115,7 @@ export function GradientStudioView() {
             </code>
             <Button size="sm" variant="secondary" onClick={handleCopyCss}>
               {hasCopied ? (
-                <Check size={12} className="mr-1 text-[var(--color-success-500)]" />
+                <Check size={12} className="mr-1 text-[var(--success)]" />
               ) : (
                 <Copy size={12} className="mr-1" />
               )}
@@ -165,8 +165,8 @@ export function GradientStudioView() {
                 onClick={() => setSelectedTag(tag)}
                 className={`px-2.5 py-1 text-[length:var(--text-12)] font-medium capitalize rounded-full transition-colors ${
                   selectedTag === tag
-                    ? 'bg-[var(--brand-primary)] text-white'
-                    : 'bg-[var(--bg-surface)] text-[var(--text-secondary)] border border-[var(--border-subtle)] hover:border-[var(--brand-primary)]'
+                    ? 'bg-[var(--accent)] text-white'
+                    : 'bg-[var(--bg-surface)] text-[var(--text-secondary)] border border-[var(--border-subtle)] hover:border-[var(--accent)]'
                 }`}
               >
                 {tag}
@@ -182,12 +182,12 @@ export function GradientStudioView() {
             return (
               <div
                 key={preset.id}
-                className="group flex flex-col overflow-hidden rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] transition-all hover:border-[var(--brand-primary)] hover:shadow-xs"
+                className="group flex flex-col overflow-hidden rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] transition-all hover:border-[var(--accent)] hover:shadow-xs"
               >
                 <button
                   type="button"
                   aria-label={preset.name}
-                  className="h-24 w-full cursor-pointer relative focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--brand-primary)]"
+                  className="h-24 w-full cursor-pointer relative focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]"
                   style={{ backgroundImage: previewCss }}
                   onClick={() => handleLoadPreset(preset)}
                 >

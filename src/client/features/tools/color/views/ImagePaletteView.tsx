@@ -204,7 +204,7 @@ export function ImagePaletteView() {
             onDrop={handleDrop}
             className={`relative flex flex-col items-center justify-center min-h-[260px] max-h-[360px] overflow-hidden rounded-[var(--radius-lg)] border-2 border-dashed transition-colors ${
               isDragging
-                ? 'border-[var(--brand-primary)] bg-[var(--bg-elevated)]'
+                ? 'border-[var(--accent)] bg-[var(--bg-raised)]'
                 : 'border-[var(--border-subtle)] bg-[var(--bg-surface)]'
             }`}
           >
@@ -266,12 +266,13 @@ export function ImagePaletteView() {
             <div className="flex items-center gap-3">
               <input
                 type="range"
+                aria-label={t('tools.color.image.extract_count')}
                 min={3}
                 max={12}
                 step={1}
                 value={maxColors}
                 onChange={(e) => setMaxColors(Number(e.target.value))}
-                className="h-1.5 w-28 cursor-pointer rounded-lg bg-[var(--border-subtle)] accent-[var(--brand-primary)]"
+                className="h-1.5 w-28 cursor-pointer rounded-lg bg-[var(--border-subtle)] accent-[var(--accent)]"
               />
             </div>
           </div>
@@ -348,7 +349,7 @@ export function ImagePaletteView() {
                   {isInterpreting ? (
                     <Loader2 size={14} className="mr-1.5 animate-spin" />
                   ) : (
-                    <Sparkles size={14} className="mr-1.5 text-[var(--brand-primary)]" />
+                    <Sparkles size={14} className="mr-1.5 text-[var(--accent)]" />
                   )}
                   {t('tools.color.image.ai_namer')}
                 </Button>
@@ -383,7 +384,7 @@ export function ImagePaletteView() {
 
             {isExtracting ? (
               <div className="flex items-center justify-center py-12">
-                <Loader2 size={24} className="animate-spin text-[var(--brand-primary)]" />
+                <Loader2 size={24} className="animate-spin text-[var(--accent)]" />
               </div>
             ) : (
               <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -394,12 +395,12 @@ export function ImagePaletteView() {
                   return (
                     <div
                       key={`${hex}-${index}`}
-                      className="group flex flex-col overflow-hidden rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] transition-all hover:border-[var(--brand-primary)]"
+                      className="group flex flex-col overflow-hidden rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-raised)] transition-all hover:border-[var(--accent)]"
                     >
                       <button
                         type="button"
                         aria-label={`Select ${hex}`}
-                        className="h-16 w-full cursor-pointer relative focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]"
+                        className="h-16 w-full cursor-pointer relative focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                         style={{ backgroundColor: hex }}
                         onClick={() => setCurrentHex(hex, 'image')}
                       >
@@ -424,7 +425,7 @@ export function ImagePaletteView() {
                         </div>
                         {interp && (
                           <div className="mt-1">
-                            <span className="text-[length:var(--text-12)] font-medium text-[var(--brand-primary)]">
+                            <span className="text-[length:var(--text-12)] font-medium text-[var(--accent)]">
                               {interp.name}
                             </span>
                             <p className="truncate text-[length:var(--text-11)] text-[var(--text-tertiary)] mt-0.5">

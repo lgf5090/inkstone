@@ -25,7 +25,7 @@ export function TraditionalColorCard({ color }: TraditionalColorCardProps) {
         type="button"
         aria-label={`Select ${color.name} ${color.hex}`}
         onClick={() => setCurrentColor(color.hex, 'traditional')}
-        className="absolute inset-0 w-full h-full cursor-pointer rounded-[var(--r-lg)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]"
+        className="absolute inset-0 w-full h-full cursor-pointer rounded-[var(--r-lg)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
       />
       {/* Color Top Banner */}
       <div

@@ -63,7 +63,7 @@ export function FavoritesView() {
             onClick={() => setActiveTab('colors')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-sm)] text-[length:var(--text-12)] font-semibold transition-colors ${
               activeTab === 'colors'
-                ? 'bg-[var(--brand-primary)] text-white shadow-xs'
+                ? 'bg-[var(--accent)] text-white shadow-xs'
                 : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
             }`}
           >
@@ -75,7 +75,7 @@ export function FavoritesView() {
             onClick={() => setActiveTab('palettes')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-sm)] text-[length:var(--text-12)] font-semibold transition-colors ${
               activeTab === 'palettes'
-                ? 'bg-[var(--brand-primary)] text-white shadow-xs'
+                ? 'bg-[var(--accent)] text-white shadow-xs'
                 : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
             }`}
           >
@@ -87,7 +87,7 @@ export function FavoritesView() {
             onClick={() => setActiveTab('history')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-sm)] text-[length:var(--text-12)] font-semibold transition-colors ${
               activeTab === 'history'
-                ? 'bg-[var(--brand-primary)] text-white shadow-xs'
+                ? 'bg-[var(--accent)] text-white shadow-xs'
                 : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
             }`}
           >
@@ -110,12 +110,12 @@ export function FavoritesView() {
               {favorites.map((fav) => (
                 <div
                   key={fav.id}
-                  className="group flex flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-xs transition-all hover:border-[var(--brand-primary)]"
+                  className="group flex flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-xs transition-all hover:border-[var(--accent)]"
                 >
                   <button
                     type="button"
                     aria-label={`Select ${fav.hex}`}
-                    className="h-20 w-full cursor-pointer relative focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]"
+                    className="h-20 w-full cursor-pointer relative focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                     style={{ backgroundColor: fav.hex }}
                     onClick={() => setCurrentHex(fav.hex, 'favorites')}
                   >
@@ -187,7 +187,7 @@ export function FavoritesView() {
                 return (
                   <div
                     key={p.id}
-                    className="flex flex-col overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-xs transition-all hover:border-[var(--brand-primary)]"
+                    className="flex flex-col overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-xs transition-all hover:border-[var(--accent)]"
                   >
                     {/* Swatch Strip */}
                     <div className="flex h-16 w-full overflow-hidden">
@@ -196,7 +196,7 @@ export function FavoritesView() {
                           key={i}
                           type="button"
                           aria-label={`Select color ${c.hex}`}
-                          className="flex-1 h-full cursor-pointer transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--brand-primary)]"
+                          className="flex-1 h-full cursor-pointer transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]"
                           style={{ backgroundColor: c.hex }}
                           title={c.hex}
                           onClick={() => setCurrentHex(c.hex, 'palette')}
@@ -212,11 +212,12 @@ export function FavoritesView() {
                         </span>
                         <button
                           type="button"
+                          aria-label={p.isFavorite ? t('tools.color.toast.palette_favorite_removed') : t('tools.color.toast.palette_favorite_added')}
                           onClick={() => togglePaletteFavorite(p.id)}
                           className={`p-1 rounded-full transition-colors ${
                             p.isFavorite
-                              ? 'text-[var(--color-danger-500)]'
-                              : 'text-[var(--text-tertiary)] hover:text-[var(--color-danger-500)]'
+                              ? 'text-[var(--danger)]'
+                              : 'text-[var(--text-tertiary)] hover:text-[var(--danger)]'
                           }`}
                         >
                           <Heart size={14} className={p.isFavorite ? 'fill-current' : ''} />
@@ -296,12 +297,12 @@ export function FavoritesView() {
               {history.map((item) => (
                 <div
                   key={item.id}
-                  className="group flex flex-col items-center overflow-hidden rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2 transition-all hover:border-[var(--brand-primary)]"
+                  className="group flex flex-col items-center overflow-hidden rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2 transition-all hover:border-[var(--accent)]"
                 >
                   <button
                     type="button"
                     aria-label={`Select color ${item.hex}`}
-                    className="h-12 w-full rounded-[var(--radius-xs)] cursor-pointer shadow-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]"
+                    className="h-12 w-full rounded-[var(--radius-xs)] cursor-pointer shadow-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                     style={{ backgroundColor: item.hex }}
                     onClick={() => setCurrentHex(item.hex, 'history')}
                   />

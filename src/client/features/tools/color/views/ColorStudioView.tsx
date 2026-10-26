@@ -10,6 +10,7 @@ import {
 import { hslToRgb, rgbToHex } from '@shared/tools/color/spaces'
 import { t } from '../../../../lib/i18n'
 import { Button, IconButton } from '../../../../components/primitives'
+import { Input } from '../../../../components/form'
 import { Tooltip } from '../../../../components/overlay'
 import { ColorWheel } from '../components/ColorWheel'
 import { ColorSlider } from '../components/ColorSlider'
@@ -168,12 +169,11 @@ export function ColorStudioView() {
                 {t('tools.color.studio.seed_color')}
               </label>
               <div className="flex items-center gap-2 mt-1">
-                <input
-                  type="text"
+                <Input
                   defaultValue={currentHex.toUpperCase()}
                   key={currentHex}
                   onChange={handleHexInputChange}
-                  className="font-mono text-[length:var(--text-16)] font-semibold uppercase text-[var(--text-primary)] bg-transparent border-none p-0 focus:outline-none w-28"
+                  className="w-28 font-mono text-[length:var(--text-14)] font-semibold uppercase h-8"
                   maxLength={7}
                   aria-label={t('tools.color.studio.hex_input_label')}
                 />

@@ -43,7 +43,7 @@ export function ColorHuntCard({ palette }: ColorHuntCardProps) {
   const heights = ['h-24', 'h-16', 'h-12', 'h-10']
 
   return (
-    <div className="group flex flex-col overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-xs transition-all duration-[var(--dur-normal)] hover:shadow-md hover:border-[var(--brand-primary)]">
+    <div className="group flex flex-col overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-xs transition-all duration-[var(--dur-base)] hover:shadow-md hover:border-[var(--accent)]">
       {/* 4-Color Stacked Swatches */}
       <div className="flex flex-col w-full overflow-hidden">
         {palette.colors.map((hex, index) => {
@@ -58,7 +58,7 @@ export function ColorHuntCard({ palette }: ColorHuntCardProps) {
                 type="button"
                 aria-label={`Copy color ${hex}`}
                 onClick={() => copyColor(hex, palette.title)}
-                className="absolute inset-0 w-full h-full cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--brand-primary)]"
+                className="absolute inset-0 w-full h-full cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]"
               />
               <div className="opacity-0 group-hover:opacity-100 flex items-center justify-between w-full transition-opacity z-10 pointer-events-none group-hover:pointer-events-auto">
                 <span className="font-mono text-[length:var(--text-12)] font-bold text-white drop-shadow-sm uppercase">
@@ -68,11 +68,12 @@ export function ColorHuntCard({ palette }: ColorHuntCardProps) {
                   <Tooltip label={t('tools.color.studio.seed_color')}>
                     <button
                       type="button"
+                      aria-label={t('tools.color.studio.seed_color')}
                       onClick={(e) => {
                         e.stopPropagation()
                         setCurrentHex(hex, 'colorhunt')
                       }}
-                      className="text-white hover:text-[var(--color-primary-300)] p-0.5"
+                      className="text-white hover:text-[var(--accent)] p-0.5"
                     >
                       <Pipette size={12} />
                     </button>
@@ -80,11 +81,12 @@ export function ColorHuntCard({ palette }: ColorHuntCardProps) {
                   <Tooltip label={t('tools.color.studio.copy')}>
                     <button
                       type="button"
+                      aria-label={t('tools.color.studio.copy')}
                       onClick={(e) => {
                         e.stopPropagation()
                         copyColor(hex, palette.title)
                       }}
-                      className="text-white hover:text-[var(--color-primary-300)] p-0.5"
+                      className="text-white hover:text-[var(--accent)] p-0.5"
                     >
                       <Copy size={12} />
                     </button>
@@ -107,8 +109,8 @@ export function ColorHuntCard({ palette }: ColorHuntCardProps) {
             onClick={handleLike}
             className={`flex items-center gap-1 text-[length:var(--text-12)] font-medium rounded-full px-2 py-0.5 border transition-colors ${
               isLiked
-                ? 'border-[var(--color-danger-500)] bg-[var(--color-danger-50)] text-[var(--color-danger-500)]'
-                : 'border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--color-danger-500)] hover:border-[var(--color-danger-500)]'
+                ? 'border-[var(--danger)] bg-[var(--danger-soft)] text-[var(--danger)]'
+                : 'border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--danger)] hover:border-[var(--danger)]'
             }`}
             aria-label={`${t('tools.color.hunt.like')}: ${likes}`}
           >

@@ -77,7 +77,7 @@ export function AiPaletteResultCard({ result }: AiPaletteResultCardProps) {
                 type="button"
                 aria-label={`Select ${color.name} ${color.hex}`}
                 onClick={() => setCurrentColor(color.hex, 'palette')}
-                className="absolute inset-0 w-full h-full cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]"
+                className="absolute inset-0 w-full h-full cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
               />
               {/* Color Box */}
               <div

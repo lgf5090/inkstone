@@ -77,7 +77,7 @@ export function TokenScaleModal() {
           <div className="flex items-center gap-2">
             <Button size="sm" variant="secondary" onClick={handleCopyTailwind}>
               {copiedType === 'tailwind' ? (
-                <Check size={14} className="mr-1 text-[var(--color-success-500)]" />
+                <Check size={14} className="mr-1 text-[var(--success)]" />
               ) : (
                 <Copy size={14} className="mr-1" />
               )}
@@ -85,7 +85,7 @@ export function TokenScaleModal() {
             </Button>
             <Button size="sm" variant="secondary" onClick={handleCopyCssVars}>
               {copiedType === 'css' ? (
-                <Check size={14} className="mr-1 text-[var(--color-success-500)]" />
+                <Check size={14} className="mr-1 text-[var(--success)]" />
               ) : (
                 <Copy size={14} className="mr-1" />
               )}
@@ -148,7 +148,7 @@ export function TokenScaleModal() {
             </thead>
             <tbody className="divide-y divide-[var(--border-subtle)] bg-[var(--bg-surface)] font-mono">
               {scaleItems.map((item) => (
-                <tr key={item.step} className="hover:bg-[var(--bg-elevated)] transition-colors">
+                <tr key={item.step} className="hover:bg-[var(--bg-raised)] transition-colors">
                   <td className="px-3 py-1.5 font-bold text-[var(--text-primary)]">{item.step}</td>
                   <td className="px-3 py-1.5">
                     <div

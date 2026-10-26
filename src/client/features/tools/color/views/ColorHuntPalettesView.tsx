@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { Search } from 'lucide-react'
+import { FilterInput } from '../../../../components/FilterInput'
+import { compileQuery } from '../../../../lib/query-match'
 import { COLOR_HUNT_PALETTES } from '@shared/tools/color/presets/color-hunt-curated'
 import { t } from '../../../../lib/i18n'
 import { useColorStudioStore } from '../store'
@@ -9,6 +10,8 @@ export function ColorHuntPalettesView() {
   const [searchQuery, setSearchQuery] = useState('')
   const tagFilter = useColorStudioStore((s) => s.colorHuntTagFilter)
   const setTagFilter = useColorStudioStore((s) => s.setColorHuntTagFilter)
+
+  const compiledQuery = useMemo(() => compileQuery(searchQuery), [searchQuery])
 
   const tags = useMemo(() => {
     const set = new Set<string>()
@@ -55,8 +58,8 @@ export function ColorHuntPalettesView() {
                 onClick={() => setTagFilter(tag)}
                 className={`px-3 py-1 text-[length:var(--text-12)] font-medium capitalize rounded-full transition-colors whitespace-nowrap ${
                   isSelected
-                    ? 'bg-[var(--brand-primary)] text-white shadow-xs'
-                    : 'bg-[var(--bg-surface)] text-[var(--text-secondary)] border border-[var(--border-subtle)] hover:border-[var(--brand-primary)]'
+                    ? 'bg-[var(--accent)] text-white shadow-xs'
+                    : 'bg-[var(--bg-surface)] text-[var(--text-secondary)] border border-[var(--border-subtle)] hover:border-[var(--accent)]'
                 }`}
               >
                 {tag === 'all' ? t('tools.color.hunt.filter_all') : tag}
@@ -66,17 +69,15 @@ export function ColorHuntPalettesView() {
         </div>
 
         {/* Search */}
-        <div className="relative min-w-[200px] sm:w-64 shrink-0">
-          <Search
-            size={14}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]"
-          />
-          <input
-            type="text"
+        <div className="min-w-[200px] sm:w-64 shrink-0">
+          <FilterInput
+            size="panel"
+            className="mt-0"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={setSearchQuery}
+            query={compiledQuery}
+            label={t('tools.color.hunt.search_placeholder')}
             placeholder={t('tools.color.hunt.search_placeholder')}
-            className="w-full rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] pl-9 pr-3 py-1.5 text-[length:var(--text-13)] text-[var(--text-primary)] focus:border-[var(--brand-primary)] focus:outline-none"
           />
         </div>
       </div>

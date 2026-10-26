@@ -72,7 +72,7 @@ export function HarmoniesPanel({ currentHex }: HarmoniesPanelProps) {
                     type="button"
                     aria-label={`Select color ${hex}`}
                     onClick={() => setCurrentColor(hex, 'palette')}
-                    className="absolute inset-0 w-full h-full cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]"
+                    className="absolute inset-0 w-full h-full cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                   />
                   <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/30 backdrop-blur-[1px] transition-opacity gap-1 pointer-events-none group-hover:pointer-events-auto">
                     <Tooltip label={hex}>

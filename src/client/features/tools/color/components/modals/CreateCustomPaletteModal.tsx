@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import { Modal } from '../../../../../components/overlay'
 import { Button, IconButton } from '../../../../../components/primitives'
+import { Input } from '../../../../../components/form'
 import { Tooltip } from '../../../../../components/overlay'
 import { t } from '../../../../../lib/i18n'
 import { useColorStudioStore } from '../../store'
@@ -78,11 +79,10 @@ export function CreateCustomPaletteModal() {
           <label className="block text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
             {t('tools.color.create_palette.name')}
           </label>
-          <input
-            type="text"
+          <Input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="mt-1 w-full rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-1.5 text-[length:var(--text-13)] text-[var(--text-primary)] focus:border-[var(--brand-primary)] focus:outline-none"
+            className="mt-1"
             placeholder={t('tools.color.create_palette.placeholder')}
           />
         </div>
@@ -116,11 +116,10 @@ export function CreateCustomPaletteModal() {
                   onChange={(e) => handleColorChange(idx, e.target.value)}
                   className="h-7 w-7 cursor-pointer rounded-[var(--radius-xs)] border-0 bg-transparent shrink-0"
                 />
-                <input
-                  type="text"
+                <Input
                   value={hex}
                   onChange={(e) => handleColorChange(idx, e.target.value)}
-                  className="w-full rounded-[var(--radius-xs)] border border-[var(--border-subtle)] bg-[var(--bg-base)] px-2 py-0.5 font-mono text-[length:var(--text-12)] uppercase text-[var(--text-primary)]"
+                  className="font-mono text-[length:var(--text-12)] uppercase"
                 />
                 <Tooltip label={t('tools.color.create_palette.remove_color')}>
                   <IconButton
@@ -142,11 +141,10 @@ export function CreateCustomPaletteModal() {
           <label className="block text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
             {t('tools.color.create_palette.tags_label')}
           </label>
-          <input
-            type="text"
+          <Input
             value={tagsInput}
             onChange={(e) => setTagsInput(e.target.value)}
-            className="mt-1 w-full rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-1.5 text-[length:var(--text-13)] text-[var(--text-primary)] focus:border-[var(--brand-primary)] focus:outline-none"
+            className="mt-1"
             placeholder={t('tools.color.create_palette.tags_placeholder')}
           />
         </div>
@@ -160,7 +158,7 @@ export function CreateCustomPaletteModal() {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={2}
-            className="mt-1 w-full rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-1.5 text-[length:var(--text-13)] text-[var(--text-primary)] focus:border-[var(--brand-primary)] focus:outline-none resize-none"
+            className="mt-1 w-full rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-1.5 text-[length:var(--text-13)] text-[var(--text-primary)] focus:border-[var(--accent)] focus:outline-none resize-none"
             placeholder={t('tools.color.create_palette.desc_placeholder')}
           />
         </div>

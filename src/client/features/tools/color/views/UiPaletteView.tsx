@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { Search } from 'lucide-react'
+import { FilterInput } from '../../../../components/FilterInput'
+import { compileQuery } from '../../../../lib/query-match'
 import {
   ANTD_PALETTES,
   FLAT_UI_PALETTES,
@@ -27,6 +28,8 @@ const TABS: Array<{ key: TabKey; label: string; count: number }> = [
 export function UiPaletteView() {
   const [activeTab, setActiveTab] = useState<TabKey>('tailwind')
   const [searchQuery, setSearchQuery] = useState('')
+
+  const compiledQuery = useMemo(() => compileQuery(searchQuery), [searchQuery])
 
   const currentGroups: UiPaletteGroup[] = useMemo(() => {
     switch (activeTab) {
@@ -105,18 +108,15 @@ export function UiPaletteView() {
           })}
         </div>
 
-        <div className="relative w-full sm:w-64">
-          <Search
-            size={14}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] pointer-events-none"
-          />
-          <input
-            type="search"
+        <div className="w-full sm:w-64">
+          <FilterInput
+            size="panel"
+            className="mt-0"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={setSearchQuery}
+            query={compiledQuery}
+            label={t('tools.color.ui.search_aria')}
             placeholder={t('tools.color.ui.search_placeholder')}
-            aria-label={t('tools.color.ui.search_aria')}
-            className="w-full pl-9 pr-3 py-1.5 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] text-[length:var(--text-12)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
           />
         </div>
       </div>

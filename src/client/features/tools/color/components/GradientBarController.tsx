@@ -97,7 +97,7 @@ export function GradientBarController({
             ref={trackRef}
             onClick={handleTrackClick}
             aria-label={t('tools.color.gradient.click_track_hint')}
-            className="h-7 w-full cursor-pointer rounded-full border border-[var(--border-subtle)] shadow-inner transition-transform block focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]"
+            className="h-7 w-full cursor-pointer rounded-full border border-[var(--border-subtle)] shadow-inner transition-transform block focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
             style={{ backgroundImage: linearCss }}
           />
 
@@ -112,7 +112,7 @@ export function GradientBarController({
                   e.stopPropagation()
                   onSelectStop(stop.id)
                 }}
-                className={`absolute top-0 flex flex-col items-center -translate-x-1/2 transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)] ${
+                className={`absolute top-0 flex flex-col items-center -translate-x-1/2 transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${
                   isSelected ? 'z-20 scale-110' : 'z-10 hover:scale-105'
                 }`}
                 style={{ left: `${stop.offset}%` }}
@@ -120,14 +120,14 @@ export function GradientBarController({
               >
                 <div
                   className={`h-7 w-4 rounded-full border-2 shadow-md ${
-                    isSelected ? 'border-white ring-2 ring-[var(--brand-primary)]' : 'border-white/80'
+                    isSelected ? 'border-white ring-2 ring-[var(--accent)]' : 'border-white/80'
                   }`}
                   style={{ backgroundColor: stop.color }}
                 />
                 <span
                   className={`mt-1 font-mono text-[10px] font-semibold px-1 rounded-sm ${
                     isSelected
-                      ? 'bg-[var(--brand-primary)] text-white'
+                      ? 'bg-[var(--accent)] text-white'
                       : 'bg-[var(--bg-surface)] text-[var(--text-secondary)] border border-[var(--border-subtle)]'
                   }`}
                 >
@@ -173,7 +173,7 @@ export function GradientBarController({
                 max={100}
                 value={activeStop.offset}
                 onChange={(e) => handleStopOffsetChange(activeStop.id, Number(e.target.value))}
-                className="h-1.5 w-24 cursor-pointer rounded-lg bg-[var(--border-subtle)] accent-[var(--brand-primary)]"
+                className="h-1.5 w-24 cursor-pointer rounded-lg bg-[var(--border-subtle)] accent-[var(--accent)]"
               />
               <span className="w-8 font-mono text-[length:var(--text-12)] text-[var(--text-primary)]">
                 {activeStop.offset}%
@@ -213,7 +213,7 @@ export function GradientBarController({
                 onClick={() => onChange({ ...config, type })}
                 className={`px-3 py-1 text-[length:var(--text-12)] font-medium capitalize rounded-[var(--radius-sm)] transition-colors ${
                   config.type === type
-                    ? 'bg-[var(--brand-primary)] text-white'
+                    ? 'bg-[var(--accent)] text-white'
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                 }`}
               >
@@ -230,7 +230,7 @@ export function GradientBarController({
                 max={360}
                 value={config.angle}
                 onChange={(e) => onChange({ ...config, angle: Number(e.target.value) })}
-                className="h-1.5 w-20 cursor-pointer rounded-lg bg-[var(--border-subtle)] accent-[var(--brand-primary)]"
+                className="h-1.5 w-20 cursor-pointer rounded-lg bg-[var(--border-subtle)] accent-[var(--accent)]"
               />
               <span className="font-mono text-[length:var(--text-12)] text-[var(--text-primary)]">
                 {config.angle}°
@@ -246,7 +246,7 @@ export function GradientBarController({
               type="checkbox"
               checked={!!config.useOklabInterpolation}
               onChange={(e) => onChange({ ...config, useOklabInterpolation: e.target.checked })}
-              className="h-4 w-4 rounded border-[var(--border-subtle)] text-[var(--brand-primary)] accent-[var(--brand-primary)] focus:ring-[var(--brand-primary)]"
+              className="h-4 w-4 rounded border-[var(--border-subtle)] text-[var(--accent)] accent-[var(--accent)] focus:ring-[var(--accent)]"
             />
             {t('tools.color.gradient.oklab_switch')}
           </label>

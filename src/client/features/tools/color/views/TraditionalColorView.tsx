@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { Search } from 'lucide-react'
+import { FilterInput } from '../../../../components/FilterInput'
+import { compileQuery } from '../../../../lib/query-match'
 import {
   TRADITIONAL_CHINESE_COLORS,
   TRADITIONAL_NIPPON_COLORS,
@@ -16,6 +17,8 @@ export function TraditionalColorView() {
 
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedSeries, setSelectedSeries] = useState<string>('all')
+
+  const compiledQuery = useMemo(() => compileQuery(searchQuery), [searchQuery])
 
   const currentDataset: TraditionalColorItem[] = useMemo(() => {
     return traditionalTab === 'chinese'
@@ -104,18 +107,15 @@ export function TraditionalColorView() {
         </div>
 
         {/* Search */}
-        <div className="relative w-full sm:w-64">
-          <Search
-            size={14}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] pointer-events-none"
-          />
-          <input
-            type="search"
+        <div className="w-full sm:w-64">
+          <FilterInput
+            size="panel"
+            className="mt-0"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={setSearchQuery}
+            query={compiledQuery}
+            label={t('tools.color.traditional.search_placeholder')}
             placeholder={t('tools.color.traditional.search_placeholder')}
-            aria-label={t('tools.color.traditional.search_placeholder')}
-            className="w-full pl-9 pr-3 py-1.5 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] text-[length:var(--text-12)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
           />
         </div>
       </div>

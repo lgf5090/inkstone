@@ -63,7 +63,7 @@ export function PaletteSwatchGrid({ groups }: PaletteSwatchGridProps) {
                     type="button"
                     aria-label={`Select ${color.name} ${color.hex}`}
                     onClick={() => setCurrentColor(color.hex, 'palette')}
-                    className="absolute inset-0 w-full h-full cursor-pointer rounded-[var(--r-md)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]"
+                    className="absolute inset-0 w-full h-full cursor-pointer rounded-[var(--r-md)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                   />
                   <div className="flex items-center justify-between w-full opacity-0 group-hover:opacity-100 transition-opacity z-10">
                     <Tooltip label={color.hex}>

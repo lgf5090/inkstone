@@ -88,7 +88,7 @@ export function ContrastCheckerModal() {
             <button
               type="button"
               onClick={handleSwap}
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--brand-primary)] transition-colors"
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--accent)] transition-colors"
               title={t('tools.color.contrast.swap_tooltip')}
               aria-label={t('tools.color.contrast.swap_aria')}
             >
@@ -154,10 +154,10 @@ export function ContrastCheckerModal() {
           <div
             className={`flex items-center px-4 py-2 rounded-full font-bold text-[length:var(--text-16)] ${
               result.score === 'AAA'
-                ? 'bg-[var(--color-success-50)] text-[var(--color-success-600)] border border-[var(--color-success-200)]'
+                ? 'bg-[var(--bg-surface)] text-[var(--success)] border border-[var(--border-subtle)]'
                 : result.score === 'AA'
-                  ? 'bg-[var(--color-warning-50)] text-[var(--color-warning-600)] border border-[var(--color-warning-200)]'
-                  : 'bg-[var(--color-danger-50)] text-[var(--color-danger-600)] border border-[var(--color-danger-200)]'
+                  ? 'bg-[var(--bg-surface)] text-[var(--warning)] border border-[var(--border-subtle)]'
+                  : 'bg-[var(--danger-soft)] text-[var(--danger)] border border-[var(--danger-soft)]'
             }`}
           >
             {result.score === 'Fail' ? 'Fail' : `WCAG ${result.score}`}
@@ -175,17 +175,17 @@ export function ContrastCheckerModal() {
               <div className="flex items-center justify-between">
                 <span>{'AA (≥ 4.5:1)'}</span>
                 {result.normalAa ? (
-                  <CheckCircle2 size={14} className="text-[var(--color-success-500)]" />
+                  <CheckCircle2 size={14} className="text-[var(--success)]" />
                 ) : (
-                  <XCircle size={14} className="text-[var(--color-danger-500)]" />
+                  <XCircle size={14} className="text-[var(--danger)]" />
                 )}
               </div>
               <div className="flex items-center justify-between">
                 <span>{'AAA (≥ 7.0:1)'}</span>
                 {result.normalAaa ? (
-                  <CheckCircle2 size={14} className="text-[var(--color-success-500)]" />
+                  <CheckCircle2 size={14} className="text-[var(--success)]" />
                 ) : (
-                  <XCircle size={14} className="text-[var(--color-danger-500)]" />
+                  <XCircle size={14} className="text-[var(--danger)]" />
                 )}
               </div>
             </div>
@@ -200,17 +200,17 @@ export function ContrastCheckerModal() {
               <div className="flex items-center justify-between">
                 <span>{'AA (≥ 3.0:1)'}</span>
                 {result.largeAa ? (
-                  <CheckCircle2 size={14} className="text-[var(--color-success-500)]" />
+                  <CheckCircle2 size={14} className="text-[var(--success)]" />
                 ) : (
-                  <XCircle size={14} className="text-[var(--color-danger-500)]" />
+                  <XCircle size={14} className="text-[var(--danger)]" />
                 )}
               </div>
               <div className="flex items-center justify-between">
                 <span>{'AAA (≥ 4.5:1)'}</span>
                 {result.largeAaa ? (
-                  <CheckCircle2 size={14} className="text-[var(--color-success-500)]" />
+                  <CheckCircle2 size={14} className="text-[var(--success)]" />
                 ) : (
-                  <XCircle size={14} className="text-[var(--color-danger-500)]" />
+                  <XCircle size={14} className="text-[var(--danger)]" />
                 )}
               </div>
             </div>
@@ -225,9 +225,9 @@ export function ContrastCheckerModal() {
               <div className="flex items-center justify-between">
                 <span>{'AA (≥ 3.0:1)'}</span>
                 {result.uiComponents ? (
-                  <CheckCircle2 size={14} className="text-[var(--color-success-500)]" />
+                  <CheckCircle2 size={14} className="text-[var(--success)]" />
                 ) : (
-                  <XCircle size={14} className="text-[var(--color-danger-500)]" />
+                  <XCircle size={14} className="text-[var(--danger)]" />
                 )}
               </div>
             </div>

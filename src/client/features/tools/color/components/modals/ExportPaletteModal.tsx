@@ -118,7 +118,7 @@ export function ExportPaletteModal() {
             {activeFormat !== 'ase' && (
               <Button size="sm" variant="secondary" onClick={handleCopy}>
                 {hasCopied ? (
-                  <Check size={14} className="mr-1 text-[var(--color-success-500)]" />
+                  <Check size={14} className="mr-1 text-[var(--success)]" />
                 ) : (
                   <Copy size={14} className="mr-1" />
                 )}
@@ -163,7 +163,7 @@ export function ExportPaletteModal() {
               onClick={() => setActiveFormat(item.key)}
               className={`flex-1 min-w-[70px] rounded-[var(--radius-sm)] py-1.5 px-2 text-center text-[length:var(--text-12)] font-medium transition-colors ${
                 activeFormat === item.key
-                  ? 'bg-[var(--bg-surface)] text-[var(--brand-primary)] shadow-xs font-semibold'
+                  ? 'bg-[var(--bg-surface)] text-[var(--accent)] shadow-xs font-semibold'
                   : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
               }`}
             >

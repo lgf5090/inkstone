@@ -61,7 +61,7 @@ export function AlgorithmPaletteRow({ palette }: AlgorithmPaletteRowProps) {
                 type="button"
                 aria-label={`Select color ${hex}`}
                 onClick={() => setCurrentColor(hex, 'palette')}
-                className="absolute inset-0 w-full h-full cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]"
+                className="absolute inset-0 w-full h-full cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
               />
               <div className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                 <Tooltip label={hex}>
