@@ -26702,6 +26702,9 @@ const allowed = new Map([
   ["src/shared/locales/en-US-assistant-prompt.ts", [
     "/**\n * The assistant's system prompt, in English.\n *\n * Model instructions are not interface copy, so they cannot ride in `en-US.ts`: the worker has to\n * assemble a prompt from the *reader's* language setting, and it must be able to do that without\n * loading the 5,000-key UI catalog into the Worker bundle. These files are the whole instruction set,\n * and `tests/assistant-prompt-parity.test.ts` proves the two languages carry the same keys and the\n * same placeholders — a prompt that only exists in one language would silently answer Chinese readers\n * in English.\n */",
   ]],
+  ["src/shared/locales/en-US-calendar-notify.ts", [
+    "/** The words a calendar reminder carries, in English; the reminder sweep runs without a request. */",
+  ]],
   ["src/shared/locales/en-US-calendar.ts", [
     "/**\n * The calendar app's own copy. DayFlow's built-in strings come from its locale packs; everything the\n * Inkstone shell draws around it lives here so both languages stay in step.\n */",
   ]],
@@ -26713,6 +26716,9 @@ const allowed = new Map([
   ]],
   ["src/shared/locales/zh-CN-assistant-prompt.ts", [
     "/**\n * The assistant's system prompt, in Chinese. See `en-US-assistant-prompt.ts` for why the instructions\n * are a catalog of their own; the parity test keeps the two files telling the same story.\n */",
+  ]],
+  ["src/shared/locales/zh-CN-calendar-notify.ts", [
+    "/** The twin of `en-US-calendar-notify.ts`; the two are proven against each other in the reminder test. */",
   ]],
   ["src/shared/locales/zh-CN-calendar.ts", [
     "/**\n * Chinese calendar copy. The final `satisfies Record<BaseMessageKey, string>` in `zh-CN.ts`\n * fails if this object misses a key, so the two fragments cannot drift apart silently.\n */",
@@ -31027,6 +31033,11 @@ const allowed = new Map([
     "/**\n * Resolve a client path against one stored base.\n *\n * Absolute URLs and protocol-relative paths are refused before parsing. The pathname is decoded twice\n * for validation only — dot segments, encoded separators, backslashes and control characters are all\n * rejected — while the URL is built from the original spelling so an encoded `?` in a calendar id\n * stays part of the pathname. The final pathname must sit under the base, compared on segment\n * boundaries so `/calendars/alice/` cannot authorize `/calendars/alice-other/`.\n */",
     "// `.` and `..` are judged after decoding, so `%2e%2e` and `%252e%252e` have already become one.",
   ]],
+  ["src/worker/calendar/reminders.ts", [
+    "/**\n * The minute sweep that delivers calendar reminders.\n *\n * The reminder is the reader's account-wide lead time, so there is no per-event row to keep in sync:\n * the sweep asks only accounts that opted in, loads the next `lead` minutes (plus a small grace for a\n * late tick), expands recurring series, and claims each occurrence in `calendar_reminder_fires`.\n * The claim is the delivery gate; the notification row is the delivery, and the push is a courtesy.\n */",
+    "// A malformed rule leaves the master's own start below; the sweep must not fail the whole tick.",
+    "// The fire log only needs to outlive a late tick; pruning is best-effort and must not fail delivery.",
+  ]],
   ["src/worker/calendar/schema.ts", [
     "/**\n * The calendar app's tables.\n *\n * Tables are created from this list before the migration ledger is consulted; indexes follow. New\n * columns on an existing deployment need a migration and a REQUIRED_COLUMNS entry, but the tables\n * themselves do not spend a version number.\n */",
   ]],
@@ -31694,6 +31705,8 @@ const allowed = new Map([
     "// External ids are unique per calendar, not per provider: two Google accounts (or two CalDAV",
     "// servers) can legitimately hand out the same event id. Existing rows get the first calendar",
     "// they belong to as their scope; the old index is replaced in the same migration.",
+    "// Reminders are claimed by (user, event, occurrence start) so two overlapping cron fires cannot",
+    "// announce the same occurrence twice. The row is a delivery log, not an event relation.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",

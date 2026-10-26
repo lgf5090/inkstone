@@ -458,6 +458,7 @@ describe('preferences', () => {
     expect(() => parsePreferences({ yearViewMode: 'timeline' })).toThrow()
     expect(() => parsePreferences({ yearHeatmapLevels: 2 })).toThrow()
     expect(() => parsePreferences({ agendaDays: 0 })).toThrow()
+    expect(() => parsePreferences({ eventReminderMinutes: 7 })).toThrow()
 
     const views = parsePreferences({
       yearViewMode: 'fixed-week',
@@ -465,6 +466,7 @@ describe('preferences', () => {
       yearHeatmapLevels: 6,
       agendaDays: 21,
       agendaShowEmptyDays: false,
+      eventReminderMinutes: 10,
     })
     expect(views).toMatchObject({
       yearViewMode: 'fixed-week',
@@ -472,6 +474,7 @@ describe('preferences', () => {
       yearHeatmapLevels: 6,
       agendaDays: 21,
       agendaShowEmptyDays: false,
+      eventReminderMinutes: 10,
     })
   })
 })

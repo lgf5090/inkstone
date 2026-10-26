@@ -82,6 +82,7 @@ describe('calendar model', () => {
       yearHeatmapLevels: 5,
       agendaDays: 14,
       agendaShowEmptyDays: true,
+      eventReminderMinutes: 0,
     })
 
     const prefs = normalizeCalendarPreferences({
@@ -91,6 +92,7 @@ describe('calendar model', () => {
       yearHeatmapLevels: 7,
       agendaDays: 30,
       agendaShowEmptyDays: false,
+      eventReminderMinutes: 30,
     })
     expect(prefs).toMatchObject({
       yearViewMode: 'grid',
@@ -98,6 +100,7 @@ describe('calendar model', () => {
       yearHeatmapLevels: 7,
       agendaDays: 30,
       agendaShowEmptyDays: false,
+      eventReminderMinutes: 30,
     })
 
     const invalid = normalizeCalendarPreferences({
@@ -106,11 +109,13 @@ describe('calendar model', () => {
       yearHeatmapLevels: 12,
       agendaDays: 0,
       agendaShowEmptyDays: 'yes',
+      eventReminderMinutes: 7,
     })
     expect(invalid.yearViewMode).toBe(defaults.yearViewMode)
     expect(invalid.yearHeatmapLevels).toBe(defaults.yearHeatmapLevels)
     expect(invalid.agendaDays).toBe(defaults.agendaDays)
     expect(invalid.agendaShowEmptyDays).toBe(defaults.agendaShowEmptyDays)
+    expect(invalid.eventReminderMinutes).toBe(defaults.eventReminderMinutes)
   })
 
   it('finds secret-shaped metadata keys recursively', () => {

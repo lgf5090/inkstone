@@ -174,6 +174,15 @@ export const CALENDAR_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_calendar_oauth_expiry
      ON calendar_oauth_states(expires_at)`,
 
+  `CREATE TABLE IF NOT EXISTS calendar_reminder_fires (
+    user_id TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    occurrence_start_ms INTEGER NOT NULL,
+    fired_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, event_id, occurrence_start_ms)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_calendar_reminder_fires_fired
+     ON calendar_reminder_fires(user_id, fired_at)`,
   `CREATE TABLE IF NOT EXISTS calendar_preferences (
     user_id TEXT NOT NULL,
     preferences_json TEXT NOT NULL,
@@ -192,6 +201,7 @@ export const CALENDAR_REQUIRED_TABLES: readonly string[] = [
   'calendar_credentials',
   'calendar_oauth_states',
   'calendar_preferences',
+  'calendar_reminder_fires',
 ]
 
 export const CALENDAR_REQUIRED_INDEXES: readonly string[] = [
@@ -212,6 +222,7 @@ export const CALENDAR_REQUIRED_INDEXES: readonly string[] = [
   'idx_calendar_connections_kind',
   'idx_calendar_credentials_connection',
   'idx_calendar_oauth_expiry',
+  'idx_calendar_reminder_fires_fired',
 ]
 
 export const CALENDAR_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -245,4 +256,5 @@ export const CALENDAR_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[
     'used_at', 'created_at',
   ],
   calendar_preferences: ['user_id', 'preferences_json', 'updated_at'],
+  calendar_reminder_fires: ['user_id', 'event_id', 'occurrence_start_ms', 'fired_at'],
 }

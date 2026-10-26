@@ -295,6 +295,20 @@ export function CalendarSettings({ open, onClose, preferences, onSave, onOpenCon
         </Section>
 
         <Section title={t('calendar.settings.events')}>
+          <SettingRow title={t('calendar.settings.reminder')} controlId="calendar-settings-reminder">
+            <Select
+              id="calendar-settings-reminder"
+              value={String(draft.eventReminderMinutes)}
+              onChange={(event) => patch({ eventReminderMinutes: Number(event.target.value) })}
+              className="w-40"
+            >
+              <option value="0">{t('calendar.settings.reminder_off')}</option>
+              {[5, 10, 15, 30, 60, 120].map(minutes => (
+                <option key={minutes} value={minutes}>{t('calendar.settings.reminder_minutes', { minutes })}</option>
+              ))}
+              <option value="1440">{t('calendar.settings.reminder_day')}</option>
+            </Select>
+          </SettingRow>
           <SettingRow title={t('calendar.settings.enable_tasks')} description={t('calendar.settings.enable_tasks_hint')}>
             <Switch
               label={t('calendar.settings.enable_tasks')}

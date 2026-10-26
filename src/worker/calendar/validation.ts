@@ -14,6 +14,7 @@
 import { Temporal } from 'temporal-polyfill'
 import {
   CALENDAR_EVENT_TRIGGERS,
+  CALENDAR_REMINDER_MINUTES,
   CALENDAR_SYSTEMS,
   CALENDAR_VIEWS,
   CALENDAR_YEAR_VIEW_MODES,
@@ -594,6 +595,12 @@ export function parsePreferences(value: unknown): CalendarPreferences {
     result.showMiniCalendar = booleanValue(record.showMiniCalendar, 'showMiniCalendar')
   }
   if (record.showEventDots !== undefined) result.showEventDots = booleanValue(record.showEventDots, 'showEventDots')
+  if (record.eventReminderMinutes !== undefined) {
+    if (!(CALENDAR_REMINDER_MINUTES as readonly unknown[]).includes(record.eventReminderMinutes)) {
+      throw ApiError.badRequest('eventReminderMinutes is not a supported reminder')
+    }
+    result.eventReminderMinutes = record.eventReminderMinutes as number
+  }
   if (record.timeFormat !== undefined) {
     if (!(TIME_FORMATS as readonly unknown[]).includes(record.timeFormat)) {
       throw ApiError.badRequest('timeFormat must be 12h or 24h')

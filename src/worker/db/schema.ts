@@ -2584,6 +2584,22 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     ],
   },
   {
+    // Reminders are claimed by (user, event, occurrence start) so two overlapping cron fires cannot
+    // announce the same occurrence twice. The row is a delivery log, not an event relation.
+    version: 171,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS calendar_reminder_fires (
+        user_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        occurrence_start_ms INTEGER NOT NULL,
+        fired_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, event_id, occurrence_start_ms)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_calendar_reminder_fires_fired
+         ON calendar_reminder_fires(user_id, fired_at)`,
+    ],
+  },
+  {
     // External ids are unique per calendar, not per provider: two Google accounts (or two CalDAV
     // servers) can legitimately hand out the same event id. Existing rows get the first calendar
     // they belong to as their scope; the old index is replaced in the same migration.

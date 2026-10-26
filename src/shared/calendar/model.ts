@@ -30,6 +30,7 @@ export type CalendarConnectionKind = (typeof CALENDAR_CONNECTION_KINDS)[number]
 export const CALENDAR_EVENT_TRIGGERS = ['click', 'dbClick'] as const
 export type CalendarEventTrigger = (typeof CALENDAR_EVENT_TRIGGERS)[number]
 
+export const CALENDAR_REMINDER_MINUTES = [0, 5, 10, 15, 30, 60, 120, 1440] as const
 export const CALENDAR_YEAR_VIEW_MODES = ['year-canvas', 'fixed-week', 'grid'] as const
 export type CalendarYearViewMode = (typeof CALENDAR_YEAR_VIEW_MODES)[number]
 
@@ -202,6 +203,7 @@ export interface CalendarPreferences {
   eventDetailTrigger: CalendarEventTrigger
   showMiniCalendar: boolean
   showEventDots: boolean
+  eventReminderMinutes: number
 }
 
 export interface CalendarSubscriptionDto {
@@ -337,6 +339,7 @@ export function defaultCalendarPreferences(): CalendarPreferences {
     eventDetailTrigger: 'dbClick',
     showMiniCalendar: true,
     showEventDots: true,
+    eventReminderMinutes: 0,
   }
 }
 
@@ -405,6 +408,9 @@ export function normalizeCalendarPreferences(value: unknown): CalendarPreference
     eventDetailTrigger: trigger,
     showMiniCalendar: typeof record.showMiniCalendar === 'boolean' ? record.showMiniCalendar : defaults.showMiniCalendar,
     showEventDots: typeof record.showEventDots === 'boolean' ? record.showEventDots : defaults.showEventDots,
+    eventReminderMinutes: (CALENDAR_REMINDER_MINUTES as readonly number[]).includes(record.eventReminderMinutes as number)
+      ? record.eventReminderMinutes as number
+      : defaults.eventReminderMinutes,
   }
 }
 
