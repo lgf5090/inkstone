@@ -108,7 +108,6 @@ function toViews(preferences: CalendarPreferences): CalendarView[] {
       hourHeight: preferences.dayHourHeight,
       timeFormat: preferences.timeFormat,
       showHalfHourLines: preferences.showHalfHourLines,
-      showWeekends: preferences.showWeekends,
       showAllDay: true,
       startOfWeek: weekStart,
       scrollToCurrentTime: true,

@@ -122,7 +122,6 @@ export const ZH_CN_CALENDAR = {
   'calendar.settings.weekday_4': '周四',
   'calendar.settings.weekday_5': '周五',
   'calendar.settings.weekday_6': '周六',
-  'calendar.settings.show_weekends': '显示周末',
   'calendar.settings.show_week_numbers': '显示周数',
   'calendar.settings.show_half_hours': '显示半小时线',
   'calendar.settings.month_scroll': '月视图连续滚动',

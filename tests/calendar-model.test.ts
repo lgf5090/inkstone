@@ -67,13 +67,11 @@ describe('calendar model', () => {
       weekStart: 9,
       timeFormat: '12h',
       dayHourHeight: 4,
-      showWeekends: false,
     })
     expect(preferences.defaultView).toBe('agenda')
     expect(preferences.weekStart).toBe(defaults.weekStart)
     expect(preferences.timeFormat).toBe('12h')
     expect(preferences.dayHourHeight).toBe(defaults.dayHourHeight)
-    expect(preferences.showWeekends).toBe(false)
   })
 
   it('keeps the year and agenda view preferences DayFlow exposes', () => {

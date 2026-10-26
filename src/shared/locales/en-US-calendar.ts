@@ -120,7 +120,6 @@ export const EN_US_CALENDAR = {
   'calendar.settings.weekday_4': 'Thursday',
   'calendar.settings.weekday_5': 'Friday',
   'calendar.settings.weekday_6': 'Saturday',
-  'calendar.settings.show_weekends': 'Show weekends',
   'calendar.settings.show_week_numbers': 'Show week numbers',
   'calendar.settings.show_half_hours': 'Show half-hour lines',
   'calendar.settings.month_scroll': 'Continuous month scroll',

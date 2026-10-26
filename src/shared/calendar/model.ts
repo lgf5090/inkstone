@@ -183,7 +183,6 @@ export interface CalendarEventPatch {
 export interface CalendarPreferences {
   defaultView: CalendarViewName
   weekStart: number
-  showWeekends: boolean
   showWeekNumbers: boolean
   showHalfHourLines: boolean
   timeFormat: TimeFormat
@@ -319,7 +318,6 @@ export function defaultCalendarPreferences(): CalendarPreferences {
   return {
     defaultView: 'week',
     weekStart: 1,
-    showWeekends: true,
     showWeekNumbers: false,
     showHalfHourLines: false,
     timeFormat: '24h',
@@ -386,7 +384,6 @@ export function normalizeCalendarPreferences(value: unknown): CalendarPreference
   return {
     defaultView: view,
     weekStart,
-    showWeekends: typeof record.showWeekends === 'boolean' ? record.showWeekends : defaults.showWeekends,
     showWeekNumbers: typeof record.showWeekNumbers === 'boolean' ? record.showWeekNumbers : defaults.showWeekNumbers,
     showHalfHourLines: typeof record.showHalfHourLines === 'boolean' ? record.showHalfHourLines : defaults.showHalfHourLines,
     timeFormat,

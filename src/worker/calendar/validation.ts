@@ -580,7 +580,6 @@ export function parsePreferences(value: unknown): CalendarPreferences {
     result.defaultView = record.defaultView as CalendarViewName
   }
   if (record.weekStart !== undefined) result.weekStart = integerValue(record.weekStart, 'weekStart', 0, 6)
-  if (record.showWeekends !== undefined) result.showWeekends = booleanValue(record.showWeekends, 'showWeekends')
   if (record.showWeekNumbers !== undefined) result.showWeekNumbers = booleanValue(record.showWeekNumbers, 'showWeekNumbers')
   if (record.showHalfHourLines !== undefined) {
     result.showHalfHourLines = booleanValue(record.showHalfHourLines, 'showHalfHourLines')

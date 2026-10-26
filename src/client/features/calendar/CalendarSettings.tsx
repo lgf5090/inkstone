@@ -54,6 +54,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 
 export function CalendarSettings({ open, onClose, preferences, onSave, onOpenConnections }: CalendarSettingsProps) {
   const [draft, setDraft] = useState(preferences)
+  const [agendaDaysText, setAgendaDaysText] = useState(String(preferences.agendaDays))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const timeZones = useMemo(supportedTimeZones, [])
@@ -61,6 +62,7 @@ export function CalendarSettings({ open, onClose, preferences, onSave, onOpenCon
   useEffect(() => {
     if (!open) return
     setDraft(preferences)
+    setAgendaDaysText(String(preferences.agendaDays))
     setSaving(false)
     setError(null)
     // Reset on open only: a metadata refresh while the panel is open must not discard the draft.
@@ -129,33 +131,45 @@ export function CalendarSettings({ open, onClose, preferences, onSave, onOpenCon
               <option value="grid">{t('calendar.settings.year_mode_grid')}</option>
             </Select>
           </SettingRow>
-          <SettingRow title={t('calendar.settings.year_timed')} description={t('calendar.settings.year_timed_hint')}>
-            <Switch
-              label={t('calendar.settings.year_timed')}
-              checked={draft.yearShowTimedEvents}
-              onChange={(value) => patch({ yearShowTimedEvents: value })}
-            />
-          </SettingRow>
-          <SettingRow title={t('calendar.settings.year_heatmap')} controlId="calendar-settings-year-heatmap">
-            <Select
-              id="calendar-settings-year-heatmap"
-              value={String(draft.yearHeatmapLevels)}
-              onChange={(event) => patch({ yearHeatmapLevels: Number(event.target.value) })}
-              className="w-24"
-            >
-              {[3, 4, 5, 6, 7].map(level => <option key={level} value={level}>{level}</option>)}
-            </Select>
-          </SettingRow>
+          {draft.yearViewMode === 'year-canvas' && (
+            <SettingRow title={t('calendar.settings.year_timed')} description={t('calendar.settings.year_timed_hint')}>
+              <Switch
+                label={t('calendar.settings.year_timed')}
+                checked={draft.yearShowTimedEvents}
+                onChange={(value) => patch({ yearShowTimedEvents: value })}
+              />
+            </SettingRow>
+          )}
+          {draft.yearViewMode === 'grid' && (
+            <SettingRow title={t('calendar.settings.year_heatmap')} controlId="calendar-settings-year-heatmap">
+              <Select
+                id="calendar-settings-year-heatmap"
+                value={String(draft.yearHeatmapLevels)}
+                onChange={(event) => patch({ yearHeatmapLevels: Number(event.target.value) })}
+                className="w-24"
+              >
+                {[3, 4, 5, 6, 7].map(level => <option key={level} value={level}>{level}</option>)}
+              </Select>
+            </SettingRow>
+          )}
           <SettingRow title={t('calendar.settings.agenda_days')} controlId="calendar-settings-agenda-days">
             <Input
               id="calendar-settings-agenda-days"
               type="number"
               min={1}
               max={365}
-              value={draft.agendaDays}
+              value={agendaDaysText}
               onChange={(event) => {
-                const value = Number(event.target.value)
+                const text = event.target.value
+                setAgendaDaysText(text)
+                const value = Number(text)
                 if (Number.isInteger(value) && value >= 1 && value <= 365) patch({ agendaDays: value })
+              }}
+              onBlur={() => {
+                const value = Number(agendaDaysText)
+                if (!Number.isInteger(value) || value < 1 || value > 365) {
+                  setAgendaDaysText(String(draft.agendaDays))
+                }
               }}
               className="w-24"
             />
@@ -178,13 +192,6 @@ export function CalendarSettings({ open, onClose, preferences, onSave, onOpenCon
                 <option key={key} value={String(index)}>{t(key)}</option>
               ))}
             </Select>
-          </SettingRow>
-          <SettingRow title={t('calendar.settings.show_weekends')}>
-            <Switch
-              label={t('calendar.settings.show_weekends')}
-              checked={draft.showWeekends}
-              onChange={(value) => patch({ showWeekends: value })}
-            />
           </SettingRow>
           <SettingRow title={t('calendar.settings.show_week_numbers')}>
             <Switch
