@@ -7,6 +7,7 @@ import { t, useLocale } from '../../lib/i18n'
 import { isImeComposing } from '../../lib/ime'
 import { Button, IconButton } from '../../components/primitives'
 import { Checkbox, Input, Select } from '../../components/form'
+import { DatePicker } from '../../components/date-picker'
 import { Modal } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import * as api from './api'
@@ -114,11 +115,11 @@ export function CalendarFilteredSearch({ open, calendars, onClose, onPick }: Cal
           </label>
           <label className="flex flex-col gap-1.5 text-[length:var(--text-12-5)] text-[var(--text-secondary)]">
             <span className="font-medium">{t('calendar.filtered_search.from')}</span>
-            <Input type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
+            <DatePicker label={t('calendar.filtered_search.from')} value={from} onChange={setFrom} />
           </label>
           <label className="flex flex-col gap-1.5 text-[length:var(--text-12-5)] text-[var(--text-secondary)]">
             <span className="font-medium">{t('calendar.filtered_search.to')}</span>
-            <Input type="date" value={to} onChange={(event) => setTo(event.target.value)} />
+            <DatePicker label={t('calendar.filtered_search.to')} value={to} onChange={setTo} />
           </label>
           <label className="flex flex-col gap-1.5 text-[length:var(--text-12-5)] text-[var(--text-secondary)]">
             <span className="font-medium">{t('calendar.filtered_search.kind')}</span>
