@@ -349,6 +349,25 @@ export function CalendarSidebar({
         ],
       },
       {
+        id: 'move-up',
+        label: t('calendar.sidebar.move_up'),
+        disabled: !dto || (() => {
+          const family = app.getCalendars().filter(item => groupOf(item) === groupOf(calendar))
+          return family.findIndex(item => item.id === calendar.id) <= 0
+        })(),
+        onSelect: () => moveCalendar(calendar.id, -1),
+      },
+      {
+        id: 'move-down',
+        label: t('calendar.sidebar.move_down'),
+        disabled: !dto || (() => {
+          const family = app.getCalendars().filter(item => groupOf(item) === groupOf(calendar))
+          const index = family.findIndex(item => item.id === calendar.id)
+          return index < 0 || index >= family.length - 1
+        })(),
+        onSelect: () => moveCalendar(calendar.id, 1),
+      },
+      {
         id: 'merge',
         label: t('calendar.calendar.merge'),
         disabled: !dto || meta.calendars.length < 2,
