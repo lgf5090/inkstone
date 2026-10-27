@@ -444,4 +444,7 @@ export const EN_US_DEVELOPMENT_DATABASE = {
   "development.database.mass.select_all": "Select all",
   "development.database.query.delete_group_title": "Delete namespace “{name}”?",
   "development.database.query.delete_group_description": "Every saved query in this namespace is deleted.",
+  "development.database.query.rows_read": "read {count}",
+  "development.database.query.rows_written": "wrote {count}",
+  "development.database.table.set_empty_string": "Set empty string",
 }

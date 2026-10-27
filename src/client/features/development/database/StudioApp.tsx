@@ -94,6 +94,7 @@ export function StudioApp() {
   const [sidebarWidth, setSidebarWidth] = useState(
     initialLayout.sidebarWidth ?? STUDIO_SIDEBAR_WIDTH.default,
   )
+  const autoWidth = useRef(initialLayout.sidebarWidth === undefined)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(Boolean(initialLayout.sidebarCollapsed))
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -138,6 +139,19 @@ export function StudioApp() {
   useEffect(() => {
     saveStudioLayout({ sidebarWidth, sidebarCollapsed })
   }, [sidebarWidth, sidebarCollapsed])
+
+  useEffect(() => {
+    if (!autoWidth.current) return
+    const names = [
+      ...connections.map((connection) => connection.name),
+      ...(schema?.tables.map((table) => table.name) ?? []),
+    ]
+    const longest = names.reduce((left, right) => right.length > left.length ? right : left, '')
+    let width = 0
+    for (const character of longest) width += character.charCodeAt(0) > 255 ? 14 : 7.5
+    const estimated = Math.min(STUDIO_SIDEBAR_WIDTH.max, Math.max(STUDIO_SIDEBAR_WIDTH.default, width + 120))
+    setSidebarWidth((current) => Math.max(current, estimated))
+  }, [connections, schema])
 
   const activeSaved = selection?.kind === 'saved'
     ? connections.find((connection) => connection.id === selection.id) ?? null
@@ -567,8 +581,8 @@ export function StudioApp() {
               value={sidebarWidth}
               min={STUDIO_SIDEBAR_WIDTH.min}
               max={STUDIO_SIDEBAR_WIDTH.max}
-              onChange={setSidebarWidth}
-              onReset={() => setSidebarWidth(STUDIO_SIDEBAR_WIDTH.default)}
+              onChange={(width) => { autoWidth.current = false; setSidebarWidth(width) }}
+              onReset={() => { autoWidth.current = false; setSidebarWidth(STUDIO_SIDEBAR_WIDTH.default) }}
             />
           )}
           <main className="min-h-0 min-w-0 flex-1">{main}</main>

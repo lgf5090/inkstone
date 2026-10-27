@@ -444,4 +444,7 @@ export const ZH_CN_DEVELOPMENT_DATABASE = {
   "development.database.mass.select_all": "全选",
   "development.database.query.delete_group_title": "删除命名空间「{name}」？",
   "development.database.query.delete_group_description": "该命名空间下的所有保存查询都会被删除。",
+  "development.database.query.rows_read": "读 {count}",
+  "development.database.query.rows_written": "写 {count}",
+  "development.database.table.set_empty_string": "设为空字符串",
 }

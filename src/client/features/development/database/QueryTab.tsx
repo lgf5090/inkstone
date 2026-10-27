@@ -70,6 +70,12 @@ function historyToSql(entry: QueryHistoryEntry | string): string {
   return typeof entry === 'string' ? entry : entry.query
 }
 
+function resultTableName(sql: string): string | null {
+  const match = sql.match(/\bfrom\s+("(?:[^"]|"")*"|`(?:[^`]|``)*`|\[[^\]]*\]|[A-Za-z_][A-Za-z0-9_$]*)/i)
+  if (!match?.[1]) return null
+  return match[1].replace(/^"|"$/g, '').replace(/^`|`$/g, '').replace(/^\[|\]$/g, '')
+}
+
 export interface QueryTabProps {
   driver: StudioDriver
   connectionId: string
@@ -83,6 +89,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
   const isLocal = connectionType === 'sqlite'
   const [sql, setSql] = useState(initialSql ?? '')
   const [results, setResults] = useState<QueryResult[]>([])
+  const [executedSql, setExecutedSql] = useState('')
   const [activeResult, setActiveResult] = useState(0)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -171,6 +178,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
         next.push(await driver.query(statements[index]!))
       }
       setResults(next)
+      setExecutedSql(target)
       setActiveResult(0)
       setDetailRow(null)
       setSelectedRows(new Set())
@@ -470,11 +478,13 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
                   </Button>
                 ))}
               </div>
-              {active && <ExportPanel columns={active.columns} rows={filteredRows} tableName={t('development.database.query.result_name', { n: activeResult + 1 })} selectedRows={selectedRows} />}
+              {active && <ExportPanel columns={active.columns} rows={filteredRows} tableName={resultTableName(executedSql) ?? t('development.database.query.result_name', { n: activeResult + 1 })} selectedRows={selectedRows} />}
               {active && <AggregatePanel columns={active.columns} rows={filteredRows} selectedRows={selectedRows} />}
               {active && (
                 <span className="shrink-0 pl-2 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
                   {filteredRows.length.toLocaleString()} {t('development.database.query.rows')} · {active.durationMs}{t('development.database.query.ms')}
+                  {typeof active.meta?.rows_read === 'number' && <> · {t('development.database.query.rows_read', { count: active.meta.rows_read as number })}</>}
+                  {typeof active.meta?.rows_written === 'number' && (active.meta.rows_written as number) > 0 && <> · {t('development.database.query.rows_written', { count: active.meta.rows_written as number })}</>}
                 </span>
               )}
             </div>

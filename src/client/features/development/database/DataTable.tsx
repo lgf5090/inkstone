@@ -219,6 +219,16 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
     })
   }
 
+  const setCellDirtyRaw = (row: number, column: number, value: unknown) => {
+    setDirty((current) => {
+      const next = new Map(current)
+      const cells = new Map(next.get(row) ?? [])
+      cells.set(column, value)
+      next.set(row, cells)
+      return next
+    })
+  }
+
   const clearCellDirty = (row: number, column: number) => {
     setDirty((current) => {
       const next = new Map(current)
@@ -373,6 +383,11 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
       id: 'null',
       label: t('development.database.table.set_null'),
       onSelect: () => { setCellDirty(contextMenu.row, contextMenu.col, null); setContextMenu(null) },
+    },
+    {
+      id: 'empty',
+      label: t('development.database.table.set_empty_string'),
+      onSelect: () => { setCellDirtyRaw(contextMenu.row, contextMenu.col, ''); setContextMenu(null) },
     },
     {
       id: 'default',
