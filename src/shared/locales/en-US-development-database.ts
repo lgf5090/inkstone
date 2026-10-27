@@ -373,6 +373,8 @@ export const EN_US_DEVELOPMENT_DATABASE = {
   "development.database.ai.mode": "AI mode",
   "development.database.ai.model": "Model: {model}",
   "development.database.ai.no_model": "No assistant model is configured. Add one in Assistant settings first.",
+  "development.database.ai.status_failed": "The assistant model status could not be read.",
+  "development.database.ai.schema_trimmed": "Schema trimmed to fit the context ({count} tables omitted)",
   "development.database.ai.no_sql": "There is no SQL in the editor to explain or optimize",
   "development.database.ai.open_settings": "Open assistant settings",
   "development.database.ai.optimize": "Optimize SQL",

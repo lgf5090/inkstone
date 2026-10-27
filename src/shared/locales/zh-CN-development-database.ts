@@ -373,6 +373,8 @@ export const ZH_CN_DEVELOPMENT_DATABASE = {
   "development.database.ai.mode": "AI 模式",
   "development.database.ai.model": "模型：{model}",
   "development.database.ai.no_model": "尚未配置助手模型，请先在助手设置中添加模型。",
+  "development.database.ai.status_failed": "无法读取助手模型状态，请重试。",
+  "development.database.ai.schema_trimmed": "为控制上下文长度，schema 已精简（省略 {count} 张表）",
   "development.database.ai.no_sql": "编辑器中没有可解释或优化的 SQL",
   "development.database.ai.open_settings": "打开助手设置",
   "development.database.ai.optimize": "优化 SQL",

@@ -6,7 +6,9 @@ import { cn } from '../../../lib/cn'
 import { useUi } from '../../../store/ui'
 import { Button } from '../../../components/primitives'
 import { Segmented, Textarea } from '../../../components/form'
-import { getAiStatus, streamAiChat } from './api'
+import { streamAiChat } from './api'
+import { buildSchemaPrompt } from './schema-prompt'
+import { useAiStatus } from './useAiStatus'
 import type { AiMode } from './types'
 
 export interface AiSqlPanelProps {
@@ -17,31 +19,18 @@ export interface AiSqlPanelProps {
   className?: string
 }
 
-function schemaText(tables: AiSqlPanelProps['tables']): string {
-  if (!tables || tables.length === 0) return ''
-  return tables.map((table) => `- ${table.name}(${table.columns.map((column) => `${column.name} ${column.type}`).join(', ')})`).join('\n')
-}
-
 export function AiSqlPanel({ tables, currentSql, onInsert, onError, className }: AiSqlPanelProps) {
   const [mode, setMode] = useState<AiMode>('generate')
   const [prompt, setPrompt] = useState('')
   const [output, setOutput] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [configured, setConfigured] = useState<boolean | null>(null)
-  const [modelLabel, setModelLabel] = useState('')
+  const { configured, modelLabel, failed, reload } = useAiStatus()
   const abortRef = useRef<AbortController | null>(null)
-
-  useEffect(() => {
-    void getAiStatus().then((status) => {
-      setConfigured(status.configured)
-      setModelLabel(status.modelLabel ?? '')
-    }).catch(() => setConfigured(false))
-  }, [])
 
   useEffect(() => () => abortRef.current?.abort(), [])
 
-  const schema = useMemo(() => schemaText(tables), [tables])
+  const schema = useMemo(() => buildSchemaPrompt(tables ?? [], currentSql), [tables, currentSql])
 
   const run = () => {
     if (streaming) return
@@ -58,7 +47,7 @@ export function AiSqlPanel({ tables, currentSql, onInsert, onError, className }:
     setStreaming(true)
     const controller = new AbortController()
     abortRef.current = controller
-    void streamAiChat({ mode, prompt: prompt.trim(), currentSql, schemaText: schema }, (event) => {
+    void streamAiChat({ mode, prompt: prompt.trim(), currentSql, schemaText: schema.text }, (event) => {
       if (event.type === 'delta') setOutput((current) => current + event.content)
       if (event.type === 'error') setError(event.message)
     }, controller.signal)
@@ -105,8 +94,19 @@ export function AiSqlPanel({ tables, currentSql, onInsert, onError, className }:
           </Button>
         </div>
       )}
+      {failed && (
+        <div className="rounded-[var(--r-md)] border border-[var(--danger)]/30 bg-[var(--danger-soft)] p-2.5 text-[length:var(--text-11)] leading-relaxed text-[var(--danger)]">
+          <p>{t('development.database.ai.status_failed')}</p>
+          <Button variant="secondary" size="sm" className="mt-2" onClick={reload}>
+            {t('common.retry')}
+          </Button>
+        </div>
+      )}
       {configured && modelLabel && (
         <div className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.ai.model', { model: modelLabel })}</div>
+      )}
+      {schema.omitted > 0 && (
+        <div className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.ai.schema_trimmed', { count: schema.omitted })}</div>
       )}
 
       {mode === 'generate' ? (

@@ -6,6 +6,7 @@ import { buildRebuildSql } from '../src/client/features/development/database/ddl
 import { loadSchema } from '../src/client/features/development/database/schema-utils'
 import { projectColumns, toCsv } from '../src/client/features/development/database/export-utils'
 import { buildWhere } from '../src/client/features/development/database/filter-ops'
+import { SCHEMA_PROMPT_BUDGET_CHARS, buildSchemaPrompt } from '../src/client/features/development/database/schema-prompt'
 import { buildInsert, buildUpdate, rowKeyOf } from '../src/client/features/development/database/row-ops'
 import type { StudioDriver } from '../src/client/features/development/database/drivers'
 import { findPlaceholders, replacePlaceholders } from '../src/client/features/development/database/placeholders'
@@ -111,6 +112,25 @@ describe('development database core', () => {
     expect(model.tables.map((table) => table.name)).toEqual(['users'])
     expect(model.views.map((view) => view.name)).toEqual(['v_users'])
     expect(model.triggers.map((trigger) => trigger.name)).toEqual(['trg_users'])
+  })
+
+  it('keeps the AI schema prompt inside its budget and leads with mentioned tables', () => {
+    const wide = Array.from({ length: 50 }, (_, index) => ({
+      name: `t${index}`,
+      columns: Array.from({ length: 40 }, (_, column) => ({
+        name: `col_${index}_${column}`.padEnd(30, 'x'),
+        type: 'TEXT',
+      })),
+    }))
+    const mentioned = { name: 'zzz_users', columns: [{ name: 'id', type: 'INTEGER' }] }
+    const built = buildSchemaPrompt([...wide, mentioned], 'select id from zzz_users')
+    expect(built.text.length).toBeLessThanOrEqual(SCHEMA_PROMPT_BUDGET_CHARS)
+    expect(built.omitted, 'a 68k-char schema cannot fit the budget').toBeGreaterThan(0)
+    expect(built.text.split('\n')[0]).toContain('zzz_users')
+
+    const small = buildSchemaPrompt([mentioned, { name: 'orders', columns: [{ name: 'id', type: 'INTEGER' }] }], '')
+    expect(small.omitted).toBe(0)
+    expect(small.text).toBe('- zzz_users(id INTEGER)\n- orders(id INTEGER)')
   })
 
   it('quotes CSV cells containing separators and newlines', () => {

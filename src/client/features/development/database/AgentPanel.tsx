@@ -8,7 +8,7 @@ import { Button } from '../../../components/primitives'
 import { Input } from '../../../components/form'
 import { useUi } from '../../../store/ui'
 import { useAgentChat } from './useAgentChat'
-import { getAiStatus } from './api'
+import { useAiStatus } from './useAiStatus'
 import type { AgentMessagePart } from './types'
 
 export interface AgentPanelProps {
@@ -49,7 +49,7 @@ export function AgentPanel({ onToolComplete, className }: AgentPanelProps) {
   const { messages, status, sendMessage, stop, clear } = useAgentChat({ ...(onToolComplete ? { onToolComplete } : {}) })
   const [tab, setTab] = useState<'agent' | 'mcp'>('agent')
   const [input, setInput] = useState('')
-  const [configured, setConfigured] = useState<boolean | null>(null)
+  const { configured, failed, reload } = useAiStatus()
   const bottom = useRef<HTMLDivElement>(null)
   const busy = status === 'submitted' || status === 'streaming'
   const disabled = configured === false
@@ -59,10 +59,6 @@ export function AgentPanel({ onToolComplete, className }: AgentPanelProps) {
     t('development.database.agent.suggest_schema'),
     t('development.database.agent.suggest_rows'),
   ]
-
-  useEffect(() => {
-    void getAiStatus().then((info) => setConfigured(info.configured)).catch(() => setConfigured(false))
-  }, [])
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: 'end' })
@@ -102,6 +98,14 @@ export function AgentPanel({ onToolComplete, className }: AgentPanelProps) {
               <p>{t('development.database.ai.no_model')}</p>
               <Button variant="secondary" size="sm" className="mt-2" onClick={() => useUi.getState().openPanel('settings')}>
                 {t('development.database.ai.open_settings')}
+              </Button>
+            </div>
+          )}
+          {failed && (
+            <div className="shrink-0 border-b border-[var(--danger)]/30 bg-[var(--danger-soft)] p-2.5 text-[length:var(--text-11)] leading-relaxed text-[var(--danger)]">
+              <p>{t('development.database.ai.status_failed')}</p>
+              <Button variant="secondary" size="sm" className="mt-2" onClick={reload}>
+                {t('common.retry')}
               </Button>
             </div>
           )}
