@@ -19,6 +19,7 @@ export const EN_US_CLOUDFLARE_STORAGE = {
   "cloudflare.storage.confirm_delete": "Confirm Delete",
   "cloudflare.storage.create": "New",
   "cloudflare.storage.create_modal_title": "New",
+  "cloudflare.storage.count_rows": "Count rows",
   "cloudflare.storage.create_table": "Create Table",
   "cloudflare.storage.create_table_title": "Create Table",
   "cloudflare.storage.d1": "D1 Database",

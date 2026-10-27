@@ -7,6 +7,7 @@ import {
   TEST_USER,
   type CloudflareTestBed,
 } from './cloudflare-fixtures'
+import { utcDay } from '../src/worker/cloudflare/usage'
 
 const ACCOUNT_A = 'a'.repeat(26)
 const ACCOUNT_B = 'b'.repeat(26)
@@ -82,5 +83,28 @@ describe('the quota sync wave', () => {
     const beta = body.accounts.find((account) => account.account_id === ACCOUNT_B)
     expect(alpha?.resources.find((resource) => resource.resource === 'ai_neurons')?.count).toBe(11)
     expect(beta?.resources.find((resource) => resource.resource === 'ai_neurons')?.count ?? 0).toBe(0)
+  })
+
+  it('answers from the stored numbers and refreshes behind the response', async () => {
+    await seedAccount(bed, TEST_USER, { id: ACCOUNT_A, name: 'Alpha', token: 'ta', accountId: 'cf-a' })
+    await bed.env.DB.prepare(
+      `INSERT INTO cloudflare_quota_usage (user_id, account_id, resource, date, count)
+       VALUES (?, ?, 'ai_neurons', ?, 42)`,
+    )
+      .bind(TEST_USER, ACCOUNT_A, utcDay())
+      .run()
+    let calls = 0
+    stubCloudflare(async () => {
+      calls += 1
+      // A refresh nobody is waiting for: a blocking read would never answer.
+      return new Promise<Response>(() => {})
+    })
+
+    const response = await bed.app.request('/api/cloudflare/quota', {}, bed.env)
+    expect(response.status).toBe(200)
+    const body = await response.json() as QuotaBody
+    expect(body.accounts[0]?.resources.find((resource) => resource.resource === 'ai_neurons')?.count).toBe(42)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(calls).toBeGreaterThan(0)
   })
 })

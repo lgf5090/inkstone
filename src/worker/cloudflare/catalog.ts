@@ -4,9 +4,9 @@
  *
  * A catalogue is public data on someone else's static host, so nothing here trusts it: URLs must be
  * HTTPS (localhost is the one debugging exception), responses are size-capped, and a body without a
- * `templates` array is a bad request rather than an empty store. The rows only remember the fetch
- * outcome; the parsed documents live in a five-minute in-memory cache, which also lets a conditional
- * request answer 304 without losing the templates it describes.
+ * `templates` array is a bad request rather than an empty store. The rows remember the fetch outcome
+ * and the ETag; the parsed documents live in a five-minute in-memory cache in front of a copy in the
+ * bucket, so a cold isolate still has something to show when the host answers 304.
  */
 import type { Env } from '../env'
 import { newId } from '../lib/id'
@@ -120,6 +120,45 @@ interface CachedCatalog {
 }
 
 const catalogCache = new Map<string, CachedCatalog>()
+
+/**
+ * Where the documents outlive the isolate.
+ *
+ * The memory cache answers in one read; the bucket answers after a cold start, which is the case it
+ * exists for: without a stored document a 304 has nothing behind it and the whole file is downloaded
+ * again. Keys are the source URL, so two readers on the same mirror share one object.
+ */
+const CATALOG_DOCUMENT_PREFIX = 'cloudflare/json/catalogs/'
+
+function catalogDocumentKey(url: string): string {
+  return `${CATALOG_DOCUMENT_PREFIX}${encodeURIComponent(url)}.json`
+}
+
+async function readStoredCatalog(env: Env, url: string): Promise<{ catalog: Catalog; etag: string | null } | null> {
+  if (!env.FILES) return null
+  try {
+    const object = await env.FILES.get(catalogDocumentKey(url))
+    if (!object) return null
+    const parsed = JSON.parse(await object.text()) as { etag?: unknown; catalog?: unknown } | null
+    if (!parsed || typeof parsed !== 'object' || !parsed.catalog || typeof parsed.catalog !== 'object') return null
+    return { catalog: parsed.catalog as Catalog, etag: typeof parsed.etag === 'string' ? parsed.etag : null }
+  } catch (error) {
+    console.warn('[inkstone] Stored catalog could not be read:', errorMessage(error))
+    return null
+  }
+}
+
+async function storeCatalog(env: Env, url: string, catalog: Catalog, etag: string | null): Promise<void> {
+  if (!env.FILES) return
+  try {
+    await env.FILES.put(catalogDocumentKey(url), JSON.stringify({ etag, catalog }), {
+      httpMetadata: { contentType: 'application/json; charset=utf-8' },
+    })
+  } catch (error) {
+    // Best-effort: the reader already has the document, and the next fetch will try again.
+    console.warn('[inkstone] Stored catalog could not be written:', errorMessage(error))
+  }
+}
 
 /** Tests start from an empty cache; production never needs to. */
 export function resetCatalogCache(): void {
@@ -297,6 +336,7 @@ export async function fetchCatalog(rawUrl: string, etag?: string | null): Promis
  * request) is retried unconditionally, because a 304 alone cannot rebuild a catalogue.
  */
 export async function loadCatalog(
+  env: Env,
   url: string,
   options: { etag?: string | null; force?: boolean } = {},
 ): Promise<{ catalog: Catalog; etag: string | null }> {
@@ -305,12 +345,15 @@ export async function loadCatalog(
     return { catalog: cached.catalog, etag: cached.etag }
   }
 
-  const knownEtag = cached?.etag ?? options.etag ?? null
+  const stored = cached ? null : await readStoredCatalog(env, url)
+  const knownEtag = cached?.etag ?? stored?.etag ?? options.etag ?? null
   let result = await fetchCatalog(url, knownEtag)
   if (result.notModified) {
-    if (cached) {
-      catalogCache.set(url, { catalog: cached.catalog, etag: result.etag ?? cached.etag, fetchedAt: Date.now() })
-      return { catalog: cached.catalog, etag: result.etag ?? cached.etag }
+    const behind = cached ?? stored
+    if (behind) {
+      const etag = result.etag ?? behind.etag
+      catalogCache.set(url, { catalog: behind.catalog, etag, fetchedAt: Date.now() })
+      return { catalog: behind.catalog, etag }
     }
     result = await fetchCatalog(url, null)
     if (result.notModified) {
@@ -321,6 +364,7 @@ export async function loadCatalog(
     throw new ApiError(502, 'cloudflare_upstream', 'The catalog answered without a document')
   }
   catalogCache.set(url, { catalog: result.catalog, etag: result.etag, fetchedAt: Date.now() })
+  await storeCatalog(env, url, result.catalog, result.etag)
   return { catalog: result.catalog, etag: result.etag }
 }
 
@@ -529,6 +573,7 @@ export async function addSource(
     throw error
   }
   catalogCache.set(url, { catalog, etag, fetchedAt: now })
+  await storeCatalog(env, url, catalog, etag)
   const row = await getSourceRow(env, userId, id)
   if (!row) throw new ApiError(500, 'internal', 'The catalog source was written but cannot be read back')
   return { ...row, template_count: catalog.templates.length }
@@ -620,7 +665,7 @@ export async function collectCatalogue(
   // the network waits overlap.
   const loaded = await Promise.all(rows.map(async (row): Promise<{ row: CatalogSourceRow; catalog: Catalog | null }> => {
     try {
-      const { catalog, etag } = await loadCatalog(row.url, { etag: row.etag, force: options.refresh })
+      const { catalog, etag } = await loadCatalog(env, row.url, { etag: row.etag, force: options.refresh })
       const synced = options.refresh ? Date.now() : row.last_synced
       if (options.refresh) {
         await env.DB.prepare(
@@ -688,7 +733,7 @@ export async function findTemplate(
   const sources = await listEnabledSources(env, userId)
   for (const source of sources) {
     try {
-      const { catalog } = await loadCatalog(source.url, { etag: source.etag })
+      const { catalog } = await loadCatalog(env, source.url, { etag: source.etag })
       const template = catalog.templates.find((item) => item.id === templateId)
       if (template) return { template, source }
     } catch (error) {

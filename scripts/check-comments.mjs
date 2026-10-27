@@ -33197,7 +33197,6 @@ const allowed = new Map([
     "/**\n * Render with an explicit account, or let the service choose and fail over once.\n *\n * A daily-limit refusal marks the account and tries exactly one more; retrying in a loop would walk\n * every account in one request and still return nothing when they are all out.\n */",
   ]],
   ["src/worker/cloudflare/catalog.ts", [
-    "/**\n * The template catalogue: where it is fetched from, how it is validated, and what a reader sees\n * after several sources are merged.\n *\n * A catalogue is public data on someone else's static host, so nothing here trusts it: URLs must be\n * HTTPS (localhost is the one debugging exception), responses are size-capped, and a body without a\n * `templates` array is a bad request rather than an empty store. The rows only remember the fetch\n * outcome; the parsed documents live in a five-minute in-memory cache, which also lets a conditional\n * request answer 304 without losing the templates it describes.\n */",
     "/** The catalogue a reader starts with; three addresses of the same public store. */",
     "/** Tests start from an empty cache; production never needs to. */",
     "/** A catalogue address: HTTPS everywhere, plain HTTP only for a loopback debug host. */",
@@ -33219,6 +33218,9 @@ const allowed = new Map([
     "/** Hosts a worker must never be talked into reaching: loopback, private, link-local, CGNAT. */",
     "/** A README, an image or a template package is someone else's text: it may not name our own network. */",
     "/**\n * Fetch with the URL guard applied to every hop, not just the first one.\n *\n * Following redirects automatically hands the choice of destination to the remote server, which is\n * exactly the decision the guard exists to make: a public README can answer 302 with a link-local\n * metadata address and have this worker read it on the caller's behalf.\n */",
+    "/**\n * The template catalogue: where it is fetched from, how it is validated, and what a reader sees\n * after several sources are merged.\n *\n * A catalogue is public data on someone else's static host, so nothing here trusts it: URLs must be\n * HTTPS (localhost is the one debugging exception), responses are size-capped, and a body without a\n * `templates` array is a bad request rather than an empty store. The rows remember the fetch outcome\n * and the ETag; the parsed documents live in a five-minute in-memory cache in front of a copy in the\n * bucket, so a cold isolate still has something to show when the host answers 304.\n */",
+    "/**\n * Where the documents outlive the isolate.\n *\n * The memory cache answers in one read; the bucket answers after a cold start, which is the case it\n * exists for: without a stored document a 304 has nothing behind it and the whole file is downloaded\n * again. Keys are the source URL, so two readers on the same mirror share one object.\n */",
+    "// Best-effort: the reader already has the document, and the next fetch will try again.",
   ]],
   ["src/worker/cloudflare/cf-api.ts", [
     "/**\n * The one door to api.cloudflare.com.\n *\n * The reference module used the Cloudflare Node SDK in one generation and `cfFetch` in the next. A\n * Worker cannot use the SDK's Node transport (and does not need to): every call here is `fetch` with\n * the account's own headers, which is also what makes the module testable — a route test stubs one\n * origin.\n *\n * Errors keep the upstream status and body. A route decides how much of that to show; the words are\n * Cloudflare's own, and the routes never invent a status the API did not send.\n */",
@@ -33293,6 +33295,7 @@ const allowed = new Map([
     "// Accounts and products are read concurrently: each GraphQL call can take the full client timeout,",
     "// and a serial walk made the dashboard wait for every one of them in turn. One account failing",
     "// still must not hide the others' numbers, hence the per-product catch inside the parallel wave.",
+    "/** Whether today has been counted at all; a summary alone cannot tell zero from never synced. */",
   ]],
   ["src/worker/cloudflare/schema.ts", [
     "/**\n * The Cloudflare app's tables, declared where the boot can find them.\n *\n * Every table leads with `user_id`: the reference module was a single-reader deploy, while this\n * notebook has accounts, and one reader's Cloudflare credentials, logs, conversations and tasks must\n * never be visible to another. Account rows carry a generated 26-character id rather than the\n * reference's autoincrement, because the credential vault derives its key from that id.\n *\n * Credential material is not in any of these tables. It lives in the R2 bucket under\n * `cloudflare/txt/accounts/<id>.txt`, sealed by the credential vault (see `credentials.ts`).\n */",
@@ -33306,6 +33309,8 @@ const allowed = new Map([
     "/**\n * Row counts for the named tables, read in as few round trips as SQLite allows.\n *\n * The obvious shape — one `SELECT … COUNT(*)` per table joined with `UNION ALL` — is rejected on any\n * real database: SQLite caps the terms of a compound select far below the table count a D1 database\n * reaches. Scalar subqueries in one select list carry no such cap, so a batch comes back as one row\n * keyed by table name.\n */",
     "// Each batch is one statement and the batches are independent, so the wall time is a single round",
     "// trip however many tables the database holds.",
+    "/** A table as the sidebar shows it; the count is filled only when someone asked for it. */",
+    "/**\n * The tables of a database, with row counts only when asked.\n *\n * `COUNT(*)` walks the table (or its smallest index), so counting every table turns opening a\n * database into a scan of the whole database — and D1 bills for that CPU. Listing names is one small\n * query; the panel offers the counts as a separate, visible action.\n */",
   ]],
   ["src/worker/cloudflare/storage-kv.ts", [
     "/**\n * KV namespaces, keys and values through the Cloudflare REST API.\n *\n * The service speaks only to Cloudflare; account ownership and demo protection belong to the route.\n * Values are written as raw text with the TTL in the query string, which avoids multipart on a PUT\n * that only carries one field.\n */",
@@ -35603,7 +35608,8 @@ const allowed = new Map([
     "// would answer it with its own not-found before this one saw the request.",
   ]],
   ["src/worker/routes/cloudflare/quota.ts", [
-    "/**\n * `/api/cloudflare/quota` — today's allowance, refreshed from Cloudflare before it is answered.\n *\n * The refresh is what makes the dashboard's numbers the account's numbers rather than this\n * deployment's guess. It costs one GraphQL call per enabled product per active account, so it runs\n * on the quota read itself and nowhere else.\n */",
+    "/**\n * `/api/cloudflare/quota` — today's allowance.\n *\n * The numbers come from the store the previous visit refreshed; Cloudflare is asked again behind the\n * response, so opening the dashboard costs one read instead of one GraphQL call per product per\n * account. The exception is a day with nothing counted yet: that answer would be blank, so it waits.\n */",
+    "// No execution context (unit tests, a runtime that has none): the refresh still runs unawaited.",
   ]],
   ["src/worker/routes/cloudflare/settings.ts", [
     "/**\n * `/api/cloudflare/settings` — what the module is configured with, and the one cache it keeps.\n *\n * The reference module's settings screen also carried a global proxy and a Resin pool. Neither exists\n * here: an HTTP proxy is a Node transport, and a Worker that silently ignored the setting would be\n * lying to whoever configured it. The screen therefore shows the deployment's real state — vault, R2,\n * version — and the demo accounts a reader has marked, which is the one value that lives in a table.\n */",
@@ -39525,14 +39531,19 @@ const allowed = new Map([
   ]],
   ["tests/cloudflare-quota-sync.test.ts", [
     "// A serial walk over accounts and products holds the peak at one request at a time.",
+    "// A refresh nobody is waiting for: a blocking read would never answer.",
   ]],
   ["tests/cloudflare-storage.test.ts", [
     "// A compound `SELECT … UNION ALL` per table is what SQLite rejects on a real database, so the",
     "// counts must arrive as scalar subqueries in one select list.",
+    "// Counting walks every table, so opening a database must not do it.",
   ]],
   ["tests/cloudflare-store.test.ts", [
     "// A README badge is usually SVG; it is served, but inert and typed as what it is.",
     "// The address a reader is viewing stays out of the query string, so it stays out of access logs.",
+    "/** A conditional host: a matching If-None-Match answers 304, as a real mirror does. */",
+    "// A different isolate: no memory, and the host would answer 304 with no body at all.",
+    "// A mirror that moved on replaces the stored document, or the next cold start serves yesterday.",
   ]],
   ["tests/cloudflare-tunnels.test.ts", [
     "// Wrap the stub once more to observe the rollback DELETE.",

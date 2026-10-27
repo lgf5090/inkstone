@@ -56,6 +56,7 @@ export function D1Panel({ account }: { account: CloudflareAccount }) {
 
   const [tables, setTables] = useState<D1Table[]>([])
   const [tablesLoading, setTablesLoading] = useState(false)
+  const [counting, setCounting] = useState(false)
   const [tablesError, setTablesError] = useState<string | null>(null)
 
   const [sql, setSql] = useState('')
@@ -121,21 +122,23 @@ export function D1Panel({ account }: { account: CloudflareAccount }) {
 
   const selectedDbId = selectedDb?.id ?? null
 
-  const loadTables = useCallback(async () => {
+  const loadTables = useCallback(async (counts = false) => {
     if (!selectedDbId) {
       setTables([])
       return
     }
-    setTablesLoading(true)
+    if (counts) setCounting(true)
+    else setTablesLoading(true)
     setTablesError(null)
     try {
-      const data = await storageApi.listD1Tables(account.id, selectedDbId)
+      const data = await storageApi.listD1Tables(account.id, selectedDbId, { counts })
       setTables(data.tables)
     } catch (reason) {
       setTablesError(cfErrorText(reason))
-      setTables([])
+      if (!counts) setTables([])
     } finally {
-      setTablesLoading(false)
+      if (counts) setCounting(false)
+      else setTablesLoading(false)
     }
   }, [account.id, selectedDbId])
 
@@ -307,15 +310,26 @@ export function D1Panel({ account }: { account: CloudflareAccount }) {
             <h2 className="text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">
               {t('cloudflare.storage.tables')}
             </h2>
-            <Button
-              size="sm"
-              variant="secondary"
-              icon={<Plus size={14} />}
-              disabled={!selectedDb || readOnly}
-              onClick={() => setCreateTableOpen(true)}
-            >
-              {t('cloudflare.storage.create_table')}
-            </Button>
+            <div className="flex shrink-0 items-center gap-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                loading={counting}
+                disabled={!selectedDb || tables.length === 0}
+                onClick={() => { void loadTables(true) }}
+              >
+                {t('cloudflare.storage.count_rows')}
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<Plus size={14} />}
+                disabled={!selectedDb || readOnly}
+                onClick={() => setCreateTableOpen(true)}
+              >
+                {t('cloudflare.storage.create_table')}
+              </Button>
+            </div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
             {tablesError && <div className="p-1.5"><StorageError message={tablesError} onRetry={() => { void loadTables() }} /></div>}
@@ -337,7 +351,7 @@ export function D1Panel({ account }: { account: CloudflareAccount }) {
                     >
                       {table.name}
                     </button>
-                    <Badge tone="neutral">{table.rows}</Badge>
+                    <Badge tone="neutral">{table.rows === null ? '—' : table.rows}</Badge>
                     <IconButton
                       label={t('cloudflare.storage.view_schema')}
                       size="xs"

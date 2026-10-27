@@ -19,9 +19,10 @@ export interface D1Database {
   created_at?: string
 }
 
+/** A table as the sidebar shows it; the count is filled only when someone asked for it. */
 export interface D1Table {
   name: string
-  rows: number
+  rows: number | null
 }
 
 export interface D1Column {
@@ -150,10 +151,18 @@ export async function runD1Query(
   return { results, meta }
 }
 
+/**
+ * The tables of a database, with row counts only when asked.
+ *
+ * `COUNT(*)` walks the table (or its smallest index), so counting every table turns opening a
+ * database into a scan of the whole database — and D1 bills for that CPU. Listing names is one small
+ * query; the panel offers the counts as a separate, visible action.
+ */
 export async function listD1Tables(
   auth: CloudflareAuth,
   cfAccountId: string,
   databaseId: string,
+  options: { counts?: boolean } = {},
 ): Promise<D1Table[]> {
   const listing = await runD1Query(
     auth,
@@ -165,6 +174,7 @@ export async function listD1Tables(
     .map((row) => text(row.name))
     .filter((name) => name.length > 0)
   if (names.length === 0) return []
+  if (!options.counts) return names.map((name) => ({ name, rows: null }))
   const rowsByName = await countTableRows(auth, cfAccountId, databaseId, names)
   return names.map((name) => ({ name, rows: rowsByName.get(name) ?? 0 }))
 }

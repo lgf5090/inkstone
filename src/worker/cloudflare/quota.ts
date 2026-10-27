@@ -48,6 +48,16 @@ export interface AccountQuotaView {
   resources: QuotaResourceView[]
 }
 
+/** Whether today has been counted at all; a summary alone cannot tell zero from never synced. */
+export async function hasStoredQuota(env: Env, userId: string): Promise<boolean> {
+  const row = await env.DB.prepare(
+    'SELECT 1 AS found FROM cloudflare_quota_usage WHERE user_id = ? AND date = ? LIMIT 1',
+  )
+    .bind(userId, utcDay())
+    .first<{ found: number }>()
+  return row !== null
+}
+
 export async function quotaSummary(env: Env, userId: string): Promise<AccountQuotaView[]> {
   const accounts = await env.DB.prepare(
     `SELECT id, user_id, name, auth_type, email, cf_account_id, is_active, enabled_features,

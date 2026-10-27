@@ -21,6 +21,8 @@ const PNG = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])
 interface CatalogOptions {
   templates: unknown[]
   status?: number
+  /** A conditional host: a matching If-None-Match answers 304, as a real mirror does. */
+  etag?: string
 }
 
 const catalogs = new Map<string, CatalogOptions>()
@@ -39,6 +41,12 @@ beforeEach(() => {
       const entry = catalogs.get(url.pathname)
       if (!entry) return new Response('not found', { status: 404 })
       if (entry.status && entry.status >= 400) return new Response('nope', { status: entry.status })
+      if (entry.etag) {
+        if (new Headers(init?.headers).get('if-none-match') === entry.etag) {
+          return new Response(null, { status: 304, headers: { etag: entry.etag } })
+        }
+        return Response.json({ templates: entry.templates }, { headers: { etag: entry.etag } })
+      }
       return Response.json({ templates: entry.templates })
     }
     if (url.hostname === 'files.test') {
@@ -245,6 +253,33 @@ describe('the template store', () => {
     )
     expect(result).toMatchObject({ total: 2, succeeded: 1, failed: 1 })
     expect(result.results.filter((row) => !row.success).length).toBe(1)
+  })
+
+  it('keeps the catalogue in the bucket, so a cold isolate survives a 304', async () => {
+    const bed = await makeCloudflareBed()
+    catalogs.set('/a.json', { templates: [workerTemplate()], etag: 'W/"v1"' })
+    await send(bed, 'POST', '/sources', { url: 'https://catalog.test/a.json', name: 'A' })
+
+    const first = await readJson<{ templates: Array<{ template: { id: string } }> }>(await send(bed, 'GET', '/templates'))
+    expect(first.templates.map((row) => row.template.id)).toEqual(['hello-worker'])
+    const stored = [...bed.files.objects.keys()].filter((key) => key.startsWith('cloudflare/json/catalogs/'))
+    expect(stored).toHaveLength(1)
+
+    // A different isolate: no memory, and the host would answer 304 with no body at all.
+    resetCatalogCache()
+    catalogs.set('/a.json', { templates: [], etag: 'W/"v1"' })
+    const second = await readJson<{ templates: Array<{ template: { id: string } }> }>(await send(bed, 'GET', '/templates'))
+    expect(second.templates.map((row) => row.template.id)).toEqual(['hello-worker'])
+
+    // A mirror that moved on replaces the stored document, or the next cold start serves yesterday.
+    catalogs.set('/a.json', { templates: [workerTemplate(), pagesTemplate()], etag: 'W/"v2"' })
+    await send(bed, 'POST', '/refresh')
+    const kept = JSON.parse(new TextDecoder().decode(bed.files.objects.get(stored[0]!)!)) as {
+      etag: string
+      catalog: { templates: unknown[] }
+    }
+    expect(kept.etag).toBe('W/"v2"')
+    expect(kept.catalog.templates).toHaveLength(2)
   })
 
   it('proxies a README through the worker and refuses a non-public address', async () => {

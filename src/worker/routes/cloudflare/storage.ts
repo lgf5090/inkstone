@@ -243,7 +243,7 @@ storageRouter.delete('/:accountId/d1/:dbId', async (c) => {
 storageRouter.get('/:accountId/d1/:dbId/tables', async (c) => {
   const { auth, cfAccountId } = await requireAccount(c, c.req.param('accountId'))
   const dbId = pathId(c.req.param('dbId'), DATABASE_ID, 'database id')
-  return c.json({ tables: await listD1Tables(auth, cfAccountId, dbId) })
+  return c.json({ tables: await listD1Tables(auth, cfAccountId, dbId, { counts: c.req.query('counts') === '1' }) })
 })
 
 storageRouter.get('/:accountId/d1/:dbId/tables/:tableName/schema', async (c) => {

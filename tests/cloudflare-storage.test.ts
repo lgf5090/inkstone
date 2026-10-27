@@ -197,7 +197,7 @@ describe('KV routes', () => {
 })
 
 describe('D1 routes', () => {
-  it('lists databases, tables with row counts, and a table schema', async () => {
+  it('lists databases, counts tables only on request, and reads a table schema', async () => {
     const account = await seedAccount(bed, TEST_USER, { id: ACCOUNT_A, token: 'token-a', accountId: 'cf-a' })
     let countedSql = ''
     stubApi(({ method, path, body }) => {
@@ -231,10 +231,17 @@ describe('D1 routes', () => {
     )
     expect(databases.databases).toEqual([{ id: 'db-1', name: 'main' }])
 
-    const tables = await readJson<{ tables: Array<{ name: string; rows: number }> }>(
+    const tables = await readJson<{ tables: Array<{ name: string; rows: number | null }> }>(
       await send('GET', `/${account.id}/d1/db-1/tables`),
     )
-    expect(tables.tables).toEqual([{ name: 'users', rows: 2 }, { name: 'posts', rows: 5 }])
+    expect(tables.tables).toEqual([{ name: 'users', rows: null }, { name: 'posts', rows: null }])
+    // Counting walks every table, so opening a database must not do it.
+    expect(countedSql).toBe('')
+
+    const counted = await readJson<{ tables: Array<{ name: string; rows: number | null }> }>(
+      await send('GET', `/${account.id}/d1/db-1/tables?counts=1`),
+    )
+    expect(counted.tables).toEqual([{ name: 'users', rows: 2 }, { name: 'posts', rows: 5 }])
     // A compound `SELECT … UNION ALL` per table is what SQLite rejects on a real database, so the
     // counts must arrive as scalar subqueries in one select list.
     expect(countedSql).toContain('(SELECT COUNT(*) FROM "users") AS "users"')
@@ -327,9 +334,9 @@ describe('D1 routes', () => {
       return cfJson([{ results: [row], meta: { duration: 1 } }])
     })
 
-    const response = await send('GET', `/${account.id}/d1/db-1/tables`)
+    const response = await send('GET', `/${account.id}/d1/db-1/tables?counts=1`)
     expect(response.status).toBe(200)
-    const body = await readJson<{ tables: Array<{ name: string; rows: number }> }>(response)
+    const body = await readJson<{ tables: Array<{ name: string; rows: number | null }> }>(response)
     expect(body.tables).toHaveLength(45)
     expect(body.tables[0]?.rows).toBe(2)
     expect(body.tables[44]?.rows).toBe(3)

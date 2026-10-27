@@ -19,6 +19,7 @@ export const ZH_CN_CLOUDFLARE_STORAGE = {
   "cloudflare.storage.confirm_delete": "确认删除",
   "cloudflare.storage.create": "新建",
   "cloudflare.storage.create_modal_title": "新建",
+  "cloudflare.storage.count_rows": "统计行数",
   "cloudflare.storage.create_table": "建表",
   "cloudflare.storage.create_table_title": "新建表",
   "cloudflare.storage.d1": "D1 数据库",

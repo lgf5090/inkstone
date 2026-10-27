@@ -159,8 +159,8 @@ export const storageApi = {
   deleteD1Database: (accountId: string, databaseId: string) =>
     cfRequest<DeletedResponse>(d1Path(accountId, databaseId), { method: 'DELETE' }),
 
-  listD1Tables: (accountId: string, databaseId: string) =>
-    cfRequest<{ tables: D1Table[] }>(`${d1Path(accountId, databaseId)}/tables`),
+  listD1Tables: (accountId: string, databaseId: string, options: { counts?: boolean } = {}) =>
+    cfRequest<{ tables: D1Table[] }>(`${d1Path(accountId, databaseId)}/tables${options.counts ? '?counts=1' : ''}`),
 
   getD1TableSchema: (accountId: string, databaseId: string, tableName: string) =>
     cfRequest<{ schema: D1Column[] }>(

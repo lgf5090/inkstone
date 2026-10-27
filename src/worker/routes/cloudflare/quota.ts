@@ -1,18 +1,35 @@
 /**
- * `/api/cloudflare/quota` — today's allowance, refreshed from Cloudflare before it is answered.
+ * `/api/cloudflare/quota` — today's allowance.
  *
- * The refresh is what makes the dashboard's numbers the account's numbers rather than this
- * deployment's guess. It costs one GraphQL call per enabled product per active account, so it runs
- * on the quota read itself and nowhere else.
+ * The numbers come from the store the previous visit refreshed; Cloudflare is asked again behind the
+ * response, so opening the dashboard costs one read instead of one GraphQL call per product per
+ * account. The exception is a day with nothing counted yet: that answer would be blank, so it waits.
  */
 import { Hono } from 'hono'
 import type { AppBindings } from '../../env'
-import { quotaSummary, syncQuotaFromCloudflare } from '../../cloudflare/quota'
+import { hasStoredQuota, quotaSummary, syncQuotaFromCloudflare } from '../../cloudflare/quota'
 
 export const quotaRouter = new Hono<AppBindings>()
 
 quotaRouter.get('/', async (c) => {
   const userId = c.get('userId')
-  await syncQuotaFromCloudflare(c.env, userId)
-  return c.json({ accounts: await quotaSummary(c.env, userId) })
+  const [stored, counted] = await Promise.all([
+    quotaSummary(c.env, userId),
+    hasStoredQuota(c.env, userId),
+  ])
+  const refresh = syncQuotaFromCloudflare(c.env, userId).catch((error: unknown) => {
+    console.warn('[inkstone] Cloudflare quota refresh failed:', (error as Error)?.message)
+  })
+
+  if (stored.length > 0 && !counted) {
+    await refresh
+    return c.json({ accounts: await quotaSummary(c.env, userId) })
+  }
+
+  try {
+    c.executionCtx.waitUntil(refresh)
+  } catch {
+    // No execution context (unit tests, a runtime that has none): the refresh still runs unawaited.
+  }
+  return c.json({ accounts: stored })
 })
