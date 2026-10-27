@@ -363,14 +363,18 @@ export function StatsTab() {
             </AiPanel>
           </div>
 
-          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="flex min-h-56 flex-1 flex-col">
+          <ul
+            className="grid min-h-0 flex-1 auto-rows-fr gap-3"
+            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(16rem, 1fr))' }}
+          >
             {rows.map((account, index) => {
               const rate = percentOf(account.totalNeurons, NEURON_QUOTA)
               const tone = rate >= DANGER_RATE ? 'danger' : rate >= WARN_RATE ? 'warning' : 'neutral'
               return (
                 <li
                   key={account.accountId}
-                  className="flex min-w-0 flex-col rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-raised)] p-3 transition-colors hover:border-[var(--border-strong)]"
+                  className="flex min-h-0 min-w-0 flex-col rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-raised)] p-3 transition-colors hover:border-[var(--border-strong)]"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="flex min-w-0 items-center gap-2">
@@ -416,8 +420,8 @@ export function StatsTab() {
                       {t(account.warning === 'zero' ? 'cloudflare.ai_stats.warning_zero' : 'cloudflare.ai_stats.warning_local_estimate')}
                     </p>
                   ) : null}
-                  <div className="mt-2 border-t border-[var(--border-subtle)] pt-2">
-                    <div className="mb-1 flex items-center justify-between text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+                  <div className="mt-2 flex min-h-0 flex-1 flex-col border-t border-[var(--border-subtle)] pt-2">
+                    <div className="mb-1 flex shrink-0 items-center justify-between text-[length:var(--text-11)] text-[var(--text-quaternary)]">
                       <span>{t('cloudflare.ai.model_detail', { count: account.models.length })}</span>
                       <span className="tabular-nums">
                         {formatNumber(accountRequests(account))} {t('cloudflare.ai_stats.requests_short')}
@@ -426,7 +430,7 @@ export function StatsTab() {
                     {account.models.length === 0 ? (
                       <AiEmpty>{t('cloudflare.compact_card.no_data')}</AiEmpty>
                     ) : (
-                      <ul className="space-y-1">
+                      <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
                         {account.models.map((model) => (
                           <li key={model.modelId} className="flex min-w-0 items-center justify-between gap-2 text-[length:var(--text-11-5)]">
                             <span className="min-w-0 flex-1 truncate text-[var(--text-secondary)]" title={model.modelId}>
@@ -444,6 +448,7 @@ export function StatsTab() {
               )
             })}
           </ul>
+          </div>
         </>
       )}
     </div>
