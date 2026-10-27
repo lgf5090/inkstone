@@ -9,6 +9,7 @@ import { useUi } from '../../../store/ui'
 import { Button } from '../../../components/primitives'
 import { Input } from '../../../components/form'
 import { Menu } from '../../../components/overlay'
+import { toMarkdown } from './export-utils'
 
 const ROW_HEIGHT = 34
 const OVERSCAN = 8
@@ -197,6 +198,18 @@ export function ResultGrid({
     const ok = await copyText(selectedTsv)
     useUi.getState().toast({
       title: ok ? t('development.database.grid.copied_tsv') : t('development.database.common.copy_failed'),
+      tone: ok ? 'success' : 'danger',
+    })
+  }
+
+  const copySelectedMarkdown = async () => {
+    const selected = [...(selectedRows ?? [])].sort((left, right) => left - right)
+      .map((index) => rows[index])
+      .filter((row): row is unknown[] => Boolean(row))
+    if (selected.length === 0) return
+    const ok = await copyText(toMarkdown(columns, selected))
+    useUi.getState().toast({
+      title: ok ? t('development.database.grid.copied_markdown') : t('development.database.common.copy_failed'),
       tone: ok ? 'success' : 'danger',
     })
   }
@@ -429,6 +442,9 @@ export function ResultGrid({
             <span>{t('development.database.grid.selected_rows', { count: selectedRows.size })}</span>
             <Button variant="secondary" size="sm" onClick={() => void copySelected()}>
               {t('development.database.grid.copy_tsv')}
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => void copySelectedMarkdown()}>
+              {t('development.database.grid.copy_markdown')}
             </Button>
             <Button variant="ghost" size="sm" onClick={() => onSelectionChange(new Set())}>
               <X size={12} />

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import {
   ChevronLeft,
   ChevronRight,
+  Code2,
   Columns3,
   FileJson,
   FileText,
@@ -13,6 +14,7 @@ import {
   Search,
   Trash2,
   Undo2,
+  Wand2,
   X,
 } from 'lucide-react'
 import type { ParsedTable, QueryResult, TableSortRule } from '@shared/development/database/types'
@@ -29,6 +31,7 @@ import { SelectMenu } from '../../../components/select-menu'
 import { ResultGrid } from './ResultGrid'
 import { RowDetailPanel } from './RowDetailPanel'
 import { DistinctValuePanel } from './DistinctValuePanel'
+import { CellTransformDialog } from './CellTransformDialog'
 import { ExportPanel } from './ExportPanel'
 import { AggregatePanel } from './AggregatePanel'
 import { ToolbarPanel } from './ToolbarPanel'
@@ -96,6 +99,9 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
   const [contextMenu, setContextMenu] = useState<{ row: number; col: number; x: number; y: number } | null>(null)
   const [cellEditor, setCellEditor] = useState<{ row: number; col: number; value: string; format: 'text' | 'json' } | null>(null)
   const [distinctColumn, setDistinctColumn] = useState<string | null>(null)
+  const [transformCell, setTransformCell] = useState<{ row: number; col: number } | null>(null)
+  const [sqlOpen, setSqlOpen] = useState(false)
+  const [currentSql, setCurrentSql] = useState('')
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const searchColumns = useMemo(() => table.columns.map((column) => column.name), [table.columns])
@@ -123,6 +129,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
         ...(targetSort.length > 0 ? { sort: targetSort } : {}),
         ...(whereValue ? { whereSql: whereValue.sql, whereParams: whereValue.params } : {}),
       }, table.columns.map((column) => column.name))
+      setCurrentSql(data.sql)
 
       let result: QueryResult
       let rowid = -1
@@ -478,11 +485,28 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
       },
     },
     {
+      id: 'transform',
+      label: t('development.database.grid.transform_open'),
+      icon: <Wand2 size={13} />,
+      onSelect: () => {
+        setTransformCell({ row: contextMenu.row, col: contextMenu.col })
+        setContextMenu(null)
+      },
+    },
+    {
       id: 'copy-cell',
       label: t('development.database.table.copy_cell'),
       onSelect: () => {
         const value = rows[contextMenu.row]?.[contextMenu.col]
         void copy(value === null || value === undefined ? '' : String(value))
+        setContextMenu(null)
+      },
+    },
+    {
+      id: 'copy-columns',
+      label: t('development.database.table.copy_columns'),
+      onSelect: () => {
+        void copy(columns.join(', '))
         setContextMenu(null)
       },
     },
@@ -636,6 +660,10 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
         )}
         <ExportPanel columns={visibleColumns} rows={visible.rows} tableName={table.name} selectedRows={selectedRows} truncated={truncated} />
         <AggregatePanel columns={visibleColumns} rows={visible.rows} selectedRows={selectedRows} />
+        <Button variant="secondary" size="sm" onClick={() => setSqlOpen((value) => !value)} aria-pressed={sqlOpen}>
+          <Code2 size={14} />
+          {t('development.database.grid.show_sql')}
+        </Button>
         <Button ref={columnsAnchor} variant="secondary" size="sm" onClick={() => setColumnsOpen((value) => !value)} aria-haspopup="dialog" aria-expanded={columnsOpen}>
           <Columns3 size={14} />
           {t('development.database.table.columns')}
@@ -872,6 +900,19 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
           ))}
         </div>
       </Modal>
+
+      {sqlOpen && (
+        <div className="shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1.5">
+          <pre className="max-h-32 overflow-auto font-mono text-[length:var(--text-11)] leading-relaxed text-[var(--text-secondary)] whitespace-pre-wrap break-all">{currentSql || '—'}</pre>
+        </div>
+      )}
+
+      <CellTransformDialog
+        open={transformCell !== null}
+        column={transformCell ? columns[transformCell.col] ?? '' : ''}
+        value={transformCell ? rows[transformCell.row]?.[transformCell.col] : null}
+        onClose={() => setTransformCell(null)}
+      />
 
       <DistinctValuePanel
         open={distinctColumn !== null}

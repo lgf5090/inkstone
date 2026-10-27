@@ -11,6 +11,7 @@ import {
   Settings,
   Sparkles,
   Trash2,
+  Code2,
   Wand2,
   X,
 } from 'lucide-react'
@@ -109,6 +110,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
   const [executedSql, setExecutedSql] = useState('')
   const [activeResult, setActiveResult] = useState(0)
   const [running, setRunning] = useState(false)
+  const [sqlOpen, setSqlOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [progress, setProgress] = useState<{ current: number; total: number } | null>(null)
   const [cursor, setCursor] = useState({ line: 1, column: 0 })
@@ -533,6 +535,12 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
                   </Button>
                 ))}
               </div>
+              {active && (
+                <Button variant="secondary" size="sm" onClick={() => setSqlOpen((value) => !value)} aria-pressed={sqlOpen}>
+                  <Code2 size={14} />
+                  {t('development.database.grid.show_sql')}
+                </Button>
+              )}
               {active && <ExportPanel columns={active.columns} rows={filteredRows} tableName={resultTableName(executedSql) ?? t('development.database.query.result_name', { n: activeResult + 1 })} selectedRows={selectedRows} truncated={Boolean(active.truncated)} />}
               {active && <AggregatePanel columns={active.columns} rows={filteredRows} selectedRows={selectedRows} />}
               {active?.truncated && (
@@ -547,6 +555,11 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
                   {typeof active.meta?.rows_written === 'number' && (active.meta.rows_written as number) > 0 && <> · {t('development.database.query.rows_written', { count: active.meta.rows_written as number })}</>}
                 </span>
               )}
+            </div>
+          )}
+          {sqlOpen && executedSql && (
+            <div className="shrink-0 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1.5">
+              <pre className="max-h-32 overflow-auto font-mono text-[length:var(--text-11)] leading-relaxed text-[var(--text-secondary)] whitespace-pre-wrap break-all">{executedSql}</pre>
             </div>
           )}
           {active && (

@@ -142,6 +142,15 @@ export function toInsertSql(table: string, columns: string[], rows: unknown[][])
     .join('\n')
 }
 
+export function toMarkdown(columns: string[], rows: unknown[][]): string {
+  const escape = (value: unknown) => cellText(value, '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ')
+  const lines = [`| ${columns.map(escape).join(' | ')} |`, `| ${columns.map(() => '---').join(' | ')} |`]
+  for (const row of rows) {
+    lines.push(`| ${columns.map((_, index) => escape(row[index])).join(' | ')} |`)
+  }
+  return lines.join('\n')
+}
+
 export function toSchemaSql(model: {
   tables: { sql: string }[]
   indexes: { sql: string | null }[]

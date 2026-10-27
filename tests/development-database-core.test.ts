@@ -5,7 +5,8 @@ import { parseCreateTable, parseCreateIndex } from '../src/client/features/devel
 import { buildRebuildSql } from '../src/client/features/development/database/ddl'
 import { buildTableDataSql, loadSchema } from '../src/client/features/development/database/schema-utils'
 import { buildDistinctSql } from '../src/client/features/development/database/distinct-ops'
-import { projectColumns, toCsv, toSchemaSql } from '../src/client/features/development/database/export-utils'
+import { projectColumns, toCsv, toMarkdown, toSchemaSql } from '../src/client/features/development/database/export-utils'
+import { transformValue } from '../src/client/features/development/database/transform-value'
 import { buildWhere } from '../src/client/features/development/database/filter-ops'
 import { SCHEMA_PROMPT_BUDGET_CHARS, buildSchemaPrompt } from '../src/client/features/development/database/schema-prompt'
 import { buildInsert, buildUpdate, rowKeyOf } from '../src/client/features/development/database/row-ops'
@@ -162,6 +163,22 @@ describe('development database core', () => {
     expect(sql).toContain('GROUP BY 1 ORDER BY occurrences DESC, value ASC LIMIT 50')
     expect(buildDistinctSql('orders', 'missing', ['id', 'status'])).toBeNull()
     expect(buildDistinctSql('t', 'a"b', ['a"b'])).toContain('"a""b"')
+  })
+
+  it('transforms cell values without touching the source', () => {
+    expect(transformValue('  Hi  ', { kind: 'trim' })).toEqual({ ok: true, text: 'Hi' })
+    expect(transformValue('{"a":1}', { kind: 'json' })).toEqual({ ok: true, text: '{\n  "a": 1\n}' })
+    expect(transformValue('0', { kind: 'unixToDate', unit: 's' })).toEqual({ ok: true, text: '1970-01-01 00:00:00.000 UTC' })
+    expect(transformValue('2023-11-14T22:13:20Z', { kind: 'dateToUnix' })).toEqual({ ok: true, text: '1700000000' })
+    expect(transformValue('ff', { kind: 'baseConvert', fromBase: 16, toBase: 10 })).toEqual({ ok: true, text: '255' })
+    expect(transformValue('-ff', { kind: 'baseConvert', fromBase: 16, toBase: 2 })).toEqual({ ok: true, text: '-11111111' })
+    expect(transformValue('zz', { kind: 'baseConvert', fromBase: 10, toBase: 16 })).toEqual({ ok: false, error: 'invalid_number' })
+    expect(transformValue('not json', { kind: 'json' })).toEqual({ ok: false, error: 'invalid_json' })
+    expect(transformValue('x', { kind: 'dateToUnix' })).toEqual({ ok: false, error: 'invalid_date' })
+  })
+
+  it('renders markdown tables with escaped pipes and flattened newlines', () => {
+    expect(toMarkdown(['a', 'b'], [['x|y', 'line\nbreak']])).toBe('| a | b |\n| --- | --- |\n| x\\|y | line break |')
   })
 
   it('quotes CSV cells containing separators and newlines', () => {
