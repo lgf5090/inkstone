@@ -17,6 +17,7 @@ import { selectCurrentTrack, useMusicPlayer } from '../store/player'
 import { useMusicSettings } from '../store/settings'
 import { useMusicUi, type MusicNowPlayingTab } from '../store/ui'
 import { CommentsPane } from '../comments/CommentsPane'
+import { useCommentsCount, useCommentsStore } from '../comments/store'
 import { LyricsPane } from '../lyrics/LyricsPane'
 import { StagePane } from '../stage/StagePane'
 import { WallPane } from '../wall/WallPane'
@@ -44,11 +45,12 @@ function NowPlayingLayer(): ReactElement {
   const preferred = useMusicSettings((state) => state.local.preferredLyricsPane)
   const setLocal = useMusicSettings((state) => state.setLocal)
   const rootRef = useRef<HTMLDivElement>(null)
+  const commentsCount = useCommentsCount(current?.id)
   const podcast = current?.kind === 'podcast'
   const tabs: readonly MusicTabItem<MusicNowPlayingTab>[] = podcast
     ? [
         { value: 'program', label: musicText('music.program.title') },
-        { value: 'comments', label: musicText('music.comments.title') },
+        { value: 'comments', label: musicText('music.comments.title'), count: commentsCount ?? undefined },
         { value: 'queue', label: musicText('music.queue.title') },
       ]
     : [
@@ -56,7 +58,7 @@ function NowPlayingLayer(): ReactElement {
         { value: 'stage', label: musicText('music.stage.title') },
         { value: 'queue', label: musicText('music.queue.title'), count: queue.tracks.length },
         { value: 'wall', label: musicText('music.wall.title') },
-        { value: 'comments', label: musicText('music.comments.title') },
+        { value: 'comments', label: musicText('music.comments.title'), count: commentsCount ?? undefined },
       ]
   const immersive = !podcast && (tab === 'stage' || tab === 'wall')
 
@@ -84,6 +86,13 @@ function NowPlayingLayer(): ReactElement {
       applyMusicThemeColors(element, null)
     }
   }, [coverUrl, open])
+
+  // The comments tab's count and the quiet layer's hot page both come from this one request. It is
+  // per track, cached by the comments store, and skipped once the first page is already known.
+  useEffect(() => {
+    if (!open || !current) return
+    void useCommentsStore.getState().load(current.id)
+  }, [current?.id, open])
 
   const close = (): void => setNowPlayingOpen(false)
   const selectTab = (next: MusicNowPlayingTab): void => {
@@ -156,7 +165,11 @@ function NowPlayingLayer(): ReactElement {
             <p className="music-np__empty-hint">{musicText('music.playbar.hint')}</p>
           </div>
         ) : immersive ? (
-          <div className="music-np__immersive">
+          <div
+            role="tabpanel"
+            aria-label={musicText(tab === 'stage' ? 'music.stage.title' : 'music.wall.title')}
+            className="music-np__immersive"
+          >
             {pane}
             <NowPlayingSlimBar />
           </div>

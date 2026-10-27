@@ -1,0 +1,208 @@
+/* The song wall: a still heading over one oversized plane of queue covers.
+   wall-layout.ts owns the geometry; this file only paints what the layout placed. */
+
+.music-wall {
+  position: relative;
+  flex: 1 1 auto;
+  min-block-size: 0;
+  min-inline-size: 0;
+  overflow: hidden;
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  background:
+    radial-gradient(
+      120% 90% at 50% 0%,
+      color-mix(in oklab, var(--music-accent) 16%, transparent),
+      transparent 62%
+    );
+}
+
+.music-wall[data-dragging="true"] {
+  cursor: grabbing;
+}
+
+.music-wall__head {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-6) var(--sp-5);
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--music-stage-bg) 94%, transparent) 0%,
+    color-mix(in oklab, var(--music-stage-bg) 78%, transparent) 62%,
+    transparent 100%
+  );
+}
+
+.music-wall__head-cover {
+  --music-cover-size: var(--sp-12);
+  flex: 0 0 auto;
+  border-radius: var(--r-md);
+  box-shadow: var(--music-stage-shadow);
+}
+
+.music-wall__head-text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--sp-0-5);
+  min-inline-size: 0;
+}
+
+.music-wall__eyebrow {
+  margin: 0;
+  font-size: var(--text-10-5);
+  font-weight: 650;
+  letter-spacing: var(--tracking-section);
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.music-wall__title {
+  overflow: hidden;
+  margin: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-display);
+  font-size: var(--text-20);
+  font-weight: 650;
+  letter-spacing: var(--tracking-title);
+  line-height: 1.25;
+  color: var(--text-primary);
+}
+
+.music-wall__artist {
+  overflow: hidden;
+  margin: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-12);
+  color: var(--text-secondary);
+}
+
+.music-wall__lyric {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-0-5);
+  min-block-size: var(--sp-6);
+  margin-block-start: var(--sp-1);
+}
+
+.music-wall__lyric-line {
+  overflow: hidden;
+  margin: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-12-5);
+  line-height: 1.4;
+}
+
+.music-wall__lyric-line--current {
+  color: var(--music-accent);
+}
+
+.music-wall__lyric-line--next {
+  color: var(--text-tertiary);
+}
+
+.music-wall__lyric-line--empty {
+  color: var(--text-quaternary);
+}
+
+.music-wall__plane {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.music-wall__cell {
+  position: absolute;
+  inline-size: var(--music-wall-tile);
+  block-size: var(--music-wall-tile);
+  margin: 0;
+  padding: 0;
+}
+
+.music-wall__tile {
+  position: relative;
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.music-wall__tile .music-wall__cover {
+  --music-cover-size: var(--music-wall-tile);
+  border-radius: var(--r-md);
+  box-shadow: var(--music-stage-shadow);
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.music-wall__tile:hover .music-wall__cover {
+  transform: scale(1.04);
+}
+
+.music-wall__tile[aria-current="true"] .music-wall__cover {
+  box-shadow: 0 0 0 2px var(--music-accent), var(--music-stage-shadow);
+}
+
+.music-wall__tile[aria-current="true"]::after {
+  content: "";
+  position: absolute;
+  inset-block-end: var(--sp-1);
+  inset-inline-end: var(--sp-1);
+  inline-size: var(--sp-2);
+  block-size: var(--sp-2);
+  border-radius: var(--r-full);
+  background: var(--music-accent);
+  pointer-events: none;
+}
+
+.music-wall__tile:focus-visible {
+  outline: 2px solid var(--music-accent);
+  outline-offset: var(--sp-1);
+}
+
+@media (max-width: 767px) {
+  .music-wall__head {
+    padding: var(--sp-3) var(--sp-4);
+  }
+
+  .music-wall__title {
+    font-size: var(--text-17);
+  }
+
+  .music-wall__lyric-line--next {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .music-wall__tile .music-wall__cover {
+    transition: none;
+  }
+
+  .music-wall__tile:hover .music-wall__cover {
+    transform: none;
+  }
+}

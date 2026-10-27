@@ -1,0 +1,75 @@
+/* Radio controls. Both surfaces already define the shared tokens: the home card uses the app
+   palette, and Now Playing re-points the same tokens at its dark stage. */
+
+.music-radio-modes {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  background: var(--bg-sunken);
+}
+
+.music-radio-modes__option {
+  min-block-size: 28px;
+  padding-inline: 10px;
+  border: 0;
+  border-radius: calc(var(--r-md) - 2px);
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: var(--text-12);
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.music-radio-modes__option:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.music-radio-modes__option[aria-pressed='true'] {
+  color: var(--accent-on-soft);
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+
+.music-radio-modes__option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.music-radio-modes__option:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.music-radio-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  max-inline-size: 100%;
+  padding: 3px 4px 3px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-full, 999px);
+  background: var(--bg-raised);
+  color: var(--text-secondary);
+  font-size: var(--text-11);
+}
+
+.music-radio-chip__icon {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.music-radio-chip__name {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}

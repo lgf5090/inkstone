@@ -29,6 +29,7 @@ import type {
   MusicRadioDetail,
   MusicRadioSummary,
   MusicSearchResult,
+  MusicSearchSuggestion,
   MusicToplistSummary,
   MusicUserProfile,
 } from '../../../shared/music/api'
@@ -49,8 +50,8 @@ export interface MusicSearchQuery extends MusicPageQuery {
   keywords: string
 }
 
-export interface MusicSuggestionKeywords {
-  keywords: string[]
+export interface MusicSuggestionResult {
+  items: MusicSearchSuggestion[]
 }
 
 export interface MusicCommentQuery {
@@ -197,7 +198,7 @@ export interface MusicProvider {
 
   search(query: MusicSearchQuery): Promise<MusicSearchResult>
   searchHot(): Promise<MusicHotSearch>
-  suggest(keywords: string): Promise<MusicSuggestionKeywords>
+  suggest(keywords: string): Promise<MusicSuggestionResult>
 
   home(): Promise<MusicHome>
   dailyTracks(): Promise<MusicTrack[]>

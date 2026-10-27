@@ -11,12 +11,14 @@
  */
 import { useCallback, useEffect, useId, useRef, useState, type ReactElement } from 'react'
 import { Search, X } from 'lucide-react'
-import { formatDuration } from '@shared/music/format'
+import { formatDuration, formatPlayCount } from '@shared/music/format'
+import type { MusicSearchSuggestion } from '@shared/music/api'
 import { MUSIC_SEARCH_TYPES, type MusicSearchType } from '@shared/music/model'
 import { Badge, Button, IconButton } from '../../../components/primitives'
 import { Empty, Skeleton } from '../../../components/feedback'
 import { confirm } from '../../../components/overlay'
 import { navigateToAddress, replaceAddress } from '../../../lib/app-history'
+import { useLocale } from '../../../lib/i18n'
 import { musicApi } from '../api'
 import { MusicSearchBox } from '../components/MusicSearchBox'
 import { MusicTabs } from '../components/Tabs'
@@ -72,6 +74,7 @@ export function SearchPage({ query }: SearchPageProps): ReactElement {
   const addressed = useRef(query.trim())
   const hotId = useId()
   const historyId = useId()
+  const locale = useLocale()
   const history = useMusicUi((state) => state.searchHistory)
   const pushSearchHistory = useMusicUi((state) => state.pushSearchHistory)
   const removeSearchHistory = useMusicUi((state) => state.removeSearchHistory)
@@ -117,6 +120,22 @@ export function SearchPage({ query }: SearchPageProps): ReactElement {
     replaceAddress('/music/search', next ? `q=${encodeURIComponent(next)}` : '')
     if (remember && next) pushSearchHistory(next)
   }, [pushSearchHistory])
+
+  const pickSuggestion = useCallback((suggestion: MusicSearchSuggestion): void => {
+    if (suggestion.kind === 'song') {
+      applyTerm(suggestion.name, true)
+      return
+    }
+    if (suggestion.kind === 'artist') {
+      navigateToAddress(musicPathFor({ kind: 'artist', id: suggestion.id }))
+      return
+    }
+    if (suggestion.kind === 'album') {
+      navigateToAddress(musicPathFor({ kind: 'album', id: suggestion.id }))
+      return
+    }
+    navigateToAddress(musicPathFor({ kind: 'playlist', id: suggestion.id }))
+  }, [applyTerm])
 
   const clearHistory = (): void => {
     void confirm({
@@ -208,6 +227,50 @@ export function SearchPage({ query }: SearchPageProps): ReactElement {
       )
     }
 
+    if (type === 'artist') {
+      if (result.artists.length === 0) return noResults
+      return (
+        <>
+          {errorBar}
+          <div className="music-card-grid">
+            {result.artists.map((item) => (
+              <MusicCard
+                key={item.id}
+                round
+                coverSrc={item.coverUrl}
+                title={item.name}
+                meta={musicText('music.common.followers', {
+                  count: formatPlayCount(item.followCount, locale),
+                })}
+                onOpen={() => navigateToAddress(musicPathFor({ kind: 'artist', id: item.id }))}
+              />
+            ))}
+          </div>
+        </>
+      )
+    }
+
+    if (type === 'user') {
+      if (result.users.length === 0) return noResults
+      return (
+        <>
+          {errorBar}
+          <div className="music-card-grid">
+            {result.users.map((item) => (
+              <MusicCard
+                key={item.id}
+                round
+                coverSrc={item.avatarUrl}
+                title={item.nickname}
+                meta={item.signature}
+                onOpen={() => navigateToAddress(musicPathFor({ kind: 'user', id: item.id }))}
+              />
+            ))}
+          </div>
+        </>
+      )
+    }
+
     if (type === 'mv') {
       if (result.mvs.length === 0) return noResults
       return (
@@ -283,6 +346,7 @@ export function SearchPage({ query }: SearchPageProps): ReactElement {
             value={text}
             onChange={setText}
             onCommit={(value) => applyTerm(value, true)}
+            onPickSuggestion={pickSuggestion}
           />
         </div>
         <Button type="submit" variant="primary" icon={<Search size={14} />}>

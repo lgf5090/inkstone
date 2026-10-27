@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactElement } from 'react'
 import { Search, X } from 'lucide-react'
+import type { MusicSearchSuggestion, MusicSuggestionKind } from '@shared/music/api'
 import { IconButton } from '../../../components/primitives'
 import { Input } from '../../../components/form'
 import { isImeComposing } from '../../../lib/ime'
@@ -7,30 +8,47 @@ import { musicApi } from '../api'
 import { useMusicUi } from '../store/ui'
 import { musicText } from './labels'
 
+/** A suggestion row is either a typed entity or a term saved on this device. */
+type Candidate = MusicSearchSuggestion | string
+
+const SUGGESTION_TYPE_KEYS: Record<MusicSuggestionKind, string> = {
+  song: 'music.search.type.song',
+  artist: 'music.search.type.artist',
+  album: 'music.search.type.album',
+  playlist: 'music.search.type.playlist',
+}
+
+function candidateName(candidate: Candidate): string {
+  return typeof candidate === 'string' ? candidate : candidate.name
+}
+
 /**
  * The search field with its two suggestion sources: this device's history when the box is empty,
- * and the provider's keyword suggestions while typing. The listbox is optional for the mouse, but
+ * and the provider's typed suggestions while typing. The listbox is optional for the mouse, but
  * arrow keys and Enter are the same path a reader can use without one.
  */
 export function MusicSearchBox({
   value,
   onChange,
   onCommit,
+  onPickSuggestion,
 }: {
   value: string
   onChange: (value: string) => void
   onCommit: (value: string) => void
+  /** Opens a suggested entity directly; without it a pick falls back to searching its name. */
+  onPickSuggestion?: (suggestion: MusicSearchSuggestion) => void
 }): ReactElement {
   const listId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
   const blurTimer = useRef<number | null>(null)
   const [open, setOpen] = useState(false)
-  const [suggestions, setSuggestions] = useState<string[]>([])
+  const [suggestions, setSuggestions] = useState<MusicSearchSuggestion[]>([])
   const [loading, setLoading] = useState(false)
   const [active, setActive] = useState(-1)
   const history = useMusicUi((state) => state.searchHistory)
   const term = value.trim()
-  const items = term ? suggestions : history
+  const items: Candidate[] = term ? suggestions : history
   const listOpen = open && (loading || items.length > 0)
 
   useEffect(() => {
@@ -50,6 +68,7 @@ export function MusicSearchBox({
           setActive(-1)
         })
         .catch(() => {
+          // A failed suggestion is a quiet miss: the reader can still press Enter to search.
           if (current) setSuggestions([])
         })
         .finally(() => {
@@ -74,8 +93,10 @@ export function MusicSearchBox({
     }, 120)
   }
 
-  const choose = (value: string): void => {
-    onCommit(value)
+  const choose = (candidate: Candidate): void => {
+    if (typeof candidate === 'string') onCommit(candidate)
+    else if (onPickSuggestion) onPickSuggestion(candidate)
+    else onCommit(candidate.name)
     setOpen(false)
     setActive(-1)
   }
@@ -91,6 +112,12 @@ export function MusicSearchBox({
       setActive((index) => (index + step + items.length) % items.length)
       return
     }
+    if (event.key === 'Home' || event.key === 'End') {
+      if (!open || items.length === 0) return
+      event.preventDefault()
+      setActive(event.key === 'Home' ? 0 : items.length - 1)
+      return
+    }
     if (event.key === 'Escape') {
       setOpen(false)
       setActive(-1)
@@ -98,7 +125,8 @@ export function MusicSearchBox({
     }
     if (event.key === 'Enter') {
       event.preventDefault()
-      if (open && active >= 0 && items[active]) choose(items[active])
+      const candidate = open && active >= 0 ? items[active] : undefined
+      if (candidate) choose(candidate)
       else onCommit(value)
     }
   }
@@ -157,24 +185,41 @@ export function MusicSearchBox({
               <li role="status" className="px-2 py-1.5 text-[length:var(--text-12)] text-[var(--text-tertiary)]">
                 {musicText('music.search.suggest.loading')}
               </li>
-            ) : items.map((item, index) => (
-              <li key={`${item}-${index}`} role="presentation">
-                <button
-                  id={`${listId}-${index}`}
-                  type="button"
-                  role="option"
-                  aria-selected={active === index}
-                  className={active === index
-                    ? 'flex w-full items-center rounded-[var(--r-sm)] bg-[var(--bg-hover)] px-2 py-1.5 text-left text-[length:var(--text-12-5)] text-[var(--text-primary)]'
-                    : 'flex w-full items-center rounded-[var(--r-sm)] px-2 py-1.5 text-left text-[length:var(--text-12-5)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => choose(item)}
-                >
-                  <Search size={12} aria-hidden="true" className="me-2 shrink-0 text-[var(--text-quaternary)]" />
-                  <span className="truncate">{item}</span>
-                </button>
-              </li>
-            ))}
+            ) : items.map((item, index) => {
+              const suggestion = typeof item === 'string' ? null : item
+              return (
+                <li key={suggestion ? `${suggestion.kind}:${suggestion.id}` : `${item}-${index}`} role="presentation">
+                  <button
+                    id={`${listId}-${index}`}
+                    type="button"
+                    role="option"
+                    aria-selected={active === index}
+                    className={active === index
+                      ? 'flex w-full items-center rounded-[var(--r-sm)] bg-[var(--bg-hover)] px-2 py-1.5 text-left text-[length:var(--text-12-5)] text-[var(--text-primary)]'
+                      : 'flex w-full items-center rounded-[var(--r-sm)] px-2 py-1.5 text-left text-[length:var(--text-12-5)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => choose(item)}
+                  >
+                    <Search size={12} aria-hidden="true" className="me-2 shrink-0 text-[var(--text-quaternary)]" />
+                    {suggestion ? (
+                      <span className="flex min-w-0 flex-1 items-baseline gap-2">
+                        <span className="shrink-0 text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-section)] text-[var(--text-quaternary)]">
+                          {musicText(SUGGESTION_TYPE_KEYS[suggestion.kind])}
+                        </span>
+                        <span className="truncate">{suggestion.name}</span>
+                        {suggestion.detail && (
+                          <span className="truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                            {suggestion.detail}
+                          </span>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="truncate">{candidateName(item)}</span>
+                    )}
+                  </button>
+                </li>
+              )
+            })}
           </ul>
         </div>
       )}

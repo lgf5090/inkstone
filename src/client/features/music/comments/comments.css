@@ -1,0 +1,335 @@
+.music-comments {
+  gap: 0;
+  padding: var(--sp-2) var(--sp-4) var(--sp-6);
+}
+
+.music-comments__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-2) 0 var(--sp-3);
+}
+
+.music-comments__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-15);
+  font-weight: 650;
+  letter-spacing: var(--tracking-title);
+  color: var(--text-primary);
+}
+
+.music-comments__total {
+  font-size: var(--text-11);
+  color: var(--text-quaternary);
+  font-variant-numeric: tabular-nums;
+}
+
+.music-comments__section {
+  display: flex;
+  flex-direction: column;
+}
+
+.music-comments__section-title {
+  margin: var(--sp-3) 0 var(--sp-1);
+  font-size: var(--text-11);
+  font-weight: 650;
+  letter-spacing: var(--tracking-section);
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.music-comments__row {
+  display: flex;
+  gap: var(--sp-2-5);
+  padding: var(--sp-2-5) 0;
+  border-block-end: 1px solid var(--border-subtle);
+}
+
+.music-comments__main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-inline-size: 0;
+  flex: 1 1 auto;
+}
+
+.music-comments__meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  min-inline-size: 0;
+}
+
+.music-comments__author {
+  overflow: hidden;
+  font-size: var(--text-12-5);
+  font-weight: 600;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.music-comments__time {
+  flex: 0 0 auto;
+  font-size: var(--text-11);
+  color: var(--text-quaternary);
+}
+
+.music-comments__reply {
+  margin: 0;
+  padding: var(--sp-1) var(--sp-2);
+  border-inline-start: 2px solid var(--border-strong);
+  border-radius: var(--r-xs);
+  background: color-mix(in oklab, var(--bg-raised) 60%, transparent);
+  overflow: hidden;
+  font-size: var(--text-11-5);
+  line-height: 1.5;
+  color: var(--text-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.music-comments__reply-label {
+  color: var(--text-quaternary);
+}
+
+.music-comments__reply-author {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.music-comments__content {
+  margin: 0;
+  font-size: var(--text-13);
+  line-height: 1.65;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.music-comments__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  min-block-size: 20px;
+}
+
+.music-comments__ip {
+  overflow: hidden;
+  font-size: var(--text-10-5);
+  color: var(--text-quaternary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.music-comments__like {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  margin-inline-start: auto;
+  padding: var(--sp-1) var(--sp-1-5);
+  border: 0;
+  border-radius: var(--r-full);
+  background: transparent;
+  color: var(--text-quaternary);
+  font-size: var(--text-11);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+}
+
+.music-comments__like:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.music-comments__like:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.music-comments__like--on {
+  color: var(--accent);
+}
+
+.music-comments__like:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.music-comments__likes {
+  min-inline-size: 1ch;
+}
+
+.music-comments__empty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  align-items: center;
+  justify-content: center;
+  min-block-size: 160px;
+  text-align: center;
+}
+
+.music-comments__empty-title {
+  margin: 0;
+  font-size: var(--text-13);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.music-comments__empty-hint {
+  margin: 0;
+  font-size: var(--text-11-5);
+  color: var(--text-quaternary);
+}
+
+.music-comments__error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-1-5);
+  margin-block: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-md);
+  background: var(--bg-raised);
+}
+
+.music-comments__error-title {
+  margin: 0;
+  font-size: var(--text-12-5);
+  font-weight: 600;
+  color: var(--danger);
+}
+
+.music-comments__error-detail {
+  margin: 0;
+  font-size: var(--text-11-5);
+  line-height: 1.5;
+  color: var(--text-tertiary);
+  overflow-wrap: anywhere;
+}
+
+.music-comments__more {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  padding-block: var(--sp-4) var(--sp-2);
+}
+
+.music-comments__sentinel {
+  block-size: 1px;
+  inline-size: 100%;
+}
+
+.music-comments__more-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  text-align: center;
+}
+
+.music-comments__more-error p {
+  margin: 0;
+  font-size: var(--text-11-5);
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+
+.music-comments__no-more {
+  margin: var(--sp-4) 0 0;
+  text-align: center;
+  font-size: var(--text-11);
+  color: var(--text-quaternary);
+}
+
+.music-quiet-comment {
+  position: absolute;
+  inset-inline: var(--sp-4);
+  inset-block-end: calc(var(--sp-16) + env(safe-area-inset-bottom));
+  z-index: var(--z-float);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2-5);
+  max-inline-size: 420px;
+  margin-inline: auto;
+  padding: var(--sp-2-5) var(--sp-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-lg);
+  background: color-mix(in oklab, var(--bg-overlay, var(--bg-raised)) 84%, transparent);
+  box-shadow: var(--shadow-pop);
+  backdrop-filter: blur(10px);
+  pointer-events: auto;
+}
+
+.music-quiet-comment__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-inline-size: 0;
+}
+
+.music-quiet-comment__meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  margin: 0;
+}
+
+.music-quiet-comment__author {
+  overflow: hidden;
+  font-size: var(--text-11-5);
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.music-quiet-comment__time {
+  flex: 0 0 auto;
+  font-size: var(--text-10-5);
+  color: var(--text-quaternary);
+}
+
+.music-quiet-comment__content {
+  margin: 0;
+  font-size: var(--text-13);
+  line-height: 1.55;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.music-quiet-comment__open {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--text-11);
+  color: var(--accent);
+  cursor: pointer;
+  border-radius: var(--r-xs);
+}
+
+.music-quiet-comment__open:hover {
+  text-decoration: underline;
+}
+
+.music-quiet-comment__open:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .music-comments__like {
+    transition: none;
+  }
+}

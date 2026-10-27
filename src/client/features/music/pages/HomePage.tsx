@@ -11,11 +11,11 @@ import { useId, useState, type ReactElement } from 'react'
 import { ArrowUpRight, LogIn, Play, Radio } from 'lucide-react'
 import { formatPlayCount } from '@shared/music/format'
 import type { MusicAlbumSummary, MusicArtistSummary, MusicPlaylistSummary } from '@shared/music/api'
+import type { MusicFmMode } from '@shared/music/model'
 import { Button, Badge } from '../../../components/primitives'
 import { Empty, Skeleton } from '../../../components/feedback'
 import { useLocale } from '../../../lib/i18n'
 import { navigateToAddress } from '../../../lib/app-history'
-import { useUi } from '../../../store/ui'
 import { musicApi } from '../api'
 import { Cover } from '../components/Cover'
 import { SectionHeader } from '../components/SectionHeader'
@@ -23,10 +23,12 @@ import { SongList } from '../components/SongList'
 import { musicText } from '../components/labels'
 import { musicPathFor } from '../music-address'
 import { useMusicQuery } from '../query'
+import { RadioModeMenu } from '../radio/RadioModeMenu'
+import { useMusicPlayer } from '../store/player'
 import { useMusicSettings } from '../store/settings'
 import { DetailHeroSkeleton } from './parts/Hero'
 import { CardGridSkeleton, MusicCard } from './parts/MediaCards'
-import { MusicPageBody, PageError, TrackListSkeleton, musicErrorMessage } from './parts/PageState'
+import { MusicPageBody, PageError, TrackListSkeleton } from './parts/PageState'
 import { playTracks } from './parts/playback'
 
 /** Six to eight cards per shelf is what the spec asks for; more than that is a browse screen. */
@@ -69,9 +71,10 @@ function HomeSkeleton(): ReactElement {
 }
 
 export function HomePage(): ReactElement {
-  const toast = useUi((state) => state.toast)
   const locale = useLocale()
-  const [fmBusy, setFmBusy] = useState(false)
+  const [fmMode, setFmMode] = useState<MusicFmMode>('DEFAULT')
+  const startRadio = useMusicPlayer((state) => state.startRadio)
+  const radioLoading = useMusicPlayer((state) => state.radioLoading)
   const playlistsId = useId()
   const albumsId = useId()
   const tracksId = useId()
@@ -99,24 +102,8 @@ export function HomePage(): ReactElement {
     <h1 className="music-section-header__title">{musicText('music.page.home')}</h1>
   )
 
-  const startFm = async (): Promise<void> => {
-    setFmBusy(true)
-    try {
-      const answer = await musicApi.fm()
-      if (answer.tracks.length === 0) {
-        toast({ title: musicText('music.home.fm.empty'), tone: 'warning' })
-        return
-      }
-      playTracks(answer.tracks)
-    } catch (error) {
-      toast({
-        title: musicText('music.home.fm.error'),
-        description: musicErrorMessage(error),
-        tone: 'danger',
-      })
-    } finally {
-      setFmBusy(false)
-    }
+  const startFm = (): void => {
+    void startRadio(musicText('music.home.fm.title'), fmMode)
   }
 
   if (home.status === 'loading' && !data) {
@@ -223,16 +210,17 @@ export function HomePage(): ReactElement {
           {musicText('music.home.fm.description')}
         </p>
       </div>
-      <Button
-        variant="primary"
-        icon={<Radio size={14} />}
-        loading={fmBusy}
-        onClick={() => {
-          void startFm()
-        }}
-      >
-        {musicText('music.home.fm.play')}
-      </Button>
+      <div className="flex flex-col gap-3">
+        <RadioModeMenu value={fmMode} onChange={setFmMode} disabled={radioLoading} />
+        <Button
+          variant="primary"
+          icon={<Radio size={14} />}
+          loading={radioLoading}
+          onClick={startFm}
+        >
+          {musicText('music.home.fm.play')}
+        </Button>
+      </div>
     </aside>
   ) : (
     <aside

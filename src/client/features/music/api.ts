@@ -29,6 +29,7 @@ import type {
   MusicRadioDetail,
   MusicRadioSummary,
   MusicSearchResult,
+  MusicSearchSuggestion,
   MusicToplistSummary,
   MusicUploadInit,
   MusicUploadPartResult,
@@ -199,7 +200,8 @@ export const musicApi = {
 
   search: (type: MusicSearchType, keywords: string, page = 1, limit = 30) =>
     request<MusicSearchResult>(`/api/music/search${query({ type, q: keywords, page, limit })}`),
-  suggest: (keywords: string) => request<{ items: string[] }>(`/api/music/search/suggest${query({ q: keywords })}`),
+  suggest: (keywords: string) =>
+    request<{ items: MusicSearchSuggestion[] }>(`/api/music/search/suggest${query({ q: keywords })}`),
   hot: () => request<{ items: string[] }>('/api/music/search/hot'),
 
   playlistSquare: (page = 1, limit = 30, cat = '', order = 'hot') =>
@@ -221,7 +223,7 @@ export const musicApi = {
       `/api/music/artists/${encodeURIComponent(id)}/songs${query({ page, limit, order })}`,
     ),
   artistAlbums: (id: string, page = 1, limit = 30) =>
-    request<MusicPage<MusicPlaylistSummary>>(`/api/music/artists/${encodeURIComponent(id)}/albums${query({ page, limit })}`),
+    request<MusicPage<MusicAlbumSummary>>(`/api/music/artists/${encodeURIComponent(id)}/albums${query({ page, limit })}`),
   artistFollow: (id: string, follow: boolean) =>
     request<{ followed: boolean }>(`/api/music/artists/${encodeURIComponent(id)}/follow`, {
       method: 'POST',

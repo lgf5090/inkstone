@@ -50,7 +50,7 @@ import {
   type MusicRadioCategory,
   type MusicRadioListQuery,
   type MusicStreamSource,
-  type MusicSuggestionKeywords,
+  type MusicSuggestionResult,
 } from '../types'
 import {
   normalizeAccount,
@@ -74,6 +74,7 @@ import {
   normalizeRadioDetail,
   normalizeRadioSummary,
   normalizeSearch,
+  normalizeSearchSuggestions,
   normalizeStreamSource,
   normalizeToplistSummary,
   normalizeTrack,
@@ -314,15 +315,9 @@ export class ExternalNeteaseProvider implements MusicProvider, NeteaseLoginTrans
     }
   }
 
-  async suggest(keywords: string): Promise<MusicSuggestionKeywords> {
+  async suggest(keywords: string): Promise<MusicSuggestionResult> {
     const body = await this.bodyOf('/search/suggest', { keywords })
-    const result = record(body.result)
-    const names = [
-      ...list(result.songs).map((item) => text(record(item).name)),
-      ...list(result.artists).map((item) => text(record(item).name)),
-      ...list(result.albums).map((item) => text(record(item).name)),
-    ]
-    return { keywords: [...new Set(names.filter(Boolean))].slice(0, 10) }
+    return { items: normalizeSearchSuggestions(body) }
   }
 
   async home(): Promise<MusicHome> {

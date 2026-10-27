@@ -13,12 +13,14 @@ function line(fullText: string, duration = 4_000, startTime = 1_000): LyricLine 
 }
 
 describe('estimated word rhythm for LRC-only lines', () => {
-  it('cuts CJK text per character and shares the line box by character count', () => {
-    const words = synthesizeWordTimings(line('你好世界'))
-    expect(words.map((word) => word.text)).toEqual(['你', '好', '世', '界'])
-    expect(words.map((word) => word.startTime)).toEqual([1_000, 2_000, 3_000, 4_000])
-    expect(words.map((word) => word.duration)).toEqual([1_000, 1_000, 1_000, 1_000])
-    expect(words.at(-1)!.startTime + words.at(-1)!.duration).toBe(5_000)
+  // Singing takes most of a line, not the pause before the next one: the last token ends at 85 % of
+  // the line box instead of being stretched over the silence that follows.
+  it('shares only 85 % of a CJK line and leaves the tail empty', () => {
+    const words = synthesizeWordTimings(line('\u4f60\u597d\u4e16\u754c'))
+    expect(words.map((word) => word.text)).toEqual(['\u4f60', '\u597d', '\u4e16', '\u754c'])
+    expect(words.map((word) => word.startTime)).toEqual([1_000, 1_850, 2_700, 3_550])
+    expect(words.map((word) => word.duration)).toEqual([850, 850, 850, 850])
+    expect(words.at(-1)!.startTime + words.at(-1)!.duration).toBe(4_400)
   })
 
   it('cuts Latin text by word, keeps punctuation on the word before it and marks the space', () => {
@@ -27,15 +29,15 @@ describe('estimated word rhythm for LRC-only lines', () => {
     expect(words[0]!.space).toBe(true)
     expect(words[1]!.space).toBe(true)
     expect(words[2]!.space).toBeUndefined()
-    // Weights 6 / 5 / 6 over 4000 ms.
-    expect(words.map((word) => word.duration)).toEqual([1_412, 1_176, 1_412])
-    expect(words.at(-1)!.startTime + words.at(-1)!.duration).toBe(5_000)
+    // Weights 6 / 5 / 6 over 85 % of 4000 ms.
+    expect(words.map((word) => word.duration)).toEqual([1_200, 1_000, 1_200])
+    expect(words.at(-1)!.startTime + words.at(-1)!.duration).toBe(4_400)
   })
 
   it('mixes scripts and never lets the last word outlive the line', () => {
-    const words = synthesizeWordTimings(line('Hi 你好', 3_000))
-    expect(words.map((word) => word.text)).toEqual(['Hi', '你', '好'])
-    expect(words.at(-1)!.startTime + words.at(-1)!.duration).toBe(4_000)
+    const words = synthesizeWordTimings(line('Hi \u4f60\u597d', 3_000))
+    expect(words.map((word) => word.text)).toEqual(['Hi', '\u4f60', '\u597d'])
+    expect(words.at(-1)!.startTime + words.at(-1)!.duration).toBe(3_550)
     for (const word of words) {
       expect(word.startTime).toBeGreaterThanOrEqual(1_000)
       expect(word.startTime + word.duration).toBeLessThanOrEqual(4_000)
@@ -44,16 +46,16 @@ describe('estimated word rhythm for LRC-only lines', () => {
 
   it('returns nothing for an empty line and zero-duration words for a zero-length line', () => {
     expect(synthesizeWordTimings(line('   '))).toEqual([])
-    const words = synthesizeWordTimings(line('你好', 0))
+    const words = synthesizeWordTimings(line('\u4f60\u597d', 0))
     expect(words).toHaveLength(2)
     expect(words.every((word) => word.duration === 0 && word.startTime === 1_000)).toBe(true)
   })
 
   it('keeps a punctuation-only line as a token instead of dropping it', () => {
-    const words = synthesizeWordTimings(line('……', 1_000))
+    const words = synthesizeWordTimings(line('\u2026\u2026', 1_000))
     expect(words).toHaveLength(1)
-    expect(words[0]!.text).toBe('……')
-    expect(words[0]!.duration).toBe(1_000)
+    expect(words[0]!.text).toBe('\u2026\u2026')
+    expect(words[0]!.duration).toBe(850)
   })
 
   it('reports the word under the playhead and how far through it the voice is', () => {
@@ -70,6 +72,26 @@ describe('estimated word rhythm for LRC-only lines', () => {
     expect(lyricWordStateAt([], 3_000)).toEqual({ index: -1, progress: 0 })
     expect(lyricWordStateAt([{ text: 'x', startTime: 1_000, duration: 0 }], 1_000))
       .toEqual({ index: 0, progress: 1 })
+  })
+
+  // A playhead only moves forward, so the state it reads must never step back or leave [0, 1].
+  it('stays monotonic and clamps outside the line', () => {
+    const words = [
+      { text: 'a', startTime: 1_000, duration: 500 },
+      { text: 'b', startTime: 1_500, duration: 0 },
+      { text: 'c', startTime: 2_000, duration: 400 },
+    ]
+    let previous = -1
+    for (const time of [-5_000, 0, 999, 1_000, 1_249, 1_500, 1_999, 2_000, 2_200, 2_400, 9_000]) {
+      const state = lyricWordStateAt(words, time)
+      expect(state.index).toBeGreaterThanOrEqual(previous)
+      expect(state.progress).toBeGreaterThanOrEqual(0)
+      expect(state.progress).toBeLessThanOrEqual(1)
+      previous = state.index
+    }
+    expect(lyricWordStateAt(words, -5_000)).toEqual({ index: -1, progress: 0 })
+    expect(lyricWordStateAt(words, 9_000)).toEqual({ index: 2, progress: 1 })
+    expect(lyricWordStateAt(words, Number.NaN)).toEqual({ index: -1, progress: 0 })
   })
 
   it('flags an estimate when the provider had no word timing and keeps real timing when it did', () => {

@@ -14,6 +14,8 @@ import { cn } from '../../../lib/cn'
 import { useUi as useAppUi } from '../../../store/ui'
 import { Cover } from '../components/Cover'
 import { musicText } from '../components/labels'
+import { RadioChip } from '../radio/RadioChip'
+import { NowPlayingQualityBadge } from './QualityBadge'
 import { useMusicLibrary } from '../store/library'
 import { selectCurrentTrack, useMusicPlayer } from '../store/player'
 import { NowPlayingScrubber } from './Scrubber'
@@ -58,6 +60,7 @@ export function NowPlayingSidebar({ onClose }: { onClose: () => void }): ReactEl
         radius="lg"
         className="music-np__cover"
       />
+      <RadioChip />
       <div className="music-np__heading">
         <h2 className="music-np__title" title={current.title}>{current.title}</h2>
         <p className="music-np__artists">
@@ -83,6 +86,7 @@ export function NowPlayingSidebar({ onClose }: { onClose: () => void }): ReactEl
       </div>
 
       <div className="music-np__actions">
+        <NowPlayingQualityBadge />
         <IconButton
           label={musicText(favorite ? 'music.song.unfavorite' : 'music.song.favorite')}
           active={favorite}
@@ -112,7 +116,7 @@ export function NowPlayingSidebar({ onClose }: { onClose: () => void }): ReactEl
           {muted ? <VolumeX size={15} /> : <Volume2 size={15} />}
         </IconButton>
         <Slider
-          className="flex-1"
+          className="music-np__volume-slider flex-1"
           label={musicText('music.playbar.volume')}
           value={Math.round((muted ? 0 : volume) * 100)}
           min={0}

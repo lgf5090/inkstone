@@ -8,6 +8,13 @@
   --music-stage-hairline: color-mix(in oklab, white 14%, transparent);
   --music-stage-surface: color-mix(in oklab, white 8%, transparent);
   --music-stage-shadow: 0 24px 60px -20px rgb(0 0 0 / 0.65);
+  /* The cover may publish its own tint on this element; until it does, the app accent is the answer.
+     Do not alias --accent back to --music-accent: that is a cycle and leaves both undefined. */
+  --music-accent: var(--accent);
+  --music-accent-soft: var(--accent-soft);
+  --music-on-accent: var(--accent-contrast);
+  --accent-soft: color-mix(in oklab, var(--music-accent) 22%, transparent);
+  --accent-on-soft: var(--music-stage-fg);
   /* Re-point the shared primitives' tokens at the dark stage. */
   --text-primary: var(--music-stage-fg);
   --text-secondary: color-mix(in oklab, white 72%, transparent);
@@ -19,9 +26,6 @@
   --bg-hover: color-mix(in oklab, white 12%, transparent);
   --border-subtle: var(--music-stage-hairline);
   --border-default: color-mix(in oklab, white 22%, transparent);
-  --accent: var(--music-accent);
-  --accent-soft: color-mix(in oklab, var(--music-accent) 22%, transparent);
-  --accent-on-soft: var(--music-stage-fg);
   --scrim: rgb(0 0 0 / 0.6);
   color-scheme: dark;
   position: relative;
@@ -291,6 +295,26 @@
   inline-size: 100%;
   max-inline-size: 260px;
   padding-block-start: var(--sp-1);
+}
+
+.music-np__volume .ink-slider > span {
+  display: none;
+}
+
+.music-np__volume-slider > span {
+  display: none;
+}
+
+.music-np__volume .ink-slider::-webkit-slider-runnable-track {
+  background: linear-gradient(
+    to right,
+    var(--accent) 0 var(--pct),
+    color-mix(in oklab, white 18%, transparent) var(--pct)
+  );
+}
+
+.music-np__volume .ink-slider::-moz-range-track {
+  background: color-mix(in oklab, white 18%, transparent);
 }
 
 .music-np__pane {

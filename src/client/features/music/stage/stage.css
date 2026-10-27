@@ -1,0 +1,405 @@
+/* The stage pane. Colours come from the Now Playing stage tokens; the only values here are the
+   layout's own rhythm (gaps, delays, the long-line scale). */
+
+.music-stage {
+  --stage-font-size: clamp(36px, 4.5vw, 64px);
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-block-size: 0;
+  min-inline-size: 0;
+  padding: var(--sp-3) clamp(var(--sp-4), 4vw, 40px) var(--sp-2);
+  color: var(--music-stage-fg);
+}
+
+.music-stage__toolbar {
+  position: absolute;
+  inset-block-start: var(--sp-3);
+  inset-inline-end: var(--sp-4);
+  z-index: 3;
+}
+
+.music-stage__viewport {
+  position: relative;
+  display: grid;
+  flex: 1 1 auto;
+  place-items: center;
+  min-block-size: 0;
+  overflow: hidden;
+}
+
+.music-stage__line {
+  grid-area: 1 / 1;
+  inline-size: 100%;
+  max-inline-size: 1600px;
+  margin-inline: auto;
+  text-align: center;
+}
+
+.music-stage__line[data-long='true'] {
+  --stage-font-size: clamp(28.8px, 3.6vw, 51.2px);
+}
+
+.music-stage__line--outgoing {
+  color: var(--music-stage-fg-dim);
+  opacity: 0;
+  filter: blur(1.5px);
+  font-size: calc(var(--stage-font-size) * 0.62);
+  animation: stage-line-out var(--dur-slow, 600ms) var(--ease-out, ease-out) forwards;
+}
+
+.music-stage__line--current {
+  animation: stage-line-in 420ms var(--ease-out, ease-out) both;
+}
+
+.music-stage__classic {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.16em 0.26em;
+  margin: 0;
+  font-size: var(--stage-font-size);
+  font-weight: 650;
+  line-height: 1.18;
+  letter-spacing: -0.012em;
+  text-wrap: balance;
+}
+
+.music-stage__word {
+  display: inline-block;
+  opacity: 1;
+  translate: 0 0;
+  rotate: 0deg;
+  scale: 1;
+  transform: translateY(0) scale(1);
+  animation: stage-word-in 620ms var(--ease-out, cubic-bezier(0.16, 1, 0.3, 1)) var(--word-delay, 0ms) backwards;
+  transition:
+    transform 150ms var(--ease-out, ease-out),
+    opacity 240ms linear,
+    text-shadow 150ms linear;
+  will-change: transform, translate, rotate, scale;
+}
+
+.music-stage__word[data-phase='waiting'] {
+  opacity: 0.9;
+}
+
+.music-stage__word[data-phase='singing'] {
+  transform: translateY(-0.055em) scale(1.16);
+  text-shadow:
+    0 0 0.22em color-mix(in oklab, var(--music-accent) 70%, transparent),
+    0 0 0.6em color-mix(in oklab, var(--music-accent) 38%, transparent);
+}
+
+.music-stage__word[data-phase='sung'] {
+  transform: translateY(0.02em) scale(1);
+  opacity: 0.74;
+}
+
+.music-stage__partita {
+  display: flex;
+  flex-direction: column;
+  gap: 0.04em;
+  font-size: calc(var(--stage-font-size) * 0.86);
+  font-weight: 620;
+  line-height: 1.12;
+}
+
+.music-stage__partita-row {
+  position: relative;
+  display: block;
+  inline-size: 100%;
+  translate: var(--row-shift) 0;
+  animation: stage-row-in 560ms var(--ease-out, cubic-bezier(0.16, 1, 0.3, 1)) var(--row-delay, 0ms) both;
+}
+
+.music-stage__partita-row[data-align='start'] {
+  padding-inline-start: 7%;
+  text-align: start;
+}
+
+.music-stage__partita-row[data-align='end'] {
+  padding-inline-end: 7%;
+  text-align: end;
+}
+
+.music-stage__partita-row::after {
+  content: '';
+  position: absolute;
+  inset-block-end: 0.08em;
+  inline-size: min(18%, 72px);
+  block-size: 1px;
+  background: linear-gradient(90deg, var(--music-accent), transparent);
+  opacity: 0.62;
+}
+
+.music-stage__partita-row[data-align='start']::after {
+  inset-inline-start: 7%;
+}
+
+.music-stage__partita-row[data-align='end']::after {
+  inset-inline-end: 7%;
+  background: linear-gradient(270deg, var(--music-accent), transparent);
+}
+
+.music-stage__tilt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.08em;
+  font-size: calc(var(--stage-font-size) * 0.9);
+  font-weight: 630;
+  line-height: 1.16;
+}
+
+.music-stage__tilt-part {
+  display: block;
+  transform: rotate(var(--part-tilt, 0deg)) translateX(var(--part-offset, 0));
+  letter-spacing: var(--part-spacing, 0);
+}
+
+.music-stage__tilt-part[data-accent='true'] {
+  color: var(--music-accent);
+}
+
+.music-stage__tilt-char {
+  display: inline-block;
+  opacity: clamp(
+    0.24,
+    calc((var(--stage-line-progress, 0) * var(--char-count, 1) - var(--char-index, 0)) * 5),
+    1
+  );
+  animation: stage-char-in 460ms var(--ease-out, ease-out) calc(var(--char-index, 0) * 38ms) backwards;
+}
+
+.music-stage__interlude {
+  grid-area: 1 / 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-3);
+  text-align: center;
+}
+
+.music-stage__dots {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.music-stage__dots span {
+  inline-size: 9px;
+  block-size: 9px;
+  border-radius: 50%;
+  background: var(--music-stage-fg-dim);
+  opacity: 0.5;
+  animation: stage-dot 1.7s ease-in-out infinite;
+}
+
+.music-stage__dots span:nth-child(2) {
+  animation-delay: 180ms;
+}
+
+.music-stage__dots span:nth-child(3) {
+  animation-delay: 360ms;
+}
+
+.music-stage__hint {
+  margin: 0;
+  max-inline-size: 42ch;
+  font-size: var(--text-13);
+  color: var(--music-stage-fg-dim);
+}
+
+.music-stage__sparks {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  inline-size: 100%;
+  block-size: 100%;
+  pointer-events: none;
+  opacity: 0.92;
+}
+
+.music-stage__footer {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-1);
+  min-block-size: 4.25rem;
+  padding-block: var(--sp-2) var(--sp-1);
+  text-align: center;
+}
+
+.music-stage__translation {
+  display: -webkit-box;
+  margin: 0;
+  max-inline-size: 900px;
+  overflow: hidden;
+  font-size: var(--text-14);
+  line-height: 1.4;
+  color: var(--music-stage-fg);
+  opacity: 0.86;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.music-stage__next {
+  display: -webkit-box;
+  margin: 0;
+  max-inline-size: 780px;
+  overflow: hidden;
+  font-size: var(--text-12-5);
+  line-height: 1.4;
+  color: var(--music-stage-fg-dim);
+  opacity: 0.62;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+@keyframes stage-word-in {
+  from {
+    opacity: 0;
+    translate: var(--word-x, 0) var(--word-y, 0);
+    rotate: var(--word-rotate, 0deg);
+    scale: var(--word-scale, 1);
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+    rotate: 0deg;
+    scale: 1;
+  }
+}
+
+@keyframes stage-row-in {
+  from {
+    opacity: 0;
+    translate: calc(var(--row-shift, 0%) - 12%) 0;
+  }
+  to {
+    opacity: 1;
+    translate: var(--row-shift, 0%) 0;
+  }
+}
+
+@keyframes stage-char-in {
+  from {
+    transform: translateY(0.32em);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes stage-line-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes stage-line-out {
+  from {
+    opacity: 0.42;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-0.45em);
+  }
+}
+
+@keyframes stage-dot {
+  0%,
+  100% {
+    opacity: 0.28;
+    transform: scale(0.82);
+  }
+  42% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (max-width: 767px) {
+  .music-stage {
+    --stage-font-size: clamp(26px, 8vw, 40px);
+    padding: var(--sp-2) var(--sp-4) var(--sp-1);
+  }
+
+  .music-stage__line[data-long='true'] {
+    --stage-font-size: clamp(22px, 6.6vw, 32px);
+  }
+
+  .music-stage__footer {
+    min-block-size: 3.5rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .music-stage__word,
+  .music-stage__partita-row,
+  .music-stage__tilt-char,
+  .music-stage__line--current,
+  .music-stage__line--outgoing,
+  .music-stage__dots span {
+    animation: none;
+    transition: none;
+  }
+
+  .music-stage__line--outgoing {
+    display: none;
+  }
+
+  .music-stage__dots span {
+    opacity: 0.55;
+    transform: none;
+  }
+
+  .music-stage__word {
+    opacity: 1;
+    translate: 0 0;
+    rotate: 0deg;
+    scale: 1;
+  }
+
+  .music-stage__tilt-char {
+    opacity: 1;
+  }
+}
+
+.music-stage[data-reduced-motion='true'] .music-stage__word,
+.music-stage[data-reduced-motion='true'] .music-stage__partita-row,
+.music-stage[data-reduced-motion='true'] .music-stage__tilt-char,
+.music-stage[data-reduced-motion='true'] .music-stage__line--current,
+.music-stage[data-reduced-motion='true'] .music-stage__line--outgoing,
+.music-stage[data-reduced-motion='true'] .music-stage__dots span {
+  animation: none;
+  transition: none;
+}
+
+.music-stage[data-reduced-motion='true'] .music-stage__line--outgoing {
+  display: none;
+}
+
+.music-stage[data-reduced-motion='true'] .music-stage__dots span {
+  opacity: 0.55;
+  transform: none;
+}
+
+.music-stage[data-reduced-motion='true'] .music-stage__word {
+  opacity: 1;
+  translate: 0 0;
+  rotate: 0deg;
+  scale: 1;
+}
+
+.music-stage[data-reduced-motion='true'] .music-stage__tilt-char {
+  opacity: 1;
+}

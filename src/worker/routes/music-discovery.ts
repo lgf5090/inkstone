@@ -161,13 +161,13 @@ export function createMusicDiscoveryRoutes(deps: MusicRouteDeps): Hono<AppBindin
 
   routes.get('/search/suggest', (c) => {
     const keywords = (c.req.query('q') ?? '').trim()
-    if (!keywords) return c.json({ items: [] as string[] })
+    if (!keywords) return c.json({ items: [] })
     if (keywords.length > KEYWORDS_MAX) {
       throw ApiError.badRequest(`The search query is longer than ${KEYWORDS_MAX} characters`)
     }
     return guarded(c, async (provider) => {
       const suggestion = await provider.suggest(keywords)
-      return c.json({ items: suggestion.keywords })
+      return c.json({ items: suggestion.items })
     })
   })
 

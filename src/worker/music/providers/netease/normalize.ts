@@ -28,6 +28,8 @@ import type {
   MusicRadioDetail,
   MusicRadioSummary,
   MusicSearchResult,
+  MusicSearchSuggestion,
+  MusicSuggestionKind,
   MusicToplistSummary,
   MusicUserSummary,
 } from '../../../../shared/music/api'
@@ -336,6 +338,42 @@ export function normalizeSearch(
     + empty.users.length + empty.mvs.length + empty.radios.length
   empty.hasMore = (result.more === true || loaded >= limit) && pageHasMore(result.more, empty.total, offset, loaded)
   return empty
+}
+
+/**
+ * The suggest endpoint's typed entities. Keyword-only answers cannot be opened, so the list is
+ * rebuilt from the upstream ids the search page needs; an entry without an id or a name is dropped
+ * rather than rendered as a row that cannot go anywhere.
+ */
+export function normalizeSearchSuggestions(input: unknown): MusicSearchSuggestion[] {
+  const result = record(record(input).result)
+  const suggestions: MusicSearchSuggestion[] = []
+  const seen = new Set<string>()
+  const push = (kind: MusicSuggestionKind, raw: Raw, detail: string): void => {
+    const id = text(raw.id)
+    const name = pickText(raw, 'name')
+    if (!id || !name || seen.has(`${kind}:${id}`)) return
+    seen.add(`${kind}:${id}`)
+    suggestions.push({ kind, id, name, detail })
+  }
+  for (const item of list(result.songs)) {
+    const raw = record(item)
+    push('song', raw, normalizeArtists(raw).map((artist) => artist.name).join(' / '))
+  }
+  for (const item of list(result.artists)) {
+    const raw = record(item)
+    const aliases = list(raw.alias).map(text).filter(Boolean)
+    push('artist', raw, aliases.join(' / '))
+  }
+  for (const item of list(result.albums)) {
+    const raw = record(item)
+    push('album', raw, pickText(record(raw.artist), 'name'))
+  }
+  for (const item of list(result.playlists)) {
+    const raw = record(item)
+    push('playlist', raw, pickText(record(raw.creator), 'nickname'))
+  }
+  return suggestions.slice(0, 10)
 }
 
 export function normalizePlaylistDetail(input: unknown): MusicPlaylistDetail {
