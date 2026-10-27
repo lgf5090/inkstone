@@ -131,17 +131,17 @@ export function ZoneSettingsPanel({ domain }: { domain: string }) {
             <Checkbox
               checked={form.minify?.js === true}
               onChange={(next) => setForm((current) => ({ ...current, minify: { ...current.minify, js: next } }))}
-              label="JS"
+              label={t('cloudflare.dns.minify_js')}
             />
             <Checkbox
               checked={form.minify?.css === true}
               onChange={(next) => setForm((current) => ({ ...current, minify: { ...current.minify, css: next } }))}
-              label="CSS"
+              label={t('cloudflare.dns.minify_css')}
             />
             <Checkbox
               checked={form.minify?.html === true}
               onChange={(next) => setForm((current) => ({ ...current, minify: { ...current.minify, html: next } }))}
-              label="HTML"
+              label={t('cloudflare.dns.minify_html')}
             />
           </div>
         </Field>

@@ -180,7 +180,7 @@ export function DashboardScreen() {
               </Badge>
               {totals.browser > 0 ? (
                 <Badge>
-                  {tcf('cloudflare.compact_card.browser_render')} {formatCompact(totals.browser)}s
+                  {tcf('cloudflare.compact_card.browser_render')} {tcf('cloudflare.browser_render.format_seconds', { s: formatCompact(totals.browser) })}
                 </Badge>
               ) : null}
             </div>

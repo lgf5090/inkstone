@@ -161,7 +161,7 @@ export function DomainResultDialog({
                 </div>
                 {item.success && nameServers.length > 0 && (
                   <div className="mt-1.5 pl-5">
-                    <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">NS:</span>
+                    <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('cloudflare.dns.nameservers')}</span>
                     {nameServers.map((server) => (
                       <div key={server} className="font-mono text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
                         {server}
