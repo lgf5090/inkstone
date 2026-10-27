@@ -26,7 +26,7 @@ import { copyText } from '../../../lib/clipboard'
 import { useUi } from '../../../store/ui'
 import { Button, IconButton } from '../../../components/primitives'
 import { Checkbox, Field, Input } from '../../../components/form'
-import { Menu, Modal, confirm } from '../../../components/overlay'
+import { Menu, Modal, confirm, prompt } from '../../../components/overlay'
 import { SelectMenu } from '../../../components/select-menu'
 import { ResultGrid } from './ResultGrid'
 import { RowDetailPanel } from './RowDetailPanel'
@@ -101,6 +101,9 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
   const [distinctColumn, setDistinctColumn] = useState<string | null>(null)
   const [transformCell, setTransformCell] = useState<{ row: number; col: number } | null>(null)
   const [sqlOpen, setSqlOpen] = useState(false)
+  const [insertCount, setInsertCount] = useState('1')
+  const [refreshSeconds, setRefreshSeconds] = useState(0)
+  const [lastRefreshAt, setLastRefreshAt] = useState<Date | null>(null)
   const [currentSql, setCurrentSql] = useState('')
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -130,6 +133,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
         ...(whereValue ? { whereSql: whereValue.sql, whereParams: whereValue.params } : {}),
       }, table.columns.map((column) => column.name))
       setCurrentSql(data.sql)
+      setLastRefreshAt(new Date())
 
       let result: QueryResult
       let rowid = -1
@@ -387,14 +391,60 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
       ] as const)
     const statement = buildInsert(table.name, entries)
     if (!statement) return
+    const count = Math.max(1, Math.min(100, Math.trunc(Number(insertCount)) || 1))
     try {
-      await driver.query(statement.sql, statement.params)
+      for (let index = 0; index < count; index++) {
+        await driver.query(statement.sql, statement.params)
+      }
       setInsertOpen(false)
+      setInsertCount('1')
       void load(page, pageSize, sort, where)
     } catch (cause) {
       onError(cause instanceof Error ? cause.message : String(cause))
     }
   }
+
+  const bulkSet = async (column: string) => {
+    const targets = [...selectedRows].filter((index) => rows[index])
+    if (targets.length === 0 || !column) return
+    const current = rows[targets[0]!]?.[columns.indexOf(column)]
+    const value = await prompt({
+      title: t('development.database.table.bulk_title', { column, count: targets.length }),
+      description: t('development.database.table.bulk_hint', { count: targets.length }),
+      ...(current === null || current === undefined ? {} : { defaultValue: String(current) }),
+    })
+    if (value === null) return
+    let done = 0
+    for (const rowIndex of targets) {
+      const key = keyFor(rowIndex)
+      if (key.kind === 'none') continue
+      const statement = buildUpdate(table.name, key, [[column, value === '' ? null : value]])
+      if (!statement) continue
+      try {
+        await driver.query(statement.sql, statement.params)
+        done += 1
+      } catch (cause) {
+        onError(t('development.database.table.bulk_partial', { done, total: targets.length }) + ' — ' + (cause instanceof Error ? cause.message : String(cause)))
+        void load(page, pageSize, sort, where)
+        return
+      }
+    }
+    useUi.getState().toast({ title: t('development.database.table.bulk_done', { count: done }), tone: 'success' })
+    setSelectedRows(new Set())
+    void load(page, pageSize, sort, where)
+  }
+
+  const refreshRef = useRef<() => void>(() => {})
+  refreshRef.current = () => {
+    if (!loading) void load(page, pageSize, sort, where)
+  }
+  useEffect(() => {
+    if (refreshSeconds <= 0) return
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') refreshRef.current()
+    }, refreshSeconds * 1000)
+    return () => clearInterval(timer)
+  }, [refreshSeconds])
 
   const saveDetail = async (values: Record<string, string>) => {
     if (detailRow === null) return
@@ -622,6 +672,16 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
       label: t('development.database.table.duplicate_with_pk'),
       onSelect: () => { duplicateRow(contextMenu.row, true); setContextMenu(null) },
     },
+    ...(selectedRows.size > 1 ? [{
+      id: 'bulk-set',
+      label: t('development.database.table.bulk_set', { count: selectedRows.size }),
+      separatorBefore: true,
+      onSelect: () => {
+        const column = columns[contextMenu.col]
+        setContextMenu(null)
+        if (column) void bulkSet(column)
+      },
+    }] : []),
     {
       id: 'delete',
       label: t('development.database.table.delete_selected'),
@@ -679,6 +739,19 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
           {t('development.database.table.columns')}
           {hiddenColumns.size > 0 && <span className="rounded bg-[var(--accent-soft)] px-1 text-[length:var(--text-10)] text-[var(--accent)]">{hiddenColumns.size}</span>}
         </Button>
+        {refreshSeconds > 0 && lastRefreshAt && (
+          <span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
+            {t('development.database.table.refreshed_at', { time: lastRefreshAt.toLocaleTimeString(undefined, { hour12: false }) })}
+          </span>
+        )}
+        <SelectMenu
+          label={t('development.database.table.auto_refresh')}
+          value={String(refreshSeconds)}
+          options={[0, 5, 15, 30, 60].map((seconds) => ({ value: String(seconds), label: seconds === 0 ? t('development.database.table.auto_refresh_off') : t('development.database.table.refresh_every', { seconds }) }))}
+          onChange={(value) => setRefreshSeconds(Number(value))}
+          className="w-28"
+          size="sm"
+        />
         <div className="flex-1" />
         <div className="flex items-center gap-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
           {truncated && (
@@ -882,6 +955,11 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
           </>
         }
       >
+        <div className="mb-2 flex items-center gap-2">
+          <span className="text-[length:var(--text-11)] text-[var(--text-secondary)]">{t('development.database.table.insert_count')}</span>
+          <Input value={insertCount} onChange={(event) => setInsertCount(event.target.value)} className="h-8 w-20 text-[length:var(--text-12)]" inputMode="numeric" aria-label={t('development.database.table.insert_count')} />
+          <span className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.table.insert_count_hint')}</span>
+        </div>
         <div className="max-h-[60vh] space-y-2 overflow-y-auto pr-1">
           {table.columns.map((column) => (
             <div key={column.name} className="grid grid-cols-[120px_1fr_auto] items-center gap-2">
