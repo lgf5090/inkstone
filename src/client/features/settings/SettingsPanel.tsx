@@ -1,6 +1,6 @@
 import { lazy, memo, Suspense, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { BookOpen, Braces, BrainCircuit, Brush, Cloud, Database, FileCode, FilePlus2, Info, Keyboard, Link2, ListChecks, ListTodo, Network, Palette, RefreshCw, Rss, ScanSearch, Search, TableProperties, Type, UserRound, X, WandSparkles, Zap } from 'lucide-react';
+import { BookOpen, Braces, BrainCircuit, Brush, Cloud, Database, FileCode, FilePlus2, Info, Keyboard, Link2, ListChecks, ListTodo, Network, Palette, PenLine, RefreshCw, Rss, ScanSearch, Search, TableProperties, Type, UserRound, X, WandSparkles, Zap } from 'lucide-react';
 import { ACCENTS } from '@shared/constants';
 import { cn } from '../../lib/cn';
 import { splitByRanges } from '../../lib/fuzzy';
@@ -54,6 +54,7 @@ export const SECTIONS: {
     { id: 'linter', label: () => t("settings.markdown_linter"), icon: <WandSparkles size={14}/> },
     { id: 'excalidraw', label: () => t("settings.excalidraw"), icon: <Brush size={14}/> },
     { id: 'mindmap', label: () => t("settings.mindmap_title"), icon: <Network size={14}/> },
+    { id: 'ink', label: () => t("settings.ink_title"), icon: <PenLine size={14}/> },
     { id: 'reading', label: () => t("settings.reading_title"), icon: <BookOpen size={14}/> },
     { id: 'rss', label: () => t("settings.rss"), icon: <Rss size={14}/> },
     { id: 'todo', label: () => t("todo.title"), icon: <ListChecks size={14}/> },

@@ -6281,6 +6281,10 @@ const allowed = new Map([
     "/** The shell parses first; the engine never parses the 1.9 MB body a second time. */",
     "/** Called by React after it commits the two card layers. */",
   ]],
+  ["src/client/features/inkpad/ink-engine.ts", [
+    "// Controls live above the ink layer, so a control whose own header is covered",
+    "// by a higher card must stand down: otherwise its buttons float over that card.",
+  ]],
   ["src/client/features/inkpad/ink-history.ts", [
     "/** Appending a stroke never mutates existing items, so only the top-level arrays need copies. */",
     "/**\n * Snapshot stacks for the canvas. Point arrays are shared by reference in an append snapshot,\n * which is what keeps a lecture-sized drawing's undo path O(strokes) rather than O(samples).\n */",
@@ -27228,6 +27232,7 @@ const allowed = new Map([
     "// Copied first: a listener that unsubscribes while being called must not shift the set being walked.",
     "// A listener is a feature watching an event, not a step of the create. Its failure must not",
     "// unmake the note the reader just got, so it is logged and the rest still hear about it.",
+    "// An unresolvable name stays out of the way: a folder id the folder list has never",
   ]],
   ["src/client/store/pinned-windows.ts", [
     "/**\n * How long a pinned window is left flashing after a link jumps to it.\n *\n * This is not a taste value: it is the duration of `pinned-window-flash` in `prose.css`, and the flag\n * that carries the class has to outlive the animation that reads it — a shorter value clips the flash\n * off mid-fade, a longer one leaves a card that no longer looks targeted still claiming to be.\n */",

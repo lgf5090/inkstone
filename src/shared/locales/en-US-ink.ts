@@ -83,6 +83,7 @@ export const EN_US_INK = {
     "ink.export.svg_done": "SVG downloaded: {name}",
     "ink.export.png_done": "PNG downloaded: {name}",
     "ink.export.selection_done": "Selection downloaded: {name}",
+    "ink.note_not_found": "Note not found: {name}",
     "ink.link.invalid": "That link is not allowed.",
     "ink.unsupported_file": "This attachment type cannot be placed on the canvas.",
 } as const

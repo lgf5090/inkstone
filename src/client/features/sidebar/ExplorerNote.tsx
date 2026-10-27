@@ -1,7 +1,8 @@
 import { memo, useRef, useState } from 'react';
-import { Archive, Brush, Columns2, FileText, FolderInput, MoreHorizontal, Network, Star, Trash2 } from 'lucide-react';
+import { Archive, Brush, Columns2, FileText, FolderInput, MoreHorizontal, Network, PenLine, Star, Trash2 } from 'lucide-react';
 import type { Folder, NoteSummary } from '@shared/types';
 import { isMindmapDocumentTitle } from '../../lib/markdown/mindmap/document';
+import { isInkNoteTitle } from '../../lib/inkpad/document';
 import { numericCollator } from '../../lib/collator';
 import { cn } from '../../lib/cn';
 import { t } from '../../lib/i18n';
@@ -74,6 +75,7 @@ function ExplorerNoteRow({ note, depth, canOpenToSide, trailing, highlight, setS
         ...(canOpenToSide ? [{ id: 'side', label: t('notes.open_to_side'), icon: <Columns2 size={13}/>, onSelect: () => open(true) }] : []),
         { id: 'star', label: note.isStarred ? t('common.remove_from_favorites') : t('navigation.favorites'), icon: <Star size={13}/>, onSelect: () => void patchNote(note.id, { isStarred: !note.isStarred }) },
         { id: 'new-drawing', label: t('common.new_drawing'), icon: <Brush size={13}/>, onSelect: () => void useNotes.getState().createExcalidrawNote(note.folderId) },
+        { id: 'new-ink', label: t('common.new_ink'), icon: <PenLine size={13}/>, onSelect: () => void useNotes.getState().createInkNote(note.folderId) },
         { id: 'new-mindmap', label: t('common.new_mindmap'), icon: <Network size={13}/>, onSelect: () => void useNotes.getState().createMindmapNote(note.folderId) },
         { id: 'move', label: t('notes.move_to_folder'), icon: <FolderInput size={13}/>, onSelect: () => setMoving(true) },
         { id: 'archive', label: t('navigation.archive'), icon: <Archive size={13}/>, onSelect: () => void patchNote(note.id, { isArchived: true }) },
@@ -81,6 +83,7 @@ function ExplorerNoteRow({ note, depth, canOpenToSide, trailing, highlight, setS
         { id: 'delete', label: t('common.move_to_trash'), icon: <Trash2 size={13}/>, separatorBefore: true, tone: 'danger', onSelect: () => void deleteNote(note.id) },
     ];
     const isDrawing = note.title.endsWith('.excalidraw');
+    const isInk = isInkNoteTitle(note.title);
     const isMindmap = isMindmapDocumentTitle(note.title);
     return <div {...treeItemProps({ level: depth + 1, selected: active, setSize, posInSet })} data-tree-note-id={note.id}>
         <div ref={anchor} draggable onDragStart={(event) => {
@@ -90,6 +93,8 @@ function ExplorerNoteRow({ note, depth, canOpenToSide, trailing, highlight, setS
             <span className="w-8 shrink-0 md:w-4"/>
             {isDrawing ? (
                 <Brush size={14} className={cn('shrink-0', active ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]')}/>
+            ) : isInk ? (
+                <PenLine size={14} className={cn('shrink-0', active ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]')}/>
             ) : isMindmap ? (
                 <Network size={14} className={cn('shrink-0', active ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]')}/>
             ) : (

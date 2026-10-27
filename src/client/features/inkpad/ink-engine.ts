@@ -192,19 +192,38 @@ export class InkEngineImpl implements InkEngine {
     layoutElements(): void {
         const host = this.hostEl
         if (!host) return
-        const elements = new Map(this.document.elements.map((element, index) => [element.id, { element, index }]))
         const zoom = this.transform.zoom
+        const rects = this.document.elements.map((element) => ({
+            left: this.transform.x + element.x * zoom,
+            top: this.transform.y + element.y * zoom,
+            width: element.width * zoom,
+            height: element.height * zoom,
+        }))
+        const elements = new Map(this.document.elements.map((element, index) => [element.id, { element, index }]))
         for (const attr of ['data-element-body-id', 'data-element-control-id'] as const) {
             for (const node of host.querySelectorAll<HTMLElement>(`[${attr}]`)) {
                 const entry = elements.get(node.dataset[attr === 'data-element-body-id' ? 'elementBodyId' : 'elementControlId'] ?? '')
                 if (!entry) continue
-                const { element, index } = entry
-                node.style.left = `${this.transform.x + element.x * zoom}px`
-                node.style.top = `${this.transform.y + element.y * zoom}px`
-                node.style.width = `${element.width * zoom}px`
-                node.style.height = `${element.height * zoom}px`
+                const { index } = entry
+                const rect = rects[index]!
+                node.style.left = `${rect.left}px`
+                node.style.top = `${rect.top}px`
+                node.style.width = `${rect.width}px`
+                node.style.height = `${rect.height}px`
                 node.style.zIndex = String(index + 1)
-                if (attr === 'data-element-body-id') node.style.setProperty('--ink-card-zoom', String(zoom))
+                if (attr === 'data-element-body-id') {
+                    node.style.setProperty('--ink-card-zoom', String(zoom))
+                } else {
+                    // Controls live above the ink layer, so a control whose own header is covered
+                    // by a higher card must stand down: otherwise its buttons float over that card.
+                    const header = { left: rect.left, top: rect.top, width: rect.width, height: 42 }
+                    const covered = rects.slice(index + 1).some((other) => other.width > 0 && other.height > 0
+                        && other.left < header.left + header.width
+                        && other.left + other.width > header.left
+                        && other.top < header.top + header.height
+                        && other.top + other.height > header.top)
+                    node.style.visibility = covered ? 'hidden' : ''
+                }
             }
         }
     }

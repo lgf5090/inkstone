@@ -74,7 +74,7 @@ export function InkHud({
             <div className="pointer-events-auto absolute right-[max(12px,env(safe-area-inset-right))] bottom-[max(12px,env(safe-area-inset-bottom))] flex items-center gap-1 rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-1 shadow-[var(--shadow-sm)]">
                 <span role="status" aria-live="polite" className="px-1 text-[length:var(--text-11)] tabular-nums text-[var(--text-tertiary)]">{saveLabel}</span>
                 <Tooltip label={t('ink.hud.zoom_reset')}>
-                    <button type="button" onClick={onResetZoom} className="inline-flex h-7 min-w-9 items-center justify-center rounded-[var(--r-sm)] px-1.5 text-[length:var(--text-11)] tabular-nums text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]">
+                    <button type="button" aria-label={t('ink.hud.zoom_reset')} onClick={onResetZoom} className="inline-flex h-7 min-w-9 items-center justify-center rounded-[var(--r-sm)] px-1.5 text-[length:var(--text-11)] tabular-nums text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]">
                         {Math.round(zoom * 100)}%
                     </button>
                 </Tooltip>

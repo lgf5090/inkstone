@@ -46,7 +46,9 @@ import { preferredScrollBehavior } from '../../lib/motion';
 import { ExcalidrawStandaloneEditor } from '../excalidraw/ExcalidrawStandaloneEditor';
 import { MindmapStandaloneEditor } from '../mindmap/MindmapStandaloneEditor';
 import { isMindmapDocumentTitle } from '../../lib/markdown/mindmap/document';
+import { isInkNoteTitle } from '../../lib/inkpad/document';
 const LocalGraphPanel = lazy(() => import('../graph/LocalGraphPanel').then((m) => ({ default: m.LocalGraphPanel })));
+const InkNoteEditor = lazy(() => import('../inkpad/InkNoteEditor').then((m) => ({ default: m.InkNoteEditor })));
 const SPLIT_HANDLE_WIDTH = 1;
 const PREVIEW_BORDER_WIDTH = 1;
 const OUTLINE_WIDTH = 168;
@@ -557,6 +559,20 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
                 grouped={grouped}
             />
         );
+    }
+    if (isInkNoteTitle(note.title)) {
+        return (<Suspense fallback={null}>
+          <InkNoteEditor
+            key={note.id}
+            note={note}
+            content={content}
+            onChange={(next) => editContent(note.id, next)}
+            onTitleChange={(nextTitle) => editTitle(note.id, nextTitle)}
+            onMobileBack={onMobileBack}
+            pane={pane}
+            grouped={grouped}
+          />
+        </Suspense>);
     }
     if (isMindmapDocumentTitle(note.title)) {
         return (

@@ -202,6 +202,7 @@ export function InkNoteEditor({ note, content, onChange, onTitleChange, onMobile
         if (!parsed.ok) {
             setCodeError(parsed.reason)
             setRawCode(next)
+            setSaveState('saved')
             setViewMode('code')
             return
         }
@@ -265,6 +266,7 @@ export function InkNoteEditor({ note, content, onChange, onTitleChange, onMobile
                 const notes = useNotes.getState().notes
                 const id = notes[target] ? target : Object.values(notes).find((item) => item.title === target)?.id
                 if (id) openNoteInPane(id, pane)
+                else toast({ title: t('ink.note_not_found', { name: target }), tone: 'warning' })
             },
             openUrl: (url) => window.open(url, '_blank', 'noopener,noreferrer'),
         })

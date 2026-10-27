@@ -83,6 +83,7 @@ export const ZH_CN_INK = {
     "ink.export.svg_done": "已下载 SVG：{name}",
     "ink.export.png_done": "已下载 PNG：{name}",
     "ink.export.selection_done": "已下载选区：{name}",
+    "ink.note_not_found": "找不到笔记：{name}",
     "ink.link.invalid": "这个链接不允许打开。",
     "ink.unsupported_file": "这种附件不能放到画布上。",
 } as const

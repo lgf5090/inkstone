@@ -32,6 +32,8 @@ import { createDefaultMindmapDocument, isMindmapDocumentBody, MINDMAP_FILE_EXTEN
 import { formatDateStamp } from '@shared/property-formats';
 import { useExcalidrawSettingsStore } from '../features/excalidraw/excalidraw-settings-store';
 import { useMindmapSettingsStore } from '../features/mindmap/mindmap-settings-store';
+import { useInkSettingsStore } from '../features/inkpad/ink-settings-store';
+import { createEmptyInkDocument, uniqueInkTitle } from '../lib/inkpad/document';
 import { useSession } from './session';
 import { useUi, type WorkspacePane } from './ui';
 import { getLocale, t, useLocale } from "../lib/i18n";
@@ -86,6 +88,7 @@ interface NotesState {
     }) => Promise<string | null>;
     createExcalidrawNote: (folderId?: string | null) => Promise<string | null>;
     createMindmapNote: (folderId?: string | null) => Promise<string | null>;
+    createInkNote: (folderId?: string | null) => Promise<string | null>;
     patchNote: (id: string, patch: Partial<Pick<NoteSummary, 'isPinned' | 'isStarred' | 'isArchived'>> & {
         folderId?: string | null;
     }) => Promise<void>;
@@ -960,6 +963,28 @@ export const useNotes = create<NotesState>((set, get) => ({
         return get().createNote({
             title,
             content: body,
+            folderId: resolvedFolderId,
+            open: true,
+        });
+    },
+    async createInkNote(folderId?: string | null) {
+        const settings = useInkSettingsStore.getState();
+        const now = new Date();
+        const pad = (n: number) => String(n).padStart(2, '0');
+        const fallbackDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}.${pad(now.getMinutes())}.${pad(now.getSeconds())}`;
+        const date = formatDateStamp(now.getTime(), settings.filenameDateFormat || 'YYYY-MM-DD HH.mm.ss', 'en-US') || fallbackDate;
+        const baseTitle = `${settings.filenamePrefix ?? 'Ink '}${date}${settings.useInkExtension ? '.ink' : ''}`;
+        const title = uniqueInkTitle(baseTitle, Object.values(get().notes).map((note) => note.title));
+        let resolvedFolderId = folderId ?? null;
+        if (resolvedFolderId === null && settings.folder) {
+            const matched = get().folders.find((folder) => folder.id === settings.folder || folder.name.toLowerCase() === settings.folder.toLowerCase());
+            // An unresolvable name stays out of the way: a folder id the folder list has never
+            // heard of files the note where nothing can reach it again.
+            resolvedFolderId = matched?.id ?? null;
+        }
+        return get().createNote({
+            title,
+            content: createEmptyInkDocument(),
             folderId: resolvedFolderId,
             open: true,
         });
