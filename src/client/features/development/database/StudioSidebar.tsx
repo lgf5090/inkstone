@@ -67,7 +67,8 @@ export interface StudioSidebarProps {
   onGuardChange?: (patch: Partial<ConnectionGuard>) => void
   onLockNow?: () => void
   onExportSchema?: () => void
-  onViewSql: (sql: string) => void
+  onSearchData?: () => void
+  onViewSql: (definition: { kind: 'view' | 'trigger'; name: string; sql: string }) => void
   onCollapse?: () => void
   onExpand?: () => void
   collapsible?: boolean
@@ -215,12 +216,14 @@ function SchemaGroup({
   title,
   icon,
   items,
+  kind,
   onOpen,
 }: {
   title: string
   icon: ReactNode
   items: Array<{ name: string; sql: string }>
-  onOpen: (sql: string) => void
+  kind: 'view' | 'trigger'
+  onOpen: (definition: { kind: 'view' | 'trigger'; name: string; sql: string }) => void
 }) {
   return (
     <div>
@@ -230,7 +233,7 @@ function SchemaGroup({
           <button
             key={item.name}
             type="button"
-            onClick={() => onOpen(item.sql)}
+            onClick={() => onOpen({ kind, name: item.name, sql: item.sql })}
             title={item.name}
             className="flex min-h-8 w-full items-center gap-1.5 rounded-[var(--r-sm)] px-1.5 py-1 text-left text-[length:var(--text-12)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
           >
@@ -277,6 +280,7 @@ export function StudioSidebar(props: StudioSidebarProps) {
     onLockNow,
     unlockedUntil,
     onExportSchema,
+    onSearchData,
     onViewSql,
     onCollapse,
     onExpand,
@@ -535,6 +539,13 @@ export function StudioSidebar(props: StudioSidebarProps) {
                   ? t('development.database.app.table_count_filtered', { shown: filteredTables.length, total: schema.tables.length })
                   : t('development.database.app.table_count', { count: schema.tables.length })}
               </span>
+              {onSearchData && schema.tables.length > 0 && (
+                <Tooltip label={t('development.database.search.title')}>
+                  <IconButton label={t('development.database.search.title')} size="sm" onClick={onSearchData}>
+                    <Search size={12} />
+                  </IconButton>
+                </Tooltip>
+              )}
               {onExportSchema && (schema.tables.length > 0 || schema.views.length > 0) && (
                 <Tooltip label={t('development.database.app.export_schema')}>
                   <IconButton label={t('development.database.app.export_schema')} size="sm" onClick={onExportSchema}>
@@ -669,6 +680,7 @@ export function StudioSidebar(props: StudioSidebarProps) {
                   title={t('development.database.app.views', { count: schema.views.length })}
                   icon={<Code2 size={13} />}
                   items={schema.views}
+                  kind="view"
                   onOpen={onViewSql}
                 />
               )}
@@ -677,6 +689,7 @@ export function StudioSidebar(props: StudioSidebarProps) {
                   title={t('development.database.app.triggers', { count: schema.triggers.length })}
                   icon={<Zap size={13} />}
                   items={schema.triggers}
+                  kind="trigger"
                   onOpen={onViewSql}
                 />
               )}

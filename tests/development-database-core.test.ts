@@ -5,6 +5,7 @@ import { parseCreateTable, parseCreateIndex } from '../src/client/features/devel
 import { buildRebuildSql } from '../src/client/features/development/database/ddl'
 import { buildTableDataSql, loadSchema } from '../src/client/features/development/database/schema-utils'
 import { buildDistinctSql } from '../src/client/features/development/database/distinct-ops'
+import { buildDataSearchSql, searchableColumns } from '../src/client/features/development/database/data-search'
 import { projectColumns, toCsv, toMarkdown, toSchemaSql } from '../src/client/features/development/database/export-utils'
 import { transformValue } from '../src/client/features/development/database/transform-value'
 import { INKSTONE_BLOB_KEY } from '../src/shared/development/database/types'
@@ -211,6 +212,21 @@ describe('development database core', () => {
     expect(fromTemporalInput('2025-01-02T10:15', 'datetime')).toBe('2025-01-02 10:15:00')
     expect(fromTemporalInput('10:15', 'time')).toBe('10:15:00')
     expect(fromTemporalInput('2025-01-02', 'date')).toBe('2025-01-02')
+  })
+
+  it('builds data search SQL over text columns only', () => {
+    const columns = searchableColumns([
+      { name: 'id', type: 'INTEGER' },
+      { name: 'avatar', type: 'BLOB' },
+      { name: 'email', type: 'TEXT' },
+    ])
+    expect(columns).toEqual(['id', 'email'])
+    const built = buildDataSearchSql('users', columns, 'bob', 500)
+    expect(built?.sql).toContain('FROM "users" WHERE instr(lower(coalesce(cast("id" as text)')
+    expect(built?.sql).toContain('LIMIT 100')
+    expect(built?.params).toEqual(['bob', 'bob'])
+    expect(buildDataSearchSql('users', [], 'bob', 10)).toBeNull()
+    expect(buildDataSearchSql('users', columns, '   ', 10)).toBeNull()
   })
 
   it('quotes CSV cells containing separators and newlines', () => {

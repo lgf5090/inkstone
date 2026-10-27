@@ -36,9 +36,12 @@ import {
 } from './drivers'
 import { deleteConnection, listConnections, saveConnectionOrder, updateConnectionFlags } from './api'
 import { loadSchema } from './schema-utils'
+import { quoteIdent } from '@shared/development/database/sql-utils'
 import { downloadBlob, downloadTextFile, toSchemaSql } from './export-utils'
 import { loadStudioLayout, saveStudioLayout, DRAFT_MAX_CHARS, STUDIO_SIDEBAR_WIDTH } from './layout'
 import { DEFAULT_GUARD, loadGuards, saveGuards, type ConnectionGuard } from './guards'
+import { StudioCommandPalette } from './StudioCommandPalette'
+import { DatabaseSearchPanel } from './DatabaseSearchPanel'
 import type { StudioSelection, StudioTab, StudioTabKind } from './types'
 
 const EMPTY_SCHEMA: SchemaModel = { tables: [], views: [], triggers: [], indexes: [] }
@@ -92,6 +95,8 @@ export function StudioApp() {
   const [guards, setGuards] = useState<Record<string, ConnectionGuard>>(loadGuards)
   const [unlocks, setUnlocks] = useState<Record<string, number>>({})
   const [unlockAsk, setUnlockAsk] = useState<{ resolve: (ok: boolean) => void } | null>(null)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
   const [driver, setDriver] = useState<StudioDriver | null>(null)
   const [tabs, setTabs] = useState<StudioTab[]>(() => [queryTab()])
   const [activeTabId, setActiveTabId] = useState('')
@@ -110,7 +115,9 @@ export function StudioApp() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingConnection, setEditingConnection] = useState<DatabaseConnectionView | null>(null)
-  const [sqlViewOpen, setSqlViewOpen] = useState<string | null>(null)
+  const [sqlViewOpen, setSqlViewOpen] = useState<{ kind: 'view' | 'trigger'; name: string; sql: string } | null>(null)
+  const [sqlDraft, setSqlDraft] = useState('')
+  const [definitionSaving, setDefinitionSaving] = useState(false)
   const menuAnchor = useRef<HTMLButtonElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null
@@ -197,6 +204,18 @@ export function StudioApp() {
   const guard = (guardKey ? guards[guardKey] : undefined) ?? DEFAULT_GUARD
   const unlockedUntil = guardKey ? unlocks[guardKey] : undefined
   const unlocked = Boolean(unlockedUntil && unlockedUntil > Date.now())
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
+      if (event.key !== 'k' && event.key !== 'K') return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      setPaletteOpen((value) => !value)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [])
 
   const updateGuard = (patch: Partial<ConnectionGuard>) => {
     if (!guardKey) return
@@ -368,6 +387,36 @@ export function StudioApp() {
     }
   }
 
+  const saveDefinition = async () => {
+    if (!sqlViewOpen || !driver) return
+    const definition = sqlViewOpen
+    const text = sqlDraft.trim()
+    if (!/^create\s/i.test(text)) {
+      notify(t('development.database.app.definition_invalid'), undefined, 'danger')
+      return
+    }
+    if (!(await ensureWritable())) return
+    const ok = await confirm({
+      title: t('development.database.app.definition_confirm_title', { name: definition.name }),
+      description: t('development.database.app.definition_confirm'),
+      confirmLabel: t('development.database.app.definition_save'),
+      tone: 'danger',
+    })
+    if (!ok) return
+    setDefinitionSaving(true)
+    try {
+      await driver.query(`DROP ${definition.kind === 'view' ? 'VIEW' : 'TRIGGER'} IF EXISTS ${quoteIdent(definition.name)}`)
+      await driver.query(text)
+      setSqlViewOpen(null)
+      await reloadSchema(driver)
+      notify(t('development.database.app.definition_done', { name: definition.name }), undefined, 'success')
+    } catch (error) {
+      notifyError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setDefinitionSaving(false)
+    }
+  }
+
   const handleFlags = async (connection: DatabaseConnectionView, flags: { isFavorite?: boolean; isPinned?: boolean }) => {
     const next = { ...connection, ...flags }
     setConnections((current) => sortConnections(current.map((entry) => entry.id === connection.id ? next : entry)))
@@ -516,11 +565,12 @@ export function StudioApp() {
       onOpenData={openDataTab}
       onOpenSchema={openSchemaTab}
       onExportSchema={handleExportSchema}
+      onSearchData={() => setSearchOpen(true)}
       guard={guard}
       unlockedUntil={unlockedUntil}
       onGuardChange={updateGuard}
       onLockNow={lockNow}
-      onViewSql={setSqlViewOpen}
+      onViewSql={(definition) => { setSqlViewOpen(definition); setSqlDraft(definition.sql) }}
       onCollapse={() => setSidebarCollapsed(true)}
       onExpand={() => setSidebarCollapsed(false)}
       collapsible={!isSmall}
@@ -732,6 +782,35 @@ export function StudioApp() {
         </div>
       )}
 
+      {driver && (
+        <DatabaseSearchPanel
+          open={searchOpen}
+          tables={schema?.tables ?? []}
+          driver={driver}
+          onClose={() => setSearchOpen(false)}
+          onOpenTable={openDataTab}
+          onError={notifyError}
+        />
+      )}
+
+      <StudioCommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        connections={connections}
+        hasLocal={Boolean(localFile)}
+        schema={schema}
+        onSelectSaved={(id) => setSelection({ kind: 'saved', id })}
+        onSelectLocal={() => {
+          if (localFile) setSelection({ kind: 'local', name: localFile.name, file: localFile.file })
+        }}
+        onOpenData={openDataTab}
+        onOpenSchema={openSchemaTab}
+        onViewSql={(definition) => { setSqlViewOpen(definition); setSqlDraft(definition.sql) }}
+        onNewQuery={() => openQueryTab()}
+        onExportSchema={handleExportSchema}
+        onRefreshSchema={() => { if (driver) void reloadSchema(driver) }}
+      />
+
       <ConnectionDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
@@ -745,17 +824,29 @@ export function StudioApp() {
         open={sqlViewOpen !== null}
         onClose={() => setSqlViewOpen(null)}
         title={t('development.database.app.sql_definition')}
+        description={sqlViewOpen ? t('development.database.app.definition_hint', { name: sqlViewOpen.name }) : undefined}
         width={720}
         footer={
-          <Button variant="secondary" size="sm" onClick={() => { if (sqlViewOpen) void copyText(sqlViewOpen).then((ok) => notify(ok ? t('development.database.common.copied') : t('development.database.common.copy_failed'), undefined, ok ? 'success' : 'danger')) }}>
-            <Code2 size={14} />
-            {t('development.database.common.copy')}
-          </Button>
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setSqlViewOpen(null)}>{t('development.database.common.cancel')}</Button>
+            <Button variant="secondary" size="sm" onClick={() => { if (sqlDraft) void copyText(sqlDraft).then((ok) => notify(ok ? t('development.database.common.copied') : t('development.database.common.copy_failed'), undefined, ok ? 'success' : 'danger')) }}>
+              <Code2 size={14} />
+              {t('development.database.common.copy')}
+            </Button>
+            <Button size="sm" disabled={definitionSaving} onClick={() => void saveDefinition()}>
+              {definitionSaving && <Loader2 size={13} className="animate-spin" />}
+              {t('development.database.app.definition_save')}
+            </Button>
+          </>
         }
       >
-        <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3 font-mono text-[length:var(--text-11)] leading-relaxed text-[var(--text-primary)]">
-          {sqlViewOpen}
-        </pre>
+        <textarea
+          value={sqlDraft}
+          onChange={(event) => setSqlDraft(event.target.value)}
+          spellCheck={false}
+          aria-label={t('development.database.app.sql_definition')}
+          className="h-[50vh] w-full resize-none rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-inset)] p-3 font-mono text-[length:var(--text-11)] leading-relaxed text-[var(--text-primary)] outline-none"
+        />
       </Modal>
 
       <Modal
