@@ -15,11 +15,14 @@ import {
   AudioLines,
   Check,
   CloudUpload,
+  Copy,
+  Disc3,
   Download,
   FileDown,
   GripVertical,
   HardDriveDownload,
   Heart,
+  Link2,
   ListEnd,
   ListPlus,
   MoreHorizontal,
@@ -31,10 +34,13 @@ import {
   Server,
   Square,
   Trash2,
+  UserRound,
 } from 'lucide-react'
 import { formatBytes, formatDuration, musicArtistNames, buildExportFilename } from '@shared/music/format'
 import type { MusicTrack } from '@shared/music/model'
 import { cn } from '../../../lib/cn'
+import { copyText } from '../../../lib/clipboard'
+import { navigateToAddress } from '../../../lib/app-history'
 import { Button, IconButton } from '../../../components/primitives'
 import { Menu, Modal, Tooltip, confirm, useContextMenu, type MenuItem } from '../../../components/overlay'
 import { useMusicLibrary } from '../store/library'
@@ -248,6 +254,43 @@ export function SongRow({
       URL.revokeObjectURL(url)
     }).catch((error: unknown) => fail(musicText('music.song.download_lyrics_failed'), error))
   }
+  const copy = (text: string): void => {
+    void copyText(text).then((copied) => {
+      useUi.getState().toast({
+        title: musicText(copied ? 'music.song.copied' : 'music.song.copy_failed'),
+        tone: copied ? 'success' : 'danger',
+      })
+    })
+  }
+  const trackLink = track.provider === 'netease'
+    ? track.kind === 'podcast'
+      ? `https://music.163.com/program?id=${encodeURIComponent(track.programId || track.providerId)}`
+      : `https://music.163.com/song?id=${encodeURIComponent(track.providerId)}`
+    : ''
+  const linkedArtists = track.artists.filter((artist) => artist.id)
+  const linkedViews = [
+    ...linkedArtists.map((artist) => ({
+      id: `artist-${artist.id}`,
+      label: musicText('music.song.view_artist', { name: artist.name }),
+      icon: <UserRound size={14} />,
+      onSelect: () => navigateToAddress(`/music/artist/${encodeURIComponent(artist.id)}`),
+    })),
+    ...(track.kind === 'podcast' && track.albumId
+      ? [{
+          id: 'view-podcast',
+          label: musicText('music.song.view_podcast'),
+          icon: <Disc3 size={14} />,
+          onSelect: () => navigateToAddress(`/music/podcast/${encodeURIComponent(track.albumId)}`),
+        }]
+      : track.albumId
+        ? [{
+            id: 'view-album',
+            label: musicText('music.song.view_album', { name: track.album }),
+            icon: <Disc3 size={14} />,
+            onSelect: () => navigateToAddress(`/music/album/${encodeURIComponent(track.albumId)}`),
+          }]
+        : []),
+  ]
 
   const items = menuItems ?? [
     {
@@ -279,6 +322,28 @@ export function SongRow({
       icon: <Play size={14} />,
       onSelect: () => onPlay(track),
     },
+    {
+      id: 'copy-title',
+      label: musicText('music.song.copy_title'),
+      icon: <Copy size={14} />,
+      separatorBefore: true,
+      onSelect: () => copy(track.title),
+    },
+    {
+      id: 'copy-title-artist',
+      label: musicText('music.song.copy_title_artist'),
+      icon: <Copy size={14} />,
+      onSelect: () => copy(`${track.title} - ${musicArtistNames(track)}`),
+    },
+    ...(trackLink
+      ? [{
+          id: 'copy-link',
+          label: musicText('music.song.copy_link'),
+          icon: <Link2 size={14} />,
+          onSelect: () => copy(trackLink),
+        }]
+      : []),
+    ...linkedViews,
     ...(track.provider === 'netease'
       ? [
           ...(track.r2Key
