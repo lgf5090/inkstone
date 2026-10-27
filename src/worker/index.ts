@@ -28,6 +28,7 @@ import { runEmailAutoDraftJobs } from './email/auto-draft'
 import { runEmailSnoozeWake } from './email/snooze'
 import { runEmailFollowUpSweep } from './email/follow-up'
 import { runScheduledSends } from './email/scheduled-send'
+import { runDueCloudflareTasks } from './cloudflare/tasks'
 
 export { SyncHub } from './realtime/sync-hub'
 export { CredentialVault } from './durable/credential-vault'
@@ -92,12 +93,18 @@ export default {
       const emailDraftTick = runEmailAutoDraftJobs(env, event.scheduledTime, 2)
       const emailSnoozeTick = runEmailSnoozeWake(env, event.scheduledTime)
       const emailFollowUpTick = runEmailFollowUpSweep(env, event.scheduledTime)
+      // The Cloudflare app's scheduled maintenance runs on every fire: its own rows decide which
+      // expressions include this minute, and each run is recorded either way.
+      const cloudflareTick = runDueCloudflareTasks(env, event.scheduledTime).catch((error) => {
+        console.warn('[inkstone] Cloudflare scheduled tasks failed:', (error as Error).message)
+        return null
+      })
       const emailScheduledTick = runScheduledSends(env, event.scheduledTime, 3).catch((error) => {
         console.warn('[inkstone] scheduled email send sweep failed:', (error as Error).message)
         return null
       })
       if (!isDrainFire(event.scheduledTime)) {
-        await Promise.all([assistantTick, subscriptionTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick])
+        await Promise.all([assistantTick, subscriptionTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick])
         return
       }
       const drains: Promise<unknown>[] = [
@@ -128,7 +135,7 @@ export default {
             providerForScheduled(env).purgeExpiredData(env, { batchSize: 100 }),
           ]
         : []
-      await Promise.all([...drains, ...heavy, subscriptionTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick])
+      await Promise.all([...drains, ...heavy, subscriptionTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick])
     })())
   },
 
