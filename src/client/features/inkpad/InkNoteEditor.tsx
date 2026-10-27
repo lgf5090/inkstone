@@ -302,6 +302,10 @@ export function InkNoteEditor({ note, content, onChange, onTitleChange, onMobile
     }, [])
 
     useEffect(() => {
+        engineRef.current?.refreshAppearance()
+    }, [settings.paperStyle, settings.pressureResponse])
+
+    useEffect(() => {
         if (!autoColor) return
         const resolved = resolveCssColorToHex(getComputedStyle(document.documentElement).getPropertyValue('--text-primary'))
         const next = resolved ?? (dark ? '#ffffff' : '#111827')
