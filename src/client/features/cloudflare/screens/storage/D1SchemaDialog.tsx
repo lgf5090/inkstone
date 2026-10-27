@@ -17,6 +17,7 @@ import { useCfT } from '../../i18n'
 import { useUi } from '../../../../store/ui'
 import { Table, TableScroll, TBody, Td, Th, THead, Tr } from '../../components/Table'
 import { StorageError } from './StorageError'
+import { SQL_NOT_NULL } from './sql-keywords'
 
 const COLUMN_TYPES = ['INTEGER', 'TEXT', 'REAL', 'BLOB', 'BOOLEAN', 'DATETIME'] as const
 type ColumnType = typeof COLUMN_TYPES[number]
@@ -192,7 +193,7 @@ export function D1SchemaDialog({
                     <Td>
                       <span className="flex flex-wrap items-center gap-1 font-mono text-[length:var(--text-12)]">
                         {column.type}
-                        {column.notnull ? <Badge tone="warning">NOT NULL</Badge> : null}
+                        {column.notnull ? <Badge tone="warning">{SQL_NOT_NULL}</Badge> : null}
                       </span>
                     </Td>
                     <Td className="font-mono text-[length:var(--text-12)]">{column.dflt_value ?? '-'}</Td>
@@ -250,7 +251,7 @@ export function D1SchemaDialog({
                   onChange={setAddType}
                 />
               </div>
-              <Checkbox checked={addNotNull} onChange={setAddNotNull} label="NOT NULL" />
+              <Checkbox checked={addNotNull} onChange={setAddNotNull} label={SQL_NOT_NULL} />
               <Field label={t('cloudflare.storage.default_value')} className="w-40">
                 <Input
                   value={addDefault}

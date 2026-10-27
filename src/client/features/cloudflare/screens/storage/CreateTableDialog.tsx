@@ -16,6 +16,7 @@ import { cfErrorText } from '../../api/client'
 import { storageApi } from '../../api/storage'
 import { useCfT } from '../../i18n'
 import { Table, TableScroll, TBody, Td, Th, THead, Tr } from '../../components/Table'
+import { SQL_NOT_NULL } from './sql-keywords'
 
 const COLUMN_TYPES = ['INTEGER', 'TEXT', 'REAL', 'BLOB', 'BOOLEAN', 'DATETIME'] as const
 type ColumnType = typeof COLUMN_TYPES[number]
@@ -136,7 +137,7 @@ export function CreateTableDialog({
                 <Th>{t('cloudflare.storage.column_name')}</Th>
                 <Th>{t('cloudflare.storage.column_type')}</Th>
                 <Th>{t('cloudflare.storage.primary_key')}</Th>
-                <Th>NOT NULL</Th>
+                <Th>{SQL_NOT_NULL}</Th>
                 <Th>{t('cloudflare.storage.default_value')}</Th>
                 <Th>{uiT('common.more_actions')}</Th>
               </Tr>
@@ -172,7 +173,7 @@ export function CreateTableDialog({
                     <Checkbox
                       checked={column.notNull}
                       onChange={(checked) => patchColumn(index, { notNull: checked })}
-                      label="NOT NULL"
+                      label={SQL_NOT_NULL}
                     />
                   </Td>
                   <Td>

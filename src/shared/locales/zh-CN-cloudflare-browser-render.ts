@@ -22,7 +22,6 @@ export const ZH_CN_CLOUDFLARE_BROWSER_RENDER = {
   "cloudflare.browser_render.html_render": "HTML 渲染",
   "cloudflare.browser_render.input_hint": "输入 URL 并点击开始渲染",
   "cloudflare.browser_render.link_extract": "链接提取",
-  "cloudflare.browser_render.links": "链接提取",
   "cloudflare.browser_render.markdown": "Markdown",
   "cloudflare.browser_render.pdf": "PDF",
   "cloudflare.browser_render.preview_mode": "预览",

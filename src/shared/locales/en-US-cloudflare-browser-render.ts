@@ -22,7 +22,6 @@ export const EN_US_CLOUDFLARE_BROWSER_RENDER = {
   "cloudflare.browser_render.html_render": "HTML Render",
   "cloudflare.browser_render.input_hint": "Enter a URL and click Start Render",
   "cloudflare.browser_render.link_extract": "Link Extract",
-  "cloudflare.browser_render.links": "Link Extract",
   "cloudflare.browser_render.markdown": "Markdown",
   "cloudflare.browser_render.pdf": "PDF",
   "cloudflare.browser_render.preview_mode": "Preview",
