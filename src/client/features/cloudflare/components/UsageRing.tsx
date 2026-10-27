@@ -47,7 +47,7 @@ export function UsageRing({
           transform={`rotate(-90 ${size / 2} ${size / 2})`}
         />
       </svg>
-      <span className="absolute inset-0 flex items-center justify-center text-[9px] font-semibold tabular-nums text-[var(--text-tertiary)]">
+      <span className="absolute inset-0 flex items-center justify-center text-[length:var(--text-9)] font-semibold tabular-nums text-[var(--text-tertiary)]">
         {percent}%
       </span>
     </div>

@@ -101,7 +101,7 @@ export function SortableHead({
         )}
       >
         <span>{label}</span>
-        <span aria-hidden="true" className="text-[10px] text-[var(--text-quaternary)]">
+        <span aria-hidden="true" className="text-[length:var(--text-10)] text-[var(--text-quaternary)]">
           {active ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}
         </span>
       </button>

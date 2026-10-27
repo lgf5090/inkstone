@@ -458,6 +458,16 @@ const ACCOUNT_GLOBAL_KEYS = new Map<string, string>([
   // The key names a stored object (`r2:<user_id>/<newId>.<ext>`, attachments/keys.ts:12), and one
   // object belongs to exactly one account — the queue is a work list of objects, not of rows.
   ['attachment_cleanup', 'object key embeds the owner id'],
+  // The Cloudflare app's rows are named by `newId()` (lib/id.ts) and every query filters on
+  // `user_id`; a 26-character random id is not a name another reader can offer, so the key cannot
+  // collide across accounts and the read paths never rely on it alone.
+  ['cloudflare_account', 'newId() in cloudflare/accounts.ts'],
+  ['cloudflare_log', 'newId() in cloudflare/audit.ts'],
+  ['cloudflare_scheduled_task', 'newId() in cloudflare/tasks.ts'],
+  ['cloudflare_task_execution', 'newId() in cloudflare/tasks.ts'],
+  ['cloudflare_catalog_source', 'newId() in cloudflare/catalog.ts'],
+  ['cloudflare_chat_session', 'newId() in cloudflare/chat-sessions.ts'],
+  ['cloudflare_chat_message', 'newId() in cloudflare/chat-sessions.ts'],
   // The music cleanup queue names an R2 object under `music/.../<user_id>/...`, so the key itself
   // already carries the account and the queue is a work list rather than an account-owned record.
   ['music_cleanup', 'object key embeds the owner id'],

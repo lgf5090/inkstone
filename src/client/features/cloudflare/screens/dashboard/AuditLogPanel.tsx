@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { CloudflareAuditLog } from '@shared/cloudflare/model'
 import { LoadingBlock } from '../../../../components/feedback'
-import { Field, Input } from '../../../../components/form'
+import { Field } from '../../../../components/form'
 import { Badge, Button, IconButton } from '../../../../components/primitives'
 import { SelectMenu } from '../../../../components/select-menu'
 import { t } from '../../../../lib/i18n'
@@ -22,6 +22,7 @@ import { useSort } from '../../lib/sort'
 import { SearchField } from '../../components/SearchField'
 import { SortableHead, TBody, Table, TableScroll, Td, THead, Tr } from '../../components/Table'
 import { Panel, PanelError } from './Panel'
+import { DatePicker } from '../../../../components/date-picker'
 
 const PAGE_SIZE = 20
 
@@ -177,17 +178,17 @@ export function AuditLogPanel() {
           className="w-44"
         />
         <Field label={tcf('cloudflare.dashboard.start_date')} className="w-36">
-          <Input
-            type="date"
+          <DatePicker
+            label={tcf('cloudflare.dashboard.start_date')}
             value={draft.from}
-            onChange={(event) => setDraft((current) => ({ ...current, from: event.target.value }))}
+            onChange={(next) => setDraft((current) => ({ ...current, from: next }))}
           />
         </Field>
         <Field label={tcf('cloudflare.dashboard.end_date')} className="w-36">
-          <Input
-            type="date"
+          <DatePicker
+            label={tcf('cloudflare.dashboard.end_date')}
             value={draft.to}
-            onChange={(event) => setDraft((current) => ({ ...current, to: event.target.value }))}
+            onChange={(next) => setDraft((current) => ({ ...current, to: next }))}
           />
         </Field>
         <Button size="sm" loading={loading} onClick={applyFilters}>

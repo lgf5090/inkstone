@@ -92,6 +92,8 @@ function formatUsage(value: number, isBytes: boolean): string {
   return formatNumber(value)
 }
 
+const CHART_SERIES_COLORS = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)'] as const
+
 export function ResourcesPanel({ accounts }: { accounts: readonly AccountQuotaView[] }) {
   const tcf = useCfT()
   const [accountId, setAccountId] = useState('')
@@ -213,7 +215,7 @@ export function ResourcesPanel({ accounts }: { accounts: readonly AccountQuotaVi
                     <UsageRing
                       used={usage.value}
                       limit={usage.limit}
-                      color={`var(--chart-${(index % 4) + 1})`}
+                      color={CHART_SERIES_COLORS[index % CHART_SERIES_COLORS.length]}
                       size={58}
                       label={tcf(card.labelKey)}
                     />

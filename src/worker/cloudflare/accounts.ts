@@ -144,6 +144,46 @@ export async function listAccounts(
   }
 }
 
+/** Every target a batch test can run against; the unverified filter is the screen's own. */
+export async function listAccountTargets(
+  env: Env,
+  userId: string,
+  onlyUnverified: boolean,
+): Promise<Array<{ id: string; name: string }>> {
+  const rows = await env.DB.prepare(
+    `SELECT id, name FROM cloudflare_account
+      WHERE user_id = ?${onlyUnverified ? " AND (cf_account_id IS NULL OR cf_account_id = '')" : ''}
+      ORDER BY created_at ASC, id ASC`,
+  )
+    .bind(userId)
+    .all<{ id: string; name: string }>()
+  return rows.results ?? []
+}
+
+/** The emails a CSV import may not duplicate, lower-cased. */
+export async function listAccountEmails(env: Env, userId: string): Promise<string[]> {
+  const rows = await env.DB.prepare(
+    `SELECT lower(email) AS email FROM cloudflare_account
+      WHERE user_id = ? AND email IS NOT NULL AND email <> ''`,
+  )
+    .bind(userId)
+    .all<{ email: string }>()
+  return (rows.results ?? []).map((row) => row.email)
+}
+
+export async function setAccountFeatures(
+  env: Env,
+  userId: string,
+  id: string,
+  features: string,
+): Promise<void> {
+  await env.DB.prepare(
+    'UPDATE cloudflare_account SET enabled_features = ?, updated_at = ? WHERE user_id = ? AND id = ?',
+  )
+    .bind(features, Date.now(), userId, id)
+    .run()
+}
+
 export async function getAccountRow(
   env: Env,
   userId: string,

@@ -25,6 +25,9 @@ import {
   testAccount,
   updateAccount,
   type CloudflareAuthType,
+  listAccountEmails,
+  listAccountTargets,
+  setAccountFeatures,
   type CreateAccountInput,
   type UpdateAccountInput,
 } from '../../cloudflare/accounts'
@@ -303,14 +306,8 @@ accountsRouter.post('/test-batch', async (c) => {
       pending.push({ index, target: { id: row.id, name: row.name } })
     }
   } else {
-    const rows = await c.env.DB.prepare(
-      `SELECT id, name FROM cloudflare_account
-        WHERE user_id = ?${onlyUnverified ? " AND (cf_account_id IS NULL OR cf_account_id = '')" : ''}
-        ORDER BY created_at ASC, id ASC`,
-    )
-      .bind(userId)
-      .all<{ id: string; name: string }>()
-    for (const row of rows.results ?? []) {
+    const rows = await listAccountTargets(c.env, userId, onlyUnverified)
+    for (const row of rows) {
       const index = results.length
       results.push(null)
       pending.push({ index, target: { id: row.id, name: row.name } })
@@ -365,13 +362,7 @@ accountsRouter.post('/import-csv', async (c) => {
     throw ApiError.badRequest(`At most ${MAX_CSV_ROWS} rows can be imported at once`)
   }
 
-  const existing = await c.env.DB.prepare(
-    `SELECT lower(email) AS email FROM cloudflare_account
-      WHERE user_id = ? AND email IS NOT NULL AND email <> ''`,
-  )
-    .bind(userId)
-    .all<{ email: string }>()
-  const seen = new Set((existing.results ?? []).map((row) => row.email.trim().toLowerCase()))
+  const seen = new Set((await listAccountEmails(c.env, userId)).map((email) => email.trim().toLowerCase()))
 
   const results: Array<ImportRow | null> = new Array(rows.length).fill(null)
   const pending: Array<{ index: number; row: CsvAccountRow; name: string }> = []
@@ -450,11 +441,7 @@ accountsRouter.post('/batch/features', async (c) => {
       continue
     }
     try {
-      await c.env.DB.prepare(
-        'UPDATE cloudflare_account SET enabled_features = ?, updated_at = ? WHERE user_id = ? AND id = ?',
-      )
-        .bind(enabledFeatures, Date.now(), userId, id)
-        .run()
+      await setAccountFeatures(c.env, userId, id, enabledFeatures)
       await audit(c.env, userId, id, 'update_features', row.name, enabledFeatures)
       results.push({ id, name: row.name, status: 'success' })
     } catch (error) {
@@ -615,11 +602,7 @@ accountsRouter.patch('/:id/features', async (c) => {
   const raw = optionalString(body, 'enabled_features')
   if (raw === undefined) throw ApiError.badRequest('enabled_features is required')
   const enabledFeatures = normalizeFeatures(raw)
-  await c.env.DB.prepare(
-    'UPDATE cloudflare_account SET enabled_features = ?, updated_at = ? WHERE user_id = ? AND id = ?',
-  )
-    .bind(enabledFeatures, Date.now(), userId, id)
-    .run()
+  await setAccountFeatures(c.env, userId, id, enabledFeatures)
   await audit(c.env, userId, id, 'update_features', row.name, enabledFeatures)
   return c.json({ id, enabled_features: enabledFeatures })
 })

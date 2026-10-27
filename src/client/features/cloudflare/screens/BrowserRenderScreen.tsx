@@ -29,6 +29,7 @@ import {
 } from '../api/browser-render'
 import { downloadDataUrl } from '../lib/download'
 import { splitSeconds } from '../lib/format'
+import { isImeComposing } from '../../../lib/ime'
 
 function durationText(t: ReturnType<typeof useCfT>, seconds: number): string {
   if (seconds < 60) return t('cloudflare.browser_render.format_seconds', { s: Math.round(seconds) })
@@ -114,7 +115,8 @@ export function BrowserRenderScreen() {
       })
       setResult(next)
       toast({ title: t('cloudflare.browser_render.render_complete', { time: next.duration.toFixed(1) }), tone: 'success' })
-      void refreshUsage().catch(() => undefined)
+      // A failed refresh only leaves yesterday's numbers on screen; the render itself succeeded.
+      void refreshUsage().catch((failure: unknown) => console.warn('[inkstone] Render usage refresh failed:', failure))
     } catch (failure) {
       setError(cfErrorText(failure))
       toast({ title: cfErrorText(failure), tone: 'danger' })
@@ -152,7 +154,7 @@ export function BrowserRenderScreen() {
             <Input
               value={url}
               onChange={(event) => setUrl(event.target.value)}
-              onKeyDown={(event) => { if (event.key === 'Enter') void startRender() }}
+              onKeyDown={(event) => { if (!isImeComposing(event) && event.key === 'Enter') void startRender() }}
               placeholder="https://example.com"
               inputMode="url"
               autoComplete="off"

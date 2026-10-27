@@ -1,13 +1,14 @@
 /**
- * A search box with the app's own chrome.
+ * A search box with the app's own chrome and keyboard contract.
  *
- * Typing is immediate; debouncing belongs to the caller, because a filter that runs on every
- * keystroke of a local list and one that asks the server are different costs. Escape clears the box,
- * which is the one shortcut every search field in this notebook shares.
+ * The box itself is the notebook's `FilterInput`: it already answers Escape, keeps an IME's keys, and
+ * refuses an unsafe `/regex/` with a sentence beside itself. This wrapper only supplies the compiled
+ * query the shared box expects and the Enter-to-submit a few screens want.
  */
-import { Search, X } from 'lucide-react'
+import { compileQuery } from '../../../lib/query-match'
+import { FilterInput } from '../../../components/FilterInput'
+import { isImeComposing } from '../../../lib/ime'
 import { cn } from '../../../lib/cn'
-import { t } from '../../../lib/i18n'
 
 export function SearchField({
   value,
@@ -26,44 +27,24 @@ export function SearchField({
   autoFocus?: boolean
   onSubmit?: () => void
 }) {
+  const query = compileQuery(value)
   return (
-    <div className={cn('relative', className)}>
-      <Search
-        size={14}
-        aria-hidden="true"
-        className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-[var(--text-tertiary)]"
-      />
-      <input
-        type="search"
-        value={value}
-        aria-label={label}
-        placeholder={placeholder}
-        autoFocus={autoFocus}
-        onChange={(event) => onChange(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape' && value) {
-            event.stopPropagation()
-            onChange('')
-          }
-          if (event.key === 'Enter') onSubmit?.()
-        }}
-        className={cn(
-          'h-11 w-full rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-raised)] pr-8 pl-8',
-          'text-[length:var(--text-13)] text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)]',
-          'focus-visible:border-[var(--accent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent-soft)]',
-          'md:h-[34px] md:text-[length:var(--text-12-5)]',
-        )}
-      />
-      {value && (
-        <button
-          type="button"
-          aria-label={t('common.clear')}
-          onClick={() => onChange('')}
-          className="absolute top-1/2 right-1.5 flex size-6 -translate-y-1/2 items-center justify-center rounded-[var(--r-xs)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-        >
-          <X size={13} />
-        </button>
-      )}
-    </div>
+    <FilterInput
+      value={value}
+      onChange={onChange}
+      query={query}
+      label={label}
+      size="panel"
+      placeholder={placeholder}
+      autoFocus={autoFocus}
+      className={cn('mt-0', className)}
+      onKeyDown={(event) => {
+        if (!onSubmit || isImeComposing(event)) return
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          onSubmit()
+        }
+      }}
+    />
   )
 }
