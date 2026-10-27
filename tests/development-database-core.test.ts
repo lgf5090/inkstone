@@ -7,6 +7,7 @@ import { buildTableDataSql, loadSchema } from '../src/client/features/developmen
 import { buildDistinctSql } from '../src/client/features/development/database/distinct-ops'
 import { buildDataSearchSql, searchableColumns } from '../src/client/features/development/database/data-search'
 import { buildRowInsert, chunkRows, transferInsertStatements } from '../src/client/features/development/database/transfer-ops'
+import { generateRows } from '../src/client/features/development/database/data-generate'
 import { inferColumnType, parseCsv } from '../src/client/features/development/database/csv-parse'
 import { projectColumns, toCsv, toMarkdown, toSchemaSql } from '../src/client/features/development/database/export-utils'
 import { transformValue } from '../src/client/features/development/database/transform-value'
@@ -250,6 +251,35 @@ describe('development database core', () => {
       'INSERT INTO "t" ("a") VALUES (1);',
       'INSERT INTO "t" ("a") VALUES (2);',
     ])
+  })
+
+  it('generates deterministic rows for each generator kind', () => {
+    const columns = [
+      { name: 'id', config: { kind: 'sequence' as const, start: 100, step: 5 } },
+      { name: 'score', config: { kind: 'integer' as const, min: 1, max: 10 } },
+      { name: 'ratio', config: { kind: 'real' as const, min: 0, max: 1, decimals: 3 } },
+      { name: 'name', config: { kind: 'text' as const, length: 5 } },
+      { name: 'mail', config: { kind: 'email' as const } },
+      { name: 'ip', config: { kind: 'ip' as const } },
+      { name: 'day', config: { kind: 'date' as const } },
+      { name: 'flag', config: { kind: 'bool' as const } },
+      { name: 'kind', config: { kind: 'enum' as const, values: ['a', 'b'] } },
+      { name: 'skip', config: { kind: 'skip' as const } },
+    ]
+    const first = generateRows(columns, 3, 7)
+    const second = generateRows(columns, 3, 7)
+    expect(first).toEqual(second)
+    expect(first[0]?.[0]).toBe(100)
+    expect(first[2]?.[0]).toBe(110)
+    expect(Number(first[0]?.[1])).toBeGreaterThanOrEqual(1)
+    expect(Number(first[0]?.[1])).toBeLessThanOrEqual(10)
+    expect(String(first[0]?.[3])).toMatch(/^[a-z]{5}$/)
+    expect(String(first[0]?.[4])).toMatch(/@example\.com$/)
+    expect(String(first[0]?.[5])).toMatch(/^\d+\.\d+\.\d+\.\d+$/)
+    expect(String(first[0]?.[6])).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect(['a', 'b']).toContain(first[0]?.[8])
+    expect(first[0]).toHaveLength(9)
+    expect(generateRows([], 2)).toEqual([[], []])
   })
 
   it('quotes CSV cells containing separators and newlines', () => {

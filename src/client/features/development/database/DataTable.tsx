@@ -34,6 +34,7 @@ import { RowDetailPanel } from './RowDetailPanel'
 import { DistinctValuePanel } from './DistinctValuePanel'
 import { CellTransformDialog } from './CellTransformDialog'
 import { CsvImportDialog } from './CsvImportDialog'
+import { DataGenerateDialog } from './DataGenerateDialog'
 import { ExportPanel } from './ExportPanel'
 import { AggregatePanel } from './AggregatePanel'
 import { ToolbarPanel } from './ToolbarPanel'
@@ -106,6 +107,7 @@ export function DataTable({ driver, table, ensureWritable, onSchemaChanged, onEr
   const [transformCell, setTransformCell] = useState<{ row: number; col: number } | null>(null)
   const [sqlOpen, setSqlOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  const [generateOpen, setGenerateOpen] = useState(false)
   const [insertCount, setInsertCount] = useState('1')
   const [refreshSeconds, setRefreshSeconds] = useState(0)
   const [lastRefreshAt, setLastRefreshAt] = useState<Date | null>(null)
@@ -725,6 +727,10 @@ export function DataTable({ driver, table, ensureWritable, onSchemaChanged, onEr
               <Upload size={14} />
               {t('development.database.import.button')}
             </Button>
+            <Button variant="secondary" size="sm" onClick={() => setGenerateOpen(true)}>
+              <Wand2 size={14} />
+              {t('development.database.generate.button')}
+            </Button>
             <Button variant="secondary" size="sm" onClick={() => void deleteSelected()} disabled={selectedRows.size === 0}>
               <Trash2 size={14} />
               {t('development.database.table.delete')}
@@ -1011,6 +1017,16 @@ export function DataTable({ driver, table, ensureWritable, onSchemaChanged, onEr
           <pre className="max-h-32 overflow-auto font-mono text-[length:var(--text-11)] leading-relaxed text-[var(--text-secondary)] whitespace-pre-wrap break-all">{currentSql || '—'}</pre>
         </div>
       )}
+
+      <DataGenerateDialog
+        open={generateOpen}
+        table={table}
+        driver={driver}
+        {...(ensureWritable ? { ensureWritable } : {})}
+        onClose={() => setGenerateOpen(false)}
+        onGenerated={() => void load(page, pageSize, sort, where)}
+        onError={onError}
+      />
 
       <CsvImportDialog
         open={importOpen}
