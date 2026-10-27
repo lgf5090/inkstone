@@ -6281,6 +6281,17 @@ const allowed = new Map([
     "/** The shell parses first; the engine never parses the 1.9 MB body a second time. */",
     "/** Called by React after it commits the two card layers. */",
   ]],
+  ["src/client/features/inkpad/ink-history.ts", [
+    "/** Appending a stroke never mutates existing items, so only the top-level arrays need copies. */",
+    "/**\n * Snapshot stacks for the canvas. Point arrays are shared by reference in an append snapshot,\n * which is what keeps a lecture-sized drawing's undo path O(strokes) rather than O(samples).\n */",
+  ]],
+  ["src/client/features/inkpad/ink-input.ts", [
+    "/**\n * The browser may bundle several pointer samples into one event; `getCoalescedEvents` returns\n * them in the same order they arrived. Older engines expose no method (or an empty result), in\n * which case the event itself is the only sample.\n */",
+    "/** The standards-based equivalent of an Apple Pencil side-button press in a browser. */",
+  ]],
+  ["src/client/features/inkpad/ink-renderer.ts", [
+    "/**\n * Both canvases are bounded. A 4K viewport at 2.5× is ~52M pixels (~208 MB), which a browser\n * tab should not reserve for one drawing; the cache is bounded separately because it carries\n * padding and a Windows device gets a 1× navigation bitmap.\n */",
+  ]],
   ["src/client/features/inkpad/ink-settings-store.ts", [
     "/** Folder a new file lands in when no explicit folder is named: id or name; empty means the current location. */",
     "/** `auto` follows the theme's text colour; a custom value is always hex. */",

@@ -5,7 +5,7 @@ export interface InkEngineSettings {
     pressureResponse: 'fixed' | 'subtle' | 'natural'
 }
 
-export type InkErrorCode = 'canvas_unavailable' | 'unsupported_file'
+export type InkErrorCode = 'canvas_unavailable' | 'unsupported_file' | 'empty_content'
 
 export interface InkEngineHost {
     /** The engine reads paper style and pressure response on demand. */
