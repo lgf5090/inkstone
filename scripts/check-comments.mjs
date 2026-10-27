@@ -5733,7 +5733,10 @@ const allowed = new Map([
     "/**\n * The Records tab: the zone's DNS records, their proxy switches, and the add/edit/delete actions.\n */",
   ]],
   ["src/client/features/cloudflare/screens/dns/RuleDialog.tsx", [
-    "/**\n * One ruleset rule.\n *\n * Guided mode covers the common shape (expression, action and optional action parameters); the\n * advanced switch hands the whole rule over as JSON for the phases whose parameters are deep enough\n * that a handful of fields would be a worse editor. Switching back parses the JSON into the guided\n * fields, so a mistake is caught before the dialog closes.\n */",
+    "/**\n * One ruleset rule.\n *\n * The form is the default because a rule is two things a reader rarely wants to type by hand: an\n * expression in Cloudflare's filter language, and an action object whose shape depends on the phase.\n * Five match kinds build the first from a host and a path; the phase's fields build the second. The\n * expression is shown as it is assembled, and the advanced switch hands the whole rule over as JSON\n * for anything the fields cannot say — switching back parses it, so a mistake is caught before saving.\n */",
+    "// The fields cannot always describe what the JSON says; the expression is kept verbatim so",
+    "// nothing is lost when the reader switches back.",
+    "/** What the form still needs before it can be sent, as the sentence to show. */",
   ]],
   ["src/client/features/cloudflare/screens/dns/RulesPanel.tsx", [
     "/**\n * The Rules engine tab: one phase at a time, its rules in a table, and a dialog that creates,\n * edits or deletes them.\n */",
@@ -5748,6 +5751,17 @@ const allowed = new Map([
     "/**\n * The fixed value tables the DNS screen draws.\n *\n * These are Cloudflare's own identifiers (SSL modes, cache levels, rule actions), not prose: they\n * are shown as the API spells them so what a reader picks is what the request carries.\n */",
     "/** Actions Cloudflare accepts for each phase; the dialog offers only these. */",
     "/** The translated status, or Cloudflare's own word when it is one this build does not know. */",
+  ]],
+  ["src/client/features/cloudflare/screens/dns/rule-builder.ts", [
+    "/**\n * The rule form's pure half: what the fields mean, and what they become.\n *\n * A Cloudflare rule is an expression in their filter language plus an action object whose shape depends\n * on the phase the rule lives in. The reference module asked a reader to type both by hand; these\n * functions turn five match kinds and the per-phase fields into the same pair, and read a stored rule\n * back into the fields so an edit starts from what the rule already says.\n */",
+    "/** The part left of the zone name; empty is the apex. */",
+    "/** Used only by the `custom` match kind. */",
+    "/** A literal path becomes a prefix regex: `.` and friends must not widen the match. */",
+    "/** The host the rule matches: the subdomain joined to the zone, or the zone itself at the apex. */",
+    "/** The filter expression the match fields describe; empty when the form cannot say anything yet. */",
+    "/**\n * The action half, as the phase expects it.\n *\n * A phase fixes the action unless it offers a set (firewall and rate limiting do), which is why the\n * caller passes the chosen one in rather than having this invent it.\n */",
+    "/** What the dialog sends: the expression, the action and the parameters that go with it. */",
+    "/**\n * Read a stored rule back into the form, so an edit starts from the rule's own words.\n *\n * An expression that none of the five shapes describe keeps itself: the form switches to `custom` and\n * carries the expression verbatim, which is the only honest way to edit something the fields cannot\n * express.\n */",
   ]],
   ["src/client/features/cloudflare/screens/dns/use-panel-load.ts", [
     "/**\n * One fetch per panel, with the three states the panels draw.\n *\n * The caller passes a key naming what the request depends on. `loader` is deliberately not a\n * dependency: every caller writes an inline closure, and depending on its identity would refetch on\n * every render. `reload` asks for the same request again.\n */",
@@ -39558,6 +39572,10 @@ const allowed = new Map([
   ["tests/cloudflare-quota-sync.test.ts", [
     "// A serial walk over accounts and products holds the peak at one request at a time.",
     "// A refresh nobody is waiting for: a blocking read would never answer.",
+  ]],
+  ["tests/cloudflare-rule-builder.test.ts", [
+    "/**\n * The rule form's pure half.\n *\n * A rule is an expression plus a phase-shaped action object, and the dialog's fields are a friendlier\n * way to say both. These cases pin the exact strings Cloudflare receives — a filter language is not\n * something a reader can proofread by eye, so the test is the only place the wording is checked — and\n * they pin the reverse direction, because an edit that silently loses a rule's shape is worse than a\n * dialog that refuses to open.\n */",
+    "// And round-trips: what the form would send is what the rule said.",
   ]],
   ["tests/cloudflare-storage.test.ts", [
     "// A compound `SELECT … UNION ALL` per table is what SQLite rejects on a real database, so the",
