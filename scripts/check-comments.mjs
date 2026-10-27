@@ -39451,6 +39451,8 @@ const allowed = new Map([
   ]],
   ["tests/cloudflare-ai.test.ts", [
     "// A later request sees the exhausted marker and does not ask Cloudflare again.",
+    "// The ledger keeps the fraction Cloudflare reports: a rounded allowance beside an unrounded model",
+    "// row is what made a single model read as 104.7% of itself.",
   ]],
   ["tests/cloudflare-cron.test.ts", [
     "// 2026-10-25 is a Sunday.",

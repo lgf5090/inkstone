@@ -420,7 +420,7 @@ export function D1Panel({ account }: { account: CloudflareAccount }) {
             minHeight={200}
           />
 
-          {queryError && <div role="alert"><StorageError message={queryError} /></div>}
+          {queryError && <StorageError message={queryError} />}
 
           {!selectedDb && (
             <Empty compact title={t('cloudflare.storage.no_database')} />
