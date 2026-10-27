@@ -100,10 +100,11 @@ export interface QueryTabProps {
   initialSql?: string
   onDraftChange?: (sql: string) => void
   onSchemaChanged?: () => void
+  ensureWritable?: () => Promise<boolean>
   onError: (message: string) => void
 }
 
-export function QueryTab({ driver, connectionId, connectionType, schemaModel, initialSql, onDraftChange, onSchemaChanged, onError }: QueryTabProps) {
+export function QueryTab({ driver, connectionId, connectionType, schemaModel, initialSql, onDraftChange, onSchemaChanged, ensureWritable, onError }: QueryTabProps) {
   const isLocal = connectionType === 'sqlite'
   const [sql, setSql] = useState(initialSql ?? '')
   const [results, setResults] = useState<QueryResult[]>([])
@@ -204,6 +205,10 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
       setError(t('development.database.query.no_statements'))
       return
     }
+    if (ensureWritable && statements.some(isWriteSql)) {
+      const ok = await ensureWritable()
+      if (!ok) return
+    }
     if (statements.some(isDestructiveSql)) {
       const ok = await confirm({
         title: t('development.database.query.destructive_title'),
@@ -245,7 +250,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
       setProgress(null)
       setRunning(false)
     }
-  }, [connectionId, driver, isLocal, onError, onSchemaChanged, placeholderValues, pushHistory, sql])
+  }, [connectionId, driver, ensureWritable, isLocal, onError, onSchemaChanged, placeholderValues, pushHistory, sql])
 
   const explain = useCallback(async () => {
     const target = sql.trim()

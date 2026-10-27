@@ -16,6 +16,7 @@ import { buildCreateTableSql, buildRebuildSql, type DdlWarning, type RebuildObje
 const COMMON_TYPES = ['INTEGER', 'REAL', 'TEXT', 'BLOB', 'NUMERIC', 'BOOLEAN', 'DATE', 'DATETIME', 'JSON', 'VARCHAR(255)', 'VARCHAR(64)', 'DOUBLE', 'BIGINT', 'TIMESTAMP']
 
 export interface SchemaEditorProps {
+  ensureWritable?: () => Promise<boolean>
   driver: StudioDriver
   table: ParsedTable | null
   schemaModel?: SchemaModel
@@ -76,7 +77,7 @@ function tableObjects(table: ParsedTable, schema: SchemaModel | undefined): Rebu
   }
 }
 
-export function SchemaEditor({ driver, table, schemaModel, onSchemaChanged, onError, onOpenSql, onTableCreated }: SchemaEditorProps) {
+export function SchemaEditor({ driver, table, schemaModel, onSchemaChanged, ensureWritable, onError, onOpenSql, onTableCreated }: SchemaEditorProps) {
   const [drafts, setDrafts] = useState<ColumnDraft[]>([])
   const [saving, setSaving] = useState(false)
   const [preview, setPreview] = useState<{ sql: string; warnings: DdlWarning[]; create?: boolean } | null>(null)
@@ -98,6 +99,7 @@ export function SchemaEditor({ driver, table, schemaModel, onSchemaChanged, onEr
           {t('development.database.schema.create_table')}
         </Button>
         <CreateTableDialog open={createOpen} onClose={() => setCreateOpen(false)} onConfirm={async (name, columns) => {
+          if (ensureWritable && !(await ensureWritable())) return
           const built = buildCreateTableSql(name, columns)
           try {
             await driver.query(built.sql)
@@ -118,6 +120,7 @@ export function SchemaEditor({ driver, table, schemaModel, onSchemaChanged, onEr
 
   const save = async () => {
     if (saving) return
+    if (ensureWritable && !(await ensureWritable())) return
     setSaving(true)
     try {
       const changed = drafts.some((draft) => draft.isNew || draft.deleted || draft.name !== draft.original?.name || draft.type.toUpperCase() !== draft.original?.type.toUpperCase() || draft.notNull !== draft.original?.notNull || draft.pk !== draft.original?.pk || draft.unique !== draft.original?.unique || (draft.default ?? '') !== (draft.original?.default ?? ''))
@@ -163,6 +166,7 @@ export function SchemaEditor({ driver, table, schemaModel, onSchemaChanged, onEr
 
   const executePreview = async () => {
     if (!preview) return
+    if (ensureWritable && !(await ensureWritable())) return
     try {
       for (const statement of splitSqlStatements(preview.sql)) await driver.query(statement)
       setPreview(null)

@@ -59,6 +59,7 @@ const OPERATORS: Array<{ value: FilterOperator; labelKey: string }> = [
 ]
 
 export interface DataTableProps {
+  ensureWritable?: () => Promise<boolean>
   driver: StudioDriver
   table: ParsedTable
   onError: (message: string) => void
@@ -68,7 +69,7 @@ function isBlobValue(value: unknown): boolean {
   return value instanceof Uint8Array || (Boolean(value) && typeof value === 'object' && '__inkstone_blob__' in (value as object))
 }
 
-export function DataTable({ driver, table, onError }: DataTableProps) {
+export function DataTable({ driver, table, ensureWritable, onError }: DataTableProps) {
   const pkColumns = useMemo(() => primaryKeyColumns(table), [table])
   const useRowid = pkColumns.length === 0 && !table.withoutRowid
   const editable = pkColumns.length > 0 || useRowid
@@ -307,6 +308,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
   }, [dirty])
 
   const commitChanges = async () => {
+    if (!(await allowed())) return
     if (dirtyCount === 0) return
     let done = 0
     for (const [rowIndex, cells] of dirty) {
@@ -331,6 +333,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
 
   const deleteRows = async (targets: Set<number>) => {
     if (targets.size === 0) return
+    if (!(await allowed())) return
     const okToDelete = await confirm({
       title: t('development.database.table.delete_title', { count: targets.size }),
       description: t('development.database.table.delete_description'),
@@ -382,7 +385,10 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
     openInsert(prefill)
   }
 
+  const allowed = async () => (ensureWritable ? await ensureWritable() : true)
+
   const submitInsert = async () => {
+    if (!(await allowed())) return
     const entries = table.columns
       .filter((column) => insertNulls.has(column.name) || column.name in insertValues)
       .map((column) => [
@@ -405,6 +411,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
   }
 
   const bulkSet = async (column: string) => {
+    if (!(await allowed())) return
     const targets = [...selectedRows].filter((index) => rows[index])
     if (targets.length === 0 || !column) return
     const current = rows[targets[0]!]?.[columns.indexOf(column)]
@@ -447,6 +454,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
   }, [refreshSeconds])
 
   const saveDetail = async (values: Record<string, string>) => {
+    if (!(await allowed())) return
     if (detailRow === null) return
     const key = keyFor(detailRow)
     if (key.kind === 'none') {

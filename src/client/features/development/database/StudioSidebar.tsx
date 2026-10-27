@@ -28,6 +28,8 @@ import { t } from '../../../lib/i18n'
 import { Button, IconButton } from '../../../components/primitives'
 import { Input } from '../../../components/form'
 import { Tooltip } from '../../../components/overlay'
+import { GuardPanel } from './GuardPanel'
+import type { ConnectionGuard } from './guards'
 import type { StudioSelection } from './types'
 
 export type ConnectionFilter = 'all' | 'pinned' | 'favorite'
@@ -60,6 +62,10 @@ export interface StudioSidebarProps {
   onMove: (id: string, direction: 'up' | 'down') => void
   onOpenData: (table: string) => void
   onOpenSchema: (table: string) => void
+  guard?: ConnectionGuard
+  unlockedUntil?: number
+  onGuardChange?: (patch: Partial<ConnectionGuard>) => void
+  onLockNow?: () => void
   onExportSchema?: () => void
   onViewSql: (sql: string) => void
   onCollapse?: () => void
@@ -266,6 +272,10 @@ export function StudioSidebar(props: StudioSidebarProps) {
     onMove,
     onOpenData,
     onOpenSchema,
+    guard,
+    onGuardChange,
+    onLockNow,
+    unlockedUntil,
     onExportSchema,
     onViewSql,
     onCollapse,
@@ -276,6 +286,7 @@ export function StudioSidebar(props: StudioSidebarProps) {
   const activeSavedId = selection?.kind === 'saved' ? selection.id : null
   const localSelected = selection?.kind === 'local'
   const [expandedTables, setExpandedTables] = useState<ReadonlySet<string>>(new Set())
+  const [guardOpen, setGuardOpen] = useState(false)
   const toggleTable = (name: string) => {
     setExpandedTables((current) => {
       const next = new Set(current)
@@ -369,11 +380,27 @@ export function StudioSidebar(props: StudioSidebarProps) {
           <span className="text-[length:var(--text-10)] font-medium tracking-wide text-[var(--text-tertiary)] uppercase">
             {t('development.database.app.connections')}
           </span>
-          <Tooltip label={t('development.database.app.new_connection')}>
-            <IconButton label={t('development.database.app.new_connection')} size="sm" onClick={onNew}>
-              <Plus size={14} />
-            </IconButton>
-          </Tooltip>
+          <div className="flex items-center gap-0.5">
+            {guard?.production && (
+              <span className="rounded bg-[var(--warning-soft)] px-1 text-[length:var(--text-9)] font-semibold text-[var(--warning)]">{t('development.database.guard.prod_badge')}</span>
+            )}
+            {guard && onGuardChange && onLockNow && (
+              <GuardPanel
+                open={guardOpen}
+                onOpenChange={setGuardOpen}
+                guard={guard}
+                onChange={onGuardChange}
+                unlockedUntil={unlockedUntil}
+                onLockNow={onLockNow}
+                disabled={!selection}
+              />
+            )}
+            <Tooltip label={t('development.database.app.new_connection')}>
+              <IconButton label={t('development.database.app.new_connection')} size="sm" onClick={onNew}>
+                <Plus size={14} />
+              </IconButton>
+            </Tooltip>
+          </div>
         </div>
 
         <div className="relative mb-1.5 shrink-0">

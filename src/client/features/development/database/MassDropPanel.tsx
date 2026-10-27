@@ -15,10 +15,11 @@ export interface MassDropPanelProps {
   driver: StudioDriver
   tables: ParsedTable[]
   onSchemaChanged: () => void
+  ensureWritable?: () => Promise<boolean>
   onError: (message: string) => void
 }
 
-export function MassDropPanel({ driver, tables, onSchemaChanged, onError }: MassDropPanelProps) {
+export function MassDropPanel({ driver, tables, onSchemaChanged, ensureWritable, onError }: MassDropPanelProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [status, setStatus] = useState<Record<string, Status>>({})
   const [operation, setOperation] = useState<Operation | null>(null)
@@ -33,6 +34,7 @@ export function MassDropPanel({ driver, tables, onSchemaChanged, onError }: Mass
   const allSelected = tables.length > 0 && selected.size === tables.length
   const perform = async () => {
     if (!operation || running || confirmText !== 'confirm') return
+    if (ensureWritable && !(await ensureWritable())) return
     setRunning(true)
     const names = [...selected]
     for (const name of names) {

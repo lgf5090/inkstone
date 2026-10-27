@@ -38,6 +38,7 @@ import { deleteConnection, listConnections, saveConnectionOrder, updateConnectio
 import { loadSchema } from './schema-utils'
 import { downloadBlob, downloadTextFile, toSchemaSql } from './export-utils'
 import { loadStudioLayout, saveStudioLayout, DRAFT_MAX_CHARS, STUDIO_SIDEBAR_WIDTH } from './layout'
+import { DEFAULT_GUARD, loadGuards, saveGuards, type ConnectionGuard } from './guards'
 import type { StudioSelection, StudioTab, StudioTabKind } from './types'
 
 const EMPTY_SCHEMA: SchemaModel = { tables: [], views: [], triggers: [], indexes: [] }
@@ -88,6 +89,9 @@ export function StudioApp() {
   const [schema, setSchema] = useState<SchemaModel | null>(null)
   const [schemaError, setSchemaError] = useState<string | null>(null)
   const [schemaLoading, setSchemaLoading] = useState(false)
+  const [guards, setGuards] = useState<Record<string, ConnectionGuard>>(loadGuards)
+  const [unlocks, setUnlocks] = useState<Record<string, number>>({})
+  const [unlockAsk, setUnlockAsk] = useState<{ resolve: (ok: boolean) => void } | null>(null)
   const [driver, setDriver] = useState<StudioDriver | null>(null)
   const [tabs, setTabs] = useState<StudioTab[]>(() => [queryTab()])
   const [activeTabId, setActiveTabId] = useState('')
@@ -186,6 +190,60 @@ export function StudioApp() {
   const activeSaved = selection?.kind === 'saved'
     ? connections.find((connection) => connection.id === selection.id) ?? null
     : null
+
+  const guardKey = selection?.kind === 'saved'
+    ? `saved:${selection.id}`
+    : selection?.kind === 'local' ? `local:${selection.name}` : null
+  const guard = (guardKey ? guards[guardKey] : undefined) ?? DEFAULT_GUARD
+  const unlockedUntil = guardKey ? unlocks[guardKey] : undefined
+  const unlocked = Boolean(unlockedUntil && unlockedUntil > Date.now())
+
+  const updateGuard = (patch: Partial<ConnectionGuard>) => {
+    if (!guardKey) return
+    const next = { ...guards, [guardKey]: { ...guard, ...patch } }
+    setGuards(next)
+    saveGuards(next)
+  }
+
+  const lockNow = () => {
+    if (!guardKey) return
+    setUnlocks((current) => {
+      const next = { ...current }
+      delete next[guardKey]
+      return next
+    })
+  }
+
+  const ensureWritable = async (): Promise<boolean> => {
+    if (guard.readOnly && !unlocked) {
+      const ok = await new Promise<boolean>((resolve) => setUnlockAsk({ resolve }))
+      if (!ok) {
+        notify(t('development.database.guard.cancelled'), undefined, 'warning')
+        return false
+      }
+    }
+    if (guard.production) {
+      return await confirm({
+        title: t('development.database.guard.prod_title', { name: activeSaved?.name ?? localFile?.name ?? '' }),
+        description: t('development.database.guard.prod_description'),
+        confirmLabel: t('development.database.guard.prod_confirm'),
+        tone: 'danger',
+      })
+    }
+    return true
+  }
+
+  const finishUnlock = (minutes: number | null) => {
+    const ask = unlockAsk
+    setUnlockAsk(null)
+    if (!ask) return
+    if (minutes === null) {
+      ask.resolve(false)
+      return
+    }
+    if (guardKey) setUnlocks((current) => ({ ...current, [guardKey]: Date.now() + minutes * 60_000 }))
+    ask.resolve(true)
+  }
 
   const reloadSchema = useCallback(async (target: StudioDriver) => {
     setSchemaLoading(true)
@@ -458,6 +516,10 @@ export function StudioApp() {
       onOpenData={openDataTab}
       onOpenSchema={openSchemaTab}
       onExportSchema={handleExportSchema}
+      guard={guard}
+      unlockedUntil={unlockedUntil}
+      onGuardChange={updateGuard}
+      onLockNow={lockNow}
       onViewSql={setSqlViewOpen}
       onCollapse={() => setSidebarCollapsed(true)}
       onExpand={() => setSidebarCollapsed(false)}
@@ -571,10 +633,11 @@ export function StudioApp() {
             {...(activeTab.initialSql ? { initialSql: activeTab.initialSql } : {})}
             onDraftChange={persistDraft}
             onSchemaChanged={() => void reloadSchema(driver)}
+            ensureWritable={ensureWritable}
             onError={notifyError}
           />
         ) : activeTab.kind === 'data' && activeTable ? (
-          <DataTable key={activeTab.id} driver={driver} table={activeTable} onError={notifyError} />
+          <DataTable key={activeTab.id} driver={driver} table={activeTable} ensureWritable={ensureWritable} onError={notifyError} />
         ) : activeTab.kind === 'data' ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-[var(--text-tertiary)]">
             <Table2 size={28} className="opacity-40" />
@@ -589,6 +652,7 @@ export function StudioApp() {
             table={activeTable}
             schemaModel={schema ?? EMPTY_SCHEMA}
             onSchemaChanged={() => void reloadSchema(driver)}
+            ensureWritable={ensureWritable}
             onError={notifyError}
             onOpenSql={(sql) => openQueryTab(sql)}
             onTableCreated={(name) => openDataTab(name)}
@@ -599,6 +663,7 @@ export function StudioApp() {
             driver={driver}
             tables={schema?.tables ?? []}
             onSchemaChanged={() => void reloadSchema(driver)}
+            ensureWritable={ensureWritable}
             onError={notifyError}
           />
         ) : activeTab.kind === 'erd' ? (
@@ -690,6 +755,23 @@ export function StudioApp() {
         <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3 font-mono text-[length:var(--text-11)] leading-relaxed text-[var(--text-primary)]">
           {sqlViewOpen}
         </pre>
+      </Modal>
+
+      <Modal
+        open={unlockAsk !== null}
+        onClose={() => finishUnlock(null)}
+        title={t('development.database.guard.unlock_title')}
+        description={t('development.database.guard.unlock_description')}
+        width={440}
+        footer={
+          <>
+            <Button variant="ghost" size="sm" onClick={() => finishUnlock(null)}>{t('development.database.common.cancel')}</Button>
+            <Button variant="secondary" size="sm" onClick={() => finishUnlock(1)}>{t('development.database.guard.unlock_minutes', { minutes: 1 })}</Button>
+            <Button size="sm" onClick={() => finishUnlock(5)}>{t('development.database.guard.unlock_minutes', { minutes: 5 })}</Button>
+          </>
+        }
+      >
+        <div />
       </Modal>
     </div>
   )
