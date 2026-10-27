@@ -6,6 +6,7 @@ import { buildRebuildSql } from '../src/client/features/development/database/ddl
 import { buildTableDataSql, loadSchema } from '../src/client/features/development/database/schema-utils'
 import { buildDistinctSql } from '../src/client/features/development/database/distinct-ops'
 import { buildDataSearchSql, searchableColumns } from '../src/client/features/development/database/data-search'
+import { inferColumnType, parseCsv } from '../src/client/features/development/database/csv-parse'
 import { projectColumns, toCsv, toMarkdown, toSchemaSql } from '../src/client/features/development/database/export-utils'
 import { transformValue } from '../src/client/features/development/database/transform-value'
 import { INKSTONE_BLOB_KEY } from '../src/shared/development/database/types'
@@ -227,6 +228,18 @@ describe('development database core', () => {
     expect(built?.params).toEqual(['bob', 'bob'])
     expect(buildDataSearchSql('users', [], 'bob', 10)).toBeNull()
     expect(buildDataSearchSql('users', columns, '   ', 10)).toBeNull()
+  })
+
+  it('parses CSV with quotes, escaped quotes and semicolon detection', () => {
+    const parsed = parseCsv('name;note\r\n"a;b";"say ""hi"""\r\nplain;"line\nnext"\r\n')
+    expect(parsed.delimiter).toBe(';')
+    expect(parsed.headers).toEqual(['name', 'note'])
+    expect(parsed.rows).toEqual([['a;b', 'say "hi"'], ['plain', 'line\nnext']])
+    expect(parseCsv('1,2\n3,4', { hasHeader: false }).headers).toEqual(['column_1', 'column_2'])
+    expect(inferColumnType(['1', '2', '3'])).toBe('INTEGER')
+    expect(inferColumnType(['1', '2.5'])).toBe('REAL')
+    expect(inferColumnType(['1', 'x'])).toBe('TEXT')
+    expect(inferColumnType([])).toBe('TEXT')
   })
 
   it('quotes CSV cells containing separators and newlines', () => {

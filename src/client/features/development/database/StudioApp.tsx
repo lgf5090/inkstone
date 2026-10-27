@@ -688,7 +688,7 @@ export function StudioApp() {
             onError={notifyError}
           />
         ) : activeTab.kind === 'data' && activeTable ? (
-          <DataTable key={activeTab.id} driver={driver} table={activeTable} ensureWritable={ensureWritable} onError={notifyError} />
+          <DataTable key={activeTab.id} driver={driver} table={activeTable} ensureWritable={ensureWritable} onSchemaChanged={() => void reloadSchema(driver)} onError={notifyError} />
         ) : activeTab.kind === 'data' ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-[var(--text-tertiary)]">
             <Table2 size={28} className="opacity-40" />

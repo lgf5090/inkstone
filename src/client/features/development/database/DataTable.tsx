@@ -14,6 +14,7 @@ import {
   Search,
   Trash2,
   Undo2,
+  Upload,
   Wand2,
   X,
 } from 'lucide-react'
@@ -32,6 +33,7 @@ import { ResultGrid } from './ResultGrid'
 import { RowDetailPanel } from './RowDetailPanel'
 import { DistinctValuePanel } from './DistinctValuePanel'
 import { CellTransformDialog } from './CellTransformDialog'
+import { CsvImportDialog } from './CsvImportDialog'
 import { ExportPanel } from './ExportPanel'
 import { AggregatePanel } from './AggregatePanel'
 import { ToolbarPanel } from './ToolbarPanel'
@@ -60,6 +62,7 @@ const OPERATORS: Array<{ value: FilterOperator; labelKey: string }> = [
 
 export interface DataTableProps {
   ensureWritable?: () => Promise<boolean>
+  onSchemaChanged?: () => void
   driver: StudioDriver
   table: ParsedTable
   onError: (message: string) => void
@@ -69,7 +72,7 @@ function isBlobValue(value: unknown): boolean {
   return value instanceof Uint8Array || (Boolean(value) && typeof value === 'object' && '__inkstone_blob__' in (value as object))
 }
 
-export function DataTable({ driver, table, ensureWritable, onError }: DataTableProps) {
+export function DataTable({ driver, table, ensureWritable, onSchemaChanged, onError }: DataTableProps) {
   const pkColumns = useMemo(() => primaryKeyColumns(table), [table])
   const useRowid = pkColumns.length === 0 && !table.withoutRowid
   const editable = pkColumns.length > 0 || useRowid
@@ -102,6 +105,7 @@ export function DataTable({ driver, table, ensureWritable, onError }: DataTableP
   const [distinctColumn, setDistinctColumn] = useState<string | null>(null)
   const [transformCell, setTransformCell] = useState<{ row: number; col: number } | null>(null)
   const [sqlOpen, setSqlOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   const [insertCount, setInsertCount] = useState('1')
   const [refreshSeconds, setRefreshSeconds] = useState(0)
   const [lastRefreshAt, setLastRefreshAt] = useState<Date | null>(null)
@@ -717,6 +721,10 @@ export function DataTable({ driver, table, ensureWritable, onError }: DataTableP
         {editable && (
           <>
             <Button size="sm" onClick={() => openInsert()}><Plus size={14} />{t('development.database.table.insert_row')}</Button>
+            <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}>
+              <Upload size={14} />
+              {t('development.database.import.button')}
+            </Button>
             <Button variant="secondary" size="sm" onClick={() => void deleteSelected()} disabled={selectedRows.size === 0}>
               <Trash2 size={14} />
               {t('development.database.table.delete')}
@@ -1003,6 +1011,17 @@ export function DataTable({ driver, table, ensureWritable, onError }: DataTableP
           <pre className="max-h-32 overflow-auto font-mono text-[length:var(--text-11)] leading-relaxed text-[var(--text-secondary)] whitespace-pre-wrap break-all">{currentSql || '—'}</pre>
         </div>
       )}
+
+      <CsvImportDialog
+        open={importOpen}
+        table={table}
+        driver={driver}
+        {...(ensureWritable ? { ensureWritable } : {})}
+        onClose={() => setImportOpen(false)}
+        onImported={() => void load(page, pageSize, sort, where)}
+        {...(onSchemaChanged ? { onSchemaChanged } : {})}
+        onError={onError}
+      />
 
       <CellTransformDialog
         open={transformCell !== null}
