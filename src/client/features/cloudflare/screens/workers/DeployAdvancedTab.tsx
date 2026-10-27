@@ -4,7 +4,7 @@
  * Pages has no Durable Objects, service or queue bindings, so those rows disappear when the dialog is
  * deploying a Pages project; only the AI switch remains.
  */
-import { Trash2 } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import { Input, Switch } from '../../../../components/form'
 import { Button, IconButton } from '../../../../components/primitives'
 import { SelectMenu } from '../../../../components/select-menu'
@@ -109,6 +109,7 @@ export function DeployAdvancedTab({
             size="sm"
             variant="secondary"
             onClick={() => onChange([...value, { type: 'durable_object', name: '' }])}
+            icon={<Plus size={14} />}
           >
             {t('cloudflare.workers.advanced.add')}
           </Button>

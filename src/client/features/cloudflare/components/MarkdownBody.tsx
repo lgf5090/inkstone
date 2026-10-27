@@ -5,6 +5,11 @@
  * notebook's own Prism loader — the same highlighter the note preview uses. Code blocks carry a
  * language label and a copy button; both are ordinary DOM inside the sanitised fragment, with copy
  * handled by delegation because the fragment is not React's to own.
+ *
+ * Raw HTML is kept because a template README is documentation, not a prompt: a README that lays its
+ * screenshots out with a `<table>` would otherwise show its markup as text. DOMPurify is the trust
+ * boundary, and remote images are rewritten to the worker's image proxy because the page's own
+ * `img-src` does not allow the documentation host.
  */
 import { useEffect, useMemo, useRef } from 'react'
 import MarkdownIt from 'markdown-it'
@@ -15,7 +20,7 @@ import { copyText } from '../../../lib/clipboard'
 import { highlightWithPrism } from '../../../lib/markdown/prism'
 
 function createRenderer(): MarkdownIt {
-  const md = new MarkdownIt({ html: false, linkify: true, breaks: true, typographer: false })
+  const md = new MarkdownIt({ html: true, linkify: true, breaks: true, typographer: false })
 
   const defaultLinkOpen = md.renderer.rules.link_open
     ?? ((tokens, index, options, _env, self) => self.renderToken(tokens, index, options))
@@ -65,6 +70,11 @@ export function MarkdownBody({
     for (const button of root.querySelectorAll<HTMLButtonElement>('[data-copy-code]')) {
       button.textContent = t('common.copy')
       button.setAttribute('aria-label', t('common.copy'))
+    }
+    for (const image of root.querySelectorAll<HTMLImageElement>('img[src]')) {
+      const src = image.getAttribute('src') ?? ''
+      if (!/^https?:\/\//i.test(src)) continue
+      image.setAttribute('src', `/api/cloudflare/store/image?url=${encodeURIComponent(src)}`)
     }
     const blocks = [...root.querySelectorAll<HTMLElement>('pre code[class*="language-"]')]
     for (const block of blocks) {

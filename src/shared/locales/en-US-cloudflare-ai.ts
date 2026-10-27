@@ -111,7 +111,7 @@ export const EN_US_CLOUDFLARE_AI = {
   "cloudflare.ai.history.unpinned": "Unpinned",
   "cloudflare.ai.inference_failed": "Inference failed",
   "cloudflare.ai.model_detail": "Model Details ({count})",
-  "cloudflare.ai.new_chat": "+ New Chat",
+  "cloudflare.ai.new_chat": "New Chat",
   "cloudflare.ai.new_session": "New chat",
   "cloudflare.ai.param_frequency_penalty": "Frequency penalty",
   "cloudflare.ai.param_max_tokens": "Max output tokens (max_tokens)",

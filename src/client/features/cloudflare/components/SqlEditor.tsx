@@ -111,13 +111,14 @@ export function SqlEditor({
   useEffect(() => {
     let cancelled = false
     void (async () => {
-      const [{ EditorState }, { EditorView, keymap, lineNumbers }, { defaultKeymap, history, historyKeymap }, { sql, SQLite }, { autocompletion, completionKeymap }, { closeBrackets, closeBracketsKeymap }] = await Promise.all([
+      const [{ EditorState }, { EditorView, keymap, lineNumbers }, { defaultKeymap, history, historyKeymap }, { sql, SQLite }, { autocompletion, completionKeymap }, { closeBrackets, closeBracketsKeymap }, { codeHighlighting }] = await Promise.all([
         import('@codemirror/state'),
         import('@codemirror/view'),
         import('@codemirror/commands'),
         import('@codemirror/lang-sql'),
         import('@codemirror/autocomplete'),
         import('@codemirror/autocomplete'),
+        import('./cm-syntax'),
       ])
       if (cancelled || !host.current) return
       const theme = EditorView.theme({
@@ -145,6 +146,7 @@ export function SqlEditor({
           history(),
           keymap.of([...defaultKeymap, ...historyKeymap, ...completionKeymap, ...closeBracketsKeymap]),
           language,
+          codeHighlighting,
           autocompletion({ override: [completionSource(schemaRef.current)] }),
           closeBrackets(),
           theme,

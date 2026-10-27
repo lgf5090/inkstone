@@ -277,7 +277,7 @@ export function TunnelsScreen() {
               size="sm"
             />
             <Button variant="secondary" icon={<RefreshCw size={14} />} onClick={() => setRefreshKey((value) => value + 1)}>
-              {t('common.retry')}
+              {t('common.refresh')}
             </Button>
           </div>
         </div>

@@ -368,8 +368,32 @@ export async function downloadReadme(rawUrl: string): Promise<string> {
   return new TextDecoder().decode(bytes)
 }
 
-export async function downloadTemplateBytes(rawUrl: string): Promise<Uint8Array> {
-  const url = assertTemplateUrl(rawUrl)
+const MAX_README_IMAGE_BYTES = 2 * 1024 * 1024
+
+/**
+ * A picture a README refers to, read by the worker for the same reason as the README itself: the
+ * reader's `img-src` does not allow the documentation host.
+ */
+export async function downloadReadmeImage(rawUrl: string): Promise<{ bytes: Uint8Array; type: string }> {
+  const url = assertPublicHttps(rawUrl)
+  const response = await fetchWithTimeout(
+    url.toString(),
+    { headers: { Accept: 'image/*' } },
+    TEMPLATE_TIMEOUT_MS,
+    'The readme image',
+  )
+  if (!response.ok) {
+    throw new ApiError(502, 'cloudflare_upstream', `The readme image answered HTTP ${response.status}`)
+  }
+  const type = (response.headers.get('content-type') ?? '').split(';')[0]?.trim() ?? ''
+  if (!type.startsWith('image/')) {
+    throw new ApiError(502, 'cloudflare_upstream', 'That readme address is not an image')
+  }
+  const bytes = await readCapped(response, MAX_README_IMAGE_BYTES, 'The readme image')
+  return { bytes, type }
+}
+
+export async function downloadTemplateBytes(rawUrl: string): Promise<Uint8Array> {  const url = assertTemplateUrl(rawUrl)
   const response = await fetchWithTimeout(
     url.toString(),
     { headers: { Accept: '*/*' } },

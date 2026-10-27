@@ -153,6 +153,11 @@ async function pagesTarget(c: AppContext): Promise<{ account: LoadedAccount; nam
   return { account, name: assertWorkerName(c.req.param('name') ?? '') }
 }
 
+/** A listing route whose path carries no worker name: only the notebook account is needed. */
+async function resourceAccount(c: AppContext): Promise<LoadedAccount> {
+  return loadWorkerAccount(c.env, c.get('userId'), c.req.param('accountId') ?? '')
+}
+
 async function runLimited<T, R>(
   items: readonly T[],
   limit: number,
@@ -841,7 +846,7 @@ workersRouter.delete('/:accountId/workers/:name/routes/:routeId', async (c) => {
 // ---------------------------------------------------------------------------------------------
 
 workersRouter.get('/:accountId/resources/kv', async (c) => {
-  const { account } = await workerTarget(c)
+  const account = await resourceAccount(c)
   const cfId = account.row.cf_account_id ?? ''
   const body = await cfFetch<{ result?: unknown[] }>(
     account.auth,
@@ -851,7 +856,7 @@ workersRouter.get('/:accountId/resources/kv', async (c) => {
 })
 
 workersRouter.get('/:accountId/resources/d1', async (c) => {
-  const { account } = await workerTarget(c)
+  const account = await resourceAccount(c)
   const cfId = account.row.cf_account_id ?? ''
   const body = await cfFetch<{ result?: unknown[] }>(
     account.auth,
@@ -861,7 +866,7 @@ workersRouter.get('/:accountId/resources/d1', async (c) => {
 })
 
 workersRouter.get('/:accountId/resources/r2', async (c) => {
-  const { account } = await workerTarget(c)
+  const account = await resourceAccount(c)
   const cfId = account.row.cf_account_id ?? ''
   try {
     const body = await cfFetch<{ result?: { buckets?: unknown[] } }>(
@@ -878,7 +883,7 @@ workersRouter.get('/:accountId/resources/r2', async (c) => {
 })
 
 workersRouter.get('/:accountId/resources/zones', async (c) => {
-  const { account } = await workerTarget(c)
+  const account = await resourceAccount(c)
   const cfId = account.row.cf_account_id ?? ''
   const zones = await cfFetchAllJson(account, `/zones`, 100)
   return c.json(zones.filter((zone) => asRecord(zone.account).id === cfId))

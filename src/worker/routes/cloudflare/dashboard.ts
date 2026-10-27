@@ -20,6 +20,7 @@ import {
   loadZoneForAccount,
   mapTrafficGroups,
   type DashboardZone,
+  type TrafficDataset,
   type TrafficGroup,
 } from '../../cloudflare/dashboard'
 
@@ -179,11 +180,11 @@ dashboardRouter.get('/traffic', async (c) => {
   const zone = await loadZoneForAccount(auth, cfAccountId, zoneId)
   const query = buildTrafficQuery(zone.id, days, new Date())
   const data = await cfGraphQL<{
-    viewer?: { zones?: Array<{ httpRequestsAdaptiveGroups?: TrafficGroup[] }> }
+    viewer?: { zones?: Array<Partial<Record<TrafficDataset, TrafficGroup[]>>> }
   }>(auth, query.query, query.variables)
   const points = mapTrafficGroups(
     query.granularity,
-    data.viewer?.zones?.[0]?.httpRequestsAdaptiveGroups ?? [],
+    data.viewer?.zones?.[0]?.[query.dataset] ?? [],
   )
   return c.json({
     zoneId: zone.id,

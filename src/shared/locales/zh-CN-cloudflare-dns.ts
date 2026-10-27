@@ -10,7 +10,7 @@
 export const ZH_CN_CLOUDFLARE_DNS = {
   "cloudflare.dns.activate_confirm": "确定激活该 Zone？",
   "cloudflare.dns.activate_zone": "激活 Zone",
-  "cloudflare.dns.add_domain": "+ 添加域名",
+  "cloudflare.dns.add_domain": "添加域名",
   "cloudflare.dns.add_domain_btn": "添加域名",
   "cloudflare.dns.add_domain_modal_title": "添加域名",
   "cloudflare.dns.add_record": "添加记录",

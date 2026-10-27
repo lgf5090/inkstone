@@ -2,13 +2,16 @@
  * D1 databases, tables, schemas and queries.
  *
  * Row counts are read in the same round trip as the table names: one statement for `sqlite_master`,
- * then one `UNION ALL` of `COUNT(*)` per table. Identifiers are always quoted with `quoteIdent`, and
- * table names are re-checked before they are used in a PRAGMA.
+ * then one statement per batch of `COUNT(*)` subqueries. Identifiers are always quoted with
+ * `quoteIdent`, and table names are re-checked before they are used in a PRAGMA.
  */
 import type { CloudflareAuth } from './cf-api'
 import { cfFetch } from './cf-api'
 import { ApiError } from '../lib/errors'
 import { quoteIdent } from '../../shared/cloudflare/sql-utils'
+
+/** Tables counted per round trip, so one oversized statement cannot fail the whole listing. */
+const ROW_COUNT_BATCH = 40
 
 export interface D1Database {
   id: string
@@ -147,10 +150,6 @@ export async function runD1Query(
   return { results, meta }
 }
 
-function sqlString(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`
-}
-
 export async function listD1Tables(
   auth: CloudflareAuth,
   cfAccountId: string,
@@ -166,18 +165,37 @@ export async function listD1Tables(
     .map((row) => text(row.name))
     .filter((name) => name.length > 0)
   if (names.length === 0) return []
-  const counts = names
-    .map((name) => `SELECT ${sqlString(name)} AS name, COUNT(*) AS rows FROM ${quoteIdent(name)}`)
-    .join(' UNION ALL ')
-  const counted = await runD1Query(auth, cfAccountId, databaseId, counts)
-  const rowsByName = new Map<string, number>()
-  for (const row of counted.results) {
-    const name = text(row.name)
-    if (!name) continue
-    const rows = numberOrUndefined(row.rows)
-    if (rows !== undefined) rowsByName.set(name, rows)
-  }
+  const rowsByName = await countTableRows(auth, cfAccountId, databaseId, names)
   return names.map((name) => ({ name, rows: rowsByName.get(name) ?? 0 }))
+}
+
+/**
+ * Row counts for the named tables, read in as few round trips as SQLite allows.
+ *
+ * The obvious shape — one `SELECT … COUNT(*)` per table joined with `UNION ALL` — is rejected on any
+ * real database: SQLite caps the terms of a compound select far below the table count a D1 database
+ * reaches. Scalar subqueries in one select list carry no such cap, so a batch comes back as one row
+ * keyed by table name.
+ */
+async function countTableRows(
+  auth: CloudflareAuth,
+  cfAccountId: string,
+  databaseId: string,
+  names: readonly string[],
+): Promise<Map<string, number>> {
+  const rowsByName = new Map<string, number>()
+  for (let index = 0; index < names.length; index += ROW_COUNT_BATCH) {
+    const batch = names.slice(index, index + ROW_COUNT_BATCH)
+    const columns = batch.map((name) => `(SELECT COUNT(*) FROM ${quoteIdent(name)}) AS ${quoteIdent(name)}`).join(', ')
+    const counted = await runD1Query(auth, cfAccountId, databaseId, `SELECT ${columns}`)
+    for (const row of counted.results) {
+      for (const name of batch) {
+        const rows = numberOrUndefined(row[name])
+        if (rows !== undefined) rowsByName.set(name, rows)
+      }
+    }
+  }
+  return rowsByName
 }
 
 export async function getD1TableSchema(

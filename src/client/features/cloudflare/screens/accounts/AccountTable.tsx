@@ -82,7 +82,7 @@ export function AccountTable(props: AccountTableProps) {
                 sortKey="cf_account_id"
                 sort={sort}
                 onToggle={onToggleSort}
-                className="min-w-44"
+                className="min-w-36"
               />
               <SortableHead
                 label={cfT('cloudflare.accounts.table.auth_type')}
@@ -95,7 +95,7 @@ export function AccountTable(props: AccountTableProps) {
                 sortKey="features"
                 sort={sort}
                 onToggle={onToggleSort}
-                className="min-w-40"
+                className="min-w-32"
               />
               <SortableHead
                 label={t('common.created')}
@@ -109,8 +109,8 @@ export function AccountTable(props: AccountTableProps) {
                 sort={sort}
                 onToggle={onToggleSort}
               />
-              <Th className="min-w-32">{cfT('cloudflare.accounts.table.ai_quota')}</Th>
-              <Th className="text-right">{cfT('cloudflare.accounts.table.actions')}</Th>
+              <Th className="min-w-28">{cfT('cloudflare.accounts.table.ai_quota')}</Th>
+              <Th sticky className="text-right">{cfT('cloudflare.accounts.table.actions')}</Th>
             </Tr>
           </THead>
           <TBody>
@@ -211,7 +211,7 @@ function AccountRow({
         </div>
       </Td>
       <Td className="whitespace-nowrap text-[var(--text-tertiary)]">{formatDateTime(account.created_at)}</Td>
-      <Td>
+      <Td className="whitespace-nowrap">
         {account.is_demo
           ? <Badge tone="warning">{cfT('cloudflare.settings.demo_accounts')}</Badge>
           : <Badge tone={account.is_active ? 'success' : 'neutral'}>{account.is_active ? t('common.on') : t('common.off')}</Badge>}
@@ -219,7 +219,7 @@ function AccountRow({
       <Td>
         {ai ? <QuotaCell count={ai.count} limit={ai.limit} exhausted={ai.exhausted} /> : <span className="text-[var(--text-quaternary)]">—</span>}
       </Td>
-      <Td>
+      <Td sticky>
         <RowActions
           account={account}
           testing={testing}
@@ -239,7 +239,7 @@ function AccountRow({
 function QuotaCell({ count, limit, exhausted }: { count: number; limit: number; exhausted: boolean }) {
   const percent = percentOf(count, limit)
   return (
-    <div className="flex w-28 flex-col gap-1">
+    <div className="flex w-full max-w-28 flex-col gap-1">
       <div className="flex items-center gap-1.5">
         <span className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{percent}%</span>
         {exhausted && <Badge tone="danger">{cfT('cloudflare.accounts.table.exhausted')}</Badge>}

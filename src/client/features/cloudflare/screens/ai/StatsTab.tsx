@@ -8,7 +8,7 @@ import type { AiUsageAccount } from '../../api/ai'
 import { aiApi } from '../../api/ai'
 import { cfErrorText } from '../../api/client'
 import { useCfT } from '../../i18n'
-import { formatNumber, percentOf } from '../../lib/format'
+import { formatNeurons, formatNumber, percentOf } from '../../lib/format'
 import { sharePercent, shortModelId, NEURON_QUOTA } from './options'
 import { Badge, Button } from '../../../../components/primitives'
 import { Empty, LoadingBlock } from '../../../../components/feedback'
@@ -66,7 +66,7 @@ function ShareRing({
         height={size}
         viewBox={`0 0 ${size} ${size}`}
         role="img"
-        aria-label={`${label}: ${usedPercent}%`}
+        aria-label={`${label}: ${formatNeurons(totalNeurons)} / ${formatNumber(totalQuota)} (${usedPercent}%)`}
       >
         <title>{`${label}: ${formatNumber(totalNeurons)} / ${formatNumber(totalQuota)}`}</title>
         <circle cx={center} cy={center} r={radius} fill="none" stroke="var(--border-subtle)" strokeWidth={stroke} />
@@ -87,10 +87,10 @@ function ShareRing({
       </svg>
       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-0.5 text-center">
         <span className="text-[length:var(--text-22)] font-semibold tabular-nums text-[var(--text-primary)]">
-          {usedPercent}%
+          {formatNeurons(totalNeurons)}
         </span>
         <span className="px-6 text-[length:var(--text-10-5)] tabular-nums text-[var(--text-tertiary)]">
-          {formatNumber(totalNeurons)} / {formatNumber(totalQuota)}
+          / {formatNumber(totalQuota)} · {usedPercent}%
         </span>
       </div>
     </div>
@@ -151,10 +151,10 @@ export function StatsTab() {
   }, [rows])
 
   const kpis = [
-    { key: 'accounts', label: t('cloudflare.ai_stats.total_accounts'), value: rows.length, icon: Users },
-    { key: 'neurons', label: t('cloudflare.ai_stats.total_neurons'), value: totals.neurons, icon: Zap },
-    { key: 'requests', label: t('cloudflare.ai_stats.total_requests'), value: totals.requests, icon: Activity },
-    { key: 'models', label: t('cloudflare.ai_stats.active_models'), value: totals.models, icon: Boxes },
+    { key: 'accounts', label: t('cloudflare.ai_stats.total_accounts'), value: formatNumber(rows.length), icon: Users },
+    { key: 'neurons', label: t('cloudflare.ai_stats.total_neurons'), value: formatNeurons(totals.neurons), icon: Zap },
+    { key: 'requests', label: t('cloudflare.ai_stats.total_requests'), value: formatNumber(totals.requests), icon: Activity },
+    { key: 'models', label: t('cloudflare.ai_stats.active_models'), value: formatNumber(totals.models), icon: Boxes },
   ]
 
   return (
@@ -199,7 +199,7 @@ export function StatsTab() {
                       {kpi.label}
                     </span>
                     <span className="text-[length:var(--text-20)] leading-none font-semibold tabular-nums text-[var(--text-primary)]">
-                      {formatNumber(kpi.value)}
+                      {kpi.value}
                     </span>
                   </div>
                   <Icon size={24} aria-hidden="true" className="shrink-0 text-[var(--text-quaternary)]" />
@@ -258,7 +258,7 @@ export function StatsTab() {
                       {ranking.map((model) => (
                         <Tr key={model.modelId}>
                           <Td title={model.modelId}>{shortModelId(model.modelId)}</Td>
-                          <Td className="text-right tabular-nums">{formatNumber(model.neurons)}</Td>
+                          <Td className="text-right tabular-nums">{formatNeurons(model.neurons)}</Td>
                           <Td className="text-right tabular-nums">{formatNumber(model.requests)}</Td>
                           <Td className="text-right tabular-nums">
                             {sharePercent(model.neurons, totals.neurons)}%
@@ -287,13 +287,13 @@ export function StatsTab() {
                         {account.accountName}
                       </p>
                       <p className="mt-0.5 text-[length:var(--text-11)] tabular-nums text-[var(--text-tertiary)]">
-                        {formatNumber(account.totalNeurons)} / {formatNumber(NEURON_QUOTA)} {t('cloudflare.ai_stats.neurons')}
+                        {formatNeurons(account.totalNeurons)} / {formatNumber(NEURON_QUOTA)} {t('cloudflare.ai_stats.neurons')}
                         {' · '}
                         {t('cloudflare.ai_stats.share')} {sharePercent(account.totalNeurons, totals.neurons)}%
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
-                      <Badge tone={tone}>{used}%</Badge>
+                      {used >= 80 ? <Badge tone={tone}>{used}%</Badge> : null}
                       <UsageRing
                         used={account.totalNeurons}
                         limit={NEURON_QUOTA}
@@ -322,7 +322,7 @@ export function StatsTab() {
                               {shortModelId(model.modelId)}
                             </span>
                             <span className="shrink-0 tabular-nums text-[var(--text-tertiary)]">
-                              {formatNumber(model.neurons)} · {formatNumber(model.requests)} {t('cloudflare.ai.requests')}
+                              {formatNeurons(model.neurons)} · {formatNumber(model.requests)} {t('cloudflare.ai.requests')}
                             </span>
                           </li>
                         ))}

@@ -240,24 +240,24 @@ describe('the dashboard traffic endpoint', () => {
   it('maps hourly adaptive groups into labels and the four series', async () => {
     const bed = await makeCloudflareBed()
     const { id } = await seedAccount(bed, TEST_USER)
-    let graphql: GraphqlBody | null = null
+    const graphqlCalls: GraphqlBody[] = []
 
     stubCloudflare((url, init) => {
       if (url.pathname.endsWith('/zones/zone-1')) {
         return cfJson({ id: 'zone-1', name: 'example.com', account: { id: CF_ACCOUNT } })
       }
       if (url.pathname.endsWith('/graphql')) {
-        graphql = graphqlBody(init)
+        graphqlCalls.push(graphqlBody(init))
         return Response.json({ data: { viewer: { zones: [{
-          httpRequestsAdaptiveGroups: [
+          httpRequests1hGroups: [
             {
-              dimensions: { datetimeHour: '2026-10-27T09:00:00Z' },
-              sum: { requests: 20, pageViews: 8, edgeResponseBytes: 200 },
+              dimensions: { datetime: '2026-10-27T09:00:00Z' },
+              sum: { requests: 20, pageViews: 8, bytes: 200 },
               uniq: { uniques: 4 },
             },
             {
-              dimensions: { datetimeHour: '2026-10-27T08:00:00Z' },
-              sum: { requests: 10, pageViews: 3, edgeResponseBytes: 100 },
+              dimensions: { datetime: '2026-10-27T08:00:00Z' },
+              sum: { requests: 10, pageViews: 3, bytes: 100 },
               uniq: { uniques: 2 },
             },
           ],
@@ -281,7 +281,8 @@ describe('the dashboard traffic endpoint', () => {
       pageViews: [3, 8],
       bytes: [100, 200],
     })
-    expect(graphql?.query).toContain('httpRequestsAdaptiveGroups')
+    const graphql = graphqlCalls[0]
+    expect(graphql?.query).toContain('httpRequests1hGroups')
     expect(graphql?.variables.zoneTag).toBe('zone-1')
     expect(Date.parse(graphql?.variables.since ?? '')).toBeLessThan(
       Date.parse(graphql?.variables.until ?? ''),
@@ -291,24 +292,24 @@ describe('the dashboard traffic endpoint', () => {
   it('uses day labels for a multi-day window', async () => {
     const bed = await makeCloudflareBed()
     const { id } = await seedAccount(bed, TEST_USER)
-    let graphql: GraphqlBody | null = null
+    const graphqlCalls: GraphqlBody[] = []
 
     stubCloudflare((url, init) => {
       if (url.pathname.endsWith('/zones/zone-1')) {
         return cfJson({ id: 'zone-1', name: 'example.com', account: { id: CF_ACCOUNT } })
       }
       if (url.pathname.endsWith('/graphql')) {
-        graphql = graphqlBody(init)
+        graphqlCalls.push(graphqlBody(init))
         return Response.json({ data: { viewer: { zones: [{
-          httpRequestsAdaptiveGroups: [
+          httpRequests1dGroups: [
             {
               dimensions: { date: '2026-10-26' },
-              sum: { requests: 5, pageViews: 1, edgeResponseBytes: 50 },
+              sum: { requests: 5, pageViews: 1, bytes: 50 },
               uniq: { uniques: 1 },
             },
             {
               dimensions: { date: '2026-10-27' },
-              sum: { requests: 6, pageViews: 2, edgeResponseBytes: 60 },
+              sum: { requests: 6, pageViews: 2, bytes: 60 },
               uniq: { uniques: 2 },
             },
           ],
@@ -326,6 +327,8 @@ describe('the dashboard traffic endpoint', () => {
     const body = await readJson<TrafficBody>(response)
     expect(body.granularity).toBe('day')
     expect(body.labels).toEqual(['10-26', '10-27'])
+    const graphql = graphqlCalls[0]
+    expect(graphql?.query).toContain('httpRequests1dGroups')
     expect(graphql?.query).toContain('dimensions { date }')
     expect(graphql?.query).toContain('orderBy: [date_ASC]')
   })

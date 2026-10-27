@@ -10,7 +10,7 @@
 export const EN_US_CLOUDFLARE_DNS = {
   "cloudflare.dns.activate_confirm": "Are you sure you want to activate this Zone?",
   "cloudflare.dns.activate_zone": "Activate Zone",
-  "cloudflare.dns.add_domain": "+ Add Domain",
+  "cloudflare.dns.add_domain": "Add Domain",
   "cloudflare.dns.add_domain_btn": "Add Domain",
   "cloudflare.dns.add_domain_modal_title": "Add Domain",
   "cloudflare.dns.add_record": "Add Record",

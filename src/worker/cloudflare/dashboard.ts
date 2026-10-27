@@ -247,13 +247,17 @@ export async function fetchR2Storage(
 export type TrafficGranularity = 'hour' | 'day'
 
 export interface TrafficGroup {
-  dimensions?: { datetimeHour?: string; date?: string }
-  sum?: { requests?: number; pageViews?: number; edgeResponseBytes?: number }
+  dimensions?: { datetime?: string; date?: string }
+  sum?: { requests?: number; pageViews?: number; bytes?: number }
   uniq?: { uniques?: number }
 }
 
+/** The zone dataset matches the resolution: `httpRequests1hGroups` is hourly, `…1dGroups` is daily. */
+export type TrafficDataset = 'httpRequests1hGroups' | 'httpRequests1dGroups'
+
 export interface TrafficQuery extends UsageQuery {
   granularity: TrafficGranularity
+  dataset: TrafficDataset
 }
 
 export interface TrafficSeries {
@@ -276,39 +280,41 @@ export function buildTrafficQuery(zoneId: string, days: number, now = new Date()
   const since = new Date(now.getTime() - days * 86_400_000)
   if (days <= 1) {
     return {
-      query: `query CfTraffic24h($zoneTag: String!, $since: Time!, $until: Time!) {
+      query: `query CfTraffic24h($zoneTag: String!, $since: String!, $until: String!) {
         viewer { zones(filter: {zoneTag: $zoneTag}) {
-          httpRequestsAdaptiveGroups(
+          httpRequests1hGroups(
             limit: 48
             filter: { datetime_geq: $since, datetime_lt: $until }
-            orderBy: [datetimeHour_ASC]
+            orderBy: [datetime_ASC]
           ) {
-            dimensions { datetimeHour }
-            sum { requests pageViews edgeResponseBytes }
+            dimensions { datetime }
+            sum { requests pageViews bytes }
             uniq { uniques }
           }
         } }
       }`,
       variables: { zoneTag: zoneId, since: since.toISOString(), until: now.toISOString() },
       granularity: 'hour',
+      dataset: 'httpRequests1hGroups',
     }
   }
   return {
-    query: `query CfTrafficDays($zoneTag: String!, $since: Time!, $until: Time!) {
+    query: `query CfTrafficDays($zoneTag: String!, $since: String!, $until: String!) {
       viewer { zones(filter: {zoneTag: $zoneTag}) {
-        httpRequestsAdaptiveGroups(
+        httpRequests1dGroups(
           limit: ${days + 2}
-          filter: { datetime_geq: $since, datetime_lt: $until }
+          filter: { date_geq: $since, date_leq: $until }
           orderBy: [date_ASC]
         ) {
           dimensions { date }
-          sum { requests pageViews edgeResponseBytes }
+          sum { requests pageViews bytes }
           uniq { uniques }
         }
       } }
     }`,
-    variables: { zoneTag: zoneId, since: since.toISOString(), until: now.toISOString() },
+    variables: { zoneTag: zoneId, since: since.toISOString().slice(0, 10), until: now.toISOString().slice(0, 10) },
     granularity: 'day',
+    dataset: 'httpRequests1dGroups',
   }
 }
 
@@ -318,7 +324,7 @@ export function mapTrafficGroups(
   groups: readonly TrafficGroup[],
 ): TrafficSeriesResponse {
   const raw = granularity === 'hour'
-    ? (group: TrafficGroup) => group.dimensions?.datetimeHour ?? ''
+    ? (group: TrafficGroup) => group.dimensions?.datetime ?? ''
     : (group: TrafficGroup) => group.dimensions?.date ?? ''
   const sorted = [...groups].sort((left, right) => raw(left).localeCompare(raw(right)))
 
@@ -335,7 +341,7 @@ export function mapTrafficGroups(
       requests: sorted.map((group) => group.sum?.requests ?? 0),
       visitors: sorted.map((group) => group.uniq?.uniques ?? 0),
       pageViews: sorted.map((group) => group.sum?.pageViews ?? 0),
-      bytes: sorted.map((group) => group.sum?.edgeResponseBytes ?? 0),
+      bytes: sorted.map((group) => group.sum?.bytes ?? 0),
     },
   }
 }

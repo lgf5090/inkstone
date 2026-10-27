@@ -130,7 +130,7 @@ export function DomainList({
                   <Checkbox
                     checked={selection.has(domain.name)}
                     onChange={() => onToggleSelected(domain.name)}
-                    label={domain.name}
+                    label={<span className="sr-only">{domain.name}</span>}
                     className="shrink-0"
                   />
                   <button

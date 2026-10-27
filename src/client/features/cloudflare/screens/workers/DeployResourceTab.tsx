@@ -6,7 +6,7 @@
  * server creates or reuses it per account.
  */
 import { useEffect, useState } from 'react'
-import { Trash2 } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import { Input } from '../../../../components/form'
 import { Button, IconButton } from '../../../../components/primitives'
 import { SelectMenu } from '../../../../components/select-menu'
@@ -147,6 +147,7 @@ export function DeployResourceTab({
         size="sm"
         variant="secondary"
         onClick={() => onChange([...value, { type: resourceType, name: '', mode: 'auto' }])}
+        icon={<Plus size={14} />}
       >
         {t('cloudflare.workers.resources.add')}
       </Button>

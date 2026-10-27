@@ -5527,15 +5527,17 @@ const allowed = new Map([
   ["src/client/features/cloudflare/components/CopyButton.tsx", [
     "/**\n * Copy a value, with the confirmation in the button itself.\n *\n * The clipboard call is the notebook's own (`copyText`), which falls back to `execCommand` on a plain\n * http deployment where the modern API is unavailable. A failure is reported through the app's toast\n * rather than silently doing nothing.\n */",
     "/** Visible text beside the icon; omitted for an icon-only control. */",
+    "// A labelled copy control is a text button: the icon-only primitive is a fixed square, and preflight",
+    "// makes every `svg` a block box, so a word inside it wraps one glyph per line.",
   ]],
   ["src/client/features/cloudflare/components/LineChart.tsx", [
     "/**\n * A line chart drawn with SVG, because the app has no charting dependency.\n *\n * The traffic screen needs one figure: a value per hour (or per day) for one or two series. A chart\n * library would bring its own layout, its own colours and its own accessibility story for a shape\n * this small; here the colours are tokens, the figure carries a label, and the hover reading is a\n * positioned text block rather than a canvas.\n */",
   ]],
   ["src/client/features/cloudflare/components/MarkdownBody.tsx", [
-    "/**\n * Markdown as the assistant wrote it, rendered safely.\n *\n * The HTML is produced by markdown-it, sanitised by DOMPurify, and then given syntax colour by the\n * notebook's own Prism loader — the same highlighter the note preview uses. Code blocks carry a\n * language label and a copy button; both are ordinary DOM inside the sanitised fragment, with copy\n * handled by delegation because the fragment is not React's to own.\n */",
     "/** What to draw when the source is empty; omitted leaves the box empty rather than inventing a line. */",
     "// The string is the sanitised output of markdown-it and DOMPurify; no caller-supplied HTML",
     "// reaches this node.",
+    "/**\n * Markdown as the assistant wrote it, rendered safely.\n *\n * The HTML is produced by markdown-it, sanitised by DOMPurify, and then given syntax colour by the\n * notebook's own Prism loader — the same highlighter the note preview uses. Code blocks carry a\n * language label and a copy button; both are ordinary DOM inside the sanitised fragment, with copy\n * handled by delegation because the fragment is not React's to own.\n *\n * Raw HTML is kept because a template README is documentation, not a prompt: a README that lays its\n * screenshots out with a `<table>` would otherwise show its markup as text. DOMPurify is the trust\n * boundary, and remote images are rewritten to the worker's image proxy because the page's own\n * `img-src` does not allow the documentation host.\n */",
   ]],
   ["src/client/features/cloudflare/components/MultiSelect.tsx", [
     "/**\n * A multi-select the app can draw: a trigger and a panel of real checkboxes.\n *\n * The native `<select multiple>` cannot show a checked list without a modifier key, and its system\n * chrome ignores every token. This keeps the semantics (each row is a labelled checkbox) and closes on\n * Escape or a press outside, which is what the app's menus already do.\n */",
@@ -5551,9 +5553,13 @@ const allowed = new Map([
     "/**\n * The table primitives every Cloudflare screen composes.\n *\n * A native `<table>` rather than a grid: these screens are tabular data, and a table is what gives a\n * screen reader the column a cell belongs to. The scroll container is focusable and named so a\n * keyboard reader can scroll a wide table without a mouse.\n */",
     "/**\n * A header that sorts. The button fills the cell so the whole header is the target, and the direction\n * is the cell's `aria-sort`, not an arrow glyph a screen reader never hears.\n */",
     "/** The next direction a click on `key` would switch to; exported for tests and header hints. */",
+    "/**\n * `sticky` pins a cell to the right edge of the scroll region: a wide table otherwise hides the row's\n * own controls behind the clip, which is where a reader needs them most. Both cells of a sticky\n * column carry their own background because the scrolled content shows through a transparent one.\n */",
   ]],
   ["src/client/features/cloudflare/components/UsageRing.tsx", [
     "/**\n * A ring that says how much of an allowance is gone.\n *\n * The percentage is also printed in the middle: a ring alone is a colour and an angle, and neither is\n * something every reader can read. The colour only reinforces the number, it never carries it.\n */",
+  ]],
+  ["src/client/features/cloudflare/components/cm-syntax.ts", [
+    "/**\n * Syntax colours for the embedded CodeMirror editors.\n *\n * The colours are the notebook's own `--syntax-*` tokens, so a Worker script pasted into a note and a\n * Worker script edited here read the same way, and both follow the theme.\n */",
   ]],
   ["src/client/features/cloudflare/i18n.ts", [
     "/**\n * The Cloudflare app's copy, loaded when the app is opened.\n *\n * The module carries about 1,200 keys per language. Folding them into the notebook's start-up\n * catalogue would make every reader pay for an app most of them never open, so each language is its\n * own chunk and `CloudflareApp` waits for the current one before drawing a screen. Until it answers,\n * `cfT` returns the key itself — readable in development, and never seen by a reader because the app\n * shows a loading state until the catalogue is there.\n */",
@@ -5574,6 +5580,7 @@ const allowed = new Map([
     "/** `2026-10-27 09:41` in the reader's locale, from a millisecond timestamp. */",
     "/** Relative time for a log or a conversation; falls back to the absolute date after a week. */",
     "/** A percentage for a ring or a bar, clamped to what can be drawn. */",
+    "/** Neurons are billed in fractions, so a whole-number separator would hide a busy model row. */",
   ]],
   ["src/client/features/cloudflare/lib/quota-view.ts", [
     "/**\n * How a quota row reads on screen.\n *\n * The arithmetic is `lib/format`; this file only decides which catalogue sentence goes around it.\n * Browser-render time is minute/second shaped because that is how the browser-rendering limit is\n * published (600 seconds a day); everything else is a plain count.\n */",
@@ -33222,6 +33229,7 @@ const allowed = new Map([
     "/** The latest snapshot per bucket, summed: an R2 bucket reports its size on every sampled day. */",
     "/**\n * One day is read by the hour and anything longer by the day; the source module switched the same\n * way, because an hourly series over a month is a line nobody can read.\n */",
     "/** Groups become parallel arrays because that is the shape `LineChart` reads. */",
+    "/** The zone dataset matches the resolution: `httpRequests1hGroups` is hourly, `…1dGroups` is daily. */",
   ]],
   ["src/worker/cloudflare/deploy.ts", [
     "/**\n * Uploading Workers and Pages, and the two batch operations that surround them.\n *\n * A Worker deployment is the same multipart PUT wrangler performs: one metadata JSON part and one\n * part per module. A Pages deployment is a direct upload: a manifest naming each file by the hash it\n * is stored under. Both live here rather than in the router so the store slice and this one have one\n * place to agree with Cloudflare.\n */",
@@ -33265,7 +33273,9 @@ const allowed = new Map([
     "/**\n * The Cloudflare module's own settings, one row per key per reader.\n *\n * Only what a reader can change and the server must remember lives here. The reference module also\n * kept the proxy configuration in this table; this deployment has no outbound proxy (see the plan's\n * D-7), so those keys are not read or written.\n */",
   ]],
   ["src/worker/cloudflare/storage-d1.ts", [
-    "/**\n * D1 databases, tables, schemas and queries.\n *\n * Row counts are read in the same round trip as the table names: one statement for `sqlite_master`,\n * then one `UNION ALL` of `COUNT(*)` per table. Identifiers are always quoted with `quoteIdent`, and\n * table names are re-checked before they are used in a PRAGMA.\n */",
+    "/**\n * D1 databases, tables, schemas and queries.\n *\n * Row counts are read in the same round trip as the table names: one statement for `sqlite_master`,\n * then one statement per batch of `COUNT(*)` subqueries. Identifiers are always quoted with\n * `quoteIdent`, and table names are re-checked before they are used in a PRAGMA.\n */",
+    "/** Tables counted per round trip, so one oversized statement cannot fail the whole listing. */",
+    "/**\n * Row counts for the named tables, read in as few round trips as SQLite allows.\n *\n * The obvious shape — one `SELECT … COUNT(*)` per table joined with `UNION ALL` — is rejected on any\n * real database: SQLite caps the terms of a compound select far below the table count a D1 database\n * reaches. Scalar subqueries in one select list carry no such cap, so a batch comes back as one row\n * keyed by table name.\n */",
   ]],
   ["src/worker/cloudflare/storage-kv.ts", [
     "/**\n * KV namespaces, keys and values through the Cloudflare REST API.\n *\n * The service speaks only to Cloudflare; account ownership and demo protection belong to the route.\n * Values are written as raw text with the TTL in the query string, which avoids multipart on a PUT\n * that only carries one field.\n */",
@@ -33317,6 +33327,8 @@ const allowed = new Map([
   ]],
   ["src/worker/cloudflare/usage.ts", [
     "/**\n * Today's usage, read from Cloudflare's analytics rather than guessed from request counts.\n *\n * Both queries are the reference module's own: Workers/Pagess invocations and AI neurons, filtered to\n * one Cloudflare account and the current UTC day. The screens treat a failed query as \"no number\",\n * which is why the workers query answers zeros on failure while the AI query throws — the AI tab has\n * somewhere to show the failure, the resource cards only have a number slot.\n */",
+    "// The total is left unrounded: the model rows below are not rounded either, and a share taken",
+    "// against a rounded whole can exceed 100%.",
   ]],
   ["src/worker/cloudflare/workers.ts", [
     "/**\n * Workers and Pages, read the way the screen needs them.\n *\n * One Cloudflare account is one upstream fan-out: a script list and a Pages project list, each of\n * which may fail on its own. A failed half is logged and left out, because an account with a revoked\n * Pages scope still has usable Workers, and a screen that shows nothing tells the reader less than one\n * that shows the half that answered.\n */",
@@ -35597,6 +35609,7 @@ const allowed = new Map([
     "// Worker detail and settings.",
     "// Resources used by the deploy dialog.",
     "// Pages.",
+    "/** A listing route whose path carries no worker name: only the notebook account is needed. */",
   ]],
   ["src/worker/routes/community-templates.ts", [
     "/**\n * Publishing counts against a per-account hourly budget so one account cannot\n * flood the shared directory. Updating your own template spends the same\n * budget, which is the point: an edit is another write.\n */",
@@ -39456,8 +39469,16 @@ const allowed = new Map([
     "// Llama 3.1 8B: 25.608 in / 75.147 out per thousand tokens.",
     "// Cached tokens never cost more than fresh ones, and never produce a negative bill.",
   ]],
+  ["tests/cloudflare-storage.test.ts", [
+    "// A compound `SELECT … UNION ALL` per table is what SQLite rejects on a real database, so the",
+    "// counts must arrive as scalar subqueries in one select list.",
+  ]],
   ["tests/cloudflare-tunnels.test.ts", [
     "// Wrap the stub once more to observe the rollback DELETE.",
+  ]],
+  ["tests/cloudflare-workers.test.ts", [
+    "// These four paths carry no worker name. They used to run through the worker-name guard, which",
+    "// made every one of them answer 400 and left the route tab and the deploy binding pickers empty.",
   ]],
   ["tests/code-sandbox.test.ts", [
     "/** A program that returns something, written the way the model is told to write one. */",
@@ -39706,6 +39727,8 @@ const allowed = new Map([
     "// runs in the jsdom environment, in both cases with \"Provided value cannot be bound to SQLite",
     "// parameter N\". A view over the same bytes satisfies D1 and both node:sqlite paths.",
     "/**\n * The verb D1 would judge the statement by.\n *\n * A common-table expression is a prefix, not a statement kind: `WITH subtree AS (…) INSERT …` writes\n * and answers with `meta`, while `WITH subtree AS (…) SELECT …` reads. So the CTE body is skipped by\n * paren depth and the first verb outside it decides — which also means the word inside a literal\n * (`'delete'` written into the changes table) can never win, because the verb always comes first.\n */",
+    "// D1 serializes transactions against one database; node:sqlite has a single connection, so two",
+    "// overlapping `batch()` calls would nest BEGINs and fail with an error the platform never returns.",
   ]],
   ["tests/doubles/naming-pass.ts", [
     "/**\n * The one thing a wire stub needs to know about the naming pass.\n *\n * Every answer that finishes whole is followed by one cheap call to the same model, asking what the reader\n * would want to ask next. It is not part of the turn's own traffic, so a test that counts what one question\n * cost — calls, steps, tokens, lease renewals — has to answer it and step over it. Recognising it by the\n * instructions it carries is the only reading that does not depend on ordering: it is the last call, yes,\n * but \"the last call\" is exactly what a test about retries cannot say.\n */",

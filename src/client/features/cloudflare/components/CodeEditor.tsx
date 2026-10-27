@@ -39,10 +39,12 @@ export function CodeEditor({
     const element = host.current
     if (!element) return
     void (async () => {
-      const [{ EditorState }, { EditorView, keymap, lineNumbers }, { defaultKeymap, history, historyKeymap }] = await Promise.all([
+      const [{ EditorState }, { EditorView, keymap, lineNumbers }, { defaultKeymap, history, historyKeymap }, { javascript }, { codeHighlighting }] = await Promise.all([
         import('@codemirror/state'),
         import('@codemirror/view'),
         import('@codemirror/commands'),
+        import('@codemirror/lang-javascript'),
+        import('./cm-syntax'),
       ])
       if (cancelled || !host.current) return
       const theme = EditorView.theme({
@@ -62,6 +64,8 @@ export function CodeEditor({
         doc: latest.current.value,
         extensions: [
           lineNumbers(),
+          javascript(),
+          codeHighlighting,
           history(),
           keymap.of([...defaultKeymap, ...historyKeymap]),
           theme,

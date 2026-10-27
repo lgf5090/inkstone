@@ -178,7 +178,7 @@ export function ResourcesPanel({ accounts }: { accounts: readonly AccountQuotaVi
         <LoadingBlock />
       ) : data ? (
         <>
-          <div className="grid grid-cols-2 gap-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
             {SERVICE_CARDS.map((card, index) => {
               const count = countFor(card.countKey)
               const usage = usageFor(card.usageKey)
@@ -230,9 +230,7 @@ export function ResourcesPanel({ accounts }: { accounts: readonly AccountQuotaVi
                 </div>
               )
             })}
-          </div>
 
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
             <div className="flex items-center justify-around gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] p-2.5">
               {COUNT_ONLY.map((entry) => {
                 const Icon = entry.icon

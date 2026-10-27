@@ -199,6 +199,7 @@ describe('KV routes', () => {
 describe('D1 routes', () => {
   it('lists databases, tables with row counts, and a table schema', async () => {
     const account = await seedAccount(bed, TEST_USER, { id: ACCOUNT_A, token: 'token-a', accountId: 'cf-a' })
+    let countedSql = ''
     stubApi(({ method, path, body }) => {
       if (method === 'GET' && path === '/accounts/cf-a/d1/database') {
         return cfJson([{ uuid: 'db-1', name: 'main' }])
@@ -208,8 +209,9 @@ describe('D1 routes', () => {
         if (sql.includes('sqlite_master')) {
           return cfJson([{ results: [{ name: 'users' }, { name: 'posts' }], meta: { duration: 1 } }])
         }
-        if (sql.includes('UNION ALL')) {
-          return cfJson([{ results: [{ name: 'users', rows: 2 }, { name: 'posts', rows: 5 }], meta: { duration: 1 } }])
+        if (sql.includes('COUNT(*)')) {
+          countedSql = sql
+          return cfJson([{ results: [{ users: 2, posts: 5 }], meta: { duration: 1 } }])
         }
         if (sql.startsWith('PRAGMA table_info')) {
           return cfJson([{
@@ -233,6 +235,10 @@ describe('D1 routes', () => {
       await send('GET', `/${account.id}/d1/db-1/tables`),
     )
     expect(tables.tables).toEqual([{ name: 'users', rows: 2 }, { name: 'posts', rows: 5 }])
+    // A compound `SELECT … UNION ALL` per table is what SQLite rejects on a real database, so the
+    // counts must arrive as scalar subqueries in one select list.
+    expect(countedSql).toContain('(SELECT COUNT(*) FROM "users") AS "users"')
+    expect(countedSql).not.toContain('UNION ALL')
 
     const schema = await readJson<{ schema: Array<{ name: string; pk: number }> }>(
       await send('GET', `/${account.id}/d1/db-1/tables/users/schema`),

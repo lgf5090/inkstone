@@ -131,10 +131,12 @@ describe('the AI usage route', () => {
       models: Array<{ modelId: string; neurons: number; requests: number }>
       warning?: string
     }>>(response)
-    expect(body[0]?.totalNeurons).toBe(123)
+    expect(body[0]?.totalNeurons).toBe(123.4)
     expect(body[0]?.models).toEqual([{ modelId: LLAMA, neurons: 123.4, requests: 3 }])
     expect(body[0]?.warning).toBeUndefined()
-    expect((await quotaCount(bed, id))?.count).toBe(123)
+    // The ledger keeps the fraction Cloudflare reports: a rounded allowance beside an unrounded model
+    // row is what made a single model read as 104.7% of itself.
+    expect((await quotaCount(bed, id))?.count).toBe(123.4)
   })
 })
 
@@ -233,9 +235,10 @@ describe('the chat completions route', () => {
     expect(body.object).toBe('chat.completion')
     expect(body.model).toBe(LLAMA)
     expect(body.id).toMatch(/^chatcmpl-/)
-    expect(upstreamBody).not.toBeNull()
-    expect(upstreamBody).not.toHaveProperty('accountId')
-    expect(upstreamBody?.max_tokens).toBe(4096)
+    const sent = upstreamBody as Record<string, unknown> | null
+    expect(sent).not.toBeNull()
+    expect(sent).not.toHaveProperty('accountId')
+    expect(sent?.max_tokens).toBe(4096)
     const expected = estimateNeurons(LLAMA, 1000, 500, 0)
     expect((await quotaCount(bed, id))?.count).toBe(expected)
     const audit = await bed.env.DB.prepare(

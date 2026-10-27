@@ -11,7 +11,7 @@ import { cn } from '../../../lib/cn'
 import { t } from '../../../lib/i18n'
 import { copyText } from '../../../lib/clipboard'
 import { useUi } from '../../../store/ui'
-import { IconButton } from '../../../components/primitives'
+import { Button, IconButton } from '../../../components/primitives'
 
 export function CopyButton({
   text,
@@ -39,15 +39,29 @@ export function CopyButton({
   }
 
   const name = label ?? t('common.copy')
+  // A labelled copy control is a text button: the icon-only primitive is a fixed square, and preflight
+  // makes every `svg` a block box, so a word inside it wraps one glyph per line.
+  if (label) {
+    return (
+      <Button
+        variant="ghost"
+        size={size === 'md' ? 'md' : 'sm'}
+        icon={copied ? <Check size={13} /> : <Copy size={13} />}
+        onClick={() => { void handleCopy() }}
+        className={className}
+      >
+        {copied ? t('common.copied') : label}
+      </Button>
+    )
+  }
   return (
     <IconButton
       label={copied ? t('common.copied') : name}
       size={size}
       onClick={() => { void handleCopy() }}
-      className={cn(!label && 'shrink-0', className)}
+      className={cn('shrink-0', className)}
     >
       {copied ? <Check size={13} /> : <Copy size={13} />}
-      {label && <span className="ml-1.5">{copied ? t('common.copied') : label}</span>}
     </IconButton>
   )
 }

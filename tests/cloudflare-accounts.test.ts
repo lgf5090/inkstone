@@ -42,7 +42,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-function send(method: string, path: string, body?: unknown): Promise<Response> {
+async function send(method: string, path: string, body?: unknown): Promise<Response> {
   const init: RequestInit = { method }
   if (body !== undefined) {
     init.headers = { 'Content-Type': 'application/json' }
@@ -52,7 +52,7 @@ function send(method: string, path: string, body?: unknown): Promise<Response> {
   return bed.app.request(url, init, bed.env)
 }
 
-function sendForm(path: string, form: FormData): Promise<Response> {
+async function sendForm(path: string, form: FormData): Promise<Response> {
   return bed.app.request(`/api/cloudflare/accounts${path}`, { method: 'POST', body: form }, bed.env)
 }
 

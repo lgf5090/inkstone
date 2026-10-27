@@ -615,3 +615,21 @@ describe('account ownership', () => {
     expect(calls).toHaveLength(0)
   })
 })
+
+describe('the account resource listings', () => {
+  // These four paths carry no worker name. They used to run through the worker-name guard, which
+  // made every one of them answer 400 and left the route tab and the deploy binding pickers empty.
+  it('lists kv, d1, r2 and zones for an account without a worker name in the path', async () => {
+    const account = await seedAccount(bed, TEST_USER, { id: ACCOUNT_A, token: 'token-a', accountId: 'cf-a' })
+    stubApi((call) => {
+      if (call.path === '/zones') return cfJson([{ id: 'zone-1', name: 'example.com', account: { id: 'cf-a' } }])
+      return null
+    })
+
+    for (const path of ['/kv', '/d1', '/r2', '/zones']) {
+      const response = await send('GET', `/${account.id}/resources${path}`)
+      expect(response.status, path).toBe(200)
+    }
+    expect(calls.some((call) => call.path === '/zones')).toBe(true)
+  })
+})

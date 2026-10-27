@@ -16,6 +16,7 @@ import {
   addSource,
   deleteSource,
   downloadReadme,
+  downloadReadmeImage,
   downloadTemplateBytes,
   errorMessage,
   findTemplate,
@@ -197,6 +198,20 @@ storeRouter.get('/readme', async (c) => {
   c.header('Content-Type', 'text/markdown; charset=utf-8')
   c.header('Cache-Control', 'private, max-age=300')
   return c.text(text)
+})
+
+storeRouter.get('/image', async (c) => {
+  const raw = c.req.query('url')
+  if (typeof raw !== 'string' || !raw.trim()) throw ApiError.badRequest('An image URL is required')
+  const { bytes, type } = await downloadReadmeImage(raw)
+  return new Response(bytes, {
+    status: 200,
+    headers: {
+      'content-type': type,
+      'cache-control': 'private, max-age=86400',
+      'x-content-type-options': 'nosniff',
+    },
+  })
 })
 
 storeRouter.post('/init', async (c) => {

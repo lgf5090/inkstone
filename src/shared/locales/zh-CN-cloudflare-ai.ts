@@ -111,7 +111,7 @@ export const ZH_CN_CLOUDFLARE_AI = {
   "cloudflare.ai.history.unpinned": "已取消置顶",
   "cloudflare.ai.inference_failed": "推理失败",
   "cloudflare.ai.model_detail": "模型明细 ({count})",
-  "cloudflare.ai.new_chat": "+ 新对话",
+  "cloudflare.ai.new_chat": "新对话",
   "cloudflare.ai.new_session": "新对话",
   "cloudflare.ai.param_frequency_penalty": "频率惩罚 (frequency_penalty)",
   "cloudflare.ai.param_max_tokens": "最大输出 Token (max_tokens)",

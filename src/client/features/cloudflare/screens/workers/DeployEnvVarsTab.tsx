@@ -4,7 +4,7 @@
  * Secret rows leave `keep` set until the reader types a value: the secret endpoint returns names but
  * never plaintext, so an untouched row means "leave the deployed secret alone".
  */
-import { Trash2 } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import { Input, Switch } from '../../../../components/form'
 import { Button, IconButton } from '../../../../components/primitives'
 import { useCfT } from '../../i18n'
@@ -90,6 +90,7 @@ export function DeployEnvVarsTab({
         size="sm"
         variant="secondary"
         onClick={() => onChange([...value, { name: '', value: '', secret: false }])}
+        icon={<Plus size={14} />}
       >
         {t('cloudflare.workers.env_vars.add')}
       </Button>

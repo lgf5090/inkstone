@@ -44,13 +44,18 @@ export function TBody({ children }: { children: ReactNode }) {
 
 export function Tr({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <tr className={cn('border-b border-[var(--border-subtle)] last:border-b-0 hover:bg-[var(--bg-hover)]', className)}>
+    <tr className={cn('group border-b border-[var(--border-subtle)] last:border-b-0 hover:bg-[var(--bg-hover)]', className)}>
       {children}
     </tr>
   )
 }
 
-export function Th({ children, className, sort, title }: { children: ReactNode; className?: string; sort?: 'ascending' | 'descending' | 'none'; title?: string }) {
+/**
+ * `sticky` pins a cell to the right edge of the scroll region: a wide table otherwise hides the row's
+ * own controls behind the clip, which is where a reader needs them most. Both cells of a sticky
+ * column carry their own background because the scrolled content shows through a transparent one.
+ */
+export function Th({ children, className, sort, title, sticky }: { children: ReactNode; className?: string; sort?: 'ascending' | 'descending' | 'none'; title?: string; sticky?: boolean }) {
   return (
     <th
       scope="col"
@@ -58,6 +63,7 @@ export function Th({ children, className, sort, title }: { children: ReactNode; 
       aria-sort={sort}
       className={cn(
         'px-2.5 py-2 text-[length:var(--text-11-5)] font-medium whitespace-nowrap text-[var(--text-tertiary)]',
+        sticky && 'sticky right-0 z-[var(--z-sticky)] bg-[var(--bg-sunken)] shadow-[inset_1px_0_0_var(--border-subtle)]',
         className,
       )}
     >
@@ -66,8 +72,20 @@ export function Th({ children, className, sort, title }: { children: ReactNode; 
   )
 }
 
-export function Td({ children, className, colSpan, title }: { children: ReactNode; className?: string; colSpan?: number; title?: string }) {
-  return <td colSpan={colSpan} title={title} className={cn('px-2.5 py-2 align-middle text-[var(--text-primary)]', className)}>{children}</td>
+export function Td({ children, className, colSpan, title, sticky }: { children: ReactNode; className?: string; colSpan?: number; title?: string; sticky?: boolean }) {
+  return (
+    <td
+      colSpan={colSpan}
+      title={title}
+      className={cn(
+        'px-2.5 py-2 align-middle text-[var(--text-primary)]',
+        sticky && 'sticky right-0 z-[var(--z-sticky)] bg-[var(--bg-raised)] shadow-[inset_1px_0_0_var(--border-subtle)] group-hover:bg-[var(--bg-hover)]',
+        className,
+      )}
+    >
+      {children}
+    </td>
+  )
 }
 
 /**

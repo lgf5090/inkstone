@@ -191,7 +191,7 @@ describe('the chat sessions routes', () => {
     const list = await readJson<SessionBody[]>(await bed.app.request(BASE, {}, bed.env))
     expect(list).toEqual([])
 
-    const requests: Array<Promise<Response>> = [
+    const requests: Array<Response | Promise<Response>> = [
       bed.app.request(`${BASE}/${sessionId}/messages`, {}, bed.env),
       bed.app.request(`${BASE}/${sessionId}/messages`, request({
         messages: [{ role: 'user', content: 'write' }],

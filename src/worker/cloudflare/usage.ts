@@ -124,5 +124,7 @@ export async function getAiUsageToday(auth: CloudflareAuth, cfAccountId: string 
       neurons: row.sum?.totalNeurons ?? 0,
       requests: row.count ?? 0,
     }))
-  return { totalNeurons: Math.round(totalNeurons), models }
+  // The total is left unrounded: the model rows below are not rounded either, and a share taken
+  // against a rounded whole can exceed 100%.
+  return { totalNeurons, models }
 }

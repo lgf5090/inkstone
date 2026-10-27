@@ -11,6 +11,11 @@ export function formatNumber(value: number | null | undefined): string {
   return (value ?? 0).toLocaleString()
 }
 
+/** Neurons are billed in fractions, so a whole-number separator would hide a busy model row. */
+export function formatNeurons(value: number | null | undefined): string {
+  return (value ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })
+}
+
 export function splitSeconds(total: number): { m: number; s: number } {
   const safe = Math.max(0, Math.round(total))
   return { m: Math.floor(safe / 60), s: safe % 60 }

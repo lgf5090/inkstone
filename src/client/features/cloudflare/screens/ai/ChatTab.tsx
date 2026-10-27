@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   ChevronRight,
   History,
+  Plus,
   RefreshCw,
   Send,
   Settings2,
@@ -594,7 +595,7 @@ export function ChatTab() {
             </IconButton>
             <div className="ml-auto flex flex-wrap items-center gap-2">
               {messages.length > 0 ? (
-                <Button size="sm" variant="ghost" onClick={newChat}>
+                <Button size="sm" variant="ghost" icon={<Plus size={13} />} onClick={newChat}>
                   {t('cloudflare.ai.new_chat')}
                 </Button>
               ) : null}

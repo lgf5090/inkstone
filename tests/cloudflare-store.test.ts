@@ -16,6 +16,7 @@ vi.mock('../src/worker/middleware/auth', () => ({
 const CF_ACCOUNT = 'b'.repeat(32)
 const SCRIPT = 'export default { fetch: () => new Response("ok") }'
 const README = '# Template\n\nHello.'
+const PNG = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])
 
 interface CatalogOptions {
   templates: unknown[]
@@ -42,6 +43,10 @@ beforeEach(() => {
     }
     if (url.hostname === 'files.test') {
       return new Response(SCRIPT, { headers: { 'content-type': 'application/javascript' } })
+    }
+    if (url.hostname === 'img.test') {
+      if (url.pathname.endsWith('.png')) return new Response(PNG, { headers: { 'content-type': 'image/png' } })
+      return new Response('<html></html>', { headers: { 'content-type': 'text/html' } })
     }
     if (url.hostname === 'zip.test') {
       const zip = zipSync({ 'index.html': strToU8('<h1>hi</h1>'), 'assets/app.js': strToU8('console.log(1)') })
@@ -114,7 +119,9 @@ describe('the template store', () => {
 
   it('seeds the default sources once even when two requests race', async () => {
     const bed = await makeCloudflareBed()
-    await Promise.all([send(bed, 'POST', '/init'), send(bed, 'POST', '/init')])
+    const [first, second] = await Promise.all([send(bed, 'POST', '/init'), send(bed, 'POST', '/init')])
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
     const sources = await readJson<{ sources: unknown[] }>(await send(bed, 'GET', '/sources'))
     expect(sources.sources.length).toBe(3)
   })
@@ -243,6 +250,19 @@ describe('the template store', () => {
     expect((await send(bed, 'GET', `/readme?url=${encodeURIComponent('http://catalog.test/readme.md')}`)).status).toBe(400)
     expect((await send(bed, 'GET', `/readme?url=${encodeURIComponent('https://127.0.0.1/readme.md')}`)).status).toBe(400)
     expect((await send(bed, 'GET', '/readme')).status).toBe(400)
+  })
+
+  it('proxies a README image and refuses anything that is not a public picture', async () => {
+    const bed = await makeCloudflareBed()
+    const ok = await send(bed, 'GET', `/image?url=${encodeURIComponent('https://img.test/shot.png')}`)
+    expect(ok.status).toBe(200)
+    expect(ok.headers.get('content-type')).toBe('image/png')
+    expect(ok.headers.get('x-content-type-options')).toBe('nosniff')
+    const notImage = await send(bed, 'GET', `/image?url=${encodeURIComponent('https://img.test/page.html')}`)
+    expect(notImage.status).toBe(502)
+    expect((await send(bed, 'GET', `/image?url=${encodeURIComponent('http://img.test/shot.png')}`)).status).toBe(400)
+    expect((await send(bed, 'GET', `/image?url=${encodeURIComponent('https://127.0.0.1/shot.png')}`)).status).toBe(400)
+    expect((await send(bed, 'GET', '/image')).status).toBe(400)
   })
 
   it('keeps a reader’s sources private', async () => {
