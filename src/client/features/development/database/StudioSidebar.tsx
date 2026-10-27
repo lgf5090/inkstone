@@ -1,10 +1,13 @@
-import { useRef, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import {
+  ChevronDown,
+  ChevronRight,
   Code2,
   Database,
   Download,
   FileCode2,
   GripVertical,
+  KeyRound,
   Loader2,
   PanelLeftClose,
   PanelLeftOpen,
@@ -272,6 +275,15 @@ export function StudioSidebar(props: StudioSidebarProps) {
 
   const activeSavedId = selection?.kind === 'saved' ? selection.id : null
   const localSelected = selection?.kind === 'local'
+  const [expandedTables, setExpandedTables] = useState<ReadonlySet<string>>(new Set())
+  const toggleTable = (name: string) => {
+    setExpandedTables((current) => {
+      const next = new Set(current)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  }
   const counts = {
     all: connections.length + (localName ? 1 : 0),
     pinned: connections.filter((connection) => connection.isPinned).length,
@@ -550,32 +562,62 @@ export function StudioSidebar(props: StudioSidebarProps) {
             </div>
           ) : schema ? (
             <div className="space-y-3">
-              {filteredTables.map((table) => (
-                <div key={table.name} className="group flex items-center">
-                  <button
-                    type="button"
-                    onClick={() => onOpenData(table.name)}
-                    title={table.name}
-                    className="flex min-h-8 min-w-0 flex-1 items-center gap-1.5 rounded-[var(--r-sm)] px-1.5 py-1 text-left text-[length:var(--text-12)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
-                  >
-                    <Table2 size={14} className="shrink-0 text-[var(--text-tertiary)]" />
-                    <span className="truncate">{table.name}</span>
-                    <span className="ml-auto shrink-0 text-[length:var(--text-10)] text-[var(--text-quaternary)]">
-                      {table.columns.length || '?'}
-                    </span>
-                  </button>
-                  <Tooltip label={t('development.database.app.edit_schema')}>
-                    <IconButton
-                      label={t('development.database.app.edit_schema')}
-                      size="sm"
-                      onClick={() => onOpenSchema(table.name)}
-                      className="opacity-0 focus-visible:opacity-100 group-hover:opacity-100 max-sm:opacity-100"
-                    >
-                      <Pencil size={12} />
-                    </IconButton>
-                  </Tooltip>
-                </div>
-              ))}
+              {filteredTables.map((table) => {
+                const expanded = expandedTables.has(table.name)
+                return (
+                  <div key={table.name} className="group">
+                    <div className="flex items-center">
+                      <button
+                        type="button"
+                        aria-expanded={expanded}
+                        aria-label={expanded ? t('development.database.app.collapse_columns') : t('development.database.app.expand_columns', { count: table.columns.length })}
+                        onClick={() => toggleTable(table.name)}
+                        className="flex size-6 shrink-0 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                      >
+                        {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onOpenData(table.name)}
+                        title={table.name}
+                        className="flex min-h-8 min-w-0 flex-1 items-center gap-1.5 rounded-[var(--r-sm)] px-1.5 py-1 text-left text-[length:var(--text-12)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+                      >
+                        <Table2 size={14} className="shrink-0 text-[var(--text-tertiary)]" />
+                        <span className="truncate">{table.name}</span>
+                        <span className="ml-auto shrink-0 text-[length:var(--text-10)] text-[var(--text-quaternary)]">
+                          {table.columns.length || '?'}
+                        </span>
+                      </button>
+                      <Tooltip label={t('development.database.app.edit_schema')}>
+                        <IconButton
+                          label={t('development.database.app.edit_schema')}
+                          size="sm"
+                          onClick={() => onOpenSchema(table.name)}
+                          className="opacity-0 focus-visible:opacity-100 group-hover:opacity-100 max-sm:opacity-100"
+                        >
+                          <Pencil size={12} />
+                        </IconButton>
+                      </Tooltip>
+                    </div>
+                    {expanded && (
+                      <ul className="mt-0.5 mb-1 ml-[13px] space-y-0.5 border-l border-[var(--border-subtle)] pl-2.5">
+                        {table.columns.map((column) => (
+                          <li key={column.name} className="flex items-center gap-1.5 text-[length:var(--text-11)]">
+                            <span className="truncate font-mono text-[var(--text-secondary)]" title={column.name}>{column.name}</span>
+                            {column.pk && (
+                              <KeyRound size={9} className="shrink-0 text-[var(--warning)]" aria-label={t('development.database.app.primary_key')} />
+                            )}
+                            <span className="ml-auto shrink-0 font-mono text-[length:var(--text-10)] text-[var(--text-tertiary)]">{column.type || '—'}</span>
+                          </li>
+                        ))}
+                        {table.columns.length === 0 && (
+                          <li className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.schema.no_columns')}</li>
+                        )}
+                      </ul>
+                    )}
+                  </div>
+                )
+              })}
               {filteredTables.length === 0 && (
                 <div className="px-1.5 py-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
                   {t('development.database.app.no_matching_tables')}
