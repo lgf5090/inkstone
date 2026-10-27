@@ -32,7 +32,7 @@ export const CLOUDFLARE_SCHEMA_STATEMENTS: readonly string[] = [
   // stops seeing it immediately; this copy plus the untouched credential file is what an undo
   // restores. Anything past the grace window is purged on the next read of the list.
   `CREATE TABLE IF NOT EXISTS cloudflare_account_trash (
-    id TEXT PRIMARY KEY,
+    id TEXT NOT NULL,
     user_id TEXT NOT NULL,
     name TEXT NOT NULL,
     auth_type TEXT NOT NULL,
@@ -44,7 +44,8 @@ export const CLOUDFLARE_SCHEMA_STATEMENTS: readonly string[] = [
     has_credentials INTEGER NOT NULL,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
-    deleted_at INTEGER NOT NULL
+    deleted_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
   )`,
 
   `CREATE TABLE IF NOT EXISTS cloudflare_quota_usage (

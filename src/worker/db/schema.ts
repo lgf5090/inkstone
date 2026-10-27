@@ -2819,7 +2819,7 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 184,
     statements: [
       `CREATE TABLE IF NOT EXISTS cloudflare_account_trash (
-        id TEXT PRIMARY KEY,
+        id TEXT NOT NULL,
         user_id TEXT NOT NULL,
         name TEXT NOT NULL,
         auth_type TEXT NOT NULL,
@@ -2831,7 +2831,8 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
         has_credentials INTEGER NOT NULL,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
-        deleted_at INTEGER NOT NULL
+        deleted_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, id)
       )`,
     ],
   },
