@@ -187,7 +187,10 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
 
   const execute = useCallback(async (text?: string) => {
     const target = (text ?? sql).trim()
-    if (!target) return
+    if (!target) {
+      setError(t('development.database.query.no_statements'))
+      return
+    }
     const names = findPlaceholders(target)
     if (names.some((name) => String(placeholderValues[name] ?? '').trim() === '')) {
       onError(t('development.database.query.fill_placeholders'))

@@ -285,7 +285,22 @@ export default function SqlEditorImpl({
         themeCompartment.current.of(themeExtension(fontSize)),
         languageCompartment.current.of(languageExtension(namespace)),
         keymap.of([
-          { key: 'Mod-Enter', run: (target) => { closeCompletion(target); callbacks.current.onExecute(target.state.doc.toString()); return true } },
+          { key: 'Mod-Enter', run: (target) => {
+            closeCompletion(target)
+            const state = target.state
+            const doc = state.doc.toString()
+            const selection = state.selection.main
+            let source: string
+            if (selection.from !== selection.to) {
+              source = state.sliceDoc(selection.from, selection.to)
+            } else {
+              const range = findStatementRangeAt(doc, selection.from)
+              source = range ? doc.slice(range.from, range.to) : doc.slice(doc.lastIndexOf(';') + 1)
+            }
+            callbacks.current.onExecute(source)
+            return true
+          } },
+          { key: 'Mod-Shift-Enter', run: (target) => { closeCompletion(target); callbacks.current.onExecute(target.state.doc.toString()); return true } },
           {
             key: 'Mod-Shift-f',
             run: (target) => {
