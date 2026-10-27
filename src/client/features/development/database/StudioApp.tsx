@@ -634,6 +634,7 @@ export function StudioApp() {
             onDraftChange={persistDraft}
             onSchemaChanged={() => void reloadSchema(driver)}
             ensureWritable={ensureWritable}
+            onOpenSql={(text) => openQueryTab(text)}
             onError={notifyError}
           />
         ) : activeTab.kind === 'data' && activeTable ? (

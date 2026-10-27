@@ -307,8 +307,12 @@ export function StudioSidebar(props: StudioSidebarProps) {
     if (!query) return true
     return connection.name.toLowerCase().includes(query)
   })
+  const tableQuery = tableSearch.trim().toLowerCase()
   const filteredTables = (schema?.tables ?? []).filter((table) =>
-    tableSearch.trim() ? table.name.toLowerCase().includes(tableSearch.trim().toLowerCase()) : true,
+    tableQuery
+      ? table.name.toLowerCase().includes(tableQuery)
+        || table.columns.some((column) => column.name.toLowerCase().includes(tableQuery))
+      : true,
   )
 
   if (collapsed) {
@@ -611,6 +615,11 @@ export function StudioSidebar(props: StudioSidebarProps) {
                       >
                         <Table2 size={14} className="shrink-0 text-[var(--text-tertiary)]" />
                         <span className="truncate">{table.name}</span>
+                        {tableQuery && !table.name.toLowerCase().includes(tableQuery) && (
+                          <span className="shrink-0 rounded bg-[var(--accent-soft)] px-1 text-[length:var(--text-9)] text-[var(--accent)]">
+                            {t('development.database.app.column_match')}
+                          </span>
+                        )}
                         <span className="ml-auto shrink-0 text-[length:var(--text-10)] text-[var(--text-quaternary)]">
                           {table.columns.length || '?'}
                         </span>

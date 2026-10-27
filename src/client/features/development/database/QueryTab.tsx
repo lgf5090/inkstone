@@ -12,6 +12,7 @@ import {
   Sparkles,
   Trash2,
   Code2,
+  Table2,
   Wand2,
   X,
 } from 'lucide-react'
@@ -29,6 +30,7 @@ import { SqlEditor } from './SqlEditor'
 import { ResultGrid } from './ResultGrid'
 import { RowDetailPanel } from './RowDetailPanel'
 import { ExportPanel } from './ExportPanel'
+import { StructurePeekDialog } from './StructurePeekDialog'
 import { AggregatePanel } from './AggregatePanel'
 import { ExplainPlanView, isExplainPlanResult, toExplainPlanRows } from './ExplainPlanView'
 import { AiSqlPanel } from './AiSqlPanel'
@@ -101,10 +103,11 @@ export interface QueryTabProps {
   onDraftChange?: (sql: string) => void
   onSchemaChanged?: () => void
   ensureWritable?: () => Promise<boolean>
+  onOpenSql?: (sql: string) => void
   onError: (message: string) => void
 }
 
-export function QueryTab({ driver, connectionId, connectionType, schemaModel, initialSql, onDraftChange, onSchemaChanged, ensureWritable, onError }: QueryTabProps) {
+export function QueryTab({ driver, connectionId, connectionType, schemaModel, initialSql, onDraftChange, onSchemaChanged, ensureWritable, onOpenSql, onError }: QueryTabProps) {
   const isLocal = connectionType === 'sqlite'
   const [sql, setSql] = useState(initialSql ?? '')
   const [results, setResults] = useState<QueryResult[]>([])
@@ -112,6 +115,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
   const [activeResult, setActiveResult] = useState(0)
   const [running, setRunning] = useState(false)
   const [sqlOpen, setSqlOpen] = useState(false)
+  const [peekOpen, setPeekOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [progress, setProgress] = useState<{ current: number; total: number } | null>(null)
   const [cursor, setCursor] = useState({ line: 1, column: 0 })
@@ -456,6 +460,10 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
             <Button variant="secondary" size="sm" onClick={() => setSidePanel((current) => current === 'agent' ? null : 'agent')}>
               {t('development.database.query.agent')}
             </Button>
+            <Button variant="ghost" size="sm" onClick={() => setPeekOpen(true)} title={t('development.database.query.peek_hint')}>
+              <Table2 size={14} />
+              {t('development.database.query.peek')}
+            </Button>
             <Button variant="ghost" size="sm" onClick={() => void format()} title={t('development.database.query.format_hint')}>
               <Wand2 size={14} />
               {t('development.database.query.format')}
@@ -612,6 +620,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
                 </div>
               )}
             </div>
+            <StructurePeekDialog open={peekOpen} tables={schemaModel.tables} onClose={() => setPeekOpen(false)} onOpenSql={(text) => { if (onOpenSql) onOpenSql(text); else setSql(text) }} />
             {detail !== null && detailRow !== null && (
               <div className="absolute inset-y-0 right-0 z-20 w-[85vw] max-w-sm">
                 <RowDetailPanel
