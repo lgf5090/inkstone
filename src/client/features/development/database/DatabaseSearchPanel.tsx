@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { Loader2, Square, Table2 } from 'lucide-react'
 import type { ParsedTable } from '@shared/development/database/types'
 import { t } from '../../../lib/i18n'
+import { isImeComposing } from '../../../lib/ime'
 import { Button } from '../../../components/primitives'
 import { Input } from '../../../components/form'
 import { Modal } from '../../../components/overlay'
@@ -88,7 +89,7 @@ export function DatabaseSearchPanel({ open, tables, driver, onClose, onOpenTable
             <Input
               value={keyword}
               onChange={(event) => setKeyword(event.target.value)}
-              onKeyDown={(event) => { if (event.key === 'Enter') void run() }}
+              onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter') void run() }}
               placeholder={t('development.database.search.placeholder')}
               className="h-8"
             />

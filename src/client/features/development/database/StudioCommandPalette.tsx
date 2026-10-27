@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Database, FileCode2, KeyRound, Search, Table2, Zap } from 'lucide-react'
+import { Database, FileCode2, KeyRound, Table2, Zap } from 'lucide-react'
 import type { DatabaseConnectionView, SchemaModel } from '@shared/development/database/types'
 import { t } from '../../../lib/i18n'
 import { cn } from '../../../lib/cn'
 import { Modal } from '../../../components/overlay'
+import { FilterInput } from '../../../components/FilterInput'
+import { compileQuery } from '../../../lib/query-match'
+import { isImeComposing } from '../../../lib/ime'
 
 export interface PaletteCommand {
   id: string
@@ -73,6 +76,8 @@ export function StudioCommandPalette({
     return list
   }, [connections, hasLocal, onExportSchema, onNewQuery, onOpenData, onOpenSchema, onRefreshSchema, onSelectLocal, onSelectSaved, onViewSql, schema])
 
+  const compiledQuery = useMemo(() => compileQuery(query), [query])
+
   const filtered = useMemo(() => {
     const text = query.trim().toLowerCase()
     const matched = text ? commands.filter((command) => command.label.toLowerCase().includes(text) || command.group.toLowerCase().includes(text)) : commands
@@ -111,22 +116,23 @@ export function StudioCommandPalette({
 
   return (
     <Modal open={open} onClose={onClose} title={t('development.database.palette.title')} width={560} footer={<span className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.palette.hint_keys')}</span>}>
-      <div className="relative">
-        <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" />
-        <input
-          data-autofocus
-          value={query}
-          onChange={(event) => { setQuery(event.target.value); setCursor(0) }}
-          onKeyDown={(event) => {
-            if (event.key === 'ArrowDown') { event.preventDefault(); setCursor((current) => Math.min(current + 1, filtered.length - 1)) }
-            else if (event.key === 'ArrowUp') { event.preventDefault(); setCursor((current) => Math.max(current - 1, 0)) }
-            else if (event.key === 'Enter') { event.preventDefault(); runAt(cursor) }
-          }}
-          placeholder={t('development.database.palette.placeholder')}
-          aria-label={t('development.database.palette.placeholder')}
-          className="h-9 w-full rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-inset)] pl-8 pr-2 text-[length:var(--text-13)] text-[var(--text-primary)] outline-none focus-visible:border-[var(--accent)]"
-        />
-      </div>
+      <FilterInput
+        data-autofocus
+        size="panel"
+        value={query}
+        onChange={(next) => { setQuery(next); setCursor(0) }}
+        query={compiledQuery}
+        label={t('development.database.palette.placeholder')}
+        placeholder={t('development.database.palette.placeholder')}
+        escapeWhenEmpty="release"
+        className="mt-0"
+        onKeyDown={(event) => {
+          if (isImeComposing(event)) return
+          if (event.key === 'ArrowDown') { event.preventDefault(); setCursor((current) => Math.min(current + 1, filtered.length - 1)) }
+          else if (event.key === 'ArrowUp') { event.preventDefault(); setCursor((current) => Math.max(current - 1, 0)) }
+          else if (event.key === 'Enter') { event.preventDefault(); runAt(cursor) }
+        }}
+      />
       <div ref={listRef} className="mt-2 max-h-80 overflow-y-auto" role="listbox" aria-label={t('development.database.palette.title')}>
         {filtered.length === 0 ? (
           <p className="py-6 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('development.database.palette.no_results')}</p>
