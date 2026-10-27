@@ -6,6 +6,11 @@ import { initI18n, t } from '../../src/client/lib/i18n'
 import { renderElement, type RenderedElement } from '../../src/client/lib/test-render'
 import { EmailContactsTab, EmailFavoritesTab, EmailGroupsTab } from '../../src/client/features/email/EmailContactSidebar'
 
+// The avatar style bundle is a large ESM package whose import resolves late enough to land after this
+// environment has been torn down, which vitest reports as an unhandled rejection for a test that never
+// draws an avatar. Nothing here renders one, so the chain can stop at the mock.
+vi.mock('@dicebear/micah', () => ({}))
+
 const contacts: EmailContact[] = [
   { id: 'c1', email: 'grace@example.com', name: 'Grace Hopper', company: '', notes: '', starred: true, pinned: true, avatar: '', usageCount: 0, lastUsedAt: null, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' },
   { id: 'c2', email: 'alan@example.com', name: 'Alan Turing', company: '', notes: '', starred: false, pinned: false, avatar: '', usageCount: 0, lastUsedAt: null, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' },

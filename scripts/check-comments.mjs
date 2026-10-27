@@ -39824,6 +39824,11 @@ const allowed = new Map([
     "/** Whether this request body is the follow-up pass rather than the turn's own step. */",
     "/**\n * An answer the pass finds nothing in: plain words, no braces, so no title and no follow-ups.\n *\n * Returning the turn's own canned reply here would be the trap — a reply that happens to quote a JSON object\n * would be read as the model naming the thread, and the test would be asserting a rename it never asked for.\n *\n * It does carry a usage frame, and a fixed one: the pass is billed for what it spends, so a test that reads\n * the day's totals has to be able to name the amount it is adding. 40 in / 20 out is what the naming cases\n * in `assistant-title-suggestions.test.ts` report, so the two files agree on one number.\n */",
   ]],
+  ["tests/email/client-contact-tabs.test.ts", [
+    "// The avatar style bundle is a large ESM package whose import resolves late enough to land after this",
+    "// environment has been torn down, which vitest reports as an unhandled rejection for a test that never",
+    "// draws an avatar. Nothing here renders one, so the chain can stop at the mock.",
+  ]],
   ["tests/excalidraw-interaction-gate.test.ts", [
     "// That api arrives from onExcalidrawAPI, which may not have run yet when the reader first touches",
     "// the canvas. A flag keyed on it loses that touch and stays shut for the life of the canvas, which",
