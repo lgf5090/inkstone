@@ -7,9 +7,11 @@ import { buildTableDataSql, loadSchema } from '../src/client/features/developmen
 import { buildDistinctSql } from '../src/client/features/development/database/distinct-ops'
 import { projectColumns, toCsv, toMarkdown, toSchemaSql } from '../src/client/features/development/database/export-utils'
 import { transformValue } from '../src/client/features/development/database/transform-value'
+import { INKSTONE_BLOB_KEY } from '../src/shared/development/database/types'
+import { blobBytes, blobFileName, hexDump, imageSource } from '../src/client/features/development/database/blob-view'
 import { buildWhere } from '../src/client/features/development/database/filter-ops'
 import { SCHEMA_PROMPT_BUDGET_CHARS, buildSchemaPrompt } from '../src/client/features/development/database/schema-prompt'
-import { buildInsert, buildUpdate, rowKeyOf } from '../src/client/features/development/database/row-ops'
+import { buildInsert, buildUpdate, fromTemporalInput, rowKeyOf, temporalKind, toTemporalInput } from '../src/client/features/development/database/row-ops'
 import type { StudioDriver } from '../src/client/features/development/database/drivers'
 import { findPlaceholders, replacePlaceholders } from '../src/client/features/development/database/placeholders'
 import { isDestructiveSql, isSchemaChangeSql, splitSqlStatements } from '../src/shared/development/database/sql-utils'
@@ -179,6 +181,36 @@ describe('development database core', () => {
 
   it('renders markdown tables with escaped pipes and flattened newlines', () => {
     expect(toMarkdown(['a', 'b'], [['x|y', 'line\nbreak']])).toBe('| a | b |\n| --- | --- |\n| x\\|y | line break |')
+  })
+
+  it('reads blobs, dumps hex and recognises image sources', () => {
+    const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x41])
+    const encoded = Buffer.from(bytes).toString('base64')
+    expect(blobBytes({ [INKSTONE_BLOB_KEY]: encoded })).toEqual(bytes)
+    expect(blobBytes(new Uint8Array([1, 2]))).toEqual(new Uint8Array([1, 2]))
+    expect(blobBytes('plain')).toBeNull()
+    const dump = hexDump(bytes)
+    expect(dump.text.split('\n')[0]).toContain('00000000  89 50 4e 47')
+    expect(dump.truncated).toBe(false)
+    expect(hexDump(new Uint8Array(5000)).truncated).toBe(true)
+    expect(imageSource('data:image/png;base64,AAAA')).toBeTruthy()
+    expect(imageSource('https://example.com/a.jpg?x=1')).toBeTruthy()
+    expect(imageSource('https://example.com/a.txt')).toBeNull()
+    expect(blobFileName('avatar', bytes)).toBe('avatar.png')
+  })
+
+  it('maps temporal column types to inputs and back', () => {
+    expect(temporalKind('DATE')).toBe('date')
+    expect(temporalKind('DATETIME')).toBe('datetime')
+    expect(temporalKind('TIMESTAMP')).toBe('datetime')
+    expect(temporalKind('TIME')).toBe('time')
+    expect(temporalKind('TEXT')).toBeNull()
+    expect(toTemporalInput('2024-05-01 08:30:00', 'datetime')).toBe('2024-05-01T08:30')
+    expect(toTemporalInput('2024-05-01', 'date')).toBe('2024-05-01')
+    expect(toTemporalInput('08:30:00', 'time')).toBe('08:30')
+    expect(fromTemporalInput('2025-01-02T10:15', 'datetime')).toBe('2025-01-02 10:15:00')
+    expect(fromTemporalInput('10:15', 'time')).toBe('10:15:00')
+    expect(fromTemporalInput('2025-01-02', 'date')).toBe('2025-01-02')
   })
 
   it('quotes CSV cells containing separators and newlines', () => {

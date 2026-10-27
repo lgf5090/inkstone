@@ -1,10 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Loader2, Pencil, Save, X } from 'lucide-react'
+import { Download, Eye, Loader2, Pencil, Save, X } from 'lucide-react'
 import { INKSTONE_BLOB_KEY } from '@shared/development/database/types'
 import { t } from '../../../lib/i18n'
 import { Button, IconButton } from '../../../components/primitives'
 import { Input } from '../../../components/form'
+import { Modal } from '../../../components/overlay'
 import { RowJsonTree } from './RowJsonTree'
+import { blobBytes, blobFileName, hexDump, imageSource } from './blob-view'
+import { downloadBlob } from './export-utils'
+
+type DetailExtra =
+  | { column: string; kind: 'blob'; bytes: Uint8Array }
+  | { column: string; kind: 'image'; src: string }
 
 export interface RowDetailPanelProps {
   columns: string[]
@@ -20,6 +27,18 @@ function displayValue(value: unknown): unknown {
   if (value instanceof Uint8Array) return `[BLOB ${value.byteLength} bytes]`
   if (value && typeof value === 'object' && INKSTONE_BLOB_KEY in value) return '[BLOB]'
   return value
+}
+
+function formatBytes(size: number): string {
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function ImageThumb({ src, alt }: { src: string; alt: string }) {
+  const [failed, setFailed] = useState(false)
+  if (failed) return <p className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.detail.image_failed')}</p>
+  return <img src={src} alt={alt} onError={() => setFailed(true)} className="max-h-32 rounded-[var(--r-sm)] border border-[var(--border-subtle)] object-contain" />
 }
 
 function parseJsonString(value: unknown): unknown {
@@ -46,6 +65,7 @@ export function RowDetailPanel({
   const [editing, setEditing] = useState(false)
   const [values, setValues] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
+  const [hexView, setHexView] = useState<{ column: string; bytes: Uint8Array } | null>(null)
 
   useEffect(() => {
     setEditing(false)
@@ -63,6 +83,21 @@ export function RowDetailPanel({
       object[column] = displayValue(parseJsonString(row[index] ?? null))
     })
     return object
+  }, [columns, row])
+
+  const extras = useMemo<DetailExtra[]>(() => {
+    const out: DetailExtra[] = []
+    columns.forEach((column, index) => {
+      const raw = row[index]
+      const bytes = blobBytes(raw)
+      if (bytes) {
+        out.push({ column, kind: 'blob', bytes })
+        return
+      }
+      const src = imageSource(raw)
+      if (src) out.push({ column, kind: 'image', src })
+    })
+    return out
   }, [columns, row])
 
   const save = async () => {
@@ -123,8 +158,55 @@ export function RowDetailPanel({
           </div>
         </div>
       ) : (
-        <RowJsonTree data={data} className="min-h-0 flex-1" />
+        <>
+          {extras.length > 0 && (
+            <div className="shrink-0 space-y-2 border-b border-[var(--border-subtle)] p-2">
+              {extras.map((extra) => (
+                <div key={extra.column} className="space-y-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="min-w-0 flex-1 truncate font-mono text-[length:var(--text-11)] text-[var(--text-secondary)]" title={extra.column}>{extra.column}</span>
+                    {extra.kind === 'blob' ? (
+                      <>
+                        <span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.detail.blob_size', { size: formatBytes(extra.bytes.length) })}</span>
+                        <Button variant="ghost" size="sm" onClick={() => setHexView({ column: extra.column, bytes: extra.bytes })}>
+                          <Eye size={12} />
+                          {t('development.database.detail.hex')}
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => downloadBlob(blobFileName(extra.column, extra.bytes), new Blob([new Uint8Array(extra.bytes)], { type: 'application/octet-stream' }))}>
+                          <Download size={12} />
+                          {t('development.database.detail.download')}
+                        </Button>
+                      </>
+                    ) : (
+                      <a className="shrink-0 text-[length:var(--text-11)] text-[var(--accent)] underline" href={extra.src} target="_blank" rel="noopener noreferrer">{t('development.database.detail.open_image')}</a>
+                    )}
+                  </div>
+                  {extra.kind === 'image' && <ImageThumb src={extra.src} alt={extra.column} />}
+                </div>
+              ))}
+            </div>
+          )}
+          <RowJsonTree data={data} className="min-h-0 flex-1" />
+        </>
       )}
+
+      <Modal
+        open={hexView !== null}
+        onClose={() => setHexView(null)}
+        title={t('development.database.detail.hex_title', { column: hexView?.column ?? '' })}
+        width={600}
+        footer={<Button variant="ghost" size="sm" onClick={() => setHexView(null)}>{t('development.database.common.cancel')}</Button>}
+      >
+        {hexView && (() => {
+          const dump = hexDump(hexView.bytes)
+          return (
+            <div className="space-y-1">
+              <pre className="max-h-80 overflow-auto rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-2 font-mono text-[length:var(--text-11)] leading-relaxed text-[var(--text-secondary)]">{dump.text || '—'}</pre>
+              {dump.truncated && <p className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.detail.hex_truncated')}</p>}
+            </div>
+          )
+        })()}
+      </Modal>
     </div>
   )
 }

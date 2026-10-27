@@ -24,6 +24,7 @@ export interface ResultGridProps {
   onSort?: (column: string, additive: boolean) => void
   onSortDir?: (column: string, direction: 'ASC' | 'DESC') => void
   onDistinctColumn?: (column: string) => void
+  editInputType?: (columnIndex: number) => 'date' | 'time' | 'datetime-local' | undefined
   hiddenColumns?: Set<number>
   onToggleColumn?: (columnIndex: number) => void
   selectedRows?: Set<number>
@@ -81,6 +82,7 @@ export function ResultGrid({
   onSort,
   onSortDir,
   onDistinctColumn,
+  editInputType,
   hiddenColumns,
   onToggleColumn,
   selectedRows,
@@ -360,8 +362,8 @@ export function ResultGrid({
                       toggleRow(index, event)
                       return
                     }
-                    onRowClick?.(index)
                     onSelectionChange?.(new Set([index]))
+                    if ((event.target as HTMLElement).closest('th')) onRowClick?.(index)
                   }}
                   className={cn(
                     'border-b border-[var(--border-subtle)] transition-colors',
@@ -385,6 +387,7 @@ export function ResultGrid({
                         style={isPinned ? { left: pinnedLeft.get(column), background: 'var(--bg-base)' } : undefined}>
                           <Input
                             ref={editInput}
+                            type={editInputType?.(column) ?? 'text'}
                             value={editValue ?? ''}
                             onChange={(event) => onEditValueChange?.(event.target.value)}
                             onKeyDown={(event) => {

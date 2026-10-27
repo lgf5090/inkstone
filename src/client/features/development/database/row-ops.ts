@@ -115,3 +115,41 @@ export function buildDelete(table: string, key: RowKey): SqlStatement | null {
     params: where.params,
   }
 }
+
+export type TemporalKind = 'date' | 'time' | 'datetime'
+
+export function temporalKind(declaredType: string | undefined): TemporalKind | null {
+  const type = (declaredType ?? '').toUpperCase()
+  if (type.includes('DATETIME') || type.includes('TIMESTAMP')) return 'datetime'
+  if (/\bDATE\b/.test(type)) return 'date'
+  if (/\bTIME\b/.test(type)) return 'time'
+  return null
+}
+
+export function toTemporalInput(value: string, kind: TemporalKind): string {
+  const text = value.trim().replace(' ', 'T')
+  if (kind === 'datetime') {
+    const match = text.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/)
+    return match ? `${match[1]}T${match[2]}` : ''
+  }
+  if (kind === 'date') {
+    const match = text.match(/^(\d{4}-\d{2}-\d{2})/)
+    return match ? match[1]! : ''
+  }
+  const match = text.match(/^(\d{2}:\d{2})/)
+  return match ? match[1]! : ''
+}
+
+export function fromTemporalInput(value: string, kind: TemporalKind): string {
+  const text = value.trim()
+  if (!text) return ''
+  if (kind === 'datetime') {
+    const match = text.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::(\d{2}))?/)
+    return match ? `${match[1]} ${match[2]}:${match[3] ?? '00'}` : text
+  }
+  if (kind === 'time') {
+    const match = text.match(/^(\d{2}:\d{2})(?::(\d{2}))?/)
+    return match ? `${match[1]}:${match[2] ?? '00'}` : text
+  }
+  return text
+}

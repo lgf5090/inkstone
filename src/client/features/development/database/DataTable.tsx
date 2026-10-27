@@ -38,7 +38,7 @@ import { ToolbarPanel } from './ToolbarPanel'
 import type { StudioDriver } from './drivers'
 import { buildCountSql, buildTableDataSql, primaryKeyColumns } from './schema-utils'
 import { buildWhere } from './filter-ops'
-import { buildDelete, buildInsert, buildUpdate, rowKeyOf } from './row-ops'
+import { buildDelete, buildInsert, buildUpdate, fromTemporalInput, rowKeyOf, temporalKind, toTemporalInput } from './row-ops'
 import { projectColumns, sqlLiteral } from './export-utils'
 import type { FilterCondition, FilterOperator } from './types'
 
@@ -270,19 +270,29 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
     })
   }
 
+  const typeByName = useMemo(() => new Map(table.columns.map((column) => [column.name, column.type])), [table.columns])
+  const kindAt = (column: number) => temporalKind(typeByName.get(columns[column] ?? ''))
+  const editInputType = (column: number) => {
+    const kind = kindAt(column)
+    return kind === 'datetime' ? 'datetime-local' as const : kind ?? undefined
+  }
+
   const startEdit = (row: number, column: number) => {
     if (!editable) return
     const key = keyFor(row)
     if (key.kind === 'none') return
     const value = rows[row]?.[column]
     if (isBlobValue(value)) return
+    const kind = kindAt(column)
+    const text = value === null || value === undefined ? '' : String(value)
     setEditing({ row, col: column })
-    setEditValue(value === null || value === undefined ? '' : String(value))
+    setEditValue(kind ? toTemporalInput(text, kind) : text)
   }
 
   const commitEdit = () => {
     if (!editing) return
-    setCellDirty(editing.row, editing.col, editValue)
+    const kind = kindAt(editing.col)
+    setCellDirty(editing.row, editing.col, kind ? fromTemporalInput(editValue, kind) : editValue)
     setEditing(null)
   }
 
@@ -761,6 +771,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
             selectedRow={detailRow}
             onRowClick={(index) => setDetailRow(index)}
             rowKeyHint={t('development.database.table.double_click_edit')}
+            editInputType={editInputType}
             editable
             editing={editing}
             onEdit={startEdit}
