@@ -2813,6 +2813,28 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          ON calendar_event_attachments(user_id, event_id)`,
     ],
   },
+  {
+    // The undo window behind deleting a Cloudflare account: the row moves here, the credential file
+    // stays where it is, and the next read of the list purges whatever outlived the window.
+    version: 184,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS cloudflare_account_trash (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        auth_type TEXT NOT NULL,
+        email TEXT,
+        cf_account_id TEXT,
+        is_active INTEGER NOT NULL,
+        enabled_features TEXT NOT NULL,
+        available_features TEXT NOT NULL,
+        has_credentials INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        deleted_at INTEGER NOT NULL
+      )`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

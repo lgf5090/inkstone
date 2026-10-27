@@ -70,12 +70,17 @@ describe('the account store', () => {
     expect(bed.files.objects.has(`cloudflare/txt/accounts/${id}.txt`)).toBe(false)
   })
 
-  it('deletes the row and the credential file together', async () => {
+  it('deletes the row and hands the credential file to the undo window', async () => {
     const bed = await makeCloudflareBed()
     const { id } = await seedAccount(bed, TEST_USER)
     await deleteAccount(bed.env, TEST_USER, id)
     expect(await getAccountRow(bed.env, TEST_USER, id)).toBeNull()
-    expect(bed.files.objects.has(`cloudflare/txt/accounts/${id}.txt`)).toBe(false)
+    const trashed = await bed.env.DB.prepare('SELECT id FROM cloudflare_account_trash WHERE id = ?')
+      .bind(id)
+      .first<{ id: string }>()
+    expect(trashed?.id).toBe(id)
+    // Still restorable at this point, which is why the sealed file is still there.
+    expect(bed.files.objects.has(`cloudflare/txt/accounts/${id}.txt`)).toBe(true)
   })
 
   it('never shows one reader another reader’s accounts', async () => {

@@ -111,6 +111,9 @@ export const accountsApi = {
   remove: (id: string) =>
     cfRequest<{ id: string }>(accountPath(id), { method: 'DELETE' }),
 
+  restore: (id: string) =>
+    cfRequest<CloudflareAccount>(`${accountPath(id)}/restore`, { method: 'POST' }),
+
   test: (id: string) =>
     cfRequest<AccountTestResult>(accountPath(id, '/test'), { method: 'POST' }),
 

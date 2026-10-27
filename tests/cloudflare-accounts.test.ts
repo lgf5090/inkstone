@@ -15,6 +15,7 @@ vi.mock('../src/worker/middleware/auth', () => ({
 }))
 
 import { readAccountCredentials } from '../src/worker/cloudflare/credentials'
+import { utcDay } from '../src/worker/cloudflare/usage'
 import {
   accountCredentialPath,
   cfJson,
@@ -212,14 +213,52 @@ describe('GET /accounts/:id/credentials', () => {
 })
 
 describe('DELETE /accounts/:id', () => {
-  it('removes the credential file and the row together', async () => {
+  it('hides the account at once and keeps the credential file for the undo window', async () => {
     const { id } = await seedAccount(bed, TEST_USER)
     const response = await send('DELETE', `/${id}`)
     expect(response.status).toBe(200)
-    expect(bed.files.objects.has(accountCredentialPath(id))).toBe(false)
     const row = await bed.env.DB.prepare('SELECT id FROM cloudflare_account WHERE id = ?').bind(id).first()
     expect(row).toBeNull()
+    const page = await readJson<{ total: number }>(await send('GET', '/'))
+    expect(page.total).toBe(0)
+    // Nothing irreversible has happened yet: the file waits out the window with the trash row.
+    expect(bed.files.objects.has(accountCredentialPath(id))).toBe(true)
     expect(await auditActions()).toEqual(['delete_account'])
+  })
+
+  it('brings the account and its sealed credential back within the window', async () => {
+    const { id } = await seedAccount(bed, TEST_USER, { token: 'keep-me' })
+    await send('DELETE', `/${id}`)
+    const restored = await send('POST', `/${id}/restore`)
+    expect(restored.status).toBe(200)
+    expect((await readJson<{ id: string }>(restored)).id).toBe(id)
+    expect(await readAccountCredentials(bed.env, id)).toEqual({ api_token: 'keep-me' })
+    const page = await readJson<{ total: number }>(await send('GET', '/'))
+    expect(page.total).toBe(1)
+    expect(await auditActions()).toEqual(['delete_account', 'restore_account'])
+  })
+
+  it('drops the credential file and the counters once the window has passed', async () => {
+    const { id } = await seedAccount(bed, TEST_USER)
+    await bed.env.DB.prepare(
+      'INSERT INTO cloudflare_quota_usage (user_id, account_id, resource, date, count) VALUES (?, ?, ?, ?, 3)',
+    )
+      .bind(TEST_USER, id, 'ai_neurons', utcDay())
+      .run()
+    await send('DELETE', `/${id}`)
+    // A row that has sat in the trash past the window is what the next list read is looking for.
+    await bed.env.DB.prepare('UPDATE cloudflare_account_trash SET deleted_at = ? WHERE id = ?')
+      .bind(Date.now() - 10 * 60_000, id)
+      .run()
+    await send('GET', '/')
+    expect(bed.files.objects.has(accountCredentialPath(id))).toBe(false)
+    const trash = await bed.env.DB.prepare('SELECT id FROM cloudflare_account_trash WHERE id = ?').bind(id).first()
+    expect(trash).toBeNull()
+    const quota = await bed.env.DB.prepare('SELECT count(*) AS n FROM cloudflare_quota_usage WHERE account_id = ?')
+      .bind(id)
+      .first<{ n: number }>()
+    expect(quota?.n).toBe(0)
+    expect((await send('POST', `/${id}/restore`)).status).toBe(404)
   })
 })
 
@@ -329,7 +368,8 @@ describe('batch endpoints', () => {
     expect(deleted.status).toBe(200)
     const deletedBody = await readJson<{ summary: { success: number; error: number } }>(deleted)
     expect(deletedBody.summary).toMatchObject({ success: 1, error: 1 })
-    expect(bed.files.objects.has(accountCredentialPath(SECOND))).toBe(false)
+    // A batch delete uses the same undo window, so the sealed file is released later, not now.
+    expect(bed.files.objects.has(accountCredentialPath(SECOND))).toBe(true)
     expect(bed.files.objects.has(accountCredentialPath(FIRST))).toBe(true)
   })
 

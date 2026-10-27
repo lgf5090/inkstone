@@ -5600,10 +5600,11 @@ const allowed = new Map([
   ]],
   ["src/client/features/cloudflare/screens/AccountsScreen.tsx", [
     "/**\n * The accounts screen: the table, the filter row, and every dialog a row can open.\n *\n * The list is server-paged and server-filtered, so the screen holds the query (page, filter, search)\n * rather than a copy of every account. Sorting is local because a page is at most a hundred rows and\n * the server's order is the useful default; a search is debounced because every keystroke would\n * otherwise be a round trip.\n */",
+    "/** How long the undo bar stays; the server keeps the trashed row well past this. */",
   ]],
   ["src/client/features/cloudflare/screens/AiScreen.tsx", [
-    "/**\n * The AI workspace: five tabs under one address.\n *\n * The tab is the query rather than local state, so a reader can paste the address of the tab they\n * mean and the back button walks the tabs they visited.\n */",
     "// The default tab still names itself in the address, so every view here can be shared.",
+    "/**\n * The AI workspace: five tabs under one address.\n *\n * The tab is the query rather than local state, so a reader can paste the address of the tab they\n * mean and the back button walks the tabs they visited. That is also why this switch is a `<nav>` of\n * links with `aria-current` rather than the shared `Segmented`: a control that owns an address has to\n * be a link, while the switches that swap a panel in place (the storage, worker and tunnel drawers)\n * stay radiogroups.\n */",
   ]],
   ["src/client/features/cloudflare/screens/BrowserRenderScreen.tsx", [
     "/**\n * Render a page through Cloudflare's browser and show what came back.\n *\n * Each mode has its own way of being useful: a screenshot is an image, PDF is a download, HTML is a\n * sandboxed preview beside its source, Markdown is rendered prose, and links are a table. The usage\n * card is read from the same quota endpoint the dashboard uses, so the number beside the button is the\n * one Cloudflare bills.\n */",
@@ -33170,6 +33171,10 @@ const allowed = new Map([
     "/** The emails a CSV import may not duplicate, lower-cased. */",
     "// Every account needs its own R2 read and vault decrypt; awaiting them one by one made the",
     "// dashboard wait for the slowest of them in sequence.",
+    "/**\n * Delete an account the way a reader expects a delete next to an undo to behave.\n *\n * The row leaves every list at once, but the row itself and its sealed credential file wait in the\n * trash for the grace window: restoring is a plain insert, and nothing about the credential has to be\n * re-entered. Today's counters wait as well, so an undo does not bring back a blank card.\n */",
+    "/** How long a deleted account can be brought back before its credential file goes with it. */",
+    "/** Take a deletion back, within the grace window only: past it the row has been purged. */",
+    "/**\n * Drop whatever outlived the undo window, credential file included.\n *\n * Runs on the account list rather than on a timer: the list is where a reader notices the trash, and a\n * deployment that never opens it has nothing to leak.\n */",
   ]],
   ["src/worker/cloudflare/ai-models.ts", [
     "/**\n * Cloudflare's AI catalogue, and the parts of a model schema this app has to understand.\n *\n * The model list is live (Cloudflare adds and retires models), while a model's input schema is\n * stable enough to keep for an hour — the TTS screens ask for it on every open, and the schema call\n * is one more round trip per model. The body a speech model accepts is derived from that schema\n * rather than hard-coded: melotts takes `prompt` and aura takes `text`, and the speaker enums differ\n * per model.\n */",
@@ -33299,6 +33304,9 @@ const allowed = new Map([
   ]],
   ["src/worker/cloudflare/schema.ts", [
     "/**\n * The Cloudflare app's tables, declared where the boot can find them.\n *\n * Every table leads with `user_id`: the reference module was a single-reader deploy, while this\n * notebook has accounts, and one reader's Cloudflare credentials, logs, conversations and tasks must\n * never be visible to another. Account rows carry a generated 26-character id rather than the\n * reference's autoincrement, because the credential vault derives its key from that id.\n *\n * Credential material is not in any of these tables. It lives in the R2 bucket under\n * `cloudflare/txt/accounts/<id>.txt`, sealed by the credential vault (see `credentials.ts`).\n */",
+    "// A deleted account waits here while the reader can still take the deletion back. Every list",
+    "// stops seeing it immediately; this copy plus the untouched credential file is what an undo",
+    "// restores. Anything past the grace window is purged on the next read of the list.",
   ]],
   ["src/worker/cloudflare/settings.ts", [
     "/**\n * The Cloudflare module's own settings, one row per key per reader.\n *\n * Only what a reader can change and the server must remember lives here. The reference module also\n * kept the proxy configuration in this table; this deployment has no outbound proxy (see the plan's\n * D-7), so those keys are not read or written.\n */",
@@ -34014,6 +34022,8 @@ const allowed = new Map([
     "// reader who never logs in — gets the unique index the public lookup uses.",
     "// Which files an event shows. The bytes live in the shared `attachments` table (scope `calendar`)",
     "// so one quota and one file door cover them; this table only holds the link.",
+    "// The undo window behind deleting a Cloudflare account: the row moves here, the credential file",
+    "// stays where it is, and the next read of the list purges whatever outlived the window.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -35552,6 +35562,7 @@ const allowed = new Map([
     "// is skipped and no setting is written.",
     "// One account",
     "/**\n * The account's email: absent for a token account, and when present it has to be an address.\n *\n * It is sent to Cloudflare as `X-Auth-Email` on every global-key call and echoed back on the accounts\n * screen, so a placeholder there fails much later and much less clearly than a refusal here.\n */",
+    "/** The undo behind a delete: only possible while the trash still holds the row. */",
   ]],
   ["src/worker/routes/cloudflare/ai-v1.ts", [
     "/**\n * `/api/cloudflare/v1` — the OpenAI-compatible face of Cloudflare Workers AI.\n *\n * The shapes are OpenAI's on purpose: the screens already speak them, and a request copied from\n * another tool works unchanged. Account selection travels in the body (`accountId`), because the\n * streaming and JSON paths share one request shape and a custom header would only be readable by one\n * of them.\n *\n * Cloudflare's free allowance is per account and per UTC day. A refusal that means \"today is used up\"\n * marks the account exhausted and moves to the next one, so a reader with several accounts never sees\n * a limit before every account has one. The upstream's own words are kept, truncated, for the account\n * owner to read; they are never turned into a status Cloudflare did not send.\n */",
@@ -39483,8 +39494,14 @@ const allowed = new Map([
     "/**\n * Whether this call is a write whose answer nobody is watching.\n *\n * A promise is read as pending only when the code says so: written with `void`, or an `on…` handler prop\n * called as its own statement — a prop's type is the contract at a component's boundary, and `onSave` is\n * exactly how the model editor's bug was written. A bare call to a store action is not enough, because\n * without a type checker it cannot be told from a synchronous one (`updateTemplate` answers `boolean`,\n * `editContent` answers `void`), and a guard that cried wolf on every local write would be read as noise.\n */",
     "/**\n * The pre-filter, and why it is allowed.\n *\n * Reading every feature file through the TS parser costs the suite seconds it does not need: a file that\n * never names a close, a `.then(` or a dialog-state setter cannot hold either shape. The filter is checked\n * against the tree below, so a rule-relevant file that stops matching it fails here rather than passing\n * quietly.\n */",
   ]],
+  ["tests/cloudflare-accounts-store.test.ts", [
+    "// Still restorable at this point, which is why the sealed file is still there.",
+  ]],
   ["tests/cloudflare-accounts.test.ts", [
     "// The routes call `requireAuth`; this file's fake session is the one the fixtures mount.",
+    "// Nothing irreversible has happened yet: the file waits out the window with the trash row.",
+    "// A row that has sat in the trash past the window is what the next list read is looking for.",
+    "// A batch delete uses the same undo window, so the sealed file is released later, not now.",
   ]],
   ["tests/cloudflare-ai-chat.test.ts", [
     "// Deterministic ordering: pinned first, then the most recently updated.",

@@ -2,7 +2,10 @@
  * The AI workspace: five tabs under one address.
  *
  * The tab is the query rather than local state, so a reader can paste the address of the tab they
- * mean and the back button walks the tabs they visited.
+ * mean and the back button walks the tabs they visited. That is also why this switch is a `<nav>` of
+ * links with `aria-current` rather than the shared `Segmented`: a control that owns an address has to
+ * be a link, while the switches that swap a panel in place (the storage, worker and tunnel drawers)
+ * stay radiogroups.
  */
 import { useEffect } from 'react'
 import { cn } from '../../../lib/cn'

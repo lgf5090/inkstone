@@ -34,6 +34,9 @@ import { ImportCsvDialog } from './accounts/ImportCsvDialog'
 const PAGE_SIZE = 20
 const SEARCH_DEBOUNCE_MS = 300
 
+/** How long the undo bar stays; the server keeps the trashed row well past this. */
+const UNDO_VISIBLE_MS = 10_000
+
 interface ResultState {
   title: string
   summary: BatchSummary
@@ -61,9 +64,16 @@ export function AccountsScreen() {
   const [importOpen, setImportOpen] = useState(false)
   const [batchFeaturesOpen, setBatchFeaturesOpen] = useState(false)
   const [result, setResult] = useState<ResultState | null>(null)
+  const [undo, setUndo] = useState<{ id: string; name: string } | null>(null)
   const { state: sort, toggle: toggleSort, sorted } = useSort<CloudflareAccount>()
 
   const refresh = useCallback(() => setReload((value) => value + 1), [])
+
+  useEffect(() => {
+    if (!undo) return
+    const timer = window.setTimeout(() => setUndo(null), UNDO_VISIBLE_MS)
+    return () => window.clearTimeout(timer)
+  }, [undo])
 
   useEffect(() => {
     let cancelled = false
@@ -170,7 +180,21 @@ export function AccountsScreen() {
     try {
       await accountsApi.remove(account.id)
       setSelected((previous) => previous.filter((id) => id !== account.id))
+      setUndo({ id: account.id, name: account.name })
       toast({ title: cfT('cloudflare.accounts.msg.deleted'), tone: 'success' })
+      refresh()
+    } catch (caught) {
+      toast({ title: t('common.action_failed'), description: cfErrorText(caught), tone: 'danger' })
+    }
+  }
+
+  async function undoDelete(): Promise<void> {
+    if (!undo) return
+    const target = undo
+    setUndo(null)
+    try {
+      await accountsApi.restore(target.id)
+      toast({ title: cfT('cloudflare.accounts.msg.restored', { name: target.name }), tone: 'success' })
       refresh()
     } catch (caught) {
       toast({ title: t('common.action_failed'), description: cfErrorText(caught), tone: 'danger' })
@@ -312,6 +336,19 @@ export function AccountsScreen() {
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-3 p-3 md:p-4">
+          {undo ? (
+            <div
+              role="status"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-2"
+            >
+              <span className="min-w-0 text-[length:var(--text-12)] text-[var(--text-secondary)]">
+                {cfT('cloudflare.accounts.deleted_undo', { name: undo.name })}
+              </span>
+              <Button size="sm" variant="secondary" onClick={() => { void undoDelete() }}>
+                {cfT('cloudflare.accounts.undo_delete')}
+              </Button>
+            </div>
+          ) : null}
           <div className="flex flex-wrap items-center gap-2">
             <Segmented
               value={filter}

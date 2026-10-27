@@ -23,6 +23,7 @@ import {
   demoAccountIds,
   getAccountRow,
   listAccounts,
+  restoreAccount,
   testAccount,
   updateAccount,
   type CloudflareAuthType,
@@ -605,6 +606,15 @@ accountsRouter.delete('/:id', async (c) => {
   await deleteAccount(c.env, userId, id)
   await audit(c.env, userId, id, 'delete_account', row.name, null)
   return c.json({ id })
+})
+
+/** The undo behind a delete: only possible while the trash still holds the row. */
+accountsRouter.post('/:id/restore', async (c) => {
+  const userId = c.get('userId')
+  const id = c.req.param('id')
+  const account = await restoreAccount(c.env, userId, id)
+  await audit(c.env, userId, id, 'restore_account', account.name, null)
+  return c.json(account)
 })
 
 accountsRouter.patch('/:id/features', async (c) => {

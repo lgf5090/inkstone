@@ -28,6 +28,25 @@ export const CLOUDFLARE_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_cloudflare_account_user
     ON cloudflare_account(user_id, created_at DESC)`,
 
+  // A deleted account waits here while the reader can still take the deletion back. Every list
+  // stops seeing it immediately; this copy plus the untouched credential file is what an undo
+  // restores. Anything past the grace window is purged on the next read of the list.
+  `CREATE TABLE IF NOT EXISTS cloudflare_account_trash (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    auth_type TEXT NOT NULL,
+    email TEXT,
+    cf_account_id TEXT,
+    is_active INTEGER NOT NULL,
+    enabled_features TEXT NOT NULL,
+    available_features TEXT NOT NULL,
+    has_credentials INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER NOT NULL
+  )`,
+
   `CREATE TABLE IF NOT EXISTS cloudflare_quota_usage (
     user_id TEXT NOT NULL,
     account_id TEXT NOT NULL,
@@ -132,6 +151,7 @@ export const CLOUDFLARE_SCHEMA_STATEMENTS: readonly string[] = [
 
 export const CLOUDFLARE_REQUIRED_TABLES: readonly string[] = [
   'cloudflare_account',
+  'cloudflare_account_trash',
   'cloudflare_quota_usage',
   'cloudflare_log',
   'cloudflare_scheduled_task',
@@ -158,6 +178,10 @@ export const CLOUDFLARE_REQUIRED_COLUMNS: Readonly<Record<string, readonly strin
   cloudflare_account: [
     'id', 'user_id', 'name', 'auth_type', 'email', 'cf_account_id', 'is_active',
     'enabled_features', 'available_features', 'has_credentials', 'created_at', 'updated_at',
+  ],
+  cloudflare_account_trash: [
+    'id', 'user_id', 'name', 'auth_type', 'email', 'cf_account_id', 'is_active',
+    'enabled_features', 'available_features', 'has_credentials', 'created_at', 'updated_at', 'deleted_at',
   ],
   cloudflare_quota_usage: ['user_id', 'account_id', 'resource', 'date', 'count', 'optimistic', 'exhausted'],
   cloudflare_log: ['id', 'user_id', 'account_id', 'action', 'target', 'detail', 'status', 'created_at'],

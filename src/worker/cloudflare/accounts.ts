@@ -103,6 +103,7 @@ export async function listAccounts(
   userId: string,
   options: AccountListFilter = {},
 ): Promise<AccountPage> {
+  await purgeDeletedAccounts(env, userId)
   const filter = options.filter ?? 'all'
   const conditions = ['user_id = ?']
   const values: unknown[] = [userId]
@@ -420,14 +421,90 @@ export async function updateAccount(
   return toView(fresh, await demoAccountIds(env, userId))
 }
 
+/**
+ * Delete an account the way a reader expects a delete next to an undo to behave.
+ *
+ * The row leaves every list at once, but the row itself and its sealed credential file wait in the
+ * trash for the grace window: restoring is a plain insert, and nothing about the credential has to be
+ * re-entered. Today's counters wait as well, so an undo does not bring back a blank card.
+ */
 export async function deleteAccount(env: Env, userId: string, id: string): Promise<void> {
   const row = await getAccountRow(env, userId, id)
   if (!row) throw ApiError.notFound('That Cloudflare account does not exist')
-  await deleteAccountCredentials(env, id)
   await env.DB.batch([
-    env.DB.prepare('DELETE FROM cloudflare_quota_usage WHERE user_id = ? AND account_id = ?').bind(userId, id),
+    env.DB.prepare(
+      `INSERT OR REPLACE INTO cloudflare_account_trash
+        (id, user_id, name, auth_type, email, cf_account_id, is_active, enabled_features,
+         available_features, has_credentials, created_at, updated_at, deleted_at)
+       SELECT id, user_id, name, auth_type, email, cf_account_id, is_active, enabled_features,
+              available_features, has_credentials, created_at, updated_at, ?
+         FROM cloudflare_account WHERE user_id = ? AND id = ?`,
+    ).bind(Date.now(), userId, id),
     env.DB.prepare('DELETE FROM cloudflare_account WHERE user_id = ? AND id = ?').bind(userId, id),
   ])
+}
+
+/** How long a deleted account can be brought back before its credential file goes with it. */
+export const ACCOUNT_UNDO_GRACE_MS = 60_000
+
+/** Take a deletion back, within the grace window only: past it the row has been purged. */
+export async function restoreAccount(
+  env: Env,
+  userId: string,
+  id: string,
+): Promise<CloudflareAccountRow> {
+  const trashed = await env.DB.prepare(
+    'SELECT * FROM cloudflare_account_trash WHERE user_id = ? AND id = ?',
+  )
+    .bind(userId, id)
+    .first<CloudflareAccountRow & { deleted_at: number }>()
+  if (!trashed) throw ApiError.notFound('That deleted account can no longer be restored')
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO cloudflare_account
+        (id, user_id, name, auth_type, email, cf_account_id, is_active, enabled_features,
+         available_features, has_credentials, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(
+      trashed.id,
+      trashed.user_id,
+      trashed.name,
+      trashed.auth_type,
+      trashed.email,
+      trashed.cf_account_id,
+      trashed.is_active,
+      trashed.enabled_features,
+      trashed.available_features,
+      trashed.has_credentials,
+      trashed.created_at,
+      trashed.updated_at,
+    ),
+    env.DB.prepare('DELETE FROM cloudflare_account_trash WHERE user_id = ? AND id = ?').bind(userId, id),
+  ])
+  const row = await getAccountRow(env, userId, id)
+  if (!row) throw new ApiError(500, 'internal', 'The account was restored but cannot be read back')
+  return row
+}
+
+/**
+ * Drop whatever outlived the undo window, credential file included.
+ *
+ * Runs on the account list rather than on a timer: the list is where a reader notices the trash, and a
+ * deployment that never opens it has nothing to leak.
+ */
+export async function purgeDeletedAccounts(env: Env, userId: string): Promise<void> {
+  const stale = await env.DB.prepare(
+    'SELECT id FROM cloudflare_account_trash WHERE user_id = ? AND deleted_at < ?',
+  )
+    .bind(userId, Date.now() - ACCOUNT_UNDO_GRACE_MS)
+    .all<{ id: string }>()
+  for (const row of stale.results ?? []) {
+    await deleteAccountCredentials(env, row.id)
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM cloudflare_quota_usage WHERE user_id = ? AND account_id = ?').bind(userId, row.id),
+      env.DB.prepare('DELETE FROM cloudflare_account_trash WHERE user_id = ? AND id = ?').bind(userId, row.id),
+    ])
+  }
 }
 
 /** Re-check a stored credential against Cloudflare, and refresh what the account can do. */
