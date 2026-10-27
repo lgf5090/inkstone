@@ -104,6 +104,7 @@ export const storeApi = {
     cfRequest<{ source: CatalogSource }>(`/store/sources/${encodeURIComponent(id)}`, { method: 'PUT', body: patch }),
   deleteSource: (id: string) =>
     cfRequest<{ ok: true }>(`/store/sources/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  readme: (url: string) => cfRequest<string>(`/store/readme?url=${encodeURIComponent(url)}`, { timeoutMs: 30_000 }),
   templates: () => cfRequest<{ templates: TemplateItem[]; sources: CatalogSource[] }>('/store/templates', { timeoutMs: 60_000 }),
   refresh: () => cfRequest<{ templates: TemplateItem[]; sources: CatalogSource[] }>('/store/refresh', { method: 'POST', timeoutMs: 60_000 }),
   init: () => cfRequest<{ ok: true }>('/store/init', { method: 'POST' }),

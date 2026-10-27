@@ -228,6 +228,16 @@ describe('the template store', () => {
     expect(result.results.filter((row) => !row.success).length).toBe(1)
   })
 
+  it('proxies a README through the worker and refuses a non-public address', async () => {
+    const bed = await makeCloudflareBed()
+    const ok = await send(bed, 'GET', `/readme?url=${encodeURIComponent('https://catalog.test/readme.md')}`)
+    expect(ok.status).toBe(200)
+    expect(await ok.text()).toContain('# Template')
+    expect((await send(bed, 'GET', `/readme?url=${encodeURIComponent('http://catalog.test/readme.md')}`)).status).toBe(400)
+    expect((await send(bed, 'GET', `/readme?url=${encodeURIComponent('https://127.0.0.1/readme.md')}`)).status).toBe(400)
+    expect((await send(bed, 'GET', '/readme')).status).toBe(400)
+  })
+
   it('keeps a reader’s sources private', async () => {
     const bed = await makeCloudflareBed()
     catalogs.set('/a.json', { templates: [workerTemplate()] })

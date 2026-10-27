@@ -334,6 +334,40 @@ export async function loadCatalog(
 }
 
 /** The template source bytes, capped at 2 MB so a hostile URL cannot exhaust the isolate. */
+/** A README is text from someone else's host; it may not point the worker at its own network. */
+function assertPublicHttps(rawUrl: string): URL {
+  const url = assertTemplateUrl(rawUrl)
+  const host = url.hostname.toLowerCase()
+  if (host === 'localhost' || host === '[::1]' || host.endsWith('.localhost')) {
+    throw ApiError.badRequest('The readme address must be public')
+  }
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) {
+    const [a, b] = host.split('.').map(Number)
+    if (a === 10 || a === 127 || (a === 169 && b === 254) || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31)) {
+      throw ApiError.badRequest('The readme address must be public')
+    }
+  }
+  return url
+}
+
+const MAX_README_BYTES = 512 * 1024
+
+/** The template's README, read by the worker because the reader's CSP does not allow the catalog host. */
+export async function downloadReadme(rawUrl: string): Promise<string> {
+  const url = assertPublicHttps(rawUrl)
+  const response = await fetchWithTimeout(
+    url.toString(),
+    { headers: { Accept: 'text/plain, text/markdown, */*' } },
+    TEMPLATE_TIMEOUT_MS,
+    'The template readme',
+  )
+  if (!response.ok) {
+    throw new ApiError(502, 'cloudflare_upstream', `The readme answered HTTP ${response.status}`)
+  }
+  const bytes = await readCapped(response, MAX_README_BYTES, 'The template readme')
+  return new TextDecoder().decode(bytes)
+}
+
 export async function downloadTemplateBytes(rawUrl: string): Promise<Uint8Array> {
   const url = assertTemplateUrl(rawUrl)
   const response = await fetchWithTimeout(

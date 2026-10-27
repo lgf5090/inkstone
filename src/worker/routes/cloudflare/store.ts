@@ -15,6 +15,7 @@ import { createAuditLog, type AuditStatus } from '../../cloudflare/audit'
 import {
   addSource,
   deleteSource,
+  downloadReadme,
   downloadTemplateBytes,
   errorMessage,
   findTemplate,
@@ -186,6 +187,16 @@ storeRouter.delete('/sources/:id', async (c) => {
   await deleteSource(c.env, userId, id)
   await audit(c, userId, null, 'delete_catalog_source', row.name, row.url)
   return c.json({ ok: true })
+})
+
+/** The README proxy: the catalog host is not in this deployment's connect-src, so the worker reads it. */
+storeRouter.get('/readme', async (c) => {
+  const raw = c.req.query('url')
+  if (typeof raw !== 'string' || !raw.trim()) throw ApiError.badRequest('A readme URL is required')
+  const text = await downloadReadme(raw)
+  c.header('Content-Type', 'text/markdown; charset=utf-8')
+  c.header('Cache-Control', 'private, max-age=300')
+  return c.text(text)
 })
 
 storeRouter.post('/init', async (c) => {

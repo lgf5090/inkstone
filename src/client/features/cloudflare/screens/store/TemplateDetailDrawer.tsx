@@ -4,7 +4,7 @@ import { Badge, Button } from '../../../../components/primitives'
 import { Drawer } from '../../../../components/overlay'
 import { MarkdownBody } from '../../components/MarkdownBody'
 import { cfErrorText } from '../../api/client'
-import type { TemplateItem } from '../../api/store'
+import { storeApi, type TemplateItem } from '../../api/store'
 import { useCfT } from '../../i18n'
 import { templateTypeLabelKey } from './helpers'
 
@@ -38,11 +38,7 @@ export function TemplateDetailDrawer({
     setState('loading')
     setError('')
     setReadme('')
-    void fetch(readmeUrl, { signal: controller.signal, credentials: 'omit' })
-      .then((response) => {
-        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
-        return response.text()
-      })
+    void storeApi.readme(readmeUrl)
       .then((text) => {
         if (controller.signal.aborted) return
         setReadme(text)

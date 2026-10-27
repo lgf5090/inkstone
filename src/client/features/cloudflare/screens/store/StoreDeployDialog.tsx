@@ -224,26 +224,32 @@ export function StoreDeployDialog({
   const missingRequiredSecret = secretBindings.some((binding) => (
     binding.required === true && !(secrets[binding.name] ?? '').trim()
   ))
+  // A binding must name a resource that exists: this deployment can bind, but it cannot create a
+  // KV namespace or a D1 database, so an "auto" choice would deploy a name into an id slot.
+  const missingBinding = bindings.some((binding) => (
+    binding.type !== 'ai' && !(selections[binding.name] ?? '').trim()
+  ))
   const canPreflight = Boolean(item)
     && selectedIds.length > 0
     && name.trim().length > 0
     && !missingRequiredSecret
+    && !missingBinding
     && accounts !== null
 
   const allOk = preflights.length > 0 && preflights.every((row) => row.result?.ok === true)
 
   function selectedValue(binding: CatalogBinding): string {
     if (binding.type === 'ai') return 'ai:auto'
-    const value = selections[binding.name] ?? '__auto__'
-    if (value !== '__auto__') return `${binding.type}:${value}`
-    return `${binding.type}:${autoResourceName(templateId, binding.name)}`
+    const value = (selections[binding.name] ?? '').trim()
+    return value ? `${binding.type}:${value}` : ''
   }
 
   function buildDeployment(accountId: string): StoreDeployment {
     const bindingSelections: Record<string, string> = {}
     for (const binding of bindings) {
       if (binding.type === 'kv' || binding.type === 'd1' || binding.type === 'r2' || binding.type === 'ai') {
-        bindingSelections[binding.name] = selectedValue(binding)
+        const value = selectedValue(binding)
+        if (value) bindingSelections[binding.name] = value
       }
     }
     const secretValues: Record<string, string> = {}
@@ -276,16 +282,10 @@ export function StoreDeployDialog({
   }
 
   function resourceOptions(binding: CatalogBinding): ResourceOption[] {
-    const options: ResourceOption[] = [{
-      value: '__auto__',
-      label: t('cloudflare.store_deploy.auto_create', {
-        name: autoResourceName(templateId, binding.name),
-      }),
-    }]
     if (binding.type === 'kv' || binding.type === 'd1' || binding.type === 'r2') {
-      options.push(...resources[binding.type])
+      return [...resources[binding.type]]
     }
-    return options
+    return []
   }
 
   async function runPreflight(): Promise<void> {
@@ -551,7 +551,7 @@ export function StoreDeployDialog({
                         <div>
                           <SelectResource
                             binding={binding}
-                            value={selections[binding.name] ?? '__auto__'}
+                            value={selections[binding.name] ?? ''}
                             options={resourceOptions(binding)}
                             disabled={isMulti || phase === 'checking'}
                             onChange={(value) => setSelections((previous) => ({
@@ -693,7 +693,7 @@ function SelectResource({
   onChange: (value: string) => void
 }) {
   const t = useCfT()
-  const selected = options.find((option) => option.value === value)?.value ?? '__auto__'
+  const selected = options.find((option) => option.value === value)?.value ?? ''
   return (
     <SelectMenu
       label={`${binding.name} (${binding.type})`}
