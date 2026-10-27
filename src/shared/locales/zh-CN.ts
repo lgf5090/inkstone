@@ -18,6 +18,9 @@ import { ZH_CN_EMAIL_TEMPLATES } from './zh-CN-email-templates';
 import { ZH_CN_MUSIC } from './zh-CN-music';
 import { ZH_CN_TOOLS } from './zh-CN-tools';
 import { ZH_CN_CALENDAR } from './zh-CN-calendar';
+import { ZH_CN_INK } from './zh-CN-ink';
+import { ZH_CN_INK_ELEMENTS } from './zh-CN-ink-elements';
+import { ZH_CN_INK_SETTINGS } from './zh-CN-ink-settings';
 export const ZH_CN_MESSAGES = {
     "template.kanban_sprint_board.name": "迭代看板",
     "template.kanban_sprint_board.description": "用看板排一个迭代：四条泳道，任务带勾选。",
@@ -10135,4 +10138,7 @@ console.log(\`Hello, \${name}!\`)
     ...ZH_CN_MUSIC,
     ...ZH_CN_TOOLS,
     ...ZH_CN_CALENDAR,
+    ...ZH_CN_INK,
+    ...ZH_CN_INK_ELEMENTS,
+    ...ZH_CN_INK_SETTINGS,
 } as const satisfies Record<BaseMessageKey, string>;

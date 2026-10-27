@@ -13,7 +13,7 @@ import type { NoteSummary } from '@shared/types';
 import { folderPathLabel } from '../../lib/folders';
 import { initI18n } from '../../lib/i18n';
 import { useNotes } from '../../store/notes';
-import { MindmapNotePicker } from './MindmapNotePicker';
+import { NotePicker } from './NotePicker';
 
 const pathCalls = () => (folderPathLabel as unknown as ReturnType<typeof vi.fn>).mock.calls.length;
 
@@ -94,9 +94,9 @@ afterEach(() => {
     vi.unstubAllGlobals();
 });
 
-describe('MindmapNotePicker', () => {
+describe('NotePicker', () => {
     it('lists what a map may point at, by name, with the folder that tells the two apart', () => {
-        render(createElement(MindmapNotePicker, { open: true, title: 'Link to a note', excludeNoteId: 'n-self', onClose: () => {}, onSelect: () => {} }));
+        render(createElement(NotePicker, { open: true, title: 'Link to a note', excludeNoteId: 'n-self', onClose: () => {}, onSelect: () => {} }));
         expect(drawnRows()).toEqual([
             { title: 'Alpha', path: 'Reading / 2026' },
             { title: 'Beta book', path: '' },
@@ -104,7 +104,7 @@ describe('MindmapNotePicker', () => {
     });
 
     it('filters as the reader types, and says so when nothing matches', () => {
-        render(createElement(MindmapNotePicker, { open: true, title: 'Link to a note', onClose: () => {}, onSelect: () => {} }));
+        render(createElement(NotePicker, { open: true, title: 'Link to a note', onClose: () => {}, onSelect: () => {} }));
         expect(drawnRows().map((row) => row.title)).toEqual(['Alpha', 'Beta book', 'The map itself']);
         type('bet');
         expect(drawnRows().map((row) => row.title)).toEqual(['Beta book']);
@@ -116,7 +116,7 @@ describe('MindmapNotePicker', () => {
     // The cost this guards: the list was walked, its folder chains rebuilt and its names sorted
     // on every character, which on a large vault is the delay a reader feels as typing lag.
     it('walks the vault once per opening, not once per keystroke', () => {
-        render(createElement(MindmapNotePicker, { open: true, title: 'Link to a note', onClose: () => {}, onSelect: () => {} }));
+        render(createElement(NotePicker, { open: true, title: 'Link to a note', onClose: () => {}, onSelect: () => {} }));
         const afterOpen = pathCalls();
         expect(afterOpen).toBe(3);
         type('a');
@@ -127,7 +127,7 @@ describe('MindmapNotePicker', () => {
     });
 
     it('walks nothing at all while the list is closed', () => {
-        render(createElement(MindmapNotePicker, { open: false, title: 'Link to a note', onClose: () => {}, onSelect: () => {} }));
+        render(createElement(NotePicker, { open: false, title: 'Link to a note', onClose: () => {}, onSelect: () => {} }));
         expect(pathCalls()).toBe(0);
         expect(drawnRows()).toEqual([]);
     });
@@ -135,7 +135,7 @@ describe('MindmapNotePicker', () => {
     it('hands the caller the note that was picked, and closes', () => {
         const onSelect = vi.fn();
         const onClose = vi.fn();
-        render(createElement(MindmapNotePicker, { open: true, title: 'Import a note outline', onSelect, onClose }));
+        render(createElement(NotePicker, { open: true, title: 'Import a note outline', onSelect, onClose }));
         const rows = Array.from(document.querySelectorAll('[data-surface="drawer"] button'));
         const row = rows.find((button) => button.textContent?.includes('Beta book'))!;
         act(() => {
@@ -146,11 +146,11 @@ describe('MindmapNotePicker', () => {
     });
 
     it('opens on the characters that called it, and on nothing when the menu did', () => {
-        render(createElement(MindmapNotePicker, { open: false, title: 'Link to a note', onClose: () => {}, onSelect: () => {} }));
-        render(createElement(MindmapNotePicker, { open: true, title: 'Link to a note', initialQuery: 'bet', onClose: () => {}, onSelect: () => {} }));
+        render(createElement(NotePicker, { open: false, title: 'Link to a note', onClose: () => {}, onSelect: () => {} }));
+        render(createElement(NotePicker, { open: true, title: 'Link to a note', initialQuery: 'bet', onClose: () => {}, onSelect: () => {} }));
         expect(searchBox().value).toBe('bet');
         expect(drawnRows().map((row) => row.title)).toEqual(['Beta book']);
-        render(createElement(MindmapNotePicker, { open: true, title: 'Link to a note', initialQuery: '', onClose: () => {}, onSelect: () => {} }));
+        render(createElement(NotePicker, { open: true, title: 'Link to a note', initialQuery: '', onClose: () => {}, onSelect: () => {} }));
         expect(searchBox().value, 'a list opened from the menu has no query to carry in').toBe('');
         expect(drawnRows().length).toBe(3);
     });

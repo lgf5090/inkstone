@@ -19,14 +19,14 @@ export function truncateText(value: string, maxLength: number): string {
 }
 
 /**
- * Title suffixes that carry a note's file type. The workspace picks the drawing editor and the mind map
- * editor off the END of the title, so appending the copy marker after the extension turns the duplicate
- * into plain text: `Board.excalidraw` used to become `Board.excalidraw copy`, which no editor claims.
- * The list lives here because this module must not reach into the client; the test pins both consumers
- * (`isMindmapDocumentTitle` and the workspace's drawing check) to it, so adding a type without adding
- * it here goes red.
+ * Title suffixes that carry a note's file type. The workspace picks the drawing editor, the ink
+ * editor and the mind map editor off the END of the title, so appending the copy marker after the
+ * extension turns the duplicate into plain text: `Board.excalidraw` used to become
+ * `Board.excalidraw copy`, which no editor claims. The list lives here because this module must not
+ * reach into the client; the tests pin every consumer (`isInkNoteTitle`, `isMindmapDocumentTitle`
+ * and the workspace's drawing check) to it, so adding a type without adding it here goes red.
  */
-export const NOTE_TYPE_SUFFIXES = ['.excalidraw', '.elixir']
+export const NOTE_TYPE_SUFFIXES = ['.excalidraw', '.elixir', '.ink']
 
 export function duplicateNoteTitle(
   title: string,

@@ -34,7 +34,7 @@ const NO_ROWS: NoteRow[] = [];
  * notes called "Reading" are only told apart by where they live, and picking the
  * wrong one writes a link nobody notices until it points somewhere unexpected.
  */
-export function MindmapNotePicker({ open, title, initialQuery, excludeNoteId, onClose, onSelect }: {
+export function NotePicker({ open, title, initialQuery, excludeNoteId, onClose, onSelect }: {
     open: boolean;
     title: string;
     /** What the reader had already typed where the list was opened from. */

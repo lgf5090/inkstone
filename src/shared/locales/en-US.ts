@@ -18,6 +18,9 @@ import { EN_US_EMAIL_TEMPLATES } from './en-US-email-templates';
 import { EN_US_MUSIC } from './en-US-music';
 import { EN_US_TOOLS } from './en-US-tools';
 import { EN_US_CALENDAR } from './en-US-calendar';
+import { EN_US_INK } from './en-US-ink';
+import { EN_US_INK_ELEMENTS } from './en-US-ink-elements';
+import { EN_US_INK_SETTINGS } from './en-US-ink-settings';
 export const EN_US_MESSAGES = {
     "template.kanban_sprint_board.name": "Sprint Board",
     "template.kanban_sprint_board.description": "A kanban board with the four columns a sprint actually needs.",
@@ -10134,6 +10137,9 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     ...EN_US_MUSIC,
     ...EN_US_TOOLS,
     ...EN_US_CALENDAR,
+    ...EN_US_INK,
+    ...EN_US_INK_ELEMENTS,
+    ...EN_US_INK_SETTINGS,
 } as const;
 export type BaseMessageKey = keyof typeof EN_US_MESSAGES;
 export type MessageKey = BaseMessageKey | NoteTemplateContentKey;

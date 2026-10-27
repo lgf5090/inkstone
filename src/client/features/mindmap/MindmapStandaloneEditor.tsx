@@ -56,7 +56,7 @@ import { findNoteByTitle, useNotes } from '../../store/notes';
 import { useUi, type WorkspacePane } from '../../store/ui';
 import { WikiLinkHoverCard } from '../preview/wiki-link-hover-card';
 import { useLinkHoverHost } from '../preview/link-hover-host';
-import { MindmapNotePicker } from './MindmapNotePicker';
+import { NotePicker } from '../notes/NotePicker';
 import { useMindmapSettingsStore } from './mindmap-settings-store';
 import { useMindmapDocument } from './use-mindmap-document';
 
@@ -532,7 +532,7 @@ export function MindmapStandaloneEditor({ note, content, onChange, onTitleChange
           )}
         </div>
 
-        <MindmapNotePicker
+        <NotePicker
           open={isPicking !== null}
           title={isPicking === 'outline' ? t('mindmap.import_note_outline') : t('mindmap.link_note')}
           initialQuery={pickSeed}
