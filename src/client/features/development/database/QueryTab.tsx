@@ -97,10 +97,11 @@ export interface QueryTabProps {
   connectionType: 'd1' | 'turso' | 'sqlite'
   schemaModel: SchemaModel
   initialSql?: string
+  onDraftChange?: (sql: string) => void
   onError: (message: string) => void
 }
 
-export function QueryTab({ driver, connectionId, connectionType, schemaModel, initialSql, onError }: QueryTabProps) {
+export function QueryTab({ driver, connectionId, connectionType, schemaModel, initialSql, onDraftChange, onError }: QueryTabProps) {
   const isLocal = connectionType === 'sqlite'
   const [sql, setSql] = useState(initialSql ?? '')
   const [results, setResults] = useState<QueryResult[]>([])
@@ -162,6 +163,10 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
   useEffect(() => {
     if (initialSql) setSql(initialSql)
   }, [initialSql])
+
+  useEffect(() => {
+    onDraftChange?.(sql)
+  }, [sql, onDraftChange])
 
   const pushHistory = useCallback((text: string, durationMs: number, failure: string | null) => {
     const entry: QueryHistoryEntry = {

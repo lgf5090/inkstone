@@ -3,7 +3,11 @@ const STORAGE_KEY = 'inkstone.development.database.layout'
 export interface StudioLayout {
   sidebarWidth: number
   sidebarCollapsed: boolean
+  activeConnectionId: string
+  draft: string
 }
+
+export const DRAFT_MAX_CHARS = 20_000
 
 export const STUDIO_SIDEBAR_WIDTH = {
   min: 170,
@@ -20,6 +24,8 @@ export function loadStudioLayout(): Partial<StudioLayout> {
     return {
       ...(typeof parsed.sidebarWidth === 'number' ? { sidebarWidth: parsed.sidebarWidth } : {}),
       ...(typeof parsed.sidebarCollapsed === 'boolean' ? { sidebarCollapsed: parsed.sidebarCollapsed } : {}),
+      ...(typeof parsed.activeConnectionId === 'string' ? { activeConnectionId: parsed.activeConnectionId } : {}),
+      ...(typeof parsed.draft === 'string' ? { draft: parsed.draft.slice(0, DRAFT_MAX_CHARS) } : {}),
     }
   } catch (error) {
     console.warn('[inkstone] Development database layout could not be read:', error)

@@ -36,7 +36,7 @@ import {
 } from './drivers'
 import { deleteConnection, listConnections, saveConnectionOrder, updateConnectionFlags } from './api'
 import { loadSchema } from './schema-utils'
-import { loadStudioLayout, saveStudioLayout, STUDIO_SIDEBAR_WIDTH } from './layout'
+import { loadStudioLayout, saveStudioLayout, DRAFT_MAX_CHARS, STUDIO_SIDEBAR_WIDTH } from './layout'
 import type { StudioSelection, StudioTab, StudioTabKind } from './types'
 
 const EMPTY_SCHEMA: SchemaModel = { tables: [], views: [], triggers: [], indexes: [] }
@@ -97,6 +97,10 @@ export function StudioApp() {
     initialLayout.sidebarWidth ?? STUDIO_SIDEBAR_WIDTH.default,
   )
   const autoWidth = useRef(initialLayout.sidebarWidth === undefined)
+  const restoredSession = useRef(false)
+  const pendingDraft = useRef('')
+  const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const selectionRef = useRef<StudioSelection | null>(null)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(Boolean(initialLayout.sidebarCollapsed))
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -105,6 +109,19 @@ export function StudioApp() {
   const menuAnchor = useRef<HTMLButtonElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null
+  selectionRef.current = selection
+
+  const persistDraft = useCallback((text: string) => {
+    if (selectionRef.current?.kind !== 'saved') return
+    if (draftTimer.current) clearTimeout(draftTimer.current)
+    draftTimer.current = setTimeout(() => {
+      saveStudioLayout({ draft: text.slice(0, DRAFT_MAX_CHARS) })
+    }, 400)
+  }, [])
+
+  useEffect(() => () => {
+    if (draftTimer.current) clearTimeout(draftTimer.current)
+  }, [])
 
   const notify = useCallback((title: string, description?: string, tone: 'default' | 'success' | 'warning' | 'danger' = 'danger') => {
     useUi.getState().toast({ title, description, tone })
@@ -119,6 +136,14 @@ export function StudioApp() {
     try {
       const list = sortConnections(await listConnections())
       setConnections(list)
+      if (!restoredSession.current) {
+        restoredSession.current = true
+        const wanted = initialLayout.activeConnectionId
+        if (wanted && list.some((connection) => connection.id === wanted)) {
+          pendingDraft.current = initialLayout.draft ?? ''
+          setSelection({ kind: 'saved', id: wanted })
+        }
+      }
       setSelection((current) => {
         if (!current || current.kind !== 'saved') return current
         return list.some((connection) => connection.id === current.id) ? current : null
@@ -128,7 +153,7 @@ export function StudioApp() {
     } finally {
       setConnectionsLoading(false)
     }
-  }, [notifyError])
+  }, [notifyError, initialLayout])
 
   useEffect(() => {
     void refreshConnections()
@@ -208,14 +233,19 @@ export function StudioApp() {
     }
 
     setDriver(next)
-    const nextTabs = [queryTab()]
+    const restored = selection.kind === 'saved' && selection.id === initialLayout.activeConnectionId
+      ? pendingDraft.current
+      : ''
+    pendingDraft.current = ''
+    if (selection.kind === 'saved') saveStudioLayout({ activeConnectionId: selection.id, draft: '' })
+    const nextTabs = [queryTab(restored || undefined)]
     setTabs(nextTabs)
     setActiveTabId(nextTabs[0]!.id)
     void reloadSchema(next)
     return () => {
       next.close()
     }
-  }, [selection, localFile, activeSaved?.type, activeSaved?.name, notifyError, reloadSchema])
+  }, [selection, localFile, activeSaved?.type, activeSaved?.name, notifyError, reloadSchema, initialLayout])
 
   const handleSaved = (connection: DatabaseConnectionView) => {
     setConnections((current) => sortConnections([
@@ -507,6 +537,7 @@ export function StudioApp() {
             connectionType={connectionType}
             schemaModel={schema ?? EMPTY_SCHEMA}
             {...(activeTab.initialSql ? { initialSql: activeTab.initialSql } : {})}
+            onDraftChange={persistDraft}
             onError={notifyError}
           />
         ) : activeTab.kind === 'data' && activeTable ? (
