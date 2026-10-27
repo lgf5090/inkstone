@@ -16,7 +16,7 @@ import {
 } from 'lucide-react'
 import type { QueryHistoryEntry, QueryResult, SavedQuery, SchemaModel } from '@shared/development/database/types'
 import { MAX_QUERY_BYTES, MAX_QUERY_ROWS } from '@shared/development/database/types'
-import { splitSqlStatements, isWriteSql, isDestructiveSql } from '@shared/development/database/sql-utils'
+import { splitSqlStatements, isWriteSql, isDestructiveSql, isSchemaChangeSql } from '@shared/development/database/sql-utils'
 import { isImeComposing } from '../../../lib/ime'
 import { cn } from '../../../lib/cn'
 import { t } from '../../../lib/i18n'
@@ -98,10 +98,11 @@ export interface QueryTabProps {
   schemaModel: SchemaModel
   initialSql?: string
   onDraftChange?: (sql: string) => void
+  onSchemaChanged?: () => void
   onError: (message: string) => void
 }
 
-export function QueryTab({ driver, connectionId, connectionType, schemaModel, initialSql, onDraftChange, onError }: QueryTabProps) {
+export function QueryTab({ driver, connectionId, connectionType, schemaModel, initialSql, onDraftChange, onSchemaChanged, onError }: QueryTabProps) {
   const isLocal = connectionType === 'sqlite'
   const [sql, setSql] = useState(initialSql ?? '')
   const [results, setResults] = useState<QueryResult[]>([])
@@ -227,6 +228,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
       setDetailRow(null)
       setSelectedRows(new Set())
       pushHistory(target, Date.now() - startedAt, null)
+      if (statements.some(isSchemaChangeSql)) onSchemaChanged?.()
       if (!isLocal) {
         void listHistory(connectionId).then(setHistory).catch((cause) => console.warn('[inkstone] Development database history could not be re-read:', cause))
       }
@@ -238,7 +240,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
       setProgress(null)
       setRunning(false)
     }
-  }, [connectionId, driver, isLocal, onError, placeholderValues, pushHistory, sql])
+  }, [connectionId, driver, isLocal, onError, onSchemaChanged, placeholderValues, pushHistory, sql])
 
   const explain = useCallback(async () => {
     const target = sql.trim()

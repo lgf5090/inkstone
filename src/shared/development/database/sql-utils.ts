@@ -273,6 +273,11 @@ export function isWriteSql(sql: string): boolean {
   )
 }
 
+export function isSchemaChangeSql(sql: string): boolean {
+  const head = leadingStatement(sql).toUpperCase()
+  return head.startsWith('CREATE') || head.startsWith('ALTER') || head.startsWith('DROP')
+}
+
 export function isDestructiveSql(sql: string): boolean {
   const text = leadingStatement(sql).toUpperCase()
   if (/^(?:TRUNCATE\b|DROP\s+(?:TABLE|VIEW|INDEX|TRIGGER|SCHEMA|DATABASE)\b)/.test(text)) return true

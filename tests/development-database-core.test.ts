@@ -10,7 +10,7 @@ import { SCHEMA_PROMPT_BUDGET_CHARS, buildSchemaPrompt } from '../src/client/fea
 import { buildInsert, buildUpdate, rowKeyOf } from '../src/client/features/development/database/row-ops'
 import type { StudioDriver } from '../src/client/features/development/database/drivers'
 import { findPlaceholders, replacePlaceholders } from '../src/client/features/development/database/placeholders'
-import { isDestructiveSql, splitSqlStatements } from '../src/shared/development/database/sql-utils'
+import { isDestructiveSql, isSchemaChangeSql, splitSqlStatements } from '../src/shared/development/database/sql-utils'
 
 describe('development database core', () => {
   it('parses composite keys, constraints and index columns', () => {
@@ -131,6 +131,14 @@ describe('development database core', () => {
     const small = buildSchemaPrompt([mentioned, { name: 'orders', columns: [{ name: 'id', type: 'INTEGER' }] }], '')
     expect(small.omitted).toBe(0)
     expect(small.text).toBe('- zzz_users(id INTEGER)\n- orders(id INTEGER)')
+  })
+
+  it('detects statements that change the schema', () => {
+    expect(isSchemaChangeSql('CREATE TABLE t (id INTEGER PRIMARY KEY)')).toBe(true)
+    expect(isSchemaChangeSql('drop table if exists t')).toBe(true)
+    expect(isSchemaChangeSql('ALTER TABLE t ADD COLUMN x TEXT')).toBe(true)
+    expect(isSchemaChangeSql('SELECT "CREATE TABLE" FROM sqlite_master')).toBe(false)
+    expect(isSchemaChangeSql('INSERT INTO t VALUES (1)')).toBe(false)
   })
 
   it('flags only irreversible statements for the confirmation', () => {

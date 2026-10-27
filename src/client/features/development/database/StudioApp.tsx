@@ -538,6 +538,7 @@ export function StudioApp() {
             schemaModel={schema ?? EMPTY_SCHEMA}
             {...(activeTab.initialSql ? { initialSql: activeTab.initialSql } : {})}
             onDraftChange={persistDraft}
+            onSchemaChanged={() => void reloadSchema(driver)}
             onError={notifyError}
           />
         ) : activeTab.kind === 'data' && activeTable ? (
