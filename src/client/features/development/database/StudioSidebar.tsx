@@ -47,6 +47,7 @@ export interface StudioSidebarProps {
   onConnFilter: (value: ConnectionFilter) => void
   onSelectSaved: (id: string) => void
   onSelectLocal: () => void
+  onDownloadLocal?: () => void
   onNew: () => void
   onEdit: (connection: DatabaseConnectionView) => void
   onDelete: (connection: DatabaseConnectionView) => void
@@ -252,6 +253,7 @@ export function StudioSidebar(props: StudioSidebarProps) {
     onConnFilter,
     onSelectSaved,
     onSelectLocal,
+    onDownloadLocal,
     onNew,
     onEdit,
     onDelete,
@@ -427,23 +429,37 @@ export function StudioSidebar(props: StudioSidebarProps) {
           ) : (
             <div className="space-y-0.5">
               {localName && connFilter === 'all' && (
-                <button
-                  type="button"
-                  onClick={onSelectLocal}
-                  aria-current={localSelected ? 'true' : undefined}
-                  className={cn(
-                    'flex min-h-9 w-full items-center gap-1.5 rounded-[var(--r-md)] px-1.5 py-1 text-left text-[length:var(--text-12)]',
-                    localSelected ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'text-[var(--text-primary)] hover:bg-[var(--bg-hover)]',
-                  )}
-                >
-                  <FileCode2 size={14} className="shrink-0 text-[var(--text-tertiary)]" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-medium">{localName}</span>
-                    <span className="block truncate text-[length:var(--text-10)] text-[var(--text-tertiary)]">
-                      {t('development.database.app.local_file')}
+                <div className="group flex items-center">
+                  <button
+                    type="button"
+                    onClick={onSelectLocal}
+                    aria-current={localSelected ? 'true' : undefined}
+                    className={cn(
+                      'flex min-h-9 min-w-0 flex-1 items-center gap-1.5 rounded-[var(--r-md)] px-1.5 py-1 text-left text-[length:var(--text-12)]',
+                      localSelected ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'text-[var(--text-primary)] hover:bg-[var(--bg-hover)]',
+                    )}
+                  >
+                    <FileCode2 size={14} className="shrink-0 text-[var(--text-tertiary)]" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-medium">{localName}</span>
+                      <span className="block truncate text-[length:var(--text-10)] text-[var(--text-tertiary)]">
+                        {t('development.database.app.local_file')}
+                      </span>
                     </span>
-                  </span>
-                </button>
+                  </button>
+                  {onDownloadLocal && localSelected && (
+                    <Tooltip label={t('development.database.app.download_sqlite')}>
+                      <IconButton
+                        label={t('development.database.app.download_sqlite')}
+                        size="sm"
+                        onClick={onDownloadLocal}
+                        className="opacity-0 focus-visible:opacity-100 group-hover:opacity-100 max-sm:opacity-100"
+                      >
+                        <Download size={12} />
+                      </IconButton>
+                    </Tooltip>
+                  )}
+                </div>
               )}
               {visible.map((connection) => (
                 <ConnectionItem

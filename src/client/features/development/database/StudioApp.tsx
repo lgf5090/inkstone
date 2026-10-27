@@ -36,7 +36,7 @@ import {
 } from './drivers'
 import { deleteConnection, listConnections, saveConnectionOrder, updateConnectionFlags } from './api'
 import { loadSchema } from './schema-utils'
-import { downloadTextFile, toSchemaSql } from './export-utils'
+import { downloadBlob, downloadTextFile, toSchemaSql } from './export-utils'
 import { loadStudioLayout, saveStudioLayout, DRAFT_MAX_CHARS, STUDIO_SIDEBAR_WIDTH } from './layout'
 import type { StudioSelection, StudioTab, StudioTabKind } from './types'
 
@@ -297,6 +297,19 @@ export function StudioApp() {
     notify(t('development.database.app.export_schema_done', { count }), undefined, 'success')
   }
 
+  const handleDownloadLocal = async () => {
+    if (!driver?.exportFile || selection?.kind !== 'local') return
+    try {
+      const bytes = await driver.exportFile()
+      const source = localFile?.name ?? 'database.sqlite'
+      const filename = /\.(?:sqlite3?|db3?)$/i.test(source) ? source : `${source}.sqlite`
+      downloadBlob(filename, new Blob([new Uint8Array(bytes)], { type: 'application/x-sqlite3' }))
+      notify(t('development.database.app.download_sqlite_done'), undefined, 'success')
+    } catch (error) {
+      notifyError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
   const handleFlags = async (connection: DatabaseConnectionView, flags: { isFavorite?: boolean; isPinned?: boolean }) => {
     const next = { ...connection, ...flags }
     setConnections((current) => sortConnections(current.map((entry) => entry.id === connection.id ? next : entry)))
@@ -428,6 +441,7 @@ export function StudioApp() {
           setMobileSidebarOpen(false)
         }
       }}
+      onDownloadLocal={() => void handleDownloadLocal()}
       onNew={() => {
         setEditingConnection(null)
         setDialogOpen(true)

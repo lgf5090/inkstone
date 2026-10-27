@@ -12,6 +12,7 @@ export interface StudioDriver {
   readonly type: 'd1' | 'turso' | 'sqlite'
   readonly label: string
   query(sql: string, params?: unknown[]): Promise<QueryResult>
+  exportFile?(): Promise<Uint8Array>
   close(): void
 }
 
@@ -145,6 +146,11 @@ export class SqliteDriver implements StudioDriver {
     } finally {
       statement.free()
     }
+  }
+
+  async exportFile(): Promise<Uint8Array> {
+    const db = await this.getDb()
+    return db.export()
   }
 
   close(): void {

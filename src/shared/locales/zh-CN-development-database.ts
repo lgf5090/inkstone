@@ -51,6 +51,8 @@ export const ZH_CN_DEVELOPMENT_DATABASE = {
   "development.database.app.edit_schema": "编辑结构",
   "development.database.app.export_schema": "导出结构 SQL",
   "development.database.app.export_schema_done": "已导出结构（{count} 个对象）",
+  "development.database.app.download_sqlite": "下载 .sqlite",
+  "development.database.app.download_sqlite_done": "已下载当前数据库文件",
   "development.database.app.collapse_sidebar": "折叠侧栏",
   "development.database.app.expand_sidebar": "展开侧栏",
   "development.database.app.drag_to_reorder": "拖动排序（Alt+↑/↓）",
