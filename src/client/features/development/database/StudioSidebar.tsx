@@ -2,6 +2,7 @@ import { useRef, type ReactNode } from 'react'
 import {
   Code2,
   Database,
+  Download,
   FileCode2,
   GripVertical,
   Loader2,
@@ -55,6 +56,7 @@ export interface StudioSidebarProps {
   onMove: (id: string, direction: 'up' | 'down') => void
   onOpenData: (table: string) => void
   onOpenSchema: (table: string) => void
+  onExportSchema?: () => void
   onViewSql: (sql: string) => void
   onCollapse?: () => void
   onExpand?: () => void
@@ -259,6 +261,7 @@ export function StudioSidebar(props: StudioSidebarProps) {
     onMove,
     onOpenData,
     onOpenSchema,
+    onExportSchema,
     onViewSql,
     onCollapse,
     onExpand,
@@ -467,10 +470,19 @@ export function StudioSidebar(props: StudioSidebarProps) {
             {t('development.database.app.schema')}
           </span>
           {schema && (
-            <span className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">
-              {tableSearch.trim()
-                ? t('development.database.app.table_count_filtered', { shown: filteredTables.length, total: schema.tables.length })
-                : t('development.database.app.table_count', { count: schema.tables.length })}
+            <span className="flex items-center gap-1">
+              <span className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">
+                {tableSearch.trim()
+                  ? t('development.database.app.table_count_filtered', { shown: filteredTables.length, total: schema.tables.length })
+                  : t('development.database.app.table_count', { count: schema.tables.length })}
+              </span>
+              {onExportSchema && (schema.tables.length > 0 || schema.views.length > 0) && (
+                <Tooltip label={t('development.database.app.export_schema')}>
+                  <IconButton label={t('development.database.app.export_schema')} size="sm" onClick={onExportSchema}>
+                    <Download size={12} />
+                  </IconButton>
+                </Tooltip>
+              )}
             </span>
           )}
         </div>

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { parseCreateTable, parseCreateIndex } from '../src/client/features/development/database/schema-parse'
 import { buildRebuildSql } from '../src/client/features/development/database/ddl'
 import { loadSchema } from '../src/client/features/development/database/schema-utils'
-import { projectColumns, toCsv } from '../src/client/features/development/database/export-utils'
+import { projectColumns, toCsv, toSchemaSql } from '../src/client/features/development/database/export-utils'
 import { buildWhere } from '../src/client/features/development/database/filter-ops'
 import { SCHEMA_PROMPT_BUDGET_CHARS, buildSchemaPrompt } from '../src/client/features/development/database/schema-prompt'
 import { buildInsert, buildUpdate, rowKeyOf } from '../src/client/features/development/database/row-ops'
@@ -157,6 +157,22 @@ describe('development database core', () => {
 
   it('quotes CSV cells containing separators and newlines', () => {
     expect(toCsv(['a', 'b'], [['x,y', 'line\nbreak']], { bom: false })).toBe('a,b\r\n"x,y","line\nbreak"')
+  })
+
+  it('dumps schema objects in dependency order with single terminators', () => {
+    const sql = toSchemaSql({
+      tables: [{ sql: 'CREATE TABLE a (id INTEGER);' }],
+      indexes: [{ sql: 'CREATE INDEX i ON a (id)' }, { sql: null }],
+      views: [{ sql: 'CREATE VIEW v AS SELECT * FROM a' }],
+      triggers: [{ sql: 'CREATE TRIGGER t AFTER INSERT ON a BEGIN SELECT 1; END' }],
+    })
+    expect(sql).toBe([
+      'CREATE TABLE a (id INTEGER);',
+      'CREATE INDEX i ON a (id);',
+      'CREATE VIEW v AS SELECT * FROM a;',
+      'CREATE TRIGGER t AFTER INSERT ON a BEGIN SELECT 1; END;',
+    ].join('\n\n') + '\n')
+    expect(toSchemaSql({ tables: [], indexes: [], views: [], triggers: [] })).toBe('')
   })
 
   it('uses one search parameter per searched column and parameterises filter values', () => {

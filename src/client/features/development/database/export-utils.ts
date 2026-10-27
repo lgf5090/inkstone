@@ -142,6 +142,23 @@ export function toInsertSql(table: string, columns: string[], rows: unknown[][])
     .join('\n')
 }
 
+export function toSchemaSql(model: {
+  tables: { sql: string }[]
+  indexes: { sql: string | null }[]
+  views: { sql: string }[]
+  triggers: { sql: string }[]
+}): string {
+  const statements = [
+    ...model.tables.map((entry) => entry.sql),
+    ...model.indexes.map((entry) => entry.sql ?? ''),
+    ...model.views.map((entry) => entry.sql),
+    ...model.triggers.map((entry) => entry.sql),
+  ]
+    .map((sql) => sql.trim().replace(/;+$/, ''))
+    .filter((sql) => sql.length > 0)
+  return statements.length ? `${statements.join(';\n\n')};\n` : ''
+}
+
 export function exportMimeType(format: ExportFormat): string {
   switch (format) {
     case 'csv':

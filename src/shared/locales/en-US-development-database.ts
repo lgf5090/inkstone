@@ -49,6 +49,8 @@ export const EN_US_DEVELOPMENT_DATABASE = {
   "development.database.app.views": "Views {count}",
   "development.database.app.triggers": "Triggers {count}",
   "development.database.app.edit_schema": "Edit schema",
+  "development.database.app.export_schema": "Export schema SQL",
+  "development.database.app.export_schema_done": "Schema exported ({count} objects)",
   "development.database.app.collapse_sidebar": "Collapse sidebar",
   "development.database.app.expand_sidebar": "Expand sidebar",
   "development.database.app.drag_to_reorder": "Drag to reorder (Alt+Up/Down)",

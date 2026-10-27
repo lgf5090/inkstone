@@ -36,6 +36,7 @@ import {
 } from './drivers'
 import { deleteConnection, listConnections, saveConnectionOrder, updateConnectionFlags } from './api'
 import { loadSchema } from './schema-utils'
+import { downloadTextFile, toSchemaSql } from './export-utils'
 import { loadStudioLayout, saveStudioLayout, DRAFT_MAX_CHARS, STUDIO_SIDEBAR_WIDTH } from './layout'
 import type { StudioSelection, StudioTab, StudioTabKind } from './types'
 
@@ -280,6 +281,22 @@ export function StudioApp() {
     }
   }
 
+  const handleExportSchema = () => {
+    if (!schema) return
+    const sql = toSchemaSql(schema)
+    if (!sql) {
+      notify(t('development.database.app.no_objects'), undefined, 'warning')
+      return
+    }
+    const base = (activeSaved?.name ?? localFile?.name.replace(/\.[^.]+$/, '') ?? 'database').replace(/[\\/:*?"<>|]+/g, '-')
+    downloadTextFile(`${base}.schema.sql`, sql, 'application/sql')
+    const count = schema.tables.length
+      + schema.indexes.filter((entry) => entry.sql).length
+      + schema.views.length
+      + schema.triggers.length
+    notify(t('development.database.app.export_schema_done', { count }), undefined, 'success')
+  }
+
   const handleFlags = async (connection: DatabaseConnectionView, flags: { isFavorite?: boolean; isPinned?: boolean }) => {
     const next = { ...connection, ...flags }
     setConnections((current) => sortConnections(current.map((entry) => entry.id === connection.id ? next : entry)))
@@ -426,6 +443,7 @@ export function StudioApp() {
       onMove={handleMove}
       onOpenData={openDataTab}
       onOpenSchema={openSchemaTab}
+      onExportSchema={handleExportSchema}
       onViewSql={setSqlViewOpen}
       onCollapse={() => setSidebarCollapsed(true)}
       onExpand={() => setSidebarCollapsed(false)}
