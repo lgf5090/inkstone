@@ -113,7 +113,7 @@ export function SortableHead({
         type="button"
         onClick={() => onToggle(sortKey)}
         className={cn(
-          'inline-flex w-full items-center gap-1 rounded-[var(--r-xs)] text-left',
+          'inline-flex min-h-6 w-full items-center gap-1 rounded-[var(--r-xs)] text-left',
           'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
           active && 'text-[var(--text-primary)]',
         )}
