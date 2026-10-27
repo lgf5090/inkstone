@@ -54,6 +54,13 @@ describe('lasso selection', () => {
         expect(pointInPolygon(point(15, 5), square)).toBe(false)
     })
 
+    it('counts crossings instead of treating any crossing as inside (concave shape)', () => {
+        const u = [point(0, 0), point(3, 0), point(3, 6), point(7, 6), point(7, 0), point(10, 0), point(10, 10), point(0, 10)]
+        // The notch is open at the bottom: this point is outside even though a ray crosses twice.
+        expect(pointInPolygon(point(5, 3), u)).toBe(false)
+        expect(pointInPolygon(point(5, 8), u)).toBe(true)
+    })
+
     it('selects strokes and shapes whose samples fall inside', () => {
         const inside = { id: 'in', tool: 'pen' as const, color: '#000', width: 1, points: [point(1, 1), point(2, 2)] }
         const outside = { id: 'out', tool: 'pen' as const, color: '#000', width: 1, points: [point(30, 30), point(31, 31)] }

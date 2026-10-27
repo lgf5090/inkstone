@@ -281,6 +281,7 @@ function NoteCardBody({ engine, element }: { engine: InkEngine; element: InkElem
     useEffect(() => {
         const node = contentRef.current
         if (!node) return
+        // renderMarkdown has already sanitized this HTML.
         node.innerHTML = html
         node.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((input) => {
             input.disabled = true
