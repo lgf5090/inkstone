@@ -9,14 +9,14 @@ import { SelectMenu } from '../../../components/select-menu'
 import { transformValue, type TransformKind, type TransformOptions } from './transform-value'
 
 const KINDS: TransformKind[] = ['upper', 'lower', 'trim', 'json', 'unixToDate', 'dateToUnix', 'baseConvert']
-const KIND_KEY: Record<TransformKind, string> = {
-  upper: 'upper',
-  lower: 'lower',
-  trim: 'trim',
-  json: 'json',
-  unixToDate: 'unix_to_date',
-  dateToUnix: 'date_to_unix',
-  baseConvert: 'base_convert',
+const KIND_LABEL: Record<TransformKind, 'development.database.grid.transform_kind_upper' | 'development.database.grid.transform_kind_lower' | 'development.database.grid.transform_kind_trim' | 'development.database.grid.transform_kind_json' | 'development.database.grid.transform_kind_unix_to_date' | 'development.database.grid.transform_kind_date_to_unix' | 'development.database.grid.transform_kind_base_convert'> = {
+  upper: 'development.database.grid.transform_kind_upper',
+  lower: 'development.database.grid.transform_kind_lower',
+  trim: 'development.database.grid.transform_kind_trim',
+  json: 'development.database.grid.transform_kind_json',
+  unixToDate: 'development.database.grid.transform_kind_unix_to_date',
+  dateToUnix: 'development.database.grid.transform_kind_date_to_unix',
+  baseConvert: 'development.database.grid.transform_kind_base_convert',
 }
 
 export interface CellTransformDialogProps {
@@ -81,7 +81,7 @@ export function CellTransformDialog({ open, column, value, onClose }: CellTransf
             value={kind}
             onChange={(next) => setKind(next as TransformKind)}
             label={t('development.database.grid.transform_kind')}
-            options={KINDS.map((entry) => ({ value: entry, label: t(`development.database.grid.transform_kind_${KIND_KEY[entry]}`) }))}
+            options={KINDS.map((entry) => ({ value: entry, label: t(KIND_LABEL[entry]) }))}
           />
         </div>
         {(kind === 'unixToDate' || kind === 'dateToUnix') && (
