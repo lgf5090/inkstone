@@ -18,6 +18,7 @@ import { ZH_CN_EMAIL_TEMPLATES } from './zh-CN-email-templates';
 import { ZH_CN_MUSIC } from './zh-CN-music';
 import { ZH_CN_TOOLS } from './zh-CN-tools';
 import { ZH_CN_CALENDAR } from './zh-CN-calendar';
+import { ZH_CN_DEVELOPMENT_DATABASE } from './zh-CN-development-database';
 export const ZH_CN_MESSAGES = {
     "template.kanban_sprint_board.name": "迭代看板",
     "template.kanban_sprint_board.description": "用看板排一个迭代：四条泳道，任务带勾选。",
@@ -2754,6 +2755,8 @@ export const ZH_CN_MESSAGES = {
     "settings.mcp_scope_todo_read": "读取待办",
     "settings.mcp_scope_todo_write": "修改待办",
     "settings.mcp_scope_todo_danger": "删除待办",
+    "settings.mcp_database_scope_read": "读取数据库",
+    "settings.mcp_database_scope_write": "修改数据库",
     "settings.mcp_scope_write": "写入",
     "settings.mcp_trash_access": "允许移入回收站",
     "settings.mcp_trash_access_desc": "这是独立的高风险权限，只能软删除；MCP 永远不提供永久清除功能。",
@@ -6451,6 +6454,7 @@ console.log(\`Hello, \${name}!\`)
     "app.tabs.rss": "RSS",
     "app.tabs.music": "音乐",
     "app.tabs.tools": "工具",
+    "app.tabs.development": "开发",
     "app.tabs.navigation": "应用页签",
     "app.tabs.placeholder_hint": "这个应用还没有做出来。页签已经先占好了自己的网址，等它搬进来。",
     "reading.add_books": "添加书籍",
@@ -10131,4 +10135,5 @@ console.log(\`Hello, \${name}!\`)
     ...ZH_CN_MUSIC,
     ...ZH_CN_TOOLS,
     ...ZH_CN_CALENDAR,
+    ...ZH_CN_DEVELOPMENT_DATABASE,
 } as const satisfies Record<BaseMessageKey, string>;

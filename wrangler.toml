@@ -48,6 +48,8 @@ run_worker_first = [
   "/m/*",
   "/tools",
   "/tools/*",
+  "/development",
+  "/development/*",
   "/l",
   "/l/*",
 ]

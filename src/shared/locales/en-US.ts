@@ -18,6 +18,7 @@ import { EN_US_EMAIL_TEMPLATES } from './en-US-email-templates';
 import { EN_US_MUSIC } from './en-US-music';
 import { EN_US_TOOLS } from './en-US-tools';
 import { EN_US_CALENDAR } from './en-US-calendar';
+import { EN_US_DEVELOPMENT_DATABASE } from './en-US-development-database';
 export const EN_US_MESSAGES = {
     "template.kanban_sprint_board.name": "Sprint Board",
     "template.kanban_sprint_board.description": "A kanban board with the four columns a sprint actually needs.",
@@ -2754,6 +2755,8 @@ export const EN_US_MESSAGES = {
     "settings.mcp_scope_todo_read": "Read to-dos",
     "settings.mcp_scope_todo_write": "Change to-dos",
     "settings.mcp_scope_todo_danger": "Delete to-dos",
+    "settings.mcp_database_scope_read": "Read databases",
+    "settings.mcp_database_scope_write": "Change databases",
     "settings.mcp_scope_write": "Write",
     "settings.mcp_trash_access": "Allow moving notes to trash",
     "settings.mcp_trash_access_desc": "Separate high-risk permission for soft-delete only. MCP never exposes permanent purge.",
@@ -6450,6 +6453,7 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     "app.tabs.rss": "RSS",
     "app.tabs.music": "Music",
     "app.tabs.tools": "Tools",
+    "app.tabs.development": "Development",
     "app.tabs.navigation": "Application tabs",
     "app.tabs.placeholder_hint": "This app is not part of Inkstone yet. The tab already has its own address, so there is a place for it to arrive in.",
     "reading.add_books": "Add books",
@@ -10130,6 +10134,7 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     ...EN_US_MUSIC,
     ...EN_US_TOOLS,
     ...EN_US_CALENDAR,
+    ...EN_US_DEVELOPMENT_DATABASE,
 } as const;
 export type BaseMessageKey = keyof typeof EN_US_MESSAGES;
 export type MessageKey = BaseMessageKey | NoteTemplateContentKey;

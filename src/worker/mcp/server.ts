@@ -32,6 +32,9 @@ import {
   searchMcpNotes,
 } from './retrieval'
 import { getMcpPreferencesCached, MCP_SCOPES } from './settings'
+import { DATABASE_TOOL_DEFS } from '@shared/development/database/tools'
+import { isWriteSql } from '@shared/development/database/sql-utils'
+import { executeDatabaseTool } from '../development/database/executor'
 import {
   bulkOrganizeMcpNotes,
   createMcpFolder,
@@ -1550,7 +1553,34 @@ export function createInkstoneMcpServer(options: InkstoneMcpServerOptions): McpS
     })),
   )
 
+  registerDatabaseTools(server, options)
   return mcp
+}
+
+function registerDatabaseTools(server: McpServer, options: InkstoneMcpServerOptions): void {
+  for (const definition of DATABASE_TOOL_DEFS) {
+    server.registerTool(
+      definition.name,
+      {
+        title: definition.name,
+        description: definition.description,
+        inputSchema: definition.schema,
+        outputSchema: generalOutputSchema,
+        annotations: definition.write ? writeAnnotations(false) : readOnlyAnnotations(),
+      },
+      async (input, ctx) => safeTool(async () => {
+        requireScope(ctx, options.auth, MCP_SCOPES.databaseRead)
+        const args = input as Record<string, unknown>
+        if (definition.name === 'run_query' && isWriteSql(String(args.sql ?? ''))) {
+          requireScope(ctx, options.auth, MCP_SCOPES.databaseWrite)
+          const preferences = await getMcpPreferencesCached(options.env.DB, options.auth.userId)
+          if (!preferences.writeEnabled) throw ApiError.forbidden('Database writes are disabled for this account')
+          if (args.confirm !== true) throw ApiError.badRequest('Database writes require confirm: true after the user agrees')
+        }
+        return structuredData(await executeDatabaseTool(options.env, options.auth.userId, definition.name, args))
+      }),
+    )
+  }
 }
 
 /**

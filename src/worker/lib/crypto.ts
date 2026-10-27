@@ -135,6 +135,21 @@ export async function decryptMusicCookie(env: Env, userId: string, stored: strin
   return typeof cookie === 'string' && cookie.length > 0 && cookie.length <= 8 * 1024 ? cookie : null
 }
 
+export async function encryptDatabaseSecret(env: Env, connectionId: string, token: string): Promise<string> {
+  if (!isValidId(connectionId)) throw new Error('invalid_database_credential')
+  const trimmed = token.trim()
+  if (!trimmed || trimmed.length > 4 * 1024) throw new Error('invalid_database_credential')
+  return encryptCredential(env, `database:${connectionId}`, { token: trimmed })
+}
+
+export async function decryptDatabaseSecret(env: Env, connectionId: string, stored: string): Promise<string | null> {
+  if (!isValidId(connectionId) || stored.length > 24 * 1024) return null
+  const value = await decryptCredential(env, `database:${connectionId}`, stored)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const token = (value as Record<string, unknown>).token
+  return typeof token === 'string' && token.length > 0 && token.length <= 4 * 1024 ? token : null
+}
+
 /**
  * One MCP server's outbound OAuth material.
  *

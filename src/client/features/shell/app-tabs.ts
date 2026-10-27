@@ -11,7 +11,7 @@
  * worker's Content-Security-Policy. tests/app-tab-routes.test.ts is what says so out loud.
  */
 import type { ComponentType } from 'react'
-import { BookOpen, CalendarDays, Compass, FileText, FolderKanban, ListChecks, Mail, MessageSquare, Music, Rss, StickyNote, Wallet, Wrench } from 'lucide-react'
+import { BookOpen, CalendarDays, Compass, FileText, FolderKanban, ListChecks, Mail, MessageSquare, Music, Rss, StickyNote, Terminal, Wallet, Wrench } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 
 export type AppTabId =
@@ -28,6 +28,7 @@ export type AppTabId =
   | 'rss'
   | 'music'
   | 'tools'
+  | 'development'
 
 export interface AppTab {
   id: AppTabId
@@ -51,6 +52,7 @@ export const APP_TABS: readonly AppTab[] = [
   { id: 'rss', path: '/rss', labelKey: 'app.tabs.rss', icon: Rss },
   { id: 'music', path: '/music', labelKey: 'app.tabs.music', icon: Music },
   { id: 'tools', path: '/tools', labelKey: 'app.tabs.tools', icon: Wrench },
+  { id: 'development', path: '/development', labelKey: 'app.tabs.development', icon: Terminal },
 ]
 
 /**
@@ -67,6 +69,7 @@ const NESTED_TAB_PATHS: readonly [prefix: string, id: AppTabId][] = [
   ['/email/', 'email'],
   ['/music/', 'music'],
   ['/tools/', 'tools'],
+  ['/development/', 'development'],
 ]
 
 const TAB_BY_PATH = new Map(APP_TABS.map((tab) => [tab.path, tab.id]))
