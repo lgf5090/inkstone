@@ -17,6 +17,7 @@ export const ZH_CN_CLOUDFLARE_BROWSER_RENDER = {
   "cloudflare.browser_render.enter_url": "输入 URL",
   "cloudflare.browser_render.extracted_links": "提取的链接",
   "cloudflare.browser_render.format_minutes": "{m}分{s}秒",
+  "cloudflare.browser_render.format_minutes_only": "{m}分钟",
   "cloudflare.browser_render.format_seconds": "{s}秒",
   "cloudflare.browser_render.html": "HTML",
   "cloudflare.browser_render.html_render": "HTML 渲染",

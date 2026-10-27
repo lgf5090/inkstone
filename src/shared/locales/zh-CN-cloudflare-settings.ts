@@ -80,5 +80,6 @@ export const ZH_CN_CLOUDFLARE_SETTINGS = {
   "cloudflare.settings.task_types.r2_cleanup": "R2 过期文件清理",
   "cloudflare.settings.title": "设置",
   "cloudflare.settings.unknown": "未知",
-  "cloudflare.settings.version": "版本",
+  "cloudflare.settings.executed_at": "执行时间",
+  "cloudflare.settings.version": "应用版本",
 }

@@ -80,5 +80,6 @@ export const EN_US_CLOUDFLARE_SETTINGS = {
   "cloudflare.settings.task_types.r2_cleanup": "R2 Expired File Cleanup",
   "cloudflare.settings.title": "Settings",
   "cloudflare.settings.unknown": "Unknown",
-  "cloudflare.settings.version": "Version",
+  "cloudflare.settings.executed_at": "Ran at",
+  "cloudflare.settings.version": "App version",
 }

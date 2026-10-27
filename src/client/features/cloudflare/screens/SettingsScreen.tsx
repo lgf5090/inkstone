@@ -393,7 +393,7 @@ export function SettingsScreen() {
           : (
             <TableScroll label={t('cloudflare.settings.history_title', { name: historyFor?.name ?? '' })}>
               <Table>
-                <THead><tr><Th>{t('cloudflare.settings.config_status')}</Th><Th>{t('cloudflare.settings.detail')}</Th><Th>{t('cloudflare.settings.version')}</Th></tr></THead>
+                <THead><tr><Th>{t('cloudflare.settings.config_status')}</Th><Th>{t('cloudflare.settings.detail')}</Th><Th>{t('cloudflare.settings.executed_at')}</Th></tr></THead>
                 <TBody>
                   {executions.map((execution) => (
                     <Tr key={execution.id}>

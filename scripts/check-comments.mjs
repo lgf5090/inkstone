@@ -5638,7 +5638,7 @@ const allowed = new Map([
     "/** The email for an import, the account id for a batch operation. */",
   ]],
   ["src/client/features/cloudflare/screens/accounts/CredentialsDialog.tsx", [
-    "/**\n * The credential viewer.\n *\n * Opening it is an audited action on the server; the dialog therefore fetches on each open instead\n * of holding a decrypted value in the screen's state. The values stay behind a password input with a\n * copy button, so a shoulder-surfer does not read them but a reader can still put one on the\n * clipboard.\n */",
+    "/**\n * The credential viewer.\n *\n * Opening it is an audited action on the server; the dialog therefore fetches on each open instead\n * of holding a decrypted value in the screen's state. The values stay behind a password input with a\n * copy button, so a shoulder-surfer does not read them but a reader can still put one on the\n * clipboard.\n *\n * A secret on screen is a secret in a screenshot, a recording and an unattended window, so the\n * dialog drops the value when it closes and again sixty seconds after the fetch. Seeing it a second\n * time costs one more audited fetch, which is the trail this dialog exists to keep.\n */",
   ]],
   ["src/client/features/cloudflare/screens/accounts/ImportCsvDialog.tsx", [
     "/**\n * The CSV importer.\n *\n * The server decides everything about the file (header, duplicates, name extraction); this dialog\n * only collects the file and the `skipVerify` choice and shows the per-row answer. The result stays\n * on screen after the import so a reader can see which rows were skipped and why.\n */",
@@ -39495,9 +39495,15 @@ const allowed = new Map([
   ["tests/cloudflare-audit-detail.test.ts", [
     "/**\n * The audit trail's line for a failure.\n *\n * The trail is read months later by someone asking \"which call failed, and with what\", so the code has\n * to survive and the sentence has to stay short: an upstream body pasted whole is neither a log row nor\n * a query key. The reader still gets the full sentence from the API answer, not from here.\n */",
   ]],
+  ["tests/cloudflare-credentials-expiry.test.ts", [
+    "/**\n * How long a decrypted credential stays on screen.\n *\n * The dialog exists to show a secret, so the interesting question is when it stops showing it: the\n * value leaves after a minute, and it leaves again when the dialog closes. Seeing it a second time\n * has to be asked for, which is also what keeps the audit trail honest — every reveal is a fetch.\n */",
+  ]],
   ["tests/cloudflare-cron.test.ts", [
     "// 2026-10-25 is a Sunday.",
     "// 2026-10-27 is a Tuesday (weekday 2); either the date or the weekday may match when both are set.",
+  ]],
+  ["tests/cloudflare-dashboard-empty.test.ts", [
+    "/**\n * The dashboard with nothing to show.\n *\n * Three panels each saying \"no account data yet\" reads as three broken panels rather than one missing\n * step, so the screen answers the empty case once and offers the way out of it. This mount is what\n * pins that: the guide replaces the two data panels entirely, and an account that simply has no\n * resources yet keeps the per-panel wording instead of the guide.\n */",
   ]],
   ["tests/cloudflare-dashboard.test.ts", [
     "/** seedAccount's default Cloudflare account id. */",

@@ -45,6 +45,8 @@ export const EN_US_CLOUDFLARE_DASHBOARD = {
   "cloudflare.dashboard.detail": "Detail",
   "cloudflare.dashboard.end_date": "End date",
   "cloudflare.dashboard.no_account_data": "No account data",
+  "cloudflare.dashboard.add_account": "Add an account",
+  "cloudflare.dashboard.no_accounts_hint": "Add a Cloudflare account under Accounts first — the dashboard, DNS, Workers and storage all read from it.",
   "cloudflare.dashboard.query": "Query",
   "cloudflare.dashboard.recent_logs": "Recent Activity Logs",
   "cloudflare.dashboard.resources.d1": "D1",

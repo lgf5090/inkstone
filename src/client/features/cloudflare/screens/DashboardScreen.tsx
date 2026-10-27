@@ -9,11 +9,13 @@ import { useEffect, useState } from 'react'
 import type { AccountQuotaView } from '@shared/cloudflare/model'
 import { LoadingBlock } from '../../../components/feedback'
 import { Modal } from '../../../components/overlay'
-import { Badge } from '../../../components/primitives'
+import { Badge, Button } from '../../../components/primitives'
 import { SearchField } from '../components/SearchField'
 import { SelectMenu } from '../../../components/select-menu'
 import { cfErrorText } from '../api/client'
 import { getQuota } from '../api/dashboard'
+import { navigateToAddress } from '../../../lib/app-history'
+import { cloudflareScreenPath } from '../cloudflare-address'
 import { useCfT } from '../i18n'
 import {
   QUOTA_RESOURCE_ORDER,
@@ -70,6 +72,7 @@ export function DashboardScreen() {
   }, [reload])
 
   const accounts = quota ?? []
+  const noAccounts = !loading && !error && quota !== null && accounts.length === 0
   const withResources = accounts.filter((account) => account.resources.length > 0)
   const query = search.trim().toLowerCase()
   const visible = withResources
@@ -155,7 +158,16 @@ export function DashboardScreen() {
         {loading && quota === null ? (
           <LoadingBlock />
         ) : withResources.length === 0 ? (
-          error ? null : <PanelEmpty>{tcf('cloudflare.dashboard.no_account_data')}</PanelEmpty>
+          error ? null : noAccounts ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--r-md)] bg-[var(--bg-sunken)] px-3 py-2.5">
+              <p className="min-w-0 text-[length:var(--text-12)] text-[var(--text-tertiary)]">
+                {tcf('cloudflare.dashboard.no_accounts_hint')}
+              </p>
+              <Button size="sm" variant="primary" onClick={() => navigateToAddress(cloudflareScreenPath('accounts'))}>
+                {tcf('cloudflare.dashboard.add_account')}
+              </Button>
+            </div>
+          ) : <PanelEmpty>{tcf('cloudflare.dashboard.no_account_data')}</PanelEmpty>
         ) : (
           <>
             <div className="flex flex-wrap items-center gap-1.5">
@@ -201,8 +213,12 @@ export function DashboardScreen() {
         )}
       </Panel>
 
-      <ResourcesPanel accounts={accounts} />
-      <TrafficPanel accounts={accounts} />
+      {noAccounts ? null : (
+        <>
+          <ResourcesPanel accounts={accounts} />
+          <TrafficPanel accounts={accounts} />
+        </>
+      )}
       <AuditLogPanel />
 
       <Modal

@@ -5,6 +5,10 @@
  * of holding a decrypted value in the screen's state. The values stay behind a password input with a
  * copy button, so a shoulder-surfer does not read them but a reader can still put one on the
  * clipboard.
+ *
+ * A secret on screen is a secret in a screenshot, a recording and an unattended window, so the
+ * dialog drops the value when it closes and again sixty seconds after the fetch. Seeing it a second
+ * time costs one more audited fetch, which is the trail this dialog exists to keep.
  */
 import { useEffect, useState } from 'react'
 import type { CloudflareAccount, CloudflareAccountCredentials } from '@shared/cloudflare/model'
@@ -19,6 +23,8 @@ import { cfErrorText } from '../../api/client'
 import { cfT } from '../../i18n'
 import { authTypeLabel } from './labels'
 
+const CREDENTIALS_VISIBLE_MS = 60_000
+
 export function CredentialsDialog({
   open,
   account,
@@ -31,15 +37,22 @@ export function CredentialsDialog({
   const [data, setData] = useState<CloudflareAccountCredentials | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [hidden, setHidden] = useState(false)
   const [attempt, setAttempt] = useState(0)
   const accountId = account?.id ?? null
 
   useEffect(() => {
-    if (!open || !accountId) return
+    if (!open || !accountId) {
+      setData(null)
+      setError(null)
+      setHidden(false)
+      return
+    }
     let cancelled = false
     setLoading(true)
     setError(null)
     setData(null)
+    setHidden(false)
     accountsApi.credentials(accountId)
       .then((next) => {
         if (!cancelled) setData(next)
@@ -52,6 +65,15 @@ export function CredentialsDialog({
       })
     return () => { cancelled = true }
   }, [open, accountId, attempt])
+
+  useEffect(() => {
+    if (!open || !data) return
+    const timer = window.setTimeout(() => {
+      setData(null)
+      setHidden(true)
+    }, CREDENTIALS_VISIBLE_MS)
+    return () => window.clearTimeout(timer)
+  }, [open, data])
 
   return (
     <Modal
@@ -73,7 +95,7 @@ export function CredentialsDialog({
       {!loading && !error && data && (
         <div className="grid gap-3">
           <p className="rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-2.5 text-[length:var(--text-12)] text-[var(--text-secondary)]">
-            {cfT('cloudflare.accounts.cred_warning')}
+            {cfT('cloudflare.accounts.cred_warning')} {cfT('cloudflare.accounts.cred_auto_hide')}
           </p>
           <dl className="grid gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] p-3 text-[length:var(--text-12-5)]">
             <SummaryRow label={cfT('cloudflare.accounts.account_name')} value={data.name} />
@@ -91,6 +113,14 @@ export function CredentialsDialog({
           {data.api_token && <SecretRow label={cfT('cloudflare.accounts.api_token')} value={data.api_token} />}
           {data.api_key && <SecretRow label={cfT('cloudflare.accounts.api_key')} value={data.api_key} />}
           {data.password && <SecretRow label={cfT('cloudflare.accounts.login_password')} value={data.password} />}
+        </div>
+      )}
+      {!loading && !error && !data && hidden && (
+        <div role="status" className="flex flex-col items-start gap-2 rounded-[var(--r-sm)] bg-[var(--bg-sunken)] p-3 text-[length:var(--text-12)] text-[var(--text-tertiary)]">
+          <span>{cfT('cloudflare.accounts.cred_hidden')}</span>
+          <Button size="sm" variant="secondary" onClick={() => setAttempt((value) => value + 1)}>
+            {cfT('cloudflare.accounts.cred_reveal')}
+          </Button>
         </div>
       )}
     </Modal>

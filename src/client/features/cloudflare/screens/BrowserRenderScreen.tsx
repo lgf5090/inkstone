@@ -34,6 +34,7 @@ import { isImeComposing } from '../../../lib/ime'
 function durationText(t: ReturnType<typeof useCfT>, seconds: number): string {
   if (seconds < 60) return t('cloudflare.browser_render.format_seconds', { s: Math.round(seconds) })
   const { m, s } = splitSeconds(seconds)
+  if (s === 0) return t('cloudflare.browser_render.format_minutes_only', { m })
   return t('cloudflare.browser_render.format_minutes', { m, s })
 }
 
@@ -138,11 +139,11 @@ export function BrowserRenderScreen() {
           <h1 className="text-[length:var(--text-17)] font-semibold text-[var(--text-primary)]">
             {t('cloudflare.browser_render.title')}
           </h1>
-          <div className="flex items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-3 py-1.5">
+          <div className="flex shrink-0 items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-3 py-1.5">
             <UsageRing used={usage.used} limit={usage.limit || 1} label={t('cloudflare.browser_render.usage_rate')} />
-            <div className="text-[length:var(--text-11-5)] leading-tight text-[var(--text-tertiary)]">
-              <div>{t('cloudflare.browser_render.used_total')}</div>
-              <div className="tabular-nums text-[var(--text-primary)]">
+            <div className="min-w-0 text-[length:var(--text-11-5)] leading-tight text-[var(--text-tertiary)]">
+              <div className="truncate">{t('cloudflare.browser_render.used_total')}</div>
+              <div className="tabular-nums whitespace-nowrap text-[var(--text-primary)]">
                 {durationText(t, usage.used)} / {durationText(t, usage.limit)}
               </div>
             </div>

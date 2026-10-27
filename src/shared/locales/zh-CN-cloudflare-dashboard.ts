@@ -45,6 +45,8 @@ export const ZH_CN_CLOUDFLARE_DASHBOARD = {
   "cloudflare.dashboard.detail": "详情",
   "cloudflare.dashboard.end_date": "结束日期",
   "cloudflare.dashboard.no_account_data": "暂无账户数据",
+  "cloudflare.dashboard.add_account": "去添加账号",
+  "cloudflare.dashboard.no_accounts_hint": "先在「账号管理」里添加一个 Cloudflare 账户；仪表盘、DNS、Workers 和存储都从它取数。",
   "cloudflare.dashboard.query": "查询",
   "cloudflare.dashboard.recent_logs": "最近操作日志",
   "cloudflare.dashboard.resources.d1": "D1",

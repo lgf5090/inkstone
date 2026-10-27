@@ -17,6 +17,7 @@ export const EN_US_CLOUDFLARE_BROWSER_RENDER = {
   "cloudflare.browser_render.enter_url": "Enter URL",
   "cloudflare.browser_render.extracted_links": "Extracted Links",
   "cloudflare.browser_render.format_minutes": "{m}m {s}s",
+  "cloudflare.browser_render.format_minutes_only": "{m} min",
   "cloudflare.browser_render.format_seconds": "{s}s",
   "cloudflare.browser_render.html": "HTML",
   "cloudflare.browser_render.html_render": "HTML Render",
