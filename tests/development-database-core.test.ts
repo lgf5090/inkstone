@@ -7,6 +7,7 @@ import { loadSchema } from '../src/client/features/development/database/schema-u
 import { projectColumns, toCsv } from '../src/client/features/development/database/export-utils'
 import { buildWhere } from '../src/client/features/development/database/filter-ops'
 import { buildInsert, buildUpdate, rowKeyOf } from '../src/client/features/development/database/row-ops'
+import type { StudioDriver } from '../src/client/features/development/database/drivers'
 import { findPlaceholders, replacePlaceholders } from '../src/client/features/development/database/placeholders'
 import { splitSqlStatements } from '../src/shared/development/database/sql-utils'
 
@@ -89,7 +90,7 @@ describe('development database core', () => {
   })
 
   it('hides SQLite and D1 internal objects from the schema model', async () => {
-    const driver = {
+    const driver: StudioDriver = {
       type: 'sqlite',
       label: 'fake',
       close: () => {},
@@ -106,7 +107,7 @@ describe('development database core', () => {
         durationMs: 0,
       }),
     }
-    const model = await loadSchema(driver as never)
+    const model = await loadSchema(driver)
     expect(model.tables.map((table) => table.name)).toEqual(['users'])
     expect(model.views.map((view) => view.name)).toEqual(['v_users'])
     expect(model.triggers.map((trigger) => trigger.name)).toEqual(['trg_users'])
