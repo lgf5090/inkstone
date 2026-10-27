@@ -82,6 +82,7 @@ export const ZH_CN_CLOUDFLARE_DNS = {
   "cloudflare.dns.record_name_placeholder": "例: www 或 @ 或 *",
   "cloudflare.dns.record_name_required": "请输入名称",
   "cloudflare.dns.record_type": "类型",
+  "cloudflare.dns.records_truncated": "这个域名的记录不止这些：此处仅显示前 {count} 条。",
   "cloudflare.dns.records": "DNS 记录",
   "cloudflare.dns.result_modal_title": "创建结果",
   "cloudflare.dns.result_summary": "总计: {total}  成功: {succeeded}  失败: {failed}",

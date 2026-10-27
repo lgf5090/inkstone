@@ -127,7 +127,7 @@ export function ChatHistorySidebar({
   async function requestDelete(session: AiChatSession): Promise<void> {
     const ok = await confirm({
       title: t('cloudflare.ai.history.delete_confirm_title'),
-      description: t('cloudflare.ai.history.delete_confirm_desc'),
+      description: t('cloudflare.ai.history.delete_confirm_desc', { title: session.title || t('cloudflare.ai.new_chat') }),
       confirmLabel: t('cloudflare.ai.history.delete'),
       cancelLabel: t('common.cancel'),
       tone: 'danger',

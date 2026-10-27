@@ -86,7 +86,7 @@ export const EN_US_CLOUDFLARE_AI = {
   "cloudflare.ai.empty_response": "(Model returned an empty response)",
   "cloudflare.ai.error": "Error: {error}",
   "cloudflare.ai.history.delete": "Delete",
-  "cloudflare.ai.history.delete_confirm_desc": "Delete this session? The session and all its messages will be removed permanently.",
+  "cloudflare.ai.history.delete_confirm_desc": "Delete the conversation “{title}”? The session and all its messages will be removed permanently.",
   "cloudflare.ai.history.delete_confirm_title": "Delete session",
   "cloudflare.ai.history.deleted": "Deleted",
   "cloudflare.ai.history.empty": "No sessions yet",

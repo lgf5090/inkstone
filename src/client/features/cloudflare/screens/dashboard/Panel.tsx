@@ -40,7 +40,7 @@ export function Panel({
   )
 }
 
-export function PanelError({ message, onRetry }: { message: string; onRetry: () => void }) {
+export function PanelError({ message, detail, onRetry }: { message: string; detail?: string; onRetry: () => void }) {
   return (
     <div
       role="alert"
@@ -51,6 +51,9 @@ export function PanelError({ message, onRetry }: { message: string; onRetry: () 
           {t('common.action_failed')}
         </p>
         <p className="mt-0.5 text-[length:var(--text-11-5)] break-words text-[var(--text-tertiary)]">{message}</p>
+        {detail ? (
+          <p className="mt-0.5 text-[length:var(--text-10-5)] break-words text-[var(--text-quaternary)]">{detail}</p>
+        ) : null}
       </div>
       <Button size="sm" variant="secondary" onClick={onRetry}>{t('common.retry')}</Button>
     </div>

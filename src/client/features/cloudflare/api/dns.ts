@@ -147,7 +147,8 @@ export const dnsApi = {
   deleteDomains: (domains: string[]) =>
     cfRequest<DomainBatchResult>('/dns/domains', { method: 'DELETE', body: { domains } }),
 
-  listRecords: (domain: string) => cfRequest<DnsRecord[]>(`${domainPath(domain)}/records`),
+  listRecords: (domain: string) =>
+    cfRequest<{ records: DnsRecord[]; truncated: boolean }>(`${domainPath(domain)}/records`),
   createRecord: (domain: string, input: RecordInput) =>
     cfRequest<DnsRecord>(`${domainPath(domain)}/records`, { method: 'POST', body: input }),
   updateRecord: (domain: string, recordId: string, input: RecordInput) =>

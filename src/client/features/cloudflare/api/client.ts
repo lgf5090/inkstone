@@ -8,7 +8,7 @@
  */
 import { CLIENT_HEADER } from '@shared/constants'
 import { ApiError, CLIENT_ID, request, type RequestOptions } from '../../../lib/api'
-import { getLocale } from '../../../lib/i18n'
+import { getLocale, translateApiError } from '../../../lib/i18n'
 
 const BASE = '/api/cloudflare'
 
@@ -79,9 +79,23 @@ export async function cfStream(path: string, body: unknown, signal?: AbortSignal
   return response
 }
 
-/** The sentence a failed call shows. The route's own reason wins over the generic code sentence. */
+/**
+ * The one sentence a failed call shows: the localized line for the code.
+ *
+ * It used to prefer the server's own English, which put a raw GraphQL complaint in the middle of a
+ * Chinese screen. The route's sentence is still worth reading — it just belongs on the detail line
+ * below the headline, which is what `cfErrorDetail` is for.
+ */
 export function cfErrorText(error: unknown): string {
-  if (error instanceof ApiError) return error.serverMessage || error.message
+  if (error instanceof ApiError) return translateApiError(error.code, error.serverMessage ?? error.message)
   if (error instanceof Error) return error.message
   return String(error)
+}
+
+/** The route's or Cloudflare's own words, when they add something the localized headline cannot say. */
+export function cfErrorDetail(error: unknown): string {
+  if (!(error instanceof ApiError)) return ''
+  const raw = error.serverMessage || error.message
+  const headline = cfErrorText(error)
+  return raw && raw !== headline ? raw : ''
 }

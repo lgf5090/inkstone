@@ -68,6 +68,8 @@ export const EN_US_CLOUDFLARE_STORE = {
   "cloudflare.store.open_url": "Open URL",
   "cloudflare.store.refresh_catalog": "Refresh catalog",
   "cloudflare.store.source": "Source",
+  "cloudflare.store.collapse_tags": "Fewer tags",
+  "cloudflare.store.expand_tags": "All {count} tags",
   "cloudflare.store.title": "Template Store",
   "cloudflare.store.updated": "Updated",
 }

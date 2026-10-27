@@ -13,7 +13,7 @@ import { Checkbox } from '../../../../components/form'
 import { LoadingBlock } from '../../../../components/feedback'
 import { Menu, type MenuItem } from '../../../../components/overlay'
 import { cfT } from '../../i18n'
-import { formatDateTime, percentOf } from '../../lib/format'
+import { formatDateTime, percentLabel, percentOf } from '../../lib/format'
 import { quotaTone } from '../../lib/quota-view'
 import type { SortState } from '../../lib/sort'
 import { Table, TableScroll, TBody, Td, THead, Th, Tr, SortableHead } from '../../components/Table'
@@ -241,7 +241,7 @@ function QuotaCell({ count, limit, exhausted }: { count: number; limit: number; 
   return (
     <div className="flex w-full max-w-28 flex-col gap-1">
       <div className="flex items-center gap-1.5">
-        <span className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{percent}%</span>
+        <span className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{percentLabel(count, limit)}</span>
         {exhausted && <Badge tone="danger">{cfT('cloudflare.accounts.table.exhausted')}</Badge>}
       </div>
       <div

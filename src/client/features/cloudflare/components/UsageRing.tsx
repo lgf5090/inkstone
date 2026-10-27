@@ -5,7 +5,7 @@
  * something every reader can read. The colour only reinforces the number, it never carries it.
  */
 import { cn } from '../../../lib/cn'
-import { percentOf } from '../lib/format'
+import { percentLabel, percentOf } from '../lib/format'
 
 export function UsageRing({
   used,
@@ -23,6 +23,7 @@ export function UsageRing({
   label: string
 }) {
   const percent = percentOf(used, limit)
+  const shown = percentLabel(used, limit)
   const radius = (size - 8) / 2
   const circumference = 2 * Math.PI * radius
   return (
@@ -30,7 +31,7 @@ export function UsageRing({
       className={cn('relative shrink-0', className)}
       style={{ width: `${size}px`, height: `${size}px` }}
       role="img"
-      aria-label={`${label}: ${percent}%`}
+      aria-label={`${label}: ${shown}`}
     >
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
         <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="var(--border-subtle)" strokeWidth="4" />
@@ -48,7 +49,7 @@ export function UsageRing({
         />
       </svg>
       <span className="absolute inset-0 flex items-center justify-center text-[length:var(--text-9)] font-semibold tabular-nums text-[var(--text-tertiary)]">
-        {percent}%
+        {shown}
       </span>
     </div>
   )

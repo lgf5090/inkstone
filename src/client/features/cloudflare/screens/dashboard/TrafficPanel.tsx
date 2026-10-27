@@ -18,7 +18,7 @@ import {
   type DashboardTrafficSeries,
   type DashboardZone,
 } from '../../api/dashboard'
-import { cfErrorText } from '../../api/client'
+import { cfErrorDetail, cfErrorText } from '../../api/client'
 import { formatBytes, formatNumber } from '../../lib/format'
 import { LineChart } from '../../components/LineChart'
 import { Panel, PanelEmpty, PanelError } from './Panel'
@@ -58,7 +58,7 @@ export function TrafficPanel({ accounts }: { accounts: readonly AccountQuotaView
   const [zonesReload, setZonesReload] = useState(0)
   const [traffic, setTraffic] = useState<DashboardTrafficResponse | null>(null)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<unknown>(null)
   const [trafficReload, setTrafficReload] = useState(0)
 
   const effectiveAccountId = accounts.some((account) => account.account_id === accountId)
@@ -117,7 +117,7 @@ export function TrafficPanel({ accounts }: { accounts: readonly AccountQuotaView
       })
       .catch((failure: unknown) => {
         if (cancelled) return
-        setError(cfErrorText(failure))
+        setError(failure)
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -184,7 +184,13 @@ export function TrafficPanel({ accounts }: { accounts: readonly AccountQuotaView
       {zonesError ? (
         <PanelError message={zonesError} onRetry={() => setZonesReload((value) => value + 1)} />
       ) : null}
-      {error ? <PanelError message={error} onRetry={() => setTrafficReload((value) => value + 1)} /> : null}
+      {error ? (
+        <PanelError
+          message={cfErrorText(error)}
+          detail={cfErrorDetail(error)}
+          onRetry={() => setTrafficReload((value) => value + 1)}
+        />
+      ) : null}
 
       {!effectiveAccountId ? (
         <PanelEmpty>{tcf('cloudflare.dashboard.no_account_data')}</PanelEmpty>

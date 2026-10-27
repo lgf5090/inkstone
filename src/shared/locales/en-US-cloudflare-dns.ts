@@ -82,6 +82,7 @@ export const EN_US_CLOUDFLARE_DNS = {
   "cloudflare.dns.record_name_placeholder": "e.g. www or @ or *",
   "cloudflare.dns.record_name_required": "Please enter a name",
   "cloudflare.dns.record_type": "Type",
+  "cloudflare.dns.records_truncated": "This zone has more records than shown: only the first {count} are listed.",
   "cloudflare.dns.records": "DNS Records",
   "cloudflare.dns.result_modal_title": "Creation Results",
   "cloudflare.dns.result_summary": "Total: {total}  Success: {succeeded}  Failed: {failed}",

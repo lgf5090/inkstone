@@ -5486,7 +5486,8 @@ const allowed = new Map([
     "/**\n * The Cloudflare app's only door to `/api/cloudflare`.\n *\n * Three shapes are needed and they do not share one: ordinary JSON goes through the notebook's\n * `request()` (timeouts, error codes, the localised refusal), downloads need the bytes rather than a\n * decoded body, and the OpenAI-compatible endpoints answer with a stream the caller reads itself.\n * All three carry the client header, because every route here is a POST away from being refused.\n */",
     "/** A binary answer (an R2 object, a PDF) with the filename the route chose. */",
     "/**\n * A streaming POST (the OpenAI-compatible endpoints).\n *\n * The caller owns the body and must cancel the reader when it stops: this function cannot know when\n * a stream is finished with.\n */",
-    "/** The sentence a failed call shows. The route's own reason wins over the generic code sentence. */",
+    "/**\n * The one sentence a failed call shows: the localized line for the code.\n *\n * It used to prefer the server's own English, which put a raw GraphQL complaint in the middle of a\n * Chinese screen. The route's sentence is still worth reading — it just belongs on the detail line\n * below the headline, which is what `cfErrorDetail` is for.\n */",
+    "/** The route's or Cloudflare's own words, when they add something the localized headline cannot say. */",
   ]],
   ["src/client/features/cloudflare/api/dashboard.ts", [
     "/**\n * The dashboard's requests, one function per route.\n *\n * Response shapes mirror the worker's own interfaces; they are not shared with it because the\n * Cloudflare module's shared contracts belong to the foundation slice and this screen is their first\n * consumer. A field added here without the route would fail the screen's own loading state, which is\n * the place a mismatch should surface.\n */",
@@ -5581,6 +5582,7 @@ const allowed = new Map([
     "/** Relative time for a log or a conversation; falls back to the absolute date after a week. */",
     "/** A percentage for a ring or a bar, clamped to what can be drawn. */",
     "/** Neurons are billed in fractions, so a whole-number separator would hide a busy model row. */",
+    "/**\n * A usage percentage a reader can act on.\n *\n * Rounding alone turned \"489 of 100,000\" into a flat `0%`, which is indistinguishable from \"nothing\n * used\" on the same screen that prints `—` for \"no number at all\".\n */",
   ]],
   ["src/client/features/cloudflare/lib/quota-view.ts", [
     "/**\n * How a quota row reads on screen.\n *\n * The arithmetic is `lib/format`; this file only decides which catalogue sentence goes around it.\n * Browser-render time is minute/second shaped because that is how the browser-rendering limit is\n * published (600 seconds a day); everything else is a plain count.\n */",
@@ -5782,6 +5784,9 @@ const allowed = new Map([
   ]],
   ["src/client/features/cloudflare/screens/storage/sql-keywords.ts", [
     "/**\n * SQL vocabulary the D1 editor prints as syntax, not as interface copy.\n *\n * `NOT NULL` is the column constraint's own spelling; translating it would produce SQL that does not\n * run. Keeping it here means the i18n gate still sees a rule it can check while the screens stay\n * honest about what is a keyword and what is a sentence.\n */",
+  ]],
+  ["src/client/features/cloudflare/screens/store/StoreCategoryNav.tsx", [
+    "/** Tags beyond this count sit behind a toggle: forty chips pushed the template grid off the screen. */",
   ]],
   ["src/client/features/cloudflare/screens/store/StoreDeployDialog.tsx", [
     "// A binding must name a resource that exists: this deployment can bind, but it cannot create a",
@@ -33213,6 +33218,7 @@ const allowed = new Map([
     "/**\n * Every page of a list endpoint.\n *\n * `MAX_PAGES` is a guard, not a feature: a listing that answers \"more pages\" forever would otherwise\n * hold a request open until the Worker is killed. Twenty pages at 50 rows is 1,000 rows, which is\n * already more than the screens show at once.\n */",
     "/** The GraphQL door. Cloudflare reports query problems in a 200 body, so both shapes are checked. */",
     "/** The error a route rethrows when an operation relied on Cloudflare and the call did not land. */",
+    "/** True when the page cap stopped the walk with pages left: the listing is not the whole set. */",
   ]],
   ["src/worker/cloudflare/chat-sessions.ts", [
     "/**\n * The AI conversation history, as rows.\n *\n * Every statement carries the reader's id; the session id alone never proves ownership, and a query\n * that finds nothing is answered as missing rather than forbidden so ids cannot be probed. The route\n * above this module parses bodies and maps refusals to HTTP; it does not know the schema.\n */",

@@ -17,7 +17,7 @@ import {
   type LoadedAccount,
 } from '../../cloudflare/accounts'
 import { createAuditLog } from '../../cloudflare/audit'
-import { cfFetch, cfFetchAll } from '../../cloudflare/cf-api'
+import { cfFetch, cfFetchAllDetailed } from '../../cloudflare/cf-api'
 import {
   findDnsZone,
   listDnsZones,
@@ -169,8 +169,8 @@ dnsRouter.delete('/domains', async (c) => {
 
 dnsRouter.get('/domains/:domain/records', async (c) => {
   const { account, zoneId } = await findDnsZone(c.env, c.get('userId'), c.req.param('domain'))
-  const rows = await cfFetchAll<Record<string, unknown>>(account.auth, `/zones/${zoneId}/dns_records`, 100)
-  return c.json(rows.map(toDnsRecord))
+  const listing = await cfFetchAllDetailed<Record<string, unknown>>(account.auth, `/zones/${zoneId}/dns_records`, 100)
+  return c.json({ records: listing.items.map(toDnsRecord), truncated: listing.truncated })
 })
 
 dnsRouter.post('/domains/:domain/records', async (c) => {

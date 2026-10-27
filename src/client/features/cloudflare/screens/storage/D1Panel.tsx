@@ -16,7 +16,7 @@ import { confirm } from '../../../../components/overlay'
 import { t as uiT } from '../../../../lib/i18n'
 import { cn } from '../../../../lib/cn'
 import { useUi } from '../../../../store/ui'
-import { cfErrorText } from '../../api/client'
+import { cfErrorDetail, cfErrorText } from '../../api/client'
 import { storageApi, type D1Database, type D1QueryResult, type D1Table } from '../../api/storage'
 import { SqlEditor, type SqlEditorHandle } from '../../components/SqlEditor'
 import { SortableHead, Table, TableScroll, TBody, Td, THead, Tr } from '../../components/Table'
@@ -62,7 +62,7 @@ export function D1Panel({ account }: { account: CloudflareAccount }) {
   const [allowWrite, setAllowWrite] = useState(false)
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<D1QueryResult | null>(null)
-  const [queryError, setQueryError] = useState<string | null>(null)
+  const [queryError, setQueryError] = useState<unknown>(null)
 
   const [history, setHistory] = useState<D1HistoryEntry[]>([])
   const [historyLimit, setHistoryLimit] = useState(50)
@@ -167,7 +167,7 @@ export function D1Panel({ account }: { account: CloudflareAccount }) {
       remember(target)
     } catch (reason) {
       setResult(null)
-      setQueryError(cfErrorText(reason))
+      setQueryError(reason)
     } finally {
       setRunning(false)
     }
@@ -420,7 +420,7 @@ export function D1Panel({ account }: { account: CloudflareAccount }) {
             minHeight={200}
           />
 
-          {queryError && <StorageError message={queryError} />}
+          {queryError ? <StorageError message={cfErrorText(queryError)} detail={cfErrorDetail(queryError)} /> : null}
 
           {!selectedDb && (
             <Empty compact title={t('cloudflare.storage.no_database')} />

@@ -21,7 +21,12 @@ import { usePanelLoad } from './use-panel-load'
 export function RecordsPanel({ domain }: { domain: string }) {
   const t = useCfT()
   const toast = useUi((state) => state.toast)
-  const { data, loading, error, reload, setData } = usePanelLoad(() => dnsApi.listRecords(domain), domain)
+  const [truncated, setTruncated] = useState(false)
+  const { data, loading, error, reload, setData } = usePanelLoad(async () => {
+    const listing = await dnsApi.listRecords(domain)
+    setTruncated(listing.truncated)
+    return listing.records
+  }, domain)
   const sort = useSort<DnsRecord>()
   const [editing, setEditing] = useState<{ record: DnsRecord | null } | null>(null)
 
@@ -88,8 +93,14 @@ export function RecordsPanel({ domain }: { domain: string }) {
 
       {error && <PanelError message={error} onRetry={reload} />}
 
+      {truncated && records.length > 0 ? (
+        <p className="mb-1 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
+          {t('cloudflare.dns.records_truncated', { count: records.length })}
+        </p>
+      ) : null}
+
       {records.length === 0 ? (
-        <Empty compact title={uiT('share.dashboard.no_data_yet')} />
+        <Empty compact title={t('cloudflare.compact_card.no_data')} />
       ) : (
         <TableScroll label={t('cloudflare.dns.records')}>
           <Table>

@@ -25,6 +25,8 @@ export const EN_US_CLOUDFLARE_SETTINGS = {
   "cloudflare.settings.cron_placeholder": "e.g. 0 8 * * *",
   "cloudflare.settings.database_id": "Database ID",
   "cloudflare.settings.default": "Default",
+  "cloudflare.settings.delete_source_confirm": "Remove the catalog source “{name}”? Its templates stop appearing in the store.",
+  "cloudflare.settings.delete_task_confirm": "Delete the scheduled task “{name}”? It stops running on its schedule.",
   "cloudflare.settings.delete": "Delete",
   "cloudflare.settings.demo_accounts": "Demo Protected Accounts",
   "cloudflare.settings.disabled": "Disabled",

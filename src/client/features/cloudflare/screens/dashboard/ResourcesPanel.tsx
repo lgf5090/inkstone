@@ -26,7 +26,7 @@ import {
   type ResourceCountKey,
   type UsageKey,
 } from '../../api/dashboard'
-import { cfErrorText } from '../../api/client'
+import { cfErrorDetail, cfErrorText } from '../../api/client'
 import { formatBytes, formatNumber } from '../../lib/format'
 import { UsageRing } from '../../components/UsageRing'
 import { Panel, PanelEmpty, PanelError } from './Panel'
@@ -99,7 +99,7 @@ export function ResourcesPanel({ accounts }: { accounts: readonly AccountQuotaVi
   const [accountId, setAccountId] = useState('')
   const [data, setData] = useState<DashboardResourcesResponse | null>(null)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<unknown>(null)
   const [reload, setReload] = useState(0)
 
   const effectiveAccountId = accounts.some((account) => account.account_id === accountId)
@@ -121,7 +121,7 @@ export function ResourcesPanel({ accounts }: { accounts: readonly AccountQuotaVi
       })
       .catch((failure: unknown) => {
         if (cancelled) return
-        setError(cfErrorText(failure))
+        setError(failure)
         setData(null)
       })
       .finally(() => {
@@ -171,7 +171,13 @@ export function ResourcesPanel({ accounts }: { accounts: readonly AccountQuotaVi
       )}
       bodyClassName="space-y-3"
     >
-      {error ? <PanelError message={error} onRetry={() => setReload((value) => value + 1)} /> : null}
+      {error ? (
+        <PanelError
+          message={cfErrorText(error)}
+          detail={cfErrorDetail(error)}
+          onRetry={() => setReload((value) => value + 1)}
+        />
+      ) : null}
       {!effectiveAccountId ? (
         <PanelEmpty>{tcf('cloudflare.dashboard.no_account_data')}</PanelEmpty>
       ) : loading && !data ? (

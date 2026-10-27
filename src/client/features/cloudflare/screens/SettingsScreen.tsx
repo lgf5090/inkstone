@@ -159,7 +159,7 @@ export function SettingsScreen() {
   async function removeTask(task: CloudflareTask): Promise<void> {
     const ok = await confirm({
       title: t('cloudflare.settings.delete'),
-      description: task.name,
+      description: t('cloudflare.settings.delete_task_confirm', { name: task.name }),
       confirmLabel: t('common.delete'),
       tone: 'danger',
     })
@@ -207,7 +207,7 @@ export function SettingsScreen() {
   async function removeCatalogSource(source: CatalogSource): Promise<void> {
     const ok = await confirm({
       title: t('cloudflare.settings.delete'),
-      description: source.name,
+      description: t('cloudflare.settings.delete_source_confirm', { name: source.name }),
       confirmLabel: t('common.delete'),
       tone: 'danger',
     })

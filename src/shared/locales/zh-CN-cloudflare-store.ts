@@ -68,6 +68,8 @@ export const ZH_CN_CLOUDFLARE_STORE = {
   "cloudflare.store.open_url": "打开地址",
   "cloudflare.store.refresh_catalog": "刷新目录",
   "cloudflare.store.source": "来源",
+  "cloudflare.store.collapse_tags": "收起标签",
+  "cloudflare.store.expand_tags": "全部 {count} 个标签",
   "cloudflare.store.title": "模板商店",
   "cloudflare.store.updated": "已更新",
 }

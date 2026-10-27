@@ -16,6 +16,19 @@ export function formatNeurons(value: number | null | undefined): string {
   return (value ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })
 }
 
+/**
+ * A usage percentage a reader can act on.
+ *
+ * Rounding alone turned "489 of 100,000" into a flat `0%`, which is indistinguishable from "nothing
+ * used" on the same screen that prints `—` for "no number at all".
+ */
+export function percentLabel(used: number, limit: number): string {
+  if (!limit) return '0%'
+  const exact = (used / limit) * 100
+  if (exact > 0 && exact < 1) return '<1%'
+  return `${percentOf(used, limit)}%`
+}
+
 export function splitSeconds(total: number): { m: number; s: number } {
   const safe = Math.max(0, Math.round(total))
   return { m: Math.floor(safe / 60), s: safe % 60 }

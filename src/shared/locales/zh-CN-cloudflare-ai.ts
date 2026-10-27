@@ -86,7 +86,7 @@ export const ZH_CN_CLOUDFLARE_AI = {
   "cloudflare.ai.empty_response": "（模型返回了空响应）",
   "cloudflare.ai.error": "错误：{error}",
   "cloudflare.ai.history.delete": "删除",
-  "cloudflare.ai.history.delete_confirm_desc": "确定要删除该会话吗？会话及全部消息将一并删除，且不可恢复。",
+  "cloudflare.ai.history.delete_confirm_desc": "删除会话“{title}”？会话及全部消息将一并删除，且不可恢复。",
   "cloudflare.ai.history.delete_confirm_title": "删除会话",
   "cloudflare.ai.history.deleted": "已删除",
   "cloudflare.ai.history.empty": "暂无会话",

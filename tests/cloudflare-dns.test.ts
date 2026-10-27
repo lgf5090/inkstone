@@ -165,11 +165,32 @@ describe('domain resolution', () => {
 
     const response = await send('GET', '/domains/beta.com/records')
     expect(response.status).toBe(200)
-    const records = await json<Array<{ id: string; proxied: boolean }>>(response)
-    expect(records).toEqual([{ id: 'rec-1', type: 'A', name: 'www.beta.com', content: '203.0.113.1', ttl: 120, proxied: true }])
+    const listing = await json<{ records: Array<{ id: string; proxied: boolean }>; truncated: boolean }>(response)
+    expect(listing.records).toEqual([{ id: 'rec-1', type: 'A', name: 'www.beta.com', content: '203.0.113.1', ttl: 120, proxied: true }])
+    expect(listing.truncated).toBe(false)
     const recordCall = calls.find((call) => call.path === '/zones/zone-b/dns_records')
     expect(recordCall?.token).toBe('token-b')
     expect(calls.some((call) => call.path === '/zones/zone-a/dns_records')).toBe(false)
+  })
+
+  it('says so when the page cap stopped a listing early', async () => {
+    await seedAccount(bed, TEST_USER, { id: ACCOUNT_A, name: 'Alpha', token: 'token-a', accountId: 'cf-a' })
+    const onePage = {
+      success: true,
+      errors: [],
+      result: [{ id: 'rec', type: 'A', name: 'alpha.com', content: '1.2.3.4', ttl: 1, proxied: false }],
+      result_info: { total_pages: 99 },
+    }
+    stubApi({
+      zones: { 'token-a': [zone('zone-a', 'alpha.com')] },
+      handler: ({ path }) => (path === '/zones/zone-a/dns_records' ? Response.json(onePage) : null),
+    })
+
+    const response = await send('GET', '/domains/alpha.com/records')
+    expect(response.status).toBe(200)
+    const listing = await json<{ records: unknown[]; truncated: boolean }>(response)
+    expect(listing.truncated).toBe(true)
+    expect(listing.records).toHaveLength(20)
   })
 
   it('answers 404 for a domain no account of this reader owns', async () => {

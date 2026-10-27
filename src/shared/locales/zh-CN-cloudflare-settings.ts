@@ -25,6 +25,8 @@ export const ZH_CN_CLOUDFLARE_SETTINGS = {
   "cloudflare.settings.cron_placeholder": "例如: 0 8 * * *",
   "cloudflare.settings.database_id": "数据库 ID",
   "cloudflare.settings.default": "默认",
+  "cloudflare.settings.delete_source_confirm": "移除目录源“{name}”？它的模板将不再出现在商店里。",
+  "cloudflare.settings.delete_task_confirm": "删除定时任务“{name}”？之后不再按计划执行。",
   "cloudflare.settings.delete": "删除",
   "cloudflare.settings.demo_accounts": "Demo 保护账户",
   "cloudflare.settings.disabled": "禁用",

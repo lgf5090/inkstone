@@ -128,24 +128,40 @@ export async function cfFetchRaw(
  * hold a request open until the Worker is killed. Twenty pages at 50 rows is 1,000 rows, which is
  * already more than the screens show at once.
  */
+export interface CfListResult<T> {
+  items: T[]
+  /** True when the page cap stopped the walk with pages left: the listing is not the whole set. */
+  truncated: boolean
+}
+
+export async function cfFetchAllDetailed<T>(
+  auth: CloudflareAuth,
+  path: string,
+  perPage = 50,
+): Promise<CfListResult<T>> {
+  const all: T[] = []
+  let page = 0
+  let totalPages = 1
+  for (; page < MAX_PAGES; page += 1) {
+    const separator = path.includes('?') ? '&' : '?'
+    const body = await cfFetch<{
+      result?: T[] | null
+      result_info?: { total_pages?: number }
+    }>(auth, `${path}${separator}page=${page + 1}&per_page=${perPage}`)
+    const items = body.result ?? []
+    all.push(...items)
+    totalPages = body.result_info?.total_pages ?? 1
+    if (items.length === 0 || page + 1 >= totalPages) break
+  }
+  return { items: all, truncated: page + 1 < totalPages }
+}
+
 export async function cfFetchAll<T>(
   auth: CloudflareAuth,
   path: string,
   perPage = 50,
 ): Promise<T[]> {
-  const all: T[] = []
-  for (let page = 1; page <= MAX_PAGES; page++) {
-    const separator = path.includes('?') ? '&' : '?'
-    const body = await cfFetch<{
-      result?: T[] | null
-      result_info?: { total_pages?: number }
-    }>(auth, `${path}${separator}page=${page}&per_page=${perPage}`)
-    const items = body.result ?? []
-    all.push(...items)
-    const totalPages = body.result_info?.total_pages ?? 1
-    if (items.length === 0 || page >= totalPages) break
-  }
-  return all
+  return (await cfFetchAllDetailed<T>(auth, path, perPage)).items
 }
 
 /** The GraphQL door. Cloudflare reports query problems in a 200 body, so both shapes are checked. */

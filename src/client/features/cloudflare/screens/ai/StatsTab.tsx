@@ -8,7 +8,7 @@ import type { AiUsageAccount } from '../../api/ai'
 import { aiApi } from '../../api/ai'
 import { cfErrorText } from '../../api/client'
 import { useCfT } from '../../i18n'
-import { formatNeurons, formatNumber, percentOf } from '../../lib/format'
+import { formatNeurons, formatNumber, percentLabel, percentOf } from '../../lib/format'
 import { sharePercent, shortModelId, NEURON_QUOTA } from './options'
 import { Badge, Button } from '../../../../components/primitives'
 import { Empty, LoadingBlock } from '../../../../components/feedback'
@@ -50,7 +50,6 @@ function ShareRing({
   const radius = (size - stroke) / 2
   const center = size / 2
   const circumference = 2 * Math.PI * radius
-  const usedPercent = percentOf(totalNeurons, totalQuota)
   let offset = 0
   const segments = accounts.map((account, index) => {
     const length = totalNeurons > 0 ? (account.totalNeurons / totalNeurons) * circumference : 0
@@ -66,7 +65,7 @@ function ShareRing({
         height={size}
         viewBox={`0 0 ${size} ${size}`}
         role="img"
-        aria-label={`${label}: ${formatNeurons(totalNeurons)} / ${formatNumber(totalQuota)} (${usedPercent}%)`}
+        aria-label={`${label}: ${formatNeurons(totalNeurons)} / ${formatNumber(totalQuota)} (${percentLabel(totalNeurons, totalQuota)})`}
       >
         <title>{`${label}: ${formatNumber(totalNeurons)} / ${formatNumber(totalQuota)}`}</title>
         <circle cx={center} cy={center} r={radius} fill="none" stroke="var(--border-subtle)" strokeWidth={stroke} />
@@ -90,7 +89,7 @@ function ShareRing({
           {formatNeurons(totalNeurons)}
         </span>
         <span className="px-6 text-[length:var(--text-10-5)] tabular-nums text-[var(--text-tertiary)]">
-          / {formatNumber(totalQuota)} · {usedPercent}%
+          / {formatNumber(totalQuota)} · {percentLabel(totalNeurons, totalQuota)}
         </span>
       </div>
     </div>
@@ -293,7 +292,7 @@ export function StatsTab() {
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
-                      {used >= 80 ? <Badge tone={tone}>{used}%</Badge> : null}
+                      {used >= 80 ? <Badge tone={tone}>{percentLabel(account.totalNeurons, NEURON_QUOTA)}</Badge> : null}
                       <UsageRing
                         used={account.totalNeurons}
                         limit={NEURON_QUOTA}
