@@ -6,17 +6,10 @@ import { Field, Input, Segmented } from '../../../components/form'
 import { Modal } from '../../../components/overlay'
 import { SelectMenu } from '../../../components/select-menu'
 import { t } from '../../../lib/i18n'
-import { createConnection, listD1Databases, updateConnection } from './api'
-import { ApiError } from '../../../lib/api'
+import { createConnection, describeError, listD1Databases, updateConnection } from './api'
 import { isLocalSqliteFileName, MAX_LOCAL_SQLITE_FILE_BYTES } from './drivers'
 
 type ConnectionType = 'd1' | 'turso' | 'sqlite'
-
-function describeError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error)
-  const said = error instanceof ApiError ? error.serverMessage : undefined
-  return said && said !== message ? `${message} — ${said}` : message
-}
 
 interface ConnectionDialogProps {
   open: boolean

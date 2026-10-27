@@ -38,8 +38,10 @@ import {
   clearHistory,
   createSavedQuery,
   deleteSavedQuery,
+  describeError,
   listHistory,
   listSavedQueries,
+  runBatch,
   updateSavedQuery,
   getSettings,
   updateSettings,
@@ -175,9 +177,14 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
     setError(null)
     try {
       const next: QueryResult[] = []
-      for (let index = 0; index < statements.length; index++) {
-        setProgress({ current: index + 1, total: statements.length })
-        next.push(await driver.query(statements[index]!))
+      if (!isLocal && statements.length > 1) {
+        setProgress({ current: 1, total: statements.length })
+        next.push(...await runBatch(connectionId, statements.map((sql) => ({ sql }))))
+      } else {
+        for (let index = 0; index < statements.length; index++) {
+          setProgress({ current: index + 1, total: statements.length })
+          next.push(await driver.query(statements[index]!))
+        }
       }
       setResults(next)
       setExecutedSql(target)
@@ -189,7 +196,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
         void listHistory(connectionId).then((entries) => setHistory(entries.map(historyToSql))).catch((error) => console.warn('[inkstone] Development database history settings could not be read:', error))
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
+      setError(describeError(cause))
     } finally {
       setProgress(null)
       setRunning(false)
@@ -213,7 +220,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
       setDetailRow(null)
       setSelectedRows(new Set())
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
+      setError(describeError(cause))
     } finally {
       setRunning(false)
     }

@@ -50,6 +50,12 @@ export function listConnections(): Promise<DatabaseConnectionView[]> {
   return requestData<DatabaseConnectionView[]>('/connections')
 }
 
+export function describeError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  const said = error instanceof ApiError ? error.serverMessage : undefined
+  return said && said !== message ? `${message} — ${said}` : message
+}
+
 export function createConnection(input: DatabaseConnectionInput): Promise<DatabaseConnectionView> {
   return requestData<DatabaseConnectionView>('/connections', {
     method: 'POST',

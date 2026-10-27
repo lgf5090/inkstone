@@ -112,6 +112,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
     targetOrderBy?: string,
     targetOrderDir?: 'ASC' | 'DESC',
     targetWhere?: { sql: string; params: unknown[] } | null,
+    skipCount = false,
   ) => {
     setLoading(true)
     try {
@@ -154,13 +155,15 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
       setSelectedRows(new Set())
       setDetailRow(null)
 
-      try {
-        const count = buildCountSql(table.name, whereValue?.sql, whereValue?.params)
-        const countResult = await driver.query(count.sql, count.params)
-        const value = countResult.rows[0]?.[0]
-        setTotal(typeof value === 'number' ? value : Number(value ?? 0))
-      } catch {
-        setTotal(null)
+      if (!skipCount) {
+        try {
+          const count = buildCountSql(table.name, whereValue?.sql, whereValue?.params)
+          const countResult = await driver.query(count.sql, count.params)
+          const value = countResult.rows[0]?.[0]
+          setTotal(typeof value === 'number' ? value : Number(value ?? 0))
+        } catch {
+          setTotal(null)
+        }
       }
     } catch (cause) {
       onError(cause instanceof Error ? cause.message : String(cause))
@@ -188,7 +191,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
   const totalPages = total === null ? 0 : Math.max(1, Math.ceil(total / pageSize))
   const goPage = (next: number) => {
     const clamped = Math.max(0, Math.min(next, totalPages - 1))
-    if (clamped !== page) void load(clamped, pageSize, orderBy, orderDir, where)
+    if (clamped !== page) void load(clamped, pageSize, orderBy, orderDir, where, true)
   }
 
   const sort = (column: string) => {
