@@ -201,6 +201,16 @@
   gap: var(--sp-2);
 }
 
+.music-np__quality {
+  padding: 1px 6px;
+  border: 1px solid color-mix(in oklab, #f5d58a 55%, transparent);
+  border-radius: var(--r-xs);
+  font-size: var(--text-9-5);
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  color: #f5d58a;
+}
+
 .music-np__progress {
   display: flex;
   align-items: center;

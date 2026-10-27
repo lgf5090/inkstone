@@ -6598,6 +6598,9 @@ const allowed = new Map([
     "// the frame rather than to whichever page happens to mount first. A failure is reported once here;",
     "// pages that need the library for their whole screen surface their own retry.",
     "/* The rail and the dock are both columns only while the row is horizontal. Starting that row\n          at `md` keeps the dock beside the screen on a tablet; inside the old column it was a\n          full-width strip under the page and its resizer was an empty row. */",
+    "// Leveling a track that is already sounding must not wait for the next song. The graph is only",
+    "// attached when the stream is same-origin, which is the normal path; a cross-origin fallback keeps",
+    "// playing through the element untouched.",
   ]],
   ["src/client/features/music/api.ts", [
     "/** The music app's only door to `/api/music`; pages and stores never call fetch directly. */",
@@ -6870,6 +6873,9 @@ const allowed = new Map([
   ["src/client/features/music/now-playing/ProgramPane.tsx", [
     "/**\n * The About pane of a podcast episode: what it is and where its podcast lives.\n *\n * An episode is not a song, so Now Playing replaces lyrics and the stage with this description and\n * the comments thread. The description is the provider's own text, rendered as text.\n */",
   ]],
+  ["src/client/features/music/now-playing/QualityBadge.tsx", [
+    "/**\n * The badge that names the level the stream actually served.\n *\n * The requested quality is not the answer: NetEase may fall back to a lower level, so the player reads\n * the level from the stream's HEAD answer rather than from the setting. Only lossless levels are\n * worth a badge; a compressed fallback is already visible in the disabled options of the picker.\n */",
+  ]],
   ["src/client/features/music/now-playing/QueuePane.tsx", [
     "/**\n * The queue pane of Now Playing, shared with the full-screen layer.\n *\n * The rows are the player's own tracks rather than a second queue store: pressing one moves the same\n * queue the bar walks, and the active row is marked with `aria-current`.\n */",
   ]],
@@ -7023,7 +7029,6 @@ const allowed = new Map([
   ["src/client/features/music/player/engine.ts", [
     "/**\n * The one audio element the music app plays through.\n *\n * It lives outside React on purpose. The element holds a decoded stream, a playback position and a\n * media session; a component that owned it would lose all three whenever the tree remounts, which in\n * StrictMode is every mount in development. Subscriptions belong to callers, the element does not.\n *\n * `play` resolves when the track is audible, rejects with {@link MusicAutoplayBlockedError} when the\n * browser wants a gesture, and with {@link MusicPlaybackError} after the one retry has also failed.\n */",
     "/** Where to start, in milliseconds. Omitted means \"wherever the element already is\". */",
-    "/** Capture the element into Web Audio only when the equalizer or leveling is actually on. */",
     "/** The browser refused to start without a user gesture. Not a broken track, so it must not skip. */",
     "/** No `Audio` constructor at all: a server render, a test harness, or a locked-down webview. */",
     "/** Attach the graph to the element that is already playing, when EQ is switched on mid-track. */",
@@ -7036,6 +7041,9 @@ const allowed = new Map([
     "// `preload='metadata'` promises metadata, not `canplay`. Readiness is either signal; the play",
     "// call below buffers the rest and reports its own failure if the stream cannot continue.",
     "// One subscriber failing must not stop the others or the audio element's own event handler.",
+    "/** How much of the track the element has buffered, 0..1. */",
+    "/** Capture the element into Web Audio only when the equalizer, leveling or normalizing is on. */",
+    "/** Linear gain from Netease's measured loudness; 1 leaves the track alone. */",
   ]],
   ["src/client/features/music/player/eq.ts", [
     "/**\n * The ten-band equalizer, wired between the shared audio element and the speakers.\n *\n * A `MediaElementAudioSourceNode` can only be created once per element, and a source that fails to\n * connect leaves the element silent, so every step here degrades to \"no equalizer\" instead of\n * throwing. The caller keeps playing; the settings panel can say that this source cannot be shaped.\n *\n * The graph is `source -> 10 x peaking BiquadFilter -> gain -> destination`. The gain stage stays at\n * unity: the audio element owns the volume, and keeping one place responsible for loudness means the\n * equalizer can be bypassed without a jump in level.\n */",
@@ -7061,6 +7069,7 @@ const allowed = new Map([
     "// A broken chain must not silence the track. Direct output is the fallback, and the panel can",
     "// read `available` to say the equalizer is off.",
     "// The element is captured and cannot be rewired again; the engine reports playback errors.",
+    "/** A linear gain from the provider's measured loudness; 1 leaves the track alone. */",
   ]],
   ["src/client/features/music/player/media-session.ts", [
     "/**\n * What the operating system shows in its media controls, and the buttons it can press.\n *\n * None of this changes playback by itself: the handlers are the player store's own actions, wired in\n * once. A browser without `navigator.mediaSession`, or one that refuses a particular action, keeps\n * playing — the lock screen is an enhancement, not the transport.\n */",
@@ -7184,8 +7193,6 @@ const allowed = new Map([
     "// may be older than the reader's edited metadata, and preservation is the server's default then.",
     "// One place records a play, so leaving and re-entering the music tab (or the floating player",
     "// remounting) cannot append the same listen again. The library still deduplicates within 30s.",
-    "// The audio element cannot read a response header, so a concurrent HEAD names a preview.",
-    "// It does not gate playback; the badge appears when the answer arrives.",
     "// A page can hand the list it rendered with a track that arrived later (a recommendation,",
     "// a search row). The track has to be in the queue it starts, or the bar and the sound",
     "// would name different songs.",
@@ -7193,6 +7200,13 @@ const allowed = new Map([
     "// has to start where the reader left off, not at zero.",
     "/**\n * Write the queue one last time when the document is going away.\n *\n * A named listener rather than an inline arrow: the leave-page guard documents every handler and\n * why it exists, and the pagehide event has no other place to persist a position in flight.\n */",
     "/** The number the player uses to stop a queue of dead tracks, re-exported for panels. */",
+    "/** The level the stream actually served, for the quality badge. */",
+    "/** ReplayGain in dB and the track's peak; 0 when the provider did not measure them. */",
+    "/** How much of the current stream the element has buffered, 0..1. */",
+    "/** NetEase brings normalised tracks to the quiet ReplayGain level; lift them before the peak guard. */",
+    "/** The linear gain that brings a measured track as loud as others without clipping its peak. */",
+    "// The audio element cannot read response headers, so a HEAD names the real level and the",
+    "// loudness before the first frame; an answer that fails only leaves the defaults.",
   ]],
   ["src/client/features/music/store/settings.ts", [
     "/**\n * The music app's preferences, split by who owns them.\n *\n * `local` is this device: volume, mute, playback mode and rate, the equalizer curve and how lyrics\n * look. It is written to localStorage on every change, because losing a volume setting after a\n * reload is a worse trade than an occasional write.\n *\n * `server` is the account's music settings row, read and written through `/api/music/settings` with\n * the same shapes the worker stores. Edits are optimistic and debounced; a failed PUT is rolled back\n * so the panel never shows a setting the account does not have.\n *\n * The endpoints are the planned ones from the port; this module does not implement routes.\n */",
@@ -40462,6 +40476,9 @@ const allowed = new Map([
   ]],
   ["tests/music-assistant-tools.test.ts", [
     "/**\n * The library tools: what the model may name, what the tools write, and what another account cannot.\n */",
+  ]],
+  ["tests/music-audio-fade.test.ts", [
+    "/**\n * The audio element's fade and gain arithmetic, and the buffered fraction a seek bar reads.\n *\n * A fake element is enough here: the browser's decoder and the Web Audio graph are separate concerns,\n * while the fade must not depend on them. Timers are faked so the test can observe both ends of a\n * fade without waiting on wall-clock time.\n */",
   ]],
   ["tests/music-backup.test.ts", [
     "/** A library that uses every table the backup carries, including an R2 object and a cover key. */",

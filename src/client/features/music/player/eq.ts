@@ -150,6 +150,7 @@ export class MusicEqualizer {
   private enabled = DEFAULT_EQ_SETTINGS.enabled
   private leveling = DEFAULT_EQ_SETTINGS.leveling
   private gains = [...DEFAULT_EQ_GAINS]
+  private normalizationGain = 1
   private reason: EqUnavailableReason | null = null
 
   /** Whether an `AudioContext` graph is attached to the element the engine is playing through. */
@@ -257,6 +258,14 @@ export class MusicEqualizer {
     if (this.available) this.applyEnabled()
   }
 
+  /** A linear gain from the provider's measured loudness; 1 leaves the track alone. */
+  setNormalizationGain(gain: number): void {
+    this.normalizationGain = Number.isFinite(gain) && gain > 0 ? gain : 1
+    if (this.gain && this.context) {
+      this.gain.gain.setValueAtTime(this.normalizationGain, this.context.currentTime)
+    }
+  }
+
   setGains(gains: readonly number[]): void {
     this.gains = EQ_FREQUENCIES.map((_, index) => clampGain(gains[index] ?? 0))
     this.writeGains()
@@ -326,6 +335,7 @@ export class MusicEqualizer {
         source.connect(tail)
       }
       if (this.leveling && compressor) compressor.connect(gain)
+      gain.gain.setValueAtTime(this.normalizationGain, context.currentTime)
       gain.connect(context.destination)
     } catch {
       // A broken chain must not silence the track. Direct output is the fallback, and the panel can

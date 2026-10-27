@@ -103,6 +103,13 @@ export interface MusicPlayerState {
   awaitingGesture: boolean
   /** The provider only offered a trial clip for the current track. */
   preview: boolean
+  /** The level the stream actually served, for the quality badge. */
+  streamQuality: string
+  /** ReplayGain in dB and the track's peak; 0 when the provider did not measure them. */
+  streamGain: number
+  streamPeak: number
+  /** How much of the current stream the element has buffered, 0..1. */
+  bufferedFraction: number
   /** The URL the current track is (or would be) loaded from. */
   sourceUrl: string
   setQueue: (tracks: readonly MusicTrack[], options?: SetQueueOptions) => MusicTrack | null
@@ -140,6 +147,17 @@ function coverUrlFor(track: MusicTrack): string {
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min
   return Math.min(max, Math.max(min, value))
+}
+
+/** NetEase brings normalised tracks to the quiet ReplayGain level; lift them before the peak guard. */
+export const NORMALIZATION_PREAMP_DB = 4
+
+/** The linear gain that brings a measured track as loud as others without clipping its peak. */
+export function normalizationGainFrom(gainDb: number, peak: number): number {
+  if (!Number.isFinite(gainDb) || (!gainDb && (!Number.isFinite(peak) || peak <= 0))) return 1
+  let gain = Math.pow(10, (gainDb + NORMALIZATION_PREAMP_DB) / 20)
+  if (Number.isFinite(peak) && peak > 0) gain = Math.min(gain, 1 / peak)
+  return Math.max(0.1, Math.min(4, gain))
 }
 
 function describe(error: unknown): string {
@@ -277,6 +295,10 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
       errorDetail: null,
       awaitingGesture: false,
       preview: false,
+      streamQuality: track.sourceQuality || track.format || '',
+      streamGain: 0,
+      streamPeak: 0,
+      bufferedFraction: 0,
     })
     // A track opened from discovery has no library id yet; saving the snapshot is what lets the
     // stream and cover routes find it. An already-saved track is not written again: the queue's copy
@@ -289,6 +311,26 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
       }
     }
     if (request !== generation) return false
+    let quality = track.sourceQuality || track.format || ''
+    let gainDb = 0
+    let peak = 0
+    let preview = false
+    if (track.provider === 'netease' && !track.r2Key) {
+      try {
+        // The audio element cannot read response headers, so a HEAD names the real level and the
+        // loudness before the first frame; an answer that fails only leaves the defaults.
+        const response = await fetch(sourceUrl, { method: 'HEAD' })
+        quality = response.headers.get('x-music-quality') || quality
+        gainDb = Number(response.headers.get('x-music-gain') ?? 0)
+        peak = Number(response.headers.get('x-music-peak') ?? 0)
+        preview = response.headers.get('x-music-free-trial') === '1'
+      } catch (error) {
+        console.warn('[inkstone] Music preview probe failed:', error)
+      }
+    }
+    if (request !== generation) return false
+    const prefs = useMusicSettings.getState().local
+    set({ streamQuality: quality, streamGain: gainDb, streamPeak: peak, preview })
     try {
       await musicAudioEngine.play({
         url: sourceUrl,
@@ -297,24 +339,14 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
         volume: get().volume,
         muted: get().muted,
         rate: get().rate,
-        equalizer: useMusicSettings.getState().local.eq.enabled
-          || useMusicSettings.getState().local.eq.leveling,
+        equalizer: prefs.eq.enabled || prefs.eq.leveling || prefs.normalize,
+        normalizationGain: prefs.normalize ? normalizationGainFrom(gainDb, peak) : 1,
       })
       if (request !== generation) return false
       set({ status: 'playing', consecutiveFailures: 0, error: null, errorDetail: null })
       // One place records a play, so leaving and re-entering the music tab (or the floating player
       // remounting) cannot append the same listen again. The library still deduplicates within 30s.
       void useMusicLibrary.getState().recordHistory({ track, contextType: 'player' })
-      if (track.provider === 'netease' && !track.r2Key) {
-        // The audio element cannot read a response header, so a concurrent HEAD names a preview.
-        // It does not gate playback; the badge appears when the answer arrives.
-        void fetch(sourceUrl, { method: 'HEAD' }).then((response) => {
-          if (request !== generation) return
-          if (response.headers.get('x-music-free-trial') === '1') set({ preview: true })
-        }).catch((error: unknown) => {
-          console.warn('[inkstone] Music preview probe failed:', error)
-        })
-      }
       syncMediaSession(get())
       return true
     } catch (error) {
@@ -347,14 +379,14 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
     return playCurrent(step.at === 'restart' ? 0 : undefined)
   }
 
-  musicAudioEngine.subscribe('timeupdate', ({ positionMs, durationMs }) => {
-    set({ positionMs, durationMs })
+  musicAudioEngine.subscribe('timeupdate', ({ positionMs, durationMs, bufferedFraction }) => {
+    set({ positionMs, durationMs, bufferedFraction })
   })
-  musicAudioEngine.subscribe('durationchange', ({ positionMs, durationMs }) => {
-    set({ positionMs, durationMs })
+  musicAudioEngine.subscribe('durationchange', ({ positionMs, durationMs, bufferedFraction }) => {
+    set({ positionMs, durationMs, bufferedFraction })
   })
-  musicAudioEngine.subscribe('seeked', ({ positionMs, durationMs }) => {
-    set({ positionMs, durationMs })
+  musicAudioEngine.subscribe('seeked', ({ positionMs, durationMs, bufferedFraction }) => {
+    set({ positionMs, durationMs, bufferedFraction })
     syncMediaSession(get())
   })
   musicAudioEngine.subscribe('play', () => {
@@ -428,6 +460,10 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
     consecutiveFailures: 0,
     awaitingGesture: false,
     preview: false,
+    streamQuality: '',
+    streamGain: 0,
+    streamPeak: 0,
+    bufferedFraction: 0,
     sourceUrl: '',
 
     setQueue(tracks, options = {}) {
@@ -451,6 +487,10 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
         error: null,
         errorDetail: null,
         preview: false,
+        streamQuality: '',
+        streamGain: 0,
+        streamPeak: 0,
+        bufferedFraction: 0,
         consecutiveFailures: 0,
         awaitingGesture: false,
       })
@@ -498,6 +538,10 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
         consecutiveFailures: 0,
         awaitingGesture: !preferences.autoPlay,
         preview: false,
+        streamQuality: '',
+        streamGain: 0,
+        streamPeak: 0,
+        bufferedFraction: 0,
       })
       persistPlayer(queue, 0)
       syncMediaSession(get())
@@ -748,6 +792,10 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
         consecutiveFailures: 0,
         awaitingGesture: Boolean(track),
         preview: false,
+        streamQuality: track?.sourceQuality || '',
+        streamGain: 0,
+        streamPeak: 0,
+        bufferedFraction: 0,
       })
       useMusicSettings.getState().setMode(queue.mode)
       syncMediaSession(get())

@@ -10,12 +10,13 @@ import { Slider } from '../../../components/form'
 import { cn } from '../../../lib/cn'
 import { formatDuration } from '@shared/music/format'
 import { musicText } from '../components/labels'
+import { useMusicPlayer } from '../store/player'
 
 export function NowPlayingScrubber({
   positionMs,
   durationMs,
   onSeek,
-  bufferedFraction = 0,
+  bufferedFraction,
   compact = false,
   className,
 }: {
@@ -26,9 +27,10 @@ export function NowPlayingScrubber({
   compact?: boolean
   className?: string
 }): ReactElement {
+  const liveBuffered = useMusicPlayer((state) => state.bufferedFraction)
   const total = Math.max(1, Math.round(durationMs / 1000))
   const position = Math.min(total, Math.max(0, Math.round(positionMs / 1000)))
-  const buffered = Math.min(100, Math.max(0, Math.round(bufferedFraction * 100)))
+  const buffered = Math.min(100, Math.max(0, Math.round((bufferedFraction ?? liveBuffered) * 100)))
   return (
     <div className={cn('music-np__progress', compact && 'music-np__progress--compact', className)}>
       <span className="music-np__time">{formatDuration(positionMs)}</span>
