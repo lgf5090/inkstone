@@ -39,7 +39,9 @@ export function assertTursoUrl(raw: string): string {
   try {
     assertRelayableEndpoint(relay.toString())
   } catch (error) {
-    const reason = error instanceof Error ? error.message : 'the address is not reachable'
+    const reason = error instanceof Error
+      ? error.message.replace(/AI provider/g, 'database host')
+      : 'the address is not reachable'
     throw new Error(`The Turso URL is not reachable: ${reason}`)
   }
   return parsed.toString()

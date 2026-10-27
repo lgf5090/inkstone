@@ -110,6 +110,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
   const [saveNamespace, setSaveNamespace] = useState('')
   const [editingSaved, setEditingSaved] = useState<SavedQuery | null>(null)
   const [renameNamespace, setRenameNamespace] = useState<{ old: string; value: string } | null>(null)
+  const [groupConfirm, setGroupConfirm] = useState(false)
   const [placeholderValues, setPlaceholderValues] = useState<PlaceholderValues>({})
   const [sidePanel, setSidePanel] = useState<'ai' | 'agent' | null>(null)
   const historyAnchor = useRef<HTMLButtonElement>(null)
@@ -307,12 +308,14 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
   }
 
   const deleteGroup = async (name: string) => {
+    setGroupConfirm(true)
     const ok = await confirm({
       title: t('development.database.query.delete_group_title', { name }),
       description: t('development.database.query.delete_group_description'),
       confirmLabel: t('development.database.query.delete_group'),
       tone: 'danger',
     })
+    setGroupConfirm(false)
     if (!ok) return
     try {
       if (isLocal) {
@@ -570,7 +573,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
         </aside>
       )}
 
-      <ToolbarPanel open={historyOpen} onClose={() => setHistoryOpen(false)} anchor={historyAnchor} label={t('development.database.query.history')} width={340}>
+      <ToolbarPanel open={historyOpen} onClose={() => setHistoryOpen(false)} anchor={historyAnchor} label={t('development.database.query.history')} width={340} suspended={settingsOpen}>
         <div className="mb-2 flex items-center gap-1.5">
           <Input value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} placeholder={t('development.database.query.search_history')} className="h-8 text-[length:var(--text-11)]" />
           <IconButton label={t('development.database.query.history_settings')} size="sm" onClick={() => { setHistoryOpen(false); setSettingsOpen(true) }}>
@@ -598,7 +601,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
         )}
       </ToolbarPanel>
 
-      <ToolbarPanel open={savedOpen} onClose={() => setSavedOpen(false)} anchor={savedAnchor} label={t('development.database.query.saved_queries')} width={360}>
+      <ToolbarPanel open={savedOpen} onClose={() => setSavedOpen(false)} anchor={savedAnchor} label={t('development.database.query.saved_queries')} width={360} suspended={saveOpen || renameNamespace !== null || groupConfirm}>
         {groups.length === 0 ? (
           <div className="px-1 py-3 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.database.query.no_saved')}</div>
         ) : groups.map(([group, items]) => (

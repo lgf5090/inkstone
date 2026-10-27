@@ -1,7 +1,9 @@
 // @vitest-environment node
+import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import { parseCreateTable, parseCreateIndex } from '../src/client/features/development/database/schema-parse'
 import { buildRebuildSql } from '../src/client/features/development/database/ddl'
+import { loadSchema } from '../src/client/features/development/database/schema-utils'
 import { projectColumns, toCsv } from '../src/client/features/development/database/export-utils'
 import { buildWhere } from '../src/client/features/development/database/filter-ops'
 import { buildInsert, buildUpdate, rowKeyOf } from '../src/client/features/development/database/row-ops'
@@ -86,15 +88,50 @@ describe('development database core', () => {
     expect(buildInsert('t', [['created_at', null]])?.params).toEqual([null])
   })
 
+  it('hides SQLite and D1 internal objects from the schema model', async () => {
+    const driver = {
+      type: 'sqlite',
+      label: 'fake',
+      close: () => {},
+      query: async () => ({
+        columns: ['type', 'name', 'tbl_name', 'sql'],
+        rows: [
+          ['table', 'users', 'users', 'CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)'],
+          ['table', 'sqlite_sequence', 'sqlite_sequence', 'CREATE TABLE sqlite_sequence(name,seq)'],
+          ['table', '_cf_KV', '_cf_KV', 'CREATE TABLE _cf_KV(key TEXT PRIMARY KEY, value BLOB)'],
+          ['index', 'idx_users_name', 'users', 'CREATE INDEX idx_users_name ON users(name)'],
+          ['view', 'v_users', 'v_users', 'CREATE VIEW v_users AS SELECT name FROM users'],
+          ['trigger', 'trg_users', 'users', 'CREATE TRIGGER trg_users AFTER INSERT ON users BEGIN SELECT 1; END'],
+        ],
+        durationMs: 0,
+      }),
+    }
+    const model = await loadSchema(driver as never)
+    expect(model.tables.map((table) => table.name)).toEqual(['users'])
+    expect(model.views.map((view) => view.name)).toEqual(['v_users'])
+    expect(model.triggers.map((trigger) => trigger.name)).toEqual(['trg_users'])
+  })
+
   it('quotes CSV cells containing separators and newlines', () => {
     expect(toCsv(['a', 'b'], [['x,y', 'line\nbreak']], { bom: false })).toBe('a,b\r\n"x,y","line\nbreak"')
   })
 
-  it('uses one search parameter and parameterises filter values', () => {
+  it('uses one search parameter per searched column and parameterises filter values', () => {
     const where = buildWhere([{ id: '1', column: 'name', op: 'contains', value: 'ali' }], 'bob', ['name', 'email'])
-    expect(where?.params).toHaveLength(2)
+    expect(where?.params).toHaveLength(3)
     expect(where?.sql).toContain('instr(lower(coalesce(cast("name" as text)')
     expect(where?.sql).toContain('LIKE ? ESCAPE')
+
+    const db = new DatabaseSync(':memory:')
+    db.exec(`CREATE TABLE t (id INTEGER, name TEXT, email TEXT);
+      INSERT INTO t VALUES (1, 'Alice', 'alice@example.com'), (2, 'Bob', 'bob@example.com'), (3, 'Bobby', 'b@example.com');`)
+    const search = buildWhere([], 'bob', ['name', 'email'])!
+    const rows = db.prepare(`SELECT name FROM t WHERE ${search.sql} ORDER BY id`).all(...search.params as string[])
+    expect(rows.map((row) => row.name)).toEqual(['Bob', 'Bobby'])
+    const combined = buildWhere([{ id: '1', column: 'name', op: 'contains', value: 'Bob' }], 'bob', ['name', 'email'])!
+    const filtered = db.prepare(`SELECT name FROM t WHERE ${combined.sql} ORDER BY id`).all(...combined.params as string[])
+    expect(filtered.map((row) => row.name)).toEqual(['Bob', 'Bobby'])
+    db.close()
   })
 
   it('builds composite-key and rowid updates', () => {

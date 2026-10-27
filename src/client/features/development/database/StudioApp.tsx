@@ -17,6 +17,7 @@ import { useBreakpoint } from '../../../lib/hooks'
 import { t } from '../../../lib/i18n'
 import { cn } from '../../../lib/cn'
 import { useUi } from '../../../store/ui'
+import { ApiError } from '../../../lib/api'
 import { copyText } from '../../../lib/clipboard'
 import { Button, IconButton } from '../../../components/primitives'
 import { Empty } from '../../../components/feedback'
@@ -143,14 +144,16 @@ export function StudioApp() {
 
   useEffect(() => {
     if (!autoWidth.current) return
-    const names = [
-      ...connections.map((connection) => connection.name),
-      ...(schema?.tables.map((table) => table.name) ?? []),
-    ]
-    const longest = names.reduce((left, right) => right.length > left.length ? right : left, '')
-    let width = 0
-    for (const character of longest) width += character.charCodeAt(0) > 255 ? 14 : 7.5
-    const estimated = Math.min(STUDIO_SIDEBAR_WIDTH.max, Math.max(STUDIO_SIDEBAR_WIDTH.default, width + 120))
+    const measure = (name: string) => {
+      let width = 0
+      for (const character of name) width += character.charCodeAt(0) > 255 ? 14 : 7.5
+      return width
+    }
+    const estimated = Math.min(STUDIO_SIDEBAR_WIDTH.max, Math.max(
+      STUDIO_SIDEBAR_WIDTH.default,
+      ...connections.map((connection) => measure(connection.name) + 176),
+      ...(schema?.tables.map((table) => measure(table.name) + 64) ?? []),
+    ))
     setSidebarWidth((current) => Math.max(current, estimated))
   }, [connections, schema])
 
@@ -167,8 +170,10 @@ export function StudioApp() {
     } catch (error) {
       setSchema(null)
       const message = error instanceof Error ? error.message : String(error)
-      setSchemaError(message)
-      notifyError(message)
+      const said = error instanceof ApiError ? error.serverMessage : undefined
+      const detail = said && said !== message ? `${message} — ${said}` : message
+      setSchemaError(detail)
+      notifyError(detail)
     } finally {
       setSchemaLoading(false)
     }
@@ -394,6 +399,7 @@ export function StudioApp() {
       onViewSql={setSqlViewOpen}
       onCollapse={() => setSidebarCollapsed(true)}
       onExpand={() => setSidebarCollapsed(false)}
+      collapsible={!isSmall}
     />
   )
 

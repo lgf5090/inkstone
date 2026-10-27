@@ -72,7 +72,7 @@ export function buildWhere(
       )
     if (expressions.length > 0) {
       parts.push(`(${expressions.join(' OR ')})`)
-      params.push(keyword)
+      for (let index = 0; index < expressions.length; index++) params.push(keyword)
     }
   }
 

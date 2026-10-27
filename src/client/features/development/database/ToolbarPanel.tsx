@@ -12,6 +12,7 @@ export interface ToolbarPanelProps {
   width?: number
   align?: 'start' | 'end'
   className?: string
+  suspended?: boolean
 }
 
 export function ToolbarPanel({
@@ -23,12 +24,13 @@ export function ToolbarPanel({
   width = 320,
   align = 'end',
   className,
+  suspended = false,
 }: ToolbarPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null)
   const [position, setPosition] = useState({ top: 0, left: 0 })
 
-  useEscape(open, onClose)
-  useClickOutside([panelRef, anchor], open, onClose)
+  useEscape(open && !suspended, onClose)
+  useClickOutside([panelRef, anchor], open && !suspended, onClose)
 
   useLayoutEffect(() => {
     if (!open) return

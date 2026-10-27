@@ -168,6 +168,16 @@ export function SchemaEditor({ driver, table, schemaModel, onSchemaChanged, onEr
       setPreview(null)
       onSchemaChanged?.()
     } catch (cause) {
+      try {
+        await driver.query('ROLLBACK')
+      } catch (error) {
+        console.warn('[inkstone] development database rebuild rollback failed:', error)
+      }
+      try {
+        await driver.query('PRAGMA foreign_keys = ON')
+      } catch (error) {
+        console.warn('[inkstone] development database foreign_keys restore failed:', error)
+      }
       onError(cause instanceof Error ? cause.message : String(cause))
     }
   }

@@ -58,6 +58,7 @@ export interface StudioSidebarProps {
   onViewSql: (sql: string) => void
   onCollapse?: () => void
   onExpand?: () => void
+  collapsible?: boolean
 }
 
 function connectionSub(connection: DatabaseConnectionView): string {
@@ -260,6 +261,7 @@ export function StudioSidebar(props: StudioSidebarProps) {
     onViewSql,
     onCollapse,
     onExpand,
+    collapsible = true,
   } = props
 
   const activeSavedId = selection?.kind === 'saved' ? selection.id : null
@@ -328,19 +330,21 @@ export function StudioSidebar(props: StudioSidebarProps) {
       aria-label={t('development.database.app.title')}
       className="flex h-full min-h-0 w-full flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)]"
     >
-      <header className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--border-subtle)] px-2">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <Database size={16} className="shrink-0 text-[var(--accent)]" />
-          <span className="truncate text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">
-            {t('development.database.app.title')}
-          </span>
-        </div>
-        <Tooltip label={t('development.database.app.collapse_sidebar')}>
-          <IconButton label={t('development.database.app.collapse_sidebar')} size="sm" onClick={onCollapse}>
-            <PanelLeftClose size={15} />
-          </IconButton>
-        </Tooltip>
-      </header>
+      {collapsible && (
+        <header className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--border-subtle)] px-2">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <Database size={16} className="shrink-0 text-[var(--accent)]" />
+            <span className="truncate text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">
+              {t('development.database.app.title')}
+            </span>
+          </div>
+          <Tooltip label={t('development.database.app.collapse_sidebar')}>
+            <IconButton label={t('development.database.app.collapse_sidebar')} size="sm" onClick={onCollapse}>
+              <PanelLeftClose size={15} />
+            </IconButton>
+          </Tooltip>
+        </header>
+      )}
 
       <div className="flex max-h-[52%] shrink-0 flex-col border-b border-[var(--border-subtle)] p-2">
         <div className="mb-1.5 flex items-center justify-between px-1">

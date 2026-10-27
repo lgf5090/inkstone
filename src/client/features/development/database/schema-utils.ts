@@ -10,16 +10,20 @@ import { quoteIdent } from '@shared/development/database/sql-utils'
 import type { StudioDriver } from './drivers'
 import { parseCreateTable, parseIndexesFromSchema } from './schema-parse'
 
+const INTERNAL_OBJECT = /^(?:sqlite_|_cf_)/i
+
 export async function loadSchema(driver: StudioDriver): Promise<SchemaModel> {
   const result = await driver.query(
     'SELECT type, name, tbl_name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type, name',
   )
-  const objects: RawSchemaObject[] = result.rows.map((row) => ({
-    type: String(row[0] ?? ''),
-    name: String(row[1] ?? ''),
-    tbl_name: String(row[2] ?? ''),
-    sql: row[3] == null ? null : String(row[3]),
-  }))
+  const objects: RawSchemaObject[] = result.rows
+    .map((row) => ({
+      type: String(row[0] ?? ''),
+      name: String(row[1] ?? ''),
+      tbl_name: String(row[2] ?? ''),
+      sql: row[3] == null ? null : String(row[3]),
+    }))
+    .filter((object) => !INTERNAL_OBJECT.test(object.name) && !INTERNAL_OBJECT.test(object.tbl_name))
 
   const tables: ParsedTable[] = []
   const views: { name: string; sql: string }[] = []

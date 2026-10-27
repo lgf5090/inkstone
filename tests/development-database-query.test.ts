@@ -384,6 +384,8 @@ describe('Turso', () => {
     ]) {
       expect(() => assertTursoUrl(url), url).toThrow()
     }
+    expect(() => assertTursoUrl('libsql://127.0.0.1')).toThrow(/publicly reachable database host/)
+    expect(() => assertTursoUrl('libsql://127.0.0.1')).not.toThrow(/AI provider/)
   })
 
   it('creates one client, executes with args and always closes it', async () => {

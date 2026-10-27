@@ -7,9 +7,16 @@ import { Modal } from '../../../components/overlay'
 import { SelectMenu } from '../../../components/select-menu'
 import { t } from '../../../lib/i18n'
 import { createConnection, listD1Databases, updateConnection } from './api'
+import { ApiError } from '../../../lib/api'
 import { isLocalSqliteFileName, MAX_LOCAL_SQLITE_FILE_BYTES } from './drivers'
 
 type ConnectionType = 'd1' | 'turso' | 'sqlite'
+
+function describeError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  const said = error instanceof ApiError ? error.serverMessage : undefined
+  return said && said !== message ? `${message} — ${said}` : message
+}
 
 interface ConnectionDialogProps {
   open: boolean
@@ -55,14 +62,16 @@ export function ConnectionDialog({
   }, [open, editing])
 
   const loadDatabases = async () => {
-    if (!editing && (!d1AccountId.trim() || !d1Token.trim())) {
+    const sameSavedAccount = Boolean(editing) && d1AccountId.trim() === editing?.d1AccountId.trim()
+    const useSavedSecret = sameSavedAccount && !d1Token.trim()
+    if (!useSavedSecret && (!d1AccountId.trim() || !d1Token.trim())) {
       onError(t('development.database.conn.account_token_required'))
       return
     }
     setD1Loading(true)
     try {
       const list = await listD1Databases(
-        editing
+        editing && useSavedSecret
           ? { connectionId: editing.id }
           : { accountId: d1AccountId.trim(), apiToken: d1Token.trim() },
       )
@@ -72,7 +81,7 @@ export function ConnectionDialog({
       }
       if (list.length === 0) onError(t('development.database.conn.no_databases'))
     } catch (error) {
-      onError(error instanceof Error ? error.message : String(error))
+      onError(describeError(error))
     } finally {
       setD1Loading(false)
     }
@@ -138,7 +147,7 @@ export function ConnectionDialog({
       }
       onOpenChange(false)
     } catch (error) {
-      onError(error instanceof Error ? error.message : String(error))
+      onError(describeError(error))
     } finally {
       setSubmitting(false)
     }
@@ -160,11 +169,16 @@ export function ConnectionDialog({
     setFile(next)
   }
 
-  const databaseOptions = databases.map((database) => ({ value: database.uuid, label: database.name }))
+  const databaseOptions = databases.length > 0
+    ? databases.map((database) => ({ value: database.uuid, label: database.name }))
+    : editing?.d1DatabaseId && d1DatabaseId === editing.d1DatabaseId
+      ? [{ value: editing.d1DatabaseId, label: editing.d1DatabaseName || editing.d1DatabaseId }]
+      : []
+  const accountChanged = Boolean(editing) && d1AccountId.trim() !== editing?.d1AccountId.trim()
   const canSubmit = Boolean(name.trim()) && (type === 'sqlite'
     ? Boolean(file)
     : type === 'd1'
-      ? Boolean(d1AccountId.trim() && d1DatabaseId && (isEdit || d1Token.trim()))
+      ? Boolean(d1AccountId.trim() && d1DatabaseId && (!isEdit || !accountChanged || d1Token.trim()))
       : Boolean(tursoUrl.trim() && (isEdit || tursoToken.trim())))
 
   return (
@@ -215,14 +229,23 @@ export function ConnectionDialog({
             <Field label={t('development.database.conn.account_id')} hint={t('development.database.conn.account_hint')} required>
               <Input
                 value={d1AccountId}
-                onChange={(event) => setD1AccountId(event.target.value)}
+                onChange={(event) => {
+                  const next = event.target.value
+                  setD1AccountId(next)
+                  if (editing && next.trim() !== editing.d1AccountId.trim()) {
+                    setDatabases([])
+                    setD1DatabaseId('')
+                  }
+                }}
                 placeholder={t('development.database.conn.account_placeholder')}
                 spellCheck={false}
               />
             </Field>
             <Field
               label={t('development.database.conn.api_token')}
-              hint={isEdit ? t('development.database.conn.token_keep') : t('development.database.conn.token_hint')}
+              hint={accountChanged
+                ? t('development.database.conn.token_account_changed')
+                : isEdit ? t('development.database.conn.token_keep') : t('development.database.conn.token_hint')}
               required={!isEdit}
             >
               <Input
