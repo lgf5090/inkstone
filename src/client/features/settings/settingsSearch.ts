@@ -429,7 +429,6 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'reading', titleKey: 'settings.reading_translate', detailKey: 'settings.reading_translate_desc', termKeys: ['reading.engine_free', 'reading.engine_ai'] },
   { section: 'reading', titleKey: 'settings.reading_translate_engine', detailKey: 'settings.reading_translate_engine_desc' },
   { section: 'reading', titleKey: 'settings.reading_shelf', detailKey: 'settings.reading_shelf_desc', termKeys: ['reading.export_library', 'reading.import_library', 'settings.reading_reset'] },
-  { section: 'ink', titleKey: 'settings.ink_title', detailKey: 'settings.ink_desc', termKeys: ['common.new_ink', 'sidebar.create_new_ink_here'] },
   { section: 'ink', titleKey: 'settings.ink_folder', detailKey: 'settings.ink_folder_desc' },
   { section: 'ink', titleKey: 'settings.ink_prefix', detailKey: 'settings.ink_prefix_desc' },
   { section: 'ink', titleKey: 'settings.ink_date_format', detailKey: 'settings.ink_date_format_desc' },

@@ -98,7 +98,9 @@ function useAttachmentReference(engine: InkEngine, element: InkElement): void {
             const file = files[0]
             if (!file || cancelled) return
             engine.patchElement(element.id, { fileId: file.id, url: `/api/files/${file.id}`, mime: file.mime })
-        }).catch(() => {})
+        }).catch(() => {
+            // An old .ink path may name no attachment any more; the card stays in its missing state.
+        })
         return () => { cancelled = true }
     }, [engine, element.id, element.kind, element.fileId, element.path])
 }

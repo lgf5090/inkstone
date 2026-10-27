@@ -6275,6 +6275,9 @@ const allowed = new Map([
     "/** Pressed on a thread: the panel decides what opening a conversation means, the canvas only names it. */",
     "/**\n * A node kind the graph feature knows about and the note schema does not.\n *\n * A conversation is not a note, so it has no `GraphNode.kind` of its own in the shared type: what the notes\n * app stores, what its graph route answers, and what its link index can point at are all note-shaped, and\n * widening that union would make the notebook's storage answer for a table it does not own. The threads are\n * merged in here, in the one module that draws them, from the assistant's own reads — so the extra kind\n * lives on this side of the boundary, and a `GraphNode` still flows into it unchanged.\n */",
   ]],
+  ["src/client/features/inkpad/ink-elements.tsx", [
+    "// An old .ink path may name no attachment any more; the card stays in its missing state.",
+  ]],
   ["src/client/features/inkpad/ink-engine-types.ts", [
     "/** The engine reads paper style and pressure response on demand. */",
     "/** The engine holds no interface copy; it hands the shell a code to translate. */",
@@ -6304,6 +6307,7 @@ const allowed = new Map([
     "/** Folder a new file lands in when no explicit folder is named: id or name; empty means the current location. */",
     "/** `auto` follows the theme's text colour; a custom value is always hex. */",
     "/**\n * The delay every ink editor waits before writing its body. The field carries a range, but a\n * restored value or another device's write bypasses the widget; the clamp lives where the delay\n * is read, so a half-typed or stale number can never reach a writer.\n */",
+    "// Best-effort local preference write; private mode or a full quota must not break the editor.",
   ]],
   ["src/client/features/links/LinkEditorPopover.tsx", [
     "// The target field is typed into, so the name lookup behind the warning and the `#` branch has to be",

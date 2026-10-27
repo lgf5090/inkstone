@@ -30,6 +30,7 @@ import { Button, IconButton } from '../../components/primitives'
 import { Menu, Tooltip, confirm, prompt, useEscape, type MenuItem } from '../../components/overlay'
 import { downloadBlob, safeFileName } from '../../lib/export-note'
 import { t, useLocale } from '../../lib/i18n'
+import { isImeComposing } from '../../lib/ime'
 import { useBreakpoint, useThemeDark } from '../../lib/hooks'
 import { INK_BODY_LIMIT_BYTES, inkBodyBytes, parseInkDocumentResult } from '../../lib/inkpad/format'
 import { classifyInkLink } from '../../lib/inkpad/link'
@@ -533,6 +534,7 @@ export function InkNoteEditor({ note, content, onChange, onTitleChange, onMobile
                             onChange={(event) => setTitleDraft(event.target.value)}
                             onBlur={commitTitle}
                             onKeyDown={(event) => {
+                                if (isImeComposing(event)) return
                                 if (event.key !== 'Enter') return
                                 event.preventDefault()
                                 commitTitle()

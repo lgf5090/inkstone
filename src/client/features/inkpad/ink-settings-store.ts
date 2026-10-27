@@ -90,6 +90,7 @@ function persistSettings(data: unknown): void {
     try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
     } catch {
+        // Best-effort local preference write; private mode or a full quota must not break the editor.
     }
 }
 

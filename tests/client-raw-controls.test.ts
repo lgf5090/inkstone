@@ -562,6 +562,7 @@ const LIST_FILTER_BASELINE = new Map<string, { sites: number; reason: string }>(
   ['src/client/features/share/ConversationSharePanel.tsx', { sites: 1, reason: 'The same read-only share link field as SharePanel (178), for a published conversation. Not a filter at all.' }],
   ['src/client/features/tags/tag-row-parts.tsx', { sites: 1, reason: 'Tag rename row (`tags.rename` at 42) with autoFocus and a default value; an inline editor, not a list filter.' }],
   ['src/client/features/workspace/Workspace.tsx', { sites: 1, reason: 'Inline text field in the workspace surface (557). Not verified as a list filter; baseline so the rule can block new ones.' }],
+  ['src/client/features/inkpad/InkNoteEditor.tsx', { sites: 1, reason: 'The note title field in the editor header: it renames the open drawing, not a list filter, and has no result list to narrow.' }],
   ['src/client/features/todos/OrganizerEditors.tsx', { sites: 1, reason: 'The custom-colour draft (`#rrggbb`, 124) beside the colour wheel: an inline editor for one value, the same shape as the editor colour menu\'s name draft, not a list filter.' }],
 ])
 
@@ -766,6 +767,9 @@ const RAW_Z_INDEX_BASELINE = new Map<string, { value: string; reason: string }>(
   ['src/client/features/reading/reader/CommentCard.tsx:62', { value: '7', reason: 'Local stacking lift inside the reader card, not a shell layer.' }],
   ['src/client/features/reading/reader/LookupCard.tsx:52', { value: '8', reason: 'Local stacking lift inside the reader card, not a shell layer.' }],
   ['src/client/features/reading/reader/ReaderPanel.tsx:56', { value: '6', reason: 'Local stacking lift inside the reader panel, not a shell layer.' }],
+  ['src/client/features/inkpad/ink-elements.tsx:42', { value: '1', reason: 'Local card-body layer inside the ink canvas; the shell z-index scale does not describe layers between a drawing and its cards.' }],
+  ['src/client/features/inkpad/ink-elements.tsx:47', { value: '3', reason: 'Local card-control layer inside the ink canvas; it must sit above the drawing but has no shell tier of its own.' }],
+  ['src/client/features/inkpad/ink-hud.tsx:73', { value: '4', reason: 'Local HUD layer inside the ink canvas; it sits above the drawing surface and below app menus.' }],
 ])
 
 /** Stylesheet declarations are the bulk of the residual, so they are budgeted per file by count. */
@@ -774,6 +778,7 @@ const RAW_Z_INDEX_CSS_BASELINE = new Map<string, number>([
   ['src/client/styles/editor.css', 3],
   ['src/client/styles/prose.css', 11],
   ['src/client/styles/reading.css', 5],
+  ['src/client/styles/inkpad.css', 1],
 ])
 
 describe('converged z-index keeps using the token scale', () => {
