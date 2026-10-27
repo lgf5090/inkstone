@@ -674,7 +674,7 @@ export function StudioSidebar(props: StudioSidebarProps) {
                   </div>
                 )
               })}
-              {filteredTables.length === 0 && (
+              {filteredTables.length === 0 && tableQuery && (
                 <div className="px-1.5 py-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
                   {t('development.database.app.no_matching_tables')}
                 </div>
