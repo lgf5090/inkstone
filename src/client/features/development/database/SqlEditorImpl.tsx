@@ -37,6 +37,7 @@ import {
   autocompletion,
   closeBrackets,
   closeBracketsKeymap,
+  closeCompletion,
   completionKeymap,
   type Completion,
   type CompletionContext,
@@ -284,10 +285,11 @@ export default function SqlEditorImpl({
         themeCompartment.current.of(themeExtension(fontSize)),
         languageCompartment.current.of(languageExtension(namespace)),
         keymap.of([
-          { key: 'Mod-Enter', run: (target) => { callbacks.current.onExecute(target.state.doc.toString()); return true } },
+          { key: 'Mod-Enter', run: (target) => { closeCompletion(target); callbacks.current.onExecute(target.state.doc.toString()); return true } },
           {
             key: 'Mod-Shift-f',
             run: (target) => {
+              closeCompletion(target)
               const text = target.state.doc.toString()
               const format = callbacks.current.onFormat
               if (format) format(text)
