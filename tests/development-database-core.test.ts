@@ -6,6 +6,7 @@ import { buildRebuildSql } from '../src/client/features/development/database/ddl
 import { buildTableDataSql, loadSchema } from '../src/client/features/development/database/schema-utils'
 import { buildDistinctSql } from '../src/client/features/development/database/distinct-ops'
 import { buildDataSearchSql, searchableColumns } from '../src/client/features/development/database/data-search'
+import { buildRowInsert, chunkRows, transferInsertStatements } from '../src/client/features/development/database/transfer-ops'
 import { inferColumnType, parseCsv } from '../src/client/features/development/database/csv-parse'
 import { projectColumns, toCsv, toMarkdown, toSchemaSql } from '../src/client/features/development/database/export-utils'
 import { transformValue } from '../src/client/features/development/database/transform-value'
@@ -240,6 +241,15 @@ describe('development database core', () => {
     expect(inferColumnType(['1', '2.5'])).toBe('REAL')
     expect(inferColumnType(['1', 'x'])).toBe('TEXT')
     expect(inferColumnType([])).toBe('TEXT')
+  })
+
+  it('chunks transfer rows and quotes INSERT literals', () => {
+    expect(chunkRows([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]])
+    expect(buildRowInsert('t', ['a', 'b'], ["x'y", null])).toBe(`INSERT INTO "t" ("a", "b") VALUES ('x''y', NULL)`)
+    expect(transferInsertStatements('t', ['a'], [[1], [2]])).toEqual([
+      'INSERT INTO "t" ("a") VALUES (1);',
+      'INSERT INTO "t" ("a") VALUES (2);',
+    ])
   })
 
   it('quotes CSV cells containing separators and newlines', () => {
