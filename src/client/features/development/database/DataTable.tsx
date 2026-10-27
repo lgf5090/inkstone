@@ -393,6 +393,18 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
     })
   }
 
+  const addQuickFilter = (column: string, op: FilterOperator, value: string) => {
+    if (!column) return
+    const next = [...filters, {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      column,
+      op,
+      value: op === 'isNull' || op === 'notNull' ? '' : value,
+    }]
+    setFilters(next)
+    void load(0, pageSize, orderBy, orderDir, buildWhere(next, debouncedSearch, searchColumns))
+  }
+
   const contextItems = contextMenu ? [
     {
       id: 'null',
@@ -478,6 +490,31 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
           setContextMenu(null)
         })()
       },
+    },
+    {
+      id: 'filter-equals',
+      label: t('development.database.table.filter_equals'),
+      icon: <Filter size={13} />,
+      separatorBefore: true,
+      onSelect: () => {
+        const value = rows[contextMenu.row]?.[contextMenu.col]
+        addQuickFilter(columns[contextMenu.col] ?? '', 'equals', value === null || value === undefined ? '' : String(value))
+        setContextMenu(null)
+      },
+    },
+    {
+      id: 'filter-contains',
+      label: t('development.database.table.filter_contains'),
+      onSelect: () => {
+        const value = rows[contextMenu.row]?.[contextMenu.col]
+        addQuickFilter(columns[contextMenu.col] ?? '', 'contains', value === null || value === undefined ? '' : String(value))
+        setContextMenu(null)
+      },
+    },
+    {
+      id: 'filter-null',
+      label: t('development.database.table.filter_is_null'),
+      onSelect: () => { addQuickFilter(columns[contextMenu.col] ?? '', 'isNull', ''); setContextMenu(null) },
     },
     {
       id: 'copy-row-tsv',

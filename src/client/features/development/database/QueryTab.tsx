@@ -18,6 +18,7 @@ import type { QueryHistoryEntry, QueryResult, SavedQuery, SchemaModel } from '@s
 import { MAX_QUERY_BYTES, MAX_QUERY_ROWS } from '@shared/development/database/types'
 import { splitSqlStatements, isWriteSql } from '@shared/development/database/sql-utils'
 import { isImeComposing } from '../../../lib/ime'
+import { cn } from '../../../lib/cn'
 import { t } from '../../../lib/i18n'
 import { Button, IconButton } from '../../../components/primitives'
 import { Input, Field } from '../../../components/form'
@@ -69,8 +70,19 @@ function writeLocal(key: string, value: unknown): void {
   }
 }
 
-function historyToSql(entry: QueryHistoryEntry | string): string {
-  return typeof entry === 'string' ? entry : entry.query
+function historyEntry(value: unknown): QueryHistoryEntry {
+  if (typeof value === 'string') {
+    return { id: `local-${value.length}`, connectionId: 'local', query: value, executedAt: 0, durationMs: 0, error: null }
+  }
+  const entry = value as Partial<QueryHistoryEntry>
+  return {
+    id: entry.id ?? `local-${entry.executedAt ?? 0}`,
+    connectionId: entry.connectionId ?? 'local',
+    query: entry.query ?? '',
+    executedAt: entry.executedAt ?? 0,
+    durationMs: entry.durationMs ?? 0,
+    error: entry.error ?? null,
+  }
 }
 
 function resultTableName(sql: string): string | null {
@@ -101,7 +113,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
   const [resultSearch, setResultSearch] = useState('')
   const [detailRow, setDetailRow] = useState<number | null>(null)
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set())
-  const [history, setHistory] = useState<string[]>([])
+  const [history, setHistory] = useState<QueryHistoryEntry[]>([])
   const [saved, setSaved] = useState<SavedQuery[]>([])
   const [historySearch, setHistorySearch] = useState('')
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -138,11 +150,11 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
 
   useEffect(() => {
     if (!isLocal) {
-      void listHistory(connectionId).then((entries) => setHistory(entries.map(historyToSql))).catch((cause) => onError(cause instanceof Error ? cause.message : String(cause)))
-      void listSavedQueries(connectionId).then(setSaved).catch((cause) => onError(cause instanceof Error ? cause.message : String(cause)))
+      void listHistory(connectionId).then(setHistory).catch((cause) => onError(describeError(cause)))
+      void listSavedQueries(connectionId).then(setSaved).catch((cause) => onError(describeError(cause)))
       void getSettings().then((settings) => setHistoryLimited(settings.historyLimit)).catch((error) => console.warn('[inkstone] Development database history settings could not be read:', error))
     } else {
-      setHistory(readLocal<string[]>(`${LOCAL_HISTORY_PREFIX}${connectionId}`, []).slice(0, MAX_LOCAL_HISTORY))
+      setHistory(readLocal<unknown[]>(`${LOCAL_HISTORY_PREFIX}${connectionId}`, []).slice(0, MAX_LOCAL_HISTORY).map(historyEntry))
       setSaved(readLocal<SavedQuery[]>(`${LOCAL_SAVED_PREFIX}${connectionId}`, []))
     }
   }, [connectionId, isLocal, onError])
@@ -151,9 +163,17 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
     if (initialSql) setSql(initialSql)
   }, [initialSql])
 
-  const pushHistory = useCallback((text: string) => {
+  const pushHistory = useCallback((text: string, durationMs: number, failure: string | null) => {
+    const entry: QueryHistoryEntry = {
+      id: `local-${Date.now()}`,
+      connectionId,
+      query: text,
+      executedAt: Date.now(),
+      durationMs,
+      error: failure,
+    }
     setHistory((current) => {
-      const next = [text, ...current.filter((entry) => entry !== text)].slice(0, historyLimited)
+      const next = [entry, ...current.filter((item) => item.query !== text)].slice(0, historyLimited)
       if (isLocal) writeLocal(`${LOCAL_HISTORY_PREFIX}${connectionId}`, next)
       return next
     })
@@ -175,11 +195,12 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
     }
     setRunning(true)
     setError(null)
+    const startedAt = Date.now()
     try {
       const next: QueryResult[] = []
       if (!isLocal && statements.length > 1) {
         setProgress({ current: 1, total: statements.length })
-        next.push(...await runBatch(connectionId, statements.map((sql) => ({ sql }))))
+        next.push(...await runBatch(connectionId, statements.map((statement) => ({ sql: statement }))))
       } else {
         for (let index = 0; index < statements.length; index++) {
           setProgress({ current: index + 1, total: statements.length })
@@ -191,12 +212,14 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
       setActiveResult(0)
       setDetailRow(null)
       setSelectedRows(new Set())
-      pushHistory(target)
+      pushHistory(target, Date.now() - startedAt, null)
       if (!isLocal) {
-        void listHistory(connectionId).then((entries) => setHistory(entries.map(historyToSql))).catch((error) => console.warn('[inkstone] Development database history settings could not be read:', error))
+        void listHistory(connectionId).then(setHistory).catch((cause) => console.warn('[inkstone] Development database history could not be re-read:', cause))
       }
     } catch (cause) {
-      setError(describeError(cause))
+      const message = describeError(cause)
+      setError(message)
+      pushHistory(target, Date.now() - startedAt, message)
     } finally {
       setProgress(null)
       setRunning(false)
@@ -350,7 +373,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
       if (!isLocal) {
         await updateSettings(historyLimited)
         const entries = await listHistory(connectionId)
-        setHistory(entries.map(historyToSql))
+        setHistory(entries)
       } else {
         const next = history.slice(0, historyLimited)
         setHistory(next)
@@ -374,14 +397,16 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
     })
   }
 
-  const filteredHistory = history.filter((entry) => entry.toLowerCase().includes(historySearch.trim().toLowerCase()))
+  const filteredHistory = history.filter((entry) => entry.query.toLowerCase().includes(historySearch.trim().toLowerCase()))
   const groups = useMemo(() => {
     const map = new Map<string, SavedQuery[]>()
     for (const entry of saved) {
       const name = entry.namespace || 'default'
       map.set(name, [...(map.get(name) ?? []), entry])
     }
-    return [...map.entries()]
+    return [...map.entries()].map(
+      ([name, items]) => [name, [...items].sort((left, right) => right.updatedAt - left.updatedAt)] as const,
+    )
   }, [saved])
 
   const detail = detailRow !== null ? filteredRows[detailRow] : null
@@ -602,8 +627,23 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
           {filteredHistory.length === 0 ? (
             <div className="px-1 py-3 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.database.query.no_history')}</div>
           ) : filteredHistory.map((entry, index) => (
-            <button key={`${entry}-${index}`} type="button" onClick={() => { setSql(entry); setHistoryOpen(false) }} className="block w-full truncate rounded px-1.5 py-1.5 text-left font-mono text-[length:var(--text-11)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]">
-              {entry}
+            <button
+              key={`${entry.id}-${index}`}
+              type="button"
+              onClick={() => { setSql(entry.query); setHistoryOpen(false) }}
+              className="flex w-full items-center gap-1.5 rounded px-1.5 py-1.5 text-left hover:bg-[var(--bg-hover)]"
+            >
+              <span className={cn('min-w-0 flex-1 truncate font-mono text-[length:var(--text-11)]', entry.error ? 'text-[var(--danger)]' : 'text-[var(--text-secondary)]')}>
+                {entry.query}
+              </span>
+              {entry.error && (
+                <span className="shrink-0 rounded bg-[var(--danger-soft)] px-1 text-[length:var(--text-9)] text-[var(--danger)]" title={entry.error}>
+                  {t('development.database.query.history_failed')}
+                </span>
+              )}
+              <span className="shrink-0 tabular-nums text-[length:var(--text-10)] text-[var(--text-quaternary)]">
+                {entry.durationMs}{t('development.database.query.ms')}
+              </span>
             </button>
           ))}
         </div>
