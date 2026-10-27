@@ -1,14 +1,14 @@
 /**
  * The Records tab: the zone's DNS records, their proxy switches, and the add/edit/delete actions.
  */
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Empty, LoadingBlock } from '../../../../components/feedback'
 import { Switch } from '../../../../components/form'
 import { confirm } from '../../../../components/overlay'
 import { Badge, Button } from '../../../../components/primitives'
 import { CopyButton } from '../../components/CopyButton'
 import { Table, TableScroll, TBody, Td, THead, Th, Tr, SortableHead } from '../../components/Table'
-import { useSort } from '../../lib/sort'
+import { sortRows, useSort } from '../../lib/sort'
 import { t as uiT } from '../../../../lib/i18n'
 import { useUi } from '../../../../store/ui'
 import { cfErrorText } from '../../api/client'
@@ -30,10 +30,10 @@ export function RecordsPanel({ domain }: { domain: string }) {
   const sort = useSort<DnsRecord>()
   const [editing, setEditing] = useState<{ record: DnsRecord | null } | null>(null)
 
-  const records = data ?? []
-  const rows = sort.sorted(records, (record) => (
+  const records = useMemo(() => data ?? [], [data])
+  const rows = useMemo(() => sortRows(records, sort.state, (record) => (
     (record as unknown as Record<string, unknown>)[sort.state.key ?? '']
-  ))
+  )), [records, sort.state])
 
   async function toggleProxy(record: DnsRecord, proxied: boolean): Promise<void> {
     try {

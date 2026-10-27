@@ -33291,6 +33291,8 @@ const allowed = new Map([
     "/**\n * D1 databases, tables, schemas and queries.\n *\n * Row counts are read in the same round trip as the table names: one statement for `sqlite_master`,\n * then one statement per batch of `COUNT(*)` subqueries. Identifiers are always quoted with\n * `quoteIdent`, and table names are re-checked before they are used in a PRAGMA.\n */",
     "/** Tables counted per round trip, so one oversized statement cannot fail the whole listing. */",
     "/**\n * Row counts for the named tables, read in as few round trips as SQLite allows.\n *\n * The obvious shape — one `SELECT … COUNT(*)` per table joined with `UNION ALL` — is rejected on any\n * real database: SQLite caps the terms of a compound select far below the table count a D1 database\n * reaches. Scalar subqueries in one select list carry no such cap, so a batch comes back as one row\n * keyed by table name.\n */",
+    "// Each batch is one statement and the batches are independent, so the wall time is a single round",
+    "// trip however many tables the database holds.",
   ]],
   ["src/worker/cloudflare/storage-kv.ts", [
     "/**\n * KV namespaces, keys and values through the Cloudflare REST API.\n *\n * The service speaks only to Cloudflare; account ownership and demo protection belong to the route.\n * Values are written as raw text with the TTL in the query string, which avoids multipart on a PUT\n * that only carries one field.\n */",

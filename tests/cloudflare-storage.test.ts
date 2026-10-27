@@ -304,6 +304,39 @@ describe('D1 routes', () => {
   })
 })
 
+  it('reads the row-count batches concurrently and keys them by table', async () => {
+    const account = await seedAccount(bed, TEST_USER, { id: ACCOUNT_A, token: 'token-c', accountId: 'cf-c' })
+    const names = Array.from({ length: 45 }, (_, index) => `t${index}`)
+    let inFlight = 0
+    let peak = 0
+    let seen: string[] = []
+    stubApi(async ({ method, path, body }) => {
+      if (method !== 'POST' || path !== '/accounts/cf-c/d1/database/db-1/query') return null
+      const sql = (body as { sql: string }).sql
+      if (sql.includes('sqlite_master')) {
+        return cfJson([{ results: names.map((name) => ({ name })), meta: { duration: 1 } }])
+      }
+      inFlight += 1
+      peak = Math.max(peak, inFlight)
+      seen = [...seen, sql]
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      inFlight -= 1
+      const columns = names.filter((name) => sql.includes(`"${name}"`))
+      const row: Record<string, number> = {}
+      for (const name of columns) row[name] = name.length
+      return cfJson([{ results: [row], meta: { duration: 1 } }])
+    })
+
+    const response = await send('GET', `/${account.id}/d1/db-1/tables`)
+    expect(response.status).toBe(200)
+    const body = await readJson<{ tables: Array<{ name: string; rows: number }> }>(response)
+    expect(body.tables).toHaveLength(45)
+    expect(body.tables[0]?.rows).toBe(2)
+    expect(body.tables[44]?.rows).toBe(3)
+    expect(peak).toBe(2)
+    expect(seen).toHaveLength(2)
+  })
+
 describe('R2 routes', () => {
   it('lists buckets and objects with delimited prefixes and a cursor', async () => {
     const account = await seedAccount(bed, TEST_USER, { id: ACCOUNT_A, token: 'token-a', accountId: 'cf-a' })
@@ -439,4 +472,6 @@ describe('R2 routes', () => {
     expect(response.status).toBe(404)
     expect(calls).toHaveLength(0)
   })
+
+
 })

@@ -183,18 +183,27 @@ async function countTableRows(
   databaseId: string,
   names: readonly string[],
 ): Promise<Map<string, number>> {
-  const rowsByName = new Map<string, number>()
+  const batches: string[][] = []
   for (let index = 0; index < names.length; index += ROW_COUNT_BATCH) {
-    const batch = names.slice(index, index + ROW_COUNT_BATCH)
-    const columns = batch.map((name) => `(SELECT COUNT(*) FROM ${quoteIdent(name)}) AS ${quoteIdent(name)}`).join(', ')
-    const counted = await runD1Query(auth, cfAccountId, databaseId, `SELECT ${columns}`)
-    for (const row of counted.results) {
-      for (const name of batch) {
+    batches.push(names.slice(index, index + ROW_COUNT_BATCH))
+  }
+  // Each batch is one statement and the batches are independent, so the wall time is a single round
+  // trip however many tables the database holds.
+  const counted = await Promise.all(batches.map((batch) => runD1Query(
+    auth,
+    cfAccountId,
+    databaseId,
+    `SELECT ${batch.map((name) => `(SELECT COUNT(*) FROM ${quoteIdent(name)}) AS ${quoteIdent(name)}`).join(', ')}`,
+  )))
+  const rowsByName = new Map<string, number>()
+  counted.forEach((result, index) => {
+    for (const row of result.results) {
+      for (const name of batches[index] ?? []) {
         const rows = numberOrUndefined(row[name])
         if (rows !== undefined) rowsByName.set(name, rows)
       }
     }
-  }
+  })
   return rowsByName
 }
 

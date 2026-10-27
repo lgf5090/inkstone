@@ -528,7 +528,11 @@ export function ChatTab() {
                             ) : null}
                           </div>
                         ) : null}
-                        {message.content ? (
+                        {message.content && message.loading ? (
+                          <p className="text-[length:var(--text-12-5)] break-words whitespace-pre-wrap text-[var(--text-primary)]">
+                            {message.content}
+                          </p>
+                        ) : message.content ? (
                           <MarkdownBody source={message.content} />
                         ) : message.loading ? (
                           <p className="flex items-center gap-2 text-[length:var(--text-12)] text-[var(--text-tertiary)]">
