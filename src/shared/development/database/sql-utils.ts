@@ -272,3 +272,11 @@ export function isWriteSql(sql: string): boolean {
     || head.startsWith('PRAGMA')
   )
 }
+
+export function isDestructiveSql(sql: string): boolean {
+  const text = leadingStatement(sql).toUpperCase()
+  if (/^(?:TRUNCATE\b|DROP\s+(?:TABLE|VIEW|INDEX|TRIGGER|SCHEMA|DATABASE)\b)/.test(text)) return true
+  if (/^DELETE\s+FROM\b/.test(text)) return !/\bWHERE\b/.test(text)
+  if (/^UPDATE\s+(?:"[^"]*"|`[^`]*`|\[[^\]]*\]|\S+)\s+SET\b/.test(text)) return !/\bWHERE\b/.test(text)
+  return false
+}

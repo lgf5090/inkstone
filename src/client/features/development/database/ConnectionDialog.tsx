@@ -120,7 +120,7 @@ export function ConnectionDialog({
           onError(t('development.database.conn.url_required'))
           return
         }
-        if (!isEdit && !tursoToken.trim()) {
+        if ((!isEdit || urlChanged) && !tursoToken.trim()) {
           onError(t('development.database.conn.token_required'))
           return
         }
@@ -168,11 +168,12 @@ export function ConnectionDialog({
       ? [{ value: editing.d1DatabaseId, label: editing.d1DatabaseName || editing.d1DatabaseId }]
       : []
   const accountChanged = Boolean(editing) && d1AccountId.trim() !== editing?.d1AccountId.trim()
+  const urlChanged = Boolean(editing) && tursoUrl.trim() !== editing?.tursoUrl.trim()
   const canSubmit = Boolean(name.trim()) && (type === 'sqlite'
     ? Boolean(file)
     : type === 'd1'
       ? Boolean(d1AccountId.trim() && d1DatabaseId && (!isEdit || !accountChanged || d1Token.trim()))
-      : Boolean(tursoUrl.trim() && (isEdit || tursoToken.trim())))
+      : Boolean(tursoUrl.trim() && (isEdit && !urlChanged || tursoToken.trim())))
 
   return (
     <Modal
@@ -282,14 +283,16 @@ export function ConnectionDialog({
             </Field>
             <Field
               label={t('development.database.conn.api_token')}
-              hint={isEdit ? t('development.database.conn.token_keep') : t('development.database.conn.token_hint')}
-              required={!isEdit}
+              hint={urlChanged
+                ? t('development.database.conn.token_url_changed')
+                : isEdit ? t('development.database.conn.token_keep') : t('development.database.conn.token_hint')}
+              required={urlChanged || !isEdit}
             >
               <Input
                 type="password"
                 value={tursoToken}
                 onChange={(event) => setTursoToken(event.target.value)}
-                placeholder={isEdit ? t('development.database.conn.token_keep_placeholder') : ''}
+                placeholder={isEdit && !urlChanged ? t('development.database.conn.token_keep_placeholder') : ''}
                 spellCheck={false}
               />
             </Field>

@@ -16,7 +16,7 @@ import {
 } from 'lucide-react'
 import type { QueryHistoryEntry, QueryResult, SavedQuery, SchemaModel } from '@shared/development/database/types'
 import { MAX_QUERY_BYTES, MAX_QUERY_ROWS } from '@shared/development/database/types'
-import { splitSqlStatements, isWriteSql } from '@shared/development/database/sql-utils'
+import { splitSqlStatements, isWriteSql, isDestructiveSql } from '@shared/development/database/sql-utils'
 import { isImeComposing } from '../../../lib/ime'
 import { cn } from '../../../lib/cn'
 import { t } from '../../../lib/i18n'
@@ -197,6 +197,15 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
     if (statements.length === 0) {
       setError(t('development.database.query.no_statements'))
       return
+    }
+    if (statements.some(isDestructiveSql)) {
+      const ok = await confirm({
+        title: t('development.database.query.destructive_title'),
+        description: t('development.database.query.destructive_description'),
+        confirmLabel: t('development.database.query.run'),
+        tone: 'danger',
+      })
+      if (!ok) return
     }
     setRunning(true)
     setError(null)

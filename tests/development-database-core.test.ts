@@ -10,7 +10,7 @@ import { SCHEMA_PROMPT_BUDGET_CHARS, buildSchemaPrompt } from '../src/client/fea
 import { buildInsert, buildUpdate, rowKeyOf } from '../src/client/features/development/database/row-ops'
 import type { StudioDriver } from '../src/client/features/development/database/drivers'
 import { findPlaceholders, replacePlaceholders } from '../src/client/features/development/database/placeholders'
-import { splitSqlStatements } from '../src/shared/development/database/sql-utils'
+import { isDestructiveSql, splitSqlStatements } from '../src/shared/development/database/sql-utils'
 
 describe('development database core', () => {
   it('parses composite keys, constraints and index columns', () => {
@@ -131,6 +131,20 @@ describe('development database core', () => {
     const small = buildSchemaPrompt([mentioned, { name: 'orders', columns: [{ name: 'id', type: 'INTEGER' }] }], '')
     expect(small.omitted).toBe(0)
     expect(small.text).toBe('- zzz_users(id INTEGER)\n- orders(id INTEGER)')
+  })
+
+  it('flags only irreversible statements for the confirmation', () => {
+    expect(isDestructiveSql('DROP TABLE users')).toBe(true)
+    expect(isDestructiveSql('truncate table t')).toBe(true)
+    expect(isDestructiveSql('DELETE FROM users')).toBe(true)
+    expect(isDestructiveSql('DELETE FROM users WHERE id = 1')).toBe(false)
+    expect(isDestructiveSql('UPDATE users SET name = "x"')).toBe(true)
+    expect(isDestructiveSql('UPDATE users SET name = "x" WHERE id = 1')).toBe(false)
+    expect(isDestructiveSql('-- drop the old rows\nSELECT 1')).toBe(false)
+    expect(isDestructiveSql("SELECT * FROM sqlite_master WHERE name LIKE 'drop%'")).toBe(false)
+    expect(isDestructiveSql("SELECT sql FROM sqlite_master WHERE sql LIKE '%DROP TABLE%'")).toBe(false)
+    expect(isDestructiveSql("SELECT * FROM notes WHERE body LIKE '%truncate%'")).toBe(false)
+    expect(isDestructiveSql('/* DELETE FROM t */ INSERT INTO t VALUES (1)')).toBe(false)
   })
 
   it('quotes CSV cells containing separators and newlines', () => {
