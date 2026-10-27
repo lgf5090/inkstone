@@ -5539,6 +5539,9 @@ const allowed = new Map([
     "// The string is the sanitised output of markdown-it and DOMPurify; no caller-supplied HTML",
     "// reaches this node.",
     "/**\n * Markdown as the assistant wrote it, rendered safely.\n *\n * The HTML is produced by markdown-it, sanitised by DOMPurify, and then given syntax colour by the\n * notebook's own Prism loader — the same highlighter the note preview uses. Code blocks carry a\n * language label and a copy button; both are ordinary DOM inside the sanitised fragment, with copy\n * handled by delegation because the fragment is not React's to own.\n *\n * Raw HTML is kept because a template README is documentation, not a prompt: a README that lays its\n * screenshots out with a `<table>` would otherwise show its markup as text. DOMPurify is the trust\n * boundary, and remote images are rewritten to the worker's image proxy because the page's own\n * `img-src` does not allow the documentation host.\n */",
+    "/** Where relative image paths point back to — a README's own URL, not the notebook's. */",
+    "// An already-proxied source is the output of this pass, not an input to it: re-resolving it",
+    "// against the README would wrap the URL twice, and this effect runs twice on a fresh mount.",
   ]],
   ["src/client/features/cloudflare/components/MultiSelect.tsx", [
     "/**\n * A multi-select the app can draw: a trigger and a panel of real checkboxes.\n *\n * The native `<select multiple>` cannot show a checked list without a modifier key, and its system\n * chrome ignores every token. This keeps the semantics (each row is a labelled checkbox) and closes on\n * Escape or a press outside, which is what the app's menus already do.\n */",
@@ -5649,6 +5652,8 @@ const allowed = new Map([
   ]],
   ["src/client/features/cloudflare/screens/ai/AudioTab.tsx", [
     "/**\n * The text-to-speech tab.\n *\n * A model answers with base64 audio; the page plays it from a Blob URL because the app's CSP does\n * not allow `data:` as a media source. Every URL made here is revoked when its row goes away or the\n * tab unmounts.\n */",
+    "// A mount re-arms this: React StrictMode runs the cleanup of a fresh mount, and a flag left false",
+    "// there would make every later answer look like it arrived after the component was gone.",
   ]],
   ["src/client/features/cloudflare/screens/ai/ChatHistorySidebar.tsx", [
     "/**\n * The conversation list beside the chat.\n *\n * Rows are buttons because opening a session is the only primary action; the overflow menu carries\n * the rest and opens from either a right-click or its own button, so the same actions are reachable\n * with a keyboard.\n */",
@@ -5656,6 +5661,8 @@ const allowed = new Map([
   ["src/client/features/cloudflare/screens/ai/ChatTab.tsx", [
     "/**\n * The chat tab: one conversation at a time, streamed from the proxy, with the session list on the\n * side. The screen owns the messages it is showing; the session row is written after each side of\n * the exchange is complete, so a failed stream never invents half a conversation.\n */",
     "// Naming is best-effort; the question still supplies a usable title.",
+    "// Re-armed on every mount: StrictMode cleans a fresh mount up, and a flag left false there would",
+    "// discard every streamed answer for the rest of the session.",
   ]],
   ["src/client/features/cloudflare/screens/ai/ImageTab.tsx", [
     "/**\n * The image tab: text-to-image and image-to-image against the model family the reader picked.\n *\n * The family decides which controls exist — Stable Diffusion takes width, height, guidance and a\n * negative prompt, FLUX does not — and the request builder is what turns that into the body.\n */",
@@ -35611,8 +35618,8 @@ const allowed = new Map([
     "// Preflight and deployment",
     "/** The shared body of `/deploy` and one batch row; throws only when the preconditions fail. */",
     "// Re-exported for the settings slice, which lists source status beside the task list.",
-    "// Proxied bytes are someone else's; they get no rights on this origin even if a browser",
-    "// navigates to them directly.",
+    "// README badges are mostly SVG, and SVG served from this origin is a document rather than a",
+    "// bitmap. It stays inert because the response sandboxes itself and allows no fetch target.",
   ]],
   ["src/worker/routes/cloudflare/tasks.ts", [
     "/**\n * `/api/cloudflare/tasks` — the scheduled maintenance rows and their history.\n *\n * The platform's cron trigger is what runs them (`runDueCloudflareTasks` in `cloudflare/tasks.ts`);\n * these routes only create, edit, enable and run on demand. A malformed cron is refused here rather\n * than stored and silently never fired.\n */",
@@ -39468,6 +39475,10 @@ const allowed = new Map([
   ["tests/cloudflare-ai-chat.test.ts", [
     "// Deterministic ordering: pinned first, then the most recently updated.",
   ]],
+  ["tests/cloudflare-ai-mount.test.ts", [
+    "/**\n * The AI tabs mounted the way the app mounts them — twice.\n *\n * Both tabs keep a liveness flag: `AudioTab` revokes the Blob URL of a clip that lands after the tab\n * is gone, `ChatTab` refuses to commit a stream nobody is watching. React runs a fresh mount's cleanup\n * in StrictMode, so a flag armed only by the ref initializer stays false for the rest of the session —\n * and the answer keeps *looking* fine, because the streamed object is mutated in place and a later\n * render picks it up. What disappears is the clip row and the stored assistant message. A dev-only\n * render cadence with a production-shaped symptom, which is why it needs a mount test.\n */",
+    "/** One streamed answer: a content delta, then the terminal `[DONE]` the reader stops on. */",
+  ]],
   ["tests/cloudflare-ai.test.ts", [
     "// A later request sees the exhausted marker and does not ask Cloudflare again.",
     "// The ledger keeps the fraction Cloudflare reports: a rounded allowance beside an unrounded model",
@@ -39486,6 +39497,11 @@ const allowed = new Map([
     "/** Insert an account row and the credential file it points at. */",
     "/** The account id the mocked session belongs to; every route test uses one reader. */",
   ]],
+  ["tests/cloudflare-markdown-images.test.ts", [
+    "/**\n * The README image rule, mounted the way the drawer mounts it.\n *\n * `MarkdownBody` rewrites image sources after React has drawn the sanitised fragment, and the rewrite\n * reads back the attribute it just wrote. Under StrictMode the effect runs twice over the same DOM, so\n * a second pass that treats its own output as an input wraps every URL around the proxy twice and each\n * image answers 404 — which is exactly what a browser shows and a source-scanning test cannot see.\n */",
+    "/** The proxied sources as the browser would request them, with the `url=` parameter decoded. */",
+    "/** A decoded source that still names the proxy is the signature of a second wrapping pass. */",
+  ]],
   ["tests/cloudflare-pricing.test.ts", [
     "// Llama 3.1 8B: 25.608 in / 75.147 out per thousand tokens.",
     "// Cached tokens never cost more than fresh ones, and never produce a negative bill.",
@@ -39498,7 +39514,7 @@ const allowed = new Map([
     "// counts must arrive as scalar subqueries in one select list.",
   ]],
   ["tests/cloudflare-store.test.ts", [
-    "// SVG is a document: served from this origin it could carry script.",
+    "// A README badge is usually SVG; it is served, but inert and typed as what it is.",
   ]],
   ["tests/cloudflare-tunnels.test.ts", [
     "// Wrap the stub once more to observe the rollback DELETE.",

@@ -210,9 +210,9 @@ storeRouter.get('/image', async (c) => {
       'content-type': type,
       'cache-control': 'private, max-age=86400',
       'x-content-type-options': 'nosniff',
-      // Proxied bytes are someone else's; they get no rights on this origin even if a browser
-      // navigates to them directly.
-      'content-security-policy': "default-src 'none'; img-src 'none'; form-action 'none'; base-uri 'none'",
+      // README badges are mostly SVG, and SVG served from this origin is a document rather than a
+      // bitmap. It stays inert because the response sandboxes itself and allows no fetch target.
+      'content-security-policy': "default-src 'none'; sandbox; img-src 'none'; form-action 'none'; base-uri 'none'",
     },
   })
 })

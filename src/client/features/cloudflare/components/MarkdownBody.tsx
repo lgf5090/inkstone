@@ -19,6 +19,8 @@ import { t } from '../../../lib/i18n'
 import { copyText } from '../../../lib/clipboard'
 import { highlightWithPrism } from '../../../lib/markdown/prism'
 
+const IMAGE_PROXY = '/api/cloudflare/store/image'
+
 function createRenderer(): MarkdownIt {
   const md = new MarkdownIt({ html: true, linkify: true, breaks: true, typographer: false })
 
@@ -47,11 +49,14 @@ export function MarkdownBody({
   source,
   className,
   empty,
+  baseHref,
 }: {
   source: string
   className?: string
   /** What to draw when the source is empty; omitted leaves the box empty rather than inventing a line. */
   empty?: string
+  /** Where relative image paths point back to — a README's own URL, not the notebook's. */
+  baseHref?: string
 }) {
   const container = useRef<HTMLDivElement>(null)
   const renderer = useMemo(createRenderer, [])
@@ -73,8 +78,17 @@ export function MarkdownBody({
     }
     for (const image of root.querySelectorAll<HTMLImageElement>('img[src]')) {
       const src = image.getAttribute('src') ?? ''
-      if (!/^https?:\/\//i.test(src)) continue
-      image.setAttribute('src', `/api/cloudflare/store/image?url=${encodeURIComponent(src)}`)
+      // An already-proxied source is the output of this pass, not an input to it: re-resolving it
+      // against the README would wrap the URL twice, and this effect runs twice on a fresh mount.
+      if (/^data:/i.test(src) || src.startsWith(IMAGE_PROXY)) continue
+      let absolute: URL | null = null
+      try {
+        absolute = new URL(src, baseHref)
+      } catch {
+        continue
+      }
+      if (!absolute || (absolute.protocol !== 'https:' && absolute.protocol !== 'http:')) continue
+      image.setAttribute('src', `${IMAGE_PROXY}?url=${encodeURIComponent(absolute.toString())}`)
     }
     const blocks = [...root.querySelectorAll<HTMLElement>('pre code[class*="language-"]')]
     for (const block of blocks) {
@@ -89,7 +103,7 @@ export function MarkdownBody({
         })
     }
     return () => { cancelled = true }
-  }, [html])
+  }, [html, baseHref])
 
   if (!html) {
     return empty ? <p className={cn('text-[length:var(--text-12)] text-[var(--text-tertiary)]', className)}>{empty}</p> : null

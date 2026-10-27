@@ -110,6 +110,9 @@ export function AudioTab() {
   }, [models, selectedModel])
 
   useEffect(() => {
+    // A mount re-arms this: React StrictMode runs the cleanup of a fresh mount, and a flag left false
+    // there would make every later answer look like it arrived after the component was gone.
+    mounted.current = true
     const urlsRef = urls.current
     return () => {
       mounted.current = false

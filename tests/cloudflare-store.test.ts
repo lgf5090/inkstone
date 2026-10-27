@@ -265,9 +265,11 @@ describe('the template store', () => {
     expect(ok.headers.get('x-content-type-options')).toBe('nosniff')
     const notImage = await send(bed, 'GET', `/image?url=${encodeURIComponent('https://img.test/page.html')}`)
     expect(notImage.status).toBe(502)
-    // SVG is a document: served from this origin it could carry script.
+    // A README badge is usually SVG; it is served, but inert and typed as what it is.
     const svg = await send(bed, 'GET', `/image?url=${encodeURIComponent('https://img.test/icon.svg')}`)
-    expect(svg.status).toBe(502)
+    expect(svg.status).toBe(200)
+    expect(svg.headers.get('content-type')).toBe('image/svg+xml')
+    expect(svg.headers.get('content-security-policy')).toContain('sandbox')
     expect((await send(bed, 'GET', `/image?url=${encodeURIComponent('http://img.test/shot.png')}`)).status).toBe(400)
     expect((await send(bed, 'GET', `/image?url=${encodeURIComponent('https://127.0.0.1/shot.png')}`)).status).toBe(400)
     expect((await send(bed, 'GET', '/image')).status).toBe(400)

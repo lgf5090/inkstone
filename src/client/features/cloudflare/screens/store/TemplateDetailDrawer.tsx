@@ -126,7 +126,7 @@ export function TemplateDetailDrawer({
               </Button>
             </div>
           ) : readme ? (
-            <MarkdownBody source={readme} empty={t('cloudflare.store.no_readme')} />
+            <MarkdownBody source={readme} empty={t('cloudflare.store.no_readme')} baseHref={readmeUrl} />
           ) : (
             <MarkdownBody
               source={template.description ?? ''}

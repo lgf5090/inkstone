@@ -416,9 +416,7 @@ export async function downloadReadmeImage(rawUrl: string): Promise<{ bytes: Uint
     throw new ApiError(502, 'cloudflare_upstream', `The readme image answered HTTP ${response.status}`)
   }
   const type = (response.headers.get('content-type') ?? '').split(';')[0]?.trim() ?? ''
-  // SVG is a document, not a bitmap: served from this origin it can carry script, so the README's
-  // pictures are limited to the raster formats a screenshot is ever saved in.
-  if (!type.startsWith('image/') || type === 'image/svg+xml') {
+  if (!type.startsWith('image/')) {
     throw new ApiError(502, 'cloudflare_upstream', 'That readme address is not a picture')
   }
   const bytes = await readCapped(response, MAX_README_IMAGE_BYTES, 'The readme image')

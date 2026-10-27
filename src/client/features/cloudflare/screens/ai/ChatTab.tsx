@@ -132,9 +132,14 @@ export function ChatTab() {
     return () => { cancelled = true }
   }, [accountId, t, toast])
 
-  useEffect(() => () => {
-    alive.current = false
-    abortRef.current?.abort()
+  useEffect(() => {
+    // Re-armed on every mount: StrictMode cleans a fresh mount up, and a flag left false there would
+    // discard every streamed answer for the rest of the session.
+    alive.current = true
+    return () => {
+      alive.current = false
+      abortRef.current?.abort()
+    }
   }, [])
 
   useEffect(() => {
