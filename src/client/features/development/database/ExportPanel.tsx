@@ -55,9 +55,10 @@ export interface ExportPanelProps {
   rows: unknown[][]
   tableName: string
   selectedRows: Set<number>
+  truncated?: boolean
 }
 
-export function ExportPanel({ columns, rows, tableName, selectedRows }: ExportPanelProps) {
+export function ExportPanel({ columns, rows, tableName, selectedRows, truncated = false }: ExportPanelProps) {
   const anchor = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   const [settings, setSettings] = useState<ExportSettings>(loadSettings)
@@ -201,6 +202,11 @@ export function ExportPanel({ columns, rows, tableName, selectedRows }: ExportPa
                 </label>
               ))}
             </div>
+          )}
+          {truncated && (
+            <p className="rounded-[var(--r-md)] border border-[var(--warning)]/30 bg-[var(--warning-soft)] p-2 text-[length:var(--text-10)] leading-relaxed text-[var(--warning)]">
+              {t('development.database.export.truncated_note')}
+            </p>
           )}
           <div className="flex justify-end gap-2 border-t border-[var(--border-subtle)] pt-2">
             <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>{t('development.database.common.cancel')}</Button>

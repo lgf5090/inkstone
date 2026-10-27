@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react'
 import type { QueryHistoryEntry, QueryResult, SavedQuery, SchemaModel } from '@shared/development/database/types'
+import { MAX_QUERY_BYTES, MAX_QUERY_ROWS } from '@shared/development/database/types'
 import { splitSqlStatements, isWriteSql } from '@shared/development/database/sql-utils'
 import { isImeComposing } from '../../../lib/ime'
 import { t } from '../../../lib/i18n'
@@ -481,8 +482,13 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
                   </Button>
                 ))}
               </div>
-              {active && <ExportPanel columns={active.columns} rows={filteredRows} tableName={resultTableName(executedSql) ?? t('development.database.query.result_name', { n: activeResult + 1 })} selectedRows={selectedRows} />}
+              {active && <ExportPanel columns={active.columns} rows={filteredRows} tableName={resultTableName(executedSql) ?? t('development.database.query.result_name', { n: activeResult + 1 })} selectedRows={selectedRows} truncated={Boolean(active.truncated)} />}
               {active && <AggregatePanel columns={active.columns} rows={filteredRows} selectedRows={selectedRows} />}
+              {active?.truncated && (
+                <span className="shrink-0 rounded bg-[var(--warning-soft)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--warning)]">
+                  {t('development.database.query.truncated', { rows: MAX_QUERY_ROWS, size: MAX_QUERY_BYTES / (1024 * 1024) })}
+                </span>
+              )}
               {active && (
                 <span className="shrink-0 pl-2 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
                   {filteredRows.length.toLocaleString()} {t('development.database.query.rows')} · {active.durationMs}{t('development.database.query.ms')}
@@ -527,8 +533,13 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
                   />
                 )
               ) : (
-                <div className="flex h-full items-center justify-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">
-                  {running ? t('development.database.query.executing_hint') : t('development.database.query.result_placeholder')}
+                <div className="flex h-full flex-col items-center justify-center gap-1 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">
+                  <span>{running ? t('development.database.query.executing_hint') : t('development.database.query.result_placeholder')}</span>
+                  {!running && (
+                    <span className="text-[length:var(--text-10)] text-[var(--text-quaternary)]">
+                      {t('development.database.query.row_cap', { rows: MAX_QUERY_ROWS, size: MAX_QUERY_BYTES / (1024 * 1024) })}
+                    </span>
+                  )}
                 </div>
               )}
             </div>

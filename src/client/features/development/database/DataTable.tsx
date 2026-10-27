@@ -16,6 +16,7 @@ import {
   X,
 } from 'lucide-react'
 import type { ParsedTable, QueryResult } from '@shared/development/database/types'
+import { MAX_QUERY_BYTES, MAX_QUERY_ROWS } from '@shared/development/database/types'
 import { quoteIdent } from '@shared/development/database/sql-utils'
 import { isImeComposing } from '../../../lib/ime'
 import { t, type MessageKey } from '../../../lib/i18n'
@@ -71,6 +72,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
   const [rows, setRows] = useState<unknown[][]>([])
   const [rowids, setRowids] = useState<unknown[]>([])
   const [total, setTotal] = useState<number | null>(null)
+  const [truncated, setTruncated] = useState(false)
   const [loading, setLoading] = useState(false)
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState<number>(50)
@@ -146,6 +148,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
       setRows(result.rows.map((row) => (rowid >= 0 ? row.slice(1) : row)))
       setPage(targetPage)
       setPageSize(targetPageSize)
+      setTruncated(Boolean(result.truncated))
       setDirty(new Map())
       setEditing(null)
       setSelectedRows(new Set())
@@ -564,7 +567,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
             )}
           </>
         )}
-        <ExportPanel columns={visibleColumns} rows={visible.rows} tableName={table.name} selectedRows={selectedRows} />
+        <ExportPanel columns={visibleColumns} rows={visible.rows} tableName={table.name} selectedRows={selectedRows} truncated={truncated} />
         <AggregatePanel columns={visibleColumns} rows={visible.rows} selectedRows={selectedRows} />
         <Button ref={columnsAnchor} variant="secondary" size="sm" onClick={() => setColumnsOpen((value) => !value)} aria-haspopup="dialog" aria-expanded={columnsOpen}>
           <Columns3 size={14} />
@@ -573,6 +576,11 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
         </Button>
         <div className="flex-1" />
         <div className="flex items-center gap-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+          {truncated && (
+            <span className="shrink-0 rounded bg-[var(--warning-soft)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--warning)]">
+              {t('development.database.query.truncated', { rows: MAX_QUERY_ROWS, size: MAX_QUERY_BYTES / (1024 * 1024) })}
+            </span>
+          )}
           <span className="hidden sm:inline">{total === null ? t('development.database.table.total_unknown') : t('development.database.table.total_rows', { count: total })}</span>
           <SelectMenu
             label={t('development.database.table.page_size')}
