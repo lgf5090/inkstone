@@ -67,6 +67,19 @@ export function toDelimited(
   return `${options.bom ? '\uFEFF' : ''}${lines.join(lineTerminator)}`
 }
 
+export function projectColumns(
+  columns: string[],
+  rows: unknown[][],
+  hidden: ReadonlySet<number>,
+): { columns: string[]; rows: unknown[][] } {
+  if (hidden.size === 0) return { columns, rows }
+  const indexes = columns.map((_, index) => index).filter((index) => !hidden.has(index))
+  return {
+    columns: indexes.map((index) => columns[index]!),
+    rows: rows.map((row) => indexes.map((index) => row[index])),
+  }
+}
+
 export function toCsv(
   columns: string[],
   rows: unknown[][],

@@ -284,6 +284,7 @@ export const ZH_CN_DEVELOPMENT_DATABASE = {
   "development.database.table.json_editor": "JSON 编辑器",
   "development.database.table.next_page": "下一页",
   "development.database.table.null": "NULL",
+  "development.database.table.null_for": "将 {column} 设为 NULL",
   "development.database.table.op_contains": "包含",
   "development.database.table.op_ends_with": "结尾是",
   "development.database.table.op_equals": "等于",

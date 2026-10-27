@@ -33,8 +33,8 @@ import { ToolbarPanel } from './ToolbarPanel'
 import type { StudioDriver } from './drivers'
 import { buildCountSql, buildTableDataSql, primaryKeyColumns } from './schema-utils'
 import { buildWhere } from './filter-ops'
-import { buildDelete, buildUpdate, rowKeyOf } from './row-ops'
-import { sqlLiteral } from './export-utils'
+import { buildDelete, buildInsert, buildUpdate, rowKeyOf } from './row-ops'
+import { projectColumns, sqlLiteral } from './export-utils'
 import type { FilterCondition, FilterOperator } from './types'
 
 const PAGE_SIZES = [50, 100, 200] as const
@@ -101,7 +101,8 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
     () => new Set(table.columns.filter((column) => /blob/i.test(column.type) || Boolean(column.generated)).map((column) => column.name)),
     [table.columns],
   )
-  const visibleColumns = useMemo(() => columns.filter((_, index) => !hiddenColumns.has(index)), [columns, hiddenColumns])
+  const visible = useMemo(() => projectColumns(columns, rows, hiddenColumns), [columns, rows, hiddenColumns])
+  const visibleColumns = visible.columns
 
   const load = useCallback(async (
     targetPage: number,
@@ -318,10 +319,13 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
   const openInsert = (prefill?: Record<string, unknown>) => {
     const values: Record<string, string> = {}
     const nulls = new Set<string>()
-    for (const column of table.columns) {
-      const value = prefill?.[column.name]
-      values[column.name] = value === null || value === undefined ? '' : String(value)
-      if (value === null) nulls.add(column.name)
+    if (prefill) {
+      for (const column of table.columns) {
+        if (!(column.name in prefill)) continue
+        const value = prefill[column.name]
+        values[column.name] = value === null || value === undefined ? '' : String(value)
+        if (value === null) nulls.add(column.name)
+      }
     }
     setInsertValues(values)
     setInsertNulls(nulls)
@@ -338,11 +342,16 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
   }
 
   const submitInsert = async () => {
-    const targets = table.columns.filter((column) => !insertNulls.has(column.name))
-    const params = targets.map((column) => insertValues[column.name] === '' ? null : insertValues[column.name])
-    const sql = `INSERT INTO ${quoteIdent(table.name)} (${targets.map((column) => quoteIdent(column.name)).join(', ')}) VALUES (${targets.map(() => '?').join(', ')})`
+    const entries = table.columns
+      .filter((column) => insertNulls.has(column.name) || column.name in insertValues)
+      .map((column) => [
+        column.name,
+        insertNulls.has(column.name) || insertValues[column.name] === '' ? null : insertValues[column.name],
+      ] as const)
+    const statement = buildInsert(table.name, entries)
+    if (!statement) return
     try {
-      await driver.query(sql, params)
+      await driver.query(statement.sql, statement.params)
       setInsertOpen(false)
       void load(page, pageSize, orderBy, orderDir, where)
     } catch (cause) {
@@ -555,8 +564,8 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
             )}
           </>
         )}
-        <ExportPanel columns={visibleColumns} rows={rows} tableName={table.name} selectedRows={selectedRows} />
-        <AggregatePanel columns={visibleColumns} rows={rows} selectedRows={selectedRows} />
+        <ExportPanel columns={visibleColumns} rows={visible.rows} tableName={table.name} selectedRows={selectedRows} />
+        <AggregatePanel columns={visibleColumns} rows={visible.rows} selectedRows={selectedRows} />
         <Button ref={columnsAnchor} variant="secondary" size="sm" onClick={() => setColumnsOpen((value) => !value)} aria-haspopup="dialog" aria-expanded={columnsOpen}>
           <Columns3 size={14} />
           {t('development.database.table.columns')}
@@ -768,12 +777,14 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
               <Input
                 value={insertNulls.has(column.name) ? '' : (insertValues[column.name] ?? '')}
                 disabled={insertNulls.has(column.name)}
+                aria-label={column.name}
                 placeholder={column.default ? t('development.database.table.default_prefix', { value: column.default }) : column.type}
                 onChange={(event) => setInsertValues((current) => ({ ...current, [column.name]: event.target.value }))}
                 className="h-8 text-[length:var(--text-12)]"
               />
               <Checkbox
                 checked={insertNulls.has(column.name)}
+                ariaLabel={t('development.database.table.null_for', { column: column.name })}
                 onChange={(next) => setInsertNulls((current) => {
                   const set = new Set(current)
                   if (next) set.add(column.name)

@@ -92,6 +92,20 @@ export function buildUpdate(
   }
 }
 
+export function buildInsert(
+  table: string,
+  values: ReadonlyArray<readonly [string, unknown]>,
+): SqlStatement | null {
+  if (!table) return null
+  if (values.length === 0) {
+    return { sql: `INSERT INTO ${quoteIdent(table)} DEFAULT VALUES`, params: [] }
+  }
+  return {
+    sql: `INSERT INTO ${quoteIdent(table)} (${values.map(([column]) => quoteIdent(column)).join(', ')}) VALUES (${values.map(() => '?').join(', ')})`,
+    params: values.map(([, value]) => binding(value)),
+  }
+}
+
 export function buildDelete(table: string, key: RowKey): SqlStatement | null {
   if (!table || key.kind === 'none') return null
   const where = keyClause(key)

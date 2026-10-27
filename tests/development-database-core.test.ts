@@ -2,9 +2,9 @@
 import { describe, expect, it } from 'vitest'
 import { parseCreateTable, parseCreateIndex } from '../src/client/features/development/database/schema-parse'
 import { buildRebuildSql } from '../src/client/features/development/database/ddl'
-import { toCsv } from '../src/client/features/development/database/export-utils'
+import { projectColumns, toCsv } from '../src/client/features/development/database/export-utils'
 import { buildWhere } from '../src/client/features/development/database/filter-ops'
-import { buildUpdate, rowKeyOf } from '../src/client/features/development/database/row-ops'
+import { buildInsert, buildUpdate, rowKeyOf } from '../src/client/features/development/database/row-ops'
 import { findPlaceholders, replacePlaceholders } from '../src/client/features/development/database/placeholders'
 import { splitSqlStatements } from '../src/shared/development/database/sql-utils'
 
@@ -65,6 +65,25 @@ describe('development database core', () => {
     expect(result.sql).not.toContain('"added") SELECT')
     expect(result.sql).toContain('CREATE VIEW v_t AS SELECT name FROM t;')
     expect(result.sql).toContain('CREATE INDEX idx_t_name ON t(name);')
+  })
+
+  it('projects columns and row values together when a column is hidden', () => {
+    const projected = projectColumns(
+      ['id', 'name', 'email', 'age'],
+      [[1, 'Alice', 'alice@example.com', 30]],
+      new Set([2]),
+    )
+    expect(projected.columns).toEqual(['id', 'name', 'age'])
+    expect(projected.rows).toEqual([[1, 'Alice', 30]])
+    expect(toCsv(projected.columns, projected.rows, { bom: false })).toBe('id,name,age\r\n1,Alice,30')
+  })
+
+  it('omits untouched insert columns so defaults apply', () => {
+    const insert = buildInsert('users', [['name', 'NewGuy']])
+    expect(insert?.sql).toBe('INSERT INTO "users" ("name") VALUES (?)')
+    expect(insert?.params).toEqual(['NewGuy'])
+    expect(buildInsert('t', [])).toEqual({ sql: 'INSERT INTO "t" DEFAULT VALUES', params: [] })
+    expect(buildInsert('t', [['created_at', null]])?.params).toEqual([null])
   })
 
   it('quotes CSV cells containing separators and newlines', () => {

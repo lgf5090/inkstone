@@ -284,6 +284,7 @@ export const EN_US_DEVELOPMENT_DATABASE = {
   "development.database.table.json_editor": "JSON editor",
   "development.database.table.next_page": "Next page",
   "development.database.table.null": "NULL",
+  "development.database.table.null_for": "Set {column} to NULL",
   "development.database.table.op_contains": "contains",
   "development.database.table.op_ends_with": "ends with",
   "development.database.table.op_equals": "equals",
