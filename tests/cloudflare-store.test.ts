@@ -112,6 +112,13 @@ describe('the template store', () => {
     expect(other.sources.length).toBe(3)
   })
 
+  it('seeds the default sources once even when two requests race', async () => {
+    const bed = await makeCloudflareBed()
+    await Promise.all([send(bed, 'POST', '/init'), send(bed, 'POST', '/init')])
+    const sources = await readJson<{ sources: unknown[] }>(await send(bed, 'GET', '/sources'))
+    expect(sources.sources.length).toBe(3)
+  })
+
   it('refuses a non-https source, an invalid catalog and a duplicate', async () => {
     const bed = await makeCloudflareBed()
     catalogs.set('/catalog.json', { templates: [workerTemplate()] })

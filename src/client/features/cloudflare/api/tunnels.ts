@@ -89,7 +89,7 @@ export interface RuleInput {
 }
 
 function accountPath(accountId: string, suffix = ''): string {
-  return `/accounts/${encodeURIComponent(accountId)}${suffix}`
+  return `/tunnels/accounts/${encodeURIComponent(accountId)}${suffix}`
 }
 
 function tunnelPath(accountId: string, tunnelId: string, suffix = ''): string {
@@ -105,7 +105,7 @@ function rulesPath(accountId: string, zoneId: string, phase: RulePhase, ruleId =
 }
 
 export const tunnelsApi = {
-  accounts: () => cfRequest<TunnelAccount[]>('/accounts'),
+  accounts: () => cfRequest<TunnelAccount[]>('/tunnels/accounts'),
 
   zones: (accountId: string) => cfRequest<TunnelZone[]>(accountPath(accountId, '/zones')),
 

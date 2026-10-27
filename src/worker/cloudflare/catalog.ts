@@ -538,7 +538,7 @@ export async function seedDefaultSources(env: Env, userId: string): Promise<numb
 
   const now = Date.now()
   const statements = DEFAULT_CATALOG_SOURCES.map((source) => env.DB.prepare(
-    `INSERT INTO cloudflare_catalog_source
+    `INSERT OR IGNORE INTO cloudflare_catalog_source
       (id, user_id, url, name, is_default, enabled, last_synced, last_status, last_error, etag, created_at)
      VALUES (?, ?, ?, ?, ?, 1, NULL, 'pending', NULL, NULL, ?)`,
   ).bind(newId(), userId, source.url, source.name, source.is_default, now))
@@ -560,9 +560,10 @@ export async function collectCatalogue(
   options: { refresh: boolean },
 ): Promise<CatalogueResult> {
   const rows = await listEnabledSources(env, userId)
-  const loaded: Array<{ row: CatalogSourceRow; catalog: Catalog | null }> = []
-
-  for (const row of rows) {
+  // The three mirrors are independent hosts; asking them one after another made a first visit wait
+  // for the sum of their latencies. `Promise.all` keeps the row order (first source still wins) while
+  // the network waits overlap.
+  const loaded = await Promise.all(rows.map(async (row): Promise<{ row: CatalogSourceRow; catalog: Catalog | null }> => {
     try {
       const { catalog, etag } = await loadCatalog(row.url, { etag: row.etag, force: options.refresh })
       const synced = options.refresh ? Date.now() : row.last_synced
@@ -575,10 +576,10 @@ export async function collectCatalogue(
           .bind(synced, etag, userId, row.id)
           .run()
       }
-      loaded.push({
+      return {
         row: { ...row, last_synced: synced, last_status: 'success', last_error: null, etag: etag ?? row.etag },
         catalog,
-      })
+      }
     } catch (error) {
       const message = errorMessage(error).slice(0, MAX_ERROR_CHARS)
       console.warn(`[inkstone] Catalog source "${row.name}" failed: ${message}`)
@@ -592,12 +593,12 @@ export async function collectCatalogue(
           .bind(synced, message, userId, row.id)
           .run()
       }
-      loaded.push({
+      return {
         row: { ...row, last_synced: synced, last_status: 'error', last_error: message },
         catalog: catalogCache.get(row.url)?.catalog ?? null,
-      })
+      }
     }
-  }
+  }))
 
   const providers = new Map<string, number>()
   const seen = new Set<string>()
