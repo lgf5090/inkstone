@@ -7,8 +7,32 @@
  */
 import type { Env } from '../env'
 import { newId } from '../lib/id'
+import { ApiError } from '../lib/errors'
 
 export type AuditStatus = 'success' | 'error'
+
+/** How much of a failure the trail keeps: enough to recognise it, never a whole upstream body. */
+const FAILURE_SUMMARY_MAX_CHARS = 120
+
+/**
+ * The audit's line for a failure.
+ *
+ * The trail answers "which operation failed and how", not "what did Cloudflare say": the code is the
+ * part a query can group by, and the summary is bounded so one upstream HTML page cannot become a log
+ * row. The reader still gets the full sentence from the API answer.
+ */
+export function auditFailureDetail(error: unknown): string {
+  const wrapped = (error instanceof ApiError ? error.details : undefined) as { cf_code?: unknown } | undefined
+  const cfCode = (error as { cfCode?: unknown } | null)?.cfCode ?? wrapped?.cf_code
+  const code = error instanceof ApiError
+    ? error.code
+    : typeof cfCode === 'number' ? 'cloudflare_upstream' : 'internal'
+  const tag = typeof cfCode === 'number' ? `${code} cf=${cfCode}` : code
+  const message = (error instanceof Error ? error.message : String(error))
+    .replace(/\s+/g, ' ')
+    .trim()
+  return `${tag}: ${message.slice(0, FAILURE_SUMMARY_MAX_CHARS)}`
+}
 
 export async function createAuditLog(
   env: Env,

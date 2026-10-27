@@ -28165,6 +28165,8 @@ const allowed = new Map([
     "/** The statement the caret at `position` belongs to; whitespace between statements belongs to the next. */",
     "/** Whether the text contains any statement that changes data or schema. */",
     "/** The CREATE TABLE text the table builder previews and executes. */",
+    "/**\n * The pragmas that only read.\n *\n * `PRAGMA` is both halves of this editor's vocabulary: `table_info` is how a reader inspects a table,\n * while `journal_mode = WAL` or `writable_schema = ON` changes the database. The verb cannot be banned\n * as a whole, so the name decides — and a name nobody listed here is treated as a write, which is the\n * safe direction for a guard that runs before the statement does.\n */",
+    "// `PRAGMA schema.name` puts the schema first; either depth-0 word may be the pragma's own name.",
   ]],
   ["src/shared/constants.ts", [
     "// D1 limits an entire row to 2,000,000 bytes; reserve room for note metadata.",
@@ -33184,6 +33186,8 @@ const allowed = new Map([
   ["src/worker/cloudflare/audit.ts", [
     "/**\n * The audit trail, one row per action a reader would want to explain later.\n *\n * Writing the log must never be why an operation fails: the operation has already happened by the\n * time this runs, and a log line that could roll it back would be worse than a missing line. A failed\n * write is reported once, with the action, and swallowed deliberately.\n */",
     "// Best-effort by design: the action already succeeded or failed on its own terms.",
+    "/** How much of a failure the trail keeps: enough to recognise it, never a whole upstream body. */",
+    "/**\n * The audit's line for a failure.\n *\n * The trail answers \"which operation failed and how\", not \"what did Cloudflare say\": the code is the\n * part a query can group by, and the summary is bounded so one upstream HTML page cannot become a log\n * row. The reader still gets the full sentence from the API answer.\n */",
   ]],
   ["src/worker/cloudflare/browser-render.ts", [
     "/**\n * Browser Rendering: one page, one mode, one account's allowance.\n *\n * Cloudflare allows a small amount of browser time per account per day, so the service has to choose\n * an account, keep a short cool-down between renders (ten seconds, so a burst does not burn the day),\n * and hand the work to another account when one is out. The reference module kept a token bucket in\n * memory and a timer to reset it at UTC midnight; a Worker has no reliable timer across requests, so\n * \"exhausted\" here is stored with the day it belongs to and simply stops applying the next day.\n */",
@@ -33226,6 +33230,8 @@ const allowed = new Map([
     "/** The GraphQL door. Cloudflare reports query problems in a 200 body, so both shapes are checked. */",
     "/** The error a route rethrows when an operation relied on Cloudflare and the call did not land. */",
     "/** True when the page cap stopped the walk with pages left: the listing is not the whole set. */",
+    "// The platform's own code travels beside the message so a reader (or the audit trail) can name",
+    "// the failure without parsing an English sentence that Cloudflare is free to reword.",
   ]],
   ["src/worker/cloudflare/chat-sessions.ts", [
     "/**\n * The AI conversation history, as rows.\n *\n * Every statement carries the reader's id; the session id alone never proves ownership, and a query\n * that finds nothing is answered as missing rather than forbidden so ids cannot be probed. The route\n * above this module parses bodies and maps refusals to HTTP; it does not know the schema.\n */",
@@ -35540,6 +35546,7 @@ const allowed = new Map([
     "// proxy switch would be a control that silently does nothing. Answered for completeness: every row",
     "// is skipped and no setting is written.",
     "// One account",
+    "/**\n * The account's email: absent for a token account, and when present it has to be an address.\n *\n * It is sent to Cloudflare as `X-Auth-Email` on every global-key call and echoed back on the accounts\n * screen, so a placeholder there fails much later and much less clearly than a refusal here.\n */",
   ]],
   ["src/worker/routes/cloudflare/ai-v1.ts", [
     "/**\n * `/api/cloudflare/v1` — the OpenAI-compatible face of Cloudflare Workers AI.\n *\n * The shapes are OpenAI's on purpose: the screens already speak them, and a request copied from\n * another tool works unchanged. Account selection travels in the body (`accountId`), because the\n * streaming and JSON paths share one request shape and a custom header would only be readable by one\n * of them.\n *\n * Cloudflare's free allowance is per account and per UTC day. A refusal that means \"today is used up\"\n * marks the account exhausted and moves to the next one, so a reader with several accounts never sees\n * a limit before every account has one. The upstream's own words are kept, truncated, for the account\n * owner to read; they are never turned into a status Cloudflare did not send.\n */",
@@ -35613,13 +35620,14 @@ const allowed = new Map([
     "/**\n * `/api/cloudflare/store` — catalogue sources, the merged catalogue, and two-phase deployment.\n *\n * Every row is scoped by the reader's id; another reader's source is answered as missing, not\n * forbidden. Deployment is two-phase because the second phase writes to Cloudflare: preflight checks\n * the account, the template and a reachable source without changing anything, and deploy performs the\n * same checks again before the first upload. Batch is per-target by contract — one refused account\n * is a row in the result, never an exception for the whole call.\n */",
     "// ---------------------------------------------------------------------------------------------",
     "// Sources",
-    "/** The README proxy: the catalog host is not in this deployment's connect-src, so the worker reads it. */",
     "// Catalogue",
     "// Preflight and deployment",
     "/** The shared body of `/deploy` and one batch row; throws only when the preconditions fail. */",
     "// Re-exported for the settings slice, which lists source status beside the task list.",
     "// README badges are mostly SVG, and SVG served from this origin is a document rather than a",
     "// bitmap. It stays inert because the response sandboxes itself and allows no fetch target.",
+    "/**\n * The README proxy: the catalog host is not in this deployment's connect-src, so the worker reads it.\n *\n * POST rather than GET because the argument is the address of a third-party page the reader chose to\n * look at — a query string writes that address into every access log between here and the platform.\n */",
+    "/**\n * A README's images, fetched through the worker because the page's `img-src` does not allow the\n * documentation host. This one stays a GET: an `<img>` cannot carry a body, so the address is in the\n * URL by construction. What the log learns is which public page the reader was already reading.\n */",
   ]],
   ["src/worker/routes/cloudflare/tasks.ts", [
     "/**\n * `/api/cloudflare/tasks` — the scheduled maintenance rows and their history.\n *\n * The platform's cron trigger is what runs them (`runDueCloudflareTasks` in `cloudflare/tasks.ts`);\n * these routes only create, edit, enable and run on demand. A malformed cron is refused here rather\n * than stored and silently never fired.\n */",
@@ -39484,6 +39492,9 @@ const allowed = new Map([
     "// The ledger keeps the fraction Cloudflare reports: a rounded allowance beside an unrounded model",
     "// row is what made a single model read as 104.7% of itself.",
   ]],
+  ["tests/cloudflare-audit-detail.test.ts", [
+    "/**\n * The audit trail's line for a failure.\n *\n * The trail is read months later by someone asking \"which call failed, and with what\", so the code has\n * to survive and the sentence has to stay short: an upstream body pasted whole is neither a log row nor\n * a query key. The reader still gets the full sentence from the API answer, not from here.\n */",
+  ]],
   ["tests/cloudflare-cron.test.ts", [
     "// 2026-10-25 is a Sunday.",
     "// 2026-10-27 is a Tuesday (weekday 2); either the date or the weekday may match when both are set.",
@@ -39515,6 +39526,7 @@ const allowed = new Map([
   ]],
   ["tests/cloudflare-store.test.ts", [
     "// A README badge is usually SVG; it is served, but inert and typed as what it is.",
+    "// The address a reader is viewing stays out of the query string, so it stays out of access logs.",
   ]],
   ["tests/cloudflare-tunnels.test.ts", [
     "// Wrap the stub once more to observe the rollback DELETE.",

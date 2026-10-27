@@ -11,6 +11,7 @@
  * are audited one by one because each creates an account of its own.
  */
 import { Hono, type Context } from 'hono'
+import { isValidEmailAddress } from '@shared/email/format'
 import type { AppBindings, Env } from '../../env'
 import { ApiError } from '../../lib/errors'
 import {
@@ -40,7 +41,7 @@ import {
   parseAccountsCsv,
   type CsvAccountRow,
 } from '../../cloudflare/accounts-csv'
-import { createAuditLog, type AuditStatus } from '../../cloudflare/audit'
+import { auditFailureDetail, createAuditLog, type AuditStatus } from '../../cloudflare/audit'
 import { readAccountCredentials } from '../../cloudflare/credentials'
 import { clearExhausted, quotaSummary } from '../../cloudflare/quota'
 
@@ -111,6 +112,20 @@ function optionalNullableString(body: Record<string, unknown>, key: string): str
   if (value === null) return null
   if (typeof value !== 'string') throw ApiError.badRequest(`${key} must be a string`)
   return value
+}
+
+/**
+ * The account's email: absent for a token account, and when present it has to be an address.
+ *
+ * It is sent to Cloudflare as `X-Auth-Email` on every global-key call and echoed back on the accounts
+ * screen, so a placeholder there fails much later and much less clearly than a refusal here.
+ */
+function readEmail(body: Record<string, unknown>): string | null | undefined {
+  const raw = optionalNullableString(body, 'email')
+  if (raw === undefined || raw === null) return raw
+  const email = raw.trim()
+  if (!isValidEmailAddress(email)) throw ApiError.badRequest('That email address is not valid')
+  return email
 }
 
 function optionalBoolean(body: Record<string, unknown>, key: string): boolean | undefined {
@@ -254,7 +269,7 @@ accountsRouter.post('/', async (c) => {
   const input: CreateAccountInput = {
     name,
     auth_type: authType,
-    email: optionalNullableString(body, 'email') ?? null,
+    email: readEmail(body) ?? null,
     cf_account_id: optionalNullableString(body, 'cf_account_id') ?? null,
   }
   const token = optionalSecret(body, 'api_token')
@@ -330,7 +345,7 @@ accountsRouter.post('/test-batch', async (c) => {
       results[index] = { id: target.id, name: target.name, status: 'success' }
     } catch (error) {
       const message = errorMessage(error)
-      await audit(c.env, userId, target.id, 'test_account', target.name, message, 'error')
+      await audit(c.env, userId, target.id, 'test_account', target.name, auditFailureDetail(error), 'error')
       results[index] = { id: target.id, name: target.name, status: 'error', message }
     }
   })
@@ -368,7 +383,7 @@ accountsRouter.post('/import-csv', async (c) => {
   const pending: Array<{ index: number; row: CsvAccountRow; name: string }> = []
   for (let index = 0; index < rows.length; index++) {
     const row = rows[index]!
-    if (!row.email || !row.email.includes('@')) {
+    if (!isValidEmailAddress(row.email)) {
       results[index] = { email: row.email, name: '', status: 'error', message: 'A valid email is required' }
       continue
     }
@@ -474,7 +489,7 @@ accountsRouter.post('/batch/delete', async (c) => {
       results.push({ id, name: row.name, status: 'success' })
     } catch (error) {
       const message = errorMessage(error)
-      await audit(c.env, userId, id, 'delete_account', row.name, message, 'error')
+      await audit(c.env, userId, id, 'delete_account', row.name, auditFailureDetail(error), 'error')
       results.push({ id, name: row.name, status: 'error', message })
     }
   }
@@ -537,7 +552,7 @@ accountsRouter.put('/:id', async (c) => {
     input.auth_type = readAuthType(body)
     changed.push('auth_type')
   }
-  const email = optionalNullableString(body, 'email')
+  const email = readEmail(body)
   if (email !== undefined) {
     input.email = email
     changed.push('email')
@@ -629,7 +644,7 @@ accountsRouter.post('/:id/test', async (c) => {
     await audit(c.env, userId, id, 'test_account', row.name, `cf_account_id=${outcome.cf_account_id ?? ''}`)
     return c.json(outcome)
   } catch (error) {
-    await audit(c.env, userId, id, 'test_account', row.name, errorMessage(error), 'error')
+    await audit(c.env, userId, id, 'test_account', row.name, auditFailureDetail(error), 'error')
     throw error
   }
 })

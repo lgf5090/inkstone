@@ -16,6 +16,41 @@ const WRITE_VERBS = new Set([
   'CREATE',
   'REPLACE',
   'TRUNCATE',
+  'ATTACH',
+  'DETACH',
+  'VACUUM',
+  'REINDEX',
+  'SET',
+])
+
+/**
+ * The pragmas that only read.
+ *
+ * `PRAGMA` is both halves of this editor's vocabulary: `table_info` is how a reader inspects a table,
+ * while `journal_mode = WAL` or `writable_schema = ON` changes the database. The verb cannot be banned
+ * as a whole, so the name decides — and a name nobody listed here is treated as a write, which is the
+ * safe direction for a guard that runs before the statement does.
+ */
+const READ_ONLY_PRAGMAS = new Set([
+  'table_info',
+  'table_xinfo',
+  'table_list',
+  'index_list',
+  'index_info',
+  'index_xinfo',
+  'foreign_key_list',
+  'database_list',
+  'collation_list',
+  'function_list',
+  'module_list',
+  'pragma_list',
+  'compile_options',
+  'encoding',
+  'page_count',
+  'page_size',
+  'freelist_count',
+  'integrity_check',
+  'quick_check',
 ])
 
 export interface SqlStatementRange {
@@ -294,6 +329,11 @@ function statementIsWrite(statement: string): boolean {
   const words = topLevelWords(statement)
   const first = words[0]?.value
   if (!first) return false
+  if (first === 'PRAGMA') {
+    // `PRAGMA schema.name` puts the schema first; either depth-0 word may be the pragma's own name.
+    const names = [words[1]?.value, words[2]?.value].filter((name): name is string => Boolean(name))
+    return !names.some((name) => READ_ONLY_PRAGMAS.has(name.toLowerCase()))
+  }
   if (WRITE_VERBS.has(first)) return true
   if (first === 'WITH' || first === 'EXPLAIN') {
     return words.some((word) => word.depth === 0 && WRITE_VERBS.has(word.value))

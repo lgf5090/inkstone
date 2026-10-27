@@ -11,7 +11,7 @@ import { Hono, type Context } from 'hono'
 import type { AppBindings } from '../../env'
 import { ApiError } from '../../lib/errors'
 import { loadAccount, type LoadedAccount } from '../../cloudflare/accounts'
-import { createAuditLog, type AuditStatus } from '../../cloudflare/audit'
+import { auditFailureDetail, createAuditLog, type AuditStatus } from '../../cloudflare/audit'
 import {
   addSource,
   deleteSource,
@@ -190,16 +190,26 @@ storeRouter.delete('/sources/:id', async (c) => {
   return c.json({ ok: true })
 })
 
-/** The README proxy: the catalog host is not in this deployment's connect-src, so the worker reads it. */
-storeRouter.get('/readme', async (c) => {
-  const raw = c.req.query('url')
+/**
+ * The README proxy: the catalog host is not in this deployment's connect-src, so the worker reads it.
+ *
+ * POST rather than GET because the argument is the address of a third-party page the reader chose to
+ * look at — a query string writes that address into every access log between here and the platform.
+ */
+storeRouter.post('/readme', async (c) => {
+  const raw = (await jsonObject(c)).url
   if (typeof raw !== 'string' || !raw.trim()) throw ApiError.badRequest('A readme URL is required')
   const text = await downloadReadme(raw)
   c.header('Content-Type', 'text/markdown; charset=utf-8')
-  c.header('Cache-Control', 'private, max-age=300')
+  c.header('Cache-Control', 'private, no-store')
   return c.text(text)
 })
 
+/**
+ * A README's images, fetched through the worker because the page's `img-src` does not allow the
+ * documentation host. This one stays a GET: an `<img>` cannot carry a body, so the address is in the
+ * URL by construction. What the log learns is which public page the reader was already reading.
+ */
 storeRouter.get('/image', async (c) => {
   const raw = c.req.query('url')
   if (typeof raw !== 'string' || !raw.trim()) throw ApiError.badRequest('An image URL is required')
@@ -359,8 +369,7 @@ storeRouter.post('/deploy', async (c) => {
     )
     return c.json(result, result.success ? 201 : 200)
   } catch (error) {
-    const message = errorMessage(error)
-    await audit(c, userId, request.accountId, 'store_deploy', request.name, message, 'error')
+    await audit(c, userId, request.accountId, 'store_deploy', request.name, auditFailureDetail(error), 'error')
     throw error
   }
 })
@@ -396,7 +405,7 @@ storeRouter.post('/deploy-batch', async (c) => {
       const message = errorMessage(error)
       const accountId = request?.accountId ?? ''
       const name = request?.name ?? ''
-      await audit(c, userId, accountId || null, 'store_deploy_batch', name || null, message, 'error')
+      await audit(c, userId, accountId || null, 'store_deploy_batch', name || null, auditFailureDetail(error), 'error')
       results.push({ accountId, name, success: false, error: message })
     }
   }

@@ -145,6 +145,22 @@ describe('POST /accounts', () => {
     expect(rows?.n).toBe(0)
     expect([...bed.files.objects.keys()]).toEqual([])
   })
+
+  it('refuses an email that is not an address, and stores the one that is', async () => {
+    stubHappyCloudflare()
+    const refused = await send('POST', '/', {
+      name: 'Typo', auth_type: 'global_key', api_key: 'key-1', email: 'not-an-email',
+    })
+    expect(refused.status).toBe(400)
+    expect(await bed.env.DB.prepare('SELECT count(*) AS n FROM cloudflare_account').first<{ n: number }>())
+      .toEqual({ n: 0 })
+
+    const accepted = await send('POST', '/', {
+      name: 'Real', auth_type: 'global_key', api_key: 'key-2', email: '  owner@example.com ',
+    })
+    expect(accepted.status).toBe(201)
+    expect((await readJson<{ email: string }>(accepted)).email).toBe('owner@example.com')
+  })
 })
 
 describe('PUT /accounts/:id', () => {
@@ -161,6 +177,17 @@ describe('PUT /accounts/:id', () => {
     expect(await readAccountCredentials(bed.env, id)).toBeNull()
     expect(bed.files.objects.has(accountCredentialPath(id))).toBe(false)
     expect(await auditActions()).toEqual(['update_account', 'update_account'])
+  })
+
+  it('refuses a malformed email on edit and leaves the stored row alone', async () => {
+    const { id } = await seedAccount(bed, TEST_USER, { token: 'keep-me' })
+    const refused = await send('PUT', `/${id}`, { email: 'not-an-email' })
+    expect(refused.status).toBe(400)
+    const row = await bed.env.DB.prepare('SELECT email, name FROM cloudflare_account WHERE id = ?')
+      .bind(id)
+      .first<{ email: string | null; name: string }>()
+    expect(row?.email).toBeNull()
+    expect(await auditActions()).toEqual([])
   })
 })
 
@@ -227,10 +254,10 @@ describe('POST /accounts/import-csv', () => {
     stubHappyCloudflare(['key-3'])
     const csv = [
       'email,apiKey,password',
-      'lauren.bailey2701@x,key-1,pw',
-      'lauren.bailey2701@x,key-2,',
+      'lauren.bailey2701@example.com,key-1,pw',
+      'lauren.bailey2701@example.com,key-2,',
       'not-an-email,key-3,',
-      'second@y,key-3,',
+      'second@example.com,key-3,',
     ].join('\n')
     const form = new FormData()
     form.append('file', new File([csv], 'accounts.csv', { type: 'text/csv' }))
@@ -241,7 +268,7 @@ describe('POST /accounts/import-csv', () => {
       results: Array<{ email: string; name: string; status: string; message?: string }>
     }>(response)
     expect(body.summary).toEqual({ total: 4, success: 1, skipped: 1, error: 2 })
-    expect(body.results[0]).toMatchObject({ email: 'lauren.bailey2701@x', name: 'bailey2701', status: 'success' })
+    expect(body.results[0]).toMatchObject({ email: 'lauren.bailey2701@example.com', name: 'bailey2701', status: 'success' })
     expect(body.results[1]).toMatchObject({ status: 'skipped' })
     expect(body.results[2]).toMatchObject({ status: 'error' })
     expect(body.results[3]).toMatchObject({ status: 'error' })

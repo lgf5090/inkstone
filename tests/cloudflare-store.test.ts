@@ -249,12 +249,14 @@ describe('the template store', () => {
 
   it('proxies a README through the worker and refuses a non-public address', async () => {
     const bed = await makeCloudflareBed()
-    const ok = await send(bed, 'GET', `/readme?url=${encodeURIComponent('https://catalog.test/readme.md')}`)
+    const ok = await send(bed, 'POST', '/readme', { url: 'https://catalog.test/readme.md' })
     expect(ok.status).toBe(200)
     expect(await ok.text()).toContain('# Template')
-    expect((await send(bed, 'GET', `/readme?url=${encodeURIComponent('http://catalog.test/readme.md')}`)).status).toBe(400)
-    expect((await send(bed, 'GET', `/readme?url=${encodeURIComponent('https://127.0.0.1/readme.md')}`)).status).toBe(400)
-    expect((await send(bed, 'GET', '/readme')).status).toBe(400)
+    expect((await send(bed, 'POST', '/readme', { url: 'http://catalog.test/readme.md' })).status).toBe(400)
+    expect((await send(bed, 'POST', '/readme', { url: 'https://127.0.0.1/readme.md' })).status).toBe(400)
+    expect((await send(bed, 'POST', '/readme')).status).toBe(400)
+    // The address a reader is viewing stays out of the query string, so it stays out of access logs.
+    expect((await send(bed, 'GET', `/readme?url=${encodeURIComponent('https://catalog.test/readme.md')}`)).status).toBe(404)
   })
 
   it('proxies a README image and refuses anything that is not a public picture', async () => {
@@ -277,9 +279,9 @@ describe('the template store', () => {
 
   it('re-checks the address guard on every redirect hop', async () => {
     const bed = await makeCloudflareBed()
-    const privateHop = await send(bed, 'GET', `/readme?url=${encodeURIComponent('https://hop.test/to-private')}`)
+    const privateHop = await send(bed, 'POST', '/readme', { url: 'https://hop.test/to-private' })
     expect(privateHop.status).toBe(400)
-    const publicHop = await send(bed, 'GET', `/readme?url=${encodeURIComponent('https://hop.test/to-public')}`)
+    const publicHop = await send(bed, 'POST', '/readme', { url: 'https://hop.test/to-public' })
     expect(publicHop.status).toBe(200)
     expect(await publicHop.text()).toContain('# Template')
   })

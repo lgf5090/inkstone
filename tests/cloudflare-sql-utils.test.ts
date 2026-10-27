@@ -81,6 +81,22 @@ describe('write detection', () => {
     expect(isWriteSql('WITH recent AS (SELECT * FROM notes) SELECT * FROM recent')).toBe(false)
   })
 
+  it('refuses the verbs that change the file or the connection', () => {
+    for (const verb of ['ATTACH', 'DETACH', 'VACUUM', 'REINDEX', 'SET']) {
+      expect(isWriteSql(`${verb} something`)).toBe(true)
+    }
+  })
+
+  it('lets a reader inspect a table through a pragma but not retune the database', () => {
+    expect(isWriteSql("PRAGMA table_info('notes')")).toBe(false)
+    expect(isWriteSql('PRAGMA main.table_info(notes)')).toBe(false)
+    expect(isWriteSql('PRAGMA table_list')).toBe(false)
+    expect(isWriteSql('/* note */ PRAGMA index_list(notes)')).toBe(false)
+    expect(isWriteSql('PRAGMA journal_mode = WAL')).toBe(true)
+    expect(isWriteSql('PRAGMA writable_schema = ON')).toBe(true)
+    expect(isWriteSql('PRAGMA user_version = 5')).toBe(true)
+  })
+
   it('checks every statement and rejects writes hidden behind a CTE', () => {
     expect(isWriteSql('SELECT 1; DELETE FROM notes;')).toBe(true)
     expect(isWriteSql('WITH doomed AS (SELECT id FROM notes) DELETE FROM notes WHERE id IN (SELECT id FROM doomed)')).toBe(true)

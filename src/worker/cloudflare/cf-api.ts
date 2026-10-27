@@ -198,7 +198,14 @@ export async function cfGraphQL<T>(
 export function upstreamApiError(error: unknown): ApiError {
   if (error instanceof ApiError) return error
   if (error instanceof CloudflareApiError) {
-    return new ApiError(error.status === 429 ? 429 : 502, 'cloudflare_upstream', error.message)
+    return new ApiError(
+      error.status === 429 ? 429 : 502,
+      'cloudflare_upstream',
+      error.message,
+      // The platform's own code travels beside the message so a reader (or the audit trail) can name
+      // the failure without parsing an English sentence that Cloudflare is free to reword.
+      error.cfCode === undefined ? undefined : { cf_code: error.cfCode },
+    )
   }
   return new ApiError(
     502,
