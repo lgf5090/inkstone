@@ -9,6 +9,7 @@ import { cn } from '../../../../lib/cn'
 import { useCfT } from '../../i18n'
 import {
   QUOTA_RESOURCE_ORDER,
+  quotaResourceLabel,
   quotaTone,
   quotaUsedPercent,
   type QuotaResourceRow,
@@ -55,6 +56,7 @@ export function CompactAccountCard({
             key={row.resource}
             className="size-2 shrink-0 rounded-full"
             style={{ backgroundColor: dotColor(row) }}
+            title={`${quotaResourceLabel(row.resource)} · ${row.count} / ${row.limit}`}
           />
         ))}
         {Array.from({ length: emptyDots }, (_, index) => (
@@ -64,7 +66,10 @@ export function CompactAccountCard({
           />
         ))}
       </span>
-      <span className="sr-only">{tcf('cloudflare.dashboard.today_quota')}</span>
+      <span className="sr-only">
+        {tcf('cloudflare.dashboard.today_quota')}
+        {ordered.map((row) => ` — ${quotaResourceLabel(row.resource)}: ${row.count} / ${row.limit}`).join('')}
+      </span>
     </button>
   )
 }

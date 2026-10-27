@@ -136,6 +136,9 @@ function formatBytes(bytes: number): string {
 }
 
 function isLocalDebugHost(url: URL): boolean {
+  // The loopback allowance is a local-development convenience only: in a deployed Worker the same
+  // exception would let a catalogue point this fetch at the notebook's own API.
+  if (import.meta.env?.DEV !== true) return false
   return url.protocol === 'http:' && (url.hostname === 'localhost' || url.hostname === '127.0.0.1')
 }
 
@@ -174,7 +177,7 @@ async function fetchWithTimeout(
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
-    return await fetch(url, { ...init, redirect: 'follow', signal: controller.signal })
+    return await fetch(url, { redirect: 'follow', ...init, signal: controller.signal })
   } catch (error) {
     if ((error as Error)?.name === 'AbortError') {
       throw new ApiError(502, 'cloudflare_upstream', `${what} did not answer in time`)
@@ -240,12 +243,7 @@ export async function fetchCatalog(rawUrl: string, etag?: string | null): Promis
   const url = assertCatalogUrl(rawUrl)
   const headers: Record<string, string> = { Accept: 'application/json' }
   if (etag) headers['If-None-Match'] = etag
-  const response = await fetchWithTimeout(
-    url.toString(),
-    { headers },
-    CATALOG_TIMEOUT_MS,
-    'The catalog host',
-  )
+  const response = await fetchGuarded(url.toString(), { headers }, assertCatalogUrl, CATALOG_TIMEOUT_MS, 'The catalog host')
   const responseEtag = response.headers.get('etag')
   if (response.status === 304) {
     return { catalog: null, etag: responseEtag ?? etag ?? null, notModified: true }
@@ -253,13 +251,6 @@ export async function fetchCatalog(rawUrl: string, etag?: string | null): Promis
   if (!response.ok) {
     throw new ApiError(502, 'cloudflare_upstream', `The catalog URL answered HTTP ${response.status}`)
   }
-  if (response.url) {
-    const finalUrl = new URL(response.url)
-    if (finalUrl.protocol !== 'https:' && !isLocalDebugHost(finalUrl)) {
-      throw ApiError.badRequest('The catalog redirected to a URL that is not HTTPS')
-    }
-  }
-
   const bytes = await readCapped(response, MAX_CATALOG_BYTES, 'The catalog')
   let parsed: unknown
   try {
@@ -334,30 +325,69 @@ export async function loadCatalog(
 }
 
 /** The template source bytes, capped at 2 MB so a hostile URL cannot exhaust the isolate. */
-/** A README is text from someone else's host; it may not point the worker at its own network. */
+/** Hosts a worker must never be talked into reaching: loopback, private, link-local, CGNAT. */
+function isPrivateHost(host: string): boolean {
+  const name = host.toLowerCase()
+  if (name === 'localhost' || name.endsWith('.localhost') || name === '::1' || name === '[::1]') return true
+  if (name === '0.0.0.0' || name === '[::]' || name === '169.254.169.254') return true
+  if (name.startsWith('fc') || name.startsWith('fd') || name.startsWith('fe80:')) return true
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(name)) {
+    const [a, b] = name.split('.').map(Number)
+    if (a === 0 || a === 10 || a === 127) return true
+    if (a === 169 && b === 254) return true
+    if (a === 192 && b === 168) return true
+    if (a === 172 && b >= 16 && b <= 31) return true
+    if (a === 100 && b >= 64 && b <= 127) return true
+  }
+  return false
+}
+
+/** A README, an image or a template package is someone else's text: it may not name our own network. */
 function assertPublicHttps(rawUrl: string): URL {
   const url = assertTemplateUrl(rawUrl)
-  const host = url.hostname.toLowerCase()
-  if (host === 'localhost' || host === '[::1]' || host.endsWith('.localhost')) {
-    throw ApiError.badRequest('The readme address must be public')
-  }
-  if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) {
-    const [a, b] = host.split('.').map(Number)
-    if (a === 10 || a === 127 || (a === 169 && b === 254) || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31)) {
-      throw ApiError.badRequest('The readme address must be public')
-    }
-  }
+  if (isPrivateHost(url.hostname)) throw ApiError.badRequest('That address is not a public host')
   return url
+}
+
+const MAX_REDIRECT_HOPS = 3
+
+/**
+ * Fetch with the URL guard applied to every hop, not just the first one.
+ *
+ * Following redirects automatically hands the choice of destination to the remote server, which is
+ * exactly the decision the guard exists to make: a public README can answer 302 with a link-local
+ * metadata address and have this worker read it on the caller's behalf.
+ */
+async function fetchGuarded(
+  rawUrl: string,
+  init: Omit<RequestInit, 'redirect'>,
+  guard: (url: string) => URL,
+  timeoutMs: number,
+  what: string,
+): Promise<Response> {
+  let url = guard(rawUrl)
+  for (let hop = 0; ; hop += 1) {
+    const response = await fetchWithTimeout(url.toString(), { ...init, redirect: 'manual' }, timeoutMs, what)
+    const redirects = new Set([301, 302, 303, 307, 308])
+    if (!redirects.has(response.status)) return response
+    const location = response.headers.get('location')
+    if (!location) return response
+    await response.body?.cancel().catch(() => undefined)
+    if (hop >= MAX_REDIRECT_HOPS) {
+      throw new ApiError(502, 'cloudflare_upstream', `${what} redirected too many times`)
+    }
+    url = guard(new URL(location, url).toString())
+  }
 }
 
 const MAX_README_BYTES = 512 * 1024
 
 /** The template's README, read by the worker because the reader's CSP does not allow the catalog host. */
 export async function downloadReadme(rawUrl: string): Promise<string> {
-  const url = assertPublicHttps(rawUrl)
-  const response = await fetchWithTimeout(
-    url.toString(),
+  const response = await fetchGuarded(
+    rawUrl,
     { headers: { Accept: 'text/plain, text/markdown, */*' } },
+    assertPublicHttps,
     TEMPLATE_TIMEOUT_MS,
     'The template readme',
   )
@@ -375,10 +405,10 @@ const MAX_README_IMAGE_BYTES = 2 * 1024 * 1024
  * reader's `img-src` does not allow the documentation host.
  */
 export async function downloadReadmeImage(rawUrl: string): Promise<{ bytes: Uint8Array; type: string }> {
-  const url = assertPublicHttps(rawUrl)
-  const response = await fetchWithTimeout(
-    url.toString(),
+  const response = await fetchGuarded(
+    rawUrl,
     { headers: { Accept: 'image/*' } },
+    assertPublicHttps,
     TEMPLATE_TIMEOUT_MS,
     'The readme image',
   )
@@ -386,17 +416,20 @@ export async function downloadReadmeImage(rawUrl: string): Promise<{ bytes: Uint
     throw new ApiError(502, 'cloudflare_upstream', `The readme image answered HTTP ${response.status}`)
   }
   const type = (response.headers.get('content-type') ?? '').split(';')[0]?.trim() ?? ''
-  if (!type.startsWith('image/')) {
-    throw new ApiError(502, 'cloudflare_upstream', 'That readme address is not an image')
+  // SVG is a document, not a bitmap: served from this origin it can carry script, so the README's
+  // pictures are limited to the raster formats a screenshot is ever saved in.
+  if (!type.startsWith('image/') || type === 'image/svg+xml') {
+    throw new ApiError(502, 'cloudflare_upstream', 'That readme address is not a picture')
   }
   const bytes = await readCapped(response, MAX_README_IMAGE_BYTES, 'The readme image')
   return { bytes, type }
 }
 
-export async function downloadTemplateBytes(rawUrl: string): Promise<Uint8Array> {  const url = assertTemplateUrl(rawUrl)
-  const response = await fetchWithTimeout(
-    url.toString(),
+export async function downloadTemplateBytes(rawUrl: string): Promise<Uint8Array> {
+  const response = await fetchGuarded(
+    rawUrl,
     { headers: { Accept: '*/*' } },
+    assertTemplateUrl,
     TEMPLATE_TIMEOUT_MS,
     'The template source',
   )

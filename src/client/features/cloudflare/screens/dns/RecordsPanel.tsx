@@ -6,6 +6,7 @@ import { Empty, LoadingBlock } from '../../../../components/feedback'
 import { Switch } from '../../../../components/form'
 import { confirm } from '../../../../components/overlay'
 import { Badge, Button } from '../../../../components/primitives'
+import { CopyButton } from '../../components/CopyButton'
 import { Table, TableScroll, TBody, Td, THead, Th, Tr, SortableHead } from '../../components/Table'
 import { useSort } from '../../lib/sort'
 import { t as uiT } from '../../../../lib/i18n'
@@ -131,8 +132,13 @@ export function RecordsPanel({ domain }: { domain: string }) {
               {rows.map((record) => (
                 <Tr key={record.id}>
                   <Td><Badge tone="accent">{record.type}</Badge></Td>
-                  <Td className="max-w-40 truncate" >{record.name}</Td>
-                  <Td className="max-w-60 truncate font-mono text-[length:var(--text-11-5)]" >{record.content}</Td>
+                  <Td className="max-w-40 truncate" title={record.name}>{record.name}</Td>
+                  <Td className="max-w-60" title={record.content}>
+                    <div className="flex min-w-0 items-center gap-1">
+                      <span className="min-w-0 truncate font-mono text-[length:var(--text-11-5)]">{record.content}</span>
+                      <CopyButton text={record.content} size="xs" />
+                    </div>
+                  </Td>
                   <Td>{record.ttl === 1 ? t('cloudflare.dns.ttl_auto') : String(record.ttl)}</Td>
                   <Td>
                     <Switch

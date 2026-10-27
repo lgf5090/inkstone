@@ -95,24 +95,34 @@ export async function quotaSummary(env: Env, userId: string): Promise<AccountQuo
  */
 export async function syncQuotaFromCloudflare(env: Env, userId: string): Promise<void> {
   const accounts = (await loadActiveAccounts(env, userId)).filter(({ row }) => row.cf_account_id)
-  for (const { row, auth } of accounts) {
-    try {
-      if (accountHasFeature(row, 'ai')) {
-        const usage = await getAiUsageToday(auth, row.cf_account_id)
-        if (usage.totalNeurons > 0) await setQuota(env, userId, row.id, 'ai_neurons', usage.totalNeurons)
-      }
-    } catch (error) {
-      console.warn(`[inkstone] AI usage sync failed for ${row.name}:`, (error as Error)?.message)
+  // Accounts and products are read concurrently: each GraphQL call can take the full client timeout,
+  // and a serial walk made the dashboard wait for every one of them in turn. One account failing
+  // still must not hide the others' numbers, hence the per-product catch inside the parallel wave.
+  await Promise.all(accounts.map(async ({ row, auth }) => {
+    const cfAccountId = row.cf_account_id as string
+    const jobs: Promise<void>[] = []
+    if (accountHasFeature(row, 'ai')) {
+      jobs.push((async () => {
+        try {
+          const usage = await getAiUsageToday(auth, cfAccountId)
+          if (usage.totalNeurons > 0) await setQuota(env, userId, row.id, 'ai_neurons', usage.totalNeurons)
+        } catch (error) {
+          console.warn(`[inkstone] AI usage sync failed for ${row.name}:`, (error as Error)?.message)
+        }
+      })())
     }
-    try {
-      if (accountHasFeature(row, 'workers')) {
-        const usage = await getWorkersUsageToday(auth, row.cf_account_id)
-        if (usage.requests > 0) await setQuota(env, userId, row.id, 'workers_requests', usage.requests)
-      }
-    } catch (error) {
-      console.warn(`[inkstone] Workers usage sync failed for ${row.name}:`, (error as Error)?.message)
+    if (accountHasFeature(row, 'workers')) {
+      jobs.push((async () => {
+        try {
+          const usage = await getWorkersUsageToday(auth, cfAccountId)
+          if (usage.requests > 0) await setQuota(env, userId, row.id, 'workers_requests', usage.requests)
+        } catch (error) {
+          console.warn(`[inkstone] Workers usage sync failed for ${row.name}:`, (error as Error)?.message)
+        }
+      })())
     }
-  }
+    await Promise.all(jobs)
+  }))
 }
 
 export async function incrementQuota(

@@ -46,7 +46,12 @@ beforeEach(() => {
     }
     if (url.hostname === 'img.test') {
       if (url.pathname.endsWith('.png')) return new Response(PNG, { headers: { 'content-type': 'image/png' } })
+      if (url.pathname.endsWith('.svg')) return new Response('<svg></svg>', { headers: { 'content-type': 'image/svg+xml' } })
       return new Response('<html></html>', { headers: { 'content-type': 'text/html' } })
+    }
+    if (url.hostname === 'hop.test') {
+      const target = url.pathname === '/to-private' ? 'http://127.0.0.1/readme.md' : 'https://catalog.test/readme.md'
+      return new Response(null, { status: 302, headers: { location: target } })
     }
     if (url.hostname === 'zip.test') {
       const zip = zipSync({ 'index.html': strToU8('<h1>hi</h1>'), 'assets/app.js': strToU8('console.log(1)') })
@@ -260,9 +265,21 @@ describe('the template store', () => {
     expect(ok.headers.get('x-content-type-options')).toBe('nosniff')
     const notImage = await send(bed, 'GET', `/image?url=${encodeURIComponent('https://img.test/page.html')}`)
     expect(notImage.status).toBe(502)
+    // SVG is a document: served from this origin it could carry script.
+    const svg = await send(bed, 'GET', `/image?url=${encodeURIComponent('https://img.test/icon.svg')}`)
+    expect(svg.status).toBe(502)
     expect((await send(bed, 'GET', `/image?url=${encodeURIComponent('http://img.test/shot.png')}`)).status).toBe(400)
     expect((await send(bed, 'GET', `/image?url=${encodeURIComponent('https://127.0.0.1/shot.png')}`)).status).toBe(400)
     expect((await send(bed, 'GET', '/image')).status).toBe(400)
+  })
+
+  it('re-checks the address guard on every redirect hop', async () => {
+    const bed = await makeCloudflareBed()
+    const privateHop = await send(bed, 'GET', `/readme?url=${encodeURIComponent('https://hop.test/to-private')}`)
+    expect(privateHop.status).toBe(400)
+    const publicHop = await send(bed, 'GET', `/readme?url=${encodeURIComponent('https://hop.test/to-public')}`)
+    expect(publicHop.status).toBe(200)
+    expect(await publicHop.text()).toContain('# Template')
   })
 
   it('keeps a reader’s sources private', async () => {

@@ -210,6 +210,9 @@ storeRouter.get('/image', async (c) => {
       'content-type': type,
       'cache-control': 'private, max-age=86400',
       'x-content-type-options': 'nosniff',
+      // Proxied bytes are someone else's; they get no rights on this origin even if a browser
+      // navigates to them directly.
+      'content-security-policy': "default-src 'none'; img-src 'none'; form-action 'none'; base-uri 'none'",
     },
   })
 })

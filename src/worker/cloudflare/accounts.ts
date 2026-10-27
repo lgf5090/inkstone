@@ -217,10 +217,11 @@ export async function loadActiveAccounts(env: Env, userId: string): Promise<Load
   )
     .bind(userId)
     .all<CloudflareAccountRow>()
-  const out: LoadedAccount[] = []
-  for (const row of rows.results ?? []) {
+  // Every account needs its own R2 read and vault decrypt; awaiting them one by one made the
+  // dashboard wait for the slowest of them in sequence.
+  const loaded = await Promise.all((rows.results ?? []).map(async (row): Promise<LoadedAccount> => {
     const credentials = (await readAccountCredentials(env, row.id)) ?? {}
-    out.push({
+    return {
       row,
       auth: {
         auth_type: row.auth_type,
@@ -228,9 +229,9 @@ export async function loadActiveAccounts(env: Env, userId: string): Promise<Load
         api_key: credentials.api_key ?? null,
         email: row.email,
       },
-    })
-  }
-  return out
+    }
+  }))
+  return loaded
 }
 
 export function accountHasFeature(

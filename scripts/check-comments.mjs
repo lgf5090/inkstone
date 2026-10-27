@@ -33154,6 +33154,8 @@ const allowed = new Map([
     "/** Whether R2 is switched on for this account, as the string the account row stores. */",
     "/** Every target a batch test can run against; the unverified filter is the screen's own. */",
     "/** The emails a CSV import may not duplicate, lower-cased. */",
+    "// Every account needs its own R2 read and vault decrypt; awaiting them one by one made the",
+    "// dashboard wait for the slowest of them in sequence.",
   ]],
   ["src/worker/cloudflare/ai-models.ts", [
     "/**\n * Cloudflare's AI catalogue, and the parts of a model schema this app has to understand.\n *\n * The model list is live (Cloudflare adds and retires models), while a model's input schema is\n * stable enough to keep for an hour — the TTS screens ask for it on every open, and the schema call\n * is one more round trip per model. The body a speech model accepts is derived from that schema\n * rather than hard-coded: melotts takes `prompt` and aura takes `text`, and the speaker enums differ\n * per model.\n */",
@@ -33188,7 +33190,6 @@ const allowed = new Map([
     "/**\n * One conditional request. A 304 is an answer, not an empty catalog: the caller owns the cached\n * document and decides what to reuse.\n */",
     "/**\n * The cached document for one URL, refreshed at most every five minutes.\n *\n * `force` is used by `/refresh`, which must ask the host even when the cache is warm. A conditional\n * request whose 304 has no cached document behind it (a different isolate answered the earlier\n * request) is retried unconditionally, because a 304 alone cannot rebuild a catalogue.\n */",
     "/** The template source bytes, capped at 2 MB so a hostile URL cannot exhaust the isolate. */",
-    "/** A README is text from someone else's host; it may not point the worker at its own network. */",
     "/** The template's README, read by the worker because the reader's CSP does not allow the catalog host. */",
     "/**\n * The downloadable halves a template declares.\n *\n * A single `source` is a script for a worker template and a zip for a pages template; a hybrid\n * template names both halves under `sources`. A hybrid that only ships a script therefore has a\n * Worker half and no Pages half, which is what lets deploy refuse a half deploy instead of\n * uploading one half and failing the other.\n */",
     "/**\n * The three official sources, seeded exactly once per reader.\n *\n * \"Once\" is decided by the reader having no rows at all: re-seeding whenever a default is missing\n * would resurrect a source the reader deleted every time the store screen opened.\n */",
@@ -33197,6 +33198,11 @@ const allowed = new Map([
     "// The three mirrors are independent hosts; asking them one after another made a first visit wait",
     "// for the sum of their latencies. `Promise.all` keeps the row order (first source still wins) while",
     "// the network waits overlap.",
+    "// The loopback allowance is a local-development convenience only: in a deployed Worker the same",
+    "// exception would let a catalogue point this fetch at the notebook's own API.",
+    "/** Hosts a worker must never be talked into reaching: loopback, private, link-local, CGNAT. */",
+    "/** A README, an image or a template package is someone else's text: it may not name our own network. */",
+    "/**\n * Fetch with the URL guard applied to every hop, not just the first one.\n *\n * Following redirects automatically hands the choice of destination to the remote server, which is\n * exactly the decision the guard exists to make: a public README can answer 302 with a link-local\n * metadata address and have this worker read it on the caller's behalf.\n */",
   ]],
   ["src/worker/cloudflare/cf-api.ts", [
     "/**\n * The one door to api.cloudflare.com.\n *\n * The reference module used the Cloudflare Node SDK in one generation and `cfFetch` in the next. A\n * Worker cannot use the SDK's Node transport (and does not need to): every call here is `fetch` with\n * the account's own headers, which is also what makes the module testable — a route test stubs one\n * origin.\n *\n * Errors keep the upstream status and body. A route decides how much of that to show; the words are\n * Cloudflare's own, and the routes never invent a status the API did not send.\n */",
@@ -33265,6 +33271,9 @@ const allowed = new Map([
   ["src/worker/cloudflare/quota.ts", [
     "/**\n * Daily allowances, and what is left of them.\n *\n * Cloudflare's free tier is the budget: each account has its own Workers requests, AI neurons and\n * browser-render seconds per UTC day. The reference module kept a row per account/resource/day and\n * refreshed it from Cloudflare whenever the dashboard opened; this port keeps that shape, with the\n * reader's id in front so two readers' accounts can never share a counter.\n */",
     "/**\n * Refresh today's counters from Cloudflare before answering the dashboard.\n *\n * One account failing must not hide the others' numbers, which is the whole reason the screens exist;\n * the failure is logged with the account and the rest of the sync continues.\n */",
+    "// Accounts and products are read concurrently: each GraphQL call can take the full client timeout,",
+    "// and a serial walk made the dashboard wait for every one of them in turn. One account failing",
+    "// still must not hide the others' numbers, hence the per-product catch inside the parallel wave.",
   ]],
   ["src/worker/cloudflare/schema.ts", [
     "/**\n * The Cloudflare app's tables, declared where the boot can find them.\n *\n * Every table leads with `user_id`: the reference module was a single-reader deploy, while this\n * notebook has accounts, and one reader's Cloudflare credentials, logs, conversations and tasks must\n * never be visible to another. Account rows carry a generated 26-character id rather than the\n * reference's autoincrement, because the credential vault derives its key from that id.\n *\n * Credential material is not in any of these tables. It lives in the R2 bucket under\n * `cloudflare/txt/accounts/<id>.txt`, sealed by the credential vault (see `credentials.ts`).\n */",
@@ -35594,6 +35603,8 @@ const allowed = new Map([
     "// Preflight and deployment",
     "/** The shared body of `/deploy` and one batch row; throws only when the preconditions fail. */",
     "// Re-exported for the settings slice, which lists source status beside the task list.",
+    "// Proxied bytes are someone else's; they get no rights on this origin even if a browser",
+    "// navigates to them directly.",
   ]],
   ["src/worker/routes/cloudflare/tasks.ts", [
     "/**\n * `/api/cloudflare/tasks` — the scheduled maintenance rows and their history.\n *\n * The platform's cron trigger is what runs them (`runDueCloudflareTasks` in `cloudflare/tasks.ts`);\n * these routes only create, edit, enable and run on demand. A malformed cron is refused here rather\n * than stored and silently never fired.\n */",
@@ -39471,9 +39482,15 @@ const allowed = new Map([
     "// Llama 3.1 8B: 25.608 in / 75.147 out per thousand tokens.",
     "// Cached tokens never cost more than fresh ones, and never produce a negative bill.",
   ]],
+  ["tests/cloudflare-quota-sync.test.ts", [
+    "// A serial walk over accounts and products holds the peak at one request at a time.",
+  ]],
   ["tests/cloudflare-storage.test.ts", [
     "// A compound `SELECT … UNION ALL` per table is what SQLite rejects on a real database, so the",
     "// counts must arrive as scalar subqueries in one select list.",
+  ]],
+  ["tests/cloudflare-store.test.ts", [
+    "// SVG is a document: served from this origin it could carry script.",
   ]],
   ["tests/cloudflare-tunnels.test.ts", [
     "// Wrap the stub once more to observe the rollback DELETE.",
