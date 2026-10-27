@@ -233,19 +233,21 @@ export function SchemaEditor({ driver, table, schemaModel, onSchemaChanged, onEr
             </tr>
           </thead>
           <tbody>
-            {drafts.map((draft) => (
+            {drafts.map((draft, index) => {
+              const columnLabel = draft.name.trim() || String(index + 1)
+              return (
               <tr key={draft.id} className={draft.deleted ? 'opacity-40 line-through' : undefined}>
                 <td className="border-b border-[var(--border-subtle)] px-2 py-1">
-                  <IconButton label={draft.deleted ? t('development.database.schema.undo_delete') : t('development.database.schema.delete_column')} size="xs" onClick={() => update(draft.id, { deleted: !draft.deleted })}>
+                  <IconButton label={`${t(draft.deleted ? 'development.database.schema.undo_delete' : 'development.database.schema.delete_column')} ${columnLabel}`} size="xs" onClick={() => update(draft.id, { deleted: !draft.deleted })}>
                     <Trash2 size={12} />
                   </IconButton>
                 </td>
                 <td className="border-b border-[var(--border-subtle)] px-2 py-1">
-                  <Input value={draft.name} onChange={(event) => update(draft.id, { name: event.target.value })} placeholder={t('development.database.schema.name')} className="h-7" />
+                  <Input value={draft.name} onChange={(event) => update(draft.id, { name: event.target.value })} placeholder={t('development.database.schema.name')} aria-label={`${t('development.database.schema.name')} ${columnLabel}`} className="h-7" />
                 </td>
                 <td className="border-b border-[var(--border-subtle)] px-2 py-1">
                   <SelectMenu
-                    label={t('development.database.schema.type')}
+                    label={`${t('development.database.schema.type')} ${columnLabel}`}
                     value={COMMON_TYPES.includes(draft.type.toUpperCase()) ? draft.type.toUpperCase() : 'CUSTOM'}
                     options={[...COMMON_TYPES.map((type) => ({ value: type, label: type })), { value: 'CUSTOM', label: draft.type || t('development.database.schema.custom') }]}
                     onChange={(value) => update(draft.id, { type: value === 'CUSTOM' ? draft.type : value })}
@@ -253,19 +255,20 @@ export function SchemaEditor({ driver, table, schemaModel, onSchemaChanged, onEr
                   />
                 </td>
                 <td className="border-b border-[var(--border-subtle)] px-2 py-1 text-center">
-                  <Checkbox checked={draft.pk} ariaLabel={t('development.database.schema.pk')} onChange={(next) => update(draft.id, { pk: next })} />
+                  <Checkbox checked={draft.pk} ariaLabel={`${t('development.database.schema.pk')} ${columnLabel}`} onChange={(next) => update(draft.id, { pk: next })} />
                 </td>
                 <td className="border-b border-[var(--border-subtle)] px-2 py-1 text-center">
-                  <Checkbox checked={draft.notNull} ariaLabel={t('development.database.schema.not_null')} onChange={(next) => update(draft.id, { notNull: next })} />
+                  <Checkbox checked={draft.notNull} ariaLabel={`${t('development.database.schema.not_null')} ${columnLabel}`} onChange={(next) => update(draft.id, { notNull: next })} />
                 </td>
                 <td className="border-b border-[var(--border-subtle)] px-2 py-1 text-center">
-                  <Checkbox checked={draft.unique} ariaLabel={t('development.database.schema.unique')} onChange={(next) => update(draft.id, { unique: next })} />
+                  <Checkbox checked={draft.unique} ariaLabel={`${t('development.database.schema.unique')} ${columnLabel}`} onChange={(next) => update(draft.id, { unique: next })} />
                 </td>
                 <td className="border-b border-[var(--border-subtle)] px-2 py-1">
-                  <Input value={draft.default} onChange={(event) => update(draft.id, { default: event.target.value })} placeholder="NULL" className="h-7" />
+                  <Input value={draft.default} onChange={(event) => update(draft.id, { default: event.target.value })} placeholder="NULL" aria-label={`${t('development.database.schema.default')} ${columnLabel}`} className="h-7" />
                 </td>
               </tr>
-            ))}
+              )
+            })}
           </tbody>
         </table>
         {drafts.length === 0 && <div className="py-8 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('development.database.schema.no_columns')}</div>}
@@ -363,12 +366,12 @@ function CreateTableDialog({
           <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={t('development.database.schema.table_name_placeholder')} />
         </Field>
         <div className="space-y-1.5">
-          {columns.map((column) => (
+          {columns.map((column, index) => (
             <div key={column.id} className="grid grid-cols-[1fr_1.2fr_auto_auto] items-center gap-1.5">
-              <Input value={column.name} onChange={(event) => setColumns((current) => current.map((entry) => entry.id === column.id ? { ...entry, name: event.target.value } : entry))} placeholder={t('development.database.schema.name')} className="h-7" />
-              <SelectMenu label={t('development.database.schema.type')} value={column.type} options={COMMON_TYPES.map((type) => ({ value: type, label: type }))} onChange={(value) => setColumns((current) => current.map((entry) => entry.id === column.id ? { ...entry, type: value } : entry))} size="sm" />
-                <Checkbox checked={column.pk} onChange={(next) => setColumns((current) => current.map((entry) => entry.id === column.id ? { ...entry, pk: next } : entry))} label={t('development.database.schema.primary_key')} />
-              <IconButton label={t('development.database.schema.delete_column')} size="xs" onClick={() => setColumns((current) => current.filter((entry) => entry.id !== column.id))}><Trash2 size={12} /></IconButton>
+              <Input value={column.name} onChange={(event) => setColumns((current) => current.map((entry) => entry.id === column.id ? { ...entry, name: event.target.value } : entry))} placeholder={t('development.database.schema.name')} aria-label={`${t('development.database.schema.name')} ${index + 1}`} className="h-7" />
+              <SelectMenu label={`${t('development.database.schema.type')} ${column.name || index + 1}`} value={column.type} options={COMMON_TYPES.map((type) => ({ value: type, label: type }))} onChange={(value) => setColumns((current) => current.map((entry) => entry.id === column.id ? { ...entry, type: value } : entry))} size="sm" />
+                <Checkbox checked={column.pk} ariaLabel={`${t('development.database.schema.primary_key')} ${column.name || index + 1}`} onChange={(next) => setColumns((current) => current.map((entry) => entry.id === column.id ? { ...entry, pk: next } : entry))} label={t('development.database.schema.primary_key')} />
+              <IconButton label={`${t('development.database.schema.delete_column')} ${column.name || index + 1}`} size="xs" onClick={() => setColumns((current) => current.filter((entry) => entry.id !== column.id))}><Trash2 size={12} /></IconButton>
             </div>
           ))}
           <Button variant="secondary" size="sm" className="w-full" onClick={() => setColumns((current) => [...current, { ...emptyDraft(), id: `c${Date.now()}` }])}><Plus size={13} />{t('development.database.schema.add_column')}</Button>

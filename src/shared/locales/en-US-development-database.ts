@@ -51,7 +51,7 @@ export const EN_US_DEVELOPMENT_DATABASE = {
   "development.database.app.edit_schema": "Edit schema",
   "development.database.app.collapse_sidebar": "Collapse sidebar",
   "development.database.app.expand_sidebar": "Expand sidebar",
-  "development.database.app.drag_to_reorder": "Drag to reorder",
+  "development.database.app.drag_to_reorder": "Drag to reorder (Alt+Up/Down)",
   "development.database.app.favorite": "Favorite",
   "development.database.app.unfavorite": "Remove favorite",
   "development.database.app.pin": "Pin",

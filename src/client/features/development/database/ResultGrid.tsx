@@ -255,7 +255,7 @@ export function ResultGrid({
         className="h-full overflow-auto overscroll-contain"
         onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
       >
-        <table className="w-full border-collapse text-[length:var(--text-12)]" style={{ tableLayout: 'fixed' }}>
+        <table className="w-full table-fixed border-collapse text-[length:var(--text-12)]">
           <thead className="sticky top-0 z-20 bg-[var(--bg-sunken)]">
             <tr>
               <th

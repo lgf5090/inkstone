@@ -120,6 +120,7 @@ function ConnectionItem({
         type="button"
         aria-label={t('development.database.app.drag_to_reorder')}
         title={t('development.database.app.drag_to_reorder')}
+        aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
         className="flex h-8 w-5 shrink-0 cursor-grab touch-none items-center justify-center text-[var(--text-quaternary)] opacity-0 focus-visible:opacity-100 group-hover:opacity-100 active:cursor-grabbing"
         onKeyDown={(event) => {
           if (!event.altKey) return
