@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronsUpDown, EyeOff, Pin, PinOff, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronsUpDown, EyeOff, ListFilter, Pin, PinOff, X } from 'lucide-react'
 import { INKSTONE_BLOB_KEY, type TableSortRule } from '@shared/development/database/types'
 import { cn } from '../../../lib/cn'
 import { isImeComposing } from '../../../lib/ime'
@@ -22,6 +22,7 @@ export interface ResultGridProps {
   sort?: TableSortRule[]
   onSort?: (column: string, additive: boolean) => void
   onSortDir?: (column: string, direction: 'ASC' | 'DESC') => void
+  onDistinctColumn?: (column: string) => void
   hiddenColumns?: Set<number>
   onToggleColumn?: (columnIndex: number) => void
   selectedRows?: Set<number>
@@ -78,6 +79,7 @@ export function ResultGrid({
   sort,
   onSort,
   onSortDir,
+  onDistinctColumn,
   hiddenColumns,
   onToggleColumn,
   selectedRows,
@@ -232,6 +234,16 @@ export function ResultGrid({
         setMenu(null)
       },
     },
+    ...(onDistinctColumn ? [{
+      id: 'distinct',
+      label: t('development.database.grid.distinct_values'),
+      icon: <ListFilter size={13} />,
+      separatorBefore: true,
+      onSelect: () => {
+        onDistinctColumn(columns[menu.col]!)
+        setMenu(null)
+      },
+    }] : []),
     ...(onToggleColumn ? [{
       id: 'hide',
       label: t('development.database.grid.hide_column'),

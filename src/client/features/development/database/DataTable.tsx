@@ -28,6 +28,7 @@ import { Menu, Modal, confirm } from '../../../components/overlay'
 import { SelectMenu } from '../../../components/select-menu'
 import { ResultGrid } from './ResultGrid'
 import { RowDetailPanel } from './RowDetailPanel'
+import { DistinctValuePanel } from './DistinctValuePanel'
 import { ExportPanel } from './ExportPanel'
 import { AggregatePanel } from './AggregatePanel'
 import { ToolbarPanel } from './ToolbarPanel'
@@ -94,6 +95,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
   const [insertNulls, setInsertNulls] = useState<Set<string>>(new Set())
   const [contextMenu, setContextMenu] = useState<{ row: number; col: number; x: number; y: number } | null>(null)
   const [cellEditor, setCellEditor] = useState<{ row: number; col: number; value: string; format: 'text' | 'json' } | null>(null)
+  const [distinctColumn, setDistinctColumn] = useState<string | null>(null)
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const searchColumns = useMemo(() => table.columns.map((column) => column.name), [table.columns])
@@ -417,6 +419,19 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
     void load(0, pageSize, sort, buildWhere(next, debouncedSearch, searchColumns))
   }
 
+  const pickDistinct = (value: string | null) => {
+    if (!distinctColumn) return
+    const next = [...filters, {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      column: distinctColumn,
+      op: (value === null ? 'isNull' : 'equals') as FilterOperator,
+      value: value ?? '',
+    }]
+    setFilters(next)
+    void load(0, pageSize, sort, buildWhere(next, debouncedSearch, searchColumns))
+    setDistinctColumn(null)
+  }
+
   const contextItems = contextMenu ? [
     {
       id: 'null',
@@ -705,6 +720,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
             sort={sort}
             onSort={sortBy}
             onSortDir={sortOne}
+            onDistinctColumn={setDistinctColumn}
             hiddenColumns={hiddenColumns}
             onToggleColumn={(index) => setHiddenColumns((current) => {
               const next = new Set(current)
@@ -732,6 +748,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
             rows={rows}
             sort={sort}
             onSort={sortBy}
+            onDistinctColumn={setDistinctColumn}
             hiddenColumns={hiddenColumns}
             onToggleColumn={(index) => setHiddenColumns((current) => {
               const next = new Set(current)
@@ -855,6 +872,16 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
           ))}
         </div>
       </Modal>
+
+      <DistinctValuePanel
+        open={distinctColumn !== null}
+        table={table.name}
+        column={distinctColumn ?? columns[0] ?? ''}
+        knownColumns={table.columns.map((column) => column.name)}
+        driver={driver}
+        onPick={(value) => pickDistinct(value)}
+        onClose={() => setDistinctColumn(null)}
+      />
 
       <FilterDialog
         open={filterOpen}

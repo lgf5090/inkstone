@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { parseCreateTable, parseCreateIndex } from '../src/client/features/development/database/schema-parse'
 import { buildRebuildSql } from '../src/client/features/development/database/ddl'
 import { buildTableDataSql, loadSchema } from '../src/client/features/development/database/schema-utils'
+import { buildDistinctSql } from '../src/client/features/development/database/distinct-ops'
 import { projectColumns, toCsv, toSchemaSql } from '../src/client/features/development/database/export-utils'
 import { buildWhere } from '../src/client/features/development/database/filter-ops'
 import { SCHEMA_PROMPT_BUDGET_CHARS, buildSchemaPrompt } from '../src/client/features/development/database/schema-prompt'
@@ -153,6 +154,14 @@ describe('development database core', () => {
     expect(isDestructiveSql("SELECT sql FROM sqlite_master WHERE sql LIKE '%DROP TABLE%'")).toBe(false)
     expect(isDestructiveSql("SELECT * FROM notes WHERE body LIKE '%truncate%'")).toBe(false)
     expect(isDestructiveSql('/* DELETE FROM t */ INSERT INTO t VALUES (1)')).toBe(false)
+  })
+
+  it('builds a distinct-value query only for known columns', () => {
+    const sql = buildDistinctSql('orders', 'status', ['id', 'status'])
+    expect(sql).toContain('SELECT "status" AS value, COUNT(*) AS occurrences FROM "orders"')
+    expect(sql).toContain('GROUP BY 1 ORDER BY occurrences DESC, value ASC LIMIT 50')
+    expect(buildDistinctSql('orders', 'missing', ['id', 'status'])).toBeNull()
+    expect(buildDistinctSql('t', 'a"b', ['a"b'])).toContain('"a""b"')
   })
 
   it('quotes CSV cells containing separators and newlines', () => {
