@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
+  Camera,
   ChevronLeft,
   ChevronRight,
   Code2,
@@ -35,6 +36,7 @@ import { DistinctValuePanel } from './DistinctValuePanel'
 import { CellTransformDialog } from './CellTransformDialog'
 import { CsvImportDialog } from './CsvImportDialog'
 import { DataGenerateDialog } from './DataGenerateDialog'
+import { SNAPSHOT_MAX_ROWS, canvasToPngBlob, renderGridSnapshot } from './snapshot'
 import { ExportPanel } from './ExportPanel'
 import { AggregatePanel } from './AggregatePanel'
 import { ToolbarPanel } from './ToolbarPanel'
@@ -42,7 +44,7 @@ import type { StudioDriver } from './drivers'
 import { buildCountSql, buildTableDataSql, primaryKeyColumns } from './schema-utils'
 import { buildWhere } from './filter-ops'
 import { buildDelete, buildInsert, buildUpdate, fromTemporalInput, rowKeyOf, temporalKind, toTemporalInput } from './row-ops'
-import { projectColumns, sqlLiteral } from './export-utils'
+import { downloadBlob, projectColumns, sqlLiteral } from './export-utils'
 import type { FilterCondition, FilterOperator } from './types'
 
 const PAGE_SIZES = [50, 100, 200] as const
@@ -488,6 +490,25 @@ export function DataTable({ driver, table, ensureWritable, onSchemaChanged, onEr
     })
   }
 
+  const snapshotGrid = async () => {
+    const visible = columns.filter((_, index) => !hiddenColumns.has(index))
+    const indexes = columns.map((_, index) => index).filter((index) => !hiddenColumns.has(index))
+    const text = rows.slice(0, SNAPSHOT_MAX_ROWS).map((row) => indexes.map((index) => {
+      const value = row[index]
+      if (value === null || value === undefined) return 'NULL'
+      if (value instanceof Uint8Array) return `[BLOB ${value.byteLength}B]`
+      return String(value)
+    }))
+    const canvas = renderGridSnapshot({ columns: visible, rows: text, title: `${table.name} · ${rows.length} ${t('development.database.query.rows')}` })
+    const blob = await canvasToPngBlob(canvas)
+    if (!blob) {
+      onError(t('development.database.snapshot.failed'))
+      return
+    }
+    downloadBlob(`${table.name.replace(/[\\/:*?"<>|]+/g, '-')}-snapshot.png`, blob)
+    useUi.getState().toast({ title: t('development.database.snapshot.done'), tone: 'success' })
+  }
+
   const addQuickFilter = (column: string, op: FilterOperator, value: string) => {
     if (!column) return
     const next = [...filters, {
@@ -752,6 +773,10 @@ export function DataTable({ driver, table, ensureWritable, onSchemaChanged, onEr
         )}
         <ExportPanel columns={visibleColumns} rows={visible.rows} tableName={table.name} selectedRows={selectedRows} truncated={truncated} />
         <AggregatePanel columns={visibleColumns} rows={visible.rows} selectedRows={selectedRows} />
+        <Button variant="secondary" size="sm" onClick={() => void snapshotGrid()}>
+          <Camera size={14} />
+          {t('development.database.snapshot.grid')}
+        </Button>
         <Button variant="secondary" size="sm" onClick={() => setSqlOpen((value) => !value)} aria-pressed={sqlOpen}>
           <Code2 size={14} />
           {t('development.database.grid.show_sql')}

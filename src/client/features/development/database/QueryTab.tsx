@@ -12,6 +12,7 @@ import {
   Sparkles,
   Trash2,
   BarChart3,
+  Camera,
   Code2,
   Download,
   FileUp,
@@ -35,10 +36,11 @@ import { SqlEditor } from './SqlEditor'
 import { ResultGrid } from './ResultGrid'
 import { RowDetailPanel } from './RowDetailPanel'
 import { ExportPanel } from './ExportPanel'
-import { downloadTextFile } from './export-utils'
+import { downloadBlob, downloadTextFile } from './export-utils'
 import { StructurePeekDialog } from './StructurePeekDialog'
 import { ResultChart } from './ResultChart'
 import { diagnoseSql } from './sql-diagnostics'
+import { canvasToPngBlob, renderCodeSnapshot } from './snapshot'
 import { AggregatePanel } from './AggregatePanel'
 import { ExplainPlanView, isExplainPlanResult, toExplainPlanRows } from './ExplainPlanView'
 import { AiSqlPanel } from './AiSqlPanel'
@@ -380,6 +382,18 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
     }
   }
 
+  const snapshotCode = async () => {
+    if (!sql.trim()) return
+    const canvas = renderCodeSnapshot(sql, `${connectionType.toUpperCase()} · SQL`)
+    const blob = await canvasToPngBlob(canvas)
+    if (!blob) {
+      onError(t('development.database.snapshot.failed'))
+      return
+    }
+    downloadBlob('query-snapshot.png', blob)
+    useUi.getState().toast({ title: t('development.database.snapshot.done'), tone: 'success' })
+  }
+
   const explain = useCallback(async () => {
     const target = sql.trim()
     if (!target) return
@@ -589,6 +603,10 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
               {t('development.database.query.run_file')}
             </Button>
             <input ref={fileInput} type="file" accept=".sql,.txt" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void runSqlFile(file) }} />
+            <Button variant="ghost" size="sm" onClick={() => void snapshotCode()} disabled={!sql.trim()}>
+              <Camera size={14} />
+              {t('development.database.snapshot.code')}
+            </Button>
             <Button variant="ghost" size="sm" onClick={() => setChartOpen((value) => !value)} aria-pressed={chartOpen} disabled={results.length === 0}>
               <BarChart3 size={14} />
               {t('development.database.chart.title')}

@@ -9,6 +9,7 @@ import { buildDataSearchSql, searchableColumns } from '../src/client/features/de
 import { buildRowInsert, chunkRows, transferInsertStatements } from '../src/client/features/development/database/transfer-ops'
 import { generateRows } from '../src/client/features/development/database/data-generate'
 import { diagnoseSql } from '../src/client/features/development/database/sql-diagnostics'
+import { computeColumnWidths } from '../src/client/features/development/database/snapshot'
 import { diffSchemas, schemaStatements } from '../src/client/features/development/database/schema-diff'
 import { diffRows } from '../src/client/features/development/database/data-diff'
 import { inferColumnType, parseCsv } from '../src/client/features/development/database/csv-parse'
@@ -347,6 +348,13 @@ describe('development database core', () => {
     expect(diagnoseSql('WITH fresh AS (SELECT 1) SELECT * FROM fresh', schema)).toEqual([])
     expect(diagnoseSql('SELECT * FROM sqlite_master', schema)).toEqual([])
     expect(diagnoseSql("SELECT 'from ghosts' AS text FROM user_totals", schema)).toEqual([])
+  })
+
+  it('sizes snapshot columns between the bounds', () => {
+    const widths = computeColumnWidths(['id', 'name'], [['1', 'Alice'], ['2', 'a'.repeat(200)]])
+    expect(widths[0]).toBe(64)
+    expect(widths[1]).toBe(320)
+    expect(computeColumnWidths(['x'], [])[0]).toBe(64)
   })
 
   it('quotes CSV cells containing separators and newlines', () => {
