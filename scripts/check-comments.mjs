@@ -33187,6 +33187,9 @@ const allowed = new Map([
     "/**\n * The three official sources, seeded exactly once per reader.\n *\n * \"Once\" is decided by the reader having no rows at all: re-seeding whenever a default is missing\n * would resurrect a source the reader deleted every time the store screen opened.\n */",
     "/**\n * Merge every enabled source, first source wins, and count how many sources carry each template.\n *\n * A failing source never removes another source's templates. On `/refresh` the failure is written\n * to the row; on a plain read it only shapes this response. A stale cached document still\n * contributes, because hiding a whole catalogue over one unreachable mirror is worse than showing\n * yesterday's list beside an error row.\n */",
     "/** The first enabled source that carries this template, in the same order the store lists them. */",
+    "// The three mirrors are independent hosts; asking them one after another made a first visit wait",
+    "// for the sum of their latencies. `Promise.all` keeps the row order (first source still wins) while",
+    "// the network waits overlap.",
   ]],
   ["src/worker/cloudflare/cf-api.ts", [
     "/**\n * The one door to api.cloudflare.com.\n *\n * The reference module used the Cloudflare Node SDK in one generation and `cfFetch` in the next. A\n * Worker cannot use the SDK's Node transport (and does not need to): every call here is `fetch` with\n * the account's own headers, which is also what makes the module testable — a route test stubs one\n * origin.\n *\n * Errors keep the upstream status and body. A route decides how much of that to show; the words are\n * Cloudflare's own, and the routes never invent a status the API did not send.\n */",
