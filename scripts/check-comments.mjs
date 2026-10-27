@@ -6277,6 +6277,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/inkpad/ink-elements.tsx", [
     "// An old .ink path may name no attachment any more; the card stays in its missing state.",
+    "// renderMarkdown has already sanitized this HTML.",
   ]],
   ["src/client/features/inkpad/ink-engine-types.ts", [
     "/** The engine reads paper style and pressure response on demand. */",
@@ -18693,6 +18694,9 @@ const allowed = new Map([
   ["src/client/lib/inkpad/format.ts", [
     "/** Checks the envelope before a view replaces its drawing with disk data. */",
     "/**\n * Parses only the portable, versioned document shape. Invalid items are dropped; an invalid\n * envelope fails whole, so a broken file is never replaced by a blank drawing.\n */",
+  ]],
+  ["src/client/lib/inkpad/geometry.test.ts", [
+    "// The notch is open at the bottom: this point is outside even though a ray crosses twice.",
   ]],
   ["src/client/lib/inkpad/geometry.ts", [
     "/** The ink-only box, padded for export. A blank drawing still names a valid 1×1 viewBox. */",
