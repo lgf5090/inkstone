@@ -12,7 +12,10 @@ import {
   Sparkles,
   Trash2,
   Code2,
+  Download,
+  FileUp,
   Table2,
+  Upload,
   Wand2,
   X,
 } from 'lucide-react'
@@ -20,6 +23,7 @@ import type { QueryHistoryEntry, QueryResult, SavedQuery, SchemaModel } from '@s
 import { MAX_QUERY_BYTES, MAX_QUERY_ROWS } from '@shared/development/database/types'
 import { splitSqlStatements, isWriteSql, isDestructiveSql, isSchemaChangeSql } from '@shared/development/database/sql-utils'
 import { isImeComposing } from '../../../lib/ime'
+import { useUi } from '../../../store/ui'
 import { cn } from '../../../lib/cn'
 import { t } from '../../../lib/i18n'
 import { Button, IconButton } from '../../../components/primitives'
@@ -30,6 +34,7 @@ import { SqlEditor } from './SqlEditor'
 import { ResultGrid } from './ResultGrid'
 import { RowDetailPanel } from './RowDetailPanel'
 import { ExportPanel } from './ExportPanel'
+import { downloadTextFile } from './export-utils'
 import { StructurePeekDialog } from './StructurePeekDialog'
 import { AggregatePanel } from './AggregatePanel'
 import { ExplainPlanView, isExplainPlanResult, toExplainPlanRows } from './ExplainPlanView'
@@ -116,6 +121,11 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
   const [running, setRunning] = useState(false)
   const [sqlOpen, setSqlOpen] = useState(false)
   const [peekOpen, setPeekOpen] = useState(false)
+  const [fileRunning, setFileRunning] = useState(false)
+  const [fileRun, setFileRun] = useState<{ name: string; total: number; done: number; failed: Array<{ index: number; sql: string; message: string }> } | null>(null)
+  const fileInput = useRef<HTMLInputElement>(null)
+  const libraryInput = useRef<HTMLInputElement>(null)
+  const fileCancel = useRef(false)
   const [error, setError] = useState<string | null>(null)
   const [progress, setProgress] = useState<{ current: number; total: number } | null>(null)
   const [cursor, setCursor] = useState({ line: 1, column: 0 })
@@ -255,6 +265,115 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
       setRunning(false)
     }
   }, [connectionId, driver, ensureWritable, isLocal, onError, onSchemaChanged, placeholderValues, pushHistory, sql])
+
+  const runSqlFile = async (file: File) => {
+    const text = (await file.text()).replace(/^\uFEFF/, '')
+    const statements = splitSqlStatements(text)
+    if (statements.length === 0) {
+      onError(t('development.database.query.file_empty'))
+      return
+    }
+    if (statements.some(isWriteSql)) {
+      if (ensureWritable && !(await ensureWritable())) return
+      if (statements.some(isDestructiveSql)) {
+        const ok = await confirm({
+          title: t('development.database.query.destructive_title'),
+          description: t('development.database.query.file_destructive', { count: statements.length }),
+          confirmLabel: t('development.database.query.run'),
+          tone: 'danger',
+        })
+        if (!ok) return
+      }
+    }
+    fileCancel.current = false
+    setFileRunning(true)
+    const failed: Array<{ index: number; sql: string; message: string }> = []
+    let done = 0
+    setFileRun({ name: file.name, total: statements.length, done: 0, failed: [] })
+    try {
+      for (let index = 0; index < statements.length; index++) {
+        if (fileCancel.current) break
+        try {
+          await driver.query(statements[index]!)
+        } catch (cause) {
+          failed.push({ index: index + 1, sql: statements[index]!.slice(0, 160), message: cause instanceof Error ? cause.message : String(cause) })
+        }
+        done = index + 1
+        setFileRun({ name: file.name, total: statements.length, done, failed: [...failed] })
+      }
+      if (statements.some(isSchemaChangeSql)) onSchemaChanged?.()
+      useUi.getState().toast({
+        title: t('development.database.query.file_done', { count: done - failed.length }),
+        ...(failed.length > 0 ? { description: t('development.database.query.file_failed', { count: failed.length }), tone: 'warning' as const } : { tone: 'success' as const }),
+      })
+    } finally {
+      setFileRunning(false)
+    }
+  }
+
+  const exportLibrary = () => {
+    const payload = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      queries: saved.map((entry) => ({ name: entry.name, sql: entry.sql, namespace: entry.namespace })),
+    }
+    downloadTextFile(`saved-queries-${Date.now()}.json`, JSON.stringify(payload, null, 2), 'application/json')
+  }
+
+  const importLibrary = async (file: File) => {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(await file.text())
+    } catch {
+      onError(t('development.database.query.library_invalid'))
+      return
+    }
+    const entries = Array.isArray((parsed as { queries?: unknown })?.queries) ? (parsed as { queries: unknown[] }).queries : []
+    const valid = entries.filter((entry): entry is { name: string; sql: string; namespace?: string } => {
+      const record = entry as { name?: unknown; sql?: unknown }
+      return typeof record.name === 'string' && record.name.trim().length > 0 && typeof record.sql === 'string'
+    })
+    if (valid.length === 0) {
+      onError(t('development.database.query.library_empty'))
+      return
+    }
+    let created = 0
+    let skipped = 0
+    try {
+      if (isLocal) {
+        const now = Date.now()
+        const additions: SavedQuery[] = []
+        for (const entry of valid) {
+          const namespace = typeof entry.namespace === 'string' && entry.namespace ? entry.namespace : 'default'
+          if (saved.some((item) => item.name === entry.name && (item.namespace || 'default') === namespace)) {
+            skipped += 1
+            continue
+          }
+          additions.push({ id: `local-${now}-${created}`, connectionId, name: entry.name, sql: entry.sql, namespace, updatedAt: now })
+          created += 1
+        }
+        if (additions.length > 0) {
+          const next = [...additions, ...saved]
+          setSaved(next)
+          writeLocal(`${LOCAL_SAVED_PREFIX}${connectionId}`, next)
+        }
+      } else {
+        for (const entry of valid) {
+          const namespace = typeof entry.namespace === 'string' && entry.namespace ? entry.namespace : 'default'
+          if (saved.some((item) => item.name === entry.name && (item.namespace || 'default') === namespace)) {
+            skipped += 1
+            continue
+          }
+          await createSavedQuery({ connectionId, name: entry.name, sql: entry.sql, namespace })
+          created += 1
+        }
+        setSaved(await listSavedQueries(connectionId))
+      }
+      useUi.getState().toast({ title: t('development.database.query.library_done', { created, skipped }), tone: 'success' })
+    } catch (cause) {
+      onError(describeError(cause))
+    }
+  }
 
   const explain = useCallback(async () => {
     const target = sql.trim()
@@ -460,6 +579,11 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
             <Button variant="secondary" size="sm" onClick={() => setSidePanel((current) => current === 'agent' ? null : 'agent')}>
               {t('development.database.query.agent')}
             </Button>
+            <Button variant="ghost" size="sm" onClick={() => fileInput.current?.click()} title={t('development.database.query.run_file')} disabled={fileRunning}>
+              <FileUp size={14} />
+              {t('development.database.query.run_file')}
+            </Button>
+            <input ref={fileInput} type="file" accept=".sql,.txt" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void runSqlFile(file) }} />
             <Button variant="ghost" size="sm" onClick={() => setPeekOpen(true)} title={t('development.database.query.peek_hint')}>
               <Table2 size={14} />
               {t('development.database.query.peek')}
@@ -519,6 +643,25 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
                     className="h-7 w-36 text-[length:var(--text-11)]"
                   />
                 </label>
+              ))}
+            </div>
+          )}
+          {fileRun && (
+            <div className="shrink-0 space-y-1 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-1.5">
+              <div className="flex items-center gap-2 text-[length:var(--text-10)] text-[var(--text-tertiary)]" role="status">
+                {fileRunning && <Loader2 size={12} className="animate-spin text-[var(--accent)]" />}
+                <span className="min-w-0 flex-1 truncate">{t('development.database.query.file_progress', { name: fileRun.name, done: fileRun.done, total: fileRun.total })}</span>
+                {fileRunning && (
+                  <Button variant="ghost" size="sm" onClick={() => { fileCancel.current = true }}>{t('development.database.query.file_stop')}</Button>
+                )}
+                {!fileRunning && (
+                  <Button variant="ghost" size="sm" onClick={() => setFileRun(null)}>{t('development.database.common.clear')}</Button>
+                )}
+              </div>
+              {fileRun.failed.slice(0, 5).map((failure) => (
+                <div key={failure.index} className="truncate text-[length:var(--text-10)] text-[var(--danger)]" title={failure.sql}>
+                  #{failure.index} · {failure.message}
+                </div>
               ))}
             </div>
           )}
@@ -734,6 +877,17 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
             ))}
           </div>
         ))}
+        <div className="mt-2 flex gap-1.5 border-t border-[var(--border-subtle)] pt-2">
+          <Button variant="ghost" size="sm" disabled={saved.length === 0} onClick={exportLibrary}>
+            <Download size={13} />
+            {t('development.database.query.library_export')}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => libraryInput.current?.click()}>
+            <Upload size={13} />
+            {t('development.database.query.library_import')}
+          </Button>
+          <input ref={libraryInput} type="file" accept=".json" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importLibrary(file) }} />
+        </div>
       </ToolbarPanel>
 
       <Modal
