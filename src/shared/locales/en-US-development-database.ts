@@ -346,7 +346,7 @@ export const EN_US_DEVELOPMENT_DATABASE = {
   "development.database.table.insert_count_hint": "Up to 100",
   "development.database.table.bulk_set": "Set this column for {count} rows",
   "development.database.table.bulk_title": "Set {column} on {count} rows",
-  "development.database.table.bulk_hint": "Every selected row gets the same value in this column.",
+  "development.database.table.bulk_hint": "All {count} selected rows get the same value in this column.",
   "development.database.table.bulk_done": "Updated {count} rows",
   "development.database.table.bulk_partial": "Failed after updating {done}/{total} rows",
   "development.database.table.auto_refresh": "Auto refresh",
