@@ -5,7 +5,7 @@ import { databaseToolDef } from '@shared/development/database/tools'
 import { isWriteSql } from '@shared/development/database/sql-utils'
 import { ApiError } from '../../lib/errors'
 import { listConnections } from './store'
-import { executeQuery } from './query'
+import { executeQuery, failureToApiError, QueryFailure } from './query'
 
 function tableName(args: Record<string, unknown>): string {
   const value = String(args.table ?? '').trim()
@@ -47,7 +47,12 @@ export function formatToolResult(result: QueryResult): {
 }
 
 async function query(env: Env, userId: string, connectionId: string, sql: string, params: unknown[] = []): Promise<QueryResult> {
-  return await executeQuery(env, env.DB, userId, connectionId, sql, params)
+  try {
+    return await executeQuery(env, env.DB, userId, connectionId, sql, params)
+  } catch (error) {
+    if (error instanceof QueryFailure) throw failureToApiError(error)
+    throw error
+  }
 }
 
 export async function executeDatabaseTool(

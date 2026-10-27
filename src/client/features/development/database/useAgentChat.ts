@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { t } from '../../../lib/i18n'
 import { streamAgentChat } from './api'
 import type { AgentMessage, AgentMessagePart, AgentStatus } from './types'
 
@@ -134,7 +135,9 @@ export function useAgentChat({ onToolComplete }: UseAgentChatOptions = {}): UseA
     }, controller.signal)
       .catch((cause) => {
         if (controller.signal.aborted) return
-        const message = cause instanceof Error ? cause.message : String(cause)
+        const message = (cause as { code?: unknown })?.code === 'no_model'
+          ? t('development.database.ai.no_model')
+          : cause instanceof Error ? cause.message : String(cause)
         const errorMessage: AgentMessage = {
           id: crypto.randomUUID(),
           role: 'assistant',

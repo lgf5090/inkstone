@@ -21,7 +21,7 @@ import type { DatabaseConnectionView, SchemaModel } from '@shared/development/da
 import { cn } from '../../../lib/cn'
 import { isImeComposing } from '../../../lib/ime'
 import { t } from '../../../lib/i18n'
-import { IconButton } from '../../../components/primitives'
+import { Button, IconButton } from '../../../components/primitives'
 import { Input } from '../../../components/form'
 import { Tooltip } from '../../../components/overlay'
 import type { StudioSelection } from './types'
@@ -35,7 +35,9 @@ export interface StudioSidebarProps {
   selection: StudioSelection | null
   localName?: string
   schema: SchemaModel | null
+  schemaError?: string | null
   schemaLoading: boolean
+  onRetrySchema?: () => void
   tableSearch: string
   onTableSearch: (value: string) => void
   connSearch: string
@@ -145,7 +147,7 @@ function ConnectionItem({
           <span className="flex items-center gap-1">
             {connection.isPinned && <Pin size={10} className="shrink-0 fill-[var(--accent)] text-[var(--accent)]" />}
             {connection.isFavorite && <Star size={10} className="shrink-0 fill-[var(--warning)] text-[var(--warning)]" />}
-            <span className={cn('block truncate', active ? 'font-medium text-[var(--accent-on-soft)]' : 'text-[var(--text-primary)]')}>
+            <span className={cn('block truncate', active ? 'font-medium text-[var(--accent-on-soft)]' : 'text-[var(--text-primary)]')} title={connection.name}>
               {connection.name}
             </span>
           </span>
@@ -235,7 +237,9 @@ export function StudioSidebar(props: StudioSidebarProps) {
     selection,
     localName,
     schema,
+    schemaError,
     schemaLoading,
+    onRetrySchema,
     tableSearch,
     onTableSearch,
     connSearch,
@@ -501,6 +505,15 @@ export function StudioSidebar(props: StudioSidebarProps) {
           ) : !selection ? (
             <div className="px-1.5 py-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
               {t('development.database.app.select_connection')}
+            </div>
+          ) : schemaError ? (
+            <div className="mx-1.5 rounded-[var(--r-md)] border border-[var(--danger)]/30 bg-[var(--danger-soft)] p-2 text-[length:var(--text-11)] leading-relaxed text-[var(--danger)]">
+              <p className="break-words">{schemaError}</p>
+              {onRetrySchema && (
+                <Button variant="secondary" size="sm" className="mt-2" onClick={onRetrySchema}>
+                  {t('common.retry')}
+                </Button>
+              )}
             </div>
           ) : schema ? (
             <div className="space-y-3">

@@ -6,7 +6,9 @@ import { t } from '../../../lib/i18n'
 import { cn } from '../../../lib/cn'
 import { Button } from '../../../components/primitives'
 import { Input } from '../../../components/form'
+import { useUi } from '../../../store/ui'
 import { useAgentChat } from './useAgentChat'
+import { getAiStatus } from './api'
 import type { AgentMessagePart } from './types'
 
 export interface AgentPanelProps {
@@ -47,8 +49,10 @@ export function AgentPanel({ onToolComplete, className }: AgentPanelProps) {
   const { messages, status, sendMessage, stop, clear } = useAgentChat({ ...(onToolComplete ? { onToolComplete } : {}) })
   const [tab, setTab] = useState<'agent' | 'mcp'>('agent')
   const [input, setInput] = useState('')
+  const [configured, setConfigured] = useState<boolean | null>(null)
   const bottom = useRef<HTMLDivElement>(null)
   const busy = status === 'submitted' || status === 'streaming'
+  const disabled = configured === false
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
   const suggestions = [
     t('development.database.agent.suggest_tables'),
@@ -57,11 +61,15 @@ export function AgentPanel({ onToolComplete, className }: AgentPanelProps) {
   ]
 
   useEffect(() => {
+    void getAiStatus().then((info) => setConfigured(info.configured)).catch(() => setConfigured(false))
+  }, [])
+
+  useEffect(() => {
     bottom.current?.scrollIntoView({ block: 'end' })
   }, [messages, status])
 
   const send = () => {
-    if (!input.trim() || busy) return
+    if (!input.trim() || busy || disabled) return
     sendMessage(input.trim())
     setInput('')
   }
@@ -89,6 +97,14 @@ export function AgentPanel({ onToolComplete, className }: AgentPanelProps) {
 
       {tab === 'agent' ? (
         <>
+          {disabled && (
+            <div className="shrink-0 border-b border-[var(--warning)]/30 bg-[var(--warning-soft)] p-2.5 text-[length:var(--text-11)] leading-relaxed text-[var(--warning)]">
+              <p>{t('development.database.ai.no_model')}</p>
+              <Button variant="secondary" size="sm" className="mt-2" onClick={() => useUi.getState().openPanel('settings')}>
+                {t('development.database.ai.open_settings')}
+              </Button>
+            </div>
+          )}
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
             {messages.length === 0 ? (
               <div className="space-y-2">
@@ -97,7 +113,7 @@ export function AgentPanel({ onToolComplete, className }: AgentPanelProps) {
                   <button
                     key={suggestion}
                     type="button"
-                    disabled={busy}
+                    disabled={busy || disabled}
                     onClick={() => sendMessage(suggestion)}
                     className="block w-full rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-3 py-2 text-left text-[length:var(--text-11)] text-[var(--text-secondary)] transition-colors hover:border-[var(--accent)]/40 hover:text-[var(--text-primary)] disabled:opacity-50"
                   >
@@ -140,13 +156,13 @@ export function AgentPanel({ onToolComplete, className }: AgentPanelProps) {
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter' && !event.shiftKey) send() }}
                 placeholder={t('development.database.agent.input_placeholder')}
-                disabled={busy}
+                disabled={busy || disabled}
                 className="h-9 flex-1 text-[length:var(--text-11)]"
               />
               {busy ? (
                 <Button size="sm" onClick={stop} aria-label={t('development.database.agent.stop')}><Square size={13} /></Button>
               ) : (
-                <Button size="sm" onClick={send} disabled={!input.trim()} aria-label={t('development.database.agent.send')}><Send size={13} /></Button>
+                <Button size="sm" onClick={send} disabled={!input.trim() || disabled} aria-label={t('development.database.agent.send')}><Send size={13} /></Button>
               )}
             </div>
             <div className="flex items-center justify-between">

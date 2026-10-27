@@ -84,6 +84,7 @@ export function StudioApp() {
   const [selection, setSelection] = useState<StudioSelection | null>(null)
   const [localFile, setLocalFile] = useState<{ name: string; file: File } | null>(null)
   const [schema, setSchema] = useState<SchemaModel | null>(null)
+  const [schemaError, setSchemaError] = useState<string | null>(null)
   const [schemaLoading, setSchemaLoading] = useState(false)
   const [driver, setDriver] = useState<StudioDriver | null>(null)
   const [tabs, setTabs] = useState<StudioTab[]>(() => [queryTab()])
@@ -159,12 +160,15 @@ export function StudioApp() {
 
   const reloadSchema = useCallback(async (target: StudioDriver) => {
     setSchemaLoading(true)
+    setSchemaError(null)
     try {
       const model = await loadSchema(target)
       setSchema(model)
     } catch (error) {
       setSchema(null)
-      notifyError(error instanceof Error ? error.message : String(error))
+      const message = error instanceof Error ? error.message : String(error)
+      setSchemaError(message)
+      notifyError(message)
     } finally {
       setSchemaLoading(false)
     }
@@ -172,6 +176,7 @@ export function StudioApp() {
 
   useEffect(() => {
     setSchema(null)
+    setSchemaError(null)
     setTableSearch('')
     setDriver((previous) => {
       previous?.close()
@@ -352,7 +357,9 @@ export function StudioApp() {
       selection={selection}
       localName={localFile?.name}
       schema={schema}
+      schemaError={schemaError}
       schemaLoading={schemaLoading}
+      onRetrySchema={() => { if (driver) void reloadSchema(driver) }}
       tableSearch={tableSearch}
       onTableSearch={setTableSearch}
       connSearch={connSearch}
