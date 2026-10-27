@@ -155,7 +155,7 @@ export const EN_US_DEVELOPMENT_DATABASE = {
   "development.database.export.selected_rows": "Selected rows ({count})",
   "development.database.export.target": "Target",
   "development.database.export.title": "Export data",
-  "development.database.grid.click_sort": "Click to sort",
+  "development.database.grid.click_sort": "Click to sort, Shift+click to add a column",
   "development.database.grid.column_actions": "Column actions",
   "development.database.grid.copied_tsv": "Copied as TSV",
   "development.database.grid.copy_tsv": "Copy TSV",

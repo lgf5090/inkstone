@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import { parseCreateTable, parseCreateIndex } from '../src/client/features/development/database/schema-parse'
 import { buildRebuildSql } from '../src/client/features/development/database/ddl'
-import { loadSchema } from '../src/client/features/development/database/schema-utils'
+import { buildTableDataSql, loadSchema } from '../src/client/features/development/database/schema-utils'
 import { projectColumns, toCsv, toSchemaSql } from '../src/client/features/development/database/export-utils'
 import { buildWhere } from '../src/client/features/development/database/filter-ops'
 import { SCHEMA_PROMPT_BUDGET_CHARS, buildSchemaPrompt } from '../src/client/features/development/database/schema-prompt'
@@ -173,6 +173,21 @@ describe('development database core', () => {
       'CREATE TRIGGER t AFTER INSERT ON a BEGIN SELECT 1; END;',
     ].join('\n\n') + '\n')
     expect(toSchemaSql({ tables: [], indexes: [], views: [], triggers: [] })).toBe('')
+  })
+
+  it('builds multi-column ORDER BY and drops unknown columns', () => {
+    const { sql } = buildTableDataSql('t', {
+      limit: 10,
+      offset: 0,
+      sort: [
+        { column: 'a', dir: 'ASC' },
+        { column: 'b', dir: 'DESC' },
+        { column: 'missing', dir: 'ASC' },
+      ],
+    }, ['a', 'b'])
+    expect(sql).toContain('ORDER BY "a" ASC, "b" DESC')
+    expect(sql).not.toContain('missing')
+    expect(sql).not.toContain('ORDER BY "a" DESC')
   })
 
   it('uses one search parameter per searched column and parameterises filter values', () => {

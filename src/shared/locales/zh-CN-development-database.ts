@@ -155,7 +155,7 @@ export const ZH_CN_DEVELOPMENT_DATABASE = {
   "development.database.export.selected_rows": "选中行（{count}）",
   "development.database.export.target": "目标",
   "development.database.export.title": "导出数据",
-  "development.database.grid.click_sort": "点击排序",
+  "development.database.grid.click_sort": "点击排序，Shift+点击叠加多列",
   "development.database.grid.column_actions": "列操作",
   "development.database.grid.copied_tsv": "已复制为 TSV",
   "development.database.grid.copy_tsv": "复制 TSV",

@@ -15,7 +15,7 @@ import {
   Undo2,
   X,
 } from 'lucide-react'
-import type { ParsedTable, QueryResult } from '@shared/development/database/types'
+import type { ParsedTable, QueryResult, TableSortRule } from '@shared/development/database/types'
 import { MAX_QUERY_BYTES, MAX_QUERY_ROWS } from '@shared/development/database/types'
 import { quoteIdent } from '@shared/development/database/sql-utils'
 import { isImeComposing } from '../../../lib/ime'
@@ -76,8 +76,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
   const [loading, setLoading] = useState(false)
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState<number>(50)
-  const [orderBy, setOrderBy] = useState<string | undefined>()
-  const [orderDir, setOrderDir] = useState<'ASC' | 'DESC'>('ASC')
+  const [sort, setSort] = useState<TableSortRule[]>([])
   const [filters, setFilters] = useState<FilterCondition[]>([])
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -109,8 +108,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
   const load = useCallback(async (
     targetPage: number,
     targetPageSize: number,
-    targetOrderBy?: string,
-    targetOrderDir?: 'ASC' | 'DESC',
+    targetSort: TableSortRule[],
     targetWhere?: { sql: string; params: unknown[] } | null,
     skipCount = false,
   ) => {
@@ -120,8 +118,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
       const data = buildTableDataSql(table.name, {
         limit: targetPageSize,
         offset: targetPage * targetPageSize,
-        ...(targetOrderBy ? { orderBy: targetOrderBy } : {}),
-        orderDir: targetOrderDir ?? orderDir,
+        ...(targetSort.length > 0 ? { sort: targetSort } : {}),
         ...(whereValue ? { whereSql: whereValue.sql, whereParams: whereValue.params } : {}),
       }, table.columns.map((column) => column.name))
 
@@ -170,10 +167,11 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
     } finally {
       setLoading(false)
     }
-  }, [driver, onError, orderDir, table, useRowid, where])
+  }, [driver, onError, table, useRowid, where])
 
   useEffect(() => {
-    void load(0, pageSize, orderBy, orderDir, where)
+    setSort([])
+    void load(0, pageSize, [], where)
   }, [driver, table.name])
 
   useEffect(() => {
@@ -181,7 +179,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
     searchTimer.current = setTimeout(() => {
       const next = buildWhere(filters, search, searchColumns)
       setDebouncedSearch(search)
-      void load(0, pageSize, orderBy, orderDir, next)
+      void load(0, pageSize, sort, next)
     }, 300)
     return () => {
       if (searchTimer.current) clearTimeout(searchTimer.current)
@@ -191,22 +189,36 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
   const totalPages = total === null ? 0 : Math.max(1, Math.ceil(total / pageSize))
   const goPage = (next: number) => {
     const clamped = Math.max(0, Math.min(next, totalPages - 1))
-    if (clamped !== page) void load(clamped, pageSize, orderBy, orderDir, where, true)
+    if (clamped !== page) void load(clamped, pageSize, sort, where, true)
   }
 
-  const sort = (column: string) => {
-    if (orderBy !== column) {
-      setOrderBy(column)
-      setOrderDir('ASC')
-      void load(0, pageSize, column, 'ASC', where)
-    } else if (orderDir === 'ASC') {
-      setOrderDir('DESC')
-      void load(0, pageSize, column, 'DESC', where)
-    } else {
-      setOrderBy(undefined)
-      setOrderDir('ASC')
-      void load(0, pageSize, undefined, 'ASC', where)
+  const applySort = (next: TableSortRule[]) => {
+    setSort(next)
+    void load(0, pageSize, next, where)
+  }
+
+  const sortBy = (column: string, additive: boolean) => {
+    const index = sort.findIndex((rule) => rule.column === column)
+    const current = index >= 0 ? sort[index] : undefined
+    if (!additive) {
+      if (!current) applySort([{ column, dir: 'ASC' }])
+      else if (current.dir === 'ASC') applySort([{ column, dir: 'DESC' }])
+      else applySort([])
+      return
     }
+    if (!current) {
+      applySort([...sort, { column, dir: 'ASC' }])
+      return
+    }
+    if (current.dir === 'ASC') {
+      applySort(sort.map((rule) => rule.column === column ? { column, dir: 'DESC' } : rule))
+      return
+    }
+    applySort(sort.filter((rule) => rule.column !== column))
+  }
+
+  const sortOne = (column: string, dir: 'ASC' | 'DESC') => {
+    applySort([{ column, dir }])
   }
 
   const keyFor = (rowIndex: number) => rowKeyOf(
@@ -291,7 +303,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
         break
       }
     }
-    if (done > 0) void load(page, pageSize, orderBy, orderDir, where)
+    if (done > 0) void load(page, pageSize, sort, where)
   }
 
   const deleteRows = async (targets: Set<number>) => {
@@ -315,7 +327,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
         break
       }
     }
-    if (done > 0) void load(page, pageSize, orderBy, orderDir, where)
+    if (done > 0) void load(page, pageSize, sort, where)
   }
 
   const deleteSelected = async () => {
@@ -359,7 +371,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
     try {
       await driver.query(statement.sql, statement.params)
       setInsertOpen(false)
-      void load(page, pageSize, orderBy, orderDir, where)
+      void load(page, pageSize, sort, where)
     } catch (cause) {
       onError(cause instanceof Error ? cause.message : String(cause))
     }
@@ -379,7 +391,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
     if (!statement) return
     try {
       await driver.query(statement.sql, statement.params)
-      void load(page, pageSize, orderBy, orderDir, where)
+      void load(page, pageSize, sort, where)
     } catch (cause) {
       onError(cause instanceof Error ? cause.message : String(cause))
     }
@@ -402,7 +414,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
       value: op === 'isNull' || op === 'notNull' ? '' : value,
     }]
     setFilters(next)
-    void load(0, pageSize, orderBy, orderDir, buildWhere(next, debouncedSearch, searchColumns))
+    void load(0, pageSize, sort, buildWhere(next, debouncedSearch, searchColumns))
   }
 
   const contextItems = contextMenu ? [
@@ -577,7 +589,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1.5">
-        <TooltipIcon label={t('development.database.table.refresh')} onClick={() => void load(page, pageSize, orderBy, orderDir, where)}>
+        <TooltipIcon label={t('development.database.table.refresh')} onClick={() => void load(page, pageSize, sort, where)}>
           {loading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
         </TooltipIcon>
         <Button variant="secondary" size="sm" onClick={() => setFilterOpen(true)}>
@@ -626,7 +638,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
             label={t('development.database.table.page_size')}
             value={String(pageSize)}
             options={PAGE_SIZES.map((size) => ({ value: String(size), label: `${size}/${t('development.database.table.page')}` }))}
-            onChange={(value) => void load(0, Number(value), orderBy, orderDir, where)}
+            onChange={(value) => void load(0, Number(value), sort, where)}
             className="w-24"
             size="sm"
           />
@@ -651,7 +663,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
               if (event.key === 'Enter') {
                 if (searchTimer.current) clearTimeout(searchTimer.current)
                 setDebouncedSearch(search)
-                void load(0, pageSize, orderBy, orderDir, buildWhere(filters, search, searchColumns))
+                void load(0, pageSize, sort, buildWhere(filters, search, searchColumns))
               }
               if (event.key === 'Escape') setSearch('')
             }}
@@ -676,7 +688,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
               <button type="button" onClick={() => {
                 const next = filters.filter((entry) => entry.id !== filter.id)
                 setFilters(next)
-                void load(0, pageSize, orderBy, orderDir, buildWhere(next, debouncedSearch, searchColumns))
+                void load(0, pageSize, sort, buildWhere(next, debouncedSearch, searchColumns))
               }} aria-label={t('development.database.table.remove_filter')} className="rounded p-0.5 text-[var(--text-tertiary)] hover:text-[var(--danger)]">
                 <X size={11} />
               </button>
@@ -690,10 +702,9 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
           <ResultGrid
             columns={columns}
             rows={rows}
-            orderBy={orderBy}
-            orderDir={orderDir}
-            onSort={sort}
-            onSortDir={(column, direction) => { setOrderBy(column); setOrderDir(direction); void load(0, pageSize, column, direction, where) }}
+            sort={sort}
+            onSort={sortBy}
+            onSortDir={sortOne}
             hiddenColumns={hiddenColumns}
             onToggleColumn={(index) => setHiddenColumns((current) => {
               const next = new Set(current)
@@ -719,9 +730,8 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
           <ResultGrid
             columns={columns}
             rows={rows}
-            orderBy={orderBy}
-            orderDir={orderDir}
-            onSort={sort}
+            sort={sort}
+            onSort={sortBy}
             hiddenColumns={hiddenColumns}
             onToggleColumn={(index) => setHiddenColumns((current) => {
               const next = new Set(current)
@@ -853,7 +863,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
         filters={filters}
         onChange={(next) => {
           setFilters(next)
-          void load(0, pageSize, orderBy, orderDir, buildWhere(next, debouncedSearch, searchColumns))
+          void load(0, pageSize, sort, buildWhere(next, debouncedSearch, searchColumns))
         }}
       />
     </div>

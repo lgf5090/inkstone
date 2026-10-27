@@ -73,10 +73,10 @@ export function buildTableDataSql(
     parts.push(`WHERE ${options.whereSql}`)
     params.push(...(options.whereParams ?? []))
   }
-  if (options.orderBy && knownColumns.includes(options.orderBy)) {
-    const direction = options.orderDir === 'DESC' ? 'DESC' : 'ASC'
-    parts.push(`ORDER BY ${quoteIdent(options.orderBy)} ${direction}`)
-  }
+  const rules = (options.sort ?? [])
+    .filter((rule) => knownColumns.includes(rule.column))
+    .map((rule) => `${quoteIdent(rule.column)} ${rule.dir === 'DESC' ? 'DESC' : 'ASC'}`)
+  if (rules.length > 0) parts.push(`ORDER BY ${rules.join(', ')}`)
 
   const limit = Math.max(1, Math.min(Math.trunc(options.limit) || 1, MAX_QUERY_ROWS))
   const offset = Math.max(0, Math.trunc(options.offset) || 0)

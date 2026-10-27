@@ -187,11 +187,15 @@ export interface SchemaModel {
   indexes: TableIndexInfo[]
 }
 
+export interface TableSortRule {
+  column: string
+  dir: 'ASC' | 'DESC'
+}
+
 export interface TableDataOptions {
   limit: number
   offset: number
-  orderBy?: string
-  orderDir?: 'ASC' | 'DESC'
+  sort?: TableSortRule[]
   whereSql?: string
   whereParams?: unknown[]
 }

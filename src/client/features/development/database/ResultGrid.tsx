@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronsUpDown, EyeOff, Pin, PinOff, X } from 'lucide-react'
-import { INKSTONE_BLOB_KEY } from '@shared/development/database/types'
+import { INKSTONE_BLOB_KEY, type TableSortRule } from '@shared/development/database/types'
 import { cn } from '../../../lib/cn'
 import { isImeComposing } from '../../../lib/ime'
 import { t } from '../../../lib/i18n'
@@ -19,9 +19,8 @@ const ROW_NUMBER_WIDTH = 46
 export interface ResultGridProps {
   columns: string[]
   rows: unknown[][]
-  orderBy?: string
-  orderDir?: 'ASC' | 'DESC'
-  onSort?: (column: string) => void
+  sort?: TableSortRule[]
+  onSort?: (column: string, additive: boolean) => void
   onSortDir?: (column: string, direction: 'ASC' | 'DESC') => void
   hiddenColumns?: Set<number>
   onToggleColumn?: (columnIndex: number) => void
@@ -76,8 +75,7 @@ export function renderCellValue(value: unknown): { text: string; className?: str
 export function ResultGrid({
   columns,
   rows,
-  orderBy,
-  orderDir,
+  sort,
   onSort,
   onSortDir,
   hiddenColumns,
@@ -267,14 +265,17 @@ export function ResultGrid({
               </th>
               {visibleColumns.map((column) => {
                 const name = columns[column]!
-                const sorted = orderBy === name
-                const icon = !sorted ? <ArrowUpDown size={12} /> : orderDir === 'ASC' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
+                const ruleIndex = sort?.findIndex((rule) => rule.column === name) ?? -1
+                const rule = ruleIndex >= 0 ? sort?.[ruleIndex] : undefined
+                const sorted = Boolean(rule)
+                const icon = !rule ? <ArrowUpDown size={12} /> : rule.dir === 'ASC' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
                 const isPinned = pinned.has(column)
                 const width = widths[column] ?? DEFAULT_COLUMN_WIDTH
                 return (
                   <th
                     key={`${name}-${column}`}
                     scope="col"
+                    aria-sort={ruleIndex === 0 ? (rule!.dir === 'ASC' ? 'ascending' : 'descending') : undefined}
                     className={cn('group relative border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-0 py-0 text-left', isPinned && 'sticky z-30')}
                     style={{
                       width,
@@ -286,12 +287,17 @@ export function ResultGrid({
                     <div className="flex w-full items-center gap-0.5 px-1.5 py-1.5">
                       <button
                         type="button"
-                        onClick={() => onSort?.(name)}
-                        title={sorted ? (orderDir === 'ASC' ? t('development.database.grid.sort_asc_cancel') : t('development.database.grid.sort_desc_cancel')) : t('development.database.grid.click_sort')}
+                        onClick={(event) => onSort?.(name, event.shiftKey)}
+                        title={sorted ? (rule!.dir === 'ASC' ? t('development.database.grid.sort_asc_cancel') : t('development.database.grid.sort_desc_cancel')) : t('development.database.grid.click_sort')}
                         className="flex min-w-0 flex-1 items-center gap-1 truncate text-left font-semibold text-[var(--text-primary)]"
                       >
                         <span className="truncate">{name}</span>
                         {onSort && <span className={cn('shrink-0', sorted ? 'text-[var(--accent)]' : 'opacity-30')}>{icon}</span>}
+                        {sorted && (sort?.length ?? 0) > 1 && (
+                          <span aria-hidden="true" className="shrink-0 rounded-full bg-[var(--accent-soft)] px-1 text-[length:var(--text-9)] font-medium text-[var(--accent)]">
+                            {ruleIndex + 1}
+                          </span>
+                        )}
                       </button>
                       <button
                         type="button"
