@@ -19,6 +19,7 @@ import { useCfT, type CloudflareMessageKey } from '../i18n'
 import { useUi } from '../../../store/ui'
 import { cfRequest, cfErrorText } from '../api/client'
 import { cloudflareSettingsApi, type CloudflareModuleSettings } from '../api/settings'
+import { storeApi, type CatalogSource } from '../api/store'
 import {
   TASK_TYPES,
   tasksApi,
@@ -70,6 +71,9 @@ export function SettingsScreen() {
   const [settings, setSettings] = useState<CloudflareModuleSettings | null>(null)
   const [accounts, setAccounts] = useState<CloudflareAccount[]>([])
   const [tasks, setTasks] = useState<CloudflareTask[]>([])
+  const [sources, setSources] = useState<CatalogSource[]>([])
+  const [sourceUrl, setSourceUrl] = useState('')
+  const [sourceName, setSourceName] = useState('')
   const [demoDraft, setDemoDraft] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -79,15 +83,17 @@ export function SettingsScreen() {
   const [busy, setBusy] = useState(false)
 
   async function refresh(): Promise<void> {
-    const [moduleSettings, taskList, accountPage] = await Promise.all([
+    const [moduleSettings, taskList, accountPage, sourceList] = await Promise.all([
       cloudflareSettingsApi.get(),
       tasksApi.list(),
       cfRequest<{ accounts: CloudflareAccount[] }>('/accounts?pageSize=100'),
+      storeApi.sources(),
     ])
     setSettings(moduleSettings)
     setDemoDraft(moduleSettings.demo_account_ids)
     setTasks(taskList.tasks)
     setAccounts(accountPage.accounts)
+    setSources(sourceList.sources)
   }
 
   useEffect(() => {
@@ -167,6 +173,54 @@ export function SettingsScreen() {
     }
   }
 
+  async function addCatalogSource(): Promise<void> {
+    if (!sourceUrl.trim() || !sourceName.trim()) {
+      toast({ title: t('cloudflare.settings.msg.info_required'), tone: 'warning' })
+      return
+    }
+    setBusy(true)
+    try {
+      const tested = await storeApi.testSource(sourceUrl.trim())
+      toast({ title: t('cloudflare.settings.msg.source_test_ok', { count: tested.count }), tone: 'success' })
+      const created = await storeApi.addSource(sourceUrl.trim(), sourceName.trim())
+      setSources((rows) => [...rows, created.source])
+      setSourceUrl('')
+      setSourceName('')
+      toast({ title: t('cloudflare.settings.msg.source_added'), tone: 'success' })
+    } catch (failure) {
+      toast({ title: t('cloudflare.settings.msg.source_test_failed', { error: cfErrorText(failure) }), tone: 'danger' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function toggleCatalogSource(source: CatalogSource, enabled: boolean): Promise<void> {
+    try {
+      const updated = await storeApi.updateSource(source.id, { enabled })
+      setSources((rows) => rows.map((row) => (row.id === source.id ? updated.source : row)))
+      toast({ title: t('cloudflare.settings.msg.source_saved'), tone: 'success' })
+    } catch (failure) {
+      toast({ title: cfErrorText(failure), tone: 'danger' })
+    }
+  }
+
+  async function removeCatalogSource(source: CatalogSource): Promise<void> {
+    const ok = await confirm({
+      title: t('cloudflare.settings.delete'),
+      description: source.name,
+      confirmLabel: t('common.delete'),
+      tone: 'danger',
+    })
+    if (!ok) return
+    try {
+      await storeApi.deleteSource(source.id)
+      setSources((rows) => rows.filter((row) => row.id !== source.id))
+      toast({ title: t('cloudflare.settings.msg.source_deleted'), tone: 'success' })
+    } catch (failure) {
+      toast({ title: cfErrorText(failure), tone: 'danger' })
+    }
+  }
+
   async function openHistory(task: CloudflareTask): Promise<void> {
     setHistoryFor(task)
     try {
@@ -238,6 +292,45 @@ export function SettingsScreen() {
               {t('cloudflare.settings.clear_cache')}
             </Button>
           </div>
+        </section>
+
+        <section className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] p-3 md:p-4">
+          <h2 className="mb-3 text-[length:var(--text-14)] font-medium text-[var(--text-primary)]">{t('cloudflare.settings.catalog_sources')}</h2>
+          <div className="mb-3 flex flex-wrap items-end gap-2">
+            <Field label={t('cloudflare.settings.alias')} className="min-w-40 flex-1">
+              <Input value={sourceName} onChange={(event) => setSourceName(event.target.value)} placeholder={t('cloudflare.settings.alias_placeholder')} />
+            </Field>
+            <Field label={t('cloudflare.settings.source_url')} className="min-w-64 flex-[2]">
+              <Input value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} placeholder={t('cloudflare.settings.source_url_placeholder')} inputMode="url" autoComplete="off" />
+            </Field>
+            <Button variant="secondary" icon={<Plus size={14} />} loading={busy} onClick={() => void addCatalogSource()}>{t('cloudflare.settings.add_source')}</Button>
+          </div>
+          {sources.length === 0
+            ? <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('cloudflare.settings.no_sources')}</p>
+            : (
+              <TableScroll label={t('cloudflare.settings.catalog_sources')}>
+                <Table>
+                  <THead><tr><Th>{t('cloudflare.settings.alias')}</Th><Th>{t('cloudflare.settings.source_url')}</Th><Th>{t('cloudflare.settings.enabled')}</Th><Th>{t('cloudflare.settings.edit')}</Th></tr></THead>
+                  <TBody>
+                    {sources.map((source) => (
+                      <Tr key={source.id}>
+                        <Td className="max-w-40 truncate">
+                          {source.name}
+                          {source.is_default === 1 && <Badge tone="accent" className="ml-1.5">{t('cloudflare.settings.default')}</Badge>}
+                        </Td>
+                        <Td className="max-w-72 truncate font-mono text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{source.url}</Td>
+                        <Td><Switch checked={source.enabled === 1} onChange={(next) => void toggleCatalogSource(source, next)} label={t('cloudflare.settings.enabled')} /></Td>
+                        <Td>
+                          <IconButton label={t('common.delete')} size="sm" variant="ghost" onClick={() => void removeCatalogSource(source)}>
+                            <Trash2 size={13} />
+                          </IconButton>
+                        </Td>
+                      </Tr>
+                    ))}
+                  </TBody>
+                </Table>
+              </TableScroll>
+            )}
         </section>
 
         <section className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] p-3 md:p-4">

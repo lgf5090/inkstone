@@ -78,6 +78,8 @@ export const EN_US_CLOUDFLARE_SETTINGS = {
   "cloudflare.settings.platform": "Platform",
   "cloudflare.settings.prefix_filter": "Prefix filter",
   "cloudflare.settings.run_now": "Run now",
+  "cloudflare.settings.source_url": "Catalog URL",
+  "cloudflare.settings.source_url_placeholder": "https://example.com/catalog.json",
   "cloudflare.settings.demo_accounts_placeholder": "Account ids, separated by commas",
   "cloudflare.settings.msg.saved": "Saved",
   "cloudflare.settings.status_success": "Succeeded",

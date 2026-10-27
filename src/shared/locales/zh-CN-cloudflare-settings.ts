@@ -78,6 +78,8 @@ export const ZH_CN_CLOUDFLARE_SETTINGS = {
   "cloudflare.settings.platform": "Platform",
   "cloudflare.settings.prefix_filter": "前缀过滤",
   "cloudflare.settings.run_now": "立即执行",
+  "cloudflare.settings.source_url": "目录 URL",
+  "cloudflare.settings.source_url_placeholder": "https://example.com/catalog.json",
   "cloudflare.settings.demo_accounts_placeholder": "账户 id，用逗号分隔",
   "cloudflare.settings.msg.saved": "已保存",
   "cloudflare.settings.status_success": "成功",
