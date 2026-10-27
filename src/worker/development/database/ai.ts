@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { normalizeAssistantSettings, type AssistantSettings } from '@shared/assistant'
 import { DATABASE_AI_SYSTEM_PROMPT, DATABASE_AGENT_SYSTEM_PROMPT } from '@shared/development/database/prompt'
 import { DATABASE_TOOL_DEFS } from '@shared/development/database/tools'
+import { isWriteSql } from '@shared/development/database/sql-utils'
 import type { AssistantModel } from '@shared/assistant'
 import type { Env } from '../../env'
 import { AssistantStore, type ProviderRow } from '../../assistant/store'
@@ -18,8 +19,14 @@ export type DatabaseStreamEvent =
   | { type: 'done'; aborted?: boolean }
   | { type: 'error'; code: string; message: string }
 
-export interface ResolvedDatabaseAi {
-  store: AssistantStore
+export const AGENT_WRITE_REFUSAL =
+  'Writes are off for this conversation. Ask the reader to turn on the write switch in the Agent panel, or run the statement from the query editor.'
+
+export function isAgentWrite(name: string, args: Record<string, unknown>): boolean {
+  return name === 'run_query' && isWriteSql(String(args.sql ?? ''))
+}
+
+export interface ResolvedDatabaseAi {  store: AssistantStore
   settings: AssistantSettings
   model: AssistantModel
   provider: ProviderRow
@@ -143,6 +150,7 @@ export async function* streamDatabaseAgent(
   userId: string,
   messages: Array<{ role: 'user' | 'assistant'; content: string }>,
   signal: AbortSignal,
+  allowWrites = false,
 ): AsyncGenerator<string> {
   let ai: ResolvedDatabaseAi | null
   try {
@@ -215,8 +223,15 @@ export async function* streamDatabaseAgent(
       })
       const results: Array<{ id: string; name: string; content: string; isError?: boolean }> = []
       for (const entry of calls) {
+        const args = parseArguments(entry.args)
+        if (!allowWrites && isAgentWrite(entry.name, args)) {
+          entry.error = true
+          entry.result = AGENT_WRITE_REFUSAL
+          results.push({ id: entry.id, name: entry.name, content: AGENT_WRITE_REFUSAL, isError: true })
+          continue
+        }
         try {
-          const value = await executeDatabaseTool(env, userId, entry.name, parseArguments(entry.args))
+          const value = await executeDatabaseTool(env, userId, entry.name, args)
           const content = typeof value === 'string' ? value : JSON.stringify(value)
           entry.result = content
           results.push({ id: entry.id, name: entry.name, content })

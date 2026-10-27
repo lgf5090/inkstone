@@ -325,6 +325,8 @@ export const EN_US_DEVELOPMENT_DATABASE = {
   "development.database.agent.enter_to_send": "Enter to send",
   "development.database.agent.input_placeholder": "Ask about tables, rows or a query…",
   "development.database.agent.intro": "Use natural language to inspect tables, query rows and read query plans.",
+  "development.database.agent.allow_writes": "Allow this conversation to write",
+  "development.database.agent.allow_writes_hint": "While off, the agent is refused on INSERT/UPDATE/DELETE/DDL; it can still read schema and rows.",
   "development.database.agent.send": "Send",
   "development.database.agent.stop": "Stop",
   "development.database.agent.suggest_rows": "Preview the latest rows in a table and explain the columns",

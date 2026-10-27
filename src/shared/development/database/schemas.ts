@@ -125,6 +125,7 @@ const AiMessageSchema = z.object({
 
 export const AgentChatSchema = z.object({
   messages: z.array(AiMessageSchema).min(1).max(MAX_AI_MESSAGES),
+  allowWrites: z.boolean().optional(),
 })
 
 export const ToolRunQuerySchema = z.object({

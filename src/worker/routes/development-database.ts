@@ -521,5 +521,5 @@ developmentDatabaseRoutes.post('/ai/chat', async (c) => {
 
 developmentDatabaseRoutes.post('/agent/chat', async (c) => {
   const body = await parseBody(c, AgentChatSchema, AI_BODY_LIMIT)
-  return streamResponse(streamDatabaseAgent(c.env, userIdOf(c), body.messages, c.req.raw.signal))
+  return streamResponse(streamDatabaseAgent(c.env, userIdOf(c), body.messages, c.req.raw.signal, body.allowWrites === true))
 })

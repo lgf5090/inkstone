@@ -228,10 +228,11 @@ export function streamAiChat(
 
 export function streamAgentChat(
   messages: AgentChatMessage[],
+  allowWrites: boolean,
   onEvent: (event: AgentStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  return streamRequest<AgentStreamEvent>('/agent/chat', { messages }, onEvent, signal)
+  return streamRequest<AgentStreamEvent>('/agent/chat', { messages, allowWrites }, onEvent, signal)
 }
 
 export async function streamRequest<T extends { type: string }>(

@@ -325,6 +325,8 @@ export const ZH_CN_DEVELOPMENT_DATABASE = {
   "development.database.agent.enter_to_send": "Enter 发送",
   "development.database.agent.input_placeholder": "询问表结构、数据或查询…",
   "development.database.agent.intro": "用自然语言查看表、查询数据与分析执行计划。",
+  "development.database.agent.allow_writes": "允许本次对话写入",
+  "development.database.agent.allow_writes_hint": "关闭时 Agent 的 INSERT/UPDATE/DELETE/DDL 会被服务端拒绝，仍可读取结构与数据。",
   "development.database.agent.send": "发送",
   "development.database.agent.stop": "停止",
   "development.database.agent.suggest_rows": "预览一张表的最近数据并说明列含义",

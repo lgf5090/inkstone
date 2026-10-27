@@ -5,6 +5,7 @@ import type { AgentMessage, AgentMessagePart, AgentStatus } from './types'
 
 export interface UseAgentChatOptions {
   onToolComplete?: () => void
+  allowWrites?: boolean
 }
 
 export interface UseAgentChatResult {
@@ -24,7 +25,7 @@ function appendText(parts: AgentMessagePart[], text: string): AgentMessagePart[]
   return [...parts, { type: 'text', text }]
 }
 
-export function useAgentChat({ onToolComplete }: UseAgentChatOptions = {}): UseAgentChatResult {
+export function useAgentChat({ onToolComplete, allowWrites = false }: UseAgentChatOptions = {}): UseAgentChatResult {
   const [messages, setMessages] = useState<AgentMessage[]>([])
   const [status, setStatus] = useState<AgentStatus>('idle')
   const abortRef = useRef<AbortController | null>(null)
@@ -33,6 +34,8 @@ export function useAgentChat({ onToolComplete }: UseAgentChatOptions = {}): UseA
   messagesRef.current = messages
   const completeRef = useRef(onToolComplete)
   completeRef.current = onToolComplete
+  const allowWritesRef = useRef(allowWrites)
+  allowWritesRef.current = allowWrites
 
   useEffect(() => () => {
     abortRef.current?.abort()
@@ -89,7 +92,7 @@ export function useAgentChat({ onToolComplete }: UseAgentChatOptions = {}): UseA
     const controller = new AbortController()
     abortRef.current = controller
 
-    void streamAgentChat([...history, { role: 'user', content: value }], (event) => {
+    void streamAgentChat([...history, { role: 'user', content: value }], allowWritesRef.current, (event) => {
       const current = currentRef.current
       if (!current) return
       if (event.type === 'start') {

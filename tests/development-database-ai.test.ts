@@ -104,4 +104,28 @@ describe('database AI streams', () => {
     expect(output).toContain('"type":"delta","content":"Two connections."')
     expect(output).toContain('"type":"done"')
   })
+
+  it('refuses an agent write until the conversation allows it, even with confirm', async () => {
+    const writeRound = () => [
+      [
+        { type: 'tool-call', id: 'c1', name: 'run_query', args: { connectionId: '0123456789abcdefghjkmnpqrs', sql: 'DELETE FROM users', confirm: true } },
+        { type: 'usage', inputTokens: 2, outputTokens: 1 },
+      ],
+      [
+        { type: 'text', delta: 'I cannot write.' },
+        { type: 'usage', inputTokens: 3, outputTokens: 2 },
+      ],
+    ]
+
+    state.events = writeRound()
+    const blocked = await collect(streamDatabaseAgent(env, 'u1', [{ role: 'user', content: 'delete everything' }], signal))
+    expect(state.toolCalls, 'the executor must never see a refused write').toEqual([])
+    expect(blocked).toContain('"isError":true')
+    expect(blocked).toContain('Writes are off for this conversation')
+
+    state.events = writeRound()
+    const allowed = await collect(streamDatabaseAgent(env, 'u1', [{ role: 'user', content: 'delete everything' }], signal, true))
+    expect(state.toolCalls).toHaveLength(1)
+    expect(allowed).not.toContain('Writes are off for this conversation')
+  })
 })

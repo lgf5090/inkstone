@@ -5,7 +5,7 @@ import { isImeComposing } from '../../../lib/ime'
 import { t } from '../../../lib/i18n'
 import { cn } from '../../../lib/cn'
 import { Button } from '../../../components/primitives'
-import { Input } from '../../../components/form'
+import { Checkbox, Input } from '../../../components/form'
 import { useUi } from '../../../store/ui'
 import { useAgentChat } from './useAgentChat'
 import { useAiStatus } from './useAiStatus'
@@ -46,7 +46,8 @@ function ToolBadge({ part }: { part: Extract<AgentMessagePart, { type: 'tool-cal
 }
 
 export function AgentPanel({ onToolComplete, className }: AgentPanelProps) {
-  const { messages, status, sendMessage, stop, clear } = useAgentChat({ ...(onToolComplete ? { onToolComplete } : {}) })
+  const [allowWrites, setAllowWrites] = useState(false)
+  const { messages, status, sendMessage, stop, clear } = useAgentChat({ ...(onToolComplete ? { onToolComplete } : {}), allowWrites })
   const [tab, setTab] = useState<'agent' | 'mcp'>('agent')
   const [input, setInput] = useState('')
   const { configured, failed, reload } = useAiStatus()
@@ -154,6 +155,14 @@ export function AgentPanel({ onToolComplete, className }: AgentPanelProps) {
             )}
           </div>
           <div className="shrink-0 space-y-1.5 border-t border-[var(--border-subtle)] p-2.5">
+            <Checkbox
+              checked={allowWrites}
+              onChange={setAllowWrites}
+              label={t('development.database.agent.allow_writes')}
+            />
+            <p className="text-[length:var(--text-10)] leading-relaxed text-[var(--text-tertiary)]">
+              {t('development.database.agent.allow_writes_hint')}
+            </p>
             <div className="flex items-center gap-1.5">
               <Input
                 value={input}
