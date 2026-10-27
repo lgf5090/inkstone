@@ -9,14 +9,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Play, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import type { CloudflareAccount } from '@shared/cloudflare/model'
-import { Badge, Button, IconButton } from '../../components/primitives'
-import { Field, Input, Switch } from '../../components/form'
-import { SelectMenu } from '../../components/select-menu'
-import { Modal, confirm } from '../../components/overlay'
-import { LoadingBlock } from '../../components/feedback'
+import { Badge, Button, IconButton } from '../../../components/primitives'
+import { Field, Input, Switch } from '../../../components/form'
+import { SelectMenu } from '../../../components/select-menu'
+import { Modal, confirm } from '../../../components/overlay'
+import { LoadingBlock } from '../../../components/feedback'
 import { TBody, THead, Table, TableScroll, Td, Th, Tr } from '../components/Table'
 import { useCfT, type CloudflareMessageKey } from '../i18n'
-import { useUi } from '../../store/ui'
+import { useUi } from '../../../store/ui'
 import { cfRequest, cfErrorText } from '../api/client'
 import { cloudflareSettingsApi, type CloudflareModuleSettings } from '../api/settings'
 import {
@@ -54,8 +54,14 @@ function parseTaskConfig(task: CloudflareTask | null): TaskConfigInput {
 }
 
 function StatusBadge({ status }: { status: CloudflareTaskExecution['status'] }) {
+  const t = useCfT()
   const tone = status === 'success' ? 'success' : status === 'error' ? 'danger' : 'neutral'
-  return <Badge tone={tone}>{status}</Badge>
+  const label = status === 'success'
+    ? t('cloudflare.settings.status_success')
+    : status === 'error'
+      ? t('cloudflare.settings.status_error')
+      : t('cloudflare.settings.status_running')
+  return <Badge tone={tone}>{label}</Badge>
 }
 
 export function SettingsScreen() {
@@ -114,7 +120,7 @@ export function SettingsScreen() {
       const ids = demoDraft.split(',').map((id) => id.trim()).filter(Boolean)
       const saved = await cloudflareSettingsApi.saveDemoAccounts(ids)
       setDemoDraft(saved.demo_account_ids)
-      toast({ title: t('cloudflare.settings.msg.task_updated'), tone: 'success' })
+      toast({ title: t('cloudflare.settings.msg.saved'), tone: 'success' })
     } catch (failure) {
       toast({ title: cfErrorText(failure), tone: 'danger' })
     } finally {
@@ -195,7 +201,7 @@ export function SettingsScreen() {
               <dd><Badge tone={settings?.vault ? 'success' : 'danger'}>{settings?.vault ? t('cloudflare.settings.enabled') : t('cloudflare.settings.disabled')}</Badge></dd>
             </div>
             <div className="flex items-center justify-between gap-3">
-              <dt className="text-[var(--text-tertiary)]">R2</dt>
+              <dt className="text-[var(--text-tertiary)]">{t('cloudflare.storage.r2')}</dt>
               <dd><Badge tone={settings?.r2 ? 'success' : 'danger'}>{settings?.r2 ? t('cloudflare.settings.enabled') : t('cloudflare.settings.disabled')}</Badge></dd>
             </div>
             <div className="flex items-center justify-between gap-3">
@@ -219,7 +225,7 @@ export function SettingsScreen() {
           </div>
           <div className="mt-3 flex flex-wrap items-end gap-2">
             <Field label={t('cloudflare.settings.demo_accounts')} className="min-w-64 flex-1">
-              <Input value={demoDraft} onChange={(event) => setDemoDraft(event.target.value)} placeholder="id1,id2" autoComplete="off" />
+              <Input value={demoDraft} onChange={(event) => setDemoDraft(event.target.value)} placeholder={t('cloudflare.settings.demo_accounts_placeholder')} autoComplete="off" />
             </Field>
             <Button variant="secondary" onClick={() => void saveDemoAccounts()} loading={busy}>{t('common.save')}</Button>
           </div>
@@ -359,7 +365,7 @@ function TaskDialog({
     try {
       if (task) {
         await tasksApi.update(task.id, { name: name.trim(), cron: cron.trim(), config })
-        toast({ title: t('cloudflare.settings.msg.task_updated'), tone: 'success' })
+        toast({ title: t('cloudflare.settings.msg.saved'), tone: 'success' })
       } else {
         await tasksApi.create({ name: name.trim(), type, cron: cron.trim(), config })
         toast({ title: t('cloudflare.settings.msg.task_created'), tone: 'success' })

@@ -9,9 +9,12 @@
  */
 import { useSyncExternalStore } from 'react'
 import type { AppLocale } from '@shared/types'
+import { t as coreT, type MessageKey } from '../../lib/i18n'
 import type { EN_US_CLOUDFLARE } from '@shared/locales/en-US-cloudflare'
 
 export type CloudflareMessageKey = keyof typeof EN_US_CLOUDFLARE
+/** What a Cloudflare screen may ask for: its own copy, or one of the shell's shared lines. */
+export type CloudflareTextKey = CloudflareMessageKey | MessageKey
 
 type Params = Record<string, string | number | boolean | null | undefined>
 
@@ -61,8 +64,9 @@ export function cloudflareMessagesLocale(): AppLocale | null {
   return activeLocale
 }
 
-export function cfT(key: CloudflareMessageKey, params?: Params): string {
-  const template = table[key] ?? key
+export function cfT(key: CloudflareTextKey, params?: Params): string {
+  const template = table[key]
+  if (template === undefined) return coreT(key as MessageKey, params)
   if (!params) return template
   return template.replace(/\{([A-Za-z0-9_]+)\}/g, (whole, name: string) => {
     const value = params[name]

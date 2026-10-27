@@ -9,14 +9,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Loader2, Play } from 'lucide-react'
 import type { CloudflareAccount, CloudflareQuotaResponse } from '@shared/cloudflare/model'
-import { Button } from '../../components/primitives'
-import { Field, Input, Segmented } from '../../components/form'
-import { SelectMenu } from '../../components/select-menu'
+import { Button } from '../../../components/primitives'
+import { Field, Input, Segmented } from '../../../components/form'
+import { SelectMenu } from '../../../components/select-menu'
 import { UsageRing } from '../components/UsageRing'
 import { MarkdownBody } from '../components/MarkdownBody'
 import { SearchField } from '../components/SearchField'
 import { useCfT } from '../i18n'
-import { useUi } from '../../store/ui'
+import { useUi } from '../../../store/ui'
 import { cfErrorText } from '../api/client'
 import {
   browserRenderApi,

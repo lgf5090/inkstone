@@ -50,10 +50,11 @@ export function Tr({ children, className }: { children: ReactNode; className?: s
   )
 }
 
-export function Th({ children, className, sort }: { children: ReactNode; className?: string; sort?: 'ascending' | 'descending' | 'none' }) {
+export function Th({ children, className, sort, title }: { children: ReactNode; className?: string; sort?: 'ascending' | 'descending' | 'none'; title?: string }) {
   return (
     <th
       scope="col"
+      title={title}
       aria-sort={sort}
       className={cn(
         'px-2.5 py-2 text-[length:var(--text-11-5)] font-medium whitespace-nowrap text-[var(--text-tertiary)]',
@@ -65,8 +66,8 @@ export function Th({ children, className, sort }: { children: ReactNode; classNa
   )
 }
 
-export function Td({ children, className, colSpan }: { children: ReactNode; className?: string; colSpan?: number }) {
-  return <td colSpan={colSpan} className={cn('px-2.5 py-2 align-middle text-[var(--text-primary)]', className)}>{children}</td>
+export function Td({ children, className, colSpan, title }: { children: ReactNode; className?: string; colSpan?: number; title?: string }) {
+  return <td colSpan={colSpan} title={title} className={cn('px-2.5 py-2 align-middle text-[var(--text-primary)]', className)}>{children}</td>
 }
 
 /**
