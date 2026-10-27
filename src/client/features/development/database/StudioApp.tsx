@@ -5,6 +5,7 @@ import {
   FileCode2,
   ArrowRightLeft,
   GitBranch,
+  GitCompare,
   Loader2,
   Menu as MenuIcon,
   Pencil,
@@ -45,6 +46,7 @@ import { StudioCommandPalette } from './StudioCommandPalette'
 import { DatabaseSearchPanel } from './DatabaseSearchPanel'
 import { DatabaseDumpDialog } from './DatabaseDumpDialog'
 import { DataTransferDialog } from './DataTransferDialog'
+import { CompareDialog } from './CompareDialog'
 import type { StudioSelection, StudioTab, StudioTabKind } from './types'
 
 const EMPTY_SCHEMA: SchemaModel = { tables: [], views: [], triggers: [], indexes: [] }
@@ -102,6 +104,7 @@ export function StudioApp() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [dumpOpen, setDumpOpen] = useState(false)
   const [transferOpen, setTransferOpen] = useState(false)
+  const [compareOpen, setCompareOpen] = useState(false)
   const [driver, setDriver] = useState<StudioDriver | null>(null)
   const [tabs, setTabs] = useState<StudioTab[]>(() => [queryTab()])
   const [activeTabId, setActiveTabId] = useState('')
@@ -659,6 +662,7 @@ export function StudioApp() {
           { id: 'tools', label: t('development.database.app.mass_ops'), icon: <Trash2 size={13} />, disabled: !schema || schema.tables.length === 0, onSelect: openToolsTab },
           { id: 'erd', label: t('development.database.app.erd'), icon: <GitBranch size={13} />, disabled: !schema || schema.tables.length === 0, onSelect: openErdTab },
           { id: 'transfer', label: t('development.database.transfer.title'), icon: <ArrowRightLeft size={13} />, disabled: !schema || schema.tables.length === 0 || !driver || connections.length === 0, onSelect: () => { setMenuOpen(false); setTransferOpen(true) } },
+          { id: 'compare', label: t('development.database.compare.title'), icon: <GitCompare size={13} />, disabled: !schema || schema.tables.length === 0 || !driver, onSelect: () => { setMenuOpen(false); setCompareOpen(true) } },
         ]}
       />
 
@@ -796,6 +800,19 @@ export function StudioApp() {
           schema={schema ?? EMPTY_SCHEMA}
           connectionName={activeSaved?.name ?? localFile?.name ?? 'database'}
           onClose={() => setDumpOpen(false)}
+          onError={notifyError}
+        />
+      )}
+
+      {driver && (
+        <CompareDialog
+          open={compareOpen}
+          sourceDriver={driver}
+          sourceLabel={activeSaved?.name ?? localFile?.name ?? ''}
+          {...(selection?.kind === 'saved' ? { sourceConnectionId: selection.id } : {})}
+          sourceSchema={schema ?? EMPTY_SCHEMA}
+          connections={connections}
+          onClose={() => setCompareOpen(false)}
           onError={notifyError}
         />
       )}

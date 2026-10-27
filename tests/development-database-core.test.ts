@@ -8,6 +8,8 @@ import { buildDistinctSql } from '../src/client/features/development/database/di
 import { buildDataSearchSql, searchableColumns } from '../src/client/features/development/database/data-search'
 import { buildRowInsert, chunkRows, transferInsertStatements } from '../src/client/features/development/database/transfer-ops'
 import { generateRows } from '../src/client/features/development/database/data-generate'
+import { diffSchemas, schemaStatements } from '../src/client/features/development/database/schema-diff'
+import { diffRows } from '../src/client/features/development/database/data-diff'
 import { inferColumnType, parseCsv } from '../src/client/features/development/database/csv-parse'
 import { projectColumns, toCsv, toMarkdown, toSchemaSql } from '../src/client/features/development/database/export-utils'
 import { transformValue } from '../src/client/features/development/database/transform-value'
@@ -280,6 +282,54 @@ describe('development database core', () => {
     expect(['a', 'b']).toContain(first[0]?.[8])
     expect(first[0]).toHaveLength(9)
     expect(generateRows([], 2)).toEqual([[], []])
+  })
+
+  it('diffs schemas and emits only additive statements', () => {
+    const source = [
+      { name: 'users', sql: 'CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT)', columns: [
+        { name: 'id', type: 'INTEGER', notNull: false, pk: true },
+        { name: 'email', type: 'TEXT', notNull: false, pk: false },
+        { name: 'age', type: 'INTEGER', notNull: false, pk: false },
+      ] },
+      { name: 'fresh', sql: 'CREATE TABLE fresh (id INTEGER)', columns: [{ name: 'id', type: 'INTEGER', notNull: false, pk: false }] },
+    ]
+    const target = [
+      { name: 'users', sql: 'CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT, legacy TEXT)', columns: [
+        { name: 'id', type: 'INTEGER', notNull: false, pk: true },
+        { name: 'email', type: 'BLOB', notNull: false, pk: false },
+        { name: 'legacy', type: 'TEXT', notNull: false, pk: false },
+      ] },
+      { name: 'stale', sql: 'CREATE TABLE stale (id INTEGER)', columns: [] },
+    ]
+    const diffs = diffSchemas(source, target)
+    const users = diffs.find((diff) => diff.table === 'users')!
+    expect(users.addedColumns.map((column) => column.name)).toEqual(['age'])
+    expect(users.removedColumns).toEqual(['legacy'])
+    expect(users.typeChanges).toEqual([{ column: 'email', from: 'BLOB', to: 'TEXT' }])
+    expect(diffs.find((diff) => diff.table === 'fresh')?.missingInTarget).toBe(true)
+    expect(diffs.find((diff) => diff.table === 'stale')?.missingInSource).toBe(true)
+    const statements = schemaStatements(diffs, source)
+    expect(statements).toContain('CREATE TABLE fresh (id INTEGER);')
+    expect(statements).toContain('ALTER TABLE "users" ADD COLUMN "age" INTEGER;')
+    expect(statements.some((statement) => statement.startsWith('DROP'))).toBe(false)
+  })
+
+  it('diffs rows into insert/update/delete statements', () => {
+    const result = diffRows({
+      table: 't',
+      keyColumns: ['id'],
+      sourceColumns: ['id', 'name', 'note'],
+      sourceRows: [[1, 'a', 'x'], [2, 'b', null], [4, 'd', 'z']],
+      targetColumns: ['id', 'name', 'note', 'extra'],
+      targetRows: [[1, 'a', 'y'], [3, 'c', 'q']],
+    })
+    expect(result.inserts).toEqual([
+      `INSERT INTO "t" ("id", "name", "note") VALUES (2, 'b', NULL);`,
+      `INSERT INTO "t" ("id", "name", "note") VALUES (4, 'd', 'z');`,
+    ])
+    expect(result.updates).toEqual([`UPDATE "t" SET "note" = 'x' WHERE "id" = 1;`])
+    expect(result.deletes).toEqual([`DELETE FROM "t" WHERE "id" = 3;`])
+    expect(diffRows({ table: 't', keyColumns: ['missing'], sourceColumns: ['id'], sourceRows: [[1]], targetColumns: ['id'], targetRows: [] })).toEqual({ inserts: [], updates: [], deletes: [] })
   })
 
   it('quotes CSV cells containing separators and newlines', () => {
