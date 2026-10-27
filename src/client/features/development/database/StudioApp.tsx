@@ -381,7 +381,7 @@ export function StudioApp() {
 
   const main = (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-10 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-[var(--border-subtle)] bg-[var(--bg-subtle)] px-1.5" role="tablist" aria-label={t('development.database.app.tabs')}>
+      <div className="flex h-10 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-1.5" role="tablist" aria-label={t('development.database.app.tabs')}>
         {tabs.map((tab) => {
           const active = tab.id === activeTabId
           return (
@@ -526,7 +526,7 @@ export function StudioApp() {
     <div data-testid="studio-app-root" className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--bg-base)]">
       {isSmall ? (
         <>
-          <header className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-subtle)] px-2">
+          <header className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2">
             <Tooltip label={t('development.database.app.sidebar')}>
               <IconButton label={t('development.database.app.sidebar')} size="sm" onClick={() => setMobileSidebarOpen(true)}>
                 <MenuIcon size={16} />
@@ -596,7 +596,7 @@ export function StudioApp() {
           </Button>
         }
       >
-        <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-muted)] p-3 font-mono text-[length:var(--text-11)] leading-relaxed text-[var(--text-primary)]">
+        <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3 font-mono text-[length:var(--text-11)] leading-relaxed text-[var(--text-primary)]">
           {sqlViewOpen}
         </pre>
       </Modal>

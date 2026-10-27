@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Bot, CheckCircle2, CircleAlert, Loader2, Send, Square, Trash2, Wrench } from 'lucide-react'
 import { DATABASE_TOOL_DEFS } from '@shared/development/database/tools'
+import { isImeComposing } from '../../../lib/ime'
 import { t } from '../../../lib/i18n'
 import { cn } from '../../../lib/cn'
 import { Button } from '../../../components/primitives'
@@ -137,7 +138,7 @@ export function AgentPanel({ onToolComplete, className }: AgentPanelProps) {
               <Input
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
-                onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) send() }}
+                onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter' && !event.shiftKey) send() }}
                 placeholder={t('development.database.agent.input_placeholder')}
                 disabled={busy}
                 className="h-9 flex-1 text-[length:var(--text-11)]"

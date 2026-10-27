@@ -642,12 +642,13 @@ describe('no key grows because the to-do family exists', () => {
     expect(grantedMcpScopes(MCP_SUPPORTED_SCOPES, open)).toEqual([
       MCP_SCOPES.read, MCP_SCOPES.write, MCP_SCOPES.trash,
       MCP_SCOPES.todoRead, MCP_SCOPES.todoWrite, MCP_SCOPES.todoDanger,
+      MCP_SCOPES.databaseRead, MCP_SCOPES.databaseWrite,
     ])
     expect(grantedMcpScopes(MCP_SUPPORTED_SCOPES, { ...open, writeEnabled: false, trashEnabled: false }))
-      .toEqual([MCP_SCOPES.read, MCP_SCOPES.todoRead])
+      .toEqual([MCP_SCOPES.read, MCP_SCOPES.todoRead, MCP_SCOPES.databaseRead])
     // The read switch withholds its scope alone; the writes still answer to the two switches above.
     expect(grantedMcpScopes(MCP_SUPPORTED_SCOPES, { ...open, todoReadEnabled: false }))
-      .toEqual([MCP_SCOPES.read, MCP_SCOPES.write, MCP_SCOPES.trash, MCP_SCOPES.todoWrite, MCP_SCOPES.todoDanger])
+      .toEqual([MCP_SCOPES.read, MCP_SCOPES.write, MCP_SCOPES.trash, MCP_SCOPES.todoWrite, MCP_SCOPES.todoDanger, MCP_SCOPES.databaseRead, MCP_SCOPES.databaseWrite])
   })
 })
 

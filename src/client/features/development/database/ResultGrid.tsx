@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEven
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronsUpDown, EyeOff, Pin, PinOff, X } from 'lucide-react'
 import { INKSTONE_BLOB_KEY } from '@shared/development/database/types'
 import { cn } from '../../../lib/cn'
+import { isImeComposing } from '../../../lib/ime'
 import { t } from '../../../lib/i18n'
 import { copyText } from '../../../lib/clipboard'
 import { useUi } from '../../../store/ui'
@@ -255,11 +256,11 @@ export function ResultGrid({
         onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
       >
         <table className="w-full border-collapse text-[length:var(--text-12)]" style={{ tableLayout: 'fixed' }}>
-          <thead className="sticky top-0 z-20 bg-[var(--bg-subtle)]">
+          <thead className="sticky top-0 z-20 bg-[var(--bg-sunken)]">
             <tr>
               <th
                 scope="col"
-                className="sticky left-0 z-30 border-b border-r border-[var(--border-subtle)] bg-[var(--bg-subtle)] px-1 text-center text-[length:var(--text-10)] font-medium text-[var(--text-tertiary)]"
+                className="sticky left-0 z-30 border-b border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-1 text-center text-[length:var(--text-10)] font-medium text-[var(--text-tertiary)]"
                 style={{ width: ROW_NUMBER_WIDTH, minWidth: ROW_NUMBER_WIDTH, maxWidth: ROW_NUMBER_WIDTH }}
               >
                 #
@@ -274,7 +275,7 @@ export function ResultGrid({
                   <th
                     key={`${name}-${column}`}
                     scope="col"
-                    className={cn('group relative border-b border-[var(--border-subtle)] bg-[var(--bg-subtle)] px-0 py-0 text-left', isPinned && 'sticky z-30')}
+                    className={cn('group relative border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-0 py-0 text-left', isPinned && 'sticky z-30')}
                     style={{
                       width,
                       minWidth: MIN_COLUMN_WIDTH,
@@ -339,7 +340,7 @@ export function ResultGrid({
                 >
                   <th
                     scope="row"
-                    className="sticky left-0 z-10 border-r border-[var(--border-subtle)] bg-[var(--bg-subtle)] px-1 text-center text-[length:var(--text-10)] font-normal text-[var(--text-quaternary)]"
+                    className="sticky left-0 z-10 border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-1 text-center text-[length:var(--text-10)] font-normal text-[var(--text-quaternary)]"
                   >
                     {index + 1}
                   </th>
@@ -349,12 +350,14 @@ export function ResultGrid({
                     const isEditing = editable && editing?.row === index && editing.col === column
                     if (isEditing) {
                       return (
-                        <td key={`${column}-${index}`} className="p-0" style={isPinned ? { left: pinnedLeft.get(column), position: 'sticky', zIndex: 10, background: 'var(--bg-base)' } : undefined}>
+                        <td key={`${column}-${index}`} className={cn('p-0', isPinned && 'sticky z-[var(--z-sticky)]')}
+                        style={isPinned ? { left: pinnedLeft.get(column), background: 'var(--bg-base)' } : undefined}>
                           <Input
                             ref={editInput}
                             value={editValue ?? ''}
                             onChange={(event) => onEditValueChange?.(event.target.value)}
                             onKeyDown={(event) => {
+                              if (isImeComposing(event)) return
                               if (event.key === 'Enter') {
                                 event.stopPropagation()
                                 onEditCommit?.()

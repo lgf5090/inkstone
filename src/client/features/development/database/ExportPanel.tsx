@@ -40,7 +40,8 @@ function loadSettings(): ExportSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     return raw ? { ...DEFAULTS, ...(JSON.parse(raw) as Partial<ExportSettings>) } : DEFAULTS
-  } catch {
+  } catch (error) {
+    console.warn('[inkstone] Development database export preferences could not be read:', error)
     return DEFAULTS
   }
 }
@@ -65,7 +66,8 @@ export function ExportPanel({ columns, rows, tableName, selectedRows }: ExportPa
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
-    } catch {
+    } catch (error) {
+      console.warn('[inkstone] Development database export preferences could not be saved:', error)
     }
   }, [settings])
 

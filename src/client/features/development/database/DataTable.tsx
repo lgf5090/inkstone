@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import type { ParsedTable, QueryResult } from '@shared/development/database/types'
 import { quoteIdent } from '@shared/development/database/sql-utils'
+import { isImeComposing } from '../../../lib/ime'
 import { t, type MessageKey } from '../../../lib/i18n'
 import { copyText } from '../../../lib/clipboard'
 import { useUi } from '../../../store/ui'
@@ -508,7 +509,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-[var(--border-subtle)] bg-[var(--bg-subtle)] px-2 py-1.5">
+      <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1.5">
         <TooltipIcon label={t('development.database.table.refresh')} onClick={() => void load(page, pageSize, orderBy, orderDir, where)}>
           {loading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
         </TooltipIcon>
@@ -567,13 +568,14 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-1.5 border-b border-[var(--border-subtle)] bg-[var(--bg-subtle)] px-2 py-1.5">
+      <div className="flex shrink-0 items-center gap-1.5 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1.5">
         <div className="relative min-w-0 flex-1">
           <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" />
           <Input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             onKeyDown={(event) => {
+              if (isImeComposing(event)) return
               if (event.key === 'Enter') {
                 if (searchTimer.current) clearTimeout(searchTimer.current)
                 setDebouncedSearch(search)
@@ -593,7 +595,7 @@ export function DataTable({ driver, table, onError }: DataTableProps) {
       </div>
 
       {filters.length > 0 && (
-        <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-[var(--border-subtle)] bg-[var(--bg-subtle)] px-2 py-1">
+        <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1">
           {filters.map((filter) => (
             <span key={filter.id} className="flex items-center gap-1 rounded bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10)]">
               <span className="font-medium">{filter.column}</span>
@@ -852,7 +854,7 @@ function FilterDialog({
         </div>
         {op !== 'isNull' && op !== 'notNull' && (
           <Field label={t('development.database.table.value')}>
-            <Input value={value} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') add() }} />
+            <Input value={value} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter') add() }} />
           </Field>
         )}
         {filters.length > 0 && (

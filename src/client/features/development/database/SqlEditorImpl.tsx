@@ -56,7 +56,8 @@ function loadFontSize(): number {
   try {
     const value = Number.parseInt(localStorage.getItem(FONT_SIZE_KEY) ?? '', 10)
     if (Number.isFinite(value)) return Math.max(FONT_SIZE_MIN, Math.min(FONT_SIZE_MAX, value))
-  } catch {
+  } catch (error) {
+    console.warn('[inkstone] Development database editor font size could not be read:', error)
   }
   return 13
 }
@@ -64,7 +65,8 @@ function loadFontSize(): number {
 function saveFontSize(value: number): void {
   try {
     localStorage.setItem(FONT_SIZE_KEY, String(value))
-  } catch {
+  } catch (error) {
+    console.warn('[inkstone] Development database editor font size could not be saved:', error)
   }
 }
 
@@ -224,7 +226,7 @@ export default function SqlEditorImpl({
     '&': { height: '100%', backgroundColor: 'transparent', color: 'var(--text-primary)' },
     '.cm-scroller': { fontFamily: 'var(--font-mono, ui-monospace, monospace)', lineHeight: '1.6' },
     '.cm-content': { paddingBlock: '6px', fontSize: `${size}px`, caretColor: 'var(--accent)' },
-    '.cm-gutters': { backgroundColor: 'var(--bg-subtle)', color: 'var(--text-quaternary)', border: 'none', fontSize: `${size}px` },
+    '.cm-gutters': { backgroundColor: 'var(--bg-sunken)', color: 'var(--text-quaternary)', border: 'none', fontSize: `${size}px` },
     '.cm-activeLine': { backgroundColor: 'var(--bg-hover)' },
     '.cm-activeLineGutter': { backgroundColor: 'var(--bg-hover)', color: 'var(--text-secondary)' },
     '.cm-selectionBackground, ::selection': { backgroundColor: 'var(--accent-soft)' },

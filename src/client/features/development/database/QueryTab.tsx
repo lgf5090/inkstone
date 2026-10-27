@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import type { QueryHistoryEntry, QueryResult, SavedQuery, SchemaModel } from '@shared/development/database/types'
 import { splitSqlStatements, isWriteSql } from '@shared/development/database/sql-utils'
+import { isImeComposing } from '../../../lib/ime'
 import { t } from '../../../lib/i18n'
 import { Button, IconButton } from '../../../components/primitives'
 import { Input, Field } from '../../../components/form'
@@ -51,7 +52,8 @@ function readLocal<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(key)
     return raw ? (JSON.parse(raw) as T) : fallback
-  } catch {
+  } catch (error) {
+    console.warn('[inkstone] Development database local history could not be read:', error)
     return fallback
   }
 }
@@ -59,7 +61,8 @@ function readLocal<T>(key: string, fallback: T): T {
 function writeLocal(key: string, value: unknown): void {
   try {
     localStorage.setItem(key, JSON.stringify(value))
-  } catch {
+  } catch (error) {
+    console.warn('[inkstone] Development database local history could not be saved:', error)
   }
 }
 
@@ -126,7 +129,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
     if (!isLocal) {
       void listHistory(connectionId).then((entries) => setHistory(entries.map(historyToSql))).catch((cause) => onError(cause instanceof Error ? cause.message : String(cause)))
       void listSavedQueries(connectionId).then(setSaved).catch((cause) => onError(cause instanceof Error ? cause.message : String(cause)))
-      void getSettings().then((settings) => setHistoryLimited(settings.historyLimit)).catch(() => undefined)
+      void getSettings().then((settings) => setHistoryLimited(settings.historyLimit)).catch((error) => console.warn('[inkstone] Development database history settings could not be read:', error))
     } else {
       setHistory(readLocal<string[]>(`${LOCAL_HISTORY_PREFIX}${connectionId}`, []).slice(0, MAX_LOCAL_HISTORY))
       setSaved(readLocal<SavedQuery[]>(`${LOCAL_SAVED_PREFIX}${connectionId}`, []))
@@ -173,7 +176,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
       setSelectedRows(new Set())
       pushHistory(target)
       if (!isLocal) {
-        void listHistory(connectionId).then((entries) => setHistory(entries.map(historyToSql))).catch(() => undefined)
+        void listHistory(connectionId).then((entries) => setHistory(entries.map(historyToSql))).catch((error) => console.warn('[inkstone] Development database history settings could not be read:', error))
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
@@ -361,7 +364,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
     <div className="flex h-full min-h-0">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div className="flex min-h-40 shrink-0 flex-col border-b border-[var(--border-subtle)]">
-          <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-[var(--border-subtle)] bg-[var(--bg-subtle)] px-2 py-1">
+          <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1">
             <Button size="sm" onClick={() => void execute()} disabled={running || !sql.trim()}>
               {running ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
               {t('development.database.query.run')}
@@ -412,13 +415,13 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
               className="h-full min-h-0"
             />
           </div>
-          <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border-subtle)] bg-[var(--bg-subtle)] px-2 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
+          <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
             <span className="tabular-nums">{t('development.database.query.line')} {cursor.line}, {t('development.database.query.column')} {cursor.column + 1}</span>
             <div className="flex-1" />
             <span className="hidden sm:inline">{t('development.database.query.status_hints')}</span>
           </div>
           {placeholders.length > 0 && (
-            <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-subtle)] px-2 py-1.5">
+            <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1.5">
               <span className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.query.placeholders')}</span>
               {placeholders.map((name) => (
                 <label key={name} className="flex items-center gap-1">
@@ -426,7 +429,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
                   <Input
                     value={String(placeholderValues[name] ?? '')}
                     onChange={(event) => setPlaceholderValues((current) => ({ ...current, [name]: event.target.value }))}
-                    onKeyDown={(event) => { if (event.key === 'Enter') void execute() }}
+                    onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter') void execute() }}
                     placeholder={t('development.database.query.placeholder_value')}
                     className="h-7 w-36 text-[length:var(--text-11)]"
                   />
@@ -435,7 +438,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
             </div>
           )}
           {progress && (
-            <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-subtle)] px-3 py-1">
+            <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-1">
               <Loader2 size={12} className="animate-spin text-[var(--accent)]" />
               <span className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">
                 {t('development.database.query.executing', { current: progress.current, total: progress.total })}
@@ -450,7 +453,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
         <div className="flex min-h-0 flex-1 flex-col">
           {error && <div className="shrink-0 border-b border-[var(--danger)]/30 bg-[var(--danger-soft)] px-3 py-1.5 text-[length:var(--text-12)] text-[var(--danger)]">{error}</div>}
           {results.length > 0 && (
-            <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-[var(--border-subtle)] bg-[var(--bg-subtle)] px-2 py-1">
+            <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1">
               <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
                 {results.map((result, index) => (
                   <Button key={index} variant={index === activeResult ? 'primary' : 'ghost'} size="sm" onClick={() => selectResult(index)}>
@@ -470,13 +473,13 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
             </div>
           )}
           {active && (
-            <div className="flex shrink-0 items-center gap-1.5 border-b border-[var(--border-subtle)] bg-[var(--bg-subtle)] px-2 py-1.5">
+            <div className="flex shrink-0 items-center gap-1.5 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1.5">
               <div className="relative min-w-0 flex-1">
                 <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" />
                 <Input
                   value={resultSearch}
                   onChange={(event) => setResultSearch(event.target.value)}
-                  onKeyDown={(event) => { if (event.key === 'Escape') setResultSearch('') }}
+                  onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Escape') setResultSearch('') }}
                   placeholder={t('development.database.query.search_result', { n: activeResult + 1, cols: active.columns.length })}
                   className="h-8 pl-8 pr-8 text-[length:var(--text-11)]"
                 />
@@ -525,7 +528,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
 
       {sidePanel && (
         <aside className="relative z-20 flex w-[360px] shrink-0 flex-col border-l border-[var(--border-subtle)] bg-[var(--bg-base)] max-sm:absolute max-sm:inset-y-0 max-sm:right-0 max-sm:w-full">
-          <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-[var(--border-subtle)] bg-[var(--bg-subtle)] px-2">
+          <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2">
             <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[length:var(--text-12)] font-semibold text-[var(--text-primary)]">
               {sidePanel === 'ai' ? <Sparkles size={14} className="text-[var(--accent)]" /> : null}
               {sidePanel === 'ai' ? t('development.database.query.ai_assistant') : t('development.database.query.db_agent')}

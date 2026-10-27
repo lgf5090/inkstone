@@ -17,7 +17,8 @@ function loadLayout(): PersistedLayout {
   try {
     const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null
     return raw ? (JSON.parse(raw) as PersistedLayout) : {}
-  } catch {
+  } catch (error) {
+    console.warn('[inkstone] Development layout could not be read:', error)
     return {}
   }
 }
@@ -27,7 +28,8 @@ function persistLayout(layout: PersistedLayout): void {
     if (typeof localStorage === 'undefined') return
     const previous = loadLayout()
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...previous, ...layout }))
-  } catch {
+  } catch (error) {
+    console.warn('[inkstone] Development layout could not be saved:', error)
   }
 }
 

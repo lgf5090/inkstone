@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Loader2, Sparkles, Square, Wand2 } from 'lucide-react'
+import { isImeComposing } from '../../../lib/ime'
 import { t } from '../../../lib/i18n'
 import { cn } from '../../../lib/cn'
 import { useUi } from '../../../store/ui'
@@ -113,6 +114,7 @@ export function AiSqlPanel({ tables, currentSql, onInsert, onError, className }:
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
           onKeyDown={(event) => {
+            if (isImeComposing(event)) return
             if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) run()
           }}
           placeholder={t('development.database.ai.requirement_placeholder')}
@@ -128,7 +130,7 @@ export function AiSqlPanel({ tables, currentSql, onInsert, onError, className }:
       )}
 
       <div className="flex min-h-28 flex-1 flex-col overflow-hidden rounded-[var(--r-md)] border border-[var(--border-subtle)]">
-        <div className="flex shrink-0 items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-subtle)] px-2 py-1">
+        <div className="flex shrink-0 items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1">
           <span className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{output ? t('development.database.ai.output_chars', { count: output.length }) : t('development.database.ai.output')}</span>
           {streaming && <Button variant="ghost" size="sm" onClick={stop}><Square size={12} />{t('development.database.ai.stop')}</Button>}
         </div>

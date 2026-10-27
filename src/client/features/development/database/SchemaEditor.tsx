@@ -190,7 +190,7 @@ export function SchemaEditor({ driver, table, schemaModel, onSchemaChanged, onEr
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-[var(--border-subtle)] bg-[var(--bg-subtle)] px-2 py-1.5">
+      <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1.5">
         <span className="truncate text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{table.name}</span>
         <span className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">
           {t('development.database.schema.column_count', { count: table.columns.length })}
@@ -211,7 +211,7 @@ export function SchemaEditor({ driver, table, schemaModel, onSchemaChanged, onEr
 
       <div className="min-h-0 flex-1 overflow-auto">
         <table className="w-full border-collapse text-[length:var(--text-12)]">
-          <thead className="sticky top-0 z-10 bg-[var(--bg-subtle)]">
+          <thead className="sticky top-0 z-10 bg-[var(--bg-sunken)]">
             <tr className="text-left text-[var(--text-tertiary)]">
               <th className="w-12 border-b border-[var(--border-subtle)] px-2 py-1.5 font-medium">{t('development.database.schema.action')}</th>
               <th className="border-b border-[var(--border-subtle)] px-2 py-1.5 font-medium">{t('development.database.schema.name')}</th>
@@ -278,7 +278,7 @@ export function SchemaEditor({ driver, table, schemaModel, onSchemaChanged, onEr
             {preview.warnings.map((warning, index) => <li key={index}>{warningText(warning)}</li>)}
           </ul>
         )}
-        <pre className="max-h-[50vh] overflow-auto whitespace-pre-wrap rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-muted)] p-3 font-mono text-[length:var(--text-11)] leading-relaxed">
+        <pre className="max-h-[50vh] overflow-auto whitespace-pre-wrap rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3 font-mono text-[length:var(--text-11)] leading-relaxed">
           {preview?.sql || t('development.database.schema.no_changes')}
         </pre>
       </Modal>

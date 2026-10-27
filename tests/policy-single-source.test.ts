@@ -61,7 +61,7 @@ describe('grantedMcpScopes', () => {
     })
     // A caller that asked for every scope still gets only the two reads: what a client names is not the
     // same thing as what the account has switched on.
-    expect(scopes).toEqual([MCP_SCOPES.read, MCP_SCOPES.todoRead])
+    expect(scopes).toEqual([MCP_SCOPES.read, MCP_SCOPES.todoRead, MCP_SCOPES.databaseRead])
   })
 
   it('keeps honouring an account that did enable write', () => {
@@ -72,7 +72,7 @@ describe('grantedMcpScopes', () => {
       emailEnabled: false,
       disabledTools: [],
       updatedAt: 0,
-    })).toEqual([MCP_SCOPES.read, MCP_SCOPES.write, MCP_SCOPES.todoRead, MCP_SCOPES.todoWrite])
+    })).toEqual([MCP_SCOPES.read, MCP_SCOPES.write, MCP_SCOPES.todoRead, MCP_SCOPES.todoWrite, MCP_SCOPES.databaseRead, MCP_SCOPES.databaseWrite])
   })
 })
 

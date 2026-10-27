@@ -1,3 +1,5 @@
+import { NO_REDIRECT, isRedirectResponse } from '../../lib/no-redirect'
+
 export const D1_API_BASE = 'https://api.cloudflare.com/client/v4'
 
 export const D1_REQUEST_TIMEOUT_MS = 30_000
@@ -102,7 +104,9 @@ export async function executeD1Query(options: D1QueryOptions): Promise<D1RawResu
     headers: authorizationHeader(options.apiToken),
     body: JSON.stringify({ sql: options.sql, params: options.params ?? [] }),
     signal: options.signal,
+    redirect: NO_REDIRECT,
   })
+  if (isRedirectResponse(response)) throw new D1ApiError(502, 'Cloudflare API responded with a redirect')
   const body = await readBody(response)
   if (!response.ok) {
     throw new D1ApiError(
@@ -143,8 +147,10 @@ export async function listD1Databases(
         'Content-Type': 'application/json',
       },
       signal,
+      redirect: NO_REDIRECT,
     },
   )
+  if (isRedirectResponse(response)) throw new D1ApiError(502, 'Cloudflare API responded with a redirect')
   const body = await readBody(response)
   if (!response.ok) {
     throw new D1ApiError(

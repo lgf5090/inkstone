@@ -21,7 +21,8 @@ export function loadStudioLayout(): Partial<StudioLayout> {
       ...(typeof parsed.sidebarWidth === 'number' ? { sidebarWidth: parsed.sidebarWidth } : {}),
       ...(typeof parsed.sidebarCollapsed === 'boolean' ? { sidebarCollapsed: parsed.sidebarCollapsed } : {}),
     }
-  } catch {
+  } catch (error) {
+    console.warn('[inkstone] Development database layout could not be read:', error)
     return {}
   }
 }
@@ -31,6 +32,7 @@ export function saveStudioLayout(layout: Partial<StudioLayout>): void {
     if (typeof localStorage === 'undefined') return
     const previous = loadStudioLayout()
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...previous, ...layout }))
-  } catch {
+  } catch (error) {
+    console.warn('[inkstone] Development database layout could not be saved:', error)
   }
 }

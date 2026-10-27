@@ -53,11 +53,11 @@ export function MassDropPanel({ driver, tables, onSchemaChanged, onError }: Mass
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="shrink-0 border-b border-[var(--border-subtle)] bg-[var(--bg-subtle)] p-3">
+      <div className="shrink-0 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-3">
         <h3 className="text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">{t('development.database.mass.title')}</h3>
         <p className="mt-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.database.mass.description')}</p>
       </div>
-      <div className="flex shrink-0 items-center gap-1.5 border-b border-[var(--border-subtle)] bg-[var(--bg-subtle)] px-2 py-1.5">
+      <div className="flex shrink-0 items-center gap-1.5 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1.5">
         <Button variant="secondary" size="sm" className="text-[var(--danger)]" disabled={selected.size === 0 || running} onClick={() => { setOperation('drop'); setConfirmText('') }}>
           <Trash2 size={14} />
           {t('development.database.mass.drop_selected', { count: selected.size })}
@@ -77,7 +77,7 @@ export function MassDropPanel({ driver, tables, onSchemaChanged, onError }: Mass
           <div className="flex h-full items-center justify-center py-16 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('development.database.mass.no_tables')}</div>
         ) : (
           <table className="w-full text-[length:var(--text-12)]">
-            <thead className="sticky top-0 z-10 bg-[var(--bg-subtle)]">
+            <thead className="sticky top-0 z-10 bg-[var(--bg-sunken)]">
               <tr className="border-b border-[var(--border-subtle)] text-left text-[length:var(--text-10)] text-[var(--text-tertiary)]">
                 <th className="w-10 px-2 py-1.5">
                   <Checkbox

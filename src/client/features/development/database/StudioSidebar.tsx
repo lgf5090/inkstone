@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import type { DatabaseConnectionView, SchemaModel } from '@shared/development/database/types'
 import { cn } from '../../../lib/cn'
+import { isImeComposing } from '../../../lib/ime'
 import { t } from '../../../lib/i18n'
 import { IconButton } from '../../../components/primitives'
 import { Input } from '../../../components/form'
@@ -355,6 +356,7 @@ export function StudioSidebar(props: StudioSidebarProps) {
             value={connSearch}
             onChange={(event) => onConnSearch(event.target.value)}
             onKeyDown={(event) => {
+              if (isImeComposing(event)) return
               if (event.key === 'Escape') onConnSearch('')
             }}
             placeholder={t('development.database.app.search_connections')}
@@ -471,6 +473,7 @@ export function StudioSidebar(props: StudioSidebarProps) {
               value={tableSearch}
               onChange={(event) => onTableSearch(event.target.value)}
               onKeyDown={(event) => {
+                if (isImeComposing(event)) return
                 if (event.key === 'Escape') onTableSearch('')
               }}
               placeholder={t('development.database.app.search_tables')}
