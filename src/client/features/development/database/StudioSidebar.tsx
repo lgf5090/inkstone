@@ -68,6 +68,7 @@ export interface StudioSidebarProps {
   onLockNow?: () => void
   onExportSchema?: () => void
   onSearchData?: () => void
+  onExportDatabase?: () => void
   onViewSql: (definition: { kind: 'view' | 'trigger'; name: string; sql: string }) => void
   onCollapse?: () => void
   onExpand?: () => void
@@ -281,6 +282,7 @@ export function StudioSidebar(props: StudioSidebarProps) {
     unlockedUntil,
     onExportSchema,
     onSearchData,
+    onExportDatabase,
     onViewSql,
     onCollapse,
     onExpand,
@@ -550,6 +552,13 @@ export function StudioSidebar(props: StudioSidebarProps) {
                 <Tooltip label={t('development.database.app.export_schema')}>
                   <IconButton label={t('development.database.app.export_schema')} size="sm" onClick={onExportSchema}>
                     <Download size={12} />
+                  </IconButton>
+                </Tooltip>
+              )}
+              {onExportDatabase && schema.tables.length > 0 && (
+                <Tooltip label={t('development.database.dump.title')}>
+                  <IconButton label={t('development.database.dump.title')} size="sm" onClick={onExportDatabase}>
+                    <Database size={12} />
                   </IconButton>
                 </Tooltip>
               )}

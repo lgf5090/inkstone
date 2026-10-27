@@ -42,6 +42,7 @@ import { loadStudioLayout, saveStudioLayout, DRAFT_MAX_CHARS, STUDIO_SIDEBAR_WID
 import { DEFAULT_GUARD, loadGuards, saveGuards, type ConnectionGuard } from './guards'
 import { StudioCommandPalette } from './StudioCommandPalette'
 import { DatabaseSearchPanel } from './DatabaseSearchPanel'
+import { DatabaseDumpDialog } from './DatabaseDumpDialog'
 import type { StudioSelection, StudioTab, StudioTabKind } from './types'
 
 const EMPTY_SCHEMA: SchemaModel = { tables: [], views: [], triggers: [], indexes: [] }
@@ -97,6 +98,7 @@ export function StudioApp() {
   const [unlockAsk, setUnlockAsk] = useState<{ resolve: (ok: boolean) => void } | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [dumpOpen, setDumpOpen] = useState(false)
   const [driver, setDriver] = useState<StudioDriver | null>(null)
   const [tabs, setTabs] = useState<StudioTab[]>(() => [queryTab()])
   const [activeTabId, setActiveTabId] = useState('')
@@ -566,6 +568,7 @@ export function StudioApp() {
       onOpenSchema={openSchemaTab}
       onExportSchema={handleExportSchema}
       onSearchData={() => setSearchOpen(true)}
+      onExportDatabase={() => setDumpOpen(true)}
       guard={guard}
       unlockedUntil={unlockedUntil}
       onGuardChange={updateGuard}
@@ -780,6 +783,17 @@ export function StudioApp() {
           )}
           <main className="min-h-0 min-w-0 flex-1">{main}</main>
         </div>
+      )}
+
+      {driver && (
+        <DatabaseDumpDialog
+          open={dumpOpen}
+          driver={driver}
+          schema={schema ?? EMPTY_SCHEMA}
+          connectionName={activeSaved?.name ?? localFile?.name ?? 'database'}
+          onClose={() => setDumpOpen(false)}
+          onError={notifyError}
+        />
       )}
 
       {driver && (
