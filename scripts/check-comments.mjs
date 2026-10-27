@@ -5669,7 +5669,10 @@ const allowed = new Map([
     "/**\n * The image tab: text-to-image and image-to-image against the model family the reader picked.\n *\n * The family decides which controls exist — Stable Diffusion takes width, height, guidance and a\n * negative prompt, FLUX does not — and the request builder is what turns that into the body.\n */",
   ]],
   ["src/client/features/cloudflare/screens/ai/StatsTab.tsx", [
-    "/**\n * The AI statistics tab: today's usage per account, the share ring, the model ranking and one card\n * per account. Usage comes from one route, so the tab owns a single load and one retry.\n */",
+    "/**\n * The AI statistics tab: five headline numbers, the usage rings, the model ranking and one card per\n * account.\n *\n * The ring pair is the point of the page. The outer ring is how today's neurons divide between the\n * accounts, the inner one is how much of the combined quota that whole is, and the small rings answer\n * the question a reader actually acts on — how close each account is to its own 10,000. The bars rank\n * models across accounts. Every shape is printed with its number beside it: an angle or a length is\n * something a reader may not be able to resolve, and a colour never carries a value on its own.\n */",
+    "/** Below this share of the quota an account is comfortable, above it worth a colour. */",
+    "/** The two rings: today's neurons split by account, inside the slice of the combined quota they are. */",
+    "/** One account's own quota, as a ring with the rate in the middle. */",
   ]],
   ["src/client/features/cloudflare/screens/ai/TranslateTab.tsx", [
     "/**\n * The translation tab: a language pair, two panels, and the copy control beside the result.\n *\n * IndicTrans2 only translates out of English, so the pair the tab offers follows the model family\n * rather than a fixed list of both sides.\n */",
@@ -35593,6 +35596,7 @@ const allowed = new Map([
     "/**\n * `/api/cloudflare/ai` — the numbers behind the AI statistics tab.\n *\n * Cloudflare's GraphQL analytics are the authority for today's neurons. They are also the call most\n * likely to fail while the rest of the module works, so a failed lookup answers the locally counted\n * number with a warning instead of hiding the account: the screen exists to show what is left, and an\n * error there would hide every other account's numbers too.\n */",
     "// The analytics value replaces the counter for today; an exhausted flag is left alone, as an",
     "// exhausted account still needs an explicit reset before it can be used again.",
+    "/** Why the number is the local count rather than Cloudflare's, when it is. */",
   ]],
   ["src/worker/routes/cloudflare/audit-log.ts", [
     "/**\n * `/api/cloudflare/audit-log` — the reader's own trail, filtered and paged.\n *\n * The route turns query strings into numbers and dates, and answers refusals as 400. The SQL and the\n * row shape live in `cloudflare/audit-log.ts`; this file never names a table.\n */",
@@ -39509,6 +39513,11 @@ const allowed = new Map([
   ["tests/cloudflare-ai-mount.test.ts", [
     "/**\n * The AI tabs mounted the way the app mounts them — twice.\n *\n * Both tabs keep a liveness flag: `AudioTab` revokes the Blob URL of a clip that lands after the tab\n * is gone, `ChatTab` refuses to commit a stream nobody is watching. React runs a fresh mount's cleanup\n * in StrictMode, so a flag armed only by the ref initializer stays false for the rest of the session —\n * and the answer keeps *looking* fine, because the streamed object is mutated in place and a later\n * render picks it up. What disappears is the clip row and the stored assistant message. A dev-only\n * render cadence with a production-shaped symptom, which is why it needs a mount test.\n */",
     "/** One streamed answer: a content delta, then the terminal `[DONE]` the reader stops on. */",
+  ]],
+  ["tests/cloudflare-ai-stats.test.ts", [
+    "/**\n * The AI statistics tab, mounted the way the app mounts it.\n *\n * The page is mostly arithmetic drawn as shapes, so the cases pin the arithmetic and the shapes that\n * carry it: five headline numbers from one usage answer, a bar per model whose length is its share of\n * the busiest model, and one ring per account. The numbers are asserted as text because a bar width or\n * a ring angle is not something a screen reader — or this environment — can read.\n */",
+    "/** The widths the ranking bars were given, in the order the ranking shows them. */",
+    "// Accounts, the quota those accounts add up to, requests, distinct models, and the average.",
   ]],
   ["tests/cloudflare-ai.test.ts", [
     "// A later request sees the exhausted marker and does not ask Cloudflare again.",

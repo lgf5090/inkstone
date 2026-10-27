@@ -27,7 +27,7 @@ export interface AiUsageAccount {
   accountName: string
   totalNeurons: number
   models: AiUsageModel[]
-  warning?: string
+  warning?: 'zero' | 'local_estimate'
 }
 
 export interface AiChatMessage {

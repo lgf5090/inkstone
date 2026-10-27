@@ -19,11 +19,9 @@ export interface AiUsageAccountView {
   accountName: string
   totalNeurons: number
   models: AiUsage['models']
-  warning?: string
+  /** Why the number is the local count rather than Cloudflare's, when it is. */
+  warning?: 'zero' | 'local_estimate'
 }
-
-const LOCAL_ESTIMATE_WARNING = 'Could not read Cloudflare usage; showing the local estimate'
-const ZERO_USAGE_WARNING = 'Cloudflare reported no neurons today; showing the local estimate'
 
 aiRouter.get('/usage', async (c) => {
   const userId = c.get('userId')
@@ -51,7 +49,7 @@ aiRouter.get('/usage', async (c) => {
           accountName: row.name,
           totalNeurons: local?.count ?? 0,
           models: [],
-          warning: ZERO_USAGE_WARNING,
+          warning: 'zero',
         }
       } catch (error) {
         console.warn(`[inkstone] AI usage sync failed for ${row.name}:`, (error as Error)?.message)
@@ -61,7 +59,7 @@ aiRouter.get('/usage', async (c) => {
           accountName: row.name,
           totalNeurons: local?.count ?? 0,
           models: [],
-          warning: LOCAL_ESTIMATE_WARNING,
+          warning: 'local_estimate',
         }
       }
     }),
