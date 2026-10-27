@@ -442,4 +442,6 @@ export const ZH_CN_DEVELOPMENT_DATABASE = {
   "development.database.mcp.title": "MCP",
   "development.database.mcp.path": "/mcp",
   "development.database.mass.select_all": "全选",
+  "development.database.query.delete_group_title": "删除命名空间「{name}」？",
+  "development.database.query.delete_group_description": "该命名空间下的所有保存查询都会被删除。",
 }

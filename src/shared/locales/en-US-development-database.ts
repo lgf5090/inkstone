@@ -442,4 +442,6 @@ export const EN_US_DEVELOPMENT_DATABASE = {
   "development.database.mcp.title": "MCP",
   "development.database.mcp.path": "/mcp",
   "development.database.mass.select_all": "Select all",
+  "development.database.query.delete_group_title": "Delete namespace “{name}”?",
+  "development.database.query.delete_group_description": "Every saved query in this namespace is deleted.",
 }

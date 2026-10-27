@@ -127,7 +127,8 @@ export async function executeDatabaseTool(
         throw ApiError.badRequest('Writing requires confirm: true after the user agrees')
       }
       const params = Array.isArray(input.params) ? input.params : []
-      return { ...formatToolResult(await query(env, userId, connectionId, sql, params)) }
+      const result = await query(env, userId, connectionId, sql, params)
+      return { ...formatToolResult(result), rowsAffected: result.rowsAffected, meta: result.meta }
     }
     case 'explain_query': {
       const sql = String(input.sql ?? '').trim()

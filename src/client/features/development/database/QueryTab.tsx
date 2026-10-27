@@ -20,7 +20,7 @@ import { isImeComposing } from '../../../lib/ime'
 import { t } from '../../../lib/i18n'
 import { Button, IconButton } from '../../../components/primitives'
 import { Input, Field } from '../../../components/form'
-import { Modal } from '../../../components/overlay'
+import { Modal, confirm } from '../../../components/overlay'
 import { ToolbarPanel } from './ToolbarPanel'
 import { SqlEditor } from './SqlEditor'
 import { ResultGrid } from './ResultGrid'
@@ -299,6 +299,13 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
   }
 
   const deleteGroup = async (name: string) => {
+    const ok = await confirm({
+      title: t('development.database.query.delete_group_title', { name }),
+      description: t('development.database.query.delete_group_description'),
+      confirmLabel: t('development.database.query.delete_group'),
+      tone: 'danger',
+    })
+    if (!ok) return
     try {
       if (isLocal) {
         const next = saved.filter((entry) => (entry.namespace || 'default') !== name)

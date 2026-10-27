@@ -136,19 +136,21 @@ function computeTableDecorations(view: EditorView, names: Set<string>): Decorati
   return builder.finish()
 }
 
-const functionOptions: Completion[] = SQLITE_FUNCTIONS.map((fn) => ({
-  label: fn.name,
-  type: 'function',
-  detail: `(${fn.args})`,
-  info: t(fn.descKey),
-}))
+function functionOptions(): Completion[] {
+  return SQLITE_FUNCTIONS.map((fn) => ({
+    label: fn.name,
+    type: 'function',
+    detail: `(${fn.args})`,
+    info: t(fn.descKey),
+  }))
+}
 
 function functionCompletion(context: CompletionContext) {
   const word = context.matchBefore(/[\w$]*/)
   if (!word || (word.from === word.to && !context.explicit)) return null
   const before = context.state.sliceDoc(Math.max(0, word.from - 1), word.from)
   if (before === '.') return null
-  return { from: word.from, options: functionOptions, validFor: /^[\w$]*$/ }
+  return { from: word.from, options: functionOptions(), validFor: /^[\w$]*$/ }
 }
 
 function functionSignatureTooltip(state: EditorState): readonly Tooltip[] {
