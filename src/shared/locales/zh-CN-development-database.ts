@@ -168,6 +168,7 @@ export const ZH_CN_DEVELOPMENT_DATABASE = {
   "development.database.generate.kind_date": "日期",
   "development.database.generate.kind_bool": "布尔",
   "development.database.generate.kind_enum": "枚举",
+  "development.database.generate.enum_placeholder": "a,b,c",
   "development.database.generate.run": "生成",
   "development.database.generate.progress": "已写入 {done}/{total}",
   "development.database.generate.done": "已生成 {count} 行",

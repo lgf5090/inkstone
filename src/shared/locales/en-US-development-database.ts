@@ -168,6 +168,7 @@ export const EN_US_DEVELOPMENT_DATABASE = {
   "development.database.generate.kind_date": "Date",
   "development.database.generate.kind_bool": "Boolean",
   "development.database.generate.kind_enum": "Enum",
+  "development.database.generate.enum_placeholder": "a,b,c",
   "development.database.generate.run": "Generate",
   "development.database.generate.progress": "Inserted {done}/{total}",
   "development.database.generate.done": "Generated {count} rows",

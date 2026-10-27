@@ -133,7 +133,7 @@ export function DataGenerateDialog({ open, table, driver, ensureWritable, onClos
                   <Input value={String(config.length ?? 8)} onChange={(event) => setConfig(column.name, { length: Number(event.target.value) || 1 })} className="mt-1.5 h-7 w-20" aria-label={`${column.name} length`} />
                 )}
                 {config.kind === 'enum' && (
-                  <Input value={(config.values ?? []).join(',')} onChange={(event) => setConfig(column.name, { values: event.target.value.split(',') })} placeholder="a,b,c" className="mt-1.5 h-7" aria-label={`${column.name} values`} />
+                  <Input value={(config.values ?? []).join(',')} onChange={(event) => setConfig(column.name, { values: event.target.value.split(',') })} placeholder={t('development.database.generate.enum_placeholder')} className="mt-1.5 h-7" aria-label={`${column.name} values`} />
                 )}
               </div>
             )
