@@ -147,6 +147,16 @@
   --danger: oklch(53% 0.19 22);
   --brand-accent: #bb4430;
 
+  /* Chart series. The Cloudflare app's graphs are the first screens here that draw more than one
+     series, so the palette is a token rather than a component's own list: `--chart-1` follows the
+     reader's accent, and the other four are hue-separated at the same lightness so no series is
+     told apart by brightness alone. */
+  --chart-1: var(--accent);
+  --chart-2: oklch(52% 0.13 230);
+  --chart-3: oklch(50% 0.14 155);
+  --chart-4: oklch(55% 0.13 80);
+  --chart-5: oklch(52% 0.15 320);
+
   --empty-h-md: 192px;
   --empty-h-sm: 128px;
   --sp-7: 28px;
@@ -319,6 +329,11 @@
   --warning: oklch(80% 0.15 82);
   --danger: oklch(68% 0.185 22);
   --brand-accent: #e0664a;
+  --chart-1: var(--accent);
+  --chart-2: oklch(72% 0.12 230);
+  --chart-3: oklch(72% 0.13 155);
+  --chart-4: oklch(78% 0.13 80);
+  --chart-5: oklch(72% 0.13 320);
 
 
   --code-fg: #adbac7;

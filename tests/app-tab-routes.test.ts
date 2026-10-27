@@ -30,6 +30,13 @@ describe('the addresses the client routes on its own', () => {
     })
   }
 
+  it('routes nested cloudflare paths to the cloudflare tab', () => {
+    expect(tabIdForPath('/cloudflare')).toBe('cloudflare')
+    expect(tabIdForPath('/cloudflare/')).toBe('cloudflare')
+    expect(tabIdForPath('/cloudflare/dns')).toBe('cloudflare')
+    expect(tabIdForPath('/cloudflare/ai')).toBe('cloudflare')
+  })
+
   it('routes nested tools paths to the tools tab', () => {
     expect(tabIdForPath('/tools')).toBe('tools')
     expect(tabIdForPath('/tools/')).toBe('tools')

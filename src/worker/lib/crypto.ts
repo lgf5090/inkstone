@@ -136,6 +136,50 @@ export async function decryptMusicCookie(env: Env, userId: string, stored: strin
 }
 
 /**
+ * One Cloudflare account's credential bundle.
+ *
+ * The ciphertext is stored in R2 (`cloudflare/txt/accounts/<id>.txt`), so this is the only place the
+ * plaintext exists: it is opened for the duration of one upstream Cloudflare call and never returned
+ * by a route. The scope is the account row's own generated id, so a bundle copied onto another row
+ * cannot be decrypted with that row's key.
+ */
+export async function encryptCloudflareAccountSecret(
+  env: Env,
+  accountId: string,
+  record: Record<string, string>,
+): Promise<string> {
+  if (!isValidId(accountId)) throw new Error('invalid_cloudflare_credential')
+  const entries = Object.entries(record)
+  if (entries.length < 1 || entries.length > 3) throw new Error('invalid_cloudflare_credential')
+  for (const [key, value] of entries) {
+    if (!['api_token', 'api_key', 'password'].includes(key)) throw new Error('invalid_cloudflare_credential')
+    if (typeof value !== 'string' || value.length < 1 || value.length > 4 * 1024) {
+      throw new Error('invalid_cloudflare_credential')
+    }
+  }
+  return encryptCredential(env, `cloudflare-account:${accountId}`, record)
+}
+
+export async function decryptCloudflareAccountSecret(
+  env: Env,
+  accountId: string,
+  stored: string,
+): Promise<Record<string, string> | null> {
+  if (!isValidId(accountId) || stored.length > 24 * 1024) return null
+  const value = await decryptCredential(env, `cloudflare-account:${accountId}`, stored)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  const out: Record<string, string> = {}
+  for (const key of ['api_token', 'api_key', 'password']) {
+    const field = record[key]
+    if (field === undefined) continue
+    if (typeof field !== 'string' || field.length < 1 || field.length > 4 * 1024) return null
+    out[key] = field
+  }
+  return Object.keys(out).length > 0 ? out : null
+}
+
+/**
  * One MCP server's outbound OAuth material.
  *
  * Scoped to the server's own id rather than to the account, because the thing being kept is not this

@@ -1,0 +1,153 @@
+/*
+ * The Cloudflare app's own styles: two surfaces Tailwind utility classes cannot express cleanly.
+ *
+ * Everything else on these screens is utility classes over the app's tokens. What lives here is the
+ * rendered-Markdown body (generated HTML, so a class is the only hook) and the code-block chrome that
+ * body carries. No colour is written literally; every value is a token.
+ */
+
+.cf-markdown {
+  font-size: var(--text-13);
+  line-height: 1.7;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.cf-markdown > :first-child {
+  margin-top: 0;
+}
+
+.cf-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.cf-markdown h1,
+.cf-markdown h2,
+.cf-markdown h3,
+.cf-markdown h4 {
+  margin: 1.1em 0 0.45em;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.cf-markdown h1 { font-size: 1.32em; }
+.cf-markdown h2 { font-size: 1.18em; }
+.cf-markdown h3 { font-size: 1.06em; }
+.cf-markdown h4 { font-size: 1em; }
+
+.cf-markdown p,
+.cf-markdown ul,
+.cf-markdown ol,
+.cf-markdown blockquote,
+.cf-markdown table {
+  margin: 0.6em 0;
+}
+
+.cf-markdown ul,
+.cf-markdown ol {
+  padding-left: 1.4em;
+}
+
+.cf-markdown li {
+  margin: 0.2em 0;
+}
+
+.cf-markdown a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.cf-markdown blockquote {
+  padding-left: 0.8em;
+  border-left: 2px solid var(--border-default);
+  color: var(--text-secondary);
+}
+
+.cf-markdown code {
+  padding: 0.1em 0.35em;
+  border-radius: var(--r-xs);
+  background: var(--bg-inset);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+}
+
+.cf-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+
+.cf-markdown th,
+.cf-markdown td {
+  padding: 4px 8px;
+  border: 1px solid var(--border-subtle);
+  text-align: left;
+}
+
+.cf-markdown th {
+  background: var(--bg-sunken);
+  font-weight: 600;
+}
+
+.cf-markdown img {
+  max-width: 100%;
+  border-radius: var(--r-md);
+}
+
+.cf-code {
+  margin: 0.7em 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--bg-inset);
+}
+
+.cf-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-sunken);
+}
+
+.cf-code-lang {
+  font-size: var(--text-11);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.cf-code [data-copy-code] {
+  padding: 0 4px;
+  border-radius: var(--r-xs);
+  font-size: var(--text-11-5);
+  color: var(--text-tertiary);
+}
+
+.cf-code [data-copy-code]:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.cf-code pre {
+  margin: 0;
+  padding: 8px 10px;
+  overflow-x: auto;
+}
+
+.cf-code pre code {
+  padding: 0;
+  background: none;
+  font-size: var(--text-12);
+  line-height: 1.55;
+}
+
+/* The app's Prism theme is scoped to `pre code`; these blocks are the same kind of surface. */
+.cf-markdown .token.comment { color: var(--syntax-comment); }
+.cf-markdown .token.keyword { color: var(--syntax-keyword); }
+.cf-markdown .token.string { color: var(--syntax-string); }
+.cf-markdown .token.number { color: var(--syntax-number); }
+.cf-markdown .token.function { color: var(--syntax-function); }

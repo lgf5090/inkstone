@@ -54,6 +54,9 @@ function topLevelVerb(sql: string): string | null {
 }
 
 export function makeD1(sqlite: DatabaseSync): D1Database {
+  // D1 serializes transactions against one database; node:sqlite has a single connection, so two
+  // overlapping `batch()` calls would nest BEGINs and fail with an error the platform never returns.
+  let batchTail: Promise<unknown> = Promise.resolve()
   return {
     prepare(sql: string) {
       let values: unknown[] = []
@@ -87,19 +90,24 @@ export function makeD1(sqlite: DatabaseSync): D1Database {
       }
       return prepared
     },
-    async batch(statements: { all(): Promise<{ results: object[] }> }[]) {
+    batch(statements: { all(): Promise<{ results: object[] }> }[]) {
       // D1 runs a batch in one transaction: a later failing statement must not leave the
       // earlier writes applied.
-      const results = []
-      sqlite.exec('BEGIN')
-      try {
-        for (const statement of statements) results.push(await statement.all())
-        sqlite.exec('COMMIT')
-      } catch (error) {
-        sqlite.exec('ROLLBACK')
-        throw error
+      const run = async () => {
+        const results = []
+        sqlite.exec('BEGIN')
+        try {
+          for (const statement of statements) results.push(await statement.all())
+          sqlite.exec('COMMIT')
+        } catch (error) {
+          sqlite.exec('ROLLBACK')
+          throw error
+        }
+        return results
       }
-      return results
+      const started = batchTail.then(run, run)
+      batchTail = started.then(() => undefined, () => undefined)
+      return started
     },
   } as unknown as D1Database
 }

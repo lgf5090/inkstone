@@ -1524,3 +1524,6 @@ export type ApiErrorCode =
   | 'music_ai_quota'
   | 'music_ai_mismatch'
   | 'music_ai_upstream'
+  | 'cloudflare_upstream'
+  | 'cloudflare_not_configured'
+  | 'cloudflare_quota_exceeded'

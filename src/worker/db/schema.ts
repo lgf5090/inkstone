@@ -48,6 +48,12 @@ import {
   MUSIC_SCHEMA_STATEMENTS,
 } from '../music/schema'
 import {
+  CLOUDFLARE_REQUIRED_COLUMNS,
+  CLOUDFLARE_REQUIRED_INDEXES,
+  CLOUDFLARE_REQUIRED_TABLES,
+  CLOUDFLARE_SCHEMA_STATEMENTS,
+} from '../cloudflare/schema'
+import {
   TOOLS_PASSWORD_REQUIRED_COLUMNS,
   TOOLS_PASSWORD_REQUIRED_INDEXES,
   TOOLS_PASSWORD_REQUIRED_TABLES,
@@ -646,7 +652,8 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   ...TOOLS_COLOR_SCHEMA_STATEMENTS,
   ...TOOLS_ID_PHOTO_SCHEMA_STATEMENTS,
   ...TOOLS_SHORTLINKS_SCHEMA_STATEMENTS,
-  ...CALENDAR_SCHEMA_STATEMENTS,]
+  ...CALENDAR_SCHEMA_STATEMENTS,
+  ...CLOUDFLARE_SCHEMA_STATEMENTS,]
 
 export interface SchemaMigration {
   version: number
@@ -2806,6 +2813,29 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          ON calendar_event_attachments(user_id, event_id)`,
     ],
   },
+  {
+    // The undo window behind deleting a Cloudflare account: the row moves here, the credential file
+    // stays where it is, and the next read of the list purges whatever outlived the window.
+    version: 184,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS cloudflare_account_trash (
+        id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        auth_type TEXT NOT NULL,
+        email TEXT,
+        cf_account_id TEXT,
+        is_active INTEGER NOT NULL,
+        enabled_features TEXT NOT NULL,
+        available_features TEXT NOT NULL,
+        has_credentials INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        deleted_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, id)
+      )`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -2876,7 +2906,8 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   ...TOOLS_COLOR_REQUIRED_COLUMNS,
   ...TOOLS_ID_PHOTO_REQUIRED_COLUMNS,
   ...TOOLS_SHORTLINKS_REQUIRED_COLUMNS,
-  ...CALENDAR_REQUIRED_COLUMNS,} as const
+  ...CALENDAR_REQUIRED_COLUMNS,
+  ...CLOUDFLARE_REQUIRED_COLUMNS,} as const
 
 export const REQUIRED_TABLES = [
   'app_meta',
@@ -2938,7 +2969,8 @@ export const REQUIRED_TABLES = [
   ...TOOLS_COLOR_REQUIRED_TABLES,
   ...TOOLS_ID_PHOTO_REQUIRED_TABLES,
   ...TOOLS_SHORTLINKS_REQUIRED_TABLES,
-  ...CALENDAR_REQUIRED_TABLES,] as const
+  ...CALENDAR_REQUIRED_TABLES,
+  ...CLOUDFLARE_REQUIRED_TABLES,] as const
 
 export const REQUIRED_INDEXES = [
   'idx_folders_user',
@@ -3015,7 +3047,8 @@ export const REQUIRED_INDEXES = [
   ...TOOLS_COLOR_REQUIRED_INDEXES,
   ...TOOLS_ID_PHOTO_REQUIRED_INDEXES,
   ...TOOLS_SHORTLINKS_REQUIRED_INDEXES,
-  ...CALENDAR_REQUIRED_INDEXES,] as const
+  ...CALENDAR_REQUIRED_INDEXES,
+  ...CLOUDFLARE_REQUIRED_INDEXES,] as const
 
 
 const initializationCache = new WeakMap<D1Database, Promise<DatabaseState>>()

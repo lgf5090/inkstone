@@ -11,7 +11,7 @@
  * worker's Content-Security-Policy. tests/app-tab-routes.test.ts is what says so out loud.
  */
 import type { ComponentType } from 'react'
-import { BookOpen, CalendarDays, Compass, FileText, FolderKanban, ListChecks, Mail, MessageSquare, Music, Rss, StickyNote, Wallet, Wrench } from 'lucide-react'
+import { BookOpen, CalendarDays, Cloud, Compass, FileText, FolderKanban, ListChecks, Mail, MessageSquare, Music, Rss, StickyNote, Wallet, Wrench } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 
 export type AppTabId =
@@ -27,6 +27,7 @@ export type AppTabId =
   | 'reading'
   | 'rss'
   | 'music'
+  | 'cloudflare'
   | 'tools'
 
 export interface AppTab {
@@ -50,6 +51,7 @@ export const APP_TABS: readonly AppTab[] = [
   { id: 'reading', path: '/reading', labelKey: 'app.tabs.reading', icon: BookOpen },
   { id: 'rss', path: '/rss', labelKey: 'app.tabs.rss', icon: Rss },
   { id: 'music', path: '/music', labelKey: 'app.tabs.music', icon: Music },
+  { id: 'cloudflare', path: '/cloudflare', labelKey: 'app.tabs.cloudflare', icon: Cloud },
   { id: 'tools', path: '/tools', labelKey: 'app.tabs.tools', icon: Wrench },
 ]
 
@@ -66,6 +68,7 @@ const NESTED_TAB_PATHS: readonly [prefix: string, id: AppTabId][] = [
   ['/memos/', 'memos'],
   ['/email/', 'email'],
   ['/music/', 'music'],
+  ['/cloudflare/', 'cloudflare'],
   ['/tools/', 'tools'],
 ]
 
