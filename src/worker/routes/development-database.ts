@@ -15,6 +15,7 @@ import {
   QuerySchema,
   SavedQueryCreateSchema,
   SavedQueryUpdateSchema,
+  TestConnectionSchema,
   UpdateConnectionSchema,
 } from '@shared/development/database/schemas'
 import {
@@ -33,9 +34,9 @@ import { isValidId } from '../lib/id'
 import { ApiError } from '../lib/errors'
 import { JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
-import { listD1Databases } from '../development/database/d1'
+import { executeD1Query, listD1Databases } from '../development/database/d1'
 import { databaseAiStatus, streamDatabaseAgent, streamDatabaseAi, streamResponse } from '../development/database/ai'
-import { assertTursoUrl } from '../development/database/turso'
+import { assertTursoUrl, executeTursoQuery } from '../development/database/turso'
 import {
   executeBatch,
   executeQuery,
@@ -203,6 +204,44 @@ developmentDatabaseRoutes.post('/connections', async (c) => {
   })
   const connection = await requireConnection(c, id)
   return c.json({ ok: true, data: toConnectionView(connection) })
+})
+
+developmentDatabaseRoutes.post('/connections/test', async (c) => {
+  const body = await parseBody(c, TestConnectionSchema, CONNECTION_BODY_LIMIT)
+  const started = Date.now()
+  if (body.type === 'd1') {
+    let accountId = body.d1AccountId ?? ''
+    let databaseId = body.d1DatabaseId ?? ''
+    let apiToken = body.secret ?? ''
+    if (body.connectionId) {
+      const connection = await requireConnection(c, body.connectionId)
+      if (connection.type !== 'd1') throw ApiError.badRequest('The saved connection is not a D1 connection')
+      accountId ||= connection.d1AccountId
+      databaseId ||= connection.d1DatabaseId
+      if (!apiToken) apiToken = await openConnectionSecret(c.env, connection.id, connection.secretCiphertext)
+    }
+    try {
+      await executeD1Query({ accountId, databaseId, apiToken, sql: 'SELECT 1' })
+      return c.json({ ok: true, data: { ok: true, latencyMs: Date.now() - started } })
+    } catch (error) {
+      queryFailure(failureFromError(error, [apiToken]))
+    }
+  }
+  let url = body.tursoUrl ?? ''
+  let token = body.secret ?? ''
+  if (body.connectionId) {
+    const connection = await requireConnection(c, body.connectionId)
+    if (connection.type !== 'turso') throw ApiError.badRequest('The saved connection is not a Turso connection')
+    url ||= connection.tursoUrl
+    if (!token) token = await openConnectionSecret(c.env, connection.id, connection.secretCiphertext)
+  }
+  try {
+    assertTursoUrl(url)
+    await executeTursoQuery({ url, token, sql: 'SELECT 1' })
+    return c.json({ ok: true, data: { ok: true, latencyMs: Date.now() - started } })
+  } catch (error) {
+    queryFailure(failureFromError(error, [token]))
+  }
 })
 
 developmentDatabaseRoutes.patch('/connections/:id', async (c) => {

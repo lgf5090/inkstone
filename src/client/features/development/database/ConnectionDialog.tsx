@@ -6,7 +6,7 @@ import { Field, Input, Segmented } from '../../../components/form'
 import { Modal } from '../../../components/overlay'
 import { SelectMenu } from '../../../components/select-menu'
 import { t } from '../../../lib/i18n'
-import { createConnection, describeError, listD1Databases, updateConnection } from './api'
+import { createConnection, describeError, listD1Databases, testConnection, updateConnection } from './api'
 import { isLocalSqliteFileName, MAX_LOCAL_SQLITE_FILE_BYTES } from './drivers'
 
 type ConnectionType = 'd1' | 'turso' | 'sqlite'
@@ -39,6 +39,8 @@ export function ConnectionDialog({
   const [tursoToken, setTursoToken] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null)
   const isEdit = Boolean(editing)
 
   useEffect(() => {
@@ -52,7 +54,12 @@ export function ConnectionDialog({
     setTursoUrl(editing?.tursoUrl ?? '')
     setTursoToken('')
     setFile(null)
+    setTestResult(null)
   }, [open, editing])
+
+  useEffect(() => {
+    setTestResult(null)
+  }, [d1AccountId, d1DatabaseId, d1Token, tursoUrl, tursoToken, type])
 
   const loadDatabases = async () => {
     const sameSavedAccount = Boolean(editing) && d1AccountId.trim() === editing?.d1AccountId.trim()
@@ -146,6 +153,32 @@ export function ConnectionDialog({
     }
   }
 
+  const runTest = async () => {
+    setTesting(true)
+    setTestResult(null)
+    try {
+      const result = type === 'd1'
+        ? await testConnection({
+            type: 'd1',
+            ...(editing ? { connectionId: editing.id } : {}),
+            d1AccountId: d1AccountId.trim(),
+            d1DatabaseId,
+            ...(d1Token.trim() ? { secret: d1Token.trim() } : {}),
+          })
+        : await testConnection({
+            type: 'turso',
+            ...(editing ? { connectionId: editing.id } : {}),
+            tursoUrl: tursoUrl.trim(),
+            ...(tursoToken.trim() ? { secret: tursoToken.trim() } : {}),
+          })
+      setTestResult({ ok: true, text: t('development.database.conn.test_ok', { ms: result.latencyMs }) })
+    } catch (error) {
+      setTestResult({ ok: false, text: t('development.database.conn.test_failed', { message: describeError(error) }) })
+    } finally {
+      setTesting(false)
+    }
+  }
+
   const chooseFile = (next: File | null) => {
     if (!next) {
       setFile(null)
@@ -184,6 +217,12 @@ export function ConnectionDialog({
       width={520}
       footer={
         <>
+          {type !== 'sqlite' && (
+            <Button variant="secondary" size="sm" onClick={() => void runTest()} disabled={!canSubmit || submitting || testing}>
+              {testing && <Loader2 size={14} className="animate-spin" />}
+              {t('development.database.conn.test')}
+            </Button>
+          )}
           <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
             {t('development.database.conn.cancel')}
           </Button>
@@ -314,6 +353,18 @@ export function ConnectionDialog({
               />
             </label>
           </Field>
+        )}
+        {type !== 'sqlite' && testResult && (
+          <p
+            role={testResult.ok ? 'status' : 'alert'}
+            className={`rounded-[var(--r-md)] border p-2 text-[length:var(--text-11)] leading-relaxed ${
+              testResult.ok
+                ? 'border-[var(--success)]/30 bg-[var(--success-soft)] text-[var(--success)]'
+                : 'border-[var(--danger)]/30 bg-[var(--danger-soft)] text-[var(--danger)]'
+            }`}
+          >
+            {testResult.text}
+          </p>
         )}
       </div>
     </Modal>

@@ -69,6 +69,32 @@ export const D1DatabasesSchema = z
     'Provide connectionId or accountId with apiToken',
   )
 
+export const TestConnectionSchema = z.discriminatedUnion('type', [
+  z
+    .object({
+      type: z.literal('d1'),
+      connectionId: ConnectionIdSchema.optional(),
+      d1AccountId: AccountIdSchema.optional(),
+      d1DatabaseId: D1DatabaseIdSchema.optional(),
+      secret: SecretSchema.optional(),
+    })
+    .refine(
+      (value) => Boolean(value.connectionId) || Boolean(value.d1AccountId && value.d1DatabaseId && value.secret),
+      'Provide connectionId or account, database and secret',
+    ),
+  z
+    .object({
+      type: z.literal('turso'),
+      connectionId: ConnectionIdSchema.optional(),
+      tursoUrl: TursoUrlSchema.optional(),
+      secret: SecretSchema.optional(),
+    })
+    .refine(
+      (value) => Boolean(value.connectionId) || Boolean(value.tursoUrl && value.secret),
+      'Provide connectionId or url and secret',
+    ),
+])
+
 export const QuerySchema = z.object({
   connectionId: ConnectionIdSchema,
   sql: z.string().min(1).max(MAX_SQL_LENGTH),

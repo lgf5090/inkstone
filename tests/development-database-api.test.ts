@@ -378,6 +378,67 @@ describe('D1 database discovery', () => {
   })
 })
 
+describe('connection test', () => {
+  it('tests a saved D1 connection with the stored token', async () => {
+    const created = await createConnection('Primary')
+    const fetchMock = vi.fn(async () => queryResponse([{ '1': 1 }]))
+    vi.stubGlobal('fetch', fetchMock)
+    const response = await call('POST', '/connections/test', {
+      body: { type: 'd1', connectionId: created.id },
+    })
+    expect(response.status).toBe(200)
+    const envelope = await bodyOf<{ ok: boolean; latencyMs: number }>(response)
+    expect(envelope.data?.ok).toBe(true)
+    expect(envelope.data?.latencyMs).toBeGreaterThanOrEqual(0)
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe(`https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/d1/database/${DATABASE_ID}/query`)
+    expect((init.headers as Record<string, string>).Authorization).toBe(`Bearer ${TOKEN}`)
+    expect(String(init.body)).toContain('SELECT 1')
+  })
+
+  it('tests ad hoc credentials without persisting them', async () => {
+    const fetchMock = vi.fn(async () => queryResponse([{ '1': 1 }]))
+    vi.stubGlobal('fetch', fetchMock)
+    const response = await call('POST', '/connections/test', {
+      body: { type: 'd1', d1AccountId: 'acct-2', d1DatabaseId: 'db-2', secret: 'adhoc-secret' },
+    })
+    expect(response.status).toBe(200)
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toContain('/accounts/acct-2/d1/database/db-2/query')
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer adhoc-secret')
+  })
+
+  it('rejects mismatched saved types, other users and private hosts', async () => {
+    const created = await createConnection('Primary')
+    const mismatch = await call('POST', '/connections/test', {
+      body: { type: 'turso', connectionId: created.id },
+    })
+    expect(mismatch.status).toBe(400)
+    const other = await call('POST', '/connections/test', {
+      user: USER_B,
+      body: { type: 'd1', connectionId: created.id },
+    })
+    expect(other.status).toBe(404)
+    const privateHost = await call('POST', '/connections/test', {
+      body: { type: 'turso', tursoUrl: 'libsql://127.0.0.1:8080', secret: 'x' },
+    })
+    expect(privateHost.status).toBe(400)
+  })
+
+  it('maps upstream failures to the classified status', async () => {
+    const created = await createConnection('Primary')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ success: false, errors: [{ message: 'Authentication error' }] }, 403)),
+    )
+    const response = await call('POST', '/connections/test', {
+      body: { type: 'd1', connectionId: created.id },
+    })
+    expect(response.status).toBe(403)
+    expect((await bodyOf(response)).error?.details).toMatchObject({ kind: 'permission' })
+  })
+})
+
 describe('query endpoint', () => {
   it('runs one statement, normalizes blobs and records history', async () => {
     const created = await createConnection('Primary')

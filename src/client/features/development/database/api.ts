@@ -106,6 +106,22 @@ export async function listD1Databases(input: {
   return data.databases ?? []
 }
 
+export interface ConnectionTestResult {
+  ok: boolean
+  latencyMs: number
+}
+
+export function testConnection(input: {
+  type: 'd1' | 'turso'
+  connectionId?: string
+  d1AccountId?: string
+  d1DatabaseId?: string
+  tursoUrl?: string
+  secret?: string
+}): Promise<ConnectionTestResult> {
+  return requestData<ConnectionTestResult>('/connections/test', { method: 'POST', body: input })
+}
+
 export function runQuery(
   connectionId: string,
   sql: string,
