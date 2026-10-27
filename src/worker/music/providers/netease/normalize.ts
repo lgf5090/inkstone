@@ -513,7 +513,7 @@ export function normalizeRadioDetail(input: unknown, programs: unknown, offset: 
 export function normalizeLyric(input: unknown, trackKey: string): MusicLyricPayload {
   const root = record(input)
   const lrc = lyricText(root.lrc)
-  const tlyric = lyricText(root.tlyric)
+  const tlyric = lyricText(root.tlyric) || lyricText(root.ytlyric)
   const yrc = lyricText(root.yrc)
   const lyric: MusicLyric = {
     trackKey,

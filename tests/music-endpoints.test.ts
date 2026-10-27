@@ -361,6 +361,11 @@ describe('netease normalization', () => {
     )
     expect(lyrics).toMatchObject({ hasTranslation: true, hasWordByWord: true })
     expect(lyrics.lyric).toMatchObject({ trackKey: 'netease:1', lrc: '[00:00]Hi', tlyric: '[00:00]Hey' })
+    const wordTranslation = normalizeLyric(
+      { lrc: { lyric: '[00:00]Hi' }, ytlyric: { lyric: '[00:00]Word translation' } },
+      'netease:2',
+    )
+    expect(wordTranslation.lyric?.tlyric).toBe('[00:00]Word translation')
 
     expect(normalizePlaylistCategories({ sub: [{ name: 'Pop', hot: true }, { name: '' }] })).toEqual([
       { name: 'Pop', hot: true },
