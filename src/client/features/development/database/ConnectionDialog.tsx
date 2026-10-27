@@ -81,10 +81,6 @@ export function ConnectionDialog({
   }
 
   const submit = async () => {
-    if (!name.trim()) {
-      onError(t('development.database.conn.name_required'))
-      return
-    }
     if (type === 'sqlite') {
       if (!file) {
         onError(t('development.database.conn.file_required'))
@@ -92,6 +88,10 @@ export function ConnectionDialog({
       }
       onLocalFile(file)
       onOpenChange(false)
+      return
+    }
+    if (!name.trim()) {
+      onError(t('development.database.conn.name_required'))
       return
     }
     setSubmitting(true)
@@ -169,11 +169,11 @@ export function ConnectionDialog({
       : []
   const accountChanged = Boolean(editing) && d1AccountId.trim() !== editing?.d1AccountId.trim()
   const urlChanged = Boolean(editing) && tursoUrl.trim() !== editing?.tursoUrl.trim()
-  const canSubmit = Boolean(name.trim()) && (type === 'sqlite'
+  const canSubmit = (type === 'sqlite' || Boolean(name.trim())) && (type === 'sqlite'
     ? Boolean(file)
     : type === 'd1'
       ? Boolean(d1AccountId.trim() && d1DatabaseId && (!isEdit || !accountChanged || d1Token.trim()))
-      : Boolean(tursoUrl.trim() && (isEdit && !urlChanged || tursoToken.trim())))
+      : Boolean(tursoUrl.trim() && ((isEdit && !urlChanged) || tursoToken.trim())))
 
   return (
     <Modal
@@ -209,14 +209,16 @@ export function ConnectionDialog({
           disabled={isEdit}
         />
 
-        <Field label={t('development.database.conn.name')} required>
-          <Input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder={t('development.database.conn.name_placeholder')}
-            autoFocus
-          />
-        </Field>
+        {type !== 'sqlite' && (
+          <Field label={t('development.database.conn.name')} required>
+            <Input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder={t('development.database.conn.name_placeholder')}
+              autoFocus
+            />
+          </Field>
+        )}
 
         {type === 'd1' && (
           <>
