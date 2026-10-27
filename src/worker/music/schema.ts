@@ -32,6 +32,8 @@ export const MUSIC_SCHEMA_STATEMENTS: readonly string[] = [
     r2_key TEXT,
     source TEXT NOT NULL DEFAULT '',
     source_quality TEXT NOT NULL DEFAULT '',
+    program_id TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id),
@@ -313,7 +315,7 @@ export const MUSIC_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>>
   music_track: [
     'user_id', 'id', 'provider', 'provider_id', 'kind', 'title', 'artists', 'album', 'album_id',
     'cover_url', 'cover_key', 'duration_ms', 'format', 'bitrate', 'size', 'sha256', 'r2_key',
-    'source', 'source_quality', 'created_at', 'updated_at',
+    'source', 'source_quality', 'program_id', 'description', 'created_at', 'updated_at',
   ],
   music_playlist: [
     'user_id', 'id', 'name', 'description', 'cover_url', 'cover_key', 'provider', 'provider_id',

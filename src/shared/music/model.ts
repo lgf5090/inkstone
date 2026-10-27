@@ -38,8 +38,14 @@ export const MUSIC_QUALITIES = [
 ] as const
 export type MusicQuality = (typeof MUSIC_QUALITIES)[number]
 
-export const MUSIC_SEARCH_TYPES = ['song', 'album', 'playlist', 'mv', 'radio'] as const
+export const MUSIC_SEARCH_TYPES = ['song', 'artist', 'album', 'playlist', 'mv', 'radio', 'user'] as const
 export type MusicSearchType = (typeof MUSIC_SEARCH_TYPES)[number]
+
+export const MUSIC_FM_MODES = ['DEFAULT', 'FAMILIAR', 'EXPLORE'] as const
+export type MusicFmMode = (typeof MUSIC_FM_MODES)[number]
+
+export const MUSIC_STAGE_STYLES = ['classic', 'partita', 'tilt'] as const
+export type MusicStageStyle = (typeof MUSIC_STAGE_STYLES)[number]
 
 export const MUSIC_PLAY_MODES = ['order', 'repeat', 'repeatOne', 'shuffle', 'intelligence'] as const
 export type MusicPlayMode = (typeof MUSIC_PLAY_MODES)[number]
@@ -98,6 +104,10 @@ export interface MusicTrack {
   r2Key: string | null
   source: string
   sourceQuality: string
+  /** The Netease programme id of a podcast episode; absent for every other kind. */
+  programId?: string
+  /** The provider's description of a podcast episode; absent for every other kind. */
+  description?: string
   createdAt: number
   updatedAt: number
 }

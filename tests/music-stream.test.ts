@@ -72,6 +72,9 @@ describe('online music stream', () => {
       bitrate: 320_000,
       size: AUDIO.byteLength,
       quality: 'exhigh',
+      level: 'exhigh',
+      gain: 0,
+      peak: 0,
       freeTrial: false,
     }
     const stream = vi.fn(async () => source)

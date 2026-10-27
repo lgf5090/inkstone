@@ -6614,6 +6614,9 @@ const allowed = new Map([
     "/** Returns how many rows gained metadata, so the caller can reload exactly when something changed. */",
     "// Marked before the first request so two observers of the same list cannot parse the same file twice.",
   ]],
+  ["src/client/features/music/comments/CommentsPane.tsx", [
+    "/**\n * The comments pane of Now Playing. It is replaced by the comments slice; this file exists so the\n * shell's pane registry is complete while the slices are built in parallel.\n */",
+  ]],
   ["src/client/features/music/components/AlistPanel.tsx", [
     "/**\n * Alist mounts and the folder browser behind the cloud page's third source.\n *\n * The panel owns only its own server selection and the two calls the browser makes; the parent owns\n * the mount list so creating or deleting one can refresh every source. A token is collected once and\n * never shown again: the server returns whether one is stored, not what it is.\n */",
     "// A search that was in flight when the mount or folder changed must not overwrite the new view.",
@@ -6713,9 +6716,9 @@ const allowed = new Map([
     "/** One shelf per question: saved songs, what was played, what was fetched, what is stored. */",
   ]],
   ["src/client/features/music/components/NowPlaying.tsx", [
-    "/**\n * The full-screen listening surface: what is playing on one side, lyrics or the queue on the other.\n *\n * The shared `Modal` owns the layer behaviour — focus moves in, Escape and the backdrop close it, and\n * focus returns to whatever opened it. The lyric pane is the existing embedded `LyricPanel`, so the\n * translation and offset controls are not duplicated here; the queue is a plain list of the player's\n * own tracks rather than a second copy of the queue drawer.\n *\n * A phone gets the same content stacked and full-height; the stylesheet switches the two columns at\n * the tablet breakpoint and keeps the home-indicator inset on the bottom edge.\n */",
-    "// The assistant is a separate surface owned by the app shell. Opening it closes this layer, so the",
-    "// dock is not mounted behind a modal; its music context already names the track that is playing.",
+    "/**\n * Now Playing: one immersive surface over the whole window, with a cover-derived backdrop.\n *\n * The shell owns the layer and the pane registry; each pane owns its own scroll and loading states.\n * Songs offer lyrics, the stage, the queue, the wall and comments; a podcast substitutes an About\n * pane for the lyric surfaces. The chosen lyric/stage pane is remembered on this device, while the\n * tab itself is session-only.\n */",
+    "// A podcast owns the programme panes; a song never shows one. Switching selection is derived from",
+    "// what actually plays rather than from the previous tab, so a restored queue cannot open \"About\".",
   ]],
   ["src/client/features/music/components/Pager.tsx", [
     "/**\n * Page navigation for a long collection.\n *\n * Above the phone breakpoint it is previous / numbers / next; below it the numbers step aside and a\n * single \"load more\" button takes their place, because a row of five 32px page numbers is not a\n * thumb target. Both controls call the same `onChange`, so a page never has two different notions of\n * what \"next\" means.\n */",
@@ -6801,6 +6804,9 @@ const allowed = new Map([
     "// would ask a Chinese lyric to be translated into Chinese on a Chinese screen.",
     "/**\n * The AI translation call, made only when the reader asks for it.\n *\n * Kept out of `musicApi` because it is not a music-provider read: it spends assistant quota and sends\n * the lyric to the reader's model provider, and a surface that renders lyrics should be able to see\n * that difference in the import it uses.\n */",
   ]],
+  ["src/client/features/music/lyrics/LyricsPane.tsx", [
+    "/**\n * The lyric surface inside Now Playing. It is the existing lyric panel until the parity pass replaces\n * its renderer; keeping the wrapper means the shell does not import a component another slice owns.\n */",
+  ]],
   ["src/client/features/music/m3u.ts", [
     "/** M3U parsing, matching and export for the tracks this app can already see. */",
     "/** Match entries to the list the reader can see; no library-wide guess is made from another shelf. */",
@@ -6851,6 +6857,28 @@ const allowed = new Map([
     "/* The layer fills the phone and becomes a bounded desktop card. The dialog shell already centres it\n   and handles focus; this rule only decides how much room the card takes. */",
     "/* The hero cover is square but never taller than a share of the viewport, so the transport keeps its\n   place on a short phone. */",
     "/* Fifty-three weeks need roughly 900px before a cell stops being a dot. The box is the one that\n   knows: a tablet with the assistant dock open is narrower than its viewport, so a media query\n   would stretch the grid into unreadable slivers. */",
+  ]],
+  ["src/client/features/music/now-playing/NowPlayingSidebar.tsx", [
+    "/**\n * The left column of Now Playing: artwork, credits, progress and the full transport.\n *\n * The column is the only place the player shows its own volume; the bar's popover remains for quick\n * changes while browsing. A track with no artist id renders the name as text rather than a dead link.\n */",
+  ]],
+  ["src/client/features/music/now-playing/NowPlayingSlimBar.tsx", [
+    "/**\n * The foot of an immersive pane: what plays, where it is, and the controls.\n *\n * The stage and the wall take the whole layer, so they cannot borrow the sidebar's transport. This bar\n * is deliberately one row tall on a desktop and two on a phone, keeping the artwork and the controls\n * within a thumb's reach.\n */",
+  ]],
+  ["src/client/features/music/now-playing/NowPlayingTransport.tsx", [
+    "/**\n * The Now Playing transport shared by the full sidebar and every slim bar.\n *\n * It reads the player store directly so a pane can mount one without threading a dozen callbacks\n * through the shell. The mode control opens a menu rather than cycling, because a cycle cannot name\n * the mode it is about to choose to a keyboard reader.\n */",
+  ]],
+  ["src/client/features/music/now-playing/ProgramPane.tsx", [
+    "/**\n * The About pane of a podcast episode: what it is and where its podcast lives.\n *\n * An episode is not a song, so Now Playing replaces lyrics and the stage with this description and\n * the comments thread. The description is the provider's own text, rendered as text.\n */",
+  ]],
+  ["src/client/features/music/now-playing/QueuePane.tsx", [
+    "/**\n * The queue pane of Now Playing, shared with the full-screen layer.\n *\n * The rows are the player's own tracks rather than a second queue store: pressing one moves the same\n * queue the bar walks, and the active row is marked with `aria-current`.\n */",
+  ]],
+  ["src/client/features/music/now-playing/Scrubber.tsx", [
+    "/**\n * The player's progress row: elapsed time, a native range slider and total time.\n *\n * A drag is handed to the audio element as it moves (`immediate`), because the shared slider's frame\n * coalescing would otherwise swallow the last step when the reader lets go. The buffered overlay is\n * painted behind the range by the stylesheet; the range keeps its own keyboard and touch semantics.\n */",
+  ]],
+  ["src/client/features/music/now-playing/now-playing.css", [
+    "/* The immersive player: a dark stage made from the cover's own colour.\n   All colours come from the tokens above; the only literals are the fallback stage shades. */",
+    "/* Re-point the shared primitives' tokens at the dark stage. */",
   ]],
   ["src/client/features/music/pages/AlbumPage.tsx", [
     "/**\n * One album: the release facts, the description the catalog sometimes has, and its tracks.\n *\n * Albums paginate like playlists because the provider answers in pages; the header keeps the facts\n * from the first answer while a later page is in flight, so the screen does not flash back to a\n * skeleton when the reader asks for the next page.\n */",
@@ -7108,6 +7136,9 @@ const allowed = new Map([
     "/** Register the keys and return the disposer, for a mount effect or a test. */",
     "/** Mount-time registration for the music container. */",
   ]],
+  ["src/client/features/music/stage/StagePane.tsx", [
+    "/**\n * The queue pane of Now Playing. It is replaced by the stage implementation; this file exists so the\n * shell's pane registry is complete while the slices are built in parallel.\n */",
+  ]],
   ["src/client/features/music/store/library.ts", [
     "/**\n * The account's music library as this device last saw it.\n *\n * Reads follow the planned `/api/music/library/*` routes; writes are optimistic and rolled back when\n * the Worker refuses them. The server is still the authority: a successful write replaces the local\n * row with whatever came back, and a reload replaces the whole cache.\n *\n * The endpoints and answer shapes are the port's contract. No Worker route is implemented here; a\n * missing route surfaces as the same error a failed one does, which is what the three-state pages\n * need while the backend catches up.\n */",
     "/** A history write for the same track inside this window is dropped: playing on repeat is not 30 rows. */",
@@ -7175,7 +7206,6 @@ const allowed = new Map([
   ]],
   ["src/client/features/music/store/ui.ts", [
     "/**\n * What the music shell is showing, as opposed to what the player is playing.\n *\n * The page is mirrored here from the address so a pane can read it with one selector; the address\n * remains the source of truth and `MusicApp` writes the parse result after every navigation. The\n * overlays are transient by design — a queue drawer or a Now Playing layer reopened after a reload\n * would be a surprise. Now Playing remembers which tab it was left on within the session only.\n *\n * Search history is the only persisted value: it is per device, and it is what makes the search box\n * useful on the second visit. It is capped at the shared limit so the record cannot grow forever.\n */",
-    "/** The two panes the full-screen Now Playing layer offers. */",
     "/** The right-hand queue drawer. Closing it leaves the player untouched. */",
     "/** The full-screen lyrics layer, still reachable from the lyric panel's own expand control. */",
     "/** The full-screen Now Playing layer. */",
@@ -7186,6 +7216,7 @@ const allowed = new Map([
     "// while the other stays mounted stacks two transports and two focus traps.",
     "// One surface at a time: the layer owns the queue and the lyric panel inside it, so leaving the",
     "// drawer or the standalone lyric layer behind it would stack two transports.",
+    "/** The panes the full-screen Now Playing layer offers. */",
   ]],
   ["src/client/features/music/track-order.ts", [
     "/** A downloaded online track is an R2 file even though its snapshot keeps the provider identity. */",
@@ -7225,6 +7256,9 @@ const allowed = new Map([
     "// One at a time: a step can ask for a play and a pause, and running both at once would decide which",
     "// landed last by network timing rather than by the order the model asked for.",
     "/** Watches the local turn for playback effects. Historical messages are never a turn. */",
+  ]],
+  ["src/client/features/music/wall/WallPane.tsx", [
+    "/**\n * The wall pane of Now Playing. It is replaced by the wall slice; this file exists so the shell's pane\n * registry is complete while the slices are built in parallel.\n */",
   ]],
   ["src/client/features/omnisearch/OmnisearchEntry.tsx", [
     "/** Both switches have to agree: `enabled` stops the index, `ribbonButton` only hides the entry. */",
@@ -28535,6 +28569,10 @@ const allowed = new Map([
     "/**\n * Why one path in an import was left alone. `missing` covers a file deleted between listing and\n * import; `path_too_long` is a reference whose encoded id would not fit the library's provider field.\n */",
     "/** The batch removal answer; a foreign or already-gone id is a skip, never an error. */",
     "/** The public projection: display metadata only, never provider ids, storage keys or audio. */",
+    "/** A listener the search can open as a profile. */",
+    "/** One entity a typed query may be after; the client opens it directly. */",
+    "/** The artist's own account id, whose feed holds their events; empty when it has none. */",
+    "/** The cursor for the next page; null when the feed ended. */",
   ]],
   ["src/shared/music/assistant-context.ts", [
     "/**\n * What the assistant may know about the music screen the reader is looking at.\n *\n * The dock sits beside the music app the same way it sits beside mail: the page and the thing under\n * the reader's eyes make \"play this\" or \"what is this album\" answerable without them naming it. Every\n * string is bounded here because the value crosses the wire from a page to a prompt, and the cap is\n * part of the contract rather than something the worker has to remember to apply.\n *\n * The context is a pointer, not a payload: no lyrics, no credentials and no hidden default target for\n * a write. Tools that change something still take an explicit trackRef or id.\n */",
@@ -28543,6 +28581,9 @@ const allowed = new Map([
     "/** A queue longer than this is not a queue number worth carrying; it is a runaway counter. */",
     "/** \"netease:123\" or an internal track id. */",
     "/** Shown to the model as a location; a tool still takes the path it acts on explicitly. */",
+  ]],
+  ["src/shared/music/comments.ts", [
+    "/**\n * Comments on a track or a podcast episode, as the provider served them.\n *\n * The worker resolves which upstream thread a track owns; the browser never sends one. `liked` is the\n * signed-in listener's own state and stays false for an anonymous read. Nothing here is persisted.\n */",
   ]],
   ["src/shared/music/constants.ts", [
     "/** Ceilings and route-level constants for the music app, shared by both sides. */",
@@ -28602,6 +28643,8 @@ const allowed = new Map([
     "/** A backup WebDAV target this account lets the music cloud browse; empty means not configured. */",
     "/** The folder inside that target; relative to its root and never empty in the UI. */",
     "/**\n * A WebDAV reference's provider id: the backup target the file lives on, then its path inside the\n * music folder. Only the first colon splits the value, because a file name may contain one; the\n * target id is a generated id and never does. The path is relative to the configured music folder,\n * so moving that folder invalidates existing references — a re-import repairs them.\n */",
+    "/** The Netease programme id of a podcast episode; absent for every other kind. */",
+    "/** The provider's description of a podcast episode; absent for every other kind. */",
   ]],
   ["src/shared/note-template-render.test.ts", [
     "// The offset is the place the answer goes, in the content that was actually saved.",
@@ -34041,6 +34084,9 @@ const allowed = new Map([
     "// so one quota and one file door cover them; this table only holds the link.",
     "// The undo window behind deleting a Cloudflare account: the row moves here, the credential file",
     "// stays where it is, and the next read of the list purges whatever outlived the window.",
+    "// A podcast episode's comments and description belong to the programme, not to the audio file",
+    "// it streams from. Both columns are empty for songs and for rows written before this version;",
+    "// a provider snapshot backfills them without touching the reader's edited metadata.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -34584,6 +34630,9 @@ const allowed = new Map([
     "// the PUT below is translated instead of letting a plain Error become a 500.",
     "/** The upstream GET for the streaming route. Range is forwarded as the reader asked for it. */",
   ]],
+  ["src/worker/music/comments.ts", [
+    "/**\n * The upstream comment thread a stored track belongs to.\n *\n * Only Netease tracks have threads; an episode's comments belong to the programme, not to the audio\n * file it streams from, so an episode without its programme id cannot be resolved.\n */",
+  ]],
   ["src/worker/music/download-store.ts", [
     "/** The list route never returns more than one page of tasks, newest first. */",
     "/** Three attempts is the same budget a provider read gets before the reader has to ask again. */",
@@ -34722,6 +34771,10 @@ const allowed = new Map([
     "/** The cookie the provider is currently using, for the caller to encrypt and store. */",
     "/**\n * The seam between the music store/routes and a content provider.\n *\n * A provider answers with the app's own vocabulary (`shared/music`), never with an upstream payload.\n * Provider ids stay strings so numeric song ids and string program ids share one shape, and every\n * summary id is the provider's own id: the store assigns local row ids only when it persists a track.\n */",
     "/**\n * A provider failure the route layer can translate. `status` mirrors HTTP intent; `body` keeps the\n * upstream payload so a route can log what actually happened instead of a generic message.\n */",
+    "/** The level the provider actually served, which may be below the one asked for. */",
+    "/** ReplayGain in dB; 0 when the provider did not measure it. */",
+    "/** The loudest sample, 1 at full scale; 0 when unknown. */",
+    "/** The listener's liked-songs playlist id, or an empty string when it is not visible. */",
   ]],
   ["src/worker/music/queue.ts", [
     "/** One slice is one upload part: the same 8 MiB the upload path uses, and above R2's 5 MiB minimum. */",
@@ -35759,12 +35812,13 @@ const allowed = new Map([
     "// Disconnecting forgets the ciphertext row. There is no upstream logout call: a network failure",
     "// must not leave the reader still connected to an account they asked to remove.",
   ]],
+  ["src/worker/routes/music-comments.ts", [
+    "/**\n * Comments of one library track or podcast episode.\n *\n * The browser names a track, never a thread: the worker resolves the stored snapshot and derives the\n * upstream thread itself. Comments are read-through and never persisted; the like endpoint forwards\n * the listener's own session to the provider and reports its refusal unchanged.\n */",
+  ]],
   ["src/worker/routes/music-discovery.ts", [
     "/**\n * Discovery reads: home, search, playlists, albums, artists, toplists, MVs and podcasts.\n *\n * Every handler is a thin adapter over one provider call: query strings are parsed and bounded here,\n * pagination is converted to an offset once, and the provider's answer crosses the wire unchanged.\n * The provider is injected by `music.ts`, which also owns the rate budget and the error translation.\n *\n * Registration order matters: Hono matches in order, so `/playlists/categories` is claimed before\n * `/playlists/:id` and cannot be read as a playlist whose id is \"categories\".\n */",
     "/**\n   * Upstream refuses the hot shelf without a category, so an unfiltered request answers with the\n   * editorial recommendation instead of an empty first page.\n   */",
     "// The client renders keyword strings; the score only ordered the list upstream.",
-    "// The provider exposes a hot-song prefix, not an arbitrary offset. Ask for the prefix that",
-    "// covers this page (capped at one hundred) and slice it locally rather than inventing rows.",
     "// A toplist is a Netease playlist; the detail endpoint is the same call.",
     "// The Netease MV filter expects its own Chinese tag labels; the app's public axis uses stable",
     "// ASCII names so a translated screen never changes what the request means.",

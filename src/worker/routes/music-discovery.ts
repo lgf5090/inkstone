@@ -10,8 +10,8 @@
  */
 import { Hono, type Context } from 'hono'
 import type { MusicPlaylistSummary, MusicSearchResult } from '@shared/music/api'
-import type { MusicSearchType } from '@shared/music/model'
-import { MUSIC_SEARCH_TYPES } from '@shared/music/model'
+import type { MusicFmMode, MusicSearchType } from '@shared/music/model'
+import { MUSIC_FM_MODES, MUSIC_SEARCH_TYPES } from '@shared/music/model'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { readOptionalJson } from '../lib/request'
@@ -102,7 +102,30 @@ export function createMusicDiscoveryRoutes(deps: MusicRouteDeps): Hono<AppBindin
 
   routes.get('/daily', (c) => guarded(c, async (provider) => c.json({ tracks: await provider.dailyTracks() })))
 
-  routes.get('/home/fm', (c) => guarded(c, async (provider) => c.json({ tracks: await provider.personalFm() })))
+  routes.get('/home/fm', (c) => {
+    const raw = c.req.query('mode') ?? 'DEFAULT'
+    if (!(MUSIC_FM_MODES as readonly string[]).includes(raw)) {
+      throw ApiError.badRequest('The FM mode is not supported')
+    }
+    const mode = raw as MusicFmMode
+    return guarded(c, async (provider) => c.json({ tracks: await provider.personalFm(mode) }))
+  })
+
+  routes.post('/radio/heart', async (c) => {
+    const body = await readOptionalJson<{ providerId?: unknown; startProviderId?: unknown }>(c, 8 * 1024, {})
+    const providerId = boundedId(typeof body.providerId === 'string' ? body.providerId : '', 'track')
+    const startProviderId = typeof body.startProviderId === 'string' && body.startProviderId
+      ? boundedId(body.startProviderId, 'track')
+      : providerId
+    return guarded(c, async (provider) => {
+      const playlistId = await provider.likedPlaylistId()
+      if (!playlistId) {
+        throw new ApiError(409, 'music_heart_unavailable', 'The liked-songs playlist is not available for this account')
+      }
+      const tracks = await provider.heartMode({ songId: providerId, startSongId: startProviderId, playlistId })
+      return c.json({ tracks })
+    })
+  })
 
   routes.get('/user/:id', (c) => {
     const id = boundedId(c.req.param('id'), 'user')
@@ -228,23 +251,39 @@ export function createMusicDiscoveryRoutes(deps: MusicRouteDeps): Hono<AppBindin
 
   routes.get('/artists/:id/songs', (c) => {
     const id = boundedId(c.req.param('id'), 'artist')
+    const order = c.req.query('order') === 'time' ? 'time' : 'hot'
     return guarded(c, async (provider) => {
       const page = pageOf(c)
-      // The provider exposes a hot-song prefix, not an arbitrary offset. Ask for the prefix that
-      // covers this page (capped at one hundred) and slice it locally rather than inventing rows.
-      const songLimit = Math.min(100, page.offset + page.limit)
-      const detail = await provider.artist({
-        id,
-        albumLimit: 1,
-        albumOffset: 0,
-        songLimit,
-      })
-      const items = detail.hotTracks.slice(page.offset, page.offset + page.limit)
+      const items = await provider.artistSongs(id, order, page)
       return c.json({
         items,
-        total: page.offset + detail.hotTracks.length,
-        hasMore: detail.hotTracks.length >= page.offset + page.limit,
+        total: page.offset + items.length,
+        hasMore: items.length >= page.limit,
       })
+    })
+  })
+
+  routes.post('/artists/:id/follow', async (c) => {
+    const id = boundedId(c.req.param('id'), 'artist')
+    const body = await readOptionalJson<{ follow?: unknown }>(c, 8 * 1024, {})
+    if (typeof body.follow !== 'boolean') throw ApiError.badRequest('follow must be a boolean')
+    const follow = body.follow
+    return guarded(c, async (provider) => {
+      await provider.artistFollow(id, follow)
+      return c.json({ followed: follow })
+    })
+  })
+
+  routes.get('/artists/:id/events', (c) => {
+    const id = boundedId(c.req.param('id'), 'artist')
+    const beforeRaw = c.req.query('before')
+    const before = beforeRaw === undefined || beforeRaw === '' ? null : numberParam(beforeRaw)
+    if (beforeRaw !== undefined && beforeRaw !== '' && before === undefined) {
+      throw ApiError.badRequest('The before cursor is not valid')
+    }
+    return guarded(c, async (provider) => {
+      const limit = normalizeMusicLimit(c.req.query('limit'), 20)
+      return c.json(await provider.artistEvents(id, before ?? null, limit))
     })
   })
 

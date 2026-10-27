@@ -302,6 +302,11 @@ export const EN_US_MUSIC = {
   'music.miniplayer.expand': 'Open now playing',
   'music.nowplaying.title': 'Now playing',
   'music.nowplaying.empty': 'Nothing is playing right now',
+  'music.nowplaying.panes': 'Now playing panes',
+  'music.stage.title': 'Stage',
+  'music.wall.title': 'Pick a song',
+  'music.comments.title': 'Comments',
+  'music.program.title': 'About',
 
   'music.settings.title': 'Music settings',
   'music.settings.description': 'Playback, downloads, lyrics and the optional content account.',
@@ -672,10 +677,12 @@ export const EN_US_MUSIC = {
   'music.search.submit': 'Search',
   'music.search.tabs.label': 'Search result types',
   'music.search.type.album': 'Albums',
+  'music.search.type.artist': 'Artists',
   'music.search.type.mv': 'Videos',
   'music.search.type.playlist': 'Playlists',
   'music.search.type.radio': 'Podcasts',
   'music.search.type.song': 'Songs',
+  'music.search.type.user': 'Listeners',
 
   'music.lyrics.align': 'Alignment',
   'music.lyrics.align_center': 'Center',
@@ -928,6 +935,7 @@ export const EN_US_MUSIC = {
 
   'api.error.music_provider_unavailable': 'The music service is unavailable',
   'api.error.music_provider_auth_required': 'Reconnect your music account to continue',
+  'api.error.music_heart_unavailable': 'Heart mode needs a visible Liked Songs playlist on the connected account',
   'api.error.music_source_unavailable': 'No playable source is available for this track',
   'api.error.music_preview_only': 'Only a preview is available for this track',
   'api.error.music_storage_unavailable': 'Music storage is not configured',

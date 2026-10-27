@@ -51,11 +51,12 @@ export const MUSIC_PAGE_LIMIT_MAX = 100
 
 const TRACK_COLUMNS = `user_id, id, provider, provider_id, kind, title, artists, album, album_id,
   cover_url, cover_key, duration_ms, format, bitrate, size, sha256, r2_key, source, source_quality,
-  created_at, updated_at`
+  program_id, description, created_at, updated_at`
 
 const TRACK_COLUMNS_T = `t.user_id, t.id, t.provider, t.provider_id, t.kind, t.title, t.artists,
   t.album, t.album_id, t.cover_url, t.cover_key, t.duration_ms, t.format, t.bitrate, t.size,
-  t.sha256, t.r2_key, t.source, t.source_quality, t.created_at, t.updated_at`
+  t.sha256, t.r2_key, t.source, t.source_quality, t.program_id, t.description, t.created_at,
+  t.updated_at`
 
 function toInteger(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value)
@@ -115,6 +116,8 @@ export interface MusicTrackInput {
   r2Key?: string | null
   source?: string
   sourceQuality?: string
+  programId?: string
+  description?: string
   /** Zero means a provider snapshot; a saved row carries its own update time. */
   updatedAt?: number
 }
@@ -285,6 +288,8 @@ interface TrackRow {
   r2_key: string | null
   source: string
   source_quality: string
+  program_id: string
+  description: string
   created_at: number
   updated_at: number
 }
@@ -483,6 +488,8 @@ function toTrack(row: TrackRow): MusicTrack {
     r2Key: row.r2_key,
     source: row.source,
     sourceQuality: row.source_quality,
+    ...(row.program_id ? { programId: row.program_id } : {}),
+    ...(row.description ? { description: row.description } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -739,7 +746,17 @@ export class MusicStore {
       // A provider snapshot (`updatedAt: 0`) may be older than the row the reader edited. Pressing a
       // search result again must not roll that edit back; explicit metadata changes use
       // `updateTrackMetadata`, and backup restore plans existing identities without this call.
-      if (input.updatedAt === 0) return toTrack(existing)
+      if (input.updatedAt === 0) {
+        const programId = existing.program_id || input.programId || ''
+        const description = existing.description || input.description || ''
+        if (programId !== existing.program_id || description !== existing.description) {
+          await this.db.prepare(
+            `UPDATE music_track SET program_id = ?3, description = ?4 WHERE user_id = ?1 AND id = ?2`,
+          ).bind(this.userId, existing.id, programId, description).run()
+          return (await this.getTrack(existing.id))!
+        }
+        return toTrack(existing)
+      }
       const title = input.title
       const artists = input.artists ?? parseArtists(existing.artists)
       const album = input.album ?? existing.album
@@ -754,11 +771,14 @@ export class MusicStore {
       const r2Key = input.r2Key === undefined ? existing.r2_key : input.r2Key
       const source = input.source ?? (existing.source || input.provider)
       const sourceQuality = input.sourceQuality ?? existing.source_quality
+      const programId = input.programId ?? existing.program_id
+      const description = input.description ?? existing.description
       await this.db.prepare(
         `UPDATE music_track SET
            kind = ?3, title = ?4, artists = ?5, album = ?6, album_id = ?7, cover_url = ?8,
            cover_key = ?9, duration_ms = ?10, format = ?11, bitrate = ?12, size = ?13,
-           sha256 = ?14, r2_key = ?15, source = ?16, source_quality = ?17, updated_at = ?18
+           sha256 = ?14, r2_key = ?15, source = ?16, source_quality = ?17, program_id = ?18,
+           description = ?19, updated_at = ?20
          WHERE user_id = ?1 AND id = ?2`,
       ).bind(
         this.userId,
@@ -778,6 +798,8 @@ export class MusicStore {
         r2Key,
         source,
         sourceQuality,
+        programId,
+        description,
         now,
       ).run()
       return (await this.getTrack(existing.id))!
@@ -786,7 +808,7 @@ export class MusicStore {
     const id = input.id ?? newId()
     await this.db.prepare(
       `INSERT INTO music_track (${TRACK_COLUMNS})
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)`,
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)`,
     ).bind(
       this.userId,
       id,
@@ -807,6 +829,8 @@ export class MusicStore {
       input.r2Key ?? null,
       input.source ?? input.provider,
       input.sourceQuality ?? '',
+      input.programId ?? '',
+      input.description ?? '',
       now,
       now,
     ).run()

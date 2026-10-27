@@ -63,6 +63,23 @@ describe('music track snapshots', () => {
     expect(count('music_track')).toBe(1)
   })
 
+  it('backfills programme identity from a provider snapshot without overwriting an edited title', async () => {
+    const first = await createTrack({ kind: 'podcast', providerId: '900', title: 'Edited title' })
+    expect(first.programId).toBeUndefined()
+    const refreshed = await createTrack({
+      kind: 'podcast',
+      providerId: '900',
+      title: 'Provider title',
+      programId: '77',
+      description: 'Episode notes',
+      updatedAt: 0,
+    })
+    expect(refreshed.id).toBe(first.id)
+    expect(refreshed.title).toBe('Edited title')
+    expect(refreshed.programId).toBe('77')
+    expect(refreshed.description).toBe('Episode notes')
+  })
+
   it('keeps storage columns a metadata refresh omits', async () => {
     const key = 'music/mp3/u1/t1-original.mp3'
     const first = await createTrack({ r2Key: key, format: 'mp3', size: 1024, sha256: 'abc' })

@@ -145,6 +145,9 @@ export async function resolveCustomSource(input: CustomResolverInput): Promise<M
     bitrate: null,
     size: null,
     quality: resolverQuality,
+    level: resolverQuality,
+    gain: 0,
+    peak: 0,
     freeTrial: false,
   }
 }

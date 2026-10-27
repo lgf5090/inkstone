@@ -6,13 +6,14 @@
  * direct HTTPS origin: redirects are refused rather than followed, and the base URL must be HTTPS
  * (localhost is allowed for a development deployment).
  */
-import type { MusicAccount, MusicSearchType, MusicTrack } from '../../../../shared/music/model'
+import type { MusicAccount, MusicFmMode, MusicSearchType, MusicTrack } from '../../../../shared/music/model'
 import { musicTrackKey } from '../../../../shared/music/model'
 import type {
   MusicAccountStatus,
   MusicAlbumDetail,
   MusicAlbumSummary,
   MusicArtistDetail,
+  MusicArtistEventPage,
   MusicArtistSummary,
   MusicHome,
   MusicLyricPayload,
@@ -27,11 +28,15 @@ import type {
   MusicToplistSummary,
   MusicUserProfile,
 } from '../../../../shared/music/api'
+import type { MusicCommentPage } from '../../../../shared/music/comments'
 import {
   MusicProviderError,
   type MusicAlbumQuery,
   type MusicArtistQuery,
+  type MusicCommentLike,
+  type MusicCommentQuery,
   type MusicCursorPage,
+  type MusicHeartModeQuery,
   type MusicHotSearch,
   type MusicLoginSession,
   type MusicMvQuery,
@@ -45,13 +50,16 @@ import {
   type MusicRadioCategory,
   type MusicRadioListQuery,
   type MusicStreamSource,
+  type MusicSuggestionKeywords,
 } from '../types'
 import {
   normalizeAccount,
   normalizeAlbumDetail,
   normalizeAlbumSummary,
   normalizeArtistDetail,
+  normalizeArtistEvents,
   normalizeArtistSummary,
+  normalizeCommentPage,
   normalizeDefaultKeyword,
   normalizeHotSearchItems,
   normalizeLyric,
@@ -86,6 +94,8 @@ const SEARCH_TYPES: Record<MusicSearchType, number> = {
   playlist: 1000,
   mv: 1004,
   radio: 1009,
+  artist: 100,
+  user: 1002,
 }
 
 function isLocalHost(hostname: string): boolean {
@@ -304,7 +314,7 @@ export class ExternalNeteaseProvider implements MusicProvider, NeteaseLoginTrans
     }
   }
 
-  async suggest(keywords: string): Promise<{ keywords: string[] }> {
+  async suggest(keywords: string): Promise<MusicSuggestionKeywords> {
     const body = await this.bodyOf('/search/suggest', { keywords })
     const result = record(body.result)
     const names = [
@@ -347,13 +357,60 @@ export class ExternalNeteaseProvider implements MusicProvider, NeteaseLoginTrans
     return list(record(body.data).dailySongs).map((item) => normalizeTrack(item))
   }
 
-  async personalFm(): Promise<MusicTrack[]> {
+  async personalFm(mode: MusicFmMode): Promise<MusicTrack[]> {
+    void mode
     const body = await this.bodyOf('/personal_fm')
     return list(body.data).map((item) => normalizeTrack(item))
   }
 
   async fmTrash(providerId: string): Promise<void> {
     await this.bodyOf('/fm_trash', { id: providerId })
+  }
+
+  async comments(query: MusicCommentQuery): Promise<MusicCommentPage> {
+    const program = query.thread.startsWith('A_DJ_1_')
+    const id = query.thread.replace(/^R_SO_4_/, '').replace(/^A_DJ_1_/, '')
+    const body = await this.bodyOf(program ? '/comment/dj' : '/comment/music', {
+      id,
+      limit: query.limit,
+      offset: query.offset,
+    })
+    return normalizeCommentPage(body, query.offset)
+  }
+
+  async likeComment(input: MusicCommentLike): Promise<void> {
+    const id = input.thread.replace(/^R_SO_4_/, '').replace(/^A_DJ_1_/, '')
+    const type = input.thread.startsWith('A_DJ_1_') ? 6 : 0
+    await this.bodyOf('/comment/like', {
+      id,
+      cid: input.commentId,
+      t: input.liked ? 1 : 0,
+      type,
+    })
+  }
+
+  async heartMode(query: MusicHeartModeQuery): Promise<MusicTrack[]> {
+    const body = await this.bodyOf('/playmode/intelligence/list', {
+      songId: query.songId,
+      startMusicId: query.startSongId,
+      playlistId: query.playlistId,
+      type: 'fromPlayOne',
+      count: 1,
+    })
+    return list(body.data)
+      .map((item) => record(item).songInfo)
+      .filter((item): item is unknown => Boolean(item))
+      .map((item) => normalizeTrack(item))
+  }
+
+  async likedPlaylistId(): Promise<string> {
+    const account = await this.accountStatus()
+    if (!account.account) return ''
+    const body = await this.bodyOf('/user/playlist', { uid: account.account.accountId, limit: 1000, offset: 0 })
+    const playlist = list(body.playlist)
+      .map((item) => record(item))
+      .find((item) => Number(item.specialType) === 5)
+    return playlist ? text(playlist.id) : ''
   }
 
   async songDetail(providerIds: string[]): Promise<MusicTrack[]> {
@@ -436,6 +493,36 @@ export class ExternalNeteaseProvider implements MusicProvider, NeteaseLoginTrans
       this.bodyOf('/artist/album', { id: query.id, limit: query.albumLimit, offset: query.albumOffset }),
     ])
     return normalizeArtistDetail(detail, songs, albums, number(record(albums).total, 0))
+  }
+
+  async artistSongs(providerId: string, order: 'hot' | 'time', page: MusicPageQuery): Promise<MusicTrack[]> {
+    const body = await this.bodyOf('/artist/songs', {
+      id: providerId,
+      order,
+      limit: page.limit,
+      offset: page.offset,
+    })
+    return list(body.songs).map((item) => normalizeTrack(item))
+  }
+
+  async artistFollow(providerId: string, follow: boolean): Promise<void> {
+    await this.bodyOf('/artist/sub', { id: providerId, t: follow ? 1 : 0 })
+  }
+
+  async artistEvents(providerId: string, before: number | null, limit: number): Promise<MusicArtistEventPage> {
+    if (!providerId) return { items: [], before: null }
+    const profile = await this.bodyOf('/artist/detail', { id: providerId })
+    const data = record(profile.data)
+    const artist = Object.keys(record(data.artist)).length ? record(data.artist) : record(profile.artist)
+    const uid = text(artist.accountId) || text(artist.accountID)
+    if (!uid) return { items: [], before: null }
+    const body = await this.bodyOf('/event/get', {
+      uid,
+      time: before === null ? -1 : before,
+      limit,
+      getcounts: true,
+    })
+    return normalizeArtistEvents(body)
   }
 
   async artistsTop(page: MusicPageQuery): Promise<MusicPage<MusicArtistSummary>> {

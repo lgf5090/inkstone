@@ -3,13 +3,14 @@
  * envelope, hand the payload to `normalize.ts`. Pagination and composition (artist detail, radio
  * detail, home) live here because they span more than one endpoint.
  */
-import type { MusicAccount, MusicSearchType, MusicTrack } from '../../../../shared/music/model'
+import type { MusicAccount, MusicFmMode, MusicSearchType, MusicTrack } from '../../../../shared/music/model'
 import { musicTrackKey } from '../../../../shared/music/model'
 import type {
   MusicAccountStatus,
   MusicAlbumDetail,
   MusicAlbumSummary,
   MusicArtistDetail,
+  MusicArtistEventPage,
   MusicArtistSummary,
   MusicHome,
   MusicLyricPayload,
@@ -24,11 +25,15 @@ import type {
   MusicToplistSummary,
   MusicUserProfile,
 } from '../../../../shared/music/api'
+import type { MusicCommentPage } from '../../../../shared/music/comments'
 import {
   MusicProviderError,
   type MusicAlbumQuery,
   type MusicArtistQuery,
+  type MusicCommentLike,
+  type MusicCommentQuery,
   type MusicCursorPage,
+  type MusicHeartModeQuery,
   type MusicHotSearch,
   type MusicLoginSession,
   type MusicMvQuery,
@@ -42,6 +47,7 @@ import {
   type MusicRadioCategory,
   type MusicRadioListQuery,
   type MusicStreamSource,
+  type MusicSuggestionKeywords,
 } from '../types'
 import { neteaseEndpoints, type NeteaseCall } from './endpoints'
 import {
@@ -49,7 +55,9 @@ import {
   normalizeAlbumDetail,
   normalizeAlbumSummary,
   normalizeArtistDetail,
+  normalizeArtistEvents,
   normalizeArtistSummary,
+  normalizeCommentPage,
   normalizeDefaultKeyword,
   normalizeHotSearchItems,
   normalizeLyric,
@@ -94,6 +102,8 @@ const SEARCH_TYPES: Record<MusicSearchType, number> = {
   playlist: 1000,
   mv: 1004,
   radio: 1009,
+  artist: 100,
+  user: 1002,
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -227,7 +237,7 @@ export class NeteaseProvider implements MusicProvider, NeteaseLoginTransport {
     }
   }
 
-  async suggest(keywords: string): Promise<{ keywords: string[] }> {
+  async suggest(keywords: string): Promise<MusicSuggestionKeywords> {
     const body = await this.bodyOf(neteaseEndpoints.searchSuggest(keywords))
     const result = record(body.result)
     const names = [
@@ -271,13 +281,40 @@ export class NeteaseProvider implements MusicProvider, NeteaseLoginTransport {
     return list(record(body.data).dailySongs).map((item) => normalizeTrack(item))
   }
 
-  async personalFm(): Promise<MusicTrack[]> {
-    const body = await this.bodyOf(neteaseEndpoints.personalFm())
+  async personalFm(mode: MusicFmMode): Promise<MusicTrack[]> {
+    const body = await this.bodyOf(neteaseEndpoints.personalFm(mode))
     return list(body.data).map((item) => normalizeTrack(item))
   }
 
   async fmTrash(providerId: string): Promise<void> {
     await this.bodyOf(neteaseEndpoints.fmTrash(providerId))
+  }
+
+  async comments(query: MusicCommentQuery): Promise<MusicCommentPage> {
+    const body = await this.bodyOf(neteaseEndpoints.comments(query))
+    return normalizeCommentPage(body, query.offset)
+  }
+
+  async likeComment(input: MusicCommentLike): Promise<void> {
+    await this.bodyOf(neteaseEndpoints.commentLike(input))
+  }
+
+  async heartMode(query: MusicHeartModeQuery): Promise<MusicTrack[]> {
+    const body = await this.bodyOf(neteaseEndpoints.heartMode(query))
+    return list(body.data)
+      .map((item) => record(item).songInfo)
+      .filter((item): item is unknown => Boolean(item))
+      .map((item) => normalizeTrack(item))
+  }
+
+  async likedPlaylistId(): Promise<string> {
+    const account = await this.readAccount()
+    if (!account) return ''
+    const body = await this.bodyOf(neteaseEndpoints.likedPlaylist(account.accountId))
+    const playlist = list(body.playlist)
+      .map((item) => record(item))
+      .find((item) => Number(item.specialType) === 5)
+    return playlist ? text(playlist.id) : ''
   }
 
   async songDetail(providerIds: string[]): Promise<MusicTrack[]> {
@@ -401,6 +438,28 @@ export class NeteaseProvider implements MusicProvider, NeteaseLoginTransport {
       ),
     ])
     return normalizeArtistDetail(detail, songs, albums, number(record(albums).total, 0))
+  }
+
+  async artistSongs(providerId: string, order: 'hot' | 'time', page: MusicPageQuery): Promise<MusicTrack[]> {
+    const body = await this.bodyOf(
+      neteaseEndpoints.artistSongs({ id: providerId, order, limit: page.limit, offset: page.offset }),
+    )
+    return list(body.songs).map((item) => normalizeTrack(item))
+  }
+
+  async artistFollow(providerId: string, follow: boolean): Promise<void> {
+    await this.bodyOf(neteaseEndpoints.artistFollow(providerId, follow))
+  }
+
+  async artistEvents(providerId: string, before: number | null, limit: number): Promise<MusicArtistEventPage> {
+    if (!providerId) return { items: [], before: null }
+    const profile = await this.bodyOf(neteaseEndpoints.artistDetail(providerId))
+    const data = record(profile.data)
+    const artist = Object.keys(record(data.artist)).length ? record(data.artist) : record(profile.artist)
+    const uid = text(artist.accountId) || text(artist.accountID)
+    if (!uid) return { items: [], before: null }
+    const body = await this.bodyOf(neteaseEndpoints.artistEvents({ uid, before, limit }))
+    return normalizeArtistEvents(body)
   }
 
   async artistsTop(page: MusicPageQuery): Promise<MusicPage<MusicArtistSummary>> {

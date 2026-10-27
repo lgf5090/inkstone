@@ -6,6 +6,7 @@ import type {
   MusicLyric,
   MusicPlaylist,
   MusicRecentEntry,
+  MusicSearchType,
   MusicSettings,
   MusicSubscription,
   MusicTrack,
@@ -77,6 +78,14 @@ export interface MusicArtistSummary {
   followCount: number
 }
 
+/** A listener the search can open as a profile. */
+export interface MusicUserSummary {
+  id: string
+  nickname: string
+  avatarUrl: string
+  signature: string
+}
+
 export interface MusicMvSummary {
   id: string
   name: string
@@ -126,14 +135,26 @@ export interface MusicHome {
 }
 
 export interface MusicSearchResult {
-  type: 'song' | 'album' | 'playlist' | 'mv' | 'radio'
+  type: MusicSearchType
   tracks: MusicTrack[]
+  artists: MusicArtistSummary[]
   albums: MusicAlbumSummary[]
   playlists: MusicPlaylistSummary[]
+  users: MusicUserSummary[]
   mvs: MusicMvSummary[]
   radios: MusicRadioSummary[]
   total: number
   hasMore: boolean
+}
+
+export type MusicSuggestionKind = 'song' | 'artist' | 'album' | 'playlist'
+
+/** One entity a typed query may be after; the client opens it directly. */
+export interface MusicSearchSuggestion {
+  kind: MusicSuggestionKind
+  id: string
+  name: string
+  detail: string
 }
 
 export interface MusicPlaylistDetail {
@@ -154,10 +175,34 @@ export interface MusicAlbumDetail {
 export interface MusicArtistDetail {
   artist: MusicArtistSummary
   description: string
+  followed: boolean
+  /** The artist's own account id, whose feed holds their events; empty when it has none. */
+  accountId: string
   hotTracks: MusicTrack[]
   albums: MusicAlbumSummary[]
   albumTotal: number
   albumHasMore: boolean
+}
+
+export interface MusicArtistEvent {
+  id: string
+  createdAt: number
+  authorName: string
+  authorAvatarUrl: string
+  content: string
+  pictures: string[]
+  likedCount: number
+  commentCount: number
+  forwarded: string
+  song: MusicTrack | null
+  album: MusicAlbumSummary | null
+  playlist: MusicPlaylistSummary | null
+}
+
+export interface MusicArtistEventPage {
+  items: MusicArtistEvent[]
+  /** The cursor for the next page; null when the feed ended. */
+  before: number | null
 }
 
 export interface MusicToplistSummary {

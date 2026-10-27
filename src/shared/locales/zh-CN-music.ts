@@ -302,6 +302,11 @@ export const ZH_CN_MUSIC = {
   'music.miniplayer.expand': '打开正在播放',
   'music.nowplaying.title': '正在播放',
   'music.nowplaying.empty': '当前没有播放',
+  'music.nowplaying.panes': '正在播放分区',
+  'music.stage.title': '律动',
+  'music.wall.title': '选歌',
+  'music.comments.title': '评论',
+  'music.program.title': '简介',
 
   'music.settings.title': '音乐设置',
   'music.settings.description': '播放、下载、歌词与可选内容账号。',
@@ -672,10 +677,12 @@ export const ZH_CN_MUSIC = {
   'music.search.submit': '搜索',
   'music.search.tabs.label': '搜索结果类型',
   'music.search.type.album': '专辑',
+  'music.search.type.artist': '歌手',
   'music.search.type.mv': 'MV',
   'music.search.type.playlist': '歌单',
   'music.search.type.radio': '播客',
   'music.search.type.song': '歌曲',
+  'music.search.type.user': '用户',
 
   'music.lyrics.align': '对齐',
   'music.lyrics.align_center': '居中',
@@ -928,6 +935,7 @@ export const ZH_CN_MUSIC = {
 
   'api.error.music_provider_unavailable': '音乐服务暂时不可用',
   'api.error.music_provider_auth_required': '请重新连接音乐账号后继续',
+  'api.error.music_heart_unavailable': '心动模式需要已连接账号上有可见的「我喜欢的音乐」歌单',
   'api.error.music_source_unavailable': '当前歌曲没有可用音源',
   'api.error.music_preview_only': '该曲目只提供试听片段，无法转存完整版',
   'api.error.music_storage_unavailable': '尚未配置音乐存储',

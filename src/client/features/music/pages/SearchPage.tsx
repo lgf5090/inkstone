@@ -36,10 +36,12 @@ const PAGE_SIZE = 30
 
 const SEARCH_TYPE_KEYS: Record<MusicSearchType, string> = {
   song: 'music.search.type.song',
+  artist: 'music.search.type.artist',
   album: 'music.search.type.album',
   playlist: 'music.search.type.playlist',
   mv: 'music.search.type.mv',
   radio: 'music.search.type.radio',
+  user: 'music.search.type.user',
 }
 
 function HotSearchesSkeleton(): ReactElement {

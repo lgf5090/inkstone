@@ -102,6 +102,19 @@ describe('the music tables', () => {
     expect(keys).toEqual(['embedded:1', 'netease:2'])
   })
 
+  it('adds the programme columns to a track table written before version 185', () => {
+    const legacy = new DatabaseSync(':memory:')
+    legacy.exec('CREATE TABLE music_track (user_id TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY (user_id, id))')
+    const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === 185)
+    expect(migration?.skipIfColumnExists).toEqual({ table: 'music_track', column: 'program_id' })
+    for (const statement of migration!.statements) legacy.exec(statement)
+    const names = (legacy.prepare('PRAGMA table_info(music_track)').all() as Array<{ name: string }>)
+      .map((row) => row.name)
+    expect(names).toContain('program_id')
+    expect(names).toContain('description')
+    legacy.close()
+  })
+
   it('keep one snapshot per provider id per account', () => {
     insertTrack('u1', 't1', '42')
     expect(() => insertTrack('u1', 't2', '42')).toThrow()

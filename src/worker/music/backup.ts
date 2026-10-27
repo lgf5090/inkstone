@@ -182,6 +182,8 @@ interface TrackBackupRow {
   r2_key: string | null
   source: string
   source_quality: string
+  program_id: string
+  description: string
   created_at: number
   updated_at: number
 }
@@ -290,7 +292,7 @@ export async function readBackupMusic(db: D1Database, userId: string): Promise<s
       db.prepare(
         `SELECT id, provider, provider_id, kind, title, artists, album, album_id, cover_url,
                 cover_key, duration_ms, format, bitrate, size, sha256, r2_key, source,
-                source_quality, created_at, updated_at
+                source_quality, program_id, description, created_at, updated_at
            FROM music_track WHERE user_id = ?1 ORDER BY created_at, id`,
       ).bind(userId).all<TrackBackupRow>(),
       db.prepare(
@@ -553,6 +555,8 @@ function parseTrack(value: unknown, index: number, userId: string): MusicTrack {
     r2Key,
     source: optionalText(row.source, SOURCE_MAX, `Track ${index + 1} source`),
     sourceQuality: optionalText(row.sourceQuality, SOURCE_MAX, `Track ${index + 1} sourceQuality`),
+    programId: optionalText(row.programId, PROVIDER_ID_MAX, `Track ${index + 1} programId`),
+    description: optionalText(row.description, DESCRIPTION_MAX, `Track ${index + 1} description`),
     createdAt: optionalTimestamp(row.createdAt, `Track ${index + 1} createdAt`),
     updatedAt: optionalTimestamp(row.updatedAt, `Track ${index + 1} updatedAt`),
   }
@@ -850,7 +854,7 @@ function trackStatements(
     `INSERT OR IGNORE INTO music_track (
        user_id, id, provider, provider_id, kind, title, artists, album, album_id, cover_url,
        cover_key, duration_ms, format, bitrate, size, sha256, r2_key, source, source_quality,
-       created_at, updated_at
+       program_id, description, created_at, updated_at
      )
      SELECT ?1,
        json_extract(j.value, '$.id'),
@@ -871,6 +875,8 @@ function trackStatements(
        json_extract(j.value, '$.r2Key'),
        json_extract(j.value, '$.source'),
        json_extract(j.value, '$.sourceQuality'),
+       json_extract(j.value, '$.programId'),
+       json_extract(j.value, '$.description'),
        json_extract(j.value, '$.createdAt'),
        json_extract(j.value, '$.updatedAt')
        FROM json_each(?2) AS j`,
@@ -1082,7 +1088,12 @@ function trimRecentStatement(db: D1Database, userId: string): D1PreparedStatemen
 // Row shaping -----------------------------------------------------------------------------------
 
 function trackJson(row: MusicTrack): Record<string, unknown> {
-  return { ...row, artists: JSON.stringify(row.artists) }
+  return {
+    ...row,
+    artists: JSON.stringify(row.artists),
+    programId: row.programId ?? '',
+    description: row.description ?? '',
+  }
 }
 
 function historyJson(row: MusicHistoryEntry): Record<string, unknown> {
@@ -1309,6 +1320,8 @@ function toBackupTrack(row: TrackBackupRow): MusicTrack {
     r2Key: row.r2_key || null,
     source: row.source,
     sourceQuality: row.source_quality,
+    ...(row.program_id ? { programId: row.program_id } : {}),
+    ...(row.description ? { description: row.description } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }

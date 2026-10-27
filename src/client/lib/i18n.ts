@@ -43,6 +43,7 @@ const apiCodeMessages: Record<string, MessageKey> = {
     realtime_refused: 'api.error.realtime_refused',
     music_provider_unavailable: 'api.error.music_provider_unavailable',
     music_provider_auth_required: 'api.error.music_provider_auth_required',
+    music_heart_unavailable: 'api.error.music_heart_unavailable',
     music_source_unavailable: 'api.error.music_source_unavailable',
     music_preview_only: 'api.error.music_preview_only',
     music_storage_unavailable: 'api.error.music_storage_unavailable',
