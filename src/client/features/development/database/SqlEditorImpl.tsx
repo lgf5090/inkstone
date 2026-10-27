@@ -166,7 +166,7 @@ function functionSignatureTooltip(state: EditorState): readonly Tooltip[] {
   const at = line.from + open + 1
   return [{
     pos: at,
-    above: true,
+    above: false,
     create: () => {
       const dom = document.createElement('div')
       dom.className = 'rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-overlay)] px-2.5 py-1.5 text-[length:var(--text-11)] shadow-[var(--shadow-pop)]'
