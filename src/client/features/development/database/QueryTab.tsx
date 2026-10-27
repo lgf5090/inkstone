@@ -11,6 +11,7 @@ import {
   Settings,
   Sparkles,
   Trash2,
+  BarChart3,
   Code2,
   Download,
   FileUp,
@@ -36,6 +37,8 @@ import { RowDetailPanel } from './RowDetailPanel'
 import { ExportPanel } from './ExportPanel'
 import { downloadTextFile } from './export-utils'
 import { StructurePeekDialog } from './StructurePeekDialog'
+import { ResultChart } from './ResultChart'
+import { diagnoseSql } from './sql-diagnostics'
 import { AggregatePanel } from './AggregatePanel'
 import { ExplainPlanView, isExplainPlanResult, toExplainPlanRows } from './ExplainPlanView'
 import { AiSqlPanel } from './AiSqlPanel'
@@ -121,6 +124,8 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
   const [running, setRunning] = useState(false)
   const [sqlOpen, setSqlOpen] = useState(false)
   const [peekOpen, setPeekOpen] = useState(false)
+  const [chartOpen, setChartOpen] = useState(false)
+  const diagnostics = useMemo(() => (sql.trim() ? diagnoseSql(sql, schemaModel) : []), [schemaModel, sql])
   const [fileRunning, setFileRunning] = useState(false)
   const [fileRun, setFileRun] = useState<{ name: string; total: number; done: number; failed: Array<{ index: number; sql: string; message: string }> } | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
@@ -584,6 +589,10 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
               {t('development.database.query.run_file')}
             </Button>
             <input ref={fileInput} type="file" accept=".sql,.txt" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void runSqlFile(file) }} />
+            <Button variant="ghost" size="sm" onClick={() => setChartOpen((value) => !value)} aria-pressed={chartOpen} disabled={results.length === 0}>
+              <BarChart3 size={14} />
+              {t('development.database.chart.title')}
+            </Button>
             <Button variant="ghost" size="sm" onClick={() => setPeekOpen(true)} title={t('development.database.query.peek_hint')}>
               <Table2 size={14} />
               {t('development.database.query.peek')}
@@ -627,6 +636,13 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
           <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
             <span className="tabular-nums">{t('development.database.query.line')} {cursor.line}, {t('development.database.query.column')} {cursor.column + 1}</span>
             <div className="flex-1" />
+            {diagnostics.length > 0 && (
+              <span className="min-w-0 flex-1 truncate text-[length:var(--text-10)] text-[var(--warning)]" role="status">
+                {diagnostics.map((diagnostic) => diagnostic.kind === 'missing_table'
+                  ? t('development.database.diag.missing_table', { name: diagnostic.name })
+                  : t('development.database.diag.unknown_column', { table: diagnostic.table, column: diagnostic.column })).join(' · ')}
+              </span>
+            )}
             <span className="hidden sm:inline">{t('development.database.query.status_hints')}</span>
           </div>
           {placeholders.length > 0 && (
@@ -716,6 +732,11 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
           {sqlOpen && executedSql && (
             <div className="shrink-0 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1.5">
               <pre className="max-h-32 overflow-auto font-mono text-[length:var(--text-11)] leading-relaxed text-[var(--text-secondary)] whitespace-pre-wrap break-all">{executedSql}</pre>
+            </div>
+          )}
+          {chartOpen && active && (
+            <div className="h-64 shrink-0 overflow-hidden border-b border-[var(--border-subtle)] bg-[var(--bg-base)]">
+              <ResultChart columns={active.columns} rows={filteredRows} className="h-full" />
             </div>
           )}
           {active && (

@@ -8,6 +8,7 @@ import { buildDistinctSql } from '../src/client/features/development/database/di
 import { buildDataSearchSql, searchableColumns } from '../src/client/features/development/database/data-search'
 import { buildRowInsert, chunkRows, transferInsertStatements } from '../src/client/features/development/database/transfer-ops'
 import { generateRows } from '../src/client/features/development/database/data-generate'
+import { diagnoseSql } from '../src/client/features/development/database/sql-diagnostics'
 import { diffSchemas, schemaStatements } from '../src/client/features/development/database/schema-diff'
 import { diffRows } from '../src/client/features/development/database/data-diff'
 import { inferColumnType, parseCsv } from '../src/client/features/development/database/csv-parse'
@@ -330,6 +331,22 @@ describe('development database core', () => {
     expect(result.updates).toEqual([`UPDATE "t" SET "note" = 'x' WHERE "id" = 1;`])
     expect(result.deletes).toEqual([`DELETE FROM "t" WHERE "id" = 3;`])
     expect(diffRows({ table: 't', keyColumns: ['missing'], sourceColumns: ['id'], sourceRows: [[1]], targetColumns: ['id'], targetRows: [] })).toEqual({ inserts: [], updates: [], deletes: [] })
+  })
+
+  it('diagnoses missing tables and unknown qualified columns', () => {
+    const schema = {
+      tables: [
+        { name: 'users', columns: [{ name: 'id' }, { name: 'email' }] },
+        { name: 'orders', columns: [{ name: 'id' }, { name: 'user_id' }] },
+      ],
+      views: [{ name: 'user_totals' }],
+    }
+    expect(diagnoseSql('SELECT * FROM missing_table', schema)).toEqual([{ kind: 'missing_table', name: 'missing_table' }])
+    expect(diagnoseSql('SELECT u.nope FROM users u', schema)).toEqual([{ kind: 'unknown_column', table: 'users', column: 'nope' }])
+    expect(diagnoseSql('SELECT u.email FROM users AS u', schema)).toEqual([])
+    expect(diagnoseSql('WITH fresh AS (SELECT 1) SELECT * FROM fresh', schema)).toEqual([])
+    expect(diagnoseSql('SELECT * FROM sqlite_master', schema)).toEqual([])
+    expect(diagnoseSql("SELECT 'from ghosts' AS text FROM user_totals", schema)).toEqual([])
   })
 
   it('quotes CSV cells containing separators and newlines', () => {
