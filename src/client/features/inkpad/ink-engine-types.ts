@@ -62,7 +62,7 @@ export interface InkEngine {
     sendElementToBack(id: string): void
     patchElement(
         id: string,
-        patch: Partial<Pick<InkElement, 'noteId' | 'fileId' | 'url' | 'mime' | 'text' | 'aspectRatio' | 'fitPdfPages' | 'height'>>,
+        patch: Partial<Pick<InkElement, 'noteId' | 'fileId' | 'url' | 'mime' | 'text' | 'aspectRatio' | 'fitPdfPages' | 'height' | 'pageCount' | 'pageAspect'>>,
         options?: { history?: boolean },
     ): void
     startElementGesture(id: string, mode: 'move' | 'resize', event: PointerEvent, captureTarget: HTMLElement): void

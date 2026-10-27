@@ -6289,6 +6289,10 @@ const allowed = new Map([
     "/**\n * The browser may bundle several pointer samples into one event; `getCoalescedEvents` returns\n * them in the same order they arrived. Older engines expose no method (or an empty result), in\n * which case the event itself is the only sample.\n */",
     "/** The standards-based equivalent of an Apple Pencil side-button press in a browser. */",
   ]],
+  ["src/client/features/inkpad/ink-pdf.ts", [
+    "/**\n * PDF.js is reached with a dynamic import so an ink note without a PDF card never pays for the\n * parser. The worker, CMaps and fonts are the ones the reader already serves from /vendor/pdfjs.\n */",
+    "/** The per-page pixel ceiling the renderer uses; exported so the boundary is unit-tested. */",
+  ]],
   ["src/client/features/inkpad/ink-renderer.ts", [
     "/**\n * Both canvases are bounded. A 4K viewport at 2.5× is ~52M pixels (~208 MB), which a browser\n * tab should not reserve for one drawing; the cache is bounded separately because it carries\n * padding and a Windows device gets a 1× navigation bitmap.\n */",
   ]],
@@ -27480,6 +27484,9 @@ const allowed = new Map([
     "/* The prose column is measured on the text, and the preview puts its 16px gutter outside that\n   measurement while the editor puts it inside. Widening the live column by the two gutters is what\n   lets the same paragraph break at the same word in both. */",
     "/* Templater commands: text the reader wrote but the renderer replaces. Only the editor's own marks are\n   painted here, so a template's edge stays legible inside running prose without touching the text.\n   The body borrows the inline-code colour because that is what it is; the delimiters take the syntax\n   punctuation token, and an execution command's delimiters take the keyword one so a block of code\n   reads as a block at a glance. */",
     "/* The template library's body editor wears the note editor's chrome, because the marks, the line-number\n   gutter, the caret and the selection are the same things to paint. What it takes back is the prose: a\n   template body is code being written, so it has no typewriter padding to scroll past after the last line,\n   no measured column to centre itself in, and the monospace size the dialog's textarea carried rather than\n   the size the reader writes notes at. Last in this file on purpose — the `.ink-editor` rules above it,\n   including the phone ones inside the media query, are the ones being answered. */",
+  ]],
+  ["src/client/styles/inkpad.css", [
+    "/* A deliberate dark board for white-ink files opened in a light UI; it must not follow the theme. */",
   ]],
   ["src/client/styles/kanban.css", [
     "/* Only the kanban differences from the shared `.block-btn` recipe in prose.css: a\n   fixed square box, an accent hover and a ring instead of a tint on keyboard\n   focus, because these buttons sit on a board background that already tints. */",

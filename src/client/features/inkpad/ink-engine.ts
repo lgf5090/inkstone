@@ -474,7 +474,7 @@ export class InkEngineImpl implements InkEngine {
 
     patchElement(
         id: string,
-        patch: Partial<Pick<InkElement, 'noteId' | 'fileId' | 'url' | 'mime' | 'text' | 'aspectRatio' | 'fitPdfPages' | 'height'>>,
+        patch: Partial<Pick<InkElement, 'noteId' | 'fileId' | 'url' | 'mime' | 'text' | 'aspectRatio' | 'fitPdfPages' | 'height' | 'pageCount' | 'pageAspect'>>,
         options: { history?: boolean } = {},
     ): void {
         const element = this.document.elements.find((item) => item.id === id)

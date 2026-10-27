@@ -1,0 +1,203 @@
+.inkpad-surface {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-base);
+}
+
+/* A deliberate dark board for white-ink files opened in a light UI; it must not follow the theme. */
+.inkpad-surface[data-canvas="dark"] {
+  background: #181614;
+}
+
+.inkpad-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: block;
+  width: 100%;
+  height: 100%;
+  outline: none;
+  touch-action: none;
+  user-select: none;
+  cursor: crosshair;
+}
+
+.inkpad-canvas:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.inkpad-card-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  contain: strict;
+  pointer-events: none;
+}
+
+.inkpad-card-body {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--r-lg);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-sm);
+  transform-origin: top left;
+  pointer-events: none;
+}
+
+.inkpad-card-body.is-image,
+.inkpad-card-body.is-pdf {
+  background: var(--bg-inset);
+}
+
+.inkpad-card-controls {
+  position: absolute;
+  pointer-events: none;
+}
+
+.inkpad-card-header {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  height: 42px;
+  padding: 4px 7px;
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  color: var(--text-tertiary);
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+}
+
+.inkpad-card-header:active {
+  cursor: grabbing;
+}
+
+.inkpad-card-header:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.inkpad-card-action {
+  opacity: 0.72;
+}
+
+.inkpad-card-header:hover .inkpad-card-action,
+.inkpad-card-header:focus-within .inkpad-card-action {
+  opacity: 1;
+}
+
+.inkpad-card-resize {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: linear-gradient(135deg, transparent 42%, var(--text-tertiary) 44%, var(--text-tertiary) 49%, transparent 51%, transparent 63%, var(--text-tertiary) 65%, var(--text-tertiary) 70%, transparent 72%);
+  cursor: nwse-resize;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.inkpad-card-resize:focus-visible {
+  outline: 2px solid var(--accent);
+}
+
+.inkpad-card-note {
+  flex: 1;
+  min-height: 0;
+  padding: 14px;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: calc(var(--text-18) * var(--ink-card-zoom, 1));
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.inkpad-card-note > :first-child {
+  margin-top: 0;
+}
+
+.inkpad-card-note img {
+  max-width: 100%;
+  height: auto;
+}
+
+.inkpad-card-note input[type="checkbox"] {
+  margin-right: 4px;
+}
+
+.inkpad-card-text {
+  flex: 1;
+  padding: 14px;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: calc(var(--text-18) * var(--ink-card-zoom, 1));
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.inkpad-card-media {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.inkpad-card-pdf {
+  padding: 0;
+  background: #fff;
+}
+
+.inkpad-card-pdf-page {
+  display: block;
+  flex: 0 0 auto;
+  width: 100%;
+  height: auto;
+  max-width: none;
+  background: #fff;
+}
+
+.inkpad-card-status,
+.inkpad-card-missing {
+  padding: 12px;
+  color: var(--text-tertiary);
+  font-size: var(--text-12);
+  line-height: 1.5;
+}
+
+.inkpad-card-missing {
+  color: var(--danger);
+}
+
+.inkpad-card-too-long {
+  padding: 0 14px 10px;
+  color: var(--warning);
+  font-size: var(--text-11);
+}
+
+.inkpad-card-audio {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  left: 8px;
+  width: calc(100% - 16px);
+  pointer-events: auto;
+}
+
+.inkpad-card-audio-body {
+  background: var(--bg-surface);
+}
