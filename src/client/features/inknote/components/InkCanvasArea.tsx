@@ -94,6 +94,7 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, previousPage, 
   const toast = useUi((state) => state.toast)
   const touchPage = useInknoteStore((state) => state.touchPage)
   const savePage = useInknoteStore((state) => state.savePage)
+  const recordContentHistory = useInknoteStore((state) => state.recordContentHistory)
   const createPage = useInknoteStore((state) => state.createPage)
   const setActivePage = useInknoteStore((state) => state.setActivePage)
   const updateSettings = useInknoteStore((state) => state.updateSettings)
@@ -157,15 +158,16 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, previousPage, 
       getFont: () => cssFont(latest.current.settings),
       getTool: () => latest.current.tool,
       onContentChange: () => touchPage(),
-      onCommit: (before, after) => {
+      onCommit: (before, after, label) => {
         touchPage()
+        recordContentHistory(latest.current.page.id, before, after, label)
         window.dispatchEvent(new CustomEvent('inknote:content', { detail: { pageId: latest.current.page.id, before, after, at: Date.now() } }))
       },
       onTextTap: (world) => openTextEditor(world),
       onSelectionChange: (ids) => setSelection(ids),
       onGesture: (action) => {
-        if (action === 'undo') engine.undo()
-        else if (action === 'redo') engine.redo()
+        if (action === 'undo') void useInknoteStore.getState().undo()
+        else if (action === 'redo') void useInknoteStore.getState().redo()
         else {
           const state = useInknoteStore.getState()
           const index = state.activePageIndex + (action === 'page-next' ? 1 : -1)

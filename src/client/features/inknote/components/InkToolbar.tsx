@@ -22,7 +22,6 @@ import { cn } from '../../../lib/cn'
 import { t, type MessageKey } from '../../../lib/i18n'
 import { IconButton } from '../../../components/primitives'
 import { Slider } from '../../../components/form'
-import type { InknoteEngineApi } from '../engine/inknote-engine'
 
 const TOOLS: readonly { id: InknoteTool; labelKey: string; icon: typeof PenLine }[] = [
   { id: 'ballpen', labelKey: 'inknote.tool.ballpen', icon: PenLine },
@@ -42,9 +41,12 @@ const SHAPES: readonly { id: InknoteShapeTool; labelKey: string; icon: typeof Sq
   { id: 'arrow', labelKey: 'inknote.shape.arrow', icon: ArrowRight },
 ]
 
-export function InkToolbar({ engine, tool, onChange, onPages, onSettings, onRecord, onRead, onMarkup, onAi, orientation = 'horizontal', favorites = [], showFavorites = false, onApplyFavorite, onSaveFavorite }: {
-  engine: InknoteEngineApi | null
+export function InkToolbar({ tool, onChange, onPages, onSettings, onRecord, onRead, onMarkup, onAi, onUndo, onRedo, canUndo, canRedo, orientation = 'horizontal', favorites = [], showFavorites = false, onApplyFavorite, onSaveFavorite }: {
   tool: InknoteToolState
+  onUndo: () => void
+  onRedo: () => void
+  canUndo: boolean
+  canRedo: boolean
   onChange: (patch: Partial<InknoteToolState>) => void
   onPages: () => void
   onSettings: () => void
@@ -72,12 +74,8 @@ export function InkToolbar({ engine, tool, onChange, onPages, onSettings, onReco
   }, [palette])
   const vertical = orientation === 'vertical'
   const divider = vertical ? 'my-1 h-px w-6 shrink-0 bg-[var(--border-subtle)]' : 'mx-1 h-6 w-px shrink-0 bg-[var(--border-subtle)]'
-  const [historyTick, setHistoryTick] = useState(0)
   const colors = palette === 'highlighter' ? HIGHLIGHTER_COLORS : PEN_COLORS
   const activeColor = tool.tool === 'highlighter' ? tool.color : tool.color
-  const undo = () => { engine?.undo(); setHistoryTick((value) => value + 1) }
-  const redo = () => { engine?.redo(); setHistoryTick((value) => value + 1) }
-  void historyTick
   return (
     <div ref={rootRef} className={cn('inknote-toolbar flex min-w-0 items-center gap-0.5 px-1 py-0.5', vertical ? 'flex-col overflow-y-auto overflow-x-hidden' : 'overflow-x-auto')} role="toolbar" aria-label={t('inknote.settings.tools')}>
       <div className={cn('flex shrink-0 items-center gap-0.5', vertical && 'flex-col')}>
@@ -107,10 +105,10 @@ export function InkToolbar({ engine, tool, onChange, onPages, onSettings, onReco
       >
         <span className="size-5 rounded-full ring-1 ring-[var(--border-default)]" style={{ background: activeColor }} />
       </button>
-      <IconButton label={t('inknote.action.undo')} size="sm" onClick={undo} disabled={!engine?.canUndo()}>
+      <IconButton label={t('inknote.action.undo')} size="sm" onClick={onUndo} disabled={!canUndo}>
         <Undo2 size={16} />
       </IconButton>
-      <IconButton label={t('inknote.action.redo')} size="sm" onClick={redo} disabled={!engine?.canRedo()}>
+      <IconButton label={t('inknote.action.redo')} size="sm" onClick={onRedo} disabled={!canRedo}>
         <Redo2 size={16} />
       </IconButton>
       <span className={divider} />

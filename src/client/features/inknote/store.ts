@@ -12,6 +12,7 @@ import type {
 } from '@shared/inknote/types'
 import { emptyPageContent, parseInknotePageContent, serializePageContent } from '@shared/inknote/parse'
 import { isEmptyPage } from '../../lib/inknote/note-search'
+import { samePageOrder, samePaper, snapshotNote, trimHistory, type InknoteHistoryEntry, type NoteSnapshot } from '../../lib/inknote/history-entry'
 import { sanitizeInknoteSettings } from '@shared/inknote/settings'
 import { DEFAULT_INKNOTE_SETTINGS } from '@shared/inknote/constants'
 import { ApiError } from '../../lib/api'
@@ -45,6 +46,10 @@ interface InknoteState {
   drafts: Record<string, { content: InknotePageContent; savedAt: number; offline: boolean }>
   /** A replay is writing into the pages for the reader to watch; saves must not leave with it. */
   replaying: boolean
+  /** Unified undo: content edits, page arrays, paper and page size share one stack. */
+  undoStack: InknoteHistoryEntry[]
+  redoStack: InknoteHistoryEntry[]
+  applyingHistory: boolean
   loading: boolean
   opening: boolean
   error: string | null
@@ -90,6 +95,9 @@ interface InknoteState {
   restoreDrafts: () => Promise<void>
   discardDrafts: () => void
   replayOfflineDrafts: () => Promise<void>
+  recordContentHistory: (pageId: string, before: string, after: string, label: string) => void
+  undo: () => Promise<void>
+  redo: () => Promise<void>
   beginReplay: () => void
   applyReplayContent: (pageId: string, content: InknotePageContent) => void
   endReplay: (snapshot: Map<string, InknotePageContent>) => void
@@ -181,6 +189,74 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
     }, SAVE_DELAY))
   }
 
+  function currentSnapshot(): NoteSnapshot | null {
+    const { note, pages } = get()
+    return note ? snapshotNote(note, pages) : null
+  }
+
+  function pushEntry(entry: InknoteHistoryEntry): void {
+    if (get().applyingHistory || get().replaying) return
+    set((state) => ({ undoStack: trimHistory([...state.undoStack, entry]), redoStack: [] }))
+  }
+
+  async function reloadNoteSilently(noteId: string, index: number): Promise<void> {
+    const response = await inknoteApi.note(noteId, 'all')
+    const safeIndex = Math.min(Math.max(0, index), Math.max(0, response.pages.length - 1))
+    set((state) => ({
+      note: response.note,
+      pages: response.pages,
+      activePageId: response.pages[safeIndex]?.id ?? null,
+      activePageIndex: safeIndex,
+      contentVersion: state.contentVersion + 1,
+      conflicts: {},
+      saveState: 'saved',
+      library: state.library
+        ? { ...state.library, notes: state.library.notes.map((entry) => entry.id === noteId ? response.note : entry) }
+        : state.library,
+    }))
+  }
+
+  async function applyEntry(entry: InknoteHistoryEntry, side: 'before' | 'after'): Promise<void> {
+    if (entry.kind === 'content') {
+      const parsed = parseInknotePageContent(side === 'before' ? entry.before : entry.after)
+      if (!parsed.ok) throw new Error('That history step has no readable page')
+      set((state) => ({
+        pages: state.pages.map((page) => page.id === entry.pageId ? { ...page, content: parsed.content } : page),
+        contentVersion: state.contentVersion + 1,
+      }))
+      if (!await get().savePage(entry.pageId)) throw new Error('The stepped-back page could not be saved')
+      return
+    }
+    const target = side === 'before' ? entry.before : entry.after
+    const state = get()
+    const note = state.note
+    if (!note || note.id !== target.noteId) return
+    const targetIds = new Set(target.pages.map((page) => page.id))
+    for (const page of state.pages) {
+      if (!targetIds.has(page.id)) await inknoteApi.deletePage(note.id, page.id)
+    }
+    for (const page of target.pages) {
+      const existing = state.pages.find((entryPage) => entryPage.id === page.id)
+      const next = serializePageContent(page.content)
+      if (!existing) {
+        await inknoteApi.createPage(note.id, { id: page.id, content: next })
+      } else if (next !== serializePageContent(existing.content)) {
+        await inknoteApi.savePage(note.id, page.id, next, existing.rev)
+      }
+    }
+    const order = get().pages.filter((page) => targetIds.has(page.id)).map((page) => ({ id: page.id }))
+    if (!samePageOrder(order, target.pages)) await inknoteApi.reorderPages(note.id, target.pages.map((page) => page.id))
+    if (!samePaper(note.paper, target.paper) || note.pageWidth !== target.pageWidth || note.pageHeight !== target.pageHeight) {
+      await inknoteApi.updateNote(note.id, {
+        paper: target.paper,
+        pageWidth: target.pageWidth,
+        pageHeight: target.pageHeight,
+        baseRev: note.rev,
+      })
+    }
+    await reloadNoteSilently(note.id, state.activePageIndex)
+  }
+
   return {
     library: null,
     note: null,
@@ -194,6 +270,9 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
     conflicts: {},
     drafts: {},
     replaying: false,
+    undoStack: [],
+    redoStack: [],
+    applyingHistory: false,
     loading: false,
     opening: false,
     error: null,
@@ -274,6 +353,8 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
           contentVersion: state.contentVersion + 1,
           conflicts: {},
           drafts,
+          undoStack: [],
+          redoStack: [],
           saveState: 'saved',
         }))
       } catch (error) {
@@ -283,7 +364,7 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
 
     closeNote() {
       void get().saveAll()
-      set({ note: null, pages: [], activePageId: null, activePageIndex: 0, conflicts: {}, drafts: {} })
+      set({ note: null, pages: [], activePageId: null, activePageIndex: 0, conflicts: {}, drafts: {}, undoStack: [], redoStack: [] })
     },
 
     closeTab(id) {
@@ -293,7 +374,7 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
       const next = tabs[0]
       if (next) { void get().openNote(next); return }
       void get().saveAll()
-      set({ note: null, pages: [], activePageId: null, activePageIndex: 0, conflicts: {}, drafts: {} })
+      set({ note: null, pages: [], activePageId: null, activePageIndex: 0, conflicts: {}, drafts: {}, undoStack: [], redoStack: [] })
     },
 
     setActivePage(id) {
@@ -361,6 +442,8 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
     async updateNoteMeta(patch) {
       const { note } = get()
       if (!note) return false
+      const undoable = patch.paper !== undefined || patch.pageWidth !== undefined || patch.pageHeight !== undefined
+      const before = undoable ? currentSnapshot() : null
       try {
         const next = await inknoteApi.updateNote(note.id, {
           ...patch,
@@ -371,6 +454,10 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
           note: next,
           library: updateLibraryNote(state.library, next),
         }))
+        if (before && undoable) {
+          const after = currentSnapshot()
+          if (after) pushEntry({ kind: 'note', before, after, label: 'page-style' })
+        }
         return true
       } catch (error) {
         set({ error: message(error) })
@@ -405,7 +492,7 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
       set((state) => ({
         library: state.library ? { ...state.library, notes: state.library.notes.filter((entry) => entry.id !== id) } : null,
         tabs: state.tabs.filter((tab) => tab !== id),
-        ...(state.note?.id === id ? { note: null, pages: [], activePageId: null, activePageIndex: 0 } : {}),
+        ...(state.note?.id === id ? { note: null, pages: [], activePageId: null, activePageIndex: 0, undoStack: [], redoStack: [] } : {}),
       }))
     },
 
@@ -464,6 +551,7 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
     async createPage(afterPageId) {
       const note = get().note
       if (!note) return
+      const before = currentSnapshot()
       await get().saveAll()
       const page = await inknoteApi.createPage(note.id, afterPageId ? { afterPageId } : {})
       const pages = [...get().pages]
@@ -477,11 +565,14 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
         activePageIndex: next.findIndex((entry) => entry.id === page.id),
         contentVersion: state.contentVersion + 1,
       }))
+      const after = currentSnapshot()
+      if (before && after) pushEntry({ kind: 'note', before, after, label: 'page-add' })
     },
 
     async duplicatePage(pageId) {
       const note = get().note
       if (!note) return
+      const before = currentSnapshot()
       await get().saveAll()
       const page = await inknoteApi.duplicatePage(note.id, pageId)
       const pages = [...get().pages, page].sort((a, b) => a.position - b.position).map((entry, position) => ({ ...entry, position }))
@@ -492,11 +583,14 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
         activePageIndex: pages.findIndex((entry) => entry.id === page.id),
         contentVersion: state.contentVersion + 1,
       }))
+      const after = currentSnapshot()
+      if (before && after) pushEntry({ kind: 'note', before, after, label: 'page-duplicate' })
     },
 
     async deletePage(pageId) {
       const note = get().note
       if (!note) return
+      const before = currentSnapshot()
       await inknoteApi.deletePage(note.id, pageId)
       const pages = get().pages.filter((page) => page.id !== pageId).map((page, position) => ({ ...page, position }))
       const nextIndex = Math.max(0, Math.min(get().activePageIndex, pages.length - 1))
@@ -507,13 +601,18 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
         activePageIndex: nextIndex,
         contentVersion: state.contentVersion + 1,
       }))
+      const after = currentSnapshot()
+      if (before && after) pushEntry({ kind: 'note', before, after, label: 'page-delete' })
     },
 
     async clearPage(pageId) {
       const page = get().pages.find((entry) => entry.id === pageId)
       if (!page) return
-      get().replacePageContent(pageId, emptyPageContent())
+      const before = serializePageContent(page.content)
+      const empty = emptyPageContent()
+      get().replacePageContent(pageId, empty)
       await get().savePage(pageId)
+      pushEntry({ kind: 'content', pageId, before, after: serializePageContent(empty), label: 'page-clear' })
     },
 
     async deleteBlankPages() {
@@ -528,8 +627,10 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
       return removed
     },
 
-    async reorderPages(pageIds) {      const note = get().note
+    async reorderPages(pageIds) {
+      const note = get().note
       if (!note) return
+      const before = currentSnapshot()
       await inknoteApi.reorderPages(note.id, pageIds)
       const byId = new Map(get().pages.map((page) => [page.id, page]))
       const pages = pageIds.flatMap((id, position) => {
@@ -537,6 +638,8 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
         return page ? [{ ...page, position }] : []
       })
       set((state) => ({ pages, contentVersion: state.contentVersion + 1 }))
+      const after = currentSnapshot()
+      if (before && after && !samePageOrder(before.pages, after.pages)) pushEntry({ kind: 'note', before, after, label: 'page-order' })
     },
 
     async copyPageTo(targetNoteId, pageId) {
@@ -581,6 +684,45 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
     async removeTemplate(id) {
       await inknoteApi.deleteTemplate(id)
       await get().refreshTemplates()
+    },
+
+    recordContentHistory(pageId, before, after, label) {
+      if (before === after) return
+      pushEntry({ kind: 'content', pageId, before, after, label })
+    },
+
+    async undo() {
+      if (get().applyingHistory || get().replaying) return
+      const entry = get().undoStack[get().undoStack.length - 1]
+      if (!entry) return
+      const undoStack = get().undoStack.slice(0, -1)
+      const redoStack = [...get().redoStack, entry]
+      set({ applyingHistory: true })
+      try {
+        await applyEntry(entry, 'before')
+        set({ undoStack, redoStack })
+      } catch (error) {
+        set({ error: message(error) })
+      } finally {
+        set({ applyingHistory: false })
+      }
+    },
+
+    async redo() {
+      if (get().applyingHistory || get().replaying) return
+      const entry = get().redoStack[get().redoStack.length - 1]
+      if (!entry) return
+      const redoStack = get().redoStack.slice(0, -1)
+      const undoStack = [...get().undoStack, entry]
+      set({ applyingHistory: true })
+      try {
+        await applyEntry(entry, 'after')
+        set({ undoStack, redoStack })
+      } catch (error) {
+        set({ error: message(error) })
+      } finally {
+        set({ applyingHistory: false })
+      }
     },
 
     clearConflict(pageId) {

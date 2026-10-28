@@ -72,6 +72,10 @@ export function InknoteApp() {
   const updateSettings = useInknoteStore((state) => state.updateSettings)
   const saveAll = useInknoteStore((state) => state.saveAll)
   const savePage = useInknoteStore((state) => state.savePage)
+  const undoHistory = useInknoteStore((state) => state.undo)
+  const redoHistory = useInknoteStore((state) => state.redo)
+  const canUndo = useInknoteStore((state) => state.undoStack.length > 0)
+  const canRedo = useInknoteStore((state) => state.redoStack.length > 0)
   const copyPageTo = useInknoteStore((state) => state.copyPageTo)
   const clearConflict = useInknoteStore((state) => state.clearConflict)
   const toast = useUi((state) => state.toast)
@@ -188,8 +192,8 @@ const [findOpen, setFindOpen] = useState(false)
 
   useInknoteHotkeys({
     enabled: () => Boolean(useInknoteStore.getState().note),
-    undo: () => { engineRef.current?.undo(); engineRef.current?.renderNow() },
-    redo: () => { engineRef.current?.redo(); engineRef.current?.renderNow() },
+    undo: () => { void undoHistory() },
+    redo: () => { void redoHistory() },
     save: () => { void saveAll(); toast({ title: t('inknote.saved') }) },
     newNote: () => { void createNote(note?.notebookId ?? library?.notebooks[0]?.id) },
     find: () => setFindOpen(true),
@@ -357,8 +361,11 @@ const [findOpen, setFindOpen] = useState(false)
       {!markup && settings && !leftToolbar && (
         <div className={cn('relative z-[var(--z-float)] shrink-0 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)]', settings.toolbar === 'bottom' && 'order-3 border-b-0 border-t')}>
           <InkToolbar
-            engine={engineRef.current}
             tool={tool}
+            onUndo={() => void undoHistory()}
+            onRedo={() => void redoHistory()}
+            canUndo={canUndo}
+            canRedo={canRedo}
             onChange={changeTool}
             onPages={() => compact ? setPagesOpen(true) : setPagesVisible((value) => !value)}
             onSettings={() => setSettingsOpen(true)}
@@ -406,9 +413,12 @@ const [findOpen, setFindOpen] = useState(false)
           {leftToolbar && settings && (
             <div className="relative z-[var(--z-float)] w-11 shrink-0 border-r border-[var(--border-subtle)] bg-[var(--bg-surface)]">
               <InkToolbar
-                engine={engineRef.current}
                 tool={tool}
                 orientation="vertical"
+                onUndo={() => void undoHistory()}
+                onRedo={() => void redoHistory()}
+                canUndo={canUndo}
+                canRedo={canRedo}
                 onChange={changeTool}
                 onPages={() => setPagesOpen(true)}
                 onSettings={() => setSettingsOpen(true)}

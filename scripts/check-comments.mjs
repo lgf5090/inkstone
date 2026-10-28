@@ -6425,6 +6425,7 @@ const allowed = new Map([
     "// A batch reports one count for every note it could not change; the caller shows it.",
     "/** The server keeps ten snapshots and the account may have switched automatic backups off. */",
     "/** A replay is writing into the pages for the reader to watch; saves must not leave with it. */",
+    "/** Unified undo: content edits, page arrays, paper and page size share one stack. */",
   ]],
   ["src/client/features/inknote/tool-state.ts", [
     "/** Derives the engine's tool state from the account's remembered per-tool choices. */",
@@ -19174,6 +19175,10 @@ const allowed = new Map([
     "/** Expand a raw selection box into the box the engine draws and hit-tests. */",
     "/** Content coordinates to display coordinates. Extra point fields such as pressure are preserved. */",
     "/** Display coordinates back to content coordinates. Extra point fields such as pressure are preserved. */",
+  ]],
+  ["src/client/lib/inknote/history-entry.ts", [
+    "/** One undo stack for the note: page content, page arrays, paper and page size. */",
+    "/** Deep-copied, because the live page object keeps being edited by the canvas. */",
   ]],
   ["src/client/lib/inknote/note-search.ts", [
     "/** Page-text search, replace, highlight, outline and counts for the note tool dialogs. */",
