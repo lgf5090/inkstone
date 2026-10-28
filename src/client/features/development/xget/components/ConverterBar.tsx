@@ -139,7 +139,7 @@ export function ConverterBar({ proxyBase, input, onInputChange, convertSignal, o
   return (
     <div className="shrink-0 border-b border-[var(--border-subtle)] px-3 py-2.5">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="min-w-0 flex-1">
+        <div className="w-full min-w-0 basis-full sm:w-auto sm:basis-auto sm:flex-1">
           <Input
             value={input}
             onChange={(event) => onInputChange(event.target.value)}
@@ -155,7 +155,7 @@ export function ConverterBar({ proxyBase, input, onInputChange, convertSignal, o
         <Button variant="ghost" size="sm" onClick={useExample} className="shrink-0">
           {t('development.xget.converter.paste_example')}
         </Button>
-        <Button variant="primary" size="sm" icon={<Zap size={15} />} onClick={() => perform(input)} className="shrink-0">
+        <Button variant="primary" size="sm" icon={<Zap size={15} />} onClick={() => perform(input)} className="ml-auto shrink-0 sm:ml-0">
           {t('development.xget.converter.convert')}
         </Button>
       </div>

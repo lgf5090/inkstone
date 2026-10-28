@@ -20,6 +20,7 @@ import { sweepCalendarReminders } from './calendar/reminders'
 import { syncDueProviderConnections } from './calendar/provider-sync'
 import { ApiError } from './lib/errors'
 import { withSecurityHeaders } from './lib/security-headers'
+import { isXgetProxyPath } from './development/xget/paths'
 import { normalizeRepeatedOAuthResource } from './lib/oauth-request'
 import { dispatchInboundEmail } from './email/dispatch'
 import { runEmailTrashCleanup } from './email/trash'
@@ -64,6 +65,7 @@ export default {
     const response = new URL(oauthRequest.url).pathname === OAUTH_AUTHORIZATION_SERVER_METADATA
       ? await oauthMetadataWithoutIssParameter(provider, oauthRequest, env, ctx)
       : await provider.fetch(oauthRequest, env, ctx)
+    if (isXgetProxyPath(new URL(oauthRequest.url).pathname)) return response
     return withSecurityHeaders(response, oauthRequest.url, { aiConnectHosts: env.AI_CONNECT_HOSTS })
   },
 

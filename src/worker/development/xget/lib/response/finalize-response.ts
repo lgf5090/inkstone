@@ -4,7 +4,6 @@ import type { XgetConfig } from '../config'
 import type { Cache } from '../upstream/cache'
 import { resolveCachePolicy, resolveResponseCachePolicy } from '../upstream/cache-policy'
 import { stripUpstreamResponseHeaders } from '../utils/headers'
-import type { PerformanceMonitor } from '../utils/performance'
 import {
   isFlatpakReferenceFilePath,
   rewriteTextResponse,
@@ -68,7 +67,6 @@ async function finalizeSuccessfulResponse({
   config,
   effectivePath,
   hasSensitiveHeaders,
-  monitor,
   platform,
   request,
   requestContext,
@@ -82,7 +80,6 @@ async function finalizeSuccessfulResponse({
   config: XgetConfig
   effectivePath: string
   hasSensitiveHeaders: boolean
-  monitor: PerformanceMonitor
   platform: string
   request: Request
   requestContext: RequestTraits
@@ -171,24 +168,12 @@ async function finalizeSuccessfulResponse({
         })
       : new Request(cacheTargetUrl, { method: 'GET' })
 
-    try {
-      await cache.put(cacheKey, finalizedResponse.clone())
-
-      if (rangeHeader) {
-        const rangedResponse = await cache.match(
-          new Request(cacheTargetUrl, { method: 'GET', headers: request.headers }),
-        )
-        if (rangedResponse) {
-          monitor.mark('range_cache_hit_after_full_cache')
-          finalizedResponse = rangedResponse
-        }
-      }
-    } catch (error) {
+    void cache.put(cacheKey, finalizedResponse.clone()).catch((error) => {
       console.warn(
-        '[xget] Cache put/match failed:',
+        '[xget] Cache put failed:',
         error instanceof Error ? error.name : 'unknown error',
       )
-    }
+    })
   }
 
   return finalizedResponse
@@ -201,7 +186,6 @@ export async function finalizeResponse({
   config,
   effectivePath,
   hasSensitiveHeaders,
-  monitor,
   platform,
   request,
   requestContext,
@@ -216,7 +200,6 @@ export async function finalizeResponse({
   config: XgetConfig
   effectivePath: string
   hasSensitiveHeaders: boolean
-  monitor: PerformanceMonitor
   platform: string
   request: Request
   requestContext: RequestTraits
@@ -240,7 +223,6 @@ export async function finalizeResponse({
     config,
     effectivePath,
     hasSensitiveHeaders,
-    monitor,
     platform,
     request,
     requestContext,

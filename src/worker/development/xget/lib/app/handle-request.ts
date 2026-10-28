@@ -162,7 +162,6 @@ export async function handleXgetRequest(
                   config,
                   effectivePath,
                   hasSensitiveHeaders,
-                  monitor,
                   platform,
                   request,
                   requestContext,

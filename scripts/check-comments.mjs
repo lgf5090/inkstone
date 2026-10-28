@@ -34482,6 +34482,8 @@ const allowed = new Map([
   ]],
   ["src/worker/development/xget/lib/app/handle-request.ts", [
     "// Derived from Xget (AGPL-3.0-only) src/app/handle-request.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",
+    "// The site's session cookie is stripped before the upstream request; it must not",
+    "// turn every browser download into a private, uncacheable response.",
   ]],
   ["src/worker/development/xget/lib/app/request-context.ts", [
     "// Derived from Xget (AGPL-3.0-only) src/app/request-context.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",
