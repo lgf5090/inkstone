@@ -109,7 +109,33 @@ const SAVE_DELAY = 1_200
 const AUTO_SNAPSHOT_DELAY = 45_000
 const syncChannel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel('inknote-tabs')
 let autoSnapshotAt = 0
+const coverAttemptAt = new Map<string, number>()
 let autoSnapshotInFlight = false
+
+async function uploadFirstPageCover(noteId: string, note: InknoteNoteMeta, page: InknotePage): Promise<void> {
+  const last = coverAttemptAt.get(noteId) ?? 0
+  if (note.coverAssetId || Date.now() - last < 10_000) return
+  coverAttemptAt.set(noteId, Date.now())
+  try {
+    const [{ renderPageToCanvas }, { fontStackFor }] = await Promise.all([
+      import('./engine/renderer'),
+      import('../../lib/inknote/text-layout'),
+    ])
+    const canvas = renderPageToCanvas(page.content, note.paper, {
+      width: note.pageWidth,
+      height: note.pageHeight,
+      contentWidth: note.contentWidth,
+      contentHeight: note.contentHeight,
+    }, 160, fontStackFor('system'))
+    if (!canvas) return
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob((value) => resolve(value), 'image/jpeg', 0.72))
+    if (!blob) return
+    await inknoteApi.uploadAsset(new File([blob], 'cover.jpg', { type: 'image/jpeg' }), 'cover', noteId)
+    await useInknoteStore.getState().refreshLibrary()
+  } catch (error) {
+    console.warn('[inkstone] Could not build the note cover; the next save retries:', error)
+  }
+}
 
 /** The server keeps ten snapshots and the account may have switched automatic backups off. */
 function maybeAutoSnapshot(autoBackup: boolean): void {
@@ -154,6 +180,7 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
         saveState: 'saved',
       }))
       syncChannel?.postMessage({ type: 'page-saved', noteId: note.id, pageId, rev: saved.rev })
+      if (page.position === 0) void uploadFirstPageCover(note.id, get().note ?? note, page)
       get().refreshLibrary().catch(() => {})
       maybeAutoSnapshot(get().library?.settings.autoBackup ?? true)
       return true
@@ -321,6 +348,7 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
             settings: state.library?.settings ?? sanitizeInknoteSettings(library.settings),
             templates: state.library?.templates ?? library.templates,
           },
+          note: state.note ? library.notes.find((entry) => entry.id === state.note!.id) ?? state.note : null,
         }))
       } catch {
         // A background refresh is allowed to miss; the next save or focus retries it.

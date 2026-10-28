@@ -70,6 +70,7 @@ export function LibraryPanel({ selectedNotebookId, onSelectNotebook, onAfterOpen
   const activeNoteId = useInknoteStore((state) => state.note?.id ?? null)
   const toast = useUi((state) => state.toast)
   const [recent, setRecent] = useState(false)
+  const [limit, setLimit] = useState(100)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<InknoteSearchResult[] | null>(null)
   const [menu, setMenu] = useState<MenuState | null>(null)
@@ -84,6 +85,7 @@ export function LibraryPanel({ selectedNotebookId, onSelectNotebook, onAfterOpen
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const searchTimer = useRef<number | undefined>(undefined)
 
+  useEffect(() => { setLimit(100) }, [selectedNotebookId, recent, tagFilter])
   const subjects = library?.subjects ?? []
   const notebooks = library?.notebooks ?? []
   const notes = library?.notes ?? []
@@ -274,7 +276,7 @@ export function LibraryPanel({ selectedNotebookId, onSelectNotebook, onAfterOpen
             )}
             <div className="mt-1 space-y-0.5">
               {visibleNotes.length === 0 && <p className="px-2 py-4 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('inknote.no_notes')}</p>}
-              {visibleNotes.map((note) => (
+              {visibleNotes.slice(0, limit).map((note) => (
                 <button key={note.id} type="button" data-inknote-note-id={note.id} aria-pressed={selectMode ? selected.has(note.id) : undefined} onClick={() => {
                   if (selectMode) { setSelected((current) => { const next = new Set(current); if (next.has(note.id)) next.delete(note.id); else next.add(note.id); return next }); return }
                   void openFromList(note)
@@ -288,6 +290,11 @@ export function LibraryPanel({ selectedNotebookId, onSelectNotebook, onAfterOpen
                   {note.colorTag && <span className="size-2 shrink-0 rounded-full" style={{ background: note.colorTag }} />}
                 </button>
               ))}
+              {visibleNotes.length > limit && (
+                <button type="button" onClick={() => setLimit((value) => value + 100)} className="mt-1 w-full rounded-[var(--r-sm)] px-2 py-1.5 text-[length:var(--text-11)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]">
+                  {t('inknote.load_more', { count: String(visibleNotes.length - limit) })}
+                </button>
+              )}
             </div>
           </>
         )}
