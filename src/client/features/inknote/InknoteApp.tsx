@@ -145,6 +145,22 @@ const [findOpen, setFindOpen] = useState(false)
 
 
   useEffect(() => {
+    if (typeof BroadcastChannel === 'undefined') return
+    const channel = new BroadcastChannel('inknote-tabs')
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: string; noteId?: string; pageId?: string; rev?: number } | null
+      if (data?.type !== 'page-saved' || !data.noteId || !data.pageId || typeof data.rev !== 'number') return
+      const state = useInknoteStore.getState()
+      if (state.note?.id !== data.noteId || state.saveState !== 'saved') return
+      const page = state.pages.find((entry) => entry.id === data.pageId)
+      if (!page || page.rev >= data.rev) return
+      void state.openNote(data.noteId, state.activePageIndex)
+    }
+    channel.addEventListener('message', onMessage)
+    return () => { channel.removeEventListener('message', onMessage); channel.close() }
+  }, [])
+
+  useEffect(() => {
     const handler = () => { void saveAll() }
     const online = () => { void saveAll(); void replayOfflineDrafts() }
     window.addEventListener('pagehide', handler)

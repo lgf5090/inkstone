@@ -400,7 +400,7 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, previousPage, 
           </div>
         )}
         <div ref={frameRef} className="inknote-page-frame relative shrink-0 shadow-[var(--shadow-soft)]" style={{ aspectRatio: `${note.pageWidth} / ${note.pageHeight}`, width: 'min(100%, 860px)' }}>
-          <canvas ref={canvasRef} role="img" className="inknote-canvas block size-full touch-none rounded-[2px]" aria-label={t('inknote.canvas.label', { title: note.title, page: String(pageIndex + 1) })} />
+          <canvas ref={canvasRef} data-page-rev={page.rev} role="img" className="inknote-canvas block size-full touch-none rounded-[2px]" aria-label={t('inknote.canvas.label', { title: note.title, page: String(pageIndex + 1) })} />
           {ttsBox && (
             <div data-ink-tts-cue="" aria-hidden="true" className="pointer-events-none absolute rounded-[3px] border-2 border-[var(--accent)]" style={{ left: ttsBox.left, top: ttsBox.top, width: ttsBox.width, height: ttsBox.height, background: 'color-mix(in oklab, var(--accent) 14%, transparent)', zIndex: 'calc(var(--z-float) - 2)' }}/>
           )}

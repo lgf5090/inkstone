@@ -99,6 +99,7 @@ const saveTimers = new Map<string, number>()
 const inFlight = new Set<string>()
 const SAVE_DELAY = 1_200
 const AUTO_SNAPSHOT_DELAY = 45_000
+const syncChannel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel('inknote-tabs')
 let autoSnapshotAt = 0
 let autoSnapshotInFlight = false
 
@@ -144,6 +145,7 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
         note: state.note ? { ...state.note, updatedAt: saved.updatedAt, contentBytes: state.note.contentBytes } : null,
         saveState: 'saved',
       }))
+      syncChannel?.postMessage({ type: 'page-saved', noteId: note.id, pageId, rev: saved.rev })
       get().refreshLibrary().catch(() => {})
       maybeAutoSnapshot(get().library?.settings.autoBackup ?? true)
       return true
