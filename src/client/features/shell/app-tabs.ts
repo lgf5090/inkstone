@@ -11,11 +11,12 @@
  * worker's Content-Security-Policy. tests/app-tab-routes.test.ts is what says so out loud.
  */
 import type { ComponentType } from 'react'
-import { BookOpen, CalendarDays, Cloud, Compass, FileText, FolderKanban, ListChecks, Mail, MessageSquare, Music, Rss, StickyNote, Terminal, Wallet, Wrench } from 'lucide-react'
+import { BookOpen, CalendarDays, Cloud, Compass, FileText, FolderKanban, ListChecks, Mail, MessageSquare, Music, NotebookPen, Rss, StickyNote, Terminal, Wallet, Wrench } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 
 export type AppTabId =
   | 'notes'
+  | 'inknote'
   | 'memos'
   | 'calendar'
   | 'todo'
@@ -41,6 +42,7 @@ export interface AppTab {
 
 export const APP_TABS: readonly AppTab[] = [
   { id: 'notes', path: '/notes', labelKey: 'app.tabs.notes', icon: FileText },
+  { id: 'inknote', path: '/inknote', labelKey: 'app.tabs.inknote', icon: NotebookPen },
   { id: 'memos', path: '/memos', labelKey: 'app.tabs.memos', icon: StickyNote },
   { id: 'calendar', path: '/calendar', labelKey: 'app.tabs.calendar', icon: CalendarDays },
   { id: 'todo', path: '/todo', labelKey: 'app.tabs.todo', icon: ListChecks },
@@ -66,6 +68,7 @@ export const DEFAULT_APP_TAB: AppTabId = 'notes'
 
 /** Containers that own their own sub-addresses, so a deep link stays on the tab that made it. */
 const NESTED_TAB_PATHS: readonly [prefix: string, id: AppTabId][] = [
+  ['/inknote/', 'inknote'],
   ['/reading/', 'reading'],
   ['/memos/', 'memos'],
   ['/email/', 'email'],

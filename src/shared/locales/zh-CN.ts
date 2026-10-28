@@ -6450,6 +6450,7 @@ console.log(\`Hello, \${name}!\`)
     "settings.excalidraw_sync_excalidraw": "同步时保持 Excalidraw 规范",
     "settings.excalidraw_sync_excalidraw_desc": "在云端同步与多端备份时对绘图数据结构执行规范校验。",
     "app.tabs.notes": "笔记",
+    "app.tabs.inknote": "手写笔记本",
     "app.tabs.calendar": "日历",
     "app.tabs.todo": "待办",
     "app.tabs.email": "邮箱",
