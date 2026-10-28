@@ -808,6 +808,48 @@ describe('history and selection', () => {
   })
 })
 
+describe('performance budgets', () => {
+  it('serializes and parses thirty thousand points inside the budget', () => {
+    const strokes = Array.from({ length: 300 }, (_, stroke) => ({
+      id: `s${stroke}`,
+      tool: 'pen' as const,
+      style: 'normal' as const,
+      shape: null,
+      color: '#111111',
+      width: 2,
+      points: Array.from({ length: 100 }, (_, point) => ({ x: stroke + point, y: stroke * point + 1, p: 0.5 })),
+    }))
+    const page = blankPage({ strokes })
+    const started = performance.now()
+    const serialized = serializePageContent(page)
+    const parsed = JSON.parse(serialized) as InknotePageContent
+    const elapsed = performance.now() - started
+    console.info(`[inknote perf] 30k points serialize+parse ${elapsed.toFixed(1)} ms`)
+    expect(serialized.length).toBeGreaterThan(100_000)
+    expect(parsed.strokes).toHaveLength(300)
+    expect(elapsed).toBeLessThan(1_500)
+  })
+
+  it('rebuilds a five-thousand-stroke raster inside the budget', () => {
+    const strokes = Array.from({ length: 5_000 }, (_, stroke) => ({
+      id: `s${stroke}`,
+      tool: 'ballpen' as const,
+      style: 'normal' as const,
+      shape: null,
+      color: '#222222',
+      width: 2,
+      points: [{ x: stroke % 600, y: (stroke * 7) % 700, p: 0.5 }, { x: (stroke % 600) + 40, y: ((stroke * 7) % 700) + 12, p: 0.5 }],
+    }))
+    const { engine } = setup({ page: blankPage({ strokes }) })
+    const started = performance.now()
+    engine.invalidate()
+    engine.renderNow()
+    const elapsed = performance.now() - started
+    console.info(`[inknote perf] 5k-stroke raster rebuild ${elapsed.toFixed(1)} ms`)
+    expect(elapsed).toBeLessThan(500)
+  })
+})
+
 describe('renderer budget', () => {
   it('keeps a normal page at the 2.5 raster scale', () => {
     expect(inknoteCanvasBudget(816, 1056, 2.5).scale).toBeCloseTo(2.5)

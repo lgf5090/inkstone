@@ -40845,6 +40845,9 @@ const allowed = new Map([
     "// The bytes go into the reader's storage and then into an `<img>`; the vendor's claim about them is",
     "// not evidence, so the signature is what decides.",
   ]],
+  ["tests/inknote-hot-path.test.ts", [
+    "/**\n * The pointer handlers are the hot path: they run for every sample of a stroke. A serialisation, an\n * await or a React write inside one turns a 120 Hz pen into a slideshow, and no timing assertion in\n * jsdom would notice because jsdom draws nothing. This scans the source instead, and fails loudly if\n * the handlers are renamed so the region it reads cannot silently become empty.\n */",
+  ]],
   ["tests/inknote-library.test.ts", [
     "// Behavioural coverage for the Inknote library: default seed, subject/notebook/note CRUD,",
     "// soft-delete/restore/purge, note duplication, and the account boundary that every route keeps.",
