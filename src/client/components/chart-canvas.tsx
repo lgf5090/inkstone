@@ -14,10 +14,12 @@
 import { useEffect, useRef } from 'react'
 import type { ChartConfiguration, ChartType } from 'chart.js'
 import { chartPalette } from '../lib/markdown/chart'
+import { chartIdentityPalette } from '../lib/markdown/chart/accent'
 import { useThemeDark } from '../lib/hooks'
 
 export interface ChartColors {
   palette: string[]
+  identities: string[]
   text: string
   grid: string
 }
@@ -51,6 +53,7 @@ export function ChartCanvas<K extends ChartType>({ height, label, build }: {
       const styles = getComputedStyle(document.documentElement)
       const colors: ChartColors = {
         palette: chartPalette(dark),
+        identities: chartIdentityPalette(dark),
         text: styles.getPropertyValue('--text-quaternary').trim() || '#888',
         grid: dark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)',
       }

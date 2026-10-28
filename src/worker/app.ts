@@ -66,6 +66,8 @@ import { toolsIdPhotoRoutes } from './routes/tools-id-photo'
 import { toolsShortlinksRoutes } from './routes/tools-shortlinks'
 import { toolsShortlinksRedirectRoutes } from './routes/tools-shortlinks-redirect'
 import { developmentDatabaseRoutes } from './routes/development-database'
+import { developmentXgetRoutes } from './routes/development-xget'
+import { isXgetProxyPath } from './development/xget/paths'
 import { calendarRoutes } from './routes/calendar'
 import { calendarIcsRoutes } from './routes/calendar-ics'
 import { calendarSubscriptionRoutes } from './routes/calendar-subscriptions'
@@ -94,6 +96,9 @@ export function createApp() {
     // A 1xx handshake response carries the socket, and Hono rebuilds the Response to
     // mutate its headers — which the Response constructor rejects below 200.
     if (c.res.status < 200) return
+    // The proxy answers with upstream bytes and its own CORS/cache/security headers. Rewriting
+    // them here would replace the engine's policy (and wrap every large download a second time).
+    if (isXgetProxyPath(c.req.path)) return
     const devDocument = import.meta.env?.DEV === true
       && (c.res.headers.get('content-type') ?? '').includes('text/html')
     for (const [name, value] of Object.entries(securityHeaders(c.req.url, {
@@ -226,6 +231,7 @@ export function createApp() {
   app.route('/api/tools/id-photo', toolsIdPhotoRoutes)
   app.route('/api/tools/shortlinks', toolsShortlinksRoutes)
   app.route('/api/development/database', developmentDatabaseRoutes)
+  app.route('/api/development/xget', developmentXgetRoutes)
   app.route('/api/assistant', assistantRoutes)
   app.route('/api/excalidraw/ai', aiProxyRoutes)
   app.route('/api/excalidraw/library', excalidrawLibraryRoutes)

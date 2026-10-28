@@ -19,6 +19,11 @@ import { ZH_CN_MUSIC } from './zh-CN-music';
 import { ZH_CN_TOOLS } from './zh-CN-tools';
 import { ZH_CN_CALENDAR } from './zh-CN-calendar';
 import { ZH_CN_DEVELOPMENT_DATABASE } from './zh-CN-development-database';
+import { ZH_CN_DEVELOPMENT_XGET_SHELL } from './zh-CN-development-xget-shell';
+import { ZH_CN_DEVELOPMENT_XGET_CORE } from './zh-CN-development-xget-core';
+import { ZH_CN_DEVELOPMENT_XGET_PLATFORMS } from './zh-CN-development-xget-platforms';
+import { ZH_CN_DEVELOPMENT_XGET_GUIDES } from './zh-CN-development-xget-guides';
+import { ZH_CN_DEVELOPMENT_XGET_SETTINGS } from './zh-CN-development-xget-settings';
 import { ZH_CN_INK } from './zh-CN-ink';
 import { ZH_CN_INK_ELEMENTS } from './zh-CN-ink-elements';
 import { ZH_CN_INK_SETTINGS } from './zh-CN-ink-settings';
@@ -10161,6 +10166,11 @@ console.log(\`Hello, \${name}!\`)
     ...ZH_CN_TOOLS,
     ...ZH_CN_CALENDAR,
     ...ZH_CN_DEVELOPMENT_DATABASE,
+    ...ZH_CN_DEVELOPMENT_XGET_SHELL,
+    ...ZH_CN_DEVELOPMENT_XGET_CORE,
+    ...ZH_CN_DEVELOPMENT_XGET_PLATFORMS,
+    ...ZH_CN_DEVELOPMENT_XGET_GUIDES,
+    ...ZH_CN_DEVELOPMENT_XGET_SETTINGS,
     ...ZH_CN_INK,
     ...ZH_CN_INK_ELEMENTS,
     ...ZH_CN_INK_SETTINGS,

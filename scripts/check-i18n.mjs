@@ -355,9 +355,19 @@ const cloudflareCatalogFiles = {
 const developmentCatalogFiles = {
     en: [
         [path.join(localeRoot, 'en-US-development-database.ts'), 'EN_US_DEVELOPMENT_DATABASE'],
+        [path.join(localeRoot, 'en-US-development-xget-shell.ts'), 'EN_US_DEVELOPMENT_XGET_SHELL'],
+        [path.join(localeRoot, 'en-US-development-xget-core.ts'), 'EN_US_DEVELOPMENT_XGET_CORE'],
+        [path.join(localeRoot, 'en-US-development-xget-platforms.ts'), 'EN_US_DEVELOPMENT_XGET_PLATFORMS'],
+        [path.join(localeRoot, 'en-US-development-xget-guides.ts'), 'EN_US_DEVELOPMENT_XGET_GUIDES'],
+        [path.join(localeRoot, 'en-US-development-xget-settings.ts'), 'EN_US_DEVELOPMENT_XGET_SETTINGS'],
     ],
     zh: [
         [path.join(localeRoot, 'zh-CN-development-database.ts'), 'ZH_CN_DEVELOPMENT_DATABASE'],
+        [path.join(localeRoot, 'zh-CN-development-xget-shell.ts'), 'ZH_CN_DEVELOPMENT_XGET_SHELL'],
+        [path.join(localeRoot, 'zh-CN-development-xget-core.ts'), 'ZH_CN_DEVELOPMENT_XGET_CORE'],
+        [path.join(localeRoot, 'zh-CN-development-xget-platforms.ts'), 'ZH_CN_DEVELOPMENT_XGET_PLATFORMS'],
+        [path.join(localeRoot, 'zh-CN-development-xget-guides.ts'), 'ZH_CN_DEVELOPMENT_XGET_GUIDES'],
+        [path.join(localeRoot, 'zh-CN-development-xget-settings.ts'), 'ZH_CN_DEVELOPMENT_XGET_SETTINGS'],
     ],
 };
 const catalogFragments = {

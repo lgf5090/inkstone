@@ -1,16 +1,20 @@
 import { PanelLeft, Terminal } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { useBreakpoint } from '../../lib/hooks'
+import { usePathname } from '../../lib/app-history'
 import { Drawer, Tooltip } from '../../components/overlay'
 import { IconButton } from '../../components/primitives'
 import { Resizer } from '../shell/Resizer'
 import { DevelopmentSidebar } from './DevelopmentSidebar'
 import { DatabaseApp } from './database/DatabaseApp'
-import { DEVELOPMENT_NAV_WIDTH, useDevelopmentStore } from './store'
+import { XgetApp } from './xget/XgetApp'
+import { DEVELOPMENT_NAV_WIDTH, developmentModuleForPath, useDevelopmentStore } from './store'
 
 export function DevelopmentApp() {
   const breakpoint = useBreakpoint()
   const isSmallScreen = breakpoint === 'mobile' || breakpoint === 'tablet'
+  const pathname = usePathname()
+  const moduleId = developmentModuleForPath(pathname)
   const navWidth = useDevelopmentStore((s) => s.navWidth)
   const navCollapsed = useDevelopmentStore((s) => s.navCollapsed)
   const navDrawerOpen = useDevelopmentStore((s) => s.navDrawerOpen)
@@ -35,7 +39,9 @@ export function DevelopmentApp() {
             <span className="truncate">{t('development.sidebar.title')}</span>
             <span className="font-normal text-[var(--text-tertiary)]">/</span>
             <span className="truncate text-[length:var(--text-13)] font-normal text-[var(--text-secondary)]">
-              {t('development.database.module_name')}
+              {moduleId === 'xget'
+                ? t('development.xget.module_name')
+                : t('development.database.module_name')}
             </span>
           </div>
         </header>
@@ -68,7 +74,7 @@ export function DevelopmentApp() {
         )}
 
         <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--bg-base)]">
-          <DatabaseApp />
+          {moduleId === 'xget' ? <XgetApp /> : <DatabaseApp />}
         </main>
       </div>
 
