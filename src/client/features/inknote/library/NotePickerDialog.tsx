@@ -7,6 +7,8 @@ import { cn } from '../../../lib/cn'
 import { Modal } from '../../../components/overlay'
 import { FilterInput } from '../../../components/FilterInput'
 import { compileQuery, queryKeeps } from '../../../lib/query-match'
+import { usePinyinVersion } from '../../../lib/pinyin'
+import { isImeComposing } from '../../../lib/ime'
 import { useInknoteStore } from '../store'
 
 const EMPTY_NOTES: InknoteNoteMeta[] = []
@@ -22,11 +24,12 @@ export function NotePickerDialog({ open, onClose, onPick, title, excludeIds }: {
   const notebooks = useInknoteStore((state) => state.library?.notebooks) ?? []
   const [text, setText] = useState('')
   const [active, setActive] = useState(0)
-  const query = useMemo(() => compileQuery(text), [text])
+  const pinyinVersion = usePinyinVersion()
+  const query = useMemo(() => compileQuery(text), [text, pinyinVersion])
   const excluded = useMemo(() => new Set(excludeIds ?? []), [excludeIds])
   const visible = useMemo(() => notes
     .filter((note) => !excluded.has(note.id) && queryKeeps(query, note.title))
-    .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt), [notes, excluded, query])
+    .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt), [notes, excluded, query, pinyinVersion])
 
   useEffect(() => {
     if (!open) return
@@ -42,6 +45,7 @@ export function NotePickerDialog({ open, onClose, onPick, title, excludeIds }: {
   }
 
   const move = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (isImeComposing(event)) return
     if (event.key === 'ArrowDown') { event.preventDefault(); setActive((value) => Math.min(visible.length - 1, value + 1)) }
     if (event.key === 'ArrowUp') { event.preventDefault(); setActive((value) => Math.max(0, value - 1)) }
     if (event.key === 'Enter') { event.preventDefault(); pick(visible[active]) }
