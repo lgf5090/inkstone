@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, CircleDot, 
 import type { GithubMirrorSource, GithubPrefs, GithubRepo, GithubTag, SavedGithubRepo } from '@shared/development/github/types'
 import { GITHUB_PER_PAGE, GITHUB_RANGE_OPTIONS, GITHUB_SORT_OPTIONS } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
+import { isImeComposing } from '../../../../lib/ime'
 import { cn } from '../../../../lib/cn'
 import { Button, IconButton, Spinner } from '../../../../components/primitives'
 import { Input } from '../../../../components/form'
@@ -122,7 +123,7 @@ export function RepoList({
               type="search"
               value={query}
               onChange={(event) => onQueryChange(event.target.value)}
-              onKeyDown={(event) => { if (event.key === 'Enter' && isExplore) { event.preventDefault(); onCommitSearch() } }}
+              onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter' && isExplore) { event.preventDefault(); onCommitSearch() } }}
               placeholder={isExplore ? t('development.github.repos.search_placeholder') : t('development.github.repos.filter_placeholder')}
               aria-label={t('development.github.repos.search')}
               className="h-8 pr-7 text-[length:var(--text-12)]"

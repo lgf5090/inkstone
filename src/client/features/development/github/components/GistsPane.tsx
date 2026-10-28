@@ -117,10 +117,10 @@ export function GistsPane({
     setQuery('')
   }
   const toggleExpand = (id: string) => setExpanded((previous) => { const next = new Set(previous); if (next.has(id)) next.delete(id); else next.add(id); return next })
-  const persist = (gist: SavedGist) => { void upsertGist({ ...gist, updatedAt: Date.now() }) }
-  const togglePin = (gist: SavedGist) => persist({ ...gist, pinned: !gist.pinned })
-  const toggleFav = (gist: SavedGist) => persist({ ...gist, favorited: !gist.favorited })
-  const toggleTag = (gist: SavedGist, tag: string) => persist({ ...gist, tagIds: gist.tagIds.includes(tag) ? gist.tagIds.filter((id) => id !== tag) : [...gist.tagIds, tag] })
+  const persist = (gist: SavedGist) => upsertGist({ ...gist, updatedAt: Date.now() })
+  const togglePin = (gist: SavedGist) => { void persist({ ...gist, pinned: !gist.pinned }) }
+  const toggleFav = (gist: SavedGist) => { void persist({ ...gist, favorited: !gist.favorited }) }
+  const toggleTag = (gist: SavedGist, tag: string) => { void persist({ ...gist, tagIds: gist.tagIds.includes(tag) ? gist.tagIds.filter((id) => id !== tag) : [...gist.tagIds, tag] }) }
   const updateNotes = (notes: string) => { if (selectedLocal) persist({ ...selectedLocal, notes }) }
   const saveLocal = async (gist: SavedGist) => {
     let data = gist.data
@@ -172,7 +172,7 @@ export function GistsPane({
       void remoteQuery.refetch()
     } catch (cause) { toast({ title: cause instanceof Error ? cause.message : t('development.github.gists.update_failed'), tone: 'danger' }) }
   }
-  const updateLocal = (gist: GistItem) => { if (selectedLocal) persist({ ...selectedLocal, description: gist.description || selectedLocal.description, url: gist.url || selectedLocal.url, data: gist }) }
+  const updateLocal = (gist: GistItem) => selectedLocal ? persist({ ...selectedLocal, description: gist.description || selectedLocal.description, url: gist.url || selectedLocal.url, data: gist }) : undefined
   const addTag = (name: string, color: string, parentId: string | null) => { const now = Date.now(); void upsertGistTag({ id: tagId(), name, color, parentId, sortOrder: gistTags.filter((tag) => tag.parentId === parentId).length, createdAt: now, updatedAt: now }) }
   const editTag = (id: string, patch: { name: string; color: string }) => { const existing = gistTags.find((tag) => tag.id === id); if (existing) void upsertGistTag({ ...existing, ...patch, updatedAt: Date.now() }) }
 

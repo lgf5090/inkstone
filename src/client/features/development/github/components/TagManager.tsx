@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Check, Pencil, Plus, Tag as TagIcon, Trash2, X } from 'lucide-react'
 import type { GithubTag } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
+import { isImeComposing } from '../../../../lib/ime'
 import { Button, IconButton } from '../../../../components/primitives'
 import { Input } from '../../../../components/form'
 import { Modal, confirm } from '../../../../components/overlay'
@@ -85,7 +86,7 @@ export function TagManager({
             <TagIcon size={14} /> {t('development.github.tags.create_new')}
           </h3>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={t('development.github.tags.name_placeholder')} className="h-8" onKeyDown={(event) => { if (event.key === 'Enter') add() }} />
+            <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={t('development.github.tags.name_placeholder')} className="h-8" onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter') add() }} />
             <SelectMenu value={parentId} options={parentOptions} onChange={setParentId} label={t('development.github.tags.top_level')} size="sm" />
           </div>
           <div className="mt-2">
@@ -113,7 +114,7 @@ export function TagManager({
                   <div key={tag.id} className="flex items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-3 py-2 text-[length:var(--text-12)]">
                     {editing ? (
                       <>
-                        <Input autoFocus value={editName} onChange={(event) => setEditName(event.target.value)} className="h-7 flex-1" onKeyDown={(event) => { if (event.key === 'Enter') saveEdit(); if (event.key === 'Escape') setEditingId(null) }} />
+                        <Input autoFocus value={editName} onChange={(event) => setEditName(event.target.value)} className="h-7 flex-1" onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter') saveEdit(); if (event.key === 'Escape') setEditingId(null) }} />
                         <TagColorPicker value={editColor} onChange={setEditColor} />
                         <IconButton label={t('common.save')} size="sm" onClick={saveEdit}><Check size={14} /></IconButton>
                         <IconButton label={t('common.cancel')} size="sm" onClick={() => setEditingId(null)}><X size={14} /></IconButton>

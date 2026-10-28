@@ -54,7 +54,9 @@ let bootstrapSequence = 0
 function enqueue(key: string, task: () => Promise<void>): Promise<void> {
   const previous = writeQueues.get(key) ?? Promise.resolve()
   const next = previous.then(task, task)
-  const tracked = next.catch(() => undefined)
+  const tracked = next.catch((error) => {
+    console.warn('[inkstone] GitHub write queue failed:', error)
+  })
   writeQueues.set(key, tracked)
   void tracked.finally(() => {
     if (writeQueues.get(key) === tracked) writeQueues.delete(key)

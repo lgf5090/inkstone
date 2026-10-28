@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Check, Globe, Plus, Trash2 } from 'lucide-react'
 import type { GithubMirrorSource } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
+import { isImeComposing } from '../../../../lib/ime'
 import { Button, IconButton } from '../../../../components/primitives'
 import { Input, Switch } from '../../../../components/form'
 import { Modal } from '../../../../components/overlay'
@@ -80,7 +81,7 @@ export function MirrorDialog({
         <div className="space-y-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] p-3">
           <p className="text-[length:var(--text-12)] font-medium">{t('development.github.mirrors.add_new')}</p>
           <Input value={name} onChange={(event) => { setName(event.target.value); setError(null) }} placeholder={t('development.github.mirrors.name_placeholder')} className="h-8" />
-          <Input value={url} onChange={(event) => { setUrl(event.target.value); setError(null) }} placeholder={t('development.github.mirrors.url_placeholder')} className="h-8" onKeyDown={(event) => { if (event.key === 'Enter') add() }} />
+          <Input value={url} onChange={(event) => { setUrl(event.target.value); setError(null) }} placeholder={t('development.github.mirrors.url_placeholder')} className="h-8" onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter') add() }} />
           {error && <p className="text-[length:var(--text-11)] text-[var(--danger)]" role="alert">{error}</p>}
           <Button size="sm" onClick={add} disabled={!name.trim() || !url.trim()}>
             <Plus size={13} /> {t('development.github.mirrors.add')}

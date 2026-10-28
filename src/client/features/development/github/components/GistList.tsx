@@ -3,6 +3,7 @@ import { Calendar, Check, ChevronLeft, ChevronRight, Download, FileCode, Globe, 
 import type { GithubTag, GistPrefs, SavedGist } from '@shared/development/github/types'
 import { GIST_SORT_OPTIONS } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
+import { isImeComposing } from '../../../../lib/ime'
 import { cn } from '../../../../lib/cn'
 import { copyText } from '../../../../lib/clipboard'
 import { useUi } from '../../../../store/ui'
@@ -23,7 +24,7 @@ function GistRow({ gist, tags, selected, checked, remote, savedRemote, onCheck, 
     toast({ title: ok ? t('development.github.gists.url_copied') : t('development.github.common.copy_failed'), tone: ok ? 'success' : 'danger' })
   }
   return (
-    <li role="option" aria-selected={selected} tabIndex={0} data-slot="github-gist-row" onClick={onSelect} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect() } }} className={cn('group cursor-pointer border-l-2 px-3 py-3 transition-colors hover:bg-[var(--bg-hover)] focus-visible:bg-[var(--bg-hover)] focus-visible:outline-none', selected ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-transparent')}>
+    <li role="option" aria-selected={selected} tabIndex={0} data-slot="github-gist-row" onClick={onSelect} onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect() } }} className={cn('group cursor-pointer border-l-2 px-3 py-3 transition-colors hover:bg-[var(--bg-hover)] focus-visible:bg-[var(--bg-hover)] focus-visible:outline-none', selected ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-transparent')}>
       <div className="flex gap-2">
         {!remote && <Checkbox checked={checked} onChange={(next) => onCheck(gist.id, next)} ariaLabel={t('development.github.gists.select_all')} className="mt-1 shrink-0" />}
         <div className="min-w-0 flex-1">
@@ -62,7 +63,7 @@ function GistCard({ gist, tags, selected, checked, onCheck, onSelect, onTogglePi
   const assigned = tags.filter((tag) => gist.tagIds.includes(tag.id))
   const first = gist.data.files[0]
   return (
-    <div role="option" aria-selected={selected} tabIndex={0} data-slot="github-gist-card" onClick={onSelect} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect() } }} className={cn('group flex cursor-pointer flex-col rounded-[var(--r-lg)] border p-3 transition-all focus-visible:outline-none', selected ? 'border-[var(--accent)] ring-1 ring-[var(--accent)]' : 'border-[var(--border-subtle)] hover:shadow-[var(--shadow-pop)]')}>
+    <div role="option" aria-selected={selected} tabIndex={0} data-slot="github-gist-card" onClick={onSelect} onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect() } }} className={cn('group flex cursor-pointer flex-col rounded-[var(--r-lg)] border p-3 transition-all focus-visible:outline-none', selected ? 'border-[var(--accent)] ring-1 ring-[var(--accent)]' : 'border-[var(--border-subtle)] hover:shadow-[var(--shadow-pop)]')}>
       <div className="flex items-center gap-2">
         <Checkbox checked={checked} onChange={(next) => onCheck(gist.id, next)} ariaLabel={t('development.github.gists.select_all')} className="shrink-0" />
         {gist.data.isPublic ? <Globe size={13} className="shrink-0 text-[var(--success)]" /> : <Lock size={13} className="shrink-0 text-[var(--warning)]" />}

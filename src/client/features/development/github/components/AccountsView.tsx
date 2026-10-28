@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { CheckCircle2, ExternalLink, Eye, EyeOff, KeyRound, Loader2, ShieldCheck, Trash2, UserRound } from 'lucide-react'
 import type { GithubAccountView } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
+import { isImeComposing } from '../../../../lib/ime'
 import { Button, IconButton } from '../../../../components/primitives'
 import { Input } from '../../../../components/form'
 import { Empty } from '../../../../components/feedback'
@@ -110,7 +111,7 @@ export function AccountsView({
             type={showToken ? 'text' : 'password'}
             value={token}
             onChange={(event) => { setToken(event.target.value); setError(null) }}
-            onKeyDown={(event) => { if (event.key === 'Enter' && token.trim() && !pending) { event.preventDefault(); void add() } }}
+            onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter' && token.trim() && !pending) { event.preventDefault(); void add() } }}
             placeholder={t('development.github.accounts.token_placeholder')}
             className="h-9 font-mono text-[length:var(--text-12)]"
             leading={<KeyRound size={13} />}

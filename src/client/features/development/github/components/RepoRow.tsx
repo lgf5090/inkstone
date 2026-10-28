@@ -2,6 +2,7 @@ import { memo, useMemo, type KeyboardEvent } from 'react'
 import { Archive, Calendar, CircleDot, ExternalLink, GitFork, Pin, Scale, Star } from 'lucide-react'
 import type { GithubRepo, GithubTag, SavedGithubRepo } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
+import { isImeComposing } from '../../../../lib/ime'
 import { cn } from '../../../../lib/cn'
 import { copyText } from '../../../../lib/clipboard'
 import { useUi } from '../../../../store/ui'
@@ -42,6 +43,7 @@ export const RepoRow = memo(function RepoRow({
     else toast({ title: t('development.github.common.copy_failed'), tone: 'danger' })
   }
   const onKeyDown = (event: KeyboardEvent<HTMLLIElement>) => {
+    if (isImeComposing(event)) return
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault()
       onSelect(repo)
