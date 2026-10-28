@@ -355,9 +355,11 @@ const cloudflareCatalogFiles = {
 const developmentCatalogFiles = {
     en: [
         [path.join(localeRoot, 'en-US-development-database.ts'), 'EN_US_DEVELOPMENT_DATABASE'],
+        [path.join(localeRoot, 'en-US-development-xget-shell.ts'), 'EN_US_DEVELOPMENT_XGET_SHELL'],
     ],
     zh: [
         [path.join(localeRoot, 'zh-CN-development-database.ts'), 'ZH_CN_DEVELOPMENT_DATABASE'],
+        [path.join(localeRoot, 'zh-CN-development-xget-shell.ts'), 'ZH_CN_DEVELOPMENT_XGET_SHELL'],
     ],
 };
 const catalogFragments = {

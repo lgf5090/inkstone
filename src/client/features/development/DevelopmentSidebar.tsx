@@ -1,10 +1,10 @@
-import { Database, PanelLeftClose, PanelLeft, Terminal } from 'lucide-react'
+import { Database, PanelLeftClose, PanelLeft, Terminal, Zap } from 'lucide-react'
 import { usePathname, navigateToPath } from '../../lib/app-history'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { IconButton } from '../../components/primitives'
 import { Tooltip } from '../../components/overlay'
-import { useDevelopmentStore } from './store'
+import { developmentModuleForPath, useDevelopmentStore } from './store'
 
 interface DevelopmentSidebarProps {
   collapsed?: boolean
@@ -20,6 +20,12 @@ const NAV_ITEMS = [
     labelKey: 'development.database.module_name',
     icon: Database,
   },
+  {
+    id: 'xget',
+    path: '/development/xget',
+    labelKey: 'development.xget.module_name',
+    icon: Zap,
+  },
 ] as const
 
 export function DevelopmentSidebar({
@@ -30,7 +36,7 @@ export function DevelopmentSidebar({
 }: DevelopmentSidebarProps) {
   const pathname = usePathname()
   const navWidth = useDevelopmentStore((state) => state.navWidth)
-  const activeId = pathname.startsWith('/development/database') ? 'database' : 'database'
+  const activeId = developmentModuleForPath(pathname)
 
   const go = (path: string) => {
     navigateToPath(path)

@@ -30550,6 +30550,8 @@ const allowed = new Map([
     "// answered as \"the share of a note called folders\" rather than as the folder list.",
     "// The Cloudflare app's own API; the prefix keeps every one of its ~150 endpoints out of the",
     "// notebook's namespace.",
+    "// The proxy answers with upstream bytes and its own CORS/cache/security headers. Rewriting",
+    "// them here would replace the engine's policy (and wrap every large download a second time).",
   ]],
   ["src/worker/assistant/attachments.ts", [
     "/**\n * The token each attachment line starts with.\n *\n * It is English on purpose: this block is model-facing prompt text, never the reader's UI, and the\n * reader's own labels come from the locale catalog the composer draws.\n */",
@@ -34464,6 +34466,7 @@ const allowed = new Map([
     "// a provider snapshot backfills them without touching the reader's edited metadata.",
     "// The development database Studio's tables: connections, saved queries, history, exports and",
     "// settings. Numbered after the Cloudflare and music migrations that were already on test.",
+    "// The Xget proxy's instance-wide settings row and its day/platform status counts.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",

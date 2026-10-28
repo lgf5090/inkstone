@@ -19,6 +19,7 @@ import { EN_US_MUSIC } from './en-US-music';
 import { EN_US_TOOLS } from './en-US-tools';
 import { EN_US_CALENDAR } from './en-US-calendar';
 import { EN_US_DEVELOPMENT_DATABASE } from './en-US-development-database';
+import { EN_US_DEVELOPMENT_XGET_SHELL } from './en-US-development-xget-shell';
 import { EN_US_INK } from './en-US-ink';
 import { EN_US_INK_ELEMENTS } from './en-US-ink-elements';
 import { EN_US_INK_SETTINGS } from './en-US-ink-settings';
@@ -10160,6 +10161,7 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     ...EN_US_TOOLS,
     ...EN_US_CALENDAR,
     ...EN_US_DEVELOPMENT_DATABASE,
+    ...EN_US_DEVELOPMENT_XGET_SHELL,
     ...EN_US_INK,
     ...EN_US_INK_ELEMENTS,
     ...EN_US_INK_SETTINGS,

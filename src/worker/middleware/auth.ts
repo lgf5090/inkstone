@@ -12,6 +12,7 @@ import { MEMOS_API_PREFIX } from '@shared/memos/constants'
 import { destroySession, hashToken, isSessionToken, renewSession } from '../lib/session-store'
 import { ApiError } from '../lib/errors'
 import { memoPatFromAuthorization } from '../memos/tokens'
+import { isXgetProxyPath } from '../development/xget/paths'
 import type { AppBindings, Variables } from '../env'
 
 interface UserRow {
@@ -134,7 +135,7 @@ function isMemoPatRequest(c: Context<AppBindings>): boolean {
 export const requireClientHeader = createMiddleware<AppBindings>(async (c, next) => {
   const method = c.req.method.toUpperCase()
   if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
-    if (!isMemoPatRequest(c) && c.req.header(CLIENT_HEADER) !== '1') {
+    if (!isXgetProxyPath(c.req.path) && !isMemoPatRequest(c) && c.req.header(CLIENT_HEADER) !== '1') {
       throw new ApiError(403, 'forbidden', 'Missing client identification header. Refresh and try again')
     }
   }
