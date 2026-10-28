@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isHttpUrl } from './url'
 import {
   MAX_BATCH_IDS,
   MAX_GIST_DATA_BYTES,
@@ -14,6 +15,8 @@ import {
 } from './limits'
 
 const HexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/)
+const HttpUrl = z.string().max(2048).refine((value) => value === '' || isHttpUrl(value), 'URL must use http or https')
+const NullableHttpUrl = z.string().max(2048).refine(isHttpUrl, 'URL must use http or https').nullable()
 
 export const GithubTagInputSchema = z.object({
   name: z.string().trim().min(1).max(MAX_TAG_NAME),
@@ -25,16 +28,16 @@ export const GithubTagInputSchema = z.object({
 
 const RepoOwnerSchema = z.object({
   login: z.string().max(100),
-  avatarUrl: z.string().max(2048),
+  avatarUrl: HttpUrl,
 })
 
 export const GithubRepoSnapshotSchema = z.object({
   id: z.number().int().nonnegative(),
   name: z.string().max(200),
   fullName: z.string().max(300),
-  url: z.string().max(2048),
+  url: HttpUrl,
   description: z.string().max(8000).nullable(),
-  homepage: z.string().max(2048).nullable(),
+  homepage: NullableHttpUrl,
   owner: RepoOwnerSchema,
   language: z.string().max(100).nullable(),
   stargazersCount: z.number().int().nonnegative(),
@@ -59,7 +62,7 @@ export const GistFileSchema = z.object({
 export const GistItemSchema = z.object({
   id: z.string().min(1).max(100),
   description: z.string().max(8000),
-  url: z.string().max(2048),
+  url: HttpUrl,
   isPublic: z.boolean(),
   owner: RepoOwnerSchema.nullable(),
   files: z.array(GistFileSchema).max(MAX_GIST_FILES),
@@ -70,7 +73,7 @@ export const GistItemSchema = z.object({
 
 export const SavedGithubRepoInputSchema = z.object({
   fullName: z.string().trim().min(3).max(300),
-  url: z.string().max(2048),
+  url: HttpUrl,
   data: GithubRepoSnapshotSchema,
   tagIds: z.array(z.string().min(1).max(100)).max(MAX_TAG_IDS).default([]),
   pinned: z.boolean().default(false),
@@ -85,7 +88,7 @@ export const SavedGithubRepoInputSchema = z.object({
 
 export const SavedGistInputSchema = z.object({
   description: z.string().max(8000).default(''),
-  url: z.string().max(2048).default(''),
+  url: HttpUrl.default(''),
   data: GistItemSchema,
   tagIds: z.array(z.string().min(1).max(100)).max(MAX_TAG_IDS).default([]),
   pinned: z.boolean().default(false),

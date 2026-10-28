@@ -47,7 +47,14 @@ export const GistSidebar = memo(function GistSidebar({ tags, savedGists, selecte
   const tree = useMemo(() => buildTagTree(tags), [tags])
   const pinned = useMemo(() => savedGists.filter((gist) => gist.pinned).length, [savedGists])
   const favorite = useMemo(() => savedGists.filter((gist) => gist.favorited).length, [savedGists])
-  const countForTag = (id: string) => savedGists.filter((gist) => gist.tagIds.includes(id)).length
+  const tagCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const gist of savedGists) {
+      for (const tagId of gist.tagIds) counts.set(tagId, (counts.get(tagId) ?? 0) + 1)
+    }
+    return counts
+  }, [savedGists])
+  const countForTag = (id: string) => tagCounts.get(id) ?? 0
   return (
     <aside className="flex h-full min-w-0 flex-col overflow-hidden bg-[var(--bg-sunken)]" data-slot="gist-sidebar">
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">

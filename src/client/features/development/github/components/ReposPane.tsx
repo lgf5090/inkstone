@@ -103,7 +103,7 @@ export function ReposPane({
 
   const saveRepo = (repo: GithubRepo, patch: Partial<SavedGithubRepo>) => {
     const id = String(repo.id)
-    const existing = repos.find((entry) => entry.id === id)
+    const existing = useGithubStore.getState().repos.find((entry) => entry.id === id)
     const now = Date.now()
     const next: SavedGithubRepo = existing
       ? { ...existing, ...patch, updatedAt: now }
@@ -112,17 +112,17 @@ export function ReposPane({
   }
 
   const togglePin = (repo: GithubRepo) => {
-    const existing = repos.find((entry) => entry.id === String(repo.id))
+    const existing = useGithubStore.getState().repos.find((entry) => entry.id === String(repo.id))
     saveRepo(repo, { pinned: !existing?.pinned })
   }
 
   const toggleFav = (repo: GithubRepo) => {
-    const existing = repos.find((entry) => entry.id === String(repo.id))
+    const existing = useGithubStore.getState().repos.find((entry) => entry.id === String(repo.id))
     saveRepo(repo, { favorited: !existing?.favorited })
   }
 
   const toggleTag = (repo: GithubRepo, tag: string) => {
-    const existing = repos.find((entry) => entry.id === String(repo.id))
+    const existing = useGithubStore.getState().repos.find((entry) => entry.id === String(repo.id))
     const tagIds = existing?.tagIds ?? []
     saveRepo(repo, { tagIds: tagIds.includes(tag) ? tagIds.filter((id) => id !== tag) : [...tagIds, tag] })
   }

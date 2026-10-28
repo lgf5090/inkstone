@@ -10,6 +10,7 @@ import type { GistFile, GistItem, GistListResult } from '@shared/development/git
 import { utf8ByteLength } from '@shared/text-utils'
 import { ApiError } from '../../lib/errors'
 import { githubJson } from './github-http'
+import { readHttpUrl } from '@shared/development/github/url'
 
 const GIST_ID_PATTERN = /^[a-f0-9]{8,64}$/
 const GITHUB_USERNAME_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/
@@ -75,12 +76,12 @@ export function normalizeGist(value: unknown): GistItem {
   return {
     id: readString(raw.id, 100),
     description: readString(raw.description, 8000),
-    url: readString(raw.html_url, 2048),
+    url: readHttpUrl(raw.html_url, 2048),
     isPublic: raw.public !== false,
     owner: ownerRaw
       ? {
           login: readString(ownerRaw.login, 100),
-          avatarUrl: readString(ownerRaw.avatar_url, 2048),
+          avatarUrl: readHttpUrl(ownerRaw.avatar_url, 2048),
         }
       : null,
     files,

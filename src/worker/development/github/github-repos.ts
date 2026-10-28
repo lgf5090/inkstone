@@ -16,6 +16,7 @@ import type {
 } from '@shared/development/github/types'
 import { ApiError } from '../../lib/errors'
 import { githubJson, githubText } from './github-http'
+import { readHttpUrl, readNullableHttpUrl } from '@shared/development/github/url'
 
 const REPO_SEGMENT_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,99})$/
 
@@ -75,12 +76,12 @@ export function normalizeRepo(value: unknown): GithubRepo {
     id: readNumber(raw.id),
     name: readString(raw.name, 200),
     fullName: readString(raw.full_name, 300),
-    url: readString(raw.html_url, 2048),
+    url: readHttpUrl(raw.html_url, 2048),
     description: readNullableString(raw.description, 8000),
-    homepage: readNullableString(raw.homepage, 2048),
+    homepage: readNullableHttpUrl(raw.homepage, 2048),
     owner: {
       login: readString(owner.login, 100),
-      avatarUrl: readString(owner.avatar_url, 2048),
+      avatarUrl: readHttpUrl(owner.avatar_url, 2048),
     },
     language: readNullableString(raw.language, 100),
     stargazersCount: readNumber(raw.stargazers_count),
@@ -169,7 +170,7 @@ function normalizeAsset(value: unknown): GithubReleaseAsset {
     label: readNullableString(raw.label, 200),
     contentType: readString(raw.content_type, 200) || 'application/octet-stream',
     size: readNumber(raw.size),
-    downloadUrl: readString(raw.browser_download_url, 2048),
+    downloadUrl: readHttpUrl(raw.browser_download_url, 2048),
   }
 }
 
@@ -182,7 +183,7 @@ function normalizeRelease(value: unknown, index: number): GithubRelease {
     isPrerelease: raw.prerelease === true,
     isLatest: index === 0,
     publishedAt: readString(raw.published_at ?? raw.created_at, 64),
-    htmlUrl: readString(raw.html_url, 2048),
+    htmlUrl: readHttpUrl(raw.html_url, 2048),
     body: readNullableString(raw.body, 40000),
     assets: Array.isArray(raw.assets) ? raw.assets.map((asset) => normalizeAsset(asset)) : [],
   }

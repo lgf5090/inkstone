@@ -56,6 +56,44 @@ describe('GitHub README rendering', () => {
     expect(link).not.toContain('data:text/html')
   })
 
+  it('resolves images inside raw HTML and preserves GitHub layout attributes', () => {
+    const html = renderGithubReadme([
+      '<p align="center">',
+      '  <a href="docs/guide.md"><img src="assets/hero.svg" alt="Hero" width="100%"></a>',
+      '</p>',
+      '<table><tr><td width="33%" valign="top"><h3>Feature</h3></td></tr></table>',
+    ].join('\n'), OPTIONS)
+    expect(html).toContain('src="https://github.com/acme/repo/raw/main/assets/hero.svg"')
+    expect(html).toContain('href="https://github.com/acme/repo/blob/main/docs/guide.md"')
+    expect(html).toContain('align="center"')
+    expect(html).toContain('width="100%"')
+    expect(html).toContain('width="33%"')
+    expect(html).toContain('valign="top"')
+  })
+
+  it('adds GitHub-style heading ids so README anchors resolve', () => {
+    const html = renderGithubReadme('## Quick start\n\n[Jump](#quick-start)', OPTIONS)
+    expect(html).toContain('<h2 id="quick-start">Quick start</h2>')
+    expect(html).toContain('href="#quick-start"')
+    const duplicate = renderGithubReadme('## Same\n\n## Same', OPTIONS)
+    expect(duplicate).toContain('<h2 id="same">')
+    expect(duplicate).toContain('<h2 id="same-1">')
+  })
+
+  it('drops arbitrary classes that could borrow app styles but keeps code and table classes', () => {
+    const html = renderGithubReadme([
+      '<div class="fixed inset-0 z-[9999]">overlay</div>',
+      '',
+      '| A | B |\n| --- | --- |\n| 1 | 2 |',
+      '',
+      '```ts\nconst value = 1\n```',
+    ].join('\n'), OPTIONS)
+    expect(html).not.toContain('fixed')
+    expect(html).not.toContain('inset-0')
+    expect(html).toContain('class="github-md-table"')
+    expect(html).toContain('class="language-ts"')
+  })
+
   it('keeps the code fence language class', () => {
     const html = renderGithubReadme('```ts\nconst value = 1\n```', OPTIONS)
     expect(html).toContain('<code class="language-ts">')

@@ -5,6 +5,7 @@ import {
 } from '@shared/development/github/limits'
 import { ApiError } from '../../lib/errors'
 import { readStreamTextWithinLimit } from '../../lib/request'
+import { readHttpUrl } from '@shared/development/github/url'
 
 export const GITHUB_API = 'https://api.github.com'
 export const GITHUB_USER_AGENT = 'inkstone-GitHub/1.0'
@@ -199,6 +200,6 @@ export async function fetchGithubUser(token: string): Promise<GithubUser> {
   }
   return {
     login,
-    avatarUrl: typeof record.avatar_url === 'string' ? record.avatar_url : '',
+    avatarUrl: readHttpUrl(record.avatar_url, 2048),
   }
 }

@@ -1,13 +1,20 @@
 .github-readme {
   max-width: none;
   padding-block: 0;
-  font-size: var(--text-12);
+  font-size: var(--text-13);
   line-height: 1.65;
 }
 
 .github-readme img {
+  display: inline-block;
   max-width: 100%;
   height: auto;
+  vertical-align: middle;
+}
+
+.github-readme [align='center'],
+.github-readme center {
+  text-align: center;
 }
 
 .github-readme pre {
@@ -18,9 +25,25 @@
 }
 
 .github-readme table {
-  display: block;
-  max-width: 100%;
-  overflow-x: auto;
+  display: table;
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.github-readme th,
+.github-readme td {
+  padding: 6px 13px;
+  vertical-align: top;
+}
+
+.github-readme table.github-md-table th,
+.github-readme table.github-md-table td {
+  border: 1px solid var(--border-subtle);
+}
+
+.github-readme table.github-md-table th {
+  background: var(--bg-inset);
+  text-align: left;
 }
 
 .github-readme h1,

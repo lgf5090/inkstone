@@ -13,19 +13,19 @@ const ALLOWED_TAGS = [
   'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'colgroup',
   'a', 'span', 'strong', 'em', 'b', 'i', 'u', 'del', 'ins', 's', 'sub', 'sup',
   'mark', 'kbd', 'abbr', 'cite', 'q', 'small', 'details', 'summary', 'figure',
-  'figcaption', 'dl', 'dt', 'dd', 'ruby', 'rt', 'rp', 'img',
+  'figcaption', 'dl', 'dt', 'dd', 'ruby', 'rt', 'rp', 'img', 'center',
 ]
 
 const ALLOWED_ATTR = [
   'class', 'id', 'title', 'alt', 'href', 'target', 'rel', 'src', 'width',
-  'height', 'loading', 'referrerpolicy', 'align', 'colspan', 'rowspan', 'start',
+  'height', 'loading', 'referrerpolicy', 'align', 'valign', 'colspan', 'rowspan', 'start',
   'type', 'value', 'open', 'dir', 'lang',
 ]
 
 const FORBID_TAGS = ['script', 'style', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'link', 'meta', 'base']
 const FORBID_ATTR = ['style', 'srcset', 'sizes', 'formaction']
-const ALLOWED_URI = /^(?:(?:https?|mailto|tel):|#|data:image\/)/i
 const EXTERNAL_URL = /^(?:https?:|mailto:|tel:)/i
+const SAFE_CLASS = /^(?:language-[A-Za-z0-9+#._-]+|github-md-table)$/
 
 function isExternalUrl(value: string): boolean {
   return EXTERNAL_URL.test(value.trim())
@@ -64,6 +64,36 @@ function resolveUrl(rawUrl: string, options: ReadmeRenderOptions, kind: UrlKind)
   return `https://github.com/${options.fullName}/${segment}/${options.defaultBranch}/${relative}${suffix}`
 }
 
+function slugifyHeading(value: string): string {
+  const slug = value
+    .toLowerCase()
+    .trim()
+    .replace(/[^\p{L}\p{N}\s_-]/gu, '')
+    .replace(/\s+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  return slug || 'section'
+}
+
+function assignHeadingIds(template: HTMLTemplateElement): void {
+  const used = new Set<string>()
+  for (const heading of Array.from(template.content.querySelectorAll('h1, h2, h3, h4, h5, h6'))) {
+    const existing = heading.getAttribute('id')
+    if (existing) {
+      used.add(existing)
+      continue
+    }
+    const base = slugifyHeading(heading.textContent ?? '')
+    let slug = base
+    let suffix = 1
+    while (used.has(slug)) {
+      slug = `${base}-${suffix}`
+      suffix += 1
+    }
+    used.add(slug)
+    heading.setAttribute('id', slug)
+  }
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -92,6 +122,11 @@ function renderMarkdown(md: string, options: ReadmeRenderOptions): string {
     return self.renderToken(tokens, index, renderOptions)
   }
 
+  instance.renderer.rules.table_open = (tokens, index, renderOptions, _env, self) => {
+    tokens[index]!.attrJoin('class', 'github-md-table')
+    return self.renderToken(tokens, index, renderOptions)
+  }
+
   instance.renderer.rules.image = (tokens, index, renderOptions, _env, self) => {
     const token = tokens[index]!
     const resolved = resolveUrl(token.attrGet('src') ?? '', options, 'image')
@@ -105,11 +140,38 @@ function renderMarkdown(md: string, options: ReadmeRenderOptions): string {
   return instance.render(md)
 }
 
+function resolveHtmlUrls(html: string, options: ReadmeRenderOptions): string {
+  if (typeof document === 'undefined') return html
+  const template = document.createElement('template')
+  template.innerHTML = html
+  for (const element of Array.from(template.content.querySelectorAll('a[href], img[src]'))) {
+    const tag = element.tagName.toLowerCase()
+    const attribute = tag === 'a' ? 'href' : 'src'
+    const value = element.getAttribute(attribute)
+    if (value === null) continue
+    const resolved = resolveUrl(value, options, tag === 'a' ? 'link' : 'image')
+    if (resolved === null || (tag === 'a' && /^data:/i.test(resolved))) {
+      element.removeAttribute(attribute)
+      continue
+    }
+    element.setAttribute(attribute, resolved)
+    if (tag === 'a' && isExternalUrl(resolved)) {
+      element.setAttribute('target', '_blank')
+      element.setAttribute('rel', 'noopener noreferrer')
+    }
+    if (tag === 'img') {
+      element.setAttribute('loading', 'lazy')
+      element.setAttribute('referrerpolicy', 'no-referrer')
+    }
+  }
+  return template.innerHTML
+}
+
 function sanitizeHtml(html: string, options: ReadmeRenderOptions): string {
-  const clean = DOMPurify.sanitize(html, {
+  const resolved = resolveHtmlUrls(html, options)
+  const clean = DOMPurify.sanitize(resolved, {
     ALLOWED_TAGS,
     ALLOWED_ATTR,
-    ALLOWED_URI_REGEXP: ALLOWED_URI,
     FORBID_TAGS,
     FORBID_ATTR,
     KEEP_CONTENT: true,
@@ -122,6 +184,12 @@ function sanitizeHtml(html: string, options: ReadmeRenderOptions): string {
     const tag = element.tagName.toLowerCase()
     for (const attribute of Array.from(element.attributes)) {
       if (attribute.name === 'style' || attribute.name.startsWith('on')) element.removeAttribute(attribute.name)
+    }
+    const className = element.getAttribute('class')
+    if (className !== null) {
+      const safe = className.split(/\s+/).filter((name) => SAFE_CLASS.test(name))
+      if (safe.length > 0) element.setAttribute('class', safe.join(' '))
+      else element.removeAttribute('class')
     }
     if (tag === 'a') {
       const href = element.getAttribute('href')
@@ -148,6 +216,7 @@ function sanitizeHtml(html: string, options: ReadmeRenderOptions): string {
     }
   }
 
+  assignHeadingIds(template)
   return template.innerHTML
 }
 

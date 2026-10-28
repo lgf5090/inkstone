@@ -118,10 +118,11 @@ export function GistsPane({
   }
   const toggleExpand = (id: string) => setExpanded((previous) => { const next = new Set(previous); if (next.has(id)) next.delete(id); else next.add(id); return next })
   const persist = (gist: SavedGist) => upsertGist({ ...gist, updatedAt: Date.now() })
-  const togglePin = (gist: SavedGist) => { void persist({ ...gist, pinned: !gist.pinned }) }
-  const toggleFav = (gist: SavedGist) => { void persist({ ...gist, favorited: !gist.favorited }) }
-  const toggleTag = (gist: SavedGist, tag: string) => { void persist({ ...gist, tagIds: gist.tagIds.includes(tag) ? gist.tagIds.filter((id) => id !== tag) : [...gist.tagIds, tag] }) }
-  const updateNotes = (notes: string) => { if (selectedLocal) persist({ ...selectedLocal, notes }) }
+  const currentGist = (gist: SavedGist) => useGithubStore.getState().gists.find((entry) => entry.id === gist.id) ?? gist
+  const togglePin = (gist: SavedGist) => { const current = currentGist(gist); void persist({ ...current, pinned: !current.pinned }) }
+  const toggleFav = (gist: SavedGist) => { const current = currentGist(gist); void persist({ ...current, favorited: !current.favorited }) }
+  const toggleTag = (gist: SavedGist, tag: string) => { const current = currentGist(gist); void persist({ ...current, tagIds: current.tagIds.includes(tag) ? current.tagIds.filter((id) => id !== tag) : [...current.tagIds, tag] }) }
+  const updateNotes = (notes: string) => { const current = useGithubStore.getState().gists.find((entry) => entry.id === selectedGistId); if (current) void persist({ ...current, notes }) }
   const saveLocal = async (gist: SavedGist) => {
     let data = gist.data
     if (data.files.some((file) => !file.content && file.size > 0)) {
@@ -173,7 +174,11 @@ export function GistsPane({
       void remoteDetail.refetch()
     } catch (cause) { toast({ title: cause instanceof Error ? cause.message : t('development.github.gists.update_failed'), tone: 'danger' }) }
   }
-  const updateLocal = (gist: GistItem) => selectedLocal ? persist({ ...selectedLocal, description: gist.description || selectedLocal.description, url: gist.url || selectedLocal.url, data: gist }) : undefined
+  const updateLocal = (gist: GistItem) => {
+    const current = useGithubStore.getState().gists.find((entry) => entry.id === selectedGistId)
+    if (!current) return undefined
+    return persist({ ...current, description: gist.description || current.description, url: gist.url || current.url, data: gist })
+  }
   const addTag = (name: string, color: string, parentId: string | null) => { const now = Date.now(); void upsertGistTag({ id: tagId(), name, color, parentId, sortOrder: gistTags.filter((tag) => tag.parentId === parentId).length, createdAt: now, updatedAt: now }) }
   const editTag = (id: string, patch: { name: string; color: string }) => { const existing = gistTags.find((tag) => tag.id === id); if (existing) void upsertGistTag({ ...existing, ...patch, updatedAt: Date.now() }) }
 
@@ -228,7 +233,7 @@ export function GistsPane({
             detailDisabled={detailDisabled}
           />
         )}
-        detail={<GistDetail gist={detailGist} notes={remote ? '' : selectedLocal?.notes ?? ''} readOnly={remote ? !canEditRemote : false} saving={false} exportsEnabled={exportsEnabled} onUpdateNotes={remote ? undefined : updateNotes} onUpdateGist={remote ? updateRemote : updateLocal} onDeleteGist={(id) => void deleteOne(id)} />}
+        detail={<GistDetail gist={detailGist} notes={remote ? '' : selectedLocal?.notes ?? ''} readOnly={remote ? !canEditRemote : false} saving={false} exportsEnabled={exportsEnabled} exportable={!remote} onUpdateNotes={remote ? undefined : updateNotes} onUpdateGist={remote ? updateRemote : updateLocal} onDeleteGist={(id) => void deleteOne(id)} />}
       />
       <TagManager open={tagManagerOpen} onClose={() => setTagManagerOpen(false)} tags={gistTags} title={t('development.github.tags.manage_gist_title')} description={t('development.github.tags.manage_gist_desc')} onAdd={addTag} onUpdate={editTag} onDelete={(id) => void deleteGistTag(id)} />
       <GistImportDialog open={importOpen} onClose={() => setImportOpen(false)} onImport={(gist) => { const now = Date.now(); persist({ id: gist.id, description: gist.description, url: gist.url, data: gist, tagIds: [], pinned: false, favorited: false, notes: '', createdAt: now, updatedAt: now }); setSelectedView(GIST_ALL_VIEW); setSelectedGistId(gist.id) }} />
