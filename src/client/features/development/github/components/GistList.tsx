@@ -161,6 +161,8 @@ export function GistList({
   const [tagOpen, setTagOpen] = useState(false)
   const allSelected = items.length > 0 && items.every((gist) => selectedIds.has(gist.id))
   const sortItems: MenuItem[] = [
+    ...(remote ? [] : [{ id: 'select-all', label: t('development.github.gists.select_all'), checked: allSelected, onSelect: onSelectAll }]),
+    { id: 'view-mode', label: viewMode === 'list' ? t('development.github.gists.card_view') : t('development.github.gists.list_view'), icon: viewMode === 'list' ? <LayoutGrid size={13} /> : <List size={13} />, onSelect: () => onViewModeChange(viewMode === 'list' ? 'card' : 'list') },
     ...GIST_SORT_OPTIONS.map((option) => ({ id: option.value, label: t(option.labelKey), checked: prefs.sort === option.value, onSelect: () => onUpdatePrefs({ sort: option.value }) })),
     { id: 'order', label: prefs.order === 'desc' ? t('development.github.gists.current_desc') : t('development.github.gists.current_asc'), separatorBefore: true, onSelect: () => onUpdatePrefs({ order: prefs.order === 'desc' ? 'asc' : 'desc' }) },
     { id: 'refresh', label: t('development.github.common.refresh'), icon: <RefreshCw size={13} />, separatorBefore: true, onSelect: onRefresh },
@@ -171,9 +173,9 @@ export function GistList({
       <div className="shrink-0 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)]">
         <div className="flex items-center gap-1.5 px-2 py-2">
           <IconButton label={t('development.github.common.toggle_sidebar')} size="sm" onClick={toggleSidebar}><PanelLeft size={15} /></IconButton>
-          {!remote && <Checkbox checked={allSelected} onChange={onSelectAll} ariaLabel={t('development.github.gists.select_all')} className="shrink-0" />}
+          {!remote && <Checkbox checked={allSelected} onChange={onSelectAll} ariaLabel={t('development.github.gists.select_all')} className="hidden shrink-0 sm:inline-flex" />}
           <div className="min-w-0 flex-1"><Input type="search" value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder={t('development.github.gists.search_placeholder')} aria-label={t('development.github.gists.search_placeholder')} title={remote ? t('development.github.gists.page_search_hint') : undefined} className="h-8 pr-7 text-[length:var(--text-12)]" trailing={query ? <IconButton label={t('common.clear')} size="sm" onClick={onClear}><X size={12} /></IconButton> : undefined} /></div>
-          <div className="flex shrink-0 items-center rounded-[var(--r-sm)] border border-[var(--border-default)]">
+          <div className="hidden shrink-0 items-center rounded-[var(--r-sm)] border border-[var(--border-default)] sm:flex">
             <IconButton label={t('development.github.gists.list_view')} size="sm" variant={viewMode === 'list' ? 'subtle' : 'ghost'} onClick={() => onViewModeChange('list')}><List size={13} /></IconButton>
             <IconButton label={t('development.github.gists.card_view')} size="sm" variant={viewMode === 'card' ? 'subtle' : 'ghost'} onClick={() => onViewModeChange('card')}><LayoutGrid size={13} /></IconButton>
           </div>
