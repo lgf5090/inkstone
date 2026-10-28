@@ -465,6 +465,15 @@ export async function moveWholeFile(
       return { objectKey: newKey, metadata: { S3FileKey: newKey } }
     }
     case 'webdav': {
+      if (channelConfig(channel, 'createDirectory', true) === true) {
+        const folders = newId.split('/').slice(0, -1)
+        let prefix = ''
+        for (const folder of folders) {
+          prefix = prefix ? `${prefix}/${folder}` : folder
+          await fetch(webdavUrl(channel, prefix), { method: 'MKCOL', headers: webdavHeaders(channel) })
+            .then((res) => res.body?.cancel()).catch(() => {})
+        }
+      }
       const response = await fetch(webdavUrl(channel, oldKey), {
         method: 'MOVE',
         headers: { ...webdavHeaders(channel), Destination: webdavUrl(channel, newId), Overwrite: 'T' },

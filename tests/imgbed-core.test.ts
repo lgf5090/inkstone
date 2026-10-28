@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 import { makeD1 } from './doubles/d1-sqlite'
 import { IMGBED_SCHEMA_STATEMENTS } from '../src/worker/imgbed/schema'
@@ -7,6 +7,10 @@ import { fileAccessDecision, publicDirectoryAllowed } from '../src/worker/imgbed
 import { scopeAllows } from '../src/worker/imgbed/tokens'
 import { insertFile, listFiles, getFileTags, setFileTags } from '../src/worker/imgbed/store'
 import { imgbedDavRoutes } from '../src/worker/imgbed/dav'
+import { moveWholeFile } from '../src/worker/imgbed/storage'
+import type { ResolvedChannel } from '../src/worker/imgbed/channels'
+import type { ImgbedFile } from '../src/shared/imgbed/model'
+import type { Env } from '../src/worker/env'
 
 function database() {
   const sqlite = new DatabaseSync(':memory:')
@@ -91,6 +95,49 @@ describe('imgbed WebDAV', () => {
     expect(response.headers.get('DAV')).toBe('1')
     expect(response.headers.get('Allow')).toContain('PROPFIND')
     expect(response.headers.get('MS-Author-Via')).toBe('DAV')
+  })
+})
+
+
+describe('imgbed WebDAV move', () => {
+  const file = {
+    id: 'from/one.png', objectKey: 'from/one.png', fileName: 'one.png', fileType: 'image/png',
+  } as unknown as ImgbedFile
+  const channel = (createDirectory: boolean): ResolvedChannel => ({
+    id: 'c', type: 'webdav', name: 'W', fixed: false, enabled: true, hasCredentials: true,
+    config: { baseUrl: 'https://dav.test/base', createDirectory }, credentials: { username: 'u', password: 'p' },
+    quota: { enabled: false, limitGB: null, threshold: 95 },
+  })
+
+  it('creates the destination folder before MOVE', async () => {
+    const calls: { method: string; url: string }[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: unknown, init?: RequestInit) => {
+      calls.push({ method: String(init?.method ?? 'GET'), url: String(input) })
+      return new Response(null, { status: 201 })
+    }))
+    try {
+      const result = await moveWholeFile({} as unknown as Env, channel(true), file, 'to/renamed.png', 'image/png')
+      expect(result.objectKey).toBe('to/renamed.png')
+      expect(calls.map((call) => call.method)).toEqual(['MKCOL', 'MOVE'])
+      expect(calls[0]!.url).toBe('https://dav.test/base/to')
+      expect(calls[1]!.url).toBe('https://dav.test/base/from/one.png')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('moves without creating folders when the setting is off', async () => {
+    const methods: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_input: unknown, init?: RequestInit) => {
+      methods.push(String(init?.method ?? 'GET'))
+      return new Response(null, { status: 201 })
+    }))
+    try {
+      await moveWholeFile({} as unknown as Env, channel(false), file, 'to/renamed.png', 'image/png')
+      expect(methods).toEqual(['MOVE'])
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })
 
