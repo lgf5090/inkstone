@@ -3399,6 +3399,8 @@ const allowed = new Map([
     "// An approval runs after the turn has closed, so a surface that mirrors the tool's target (the",
     "// database Studio's schema tree) has no other frame to hear about it. The event names the tool and",
     "// nothing else: the page decides what in it needs re-reading.",
+    "/** The hand-written note the dock beside it is carrying, and whether the chip is attached. */",
+    "// The hand-written note chip: the worker re-reads the id and replaces the title from its row.",
   ]],
   ["src/client/features/chat/assistant-stream-isolation.test.ts", [
     "/** Every send's stream, in the order the store asked for them. */",
@@ -5138,6 +5140,7 @@ const allowed = new Map([
     "// it would never find another `\\n\\n` to stop on. Read the boundary again before going round.",
     "/** The draft open in the canvas, so the model can read and rewrite it. */",
     "/** The music screen open beside the dock, so \"play this\" has a referent. */",
+    "/** The hand-written note open beside the dock; the worker re-reads it against the caller. */",
   ]],
   ["src/client/features/chat/tag-attach.test.ts", [
     "/**\n * A new tag has to reach the conversation it was made for, or say why it did not.\n *\n * `createTag` is optimistic — it validates the name, answers a duplicate with the tag that already\n * exists, seeds the local cache and posts the row without waiting — so its id is in hand before the\n * server has a row to point at, and the attach route refuses an unknown tag. The old path caught that\n * refusal and threw the answer away: the reader typed a name, nothing appeared, and no one said so.\n * What is pinned here is the two honest outcomes: the conversation is filed once the row is back, or a\n * danger toast says it was not.\n */",
@@ -6398,10 +6401,6 @@ const allowed = new Map([
   ]],
   ["src/client/features/inknote/tool-state.ts", [
     "/** Derives the engine's tool state from the account's remembered per-tool choices. */",
-  ]],
-  ["src/client/features/inknote/tools/AiPanel.tsx", [
-    "/** A small assistant drawer scoped to the handwriting note on screen. */",
-    "/* an incomplete frame is normal at chunk boundaries */",
   ]],
   ["src/client/features/inknote/tools/PresentationOverlay.tsx", [
     "/** Full-screen presentation: paging, laser pointer, annotation strokes and timed autoplay. */",
@@ -31880,6 +31879,7 @@ const allowed = new Map([
     "// the day's ceiling, or one the provider refuses, yields nothing and leaves the derived title",
     "// standing — the answer is already filed, so this is the honest failure for a nicety.",
     "/** The database the reader is looking at, when the question is asked beside the Studio. */",
+    "/** The hand-written note on screen, already re-read against this account by the route. */",
   ]],
   ["src/worker/assistant/scheduler.ts", [
     "/** How many automations one sweep will start, so a backlog cannot monopolise the cron invocation. */",
@@ -34921,6 +34921,9 @@ const allowed = new Map([
     "// The cover key is shared, so only a different backend's old object is safe to queue.",
     "/** The quota figure the upload route reports to the client, kept beside the enforcement. */",
     "/** The assets one note owns, newest first, optionally narrowed to one kind. */",
+  ]],
+  ["src/worker/inknote/context.ts", [
+    "/**\n * The hand-written note a turn was asked beside, read from the request body and written into the prompt.\n *\n * The client cannot decide what the model sees: the note id is re-read against this account, the title\n * and notebook come from the row rather than the body, every string is bounded, and a note that is not\n * the caller's, or is in the trash, is no context at all.\n */",
   ]],
   ["src/worker/inknote/recordings.ts", [
     "/**\n * Recording metadata rows and the timeline objects that sit beside them in R2.\n *\n * The audio itself is an `inknote_assets` row of kind `audio`; this table carries what the player\n * needs around it (duration, peaks, a title) and the key of the timeline the recorder wrote.\n */",

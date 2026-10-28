@@ -24,7 +24,7 @@ import { ShortcutsDialog, WelcomeDialog } from './panels/InkHelpDialogs'
 import { useInknoteHotkeys } from './use-inknote-hotkeys'
 import { PresentationOverlay } from './tools/PresentationOverlay'
 import { RecordingPanel } from './tools/RecordingPanel'
-import { AiPanel } from './tools/AiPanel'
+import { AssistantDock } from '../chat/AssistantDock'
 import { AttachmentsDialog } from './io/AttachmentsDialog'
 import { ExportPdfDialog } from './io/ExportPdfDialog'
 import { useInknoteTts } from './tools/use-inknote-tts'
@@ -62,6 +62,8 @@ export function InknoteApp() {
   const saveAll = useInknoteStore((state) => state.saveAll)
   const clearConflict = useInknoteStore((state) => state.clearConflict)
   const toast = useUi((state) => state.toast)
+  const assistantDockOpen = useUi((state) => state.assistantDockOpen)
+  const toggleAssistantDock = useUi((state) => state.toggleAssistantDock)
   const breakpoint = useBreakpoint()
   const compact = breakpoint !== 'desktop'
   const [selectedNotebook, setSelectedNotebook] = useState<string | null>(null)
@@ -73,8 +75,7 @@ export function InknoteApp() {
   const [snapshotsOpen, setSnapshotsOpen] = useState(false)
   const [presentationOpen, setPresentationOpen] = useState(false)
   const [recordingOpen, setRecordingOpen] = useState(false)
-  const [aiOpen, setAiOpen] = useState(false)
-  const [findOpen, setFindOpen] = useState(false)
+const [findOpen, setFindOpen] = useState(false)
   const [outlineOpen, setOutlineOpen] = useState(false)
   const [statsOpen, setStatsOpen] = useState(false)
   const [templatesOpen, setTemplatesOpen] = useState(false)
@@ -93,6 +94,16 @@ export function InknoteApp() {
   const activePage = pages.find((page) => page.id === activePageId) ?? pages[0] ?? null
   const activeIndex = activePage ? pages.findIndex((page) => page.id === activePage.id) : 0
   const tool = settings ? inknoteToolState(settings) : inknoteToolState(DEFAULT_INKNOTE_SETTINGS)
+  const assistantContext = note ? {
+    noteId: note.id,
+    noteTitle: note.title,
+    notebookName: library?.notebooks.find((entry) => entry.id === note.notebookId)?.name ?? '',
+    pageIndex: activeIndex,
+    pageCount: pages.length,
+    pageText: (activePage?.content.texts ?? []).map((item) => item.text).join('\n').slice(0, 6000),
+    noteText: pages.map((page) => page.content.texts.map((item) => item.text).join('\n')).join('\n\n').slice(0, 12000),
+    ...(settings?.aiPrompt ? { rolePrompt: settings.aiPrompt } : {}),
+  } : null
 
   useEffect(() => { void bootstrap() }, [bootstrap])
   useEffect(() => { if (note) setTitle(note.title) }, [note?.id, note?.title])
@@ -253,7 +264,7 @@ export function InknoteApp() {
         <span data-save-state={saveState} className="hidden shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)] sm:inline">
           {saveState === 'saving' ? t('inknote.saving') : saveState === 'pending' ? t('inknote.save') : saveState === 'offline' ? t('inknote.offline') : saveState === 'error' ? t('inknote.save_failed') : t('inknote.saved')}
         </span>
-        <IconButton label={t('inknote.action.ai')} size="sm" onClick={() => setAiOpen(true)}><Sparkles size={15}/></IconButton>
+        <IconButton label={t('inknote.action.ai')} size="sm" onClick={() => toggleAssistantDock()}><Sparkles size={15}/></IconButton>
         <IconButton label={t('inknote.action.more')} size="sm" onClick={(event) => setMoreMenu({ x: event.clientX, y: event.clientY, items: moreItems() })}><MoreHorizontal size={15}/></IconButton>
         <IconButton label={t('inknote.action.settings')} size="sm" onClick={() => setSettingsOpen(true)}><Settings size={15}/></IconButton>
         {compact && <IconButton label={t('inknote.action.pages')} size="sm" onClick={() => setPagesOpen(true)}><PanelRight size={16}/></IconButton>}
@@ -270,7 +281,7 @@ export function InknoteApp() {
             onRecord={() => setRecordingOpen(true)}
             onRead={readAloud}
             onMarkup={() => setMarkup((value) => !value)}
-            onAi={() => setAiOpen(true)}
+            onAi={() => toggleAssistantDock()}
           />
         </div>
       )}
@@ -332,6 +343,7 @@ export function InknoteApp() {
             void reorderPages(ids)
           }} />
         )}
+        {assistantDockOpen && <AssistantDock surface="inknote" inknote={assistantContext}/>}
       </div>
 
       {tabs.length > 1 && (
@@ -366,7 +378,6 @@ export function InknoteApp() {
       {settings && <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} note={note} settings={settings} onOpenSnapshots={() => { setSettingsOpen(false); setSnapshotsOpen(true) }} onOpenShortcuts={() => { setSettingsOpen(false); setShortcutsOpen(true) }} />}
       <SnapshotsDialog open={snapshotsOpen} onClose={() => setSnapshotsOpen(false)} />
       <RecordingPanel open={recordingOpen} noteId={note?.id ?? null} onClose={() => setRecordingOpen(false)} />
-      {settings && <AiPanel open={aiOpen} onClose={() => setAiOpen(false)} note={note} pages={pages} settings={settings} />}
       <input ref={imageInput} type="file" accept="image/*" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file && note && activePage) void insertImage(file, note, activePage).then(() => toast({ title: t('inknote.saved') })).catch((error) => toast({ title: String(error), tone: 'danger' })) }} />
       <input ref={pdfInput} type="file" accept="application/pdf,.pdf" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void insertPdf(file, note?.notebookId ?? library?.notebooks[0]?.id ?? '').then((id) => { if (id) toast({ title: t('inknote.saved') }) }).catch((error) => toast({ title: String(error), tone: 'danger' })) }} />
       <input ref={attachInput} type="file" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file && note) void inknoteApi.uploadAsset(file, 'attachment', note.id).then(() => toast({ title: t('inknote.saved') })).catch((error) => toast({ title: String(error), tone: 'danger' })) }} />

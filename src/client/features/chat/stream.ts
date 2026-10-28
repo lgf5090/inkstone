@@ -12,6 +12,7 @@ import type { AssistantTurnScope, ChatStreamEvent } from '@shared/assistant'
 import type { TodoAssistantContext } from '@shared/todos/assistant-context'
 import type { EmailAssistantContext } from '@shared/email/assistant-context'
 import type { MusicAssistantContext } from '@shared/music/assistant-context'
+import type { InknoteAssistantContext } from '@shared/inknote/assistant-context'
 import { ApiError, CLIENT_ID, routeApiError } from '../../lib/api'
 import { getLocale, t } from '../../lib/i18n'
 
@@ -34,6 +35,8 @@ export interface StreamTurnInput {
   contextEmail?: EmailAssistantContext
   /** The music screen open beside the dock, so "play this" has a referent. */
   contextMusic?: MusicAssistantContext
+  /** The hand-written note open beside the dock; the worker re-reads it against the caller. */
+  contextInknote?: InknoteAssistantContext
   /** The note this thread is being started from, recorded on the conversation the first time. */
   noteId?: string
   retry?: boolean
@@ -109,6 +112,7 @@ export async function streamAssistantTurn(
         ...(input.activeArtifactId ? { activeArtifactId: input.activeArtifactId } : {}),
         ...(input.contextTodo ? { contextTodo: input.contextTodo } : {}),
         ...(input.contextMusic ? { contextMusic: input.contextMusic } : {}),
+        ...(input.contextInknote ? { contextInknote: input.contextInknote } : {}),
         ...(input.noteId ? { noteId: input.noteId } : {}),
         ...(input.webSearch ? { webSearch: true } : {}),
         ...(input.modelId ? { modelId: input.modelId } : {}),

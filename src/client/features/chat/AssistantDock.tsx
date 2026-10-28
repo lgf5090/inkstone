@@ -15,12 +15,13 @@
  * drawn as a chip the reader can take off, because a context they cannot see is one they cannot correct.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { ArrowUpRight, Database, ListChecks, Mail, Music, Plus, Sparkles, Wallet, X } from 'lucide-react'
+import { ArrowUpRight, Database, ListChecks, Mail, Music, NotebookPen, Plus, Sparkles, Wallet, X } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import type { TodoAssistantContext } from '@shared/todos/assistant-context'
 import type { EmailAssistantContext } from '@shared/email/assistant-context'
 import type { DatabaseAssistantContext } from '@shared/development/database/assistant-context'
 import type { MusicAssistantContext } from '@shared/music/assistant-context'
+import type { InknoteAssistantContext } from '@shared/inknote/assistant-context'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
@@ -46,7 +47,7 @@ import { buildWriteDiff, WriteDiffSummary, WriteDiffView } from './editor-ai-dif
 import { saveReplyAsNote } from './save-to-note'
 
 /** Which app the dock is sitting beside: it decides what "this page" can honestly mean. */
-export type AssistantDockSurface = 'notebook' | 'subscriptions' | 'todos' | 'email' | 'music' | 'database'
+export type AssistantDockSurface = 'notebook' | 'subscriptions' | 'todos' | 'email' | 'music' | 'database' | 'inknote'
 
 const TODO_VIEW_LABELS: Record<string, MessageKey> = {
   board: 'todo.view.board',
@@ -68,13 +69,14 @@ function todoLabel(context: TodoAssistantContext): string {
   return key ? t(key) : t('todo.view.board')
 }
 
-export function AssistantDock({ surface = 'notebook', subscription = null, email = null, music = null, database = null }: {
+export function AssistantDock({ surface = 'notebook', subscription = null, email = null, music = null, database = null, inknote = null }: {
   surface?: AssistantDockSurface
   /** The plan the money app has open, so "what will this cost me this year" has an answer. */
   subscription?: { id: string, name: string } | null
   email?: EmailAssistantContext | null
   music?: MusicAssistantContext | null
   database?: DatabaseAssistantContext | null
+  inknote?: InknoteAssistantContext | null
 }) {
   const subscriptionId = subscription?.id ?? null
   const subscriptionName = subscription?.name ?? null
@@ -105,6 +107,9 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
   const musicContext = useAssistant((state) => state.musicContext)
   const musicOn = useAssistant((state) => state.musicContextOn)
   const setMusicContextOn = useAssistant((state) => state.setMusicContextOn)
+  const inknoteContext = useAssistant((state) => state.inknoteContext)
+  const inknoteOn = useAssistant((state) => state.inknoteContextOn)
+  const setInknoteContextOn = useAssistant((state) => state.setInknoteContextOn)
   const databaseContext = useAssistant((state) => state.databaseContext)
   const databaseOn = useAssistant((state) => state.databaseContextOn)
   const setDatabaseContextOn = useAssistant((state) => state.setDatabaseContextOn)
@@ -199,10 +204,35 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
     })
   }, [surface, musicPage, musicTrackRef, musicTrackTitle, musicArtists, musicPlaylistId, musicCloudSource, musicMountId, musicCloudPath, musicQueueLength])
 
+  const inknoteNoteId = inknote?.noteId ?? null
+  const inknoteTitle = inknote?.noteTitle ?? ''
+  const inknoteNotebook = inknote?.notebookName ?? ''
+  const inknotePageIndex = inknote?.pageIndex ?? 0
+  const inknotePageCount = inknote?.pageCount ?? 1
+  const inknotePageText = inknote?.pageText ?? ''
+  const inknoteNoteText = inknote?.noteText ?? ''
+  const inknoteRolePrompt = inknote?.rolePrompt ?? ''
+  useEffect(() => {
+    if (surface !== 'inknote') return
+    const store = useAssistant.getState()
+    if (!inknoteNoteId) { store.setInknoteContext(null); return }
+    store.setInknoteContext({
+      noteId: inknoteNoteId,
+      noteTitle: inknoteTitle,
+      notebookName: inknoteNotebook,
+      pageIndex: inknotePageIndex,
+      pageCount: inknotePageCount,
+      pageText: inknotePageText,
+      ...(inknoteNoteText.trim() ? { noteText: inknoteNoteText } : {}),
+      ...(inknoteRolePrompt.trim() ? { rolePrompt: inknoteRolePrompt } : {}),
+    })
+  }, [surface, inknoteNoteId, inknoteTitle, inknoteNotebook, inknotePageIndex, inknotePageCount, inknotePageText, inknoteNoteText, inknoteRolePrompt])
+
   const musicLabel = musicContext?.trackTitle?.trim()
     || musicContext?.cloudPath?.trim()
     || musicContext?.playlistId
     || t('assistant.dock.music_label')
+  const inknoteLabel = inknoteContext?.noteTitle?.trim() || t('assistant.dock.inknote_label')
 
   const streaming = (!!turn && !turn.done) || remoteStreaming
   const turnHere = turn && turn.conversationId === (activeId ?? null) ? turn : null
@@ -225,7 +255,9 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
           ? ['assistant.dock.suggest_email_summary', 'assistant.dock.suggest_email_reply', 'assistant.dock.suggest_email_search'] as const
           : surface === 'music'
             ? ['assistant.dock.suggest_music_play', 'assistant.dock.suggest_music_queue', 'assistant.dock.suggest_music_about'] as const
-            : ['assistant.dock.suggest_summary', 'assistant.dock.suggest_questions', 'assistant.dock.suggest_next'] as const
+            : surface === 'inknote'
+              ? ['assistant.dock.suggest_inknote_summary', 'assistant.dock.suggest_inknote_tidy', 'assistant.dock.suggest_inknote_questions'] as const
+              : ['assistant.dock.suggest_summary', 'assistant.dock.suggest_questions', 'assistant.dock.suggest_next'] as const
   ), [surface])
 
   /**
@@ -244,6 +276,8 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
         ? t('assistant.dock.hint_database')
       : surface === 'music' && musicContext && musicOn
         ? t('assistant.dock.hint_music')
+      : surface === 'inknote' && inknoteContext && inknoteOn
+        ? t('assistant.dock.hint_inknote')
         : attached
           ? t('assistant.dock.hint_plan', { name: attached.name })
           : surface === 'notebook' && noteContextOn && activeNoteId
@@ -451,6 +485,22 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
               type="button"
               aria-label={t('assistant.context.remove', { name: musicLabel })}
               onClick={() => setMusicContextOn(false)}
+              className="relative shrink-0 p-0.5 text-[var(--text-quaternary)] transition-colors hover:text-[var(--text-secondary)]"
+            >
+              <X size={11} />
+            </button>
+          </span>
+        </div>
+      )}
+      {surface === 'inknote' && inknoteContext && inknoteOn && (
+        <div role="group" aria-label={t('assistant.context.title')} className="flex flex-wrap items-center gap-1 px-3 pt-1.5">
+          <span className="inline-flex min-w-0 items-center gap-1 rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+            <span aria-hidden className="shrink-0 text-[var(--text-quaternary)]"><NotebookPen size={12} /></span>
+            <span className="min-w-0 max-w-[220px] truncate">{inknoteLabel}</span>
+            <button
+              type="button"
+              aria-label={t('assistant.context.remove', { name: inknoteLabel })}
+              onClick={() => setInknoteContextOn(false)}
               className="relative shrink-0 p-0.5 text-[var(--text-quaternary)] transition-colors hover:text-[var(--text-secondary)]"
             >
               <X size={11} />

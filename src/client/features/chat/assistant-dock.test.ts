@@ -107,6 +107,22 @@ describe('the docked assistant', () => {
     expect(useAssistant.getState().noteContextOn).toBe(true)
   })
 
+  it('carries the handwritten note, names it and lets the reader take it off', async () => {
+    await show(
+      { loaded: true, activeId: null, messages: [], messagesReady: true },
+      { surface: 'inknote', inknote: { noteId: 'n-ink', noteTitle: 'Physics', notebookName: 'Mechanics', pageIndex: 1, pageCount: 2, pageText: 'first law', noteText: 'whole note' } },
+    )
+    expect(useAssistant.getState().dockSurface).toBe('inknote')
+    expect(useAssistant.getState().inknoteContext).toMatchObject({ noteId: 'n-ink', pageIndex: 1, pageCount: 2, pageText: 'first law', noteText: 'whole note' })
+    expect(document.body.textContent).toContain('Physics')
+    expect(document.body.textContent).toContain(t('assistant.dock.hint_inknote'))
+    const remove = [...document.body.querySelectorAll('button')]
+      .find((node) => node.getAttribute('aria-label') === t('assistant.context.remove', { name: 'Physics' }))
+    expect(remove, 'the handwritten-note chip is missing').toBeTruthy()
+    act(() => { remove!.click() })
+    expect(useAssistant.getState().inknoteContextOn).toBe(false)
+  })
+
   it('closes itself', async () => {
     useUi.setState({ assistantDockOpen: true })
     await show({ loaded: true, activeId: null, messages: [], messagesReady: true })
