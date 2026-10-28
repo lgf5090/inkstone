@@ -1,6 +1,6 @@
 /** Page thumbnails and the page-level actions that sit beside the canvas. */
 import { useEffect, useRef } from 'react'
-import { ArrowDown, ArrowUp, Copy, Plus, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Copy, Eraser, FileMinus, Plus, Trash2 } from 'lucide-react'
 import type { InknoteNoteMeta, InknotePage } from '@shared/inknote/types'
 import { t } from '../../../lib/i18n'
 import { IconButton } from '../../../components/primitives'
@@ -31,7 +31,7 @@ function PageThumb({ page, note, settings, active, onClick }: { page: InknotePag
   )
 }
 
-export function InkPagesPanel({ note, pages, activePageId, settings, onSelect, onAdd, onDuplicate, onDelete, onMove }: {
+export function InkPagesPanel({ note, pages, activePageId, settings, onSelect, onAdd, onDuplicate, onDelete, onMove, onClear, onDeleteBlank }: {
   note: InknoteNoteMeta
   pages: InknotePage[]
   activePageId: string | null
@@ -41,13 +41,19 @@ export function InkPagesPanel({ note, pages, activePageId, settings, onSelect, o
   onDuplicate: (id: string) => void
   onDelete: (id: string) => void
   onMove: (id: string, direction: -1 | 1) => void
+  onClear: () => void
+  onDeleteBlank: () => void
 }) {
   const activeIndex = pages.findIndex((page) => page.id === activePageId)
   return (
     <aside className="flex h-full min-h-0 w-[168px] shrink-0 flex-col border-l border-[var(--border-subtle)] bg-[var(--bg-surface)]">
       <div className="flex items-center justify-between px-2 py-2">
         <span className="text-[length:var(--text-12)] font-semibold">{t('inknote.action.pages')}</span>
-        <IconButton label={t('inknote.page.add')} size="sm" onClick={onAdd}><Plus size={14}/></IconButton>
+        <div className="flex items-center gap-0.5">
+          <IconButton label={t('inknote.page.clear')} size="sm" onClick={onClear} disabled={!activePageId}><Eraser size={13}/></IconButton>
+          {pages.length > 1 && <IconButton label={t('inknote.page.delete_blank')} size="sm" onClick={onDeleteBlank}><FileMinus size={13}/></IconButton>}
+          <IconButton label={t('inknote.page.add')} size="sm" onClick={onAdd}><Plus size={14}/></IconButton>
+        </div>
       </div>
       <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-2">
         {pages.map((page) => (

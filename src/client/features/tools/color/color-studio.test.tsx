@@ -112,9 +112,11 @@ describe('ColorStudio UI & State Suite', () => {
       expect(heading).toBeTruthy()
       expect(heading?.textContent).toContain(t('tools.color.nav.studio'))
 
-      // Current hex input check
-      const hexInput = rendered.container.querySelector('input[value="#3b82f6"]')
-      expect(hexInput).toBeTruthy()
+      // Current hex input check: the box uppercases what it shows, so read the value the
+      // reader sees rather than matching the attribute (case-sensitivity of attribute
+      // selectors is the DOM implementation's detail, not this view's contract).
+      const hexInput = rendered.container.querySelector<HTMLInputElement>(`input[aria-label="${t('tools.color.studio.hex_input_label')}"]`)
+      expect(hexInput?.value.toUpperCase()).toBe('#3B82F6')
     })
 
     it('updates when store color changes', () => {
@@ -124,8 +126,8 @@ describe('ColorStudio UI & State Suite', () => {
         useColorStudioStore.getState().setCurrentColor('#ef4444', 'test')
       })
 
-      const updatedInput = rendered.container.querySelector('input[value="#ef4444"]')
-      expect(updatedInput).toBeTruthy()
+      const updatedInput = rendered.container.querySelector<HTMLInputElement>(`input[aria-label="${t('tools.color.studio.hex_input_label')}"]`)
+      expect(updatedInput?.value.toUpperCase()).toBe('#EF4444')
     })
 
     it('renders the color space display cards', () => {

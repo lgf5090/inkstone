@@ -6285,9 +6285,16 @@ const allowed = new Map([
     "/** The live page: engine mount, text overlay and the selection bar. */",
     "// The engine is mounted once; page/tool changes are handled by the effects below.",
     "// eslint-disable-next-line react-hooks/exhaustive-deps",
+    "/** The page as it was before the text box appeared or was edited, for one undo step. */",
   ]],
   ["src/client/features/inknote/components/InkPagesPanel.tsx", [
     "/** Page thumbnails and the page-level actions that sit beside the canvas. */",
+  ]],
+  ["src/client/features/inknote/components/InkTextStyleBar.tsx", [
+    "/** The style bar over the open text box: every field the page model stores for a TextBox. */",
+    "/** A swatch row the bar scrolls sideways on a narrow page rather than growing tall. */",
+    "// A pressed button must not take focus from the textarea: blur would commit the edit before",
+    "// the style is applied. The preset select is the one control that needs the focus itself.",
   ]],
   ["src/client/features/inknote/components/InkToolbar.tsx", [
     "/** The ink tools and their palette, shared by the top, left and bottom toolbar layouts. */",
@@ -6304,6 +6311,7 @@ const allowed = new Map([
     "/** High frequency: bump a version and mark the page dirty; never await, serialize or setState here. */",
     "/** One atomic edit finished; both strings are serialized page snapshots for history. */",
     "/** Recording replay locks editing; only the host may still replace page content. */",
+    "/** Swap in a page object the host rebuilt; keeps the viewport and drops history tied to the old object. */",
   ]],
   ["src/client/features/inknote/engine/inknote-engine.ts", [
     "/**\n * The Inknote canvas engine (S1).\n *\n * The engine owns one mutable page object, the pointer state machine, the viewport, the off-screen\n * page raster and its own bounded content history. It never imports React or the store: the host\n * supplies page, paper, metrics, tool and font through callbacks and receives synchronous change\n * notifications. All pointer work stays inside pointer events and rAF; serialization happens only\n * when an edit starts or finishes.\n */",
@@ -6330,6 +6338,8 @@ const allowed = new Map([
     "/* ------------------------------ rendering ------------------------------ */",
     "/* ------------------------------ scheduling and helpers ------------------------------ */",
     "/** Create the engine the Inknote editor mounts. */",
+    "/**\n   * Commit an edit the host made to the page object itself, such as a text box the DOM textarea owns.\n   * The host captured `before` before it touched the page; identical snapshots are not an edit.\n   */",
+    "/**\n   * Swap in a page object the host replaced rather than mutated (clear, find/replace, restore).\n   * The viewport stays where the reader left it; history goes because its snapshots name the old page.\n   */",
   ]],
   ["src/client/features/inknote/engine/renderer.ts", [
     "/**\n * Canvas painting for the Inknote engine, thumbnails and exports.\n *\n * Everything here is pure canvas: no React, no engine state, no network. Callers pass a page, its\n * paper and metrics; strokes are converted from content units to the paper's display units at draw\n * time. The same functions therefore serve the live engine, page thumbnails and PDF/PNG export.\n */",
@@ -6356,6 +6366,9 @@ const allowed = new Map([
   ["src/client/features/inknote/library/LibraryPanel.tsx", [
     "/** The project → notebook → note library. One panel, shared by the desktop column and mobile drawer. */",
   ]],
+  ["src/client/features/inknote/panels/NoteToolsDialogs.tsx", [
+    "/** Find/replace, outline and statistics over the pages the editor already holds. */",
+  ]],
   ["src/client/features/inknote/panels/SettingsDrawer.tsx", [
     "/** Inknote's own settings, kept out of the account-wide settings panel. */",
   ]],
@@ -6363,6 +6376,7 @@ const allowed = new Map([
     "/** The Inknote client store: the library, one open note, page saves and optimistic metadata. */",
     "// Trash is listed by the UI on demand; keeping the note count in the library is enough.",
     "// A background refresh is allowed to miss; the next save or focus retries it.",
+    "/* storage may be unavailable */",
   ]],
   ["src/client/features/inknote/tool-state.ts", [
     "/** Derives the engine's tool state from the account's remembered per-tool choices. */",
@@ -16936,11 +16950,13 @@ const allowed = new Map([
   ["src/client/features/tools/color/color-studio.test.tsx", [
     "// Reset Zustand store state to defaults",
     "// Clean up any stray modals in body",
-    "// Current hex input check",
     "// Swatch button interaction",
     "// Modals",
     "// Add favorite",
     "// Save custom palette",
+    "// Current hex input check: the box uppercases what it shows, so read the value the",
+    "// reader sees rather than matching the attribute (case-sensitivity of attribute",
+    "// selectors is the DOM implementation's detail, not this view's contract).",
   ]],
   ["src/client/features/tools/color/components/AiPaletteResultCard.tsx", [
     "/* Colors Ribbon & Details */",
@@ -19097,6 +19113,13 @@ const allowed = new Map([
     "/** Expand a raw selection box into the box the engine draws and hit-tests. */",
     "/** Content coordinates to display coordinates. Extra point fields such as pressure are preserved. */",
     "/** Display coordinates back to content coordinates. Extra point fields such as pressure are preserved. */",
+  ]],
+  ["src/client/lib/inknote/note-search.ts", [
+    "/** Page-text search, replace, highlight, outline and counts for the note tool dialogs. */",
+    "/** 1 for a heading (34px and up), 2 for the 26px tier. */",
+    "/** Literal, case-insensitive replacement across every text box, one new page object per changed page. */",
+    "/** Paints every matching text box, or clears every highlight when `color` is null. */",
+    "/** A page with nothing on it: no strokes, no text, no image and no background. */",
   ]],
   ["src/client/lib/inknote/paper.ts", [
     "/**\n * Paper ruling geometry, without a canvas.\n *\n * The reference draws ten paper styles from three numbers: a line pitch, a grid pitch, and a spacing\n * multiplier. Keeping them here lets the engine, the thumbnail renderer and the PDF renderer agree on\n * where the rules fall, and keeps the colour lookup in `@shared/inknote/color` (paperSurfaceFor).\n */",
@@ -34865,6 +34888,11 @@ const allowed = new Map([
     "// The cover key is shared, so only a different backend's old object is safe to queue.",
     "/** The quota figure the upload route reports to the client, kept beside the enforcement. */",
   ]],
+  ["src/worker/inknote/recordings.ts", [
+    "/**\n * Recording metadata rows and the timeline objects that sit beside them in R2.\n *\n * The audio itself is an `inknote_assets` row of kind `audio`; this table carries what the player\n * needs around it (duration, peaks, a title) and the key of the timeline the recorder wrote.\n */",
+    "// The row is already gone, so a failed timeline delete leaves one unreachable object and has no",
+    "// response surface left to report on; the audio asset below goes through the cleanup queue instead.",
+  ]],
   ["src/worker/inknote/schema.ts", [
     "/**\n * The hand-written notebook's tables, declared where every boot can find them.\n *\n * Every new table is `CREATE TABLE IF NOT EXISTS`, so no migration number is spent: an existing\n * database converges through the table/index statements the boot already replays. Columns added to\n * these tables later are the exception and belong in SCHEMA_MIGRATIONS with their own version.\n */",
   ]],
@@ -34887,6 +34915,9 @@ const allowed = new Map([
   ]],
   ["src/worker/inknote/store.ts", [
     "/**\n * Every read and write the Inknote routes make against D1.\n *\n * The same rules as `notes/store.ts`: a store is built per request from the authenticated account,\n * every statement carries `user_id`, and a mutation's statements stay in one batch so the rev guard\n * means what it says.\n */",
+  ]],
+  ["src/worker/inknote/usage.ts", [
+    "/** The account usage summary the settings panel draws. */",
   ]],
   ["src/worker/lib/crypto.ts", [
     "/**\n   * The default sentence is about the one thing only the operator can fix: no binding at all. A caller\n   * that got an answer and did not like it passes its own sentence instead — a refusal and an absent\n   * binding are different failures, and reporting a refusal as \"the binding is missing\" sends whoever\n   * reads it looking in the wrong place. Neither message carries the value that was being stored.\n   */",
@@ -41368,6 +41399,8 @@ const allowed = new Map([
     "// buy nothing but sweeps.",
     "// The template engine is WebAssembly, so compiling a .wasm has to be allowed; executing a string",
     "// as code is the thing that stays refused, and `'wasm-unsafe-eval'` is what draws that line.",
+    "// Wrangler now pins its own workerd beside itself; it is the same runtime package as the",
+    "// top-level entry, whose postinstall resolves the platform binary.",
   ]],
   ["tests/policy-single-source.test.ts", [
     "// A re-forked floor would reintroduce a hard-coded length comparison.",

@@ -205,3 +205,42 @@ export async function importNoteFile(file: File, notebookId: string): Promise<nu
   await useInknoteStore.getState().refreshLibrary()
   return imported
 }
+
+export async function exportNotebookFile(): Promise<void> {
+  const library = await inknoteApi.library()
+  const notes: Record<string, unknown> = {}
+  for (const meta of library.notes) {
+    const detail = await inknoteApi.note(meta.id, 'all')
+    const pages = []
+    for (const page of detail.pages) {
+      const content = JSON.parse(serializePageContent(page.content)) as InknotePageContent
+      for (const image of content.images) image.url = await assetDataUrl(image.url)
+      if (content.bg) content.bg.url = await assetDataUrl(content.bg.url)
+      pages.push(content)
+    }
+    notes[meta.id] = { id: meta.id, title: meta.title, paper: meta.paper, pageW: meta.pageWidth, pageH: meta.pageHeight, pages, createdAt: meta.createdAt, updatedAt: meta.updatedAt }
+  }
+  const payload = {
+    format: 'note2',
+    version: 1,
+    type: 'library',
+    exportedAt: new Date().toISOString(),
+    library: {
+      version: 4,
+      settings: { noteSort: 'updated', defaultPaper: { style: 'line', color: 'white' }, tabs: [], favorites: [], favoritesBar: true },
+      subjects: library.subjects.map((subject) => ({
+        id: subject.id,
+        name: subject.name,
+        notebooks: library.notebooks.filter((notebook) => notebook.subjectId === subject.id).map((notebook) => ({
+          id: notebook.id,
+          name: notebook.name,
+          color: notebook.coverColor || undefined,
+          emoji: notebook.emoji || undefined,
+          noteIds: library.notes.filter((note) => note.notebookId === notebook.id).map((note) => note.id),
+        })),
+      })),
+      notes,
+    },
+  }
+  downloadBlob(`inknote-library-${new Date().toISOString().slice(0, 10)}.notebook`, new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }))
+}

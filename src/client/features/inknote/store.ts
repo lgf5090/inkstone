@@ -10,7 +10,8 @@ import type {
   InknoteSubject,
   InknoteTemplate,
 } from '@shared/inknote/types'
-import { serializePageContent } from '@shared/inknote/parse'
+import { emptyPageContent, serializePageContent } from '@shared/inknote/parse'
+import { isEmptyPage } from '../../lib/inknote/note-search'
 import { sanitizeInknoteSettings } from '@shared/inknote/settings'
 import { DEFAULT_INKNOTE_SETTINGS } from '@shared/inknote/constants'
 import { ApiError } from '../../lib/api'
@@ -50,6 +51,7 @@ interface InknoteState {
   refreshLibrary: () => Promise<void>
   openNote: (id: string, pageIndex?: number) => Promise<void>
   closeNote: () => void
+  closeTab: (id: string) => void
   setActivePage: (id: string) => void
   touchPage: () => void
   replacePageContent: (pageId: string, content: InknotePageContent) => void
@@ -70,6 +72,8 @@ interface InknoteState {
   createPage: (afterPageId?: string) => Promise<void>
   duplicatePage: (pageId: string) => Promise<void>
   deletePage: (pageId: string) => Promise<void>
+  clearPage: (pageId: string) => Promise<void>
+  deleteBlankPages: () => Promise<number>
   reorderPages: (pageIds: string[]) => Promise<void>
   copyPageTo: (targetNoteId: string, pageId: string) => Promise<void>
   updateSettings: (patch: Partial<InknoteSettings>) => Promise<void>
@@ -109,6 +113,7 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
     try {
       const content = serializePageContent(page.content)
       const saved = await inknoteApi.savePage(note.id, pageId, content, page.rev)
+      try { localStorage.removeItem(`inknote-draft:${note.id}:${pageId}`) } catch { /* storage may be unavailable */ }
       set((state) => ({
         pages: state.pages.map((entry) => entry.id === pageId ? { ...entry, rev: saved.rev, updatedAt: saved.updatedAt } : entry),
         note: state.note ? { ...state.note, updatedAt: saved.updatedAt, contentBytes: state.note.contentBytes } : null,
@@ -130,6 +135,7 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
         }
       }
       const offline = error instanceof ApiError ? error.status === 0 : true
+      try { localStorage.setItem(`inknote-draft:${note.id}:${pageId}`, JSON.stringify({ content: serializePageContent(page.content), baseRev: page.rev, savedAt: Date.now() })) } catch { /* storage may be unavailable */ }
       set({ saveState: offline ? 'offline' : 'error', saveError: message(error) })
       return false
     } finally {
@@ -235,6 +241,16 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
     },
 
     closeNote() {
+      void get().saveAll()
+      set({ note: null, pages: [], activePageId: null, activePageIndex: 0, conflicts: {} })
+    },
+
+    closeTab(id) {
+      const tabs = get().tabs.filter((tab) => tab !== id)
+      set({ tabs })
+      if (get().note?.id !== id) return
+      const next = tabs[0]
+      if (next) { void get().openNote(next); return }
       void get().saveAll()
       set({ note: null, pages: [], activePageId: null, activePageIndex: 0, conflicts: {} })
     },
@@ -429,8 +445,26 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
       }))
     },
 
-    async reorderPages(pageIds) {
-      const note = get().note
+    async clearPage(pageId) {
+      const page = get().pages.find((entry) => entry.id === pageId)
+      if (!page) return
+      get().replacePageContent(pageId, emptyPageContent())
+      await get().savePage(pageId)
+    },
+
+    async deleteBlankPages() {
+      const pages = get().pages
+      const blanks = pages.filter((page) => isEmptyPage(page.content))
+      let removed = 0
+      for (const page of blanks) {
+        if (get().pages.length <= 1) break
+        await get().deletePage(page.id)
+        removed += 1
+      }
+      return removed
+    },
+
+    async reorderPages(pageIds) {      const note = get().note
       if (!note) return
       await inknoteApi.reorderPages(note.id, pageIds)
       const byId = new Map(get().pages.map((page) => [page.id, page]))

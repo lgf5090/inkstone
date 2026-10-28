@@ -549,7 +549,7 @@ export async function createInknoteSnapshot(
     try {
       await deleteAttachmentObjects(env, storage, [objectKey])
     } catch (cleanupError) {
-      await scheduleInknoteCleanup(env.DB, userId, [{ objectKey, storage }]).catch(() => {})
+      await scheduleInknoteCleanup(env.DB, userId, [{ objectKey, storage }]).catch((queueError) => { console.warn('[inkstone] Snapshot cleanup queue write failed after a rollback:', queueError) })
       console.warn('[inkstone] Snapshot cleanup after a write rollback will retry later:', cleanupError)
     }
     throw error

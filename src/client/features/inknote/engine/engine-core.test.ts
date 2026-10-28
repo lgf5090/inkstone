@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { InknotePageContent, InknotePaper, InknoteStroke, InknoteTextBox } from '@shared/inknote/types'
 import { PAPER_STYLES } from '@shared/inknote/constants'
+import { serializePageContent } from '@shared/inknote/parse'
 import type { InknoteEngineHost, InknoteToolState } from './inknote-engine-types'
 import {
   createInknoteEngine,
@@ -680,8 +681,30 @@ describe('history and selection', () => {
     expect(onContentChange).toHaveBeenCalled()
   })
 
-  it('selects all, copies, pastes with an offset, rotates images and deletes', () => {
-    const image = { id: 'i1', x: 0.1, y: 0.2, w: 0.2, h: 0.2, assetId: 'a1', url: '/api/inknote/assets/a1', rot: 0 as const }
+  it('swaps a replaced page object while keeping the viewport and dropping stale history', () => {
+    const { engine, canvas } = setup()
+    drawStroke(canvas, engine, [{ x: 100, y: 100 }, { x: 300, y: 200 }])
+    const viewport = engine.getViewport()
+    const replacement = blankPage({ texts: [textBox()] })
+    engine.loadContent(replacement)
+    expect(engine.getViewport()).toEqual(viewport)
+    expect(engine.canUndo()).toBe(false)
+    expect(engine.textLayerItems()).toHaveLength(1)
+  })
+
+  it('commits a host text edit as one undo step and ignores an identical snapshot', () => {
+    const { engine, page } = setup()
+    const before = serializePageContent(page)
+    page.texts.push(textBox())
+    const after = serializePageContent(page)
+    expect(engine.commitExternal(before, after, 'text')).toBe(true)
+    expect(engine.canUndo()).toBe(true)
+    expect(engine.undo()).toBe(true)
+    expect(page.texts).toHaveLength(0)
+    expect(engine.commitExternal(after, after, 'text')).toBe(false)
+  })
+
+  it('selects all, copies, pastes with an offset, rotates images and deletes', () => {    const image = { id: 'i1', x: 0.1, y: 0.2, w: 0.2, h: 0.2, assetId: 'a1', url: '/api/inknote/assets/a1', rot: 0 as const }
     const page = blankPage({
       strokes: [testStroke('s1', [[100, 100], [200, 200]])],
       texts: [textBox()],

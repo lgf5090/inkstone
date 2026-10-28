@@ -622,7 +622,7 @@ export async function persistInknoteAsset(
         await deleteAttachmentObjects(env, storage, [objectKey])
       } catch (cleanupError) {
         await scheduleInknoteCleanup(env.DB, input.userId, [{ objectKey, storage }])
-          .catch(() => {})
+          .catch((queueError) => { console.warn('[inkstone] Asset cleanup queue write failed after a rollback:', queueError) })
         console.warn('[inkstone] Inknote asset cleanup after a write rollback will retry later:', cleanupError)
       }
       throw error

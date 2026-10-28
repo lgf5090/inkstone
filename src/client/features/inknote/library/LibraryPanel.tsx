@@ -1,12 +1,13 @@
 /** The project → notebook → note library. One panel, shared by the desktop column and mobile drawer. */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronRight, FilePlus2, FolderPlus, MoreHorizontal, NotebookPen, Search, Trash2 } from 'lucide-react'
+import { ChevronRight, FilePlus2, FolderPlus, MoreHorizontal, NotebookPen, Search, Trash2, X } from 'lucide-react'
 import type { InknoteNoteMeta, InknoteSearchResult } from '@shared/inknote/types'
 import { TAG_COLORS } from '@shared/inknote/constants'
 import { paperSurfaceFor } from '@shared/inknote/color'
 import { cn } from '../../../lib/cn'
 import { t } from '../../../lib/i18n'
 import { Button, IconButton } from '../../../components/primitives'
+import { useFilterInput } from '../../../components/FilterInput'
 import { confirm, Menu, MenuSubmenuList, Modal, prompt, type MenuItem } from '../../../components/overlay'
 import { useUi } from '../../../store/ui'
 import { inknoteApi } from '../api'
@@ -24,11 +25,27 @@ interface MenuState {
   items: MenuItem[]
 }
 
+const coverCache = new Map<string, string>()
+
 function NoteCover({ note }: { note: InknoteNoteMeta }) {
   const surface = paperSurfaceFor(note.paper.color)
+  const [src, setSrc] = useState<string | null>(note.coverUrl ?? coverCache.get(note.id) ?? null)
+  useEffect(() => {
+    if (src) return
+    let cancelled = false
+    void inknoteApi.note(note.id, 'all').then((detail) => {
+      if (cancelled || !detail.pages[0]) return
+      return import('../engine/renderer').then(({ renderPageToCanvas }) => import('../../../lib/inknote/text-layout').then(({ fontStackFor }) => {
+        const canvas = renderPageToCanvas(detail.pages[0]!.content, note.paper, { width: note.pageWidth, height: note.pageHeight, contentWidth: note.contentWidth, contentHeight: note.contentHeight }, 90, fontStackFor('system'))
+        const data = canvas?.toDataURL('image/jpeg', 0.72) ?? null
+        if (data && !cancelled) { coverCache.set(note.id, data); setSrc(data) }
+      }))
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [note.id, note.paper, note.pageWidth, note.pageHeight, note.contentWidth, note.contentHeight, src])
   return (
     <span className="relative flex h-12 w-9 shrink-0 items-center justify-center overflow-hidden rounded-[3px] border border-[var(--border-subtle)] text-[length:var(--text-12)] font-semibold" style={{ background: surface.bg, color: surface.dark ? '#f8fafc' : '#475569' }}>
-      {note.coverUrl ? <img src={note.coverUrl} alt="" className="size-full object-cover" loading="lazy" /> : note.title.slice(0, 1)}
+      {src ? <img src={src} alt="" className="size-full object-cover" loading="lazy" /> : note.title.slice(0, 1)}
     </span>
   )
 }
@@ -85,6 +102,8 @@ export function LibraryPanel({ selectedNotebookId, onSelectNotebook, onAfterOpen
         .catch(() => setResults([]))
     }, 180)
   }
+
+  const { field, clear } = useFilterInput({ value: query, onClear: () => runSearch('') })
 
   const noteMenuItems = (note: InknoteNoteMeta): MenuItem[] => [
     { id: 'open', label: t('inknote.open'), onSelect: () => void openFromList(note) },
@@ -154,7 +173,8 @@ export function LibraryPanel({ selectedNotebookId, onSelectNotebook, onAfterOpen
       <div className="px-2 py-2">
         <div className="relative">
           <Search size={13} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[var(--text-quaternary)]" />
-          <input value={query} onChange={(event) => runSearch(event.target.value)} placeholder={t('inknote.search_placeholder')} className="h-8 w-full rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-inset)] pl-7 pr-2 text-[length:var(--text-12)] outline-none focus:border-[var(--accent)]" />
+          <input {...field} value={query} onChange={(event) => runSearch(event.target.value)} placeholder={t('inknote.search_placeholder')} aria-label={t('inknote.search_placeholder')} className="h-8 w-full rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-inset)] pl-7 pr-7 text-[length:var(--text-12)] outline-none focus:border-[var(--accent)]" />
+          {query && <IconButton label={t('notes.clear_filters')} size="xs" className="absolute right-1 top-1/2 -translate-y-1/2" onClick={clear}><X size={11}/></IconButton>}
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">

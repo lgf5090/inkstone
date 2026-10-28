@@ -157,6 +157,8 @@ export interface InknoteEngineApi extends InknoteEngine {
   rotateSelection(): boolean
   moveSelection(dx: number, dy: number): boolean
   scaleSelection(corner: ScaleCorner, point: Point): boolean
+  commitExternal(before: string, after: string, label: string): boolean
+  loadContent(content: InknotePageContent): void
   getViewport(): InknoteViewport
   getScale(): number
   getMetrics(): InknotePageMetrics
@@ -562,6 +564,32 @@ export class InknoteEngineImpl implements InknoteEngineApi {
     this.cancelInteraction()
     this.clearSelection()
     this.invalidate()
+  }
+
+  /**
+   * Swap in a page object the host replaced rather than mutated (clear, find/replace, restore).
+   * The viewport stays where the reader left it; history goes because its snapshots name the old page.
+   */
+  loadContent(content: InknotePageContent): void {
+    this.page = content
+    this.history.clear()
+    this.cancelInteraction()
+    this.clearSelection()
+    this.invalidate()
+  }
+
+  /**
+   * Commit an edit the host made to the page object itself, such as a text box the DOM textarea owns.
+   * The host captured `before` before it touched the page; identical snapshots are not an edit.
+   */
+  commitExternal(before: string, after: string, label: string): boolean {
+    const page = this.page
+    if (!page || before === after) return false
+    this.history.push({ before, after, label, page })
+    this.host?.onCommit(before, after, label)
+    this.host?.onContentChange('text')
+    this.invalidate()
+    return true
   }
 
   setPlaybackLock(locked: boolean): void {

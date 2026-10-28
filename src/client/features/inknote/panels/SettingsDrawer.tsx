@@ -1,5 +1,5 @@
 /** Inknote's own settings, kept out of the account-wide settings panel. */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { InknoteNoteMeta, InknotePaperStyle, InknoteSettings } from '@shared/inknote/types'
 import { APP_VERSION } from '@shared/constants'
 import { PAPER_COLORS, PAPER_STYLES } from '@shared/inknote/constants'
@@ -9,6 +9,7 @@ import { Button } from '../../../components/primitives'
 import { Drawer, confirm } from '../../../components/overlay'
 import { Segmented, SettingRow, Slider, Switch } from '../../../components/form'
 import { useInknoteStore } from '../store'
+import { inknoteApi } from '../api'
 
 const SECTIONS = [
   ['tools', 'inknote.settings.tools'],
@@ -26,6 +27,8 @@ export function SettingsDrawer({ open, onClose, note, settings, onOpenSnapshots 
   onOpenSnapshots: () => void
 }) {
   const [section, setSection] = useState<string>('tools')
+  const [usage, setUsage] = useState<{ assetsBytes: number; quotaBytes: number; notes: number; pages: number; assets: number } | null>(null)
+  useEffect(() => { if (open) void inknoteApi.usage().then(setUsage).catch(() => setUsage(null)) }, [open])
   const updateSettings = useInknoteStore((state) => state.updateSettings)
   const resetSettings = useInknoteStore((state) => state.resetSettings)
   const updateNoteMeta = useInknoteStore((state) => state.updateNoteMeta)
@@ -55,9 +58,9 @@ export function SettingsDrawer({ open, onClose, note, settings, onOpenSnapshots 
           {section === 'paper' && (
             <div>
               <SettingRow title={t('inknote.settings.paper')}>
-                <div className="flex max-w-[240px] flex-wrap justify-end gap-1">
+                <div className="grid max-w-[250px] grid-cols-2 gap-1">
                   {PAPER_STYLES.map((style) => (
-                    <button key={style.id} type="button" aria-label={t(style.nameKey as MessageKey)} aria-pressed={paper.style === style.id} onClick={() => setPaper({ style: style.id as InknotePaperStyle })} className={cn('h-8 w-8 rounded-[var(--r-xs)] border text-[length:var(--text-10)]', paper.style === style.id ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-[var(--border-default)]')}>{style.id.slice(0, 2)}</button>
+                    <button key={style.id} type="button" aria-label={t(style.nameKey as MessageKey)} aria-pressed={paper.style === style.id} onClick={() => setPaper({ style: style.id as InknotePaperStyle })} className={cn('rounded-[var(--r-xs)] border px-1 py-1 text-[length:var(--text-10)]', paper.style === style.id ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-[var(--border-default)]')}>{t(style.nameKey as MessageKey)}</button>
                   ))}
                 </div>
               </SettingRow>
@@ -70,7 +73,7 @@ export function SettingsDrawer({ open, onClose, note, settings, onOpenSnapshots 
               </SettingRow>
               <SettingRow title={t('inknote.settings.spacing')}><Segmented value={paper.spacing} options={([['tight', 'inknote.settings.tight'], ['normal', 'inknote.settings.normal'], ['wide', 'inknote.settings.wide']] as const).map(([value, key]) => ({ value, label: t(key) }))} onChange={(value) => setPaper({ spacing: value })} label={t('inknote.settings.spacing')} /></SettingRow>
               <SettingRow title={t('inknote.settings.page_size')}>
-                <Segmented value={(note?.pageWidth ?? 816) > (note?.pageHeight ?? 1056) ? 'wide' : 'standard'} options={[{ value: 'standard', label: t('inknote.settings.standard') }, { value: 'wide', label: t('inknote.settings.wide') }]} onChange={(value) => {
+                <Segmented value={(note?.pageWidth ?? 816) > (note?.pageHeight ?? 1056) ? 'wide' : 'standard'} options={[{ value: 'standard', label: t('inknote.settings.page_standard') }, { value: 'wide', label: t('inknote.settings.page_wide') }]} onChange={(value) => {
                   if (!note) return
                   void updateNoteMeta(value === 'wide' ? { pageWidth: 1056, pageHeight: 816 } : { pageWidth: 816, pageHeight: 1056 })
                 }} label={t('inknote.settings.page_size')} />
@@ -87,6 +90,7 @@ export function SettingsDrawer({ open, onClose, note, settings, onOpenSnapshots 
           {section === 'data' && (
             <div>
               <SettingRow title={t('inknote.settings.auto_backup')}><Switch checked={settings.autoBackup} onChange={(value) => void updateSettings({ autoBackup: value })} label={t('inknote.settings.auto_backup')} /></SettingRow>
+              <SettingRow title={t('inknote.settings.usage')}><span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{usage ? `${(usage.assetsBytes / 1024 / 1024).toFixed(1)} MB / ${(usage.quotaBytes / 1024 / 1024 / 1024).toFixed(1)} GB · ${usage.notes} / ${usage.pages}` : '—'}</span></SettingRow>
               <div className="space-y-1 pt-2">
                 <Button block variant="secondary" onClick={onOpenSnapshots}>{t('inknote.settings.snapshots')}</Button>
                 <Button block variant="ghost" onClick={() => void confirm({ title: t('inknote.settings.cleanup'), confirmLabel: t('inknote.settings.cleanup') }).then((ok) => ok ? inknotePrune() : undefined)}>{t('inknote.settings.cleanup')}</Button>

@@ -71,6 +71,8 @@ export interface InknoteEngine {
   selectionIds(): string[]
   clearSelection(): void
   applyContent(content: InknotePageContent): void
+  /** Swap in a page object the host rebuilt; keeps the viewport and drops history tied to the old object. */
+  loadContent(content: InknotePageContent): void
   /** Recording replay locks editing; only the host may still replace page content. */
   setPlaybackLock(locked: boolean): void
   destroyRecordingReplay(): void

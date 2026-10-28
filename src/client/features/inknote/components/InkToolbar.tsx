@@ -114,7 +114,7 @@ export function InkToolbar({ engine, tool, onChange, onPages, onSettings, onReco
         <span className="text-[length:var(--text-12)]">✧</span>
       </IconButton>
       {palette && (
-        <div className="absolute left-2 top-full z-[var(--z-pop)] mt-1 w-[min(92vw,430px)] rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-2 shadow-[var(--shadow-md)]">
+        <div className="absolute left-2 top-full z-[var(--z-pop)] mt-1 w-[min(92vw,430px)] rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-2 shadow-[var(--shadow-pop)]">
           <div className="flex flex-wrap gap-1.5">
             {colors.map((color) => (
               <button

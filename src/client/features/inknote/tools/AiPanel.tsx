@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Send, Sparkles, Trash2 } from 'lucide-react'
 import type { InknoteNoteMeta, InknotePage, InknoteSettings } from '@shared/inknote/types'
 import { t } from '../../../lib/i18n'
+import { isImeComposing } from '../../../lib/ime'
 import { Button, IconButton, Spinner } from '../../../components/primitives'
 import { Drawer } from '../../../components/overlay'
 import { inknoteTextDefaults } from '../tool-state'
@@ -123,7 +124,7 @@ export function AiPanel({ open, onClose, note, pages, settings }: {
           {busy && <div className="flex items-center gap-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]"><Spinner size={12}/>{t('inknote.saving')}</div>}
         </div>
         <div className="border-t border-[var(--border-subtle)] p-2">
-          <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send() } }} className="h-20 w-full resize-none rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-inset)] p-2 text-[length:var(--text-12)] outline-none focus:border-[var(--accent)]" aria-label={t('inknote.ai.title' as never)} />
+          <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send() } }} className="h-20 w-full resize-none rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-inset)] p-2 text-[length:var(--text-12)] outline-none focus:border-[var(--accent)]" aria-label={t('inknote.ai.title' as never)} />
           <Button size="sm" variant="primary" icon={<Send size={13}/>} loading={busy} onClick={() => void send()}>{t('inknote.ai.title' as never)}</Button>
         </div>
       </div>

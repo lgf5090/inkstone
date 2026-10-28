@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Library, MoreHorizontal, PanelRight, Settings, Sparkles, X } from 'lucide-react'
 import { t } from '../../lib/i18n'
+import { isImeComposing } from '../../lib/ime'
 import { cn } from '../../lib/cn'
 import { useBreakpoint } from '../../lib/hooks'
+import { replaceAddress } from '../../lib/app-history'
 import { IconButton } from '../../components/primitives'
 import { ConfirmHost, Drawer, Menu, Modal, PromptHost, confirm, type MenuItem } from '../../components/overlay'
 import { Empty, LoadingBlock } from '../../components/feedback'
@@ -16,10 +18,11 @@ import { InkPagesPanel } from './components/InkPagesPanel'
 import { InkToolbar } from './components/InkToolbar'
 import { LibraryPanel } from './library/LibraryPanel'
 import { SettingsDrawer } from './panels/SettingsDrawer'
+import { FindDialog, OutlineDialog, StatsDialog } from './panels/NoteToolsDialogs'
 import { PresentationOverlay } from './tools/PresentationOverlay'
 import { RecordingPanel } from './tools/RecordingPanel'
 import { AiPanel } from './tools/AiPanel'
-import { exportNoteFile, exportPagePng, exportPdf, exportTextFile, importNoteFile, insertImage, insertPdf } from './io/operations'
+import { exportNotebookFile, exportNoteFile, exportPagePng, exportPdf, exportTextFile, importNoteFile, insertImage, insertPdf } from './io/operations'
 import type { InknoteEngineApi } from './engine/inknote-engine'
 import type { InknoteToolState } from './engine/inknote-engine-types'
 
@@ -36,12 +39,14 @@ export function InknoteApp() {
   const conflicts = useInknoteStore((state) => state.conflicts)
   const bootstrap = useInknoteStore((state) => state.bootstrap)
   const openNote = useInknoteStore((state) => state.openNote)
-  const closeNote = useInknoteStore((state) => state.closeNote)
+  const closeTab = useInknoteStore((state) => state.closeTab)
   const setActivePage = useInknoteStore((state) => state.setActivePage)
   const createNote = useInknoteStore((state) => state.createNote)
   const createPage = useInknoteStore((state) => state.createPage)
   const duplicatePage = useInknoteStore((state) => state.duplicatePage)
   const deletePage = useInknoteStore((state) => state.deletePage)
+  const clearPage = useInknoteStore((state) => state.clearPage)
+  const deleteBlankPages = useInknoteStore((state) => state.deleteBlankPages)
   const reorderPages = useInknoteStore((state) => state.reorderPages)
   const updateNoteMeta = useInknoteStore((state) => state.updateNoteMeta)
   const updateSettings = useInknoteStore((state) => state.updateSettings)
@@ -60,6 +65,9 @@ export function InknoteApp() {
   const [presentationOpen, setPresentationOpen] = useState(false)
   const [recordingOpen, setRecordingOpen] = useState(false)
   const [aiOpen, setAiOpen] = useState(false)
+  const [findOpen, setFindOpen] = useState(false)
+  const [outlineOpen, setOutlineOpen] = useState(false)
+  const [statsOpen, setStatsOpen] = useState(false)
   const [moreMenu, setMoreMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
   const imageInput = useRef<HTMLInputElement>(null)
   const pdfInput = useRef<HTMLInputElement>(null)
@@ -76,18 +84,31 @@ export function InknoteApp() {
   useEffect(() => { void bootstrap() }, [bootstrap])
   useEffect(() => { if (note) setTitle(note.title) }, [note?.id, note?.title])
   useEffect(() => {
+    if (note) replaceAddress(`/inknote/note/${note.id}`)
+  }, [initialized, note?.id])
+  useEffect(() => {
     if (!initialized || note) return
     const match = /^\/inknote\/note\/([0-9a-hjkmnp-tv-z]{26})(?:\/page\/(\d+))?\/?$/.exec(window.location.pathname)
     if (!match) return
     void openNote(match[1]!, match[2] ? Number(match[2]) : 0)
   }, [initialized, note, openNote])
 
+  useEffect(() => {
+    if (!initialized || !settings) return
+    const same = tabs.length === settings.openTabs.length && tabs.every((id, index) => id === settings.openTabs[index])
+    if (same) return
+    const timer = window.setTimeout(() => { void updateSettings({ openTabs: tabs }) }, 500)
+    return () => window.clearTimeout(timer)
+  }, [initialized, settings, tabs, updateSettings])
+
 
   useEffect(() => {
     const handler = () => { void saveAll() }
+    const online = () => { void saveAll() }
     window.addEventListener('pagehide', handler)
+    window.addEventListener('online', online)
     document.addEventListener('visibilitychange', handler)
-    return () => { window.removeEventListener('pagehide', handler); document.removeEventListener('visibilitychange', handler) }
+    return () => { window.removeEventListener('pagehide', handler); window.removeEventListener('online', online); document.removeEventListener('visibilitychange', handler) }
   }, [saveAll])
 
   const persistTitle = () => {
@@ -95,6 +116,15 @@ export function InknoteApp() {
     const next = title.trim()
     if (!next) { setTitle(note.title); return }
     if (next !== note.title) void updateNoteMeta({ title: next })
+  }
+
+  const clearActivePage = () => {
+    if (!activePage) return
+    void confirm({ title: t('inknote.page.clear'), description: t('inknote.page.clear_confirm'), confirmLabel: t('inknote.page.clear') }).then((ok) => ok ? clearPage(activePage.id) : undefined)
+  }
+
+  const removeBlankPages = () => {
+    void deleteBlankPages().then((count) => toast({ title: count > 0 ? t('inknote.page.blank_removed', { count: String(count) }) : t('inknote.page.no_blank') }))
   }
 
   const changeTool = (patch: Partial<InknoteToolState>) => {
@@ -142,7 +172,11 @@ export function InknoteApp() {
       { id: 'pdf-export', label: t('inknote.action.export_pdf' as never), separatorBefore: true, onSelect: () => { setMoreMenu(null); void exportPdf(note, pages, settings) } },
       { id: 'png-export', label: t('inknote.action.export_page_png' as never), onSelect: () => { setMoreMenu(null); if (activePage) void exportPagePng(note, activePage, settings) } },
       { id: 'note-export', label: t('inknote.action.export_note' as never), onSelect: () => { setMoreMenu(null); void exportNoteFile(note, pages) } },
+      { id: 'notebook-export', label: t('inknote.action.export_notebook' as never), onSelect: () => { setMoreMenu(null); void exportNotebookFile() } },
       { id: 'text-export', label: t('inknote.action.export_text' as never), onSelect: () => { setMoreMenu(null); exportTextFile(note, pages, 'txt') } },
+      { id: 'find', label: t('inknote.action.find' as never), separatorBefore: true, onSelect: () => { setMoreMenu(null); setFindOpen(true) } },
+      { id: 'outline', label: t('inknote.action.outline' as never), onSelect: () => { setMoreMenu(null); setOutlineOpen(true) } },
+      { id: 'stats', label: t('inknote.action.stats' as never), onSelect: () => { setMoreMenu(null); setStatsOpen(true) } },
       { id: 'snapshot', label: t('inknote.settings.snapshots'), onSelect: () => { setMoreMenu(null); setSnapshotsOpen(true) } },
     ]
   }
@@ -162,7 +196,7 @@ export function InknoteApp() {
           value={title}
           onChange={(event) => setTitle(event.target.value)}
           onBlur={persistTitle}
-          onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur() } }}
+          onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur() } }}
           placeholder={t('inknote.untitled')}
           aria-label={t('inknote.rename')}
           className="min-w-0 flex-1 bg-transparent text-[length:var(--text-14)] font-semibold outline-none"
@@ -197,7 +231,7 @@ export function InknoteApp() {
         <div className="flex shrink-0 items-center gap-2 border-b border-[var(--danger)] bg-[var(--danger-soft)] px-3 py-1.5 text-[length:var(--text-12)]">
           <span className="min-w-0 flex-1 truncate">{t('inknote.conflict')}</span>
           <button type="button" className="underline" onClick={() => { if (activePage) { clearConflict(activePage.id); void openNote(note!.id, activeIndex) } }}>{t('inknote.reload')}</button>
-          <button type="button" className="underline" onClick={() => { if (activePage) { clearConflict(activePage.id); void createPage(activePage.id) } }}>{t('inknote.save_as_new_page')}</button>
+          <button type="button" className="underline" onClick={() => { if (activePage && note) { const content = JSON.stringify(activePage.content); clearConflict(activePage.id); void inknoteApi.createPage(note.id, { afterPageId: activePage.id, content }).then(() => openNote(note.id)) } }}>{t('inknote.save_as_new_page')}</button>
         </div>
       )}
 
@@ -226,7 +260,7 @@ export function InknoteApp() {
               </div>}
         </main>
         {showPages && note && settings && (
-          <InkPagesPanel note={note} pages={pages} activePageId={activePageId} settings={settings} onSelect={setActivePage} onAdd={() => void createPage(activePageId ?? undefined)} onDuplicate={(id) => void duplicatePage(id)} onDelete={(id) => void confirm({ title: t('inknote.page.delete'), description: t('inknote.confirm_delete_note'), confirmLabel: t('inknote.delete') }).then((ok) => ok ? deletePage(id) : undefined)} onMove={(id, direction) => {
+          <InkPagesPanel note={note} pages={pages} activePageId={activePageId} settings={settings} onSelect={setActivePage} onClear={clearActivePage} onDeleteBlank={removeBlankPages} onAdd={() => void createPage(activePageId ?? undefined)} onDuplicate={(id) => void duplicatePage(id)} onDelete={(id) => void confirm({ title: t('inknote.page.delete'), description: t('inknote.confirm_delete_note'), confirmLabel: t('inknote.delete') }).then((ok) => ok ? deletePage(id) : undefined)} onMove={(id, direction) => {
             const index = pages.findIndex((page) => page.id === id)
             const target = pages[index + direction]
             if (!target) return
@@ -244,10 +278,12 @@ export function InknoteApp() {
             const meta = library?.notes.find((entry) => entry.id === id)
             if (!meta) return null
             return (
-              <button key={id} type="button" role="tab" aria-selected={note?.id === id} onClick={() => void openNote(id)} className={cn('flex max-w-40 shrink-0 items-center gap-1 rounded-[var(--r-xs)] px-2 py-1 text-[length:var(--text-11)]', note?.id === id ? 'bg-[var(--bg-surface)]' : 'text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]')}>
-                <span className="truncate">{meta.title}</span>
-                <span role="button" tabIndex={-1} aria-label={t('inknote.close')} className="rounded-full p-0.5 hover:bg-[var(--bg-active)]" onClick={(event) => { event.stopPropagation(); if (note?.id === id) closeNote() }}><X size={10}/></span>
-              </button>
+              <div key={id} className={cn('flex max-w-40 shrink-0 items-center rounded-[var(--r-xs)]', note?.id === id ? 'bg-[var(--bg-surface)]' : 'text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]')}>
+                <button type="button" role="tab" aria-selected={note?.id === id} onClick={() => void openNote(id)} className="min-w-0 flex-1 truncate px-2 py-1 text-left text-[length:var(--text-11)]">
+                  {meta.title}
+                </button>
+                <IconButton label={t('inknote.close')} size="xs" onClick={() => { closeTab(id); if (note?.id === id) replaceAddress('/inknote') }}><X size={10}/></IconButton>
+              </div>
             )
           })}
         </div>
@@ -257,7 +293,7 @@ export function InknoteApp() {
         <LibraryPanel selectedNotebookId={selectedNotebook} onSelectNotebook={setSelectedNotebook} onAfterOpen={() => setLibraryOpen(false)} />
       </Drawer>
       <Drawer open={pagesOpen} onClose={() => setPagesOpen(false)} title={t('inknote.action.pages')} side="right" width={190}>
-        {note && settings && <InkPagesPanel note={note} pages={pages} activePageId={activePageId} settings={settings} onSelect={(id) => { setActivePage(id); setPagesOpen(false) }} onAdd={() => void createPage(activePageId ?? undefined)} onDuplicate={(id) => void duplicatePage(id)} onDelete={(id) => void deletePage(id)} onMove={(id, direction) => {
+        {note && settings && <InkPagesPanel note={note} pages={pages} activePageId={activePageId} settings={settings} onSelect={(id) => { setActivePage(id); setPagesOpen(false) }} onClear={clearActivePage} onDeleteBlank={removeBlankPages} onAdd={() => void createPage(activePageId ?? undefined)} onDuplicate={(id) => void duplicatePage(id)} onDelete={(id) => void deletePage(id)} onMove={(id, direction) => {
           const index = pages.findIndex((page) => page.id === id)
           const ids = pages.map((page) => page.id)
           ids.splice(index, 1)
@@ -274,6 +310,9 @@ export function InknoteApp() {
       <input ref={attachInput} type="file" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file && note) void inknoteApi.uploadAsset(file, 'attachment', note.id).then(() => toast({ title: t('inknote.saved') })).catch((error) => toast({ title: String(error), tone: 'danger' })) }} />
       <input ref={importInput} type="file" accept=".note,.notebook,.json,application/json" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importNoteFile(file, note?.notebookId ?? library?.notebooks[0]?.id ?? '').then((count) => toast({ title: `${count}` })).catch((error) => toast({ title: String(error), tone: 'danger' })) }} />
       {moreMenu && <Menu anchor={{ x: moreMenu.x, y: moreMenu.y }} open onClose={() => setMoreMenu(null)} items={moreMenu.items} />}
+      {note && <FindDialog open={findOpen} onClose={() => setFindOpen(false)} pages={pages} onJump={(id) => { setActivePage(id); setFindOpen(false) }}/>}
+      {note && <OutlineDialog open={outlineOpen} onClose={() => setOutlineOpen(false)} pages={pages} onJump={(id) => { setActivePage(id); setOutlineOpen(false) }}/>}
+      {note && <StatsDialog open={statsOpen} onClose={() => setStatsOpen(false)} pages={pages} note={note}/>}
       {presentationOpen && note && <PresentationOverlay note={note} pages={pages} initialIndex={activeIndex} onClose={() => setPresentationOpen(false)} />}
       <ConfirmHost />
       <PromptHost />
@@ -282,6 +321,7 @@ export function InknoteApp() {
 }
 
 function SnapshotsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const toast = useUi((state) => state.toast)
   const [items, setItems] = useState<{ id: string; label: string; noteCount: number; size: number; createdAt: number }[]>([])
   const load = () => { if (open) inknoteApi.snapshots().then((response) => setItems(response.snapshots)).catch(() => setItems([])) }
   useEffect(load, [open])
@@ -293,7 +333,15 @@ function SnapshotsDialog({ open, onClose }: { open: boolean; onClose: () => void
         {items.map((item) => (
           <div key={item.id} className="flex items-center gap-2 rounded-[var(--r-sm)] border border-[var(--border-subtle)] px-2 py-1.5">
             <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)]">{new Date(item.createdAt).toLocaleString()} · {item.noteCount}</span>
-            <button type="button" className="text-[length:var(--text-11)] underline" onClick={() => void inknoteApi.restoreSnapshot(item.id).then(() => { onClose(); void useInknoteStore.getState().bootstrap() })}>{t('inknote.restore')}</button>
+            <button type="button" className="text-[length:var(--text-11)] underline" onClick={() => void (async () => {
+              try {
+                await inknoteApi.restoreSnapshot(item.id)
+                onClose()
+                void useInknoteStore.getState().bootstrap()
+              } catch (error) {
+                toast({ title: String(error), tone: 'danger' })
+              }
+            })()}>{t('inknote.restore')}</button>
             <button type="button" className="text-[length:var(--text-11)] text-[var(--danger)]" onClick={() => void inknoteApi.deleteSnapshot(item.id).then(load)}>{t('inknote.delete')}</button>
           </div>
         ))}

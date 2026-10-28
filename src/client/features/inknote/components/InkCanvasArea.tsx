@@ -1,13 +1,17 @@
 /** The live page: engine mount, text overlay and the selection bar. */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Copy, RotateCw, SquareDashed, Trash2, X } from 'lucide-react'
-import type { InknoteNoteMeta, InknotePage, InknoteSettings, InknoteTextBox } from '@shared/inknote/types'
+import type { InknoteNoteMeta, InknotePage, InknotePageContent, InknoteSettings, InknoteTextBox } from '@shared/inknote/types'
+import { INKNOTE_LIMITS } from '@shared/inknote/constants'
+import { serializePageContent } from '@shared/inknote/parse'
 import { inknoteTextDefaults } from '../tool-state'
 import { autoTextBoxSize, fontStackFor } from '../../../lib/inknote/text-layout'
 import { t } from '../../../lib/i18n'
+import { isImeComposing } from '../../../lib/ime'
 import { Button, IconButton } from '../../../components/primitives'
 import { InknoteEngineImpl, type InknoteEngineApi, type InknoteEngineHostExtras } from '../engine/inknote-engine'
 import type { InknoteEngineHost, InknotePageMetrics, InknoteToolState } from '../engine/inknote-engine-types'
+import { InkTextStyleBar } from './InkTextStyleBar'
 import { useInknoteStore } from '../store'
 import { useUi } from '../../../store/ui'
 
@@ -28,6 +32,9 @@ interface Editing {
   id: string
   item: InknoteTextBox
   value: string
+  /** The page as it was before the text box appeared or was edited, for one undo step. */
+  before: string
+  scale: number
   screen: { left: number; top: number; width: number; minHeight: number; fontSize: number; color: string }
 }
 
@@ -59,6 +66,7 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, settings, onPr
   const savePage = useInknoteStore((state) => state.savePage)
   const createPage = useInknoteStore((state) => state.createPage)
   const setActivePage = useInknoteStore((state) => state.setActivePage)
+  const updateSettings = useInknoteStore((state) => state.updateSettings)
   const metrics: InknotePageMetrics = useMemo(() => ({
     width: note.pageWidth,
     height: note.pageHeight,
@@ -77,6 +85,7 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, settings, onPr
       x: Math.max(0.02, Math.min(0.82, world.x / current.note.pageWidth)),
       y: Math.max(0.02, Math.min(0.9, world.y / current.note.pageHeight)),
     }
+    const before = serializePageContent(current.page.content)
     if (!existing) {
       current.page.content.texts.push(item)
       engine.invalidate()
@@ -87,6 +96,8 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, settings, onPr
       id: item.id,
       item,
       value: item.text,
+      before,
+      scale,
       screen: {
         left: topLeft.x,
         top: topLeft.y,
@@ -170,6 +181,10 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, settings, onPr
   }, [note.id, page.id, note.paper, metrics, settings.fontFamily])
 
   useEffect(() => {
+    engineRef.current?.loadContent(page.content)
+  }, [page.content])
+
+  useEffect(() => {
     const invalidate = () => engineRef.current?.invalidate()
     window.addEventListener('inknote:invalidate', invalidate)
     return () => window.removeEventListener('inknote:invalidate', invalidate)
@@ -198,21 +213,47 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, settings, onPr
       item.w = Math.max(0.12, size.w / latest.current.note.pageWidth)
       item.h = Math.max(0.04, size.h / latest.current.note.pageHeight)
     }
+    const after = serializePageContent(latest.current.page.content)
+    engineRef.current?.commitExternal(current.before, after, 'text')
     engineRef.current?.invalidate()
-    touchPage()
     void savePage()
-  }, [editing, savePage, touchPage])
+  }, [editing, savePage])
 
   const cancelText = useCallback(() => {
     const current = editing
     setEditing(null)
     if (!current) return
-    if (!current.item.text) {
-      latest.current.page.content.texts = latest.current.page.content.texts.filter((entry) => entry.id !== current.item.id)
-      engineRef.current?.invalidate()
-      touchPage()
+    try {
+      const before = JSON.parse(current.before) as InknotePageContent
+      const content = latest.current.page.content
+      content.strokes = before.strokes
+      content.texts = before.texts
+      content.images = before.images
+      content.bg = before.bg
+    } catch (error) {
+      throw new Error('The inknote text snapshot is not valid JSON', { cause: error })
     }
-  }, [editing, touchPage])
+    engineRef.current?.invalidate()
+  }, [editing])
+
+  const patchEditing = useCallback((patch: Partial<InknoteTextBox>) => {
+    setEditing((current) => {
+      if (!current) return current
+      Object.assign(current.item, patch)
+      return { ...current }
+    })
+    engineRef.current?.invalidate()
+  }, [])
+
+  const savePreset = useCallback((name: string) => {
+    if (!editing) return
+    const item = editing.item
+    const next = [
+      { name, fontSize: item.fontSize, bold: item.bold, italic: item.italic, underline: item.underline },
+      ...settings.textPresets.filter((preset) => preset.name !== name),
+    ].slice(0, INKNOTE_LIMITS.textPresetsMax)
+    void updateSettings({ textPresets: next })
+  }, [editing, settings.textPresets, updateSettings])
 
   const selectionAction = (action: 'delete' | 'copy' | 'select-all' | 'rotate' | 'clear') => {
     const engine = engineRef.current
@@ -229,10 +270,13 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, settings, onPr
   return (
     <div className="inknote-canvas-area relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--bg-sunken)]" ref={hostRef}>
       <div className="inknote-page-scroll flex min-h-0 flex-1 items-start justify-center overflow-auto p-3 md:p-6">
-        <div className="inknote-page-frame relative shadow-[var(--shadow-md)]" style={{ aspectRatio: `${note.pageWidth} / ${note.pageHeight}`, width: 'min(100%, 860px)' }}>
+        <div className="inknote-page-frame relative shadow-[var(--shadow-soft)]" style={{ aspectRatio: `${note.pageWidth} / ${note.pageHeight}`, width: 'min(100%, 860px)' }}>
           <canvas ref={canvasRef} className="inknote-canvas block size-full touch-none rounded-[2px]" aria-label={t('inknote.tool.pen')} />
           {editing && (
             <div className="absolute inset-0 z-[var(--z-float)]" aria-hidden="true" onPointerDown={(event) => { event.preventDefault(); commitText() }} />
+          )}
+          {editing && (
+            <InkTextStyleBar item={editing.item} presets={settings.textPresets} onChange={patchEditing} onSavePreset={savePreset} />
           )}
           {editing && (
             <textarea
@@ -240,8 +284,12 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, settings, onPr
               aria-label={t('inknote.text.placeholder')}
               value={editing.value}
               onChange={(event) => setEditing({ ...editing, value: event.target.value })}
-              onBlur={commitText}
+              onBlur={(event) => {
+                if (event.relatedTarget instanceof HTMLElement && event.relatedTarget.closest('[data-ink-text-style]')) return
+                commitText()
+              }}
               onKeyDown={(event) => {
+                if (isImeComposing(event)) return
                 if (event.key === 'Escape') { event.preventDefault(); cancelText() }
                 if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); commitText() }
               }}
@@ -251,11 +299,18 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, settings, onPr
                 top: editing.screen.top,
                 width: editing.screen.width,
                 minHeight: editing.screen.minHeight,
-                fontSize: editing.screen.fontSize,
-                lineHeight: 1.3,
-                color: editing.screen.color,
+                fontSize: Math.max(12, editing.item.fontSize * editing.scale),
+                lineHeight: editing.item.lh,
+                fontWeight: editing.item.bold ? 600 : 400,
+                fontStyle: editing.item.italic ? 'italic' : 'normal',
+                textDecoration: editing.item.underline ? 'underline' : 'none',
+                textAlign: editing.item.align,
+                color: editing.item.color,
+                caretColor: editing.item.color,
+                background: editing.item.hl
+                  ? `color-mix(in srgb, ${editing.item.hl} 55%, transparent)`
+                  : 'color-mix(in oklab, var(--bg-overlay) 88%, transparent)',
                 fontFamily: cssFont(settings),
-                background: 'color-mix(in oklab, var(--bg-overlay) 88%, transparent)',
                 zIndex: 'calc(var(--z-float) + 1)',
               }}
             />
@@ -269,7 +324,7 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, settings, onPr
         <span className="mx-2 opacity-60">{Math.round(zoom * 100)}%</span>
       </div>
       {selection.length > 0 && (
-        <div className="absolute bottom-12 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-1 shadow-[var(--shadow-md)]" role="toolbar" aria-label={t('inknote.action.select_all')}>
+        <div className="absolute bottom-12 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-1 shadow-[var(--shadow-pop)]" role="toolbar" aria-label={t('inknote.action.select_all')}>
           <IconButton label={t('inknote.action.delete_selection')} size="sm" onClick={() => selectionAction('delete')}><Trash2 size={14}/></IconButton>
           <IconButton label={t('inknote.action.copy_selection')} size="sm" onClick={() => selectionAction('copy')}><Copy size={14}/></IconButton>
           <IconButton label={t('inknote.action.rotate')} size="sm" onClick={() => selectionAction('rotate')}><RotateCw size={14}/></IconButton>
